@@ -57,7 +57,7 @@ from .pipeline_processors.chain_rules import (
     CHAIN_KEYSTONE_SLOT,
     CHAIN_LATENT_CARRY,
     chain_capstone_problem,
-    chain_check_problem,
+    chain_check_finding,
     chain_keystone_slot_problem,
     chain_latent_carry_problem,
     chain_look_hold_problem,
@@ -414,9 +414,7 @@ def anchor_errors(workflow_definition, source_indices=None):
             )
         problem = chain_carry_pick_problem(
             chain,
-            pipeline.get("arguments", {}).get("num_frames")
-            if isinstance(pipeline.get("arguments"), dict)
-            else None,
+            arguments.get("num_frames") if isinstance(arguments, dict) else None,
         )
         if problem:
             errors.append(
@@ -475,9 +473,9 @@ def anchor_errors(workflow_definition, source_indices=None):
                     "message": f"{problem}{where}",
                 }
             )
-        problem = chain_check_problem(chain)
-        if problem:
-            key = "retries" if problem.startswith("retries") else "check"
+        finding = chain_check_finding(chain)
+        if finding:
+            key, problem = finding
             errors.append(
                 {
                     "path": render_path(base + ("chain", key)),

@@ -207,6 +207,14 @@ def _entry_frames(entries, field=FRAMES_DRIVER):
     return frames
 
 
+def _field_values(entries, field):
+    """Each entry's `field` as written (None where an entry has none), or
+    None when `entries` is not a list."""
+    if not isinstance(entries, list):
+        return None
+    return [entry.get(field) if isinstance(entry, dict) else None for entry in entries]
+
+
 def _list_frames_scaling(
     name, default_entries, effective_entries, list_entries, field=FRAMES_DRIVER
 ):
@@ -224,9 +232,15 @@ def _list_frames_scaling(
     if measured is None or running is None:
         # Nothing to sum on one side: only a frame count outside the values
         # the default entries carried leaves no figure, as before (#593)
-        if field == FRAMES_DRIVER and _list_entry_field_shifted(
-            default_entries, effective_entries
+        if field == FRAMES_DRIVER:
+            if _list_entry_field_shifted(default_entries, effective_entries):
+                return None
+        elif _field_values(default_entries, field) != _field_values(
+            effective_entries, field
         ):
+            # A declared scales_with field that moved where it cannot be
+            # summed (an entry without it, or not a number) leaves no figure
+            # to scale, rather than quoting the curated one as if unmoved
             return None
         return 1.0, None
     was, now = sum(measured), sum(running)

@@ -526,7 +526,26 @@ class TestTheFitOnCommittedHistory:
         fit = projected_mb(
             definition, {"shots": 8}, shot_rows((2, 100000), (4, 120000))
         )
-        assert fit == {"projected_mb": 160000, "runs": 2}
+        assert fit == {
+            "projected_mb": 160000,
+            "runs": 2,
+            "field": "host_memory_job_peak_rss_mb",
+        }
+
+    def test_a_fit_on_another_basis_than_the_keys_peaks_does_not_win(self, tmp_path):
+        # The workflow's rows read RSS (160000 at 8 shots); the key's own
+        # runs read committed (30000). An RSS fit over a committed max would
+        # over-project by the page cache - the observed figure answers
+        definition = shots_definition()
+        history = self._history(tmp_path, definition)
+        need = projected_peak(
+            definition,
+            {"shots": [{"prompt": "p"}] * 8},
+            history,
+            rows=shot_rows((2, 100000), (4, 120000)),
+            list_entries={"shots": 8},
+        )
+        assert need == (30000, "observed", 2)
 
 
 class TestHostRamMargin:

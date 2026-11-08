@@ -354,3 +354,29 @@ def test_fields_carry_the_committed_reading(monkeypatch):
     fields = host_memory.host_memory_fields()
     assert fields["host_memory_rss_shmem_mb"] == 16.0
     assert fields["host_memory_committed_mb"] == 166.0
+
+
+def test_fields_reuse_a_recent_device_reading(monkeypatch):
+    # smaps is read whole (seconds on a large worker); the memory report at
+    # every phase boundary reuses a reading inside DEVICE_TERM_SECONDS
+    reads = []
+
+    def device():
+        reads.append(1)
+        return 50.0
+
+    clock = [1000.0]
+    monkeypatch.setattr(
+        host_memory,
+        "rss_split_mb",
+        lambda: {"anon_mb": 100.0, "file_mb": 400.0, "shmem_mb": 16.0},
+    )
+    monkeypatch.setattr(host_memory, "device_mapped_mb", device)
+    monkeypatch.setattr(host_memory.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(host_memory, "_device_term", [None, None, None])
+    for _ in range(3):
+        assert host_memory.host_memory_fields()["host_memory_committed_mb"] == 166.0
+    assert len(reads) == 1
+    clock[0] += host_memory.DEVICE_TERM_SECONDS + 1
+    host_memory.host_memory_fields()
+    assert len(reads) == 2
