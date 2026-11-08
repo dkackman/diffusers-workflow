@@ -300,7 +300,9 @@ class ForwardFrameReader:
     the top. A range inside the last one returned is sliced from it (a
     clip's last frame repeated past the take's end); a range behind it falls
     back to `read_frame_range`. Raises `ShortFrameRange` when the file ends
-    before `stop`. `close()` releases the container."""
+    before `stop`. `close()` releases the container and forgets the position
+    and the held range, so a later read starts the decode over from the
+    top rather than labelling frame 0 as the old position."""
 
     def __init__(self, path):
         self.path = path
@@ -343,6 +345,9 @@ class ForwardFrameReader:
         if self._container is not None:
             self._container.close()
             self._container = self._decoded = None
+        # A read after close reopens at frame 0, so it must count from there
+        self._position = 0
+        self._held = None
 
 
 def count_video_frames(path):

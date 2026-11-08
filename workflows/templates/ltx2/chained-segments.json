@@ -144,6 +144,7 @@
                     "segment_argument": "image",
                     "trim_frames": 2,
                     "crossfade_ms": 80,
+                    "frame_snap": "constraint:num_frames",
                     "look_hold": "variable:look_hold",
                     "save_segments": true
                 },

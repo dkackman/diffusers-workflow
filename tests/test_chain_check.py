@@ -47,7 +47,7 @@ def test_a_jump_over_the_threshold_fails_and_names_the_measure():
     before = frames_of(ramp())
     after = frames_of(ramp(reverse=True))
 
-    result = check_segment(before, after, before, SegmentCheck())
+    result = check_segment(before, after, texture_base(before), SegmentCheck())
 
     assert not result.passed
     assert result.failed == ["jump_ratio"]
@@ -57,7 +57,9 @@ def test_a_jump_over_the_threshold_fails_and_names_the_measure():
 def test_a_seamless_segment_passes():
     before = frames_of(noise(1))
 
-    result = check_segment(before, frames_of(noise(1)), before, SegmentCheck())
+    result = check_segment(
+        before, frames_of(noise(1)), texture_base(before), SegmentCheck()
+    )
 
     assert result.passed and result.failed == []
     assert result.measures["jump_ratio"] == 0
@@ -66,7 +68,9 @@ def test_a_seamless_segment_passes():
 def test_a_static_shot_with_near_zero_motion_does_not_fail_on_jump():
     # Both shots static: their own typical delta is ~0, under the assess
     # floor, so the seam's change is divided by the floor and not by ~0
-    result = check_segment(grey(100), grey(105), grey(100), SegmentCheck())
+    result = check_segment(
+        grey(100), grey(105), texture_base(grey(100)), SegmentCheck()
+    )
 
     assert "jump_ratio" not in result.failed
     assert result.measures["typical_delta"] == 2.0
@@ -77,14 +81,18 @@ def test_hard_cut_seams_are_never_checked():
     before = frames_of(noise(1))
     after = frames_of(noise(2))
 
-    result = check_segment(before, after, before, SegmentCheck(), hard_cut=True)
+    result = check_segment(
+        before, after, texture_base(before), SegmentCheck(), hard_cut=True
+    )
 
     assert result.passed and result.failed == []
     assert result.measures == {"skipped": "hard_cut"}
 
 
 def test_a_look_step_over_the_threshold_fails_on_look():
-    result = check_segment(grey(100), grey(160), grey(100), SegmentCheck())
+    result = check_segment(
+        grey(100), grey(160), texture_base(grey(100)), SegmentCheck()
+    )
 
     assert "look_ratio" in result.failed
     assert result.measures["look_ratio_measure"] == "lightness"
@@ -95,8 +103,8 @@ def test_texture_drift_from_segment_1_fails_both_ways():
     smooth = grey(128)
     check = SegmentCheck(jump_ratio_max=1e9, look_ratio_max=1e9)
 
-    blurred = check_segment(textured, smooth, textured, check)
-    crusted = check_segment(smooth, textured, smooth + smooth, check)
+    blurred = check_segment(textured, smooth, texture_base(textured), check)
+    crusted = check_segment(smooth, textured, texture_base(smooth + smooth), check)
 
     assert blurred.failed == ["texture_ratio"]
     assert blurred.measures["texture_ratio"] < 1 / TEXTURE_RATIO_MAX
@@ -107,19 +115,19 @@ def test_texture_drift_from_segment_1_fails_both_ways():
     # And the sharper way: a faintly textured segment 1, a crusty later one
     rng = numpy.random.default_rng(2)
     faint = frames_of((118 + rng.random((32, 32, 3)) * 20).astype(numpy.uint8))
-    sharpened = check_segment(faint, textured, faint, check)
+    sharpened = check_segment(faint, textured, texture_base(faint), check)
     assert sharpened.failed == ["texture_ratio"]
     assert sharpened.measures["texture_ratio"] > TEXTURE_RATIO_MAX
 
 
-def test_segment_1_texture_measured_once_reads_as_its_frames_do():
+def test_segment_1_texture_is_the_base_measured_once():
     textured = frames_of(noise(1))
     smooth = grey(128)
     check = SegmentCheck(jump_ratio_max=1e9, look_ratio_max=1e9)
-    by_frames = check_segment(textured, smooth, textured, check)
-    by_base = check_segment(textured, smooth, texture_base(textured), check)
-    assert by_base.measures["texture_ratio"] == by_frames.measures["texture_ratio"]
-    assert by_base.failed == by_frames.failed == ["texture_ratio"]
+    base = texture_base(textured)
+    assert isinstance(base, float) and base > 0
+    by_base = check_segment(textured, smooth, base, check)
+    assert by_base.failed == ["texture_ratio"]
     # No base to measure against reads as no ratio, not a failure
     unmeasured = check_segment(textured, smooth, None, check)
     assert unmeasured.measures["texture_ratio"] is None
@@ -128,9 +136,9 @@ def test_segment_1_texture_measured_once_reads_as_its_frames_do():
 def test_texture_is_not_checked_when_its_threshold_is_none_or_frames_are_small():
     textured = frames_of(noise(1))
     off = SegmentCheck(1e9, 1e9, None)
-    assert check_segment(textured, grey(128), textured, off).passed
+    assert check_segment(textured, grey(128), texture_base(textured), off).passed
     tiny = frames_of(noise(1, size=8))
-    small = check_segment(tiny, tiny, tiny, SegmentCheck())
+    small = check_segment(tiny, tiny, texture_base(tiny), SegmentCheck())
     assert small.measures["texture_ratio"] is None
 
 
@@ -369,7 +377,7 @@ def test_a_cut_inside_the_segment_fails_on_cut_ratio():
     before = frames_of(noise(1))
     after = frames_of(noise(1), 2) + frames_of(noise(7), 10)
 
-    result = check_segment(before, after, before, SegmentCheck())
+    result = check_segment(before, after, texture_base(before), SegmentCheck())
 
     assert result.failed == ["cut_ratio"]
     assert result.measures["jump_ratio"] == 0
@@ -385,7 +393,7 @@ def test_steady_motion_inside_the_segment_passes_cut_ratio():
         for n in range(12)
     ]
 
-    result = check_segment(after[:1] * 4, after, after, SegmentCheck())
+    result = check_segment(after[:1] * 4, after, texture_base(after), SegmentCheck())
 
     assert "cut_ratio" not in result.failed
     assert result.measures["cut_ratio"] <= 1.5
@@ -396,7 +404,7 @@ def test_cut_ratio_null_skips_it():
     after = frames_of(noise(1), 2) + frames_of(noise(7), 10)
 
     check = segment_check({"cut_ratio_max": None})
-    result = check_segment(before, after, before, check)
+    result = check_segment(before, after, texture_base(before), check)
 
     assert result.passed
     assert chain_check_problem({"check": {"cut_ratio_max": 0}})
@@ -447,14 +455,18 @@ class TestAudioFloor:
         result = check_segment(
             before,
             frames_of(noise(1)),
-            before,
+            texture_base(before),
             SegmentCheck(),
             audio=numpy.zeros((2, 100)),
         )
         assert result.failed == ["audio_dbfs"]
         assert result.measures["audio_dbfs"] == -120.0
         loud = check_segment(
-            before, frames_of(noise(1)), before, SegmentCheck(), audio=tone(-20)
+            before,
+            frames_of(noise(1)),
+            texture_base(before),
+            SegmentCheck(),
+            audio=tone(-20),
         )
         assert loud.passed
         assert loud.measures["audio_dbfs"] == pytest.approx(-20, abs=0.1)

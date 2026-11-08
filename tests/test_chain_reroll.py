@@ -8,6 +8,7 @@ from dw.pipeline_processors.chain import run_chain
 from dw.pipeline_processors.chain_check import (
     CheckResult,
     check_segment,
+    texture_base,
     measure_frames,
 )
 from tests.test_chain import FakePipeline, modular_output
@@ -99,10 +100,9 @@ def test_a_re_roll_under_carry_pick_keeps_the_good_attempt():
 def test_the_check_reads_the_previous_segments_measures_not_its_frames():
     previous = [_grey(100) for _ in range(8)]
     frames = [_grey(250) for _ in range(8)]
-    by_frames = check_segment(previous, frames, frames, _chain_check())
-    by_measures = check_segment(
-        measure_frames(previous), frames, frames, _chain_check()
-    )
+    base = texture_base(frames)
+    by_frames = check_segment(previous, frames, base, _chain_check())
+    by_measures = check_segment(measure_frames(previous), frames, base, _chain_check())
     assert by_frames.failed == by_measures.failed
     assert by_frames.measures == by_measures.measures
     assert isinstance(by_measures, CheckResult) and by_measures.frame_data is not None

@@ -302,8 +302,14 @@ def _locate(chain_take, chain_output):
             f"{os.path.basename(output)} - a repair needs every one of them kept"
         )
     if shots is not None and len(shots) != len(paths):
-        # More files than shots: the take's shots cannot be laid on them
-        shots = None
+        # More files than shots: another run's or a re-render's file sits
+        # among them, and the take's shots cannot be laid on the set
+        raise ValueError(
+            f"{COMMAND}: {os.path.basename(take)} has {len(shots)} shots but "
+            f"{len(paths)} segment files sit beside {os.path.basename(output)} - "
+            f"the extra files are not this take's; move them aside so only its "
+            f"{len(shots)} remain"
+        )
     _check_siblings_agree(paths)
     return take, shots, paths
 

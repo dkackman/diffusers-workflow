@@ -244,10 +244,16 @@ def _scene_picks(count):
     return sorted({0, count // 2, count - 1})
 
 
+def max_texture(frames):
+    """The roughest of the given frames - every one of them is read."""
+    return max(texture(frame) for frame in frames)
+
+
 def scene_texture(frames):
-    """The roughest of a segment's first, middle and last frames."""
+    """The roughest of a segment's first, middle and last frames: the
+    `_scene_picks` of `frames`, then `max_texture` over those alone."""
     frames = numpy.asarray(frames)
-    return max(texture(frames[i]) for i in _scene_picks(len(frames)))
+    return max_texture(frames[i] for i in _scene_picks(len(frames)))
 
 
 def _eased(frame, cut):
@@ -341,8 +347,8 @@ class LookHold:
         if first:
             # The scene is read off a few frames: no stack of the segment
             self.scene_look = look(_rgb(frames[min(1, len(frames) - 1)]))
-            self.scene_texture = scene_texture(
-                [_rgb(frames[i]) for i in _scene_picks(len(frames))]
+            self.scene_texture = max_texture(
+                _rgb(frames[i]) for i in _scene_picks(len(frames))
             )
             return frames
         # One stack of the segment, corrected in place by each pass in turn

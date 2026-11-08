@@ -62,7 +62,7 @@ def _worker_rss_mb(slot):
     committed = committed_rss_mb(pid, device=False)
     if committed is None:
         return None
-    return committed + (device_term_mb(getattr(slot, "last_memory", None)) or 0.0)
+    return committed + _pinned_mb(slot)
 
 
 def _pinned_mb(slot):

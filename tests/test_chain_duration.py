@@ -1,5 +1,8 @@
 """A chain asked for by its length in seconds (`duration_seconds`)."""
 
+import copy
+import logging
+
 import pytest
 
 from dw.cost_scaling import _driver_scaling
@@ -171,7 +174,10 @@ def _resolved(definition, **overrides):
     chain = step["pipeline"]["chain"]
     if isinstance(chain.get("frame_snap"), str):
         # The engine resolves 'constraint:' before the chain runs
-        chain["frame_snap"] = MINIMAX_SNAP
+        from dw.variable_constraints import snap_block
+
+        name = chain["frame_snap"].removeprefix("constraint:")
+        chain["frame_snap"] = snap_block(definition["variable_constraints"][name])
     return chain, step["pipeline"]["arguments"]
 
 
@@ -293,3 +299,170 @@ def test_a_frame_slot_past_the_shortened_last_segment_is_refused_up_front():
     }
     with pytest.raises(ValueError, match="frame 136 is past segment 2's 124"):
         ChainConfig(definition, {"num_frames": 175, "image": object()})
+
+
+def _ltx_without_frame_snap():
+    definition = copy.deepcopy(_template("ltx2"))
+    del definition["steps"][0]["pipeline"]["chain"]["frame_snap"]
+    return definition
+
+
+def _expanded_chain(definition, caplog=None, **arguments):
+    from dw.workflow import Workflow
+
+    workflow = Workflow(definition, None, "")
+    if caplog is None:
+        expanded = workflow.expanded_definition(arguments)
+    else:
+        with caplog.at_level(logging.INFO, logger="dw"):
+            expanded = workflow.expanded_definition(arguments)
+    pipeline = expanded["steps"][0]["pipeline"]
+    return pipeline["chain"], pipeline["arguments"]
+
+
+LTX_SNAP = {"modulus": 8, "remainder": 1, "min_frames": 9}
+
+
+class TestDerivedFrameSnap:
+    """A chain planned by length whose block declares no `frame_snap` takes
+    the one its `num_frames` variable's constraint declares, so LTX's
+    shortened last segment lands on the 8n+1 grid rather than being floored
+    by the pipeline (6.5 s at 24 fps: 156 frames, 121 then 37 -> 41)."""
+
+    def test_the_ltx_template_names_its_constraint_as_the_snap(self):
+        template = _template("ltx2")
+        chain = template["steps"][0]["pipeline"]["chain"]
+        assert chain["frame_snap"] == "constraint:num_frames"
+        chain, arguments = _expanded_chain(template, duration_seconds=6.5)
+        assert chain["frame_snap"] == LTX_SNAP
+        config = ChainConfig(chain, arguments)
+        assert config.total_frames == 156
+        assert [s.num_frames for s in config.plan] == [121, 41]
+        assert sum(s.num_frames - s.head_trim for s in config.plan) >= 156
+
+    def test_a_block_with_no_frame_snap_derives_it_and_says_so(self, caplog):
+        chain, arguments = _expanded_chain(
+            _ltx_without_frame_snap(), caplog, duration_seconds=6.5
+        )
+        assert chain["frame_snap"] == LTX_SNAP
+        config = ChainConfig(chain, arguments)
+        assert [s.num_frames for s in config.plan] == [121, 41]
+        lines = [
+            r.getMessage()
+            for r in caplog.records
+            if "frame_snap" in r.getMessage() and "num_frames" in r.getMessage()
+        ]
+        assert len(lines) == 1, caplog.text
+        assert "chained_image_to_video" in lines[0]
+
+    def test_without_the_derivation_the_last_segment_is_off_grid(self):
+        # What the fix guards against: the plan LTX would floor to 33 frames
+        definition = _ltx_without_frame_snap()
+        chain, arguments = _resolved(definition, duration_seconds=6.5)
+        assert [s.num_frames for s in ChainConfig(chain, arguments).plan] == [121, 37]
+
+    def test_the_derivation_is_pure_and_leaves_other_chains_alone(self):
+        from dw.pipeline_processors.chain_config import derive_frame_snaps
+
+        def step(chain, num_frames):
+            return {
+                "variable_constraints": {
+                    "num_frames": LTX_SNAP,
+                    "width": {"modulus": 32, "remainder": 0},
+                },
+                "steps": [
+                    {
+                        "name": "clip",
+                        "pipeline": {
+                            "chain": chain,
+                            "arguments": {"num_frames": num_frames},
+                        },
+                    }
+                ],
+            }
+
+        derived = step({"duration_seconds": 4, "fps": 24}, "variable:num_frames")
+        assert derive_frame_snaps(derived) == [("clip", "num_frames")]
+        assert derived["steps"][0]["pipeline"]["chain"]["frame_snap"] == (
+            "constraint:num_frames"
+        )
+        matched = step({"match_audio": True, "fps": 24}, "variable:num_frames")
+        assert derive_frame_snaps(matched) == [("clip", "num_frames")]
+        # A literal count, a variable with no constraint, a declared snap and
+        # a chain counted by segments are each left as written
+        for definition in (
+            step({"duration_seconds": 4, "fps": 24}, 121),
+            step({"duration_seconds": 4, "fps": 24}, "variable:frames"),
+            step(
+                {"duration_seconds": 4, "frame_snap": MINIMAX_SNAP},
+                "variable:num_frames",
+            ),
+            step({"segments": 3}, "variable:num_frames"),
+        ):
+            before = copy.deepcopy(definition)
+            assert derive_frame_snaps(definition) == []
+            assert definition == before
+
+    def test_validate_warns_on_a_length_planned_chain_it_cannot_snap(self):
+        from dw import validation
+        from dw.workflow import Workflow
+
+        def workflow(chain, num_frames=121):
+            return Workflow(
+                {
+                    "steps": [
+                        {
+                            "name": "clip",
+                            "pipeline": {
+                                "configuration": {"component_type": "ModularPipeline"},
+                                "from_pretrained_arguments": {
+                                    "model_name": "MiniMaxAI/MiniMax-H3",
+                                    "workflow": "fl2va",
+                                },
+                                "chain": chain,
+                                "arguments": {
+                                    "prompt": "a cat",
+                                    "num_frames": num_frames,
+                                },
+                            },
+                        }
+                    ]
+                },
+                None,
+                "",
+            )
+
+        warnings = validation.run_warning_check(
+            workflow({"duration_seconds": 4, "fps": 24}), "frame_snap_warnings", None
+        )
+        assert len(warnings) == 1
+        assert warnings[0].startswith("steps[0].pipeline.chain.frame_snap: ")
+        assert (
+            "duration_seconds" in warnings[0] and "variable_constraints" in warnings[0]
+        )
+        assert (
+            validation.run_warning_check(
+                workflow({"segments": 3}), "frame_snap_warnings", None
+            )
+            == []
+        )
+        assert (
+            validation.run_warning_check(
+                workflow(
+                    {"duration_seconds": 4, "fps": 24, "frame_snap": MINIMAX_SNAP}
+                ),
+                "frame_snap_warnings",
+                None,
+            )
+            == []
+        )
+        # The template declares (or derives) its snap, so it is not warned on
+        for definition in (_template("ltx2"), _ltx_without_frame_snap()):
+            assert (
+                validation.run_warning_check(
+                    Workflow(definition, None, ""),
+                    "frame_snap_warnings",
+                    {"duration_seconds": 6.5},
+                )
+                == []
+            )

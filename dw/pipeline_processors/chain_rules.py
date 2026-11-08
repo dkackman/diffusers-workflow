@@ -103,6 +103,25 @@ MATCH_AUDIO_SOURCE_RULE = (
 )
 
 
+def chain_needs_frame_snap(chain):
+    """The key a chain is planned by length under - `duration_seconds` or
+    `match_audio` - when its block declares no `frame_snap`, else None. Such
+    a plan shortens its last segment to whatever remains, a count the
+    pipeline may floor or round in silence (LTX-2.5 floors 37 to 33), so the
+    run derives the snap from the step's `num_frames` constraint
+    (`derive_frame_snaps` in dw/pipeline_processors/chain_config.py) and
+    validate warns where it cannot (`frame_snap_warnings` in dw/guides.py).
+    Asked of the block as written - a `variable:` length counts - and of the
+    substituted one."""
+    if chain.get("frame_snap") is not None:
+        return None
+    if chain.get("duration_seconds") is not None:
+        return "duration_seconds"
+    if chain.get("match_audio"):
+        return "match_audio"
+    return None
+
+
 def chain_length_problem(chain):
     """Why a chain block does not ask for its length exactly one way, or None.
     A resolved duration wins over a segment count, so `segments` alongside

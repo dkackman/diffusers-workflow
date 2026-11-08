@@ -3,7 +3,9 @@
 `ChainConfig` reads and refuses the block's settings for one run and plans
 its segments: by count (`segments`), by length (`duration_seconds`) or by a
 matched track (`match_audio`). `plan_segments`, `snap_frames` and
-`validate_frame_snap` are the plan's arithmetic, and `chain_segment_count`
+`validate_frame_snap` are the plan's arithmetic, `derive_frame_snaps` gives a
+length-planned block with no `frame_snap` the one its `num_frames` variable's
+constraint declares, and `chain_segment_count`
 is the pure count the cost estimate asks too, as `chain_holds_audio`,
 `chain_audio_floor` and `chain_checks_segment_1` are the pure audio-check
 rules (#1221). Split out of `chain.py`, which
@@ -17,6 +19,8 @@ from dataclasses import dataclass
 from ..dsp import as_channels_samples
 from ..events import emit_log
 from .chain_check import AUDIO_DBFS_MIN, segment_check
+from .. import references
+from ..variable_constraints import declared_constraints
 from .chain_rules import (
     CHAIN_CAPSTONE,
     CHAIN_CAPSTONE_FROM_END,
@@ -30,6 +34,7 @@ from .chain_rules import (
     chain_length_problem,
     chain_look_hold_flags,
     chain_look_hold_problem,
+    chain_needs_frame_snap,
     keystone_slot_plan_problem,
     match_audio_source_problem,
 )
@@ -334,6 +339,40 @@ class ChainConfig:
             f"Chaining to match {duration:.2f}s of audio: {self.total_frames} "
             f"frames across {len(self.plan)} segments"
         )
+
+
+def derive_frame_snaps(definition):
+    """Give every chain block planned by length (`duration_seconds`,
+    `match_audio`) that declares no `frame_snap` the constraint its step's
+    `num_frames` variable declares, in place, as `"constraint:<name>"` for
+    `resolve_constraint_references` to resolve. Run before variables
+    substitute, while the `variable:` reference is still visible. Returns
+    [(step name, variable name)] for each block changed, for the run's log.
+
+    Without it a 6.5 s LTX chain at 24 fps with 121-frame segments plans a
+    37-frame last segment, which the pipeline floors to 33 - a short take. A
+    block whose `num_frames` is a literal, or a variable with no modulus
+    constraint, is left as written; validate warns on it
+    (`frame_snap_warnings` in dw/guides.py)."""
+    constraints = declared_constraints(definition)
+    derived = []
+    for _, step, pipeline, _, _ in references.iter_steps(
+        definition.get("steps"), None, "pipeline"
+    ):
+        chain = pipeline.get("chain")
+        if not isinstance(chain, dict) or chain_needs_frame_snap(chain) is None:
+            continue
+        arguments = pipeline.get("arguments")
+        num_frames = (
+            arguments.get("num_frames") if isinstance(arguments, dict) else None
+        )
+        name = references.ref_name(references.VARIABLE, num_frames)
+        constraint = constraints.get(name) if name is not None else None
+        if not isinstance(constraint, dict) or "modulus" not in constraint:
+            continue
+        chain["frame_snap"] = references.make_ref(references.CONSTRAINT, name)
+        derived.append((step.get("name"), name))
+    return derived
 
 
 def _head_trim(chain_definition):

@@ -389,6 +389,33 @@ class TestSegmentFiles:
         with pytest.raises(ValueError, match="segment file .* is gone"):
             self._cut(made)
 
+    def test_an_extra_segment_beside_chain_output_is_named_not_blamed_on_the_take(
+        self, tmp_path
+    ):
+        # More files than the take has shots: another run's or a re-render's
+        # file was left beside them. The take's shots are fine - the refusal
+        # must say what to move, not that the take "has none"
+        made = write_run(str(tmp_path), [40, 51, 51])
+        run = os.path.dirname(os.path.dirname(made["take"]))
+        copy_run = tmp_path / "copy"
+        os.makedirs(copy_run / "final")
+        shutil.copy(made["take"], copy_run / "final")
+        shutil.copy(os.path.join(run, "manifest.json"), copy_run)
+        last = made["segments"][-1]
+        shutil.copy(last, last.replace("segment-002", "segment-003"))
+        with pytest.raises(ValueError) as raised:
+            chain_repair_cut(
+                chain_take=str(copy_run / "final" / os.path.basename(made["take"])),
+                chain_output=made["segments"][0],
+                segment=2,
+                num_frames=107,
+                tail_frames=22,
+            )
+        message = str(raised.value)
+        assert "3 shots" in message and "4 segment file" in message
+        assert "move" in message
+        assert "it has none" not in message
+
     def test_a_missing_last_segment_beside_chain_output_is_refused(self, tmp_path):
         # A gap check on the files alone cannot see a missing highest index;
         # the take's shot count can
