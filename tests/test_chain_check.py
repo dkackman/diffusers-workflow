@@ -18,6 +18,7 @@ from dw.pipeline_processors.chain_check import (
     check_audio,
     check_segment,
     segment_check,
+    texture_base,
 )
 from dw.pipeline_processors.chain_rules import chain_check_problem
 
@@ -102,6 +103,19 @@ def test_texture_drift_from_segment_1_fails_both_ways():
     # A flat segment 1 has no fine band to measure a ratio against
     assert crusted.measures["texture_ratio"] is None
     assert "texture_ratio" not in crusted.failed
+
+
+def test_segment_1_texture_measured_once_reads_as_its_frames_do():
+    textured = frames_of(noise(1))
+    smooth = grey(128)
+    check = SegmentCheck(jump_ratio_max=1e9, look_ratio_max=1e9)
+    by_frames = check_segment(textured, smooth, textured, check)
+    by_base = check_segment(textured, smooth, texture_base(textured), check)
+    assert by_base.measures["texture_ratio"] == by_frames.measures["texture_ratio"]
+    assert by_base.failed == by_frames.failed == ["texture_ratio"]
+    # No base to measure against reads as no ratio, not a failure
+    unmeasured = check_segment(textured, smooth, None, check)
+    assert unmeasured.measures["texture_ratio"] is None
 
 
 def test_texture_is_not_checked_when_its_threshold_is_none_or_frames_are_small():
@@ -250,7 +264,6 @@ def test_the_estimate_quotes_the_worst_case_retries():
     [
         ({"audio_dbfs_min": None}, {}, {}),
         (True, {}, {"hold_audio": "asset:track.wav"}),
-        (True, {"continuity": "guide"}, {}),
     ],
 )
 def test_the_estimate_leaves_segment_1_out_when_no_audio_is_measured(
@@ -278,6 +291,17 @@ def test_a_match_audio_chain_holds_its_audio():
     assert _chain_checks_audio(definition, {})
     definition["steps"][0]["pipeline"]["chain"]["match_audio"] = True
     assert not _chain_checks_audio(definition, {})
+
+
+def test_a_guide_chain_carrying_its_audio_checks_segment_1():
+    # The guide holds only the span the head trim drops, so the kept audio
+    # is generated and segment 1 is floored like any other chain's
+    from dw.plan import estimate
+
+    definition, expanded = _priced(3, True, 1)
+    definition["steps"][0]["pipeline"]["chain"]["continuity"] = "guide"
+    quoted = estimate(definition, expanded, {}, "cuda", None, None)
+    assert quoted["minutes"] == pytest.approx(10.0 * 3 * 2)
 
 
 def test_a_guide_chain_that_does_not_carry_its_audio_checks_segment_1():
@@ -443,8 +467,12 @@ class TestAudioFloor:
             {"segments": 2, "check": True}, {"hold_audio": object()}
         )
         assert step_held.audio_held and step_held.audio_floor is None
+        # A guide carrying its audio holds only the span its head trim drops:
+        # the kept audio is generated, so it is floored and segment 1 checked
         guide = ChainConfig({"segments": 2, "check": True, "continuity": "guide"}, {})
-        assert guide.audio_held and not guide.checks_segment_1
+        assert guide.guide_holds_audio
+        assert not guide.audio_held and guide.audio_floor == AUDIO_DBFS_MIN
+        assert guide.checks_segment_1
 
 
 def _observed_quote(check, retries, **block):

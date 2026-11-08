@@ -300,7 +300,8 @@ def _chain_checks_audio(definition, variables):
     """Whether the workflow's one checked chain measures its generated audio
     from segment 1 on (#1221): the floor is on (`check` true, or an object
     whose `audio_dbfs_min` is not null) and the audio is not held - no
-    `match_audio`, no step `hold_audio`, no guide chain carrying its audio.
+    `match_audio`, no step `hold_audio` (a guide carrying its audio holds
+    only its head trim, so it is measured).
     The estimate cannot see whether the pipeline makes audio at all, so it
     assumes one that can does, as the worst case. The rule is the run's own,
     `chain_config.chain_checks_segment_1`, asked at `variables`."""

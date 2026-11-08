@@ -54,7 +54,7 @@ Each segment is measured before it is kept (segment 1 for `audio_dbfs` only):
   `chain_segment_silent` and by its shot's `check_failed`.
 - **Cost.** The quote is the worst case: N(1 + `retries`) segment renders
   for a checked chain that generates its audio (floor on, no `match_audio`,
-  no step `hold_audio`, not a guide chain carrying audio), else
+  no step `hold_audio`; a guide chain carrying its audio counts), else
   1 + (N - 1)(1 + `retries`).
 
 ## Repair one segment in place

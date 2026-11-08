@@ -61,14 +61,19 @@ from .chain_check import (
     check_segment,
     measure_frames,
     reroll_seed,
-    texture_samples,
+    texture_base,
 )
 from .chain_config import ChainConfig
 from .chain_continuity import CONTINUITY_MODES, _generated_audio
 from .chain_look import LookHold
 from .h3_anchor import anchor_refusal
 from .h3_guides import guides_refusal, latent_guide_tail
-from .chain_rules import CHAIN_CAPSTONE, CHAIN_LATENT_CARRY, place_keystone
+from .chain_rules import (
+    CHAIN_CAPSTONE,
+    CHAIN_LATENT_CARRY,
+    KEYSTONE_SLOT_LAST,
+    place_keystone,
+)
 from .h3_rules import (
     ANCHOR_SEGMENT_1,
     GUIDES_INPUT,
@@ -141,10 +146,13 @@ def run_chain(pipeline, chain_definition, arguments):
     keystone_frame = None
     # Segment 1's capstone frame, under the experimental capstone (#1187)
     capstone_frame = None
+    # What the keystone does at each seam, for the job log; None when off
+    keystone_note = _keystone_note(config, arguments)
 
     # The step's seed, which a re-roll offsets (chain_check.reroll_seed); the
     # previous segment's kept frames, which a check measures the seam
-    # against, and segment 1's texture samples, which it measures drift by
+    # against, and segment 1's fine-band texture, which it measures drift by
+    # (measured once, rather than from its frames at every check)
     seed = _step_seed(arguments)
     previous_kept = None
     segment_1_texture = None
@@ -194,12 +202,12 @@ def run_chain(pipeline, chain_definition, arguments):
             if config.check is not None:
                 # Keep the kept segment's small measures, not its frames
                 if segment.index == 0:
-                    segment_1_texture = texture_samples(attempt.kept)
+                    segment_1_texture = texture_base(attempt.kept)
                     previous_kept = measure_frames(attempt.kept)
                 else:
                     previous_kept = checked["result"].frame_data
             _log_carry_pick(config, segment, attempt)
-            _log_seam_holds(config, segment, attempt, state)
+            _log_seam_holds(config, segment, attempt, state, keystone_note)
             _lay_down(timeline, config, segment, attempt, checked, spill)
 
             # The segment's raw output is finished with - the frames live on
@@ -251,16 +259,32 @@ def _log_carry_pick(config, segment, attempt):
         )
 
 
-def _log_seam_holds(config, segment, attempt, state):
+def _keystone_note(config, arguments):
+    """What `keystone: "segment_1"` does to each later segment, as the job
+    log says it - where its keystone_slot puts segment 1's frame 0 - or None
+    when it is off or has no effect (a t2va step with no keyframe to replace,
+    which run_chain has warned of)."""
+    if config.keystone != KEYSTONE_SEGMENT_1:
+        return None
+    slot = config.keystone_slot
+    if slot is None:
+        if arguments.get(config.segment_argument) is None:
+            return None
+        return "opens on segment 1's frame 0"
+    if slot == KEYSTONE_SLOT_LAST:
+        return "ends on segment 1's frame 0 (its last_image)"
+    return f"is guided by segment 1's frame 0 at frame {slot['frame']}"
+
+
+def _log_seam_holds(config, segment, attempt, state, keystone_note=None):
     """Say in the job log what keystone and look_hold did at a seam: a segment
-    after the first is rendered from the keystone frame and corrected by the
-    look hold; the first only sets the scene, and its carry may be
-    pre-compensated for the next."""
+    after the first is rendered from the keystone frame (where
+    `_keystone_note` says) and corrected by the look hold; the first only
+    sets the scene, and its carry may be pre-compensated for the next."""
     seam = f"Chain seam {segment.index}/{len(config.plan) - 1}"
-    if segment.index > 0 and state.keystone_frame is not None:
+    if segment.index > 0 and state.keystone_frame is not None and keystone_note:
         emit_log(
-            f"{seam}: keystone applied - segment {segment.index + 1} opens on "
-            "segment 1's frame 0"
+            f"{seam}: keystone applied - segment {segment.index + 1} {keystone_note}"
         )
     if attempt.hold is None:
         return
@@ -394,7 +418,9 @@ def _render_attempt(
     )
     output = pipeline._run_once(segment_arguments)
     taken = _taken_latents(output) if config.latent_carry else None
-    artifact = _single_artifact(output)
+    # The frames as PIL once: the look hold, the carry and the timeline then
+    # all take them by identity rather than converting again
+    artifact = _with_pil_frames(_single_artifact(output))
     del output
 
     hold, raw_carry = state.hold, state.raw_carry
@@ -618,6 +644,18 @@ def _reseeded(segment_arguments, seed, number):
     return rerolled
 
 
+def _with_pil_frames(artifact):
+    """The segment's artifact with its frames as PIL images, converted once:
+    an AudioVideo as a shallow copy (audio, rate and shots as they were), any
+    other video as the list of its frames."""
+    frames = frames_as_pil_list(artifact)
+    if isinstance(artifact, AudioVideo):
+        converted = copy.copy(artifact)
+        converted.frames = frames
+        return converted
+    return frames
+
+
 def _look_held(artifact, hold, raw_carry, first):
     """The segment with its frames look-corrected (#1191), audio untouched -
     the corrected frames are what the carry is taken from and what the
@@ -763,8 +801,11 @@ def _segment_arguments(
             min(segment.index, len(config.prompts) - 1)
         ]
 
-    if config.source_audio is not None:
+    if config.total_frames is not None:
+        # A length-planned chain (match_audio, duration_seconds) renders its
+        # shortened last segment at its planned length, not the step's
         segment_arguments["num_frames"] = segment.num_frames
+    if config.source_audio is not None:
         if config.holds_audio:
             segment_arguments[HOLD_AUDIO_INPUT] = _audio_slice(config, segment)
         else:

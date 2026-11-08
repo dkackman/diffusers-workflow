@@ -31,6 +31,11 @@ _EPS = 1e-4
 _CHROMA_FLOOR = 0.01
 
 
+def _rgb(image):
+    """A PIL image as an (h, w, 3) uint8 array."""
+    return numpy.asarray(image.convert("RGB"))
+
+
 def _float(frames):
     return numpy.asarray(frames, dtype=numpy.float32) / 255.0
 
@@ -104,7 +109,7 @@ def is_cut(opening_tone, reference_tone):
     return float(gap) > CUT_JUMP
 
 
-def pickup_grade(frames, carried, report=None):
+def pickup_grade(frames, carried, report=None, inplace=False):
     """Match frame 1 to the carried frame by quantile LUT, and carry the same
     mapping to the last frame, interpolating the LUT per frame between.
 
@@ -115,7 +120,8 @@ def pickup_grade(frames, carried, report=None):
     there are under two frames (frame 0 plus one more), when a frame is flat,
     or when the opening differs from the carried frame by more than CUT_JUMP
     (a cut, not drift). `report`, when a list, gets one line saying whether the
-    grade was applied or skipped, and why.
+    grade was applied or skipped, and why. `inplace` writes the graded
+    frames into `frames` (an array) instead of a copy.
     """
     frames = numpy.asarray(frames)
     count = len(frames)
@@ -152,7 +158,7 @@ def pickup_grade(frames, carried, report=None):
         )
         for c in range(3)
     ]
-    out = frames.copy()
+    out = frames if inplace else frames.copy()
     for index in range(1, count):
         weight = (index - 1) / (count - 2) if count > 2 else 0.0
         ycc = _to_ycc(_float(frames[index]))
@@ -163,11 +169,12 @@ def pickup_grade(frames, carried, report=None):
     return out
 
 
-def ease_creep(frames, scene_look, tolerance=0.03, report=None):
+def ease_creep(frames, scene_look, tolerance=0.03, report=None, inplace=False):
     """Scale contrast (about the frame mean) and chroma (about 0.5) down by a
     factor running linearly from 1 at the first frame to the needed gain at the
     last, when the last frame's look exceeds the scene's by more than the
-    tolerance. Gains are at most 1: a darker or paler shot is untouched."""
+    tolerance. Gains are at most 1: a darker or paler shot is untouched.
+    `inplace` writes into `frames` (an array) instead of a copy."""
     frames = numpy.asarray(frames)
     count = len(frames)
     if count < 2:
@@ -187,7 +194,7 @@ def ease_creep(frames, scene_look, tolerance=0.03, report=None):
         )
     if contrast_gain == 1.0 and chroma_gain == 1.0:
         return frames
-    out = frames.copy()
+    out = frames if inplace else frames.copy()
     for index in range(count):
         ramp = index / (count - 1)
         out[index] = _scaled(
@@ -232,11 +239,15 @@ def texture(frame):
     return float(numpy.abs(detail)[mask].mean()) if mask.any() else 0.0
 
 
+def _scene_picks(count):
+    """The first, middle and last frame indexes `scene_texture` reads."""
+    return sorted({0, count // 2, count - 1})
+
+
 def scene_texture(frames):
     """The roughest of a segment's first, middle and last frames."""
     frames = numpy.asarray(frames)
-    picks = {0, len(frames) // 2, len(frames) - 1}
-    return max(texture(frames[i]) for i in picks)
+    return max(texture(frames[i]) for i in _scene_picks(len(frames)))
 
 
 def _eased(frame, cut):
@@ -263,11 +274,14 @@ def _cut_for(frame, limit, max_cut):
     return high
 
 
-def ease_texture(frames, scene_texture, tolerance=0.03, max_cut=0.5, report=None):
+def ease_texture(
+    frames, scene_texture, tolerance=0.03, max_cut=0.5, report=None, inplace=False
+):
     """Subtract a fraction (at most max_cut) of the masked faint detail at
     whichever end exceeds the scene's texture by more than the tolerance,
     interpolating the fraction linearly across the shot. Frame 0 is the keyframe
-    copy and stays as it is; the ends are frame 1 and the last."""
+    copy and stays as it is; the ends are frame 1 and the last. `inplace`
+    writes into `frames` (an array) instead of a copy."""
     frames = numpy.asarray(frames)
     count = len(frames)
     if count < 2:
@@ -281,7 +295,7 @@ def ease_texture(frames, scene_texture, tolerance=0.03, max_cut=0.5, report=None
         )
     if not any(ends):
         return frames
-    out = frames.copy()
+    out = frames if inplace else frames.copy()
     for index in range(1, count):
         weight = (index - 1) / (count - 2) if count > 2 else 0.0
         cut = ends[0] + (ends[1] - ends[0]) * weight
@@ -324,11 +338,16 @@ class LookHold:
         """One segment's PIL frames, corrected. Segment 1 only sets the scene;
         later ones also learn the boost from their rendered opening."""
         self.notes = notes = []
-        stack = numpy.stack([numpy.asarray(f.convert("RGB")) for f in frames])
-        opening = stack[min(1, len(stack) - 1)]
         if first:
-            self.scene_look, self.scene_texture = look(opening), scene_texture(stack)
+            # The scene is read off a few frames: no stack of the segment
+            self.scene_look = look(_rgb(frames[min(1, len(frames) - 1)]))
+            self.scene_texture = scene_texture(
+                [_rgb(frames[i]) for i in _scene_picks(len(frames))]
+            )
             return frames
+        # One stack of the segment, corrected in place by each pass in turn
+        stack = numpy.stack([_rgb(f) for f in frames])
+        opening = stack[min(1, len(stack) - 1)]
         if self.flags["precompensate"]:
             notes.append(
                 f"precompensate divided out contrast {self._fed_boost[0]:.3f}, "
@@ -358,11 +377,11 @@ class LookHold:
         elif self._fed is not None:
             notes.append("boost not learned (opening is a cut from the fed keyframe)")
         if self.flags["pickup"] and carried is not None:
-            stack = pickup_grade(stack, numpy.asarray(carried.convert("RGB")), notes)
+            stack = pickup_grade(stack, _rgb(carried), notes, inplace=True)
         if self.flags["creep"]:
-            stack = ease_creep(stack, self.scene_look, report=notes)
+            stack = ease_creep(stack, self.scene_look, report=notes, inplace=True)
         if self.flags["texture"]:
-            stack = ease_texture(stack, self.scene_texture, report=notes)
+            stack = ease_texture(stack, self.scene_texture, report=notes, inplace=True)
         return [Image.fromarray(each) for each in stack]
 
     def feed(self, carry):
