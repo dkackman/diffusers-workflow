@@ -46,6 +46,7 @@ from .guides import (
     anchor_errors,
     guide_chain_errors,
     guide_noise_errors,
+    frame_snap_warnings,
     guide_noise_warnings,
     guides_errors,
     selflift_errors,
@@ -785,6 +786,13 @@ WARNING_CHECKS = [
     Check(
         "guide_noise_warnings",
         lambda c: guide_noise_warnings(c.expanded, c.source_indices),
+    ),
+    # A chain planned by length with no frame_snap written and none
+    # derivable from its num_frames variable's constraint - its last segment
+    # may be floored or rounded in silence
+    Check(
+        "frame_snap_warnings",
+        lambda c: frame_snap_warnings(c.expanded, c.source_indices),
     ),
 ]
 

@@ -2701,6 +2701,11 @@ joined into a single file:
   "max_frames": 345 }`. Where the workflow already declares that rule as a
   `variable_constraints` entry, write `"frame_snap": "constraint:num_frames"`
   instead, so the numbers live in one place (*What a variable is allowed to be*).
+  A `duration_seconds` or `match_audio` chain that declares no `frame_snap` derives
+  one when the step's `num_frames` is a `variable:` whose constraint has a `modulus`
+  (the run logs that it did); when it cannot - a literal `num_frames`, or no
+  constraint - validation warns at `chain.frame_snap`, since the shortened last
+  segment is otherwise asked for a count the pipeline may floor in silence.
 - `prompts` — optional per-segment prompt list for narrative progression; segment
   `i` uses `prompts[min(i, len - 1)]`.
 - `check` — check each segment after the first before it is kept (any model family):

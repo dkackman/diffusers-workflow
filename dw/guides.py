@@ -62,6 +62,7 @@ from .pipeline_processors.chain_rules import (
     chain_keystone_slot_problem,
     chain_latent_carry_problem,
     chain_look_hold_problem,
+    chain_needs_frame_snap,
 )
 from .pipeline_processors.h3_rules import (
     ANCHOR_NONE,
@@ -502,6 +503,32 @@ def guide_noise_warnings(workflow_definition, source_indices=None):
             f"{path}: guide_noise does nothing here - it noises the step's "
             f"guides, and this step has no 'guides' and no chain with "
             f"continuity 'guide'{where}"
+        )
+    return warnings
+
+
+def frame_snap_warnings(workflow_definition, source_indices=None):
+    """["path: message"] for a chain planned by length (`duration_seconds`,
+    `match_audio`) that, once substituted, still declares no `frame_snap` -
+    none was written and none could be derived from a `num_frames` variable's
+    constraint (`derive_frame_snaps`). Its shortened last segment is then
+    asked for whatever count remains, which the pipeline may floor or round
+    in silence."""
+    warnings = []
+    for _, _, pipeline, source, where in references.iter_steps(
+        workflow_definition.get("steps"), source_indices, "pipeline"
+    ):
+        chain = pipeline.get("chain")
+        key = chain_needs_frame_snap(chain) if isinstance(chain, dict) else None
+        if key is None:
+            continue
+        path = render_path(("steps", source, "pipeline", "chain", "frame_snap"))
+        warnings.append(
+            f"{path}: a {key} chain with no frame_snap asks its shortened last "
+            "segment for whatever count remains, which the pipeline may floor "
+            "or round in silence - set 'frame_snap' on the chain, or make the "
+            "step's 'num_frames' a 'variable:' whose 'variable_constraints' "
+            f"entry has a modulus, from which it is derived{where}"
         )
     return warnings
 

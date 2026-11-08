@@ -29,6 +29,7 @@ from .variables import (
     set_variables,
 )
 from .pipeline_processors.pipeline import Pipeline, apply_runtime_settings
+from .pipeline_processors.chain_config import derive_frame_snaps
 from .tasks.task import Task
 from . import get_device
 from .pipeline_ownership import (
@@ -404,6 +405,16 @@ class Workflow:
         """Stage two of preparing a definition: every 'variable:'
         substituted, every 'constraint:' frame_snap resolved and every
         for_each expanded. Returns the new definition."""
+        # A chain planned by length with no frame_snap takes the one its
+        # num_frames variable's constraint declares - before substitution,
+        # while the 'variable:' is still visible, so the last segment lands
+        # on the pipeline's grid rather than being floored in silence
+        for step_name, variable in derive_frame_snaps(definition):
+            logger.info(
+                f"Step '{step_name}': chain frame_snap derived from "
+                f"variable_constraints.{variable}, so a shortened last segment "
+                "snaps to a count the pipeline accepts"
+            )
         if variables is not None:
             # replace_variables returns a new structure rather than mutating
             # in place, so the result must be captured here
