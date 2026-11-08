@@ -657,81 +657,11 @@ def chain_keystone_problem(chain):
     return None
 
 
-# The carry pick (#1032): the sharpest of the last N frames as the next
-# keyframe, the segment trimmed after it. Family-independent, `last_frame` only
-CARRY_PICK_MIN = 1
-CARRY_PICK_MAX = 8
-
-
 def _set_for_plan(chain, *keys):
     """Whether a key is set; an unsubstituted reference is not (#1232)."""
     values = [chain.get(k) for k in keys]
     values = [v for v in values if not references.is_ref(references.UNRESOLVED, v)]
     return any(v is not None and v is not False for v in values)
-
-
-def chain_carry_pick_problem(chain, num_frames=None):
-    """The reason a chain block's `carry_pick` is refused, or None: a shape
-    other than {"sharpest": N}, N outside 1..8, a continuity other than
-    `last_frame`, `match_audio` (the plan is fixed from the track's length and
-    the pick drops frames per seam), or - when the step's `num_frames` is known
-    - an N that could empty a segment. Unresolved references are left to the
-    run."""
-    if "carry_pick" not in chain:
-        return None
-    pick = chain["carry_pick"]
-    if isinstance(pick, str) and references.is_ref(references.UNRESOLVED, pick):
-        return None
-    expected = (
-        f"expected {{'sharpest': N}} with N from {CARRY_PICK_MIN} to {CARRY_PICK_MAX}"
-    )
-    if not isinstance(pick, dict) or set(pick) != {"sharpest"}:
-        return f"invalid carry_pick {pick!r} - {expected}"
-    window = pick["sharpest"]
-    if isinstance(window, str) and references.is_ref(references.UNRESOLVED, window):
-        return None
-    if (
-        isinstance(window, bool)
-        or not isinstance(window, int)
-        or not CARRY_PICK_MIN <= window <= CARRY_PICK_MAX
-    ):
-        return (
-            f"carry_pick sharpest must be a whole number between {CARRY_PICK_MIN} "
-            f"and {CARRY_PICK_MAX}, got {window!r}"
-        )
-    continuity = chain.get("continuity", "last_frame")
-    if isinstance(continuity, str) and references.is_ref(
-        references.UNRESOLVED, continuity
-    ):
-        return None
-    if continuity != "last_frame":
-        return (
-            f"carry_pick needs continuity 'last_frame' - the other modes carry "
-            f"more than one frame; got {continuity!r}"
-        )
-    if _set_for_plan(chain, "match_audio", "duration_seconds"):
-        return (
-            "carry_pick does not combine with match_audio or duration_seconds: "
-            "the plan covers the length up front and the pick drops up to "
-            f"{CARRY_PICK_MAX - 1} more frames per seam, leaving the video "
-            "shorter than asked - use 'segments'"
-        )
-    trim = chain.get("trim_frames", 1)
-    if isinstance(num_frames, int) and isinstance(chain.get("frame_snap"), dict):
-        num_frames = aligned(num_frames, chain["frame_snap"]) or num_frames
-    if (
-        isinstance(num_frames, int)
-        and not isinstance(num_frames, bool)
-        and isinstance(trim, int)
-        and not isinstance(trim, bool)
-        and window >= num_frames - trim
-    ):
-        return (
-            f"carry_pick sharpest {window} must be less than num_frames "
-            f"{num_frames} minus trim_frames {trim} ({num_frames - trim}), or "
-            "the pick could empty a segment"
-        )
-    return None
 
 
 def chain_anchor_problem(chain):

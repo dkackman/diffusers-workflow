@@ -260,6 +260,15 @@ def export_timeline(video, sources=None, shots=None, name="timeline"):
             f"{COMMAND}: sources must be a list of files, one per shot, not "
             f"{type(sources).__name__}"
         )
+    records = _shot_records(path, shots, total)
+    if sources:
+        return _sources_bundle(name, records, sources, info)
+    return _joined_bundle(name, records, path, info, rate, total)
+
+
+def _shot_records(path, shots, total):
+    """The shots to lay out, in frame order: the caller's, else the ones the
+    run manifest beside `path` records, else the whole file as one."""
     if shots:
         records = shots
     else:
@@ -268,50 +277,53 @@ def export_timeline(video, sources=None, shots=None, name="timeline"):
         records, _source = resolve_shots(path, SimpleNamespace(shots=None))
     if not records:
         records = [{"name": "whole", "start_frame": 0, "num_frames": total}]
-    records = sorted(
+    return sorted(
         (_span(shot, index) for index, shot in enumerate(records)),
         key=lambda shot: shot["start_frame"],
     )
 
+
+def _sources_bundle(name, records, sources, info):
+    """Sources mode: each clip points at its own file over its whole range,
+    at that file's own rate. The joined video would be dead weight in the
+    bundle, so it is left out."""
+    if len(sources) != len(records):
+        raise InvalidInputError(
+            f"{COMMAND}: sources names {len(sources)} files for "
+            f"{len(records)} shots - give one per shot, in order"
+        )
     media = {}
-    video_arc = None
-    if not sources:
-        # Sources mode points every clip at its own file; the joined video
-        # would be dead weight in the bundle
-        video_arc = _media_name(path, media)
-        media[video_arc] = path
-
-    if sources:
-        if len(sources) != len(records):
-            raise InvalidInputError(
-                f"{COMMAND}: sources names {len(sources)} files for "
-                f"{len(records)} shots - give one per shot, in order"
+    children = []
+    for index, (shot, source) in enumerate(zip(records, sources)):
+        source_path = _stored_file(source, f"sources[{index}]")
+        source_info = _facts(source_path)
+        arc = _media_name(source_path, media)
+        media[arc] = source_path
+        frames = int(source_info["frame_count"])
+        # Each clip runs at its own file's rate, not the join's
+        source_rate = float(exact_frame_rate(source_info["fps"]))
+        children.append(
+            _clip(
+                str(shot.get("name", f"shot {index + 1}")),
+                0,
+                frames,
+                arc,
+                frames,
+                source_rate,
             )
-        children = []
-        for index, (shot, source) in enumerate(zip(records, sources)):
-            source_path = _stored_file(source, f"sources[{index}]")
-            source_info = _facts(source_path)
-            arc = _media_name(source_path, media)
-            media[arc] = source_path
-            frames = int(source_info["frame_count"])
-            # Each clip runs at its own file's rate, not the join's
-            source_rate = float(exact_frame_rate(source_info["fps"]))
-            children.append(
-                _clip(
-                    str(shot.get("name", f"shot {index + 1}")),
-                    0,
-                    frames,
-                    arc,
-                    frames,
-                    source_rate,
-                )
-            )
-        has_audio = bool(info.get("sample_rate"))
-        tracks = [_track("Video", children)]
-        if has_audio:
-            tracks.append(_track("Audio", json.loads(json.dumps(children))))
-        return TimelineBundle(_timeline(name, tracks), media)
+        )
+    tracks = [_track("Video", children)]
+    if info.get("sample_rate"):
+        tracks.append(_track("Audio", json.loads(json.dumps(children))))
+    return TimelineBundle(_timeline(name, tracks), media)
 
+
+def _joined_bundle(name, records, path, info, rate, total):
+    """Every clip points into the joined video over its shot's span, with a
+    gap wherever the shots leave one."""
+    media = {}
+    video_arc = _media_name(path, media)
+    media[video_arc] = path
     _refuse_overlaps(records)
     for shot in records:
         end = shot["start_frame"] + shot["num_frames"]
