@@ -31,7 +31,9 @@ import zlib
 from urllib.parse import quote, unquote
 from types import SimpleNamespace
 
+from .. import references
 from ..locations import validate_media_path
+from ..runs import output_root, split_run_path
 from ..security import (
     InvalidInputError,
     validate_string_input,
@@ -71,11 +73,11 @@ def _gap(frames, rate):
     }
 
 
-def _clip(name, start, duration, target_url, available_frames, rate):
+def _clip(name, start, duration, target_url, available_frames, rate, source=None):
     return {
         "OTIO_SCHEMA": "Clip.1",
         "name": name,
-        "metadata": {},
+        "metadata": {"dw": {"source": source}} if source else {},
         "source_range": time_range(start, duration, rate),
         "effects": [],
         "markers": [],
@@ -89,6 +91,21 @@ def _clip(name, start, duration, target_url, available_frames, rate):
             "target_url": quote(target_url),
         },
     }
+
+
+def _source_reference(path):
+    """The `output:` reference of a file inside a run directory of the
+    output root, else None - a clip's `metadata.dw.source`, what
+    `chain_take` and `chain_output` take. A file outside any run (an asset,
+    a loose path) has no reference to record."""
+    try:
+        root = os.path.realpath(output_root())
+        relative = os.path.relpath(os.path.realpath(path), root).replace(os.sep, "/")
+    except (OSError, ValueError):
+        return None
+    if relative.startswith("../") or not split_run_path(relative)[1]:
+        return None
+    return references.make_ref(references.OUTPUT, relative)
 
 
 def _track(kind, children):
@@ -310,6 +327,7 @@ def _sources_bundle(name, records, sources, info):
                 arc,
                 frames,
                 source_rate,
+                _source_reference(source_path),
             )
         )
     tracks = [_track("Video", children)]
@@ -324,6 +342,7 @@ def _joined_bundle(name, records, path, info, rate, total):
     media = {}
     video_arc = _media_name(path, media)
     media[video_arc] = path
+    source = _source_reference(path)
     _refuse_overlaps(records)
     for shot in records:
         end = shot["start_frame"] + shot["num_frames"]
@@ -351,6 +370,7 @@ def _joined_bundle(name, records, path, info, rate, total):
                     video_arc,
                     total,
                     rate,
+                    source,
                 )
             )
             cursor = start + frames
@@ -425,6 +445,8 @@ def _summarize_bundle(path):
             reference = child.get("media_reference") or {}
             if reference.get("target_url"):
                 entry["media"] = unquote(reference["target_url"])
+            source = ((child.get("metadata") or {}).get("dw") or {}).get("source")
+            entry["source"] = source if isinstance(source, str) else None
             clips.append(entry)
         tracks.append(
             {
