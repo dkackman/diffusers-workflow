@@ -130,9 +130,9 @@ the source's own frames at the source's own frame rate, under the new track.
   step cheaper. The audio length and the returned picture stay the source's.
 - Validation refuses refine arguments with it, a chained step, and
   `latents`.
-- There is no catalog template yet; the draft waits on Don's listen. Compose
-  the step from `get_guide("workflows", section="Audio over a finished
-  picture")`, starting from `templates/minimax/video-with-audio`.
+- Run it from `templates/minimax/add-sound` (Don's listen passed it at
+  `listen_scale` 1, 2026-11-06), which sets all of the above. The guide's
+  *Audio over a finished picture* section has the step's rules.
 
 This is the lever for replacing or adding a take's sound without redrawing
 its picture: a silent LTX or chained take, or a take whose voice came out

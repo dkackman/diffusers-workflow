@@ -111,3 +111,13 @@ def test_the_record_names_every_tiered_template_and_the_skipped_ones():
     text = RECORD.read_text(encoding="utf-8")
     for name in TIERED + ["ltx2/chained-segments", "ltx2/extend-clip"]:
         assert name in text, name
+
+
+def test_the_ref2va_templates_share_one_tier_bundle():
+    # The same bench record prices every Ref2VA template's tiers: re-tune one
+    # bundle and every copy must follow, or one template's 'best' drifts from
+    # the record it cites
+    ref2va = [name for name in TIERED if name != "minimax/chained-segments"]
+    bundles = {name: _definition(name)["presets"]["tier"] for name in ref2va}
+    first = bundles[ref2va[0]]
+    assert all(bundle == first for bundle in bundles.values()), bundles
