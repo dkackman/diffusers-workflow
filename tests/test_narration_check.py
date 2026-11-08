@@ -140,3 +140,18 @@ def test_a_repeat_aligned_after_its_first_copy_belongs_to_the_take_it_repeats():
     assert last["ok"] is True
     assert last["inserted"] == []
     assert result["failed"] == [1]
+
+
+def test_a_boundary_insertion_is_charged_whole_not_split_at_a_matching_tail():
+    # "um sat" is not the tail of take 0, though "sat" alone is: the run is
+    # decided once, so its last word does not re-match on its own
+    from dw.tasks.narration_check import _owners
+
+    expected = ["the", "cat", "sat", "on", "the", "mat"]
+    heard = ["the", "cat", "sat", "um", "sat", "on", "the", "mat"]
+    pairs = [("equal", k, k) for k in range(3)]
+    pairs += [("inserted", None, 3), ("inserted", None, 4)]
+    pairs += [("equal", k, k + 2) for k in range(3, 6)]
+    dropped, inserted = _owners(pairs, expected, heard, [0, 3])
+    assert inserted == [[], ["um", "sat"]]
+    assert dropped == [[], []]

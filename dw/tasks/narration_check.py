@@ -66,58 +66,62 @@ def align(expected_tokens, heard_tokens):
     return pairs
 
 
-def _owners(pairs, expected_tokens, heard_tokens, starts):
-    """Per take, the dropped and inserted words the alignment attributes."""
-    dropped = [[] for _ in starts]
-    inserted = [[] for _ in starts]
-    count = len(expected_tokens)
+def _take_at(starts, count, position):
+    """The take an expected position falls in (the last one past the end)."""
+    position = min(position, count - 1) if count else 0
+    owner = 0
+    for index, start in enumerate(starts):
+        if start <= position:
+            owner = index
+    return owner
 
-    def take_at(position):
-        position = min(position, count - 1) if count else 0
-        owner = 0
-        for index, start in enumerate(starts):
-            if start <= position:
-                owner = index
-        return owner
 
-    def repeats_previous(position, index):
-        """Whether the pure insertion from pairs[index] on repeats the tail of
-        the take that ends at `position` (a take boundary)."""
-        if position not in starts or starts.index(position) == 0:
-            return None
-        previous = starts.index(position) - 1
+def _insertion_owner(pairs, index, expected_tokens, heard_tokens, starts, cursor):
+    """The take a pure insertion run starting at pairs[index] belongs to,
+    sitting in front of expected position `cursor`.
+
+    At a take boundary, a run whose words repeat the tail of the take
+    before it belongs to that take; otherwise the take it sits in front of,
+    or the last take when it follows them all."""
+    if cursor in starts[1:]:
+        previous = starts.index(cursor) - 1
         run = []
         for kind, _, j in pairs[index:]:
             if kind != "inserted":
                 break
             run.append(heard_tokens[j])
-        tail = expected_tokens[starts[previous] : position]
-        if run and len(run) <= len(tail) and tail[-len(run) :] == run:
+        tail = expected_tokens[starts[previous] : cursor]
+        if len(run) <= len(tail) and tail[-len(run) :] == run:
             return previous
-        return None
+    if cursor >= len(expected_tokens):
+        return len(starts) - 1
+    return _take_at(starts, len(expected_tokens), cursor)
 
+
+def _owners(pairs, expected_tokens, heard_tokens, starts):
+    """Per take, the dropped and inserted words the alignment attributes."""
+    dropped = [[] for _ in starts]
+    inserted = [[] for _ in starts]
     cursor = 0  # the expected position the next inserted word sits in front of
     replaced = None  # the take of the words the current replace dropped
-    repeated = None  # the take a pure insertion run repeats the tail of
+    run_owner = None  # the take the current run of inserted words belongs to
     for index, (kind, i, j) in enumerate(pairs):
         if kind == "inserted":
-            if replaced is not None:
-                owner = replaced
-            else:
-                if repeated is None:
-                    repeated = repeats_previous(cursor, index)
-                if repeated is not None:
-                    owner = repeated
-                elif cursor >= count:
-                    owner = len(starts) - 1
-                else:
-                    owner = take_at(cursor)
-            inserted[owner].append(heard_tokens[j])
+            if run_owner is None:
+                # decided once per run, so a run's tail never re-matches alone
+                run_owner = (
+                    replaced
+                    if replaced is not None
+                    else _insertion_owner(
+                        pairs, index, expected_tokens, heard_tokens, starts, cursor
+                    )
+                )
+            inserted[run_owner].append(heard_tokens[j])
             continue
-        repeated = None
+        run_owner = None
         replaced = None
         if kind == "dropped":
-            replaced = take_at(i)
+            replaced = _take_at(starts, len(expected_tokens), i)
             dropped[replaced].append(expected_tokens[i])
         cursor = i + 1
     return dropped, inserted
