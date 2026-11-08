@@ -152,7 +152,7 @@ def _measured_peak(definition, arguments, history, rows, list_entries):
     fit = projected_mb(definition, list_entries, rows or [])
     key = memory_key(definition, arguments)
     if key is not None and history is not None:
-        peaks, basis = _peaks_with_basis(history, key)
+        peaks, basis = history.peaks_and_basis_for_key(key)
         if peaks:
             # The key leaves list length out, so a resident list longer than
             # any observed one outgrows the observed max: the fit's growth is
@@ -170,15 +170,6 @@ def _measured_peak(definition, arguments, history, rows, list_entries):
     if fit is not None:
         return fit["projected_mb"], "fit", fit["runs"]
     return None
-
-
-def _peaks_with_basis(history, key):
-    """(peaks, basis) for `key`: `JobHistory.peaks_and_basis_for_key`, or a
-    history that reports peaks alone, whose basis is unknown (None)."""
-    both = getattr(history, "peaks_and_basis_for_key", None)
-    if both is not None:
-        return both(key)
-    return history.peaks_for_key(key), None
 
 
 def host_memory_block(need):
