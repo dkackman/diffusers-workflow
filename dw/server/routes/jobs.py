@@ -422,7 +422,8 @@ class RerunRequest(BaseModel):
         default=None,
         description="Variable overrides merged over the original job's "
         "arguments before admission (a draft promoted with "
-        '{"tier": "best"}). A variable the workflow does not declare is '
+        '{"tier": "standard"}), keeping the original\'s seed unless '
+        "`new_seed`. A variable the workflow does not declare is "
         "refused; the seed variable cannot be overridden together with "
         "`new_seed`.",
     )

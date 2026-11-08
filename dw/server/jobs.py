@@ -72,6 +72,7 @@ from .job_record import (
     RUNNING,
     TERMINAL_STATES,
     Job,
+    keep_drawn_seed,
 )
 from .pool import WorkerSlot
 from .worker_memory import WorkerBusy
@@ -503,8 +504,8 @@ class JobManager(Dispatcher):
 
         `new_seed` draws a fresh seed into the workflow's seed variable
         (see rerun). `overrides` are variables merged over the stored
-        arguments first. Raises ValueError when it cannot, and when the
-        named workspace the job ran in is gone."""
+        arguments first, keeping a seed the original drew (keep_drawn_seed).
+        Raises ValueError when it cannot, or the job's workspace is gone."""
         job = self.jobs.get(job_id)
         if job is not None:
             spec = {key: job.spec[key] for key in RERUN_SPEC_KEYS if key in job.spec}
@@ -521,6 +522,11 @@ class JobManager(Dispatcher):
             arguments = historical["arguments"]
 
         arguments = {**arguments, **(overrides or {})}
+        spec["rerun_warnings"] = []
+        if overrides and not new_seed:
+            arguments, spec["rerun_warnings"] = keep_drawn_seed(
+                arguments, self.seed_variable(job_id), self.realized(job_id)
+            )
         if new_seed:
             variable = self.seed_variable(job_id)
             if variable in (overrides or {}):
@@ -614,7 +620,8 @@ class JobManager(Dispatcher):
                 if acknowledged_cost is not None
                 else spec.get("acknowledged_cost")
             ),
-            warnings=warnings,
+            # keep_drawn_seed's, unless a new_seed replaced the drawn seed
+            warnings=[*(warnings or []), *([] if new_seed else spec["rerun_warnings"])],
             vram_need=vram_need,
             host_ram_need=host_ram_need,
             preferred_device=self._original_device(job_id),
