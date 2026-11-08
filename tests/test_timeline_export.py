@@ -410,3 +410,71 @@ def test_summarize_bundle_reads_only_the_head_of_version_txt(tmp_path, monkeypat
 
     monkeypatch.setattr(zipfile.ZipFile, "read", whole_read)
     assert te.summarize_bundle(str(path))["otio_version"] == "1.0.0" + " " * 59
+
+
+def test_clips_carry_the_exported_videos_output_reference(tmp_path, facts, monkeypatch):
+    run = tmp_path / "ltx2" / "chain" / "20261108-101500-a1b2c3d4"
+    run.mkdir(parents=True)
+    video = a_file(run, "joined.mp4", facts, 72)
+    monkeypatch.setattr(te, "output_root", lambda: str(tmp_path))
+    out = tmp_path / "cut.otioz"
+    te.export_timeline(video, shots=shots((0, 24), (24, 48))).save(str(out))
+    expected = "output:ltx2/chain/20261108-101500-a1b2c3d4/joined.mp4"
+    with zipfile.ZipFile(out) as archive:
+        content = json.loads(archive.read("content.otio"))
+    clips = content["tracks"]["children"][0]["children"]
+    assert [c["metadata"]["dw"]["source"] for c in clips] == [expected, expected]
+    summary = te.summarize_bundle(str(out))
+    assert [i["source"] for i in summary["tracks"][0]["items"]] == [expected, expected]
+
+
+def test_sources_mode_records_each_sources_own_reference(tmp_path, facts, monkeypatch):
+    run = tmp_path / "w" / "20261108-101500-a1b2c3d4"
+    run.mkdir(parents=True)
+    video = a_file(tmp_path, "joined.mp4", facts, 48)
+    one = a_file(run, "one.mp4", facts, 24)
+    two = a_file(run, "two.mp4", facts, 24)
+    monkeypatch.setattr(te, "output_root", lambda: str(tmp_path))
+    _archive, content = bundle_of(
+        video, tmp_path, shots=shots((0, 24), (24, 24)), sources=[one, two]
+    )
+    clips = content["tracks"]["children"][0]["children"]
+    assert [c["metadata"]["dw"]["source"] for c in clips] == [
+        "output:w/20261108-101500-a1b2c3d4/one.mp4",
+        "output:w/20261108-101500-a1b2c3d4/two.mp4",
+    ]
+
+
+def test_a_video_outside_any_run_writes_no_source(tmp_path, facts, monkeypatch):
+    video = a_file(tmp_path, "joined.mp4", facts, 72)
+    monkeypatch.setattr(te, "output_root", lambda: str(tmp_path))
+    _archive, content = bundle_of(video, tmp_path)
+    clip = content["tracks"]["children"][0]["children"][0]
+    assert clip["metadata"] == {}
+
+
+def test_a_bundle_without_clip_metadata_summarizes_with_no_source(tmp_path):
+    content = {
+        "name": "old",
+        "tracks": {
+            "children": [
+                {
+                    "kind": "Video",
+                    "children": [
+                        {
+                            "OTIO_SCHEMA": "Clip.1",
+                            "name": "a",
+                            "metadata": {},
+                            "source_range": {
+                                "duration": {"value": 24, "rate": 24},
+                                "start_time": {"value": 0, "rate": 24},
+                            },
+                        }
+                    ],
+                }
+            ]
+        },
+    }
+    path = _bundle(tmp_path, json.dumps(content))
+    item = te.summarize_bundle(str(path))["tracks"][0]["items"][0]
+    assert item["source"] is None

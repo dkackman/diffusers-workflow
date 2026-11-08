@@ -732,6 +732,10 @@ DaVinci Resolve (18.5+) imports with one clip per shot. The bundle is a zip of
 `target_url` is `media/<file>`, percent-encoded. The OTIO JSON is written directly, so there is
 no `opentimelineio` dependency. Rates are the exact rational the engine writes
 (23.976 is 24000/1001, stored by OTIO as a float) with integral frame values.
+When a clip's file sits in a run of the output directory, the clip's OTIO
+`metadata.dw.source` holds that file's `output:` reference (the joined video's on
+every clip, each source's in `sources` mode); the job page offers it to copy, for
+`chain_take`/`chain_output`. A file outside a run records none.
 
 Checked by hand in Resolve 21 (2026-11-06): File > Import > Timeline takes the
 `.otioz`, or its unzipped `content.otio` beside `media/`, and gives one clip per

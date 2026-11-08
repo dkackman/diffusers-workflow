@@ -178,7 +178,9 @@ icon, a finish-alert toggle, the theme toggle, and links to these docs and
   `result.subfolder` when a step chose one. **Cancel**, **Run again**,
   **New seed**, and **Export** (gathers the run into the workspace's `exports/` with
   `POST /api/jobs/{id}/export` and downloads the zip - the same bundle as
-  MCP's `export_job`; replacing an existing export asks first).
+  MCP's `export_job`; replacing an existing export asks first). An `.otioz`
+  among the results is drawn as a timeline strip (clips sized by duration, gaps
+  hatched, a copy button for each clip's `output:` reference).
 
   ![A finished job: a warning about a level jump at a cut, then the workflow as a data-flow graph from the edit and soundtrack through mixing and normalizing to the film](img/ui-job.png)
 
