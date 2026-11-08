@@ -307,16 +307,18 @@ class LookHold:
         self.flags = flags
         self.scene_look = None
         self.scene_texture = None
-        self._ratios = []
+        # One sample list per gain (contrast, chroma): a feed that cannot
+        # measure a gain adds nothing to that gain's list (#1242)
+        self._ratios = ([], [])
         self._fed = None
         self._fed_tone = None
         self._fed_boost = (1.0, 1.0)
         self.notes = []
 
     def boost(self):
-        if not self._ratios:
-            return (1.0, 1.0)
-        return tuple(float(v) for v in numpy.mean(self._ratios, axis=0))
+        return tuple(
+            float(numpy.mean(samples)) if samples else 1.0 for samples in self._ratios
+        )
 
     def correct(self, frames, carried, first):
         """One segment's PIL frames, corrected. Segment 1 only sets the scene;
@@ -337,15 +339,20 @@ class LookHold:
             # Each gain is learned on its own: a fed frame with no chroma (a
             # greyscale keyframe) says nothing of the chroma boost but still
             # measures the contrast one, and the other way round (#1242)
+            # measures the contrast one, and the other way round (#1242). An
+            # unmeasurable gain is left out, not counted as a ratio of 1.0,
+            # or every grey feed would pull a learned boost back to none
             floors = (_EPS, _CHROMA_FLOOR)
-            ratio = [
-                r / f if f > floor else 1.0
-                for r, f, floor in zip(rendered, self._fed, floors)
-            ]
-            self._ratios.append(ratio)
+            ratio = []
+            for samples, r, f, floor in zip(self._ratios, rendered, self._fed, floors):
+                if f > floor:
+                    samples.append(r / f)
+                    ratio.append(f"{r / f:.3f}")
+                else:
+                    ratio.append("unmeasured")
             notes.append(
-                f"measured opening/fed ratio contrast {ratio[0]:.3f}, chroma "
-                f"{ratio[1]:.3f}; running boost now contrast {self.boost()[0]:.3f}, "
+                f"measured opening/fed ratio contrast {ratio[0]}, chroma "
+                f"{ratio[1]}; running boost now contrast {self.boost()[0]:.3f}, "
                 f"chroma {self.boost()[1]:.3f}"
             )
         elif self._fed is not None:

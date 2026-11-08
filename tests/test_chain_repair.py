@@ -362,6 +362,33 @@ class TestSegmentFiles:
                 tail_frames=22,
             )
 
+    def test_a_pruned_segment_beside_a_take_in_its_run_is_named(self, tmp_path):
+        # Some named files still beside the take: it is in its run and one
+        # was deleted, not copied away
+        made = write_run(str(tmp_path), [40, 51, 51, 51])
+        os.remove(made["segments"][2])
+        with pytest.raises(ValueError, match="segment file .* is gone"):
+            self._cut(made)
+
+    def test_a_missing_last_segment_beside_chain_output_is_refused(self, tmp_path):
+        # A gap check on the files alone cannot see a missing highest index;
+        # the take's shot count can
+        made = write_run(str(tmp_path), [40, 51, 51, 51])
+        run = os.path.dirname(os.path.dirname(made["take"]))
+        copy_run = tmp_path / "copy"
+        os.makedirs(copy_run / "final")
+        shutil.copy(made["take"], copy_run / "final")
+        shutil.copy(os.path.join(run, "manifest.json"), copy_run)
+        os.remove(made["segments"][-1])
+        with pytest.raises(ValueError, match="4 shots but only 3 segment file"):
+            chain_repair_cut(
+                chain_take=str(copy_run / "final" / os.path.basename(made["take"])),
+                chain_output=made["segments"][0],
+                segment=2,
+                num_frames=107,
+                tail_frames=22,
+            )
+
     def test_an_already_repaired_take_names_the_original(self, tmp_path):
         made = write_run(str(tmp_path), [40, 51, 51, 51])
 
