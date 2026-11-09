@@ -210,6 +210,66 @@ def test_a_mismatched_line_is_re_rolled_up_to_its_retries_and_warns(monkeypatch)
     assert "templates/minimax/repair-segment" in call.args[0]
 
 
+def test_a_finding_at_a_passing_similarity_is_named_in_the_log_and_warning(
+    monkeypatch,
+):
+    # #1298 bounce 2: words 1.0 failed on a finding the log did not name
+    from unittest.mock import patch
+
+    import dw.pipeline_processors.chain as chain_module
+
+    def fake(audio, sample_rate, line, previous_line, minimum, **kwargs):
+        if line != "two two":
+            return _heard(0.97, True, heard=line)
+        return {
+            "similarity": 1.0,
+            "heard": "two two two two",
+            "findings": [{"rule": "unscripted_speech", "detail": "x"}],
+            "passed": False,
+            "seam_head_dropped": [],
+        }
+
+    monkeypatch.setattr(chain_module, "check_words", fake)
+    pipeline = FakePipeline(_output(set()))
+    with (
+        patch.object(chain_module, "emit_warning") as warn,
+        patch.object(chain_module, "emit_log") as log,
+    ):
+        run_chain(pipeline, _words_chain(retries=1), {"num_frames": 8, "seed": 5})
+
+    (reroll,) = [c.args[0] for c in log.call_args_list if "re-rolling" in c.args[0]]
+    assert "words 1.0 with unscripted_speech, heard 'two two two two'" in reroll
+    (call,) = _chain_check_warnings(warn)
+    assert "words 1.0 with unscripted_speech, heard 'two two two two'" in (call.args[0])
+    assert call.kwargs["values"] == {"words": 1.0}
+    assert call.kwargs["findings"] == [{"rule": "unscripted_speech", "detail": "x"}]
+
+
+def test_failure_text_names_each_rule_once_and_leaves_other_measures_alone():
+    from types import SimpleNamespace
+
+    from dw.pipeline_processors.chain import _failures
+
+    words = {
+        "similarity": 0.5,
+        "heard": "hi",
+        "findings": [
+            {"rule": "tag_spoken"},
+            {"rule": "tag_spoken"},
+            {"rule": "transcript_loop"},
+        ],
+    }
+    result = SimpleNamespace(
+        failed=["jump_ratio", "words"],
+        measures={"jump_ratio": 2.5, "words": words},
+    )
+    text = _failures(result)
+    assert text.startswith("jump_ratio ")
+    assert text.endswith("words 0.5 with tag_spoken, transcript_loop, heard 'hi'")
+    words["findings"] = []
+    assert _failures(result).endswith("words 0.5, heard 'hi'")
+
+
 def test_every_segment_including_segment_1_records_its_words(monkeypatch):
     fake = FakeWords()
     pipeline, result, warn = _run_words(monkeypatch, fake, _words_chain())

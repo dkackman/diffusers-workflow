@@ -354,6 +354,46 @@ def _chain_checks_words(definition, variables):
     return chain_checks_words(chain, arguments)
 
 
+def _is_literal_text(value):
+    """Whether `value` is text the estimate can read a `<d>` from as it
+    stands: a string that is no reference and holds no `{...}` substitution."""
+    return (
+        isinstance(value, str)
+        and not any(value.startswith(kind) for kind in references.DEFERRED)
+        and "{" not in value
+    )
+
+
+def _chain_lined_segments(definition, variables, kept, segments):
+    """How many of segments kept..segments-1 the words measure checks: those
+    with a line, as the run's `chain_config.segment_line` reads it. A segment
+    whose line source the estimate cannot read as it stands (a reference, a
+    substitution) is counted as having one - the worst case."""
+    from .pipeline_processors.chain_config import segment_line
+
+    chain, arguments = list(_chain_blocks(definition.get("steps")))[0]
+    lines = _resolved(chain.get("lines"), variables)
+    prompts = _resolved(chain.get("prompts"), variables)
+    prompt = _resolved(arguments.get("prompt"), variables)
+    if isinstance(lines, list) and lines:
+        if not all(isinstance(line, str) for line in lines):
+            return segments - kept
+    elif prompts is not None:
+        if not (
+            isinstance(prompts, list)
+            and prompts
+            and all(_is_literal_text(p) for p in prompts)
+        ):
+            return segments - kept
+    elif not _is_literal_text(prompt):
+        return segments - kept
+    return sum(
+        1
+        for index in range(kept, segments)
+        if segment_line(lines, prompts, prompt, index) is not None
+    )
+
+
 # One Whisper pass on CPU per checked attempt, at the first pass's 3.0 s on
 # lem (bench/records/words.md): the warm passes are 1.3 s, so this is the
 # worst case, as the re-roll count is
@@ -364,17 +404,17 @@ def words_check_term(definition, variables):
     """(minutes, axis) the words measure adds to a checked chain's quote
     (#1262), (0.0, None) when it is off: one Whisper pass per attempt of
     each checked segment, segment 1 among them, in the worst case
-    (N - kept)(1 + retries) passes. Additive, not a factor - it does not
-    grow with the canvas or the steps. Every checked segment is counted as
-    having a line: the estimate cannot read a `<d>` from a prompt it has
-    not resolved."""
+    L(1 + retries) passes, L the segments past the kept ones that have a
+    line (`_chain_lined_segments`). Additive, not a factor - it does not
+    grow with the canvas or the steps."""
     if not _chain_checks_words(definition, variables):
         return 0.0, None
     segments = _chain_segments(definition, variables)
     if not segments:
         return 0.0, None
     kept = min(_chain_kept(definition, variables)[0], segments)
-    passes = (segments - kept) * (1 + _chain_retries(definition, variables))
+    lined = _chain_lined_segments(definition, variables, kept, segments)
+    passes = lined * (1 + _chain_retries(definition, variables))
     if passes <= 0:
         return 0.0, None
     minutes = passes * WORDS_CHECK_MINUTES

@@ -158,6 +158,41 @@ class TestWordsCheckTerm:
         assert words_check_term(definition, {"w": None}) == (0.0, None)
         assert words_check_term(definition, {"w": 0.7})[0] == pytest.approx(0.45)
 
+    def test_only_segments_with_a_line_are_passes(self):
+        # #1298 bounce 2: a segment with no line is never transcribed
+        from dw.cost_scaling import words_check_term
+
+        definition = _words_chain(self.ON, lines=["one", "", "three"])
+        minutes, axis = words_check_term(definition, {})
+        assert minutes == pytest.approx(0.3)
+        assert "6 Whisper pass" in axis
+
+        definition = _words_chain(
+            self.ON, retries=0, prompts=["a <d>hi</d>", "a quiet street", "b"]
+        )
+        assert words_check_term(definition, {})[0] == pytest.approx(0.05)
+
+    def test_a_prompt_with_no_dialogue_adds_no_passes(self):
+        from dw.cost_scaling import words_check_term
+
+        definition = _words_chain(self.ON, segments=2)
+        definition["steps"][0]["pipeline"]["arguments"]["prompt"] = "a quiet street"
+        assert words_check_term(definition, {}) == (0.0, None)
+        definition["steps"][0]["pipeline"]["arguments"]["prompt"] = "a <d>hi</d>"
+        assert words_check_term(definition, {})[1].startswith(
+            "words check: 6 Whisper pass"
+        )
+
+    @pytest.mark.parametrize(
+        "prompt", ["variable:p", "prompt:scene", "a {mood} street", None]
+    )
+    def test_a_line_source_it_cannot_read_counts_every_segment(self, prompt):
+        from dw.cost_scaling import words_check_term
+
+        definition = _words_chain(self.ON)
+        definition["steps"][0]["pipeline"]["arguments"]["prompt"] = prompt
+        assert words_check_term(definition, {})[0] == pytest.approx(0.45)
+
     def test_a_resumed_chain_leaves_the_kept_segments_out(self, monkeypatch):
         from dw.cost_scaling import words_check_term
         from dw.pipeline_processors import chain_resume
