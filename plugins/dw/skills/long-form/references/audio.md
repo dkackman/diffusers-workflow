@@ -141,3 +141,14 @@ the source's own frames at the source's own frame rate, under the new track.
 This is the lever for replacing or adding a take's sound without redrawing
 its picture: a silent LTX or chained take, or a take whose voice came out
 wrong.
+
+## Retime a narration
+
+A narrated long take is spoken first and pictured after, so fit the speech to
+the chain's frame grid before rendering. Run `templates/narration-retime` with
+the joined narration as `narration`, the script as `script` (a blank line marks
+a section), and the take's own `num_frames` and `guide_frames`. It sets each
+pause by its punctuation (`comma_seconds`, `sentence_seconds`,
+`section_seconds`), moves the pause nearest each segment boundary so the
+boundary falls in silence, and checks the result against the script. Read the
+report's `mid_word_boundaries`: it should be empty before any take is rendered.

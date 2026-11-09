@@ -1,0 +1,51 @@
+{
+  "id": "NarrationRetime",
+  "description": "Retimes a spoken narration onto an H3 chain's frame grid and checks it against its script: every pause is set by the punctuation it follows ('comma_seconds', 'sentence_seconds', 'section_seconds' for a blank line), and the pause nearest each segment boundary is moved so the boundary falls in silence. Saves the retimed track and a JSON report (words, pauses, boundaries). 'num_frames' and 'guide_frames' must equal the take's own chain settings, or the boundaries land in the wrong places. 'mid_word_boundaries' in the report should be empty before a take is rendered. 'script' is required, since the engine has no conditional step: the check always runs, and its answer lists any take over the word error rate.",
+  "variables": {
+    "narration": "asset:narration.wav",
+    "script": "Somebody finished the pistachio. Nobody is saying anything.",
+    "comma_seconds": 0.3,
+    "sentence_seconds": 0.6,
+    "section_seconds": 1.0,
+    "num_frames": 192,
+    "guide_frames": 22
+  },
+  "steps": [
+    {
+      "name": "retime",
+      "task": {
+        "command": "retime_narration",
+        "arguments": {
+          "audio": "variable:narration",
+          "text": "variable:script",
+          "comma_seconds": "variable:comma_seconds",
+          "sentence_seconds": "variable:sentence_seconds",
+          "section_seconds": "variable:section_seconds",
+          "segment_frames": "variable:num_frames",
+          "guide_frames": "variable:guide_frames"
+        }
+      },
+      "result": {
+        "content_type": "audio/wav",
+        "file_base_name": "narration-retimed",
+        "subfolder": "final"
+      }
+    },
+    {
+      "name": "check",
+      "task": {
+        "command": "check_narration",
+        "arguments": {
+          "text": "variable:script",
+          "audio": "previous_result:retime.audio"
+        }
+      },
+      "result": {
+        "content_type": "application/json",
+        "file_base_name": "narration-check",
+        "subfolder": "final"
+      }
+    }
+  ],
+  "summary": "Retimes a narration onto a chain's frame grid by punctuation and checks it against its script."
+}
