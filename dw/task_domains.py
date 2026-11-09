@@ -243,7 +243,7 @@ def number_problem(value, name, command, whole=False):
         return refusal
     if not math.isfinite(number):
         return (
-            f"{command} needs a finite whole number for '{name}', got {value!r}"
+            f"{command} needs a whole number for '{name}', got {value!r} (not finite)"
             if whole
             else f"{command} needs a finite number for '{name}', got {value!r}"
         )
@@ -334,8 +334,10 @@ def domain_violation(command, name, value, domain, whole=False):
     for index, item in _domain_candidates(value):
         label = f"{name}[{index}]" if index is not None else name
         # FINITE has no range to name, so number_problem's sentence says it
+        # a whole-number argument keeps number_problem's "a whole number for"
         if (
             domain != FINITE
+            and not whole
             and _is_literal_text(item)
             and not _is_non_finite_text(item)
         ):

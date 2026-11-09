@@ -91,6 +91,16 @@ def test_success_carries_the_manifest_and_forwards_progress():
     assert progress and progress[0]["event"] == "step_start"
 
 
+def test_a_memory_reading_precedes_the_first_phase_event():
+    """#1296: get_memory mid-run must not serve the previous job's reading
+    in the window before the first phase boundary."""
+    worker = _make_worker()
+    messages = _execute(worker, StubWorkflow("emit"))
+    types = [message["type"] for message in messages]
+    assert "memory_info" in types
+    assert types.index("memory_info") < types.index("progress")
+
+
 def test_workflow_switch_evicts_cache_and_untouched_keys_dropped():
     worker = _make_worker()
     _execute(worker, StubWorkflow())
