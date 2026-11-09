@@ -48,10 +48,18 @@ def state_with(history):
     """A server state whose observed costs aggregate `history` (name ->
     rows) with the real observed_for."""
 
-    def observed(name, template, arguments=None, *, workspace=None, card=None):
+    def observed(
+        name, template, arguments=None, *, workspace=None, card=None, per_segment=False
+    ):
         rows = history.get(name)
         return (
-            observed_for(template, rows, device="cpu", arguments=arguments)
+            observed_for(
+                template,
+                rows,
+                device="cpu",
+                arguments=arguments,
+                per_segment=per_segment,
+            )
             if rows
             else None
         )

@@ -685,6 +685,7 @@ TEMPLATE_PIPELINE_KEYS = {
     "generate-speech.json": {},
     "narration-from-takes.json": {},
     "narration-long.json": {},
+    "narration-retime.json": {},
     "split-takes.json": {},
     "check-narration.json": {},
     "image-edit.json": {
@@ -813,6 +814,9 @@ TEMPLATE_PIPELINE_KEYS = {
     },
     "minimax/chained-segments.json": {
         "chained_keyframe_to_video_audio": "0d1cd2532b5c19d97ba165ddb4c715c9ead5e05c2ab6ba4db9bb182e012ec4c0"
+    },
+    "minimax/narrated-take.json": {
+        "take": "0959b31f34f2d8e8c8eb869d5389d7f89d1d7b7b06f219b1b51d9986c3ed51c5"
     },
     "minimax/repair-segment.json": {
         "repair": "0d1cd2532b5c19d97ba165ddb4c715c9ead5e05c2ab6ba4db9bb182e012ec4c0"

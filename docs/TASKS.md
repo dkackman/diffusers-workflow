@@ -2065,6 +2065,32 @@ Measure how far a shot's audio sits from the source slice it should match. `anal
 
 Returns `{lag_seconds, confidence, max_lag_seconds, audio_seconds, reference_seconds, findings, warnings}`. **`lag_seconds` is positive when the audio is late** - its events fall that many seconds after the reference's - and negative when early. `confidence` is the normalised correlation at that lag, 0 to 1. A silent or flat audio or reference gives `lag_seconds: null` and a `sync_unmeasurable` finding. Each finding is `{rule, severity, at, value, threshold, says}`. It is not part of `assess_output`.
 
+### measure_lip_sync
+
+Measure whether a speaker's mouth moves with the audio. `measure_sync` lines a track up against its source slice; this lines the picture up against the audio. YuNet finds the face in each frame, and the mouth box runs across its two mouth-corner landmarks and down from them by the distance between the corners. The mouth signal is the mean absolute grey-level change in that box from the frame before; the audio signal is its RMS envelope, one value per frame's span of samples. The two are Pearson-correlated over the frames with a face, at whole-frame lags. It is a coarse take-level indicator, not a per-segment check. The result is JSON and nothing is built:
+
+```json
+{
+    "name": "lip_sync",
+    "task": {
+        "command": "measure_lip_sync",
+        "arguments": {
+            "video": "previous_result:shot",
+            "max_lag_seconds": 1.0
+        }
+    },
+    "result": { "content_type": "application/json" }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `video` | Yes | The clip of the speaker: an `asset:`/`output:` reference, a path, or an earlier step's video |
+| `audio` | No | The audio the mouth is held to, an [audio input](#slice_audio) or a video carrying a soundtrack. Default: the video's own track |
+| `max_lag_seconds` | No | The largest lag searched, either way (default `1`, at most `2`; a larger value is refused). The search never reaches past the frames minus 8 |
+
+Returns `{correlation, lag_seconds, best_correlation, frames_with_face, frames, max_lag_seconds}`. `correlation` is the best r (-1 to 1) within 3 frames of lag 0; `lag_seconds` is the best lag within `max_lag_seconds` and `best_correlation` its r. **`lag_seconds` is positive when the audio is late** against the mouth, as `measure_sync`'s is. Each is `null` when no frame, or too few, had a face. On 70 real H3 dialogue segments a track 0.5 s late moved the best lag to about +12 to +14 frames, while a segment's own audio sat at 0 to +2; but good and bad correlations overlapped (the 10th percentile of good was 0.14, the 90th of late 0.27), so one segment's correlation is not a verdict (`bench/records/narrated.md`, *Sync calibration*). Read the lag over a whole take, and judge sync by eye; a still face, a face in profile or a hidden mouth reads low on good sync. A checked chain does not measure it. Reads YuNet's weights (`opencv/face_detection_yunet`), listed in the plan's `downloads_required`. In code, `dw.tasks.lip_sync.lip_sync_score(frames, waveform, sample_rate, fps, max_lag_seconds=1.0)` measures frames and a waveform held in memory.
+
 ### analyze_beats
 
 Find where a song's beats fall, to cut picture to them (a Music 3 song carries
@@ -3276,6 +3302,158 @@ looped or restarted take therefore shows as insertions in its own take, with
 the takes after it still aligned. Each failing take also emits a
 `narration_take_mismatch` warning naming the take, its rate and its first
 dropped words. `templates/check-narration` runs it.
+
+## Retiming a Narration
+
+A narrated long take is spoken first and pictured after: an H3 chain renders
+the picture in fixed-length segments, so the speech is fitted to the chain's
+frame grid (`dw/tasks/narration_retime.py`). `retime_narration` sets every
+pause by the punctuation it follows and brings a word junction onto each
+segment boundary so no boundary cuts through a word; `narration_lines` then reads the
+line each planned segment speaks, and fills a prompt per segment from a
+template. Both take their word times from one word-timestamp transcription
+(the `transcribe_audio` pipeline, levelled as `check_script` levels it).
+
+```json
+{
+    "steps": [
+        {
+            "name": "retime",
+            "task": {
+                "command": "retime_narration",
+                "arguments": {
+                    "audio": "previous_result:speech",
+                    "text": "variable:script",
+                    "segment_frames": 192,
+                    "guide_frames": 22,
+                    "fps": 24
+                }
+            },
+            "result": { "content_type": "audio/wav" }
+        },
+        {
+            "name": "lines",
+            "task": {
+                "command": "narration_lines",
+                "arguments": {
+                    "audio": "previous_result:retime.audio",
+                    "text": "variable:script",
+                    "segment_frames": 192,
+                    "guide_frames": 22,
+                    "prompt_template": "variable:segment_prompt",
+                    "fill": { "scene": "variable:scene" }
+                }
+            },
+            "result": { "content_type": "application/json" }
+        }
+    ]
+}
+```
+
+### `retime_narration`
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `audio` | Yes | The narration: an audio file, a video's soundtrack, a track from an earlier step, or a waveform (with `sample_rate`) |
+| `text` | No | The script. Its punctuation, spelling and section breaks win over Whisper's |
+| `comma_seconds` | No | The pause after a word ending `,` `;` or `:` (default 0.3) |
+| `sentence_seconds` | No | The pause after a word ending `.` `?` or `!` (default 0.6) |
+| `section_seconds` | No | The pause at a section break in `text`: a blank line, or a line opening "Amendment" (default 1.0) |
+| `min_gap_seconds` | No | A gap shorter than this is left alone, and is never lengthened or shortened to move a boundary (default 0.12) |
+| `segment_frames` | No | Frames a chain segment generates. With it, the boundaries are placed and reported |
+| `guide_frames` | No | The chain's guide frames, the head each segment after the first trims (default 0) |
+| `fps` | No | Frame rate the frames are counted at (default 24) |
+| `boundary_slack_seconds` | No | The most one gap may be lengthened or shortened to bring a word junction onto a boundary (default 0.25) |
+| `model_name` | No | A Whisper-class ASR model (the `transcribe_audio` default) |
+| `device`, `sample_rate` | No | As `transcribe_audio` |
+
+The seconds arguments are zero or above, `fps` is above zero, and
+`segment_frames` and `guide_frames` are whole numbers.
+
+A gap of at least `min_gap_seconds` after a word whose punctuation names a
+class takes that class's length. A gap with no punctuation keeps its length.
+When `text` is given, the punctuation comes from the script, aligned to the
+words heard, and the stronger class wins: a sentence end before a blank line
+is a section. Without `text` it comes from Whisper's chunk text, which never
+marks a section. A pause is shortened by cutting out its middle. It is
+lengthened by inserting the source's own room tone at its middle: the best
+`find_loop_bed` candidate, else the source's quietest 250 ms window, looped
+with `loop_audio`. Every cut is a 10 ms equal-power crossfade, so the result
+is never digital zero where the source was not.
+
+The boundaries are the kept-span ends of `plan_segments` over the retimed
+length, with `guide_frames` as the head trim. Segment 1 ends at
+`segment_frames`, then every `segment_frames - guide_frames` frames after it.
+The take holds its narration and plays it unbroken, so a boundary anywhere
+at the junction of two words - from one word's end to the next word's
+start, a zero-length junction included - is in place and is not moved. In
+an eligible gap (at least `min_gap_seconds`) it keeps 20 ms clear of the
+words; in a narrower junction it may sit anywhere. A boundary inside a
+word has the nearest junction, before or after it, moved onto it by
+lengthening or shortening the nearest eligible gap before that junction -
+the only gaps whose timing changes - by at most `boundary_slack_seconds`,
+whichever move shifts less. A shortened gap keeps at least half its class
+length (its own length, for a gap with no class) and never goes under
+40 ms, and no move takes an earlier boundary out of its junction. A
+boundary no such move reaches, such as one deep inside a long word, is
+reported and left where it is. It is never forced through a word.
+
+The step answers `{audio, report}`: the retimed track, and a report saved as
+JSON beside it. Later steps read them as `previous_result:retime.audio` and
+`previous_result:retime.report`. The report is:
+
+- `words`: `[{word, start, end}]` at their retimed times.
+- `pauses`: `[{after, class, before_seconds, after_seconds}]` for every gap
+  that has a class or was moved for a boundary (`class` null for the latter).
+- `duration_seconds`: the retimed length.
+- `boundaries`: `[{segment, seconds, in_gap}]`, present with
+  `segment_frames`. `segment` is the 0-based index of the segment that ends there.
+- `mid_word_boundaries`: `[{segment, word}]`, the boundaries left inside a word. Advisory, not a gate: a few are fine, since the narration is held and a cut inside a word is heard unbroken; it only splits that word between two segments' lines. If many appear, raise `boundary_slack_seconds`. A boundary after the last word is the take's tail and is not reported.
+
+### `narration_lines`
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `audio` | Yes | The narration, usually `previous_result:retime.audio` |
+| `segment_frames` | Yes | Frames a chain segment generates |
+| `guide_frames` | No | The chain's guide frames (default 0) |
+| `fps` | No | Frame rate (default 24) |
+| `text` | No | The script, whose spelling and punctuation the lines take |
+| `prompt_template` | No | A prompt holding `{line}` and the placeholders `fill` names |
+| `fill` | No | `{placeholder: value}` for the template's other placeholders |
+| `model_name`, `device`, `sample_rate` | No | As `retime_narration` |
+
+The audio's length plans the segments (`plan_segments`, the frames covering
+the audio). Each segment's line is the words whose midpoint falls in its kept
+span. Segment 1 keeps `[0, segment_frames)` and each later segment keeps the
+frames after its trimmed head. With `text`, a line carries the script's
+words and spelling, not Whisper's: "twenty dollars," where Whisper heard
+"$20,". A script word Whisper missed is read with the heard word before it,
+so it lands in that word's segment. The answer is a JSON document:
+
+- `lines`: one string per planned segment.
+- `prompts`: present only with `prompt_template`. It is the template once per
+  line, with `{line}` and every `fill` key substituted.
+- `segments`: `[{index, start_seconds, end_seconds, line}]`.
+- `mid_word_boundaries`: `[{segment, word}]`, the kept-span ends that fall inside a word by more than 0.08 s on both sides (Whisper's word times on edited audio jitter by tens of ms). Advisory, like the retime report's.
+- `total_frames`: the frames the plan covers.
+
+A chain step reads them as `previous_result:lines.prompts` or
+`previous_result:lines.lines`. The prompt text is the caller's: the task
+writes no model's prompt format of its own.
+
+Both commands refuse audio in which no words are heard, naming the command.
+`narration_lines` also refuses a missing `segment_frames`, and a template
+placeholder that `fill` does not give, naming that placeholder.
+
+`prompt_template` is filled by plain substitution, not Python formatting. A
+placeholder is a bare name in braces, `{line}` or one of `fill`'s keys. Anything
+else in braces is refused: a format spec (`{line:>9}`), a conversion
+(`{line!r}`), attribute or index access (`{line.upper}`, `{line[0]}`), a
+position (`{0}`, `{}`), or a stray single brace. Write `{{` and `}}` for a
+literal `{` and `}`. `prompt_template` and each `fill` value are capped at 20,000 characters, and a
+filled prompt over 20,000 characters is refused, naming its segment (the length
+is counted before the prompt is built).
 
 ## Extracting Sections
 

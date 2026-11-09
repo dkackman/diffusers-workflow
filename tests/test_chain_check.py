@@ -184,7 +184,8 @@ class TestRule:
             ({"check": {"jump_ratio_max": 0}}, "jump_ratio_max"),
             ({"check": {"jump_ratio_max": True}}, "jump_ratio_max"),
             ({"check": {"texture_ratio_max": 0.5}}, "texture_ratio_max"),
-            ({"check": {"face": 1}}, "face"),
+            ({"check": {"face": None}}, "unknown"),
+            ({"check": {"face_drop_max": -1}}, "face_drop_max"),
             ({"check": {"audio_dbfs_min": 0}}, "audio_dbfs_min"),
             ({"check": {"audio_dbfs_min": 6}}, "below 0"),
             ({"check": {"audio_dbfs_min": True}}, "audio_dbfs_min"),
@@ -241,7 +242,8 @@ class TestRule:
         chain = {"$defs": schema["$defs"], **schema["$defs"]["chain"]}
         jsonschema.validate({"segments": 2, "check": True, "retries": 1}, chain)
         jsonschema.validate(
-            {"segments": 2, "check": {"jump_ratio_max": 20, "face": None}}, chain
+            {"segments": 2, "check": {"jump_ratio_max": 20, "face_drop_max": None}},
+            chain,
         )
         jsonschema.validate({"segments": 2, "retries": "variable:retries"}, chain)
         with pytest.raises(jsonschema.ValidationError):

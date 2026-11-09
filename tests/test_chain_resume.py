@@ -18,6 +18,7 @@ from dw.pipeline_processors.chain_rules import (
     chain_resume_problem,
     resume_reference_problem,
 )
+from dw.pipeline_processors.h3_rules import REFINE_WINDOWS_ENV_VAR
 from dw.runs import activate_output_root, deactivate_output_root
 from dw.security import PathTraversalError
 from tests.test_chain import FakePipeline
@@ -199,7 +200,9 @@ def test_guide_resume_warns_about_the_decoded_audio_guide(outputs, events):
     assert "decoded" in resumed["message"]
 
 
-def test_latent_carry_and_resume_are_refused_at_validate():
+def test_latent_carry_and_resume_combine_at_validate(monkeypatch):
+    # Task 9 (ruling R3): the first resumed seam is a decoded guide instead
+    monkeypatch.setenv(REFINE_WINDOWS_ENV_VAR, "1")
     chain = {
         "segments": 3,
         "continuity": "guide",
@@ -207,8 +210,7 @@ def test_latent_carry_and_resume_are_refused_at_validate():
         "experimental_latent_carry": True,
         "resume_from": _first_file_reference(),
     }
-    problem = chain_resume_problem(chain)
-    assert "experimental_latent_carry" in problem and "latents" in problem
+    assert chain_resume_problem(chain) is None
 
     definition = {
         "steps": [
@@ -227,7 +229,75 @@ def test_latent_carry_and_resume_are_refused_at_validate():
         ]
     }
     paths = [error["path"] for error in anchor_errors(definition)]
-    assert "steps[0].pipeline.chain.resume_from" in paths
+    assert "steps[0].pipeline.chain.resume_from" not in paths
+    assert "steps[0].pipeline.chain.experimental_latent_carry" not in paths
+
+
+def _latent_factory(fail_at=None):
+    """`_factory`'s silent segments, plus their latents when asked: (1, 4, T,
+    1, 1) for 16x16 frames, every value naming its call and latent frame."""
+    base = _factory(fail_at)
+
+    def output(arguments, index):
+        result = base(arguments, index)
+        if "latents" in (arguments.get("output") or []):
+            count = arguments["num_frames"]
+            frames = 5 * ((count - 5) // 17) + 2
+            values = torch.arange(frames, dtype=torch.float32) + 100 * index
+            result["latents"] = values.view(1, 1, frames, 1, 1).repeat(1, 4, 1, 1, 1)
+        return result
+
+    return output
+
+
+def test_resume_with_latent_carry_reencodes_the_first_seam(
+    outputs, events, monkeypatch
+):
+    from dw.pipeline_processors import chain_resume
+
+    monkeypatch.setenv(REFINE_WINDOWS_ENV_VAR, "1")
+    encoded = []
+
+    def encode(pipeline, frame):
+        encoded.append(frame.getpixel((8, 8)))
+        return torch.full((1, 4, 1, 1, 1), -7.0)
+
+    monkeypatch.setattr(chain_resume, "encode_keystone", encode)
+    chain = _chain(
+        continuity="guide",
+        guide_frames=22,
+        segments=3,
+        carry_audio=False,
+        experimental_latent_carry=True,
+        keystone="segment_1",
+        keystone_slot="latent",
+    )
+    del chain["trim_frames"]
+    arguments = _arguments(num_frames=39)
+    dead = _pipeline(outputs, FIRST_RUN, _latent_factory(fail_at=1))
+    with pytest.raises(SegmentFailed):
+        run_chain(dead, chain, arguments)
+
+    pipeline = _pipeline(outputs, SECOND_RUN, _latent_factory())
+    run_chain(pipeline, {**chain, "resume_from": _first_file_reference()}, arguments)
+
+    first, second = pipeline.calls
+    # The first resumed seam: the kept file's decoded frames, encoded by the
+    # layout - no carried latents - and the keystone encoded again, once
+    (guide,) = first["guides"]
+    assert "latents" not in guide and len(guide["video"]) == 22
+    assert len(encoded) == 1
+    assert torch.equal(guide["keystone_latents"], torch.full((1, 4, 1, 1, 1), -7.0))
+    # The keyframe is segment 1's decoded frame 0, the frame encoded
+    assert first["image"].getpixel((8, 8)) == encoded[0]
+    # Every later seam is a live latent carry again
+    (guide,) = second["guides"]
+    assert guide["latents"] is not None
+    assert torch.equal(guide["keystone_latents"], torch.full((1, 4, 1, 1, 1), -7.0))
+    (resumed,) = _warnings(events, "chain_resumed")
+    assert resumed["reencoded_guide"] is True
+    assert "carried latents" in resumed["message"]
+    assert "latent keystone" in resumed["message"]
 
 
 def test_a_bare_path_is_refused_as_the_location_policy_refuses_one(outputs):

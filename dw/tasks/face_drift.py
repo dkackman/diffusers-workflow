@@ -145,10 +145,16 @@ def _reference_picture(reference):
     )
 
 
+class NoFaceInReference(ValueError):
+    """The reference picture holds no face: a ValueError to a task's caller,
+    and told apart by the chain check, whose reference is segment 1's frame 0
+    rather than a picture the caller gave (`chain_check.face_base`)."""
+
+
 def _reference_embedding(detect, recognizer, reference, notes):
     faces = _embeddings(detect, recognizer, _reference_picture(reference))
     if not faces:
-        raise ValueError(
+        raise NoFaceInReference(
             f"{COMMAND}: no face found in 'reference' - give a picture with the "
             "character's face in it"
         )
@@ -243,12 +249,39 @@ def _measure_shot(video, index, shot, media, models, embedding, samples):
     first, last = _span(start, count, media.frame_count)
     where = _where(index, shot.get("name"), first, last, media.fps)
     indexes = _sample_indexes(start, count, media.frame_count, samples)
+    pictures = (_picture_at(video, frame) for frame in indexes)
+    matches = _matches(detect, recognizer, embedding, pictures)
+    return _shot_measurement(where, matches, len(indexes), len(matches))
+
+
+def _matches(detect, recognizer, embedding, pictures):
+    """The best match against `embedding` of each picture that holds a face."""
     matches = []
-    for frame in indexes:
-        faces = _embeddings(detect, recognizer, _picture_at(video, frame))
+    for picture in pictures:
+        faces = _embeddings(detect, recognizer, picture)
         if faces:
             matches.append(_best_match(recognizer, embedding, faces))
-    return _shot_measurement(where, matches, len(indexes), len(matches))
+    return matches
+
+
+def face_similarities(frames, reference, samples, device=None):
+    """The SFace similarity to `reference` of up to `samples` evenly spaced
+    frames of an in-memory clip, one per sampled frame that holds a face (the
+    best match among its faces) - `analyze_face_drift`'s scoring, for a caller
+    holding frames rather than a file (the chain check's `face_drop`).
+
+    `frames` are PIL images or RGB arrays; `reference` an image, an array or
+    a stored path, whose largest face is held. A reference with no face is
+    refused (NoFaceInReference, a ValueError); a clip with no face answers
+    []. YuNet and SFace run on the reference and the sampled frames only."""
+    detect, recognizer = _models(device)
+    embedding = _reference_embedding(detect, recognizer, reference, [])
+    total = len(frames)
+    pictures = (
+        _reference_picture(frames[index])
+        for index in _sample_indexes(0, total, total, int(samples))
+    )
+    return _matches(detect, recognizer, embedding, pictures)
 
 
 def _findings(measurements, threshold):

@@ -5,8 +5,9 @@ size and gate status when the hub is asked (#382, #975, #981).
 
 Everything here is a walk over the expanded definition: a `model_name` or
 `loras` repo under a `from_pretrained_arguments`, a `from_single_file` URL, a
-`load_components` repo override, and the repos a task declares through its
-command's `required_weights` hook. The cache is read through `hub_cache` and
+`load_components` repo override, the repos a task declares through its
+command's `required_weights` hook, and the face models a chain whose `check`
+is on reads for its face_drop. The cache is read through `hub_cache` and
 `quantized_cache`, never a directory probe of the plan's own - a free
 pre-flight must not be an existence oracle for paths on the box. Nothing here
 knows a model; `dw/plan.py` assembles the answer into the plan beside the
@@ -61,7 +62,8 @@ def downloads_required(expanded, base_dir, workflow_dir, cache_dir, lookup_sizes
     (#382) - a component the load needs is missing, or a blob is still
     `.incomplete` - plus every `from_single_file` that is a URL, and every
     repo a task step declares through its command's `required_weights` hook
-    (#975, dw/tasks/weights.py), listed once when a pipeline step loads it
+    (#975, dw/tasks/weights.py) - and the face models a checked chain's
+    face_drop reads - listed once when a pipeline step loads it
     too. A task that fetches one file of a repo declares the file, keyed by
     `(repo, filename, revision)`: it is checked in the cache file by file
     (`_cached_file` - a pinned commit needs no `refs/main`, and another
@@ -233,25 +235,57 @@ def _collect_task_weights(tree, names, files, urls):
         task = tree.get("task")
         if isinstance(task, dict) and isinstance(task.get("command"), str):
             arguments = task.get("arguments")
-            for entry in _task_weights(
-                task["command"], arguments if isinstance(arguments, dict) else {}
-            ):
-                repo, url = entry.get("repo"), entry.get("url")
-                filename = entry.get("filename")
-                if isinstance(repo, str) and isinstance(filename, str):
-                    key = (repo, filename, entry.get("revision"))
-                    if key not in files:
-                        files.append(key)
-                elif isinstance(repo, str) and repo not in names:
-                    names.append(repo)
-                elif repo is None and isinstance(url, str) and _is_url(url):
-                    if url not in urls:
-                        urls.append(url)
+            _add_weights(
+                _task_weights(
+                    task["command"], arguments if isinstance(arguments, dict) else {}
+                ),
+                names,
+                files,
+                urls,
+            )
+        chain = tree.get("chain")
+        if isinstance(chain, dict) and _chain_checked(chain.get("check")):
+            _add_weights(_chain_check_weights(), names, files, urls)
         for value in tree.values():
             _collect_task_weights(value, names, files, urls)
     elif isinstance(tree, list):
         for value in tree:
             _collect_task_weights(value, names, files, urls)
+
+
+def _add_weights(entries, names, files, urls):
+    """Weight entries into the walk's lists, deduplicated: a file as a
+    `(repo, filename, revision)` key, a whole repo by name, a bare URL."""
+    for entry in entries:
+        repo, url = entry.get("repo"), entry.get("url")
+        filename = entry.get("filename")
+        if isinstance(repo, str) and isinstance(filename, str):
+            key = (repo, filename, entry.get("revision"))
+            if key not in files:
+                files.append(key)
+        elif isinstance(repo, str) and repo not in names:
+            names.append(repo)
+        elif repo is None and isinstance(url, str) and _is_url(url):
+            if url not in urls:
+                urls.append(url)
+
+
+def _chain_checked(check):
+    """Whether a chain's `check` is on: true or an object. A reference left
+    unresolved (a composed child's raw definition) is not known to be."""
+    return check is True or isinstance(check, dict)
+
+
+def _chain_check_weights():
+    """A checked chain's face_drop reads YuNet and SFace, fetched at run time
+    like a task's (`chain_check.face_base`), so the plan lists them too."""
+    from .tasks.face_drift import required_weights
+
+    try:
+        return [entry for entry in required_weights({}) if isinstance(entry, dict)]
+    except Exception as error:
+        logger.debug(f"required_weights for the chain check failed: {error}")
+        return []
 
 
 def _task_weights(command, arguments):

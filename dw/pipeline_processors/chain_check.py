@@ -23,14 +23,27 @@ segment with a line, segment 1 included (`chain_config.segment_line`), and
 re-rolling measure. The default minimum is None, the measure off:
 bench/records/words.md found no clean separation of good takes from bad.
 
+`with_face_drop` folds in the identity measure, warn-only: `face_drop`,
+segment 1's median SFace similarity to its own frame 0 (`face_base`, measured
+once, from frame 1 on) minus this segment's to that same frame
+(`face_drift.face_similarities`). Its ceiling `face_drop_max` defaults to
+None: measured and recorded on the shot's `check`, never failed, until the
+bench sets it. A model that cannot load leaves the measure None rather than
+failing a chain. Lip sync is not measured here: no threshold separated one
+segment's good audio from bad (ruling R9, bench/records/narrated.md), so
+`measure_lip_sync` is a take-level task only.
+
 Measurement and choice only: nothing here renders, and nothing here touches
 the timeline. The chain keys are validated by `chain_rules.chain_check_problem`.
 """
 
+import logging
 import math
 from dataclasses import dataclass, field
 
 import numpy
+
+logger = logging.getLogger("dw")
 
 # The default ceilings, set from the 99th percentile of each seam measure
 # across the noise-floor runs of S1-S3 (bench/records/noise-floor.md, "Chain
@@ -96,6 +109,13 @@ WORDS_FINDINGS = (
 # head_trim, and the one or two before it
 SEAM_TAIL_WORDS = 3
 
+# face_drop: how far a segment's faces have moved from segment 1's frame 0,
+# below segment 1's own median similarity to it. None by default - measured
+# and recorded, never failed - until the bench sets it
+FACE_DROP_DEFAULT = None
+# Frames of a segment, evenly spaced, its face similarity is the median of
+FACE_SAMPLES = 8
+
 # The measures a check can fail, in the order a failure names them
 MEASURES = (
     "jump_ratio",
@@ -104,12 +124,21 @@ MEASURES = (
     "cut_ratio",
     "audio_dbfs",
     "words",
+    "face_drop",
 )
 
 # Measures that warn and record but never re-roll a segment (ruling R38):
 # texture drift is in the carry, so a fresh seed from the same carry inherits
-# it (bench/records/check.md). The others a new seed can fix
-WARN_ONLY = ("texture_ratio",)
+# it (bench/records/check.md); the identity measure is not yet known to be
+# one a new seed fixes. The others a new seed can fix
+WARN_ONLY = ("texture_ratio", "face_drop")
+
+# The measures with_face_drop records on a checked segment's shot `check`
+FACE_RECORD = ("face_drop",)
+
+# The failed measures that read the `words` answer: a failed one, and a passed
+# one whose opening is missing (#1308)
+WORDS_MEASURES = frozenset({"words", "words_opening"})
 
 # Frames of a segment, evenly spaced, its fine-band texture is the mean of
 TEXTURE_SAMPLES = 4
@@ -125,7 +154,9 @@ class SegmentCheck:
     fine-band ratio both ways (None skips it); `audio_dbfs_min` is the floor
     of its generated audio (None skips it); `words_similarity_min` the least
     similarity of its heard words to its line (None, the default, skips the
-    words measure); `face` is reserved."""
+    words measure); `face_drop_max` the most a segment's face similarity
+    may fall below segment 1's (None, the default, measures and records
+    without failing)."""
 
     jump_ratio_max: float = JUMP_RATIO_MAX
     look_ratio_max: float = LOOK_RATIO_MAX
@@ -133,7 +164,7 @@ class SegmentCheck:
     cut_ratio_max: float | None = CUT_RATIO_MAX
     audio_dbfs_min: float | None = AUDIO_DBFS_MIN
     words_similarity_min: float | None = WORDS_SIMILARITY_DEFAULT
-    face: None = None
+    face_drop_max: float | None = FACE_DROP_DEFAULT
 
 
 @dataclass
@@ -169,6 +200,7 @@ def segment_check(value):
         "cut_ratio_max",
         "audio_dbfs_min",
         "words_similarity_min",
+        "face_drop_max",
     ):
         if name in value:
             fields[name] = None if value[name] is None else float(value[name])
@@ -285,7 +317,113 @@ def with_words(result, words):
     if words is not None and not words["passed"]:
         result.failed.append("words")
         result.passed = False
+    elif words is not None and any(
+        f.get("rule") == "line_opening_missing" for f in words["findings"]
+    ):
+        # Passed, but its opening is gone (#1308): re-rolls like a failure
+        result.failed.append("words_opening")
+        result.passed = False
     return result
+
+
+def _face_scores(frames, reference, samples):
+    """The seam the face models sit behind: `face_similarities`."""
+    from ..tasks.face_drift import face_similarities
+
+    return face_similarities(frames, reference, samples)
+
+
+def _measured(name, measure, *args):
+    """`measure(*args)`, or None when it raises: a measure that only records
+    must never fail the chain it is measuring (a reduced cv2, no weights)."""
+    try:
+        return measure(*args)
+    except Exception as error:
+        logger.warning(f"Chain check: {name} not measured ({error})")
+        return None
+
+
+def face_base(frames):
+    """(reference, median): segment 1's frame 0 and the median similarity of
+    segment 1's sampled frames from index 1 on to it - frame 0 against itself
+    would match at 1.0 and lift the base - which every later segment's
+    face_drop is measured from, once. None when frame 0 holds no face (one
+    log line says so) or the models cannot load: face_drop is then never
+    measured."""
+    if len(frames) < 2:
+        return None
+    from ..tasks.face_drift import NoFaceInReference
+
+    reference = frames[0]
+    try:
+        scores = _face_scores(list(frames[1:]), reference, FACE_SAMPLES)
+    except NoFaceInReference:
+        # Said once, in the chain's words: the task's own message asks for a
+        # reference picture, which a chain's caller never gave
+        logger.info(
+            "Chain check: face_drop not measured - segment 1's first frame "
+            "shows no face"
+        )
+        return None
+    except Exception as error:
+        logger.warning(f"Chain check: face_drop not measured ({error})")
+        return None
+    if not scores:
+        return None
+    return reference, float(numpy.median(scores))
+
+
+def with_face_drop(result, frames, base, check):
+    """`result` with the segment's `face_drop` (against `face_base`'s `base`,
+    None without one or with no face in the segment) recorded, failing it
+    only when the check sets `face_drop_max`. WARN_ONLY: a failure is
+    recorded and warned, never re-rolled."""
+    drop = None
+    if base is not None:
+        scores = _measured("face_drop", _face_scores, frames, base[0], FACE_SAMPLES)
+        if scores:
+            drop = round(base[1] - float(numpy.median(scores)), 3)
+    result.measures["face_drop"] = drop
+    if check.face_drop_max is not None and _over(drop, check.face_drop_max):
+        result.failed.append("face_drop")
+    result.passed = result.passed and not result.failed
+    return result
+
+
+def face_record(result):
+    """The identity measure of a checked segment, for its shot."""
+    return {name: result.measures.get(name) for name in FACE_RECORD}
+
+
+def shown_value(result, name):
+    """A failed measure's value as a failure names it: the words measure by
+    its similarity, every other by its number."""
+    value = result.measures.get(name)
+    if name in WORDS_MEASURES:
+        value = result.measures.get("words")
+    if name in WORDS_MEASURES and isinstance(value, dict):
+        return value.get("similarity")
+    return value
+
+
+def _failure_text(result, name):
+    """One failed measure as a log or warning names it. A words failure also
+    names the findings that failed it and what was heard: a passing
+    similarity still fails on any WORDS_FINDINGS finding (#1262), and the
+    number alone would not say why."""
+    text = f"{name} {shown_value(result, name)}"
+    words = result.measures.get("words") if name in WORDS_MEASURES else None
+    if not isinstance(words, dict):
+        return text
+    rules = list(dict.fromkeys(f.get("rule") for f in words.get("findings") or ()))
+    if rules:
+        text += f" with {', '.join(str(rule) for rule in rules)}"
+    return text + f", heard {words.get('heard', '')!r}"
+
+
+def failures_text(result):
+    """Every failed measure of a CheckResult, as the log and warning name them."""
+    return "; ".join(_failure_text(result, name) for name in result.failed)
 
 
 def _words_only(result):
@@ -475,40 +613,84 @@ def _clipped_at_head(chunks, expected, previous_line, head_seconds):
     return None
 
 
-def _opens_mid_line(chunks, expected, head_seconds, within=0.1):
-    """line_clipped_at_head for a kept span that already passed, or None:
-    the span's first word starts within `within` seconds of its first sample
-    and is not the line's first word, so speech was running when the head
-    trim cut, and the line's opening is gone (#1308). Reported, not failed:
-    the similarity cleared the floor, and a fresh seed starts the line at
-    the same place."""
-    from ..script_lines import normalize_words
+def _folded_heard(chunks):
+    """(heard, first_chunk): `chunks`' words as `_seam_head` builds them -
+    unfolded per chunk, then folded across chunks by `fold_numbers` - as
+    [{"word": ...}], with the index of the chunk each begins in."""
+    from ..script_lines import fold_numbers, normalize_words
 
-    if not expected:
+    owners = [
+        index
+        for index, chunk in enumerate(chunks)
+        for _ in normalize_words(chunk.get("text", ""), numbers=False)
+    ]
+    unfolded = [
+        word
+        for chunk in chunks
+        for word in normalize_words(chunk.get("text", ""), numbers=False)
+    ]
+    heard, firsts, k = [], [], 0
+    for word, count in fold_numbers(unfolded):
+        heard.append({"word": word})
+        firsts.append(owners[k])
+        k += count
+    return heard, firsts
+
+
+def _opens_mid_line(chunks, expected, head_seconds, previous_line=None):
+    """line_opening_missing (#1308) for a kept span that passed, or None: the
+    line's words are aligned to the span's heard words (`script_check.align`,
+    heard words folded as `_seam_head` folds them) and the words of the line
+    before the first one heard are its `missing` opening. Fires on a carried
+    segment (`previous_line`) or one with a head trim (`head_seconds`): the
+    trim or the carry cut the line's start. Reported, and the segment
+    re-rolls (`with_words`): the similarity cleared the floor with the
+    opening gone."""
+    from difflib import SequenceMatcher
+
+    from ..tasks.script_check import align
+
+    if not expected or not (previous_line or head_seconds > 0):
         return None
+    heard, firsts = _folded_heard(chunks)
+    assigned, _ = align([expected], heard)
+    if not assigned[0]:
+        return None
+    blocks = SequenceMatcher(
+        None, expected, [h["word"] for h in heard], autojunk=False
+    ).get_matching_blocks()
+    first = next((block for block in blocks if block.size), None)
+    if first is None or first.a == 0:
+        return None
+    missing = expected[: first.a]
+    chunk = chunks[firsts[first.b]]
+    start = chunk.get("start")
+    return {
+        "rule": "line_opening_missing",
+        "severity": "warn",
+        "at": {
+            "seconds": None if start is None else round(float(start), 3),
+            "word": heard[first.b]["word"],
+        },
+        "value": first.b,
+        "threshold": 0,
+        "missing": missing,
+        "says": (
+            f"the segment's audio opens past the line's first words ({' '.join(missing)}):"
+            " its opening was cut by the head trim or never spoken; the"
+            " similarity passed, but the delivered video lacks them - the"
+            " segment re-rolls once, and a fresh seed may start the line"
+            " earlier; for a long monologue use a narrated take"
+        ),
+    }
+
+
+def _first_word_start(chunks):
+    """The start of the first chunk with text, or None."""
     for chunk in chunks:
-        text = chunk.get("text", "").strip()
-        if not text:
-            continue
-        start = chunk.get("start")
-        words = normalize_words(text)
-        if start is None or start > within or not words or words[0] == expected[0]:
-            return None
-        return {
-            "rule": "line_clipped_at_head",
-            "severity": "warn",
-            "at": {"seconds": round(float(start), 3), "word": text},
-            "value": round(float(start), 3),
-            "threshold": round(float(head_seconds), 3),
-            "says": (
-                "the delivered video opens mid-line: speech is already running at"
-                " the first sample, on a word that is not the line's first, so"
-                " the line started inside the frames the chain trims off the head;"
-                " the segment passed its words check, but its opening is cut -"
-                " move the line later in the prompt (an 'at N seconds' cue past"
-                " the guide span)"
-            ),
-        }
+        if chunk.get("text", "").strip():
+            start = chunk.get("start")
+            return None if start is None else round(float(start), 3)
     return None
 
 
@@ -524,7 +706,7 @@ def check_words(
     head_seconds=0.0,
 ):
     """Whether a dialogue segment's kept audio speaks its line (#1262), as
-    {similarity, heard, findings, passed, seam_head_dropped}.
+    {similarity, heard, findings, passed, seam_head_dropped, first_word_start}.
 
     `audio` is the kept span ((channels, samples) or 1-D), `line` the text
     the segment is meant to speak (markup kept: `script_lines.dialogue_text`
@@ -537,7 +719,11 @@ def check_words(
     shots, after the seam-head rule (`_seam_head`) drops carried words of
     `previous_line` at the head. `findings` are its WORDS_FINDINGS, each of
     which fails the segment; so does a similarity under `minimum`, or none
-    (the line looped and was never transcribed). `heard` is the transcript
+    (the line looped and was never transcribed). A passed segment may also
+    carry `line_opening_missing` (#1308): it stays `passed`, but `with_words`
+    fails the segment's `words_opening` measure so it re-rolls, and the
+    chain reports it when every attempt carries it. `first_word_start` is
+    the start of the first kept chunk. `heard` is the transcript
     after the seam-head rule, joined; `seam_head_dropped` the chunks it
     dropped."""
     from ..script_lines import normalize_words, parse_lines
@@ -577,14 +763,13 @@ def check_words(
         if clipped is not None:
             findings.append(clipped)
     passed = not failed
-    if passed and head_seconds > 0 and previous_line:
-        # A pass can hide a head clip (#1308): the similarity cleared the
-        # floor with the line's opening missing. The kept span's own word
-        # timings show it without a second pass: speech already running at
-        # its first sample, on a word that is not the line's first
-        clipped = _opens_mid_line(chunks, expected, head_seconds)
-        if clipped is not None:
-            findings.append(clipped)
+    if passed:
+        # A pass can hide a missing opening (#1308): the similarity cleared
+        # the floor without the line's first words. The kept span's own
+        # alignment shows it without a second pass
+        opening = _opens_mid_line(chunks, expected, head_seconds, previous_line)
+        if opening is not None:
+            findings.append(opening)
     heard = " ".join(
         text for text in (chunk.get("text", "").strip() for chunk in chunks) if text
     )
@@ -594,4 +779,5 @@ def check_words(
         "findings": findings,
         "passed": passed,
         "seam_head_dropped": [chunk.get("text", "").strip() for chunk in dropped],
+        "first_word_start": _first_word_start(chunks),
     }

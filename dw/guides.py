@@ -34,8 +34,8 @@ other than guide or last_frame, or carried into `references`
 
 The experimental latent carry (#1150; `experimental_latent_carry`) is refused
 there too, by `chain_latent_carry_problem` (shared with the run): the flag
-off, a continuity other than guide, a look_hold, match_audio or the step's
-nonzero `guide_noise`.
+off, a continuity other than guide, a look_hold or the step's nonzero
+`guide_noise`; with a held track it carries video latents only.
 
 Fixed guide noise (#1166) is refused by `guide_noise_errors`: a `guide_noise`
 that is not a number in [0, 1) (`guide_noise_problem`, shared with the run), or
@@ -51,22 +51,30 @@ from .adapter_compatibility import (
     WORKFLOW_KEY,
 )
 from .for_each import render_path
-from .pipeline_processors.h3_guides import default_num_frames
+from .pipeline_processors.h3_guides import (
+    AUDIO_GRID_FRAMES,
+    AUDIO_GRID_LENGTHS,
+    default_num_frames,
+)
 from .pipeline_processors.chain_rules import (
+    CHAIN_ANCHOR_EVERY,
     CHAIN_CAPSTONE,
     CHAIN_KEYSTONE_SLOT,
     CHAIN_LINES,
     CHAIN_LATENT_CARRY,
     CHAIN_RESUME_FROM,
+    CHAIN_STOP_AFTER,
     chain_capstone_problem,
     chain_carry_pick_problem,
     chain_check_finding,
     chain_keystone_slot_problem,
+    chain_anchor_every_problem,
     chain_latent_carry_problem,
     chain_lines_problem,
     chain_look_hold_problem,
     chain_needs_frame_snap,
     chain_resume_problem,
+    chain_stop_after_problem,
     resume_reference_problem,
 )
 from .pipeline_processors.h3_rules import (
@@ -79,6 +87,7 @@ from .pipeline_processors.h3_rules import (
     GUIDE_CONTINUITY,
     GUIDE_LIMIT,
     GUIDE_NOISE_INPUT,
+    HOLD_AUDIO_INPUT,
     LATENT_ANCHOR_INPUT,
     LATENT_ANCHOR_STRENGTH_INPUT,
     anchor_strength_problem,
@@ -431,8 +440,8 @@ def _chain_rule_findings(chain, arguments):
     """(chain key, problem) for every chain-block rule this step's chain
     breaks, in the order validation reports them: the anchor strength, the
     carry pick, the look hold, the keystone and its slot, the capstone, the
-    latent carry, the per-segment check, the expected lines and the
-    resume."""
+    latent carry, the anchor spacing, the per-segment check, the expected
+    lines, the probe's stop_after and the resume."""
     arguments = arguments if isinstance(arguments, dict) else {}
     num_frames = arguments.get("num_frames")
     strength = chain.get("anchor_strength")
@@ -448,10 +457,9 @@ def _chain_rule_findings(chain, arguments):
         (CHAIN_CAPSTONE, chain_capstone_problem(chain, num_frames)),
         (
             CHAIN_LATENT_CARRY,
-            chain_latent_carry_problem(
-                chain, arguments.get(GUIDE_NOISE_INPUT), arguments.get("hold_audio")
-            ),
+            chain_latent_carry_problem(chain, arguments.get(GUIDE_NOISE_INPUT)),
         ),
+        (CHAIN_ANCHOR_EVERY, chain_anchor_every_problem(chain)),
     ]
     findings.append(chain_check_finding(chain) or (None, None))
     findings.append(
@@ -462,6 +470,7 @@ def _chain_rule_findings(chain, arguments):
             ),
         )
     )
+    findings.append((CHAIN_STOP_AFTER, chain_stop_after_problem(chain)))
     resume_from = chain.get(CHAIN_RESUME_FROM)
     findings.append(
         (
@@ -511,6 +520,47 @@ def chain_lines_warnings(workflow_definition, source_indices=None):
             "a number, on a chain whose audio is generated (no match_audio or "
             f"hold_audio){where}"
         )
+    return warnings
+
+
+def held_audio_warnings(workflow_definition, source_indices=None):
+    """["path: message"] for a chain step that holds a track (`hold_audio`):
+    with no `match_audio` every segment holds the whole track from its start,
+    and a literal `num_frames` off H3's 3-frame audio grid puts each seam
+    mid-latent. Unresolved references are left to the run."""
+    warnings = []
+    for _, _, pipeline, source, where in references.iter_steps(
+        workflow_definition.get("steps"), source_indices, "pipeline"
+    ):
+        chain = pipeline.get("chain")
+        arguments = pipeline.get("arguments")
+        if not isinstance(chain, dict) or not isinstance(arguments, dict):
+            continue
+        if arguments.get(HOLD_AUDIO_INPUT) is None:
+            continue
+        match_audio = chain.get("match_audio")
+        if not match_audio and not (
+            isinstance(match_audio, str)
+            and references.is_ref(references.UNRESOLVED, match_audio)
+        ):
+            path = render_path(("steps", source, "pipeline", "chain", "match_audio"))
+            warnings.append(
+                f"{path}: every segment holds the whole track from its start; "
+                f"set match_audio: true to give each segment its slice{where}"
+            )
+        num_frames = arguments.get("num_frames")
+        if (
+            isinstance(num_frames, int)
+            and not isinstance(num_frames, bool)
+            and num_frames % AUDIO_GRID_FRAMES
+        ):
+            path = render_path(("steps", source, "pipeline", "arguments", "num_frames"))
+            lengths = ", ".join(str(n) for n in AUDIO_GRID_LENGTHS)
+            warnings.append(
+                f"{path}: H3's audio latents run at 40 a second; {num_frames} "
+                f"frames is off the {AUDIO_GRID_FRAMES}-frame audio grid; the "
+                f"nearest on-grid lengths are {lengths}{where}"
+            )
     return warnings
 
 

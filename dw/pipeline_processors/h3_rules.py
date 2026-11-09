@@ -486,6 +486,13 @@ GUIDE_AUDIO_ROWS = "dw_guide_audio_latents"
 CAPSTONE_PAST_END = "past_end"
 CAPSTONE_GATE = "enter_below_sigma"
 GATED_GUIDE_ROWS = "dw_gated_guide_rows"
+# The experimental latent keystone (Task 9, chain keystone_slot "latent"): a
+# guide's key for the latent written over its latent 0, the state key the
+# layout leaves [(row, the guide's own packed latent-0 rows)] under, and the
+# block before `after_denoise` that writes those rows back. Behind the flag
+KEYSTONE_LATENTS = "keystone_latents"
+KEYSTONE_RESTORE_ROWS = "dw_keystone_restore_rows"
+KEYSTONE_RESTORE_BLOCK = "dw_keystone_restore"
 
 # Fixed guide noise (#1166, after PrefixStream): pixel noise on every video
 # guide, tapered by `guide_noise_taper` to clean at the guide's last frame, put

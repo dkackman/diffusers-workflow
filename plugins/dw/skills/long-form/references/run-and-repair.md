@@ -91,6 +91,9 @@ Each segment is measured before it is kept (segment 1 for `audio_dbfs` and
     the guide's head trim, so its first words were cut from the take. A
     fresh seed starts the line at the same place: move the line later in
     the prompt rather than re-rolling (#1300).
+  - **`line_opening_missing`** on a passed segment means its audio opens
+    past the line's first words (`missing` names them): it re-rolls while
+    `retries` remain, and warns when every attempt has it (#1308).
   - **Cost.** One Whisper pass on CPU per attempt, about 1.3 s for an 8 s
     segment on lem once loaded (`words.md`), counted in `plan.estimate`.
     No VRAM is added beside H3.

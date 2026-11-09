@@ -324,6 +324,7 @@ WARNING_ORDER = [
     "guide_noise_warnings",
     "chain_lines_warnings",
     "frame_snap_warnings",
+    "held_audio_warnings",
 ]
 
 

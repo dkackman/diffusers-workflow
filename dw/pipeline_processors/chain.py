@@ -44,7 +44,6 @@ from ..media_types import AudioVideo, fit_codec_padding
 from ..output_extraction import get_artifact_list
 from ..events import emit_log, emit_warning
 from ..shots import shot_record, without_samples
-from ..dsp import slice_samples
 from ..task_domains import frames_to_samples
 from ..tasks.joins import equal_power_crossfade_join
 from ..tasks.video_utils import frames_as_pil_list
@@ -55,18 +54,24 @@ from .chain_spill import (  # noqa: F401 - SegmentedFrames and SavedFrames re-ex
     spilled_frames,
 )
 from .chain_check import (
+    WORDS_MEASURES,
     audio_dbfs,
     best_attempt,
     check_audio,
     check_segment,
     check_words,
+    face_base,
+    face_record,
+    failures_text as _failures,
     measure_frames,
     reroll_seed,
+    shown_value as _shown_value,
     texture_base,
+    with_face_drop,
     with_words,
 )
 from . import chain_resume
-from .chain_config import ChainConfig
+from .chain_config import ChainConfig, trimmed_take_shots
 from .chain_continuity import CONTINUITY_MODES, _generated_audio
 from .chain_look import LookHold
 from .h3_anchor import anchor_refusal
@@ -75,7 +80,9 @@ from .chain_rules import (
     CHAIN_CAPSTONE,
     CHAIN_LATENT_CARRY,
     KEYSTONE_SLOT_LAST,
+    KEYSTONE_SLOT_LATENT,
     place_keystone,
+    segment_1_keystone,
 )
 from .h3_rules import (
     ANCHOR_SEGMENT_1,
@@ -111,6 +118,7 @@ def run_chain(pipeline, chain_definition, arguments):
         arguments,
         getattr(pipeline, "chain_prompts", None),
         getattr(pipeline, "base_dir", None),
+        getattr(pipeline, "chain_lines", None),
     )
     continuity = CONTINUITY_MODES[config.continuity](config)
     if config.continuity == GUIDE_CONTINUITY:
@@ -144,15 +152,15 @@ def run_chain(pipeline, chain_definition, arguments):
 
     # The step's seed, which a re-roll offsets (chain_check.reroll_seed); the
     # previous segment's kept frames, which a check measures the seam
-    # against, and segment 1's fine-band texture, which it measures drift by
-    # (measured once, rather than from its frames at every check)
+    # against, and segment 1's fine-band texture and face base (frame 0 and
+    # its median match), which it measures drift by - each measured once
     seed = _step_seed(arguments)
     previous_kept = None
-    segment_1_texture = None
+    segment_1_texture = segment_1_face = None
 
     # An earlier run's kept segments, copied in as segments 1..k
     try:
-        resumed = chain_resume.load(config, spill, hold)
+        resumed = chain_resume.load(config, spill, hold, pipeline)
     except Exception:
         # load keeps only accepted files in the spill (a refused one's copy
         # is taken back out), so the hint names a resumable prefix, and a
@@ -166,9 +174,10 @@ def run_chain(pipeline, chain_definition, arguments):
         capstone_frame = resumed.capstone_frame
         previous_kept = resumed.previous_kept
         segment_1_texture = resumed.segment_1_texture
+        segment_1_face = resumed.segment_1_face
 
     try:
-        for segment in config.plan[resumed.count if resumed else 0 :]:
+        for segment in config.plan[resumed.count if resumed else 0 : config.end_index]:
             logger.info(
                 f"Chain segment {segment.index + 1}/{len(config.plan)}"
                 + (f": {segment.num_frames} frames" if segment.num_frames else "")
@@ -193,7 +202,7 @@ def run_chain(pipeline, chain_definition, arguments):
                     continuity,
                     state,
                     previous_kept,
-                    segment_1_texture,
+                    (segment_1_texture, segment_1_face),
                 )
             else:
                 attempt = _render_attempt(
@@ -207,12 +216,13 @@ def run_chain(pipeline, chain_definition, arguments):
             hold = attempt.hold
             if segment.index == 0:
                 anchor_frames, keystone_frame, capstone_frame = _from_segment_1(
-                    config, attempt.rendered
+                    config, attempt.rendered, attempt.latent_0
                 )
             if config.check is not None:
                 # Keep the kept segment's small measures, not its frames
                 if segment.index == 0:
                     segment_1_texture = texture_base(attempt.kept)
+                    segment_1_face = face_base(attempt.kept)
                     previous_kept = measure_frames(attempt.kept)
                 else:
                     previous_kept = checked["result"].frame_data
@@ -315,6 +325,8 @@ def _keystone_note(config, arguments):
         return "opens on segment 1's frame 0"
     if slot == KEYSTONE_SLOT_LAST:
         return "ends on segment 1's frame 0 (its last_image)"
+    if slot == KEYSTONE_SLOT_LATENT:
+        return "holds segment 1's frame-0 latent over its guide's latent 0"
     return f"is guided by segment 1's frame 0 at frame {slot['frame']}"
 
 
@@ -324,7 +336,8 @@ def _log_seam_holds(config, segment, attempt, state, keystone_note=None):
     `_keystone_note` says) and corrected by the look hold; the first only
     sets the scene, and its carry may be pre-compensated for the next."""
     seam = f"Chain seam {segment.index}/{len(config.plan) - 1}"
-    if segment.index > 0 and state.keystone_frame is not None and keystone_note:
+    keystone = state.keystone_frame if config.anchors(segment.index) else None
+    if keystone is not None and keystone_note:
         emit_log(
             f"{seam}: keystone applied - segment {segment.index + 1} {keystone_note}"
         )
@@ -423,6 +436,7 @@ class _Attempt:
     hold: object  # the look-hold state after this segment, or None
     tail_trim: int
     seed: int = None
+    latent_0: object = None  # segment 1's frame-0 latent, a latent keystone's
 
 
 def _render_attempt(
@@ -432,6 +446,8 @@ def _render_attempt(
     step's own generator; attempt n > 0 on `chain_check.reroll_seed`'s seed.
     The look-hold state is forked when more than one attempt may run, so a
     discarded attempt leaves nothing behind in it."""
+    # Under anchor_every only every n-th later segment takes these two
+    anchored = config.anchors(segment.index)
     segment_arguments = _segment_arguments(
         arguments,
         config,
@@ -439,12 +455,14 @@ def _render_attempt(
         continuity,
         state.carry,
         state.anchor_frames,
-        state.keystone_frame,
+        state.keystone_frame if anchored else None,
     )
-    if segment.index > 0 and state.capstone_frame is not None:
+    if anchored and state.capstone_frame is not None:
         _add_capstone(segment_arguments, state.capstone_frame, config.capstone)
     seed = _reseeded(segment_arguments, state.seed, number) if number else None
-    if config.latent_carry:
+    # A latent keystone is segment 1's own frame-0 latent
+    latent_0 = segment.index == 0 and config.latent_keystone
+    if config.latent_carry or latent_0:
         segment_arguments["output"] = _with_latent_outputs(
             segment_arguments.get("output")
         )
@@ -459,7 +477,7 @@ def _render_attempt(
         "segment 1" if segment.index > 0 and state.anchor_frames is not None else None
     )
     output = pipeline._run_once(segment_arguments)
-    taken = _taken_latents(output) if config.latent_carry else None
+    taken = _taken_latents(output) if config.latent_carry or latent_0 else None
     # The frames as PIL once: the look hold, the carry and the timeline then
     # all take them by identity rather than converting again
     artifact = _with_pil_frames(_single_artifact(output))
@@ -474,7 +492,7 @@ def _render_attempt(
     if hold is not None and config.continuity == "last_frame":
         raw_carry, carry = carry, hold.feed(carry)
     rendered = frames_as_pil_list(artifact)
-    if taken is not None:
+    if config.latent_carry:
         carry = _with_latent_tail(carry, taken, config, len(rendered))
     segment_audio, segment_rate = _generated_audio(artifact)
     # A segment's own generated audio can run a codec-padding sliver
@@ -511,6 +529,7 @@ def _render_attempt(
         hold,
         tail_trim,
         seed,
+        taken[0][:, :, :1].clone() if latent_0 else None,
     )
 
 
@@ -522,9 +541,10 @@ def _checked_attempt(
     continuity,
     state,
     previous_kept,
-    segment_1_texture,
+    segment_1,
 ):
-    """Render a segment, check it against the one before and segment 1, and
+    """Render a segment, check it against the one before and segment 1 - its
+    (texture, face) bases - and
     re-roll it from the same state up to `config.retries` times while it
     fails. Returns (the kept attempt, its record): the attempt with the
     fewest failed measures, then the lowest jump ratio (`best_attempt`), and
@@ -556,7 +576,7 @@ def _checked_attempt(
             else check_segment(
                 previous_kept,
                 attempt.kept,
-                segment_1_texture,
+                segment_1[0],
                 config.check,
                 audio=kept_audio,
             )
@@ -565,6 +585,7 @@ def _checked_attempt(
             result = with_words(
                 result, _segment_words(kept_audio, attempt, segment, config)
             )
+        result = with_face_drop(result, attempt.kept, segment_1[1], config.check)
         results.append(result)
         kept_index = best_attempt(results)
         if kept_index == number:
@@ -580,7 +601,9 @@ def _checked_attempt(
         "seed": best.seed,
         # Every attempt failed its words: a fresh seed did not fix them, so
         # the cause may be in the carry (#1262)
-        "every_attempt_failed": all("words" in r.failed for r in results),
+        "every_attempt_failed": all(
+            "words" in r.failed or "words_opening" in r.failed for r in results
+        ),
     }
 
 
@@ -607,34 +630,6 @@ def _segment_words(kept_audio, attempt, segment, config):
     )
 
 
-def _shown_value(result, name):
-    """A failed measure's value as a failure names it: the words measure by
-    its similarity, every other by its number."""
-    value = result.measures.get(name)
-    if name == "words" and isinstance(value, dict):
-        return value.get("similarity")
-    return value
-
-
-def _failure_text(result, name):
-    """One failed measure as a log or warning names it. A words failure also
-    names the findings that failed it and what was heard: a passing
-    similarity still fails on any WORDS_FINDINGS finding (#1262), and the
-    number alone would not say why."""
-    text = f"{name} {_shown_value(result, name)}"
-    words = result.measures.get(name) if name == "words" else None
-    if not isinstance(words, dict):
-        return text
-    rules = list(dict.fromkeys(f.get("rule") for f in words.get("findings") or ()))
-    if rules:
-        text += f" with {', '.join(str(rule) for rule in rules)}"
-    return text + f", heard {words.get('heard', '')!r}"
-
-
-def _failures(result):
-    return "; ".join(_failure_text(result, name) for name in result.failed)
-
-
 def _record_check(shot, segment, config, checked):
     """Put a checked segment's attempts on its shot - and, when every attempt
     failed, the measures its kept attempt failed, with one job warning that
@@ -648,6 +643,7 @@ def _record_check(shot, segment, config, checked):
     if kept:
         # The seed the kept re-roll ran at, so the run can be repeated
         shot["seed"] = checked.get("seed")
+    shot["check"] = face_record(result)
     if "words" in result.measures:
         # The kept attempt's words, null for a segment with no line (#1262)
         shot["words"] = result.measures["words"]
@@ -656,7 +652,11 @@ def _record_check(shot, segment, config, checked):
     # Texture alone ends the loop on attempt 1 without trying the budget
     exhausted = result.rerolls
     shot["check_failed"] = list(result.failed)
-    words = result.measures.get("words") if "words" in result.failed else None
+    words = (
+        result.measures.get("words")
+        if WORDS_MEASURES.intersection(result.failed)
+        else None
+    )
     detail = {}
     if words is not None:
         detail = {
@@ -678,8 +678,8 @@ def _record_check(shot, segment, config, checked):
             f"{checked['attempts']}, the closest"
             if exhausted
             else f"({_failures(result)}); kept attempt {kept + 1} of "
-            f"{checked['attempts']}; texture drift is not re-rolled, "
-            "a fresh seed inherits the carry"
+            f"{checked['attempts']}; a warn-only measure is not re-rolled "
+            "(texture drift is in the carry, which a fresh seed inherits)"
         )
         + (f" - {detail['note']}" if "note" in detail else ""),
         kind="chain_check_failed",
@@ -792,31 +792,31 @@ def _stitched(config, spill, frames, audio, audio_rate, shots):
     track, or no audio at all."""
     if spill is not None:
         frames = spilled_frames(config, spill)
+    # A probe's take ends at its last rendered segment (stop_after)
+    total_frames, shots = config.take_frames(shots)
 
     if config.source_audio is not None:
         # The video matches the track's duration; the original, unsliced audio
         # is muxed in so the soundtrack has no seams
         if spill is None:
-            frames = frames[: config.total_frames]
+            frames = frames[:total_frames]
         return AudioVideo(
             frames,
-            config.source_audio,
+            config.take_track(total_frames),
             config.source_rate,
             fps=config.fps,
-            shots=_trimmed_shots(shots, config.total_frames),
+            shots=trimmed_take_shots(shots, total_frames),
         )
 
     if config.duration_seconds is not None:
         # The plan overshoots by design; the picture and the generated audio
         # are cut to the asked length together
         if spill is None:
-            frames = frames[: config.total_frames]
+            frames = frames[:total_frames]
         if audio is not None:
-            audio = audio[
-                :, : frames_to_samples(config.total_frames, config.fps, audio_rate)
-            ]
-        shots = _trimmed_shots(
-            shots, config.total_frames, audio.shape[1] if audio is not None else None
+            audio = audio[:, : frames_to_samples(total_frames, config.fps, audio_rate)]
+        shots = trimmed_take_shots(
+            shots, total_frames, audio.shape[1] if audio is not None else None
         )
     elif audio is None:
         shots = without_samples(shots)
@@ -828,10 +828,11 @@ def _copied(frame):
     return frame.copy() if hasattr(frame, "copy") else frame
 
 
-def _from_segment_1(config, rendered):
+def _from_segment_1(config, rendered, latent_0=None):
     """What later segments take from segment 1's frames as rendered: its
-    frames as the latent anchor, its frame 0 as the keystone (#1187) and its
-    late capstone frame (the experimental capstone) - each None when off."""
+    frames as the latent anchor, its frame 0 as the keystone (#1187; with its
+    frame-0 latent `latent_0` under keystone_slot "latent") and its late
+    capstone frame (the experimental capstone) - each None when off."""
     if config.capstone and config.capstone["from_end"] > len(rendered):
         raise ValueError(
             f"Chain {CHAIN_CAPSTONE} from_end {config.capstone['from_end']} is "
@@ -841,7 +842,9 @@ def _from_segment_1(config, rendered):
         rendered if config.anchor == ANCHOR_SEGMENT_1 else None,
         # A copy: the output holds rendered[0], and a later segment's
         # processing must not reach it through the shared object (#1232)
-        _copied(rendered[0]) if config.keystone == KEYSTONE_SEGMENT_1 else None,
+        segment_1_keystone(config.keystone_slot, _copied(rendered[0]), latent_0)
+        if config.keystone == KEYSTONE_SEGMENT_1
+        else None,
         rendered[-config.capstone["from_end"]] if config.capstone else None,
     )
 
@@ -891,11 +894,12 @@ def _taken_latents(output):
 
 def _with_latent_tail(carry, taken, config, num_frames):
     """The guide carry with the same span's own latents on it (#1150): the
-    video tail, and the audio rows when the chain carries audio."""
+    video tail, and the audio rows when the chain carries generated audio - a
+    held track is each segment's own slice, so its guide carries video only."""
     latents, audio = taken
     video, audio_rows = latent_guide_tail(
         latents,
-        audio if config.carry_audio else None,
+        audio if config.carry_audio and not config.audio_held else None,
         num_frames,
         config.guide_frames,
         config.guide_backoff,
@@ -924,17 +928,22 @@ def _segment_arguments(
         segment_arguments["num_frames"] = segment.num_frames
     if config.source_audio is not None:
         if config.holds_audio:
-            segment_arguments[HOLD_AUDIO_INPUT] = _audio_slice(config, segment)
+            segment_arguments[HOLD_AUDIO_INPUT] = config.audio_slice(segment)
         else:
-            segment_arguments["references"] = _sliced_references(
-                config, segment, arguments["references"]
+            segment_arguments["references"] = config.sliced_references(
+                segment, arguments["references"]
             )
 
     if segment.index > 0:
         if keystone is not None and config.keystone_slot is not None:
             # Out of the keyframe's slot, which is the guide's first latent's
             continuity.inject(segment_arguments, carry, config.segment_argument)
-            place_keystone(segment_arguments, keystone, config.keystone_slot)
+            place_keystone(
+                segment_arguments,
+                keystone,
+                config.keystone_slot,
+                config.segment_argument,
+            )
         elif keystone is not None:
             continuity.inject(
                 segment_arguments, carry, config.segment_argument, keystone=keystone
@@ -1004,51 +1013,6 @@ def _check_guide_chain(pipeline, arguments, chain_definition, config):
             "Guide chain: crossfade_ms is ignored - the guide holds the audio "
             "across each seam (set carry_audio false to crossfade instead)"
         )
-
-
-def _trimmed_shots(shots, total_frames, total_samples=None):
-    """A length-planned chain's shots, cut where its overshooting picture is.
-
-    A match_audio soundtrack is the caller's own, laid under whole rather than
-    built segment by segment, so no shot has a stretch of it to measure: the
-    sample side is cleared, not derived. A duration_seconds chain's generated
-    audio is cut to `total_samples`, and each shot's stretch of it with it.
-    """
-    trimmed = []
-    for shot in shots if total_samples is not None else without_samples(shots):
-        if shot["start_frame"] >= total_frames:
-            break
-        end = min(shot["start_frame"] + shot["num_frames"], total_frames)
-        cut = {**shot, "num_frames": end - shot["start_frame"]}
-        if total_samples is not None:
-            start = min(shot["start_sample"], total_samples)
-            cut["num_samples"] = min(shot["num_samples"], total_samples - start)
-        trimmed.append(cut)
-    return trimmed
-
-
-def _audio_slice(config, segment):
-    """The segment's piece of the matched track, as a new reference of the
-    matched one's type - the original is never touched."""
-    start = frames_to_samples(segment.audio_start_frame, config.fps, config.source_rate)
-    length = frames_to_samples(segment.num_frames, config.fps, config.source_rate)
-    piece = slice_samples(config.source_audio, start, length)
-    return type(config.audio_reference)(
-        audio=torch.from_numpy(piece), sample_rate=config.source_rate
-    )
-
-
-def _sliced_references(config, segment, references):
-    """A copy of the references list with the segment's audio slice swapped in.
-
-    The original list and reference objects are never touched - iteration
-    arguments share nested values, so they must not be mutated in place.
-    """
-    sliced = _audio_slice(config, segment)
-    return [
-        sliced if reference is config.audio_reference else reference
-        for reference in references
-    ]
 
 
 def _single_artifact(output):

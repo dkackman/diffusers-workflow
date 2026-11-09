@@ -9,6 +9,7 @@ rules, when that module reached the size ceiling (#1192); the carry pick
 """
 
 import math
+from dataclasses import dataclass
 
 from .. import references
 
@@ -211,8 +212,8 @@ def chain_look_hold_problem(chain):
 
 
 # The per-segment check and its bounded re-roll (chain_check.py): the fields a
-# `check` object may set (`face` is reserved, null only) and the most re-rolls
-# a checked segment may take. Family-independent
+# `check` object may set and the most re-rolls a checked segment may take.
+# Family-independent
 CHAIN_CHECK_FIELDS = (
     "jump_ratio_max",
     "look_ratio_max",
@@ -220,7 +221,7 @@ CHAIN_CHECK_FIELDS = (
     "cut_ratio_max",
     "audio_dbfs_min",
     "words_similarity_min",
-    "face",
+    "face_drop_max",
 )
 CHAIN_RETRIES_MAX = 3
 # Each segment's own line, which the words check holds its heard audio to
@@ -260,7 +261,8 @@ def chain_check_finding(chain):
     `CHAIN_CHECK_FIELDS`: the ratio ceilings above 0, `texture_ratio_max`
     above 1 (it bounds the ratio both ways) or null, `audio_dbfs_min` a
     floor below 0 or null, `words_similarity_min` a similarity above 0 and at
-    most 1, or null (the default, the words measure off), `face` null. `retries`
+    most 1, or null (the default, the words measure off), `face_drop_max`
+    a number above 0 or null (null by default: measured, never failed). `retries`
     is a whole number from 0 to `CHAIN_RETRIES_MAX`; above 0 it needs the
     check on, as with no check nothing fails. Unresolved references are left
     to the run, whose `ChainConfig` asks this same rule.
@@ -306,11 +308,9 @@ def chain_check_finding(chain):
                 "segment's heard words to its line, so must be a number above 0 "
                 f"and at most 1, or null, got {words!r}"
             )
-        if check.get("face") is not None:
-            return (
-                "check",
-                f"check face is reserved and must be null, got {check['face']!r}",
-            )
+        face = _face_finding(check)
+        if face is not None:
+            return face
     elif not (
         check is None
         or isinstance(check, bool)
@@ -330,6 +330,19 @@ def chain_check_finding(chain):
         return "retries", (
             f"retries {retries} needs check on - a re-roll replaces a segment "
             "its check failed, and with no check no segment fails"
+        )
+    return None
+
+
+def _face_finding(check):
+    """chain_check_finding's rule for a check object's identity ceiling, or
+    None."""
+    drop = check.get("face_drop_max")
+    if drop is not None and not _number_over(drop, 0):
+        return "check", (
+            "check face_drop_max is the most a segment's face similarity may "
+            "fall below segment 1's, so must be a number above 0 or null, "
+            f"got {drop!r}"
         )
     return None
 
@@ -416,6 +429,58 @@ def chain_capstone_problem(chain, num_frames=None):
     return None
 
 
+# How often the keystone and the experimental capstone apply (#1308 narrated
+# take, Task 9): on later segments whose 0-based index i has i % n == 0, so
+# n = 3 anchors segments 3, 6, 9 (index); 1 (the default) is every one. A
+# scratch spike behind the windowed refine's flag (h3_rules)
+CHAIN_ANCHOR_EVERY = "anchor_every"
+
+
+def chain_anchor_every_problem(chain):
+    """The reason a chain block's `anchor_every` is refused, or None: absent,
+    null or unresolved is every segment. Refused: the flag off; anything but
+    a whole number of at least 1 (or its digit string); and a chain with
+    neither `keystone: "segment_1"` nor `experimental_capstone` to space."""
+    value = chain.get(CHAIN_ANCHOR_EVERY)
+    if value is None or _unresolved(value):
+        return None
+    from .h3_rules import (
+        KEYSTONE_SEGMENT_1,
+        REFINE_WINDOWS_ENV_VAR,
+        refine_windows_enabled,
+    )
+
+    if not refine_windows_enabled():
+        return (
+            f"{CHAIN_ANCHOR_EVERY} is a scratch spike, off unless "
+            f"{REFINE_WINDOWS_ENV_VAR}=1 is set where the pipeline loads"
+        )
+    value = stop_after_value(value)
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        return (
+            f"{CHAIN_ANCHOR_EVERY} must be a whole number of at least 1 (anchor "
+            f"every n-th segment), got {value!r}"
+        )
+    keystone = chain.get("keystone")
+    if (
+        chain.get(CHAIN_CAPSTONE) is None
+        and keystone != KEYSTONE_SEGMENT_1
+        and not _unresolved(keystone)
+    ):
+        return (
+            f"{CHAIN_ANCHOR_EVERY} spaces the keystone and the {CHAIN_CAPSTONE}, "
+            "and this chain sets neither - set keystone 'segment_1' or a "
+            f"{CHAIN_CAPSTONE}"
+        )
+    return None
+
+
+def anchors_segment(index, every):
+    """Whether segment `index` (0-based) takes the keystone and capstone
+    under `anchor_every` `every`: a later segment on the n-th grid."""
+    return index >= 1 and index % every == 0
+
+
 # The experimental latent carry (#1150 stage A, the latent-carry arm of #1044;
 # #1199 Task 17 Step 2): a guide chain hands each segment's own final latents,
 # the tail its guide would have decoded and re-encoded, to the next segment as
@@ -424,16 +489,16 @@ def chain_capstone_problem(chain, num_frames=None):
 CHAIN_LATENT_CARRY = "experimental_latent_carry"
 
 
-def chain_latent_carry_problem(chain, guide_noise=None, hold_audio=None):
+def chain_latent_carry_problem(chain, guide_noise=None):
     """The reason a chain block's `experimental_latent_carry` is refused, or
     None: the flag off; a value that is not true or false; a continuity other
     than `guide` (the latents replace a guide's encode, and only a guide chain
     has one); a `look_hold`, which corrects the decoded frames the carry would
-    no longer read; `match_audio`, whose held track is what the guide's audio
-    would be (the spike carries generated audio latents only); or the step's
-    nonzero `guide_noise`, which noises pixels that are never encoded; or a
-    step `hold_audio`, the track the guide's audio would be. False,
-    null and absent are off. Unresolved references are left to the run."""
+    no longer read; or the step's nonzero `guide_noise`, which noises pixels
+    that are never encoded. A chain holding its track (`match_audio`, a step
+    `hold_audio`) carries the video latents only (chain._with_latent_tail).
+    False, null and absent are off. Unresolved references are left to the
+    run."""
     carry = chain.get(CHAIN_LATENT_CARRY)
     if carry is None or carry is False:
         return None
@@ -467,21 +532,6 @@ def chain_latent_carry_problem(chain, guide_noise=None, hold_audio=None):
             "corrects the decoded frames, and the carry hands on the latents "
             "the correction never reaches"
         )
-    if chain.get("match_audio") is True:
-        return (
-            f"{CHAIN_LATENT_CARRY} does not combine with match_audio: the "
-            "guide's audio would be the held track, and the spike carries "
-            "generated audio latents only"
-        )
-    if hold_audio is not None and not (
-        isinstance(hold_audio, str)
-        and references.is_ref(references.UNRESOLVED, hold_audio)
-    ):
-        return (
-            f"{CHAIN_LATENT_CARRY} does not combine with hold_audio: the "
-            "guide's audio would be the held track, and the spike carries "
-            "generated audio latents only"
-        )
     if _number_over(guide_noise, 0) and not isinstance(guide_noise, str):
         return (
             f"{CHAIN_LATENT_CARRY} does not combine with guide_noise "
@@ -509,6 +559,11 @@ CHAIN_KEYSTONE_SLOT = "keystone_slot"
 CHAIN_KEYSTONE_SLOT_SPIKE = "experimental_keystone_slot"
 KEYSTONE_SLOT_FIRST = "first"
 KEYSTONE_SLOT_LAST = "last"
+# A scratch spike behind the same flag (#1308 narrated take, Task 9): segment
+# 1's frame-0 latent written over each later segment's guide latent 0 for the
+# whole denoise, with the keyframe segment 1's frame 0 too, so the two
+# condition rows at rotary time 0 agree (h3_guide_steps keystone_latent_0)
+KEYSTONE_SLOT_LATENT = "latent"
 KEYSTONE_SLOT_FIELDS = ("frame", "enter_below_sigma")
 
 
@@ -544,10 +599,13 @@ def chain_keystone_slot_problem(chain, num_frames=None, arguments=None):
         )
     if slot == KEYSTONE_SLOT_LAST:
         return _last_slot_problem(chain, arguments)
+    if slot == KEYSTONE_SLOT_LATENT:
+        return _latent_slot_problem(chain)
     if not isinstance(slot, dict):
         return (
             f"{CHAIN_KEYSTONE_SLOT} is one of {KEYSTONE_SLOT_FIRST}, "
-            f"{KEYSTONE_SLOT_LAST} or {{frame, enter_below_sigma?}}, got {slot!r}"
+            f"{KEYSTONE_SLOT_LAST}, {KEYSTONE_SLOT_LATENT} or "
+            f"{{frame, enter_below_sigma?}}, got {slot!r}"
         )
     unknown = sorted(set(slot) - set(KEYSTONE_SLOT_FIELDS))
     if unknown:
@@ -557,6 +615,29 @@ def chain_keystone_slot_problem(chain, num_frames=None, arguments=None):
     return _gate_problem(slot.get("enter_below_sigma")) or _frame_slot_problem(
         chain, slot["frame"], num_frames
     )
+
+
+def _latent_slot_problem(chain):
+    """Why `keystone_slot: "latent"` is refused, or None: the flag off, or a
+    continuity other than `guide` - the latent goes over a guide's latent 0."""
+    from .h3_rules import (
+        GUIDE_CONTINUITY,
+        REFINE_WINDOWS_ENV_VAR,
+        refine_windows_enabled,
+    )
+
+    if not refine_windows_enabled():
+        return (
+            f"{CHAIN_KEYSTONE_SLOT} '{KEYSTONE_SLOT_LATENT}' is a scratch spike, "
+            f"off unless {REFINE_WINDOWS_ENV_VAR}=1 is set where the pipeline loads"
+        )
+    continuity = chain.get("continuity", "last_frame")
+    if not _unresolved(continuity) and continuity != GUIDE_CONTINUITY:
+        return (
+            f"{CHAIN_KEYSTONE_SLOT} '{KEYSTONE_SLOT_LATENT}' writes over a guide's "
+            f"latent 0, so it needs continuity 'guide', got {continuity!r}"
+        )
+    return None
 
 
 def _gate_problem(gate):
@@ -645,12 +726,12 @@ def _last_slot_problem(chain, arguments):
 
 def chain_keystone_slot(chain):
     """A checked `keystone_slot` as the run uses it: None for plain
-    keystone, "last", or {"frame": int, "enter_below_sigma": float or
-    None}."""
+    keystone, "last", "latent", or {"frame": int, "enter_below_sigma": float
+    or None}."""
     slot = chain.get(CHAIN_KEYSTONE_SLOT)
     if slot is None or slot == KEYSTONE_SLOT_FIRST:
         return None
-    if slot == KEYSTONE_SLOT_LAST:
+    if slot in (KEYSTONE_SLOT_LAST, KEYSTONE_SLOT_LATENT):
         return slot
     gate = slot.get("enter_below_sigma")
     return {
@@ -659,12 +740,38 @@ def chain_keystone_slot(chain):
     }
 
 
-def place_keystone(arguments, keystone, slot):
+@dataclass
+class LatentKeystone:
+    """Segment 1's keystone under `keystone_slot: "latent"`: its frame 0, the
+    later segments' keyframe, and that frame's latent, `(1, C, 1, h, w)` -
+    segment 1's own output latent, or on a resume the decoded frame encoded
+    again (chain_resume)."""
+
+    frame: object
+    latents: object
+
+
+def segment_1_keystone(slot, frame, latent_0):
+    """Segment 1's keystone under `slot`: its frame 0, or under "latent" a
+    `LatentKeystone` of the frame and its frame-0 latent `latent_0`."""
+    return LatentKeystone(frame, latent_0) if slot == KEYSTONE_SLOT_LATENT else frame
+
+
+def place_keystone(arguments, keystone, slot, segment_argument="image"):
     """Put segment 1's keystone frame into a later segment's `arguments` at
-    `slot` (`chain_keystone_slot`, not None): as its `last_image`, or as a
-    one-frame guide after the carried one."""
+    `slot` (`chain_keystone_slot`, not None): as its `last_image`, as a
+    one-frame guide after the carried one, or (a `LatentKeystone`) as the
+    carried guide's `keystone_latents` with its frame as the keyframe."""
     if slot == KEYSTONE_SLOT_LAST:
         arguments["last_image"] = keystone
+        return
+    if slot == KEYSTONE_SLOT_LATENT:
+        guides = list(arguments["guides"])
+        # A copy of the carried guide, the one inject laid in last
+        guides[-1] = {**guides[-1], "keystone_latents": keystone.latents}
+        arguments["guides"] = guides
+        if arguments.get(segment_argument) is not None:
+            arguments[segment_argument] = keystone.frame
         return
     guide = {"video": [keystone], "frame": slot["frame"]}
     if slot["enter_below_sigma"] is not None:
@@ -731,18 +838,14 @@ def chain_resume_problem(chain):
     """The reason a chain block's `resume_from` is refused, or None: absent,
     null or unresolved is no resume. Refused: without `save_segments` true
     (the kept files are copied into the new run's spill); a continuity other
-    than `last_frame` or `guide`; and `experimental_latent_carry`, whose
-    carried latents are not on disk. The reference itself is
+    than `last_frame` or `guide`. Under `experimental_latent_carry` the
+    first resumed seam is a pixel guide - the last kept file's decoded frames,
+    encoded again - since the carried latents are not on disk
+    (chain_resume.load says so). The reference itself is
     `resume_reference_problem`'s."""
     value = chain.get(CHAIN_RESUME_FROM)
     if value is None or _unresolved(value):
         return None
-    if chain.get(CHAIN_LATENT_CARRY) is True:
-        return (
-            f"{CHAIN_RESUME_FROM} does not combine with {CHAIN_LATENT_CARRY}: "
-            "the carried latents are not on disk, only the kept segments' "
-            "decoded frames and audio"
-        )
     continuity = chain.get("continuity", "last_frame")
     if not _unresolved(continuity) and continuity not in RESUMABLE_CONTINUITIES:
         return (
@@ -756,4 +859,42 @@ def chain_resume_problem(chain):
             f"{CHAIN_RESUME_FROM} copies the kept segment files into this run's "
             "own spill, so it needs save_segments true"
         )
+    return None
+
+
+# A probe of the take (`stop_after`): the plan is the full take's, only its
+# first k segments render, and a resume_from naming the last of them continues
+CHAIN_STOP_AFTER = "stop_after"
+
+
+def stop_after_value(value):
+    """`stop_after` as the run reads it: a digit string ("12", as
+    `python -m dw.run ... stop_after=12` passes it) as its whole number, as
+    `segments` is read; anything else as it is."""
+    if isinstance(value, str) and value.isascii() and value.isdigit():
+        return int(value)
+    return value
+
+
+def chain_stop_after_problem(chain):
+    """The reason a chain block's `stop_after` is refused, or None: absent,
+    null or unresolved is a full take. Refused: anything but a whole number
+    of at least 1 (or its digit string, `stop_after_value`), and a probe without `save_segments` and `keep_segments`
+    true, which would leave no segment files to continue from."""
+    value = chain.get(CHAIN_STOP_AFTER)
+    if value is None or _unresolved(value):
+        return None
+    value = stop_after_value(value)
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        return (
+            f"{CHAIN_STOP_AFTER} must be a whole number of at least 1 "
+            f"(the segments the probe renders), got {value!r}"
+        )
+    for key in ("save_segments", "keep_segments"):
+        setting = chain.get(key, False)
+        if setting is not True and not _unresolved(setting):
+            return (
+                f"{CHAIN_STOP_AFTER} renders a probe that a {CHAIN_RESUME_FROM} "
+                f"naming its last segment file continues, so it needs {key} true"
+            )
     return None

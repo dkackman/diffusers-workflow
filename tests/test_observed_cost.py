@@ -692,6 +692,7 @@ TEXT_DRIVER_EXTRAS = {
     "workflows/templates/minimax/chain-video-continuity.json": {"tier"},
     "workflows/templates/minimax/dialogue-short.json": {"tier"},
     "workflows/templates/minimax/music-video.json": {"tier"},
+    "workflows/templates/minimax/narrated-take.json": {"continuity", "shot", "tier"},
 }
 
 

@@ -429,7 +429,7 @@
                     "additionalProperties": false
                 },
                 "keystone_slot": {
-                    "description": "MiniMax-H3 guide chains with keystone 'segment_1' (#1187/#1188): where segment 1's frame 0 sits in each later segment. 'first' (or null, the default) is plain keystone, the fl2va keyframe at the guide's first latent; 'last' makes it the fl2va last_image (the step must pass an image and no last_image), which on a static two-minute take held the backdrop with no reset pop, at the price of the subject easing back to the opening pose at each segment's end (bench/records/structural.md, *Keystone slot*); {frame, enter_below_sigma?} a one-frame guide at that frame (a multiple of 17, past the guide's frames), joining the forward only below the sigma gate when one is given (the gate refused unless DW_EXPERIMENTAL_REFINE_WINDOWS=1). With 'last' or a frame the keyframe is the guide's first frame again. Accepts a 'variable:' reference.",
+                    "description": "MiniMax-H3 guide chains with keystone 'segment_1' (#1187/#1188): where segment 1's frame 0 sits in each later segment. 'first' (or null, the default) is plain keystone, the fl2va keyframe at the guide's first latent; 'latent' (scratch spike, refused unless DW_EXPERIMENTAL_REFINE_WINDOWS=1, guide continuity only) writes segment 1's frame-0 latent over each later segment's guide latent 0 for the whole denoise, with segment 1's frame 0 as the keyframe too, and puts the guide's own latent 0 back after the loop; 'last' makes it the fl2va last_image (the step must pass an image and no last_image), which on a static two-minute take held the backdrop with no reset pop, at the price of the subject easing back to the opening pose at each segment's end (bench/records/structural.md, *Keystone slot*); {frame, enter_below_sigma?} a one-frame guide at that frame (a multiple of 17, past the guide's frames), joining the forward only below the sigma gate when one is given (the gate refused unless DW_EXPERIMENTAL_REFINE_WINDOWS=1). With 'last' or a frame the keyframe is the guide's first frame again. Accepts a 'variable:' reference.",
                     "type": ["object", "string", "null"],
                     "properties": {
                         "frame": {
@@ -443,8 +443,14 @@
                     "additionalProperties": false
                 },
                 "experimental_latent_carry": {
-                    "description": "Scratch spike (#1150, refused unless DW_EXPERIMENTAL_REFINE_WINDOWS=1), MiniMax-H3 guide chains: each later segment's guide takes the previous segment's own final latents (its guide_frames tail, video and generated audio) as condition rows in place of decoding and re-encoding those frames. Needs continuity 'guide'; refused with look_hold, match_audio or a nonzero guide_noise. False or null is off.",
+                    "description": "Scratch spike (#1150, refused unless DW_EXPERIMENTAL_REFINE_WINDOWS=1), MiniMax-H3 guide chains: each later segment's guide takes the previous segment's own final latents (its guide_frames tail, video and generated audio) as condition rows in place of decoding and re-encoding those frames. Needs continuity 'guide'; refused with look_hold or a nonzero guide_noise. A chain holding its track (match_audio, a step hold_audio) carries the video latents only. False or null is off.",
                     "type": ["boolean", "string", "null"]
+                },
+                "anchor_every": {
+                    "description": "Scratch spike (refused unless DW_EXPERIMENTAL_REFINE_WINDOWS=1): the keystone and the experimental_capstone apply only on later segments whose 0-based index i has i % anchor_every == 0 (3: indices 3, 6, 9). A whole number of at least 1, default 1 (every later segment); refused on a chain with neither keystone 'segment_1' nor experimental_capstone. Accepts a 'variable:' reference.",
+                    "type": ["integer", "string", "null"],
+                    "minimum": 1,
+                    "default": null
                 },
                 "carry_pick": {
                     "description": "Continuity 'last_frame' only, any model family: pick the next segment's keyframe as the sharpest of the segment's last N frames (variance of a 3x3 Laplacian on luma; ties go to the latest) instead of always the last, so a motion-blurred final frame does not pass its softness on. The segment is trimmed after the picked frame, so motion continues from it; the last segment keeps its tail, and the job log names the picked frame per seam. {'sharpest': N} with N a whole number from 1 to 8 (1 is the last frame); anything else, or any continuity but 'last_frame', is refused naming the allowed values.",
@@ -471,7 +477,7 @@
                     "additionalProperties": false
                 },
                 "check": {
-                    "description": "Check each segment before keeping it, any model family: after the first, its seam against the previous segment (the picture jump and the look step, measured as analyze_seams measures them) and its fine-band texture against segment 1's. true uses the default ceilings; an object overrides any of 'jump_ratio_max', 'look_ratio_max', 'texture_ratio_max' (a number above 1 bounding the ratio both ways, or null to skip it) and 'cut_ratio_max' (the largest frame step inside the segment over its typical step - a cut a few frames after the seam; null skips it); and 'audio_dbfs_min' (the floor, in dBFS below 0, of the segment's generated audio as kept; default -70, null skips it, and it is never measured when the chain holds its audio); 'words_similarity_min' (a number above 0 and at most 1, or null, the default: the least similarity of what Whisper hears in each segment's kept audio to its expected line - 'lines', else the segment's prompt's <d> dialogue; a segment with no line records words null and is not re-rolled for it, and it is never measured when the chain holds its audio); 'face' is reserved and must be null. A failed segment is re-rendered up to 'retries' times. Segment 1 has no seam and is checked for its audio level, and its words when 'words_similarity_min' is set. Absent or false = off, and the chain is unchanged. Accepts a 'variable:' reference.",
+                    "description": "Check each segment before keeping it, any model family: after the first, its seam against the previous segment (the picture jump and the look step, measured as analyze_seams measures them) and its fine-band texture against segment 1's. true uses the default ceilings; an object overrides any of 'jump_ratio_max', 'look_ratio_max', 'texture_ratio_max' (a number above 1 bounding the ratio both ways, or null to skip it) and 'cut_ratio_max' (the largest frame step inside the segment over its typical step - a cut a few frames after the seam; null skips it); and 'audio_dbfs_min' (the floor, in dBFS below 0, of the segment's generated audio as kept; default -70, null skips it, and it is never measured when the chain holds its audio); 'words_similarity_min' (a number above 0 and at most 1, or null, the default: the least similarity of what Whisper hears in each segment's kept audio to its expected line - 'lines', else the segment's prompt's <d> dialogue; a segment with no line records words null and is not re-rolled for it, and it is never measured when the chain holds its audio); 'face_drop_max' (a number above 0, or null, the default: the most a segment's median face similarity to segment 1's frame 0 may fall below segment 1's own) - warn-only, measured and recorded on each shot's 'check' always, failing a segment without a re-roll only when set. Lip sync is not a segment check: judge it by eye, or measure a take with the measure_lip_sync task. A failed segment is re-rendered up to 'retries' times. Segment 1 has no seam and is checked for its audio level, and its words when 'words_similarity_min' is set. Absent or false = off, and the chain is unchanged. Accepts a 'variable:' reference.",
                     "type": ["boolean", "object", "string"],
                     "properties": {
                         "jump_ratio_max": {"type": ["number", "string"], "exclusiveMinimum": 0},
@@ -483,7 +489,7 @@
                         "texture_ratio_max": {"type": ["number", "string", "null"], "exclusiveMinimum": 1},
                         "audio_dbfs_min": {"type": ["number", "string", "null"]},
                         "words_similarity_min": {"type": ["number", "string", "null"]},
-                        "face": {"type": "null"}
+                        "face_drop_max": {"type": ["number", "string", "null"]}
                     },
                     "additionalProperties": false
                 },
@@ -609,7 +615,7 @@
                     "default": false
                 },
                 "resume_from": {
-                    "description": "Resume a chain that died part way: an 'output:' reference naming one segment file an earlier run of the same chain left (<prefix>.<n>.segment-NNN.mp4; the failed chain's 'chain_resume_hint' warning quotes the first). That run's finished segments become segments 1..k and only k+1..N render. Each kept file must hold the frames the plan puts on the timeline for its segment, or the run is refused naming the segment: a resume never changes the plan. The files are copied, not moved, into this run's spill. Needs save_segments true and continuity 'last_frame' or 'guide', and is refused with experimental_latent_carry; a guide resume's first seam carries the decoded audio, which the 'chain_resumed' warning says. A bare path is refused. Null or absent is no resume. Accepts a 'variable:' reference.",
+                    "description": "Resume a chain that died part way: an 'output:' reference naming one segment file an earlier run of the same chain left (<prefix>.<n>.segment-NNN.mp4; the failed chain's 'chain_resume_hint' warning quotes the first). That run's finished segments become segments 1..k and only k+1..N render. Each kept file must hold the frames the plan puts on the timeline for its segment, or the run is refused naming the segment: a resume never changes the plan. The files are copied, not moved, into this run's spill. Needs save_segments true and continuity 'last_frame' or 'guide'; a guide resume's first seam carries the decoded audio, and under experimental_latent_carry the decoded frames encoded again in place of the carried latents, which the 'chain_resumed' warning says. A bare path is refused. Null or absent is no resume. Accepts a 'variable:' reference.",
                     "oneOf": [
                         {
                             "type": "string"
@@ -618,6 +624,16 @@
                             "type": "null"
                         }
                     ],
+                    "default": null
+                },
+                "stop_after": {
+                    "description": "Render a probe of the take: the plan stays the full take's (the same segment count, num_frames and guide grid), but only its first N segments render, and the take is muxed with the match_audio track cut to the rendered frames. The run logs 'chain_stopped_after'; each shot carries 'planned_segments'. A whole number of at least 1; at or past the plan's count the whole take renders. Needs save_segments and keep_segments true: a second run of the same chain with stop_after cleared and resume_from naming the probe's last segment file continues it at segment N+1. A resume that keeps N or more segments with stop_after still N is refused before anything is copied. Null or absent renders the whole take. Accepts a 'variable:' reference.",
+                    "type": [
+                        "integer",
+                        "string",
+                        "null"
+                    ],
+                    "minimum": 1,
                     "default": null
                 }
             },

@@ -41,6 +41,7 @@ import json
 import logging
 import time
 
+from ..cost_scaling import matched_chain
 from ..presets import effective_variables
 
 logger = logging.getLogger("dw")
@@ -165,17 +166,68 @@ def _every_step_was_reused(manifest_text):
     )
 
 
-def _was_resumed(definition, row_arguments):
-    """Whether this run's chain was given a `resume_from`, by its own
-    arguments. Read from the setting, not from the kept files, which a swept
-    run directory no longer has."""
+def _was_partial(definition, row_arguments):
+    """Whether this run's chain rendered only part of its plan: given a
+    `resume_from`, or a probe's `stop_after`, by its own arguments. Read from
+    the setting, not from the kept files, which a swept run directory no
+    longer has."""
     from ..cost_scaling import _chain_blocks, _resolved
 
     variables = effective_variables(definition, row_arguments)
     return any(
-        _resolved(chain.get("resume_from"), variables) is not None
+        _resolved(chain.get(key), variables) is not None
         for chain, _ in _chain_blocks(definition.get("steps"))
+        for key in ("resume_from", "stop_after")
     )
+
+
+def _rendered_segments(definition, row_arguments, manifest_text):
+    """The segments a full chain run rendered, or None when it cannot be
+    told: the plan's count its take's shots carry (`planned_segments`,
+    `dw/shots.py`; a partial run is left out before this is asked), else a
+    countable chain's own count at the run's arguments."""
+    from ..cost_scaling import _chain_segments
+
+    try:
+        manifest = json.loads(manifest_text or "[]")
+    except (TypeError, ValueError):
+        manifest = []
+    for entry in manifest if isinstance(manifest, list) else []:
+        shots = entry.get("shots") if isinstance(entry, dict) else None
+        for shot in shots if isinstance(shots, list) else []:
+            count = shot.get("planned_segments") if isinstance(shot, dict) else None
+            if isinstance(count, int) and not isinstance(count, bool) and count > 0:
+                return count
+    return _chain_segments(definition, effective_variables(definition, row_arguments))
+
+
+def _row_duration(definition, row, wanted, per_segment):
+    """One row's comparable duration in seconds, or None when it is not a
+    measurement of the run being asked about: a step-cache replay, another
+    bucket, a partial chain, no duration, or - priced `per_segment` - a take
+    whose segment count cannot be told, which is left out of the basis."""
+    if _every_step_was_reused(row["manifest"]):
+        return None
+    try:
+        row_arguments = json.loads(row["arguments"] or "{}")
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(row_arguments, dict):
+        return None
+    if _bucket_key(definition, row_arguments) != wanted:
+        return None
+    if _was_partial(definition, row_arguments):
+        # Rendered only part of the plan (the segments after its kept
+        # ones, or a probe's first k): its duration is not a full-N
+        # run's, and neither setting is a cost driver
+        return None
+    duration = row["duration"]
+    if duration is None or duration <= 0:
+        return None
+    if not per_segment:
+        return duration
+    segments = _rendered_segments(definition, row_arguments, row["manifest"])
+    return duration / segments if segments else None
 
 
 def _median(values):
@@ -209,7 +261,9 @@ def _minutes_block(prefix, durations):
     }
 
 
-def observed_for(definition, rows, device=None, device_name=None, arguments=None):
+def observed_for(
+    definition, rows, device=None, device_name=None, arguments=None, per_segment=False
+):
     """This server's history for one workflow, as the `observed` block, or
     None when it has nothing comparable to report.
 
@@ -223,32 +277,28 @@ def observed_for(definition, rows, device=None, device_name=None, arguments=None
     and stays comparable to a curated `cost`, while a plan asks with the
     caller's own values and gets the figure for the run it is quoting, or
     None when this box has never run that shape (#154).
+
+    `per_segment` (set by itself for a matched chain, asked for by
+    `deps.inherited_observed` when a matched chain inherits a countable
+    template's) divides each run by the segments it rendered, and the
+    block says `per_segment: true`.
     """
     wanted = _bucket_key(definition, arguments or {})
     if wanted is None:
         # No declared drivers and the caller overrode something: nothing here
         # is comparable to the run being asked about
         return None
+    # A matched chain's segment count is its track's, so its takes are only
+    # comparable per segment (`cost_scaling.observed_render_scaling`)
+    per_segment = per_segment or matched_chain(
+        definition, effective_variables(definition, arguments)
+    )
     task_only = _is_task_only(definition)
     cold, warm, unclassified, earliest = [], [], 0, None
     # Rows arrive unordered; the recent-runs median reads newest first
     for row in sorted(rows, key=lambda r: r["finished_at"] or 0, reverse=True):
-        if _every_step_was_reused(row["manifest"]):
-            continue
-        try:
-            row_arguments = json.loads(row["arguments"] or "{}")
-        except (TypeError, ValueError):
-            continue
-        if not isinstance(row_arguments, dict):
-            continue
-        if _bucket_key(definition, row_arguments) != wanted:
-            continue
-        if _was_resumed(definition, row_arguments):
-            # Rendered only the segments after its kept ones: its duration
-            # is not a full-N run's, and resume_from is no cost driver
-            continue
-        duration = row["duration"]
-        if duration is None or duration <= 0:
+        duration = _row_duration(definition, row, wanted, per_segment)
+        if duration is None:
             continue
         if task_only or row["had_load"]:
             cold.append(duration)
@@ -269,6 +319,7 @@ def observed_for(definition, rows, device=None, device_name=None, arguments=None
         "name": device_name,
         "runs": runs,
         "comparable": "drivers" if drivers else "default-arguments",
+        **({"per_segment": True} if per_segment else {}),
         **_minutes_block("cold", cold),
         **_minutes_block("warm", warm),
     }
@@ -439,7 +490,15 @@ class ObservedCosts:
         return rows
 
     def observed(
-        self, name, definition, arguments=None, *, fresh=True, workspace=None, card=None
+        self,
+        name,
+        definition,
+        arguments=None,
+        *,
+        fresh=True,
+        workspace=None,
+        card=None,
+        per_segment=False,
     ):
         """`name`'s `observed` block. `card` ('cuda:1') prices it for that
         card - the one a plan's job would be dispatched to - rather than the
@@ -461,6 +520,7 @@ class ObservedCosts:
                 device=device,
                 device_name=device_name,
                 arguments=arguments,
+                per_segment=per_segment,
             )
         except Exception:
             # A figure is a nicety; a listing that 500s because one row had a

@@ -80,9 +80,10 @@ truncate (row 7).
   the shot prompts use: `From 1.5 seconds into the target video, a calm man
   says: <d>[English] ...</d>`, and leave the first 1.5 s as the speaker's
   closed-mouth beat. Size the line for the shortened remainder of the clip.
-  The chain's `line_clipped_at_head` finding (a failed words check, or a
-  pass whose kept span opens mid-line) says when this is needed. Segment 1
-  has no guide, so its line needs no cue.
+  The chain's `line_clipped_at_head` finding (a failed words check) says
+  when this is needed. A segment that still opens past its first words
+  re-rolls once; for a long monologue use a narrated take. Segment 1 has no
+  guide, so its line needs no cue.
 - **Check the words.** `check: {"words_similarity_min": 0.8}` with
   `retries: 1` transcribes each segment's kept audio and re-rolls a segment
   that speaks a wrong, missing or garbled line. It reads `lines[k]`, else

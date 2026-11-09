@@ -164,6 +164,7 @@ segments means half the compounding.
 | [chain-matched-to-audio.json](chain-matched-to-audio.json) | `match_audio`: a supplied track decides the length, and the final video is muxed against the original, seamless track |
 | [chain-video-continuity.json](chain-video-continuity.json) | `last_segment` continuity: the previous segment's tail rides along as a video reference, carrying motion and voice across the seam |
 | [chain-matched-and-aligned.json](chain-matched-and-aligned.json) | Everything together for a long soundtrack-driven take, with per-segment prompts and crash-safe `save_segments` |
+| [narrated-take.json](narrated-take.json) | A long take of one speaker held to a narration retimed with `templates/narration-retime`: a `narration_lines` step writes one prompt and line per segment, the guide chain matches and holds the track, and a `stop_after` probe is continued with `resume_from` |
 | [repair-segment.json](repair-segment.json) | Re-rendering one interior segment of a finished chain (run with `keep_segments` on) between its neighbours, held to both by guides with their audio, and splicing it into the take itself, so everything outside the span stays the take's |
 
 The four chain templates, `dialogue-short` and `music-video` take a `tier`

@@ -197,21 +197,25 @@ def _as_frame_lists(artifacts):
     return handed
 
 
-def resolve_chain_prompts(step_action, previous_results):
-    """Resolve a pipeline chain's per-segment prompts against previous results.
+def resolve_chain_lists(step_action, previous_results):
+    """Resolve a pipeline chain's `prompts` and `lines` against previous results.
 
-    A chain's "prompts" list is not part of the step's argument template, so the
-    cartesian pass that expands `previous_result:` everywhere else never reaches
-    it. That matters for a chain whose opening segment is written by a different
+    These lists are not part of the step's argument template, so the cartesian
+    pass that expands `previous_result:` everywhere else never reaches them.
+    That matters for a chain whose opening segment is written by a different
     step from the ones that continue it - a continuation prompt declares a video
     reference the first segment does not have.
 
-    Each entry resolves independently and yields one prompt, so this never
-    multiplies iterations the way an argument reference does; a reference that
-    produced several artifacts uses the first.
+    Each key is either a list whose entries resolve independently (one value per
+    entry, never multiplying iterations; a reference that produced several
+    artifacts uses the first), or one `previous_result:<step>.<key>` string
+    naming a JSON list of strings - how a `narration_lines` step hands on its
+    `prompts` and `lines`. A `lines` list with no reference in it is left to
+    the run as written.
 
-    The resolved list is left on the step action for run_chain to pick up, and
-    nothing happens at all for a pipeline without chain prompts.
+    The resolved lists are left on the step action (`chain_prompts`,
+    `chain_lines`) for run_chain to pick up, and nothing happens at all for a
+    pipeline without them.
     """
     definition = getattr(step_action, "pipeline_definition", None)
     if not isinstance(definition, dict):
@@ -219,31 +223,65 @@ def resolve_chain_prompts(step_action, previous_results):
 
     chain = definition.get("chain", None) or {}
     prompts = chain.get("prompts", None)
-    if not prompts:
-        return
-    if isinstance(prompts, str):
-        raise ValueError(
-            "chain 'prompts' must be a list with one prompt per segment, "
-            f"got the string {prompts!r}"
+    if prompts:
+        if isinstance(prompts, str) and not references.is_ref(
+            references.PREVIOUS_RESULT, prompts
+        ):
+            raise ValueError(
+                "chain 'prompts' must be a list with one prompt per segment, "
+                f"got the string {prompts!r}"
+            )
+        step_action.chain_prompts = _resolve_chain_list(
+            step_action, "prompts", prompts, previous_results
         )
 
+    lines = chain.get("lines", None)
+    if lines and (
+        isinstance(lines, str)
+        or any(references.is_ref(references.PREVIOUS_RESULT, e) for e in lines)
+    ):
+        step_action.chain_lines = _resolve_chain_list(
+            step_action, "lines", lines, previous_results
+        )
+
+
+# The name the per-segment prompts alone were resolved under
+resolve_chain_prompts = resolve_chain_lists
+
+
+def _resolve_chain_list(step_action, key, value, previous_results):
+    """One chain key's resolved list: a whole-list reference, or its entries."""
+    if isinstance(value, str):
+        if not references.is_ref(references.PREVIOUS_RESULT, value):
+            return value  # a variable left over is the run's to refuse
+        artifacts = get_previous_results(
+            previous_results, references.ref_name(references.PREVIOUS_RESULT, value)
+        )
+        found = artifacts[0] if artifacts else None
+        if not isinstance(found, list) or not all(isinstance(e, str) for e in found):
+            raise ValueError(
+                f"Step {getattr(step_action, 'name', '?')!r}: chain '{key}' "
+                f"reference '{value}' must name a list of strings, "
+                f"got {found!r}"
+            )
+        return list(found)
+
     resolved = []
-    for entry in prompts:
+    for entry in value:
         if references.is_ref(references.PREVIOUS_RESULT, entry):
             artifacts = get_previous_results(
                 previous_results, references.ref_name(references.PREVIOUS_RESULT, entry)
             )
             if not artifacts:
-                raise ValueError(f"Chain prompt reference '{entry}' produced no result")
+                raise ValueError(f"Chain {key} reference '{entry}' produced no result")
             if len(artifacts) > 1:
                 logger.warning(
-                    f"Chain prompt reference '{entry}' produced {len(artifacts)} "
+                    f"Chain {key} reference '{entry}' produced {len(artifacts)} "
                     f"results - using the first"
                 )
             entry = artifacts[0]
         resolved.append(entry)
-
-    step_action.chain_prompts = resolved
+    return resolved
 
 
 def find_previous_result_refs(arguments):

@@ -1958,7 +1958,8 @@ head: N segments of F frames give F + (N - 1)(F - P) frames - 3 x 124 at P = 22 
 | `carry_frames` | refused - the carry is always the last `guide_frames` frames |
 | `guide_backoff` | 0 (default) or a multiple of 17: the carry is the `guide_frames` frames that many before the segment's end (audio sliced the same span), and every segment but the last loses that tail at assembly, so the join lands inside the held copy and each segment's least-constrained tail is replaced by the next take. Frames drop by the back-off per seam (3 x 124 at P = 22 and 17 is 294). Needs `num_frames` above P + back-off. Refused off `guide` continuity and with `match_audio` or `duration_seconds` |
 | `keystone` | `none` (default) or `segment_1`: on `fl2va`, every later segment's keyframe is segment 1's frame 0 instead of the guide's first frame, so each segment is pulled back toward the clean start of the chain. The guide stays the carried tail, and the keyframe region is trimmed at assembly, so segment 1's frame never reaches the output. Refused on `last_frame` (there the keyframe is the only carry), and any other value is refused naming the two |
-| `keystone_slot` | with `keystone: "segment_1"`, where segment 1's frame 0 sits in each later segment. `first` (or null, the default) is plain keystone, the keyframe above. `last` makes it the fl2va `last_image` instead and the keyframe is the guide's first frame again: on a static two-minute take it held the backdrop and the face with no reset pop, and the subject eases back to the opening pose at each segment's end (`bench/records/structural.md`, *Keystone slot*). `last` needs a step `image` and refuses a step `last_image` of its own. `{"frame": 17j}` is a one-frame guide at that frame, past the guide's frames and inside the segment (a `match_audio` or `duration_seconds` plan's shortened last segment included); its `enter_below_sigma` gate is refused unless `DW_EXPERIMENTAL_REFINE_WINDOWS=1`. The name `experimental_keystone_slot` is refused naming this one. `templates/minimax/chained-segments` sets `last` under `shot: static_long` |
+| `keystone_slot` | with `keystone: "segment_1"`, where segment 1's frame 0 sits in each later segment. `first` (or null, the default) is plain keystone, the keyframe above. `last` makes it the fl2va `last_image` instead and the keyframe is the guide's first frame again: on a static two-minute take it held the backdrop and the face with no reset pop, and the subject eases back to the opening pose at each segment's end (`bench/records/structural.md`, *Keystone slot*). `last` needs a step `image` and refuses a step `last_image` of its own. `{"frame": 17j}` is a one-frame guide at that frame, past the guide's frames and inside the segment (a `match_audio` or `duration_seconds` plan's shortened last segment included); its `enter_below_sigma` gate is refused unless `DW_EXPERIMENTAL_REFINE_WINDOWS=1`. The name `experimental_keystone_slot` is refused naming this one. `templates/minimax/chained-segments` sets `last` under `shot: static_long`. **Experimental**, refused unless `DW_EXPERIMENTAL_REFINE_WINDOWS=1`: `latent` writes segment 1's frame-0 latent (its own output latent; on a resume, its decoded frame 0 encoded again) over each later segment's guide latent 0 for the whole denoise, with segment 1's frame 0 as the keyframe too, so the two condition rows at time 0 agree; the guide's own latent 0 is put back after the loop, before decode. It combines with `experimental_latent_carry`, a held track and `experimental_capstone` |
+| `anchor_every` | **Experimental**, refused unless `DW_EXPERIMENTAL_REFINE_WINDOWS=1`: the keystone and `experimental_capstone` apply only on later segments whose 0-based index `i` has `i % anchor_every == 0` - `3` anchors segments 3, 6, 9 (by index) and leaves the rest a plain guide chain. A whole number from 1, default 1 (every later segment); refused on a chain with neither `keystone: "segment_1"` nor `experimental_capstone` |
 | `carry_pick` | `{"sharpest": N}`, N from 1 to 8, with `last_frame` continuity on any model family: the next segment's keyframe is the sharpest of the segment's last N frames (variance of a 3x3 Laplacian on luma, ties to the latest) instead of the last, so a motion-blurred final frame does not pass its softness on. The segment is trimmed after the picked frame so motion continues from it (the last segment keeps its tail), and the job log names the pick per seam. Absent = the last frame; other continuities or other values are refused naming the allowed ones; `match_audio` and `duration_seconds` are refused (the plan covers the length up front and the pick drops frames per seam, so the video would fall short - use `segments`); and when `num_frames` is known N must be less than `num_frames` minus `trim_frames`, or the pick could empty a segment |
 | `look_hold` | `true` or `{"pickup", "creep", "texture", "precompensate"}` booleans, any model family: pixel corrections on each later segment's frames before its carry is taken (below). On a guide chain `pickup` and `precompensate` do not apply (the carried guide is a whole clip, left alone); an explicit `true` for either there is refused, and `true` alone runs `creep` and `texture` only |
 | `trim_frames` | ignored (the trim is P), with a note in the job log |
@@ -2644,7 +2645,13 @@ joined into a single file:
   frame-aligned per-segment chunks, each segment is generated against its slice - a
   held track's slice is that segment's `hold_audio`, a reference's replaces the
   reference - and the final video is muxed with the **original, unsliced track** - so
-  the soundtrack has no seams at all. Requires
+  the soundtrack has no seams at all. Under `continuity: "guide"` a held track's
+  slice already starts at the guide span, so the guide carries video only:
+  `carry_audio` is forced off, and the job log says so once. Validate warns on a
+  chain step with `hold_audio` and no `match_audio` (every segment holds the whole
+  track from its start) and on a held chain whose `num_frames` is not divisible by 3:
+  H3's audio latents run at 40 a second against 24 fps, so the on-grid `17n+5`
+  lengths are 141, 192, 243, 294 and 345. Requires
   `num_frames` (the per-segment length) and a frame rate, and a track: a step with
   neither `hold_audio` nor a `references` list is refused. One of
   `segments`, `match_audio` or `duration_seconds` must be given, and `segments`
@@ -2680,8 +2687,12 @@ joined into a single file:
   segment's keyframe is segment 1's frame 0 instead of the guide's first frame (see
   *Chaining with a guide*).
 - `keystone_slot` — with `keystone: "segment_1"`: `first` (default), `last` (segment 1's
-  frame 0 as every later segment's fl2va `last_image`) or `{"frame": 17j}` (see
+  frame 0 as every later segment's fl2va `last_image`) or `{"frame": 17j}`, plus the
+  experimental `latent` (segment 1's frame-0 latent over each guide's latent 0) (see
   *Chaining with a guide*).
+- `anchor_every` — experimental: apply the keystone and `experimental_capstone` only on
+  every n-th later segment (0-based index `i % n == 0`); default 1 (see *Chaining with a
+  guide*).
 - `anchor_strength` — with `anchor: "segment_1"`, how far that match goes: 0 to 1,
   default 1 (the full match).
 - `carry_frames` — with `last_segment`, bound the carry to the last N frames of the
@@ -2713,6 +2724,9 @@ joined into a single file:
   segment is otherwise asked for a count the pipeline may floor in silence.
 - `prompts` — optional per-segment prompt list for narrative progression; segment
   `i` uses `prompts[min(i, len - 1)]`.
+  The whole list may be one `previous_result:<step>.<key>` naming a JSON list of
+  strings (a `narration_lines` step's `prompts`); a result that is not a list of
+  strings is refused at run time, naming the step and key.
 - `lines` — optional list of strings, one expected spoken line per segment, exactly as
   many as segments (unlike `prompts`, the last is not repeated; a wrong length or a
   non-string is refused). Read only by the `words` check. Segment `k`'s line is
@@ -2720,6 +2734,9 @@ joined into a single file:
   `prompt`. An empty string, or no `<d>`, means no line: the shot records `words: null`
   and the segment is not re-rolled for it. Validate warns when `lines` is set but the
   words check is off.
+  Like `prompts`, `lines` may be one `previous_result:<step>.<key>` naming a list of
+  strings (a `narration_lines` step's `lines`); validate accepts it unresolved and the
+  run checks its length against the plan.
 - `check` — check each segment after the first before it is kept (any model family):
   `true` for the default ceilings, an object to set any of them, absent or `false` for
   no check (the chain is unchanged). See *Checking each segment* below.
@@ -2759,8 +2776,11 @@ joined into a single file:
   checked again, and the first rendered one is checked against the last kept one as
   usual. `look_hold` reads its scene from the first kept file and is fed the last
   one's carry, but its learned boost starts again. Needs `save_segments: true` and
-  continuity `last_frame` or `guide`; refused with `experimental_latent_carry` (the
-  latents are not on disk) and as a bare path. The kept seams' audio is joined
+  continuity `last_frame` or `guide`; refused as a bare path. Under the experimental
+  `experimental_latent_carry` the first resumed seam's guide is the last kept file's
+  decoded frames, encoded again (the carried latents are not on disk), which the
+  `chain_resumed` warning says (`reencoded_guide: true`); later seams carry latents
+  again. The kept seams' audio is joined
   with the short declick fade the chain gives a seam with no head material, not the
   `crossfade_ms` blend: a kept file holds only its on-timeline audio, so the blend
   material is gone (the first rendered seam is crossfaded as usual). All kept files
@@ -2771,6 +2791,30 @@ joined into a single file:
   `<prefix>.<its iteration>.segment-NNN.mp4` siblings beside it. An iteration with
   none there, or one that finished (a complete set it is not the named one of),
   renders in full, which a `chain_resumed` warning with `kept: 0` says.
+- `stop_after` — render a probe: only the plan's first k segments (a whole number of
+  at least 1; at or past the plan's count the whole take renders). Needs
+  `save_segments` and `keep_segments` true. See *Probe, then continue* below.
+
+**Probe, then continue.** `stop_after: k` leaves the plan the full take's - the same
+segment count, `num_frames` and guide grid, so the same narration plans the same
+segments - and renders segments 1..k only. The take is muxed with the `match_audio`
+track cut to the rendered frames (a `duration_seconds` take's generated audio is cut
+the same way), the run logs `chain_stopped_after` ("Chain stopped after k of N
+segments"), and every shot carries `planned_segments: N`, so the manifest says the take
+falls short. Watch the probe; to continue it, run the same chain again with
+`stop_after` cleared and `resume_from` naming the probe's last segment file
+(`output:<workflow>/<run id>/<prefix>.0.segment-<k-1>.mp4`, the `segment_file` of its
+last shot): its k files become segments 1..k and only k+1..N render, through the resume
+rules above. A `stop_after` still at or under k is refused before anything is copied,
+since it would render nothing. The first resumed seam is not a live carry: its guide (or
+keyframe) is decoded from the probe's last file - h264 frames, and for a `guide` chain
+its AAC audio unless the step holds its track (`hold_audio`, which carries no guide
+audio) - which the `chain_resumed` warning says. A probe's job history is left out of
+this server's observed cost, as a resume's is. The estimate quotes a probe for the
+segments it renders: k of N of the take's figure (segments k0+1..k of N for a probe
+that resumes k0 kept ones), and for a `match_audio` chain, whose N comes from the track,
+k - k0 times the per-segment figure; `stop_after` may be a digit string
+(`python -m dw.run ... stop_after=12`).
 
 The chain runs inside one iteration of the step, so it composes with
 `previous_result` fan-out (three keyframes in, three chained videos out), and a
@@ -2814,6 +2858,7 @@ video, its audio, its shot record, a `save_segments` file or the look-hold state
 | `cut_ratio` | the segment itself: its largest frame change over its own typical change, floored as `jump_ratio` is - a cut inside the segment, past the seam's windows, which the seam measures do not see | `cut_ratio_max` 3.5 | above the ceiling; `null` skips it |
 | `audio_dbfs` | the segment itself: the RMS level (dBFS, to 0.1) of its generated audio over the kept span, past the head trim; segment 1 included | `audio_dbfs_min` -70 | below the floor; `null` skips it. Skipped (no level) when the segment has no generated audio or the audio is held: `match_audio` or its `hold_audio`, or a step `hold_audio` argument. A `guide` chain carrying its audio is measured: the guide holds only the span the head trim drops |
 | `words` | the segment's expected line (see `lines`): its kept audio transcribed (Whisper, on CPU) and compared with `check_script`'s similarity; segment 1 included | `words_similarity_min` `null` (off) | below the minimum, a number above 0 and at most 1, or on any of the findings `line_clipped_at_end`, `transcript_loop`, `tag_spoken`, `unscripted_speech` at any similarity; the re-roll log and the `chain_check_failed` message name the findings and what was heard (`words 1.0 with unscripted_speech, heard '...'`). Off by default: `bench/records/words.md` found no clean separation of good takes from bad. `chain_check.WORDS_SIMILARITY_MIN` (0.80) is the ceiling that passed every good take seen, and catches only gross failures (a wrong or missing line, a garbled segment). Never measured when the chain holds its audio (`match_audio`, `hold_audio`), and skipped for a segment with no line |
+| `face_drop` | segment 1: its median SFace similarity (`analyze_face_drift`'s scoring) of 8 evenly spaced frames from frame 1 on to its own frame 0, minus this segment's median to that same frame 0; segment 1 itself is not measured | `face_drop_max` `null` (record only) | above the ceiling, a number above 0. Warn-only, like `texture_ratio`: recorded and warned, never re-rolled. `null` (unmeasured) when segment 1's frame 0 or this segment holds no face, or the face models cannot load |
 
 A segment whose prompt asks for a cut inside it fails `cut_ratio` and re-rolls, so set
 `check: {"cut_ratio_max": null}` to turn that measure off. A step that asks for silence
@@ -2825,7 +2870,14 @@ draws fresh noise but is not guaranteed to bring sound back: on the one repro me
 The `chain_segment_silent` warning reports the segment either way.
 
 `"check": true` uses those ceilings; `"check": {"jump_ratio_max": 20}` overrides the ones
-it names. `face` is reserved and must be `null`. The jump and look ceilings are twice the
+it names. `face_drop` is measured on every checked segment and recorded on its shot as
+`check` (`{face_drop}`), but fails nothing until `face_drop_max` is set: no bench has yet
+set it. A checked chain lists the YuNet and SFace weights it reads in the plan's
+`downloads_required`. Lip sync is not a segment measure: on 70 real H3 dialogue segments
+no threshold separated a segment's own audio from audio 0.5 s late or another segment's
+(`bench/records/narrated.md`, *Sync calibration*), so judge sync by eye, and use
+[`measure_lip_sync`](TASKS.md#measure_lip_sync) as a coarse indicator over a whole take.
+`lip_sync_min` is refused as an unknown key. The jump and look ceilings are twice the
 99th percentile of the bench's unchecked S1-S3 chains (`bench/records/noise-floor.md`);
 the cut ceiling sits between the 2.98 most of 282 good bench segments read and the 4.16 of a cut 26 frames past a seam (`bench/records/check.md`); the texture ceiling is still provisional, because those chains' own texture ratio is the
 drift it exists to catch. A static segment's own
@@ -2845,8 +2897,8 @@ re-roll is repeatable from the manifest. The first attempt that passes is kept. 
 `1 + retries` fail, the chain keeps the one with the fewest failed measures, then the
 lowest `jump_ratio`, and finishes - it never restructures the run. `texture_ratio` is
 warn-only: texture drift is in the carry, so a fresh seed from the same carry inherits
-it. A segment that fails only on texture is kept as rendered, recorded in `check_failed`
-and warned, and not re-rolled; one that also fails another measure re-rolls as above,
+it. `face_drop` is warn-only too, until a bench shows a fresh seed fixes it. A segment that fails only warn-only measures is kept as rendered, recorded in
+`check_failed` and warned, and not re-rolled; one that also fails another measure re-rolls as above,
 and choosing the kept attempt still counts every failed measure. The kept attempt's
 frames and audio are the ones stitched, and the seam is crossfaded against them.
 
@@ -2859,12 +2911,18 @@ attempt, and the job log names each re-roll. When `words` failed, the warning al
 attempt failed `words` it adds `every_attempt_failed: true` and a `note` to repair the
 segment with `templates/minimax/repair-segment` rather than retry more, since the cause
 may be in the carry, which a fresh seed inherits. A shot of a words-checked chain also
-records `words` (`similarity`, `heard`, `findings`, `passed`, `seam_head_dropped`) for
+records `words` (`similarity`, `heard`, `findings`, `passed`, `seam_head_dropped`, `first_word_start`) for
 the kept attempt, or `null` with no line. A failed `words` on a segment with a head trim
 (a guide chain's 22 guide frames) also transcribes the audio the trim cut off; if the
 line's first heard word starts inside that span the findings carry `line_clipped_at_head`
 (#1300): the opening words are cut from the delivered video and a fresh seed starts the
-line at the same place, so move the line later in the prompt instead of re-rolling. Among attempts failing only `words`,
+line at the same place, so move the line later in the prompt instead of re-rolling. A segment that *passed*
+but whose kept audio opens past the line's first words (a carried segment, or one with a
+head trim) carries a `line_opening_missing` finding (#1308: `missing` names the words,
+`at` the first heard one) and fails `words_opening` without failing `words`, so it
+re-rolls while `retries` remain; when every attempt carries it the job gets a
+`chain_check_failed` warning naming the finding, with `every_attempt_failed: true`. For
+a long monologue use a narrated take. Among attempts failing only `words`,
 `best_attempt` keeps the higher similarity; a words-only failure ranks after any other
 single-measure failure. Each shot also records `audio_dbfs`, the kept
 attempt's level, when it is measurable. A kept segment whose generated audio still reads

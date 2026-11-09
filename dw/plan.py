@@ -35,7 +35,7 @@ from .cost_scaling import (
     _scaled,
     with_words_check,
     words_check_term,
-    _chain_render_scaling,
+    observed_render_scaling,
 )
 from .elision import elide_definition
 from . import references
@@ -889,8 +889,8 @@ def _unpriced_reason(definition):
 def _with_worst_case(measured, definition, expanded, device=None):
     """An observed or inherited estimate with a checked chain's worst-case
     re-rolls quoted on it, as the curated figure quotes them (#1246): the
-    history is read as N segment renders, and `_chain_render_scaling` says how
-    many a run at `expanded`'s variables may pay. Unchanged when nothing can
+    history is read as N segment renders (a matched chain's as one), and
+    `observed_render_scaling` says how many a run at `expanded` may pay. Unchanged when nothing can
     re-roll. A history that ran checked already holds what re-rolls it drew,
     so this is an upper bound, which is what the worst case promises. This
     box's own history, so re-priced, is `derived`; an inherited one stays
@@ -898,7 +898,7 @@ def _with_worst_case(measured, definition, expanded, device=None):
     if measured is None or measured.get("minutes") is None:
         return measured
     variables = (expanded or {}).get("variables") or {}
-    factor, axes, unscaled = _chain_render_scaling(definition, variables)
+    factor, axes, unscaled = observed_render_scaling(definition, variables, measured)
     if unscaled:
         measured = {
             **measured,
@@ -964,6 +964,8 @@ def _observed(observed, device):
         "unpriced": [],
         "runs": runs,
     }
+    if observed.get("per_segment"):
+        estimate["per_segment"] = True  # a matched chain's (observed_cost)
     inherited_from = observed.get("inherited_from")
     if observed.get("scaled") and not inherited_from:
         # This box's history of the default tier, re-priced for the drivers
