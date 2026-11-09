@@ -3268,10 +3268,12 @@ replaces expected words (a word misheard) belongs to the take of the words it
 replaces; a pure insertion belongs to the take whose words it sits in front of
 (the last take when it follows them all), so a filler between two takes counts
 against the later one. The exception is a pure insertion at a take boundary
-whose words repeat the end of the take before it: that belongs to the earlier
-take, because the alignment can match either copy of a looped take and leave
-the repeat in front of the next one. A looped take therefore shows as
-insertions in its own take, with the takes after it still aligned. Each failing take also emits a
+whose words repeat the end or the beginning of the take before it: that
+belongs to the earlier take, because the alignment can match either copy of a
+looped take and leave the repeat in front of the next one, and a take
+restarted from its beginning and abandoned leaves its opening words there. A
+looped or restarted take therefore shows as insertions in its own take, with
+the takes after it still aligned. Each failing take also emits a
 `narration_take_mismatch` warning naming the take, its rate and its first
 dropped words. `templates/check-narration` runs it.
 
