@@ -506,3 +506,14 @@ def test_a_failed_final_encode_draws_the_resume_hint(outputs, events, monkeypatc
 
     (hint,) = _warnings(events, "chain_resume_hint")
     assert hint["resume_from"] == _first_file_reference()
+
+
+def test_realize_args_leaves_a_resume_from_output_reference_for_the_resume():
+    """The run's argument pass resolves output: references to paths; a
+    chain's resume_from must reach the resume as the reference (#1304)."""
+    from dw.arguments import realize_args
+
+    ref = "output:wf/20261109-150726-52a306d2/final/p.0.segment-001.mp4"
+    steps = [{"pipeline": {"chain": {"resume_from": ref, "segments": 3}}}]
+    realize_args(steps)
+    assert steps[0]["pipeline"]["chain"]["resume_from"] == ref
