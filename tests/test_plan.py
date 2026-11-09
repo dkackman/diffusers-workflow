@@ -2791,6 +2791,28 @@ class TestResumedChainEstimate:
         plain = estimate(*self._definition(reference), {}, "cuda", None, None)
         assert FANOUT_NOTE not in (plain.get("differs") or [])
 
+    def test_a_reference_outside_the_chain_step_or_in_prose_is_no_fan_out(self, kept):
+        from dw import references
+        from dw.pipeline_processors.chain_resume import FANOUT_NOTE
+        from dw.plan import estimate
+
+        reference = references.make_ref(references.OUTPUT, kept)
+        definition, expanded = self._definition(reference)
+        step = definition["steps"][0]["pipeline"]
+        step["arguments"]["prompt"] = "a previous_result of a long walk"
+        definition["steps"].append(
+            {
+                "name": "other",
+                "pipeline": {
+                    "type": "X",
+                    "arguments": {"prompt": "previous_result:chained"},
+                },
+            }
+        )
+        quoted = estimate(definition, expanded, {}, "cuda", None, None)
+
+        assert FANOUT_NOTE not in (quoted.get("differs") or [])
+
     def test_an_unresolvable_resume_prices_every_segment_and_says_so(self, kept):
         from dw import references
         from dw.pipeline_processors.chain_resume import UNRESOLVED_NOTE
