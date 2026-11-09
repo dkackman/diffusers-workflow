@@ -123,9 +123,9 @@ def realize_args(arg, base_dir=None, apply_key_conventions=True):
         logger.debug(f"Processing dictionary arguments: {list(arg.keys())}")
         for k, v in arg.items():
             if k == CHAIN_RESUME_FROM and is_output_reference(v):
-                # By key name, at any depth and in the variables pass: a
-                # variable named resume_from is substituted into the chain
-                # block after the variables are realized (ARCHITECTURE.md).
+                # By key name, at any depth. A variable that a resume_from
+                # names is held out of the variables pass by its caller,
+                # whatever it is called (chain_rules.resume_variables).
                 # A chain's resume_from stays the reference: the resume
                 # resolves it itself, against the run ids that started before
                 # this run, and refuses a resolved path as a location

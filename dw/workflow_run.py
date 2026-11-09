@@ -27,6 +27,7 @@ from . import __version__, device_capacity_gb, get_device, get_device_type
 from . import references
 from .adapter_compatibility import warn_adapters
 from .arguments import realize_args
+from .pipeline_processors.chain_rules import resume_variables
 from .elision import elide_definition, warn_elided
 from .for_each import group_of
 from .media import probe_metadata
@@ -321,7 +322,11 @@ def prepare_definition(workflow, workflow_def, arguments, base_dir):
         # 'video' argument was pre-loaded as a PIL Image before that step
         # was ever substituted in (#365). The step-level realize_args
         # passes below apply the conventions under the real argument key
-        realize_args(variables, base_dir, apply_key_conventions=False)
+        # Any variable a resume_from names stays the reference (#1304)
+        held = resume_variables(workflow_def.get("steps"), variables)
+        realized = {k: v for k, v in variables.items() if k not in held}
+        realize_args(realized, base_dir, apply_key_conventions=False)
+        variables.update(realized)
     ## then replace any variable references in the workflow definition
     # with the actual values, and expand
     authored_steps = workflow_def.get("steps")

@@ -681,6 +681,32 @@ CHAIN_RESUME_FROM = "resume_from"
 RESUMABLE_CONTINUITIES = ("last_frame", "guide")
 
 
+def resume_variables(steps, variables):
+    """The variables a `resume_from` key in the authored steps names by
+    'variable:' reference, at any depth, whose value is an `output:`
+    reference - a chain block's own, or a composed step's argument passed
+    down to its child workflow. Those keep the reference through the
+    variables pass whatever they are called (#1304)."""
+    held = set()
+
+    def walk(value):
+        if isinstance(value, dict):
+            for key, item in value.items():
+                if key == CHAIN_RESUME_FROM and isinstance(item, str):
+                    name = references.ref_name(references.VARIABLE, item)
+                    if name is not None and references.is_ref(
+                        references.OUTPUT, variables.get(name)
+                    ):
+                        held.add(name)
+                walk(item)
+        elif isinstance(value, list):
+            for item in value:
+                walk(item)
+
+    walk(steps)
+    return held
+
+
 def resume_reference_problem(value):
     """Why a `resume_from` value is refused as a location, or None: anything
     but an output reference (or one still unresolved) - a bare path names a
