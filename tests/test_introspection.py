@@ -357,6 +357,20 @@ def test_a_match_levels_dbfs_without_match_levels_is_warned_about():
         assert workflow_argument_warnings(step(match_levels="rms")) == []
 
 
+def test_a_match_levels_lufs_without_lufs_mode_is_warned_about():
+    for step in (_concat_step, _dissolve_step):
+        unset = workflow_argument_warnings(step(match_levels_lufs=-16))
+        assert len(unset) == 1 and "match_levels_lufs" in unset[0]
+        refused = workflow_argument_warnings(
+            step(match_levels_lufs=-16, match_levels="rms")
+        )
+        assert len(refused) == 1 and "refused" in refused[0]
+        assert (
+            workflow_argument_warnings(step(match_levels_lufs=-16, match_levels="lufs"))
+            == []
+        )
+
+
 def test_a_bleed_over_one_input_is_warned_about():
     """One input has no seam for audio_bleed_ms to act on (#565), whether
     `videos` is a literal list or a variable holding one."""
