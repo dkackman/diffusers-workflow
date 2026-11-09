@@ -2799,7 +2799,7 @@ as arguments, and the seed is new by default.
 
 With `check` on, each segment is measured before anything of it reaches the stitched
 video, its audio, its shot record, a `save_segments` file or the look-hold state. Segment
-1 has no seam, so it is measured for `audio_dbfs` only:
+1 has no seam, so it is measured for `audio_dbfs` and `words` only:
 
 | Measure | Against | Default ceiling | Fails when |
 |---|---|---|---|
@@ -2825,8 +2825,9 @@ it names. `face` is reserved and must be `null`. The jump and look ceilings are 
 the cut ceiling sits between the 2.98 most of 282 good bench segments read and the 4.16 of a cut 26 frames past a seam (`bench/records/check.md`); the texture ceiling is still provisional, because those chains' own texture ratio is the
 drift it exists to catch. A static segment's own
 motion is ~0, so the jump is divided by the floor rather than by ~0. Segment 1 has no seam
-and is checked for `audio_dbfs` alone, when the floor is not null and the audio is
-generated. (`check_segment` has a `hard_cut` exemption that skips every measure, audio
+and is checked for `audio_dbfs`, when the floor is not null and the audio is
+generated, and for `words`, when `words_similarity_min` is not null and the segment has a
+line. (`check_segment` has a `hard_cut` exemption that skips every measure, audio
 included, but `run_chain` does not pass it: a chain's own seams are never cuts, so every
 later segment is checked.)
 A re-roll renders a whole segment again, so re-rolls count in the step's timing segments.

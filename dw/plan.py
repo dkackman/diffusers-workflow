@@ -34,6 +34,7 @@ from .cost_scaling import (
     _entry_cost_field_shifted,
     _scaled,
     with_words_check,
+    words_check_term,
     _chain_render_scaling,
 )
 from .elision import elide_definition
@@ -904,19 +905,25 @@ def _with_worst_case(measured, definition, expanded, device=None):
             "differs": _unique((measured.get("differs") or []) + unscaled),
             "low_confidence": True,
         }
-    if not axes:
+    # A words-checked chain's Whisper passes, on top, as the curated figure
+    # quotes them (#1262): additive, so they are not scaled by `factor`
+    words_minutes, words_axis = words_check_term(definition, variables)
+    if not axes and not words_minutes:
         return measured
     # A re-roll renders the segment again; it does not load the model again
     fixed = measured["minutes"] * fixed_share(definition, device)
+    terms = axes + ([words_axis] if words_minutes else [])
     worst = {
         **measured,
-        "minutes": round(fixed + (measured["minutes"] - fixed) * factor, 1),
+        "minutes": round(
+            fixed + (measured["minutes"] - fixed) * factor + words_minutes, 1
+        ),
         "scaled": "; ".join(
             part
             for part in (
                 measured.get("scaled"),
                 f"from the observed {_shown_minutes(measured['minutes'])} min: "
-                + ", ".join(axes),
+                + ", ".join(terms),
             )
             if part
         ),
