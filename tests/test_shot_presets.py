@@ -119,7 +119,8 @@ def test_continuity_last_frame_is_still_the_old_chain_block():
     assert chain.pop("anchor") == "none"
     assert chain.pop("keystone") == "none"
     assert chain.pop("keystone_slot", None) is None
-    assert chain.pop("check") is False  # off by default, as before
+    # off by default, as before: null since #1299, so expansion drops it
+    assert chain.pop("check", None) is None
     assert chain.pop("retries") == 0
     # Every take spills its segments since resume_from (Don, 2026-11-08),
     # off by default before; no resume by default
@@ -194,7 +195,8 @@ def test_check_and_retries_are_variables_and_price_the_worst_case():
     from dw.cost_scaling import _worst_case_retries
 
     template = json.loads(TEMPLATE.read_text())
-    assert template["variables"]["check"] is False
+    # null, so the variable takes true, false or a ceilings object (#1299)
+    assert template["variables"]["check"] is None
     assert template["variables"]["retries"] == 0
     assert {"check", "retries"} <= set(template["cost_drivers"])
     wf = Workflow(template, None, str(TEMPLATE))
@@ -205,3 +207,29 @@ def test_check_and_retries_are_variables_and_price_the_worst_case():
             definition, {**template["variables"], **variables}
         )[0]
         assert factor == 1 + retries
+
+
+def test_check_takes_the_words_object_through_the_template():
+    """The words check is reached through the template: `check` as the
+    object the skills give, with `lines`, validates with no refusal and no
+    "nothing reads 'lines'" warning; an unknown ceiling is still refused
+    (#1299 bounce)."""
+    lines = ["Rise now.", "The old ones are listening."]
+    arguments = {
+        "shot": "dialogue",
+        "segments": 2,
+        "retries": 1,
+        "check": {"words_similarity_min": 0.8},
+        "lines": lines,
+    }
+    messages = [e["message"] for e in _workflow().validation_errors(arguments)]
+    assert not any("check" in m or "lines" in m for m in messages), messages
+    from dw.guides import chain_lines_warnings
+
+    expanded = _workflow().expanded_definition(arguments)
+    assert chain_lines_warnings(expanded) == []
+    plain = _workflow().expanded_definition({**arguments, "check": True})
+    assert any("nothing reads 'lines'" in w for w in chain_lines_warnings(plain))
+    bad = {**arguments, "check": {"words_similarity": 0.8}}
+    messages = [e["message"] for e in _workflow().validation_errors(bad)]
+    assert any("unknown key" in m for m in messages), messages

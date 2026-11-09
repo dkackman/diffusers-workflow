@@ -1975,6 +1975,42 @@ class TestLongFormSkill:
         assert "`lines`" in spec["description"]
         assert "`words_similarity_min`" in spec["description"]
 
+    def test_the_template_check_takes_the_words_object(self):
+        """The skills tell a caller to pass `check: {"words_similarity_min":
+        0.8}` to this template: a bool default refused that object, so `lines`
+        could never reach a words check through it (#1299 bounce). Its null
+        default takes true, false or the object, and off stays off."""
+        from dw.cost_scaling import words_check_term
+        from dw.pipeline_processors.chain_check import segment_check
+        from dw.variables import set_variables
+
+        with open(CHAINED_SEGMENTS, encoding="utf-8") as handle:
+            spec = json.load(handle)
+        assert spec["variables"]["check"] is None
+        assert segment_check(spec["variables"]["check"]) is None
+
+        lines = ["Rise now.", "The old ones are listening."]
+        variables = dict(spec["variables"])
+        set_variables(
+            {
+                "segments": 2,
+                "retries": 1,
+                "check": {"words_similarity_min": 0.8},
+                "lines": lines,
+            },
+            variables,
+        )
+        assert variables["check"] == {"words_similarity_min": 0.8}
+        assert segment_check(variables["check"]).words_similarity_min == 0.8
+        minutes, axis = words_check_term(spec, variables)
+        assert minutes > 0 and "words check" in axis
+
+        plain = dict(spec["variables"])
+        set_variables({"segments": 2, "check": True, "lines": lines}, plain)
+        assert plain["check"] is True
+        assert segment_check(True) is not None
+        assert words_check_term(spec, plain) == (0.0, None)
+
     def test_the_h3_dialogue_reference_gives_a_line_per_segment(self):
         text = _flat(
             _read(os.path.join(os.path.dirname(H3_SKILL), "references", "dialogue.md"))
