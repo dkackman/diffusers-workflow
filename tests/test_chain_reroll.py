@@ -332,6 +332,60 @@ def test_not_every_attempt_failing_is_not_flagged_so(monkeypatch):
     assert _chain_check_warnings(warn) == []
 
 
+def _opening_missing():
+    return {
+        "similarity": 0.9,
+        "heard": "two",
+        "findings": [
+            {
+                "rule": "line_opening_missing",
+                "severity": "warn",
+                "at": {"seconds": 0.0, "word": "two"},
+                "value": 0,
+                "threshold": 0,
+                "missing": ["one"],
+                "says": "x",
+            }
+        ],
+        "passed": True,
+        "seam_head_dropped": [],
+        "first_word_start": 0.0,
+    }
+
+
+def test_opening_missing_rerolls_while_retries_remain(monkeypatch):
+    class Opening(FakeWords):
+        def __call__(self, audio, sample_rate, line, previous_line, minimum, **kwargs):
+            self.calls.append((line, previous_line, minimum))
+            if line == "two two" and len(self.calls) == 2:
+                return _opening_missing()
+            return _heard(0.97, True, heard=line)
+
+    pipeline, result, warn = _run_words(monkeypatch, Opening(), _words_chain(retries=1))
+    assert [s["attempts"] for s in result.shots] == [1, 2, 1]
+    assert "check_failed" not in result.shots[1]
+    assert result.shots[1]["words"]["findings"] == []
+    assert _chain_check_warnings(warn) == []
+
+
+def test_opening_missing_on_every_attempt_is_reported(monkeypatch):
+    class Opening(FakeWords):
+        def __call__(self, audio, sample_rate, line, previous_line, minimum, **kwargs):
+            self.calls.append((line, previous_line, minimum))
+            if line == "two two":
+                return _opening_missing()
+            return _heard(0.97, True, heard=line)
+
+    pipeline, result, warn = _run_words(monkeypatch, Opening(), _words_chain(retries=1))
+    assert [s["attempts"] for s in result.shots] == [1, 2, 1]
+    assert result.shots[1]["check_failed"] == ["words_opening"]
+    (call,) = _chain_check_warnings(warn)
+    assert call.kwargs["every_attempt_failed"] is True
+    assert call.kwargs["segment"] == 2
+    assert "line_opening_missing" in call.args[0]
+    assert call.kwargs["findings"][0]["rule"] == "line_opening_missing"
+
+
 def test_a_segment_with_no_line_is_neither_checked_nor_re_rolled(monkeypatch):
     fake = FakeWords(bad={"nothing"})
     chain = _chain(check={"words_similarity_min": 0.8}, retries=2)

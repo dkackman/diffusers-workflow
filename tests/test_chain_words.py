@@ -127,10 +127,8 @@ def test_line_clipped_at_head_names_a_line_opened_in_the_trimmed_head():
     assert finding["threshold"] == 0.92
 
 
-def test_marginal_pass_with_a_clipped_opening_is_reported_without_a_second_pass():
+def _opening_check(line, heard, previous="We the people", head_seconds=0.92):
     calls = []
-    line = "In order to form a more perfect union"
-    heard = words("to form a more perfect union", start=0.0, step=0.3, length=0.25)
 
     def transcribe(wave, rate):
         calls.append(wave.shape)
@@ -140,16 +138,48 @@ def test_marginal_pass_with_a_clipped_opening_is_reported_without_a_second_pass(
         voiced(3.0),
         RATE,
         line,
-        "We the people",
+        previous,
         0.5,
         transcribe=transcribe,
-        full_audio=voiced(3.92),
-        head_seconds=0.92,
+        full_audio=voiced(3.0 + head_seconds),
+        head_seconds=head_seconds,
     )
+    return answer, calls
+
+
+def test_passed_segment_missing_its_opening_words_is_reported():
+    line = "In order to form a more perfect union"
+    heard = words("Its to form a more perfect union", start=0.0, step=0.3, length=0.25)
+    answer, calls = _opening_check(line, heard)
     assert answer["passed"] is True
-    assert len(calls) == 1
-    finding = next(f for f in answer["findings"] if f["rule"] == "line_clipped_at_head")
-    assert finding["value"] == 0.0 and finding["threshold"] == 0.92
+    assert len(calls) == 1  # reported without a second pass
+    (finding,) = [f for f in answer["findings"] if f["rule"] == "line_opening_missing"]
+    assert finding["missing"] == ["in", "order"]
+    assert finding["severity"] == "warn" and finding["threshold"] == 0
+    assert finding["at"]["word"] == "to"
+    assert answer["first_word_start"] == 0.0
+
+
+def test_whole_line_has_no_opening_finding():
+    line = "In order to form a more perfect union"
+    heard = words(line, start=0.0, step=0.3, length=0.25)
+    answer, _ = _opening_check(line, heard)
+    assert answer["passed"] is True
+    assert "line_opening_missing" not in [f["rule"] for f in answer["findings"]]
+
+
+def test_opening_compared_after_number_folding():
+    heard = words("Amendment one Congress shall", start=0.0, step=0.3, length=0.25)
+    answer, _ = _opening_check("Amendment 1. Congress shall", heard)
+    assert "line_opening_missing" not in [f["rule"] for f in answer["findings"]]
+
+
+def test_a_first_segment_without_a_head_trim_has_no_opening_finding():
+    heard = words("to form a more perfect union", start=0.0, step=0.3, length=0.25)
+    answer, _ = _opening_check(
+        "In order to form a more perfect union", heard, previous=None, head_seconds=0.0
+    )
+    assert "line_opening_missing" not in [f["rule"] for f in answer["findings"]]
 
 
 def test_no_head_finding_when_the_line_opens_after_the_trim():

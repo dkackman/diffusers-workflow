@@ -2859,12 +2859,18 @@ attempt, and the job log names each re-roll. When `words` failed, the warning al
 attempt failed `words` it adds `every_attempt_failed: true` and a `note` to repair the
 segment with `templates/minimax/repair-segment` rather than retry more, since the cause
 may be in the carry, which a fresh seed inherits. A shot of a words-checked chain also
-records `words` (`similarity`, `heard`, `findings`, `passed`, `seam_head_dropped`) for
+records `words` (`similarity`, `heard`, `findings`, `passed`, `seam_head_dropped`, `first_word_start`) for
 the kept attempt, or `null` with no line. A failed `words` on a segment with a head trim
 (a guide chain's 22 guide frames) also transcribes the audio the trim cut off; if the
 line's first heard word starts inside that span the findings carry `line_clipped_at_head`
 (#1300): the opening words are cut from the delivered video and a fresh seed starts the
-line at the same place, so move the line later in the prompt instead of re-rolling. Among attempts failing only `words`,
+line at the same place, so move the line later in the prompt instead of re-rolling. A segment that *passed*
+but whose kept audio opens past the line's first words (a carried segment, or one with a
+head trim) carries a `line_opening_missing` finding (#1308: `missing` names the words,
+`at` the first heard one) and fails `words_opening` without failing `words`, so it
+re-rolls while `retries` remain; when every attempt carries it the job gets a
+`chain_check_failed` warning naming the finding, with `every_attempt_failed: true`. For
+a long monologue use a narrated take. Among attempts failing only `words`,
 `best_attempt` keeps the higher similarity; a words-only failure ranks after any other
 single-measure failure. Each shot also records `audio_dbfs`, the kept
 attempt's level, when it is measurable. A kept segment whose generated audio still reads

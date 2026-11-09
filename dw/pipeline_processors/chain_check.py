@@ -285,6 +285,12 @@ def with_words(result, words):
     if words is not None and not words["passed"]:
         result.failed.append("words")
         result.passed = False
+    elif words is not None and any(
+        f.get("rule") == "line_opening_missing" for f in words["findings"]
+    ):
+        # Passed, but its opening is gone (#1308): re-rolls like a failure
+        result.failed.append("words_opening")
+        result.passed = False
     return result
 
 
@@ -475,40 +481,84 @@ def _clipped_at_head(chunks, expected, previous_line, head_seconds):
     return None
 
 
-def _opens_mid_line(chunks, expected, head_seconds, within=0.1):
-    """line_clipped_at_head for a kept span that already passed, or None:
-    the span's first word starts within `within` seconds of its first sample
-    and is not the line's first word, so speech was running when the head
-    trim cut, and the line's opening is gone (#1308). Reported, not failed:
-    the similarity cleared the floor, and a fresh seed starts the line at
-    the same place."""
-    from ..script_lines import normalize_words
+def _folded_heard(chunks):
+    """(heard, first_chunk): `chunks`' words as `_seam_head` builds them -
+    unfolded per chunk, then folded across chunks by `fold_numbers` - as
+    [{"word": ...}], with the index of the chunk each begins in."""
+    from ..script_lines import fold_numbers, normalize_words
 
-    if not expected:
+    owners = [
+        index
+        for index, chunk in enumerate(chunks)
+        for _ in normalize_words(chunk.get("text", ""), numbers=False)
+    ]
+    unfolded = [
+        word
+        for chunk in chunks
+        for word in normalize_words(chunk.get("text", ""), numbers=False)
+    ]
+    heard, firsts, k = [], [], 0
+    for word, count in fold_numbers(unfolded):
+        heard.append({"word": word})
+        firsts.append(owners[k])
+        k += count
+    return heard, firsts
+
+
+def _opens_mid_line(chunks, expected, head_seconds, previous_line=None):
+    """line_opening_missing (#1308) for a kept span that passed, or None: the
+    line's words are aligned to the span's heard words (`script_check.align`,
+    heard words folded as `_seam_head` folds them) and the words of the line
+    before the first one heard are its `missing` opening. Fires on a carried
+    segment (`previous_line`) or one with a head trim (`head_seconds`): the
+    trim or the carry cut the line's start. Reported, and the segment
+    re-rolls (`with_words`): the similarity cleared the floor with the
+    opening gone."""
+    from difflib import SequenceMatcher
+
+    from ..tasks.script_check import align
+
+    if not expected or not (previous_line or head_seconds > 0):
         return None
+    heard, firsts = _folded_heard(chunks)
+    assigned, _ = align([expected], heard)
+    if not assigned[0]:
+        return None
+    blocks = SequenceMatcher(
+        None, expected, [h["word"] for h in heard], autojunk=False
+    ).get_matching_blocks()
+    first = next((block for block in blocks if block.size), None)
+    if first is None or first.a == 0:
+        return None
+    missing = expected[: first.a]
+    chunk = chunks[firsts[first.b]]
+    start = chunk.get("start")
+    return {
+        "rule": "line_opening_missing",
+        "severity": "warn",
+        "at": {
+            "seconds": None if start is None else round(float(start), 3),
+            "word": heard[first.b]["word"],
+        },
+        "value": first.b,
+        "threshold": 0,
+        "missing": missing,
+        "says": (
+            f"the segment's audio opens past the line's first words ({' '.join(missing)}):"
+            " its opening was cut by the head trim or never spoken; the"
+            " similarity passed, but the delivered video lacks them - the"
+            " segment re-rolls once, and a fresh seed may start the line"
+            " earlier; for a long monologue use a narrated take"
+        ),
+    }
+
+
+def _first_word_start(chunks):
+    """The start of the first chunk with text, or None."""
     for chunk in chunks:
-        text = chunk.get("text", "").strip()
-        if not text:
-            continue
-        start = chunk.get("start")
-        words = normalize_words(text)
-        if start is None or start > within or not words or words[0] == expected[0]:
-            return None
-        return {
-            "rule": "line_clipped_at_head",
-            "severity": "warn",
-            "at": {"seconds": round(float(start), 3), "word": text},
-            "value": round(float(start), 3),
-            "threshold": round(float(head_seconds), 3),
-            "says": (
-                "the delivered video opens mid-line: speech is already running at"
-                " the first sample, on a word that is not the line's first, so"
-                " the line started inside the frames the chain trims off the head;"
-                " the segment passed its words check, but its opening is cut -"
-                " move the line later in the prompt (an 'at N seconds' cue past"
-                " the guide span)"
-            ),
-        }
+        if chunk.get("text", "").strip():
+            start = chunk.get("start")
+            return None if start is None else round(float(start), 3)
     return None
 
 
@@ -524,7 +574,7 @@ def check_words(
     head_seconds=0.0,
 ):
     """Whether a dialogue segment's kept audio speaks its line (#1262), as
-    {similarity, heard, findings, passed, seam_head_dropped}.
+    {similarity, heard, findings, passed, seam_head_dropped, first_word_start}.
 
     `audio` is the kept span ((channels, samples) or 1-D), `line` the text
     the segment is meant to speak (markup kept: `script_lines.dialogue_text`
@@ -537,7 +587,11 @@ def check_words(
     shots, after the seam-head rule (`_seam_head`) drops carried words of
     `previous_line` at the head. `findings` are its WORDS_FINDINGS, each of
     which fails the segment; so does a similarity under `minimum`, or none
-    (the line looped and was never transcribed). `heard` is the transcript
+    (the line looped and was never transcribed). A passed segment may also
+    carry `line_opening_missing` (#1308): it stays `passed`, but `with_words`
+    fails the segment's `words_opening` measure so it re-rolls, and the
+    chain reports it when every attempt carries it. `first_word_start` is
+    the start of the first kept chunk. `heard` is the transcript
     after the seam-head rule, joined; `seam_head_dropped` the chunks it
     dropped."""
     from ..script_lines import normalize_words, parse_lines
@@ -577,14 +631,13 @@ def check_words(
         if clipped is not None:
             findings.append(clipped)
     passed = not failed
-    if passed and head_seconds > 0 and previous_line:
-        # A pass can hide a head clip (#1308): the similarity cleared the
-        # floor with the line's opening missing. The kept span's own word
-        # timings show it without a second pass: speech already running at
-        # its first sample, on a word that is not the line's first
-        clipped = _opens_mid_line(chunks, expected, head_seconds)
-        if clipped is not None:
-            findings.append(clipped)
+    if passed:
+        # A pass can hide a missing opening (#1308): the similarity cleared
+        # the floor without the line's first words. The kept span's own
+        # alignment shows it without a second pass
+        opening = _opens_mid_line(chunks, expected, head_seconds, previous_line)
+        if opening is not None:
+            findings.append(opening)
     heard = " ".join(
         text for text in (chunk.get("text", "").strip() for chunk in chunks) if text
     )
@@ -594,4 +647,5 @@ def check_words(
         "findings": findings,
         "passed": passed,
         "seam_head_dropped": [chunk.get("text", "").strip() for chunk in dropped],
+        "first_word_start": _first_word_start(chunks),
     }

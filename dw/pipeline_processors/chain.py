@@ -90,6 +90,10 @@ from .h3_rules import (
 
 logger = logging.getLogger("dw")
 
+# The failed measures that read the `words` answer: a failed one, and a passed
+# one whose opening is missing (#1308)
+WORDS_MEASURES = frozenset({"words", "words_opening"})
+
 
 def run_chain(pipeline, chain_definition, arguments):
     """Run a pipeline's chain and stitch the segments into one video.
@@ -580,7 +584,9 @@ def _checked_attempt(
         "seed": best.seed,
         # Every attempt failed its words: a fresh seed did not fix them, so
         # the cause may be in the carry (#1262)
-        "every_attempt_failed": all("words" in r.failed for r in results),
+        "every_attempt_failed": all(
+            "words" in r.failed or "words_opening" in r.failed for r in results
+        ),
     }
 
 
@@ -611,7 +617,9 @@ def _shown_value(result, name):
     """A failed measure's value as a failure names it: the words measure by
     its similarity, every other by its number."""
     value = result.measures.get(name)
-    if name == "words" and isinstance(value, dict):
+    if name in WORDS_MEASURES:
+        value = result.measures.get("words")
+    if name in WORDS_MEASURES and isinstance(value, dict):
         return value.get("similarity")
     return value
 
@@ -622,7 +630,7 @@ def _failure_text(result, name):
     similarity still fails on any WORDS_FINDINGS finding (#1262), and the
     number alone would not say why."""
     text = f"{name} {_shown_value(result, name)}"
-    words = result.measures.get(name) if name == "words" else None
+    words = result.measures.get("words") if name in WORDS_MEASURES else None
     if not isinstance(words, dict):
         return text
     rules = list(dict.fromkeys(f.get("rule") for f in words.get("findings") or ()))
@@ -656,7 +664,11 @@ def _record_check(shot, segment, config, checked):
     # Texture alone ends the loop on attempt 1 without trying the budget
     exhausted = result.rerolls
     shot["check_failed"] = list(result.failed)
-    words = result.measures.get("words") if "words" in result.failed else None
+    words = (
+        result.measures.get("words")
+        if WORDS_MEASURES.intersection(result.failed)
+        else None
+    )
     detail = {}
     if words is not None:
         detail = {
