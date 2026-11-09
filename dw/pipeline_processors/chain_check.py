@@ -14,6 +14,15 @@ it to the audio floor alone. `check_segment` can skip a seam marked
 `hard_cut`, but `run_chain` never passes it: a chain's own seams are never
 marked cuts.
 
+`check_words` is the dialogue measure (#1262): a segment's kept audio
+transcribed and held to its line with check_script's comparison, after the
+seam-head rule drops the previous line's carried words at its head. A
+checked chain whose `check` sets `words_similarity_min` runs it on every
+segment with a line, segment 1 included (`chain_config.segment_line`), and
+`with_words` folds its answer into the segment's CheckResult as `words`, a
+re-rolling measure. The default minimum is None, the measure off:
+bench/records/words.md found no clean separation of good takes from bad.
+
 Measurement and choice only: nothing here renders, and nothing here touches
 the timeline. The chain keys are validated by `chain_rules.chain_check_problem`.
 """
@@ -62,8 +71,40 @@ CUT_RATIO_MAX = 3.5
 #   wanted, and a step that wants silence sets the floor to null
 AUDIO_DBFS_MIN = -70.0
 
+# - words_similarity: the least similarity of what a dialogue segment is heard
+#   to say to its line (#1262), check_script's measure on one line.
+#   0.80, the ceiling bench/records/words.md measured on the constitution-walk-2
+#   takes: no good take scored under 0.90, but a bad take (a dropped head
+#   word, 0.9565) scored above good ones, so the measure does not separate
+#   good from bad and a chain does not re-roll on it by default
+#   (WORDS_SIMILARITY_DEFAULT, None: the separation gate of #1262). 0.80 is the
+#   most a chain should set; its own constant, apart from check_script's
+#   DEFAULT_SIMILARITY (0.85), because a chain re-rolls on it
+WORDS_SIMILARITY_MIN = 0.80
+WORDS_SIMILARITY_DEFAULT = None
+# The check_script findings that fail a segment's words whatever its
+# similarity: speech cut off by the segment's end, Whisper stuck in a loop, a
+# markup word spoken aloud, words matched to no line (an ad-lib or a repeat)
+WORDS_FINDINGS = (
+    "line_clipped_at_end",
+    "transcript_loop",
+    "tag_spoken",
+    "unscripted_speech",
+)
+# The words of the line before a segment's that the seam-head rule looks for
+# at the head of its kept span: the carry's last word, cut part-way by
+# head_trim, and the one or two before it
+SEAM_TAIL_WORDS = 3
+
 # The measures a check can fail, in the order a failure names them
-MEASURES = ("jump_ratio", "look_ratio", "texture_ratio", "cut_ratio", "audio_dbfs")
+MEASURES = (
+    "jump_ratio",
+    "look_ratio",
+    "texture_ratio",
+    "cut_ratio",
+    "audio_dbfs",
+    "words",
+)
 
 # Measures that warn and record but never re-roll a segment (ruling R38):
 # texture drift is in the carry, so a fresh seed from the same carry inherits
@@ -82,13 +123,16 @@ REROLL_PRIME = 1000003
 class SegmentCheck:
     """The ceilings one segment is held to. `texture_ratio_max` bounds the
     fine-band ratio both ways (None skips it); `audio_dbfs_min` is the floor
-    of its generated audio (None skips it); `face` is reserved."""
+    of its generated audio (None skips it); `words_similarity_min` the least
+    similarity of its heard words to its line (None, the default, skips the
+    words measure); `face` is reserved."""
 
     jump_ratio_max: float = JUMP_RATIO_MAX
     look_ratio_max: float = LOOK_RATIO_MAX
     texture_ratio_max: float | None = TEXTURE_RATIO_MAX
     cut_ratio_max: float | None = CUT_RATIO_MAX
     audio_dbfs_min: float | None = AUDIO_DBFS_MIN
+    words_similarity_min: float | None = WORDS_SIMILARITY_DEFAULT
     face: None = None
 
 
@@ -120,7 +164,12 @@ def segment_check(value):
         for name in ("jump_ratio_max", "look_ratio_max")
         if name in value
     }
-    for name in ("texture_ratio_max", "cut_ratio_max", "audio_dbfs_min"):
+    for name in (
+        "texture_ratio_max",
+        "cut_ratio_max",
+        "audio_dbfs_min",
+        "words_similarity_min",
+    ):
         if name in value:
             fields[name] = None if value[name] is None else float(value[name])
     return SegmentCheck(**fields)
@@ -227,14 +276,36 @@ def check_segment(
     return CheckResult(not failed, measures, failed, after_data)
 
 
+def with_words(result, words):
+    """`result` with a segment's words answer (`check_words`, or None for a
+    segment with no line) recorded as its `words` measure, failing it when
+    the answer did not pass. A segment with no line is never failed for it:
+    nothing says what it should speak (#1262)."""
+    result.measures["words"] = words
+    if words is not None and not words["passed"]:
+        result.failed.append("words")
+        result.passed = False
+    return result
+
+
+def _words_only(result):
+    return result.failed == ["words"]
+
+
 def best_attempt(results):
     """The index of the attempt to keep: fewest failed measures, then the
-    lowest jump ratio, then the earliest."""
+    lowest jump ratio, then the earliest. Attempts that failed words alone
+    rank after any other one-measure failure and among themselves by the
+    higher similarity (#1262): their pictures passed, so the jump says
+    nothing about which spoke its line best."""
 
     def rank(index):
         result = results[index]
+        if _words_only(result):
+            similarity = (result.measures.get("words") or {}).get("similarity")
+            return (1, 1, -(similarity or 0.0), index)
         jump = result.measures.get("jump_ratio")
-        return (len(result.failed), math.inf if jump is None else jump, index)
+        return (len(result.failed), 0, math.inf if jump is None else jump, index)
 
     return min(range(len(results)), key=rank)
 
@@ -302,3 +373,129 @@ def _texture_ratio(frames, segment_1_texture):
     if not segment_1_texture or value is None:
         return None
     return round(value / segment_1_texture, 4)
+
+
+def _whisper_chunks(waveform, sample_rate, device="cpu"):
+    """transcribe_audio's word chunks for a waveform, levelled as check_script
+    levels a take - the same model cache, so a chain loads Whisper once."""
+    from ..tasks.audio_transcription import transcribe_audio
+    from ..tasks.script_take import level_for_transcription
+
+    leveled, _ = level_for_transcription(waveform)
+    return transcribe_audio(
+        leveled, device=device, sample_rate=sample_rate, timestamps="word"
+    )["chunks"]
+
+
+def _seam_head(chunks, expected, previous_line):
+    """(kept, dropped): `chunks` with the seam-head rule applied. A chunk
+    heard before the first word that aligns to the line (`expected`, its
+    normalized words) is dropped when every word of it is one of the last
+    SEAM_TAIL_WORDS words of `previous_line` - a carried word the head trim
+    cut part-way. A chunk there that matches nothing is kept: an invented
+    word counts.
+
+    The heard words are the owners' (Script check row): each chunk's
+    words unfolded (`normalize_words(numbers=False)`), then folded across
+    chunks by `fold_numbers`, as `guard_words` builds them, so 'twenty' and
+    'one' heard as two chunks are the one word '21' here as in `check`. The
+    head is `script_check.align`'s: the heard words it leaves unassigned
+    before the line's first assigned word. A head word folded across chunks
+    drops every chunk it spans. The guard's discards (below the floor, a
+    loop) are not applied here: `check` applies them to the chunks kept."""
+    from ..script_lines import fold_numbers, normalize_words, strip_markup
+    from ..tasks.script_check import align
+
+    if not previous_line or not expected:
+        return list(chunks), []
+    tail = set(normalize_words(strip_markup(previous_line)[0])[-SEAM_TAIL_WORDS:])
+    if not tail:
+        return list(chunks), []
+    owners = [
+        index
+        for index, chunk in enumerate(chunks)
+        for _ in normalize_words(chunk.get("text", ""), numbers=False)
+    ]
+    unfolded = [
+        word
+        for chunk in chunks
+        for word in normalize_words(chunk.get("text", ""), numbers=False)
+    ]
+    heard, spans, k = [], [], 0
+    for word, count in fold_numbers(unfolded):
+        heard.append({"word": word})
+        spans.append(set(owners[k : k + count]))
+        k += count
+    assigned, unassigned = align([expected], heard)
+    if not assigned[0]:
+        return list(chunks), []
+    first = min(assigned[0])
+    head = {j for j, _ in unassigned if j < first}
+    # A chunk is dropped when every heard word touching it is a head word
+    # from the tail; one shared with the line's first word stays
+    touching = {}
+    for j, chunk_indices in enumerate(spans):
+        for index in chunk_indices:
+            touching.setdefault(index, []).append(j)
+    dropped = {
+        index
+        for index, words in touching.items()
+        if all(j in head and heard[j]["word"] in tail for j in words)
+    }
+    kept = [chunk for index, chunk in enumerate(chunks) if index not in dropped]
+    return kept, [chunks[index] for index in sorted(dropped)]
+
+
+def check_words(
+    audio, sample_rate, line, previous_line, minimum, transcribe=None, device="cpu"
+):
+    """Whether a dialogue segment's kept audio speaks its line (#1262), as
+    {similarity, heard, findings, passed, seam_head_dropped}.
+
+    `audio` is the kept span ((channels, samples) or 1-D), `line` the text
+    the segment is meant to speak (markup kept: `script_lines.dialogue_text`
+    or the chain's `lines`), `previous_line` the line of the segment before
+    it (None for segment 1), `minimum` the least similarity that passes
+    (None holds only the findings). `transcribe(waveform, sample_rate)` gives
+    word chunks; by default Whisper's, on `device`.
+
+    The comparison is `script_check.check` unchanged, on one line and no
+    shots, after the seam-head rule (`_seam_head`) drops carried words of
+    `previous_line` at the head. `findings` are its WORDS_FINDINGS, each of
+    which fails the segment; so does a similarity under `minimum`, or none
+    (the line looped and was never transcribed). `heard` is the transcript
+    after the seam-head rule, joined; `seam_head_dropped` the chunks it
+    dropped."""
+    from ..script_lines import normalize_words, parse_lines
+    from ..tasks.script_check import check
+    from ..tasks.script_findings import DEFAULT_SIMILARITY
+
+    parsed = parse_lines([line])
+    expected = normalize_words(parsed[0]["text"])
+    waveform = numpy.asarray(audio, dtype=numpy.float32)
+    if waveform.ndim == 1:
+        waveform = waveform[numpy.newaxis, :]
+    mono = waveform[0] if waveform.shape[0] == 1 else waveform.mean(axis=0)
+    if transcribe is None:
+
+        def transcribe(wave, rate):
+            return _whisper_chunks(wave, rate, device)
+
+    chunks, dropped = _seam_head(
+        transcribe(waveform, sample_rate), expected, previous_line
+    )
+    threshold = DEFAULT_SIMILARITY if minimum is None else float(minimum)
+    answer = check(parsed, chunks, mono, sample_rate, threshold)
+    similarity = answer["lines"][0]["similarity"]
+    findings = [f for f in answer["findings"] if f["rule"] in WORDS_FINDINGS]
+    low = similarity is None or (minimum is not None and similarity < minimum)
+    heard = " ".join(
+        text for text in (chunk.get("text", "").strip() for chunk in chunks) if text
+    )
+    return {
+        "similarity": similarity,
+        "heard": heard,
+        "findings": findings,
+        "passed": not low and not findings,
+        "seam_head_dropped": [chunk.get("text", "").strip() for chunk in dropped],
+    }

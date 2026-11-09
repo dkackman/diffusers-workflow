@@ -8,7 +8,8 @@ length-planned block with no `frame_snap` the one its `num_frames` variable's
 constraint declares, and `chain_segment_count`
 is the pure count the cost estimate asks too, as `chain_holds_audio`,
 `chain_audio_floor` and `chain_checks_segment_1` are the pure audio-check
-rules (#1221). Split out of `chain.py`, which
+rules (#1221), and `chain_checks_words` and `segment_line` the words
+check's (#1262). Split out of `chain.py`, which
 imports this module and never the reverse.
 """
 
@@ -17,6 +18,7 @@ import math
 from dataclasses import dataclass
 
 from ..dsp import as_channels_samples
+from ..script_lines import dialogue_text
 from ..events import emit_log
 from .chain_check import AUDIO_DBFS_MIN, segment_check
 from .. import references
@@ -25,6 +27,7 @@ from .chain_rules import (
     CHAIN_CAPSTONE,
     CHAIN_CAPSTONE_FROM_END,
     CHAIN_LATENT_CARRY,
+    CHAIN_LINES,
     CHAIN_RESUME_FROM,
     chain_capstone_problem,
     chain_carry_pick_problem,
@@ -33,6 +36,7 @@ from .chain_rules import (
     chain_keystone_slot_problem,
     chain_latent_carry_problem,
     chain_length_problem,
+    chain_lines_problem,
     chain_look_hold_flags,
     chain_look_hold_problem,
     chain_needs_frame_snap,
@@ -148,6 +152,11 @@ class ChainConfig:
             )
         else:
             self._plan_from_segments(segments, arguments, head_trim)
+        # Each segment's own line for the words check (#1262), one per
+        # segment: refused against the plan, which match_audio sets only now
+        self.lines = chain_definition.get(CHAIN_LINES)
+        _raise_chain_problem(chain_lines_problem(self.lines, len(self.plan)))
+        self.step_prompt = _argument(arguments, "prompt")
         if self.total_frames is not None:
             # A length-planned chain renders its shortened last segment at
             # its planned length (chain._segment_arguments), so its plan can
@@ -231,6 +240,12 @@ class ChainConfig:
         self.audio_held = chain_holds_audio(chain_definition, arguments)
         self.audio_floor = chain_audio_floor(chain_definition, arguments)
         self.checks_segment_1 = chain_checks_segment_1(chain_definition, arguments)
+        self.checks_words = chain_checks_words(chain_definition, arguments)
+
+    def segment_line(self, index):
+        """The line segment `index` is meant to speak, or None (#1262):
+        `segment_line` over this chain's `lines`, `prompts` and step prompt."""
+        return segment_line(self.lines, self.prompts, self.step_prompt, index)
 
     def _read_carry(self, chain_definition):
         self.segment_argument = chain_definition.get("segment_argument", "image")
@@ -486,16 +501,50 @@ def chain_audio_floor(chain_definition, arguments):
 
 
 def chain_checks_segment_1(chain_definition, arguments):
-    """Whether segment 1 is checked: for its audio level only, so only with
-    the check on, the floor on, and the audio generated (#1221 Q3). Pure:
-    the run's `ChainConfig` and the cost estimate both ask it; it never
-    reads the floor's value, so an unresolved reference counts as on."""
+    """Whether segment 1 is checked: it has no seam, so only for its audio
+    level (#1221 Q3) or its words (#1262) - with the check on, the audio
+    generated, and the floor or the words measure on. Pure: the run's
+    `ChainConfig` and the cost estimate both ask it; it never reads the
+    floor's or the minimum's value, so an unresolved reference counts as
+    on."""
     check = chain_definition.get("check")
     return (
         (check is True or isinstance(check, dict))
         and not chain_holds_audio(chain_definition, arguments)
-        and _floor_setting(chain_definition) is not None
+        and (
+            _floor_setting(chain_definition) is not None
+            or chain_checks_words(chain_definition, arguments)
+        )
     )
+
+
+def chain_checks_words(chain_definition, arguments):
+    """Whether a chain holds each segment's kept audio to its line (#1262):
+    a `check` object whose `words_similarity_min` is not null - the default
+    is null, the measure off, since bench/records/words.md found no clean
+    separation of good takes from bad - and the audio generated: a held
+    track is not the segment's own speech. Pure, as
+    `chain_checks_segment_1`; an unresolved reference counts as on."""
+    check = chain_definition.get("check")
+    return (
+        isinstance(check, dict)
+        and check.get("words_similarity_min") is not None
+        and not chain_holds_audio(chain_definition, arguments)
+    )
+
+
+def segment_line(lines, prompts, prompt, index):
+    """The line segment `index` (0-based) is meant to speak, or None when it
+    has none (#1262): `lines[index]` when the chain has `lines` (one per
+    segment, never repeated past its end), else the `<d>` bodies
+    (`script_lines.dialogue_text`) of its prompt - `prompts[min(index,
+    len - 1)]`, as the segment renders with, else the step's `prompt`. A
+    prompt with no `<d>` has no line, and is not held to silence."""
+    if isinstance(lines, list) and lines:
+        line = lines[index] if index < len(lines) else None
+        return line if isinstance(line, str) and line.strip() else None
+    source = prompts[min(index, len(prompts) - 1)] if prompts else prompt
+    return dialogue_text(source) or None
 
 
 def plan_segments(total_frames, segment_frames, trim_frames, frame_snap=None):

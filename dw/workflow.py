@@ -404,7 +404,12 @@ class Workflow:
     def _expand(definition, variables, source_indices=None):
         """Stage two of preparing a definition: every 'variable:'
         substituted, every 'constraint:' frame_snap resolved and every
-        for_each expanded. Returns the new definition."""
+        for_each expanded. Returns the new definition.
+
+        `derive_frame_snaps` mutates `definition` in place, so the caller must
+        pass a deep copy (both do). It runs before `expand_for_each`, so a
+        chain inside a `for_each` step is not derived; validate still warns on
+        the expanded definition (`frame_snap_warnings`)."""
         # A chain planned by length with no frame_snap takes the one its
         # num_frames variable's constraint declares - before substitution,
         # while the 'variable:' is still visible, so the last segment lands

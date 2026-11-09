@@ -9,6 +9,8 @@ import builtins
 import os
 import sys
 
+import pytest
+
 from dw import host_memory
 
 
@@ -393,8 +395,6 @@ class TestPrivateClaimsDir:
             self.st_uid = os.geteuid() if hasattr(os, "geteuid") else 0
 
     def test_a_group_writable_folder_is_refused_on_posix(self, tmp_path, monkeypatch):
-        import pytest
-
         monkeypatch.setattr(os, "name", "posix")
         monkeypatch.setattr(os, "lstat", lambda path: self._Stat(0o40775))
         with pytest.raises(OSError, match="writable by others"):

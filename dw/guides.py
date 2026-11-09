@@ -55,6 +55,7 @@ from .pipeline_processors.h3_guides import default_num_frames
 from .pipeline_processors.chain_rules import (
     CHAIN_CAPSTONE,
     CHAIN_KEYSTONE_SLOT,
+    CHAIN_LINES,
     CHAIN_LATENT_CARRY,
     CHAIN_RESUME_FROM,
     chain_capstone_problem,
@@ -62,6 +63,7 @@ from .pipeline_processors.chain_rules import (
     chain_check_finding,
     chain_keystone_slot_problem,
     chain_latent_carry_problem,
+    chain_lines_problem,
     chain_look_hold_problem,
     chain_needs_frame_snap,
     chain_resume_problem,
@@ -429,7 +431,8 @@ def _chain_rule_findings(chain, arguments):
     """(chain key, problem) for every chain-block rule this step's chain
     breaks, in the order validation reports them: the anchor strength, the
     carry pick, the look hold, the keystone and its slot, the capstone, the
-    latent carry, the per-segment check and the resume."""
+    latent carry, the per-segment check, the expected lines and the
+    resume."""
     arguments = arguments if isinstance(arguments, dict) else {}
     num_frames = arguments.get("num_frames")
     strength = chain.get("anchor_strength")
@@ -451,6 +454,14 @@ def _chain_rule_findings(chain, arguments):
         ),
     ]
     findings.append(chain_check_finding(chain) or (None, None))
+    findings.append(
+        (
+            CHAIN_LINES,
+            chain_lines_problem(
+                chain.get(CHAIN_LINES), _segment_count(chain, arguments)
+            ),
+        )
+    )
     resume_from = chain.get(CHAIN_RESUME_FROM)
     findings.append(
         (
@@ -459,6 +470,48 @@ def _chain_rule_findings(chain, arguments):
         )
     )
     return [(key, problem) for key, problem in findings if problem]
+
+
+def _segment_count(chain, arguments):
+    """The chain's segment count where the block tells it, else None."""
+    from .pipeline_processors.chain_config import chain_segment_count
+
+    return chain_segment_count(chain, arguments)
+
+
+def chain_lines_warnings(workflow_definition, source_indices=None):
+    """["path: message"] for a chain `lines` that nothing reads (#1262): only
+    the words measure reads it, and it runs only with `check` an object
+    whose `words_similarity_min` is not null, on a chain whose audio is not
+    held. Unresolved references are left to the run."""
+    from .pipeline_processors.chain_config import chain_checks_words
+
+    warnings = []
+    for _, _, pipeline, source, where in references.iter_steps(
+        workflow_definition.get("steps"), source_indices, "pipeline"
+    ):
+        chain = pipeline.get("chain")
+        if not isinstance(chain, dict) or chain.get(CHAIN_LINES) is None:
+            continue
+        check = chain.get("check")
+        if isinstance(check, str) and references.is_ref(references.UNRESOLVED, check):
+            continue
+        if isinstance(check, dict) and isinstance(
+            check.get("words_similarity_min"), str
+        ):
+            continue
+        arguments = pipeline.get("arguments")
+        arguments = arguments if isinstance(arguments, dict) else {}
+        if chain_checks_words(chain, arguments):
+            continue
+        path = render_path(("steps", source, "pipeline", "chain", CHAIN_LINES))
+        warnings.append(
+            f"{path}: nothing reads 'lines' - the words check reads it, and it "
+            "runs only with 'check' an object whose 'words_similarity_min' is "
+            "a number, on a chain whose audio is generated (no match_audio or "
+            f"hold_audio){where}"
+        )
+    return warnings
 
 
 def _guide_noise_steps(workflow_definition, source_indices):
@@ -523,7 +576,7 @@ def frame_snap_warnings(workflow_definition, source_indices=None):
     none was written and none could be derived from a `num_frames` variable's
     constraint (`derive_frame_snaps`). Its shortened last segment is then
     asked for whatever count remains, which the pipeline may floor or round
-    in silence."""
+    in silence. Advisory: a pipeline with no frame grid is unaffected."""
     warnings = []
     for _, _, pipeline, source, where in references.iter_steps(
         workflow_definition.get("steps"), source_indices, "pipeline"
@@ -536,7 +589,8 @@ def frame_snap_warnings(workflow_definition, source_indices=None):
         warnings.append(
             f"{path}: a {key} chain with no frame_snap asks its shortened last "
             "segment for whatever count remains, which the pipeline may floor "
-            "or round in silence - set 'frame_snap' on the chain, or make the "
+            "or round in silence (ignore this if the pipeline has no frame "
+            "grid) - set 'frame_snap' on the chain, or make the "
             "step's 'num_frames' a 'variable:' whose 'variable_constraints' "
             f"entry has a modulus, from which it is derived{where}"
         )

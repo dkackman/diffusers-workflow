@@ -334,6 +334,113 @@ def _chain_checks_audio(definition, variables):
     return chain_checks_segment_1(chain, arguments)
 
 
+def _chain_checks_words(definition, variables):
+    """Whether the workflow's one checked chain runs the words measure
+    (#1262): `check` an object whose `words_similarity_min` is not null, the
+    audio not held. The rule is the run's own,
+    `chain_config.chain_checks_words`, asked at `variables`."""
+    from .pipeline_processors.chain_config import chain_checks_words
+
+    blocks = list(_chain_blocks(definition.get("steps")))
+    if len(blocks) != 1:
+        return False
+    chain, arguments = blocks[0]
+    chain = {key: _resolved(value, variables) for key, value in chain.items()}
+    if isinstance(chain.get("check"), dict):
+        chain["check"] = {
+            key: _resolved(value, variables) for key, value in chain["check"].items()
+        }
+    arguments = {key: _resolved(value, variables) for key, value in arguments.items()}
+    return chain_checks_words(chain, arguments)
+
+
+def _is_literal_text(value):
+    """Whether `value` is text the estimate can read a `<d>` from as it
+    stands: a string that is no reference and holds no `{...}` substitution."""
+    return (
+        isinstance(value, str)
+        and not references.is_ref(references.DEFERRED, value)
+        and "{" not in value
+    )
+
+
+def _chain_lined_segments(definition, variables, kept, segments):
+    """How many of segments kept..segments-1 the words measure checks: those
+    with a line, as the run's `chain_config.segment_line` reads it. A segment
+    whose line source the estimate cannot read as it stands (a reference, a
+    substitution) is counted as having one - the worst case."""
+    from .pipeline_processors.chain_config import segment_line
+
+    chain, arguments = list(_chain_blocks(definition.get("steps")))[0]
+    lines = _resolved(chain.get("lines"), variables)
+    prompts = _resolved(chain.get("prompts"), variables)
+    prompt = _resolved(arguments.get("prompt"), variables)
+    if isinstance(lines, list) and lines:
+        if not all(isinstance(line, str) for line in lines):
+            return segments - kept
+    elif prompts is not None:
+        if not (
+            isinstance(prompts, list)
+            and prompts
+            and all(_is_literal_text(p) for p in prompts)
+        ):
+            return segments - kept
+    elif not _is_literal_text(prompt):
+        return segments - kept
+    return sum(
+        1
+        for index in range(kept, segments)
+        if segment_line(lines, prompts, prompt, index) is not None
+    )
+
+
+# One Whisper pass on CPU per checked attempt, at the first pass's 3.0 s on
+# lem (bench/records/words.md): the warm passes are 1.3 s, so this is the
+# worst case, as the re-roll count is
+WORDS_CHECK_MINUTES = 0.05
+
+
+def words_check_term(definition, variables):
+    """(minutes, axis) the words measure adds to a checked chain's quote
+    (#1262), (0.0, None) when it is off: one Whisper pass per attempt of
+    each checked segment, segment 1 among them, in the worst case
+    L(1 + retries) passes, L the segments past the kept ones that have a
+    line (`_chain_lined_segments`). Additive, not a factor - it does not
+    grow with the canvas or the steps."""
+    if not _chain_checks_words(definition, variables):
+        return 0.0, None
+    segments = _chain_segments(definition, variables)
+    if not segments:
+        return 0.0, None
+    kept = min(_chain_kept(definition, variables)[0], segments)
+    lined = _chain_lined_segments(definition, variables, kept, segments)
+    passes = lined * (1 + _chain_retries(definition, variables))
+    if passes <= 0:
+        return 0.0, None
+    minutes = passes * WORDS_CHECK_MINUTES
+    return minutes, f"words check: {passes} Whisper pass(es), {_shown(minutes)} min"
+
+
+def with_words_check(price, definition, expanded):
+    """`price` with `words_check_term` added: its minutes, a `derived`
+    basis (another device's stays `other_device`), and the term named in
+    `scaled`. A price with no minutes, or a chain not words-checked, is
+    returned as it is."""
+    minutes, axis = words_check_term(definition, expanded.get("variables") or {})
+    if not minutes or price.get("minutes") is None:
+        return price
+    basis = OTHER_DEVICE if price["basis"] == OTHER_DEVICE else DERIVED
+    scaled = price.get("scaled")
+    return {
+        **price,
+        "minutes": price["minutes"] + minutes,
+        "basis": basis,
+        "scaled": f"{scaled}, {axis}"
+        if scaled
+        else f"from the curated {_shown(price['minutes'])} min: {axis}",
+    }
+
+
 def _worst_case_retries(definition, variables):
     """(factor, axes, unscaled) for the worst case of a checked chain's
     re-rolls, as `chain_check` runs them. Each checked segment may render

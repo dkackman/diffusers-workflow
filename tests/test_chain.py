@@ -1791,6 +1791,12 @@ class TestCheckAndReroll:
         assert "attempt 2 of 3" in message
         assert warn.call_args.kwargs["kind"] == "chain_check_failed"
         assert warn.call_args.kwargs["kept_attempt"] == 2
+        # Without the words check the payload carries none of its keys
+        payload = warn.call_args.kwargs
+        for key in ("heard", "similarity", "findings", "every_attempt_failed", "note"):
+            assert key not in payload
+        assert "words" not in payload["measures"]
+        assert "words" not in out.shots[1]
 
     def test_texture_alone_warns_and_records_without_a_reroll(self):
         # Texture drift is in the carry; a fresh seed inherits it (R38)
@@ -1809,6 +1815,8 @@ class TestCheckAndReroll:
         assert out.shots[1]["check_failed"] == ["texture_ratio"]
         assert warn.call_count == 1
         assert warn.call_args.kwargs["kind"] == "chain_check_failed"
+        assert "heard" not in warn.call_args.kwargs
+        assert "similarity" not in warn.call_args.kwargs
 
     def test_texture_with_a_jump_still_rerolls(self):
         pipeline = FakePipeline(self.output_for(self.seeds(16, 0)))
