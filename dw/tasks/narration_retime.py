@@ -564,11 +564,39 @@ def filled_prompts(prompt_template, fill, lines):
                 f"write {{{{ and }}}} for literal braces)"
             )
 
-    for match in _PLACEHOLDER.finditer(prompt_template):
+    if len(prompt_template) > MAX_PROMPT_CHARS:
+        raise ValueError(
+            f"{LINES}: prompt_template is {len(prompt_template)} characters, "
+            f"over the {MAX_PROMPT_CHARS} cap"
+        )
+    for name, value in (*values.items(), *(("line", line) for line in lines)):
+        if len(value) > MAX_PROMPT_CHARS:
+            raise ValueError(
+                f"{LINES}: the value for {name!r} is {len(value)} characters, "
+                f"over the {MAX_PROMPT_CHARS} cap"
+            )
+    matches = list(_PLACEHOLDER.finditer(prompt_template))
+    for match in matches:
         check(match)
     prompts = []
     for index, line in enumerate(lines):
         pieces = {**values, "line": line}
+        size = 0
+        end = 0
+        for match in matches:
+            size += match.start() - end
+            end = match.end()
+            token = match.group(0)
+            size += 1 if token in ("{{", "}}") else len(pieces[match.group(1)])
+            if size > MAX_PROMPT_CHARS:
+                break
+        else:
+            size += len(prompt_template) - end
+        if size > MAX_PROMPT_CHARS:
+            raise ValueError(
+                f"{LINES}: the prompt for segment {index} is over the "
+                f"{MAX_PROMPT_CHARS} character cap"
+            )
 
         def put(match):
             token = match.group(0)
@@ -576,13 +604,7 @@ def filled_prompts(prompt_template, fill, lines):
                 return token[0]
             return pieces[match.group(1)]
 
-        prompt = _PLACEHOLDER.sub(put, prompt_template)
-        if len(prompt) > MAX_PROMPT_CHARS:
-            raise ValueError(
-                f"{LINES}: the prompt for segment {index} is {len(prompt)} "
-                f"characters, over the {MAX_PROMPT_CHARS} cap"
-            )
-        prompts.append(prompt)
+        prompts.append(_PLACEHOLDER.sub(put, prompt_template))
     return prompts
 
 

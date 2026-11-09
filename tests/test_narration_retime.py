@@ -381,7 +381,35 @@ def test_unbalanced_brace_is_refused(heard):
 
 def test_filled_prompt_over_the_cap_is_refused(heard):
     with pytest.raises(ValueError, match=r"narration_lines.*segment 0"):
-        _lines_with(heard, "{big} {line}", fill={"big": "x" * 20_001})
+        _lines_with(heard, "{big} {big}", fill={"big": "x" * 15_000})
+
+
+def test_template_longer_than_the_cap_is_refused(heard):
+    with pytest.raises(ValueError, match=r"narration_lines.*prompt_template"):
+        _lines_with(heard, "x" * 20_001)
+
+
+def test_fill_value_longer_than_the_cap_is_refused(heard):
+    with pytest.raises(ValueError, match=r"narration_lines.*'big'"):
+        _lines_with(heard, "{big}", fill={"big": "x" * 20_001})
+
+
+def test_many_placeholders_are_refused_before_building(heard, monkeypatch):
+    built = []
+    real = narration_retime._PLACEHOLDER
+
+    class Spy:
+        def finditer(self, text):
+            return real.finditer(text)
+
+        def sub(self, repl, text):
+            built.append(text)
+            return real.sub(repl, text)
+
+    monkeypatch.setattr(narration_retime, "_PLACEHOLDER", Spy())
+    with pytest.raises(ValueError, match=r"narration_lines.*segment 0"):
+        _lines_with(heard, "{scene}" * 2_500, fill={"scene": "x" * 1_000})
+    assert built == []
 
 
 def test_narration_lines_with_no_words_is_refused(heard):

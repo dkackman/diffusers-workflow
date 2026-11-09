@@ -3417,8 +3417,9 @@ placeholder is a bare name in braces, `{line}` or one of `fill`'s keys. Anything
 else in braces is refused: a format spec (`{line:>9}`), a conversion
 (`{line!r}`), attribute or index access (`{line.upper}`, `{line[0]}`), a
 position (`{0}`, `{}`), or a stray single brace. Write `{{` and `}}` for a
-literal `{` and `}`. A filled prompt over 20,000 characters is refused, naming
-its segment.
+literal `{` and `}`. `prompt_template` and each `fill` value are capped at 20,000 characters, and a
+filled prompt over 20,000 characters is refused, naming its segment (the length
+is counted before the prompt is built).
 
 ## Extracting Sections
 
