@@ -2741,7 +2741,12 @@ joined into a single file:
   failed run's files resolve by name, with or without its manifest. Rerun with the
   same settings and that reference: its finished segments become segments 1..k and
   only k+1..N render, which the estimate prices (N - k segments; a reference that
-  does not resolve yet is priced for every segment and says so). Each kept file must
+  does not resolve yet is priced for every segment and says so). That scales a
+  figure the quote already has - the catalog `cost` or this server's history of the
+  workflow at the same drivers; a workflow with neither (a template never run here,
+  a different `segments`) stays `basis: unknown` under `resume_from` as without it.
+  A chain whose segment count the estimate cannot tell, or a reference keeping N or
+  more segments, is not scaled and `differs` names it. Each kept file must
   hold the frames the plan puts on the timeline for its segment, or the run is
   refused naming the segment and both counts - a resume never changes the plan. The
   files are copied, not moved, into the new run's spill, so the new take stands on

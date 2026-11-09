@@ -2833,3 +2833,19 @@ class TestResumedChainEstimate:
 
         assert quoted["minutes"] == pytest.approx(40.0)
         assert not quoted.get("differs")
+
+
+class TestResumedChainWithNothingToRender(TestResumedChainEstimate):
+    """A reference keeping every planned segment is not scaled, and says why (#1306)."""
+
+    def test_the_quote_names_the_refusal_not_a_bare_resume_from(self, kept):
+        from dw import references
+        from dw.plan import estimate
+
+        reference = references.make_ref(references.OUTPUT, kept)
+        definition, expanded = self._definition(reference)
+        expanded["variables"]["segments"] = 2
+        quoted = estimate(definition, expanded, {}, "cuda", None, None)
+
+        assert any("nothing is left to render" in d for d in quoted["differs"])
+        assert quoted["low_confidence"] is True

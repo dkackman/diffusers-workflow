@@ -510,8 +510,18 @@ def _chain_render_scaling(definition, variables):
         factor, axes, retry_unscaled = _worst_case_retries(definition, variables)
         return factor, axes, retry_unscaled + unscaled
     segments = _chain_segments(definition, variables)
-    if not segments or kept >= segments:
-        return 1.0, [], ["resume_from"]
+    if not segments:
+        return 1.0, [], ["resume_from", *unscaled]
+    if kept >= segments:
+        return (
+            1.0,
+            [],
+            [
+                f"resume_from keeps {kept} segment(s) and the chain plans "
+                f"{segments}: nothing is left to render, the run is refused",
+                *unscaled,
+            ],
+        )
     retries = _chain_retries(definition, variables)
     rendered = segments - kept
     renders = rendered * (1 + retries)
