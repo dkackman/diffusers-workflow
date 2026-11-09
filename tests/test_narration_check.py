@@ -3,6 +3,7 @@
 import numpy
 import pytest
 
+from dw.tasks import narration_check
 from dw.tasks.narration_check import align, check_narration, normalize
 
 TAKES = ["the cat sat.", "on the mat."]
@@ -15,10 +16,14 @@ def fake(transcript):
 SILENCE = numpy.zeros((1, 160), dtype=numpy.float32)
 
 
+@pytest.fixture(autouse=True)
+def _no_asr(monkeypatch):
+    monkeypatch.setattr(narration_check, "_asr", fake(""))
+
+
 def run(transcript, takes=TAKES, **kwargs):
-    return check_narration(
-        takes, SILENCE, sample_rate=16000, transcribe=fake(transcript), **kwargs
-    )
+    narration_check._asr = fake(transcript)
+    return check_narration(SILENCE, takes, sample_rate=16000, **kwargs)
 
 
 def test_normalize_lowercases_and_drops_punctuation():
@@ -62,9 +67,8 @@ def test_a_looped_take_shows_as_inserted_and_later_takes_still_align():
 
 def test_the_lengths_need_not_match_but_a_string_is_split():
     text = "One two three. Four five six."
-    result = check_narration(
-        text, SILENCE, sample_rate=16000, transcribe=fake("one two three four five six")
-    )
+    narration_check._asr = fake("one two three four five six")
+    result = check_narration(SILENCE, text, sample_rate=16000)
     assert result["checked"] == 1
     assert result["takes"][0]["ok"] is True
 
@@ -85,19 +89,13 @@ def test_each_failing_take_warns():
 
 
 def test_text_and_takes_are_alternatives_exactly_one():
-    from dw.tasks.narration_check import check_narration as check
-
+    check = check_narration
     with pytest.raises(ValueError, match="text.*takes"):
-        check(None, SILENCE, sample_rate=16000, transcribe=fake(""))
+        check(SILENCE, None, sample_rate=16000)
     with pytest.raises(ValueError, match="text.*takes"):
-        check(TAKES, SILENCE, sample_rate=16000, text="hello", transcribe=fake(""))
-    ok = check(
-        None,
-        SILENCE,
-        sample_rate=16000,
-        text="hello there.",
-        transcribe=fake("hello there"),
-    )
+        check(SILENCE, TAKES, sample_rate=16000, text="hello")
+    narration_check._asr = fake("hello there")
+    ok = check(SILENCE, None, sample_rate=16000, text="hello there.")
     assert ok["failed"] == []
 
 
@@ -155,3 +153,23 @@ def test_a_boundary_insertion_is_charged_whole_not_split_at_a_matching_tail():
     dropped, inserted = _owners(pairs, expected, heard, [0, 3])
     assert inserted == [[], ["um", "sat"]]
     assert dropped == [[], []]
+
+
+def test_a_restarted_and_abandoned_take_is_charged_to_that_take():
+    from dw.tasks.narration_check import _owners
+
+    expected = ["e", "f", "g", "h", "x", "y"]
+    heard = ["e", "f", "g", "h", "e", "f", "x", "y"]
+    pairs = [("equal", k, k) for k in range(4)]
+    pairs += [("inserted", None, 4), ("inserted", None, 5)]
+    pairs += [("equal", k, k + 2) for k in range(4, 6)]
+    dropped, inserted = _owners(pairs, expected, heard, [0, 4])
+    assert inserted == [["e", "f"], []]
+
+
+def test_transcribe_is_not_a_task_argument_and_audio_is_required():
+    import inspect
+
+    params = inspect.signature(check_narration).parameters
+    assert "transcribe" not in params
+    assert params["audio"].default is inspect.Parameter.empty

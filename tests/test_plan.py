@@ -2772,6 +2772,25 @@ class TestResumedChainEstimate:
         assert quoted["minutes"] == pytest.approx(20.0)
         assert "2 of 4 segment(s) kept" in quoted["scaled"]
 
+    def test_a_fan_out_resume_says_the_quote_assumes_every_iteration_resumes(
+        self, kept
+    ):
+        from dw import references
+        from dw.pipeline_processors.chain_resume import FANOUT_NOTE
+        from dw.plan import estimate
+
+        reference = references.make_ref(references.OUTPUT, kept)
+        definition, expanded = self._definition(reference)
+        step = definition["steps"][0]["pipeline"]
+        step["arguments"]["prompt"] = "previous_result:earlier.prompts"
+        quoted = estimate(definition, expanded, {}, "cuda", None, None)
+
+        assert quoted["minutes"] == pytest.approx(20.0)
+        assert FANOUT_NOTE in quoted["differs"]
+
+        plain = estimate(*self._definition(reference), {}, "cuda", None, None)
+        assert FANOUT_NOTE not in (plain.get("differs") or [])
+
     def test_an_unresolvable_resume_prices_every_segment_and_says_so(self, kept):
         from dw import references
         from dw.pipeline_processors.chain_resume import UNRESOLVED_NOTE

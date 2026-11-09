@@ -137,16 +137,33 @@ def _inert_match_levels_dbfs_warnings(step, command, arguments):
     resolving to compare against a domain."""
     if command not in ("concat_videos", "dissolve_videos"):
         return []
-    if "match_levels_dbfs" not in arguments or arguments.get("match_levels"):
-        return []
-    dbfs = arguments.get("match_levels_dbfs")
-    if not isinstance(dbfs, (int, float)):
-        return []
-    return [
-        f"Step '{step.get('name')}': 'match_levels_dbfs' has no effect when "
-        f'\'match_levels\' is unset - pass "rms" or "peak" for the target '
-        f"to apply."
-    ]
+    name = step.get("name")
+    mode = arguments.get("match_levels")
+    warnings = []
+    if "match_levels_lufs" in arguments and isinstance(
+        arguments.get("match_levels_lufs"), (int, float)
+    ):
+        if not mode:
+            warnings.append(
+                f"Step '{name}': 'match_levels_lufs' has no effect when "
+                f"'match_levels' is unset - pass \"lufs\" for the target to apply."
+            )
+        elif mode in ("rms", "peak"):
+            warnings.append(
+                f"Step '{name}': 'match_levels_lufs' only applies to "
+                f"'match_levels': \"lufs\", and the run is refused with "
+                f'"{mode}" - use \'match_levels_dbfs\' for "{mode}".'
+            )
+    if "match_levels_dbfs" not in arguments or mode:
+        return warnings
+    if not isinstance(arguments.get("match_levels_dbfs"), (int, float)):
+        return warnings
+    warnings.append(
+        f"Step '{name}': 'match_levels_dbfs' has no effect when "
+        f'\'match_levels\' is unset - pass "rms" or "peak" (or "lufs" '
+        f"with 'match_levels_lufs') for the target to apply."
+    )
+    return warnings
 
 
 def workflow_argument_warnings(workflow_definition, arguments=None):

@@ -231,14 +231,25 @@ def run_chain(pipeline, chain_definition, arguments):
         pipeline.segment_label = None
         pipeline.latent_anchor_source = None
 
-    return _stitched(
-        config,
-        spill,
-        timeline.frames,
-        timeline.audio,
-        timeline.audio_rate,
-        timeline.shots,
-    )
+    return _stitched_or_hint(config, spill, timeline)
+
+
+def _stitched_or_hint(config, spill, timeline):
+    """`_stitched` over the finished timeline. Every segment is on disk by
+    now, so a failed final encode is a chain that can resume with all of
+    them kept: it draws the resume hint a failed segment does."""
+    try:
+        return _stitched(
+            config,
+            spill,
+            timeline.frames,
+            timeline.audio,
+            timeline.audio_rate,
+            timeline.shots,
+        )
+    except Exception:
+        chain_resume.warn_resumable(spill)
+        raise
 
 
 def _warn_idle_keystone(config, arguments):

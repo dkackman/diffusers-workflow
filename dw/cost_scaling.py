@@ -481,10 +481,17 @@ def _chain_kept(definition, variables):
     value = _resolved(blocks[0][0].get("resume_from"), variables)
     if value is None:
         return 0, []
-    from .pipeline_processors.chain_resume import UNRESOLVED_NOTE, kept_count
+    from .pipeline_processors.chain_resume import (
+        FANOUT_NOTE,
+        UNRESOLVED_NOTE,
+        kept_count,
+    )
 
     kept = kept_count({"resume_from": value})
-    return kept, [] if kept else [UNRESOLVED_NOTE]
+    if not kept:
+        return kept, [UNRESOLVED_NOTE]
+    fans_out = "previous_result" in json.dumps(definition.get("steps"), default=str)
+    return kept, [FANOUT_NOTE] if fans_out else []
 
 
 def _chain_render_scaling(definition, variables):
@@ -513,7 +520,7 @@ def _chain_render_scaling(definition, variables):
                 else ""
             )
         ],
-        [],
+        unscaled,
     )
 
 
