@@ -171,7 +171,13 @@ def test_publishing_a_blob_to_the_shared_store_does_not_shrink_the_total(tmp_pat
         target = shared / "1392abc"
         os.rename(done, target)
         os.symlink(os.path.relpath(target, blob_dir), done)
-        time.sleep(0.2)
+        # Wait for the watcher to report the final size rather than a fixed
+        # settle: under load the last event can lag the last write
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            if any(e["downloaded_bytes"] == 8_000_000 for e in _progress(events)):
+                break
+            time.sleep(0.02)
 
     _run_loading(events, body, str(tmp_path))
 
