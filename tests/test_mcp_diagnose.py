@@ -205,6 +205,16 @@ def test_cancel_rerun_and_move_call_their_routes():
     assert b"front" in seen[2]["body"]
 
 
+def test_rerun_posts_argument_overrides():
+    client, seen = scripted({("POST", "/api/jobs/job-1/rerun"): (201, {"id": "job-2"})})
+
+    diagnose.rerun_job(
+        client, "job-1", acknowledged_cost=True, arguments={"tier": "best"}
+    )
+
+    assert json.loads(seen[0]["body"])["arguments"] == {"tier": "best"}
+
+
 def test_rerun_refuses_without_an_acknowledged_cost():
     """A rerun queues the same generation from a stored spec - the same GPU
     minutes on the same one-job-at-a-time engine. The gate on run_workflow

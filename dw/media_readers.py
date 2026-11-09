@@ -289,6 +289,67 @@ def read_frame_range(path, start, stop):
     raise ShortFrameRange(path, start, stop, position or 0)
 
 
+class ForwardFrameReader:
+    """`read_frame_range` for a run of reads that moves forward through
+    `path` - a clip's frames at a time - from one open container and one
+    forward decode, so no frame is decoded twice and no read seeks.
+
+    `reader(start, stop)` returns frames `[start, stop)` as one
+    (n, height, width, 3) uint8 array, byte for byte what `read_frame_range`
+    returns: the same unthreaded decode and `rgb24` conversion, counted from
+    the top. A range inside the last one returned is sliced from it (a
+    clip's last frame repeated past the take's end); a range behind it falls
+    back to `read_frame_range`. Raises `ShortFrameRange` when the file ends
+    before `stop`. `close()` releases the container and forgets the position
+    and the held range, so a later read starts the decode over from the
+    top rather than labelling frame 0 as the old position."""
+
+    def __init__(self, path):
+        self.path = path
+        self._container = None
+        self._decoded = None
+        self._position = 0
+        self._held = None  # (start, frames) of the last range returned
+
+    def __call__(self, start, stop):
+        start, stop = int(start), int(stop)
+        if start < 0 or stop <= start:
+            raise ValueError(
+                f"read_frame_range needs 0 <= start < stop, got {start} and {stop}"
+            )
+        if self._held is not None:
+            held_start, held = self._held
+            if held_start <= start and stop <= held_start + len(held):
+                return held[start - held_start : stop - held_start]
+        if start < self._position:
+            return read_frame_range(self.path, start, stop)
+        if self._container is None:
+            self._container = av.open(self.path)
+            # Not _threaded, as read_frame_range: the same frames, in order
+            self._decoded = self._container.decode(self._container.streams.video[0])
+        out = None
+        while self._position < stop:
+            frame = next(self._decoded, None)
+            if frame is None:
+                raise ShortFrameRange(self.path, start, stop, self._position)
+            if self._position >= start:
+                picture = frame.to_ndarray(format="rgb24")
+                if out is None:
+                    out = numpy.empty((stop - start,) + picture.shape, numpy.uint8)
+                out[self._position - start] = picture
+            self._position += 1
+        self._held = (start, out)
+        return out
+
+    def close(self):
+        if self._container is not None:
+            self._container.close()
+            self._container = self._decoded = None
+        # A read after close reopens at frame 0, so it must count from there
+        self._position = 0
+        self._held = None
+
+
 def count_video_frames(path):
     """The picture frame count of `path`, by decoding every frame rather
     than reading the header. Nothing is held but the frame in hand."""

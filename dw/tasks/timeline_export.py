@@ -27,10 +27,13 @@ import json
 import logging
 import os
 import zipfile
+import zlib
 from urllib.parse import quote, unquote
 from types import SimpleNamespace
 
+from .. import references
 from ..locations import validate_media_path
+from ..runs import output_root, split_run_path
 from ..security import (
     InvalidInputError,
     validate_string_input,
@@ -70,11 +73,11 @@ def _gap(frames, rate):
     }
 
 
-def _clip(name, start, duration, target_url, available_frames, rate):
+def _clip(name, start, duration, target_url, available_frames, rate, source=None):
     return {
         "OTIO_SCHEMA": "Clip.1",
         "name": name,
-        "metadata": {},
+        "metadata": {"dw": {"source": source}} if source else {},
         "source_range": time_range(start, duration, rate),
         "effects": [],
         "markers": [],
@@ -88,6 +91,21 @@ def _clip(name, start, duration, target_url, available_frames, rate):
             "target_url": quote(target_url),
         },
     }
+
+
+def _source_reference(path):
+    """The `output:` reference of a file inside a run directory of the
+    output root, else None - a clip's `metadata.dw.source`, what
+    `chain_take` and `chain_output` take. A file outside any run (an asset,
+    a loose path) has no reference to record."""
+    try:
+        root = os.path.realpath(output_root())
+        relative = os.path.relpath(os.path.realpath(path), root).replace(os.sep, "/")
+    except (OSError, ValueError):
+        return None
+    if relative.startswith("../") or not split_run_path(relative)[1]:
+        return None
+    return references.make_ref(references.OUTPUT, relative)
 
 
 def _track(kind, children):
@@ -259,6 +277,15 @@ def export_timeline(video, sources=None, shots=None, name="timeline"):
             f"{COMMAND}: sources must be a list of files, one per shot, not "
             f"{type(sources).__name__}"
         )
+    records = _shot_records(path, shots, total)
+    if sources:
+        return _sources_bundle(name, records, sources, info)
+    return _joined_bundle(name, records, path, info, rate, total)
+
+
+def _shot_records(path, shots, total):
+    """The shots to lay out, in frame order: the caller's, else the ones the
+    run manifest beside `path` records, else the whole file as one."""
     if shots:
         records = shots
     else:
@@ -267,50 +294,55 @@ def export_timeline(video, sources=None, shots=None, name="timeline"):
         records, _source = resolve_shots(path, SimpleNamespace(shots=None))
     if not records:
         records = [{"name": "whole", "start_frame": 0, "num_frames": total}]
-    records = sorted(
+    return sorted(
         (_span(shot, index) for index, shot in enumerate(records)),
         key=lambda shot: shot["start_frame"],
     )
 
+
+def _sources_bundle(name, records, sources, info):
+    """Sources mode: each clip points at its own file over its whole range,
+    at that file's own rate. The joined video would be dead weight in the
+    bundle, so it is left out."""
+    if len(sources) != len(records):
+        raise InvalidInputError(
+            f"{COMMAND}: sources names {len(sources)} files for "
+            f"{len(records)} shots - give one per shot, in order"
+        )
     media = {}
-    video_arc = None
-    if not sources:
-        # Sources mode points every clip at its own file; the joined video
-        # would be dead weight in the bundle
-        video_arc = _media_name(path, media)
-        media[video_arc] = path
-
-    if sources:
-        if len(sources) != len(records):
-            raise InvalidInputError(
-                f"{COMMAND}: sources names {len(sources)} files for "
-                f"{len(records)} shots - give one per shot, in order"
+    children = []
+    for index, (shot, source) in enumerate(zip(records, sources)):
+        source_path = _stored_file(source, f"sources[{index}]")
+        source_info = _facts(source_path)
+        arc = _media_name(source_path, media)
+        media[arc] = source_path
+        frames = int(source_info["frame_count"])
+        # Each clip runs at its own file's rate, not the join's
+        source_rate = float(exact_frame_rate(source_info["fps"]))
+        children.append(
+            _clip(
+                str(shot.get("name", f"shot {index + 1}")),
+                0,
+                frames,
+                arc,
+                frames,
+                source_rate,
+                _source_reference(source_path),
             )
-        children = []
-        for index, (shot, source) in enumerate(zip(records, sources)):
-            source_path = _stored_file(source, f"sources[{index}]")
-            source_info = _facts(source_path)
-            arc = _media_name(source_path, media)
-            media[arc] = source_path
-            frames = int(source_info["frame_count"])
-            # Each clip runs at its own file's rate, not the join's
-            source_rate = float(exact_frame_rate(source_info["fps"]))
-            children.append(
-                _clip(
-                    str(shot.get("name", f"shot {index + 1}")),
-                    0,
-                    frames,
-                    arc,
-                    frames,
-                    source_rate,
-                )
-            )
-        has_audio = bool(info.get("sample_rate"))
-        tracks = [_track("Video", children)]
-        if has_audio:
-            tracks.append(_track("Audio", json.loads(json.dumps(children))))
-        return TimelineBundle(_timeline(name, tracks), media)
+        )
+    tracks = [_track("Video", children)]
+    if info.get("sample_rate"):
+        tracks.append(_track("Audio", json.loads(json.dumps(children))))
+    return TimelineBundle(_timeline(name, tracks), media)
 
+
+def _joined_bundle(name, records, path, info, rate, total):
+    """Every clip points into the joined video over its shot's span, with a
+    gap wherever the shots leave one."""
+    media = {}
+    video_arc = _media_name(path, media)
+    media[video_arc] = path
+    source = _source_reference(path)
     _refuse_overlaps(records)
     for shot in records:
         end = shot["start_frame"] + shot["num_frames"]
@@ -338,6 +370,7 @@ def export_timeline(video, sources=None, shots=None, name="timeline"):
                     video_arc,
                     total,
                     rate,
+                    source,
                 )
             )
             cursor = start + frames
@@ -354,13 +387,14 @@ def export_timeline(video, sources=None, shots=None, name="timeline"):
 MAX_CONTENT_BYTES = 8 * 1024 * 1024
 
 
-def summarize_bundle(path):
+def _summarize_bundle(path):
     """A read-only summary of an `.otioz` this module wrote (#1254): the
     tracks with their clips and gaps in order, each clip's name, source
     range and media member, and the bundle's member list. `path` is a file
     the caller already confined; nothing is extracted, and `content.otio`
     is read bounded so a hostile zip cannot expand in memory.
-    Raises ValueError for a file that is not a timeline bundle."""
+    Raises ValueError for a file that is not a timeline bundle - and, read
+    through `summarize_bundle`, for nothing else."""
     try:
         bundle = zipfile.ZipFile(path)
     except (zipfile.BadZipFile, OSError) as error:
@@ -380,7 +414,10 @@ def summarize_bundle(path):
             raise ValueError("content.otio is too large to summarize")
         version = None
         if "version.txt" in members:
-            version = bundle.read("version.txt")[:64].decode("utf-8", "replace")
+            # Opened and read 64 bytes: bundle.read would inflate the whole
+            # member first, however large a hostile one expands to
+            with bundle.open("version.txt") as handle:
+                version = handle.read(64).decode("utf-8", "replace")
     try:
         document = json.loads(raw)
     except ValueError as error:
@@ -408,6 +445,8 @@ def summarize_bundle(path):
             reference = child.get("media_reference") or {}
             if reference.get("target_url"):
                 entry["media"] = unquote(reference["target_url"])
+            source = ((child.get("metadata") or {}).get("dw") or {}).get("source")
+            entry["source"] = source if isinstance(source, str) else None
             clips.append(entry)
         tracks.append(
             {
@@ -426,3 +465,32 @@ def summarize_bundle(path):
         "tracks": tracks,
         "members": members,
     }
+
+
+# What reading a damaged or foreign member can raise: a CRC mismatch
+# (BadZipFile), an encrypted member (RuntimeError), an unsupported
+# compression method (NotImplementedError), a truncated stream (EOFError,
+# zlib.error); and what valid JSON of another shape raises when read as a
+# bundle's dict (AttributeError, TypeError, ZeroDivisionError)
+_MALFORMED = (
+    zipfile.BadZipFile,
+    RuntimeError,
+    NotImplementedError,
+    EOFError,
+    zlib.error,
+    OSError,
+    AttributeError,
+    TypeError,
+    ZeroDivisionError,
+)
+
+
+def summarize_bundle(path):
+    """`_summarize_bundle`, with every way a malformed bundle fails read as
+    the ValueError the gallery route maps to 422."""
+    try:
+        return _summarize_bundle(path)
+    except ValueError:
+        raise
+    except _MALFORMED as error:
+        raise ValueError(f"not a readable timeline bundle: {error}") from error

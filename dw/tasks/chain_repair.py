@@ -44,6 +44,7 @@ import re
 import numpy
 
 from ..dsp import as_channels_samples, equal_power_ramps, resample_waveform
+from ..events import emit_warning
 from ..locations import validate_media_path
 from ..media import probe_metadata
 from ..media_types import AudioVideo
@@ -69,7 +70,7 @@ COMMAND = "chain_repair_cut"
 SPLICE = "chain_repair_splice"
 
 # The name SegmentSpill gives a segment file (chain_spill.py)
-_SEGMENT_FILE = re.compile(r"^(?P<base>.+)\.segment-(?P<index>\d{3})\.mp4$")
+SEGMENT_FILE = re.compile(r"^(?P<base>.+)\.segment-(?P<index>\d{3})\.mp4$")
 # The shortest whole-latent guide a hold is made of
 MIN_HOLD = 22
 
@@ -165,7 +166,7 @@ def segment_files(chain_output):
     the fallback for a take whose shots name no files (no manifest beside
     it), checked by the caller against each other."""
     path = validate_media_path(chain_output, what="chain_output")
-    match = _SEGMENT_FILE.match(os.path.basename(path))
+    match = SEGMENT_FILE.match(os.path.basename(path))
     if match is None:
         raise ValueError(
             f"{COMMAND}: 'chain_output' must name one of a chain's segment files "
@@ -175,7 +176,7 @@ def segment_files(chain_output):
     directory = os.path.dirname(path)
     found = {}
     for name in os.listdir(directory):
-        sibling = _SEGMENT_FILE.match(name)
+        sibling = SEGMENT_FILE.match(name)
         if sibling and sibling["base"] == match["base"]:
             found[int(sibling["index"])] = validate_path(
                 os.path.join(directory, name), directory
@@ -222,9 +223,15 @@ def _named_files(take, shots):
         validate_path(os.path.join(directory, shot["segment_file"]), directory)
         for shot in shots
     ]
-    for path in paths:
-        if not os.path.isfile(path):
-            return None  # not beside the take: it left its run
+    missing = [path for path in paths if not os.path.isfile(path)]
+    if len(missing) == len(paths):
+        return None  # none beside the take: it left its run
+    if missing:
+        # Some still beside it: the take is in its run and one was pruned
+        raise ValueError(
+            f"{COMMAND}: the take's segment file {os.path.basename(missing[0])} "
+            "is gone - a repair needs every one of them kept"
+        )
     return paths
 
 
@@ -281,12 +288,28 @@ def _locate(chain_take, chain_output):
             )
         raise ValueError(
             f"{COMMAND}: no run manifest beside {name} gives its shots (a take "
-            "copied away from its run) - pass 'chain_output', one of the "
-            "chain's kept segment files, as well"
+            "copied away from its run), and a repair needs them to place the "
+            "segment and tell the chain's track from a match_audio one - "
+            "repair the take in its run directory, beside its manifest.json"
         )
     paths = segment_files(output)
+    if shots and len(shots) > len(paths):
+        # Fewer files than the take has shots: a trailing segment is gone,
+        # which a gap check on the files alone cannot see
+        raise ValueError(
+            f"{COMMAND}: {os.path.basename(take)} has {len(shots)} shots but only "
+            f"{len(paths)} segment file(s) sit beside "
+            f"{os.path.basename(output)} - a repair needs every one of them kept"
+        )
     if shots is not None and len(shots) != len(paths):
-        shots = None
+        # More files than shots: another run's or a re-render's file sits
+        # among them, and the take's shots cannot be laid on the set
+        raise ValueError(
+            f"{COMMAND}: {os.path.basename(take)} has {len(shots)} shots but "
+            f"{len(paths)} segment files sit beside {os.path.basename(output)} - "
+            f"the extra files are not this take's; move them aside so only its "
+            f"{len(shots)} remain"
+        )
     _check_siblings_agree(paths)
     return take, shots, paths
 
@@ -309,36 +332,11 @@ def _check_siblings_agree(paths):
         seen = {path: own}
 
 
-def _header_frames(path):
-    info = probe_metadata(path) or {}
-    count = info.get("frame_count")
-    if not isinstance(count, int) or count <= 0:
-        raise ValueError(f"{COMMAND}: cannot count the frames of {path}")
-    return count
-
-
-def _take_spans(take, shots, paths, segment, neighbours):
-    """[(start, frames)] of every segment on the take, and its frame count:
-    the take's shots, else the segment files' counts (the neighbours' from
-    their decode) cut to the take's length."""
-    if shots is not None:
-        spans = [(int(s["start_frame"]), int(s["num_frames"])) for s in shots]
-        return spans, sum(frames for _, frames in spans)
-    counts = [
-        neighbours.get(index) or _header_frames(path)
-        for index, path in enumerate(paths)
-    ]
-    total = _header_frames(take)
-    if not sum(counts[:-1]) < total <= sum(counts):
-        raise ValueError(
-            f"{COMMAND}: {os.path.basename(take)} has {total} frames, and its "
-            f"segment files hold {sum(counts)} - they are not this take's"
-        )
-    spans, start = [], 0
-    for count in counts:
-        spans.append((start, min(count, total - start)))
-        start += count
-    return spans, total
+def _take_spans(shots):
+    """[(start, frames)] of every segment on the take, from its shots, and
+    the take's frame count."""
+    spans = [(int(s["start_frame"]), int(s["num_frames"])) for s in shots]
+    return spans, sum(frames for _, frames in spans)
 
 
 def check_take_shots(command, shots, segment, start):
@@ -379,8 +377,9 @@ def chain_repair_cut(
         chain_take: The chain's final video (an `output:` reference). Found
             from `chain_output` through the run manifest when not given
         chain_output: One of the chain's segment files - needed only when the
-            take's shots name none (no manifest beside it); then the others
-            are found beside it by name
+            take's shots name files that are not beside it (the take and its
+            manifest copied away from them); then the others are found beside
+            it by name. The take's shots are needed either way
         segment: The segment to re-render, 1-based; 2 to N-1
         num_frames: The repair render's length - at least segment k's frames
             plus both guides, on the 17n + 5 grid; a smaller one is refused
@@ -419,6 +418,13 @@ def chain_repair_cut(
     if not 2 <= segment <= len(paths) - 1:
         # The geometry's own refusal, before anything is decoded
         repair_geometry([0] * len(paths), segment, num_frames, 22, 22)
+    # The splice refuses a take without shots placing the segment too, but
+    # only after the render: refused here, before the neighbours' decode
+    placed = (
+        shots[segment - 1]["start_frame"] if shots and len(shots) > segment else None
+    )
+    check_take_shots(COMMAND, shots, segment, placed)
+    spans, total = _take_spans(shots)
     previous = load_audio_video(paths[segment - 2])
     following = load_audio_video(paths[segment])
     for clip, path in ((previous, paths[segment - 2]), (following, paths[segment])):
@@ -428,13 +434,6 @@ def chain_repair_cut(
                 "repair holds the neighbours' audio over both guides"
             )
     _check_canvas(previous.frames[0].size, width, height, paths[segment - 2])
-    spans, total = _take_spans(
-        take,
-        shots,
-        paths,
-        segment,
-        {segment - 2: len(previous.frames), segment: len(following.frames)},
-    )
     counts = [frames for _, frames in spans]
     for index, clip in ((segment - 2, previous), (segment, following)):
         last = index == len(spans) - 1
@@ -450,8 +449,6 @@ def chain_repair_cut(
     counts[segment] = len(following.frames)
     geometry = repair_geometry(counts, segment, num_frames, head_frames, tail_frames)
     start = spans[segment - 1][0]
-    # The splice refuses a take like this too, but only after the render
-    check_take_shots(COMMAND, shots_beside(take), segment, start)
     end = min(start + geometry["keep_frames"], total)
 
     head_guide = trim_video(previous, geometry["head_start"], head_frames)
@@ -594,6 +591,18 @@ def _spliced_track(take, video, fps, shots, segment, start, end, keep_start):
     offset = frames_to_samples(keep_start, getattr(video, "fps", None) or fps, rate)
     span = numpy.zeros((track.shape[0], last - first), dtype=track.dtype)
     piece = own[:, offset : offset + span.shape[1]]
+    short = span.shape[1] - piece.shape[1]
+    if short > frames_to_samples(1, fps, rate):
+        # Past a codec-padding sliver, the rest of the span stays silent
+        emit_warning(
+            f"{SPLICE}: the render's soundtrack ends "
+            f"{short / rate:.2f} s before the span it replaces does; that "
+            "stretch of the repaired take is silent up to the resume seam",
+            kind="splice_audio_short",
+            command=SPLICE,
+            segment=segment,
+            silent_seconds=round(short / rate, 3),
+        )
     span[:, : piece.shape[1]] = (
         piece if piece.shape[0] == span.shape[0] else piece.mean(axis=0, keepdims=True)
     )

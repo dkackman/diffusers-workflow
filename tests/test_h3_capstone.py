@@ -221,6 +221,18 @@ def test_a_from_end_past_the_segment_is_refused(flag_on):
     assert chain_capstone_problem(chain, num_frames=30) is None
 
 
+def test_the_run_refuses_a_from_end_past_num_frames_before_segment_1(flag_on):
+    from dw.pipeline_processors.chain import ChainConfig
+
+    chain = {
+        "segments": 2,
+        "continuity": "guide",
+        "experimental_capstone": {"enter_below_sigma": 0.5, "from_end": 30},
+    }
+    with pytest.raises(ValueError, match="from_end 30.*25 frames"):
+        ChainConfig(chain, {"num_frames": 25})
+
+
 def test_a_from_end_past_the_rendered_frames_is_a_clear_error():
     from dw.pipeline_processors.chain import _from_segment_1
 

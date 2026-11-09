@@ -628,7 +628,8 @@ workflow guide).
 | `audio_bleed_gain_db` | No | Gain applied to the bled tail before it is added, in dB - negative ducks a tail that would otherwise push the seam over 0 dBFS (default: 0, unchanged) |
 | `seam_fade_ms` | No | Fade on each side of a seam that gets neither a crossfade nor a bleed - for tonal material, not for a continuous bed (default: 3, just enough not to click) |
 | `fps` | No | Frame rate of the videos - required to join audio when trimming, and the rate the joined file is written at unless `result.fps` overrides it. An input carrying a different rate is re-timed, with an `fps_overrides_input` warning |
-| `match_levels` | No | Even the shots' loudness out before joining - `"rms"` for perceived level (the measurement `get_gallery_metadata` reports as `mean_dbfs`), `"peak"` for the loudest sample. Off by default |
+| `match_levels` | No | Even the shots' loudness out before joining - `"rms"` for perceived level (the measurement `get_gallery_metadata` reports as `mean_dbfs`), `"peak"` for the loudest sample, `"lufs"` for BS.1770 integrated loudness (the unit editors deliver in; held at -1 dBTP true peak, and a shot under 0.4 s is matched by rms with a `match_levels_short_shot` warning). Off by default |
+| `match_levels_lufs` | No | The loudness `"lufs"` moves every shot to (default -16 LUFS; -23 is EBU R128 broadcast). A shot whose true peak would pass -1 dBTP is held there and reported as `match_levels_held`. `match_levels_dbfs` is refused with `"lufs"` |
 | `match_levels_dbfs` | No | The level `match_levels` moves every shot to (default: -1 dBFS for `peak`, -20 dBFS for `rms`). A shot that would clip at the target is held at -3 dBFS peak instead for `rms` (room for the AAC mux; -0.5 for `peak`), reported as a `match_levels_held` warning with a per-shot log event |
 | `sample_rate` | No | The joined soundtrack's rate. Default: the highest among the inputs, the rest resampled up with a warning (#108) |
 | `continuous_joins` | No | `true` when the joins continue one take rather than cut between shots, for example pieces of one chain take joined back up. Each seam is recorded without `hard_cut`, so `analyze_seams` measures its frame jump as it measures a chain's own seams, and the audio keeps the default few-ms declick (`seam_fade_ms: 0` butt-joins it). Refused beside `seam_fade_ms` above 0 or `audio_bleed_ms` (default: `false`, every seam a cut) |
@@ -714,7 +715,8 @@ to `join_into_song`).
   than 3 dB is an `inner_level_step` warning. Left off, a spread of 6 dB or more
   is a job warning, unless a later step such as `pair_audio` replaces the track.
   A shot at or below -40 dBFS, or one needing 20 dB or more of gain, is reported
-  as `match_levels_near_silent`.
+  as `match_levels_near_silent`. Under `"lufs"` the `inner_level_step` check
+  still measures rms.
 - **Sample rate.** Inputs at different rates are resampled up to the highest,
   with a warning, unless `sample_rate` pins the target.
 - **Joined track.** The soundtrack is fitted to the joined frames. A track short
@@ -732,6 +734,10 @@ DaVinci Resolve (18.5+) imports with one clip per shot. The bundle is a zip of
 `target_url` is `media/<file>`, percent-encoded. The OTIO JSON is written directly, so there is
 no `opentimelineio` dependency. Rates are the exact rational the engine writes
 (23.976 is 24000/1001, stored by OTIO as a float) with integral frame values.
+When a clip's file sits in a run of the output directory, the clip's OTIO
+`metadata.dw.source` holds that file's `output:` reference (the joined video's on
+every clip, each source's in `sources` mode); the job page offers it to copy, for
+`chain_take`/`chain_output`. A file outside a run records none.
 
 Checked by hand in Resolve 21 (2026-11-06): File > Import > Timeline takes the
 `.otioz`, or its unzipped `content.otio` beside `media/`, and gives one clip per
@@ -798,8 +804,9 @@ The [join input rules](#join-input-rules) apply.
 | `fade_out_frames` | No | Frames over which the last video sinks into it (default: 0) |
 | `fade_color` | No | The RGB colour the fades come from and go to (default: black) |
 | `fps` | No | Frame rate of the videos - required to crossfade audio at a dissolve, and the rate the dissolved file is written at unless `result.fps` overrides it |
-| `match_levels` | No | Even the shots' loudness out before joining - `"rms"` or `"peak"`, as with [`concat_videos`](#concat_videos). Off by default |
+| `match_levels` | No | Even the shots' loudness out before joining - `"rms"`, `"peak"` or `"lufs"`, as with [`concat_videos`](#concat_videos). Off by default |
 | `match_levels_dbfs` | No | As with `concat_videos` |
+| `match_levels_lufs` | No | As with `concat_videos` |
 | `sample_rate` | No | The joined soundtrack's rate. Default: the highest among the inputs, the rest resampled up with a warning |
 
 Every seam shortens the result by one overlap, so eight 124-frame shots joined
@@ -1547,7 +1554,7 @@ needed only for a bare waveform, and given, it wins.
 | `lead_frames` | No | Frame form only, default 0: extra audio before the cut. The slice starts at `start_frame - lead_frames` and still runs `num_frames`, so `start_frame` 48 with `lead_frames` 12 at 24 fps is audio from frame 36 for `num_frames` frames. A whole number, 0 or above; a nonzero value is refused with the seconds form, and refused when `start_frame - lead_frames` is below zero (by `validate_workflow` for literals, at run time otherwise) |
 | `sample_rate` | With a waveform | Rate of a bare waveform |
 | `past_end` | No | `"pad"` (default) zero-pads a slice past the end of the source to the length asked; `"stop"` cuts it at the end, so a short source keeps its own length (logged), and the track carries the length asked for to `fade_audio` and `crossfade_audio`. A slice starting at or past the end is refused with `"stop"` |
-| `end_snap_seconds` | No | Off by default (0 is off too); zero or above. When the slice's end cuts into the source, the end moves back to the centre of the quietest 0.2 s window (lowest RMS) within this many seconds before it, never before the slice's start; an even level keeps the exact cut. The slice comes out that much shorter (logged), and the track carries the asked length and the snap on to `fade_audio` and `crossfade_audio`, which counts it in the joined total but not as a track that ended early. An end the source does not reach has nothing to snap |
+| `end_snap_seconds` | No | Off by default (0 is off too); zero or above. When the slice's end cuts into the source, the end moves back to the centre of the quietest 0.2 s window (lowest RMS) within this many seconds before it, never into the slice's first half (the slice keeps at least half its asked length); an even level keeps the exact cut. The slice comes out that much shorter (logged), and the track carries the asked length and the snap on to `fade_audio` and `crossfade_audio`, which counts it in the joined total but not as a track that ended early. An end the source does not reach has nothing to snap |
 
 ### gain_audio
 
@@ -3234,6 +3241,40 @@ text, runs this task, and hands the takes to `templates/narration-from-takes`
 as a child workflow, which expands its own `for_each`. Refused: empty text, a limit that is not
 above zero.
 
+## Checking a Narration
+
+`check_narration` checks that a long narration spoke its script
+(`dw/tasks/narration_check.py`). A narration is assembled from takes
+(`templates/narration-long`) and a take can loop, skip or stop early with
+nothing saying so. The joined audio is transcribed once with the pipeline
+`transcribe_audio` caches, the words heard are aligned to the script's words
+in order, and each dropped or inserted word is attributed to its take.
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `audio` | Yes | The narration: an audio file, a video's soundtrack, or a waveform (with `sample_rate`) |
+| `text` | One of | The script as one string, split into takes as `split_takes` does by default |
+| `takes` | One of | The takes it was spoken from: a list, or one string split as `text` is |
+| `max_word_error_rate` | No | A take over this fails (default 0.1; 0 to 1) |
+| `model_name` | No | A Whisper-class ASR model (the `transcribe_audio` default) |
+| `device`, `sample_rate` | No | As `transcribe_audio` |
+
+Exactly one of `text` and `takes` is given; both or neither is refused. It
+answers `{takes, checked, failed, worst}`: per take `{index, text, words,
+dropped, inserted, word_error_rate, ok}`, where the rate is dropped plus
+inserted words over the take's expected words; `failed` lists the indices over
+the limit; `worst` is `{index, word_error_rate}`. An inserted word that
+replaces expected words (a word misheard) belongs to the take of the words it
+replaces; a pure insertion belongs to the take whose words it sits in front of
+(the last take when it follows them all), so a filler between two takes counts
+against the later one. The exception is a pure insertion at a take boundary
+whose words repeat the end of the take before it: that belongs to the earlier
+take, because the alignment can match either copy of a looped take and leave
+the repeat in front of the next one. A looped take therefore shows as
+insertions in its own take, with the takes after it still aligned. Each failing take also emits a
+`narration_take_mismatch` warning naming the take, its rate and its first
+dropped words. `templates/check-narration` runs it.
+
 ## Extracting Sections
 
 Reduce generated text to a known set of labelled sections, dropping anything else:
@@ -3818,6 +3859,7 @@ Canny edge detection followed by ControlNet generation:
 - [relevel-clip.json](../workflows/templates/relevel-clip.json) — Fix a clipping soundtrack on a rendered clip without re-rendering
 - [generate-speech.json](../workflows/templates/generate-speech.json) — Speak a line with a local text-to-speech model
 - [split-takes.json](../workflows/templates/split-takes.json) — `split_takes` alone: see or edit a long text's takes before speaking them
+- [check-narration.json](../workflows/templates/check-narration.json) — `check_narration`: the script against the joined speech, per take
 - [narration-long.json](../workflows/templates/narration-long.json) — Split a long text into takes, speak each in one cloned voice and join them
 - [voice-timbre-reference.json](../workflows/templates/minimax/voice-timbre-reference.json) — Generate a voice and condition H3's `<Audio 1>` on it
 - [dissolve-between-shots.json](../workflows/templates/dissolve-between-shots.json) — Dissolve between supplied shots and mix a score under their own audio

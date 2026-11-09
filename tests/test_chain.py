@@ -1022,6 +1022,35 @@ class TestGuideContinuity:
         assert any("seam 1/2: keystone applied" in n for n in notes)
         assert any("seam 2/2: keystone applied" in n for n in notes)
 
+    def _seam_notes(self, chain, arguments):
+        with patch.object(chain_module, "emit_log") as emit_log:
+            run_chain(FakePipeline(self.output), chain, arguments)
+        return [
+            call.args[0]
+            for call in emit_log.call_args_list
+            if "keystone applied" in call.args[0]
+        ]
+
+    def test_keystone_log_says_where_the_slot_put_the_frame(self):
+        image = solid_frame((1, 2, 3))
+        opens = self._seam_notes(
+            self.chain(keystone="segment_1"), self.arguments(image=image)
+        )
+        assert opens and all("opens on segment 1's frame 0" in n for n in opens)
+        ends = self._seam_notes(
+            self.chain(keystone="segment_1", keystone_slot="last"),
+            self.arguments(image=image),
+        )
+        assert ends and all("ends on segment 1's frame 0" in n for n in ends)
+        assert not any("opens on" in n for n in ends)
+
+    def test_keystone_on_t2va_logs_nothing_applied(self):
+        # run_chain warns the keystone does nothing; the seams must not
+        # then claim it was applied
+        assert (
+            self._seam_notes(self.chain(keystone="segment_1"), self.arguments()) == []
+        )
+
     def test_keystone_leaves_the_guide_as_the_carried_tail(self):
         pipeline = FakePipeline(self.output)
 
@@ -2008,3 +2037,25 @@ class TestChainLengthErrors:
             e["path"] == "steps[0].pipeline.chain" and "exactly one of" in e["message"]
             for e in errors
         ), errors
+
+
+class TestResumeTemplates:
+    """The two chain templates take a resume (chain_resume.py)."""
+
+    @pytest.mark.parametrize("family", ["minimax", "ltx2"])
+    def test_the_chain_templates_take_resume_from(self, family):
+        import json
+        import pathlib
+
+        template = pathlib.Path(__file__).parent.parent / (
+            f"workflows/templates/{family}/chained-segments.json"
+        )
+        workflow = json.loads(template.read_text())
+        assert workflow["variables"]["resume_from"] is None
+        chain = workflow["steps"][-1]["pipeline"]["chain"]
+        assert chain["resume_from"] == "variable:resume_from"
+        # Every take spills its finished segments as it runs, so a chain that
+        # dies at segment k leaves 1..k-1 to resume from (the H3 template's
+        # default since Don's 2026-11-08 ruling; the final output is the same)
+        assert chain["save_segments"] is True
+        assert "resume_from" in workflow["description"]

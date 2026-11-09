@@ -1659,3 +1659,23 @@ def test_load_components_ignores_non_oom_failure():
             )
 
     quantized_cache._load_checked(Pipe(), {})
+
+
+def test_load_components_raises_on_oom_after_a_leading_newline():
+    """The warning's wording is diffusers'; a newline or a quoted name before
+    it must not let a swallowed OOM through."""
+    import logging
+
+    import pytest
+
+    from dw import quantized_cache
+
+    class Pipe:
+        def load_components(self, **kwargs):
+            logging.getLogger("diffusers.modular_pipelines.modular_pipeline").warning(
+                "\nFailed to create component 'transformer':\n"
+                "Traceback:\ntorch.OutOfMemoryError: CUDA out of memory."
+            )
+
+    with pytest.raises(RuntimeError, match="out of memory.*transformer"):
+        quantized_cache._load_checked(Pipe(), {})

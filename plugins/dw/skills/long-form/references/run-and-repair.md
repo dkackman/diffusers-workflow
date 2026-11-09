@@ -54,7 +54,7 @@ Each segment is measured before it is kept (segment 1 for `audio_dbfs` only):
   `chain_segment_silent` and by its shot's `check_failed`.
 - **Cost.** The quote is the worst case: N(1 + `retries`) segment renders
   for a checked chain that generates its audio (floor on, no `match_audio`,
-  no step `hold_audio`, not a guide chain carrying audio), else
+  no step `hold_audio`; a guide chain carrying its audio counts), else
   1 + (N - 1)(1 + `retries`).
 
 ## Repair one segment in place
@@ -85,6 +85,29 @@ break at segment k.
 
 A repaired take cannot be repaired again. Repair the original take, or
 re-render it.
+
+## A chain that died at segment k
+
+Both chain templates write each finished segment beside the take as it
+runs. A chain that fails at segment k leaves segments 1..k-1 on disk, and
+the job's `chain_resume_hint` warning quotes the first file's `output:`
+reference.
+
+1. Rerun the same template with the same settings, and pass that
+   reference as `resume_from`. Only segments k..N render, and the estimate
+   prices only those.
+2. A kept file whose frame count does not match the plan is refused,
+   naming the segment. Changing `num_frames`, `guide_frames` or the length
+   is a new take, not a resume.
+3. Read the `chain_resumed` warning. On a guide chain the first resumed
+   seam carries the decoded audio, so check that seam with
+   `assess_output(probe="analyze_seams")`. The kept seams get a short
+   declick fade, not `crossfade_ms`, because the blend material is gone.
+4. A fan-out (three keyframes, three takes) resumes each take from its
+   own files. A take with none left renders in full, and its
+   `chain_resumed` warning says `kept: 0`.
+
+Unmeasured: no bench record covers a resumed take yet.
 
 ## The repair ladder
 

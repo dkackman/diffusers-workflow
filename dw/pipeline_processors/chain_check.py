@@ -163,14 +163,16 @@ def check_audio(audio, check):
 
 
 def check_segment(
-    previous, frames, segment_1_frames, check, hard_cut=False, audio=None
+    previous, frames, segment_1_texture, check, hard_cut=False, audio=None
 ):
     """Measure a segment's kept frames against the segment before it and
     segment 1, and its kept audio against the floor, as a CheckResult.
     `previous` is that segment's frames, or the (thumbs, looks) pair
-    `measure_frames` returned for them. `audio` is the segment's kept
-    generated audio, None when it has none or the chain holds it. `hard_cut`
-    marks a seam meant as a cut, which is never checked."""
+    `measure_frames` returned for them; `segment_1_texture` is the base
+    `texture_base` measured from segment 1's frames once, or None when it had
+    none to measure (no texture ratio is then read). `audio` is the
+    segment's kept generated audio, None when it has none or the chain holds
+    it. `hard_cut` marks a seam meant as a cut, which is never checked."""
     if hard_cut:
         return CheckResult(True, {"skipped": "hard_cut"}, [])
     from ..tasks.assess import seam_measures
@@ -201,7 +203,7 @@ def check_segment(
         "typical_delta": seam["typical_delta"],
         "look_ratio": seam["look_ratio"],
         "look_ratio_measure": seam["look_ratio_measure"],
-        "texture_ratio": _texture_ratio(frames, segment_1_frames),
+        "texture_ratio": _texture_ratio(frames, segment_1_texture),
         "cut_ratio": _cut_ratio(after_thumbs),
         "audio_dbfs": level,
     }
@@ -286,11 +288,17 @@ def _fine_luma(frames):
     return float(numpy.mean(values)) if values else None
 
 
-def _texture_ratio(frames, segment_1_frames):
-    """The segment's fine-band luma over segment 1's, or None where either
-    has none to measure."""
-    base = _fine_luma(segment_1_frames)
+def texture_base(frames):
+    """Segment 1's fine-band luma, the base every later segment's
+    texture_ratio divides by - measured once, after segment 1, and passed to
+    `check_segment` in place of its frames; None when it has none to measure."""
+    return _fine_luma(frames)
+
+
+def _texture_ratio(frames, segment_1_texture):
+    """The segment's fine-band luma over segment 1's (`texture_base`), or
+    None where either has none to measure."""
     value = _fine_luma(frames)
-    if not base or value is None:
+    if not segment_1_texture or value is None:
         return None
-    return round(value / base, 4)
+    return round(value / segment_1_texture, 4)

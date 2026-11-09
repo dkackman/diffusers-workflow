@@ -322,6 +322,7 @@ WARNING_ORDER = [
     "inherited_vram_warnings",
     "acceleration_warnings",
     "guide_noise_warnings",
+    "frame_snap_warnings",
 ]
 
 

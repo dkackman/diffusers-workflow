@@ -207,6 +207,14 @@ def _entry_frames(entries, field=FRAMES_DRIVER):
     return frames
 
 
+def _field_values(entries, field):
+    """Each entry's `field` as written (None where an entry has none), or
+    None when `entries` is not a list."""
+    if not isinstance(entries, list):
+        return None
+    return [entry.get(field) if isinstance(entry, dict) else None for entry in entries]
+
+
 def _list_frames_scaling(
     name, default_entries, effective_entries, list_entries, field=FRAMES_DRIVER
 ):
@@ -224,9 +232,15 @@ def _list_frames_scaling(
     if measured is None or running is None:
         # Nothing to sum on one side: only a frame count outside the values
         # the default entries carried leaves no figure, as before (#593)
-        if field == FRAMES_DRIVER and _list_entry_field_shifted(
-            default_entries, effective_entries
+        if field == FRAMES_DRIVER:
+            if _list_entry_field_shifted(default_entries, effective_entries):
+                return None
+        elif _field_values(default_entries, field) != _field_values(
+            effective_entries, field
         ):
+            # A declared scales_with field that moved where it cannot be
+            # summed (an entry without it, or not a number) leaves no figure
+            # to scale, rather than quoting the curated one as if unmoved
             return None
         return 1.0, None
     was, now = sum(measured), sum(running)
@@ -300,7 +314,8 @@ def _chain_checks_audio(definition, variables):
     """Whether the workflow's one checked chain measures its generated audio
     from segment 1 on (#1221): the floor is on (`check` true, or an object
     whose `audio_dbfs_min` is not null) and the audio is not held - no
-    `match_audio`, no step `hold_audio`, no guide chain carrying its audio.
+    `match_audio`, no step `hold_audio` (a guide carrying its audio holds
+    only its head trim, so it is measured).
     The estimate cannot see whether the pipeline makes audio at all, so it
     assumes one that can does, as the worst case. The rule is the run's own,
     `chain_config.chain_checks_segment_1`, asked at `variables`."""
@@ -348,6 +363,53 @@ def _worst_case_retries(definition, variables):
     )
 
 
+def _chain_kept(definition, variables):
+    """(kept, unscaled) for the workflow's one chain at `variables`: the
+    segments its `resume_from` keeps (`chain_resume.kept_count`), and the
+    plan note when it names a file that does not resolve yet, so the figure
+    is priced for every segment."""
+    blocks = list(_chain_blocks(definition.get("steps")))
+    if len(blocks) != 1:
+        return 0, []
+    value = _resolved(blocks[0][0].get("resume_from"), variables)
+    if value is None:
+        return 0, []
+    from .pipeline_processors.chain_resume import UNRESOLVED_NOTE, kept_count
+
+    kept = kept_count({"resume_from": value})
+    return kept, [] if kept else [UNRESOLVED_NOTE]
+
+
+def _chain_render_scaling(definition, variables):
+    """(factor, axes, unscaled) for the segment renders a run pays against
+    the N a figure was measured over: a resumed chain renders only the
+    segments after its kept ones, every one of them after a seam and so
+    checked, (N - k)(1 + retries) in the worst case; any other chain is
+    `_worst_case_retries`'s."""
+    kept, unscaled = _chain_kept(definition, variables)
+    if not kept:
+        factor, axes, retry_unscaled = _worst_case_retries(definition, variables)
+        return factor, axes, retry_unscaled + unscaled
+    segments = _chain_segments(definition, variables)
+    if not segments or kept >= segments:
+        return 1.0, [], ["resume_from"]
+    retries = _chain_retries(definition, variables)
+    rendered = segments - kept
+    renders = rendered * (1 + retries)
+    return (
+        renders / segments,
+        [
+            f"resumed: {kept} of {segments} segment(s) kept, {rendered} rendered"
+            + (
+                f", worst case {retries} re-roll(s) each: {renders} renders"
+                if retries
+                else ""
+            )
+        ],
+        [],
+    )
+
+
 def _declared_axis_scaling(name, default_value, value, list_entries, proportional):
     """A list driver's summed fields, or a `scales_with` scalar, as
     (factor, axes), or None when one moved in a way nothing can scale.
@@ -389,7 +451,7 @@ def _driver_scaling(definition, expanded, list_entries, baseline=None):
 
     `baseline` replaces the curated defaults as the point the movement is
     measured from (an observed run's own variables, #1236). In that mode
-    `_worst_case_retries` is skipped: the re-rolls are in both runs.
+    `_chain_render_scaling` is skipped: the re-rolls are in both runs.
     """
     # the defaults the curated cost was measured at, the default preset
     # bundle among them
@@ -446,7 +508,7 @@ def _driver_scaling(definition, expanded, list_entries, baseline=None):
     if baseline is not None:
         # A ratio between two runs: the re-rolls are in both
         return factor, scaled_axes, unscaled
-    worst, worst_axes, worst_unscaled = _worst_case_retries(definition, effective)
+    worst, worst_axes, worst_unscaled = _chain_render_scaling(definition, effective)
     return factor * worst, scaled_axes + worst_axes, unscaled + worst_unscaled
 
 
@@ -456,13 +518,44 @@ FIXED_MINUTES_KEY = "fixed_minutes"
 def fixed_minutes(entry):
     """The part of one `cost` entry that does not scale (`fixed_minutes`: model
     load, encode, decode - #1224), 0.0 when it declares none. `entry` is the one
-    `dw/plan.py`'s `_choose_entry` chose to quote from; this only reads it."""
+    `_choose_entry` chose to quote from; this only reads it."""
     if not isinstance(entry, dict):
         return 0.0
     value = entry.get(FIXED_MINUTES_KEY)
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return 0.0
     return float(value) if math.isfinite(value) and value > 0 else 0.0
+
+
+def _choose_entry(cost, device):
+    """The `cost` entry a run on `device` is quoted from, as (entry, basis):
+    this device's own (CATALOG), else the first (OTHER_DEVICE); (None, UNKNOWN)
+    for no entry. The one place this choice is made - `_price` and the entry's
+    `fixed_minutes` (#1224) both read it."""
+    entries = [entry for entry in (cost or []) if isinstance(entry, dict)]
+    if not entries:
+        return None, UNKNOWN
+    own = next((entry for entry in entries if entry.get("device") == device), None)
+    if own is None:
+        return entries[0], OTHER_DEVICE
+    return own, CATALOG
+
+
+def fixed_share(definition, device):
+    """The share of a run that does not scale: the `fixed_minutes` of the
+    cost entry a run on `device` is quoted from (`_choose_entry`) over its
+    `minutes`, 0.0 when it declares none. `dw/plan.py` scales this box's
+    observed history holding this share of it fixed, as `_scaled` holds the
+    entry's own minutes for the curated row. A share, not the minutes: the
+    history can be far faster or slower than the curated card, and 10
+    curated minutes held against a 5.5 minute observed run would leave none
+    of it to scale."""
+    entry = _choose_entry(definition.get("cost"), device)[0]
+    fixed = fixed_minutes(entry)
+    total = entry.get("minutes") if fixed else None
+    if isinstance(total, bool) or not isinstance(total, (int, float)) or total <= 0:
+        return 0.0
+    return min(1.0, fixed / total)
 
 
 def _scaled(price, scaling, fixed=0.0):

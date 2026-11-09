@@ -4,7 +4,8 @@ per-segment check with its bounded re-roll (dw/pipeline_processors/chain_check.p
 Torch-free, so validation (dw/guides.py) reads them without loading a model,
 and the run (`ChainConfig` in dw/pipeline_processors/chain_config.py) asks the same
 rules. Moved out of dw/pipeline_processors/h3_rules.py, which holds H3's own
-rules, when that module reached the size ceiling (#1192).
+rules, when that module reached the size ceiling (#1192); the carry pick
+(#1032), family-independent, followed it there.
 """
 
 import math
@@ -18,6 +19,79 @@ LOOK_HOLD_PARTS = ("pickup", "creep", "texture", "precompensate")
 LOOK_HOLD_KEYFRAME_PARTS = ("pickup", "precompensate")
 
 
+# The carry pick (#1032): the sharpest of the last N frames as the next
+# keyframe, the segment trimmed after it. Family-independent, `last_frame` only
+CARRY_PICK_MIN = 1
+CARRY_PICK_MAX = 8
+
+
+def chain_carry_pick_problem(chain, num_frames=None):
+    """The reason a chain block's `carry_pick` is refused, or None: a shape
+    other than {"sharpest": N}, N outside 1..8, a continuity other than
+    `last_frame`, `match_audio` (the plan is fixed from the track's length and
+    the pick drops frames per seam), or - when the step's `num_frames` is known
+    - an N that could empty a segment. Unresolved references are left to the
+    run."""
+    if "carry_pick" not in chain:
+        return None
+    from ..variable_constraints import aligned
+    from .h3_rules import _set_for_plan
+
+    pick = chain["carry_pick"]
+    if isinstance(pick, str) and references.is_ref(references.UNRESOLVED, pick):
+        return None
+    expected = (
+        f"expected {{'sharpest': N}} with N from {CARRY_PICK_MIN} to {CARRY_PICK_MAX}"
+    )
+    if not isinstance(pick, dict) or set(pick) != {"sharpest"}:
+        return f"invalid carry_pick {pick!r} - {expected}"
+    window = pick["sharpest"]
+    if isinstance(window, str) and references.is_ref(references.UNRESOLVED, window):
+        return None
+    if (
+        isinstance(window, bool)
+        or not isinstance(window, int)
+        or not CARRY_PICK_MIN <= window <= CARRY_PICK_MAX
+    ):
+        return (
+            f"carry_pick sharpest must be a whole number between {CARRY_PICK_MIN} "
+            f"and {CARRY_PICK_MAX}, got {window!r}"
+        )
+    continuity = chain.get("continuity", "last_frame")
+    if isinstance(continuity, str) and references.is_ref(
+        references.UNRESOLVED, continuity
+    ):
+        return None
+    if continuity != "last_frame":
+        return (
+            f"carry_pick needs continuity 'last_frame' - the other modes carry "
+            f"more than one frame; got {continuity!r}"
+        )
+    if _set_for_plan(chain, "match_audio", "duration_seconds"):
+        return (
+            "carry_pick does not combine with match_audio or duration_seconds: "
+            "the plan covers the length up front and the pick drops up to "
+            f"{CARRY_PICK_MAX - 1} more frames per seam, leaving the video "
+            "shorter than asked - use 'segments'"
+        )
+    trim = chain.get("trim_frames", 1)
+    if isinstance(num_frames, int) and isinstance(chain.get("frame_snap"), dict):
+        num_frames = aligned(num_frames, chain["frame_snap"]) or num_frames
+    if (
+        isinstance(num_frames, int)
+        and not isinstance(num_frames, bool)
+        and isinstance(trim, int)
+        and not isinstance(trim, bool)
+        and window >= num_frames - trim
+    ):
+        return (
+            f"carry_pick sharpest {window} must be less than num_frames "
+            f"{num_frames} minus trim_frames {trim} ({num_frames - trim}), or "
+            "the pick could empty a segment"
+        )
+    return None
+
+
 CHAIN_LENGTH_RULE = (
     "A chain needs exactly one of 'segments', 'match_audio' or 'duration_seconds'"
 )
@@ -27,6 +101,25 @@ MATCH_AUDIO_SOURCE_RULE = (
     "A match_audio chain needs a 'hold_audio' track, or a 'references' "
     "argument holding the audio reference to match"
 )
+
+
+def chain_needs_frame_snap(chain):
+    """The key a chain is planned by length under - `duration_seconds` or
+    `match_audio` - when its block declares no `frame_snap`, else None. Such
+    a plan shortens its last segment to whatever remains, a count the
+    pipeline may floor or round in silence (LTX-2.5 floors 37 to 33), so the
+    run derives the snap from the step's `num_frames` constraint
+    (`derive_frame_snaps` in dw/pipeline_processors/chain_config.py) and
+    validate warns where it cannot (`frame_snap_warnings` in dw/guides.py).
+    Asked of the block as written - a `variable:` length counts - and of the
+    substituted one."""
+    if chain.get("frame_snap") is not None:
+        return None
+    if chain.get("duration_seconds") is not None:
+        return "duration_seconds"
+    if chain.get("match_audio"):
+        return "match_audio"
+    return None
 
 
 def chain_length_problem(chain):
@@ -157,7 +250,7 @@ def _number_under(value, ceiling):
     )
 
 
-def chain_check_problem(chain):
+def chain_check_finding(chain):
     """The reason a chain block's `check` or `retries` is refused, or None.
     `check` is true (the default ceilings), false, or an object of
     `CHAIN_CHECK_FIELDS`: the ratio ceilings above 0, `texture_ratio_max`
@@ -165,54 +258,72 @@ def chain_check_problem(chain):
     floor below 0 or null, `face` null. `retries`
     is a whole number from 0 to `CHAIN_RETRIES_MAX`; above 0 it needs the
     check on, as with no check nothing fails. Unresolved references are left
-    to the run, whose `ChainConfig` asks this same rule."""
+    to the run, whose `ChainConfig` asks this same rule.
+
+    Returns (key, message) - the key, `check` or `retries`, the message is
+    about - or None."""
     check = chain.get("check")
     expected = "expected true, false or an object of " + ", ".join(CHAIN_CHECK_FIELDS)
     if isinstance(check, dict):
         unknown = sorted(set(check) - set(CHAIN_CHECK_FIELDS))
         if unknown:
-            return f"check has unknown key(s) {unknown} - {expected}"
+            return "check", f"check has unknown key(s) {unknown} - {expected}"
         for name in ("jump_ratio_max", "look_ratio_max"):
             if name in check and not _number_over(check[name], 0):
-                return f"check {name} must be a number above 0, got {check[name]!r}"
+                return (
+                    "check",
+                    f"check {name} must be a number above 0, got {check[name]!r}",
+                )
         texture = check.get("texture_ratio_max")
         if texture is not None and not _number_over(texture, 1):
-            return (
+            return "check", (
                 "check texture_ratio_max bounds the fine-band ratio both ways, "
                 f"so must be a number above 1 or null, got {texture!r}"
             )
         cut = check.get("cut_ratio_max")
         if cut is not None and not _number_over(cut, 0):
-            return f"check cut_ratio_max must be a number above 0 or null, got {cut!r}"
+            return (
+                "check",
+                f"check cut_ratio_max must be a number above 0 or null, got {cut!r}",
+            )
         floor = check.get("audio_dbfs_min")
         if floor is not None and not _number_under(floor, 0):
-            return (
+            return "check", (
                 "check audio_dbfs_min is a floor in dBFS, so must be a number "
                 f"below 0 or null, got {floor!r}"
             )
         if check.get("face") is not None:
-            return f"check face is reserved and must be null, got {check['face']!r}"
+            return (
+                "check",
+                f"check face is reserved and must be null, got {check['face']!r}",
+            )
     elif not (
         check is None
         or isinstance(check, bool)
         or (isinstance(check, str) and _number_over(check, 0))
     ):
-        return f"invalid check {check!r} - {expected}"
+        return "check", f"invalid check {check!r} - {expected}"
     retries = chain.get("retries", 0)
     if isinstance(retries, str) and _number_over(retries, 0):
         return None
     whole = isinstance(retries, int) and not isinstance(retries, bool)
     if not whole or not 0 <= retries <= CHAIN_RETRIES_MAX:
-        return (
+        return "retries", (
             f"retries must be a whole number between 0 and {CHAIN_RETRIES_MAX}, "
             f"got {retries!r}"
         )
     if retries and (check is None or check is False):
-        return (
+        return "retries", (
             f"retries {retries} needs check on - a re-roll replaces a segment "
             "its check failed, and with no check no segment fails"
         )
     return None
+
+
+def chain_check_problem(chain):
+    """`chain_check_finding`'s message alone, or None."""
+    finding = chain_check_finding(chain)
+    return finding[1] if finding else None
 
 
 # The experimental late capstone (#1187, #1199 Task 14 Step 4): segment 1's
@@ -451,9 +562,9 @@ def _frame_slot_problem(chain, frame, num_frames):
 
 def keystone_slot_plan_problem(slot, plan):
     """The reason a checked frame slot (`chain_keystone_slot`) does not fit a
-    planned later segment, or None. A match_audio chain renders its last
-    segment only as long as the track has left (snapped up to a length the
-    pipeline takes), which `chain_keystone_slot_problem` cannot know from
+    planned later segment, or None. A match_audio or duration_seconds chain
+    renders its last segment only as long as the track or the asked length
+    has left (snapped up to a length the pipeline takes), which `chain_keystone_slot_problem` cannot know from
     the step's `num_frames` - so the run asks again of the plan before
     segment 1 renders, rather than failing on the last segment after every
     earlier one has."""
@@ -465,7 +576,7 @@ def keystone_slot_plan_problem(slot, plan):
             return (
                 f"{CHAIN_KEYSTONE_SLOT} frame {frame} is past segment "
                 f"{segment.index + 1}'s {segment.num_frames} frames - the "
-                f"matched audio leaves the last segment that short; move the "
+                f"planned length leaves the last segment that short; move the "
                 f"slot below {segment.num_frames} or use 'last'"
             )
     return None
@@ -515,3 +626,63 @@ def place_keystone(arguments, keystone, slot):
         guide["enter_below_sigma"] = slot["enter_below_sigma"]
     # A copy: iteration arguments share nested values
     arguments["guides"] = list(arguments.get("guides") or []) + [guide]
+
+
+# A chain resumed from an earlier run's kept segments (`resume_from`,
+# dw/pipeline_processors/chain_resume.py): one segment file of that run,
+# named by reference, and the run renders only the segments after its set
+CHAIN_RESUME_FROM = "resume_from"
+# The continuities a resume can carry out of a file on disk
+RESUMABLE_CONTINUITIES = ("last_frame", "guide")
+
+
+def resume_reference_problem(value):
+    """Why a `resume_from` value is refused as a location, or None: anything
+    but an output reference (or one still unresolved) - a bare path names a
+    file outside the reference rules every earlier run's file is read by, so
+    it is refused in the media location policy's words (dw/locations.py)."""
+    if value is None or _unresolved(value):
+        return None
+    if isinstance(value, str) and references.is_ref(references.OUTPUT, value):
+        return None
+    example = references.make_ref(
+        references.OUTPUT, "<workflow>/<run id>/<prefix>.0.segment-000.mp4"
+    )
+    return (
+        f"Refusing to read chain {CHAIN_RESUME_FROM} at {value!r}: a resume "
+        f"reads one segment file an earlier run wrote, named by its output "
+        f"reference like '{example}' (the chain's failure warning quotes it), "
+        f"never by a path"
+    )
+
+
+def chain_resume_problem(chain):
+    """The reason a chain block's `resume_from` is refused, or None: absent,
+    null or unresolved is no resume. Refused: without `save_segments` true
+    (the kept files are copied into the new run's spill); a continuity other
+    than `last_frame` or `guide`; and `experimental_latent_carry`, whose
+    carried latents are not on disk. The reference itself is
+    `resume_reference_problem`'s."""
+    value = chain.get(CHAIN_RESUME_FROM)
+    if value is None or _unresolved(value):
+        return None
+    if chain.get(CHAIN_LATENT_CARRY) is True:
+        return (
+            f"{CHAIN_RESUME_FROM} does not combine with {CHAIN_LATENT_CARRY}: "
+            "the carried latents are not on disk, only the kept segments' "
+            "decoded frames and audio"
+        )
+    continuity = chain.get("continuity", "last_frame")
+    if not _unresolved(continuity) and continuity not in RESUMABLE_CONTINUITIES:
+        return (
+            f"{CHAIN_RESUME_FROM} carries a last frame or a guide out of a kept "
+            f"file, so it needs continuity 'last_frame' or 'guide', got "
+            f"{continuity!r}"
+        )
+    save = chain.get("save_segments", False)
+    if save is not True and not _unresolved(save):
+        return (
+            f"{CHAIN_RESUME_FROM} copies the kept segment files into this run's "
+            "own spill, so it needs save_segments true"
+        )
+    return None

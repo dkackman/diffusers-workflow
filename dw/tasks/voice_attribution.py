@@ -25,6 +25,7 @@ Both models are fixed: nothing the caller writes reaches a model loader.
 
 import logging
 import math
+import random
 
 import numpy
 import torch
@@ -41,6 +42,9 @@ from .weights import repo_entries
 logger = logging.getLogger("dw")
 
 COMMAND = "attribute_voices"
+
+# Seed of apply_model's random shift, so separation is repeatable (#1293).
+SHIFT_SEED = 1293
 
 # The separator: Hybrid Transformer Demucs, four stems of which only
 # 'vocals' is kept - the other three sum to the accompaniment it discards
@@ -597,14 +601,22 @@ def _run_separator_stems(waveform, sample_rate, device, dtype):
     if segment == float("inf"):
         segment = 0.0
     shifts = 0 if mix.shape[-1] < segment * rate else 1
-    with torch.no_grad():
-        stems = apply_model(
-            model,
-            ((mix - mean) / std)[None],
-            device=device,
-            split=True,
-            shifts=shifts,
-        )[0]
+    # The shift offset is drawn from python's `random`; a longer clip is
+    # separated with a fixed seed so the same audio gives the same stems in
+    # every step and run (#1293), leaving the caller's random state alone.
+    state = random.getstate()
+    random.seed(SHIFT_SEED)
+    try:
+        with torch.no_grad():
+            stems = apply_model(
+                model,
+                ((mix - mean) / std)[None],
+                device=device,
+                split=True,
+                shifts=shifts,
+            )[0]
+    finally:
+        random.setstate(state)
     return {
         name: (stems[index] * std + mean).float().cpu().numpy()
         for index, name in enumerate(model.sources)

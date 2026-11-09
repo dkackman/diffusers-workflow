@@ -1816,6 +1816,12 @@
             "title": "Output Kinds",
             "type": "object"
           },
+          "overrides": {
+            "additionalProperties": true,
+            "description": "The variables a rerun changed from the job it reran; absent when none were.",
+            "title": "Overrides",
+            "type": "object"
+          },
           "progress": {
             "anyOf": [
               {
@@ -2388,6 +2394,12 @@
             "description": "The note it was submitted with; also its run's note.",
             "title": "Note",
             "type": "string"
+          },
+          "overrides": {
+            "additionalProperties": true,
+            "description": "The variables a rerun changed from the job it reran; absent when none were.",
+            "title": "Overrides",
+            "type": "object"
           },
           "queue_position": {
             "description": "Index in the waiting queue; only while queued.",
@@ -3739,10 +3751,11 @@
         "additionalProperties": false,
         "properties": {
           "basis": {
-            "description": "`observed`: the largest job peak of this machine's successful runs with the same pipelines, quantization and offload; `fit`: projected from this workflow's own runs for the requested list length.",
+            "description": "`observed`: the largest job peak of this machine's successful runs with the same pipelines, quantization and offload; `fit`: projected from this workflow's own runs for the requested list length; `declared`: the workflow's own `host_ram_gb`, larger than anything observed.",
             "enum": [
               "observed",
-              "fit"
+              "fit",
+              "declared"
             ],
             "title": "Basis",
             "type": "string"
@@ -4001,6 +4014,19 @@
             ],
             "description": "Cost acknowledgement: true (recorded), or an object {fingerprint, minutes, downloads} bound to the plan validate answered with - then the run is refused with 409 if its plan changed",
             "title": "Acknowledged Cost"
+          },
+          "arguments": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Variable overrides merged over the original job's arguments before admission (a draft promoted with {\"tier\": \"standard\"}), keeping the original's seed unless `new_seed`. A variable the workflow does not declare is refused; the seed variable cannot be overridden together with `new_seed`.",
+            "title": "Arguments"
           },
           "new_seed": {
             "default": false,
@@ -7549,7 +7575,7 @@
     },
     "/api/jobs/{job_id}/rerun": {
       "post": {
-        "description": "Queue a fresh job from a previous job's stored spec, admitted as\na new submission would be - a reference that resolved when the\noriginal ran may not any more. Takes `acknowledged_cost` as POST\n/api/jobs does; a bound one is checked against the stored spec's\nplan - the fresh seed of `new_seed` does not change a fingerprint.",
+        "description": "Queue a fresh job from a previous job's stored spec, admitted as\na new submission would be - a reference that resolved when the\noriginal ran may not any more. Takes `acknowledged_cost` as POST\n/api/jobs does; a bound one is checked against the stored spec's\nplan of the merged arguments - a fresh seed of `new_seed` never changes\na fingerprint, an override of `arguments` may.",
         "operationId": "rerun_job_api_jobs__job_id__rerun_post",
         "parameters": [
           {

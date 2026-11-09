@@ -196,13 +196,17 @@ def test_a_file_take_is_read_in_clip_ranges_and_matches_its_decode(
     vae = tiny_vae()
     monkeypatch.setattr(hlu, "_load_decoder", lambda device, name: fake_decoder(vae))
     ranges = []
-    original = media_readers.read_frame_range
+    original = media_readers.ForwardFrameReader.__call__
 
-    def spy(file, start, stop):
+    def spy(reader, start, stop):
         ranges.append((start, stop))
-        return original(file, start, stop)
+        return original(reader, start, stop)
 
-    monkeypatch.setattr(hlu, "read_frame_range", spy)
+    def no_seek(*arguments):
+        raise AssertionError("a forward read never seeks back")
+
+    monkeypatch.setattr(media_readers.ForwardFrameReader, "__call__", spy)
+    monkeypatch.setattr(media_readers, "read_frame_range", no_seek)
 
     result = encode_h3_latents(path)
 
@@ -278,7 +282,8 @@ def test_a_count_slightly_over_duration_times_fps_is_clamped(monkeypatch, tmp_pa
     )
     with pytest.raises(RuntimeError, match="stop after"):
         encode_h3_latents(path)
-    assert seen["n"] <= 121
+    # ceil(5.0 s x 24) + 1: the duration's count wins over the header's 130
+    assert seen["n"] == 121
 
 
 # 4. The decode returns the take's own length
@@ -580,13 +585,19 @@ def test_a_vfr_take_clamped_to_its_duration_warns(monkeypatch):
     # header claims 120 frames, duration x fps holds ~49 (#1232)
     from dw.tasks.h3_latent_upscale import bounded_take_frames
 
-    warned = []
-    monkeypatch.setattr(
-        hlu, "emit_warning", lambda message, **d: warned.append(message)
-    )
+    warned, data = [], []
+
+    def warn(message, **fields):
+        warned.append(message)
+        data.append(fields)
+
+    monkeypatch.setattr(hlu, "emit_warning", warn)
     monkeypatch.setattr(hlu, "media_duration", lambda path: 2.0)
     assert bounded_take_frames(120, "x.mp4", 24.0) == 49
     assert warned and "120" in warned[0] and "49" in warned[0]
+    # Typed, as every other truncation warning is, so a caller can act on it
+    assert data[0]["kind"] == "take_frames_cut_short"
+    assert data[0]["command"] == "encode_h3_latents"
     warned.clear()
     assert bounded_take_frames(49, "x.mp4", 24.0) == 49
     assert not warned

@@ -354,3 +354,56 @@ def test_fields_carry_the_committed_reading(monkeypatch):
     fields = host_memory.host_memory_fields()
     assert fields["host_memory_rss_shmem_mb"] == 16.0
     assert fields["host_memory_committed_mb"] == 166.0
+
+
+def test_fields_reuse_a_recent_device_reading(monkeypatch):
+    # smaps is read whole (seconds on a large worker); the memory report at
+    # every phase boundary reuses a reading inside DEVICE_TERM_SECONDS
+    reads = []
+
+    def device():
+        reads.append(1)
+        return 50.0
+
+    clock = [1000.0]
+    monkeypatch.setattr(
+        host_memory,
+        "rss_split_mb",
+        lambda: {"anon_mb": 100.0, "file_mb": 400.0, "shmem_mb": 16.0},
+    )
+    monkeypatch.setattr(host_memory, "device_mapped_mb", device)
+    monkeypatch.setattr(host_memory.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(host_memory, "_device_term", [None, None, None])
+    for _ in range(3):
+        assert host_memory.host_memory_fields()["host_memory_committed_mb"] == 166.0
+    assert len(reads) == 1
+    clock[0] += host_memory.DEVICE_TERM_SECONDS + 1
+    host_memory.host_memory_fields()
+    assert len(reads) == 2
+
+
+class TestPrivateClaimsDir:
+    """`_ensure_private_dir` refuses a default claims folder another user can
+    write - a posix rule. Windows reports 0o777 for every ordinary folder, so
+    the mode check there would refuse them all and HostClaims would stop."""
+
+    class _Stat:
+        def __init__(self, mode):
+            self.st_mode = mode
+            self.st_uid = os.geteuid() if hasattr(os, "geteuid") else 0
+
+    def test_a_group_writable_folder_is_refused_on_posix(self, tmp_path, monkeypatch):
+        import pytest
+
+        monkeypatch.setattr(os, "name", "posix")
+        monkeypatch.setattr(os, "lstat", lambda path: self._Stat(0o40775))
+        with pytest.raises(OSError, match="writable by others"):
+            host_memory._ensure_private_dir(str(tmp_path / "claims"))
+
+    def test_the_mode_is_not_read_on_windows(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(os, "name", "nt")
+        monkeypatch.setattr(os, "lstat", lambda path: self._Stat(0o40777))
+        host_memory._ensure_private_dir(str(tmp_path / "claims"))
+
+    def test_a_folder_this_process_made_passes(self, tmp_path):
+        host_memory._ensure_private_dir(str(tmp_path / "claims"))

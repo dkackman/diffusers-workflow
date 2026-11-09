@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from dw.presets import preset_errors
+from dw.pipeline_processors.h3_rules import REFINE_WINDOWS_ENV_VAR
 from dw.workflow import Workflow
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -67,7 +68,7 @@ def test_every_tier_states_the_same_settings(name):
 @pytest.mark.parametrize("tier", TIERS)
 def test_every_tier_validates(name, tier, monkeypatch):
     # on a normal server: no tier needs the windowed refine's scratch flag
-    monkeypatch.delenv("DW_EXPERIMENTAL_REFINE_WINDOWS", raising=False)
+    monkeypatch.delenv(REFINE_WINDOWS_ENV_VAR, raising=False)
     assert _workflow(name).validation_errors({"tier": tier}) == []
 
 
@@ -110,3 +111,13 @@ def test_the_record_names_every_tiered_template_and_the_skipped_ones():
     text = RECORD.read_text(encoding="utf-8")
     for name in TIERED + ["ltx2/chained-segments", "ltx2/extend-clip"]:
         assert name in text, name
+
+
+def test_the_ref2va_templates_share_one_tier_bundle():
+    # The same bench record prices every Ref2VA template's tiers: re-tune one
+    # bundle and every copy must follow, or one template's 'best' drifts from
+    # the record it cites
+    ref2va = [name for name in TIERED if name != "minimax/chained-segments"]
+    bundles = {name: _definition(name)["presets"]["tier"] for name in ref2va}
+    first = bundles[ref2va[0]]
+    assert all(bundle == first for bundle in bundles.values()), bundles

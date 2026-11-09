@@ -200,9 +200,13 @@ def admit(
             raise _validator_failure(e) from e
         admission.vram_need = _vram_need(candidate, context, arguments)
         # Only the document's own errors stop the warnings, which walk the
-        # steps array a definition failing the schema may not have
+        # steps array a definition failing the schema may not have. A
+        # finding at `arguments.<name>` is the caller's, wherever it was
+        # found - a preset selector value no bundle names among them
         if any(
-            (e.get("path"), e.get("message")) not in refused for e in admission.errors
+            (e.get("path"), e.get("message")) not in refused
+            and not str(e.get("path") or "").startswith("arguments.")
+            for e in admission.errors
         ):
             admission.schema_errors = True
             return admission

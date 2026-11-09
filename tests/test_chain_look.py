@@ -10,6 +10,7 @@ from dw.pipeline_processors.chain_look import (
     look,
     pickup_grade,
     precompensate,
+    scene_texture,
     texture,
     tone,
 )
@@ -236,3 +237,53 @@ def test_correct_reports_what_each_part_measured_and_applied():
     hold.feed(carry)
     hold.correct([carry, cut, cut], carry, False)
     assert "cut" in " | ".join(hold.notes)
+
+
+def test_a_grey_feed_after_coloured_ones_leaves_the_chroma_boost_alone():
+    # An unmeasurable gain adds no sample: a grey feed after a learned chroma
+    # boost must not average it back toward 1.0 (#1242)
+    from PIL import Image
+
+    ramp = numpy.linspace(60, 180, W, dtype=numpy.float32).astype(numpy.uint8)
+    grey = Image.fromarray(numpy.tile(ramp[None, :, None], (H, 1, 3)))
+    hold = LookHold(
+        dict.fromkeys(("pickup", "creep", "texture", "precompensate"), True)
+    )
+    hold.correct([grey] * 3, None, True)
+    # What two earlier coloured feeds learned
+    hold._ratios[0].extend([1.0, 1.0])
+    hold._ratios[1].extend([1.2, 1.2])
+    hold.feed(grey)
+    hold.correct([grey, grey, grey], grey, False)
+    assert hold.boost()[1] == pytest.approx(1.2)
+    assert len(hold._ratios[0]) == 3  # the contrast gain was still measured
+    assert len(hold._ratios[1]) == 2
+
+
+def test_inplace_corrections_match_the_copying_ones():
+    carried = gradient()
+    frames = numpy.stack([tinted(carried, 10), gradient(1.2), gradient(1.4)])
+    scene = look(gradient())
+    for correct in (
+        lambda f, **k: pickup_grade(f, carried, **k),
+        lambda f, **k: ease_creep(f, scene, **k),
+        lambda f, **k: ease_texture(f, texture(gradient()), **k),
+    ):
+        copied_from = frames.copy()
+        copied = correct(copied_from)
+        assert (copied_from == frames).all()  # the default leaves its input be
+        written = frames.copy()
+        assert (correct(written, inplace=True) == copied).all()
+
+
+def test_segment_1_reads_the_scene_without_stacking_the_segment():
+    from PIL import Image
+
+    stack = numpy.stack([gradient(1.0 + i / 10) for i in range(9)])
+    frames = [Image.fromarray(each) for each in stack]
+    hold = LookHold(
+        {"pickup": True, "creep": True, "texture": True, "precompensate": False}
+    )
+    assert hold.correct(frames, None, True) is frames
+    assert hold.scene_look == look(stack[1])
+    assert hold.scene_texture == scene_texture(stack)

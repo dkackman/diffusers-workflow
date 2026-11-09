@@ -60,9 +60,14 @@ def held_videos(videos, held, fps=None):
     `(frames, height, width, 3)` source frames - in the batch's own form: a
     list of PIL frame lists (H3's default `output_type`), or a float array in
     [0, 1] for `output_type='np'`. They play at `fps`, the source's own rate,
-    when it is given - never relabelled to the batch's 24 (R25)."""
+    when it is given - never relabelled to the batch's 24 (R25). A tensor
+    batch (`output_type='pt'`) has nowhere to carry a rate, so one held at a
+    rate other than 24 comes back in the `np` form, which does."""
     held = numpy.asarray(held)
-    if isinstance(videos, numpy.ndarray):
+    retimed_tensor = (
+        isinstance(videos, torch.Tensor) and fps and float(fps) != float(H3_FPS)
+    )
+    if isinstance(videos, numpy.ndarray) or retimed_tensor:
         stacked = numpy.stack([held.astype(numpy.float32) / 255.0] * len(videos))
         return FittedVideo(stacked, fps) if fps else stacked
     if isinstance(videos, torch.Tensor):

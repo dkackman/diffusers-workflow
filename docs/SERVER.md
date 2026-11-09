@@ -178,7 +178,9 @@ icon, a finish-alert toggle, the theme toggle, and links to these docs and
   `result.subfolder` when a step chose one. **Cancel**, **Run again**,
   **New seed**, and **Export** (gathers the run into the workspace's `exports/` with
   `POST /api/jobs/{id}/export` and downloads the zip - the same bundle as
-  MCP's `export_job`; replacing an existing export asks first).
+  MCP's `export_job`; replacing an existing export asks first). An `.otioz`
+  among the results is drawn as a timeline strip (clips sized by duration, gaps
+  hatched, a copy button for each clip's `output:` reference).
 
   ![A finished job: a warning about a level jump at a cut, then the workflow as a data-flow graph from the edit and soundtrack through mixing and normalizing to the film](img/ui-job.png)
 
@@ -286,7 +288,7 @@ server's refusal when a job is running:
 | `GET /api/jobs/{id}/events` | Server-sent events stream; `?after=N` / `Last-Event-ID` replay missed events, so reconnects are lossless. Every event carries `seq` and `at` - seconds since the job started (since it was queued, for the events before that) - so a step's cost is a subtraction: `step_start` to `generating` is what a reused pipeline still pays before it runs; `generating` is emitted when the pipeline call starts, so `generating` to the first `pipeline_step` is the prompt and reference encoding plus the first denoise pass (`timing.encode_s` in the manifest is the encoding alone; see [Step timing](WORKSPACES.md#step-timing)). A job in memory keeps every event; one served from history (after a restart, or once it is older than the 20 most recent finished jobs) keeps only its last 200 |
 | `GET /api/jobs/{id}/event-log?after=-1&limit=200&kinds=` | The same events as the SSE stream, as one JSON page: `{id, status, events, last_seq, truncated, note}`. `after` is exclusive; page by passing back the previous `last_seq`. `limit` is capped at 1000. `kinds` (repeatable) keeps events whose `event` or `kind` is one of those named (`log`, `warning`, `phase_stall`, ...). A job restored from history serves the bounded event tail persisted with it; a job that finished before events were retained returns an empty list and a `note` saying so. |
 | `POST /api/jobs/{id}/cancel` | Cooperative cancel: takes effect at the next step boundary or denoise step. During a model load or a task step, which cannot be interrupted, a `cancel_pending` event says it waits for that to finish |
-| `POST /api/jobs/{id}/rerun` | Re-queue a finished job's spec. Body `{"new_seed": true}` draws a fresh seed into the workflow's seed variable instead of repeating the original arguments; 400 when the workflow pins its seed to a literal or names none. A plain rerun of a seeded workflow is served whole from the step cache — the earlier run's files, republished with `reused: true`, generating nothing. The new job's summary and detail carry `rerun_of`: the id of the job it reran (absent on a fresh submit) |
+| `POST /api/jobs/{id}/rerun` | Re-queue a finished job's spec. Body `{"new_seed": true}` draws a fresh seed into the workflow's seed variable instead of repeating the original arguments; 400 when the workflow pins its seed to a literal or names none. Body `{"arguments": {...}}` merges variable overrides over the stored arguments before admission (shallow, by name; the one-call promotion of a draft is `{"arguments": {"tier": "standard"}}`, which keeps the draft's staging at the same seed - `best` re-stages, so it is a render of its own). A rerun with `arguments` keeps the original's seed unless `new_seed`: a seed the template drew at run time (a null seed variable) is read from the original's realized workflow, and when that is gone the job carries a `rerun_seed_unknown` warning and draws a fresh one. A variable the workflow does not declare is a 400, the seed variable together with `new_seed` is a 400, and a bound `acknowledged_cost` is checked against the plan of the merged arguments. The new job's detail carries `overrides` when any were given. A plain rerun of a seeded workflow is served whole from the step cache — the earlier run's files, republished with `reused: true`, generating nothing. The new job's summary and detail carry `rerun_of`: the id of the job it reran (absent on a fresh submit) |
 | `POST /api/jobs/{id}/move` | Reorder a queued job: `{"direction": "up"\|"down"\|"front"\|"back"}`. Job listings carry each waiting job's `queue_position`, and `waiting_for` while one is held for host RAM. |
 
 ### Dispatch
@@ -338,7 +340,13 @@ Another `dw.serve` on the same machine counts too (#1227): each server
 publishes its running jobs' peaks to a shared claims directory
 (`DW_HOST_CLAIMS_DIR`, else a per-user folder in the system temp dir) under
 a file lock, and each dispatch adds the other live servers' claims to its own
-running jobs. A job is never held when no other job is running on this server
+running jobs. The default folder is used only while it is a real directory
+the server's user owns that no one else can write: one planted at that
+predictable path by another local user is refused, and the gate falls back
+to this server's own jobs. A job is claimed once its worker is up, so a
+job on a cold card counts as soon as its worker starts. A claim carries the
+worker's driver-pinned host memory, so a sibling charges it on the basis
+this server's own gate does. A job is never held when no other job is running on this server
 or another, nor when it has no figure, nor where host RAM cannot be read
 (macOS without psutil). A held job is re-checked every 10 s. The hold emits one `queue_wait` event (message
 `waiting for host RAM: needs ~N GB with its margin, ~M GB free`; not a `warning`), and job
