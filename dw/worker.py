@@ -286,6 +286,11 @@ class WorkflowWorker:
 
         try:
             self._activate_job(command, job)
+            # A reading at job start (#1296): until the first phase
+            # boundary the server would otherwise keep serving the
+            # previous job's post-run reading as the card's current one.
+            # Not the job-scoped baseline - that stays the first phase's
+            self._reply(MemoryInfo(info=self._get_memory_info()))
             self._prepare_workflow(command, job)
             self._run_job(command, job)
             self._report_success(job)
