@@ -228,6 +228,13 @@ def test_each_template_steps_its_adapters_nfe(path):
     assert variables["num_inference_steps"] == nfe + 1, os.path.basename(path)
 
 
+# Templates that run the base model at 20 steps by choice, not for want of an
+# adapter: narrated-take is a dialogue take, and the turbo LoRA flattens H3
+# voices and lip sync, so it runs the base schedule the constitution-walk-2
+# takes were rendered on (bench/records/narrated.md)
+BASE_SCHEDULE_BY_CHOICE = {"narrated-take.json"}
+
+
 @pytest.mark.parametrize("path", H3_TEMPLATES)
 def test_no_template_still_runs_the_base_model_at_twenty_steps(path):
     """The six reference templates ran 20 steps with no adapter, because the
@@ -237,4 +244,7 @@ def test_no_template_still_runs_the_base_model_at_twenty_steps(path):
     definition = load(path)
     if not any(True for _ in h3_steps(definition)):
         pytest.skip("no H3 step")
+    if os.path.basename(path) in BASE_SCHEDULE_BY_CHOICE:
+        assert definition["variables"]["lora_model_name"] is None
+        pytest.skip("runs the base schedule by choice, with no adapter")
     assert definition["variables"]["num_inference_steps"] != 20

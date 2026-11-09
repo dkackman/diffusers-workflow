@@ -1,0 +1,325 @@
+{
+    "id": "MiniMaxH3NarratedTake",
+    "shape": "sequence",
+    "description": "A long H3 take of one speaker held to a retimed narration, a segment per line, probed then continued. The narration is made first with templates/narration-retime, whose 'num_frames' and 'guide_frames' must equal this template's (192 and 22 by default), or the segment boundaries land in the wrong places; listen to the retimed track before spending GPU time on it, and pass it as 'narration' and the same text as 'script'. The first step (narration_lines) cuts the narration at the chain's own segment boundaries and fills 'prompt_template' once per segment with that segment's line and 'scene', 'speaker' and 'soundscape', so the plan derives the segment count from the narration's length; the 'take' step is a guide chain matched to the narration and holding it as the soundtrack, so the speech heard is the narration itself and the guide carries picture only. 'prompt_template' takes bare placeholders ({line}, {scene}, {speaker}, {soundscape}); write a literal brace doubled. Its default has no spoken cue and no breath: the held narration already starts each segment mid-sentence. The procedure: first validate with 'stop_after' set for a probe of about 90 seconds, k = 90 / ((num_frames - guide_frames) / 24), about 13 at the defaults (a whole number; the estimate prices only the k segments it renders). Run the probe and judge its segments with get_output_frames and compare_outputs, and read each shot's check values (face_drop is recorded, never failed, since 'check' leaves its ceiling null). If the probe holds, run again with 'resume_from' set to the output: reference of the probe's last kept segment file and 'stop_after' cleared to null, which renders only the segments after it; a bad segment is re-rendered in place with templates/minimax/repair-segment ('keep_segments' stays true for that). Judge lip sync by eye on the finished take, or with the measure_lip_sync task; the chain's check does not measure it, and it holds no words check, since the held audio is the narration itself. 'shot' has one preset, 'dialogue' (guide continuity). 'tier' 'best' (the default) is 1344x768 on int8 weights and 'standard' 960x544 on int4, both at 20 steps with no turbo LoRA ('lora_model_name' null), since the turbo LoRA flattens H3 voices and lip sync. Keep 'num_frames' on H3's 3-frame audio grid (141, 192, 243, 294, 345) or validate warns that the held slices drift. No cost row yet: the probe quote needs a measured per-segment figure.",
+    "vram_estimate": {
+        "base_gb": 16.3,
+        "bytes_per_voxel": 28.71,
+        "bytes_per_guide_voxel": 28.71,
+        "voxel_variables": [
+            "width",
+            "height",
+            "num_frames"
+        ],
+        "reason": "each segment is one H3 run, so the ceiling is a segment's: the t2va calibration (#324) - peak activation memory scales with width * height * num_frames - plus, under 'guide' continuity, the guide each segment after the first is given, which is encoded on the target canvas and costs about as much per voxel as the clip itself (docs/proposals/h3-guide-vram.md, #694)"
+    },
+    "host_ram_gb": "variable:host_ram_gb",
+    "cost_drivers": [
+        "tier",
+        "continuity",
+        "shot",
+        "num_frames",
+        "num_inference_steps",
+        "width",
+        "height",
+        "weights_dtype",
+        "lora_model_name",
+        "attention_backend",
+        "cache",
+        "check",
+        "retries"
+    ],
+    "variables": {
+        "tier": "best",
+        "host_ram_gb": 69,
+        "image": null,
+        "narration": null,
+        "script": null,
+        "scene": null,
+        "speaker": null,
+        "soundscape": "Quiet natural ambience under the voice: a soft steady breeze and faint distant birdsong, with no other voices.",
+        "prompt_template": "For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced.\n\nintegrated_multimodal_description: [Shot 1] Live-action, cinematic, photorealistic, one continuous shot that carries over without a break from the previous shot. The shot opens exactly on <Picture 1>: {scene} Preserving the speaker's face, clothing, framing and the setting exactly, the camera holds its framing for the whole shot: it never pushes in, and the speaker stays the same size in frame from the first frame to the last. (S1), {speaker}, at the same quiet level and unhurried pace as before, is already speaking and continues mid-flow, lips and jaw shaping every word clearly and in time with the sound: <d>[English] {line}</d> The delivery carries straight on to the end of the shot, with no pause to start over.\n\noverall_soundscape: {soundscape} The ambience runs under the voice throughout and never drops out.\n\nnon_diegetic_music: N/A",
+        "shot": "dialogue",
+        "continuity": "guide",
+        "num_frames": 192,
+        "guide_frames": 22,
+        "stop_after": null,
+        "resume_from": null,
+        "keep_segments": true,
+        "check": {
+            "jump_ratio_max": 4.0,
+            "look_ratio_max": 5.5,
+            "cut_ratio_max": 3.5,
+            "words_similarity_min": null,
+            "face_drop_max": null
+        },
+        "retries": 1,
+        "width": 1344,
+        "height": 768,
+        "num_inference_steps": 20,
+        "video_shift": 12.0,
+        "audio_shift": 3.0,
+        "weights_dtype": "{int8}",
+        "lora_scale": 1.0,
+        "lora_alpha": null,
+        "lora_model_name": null,
+        "lora_weight_name": "minimax_h3_fl2v_turbo_4step_v1.2_768p_bf16.safetensors",
+        "lora_adapter_name": "turbo",
+        "seed": null,
+        "attention_backend": "sparse",
+        "sparse_tau": 0.5,
+        "sparse_topk": 0.15,
+        "cache": null
+    },
+    "presets": {
+        "shot": {
+            "dialogue": {
+                "continuity": "guide"
+            }
+        },
+        "tier": {
+            "standard": {
+                "width": 960,
+                "height": 544,
+                "num_inference_steps": 20,
+                "weights_dtype": "{int4}",
+                "host_ram_gb": 51
+            },
+            "best": {
+                "width": 1344,
+                "height": 768,
+                "num_inference_steps": 20,
+                "weights_dtype": "{int8}",
+                "host_ram_gb": 69
+            }
+        }
+    },
+    "variable_constraints": {
+        "image": {
+            "required": true,
+            "reason": "the speaker's first frame, <Picture 1> of every segment prompt; a placeholder would film the wrong person"
+        },
+        "narration": {
+            "required": true,
+            "reason": "the retimed narration from templates/narration-retime, the take's held soundtrack and the source of its segment count; there is no sensible default track"
+        },
+        "script": {
+            "required": true,
+            "min_length": 1,
+            "reason": "the text the narration speaks, so each segment's line carries its spelling and punctuation"
+        },
+        "scene": {
+            "required": true,
+            "min_length": 1,
+            "reason": "the shot's framing, the speaker's look and the setting, written for this take; a placeholder would describe another scene"
+        },
+        "speaker": {
+            "required": true,
+            "min_length": 1,
+            "reason": "the speaker's voice and delivery for the (S1) tag; a placeholder would describe another voice"
+        },
+        "num_frames": {
+            "modulus": 17,
+            "remainder": 5,
+            "min_frames": 124,
+            "max_frames": 345,
+            "snap": "up",
+            "reason": "the video VAE encodes 17 * n + 5 frames, and MiniMax-H3 generates between 5 and 15 seconds at 24 fps"
+        },
+        "width": {
+            "modulus": 32,
+            "remainder": 0,
+            "reason": "MiniMax-H3's pipeline refuses a `width` or `height` that is not a multiple of 32, and only after the weights have loaded; refused here instead, with no 'snap', since rounding would be a silent change to the size asked for"
+        },
+        "height": {
+            "modulus": 32,
+            "remainder": 0,
+            "reason": "MiniMax-H3's pipeline refuses a `width` or `height` that is not a multiple of 32, and only after the weights have loaded; refused here instead, with no 'snap', since rounding would be a silent change to the size asked for"
+        }
+    },
+    "seed": "variable:seed",
+    "steps": [
+        {
+            "name": "lines",
+            "task": {
+                "command": "narration_lines",
+                "arguments": {
+                    "audio": "variable:narration",
+                    "text": "variable:script",
+                    "segment_frames": "variable:num_frames",
+                    "guide_frames": "variable:guide_frames",
+                    "fps": 24,
+                    "prompt_template": "variable:prompt_template",
+                    "fill": {
+                        "scene": "variable:scene",
+                        "speaker": "variable:speaker",
+                        "soundscape": "variable:soundscape"
+                    }
+                }
+            },
+            "result": {
+                "content_type": "application/json",
+                "file_base_name": "narration-lines",
+                "subfolder": "intermediate"
+            }
+        },
+        {
+            "name": "take",
+            "pipeline": {
+                "configuration": {
+                    "component_type": "ModularPipeline",
+                    "pre_load_modules": [
+                        "sdnq"
+                    ],
+                    "load_components": {
+                        "dtype": "torch.bfloat16",
+                        "quantization_config": {
+                            "transformer": {
+                                "configuration": {
+                                    "config_type": "sdnq.SDNQConfig"
+                                },
+                                "arguments": {
+                                    "weights_dtype": "variable:weights_dtype",
+                                    "quantization_device": "cuda",
+                                    "return_device": "cpu",
+                                    "use_quantized_matmul": true,
+                                    "dequantize_fp32": false,
+                                    "modules_to_not_convert": [
+                                        "proj_in",
+                                        "audio_proj_in",
+                                        "context_embedder",
+                                        "time_embedder",
+                                        "time_proj",
+                                        "token_refiner",
+                                        "norm_out",
+                                        "proj_out",
+                                        "audio_proj_out"
+                                    ]
+                                }
+                            },
+                            "text_encoder": {
+                                "configuration": {
+                                    "config_type": "sdnq.SDNQConfig"
+                                },
+                                "arguments": {
+                                    "weights_dtype": "variable:weights_dtype",
+                                    "quantization_device": "cuda",
+                                    "return_device": "cpu",
+                                    "dequantize_fp32": false,
+                                    "modules_to_not_convert": [
+                                        ".model.visual",
+                                        "lm_head"
+                                    ]
+                                }
+                            },
+                            "vae": {
+                                "configuration": {
+                                    "config_type": "sdnq.SDNQConfig"
+                                },
+                                "arguments": {
+                                    "weights_dtype": "{int8}",
+                                    "quant_conv": true,
+                                    "use_quantized_matmul_conv": true,
+                                    "quantization_device": "cuda",
+                                    "return_device": "cpu",
+                                    "dequantize_fp32": false
+                                }
+                            }
+                        }
+                    },
+                    "components": {
+                        "transformer": {
+                            "attention_backend": "variable:attention_backend",
+                            "sparse_tau": "variable:sparse_tau",
+                            "sparse_topk": "variable:sparse_topk",
+                            "group_offload": {
+                                "offload_type": "block_level",
+                                "num_blocks_per_group": 2,
+                                "use_stream": true,
+                                "record_stream": true,
+                                "low_cpu_mem_usage": true
+                            }
+                        },
+                        "text_encoder": {
+                            "remove_modules": [
+                                "lm_head"
+                            ]
+                        },
+                        "text_encoder.model": {
+                            "truncate_layers": {
+                                "language_model.layers": 51
+                            },
+                            "group_offload": {
+                                "offload_type": "leaf_level"
+                            }
+                        },
+                        "vae": {
+                            "device": "cuda",
+                            "residency": "on_demand"
+                        },
+                        "audio_vae": {
+                            "device": "cuda",
+                            "residency": "on_demand"
+                        }
+                    },
+                    "cache": "variable:cache"
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "MiniMaxAI/MiniMax-H3",
+                    "workflow": "fl2va"
+                },
+                "loras": [
+                    {
+                        "model_name": "variable:lora_model_name",
+                        "weight_name": "variable:lora_weight_name",
+                        "adapter_name": "variable:lora_adapter_name",
+                        "scale": "variable:lora_scale",
+                        "alpha": "variable:lora_alpha"
+                    }
+                ],
+                "chain": {
+                    "match_audio": true,
+                    "prompts": "previous_result:lines.prompts",
+                    "lines": "previous_result:lines.lines",
+                    "continuity": "variable:continuity",
+                    "guide_frames": "variable:guide_frames",
+                    "check": "variable:check",
+                    "retries": "variable:retries",
+                    "stop_after": "variable:stop_after",
+                    "segment_argument": "image",
+                    "trim_frames": 2,
+                    "crossfade_ms": 80,
+                    "fps": 24,
+                    "frame_snap": "constraint:num_frames",
+                    "save_segments": true,
+                    "keep_segments": "variable:keep_segments",
+                    "resume_from": "variable:resume_from"
+                },
+                "scheduler": {
+                    "shift": "variable:video_shift"
+                },
+                "audio_scheduler": {
+                    "shift": "variable:audio_shift"
+                },
+                "arguments": {
+                    "image": "variable:image",
+                    "hold_audio": "variable:narration",
+                    "num_frames": "variable:num_frames",
+                    "width": "variable:width",
+                    "height": "variable:height",
+                    "num_inference_steps": "variable:num_inference_steps",
+                    "output": [
+                        "videos",
+                        "audio",
+                        "sampling_rate"
+                    ]
+                }
+            },
+            "result": {
+                "content_type": "video/mp4",
+                "fps": 24,
+                "subfolder": "final"
+            }
+        }
+    ]
+}

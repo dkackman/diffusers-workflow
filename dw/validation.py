@@ -519,7 +519,9 @@ ERROR_CHECKS = [
     # a match_audio chain with no track to match (#1259)
     Check(
         "chain_length",
-        lambda c: chain_length_errors(c.expanded, c.source_indices),
+        lambda c: chain_length_errors(
+            c.expanded, c.source_indices, written=c.definition
+        ),
     ),
     # A chain's continuity the run would refuse: an unknown mode, or a
     # 'guide' chain off H3 t2va/fl2va or with a guide_frames other than 22/39

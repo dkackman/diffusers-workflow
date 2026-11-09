@@ -600,7 +600,10 @@ def test_no_stale_entry_in_the_allowlist():
 # Then to 14_250 (measured 14_142) for `narration-retime`: one new entry, the
 # catalog's only retiming of a narration onto a chain's frame grid, with no
 # cost block (CPU transcription and a resample only).
-COMPACT_BUDGET = 14_250
+# Then to 14_450 (measured 14_425) for `minimax/narrated-take`: one new entry,
+# the catalog's only long take held to a retimed narration, with no cost
+# block until a per-segment figure is measured.
+COMPACT_BUDGET = 14_450
 FILTERED_BUDGET = 1_500
 
 
