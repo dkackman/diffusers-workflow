@@ -910,6 +910,10 @@ def test_sentence_shaped_differs_entries_are_their_own_sentences():
     assert f". Note: {refused}" in text
     assert text.endswith(f". Note: {FANOUT_NOTE}")
     short = _inherited_cost_warnings(
-        {"basis": "inherited", "inherited_from": "t", "differs": ["resume_from", "reference count"]}
+        {
+            "basis": "inherited",
+            "inherited_from": "t",
+            "differs": ["resume_from", "reference count"],
+        }
     )[0]
     assert "its resume_from, reference count differ from that template" in short
