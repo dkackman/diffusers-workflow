@@ -470,3 +470,100 @@ def test_room_tone_falls_back_to_the_quietest_window(heard, monkeypatch):
     a, b = int((end + 0.2) * RATE), int((end + 0.4) * RATE)
     inserted = dbfs(rms(audio.audio[0, a:b]), floor=-200.0)
     assert inserted == pytest.approx(FLOOR_DBFS, abs=3.0)
+
+
+def test_boundary_at_a_word_junction_needs_no_move(heard):
+    # 8.0 s, the first boundary, falls in the 0.03 s junction of "the" and
+    # "People": the take holds its narration, so no word is cut there
+    words = [
+        ("We", 6.0, 7.0),
+        ("the", 7.2, 7.98),
+        ("People", 8.01, 9.0),
+        ("shall", 9.05, 9.6),
+    ]
+    track, chunks = build(words, 10.0)
+    heard(chunks)
+
+    result = retime_narration(track, segment_frames=192, guide_frames=22, fps=24)
+
+    report = result["report"]
+    assert report["boundaries"][0]["seconds"] == pytest.approx(8.0)
+    assert report["boundaries"][0]["in_gap"] is True
+    assert report["mid_word_boundaries"] == []
+    assert report["pauses"] == []
+    numpy.testing.assert_array_equal(result["audio"].audio, track.audio)
+
+
+def test_boundary_inside_a_word_moves_to_the_nearest_junction(heard):
+    # 8.0 s is 0.1 s into "People"; the comma gap two words earlier is the
+    # only one that may move, and lengthening it brings the junction of
+    # "the" and "People" onto the boundary
+    words = [
+        ("Union,", 6.0, 7.0),
+        ("and", 7.3, 7.6),
+        ("the", 7.6, 7.9),
+        ("People", 7.9, 8.6),
+        ("of", 8.65, 9.0),
+    ]
+    track, chunks = build(words, 9.6)
+    heard(chunks)
+
+    report = retime_narration(track, segment_frames=192, guide_frames=22, fps=24)[
+        "report"
+    ]
+
+    boundary = report["boundaries"][0]
+    assert boundary["in_gap"] is True
+    assert report["mid_word_boundaries"] == []
+    assert not any(w["start"] < boundary["seconds"] < w["end"] for w in report["words"])
+    shift = gap_after(report, "Union,") - 0.3
+    assert 0.0 < shift <= 0.25 + 1e-6
+    assert report["duration_seconds"] == pytest.approx(9.6 + shift, abs=0.01)
+
+
+def test_mid_word_only_when_no_junction_is_reachable(heard):
+    # 8.0 s is 2.5 s into a long word; the one eligible gap would have to
+    # grow by 2.5 s, or shrink below nothing, to bring a junction there
+    words = [
+        ("a", 5.0, 5.3),
+        ("Constitutionality", 5.5, 8.6),
+        ("b", 8.6, 9.0),
+    ]
+    track, chunks = build(words, 9.5)
+    heard(chunks)
+
+    report = retime_narration(track, segment_frames=192, guide_frames=22, fps=24)[
+        "report"
+    ]
+
+    assert report["boundaries"][0]["in_gap"] is False
+    assert report["mid_word_boundaries"] == [
+        {"segment": 0, "word": "Constitutionality"}
+    ]
+    assert report["duration_seconds"] == pytest.approx(9.5, abs=0.005)
+
+
+def test_lines_use_script_spelling(heard):
+    # Whisper hears "$20," for the script's "twenty dollars,": the line
+    # carries the script's words, "dollars," included
+    words = [("exceed", 0.2, 0.6), ("$20,", 0.7, 1.2), ("the", 1.8, 2.0)]
+    track, chunks = build(words, 2.2)
+    heard(chunks)
+
+    answer = narration_lines(
+        track,
+        segment_frames=96,
+        guide_frames=12,
+        fps=24,
+        text="exceed twenty dollars, the",
+    )
+
+    assert answer["lines"] == ["exceed twenty dollars, the"]
+    report = retime_narration(track, text="exceed twenty dollars, the")["report"]
+    assert [w["word"] for w in report["words"]] == [
+        "exceed",
+        "twenty dollars,",
+        "the",
+    ]
+    # the comma the script puts after the word Whisper missed sets the pause
+    assert gap_after(report, "twenty dollars,") == pytest.approx(0.3, abs=0.02)

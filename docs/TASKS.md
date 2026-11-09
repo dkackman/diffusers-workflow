@@ -3282,8 +3282,8 @@ dropped words. `templates/check-narration` runs it.
 A narrated long take is spoken first and pictured after: an H3 chain renders
 the picture in fixed-length segments, so the speech is fitted to the chain's
 frame grid (`dw/tasks/narration_retime.py`). `retime_narration` sets every
-pause by the punctuation it follows and moves the pause nearest each segment
-boundary so the boundary falls in silence; `narration_lines` then reads the
+pause by the punctuation it follows and brings a word junction onto each
+segment boundary so no boundary cuts through a word; `narration_lines` then reads the
 line each planned segment speaks, and fills a prompt per segment from a
 template. Both take their word times from one word-timestamp transcription
 (the `transcribe_audio` pipeline, levelled as `check_script` levels it).
@@ -3333,11 +3333,11 @@ template. Both take their word times from one word-timestamp transcription
 | `comma_seconds` | No | The pause after a word ending `,` `;` or `:` (default 0.3) |
 | `sentence_seconds` | No | The pause after a word ending `.` `?` or `!` (default 0.6) |
 | `section_seconds` | No | The pause at a section break in `text`: a blank line, or a line opening "Amendment" (default 1.0) |
-| `min_gap_seconds` | No | A gap shorter than this is left alone, and no boundary is placed in it (default 0.12) |
+| `min_gap_seconds` | No | A gap shorter than this is left alone, and is never lengthened or shortened to move a boundary (default 0.12) |
 | `segment_frames` | No | Frames a chain segment generates. With it, the boundaries are placed and reported |
 | `guide_frames` | No | The chain's guide frames, the head each segment after the first trims (default 0) |
 | `fps` | No | Frame rate the frames are counted at (default 24) |
-| `boundary_slack_seconds` | No | The most one gap may be lengthened or shortened to bring a boundary into it (default 0.25) |
+| `boundary_slack_seconds` | No | The most one gap may be lengthened or shortened to bring a word junction onto a boundary (default 0.25) |
 | `model_name` | No | A Whisper-class ASR model (the `transcribe_audio` default) |
 | `device`, `sample_rate` | No | As `transcribe_audio` |
 
@@ -3358,14 +3358,19 @@ is never digital zero where the source was not.
 The boundaries are the kept-span ends of `plan_segments` over the retimed
 length, with `guide_frames` as the head trim. Segment 1 ends at
 `segment_frames`, then every `segment_frames - guide_frames` frames after it.
-A boundary already inside a gap stays there. Otherwise the gap before the
-word it falls in is lengthened (pushing that word later) or shortened
-(pulling it earlier so the next gap reaches the boundary), whichever moves
-less, by at most `boundary_slack_seconds`. A shortened gap keeps at least
-half its length, and a gap holding an earlier boundary is never moved off
-it. A boundary no such move reaches, such as one inside a word longer than
-twice the slack, is reported and left where it is. It is never forced
-through a word.
+The take holds its narration and plays it unbroken, so a boundary anywhere
+at the junction of two words - from one word's end to the next word's
+start, a zero-length junction included - is in place and is not moved. In
+an eligible gap (at least `min_gap_seconds`) it keeps 20 ms clear of the
+words; in a narrower junction it may sit anywhere. A boundary inside a
+word has the nearest junction, before or after it, moved onto it by
+lengthening or shortening the nearest eligible gap before that junction -
+the only gaps whose timing changes - by at most `boundary_slack_seconds`,
+whichever move shifts less. A shortened gap keeps at least half its class
+length (its own length, for a gap with no class) and never goes under
+40 ms, and no move takes an earlier boundary out of its junction. A
+boundary no such move reaches, such as one deep inside a long word, is
+reported and left where it is. It is never forced through a word.
 
 The step answers `{audio, report}`: the retimed track, and a report saved as
 JSON beside it. Later steps read them as `previous_result:retime.audio` and
@@ -3395,7 +3400,10 @@ JSON beside it. Later steps read them as `previous_result:retime.audio` and
 The audio's length plans the segments (`plan_segments`, the frames covering
 the audio). Each segment's line is the words whose midpoint falls in its kept
 span. Segment 1 keeps `[0, segment_frames)` and each later segment keeps the
-frames after its trimmed head. The answer is a JSON document:
+frames after its trimmed head. With `text`, a line carries the script's
+words and spelling, not Whisper's: "twenty dollars," where Whisper heard
+"$20,". A script word Whisper missed is read with the heard word before it,
+so it lands in that word's segment. The answer is a JSON document:
 
 - `lines`: one string per planned segment.
 - `prompts`: present only with `prompt_template`. It is the template once per

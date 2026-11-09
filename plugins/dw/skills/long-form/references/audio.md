@@ -149,6 +149,6 @@ the chain's frame grid before rendering. Run `templates/narration-retime` with
 the joined narration as `narration`, the script as `script` (a blank line marks
 a section), and the take's own `num_frames` and `guide_frames`. It sets each
 pause by its punctuation (`comma_seconds`, `sentence_seconds`,
-`section_seconds`), moves the pause nearest each segment boundary so the
-boundary falls in silence, and checks the result against the script. Read the
+`section_seconds`), brings a word junction onto each segment boundary so no
+boundary cuts through a word, and checks the result against the script. Read the
 report's `mid_word_boundaries`: it should be empty before any take is rendered.

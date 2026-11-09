@@ -4,8 +4,8 @@ A narrated long take is spoken first and pictured after: a chain renders the
 picture in fixed-length segments, so the speech has to fit the chain's frame
 grid rather than the other way round. `retime_narration` sets every pause by
 the class of punctuation it follows - a comma, a sentence end, a section break
-- and moves the pause nearest each of the chain's segment boundaries so the
-boundary falls in silence instead of through a word. `narration_lines` then
+- and, on the chain's frame grid, brings a word junction onto each segment
+boundary so the boundary falls between words instead of through one. `narration_lines` then
 reads the words each planned segment holds, so a chain step gets one spoken
 line (and, from a caller's template, one prompt) per segment.
 
@@ -23,6 +23,7 @@ is an equal-power crossfade of SEAM_SECONDS, so the result is never digital
 zero where the source was not.
 """
 
+import bisect
 import logging
 import math
 import re
@@ -62,8 +63,8 @@ _PARAGRAPH_BREAK = re.compile(r"\n[ \t]*\n")
 
 # The equal-power crossfade at every cut and every inserted bed's edges
 SEAM_SECONDS = 0.01
-# A boundary placed in a gap sits at least this far from the words either
-# side of it (or at the gap's middle, for a gap shorter than twice this)
+# A boundary placed in an eligible gap sits at least this far from the words
+# either side of it; in a narrower junction it may sit anywhere
 BOUNDARY_MARGIN_SECONDS = 0.02
 # Moves aim this far past the margin; margin tests allow _TOLERANCE of float noise.
 _AIM_EXTRA = 1e-3
@@ -158,8 +159,11 @@ def _apply_script(words, tokens):
     """Take punctuation classes and spelling from the script. Each script
     token is aligned to the heard words; the heard word holding its last
     word carries its class and says its text, and the other heard words it
-    spans say nothing (so a line does not repeat them). A heard word no
-    token claims keeps Whisper's text."""
+    spans say nothing (so a line does not repeat them). A token no heard
+    word matched ('dollars,' when Whisper heard '$20,' for 'twenty
+    dollars,') is said, with its class, by the heard word of the token
+    before it - by the first token's word when it opens the script. A heard
+    word no token claims keeps Whisper's text."""
     heard, chunk_of = [], []
     for k, word in enumerate(words):
         for normalized in normalize_words(word["word"], numbers=False):
@@ -170,14 +174,18 @@ def _apply_script(words, tokens):
     absorbed = set()
     for word in words:
         word["class"] = None
+    last, opening = None, []
     for token, owned in zip(tokens, assigned):
-        if not owned:
+        if not owned and last is None:
+            opening.append(token["text"])
             continue
-        chunks = [chunk_of[j] for j in owned]
-        last = chunks[-1]
+        if owned:
+            chunks = [chunk_of[j] for j in owned]
+            last = chunks[-1]
+            absorbed.update(k for k in chunks if k != last)
         words[last]["class"] = _stronger(words[last]["class"], token["class"])
-        said[last].append(token["text"])
-        absorbed.update(k for k in chunks if k != last)
+        said[last].extend([*opening, token["text"]])
+        opening = []
     for k, word in enumerate(words):
         if said[k]:
             word["say"] = word["word"] = " ".join(said[k])
@@ -227,77 +235,128 @@ def _retimed(words, gaps, targets):
     return out
 
 
-def _gap_spans(out, eligible):
-    return [(i, out[i]["end"], out[i + 1]["start"]) for i in eligible]
+def _junctions(words, out, eligible):
+    """Every junction between two words as (gap, start, end, eligible): from
+    one word's end to the next's start, zero-length when they touch. The
+    heard chunks of one script token (all but its last say nothing) meet
+    inside a word, so they have no junction."""
+    return [
+        (i, out[i]["end"], max(out[i]["end"], out[i + 1]["start"]), i in eligible)
+        for i in range(len(out) - 1)
+        if words[i]["say"] != ""
+    ]
 
 
-def _boundary_word(out, spans, boundary):
-    """None when `boundary` sits in an eligible gap, clear of its words by
-    the margin; otherwise the word it falls in, or the nearest word."""
-    for _i, a, b in spans:
-        margin = min(BOUNDARY_MARGIN_SECONDS, (b - a) / 2)
-        if a + margin - _TOLERANCE <= boundary <= b - margin + _TOLERANCE:
-            return None
-    nearest = min(
-        out,
-        key=lambda w: (
-            0.0
-            if w["start"] <= boundary <= w["end"]
-            else min(abs(boundary - w["start"]), abs(boundary - w["end"]))
-        ),
-    )
-    return nearest["word"]
+def _margin(start, end, eligible):
+    """The clearance a placed boundary keeps from the words: the margin in
+    an eligible gap it fits, else none - anywhere in the junction will do."""
+    fits = end - start >= 2 * BOUNDARY_MARGIN_SECONDS - _TOLERANCE
+    return BOUNDARY_MARGIN_SECONDS if eligible and fits else 0.0
 
 
-def _moves(spans, boundary, previous, slack):
-    """The ways to bring `boundary` into a gap, as (cost, gap, change): the
-    last gap before it lengthened (pushing the word it falls in later), or
-    shortened (pulling that word earlier, so the next gap reaches it). A gap
-    holding the boundary before, or wholly before it, is not moved."""
-    m = BOUNDARY_MARGIN_SECONDS
-    before = [s for s in spans if s[1] + m - _TOLERANCE <= boundary]
-    after = [s for s in spans if s[1] + m - _TOLERANCE > boundary]
-    if not before:
-        return []
-    i, a, b = before[-1]
-    free = previous is None or a > previous
+def _holds(junction, seconds, margin=True):
+    """Whether `seconds` sits in the junction (clear of the margin with
+    `margin`; anywhere between the two words without)."""
+    _i, start, end, eligible = junction
+    m = _margin(start, end, eligible) if margin else 0.0
+    return start + m - _TOLERANCE <= seconds <= end - m + _TOLERANCE
+
+
+def _shifted(junction, gap, change):
+    """The junction once eligible gap `gap` lasts `change` longer."""
+    i, start, end, eligible = junction
+    if i < gap:
+        return junction
+    if i == gap:
+        return (i, start, end + change, eligible)
+    return (i, start + change, end + change, eligible)
+
+
+def _nearest_change(low, high):
+    """The change in [low, high] nearest zero, aimed _AIM_EXTRA inside the
+    range so float noise cannot land it on an edge."""
+    aim = min(_AIM_EXTRA, (high - low) / 2)
+    return low + aim if low > 0 else high - aim
+
+
+def _junction_moves(junction, boundary, eligible_order):
+    """The (gap, change) pairs that bring `boundary` into the junction: the
+    nearest eligible gap before it lengthened or shortened, carrying the
+    whole junction, and an eligible junction's own gap lengthened."""
+    j, start, end, eligible = junction
     moves = []
-    aim = (
-        m + _AIM_EXTRA
-    )  # land just clear of the margin, so float noise cannot fall short
-    grow = boundary + aim - b
-    if grow <= slack and (free or previous <= b):
-        moves.append((grow, i, grow))
-    if after:
-        _j, next_a, next_b = after[0]
-        shrink = next_a + aim - boundary
-        fits = shrink <= (b - a) / 2 and next_b - next_a >= 2 * m
-        if shrink <= slack and fits and (free or previous <= b - shrink - aim):
-            moves.append((shrink, i, -shrink))
+    before = bisect.bisect_left(eligible_order, j) - 1
+    if before >= 0:
+        m = _margin(start, end, eligible)
+        low, high = boundary - (end - m), boundary - (start + m)
+        if low <= high:
+            moves.append((eligible_order[before], _nearest_change(low, high)))
+    clear = start + BOUNDARY_MARGIN_SECONDS - _TOLERANCE <= boundary
+    if eligible and clear and boundary > end - _margin(start, end, eligible):
+        moves.append((j, boundary + BOUNDARY_MARGIN_SECONDS + _AIM_EXTRA - end))
     return moves
 
 
+def _keeps_placed(junctions, gap, change, placed):
+    """Whether no boundary already between two words leaves its junction
+    when `gap` changes."""
+    for seconds in placed:
+        held = [j for j in junctions if _holds(j, seconds, margin=False)]
+        if held and not any(
+            _holds(_shifted(j, gap, change), seconds, margin=False) for j in held
+        ):
+            return False
+    return True
+
+
+def _best_move(junctions, boundary, layout, placed):
+    """The (gap, change) of the smallest shift that brings the nearest
+    junction onto `boundary`, or None. `layout` is (eligible_order, targets,
+    floors, slack); a gap never shrinks below its floor."""
+    eligible_order, targets, floors, slack = layout
+    reach = slack + 2 * BOUNDARY_MARGIN_SECONDS
+    best = None
+    for junction in junctions:
+        if junction[2] < boundary - reach or junction[1] > boundary + reach:
+            continue
+        for gap, change in _junction_moves(junction, boundary, eligible_order):
+            if abs(change) > slack + _TOLERANCE:
+                continue
+            if targets[gap] + change < floors[gap] - _TOLERANCE:
+                continue
+            if best is not None and abs(change) >= abs(best[1]):
+                continue
+            if _keeps_placed(junctions, gap, change, placed):
+                best = (gap, change)
+    return best
+
+
 def _place_boundaries(words, gaps, targets, eligible, grid, slack, source):
-    """Move the gap nearest each chain boundary, in order, so the boundary
-    falls inside it; a boundary no move within `slack` reaches stays put.
+    """Bring a word junction onto each chain boundary, in order: a boundary
+    already between two words stays; otherwise the nearest junction is
+    moved onto it by lengthening or shortening the nearest eligible gap
+    before that junction, by at most `slack`, never below half its class
+    length nor below twice the margin. A boundary no move reaches stays put.
     `grid` is (segment_frames, guide_frames, fps) and `source` the source's
     seconds; targets change in place."""
     segment_frames, guide_frames, fps = grid
-    previous, k = None, 0
+    order = sorted(eligible)
+    floors = {i: max(targets[i] / 2, 2 * BOUNDARY_MARGIN_SECONDS) for i in order}
+    layout = (order, targets, floors, slack)
+    placed = []
     while True:
         out = _retimed(words, gaps, targets)
         duration = source + sum(t - g for t, g in zip(targets, gaps))
         ends = kept_span_ends(_frames(duration, fps), segment_frames, guide_frames, fps)
-        if k >= len(ends):
+        if len(placed) >= len(ends):
             return
-        boundary = ends[k]
-        spans = _gap_spans(out, eligible)
-        if _boundary_word(out, spans, boundary) is not None:
-            moves = _moves(spans, boundary, previous, slack)
-            if moves:
-                _cost, i, change = min(moves)
-                targets[i] += change
-        previous, k = boundary, k + 1
+        boundary = ends[len(placed)]
+        junctions = _junctions(words, out, set(eligible))
+        if not any(_holds(j, boundary) for j in junctions):
+            move = _best_move(junctions, boundary, layout, placed)
+            if move is not None:
+                targets[move[0]] += move[1]
+        placed.append(boundary)
 
 
 def _quietest_window(waveform, rate):
@@ -386,19 +445,33 @@ def _no_words(command):
     )
 
 
-def _boundaries(out, spans, duration, grid):
+def _boundary_word(out, seconds):
+    """The word `seconds` falls in, else the nearest word."""
+    return min(
+        out,
+        key=lambda w: (
+            0.0
+            if w["start"] <= seconds <= w["end"]
+            else min(abs(seconds - w["start"]), abs(seconds - w["end"]))
+        ),
+    )["word"]
+
+
+def _boundaries(out, junctions, duration, grid):
     """The chain's boundaries over the final timeline as (boundaries,
-    mid_word_boundaries)."""
+    mid_word_boundaries). A boundary anywhere between two words is in a
+    gap: the take's narration plays unbroken, so only a cut through a word
+    is reported."""
     segment_frames, guide_frames, fps = grid
     ends = kept_span_ends(_frames(duration, fps), segment_frames, guide_frames, fps)
     boundaries, stuck = [], []
     for index, seconds in enumerate(ends):
-        word = _boundary_word(out, spans, seconds)
+        in_gap = any(_holds(j, seconds, margin=False) for j in junctions)
         boundaries.append(
-            {"segment": index, "seconds": round(seconds, 4), "in_gap": word is None}
+            {"segment": index, "seconds": round(seconds, 4), "in_gap": in_gap}
         )
-        if word is not None:
-            stuck.append({"segment": index, "word": word})
+        if not in_gap:
+            stuck.append({"segment": index, "word": _boundary_word(out, seconds)})
     return boundaries, stuck
 
 
@@ -428,9 +501,9 @@ def _report(words, gaps, targets, eligible, duration, grid):
         "mid_word_boundaries": [],
     }
     if grid is not None:
-        spans = _gap_spans(out, eligible)
+        junctions = _junctions(words, out, set(eligible))
         report["boundaries"], report["mid_word_boundaries"] = _boundaries(
-            out, spans, duration, grid
+            out, junctions, duration, grid
         )
     return report
 
@@ -463,8 +536,8 @@ def retime_narration(
     device="cpu",
 ):
     """Task command: set a narration's pauses by punctuation class and, on a
-    chain's frame grid, move the pause nearest each segment boundary so the
-    boundary falls in silence.
+    chain's frame grid, bring a word junction onto each segment boundary so
+    the boundary falls between words.
 
     Args:
         audio: Path or URL of the narration (or of a video whose soundtrack
@@ -476,14 +549,14 @@ def retime_narration(
         sentence_seconds: Pause after a word ending . ? or !
         section_seconds: Pause at a section break in `text`
         min_gap_seconds: A gap shorter than this is left alone, and is not
-            a gap a boundary may sit in
+            moved to bring a junction onto a boundary
         segment_frames: Frames a chain segment generates; with it, the
             boundaries are placed and reported
         guide_frames: The chain's guide frames - the head every segment
             after the first trims
         fps: Frame rate the frames are counted at
         boundary_slack_seconds: Most one gap may be lengthened or shortened
-            to bring a boundary into it
+            to bring a word junction onto a boundary
         model_name: A Whisper-class ASR model for the word times
         sample_rate: Sample rate of a waveform passed directly
         device: Target device ("cuda", "mps", "cpu")
