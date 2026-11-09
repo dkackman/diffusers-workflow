@@ -351,5 +351,6 @@ def test_lines_of_the_wrong_length_are_refused_by_the_config():
         ChainConfig(_chain(lines=["a", "b"]), {})
     with pytest.raises(ValueError, match="only strings"):
         ChainConfig(_chain(lines=["a", 1, "c"]), {})
-    with pytest.raises(ValueError, match="list of strings"):
+    # an empty list is a count mismatch, named with both numbers (#1262 bounce)
+    with pytest.raises(ValueError, match=r"0 line\(s\) for 3"):
         ChainConfig(_chain(lines=[]), {})

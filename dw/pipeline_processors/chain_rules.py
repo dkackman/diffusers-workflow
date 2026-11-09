@@ -350,7 +350,9 @@ def chain_lines_problem(lines, segment_count):
         isinstance(lines, str) and references.is_ref(references.UNRESOLVED, lines)
     ):
         return None
-    if not isinstance(lines, list) or not lines:
+    # An empty list with a known count is a count mismatch, and says so with
+    # both numbers like any other; only with no count is it a shape error
+    if not isinstance(lines, list) or (not lines and segment_count is None):
         return (
             "lines must be a list of strings, one per segment (the line each "
             f"segment speaks), got {lines!r}"

@@ -545,6 +545,24 @@ def test_an_inherited_estimate_quotes_the_worst_case_retries():
     assert "7 renders for 3" in held["scaled"]
 
 
+@pytest.mark.parametrize("inherited_from", [None, "templates/minimax/chained-segments"])
+def test_an_observed_or_inherited_estimate_adds_the_words_check(inherited_from):
+    # #1262 bounce: the history path quotes the Whisper passes as the curated
+    # path does - 3 segments, segment 1 included, 2 attempts each = 6 passes
+    block = {"inherited_from": inherited_from} if inherited_from else {}
+    plain = _observed_quote({"words_similarity_min": None}, 1, **block)
+    words = _observed_quote({"words_similarity_min": 0.8}, 1, **block)
+    assert words["minutes"] == pytest.approx(plain["minutes"] + 6 * 0.05, abs=0.06)
+    assert words["minutes"] > plain["minutes"]
+    assert "6 Whisper pass" in words["scaled"]
+    assert "words check" not in plain["scaled"]
+    assert words["basis"] == ("inherited" if inherited_from else "derived")
+    # with no re-rolls the passes are still quoted: one per checked segment
+    once = _observed_quote({"words_similarity_min": 0.8}, 0, **block)
+    assert once["minutes"] == pytest.approx(30.0 + 3 * 0.05, abs=0.06)
+    assert "3 Whisper pass" in once["scaled"]
+
+
 def test_an_observed_estimate_without_re_rolls_is_unchanged():
     for check, retries in ((None, None), (False, 0), (True, 0)):
         quoted = _observed_quote(check, retries, inherited_from="t")
@@ -705,7 +723,9 @@ class TestWordsRules:
         [
             ("just a string", 1, "list of strings"),
             ({"a": 1}, 1, "list of strings"),
-            ([], 2, "list of strings"),
+            # an empty list is a count mismatch when the count is known
+            ([], 2, "0 line(s) for 2"),
+            ([], None, "list of strings"),
             (["a", 2], 2, "only strings"),
             ([None, "a"], 2, "only strings"),
             (["a", "b"], 3, "2 line(s) for 3"),
