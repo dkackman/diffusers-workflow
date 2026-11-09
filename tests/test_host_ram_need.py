@@ -17,6 +17,7 @@ from fastapi.testclient import TestClient
 
 from dw.host_memory_projection import host_memory_warnings, projected_mb
 from dw.server.app import create_app
+from dw import host_memory
 from dw.host_memory import HostClaims
 from dw.server.host_ram_need import (
     declared_mb,
@@ -525,7 +526,26 @@ class TestTheFitOnCommittedHistory:
         fit = projected_mb(
             definition, {"shots": 8}, shot_rows((2, 100000), (4, 120000))
         )
-        assert fit == {"projected_mb": 160000, "runs": 2}
+        assert fit == {
+            "projected_mb": 160000,
+            "runs": 2,
+            "field": "host_memory_job_peak_rss_mb",
+        }
+
+    def test_a_fit_on_another_basis_than_the_keys_peaks_does_not_win(self, tmp_path):
+        # The workflow's rows read RSS (160000 at 8 shots); the key's own
+        # runs read committed (30000). An RSS fit over a committed max would
+        # over-project by the page cache - the observed figure answers
+        definition = shots_definition()
+        history = self._history(tmp_path, definition)
+        need = projected_peak(
+            definition,
+            {"shots": [{"prompt": "p"}] * 8},
+            history,
+            rows=shot_rows((2, 100000), (4, 120000)),
+            list_entries={"shots": 8},
+        )
+        assert need == (30000, "observed", 2)
 
 
 class TestHostRamMargin:
@@ -760,3 +780,120 @@ class TestHostClaims:
         theirs.publish([(999999, 1000.0)])
         theirs.withdraw()
         assert HostClaims(directory=str(tmp_path)).foreign() == []
+
+
+class TestHostClaimsFolderSafety:
+    """The default claims folder sits at a predictable path in the shared
+    temp dir; another local user must not be able to plant it."""
+
+    def _default(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("DW_HOST_CLAIMS_DIR", raising=False)
+        monkeypatch.setattr(host_memory.tempfile, "gettempdir", lambda: str(tmp_path))
+        return host_memory.claims_dir()
+
+    def test_a_default_folder_others_can_write_is_refused(self, tmp_path, monkeypatch):
+        folder = self._default(tmp_path, monkeypatch)
+        os.makedirs(folder)
+        os.chmod(folder, 0o777)
+        HostClaims(pid=os.getppid()).publish([(999999, 1000.0)])
+        assert os.listdir(folder) == []
+        # and a claim planted there is not read
+        with open(os.path.join(folder, f"{os.getppid()}.json"), "w") as f:
+            f.write("[[999999, 50000.0]]")
+        assert HostClaims(pid=os.getpid()).foreign() == []
+
+    def test_a_symlinked_default_folder_is_refused(self, tmp_path, monkeypatch):
+        folder = self._default(tmp_path, monkeypatch)
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir(mode=0o700)
+        os.symlink(elsewhere, folder)
+        HostClaims(pid=os.getppid()).publish([(999999, 1000.0)])
+        assert os.listdir(elsewhere) == []
+
+    def test_a_private_default_folder_is_used(self, tmp_path, monkeypatch):
+        self._default(tmp_path, monkeypatch)
+        HostClaims(pid=os.getppid()).publish([(999999, 1000.0)])
+        assert HostClaims(pid=os.getpid()).foreign() == [(1000.0, None)]
+
+    def test_a_planted_temp_symlink_is_not_followed(self, tmp_path):
+        target = tmp_path / "victim.txt"
+        target.write_text("keep me")
+        folder = tmp_path / "claims"
+        folder.mkdir()
+        mine = HostClaims(directory=str(folder), pid=os.getpid())
+        os.symlink(target, folder / f"{mine.pid}.json.tmp")
+        mine.publish([(999999, 1000.0)])
+        assert target.read_text() == "keep me"
+        assert HostClaims(directory=str(folder), pid=os.getppid()).foreign() == [
+            (1000.0, None)
+        ]
+
+
+class TestHostClaimsPinnedTerm:
+    def test_a_foreign_claim_is_read_with_its_pinned_memory(
+        self, tmp_path, monkeypatch
+    ):
+        # The publisher's driver-pinned pages are left out of a status read;
+        # without them the job would be charged them again as growth to come
+        monkeypatch.setattr(
+            host_memory, "committed_rss_mb", lambda pid, device=True: 40000.0
+        )
+        theirs = HostClaims(directory=str(tmp_path), pid=os.getppid())
+        theirs.publish([(999999, 60000.0, 15000.0)])
+        mine = HostClaims(directory=str(tmp_path), pid=os.getpid())
+        assert mine.foreign() == [(60000.0, 55000.0)]
+
+    def test_a_two_field_claim_still_reads(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(
+            host_memory, "committed_rss_mb", lambda pid, device=True: 40000.0
+        )
+        with open(tmp_path / f"{os.getppid()}.json", "w") as f:
+            f.write("[[999999, 60000.0]]")
+        mine = HostClaims(directory=str(tmp_path), pid=os.getpid())
+        assert mine.foreign() == [(60000.0, 40000.0)]
+
+
+class TestDeclaredBasisReachesTheApi:
+    def test_a_declared_figure_is_a_valid_plan_host_memory(self):
+        # projected_peak answers "declared" for a template's host_ram_gb that
+        # beats its history; the response model must accept it, or
+        # /api/validate fails its own response validation with a 500
+        from dw.server.api_models import PlanHostMemory
+
+        block = host_memory_block((51 * 1024, "declared", 0))
+        assert PlanHostMemory(**block).basis == "declared"
+
+    def test_validate_answers_for_a_template_that_declares_host_ram(
+        self, tmp_path, monkeypatch
+    ):
+        # A host big enough that the small-host refusal stays out of it
+        monkeypatch.setattr(
+            "dw.server.admission.host_memory_stats",
+            lambda: {"total_mb": 1024 * 1024},
+        )
+        root = Workspace(tmp_path / "studio", "flag").ensure()
+        definition = {**valid_workflow("declares"), "host_ram_gb": 40}
+        with open(os.path.join(root.workflows, "H3.json"), "w") as file:
+            json.dump(definition, file)
+        manager = JobManager(
+            root.outputs,
+            worker_manager=ScriptedWorkerManager(success_script),
+            history_path=str(tmp_path / "jobs.sqlite"),
+            workflow_dir=root.workflows,
+        )
+        app = create_app(
+            workflow_dir=root.workflows,
+            output_dir=root.outputs,
+            job_manager=manager,
+            prompt_dir=root.prompts,
+            asset_dir=root.assets,
+            workspace=root.root,
+        )
+        with TestClient(app, base_url="http://localhost") as client:
+            response = client.post("/api/validate", json={"workflow_path": "H3"})
+        assert response.status_code == 200
+        assert response.json()["plan"]["host_memory"] == {
+            "projected_mb": 40 * 1024,
+            "basis": "declared",
+            "runs": 0,
+        }

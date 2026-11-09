@@ -26,9 +26,18 @@ replies over a pair of `multiprocessing.Queue`s.
   cache are emptied, and if the incoming definition cannot be prepared
   everything is released.
 - **`POST /api/memory/clear`** (MCP `clear_memory`): drops every pipeline
-  and the step cache on each idle card; models reload on the next job.
+  and the step cache on each idle card; models reload on the next job. The
+  worker process stays alive (same pid), so process-level state is not
+  renewed; a fresh process needs the worker to exit.
 - **diffusers updated from the Models page**: an idle worker is shut down,
   so the next job imports the new version.
+- **PyTorch settings**: the worker applies dw's TF32 and cuDNN settings
+  (`configure_torch`, `dw/__init__.py`) when it starts and again at each
+  job's start, since the parent server runs no pipeline. The defaults are
+  TF32 off, the cuDNN autotuner off and deterministic cuDNN on, so the same
+  seed gives the same output; a fresh worker's first job logs what it ran
+  with (`torch: cudnn benchmark=false deterministic=true, tf32=false`). See
+  [ACCELERATION.md](ACCELERATION.md#tf32-and-cudnn).
 - **Server shutdown**: workers shut down gracefully (10 s, then terminate).
 
 How jobs are assigned to cards, the host-RAM hold and the OOM ranking are in

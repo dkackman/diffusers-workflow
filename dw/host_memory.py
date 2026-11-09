@@ -17,7 +17,9 @@ import contextlib
 import json
 import logging
 import os
+import stat
 import tempfile
+import time
 
 from filelock import FileLock, Timeout
 
@@ -343,6 +345,26 @@ def device_term_mb(report):
     return max(0.0, committed - anon - (report.get("host_memory_rss_shmem_mb") or 0.0))
 
 
+# How long host_memory_fields reuses a device-mapping reading. smaps is read
+# whole, which takes seconds on a large worker, and the worker reports memory
+# at every phase boundary (each segment's generate and decode on a chain); the
+# driver's pinned mappings are tens of MB and move only as pipelines load
+DEVICE_TERM_SECONDS = 30.0
+_device_term = [None, None, None]  # (reader, monotonic time, MB)
+
+
+def _recent_device_mapped_mb():
+    """`device_mapped_mb()`, reused for DEVICE_TERM_SECONDS after a read."""
+    reader = device_mapped_mb
+    now = time.monotonic()
+    cached_reader, at, value = _device_term
+    if cached_reader is reader and at is not None and now - at < DEVICE_TERM_SECONDS:
+        return value
+    value = reader()
+    _device_term[:] = [reader, now, value]
+    return value
+
+
 def host_memory_fields():
     """host_memory_stats under the names the memory payload reports, with
     the readings this platform cannot take left out rather than sent as
@@ -357,7 +379,7 @@ def host_memory_fields():
         fields[SPLIT_FIELD_NAMES[key]] = value
     # What the host-RAM gate charges a run (#869); read only where the split
     # is, so a platform without /proc sends neither
-    committed = _committed_from(split, device_mapped_mb()) if split else None
+    committed = _committed_from(split, _recent_device_mapped_mb()) if split else None
     if committed is not None:
         fields[SPLIT_FIELD_NAMES["committed_mb"]] = committed
     return fields
@@ -499,6 +521,23 @@ def claims_dir():
     return os.path.join(tempfile.gettempdir(), f"dw-host-claims-{user}")
 
 
+def _ensure_private_dir(directory):
+    """Create `directory` 0700 and refuse it unless it is a real directory
+    this user owns that no one else can write. The default folder sits at a
+    predictable path in the shared temp dir, so another local user could
+    create it first and plant claims or symlinks in it. Raises OSError."""
+    os.makedirs(directory, mode=0o700, exist_ok=True)
+    info = os.lstat(directory)
+    if not stat.S_ISDIR(info.st_mode):
+        raise OSError(f"host claims folder {directory} is not a directory")
+    if hasattr(os, "geteuid") and info.st_uid != os.geteuid():
+        raise OSError(f"host claims folder {directory} is owned by another user")
+    # A posix rule: Windows reports 0o777 for every ordinary folder, so the
+    # check there would refuse them all and HostClaims would silently stop
+    if os.name == "posix" and info.st_mode & 0o022:
+        raise OSError(f"host claims folder {directory} is writable by others")
+
+
 def _alive(pid):
     try:
         os.kill(pid, 0)
@@ -513,6 +552,17 @@ class HostClaims:
     def __init__(self, directory=None, pid=None):
         self.directory = directory or claims_dir()
         self.pid = pid if pid is not None else os.getpid()
+        # A folder named on purpose (DW_HOST_CLAIMS_DIR, or a caller's) may be
+        # shared between users by design; the default one must be private
+        self._private = directory is None and not os.environ.get(ENV_DIR)
+
+    def _prepare(self):
+        """Create the folder; raises OSError for a default one that is not
+        private (_ensure_private_dir)."""
+        if self._private:
+            _ensure_private_dir(self.directory)
+        else:
+            os.makedirs(self.directory, mode=0o700, exist_ok=True)
 
     def _path(self, pid):
         return os.path.join(self.directory, f"{pid}.json")
@@ -523,7 +573,7 @@ class HostClaims:
         a lock that cannot be taken is logged and the pass carries on."""
         held = None
         try:
-            os.makedirs(self.directory, mode=0o700, exist_ok=True)
+            self._prepare()
             held = FileLock(
                 os.path.join(self.directory, ".lock"), timeout=LOCK_TIMEOUT_S
             )
@@ -538,19 +588,43 @@ class HostClaims:
                 held.release()
 
     def publish(self, claims):
-        """Record this server's running jobs, `[(worker_pid, peak_mb)]`,
-        replacing its last record; none removes the file."""
+        """Record this server's running jobs, `[(worker_pid, peak_mb)]` or
+        `[(worker_pid, peak_mb, pinned_mb)]`, replacing its last record; none
+        removes the file. `pinned_mb` is the worker's driver-pinned host
+        memory (`device_term_mb`), which a reader cannot take from /proc
+        status, so the reader charges the job on the basis the local gate
+        does (`dispatch._worker_rss_mb`) rather than as growth to come."""
         path = self._path(self.pid)
         try:
             if not claims:
                 with contextlib.suppress(FileNotFoundError):
                     os.remove(path)
                 return
-            os.makedirs(self.directory, mode=0o700, exist_ok=True)
-            temp = f"{path}.tmp"
-            with open(temp, "w") as f:
-                json.dump([[int(pid), float(mb)] for pid, mb in claims], f)
-            os.replace(temp, path)
+            self._prepare()
+            # A fresh name opened O_EXCL, never a fixed one: a planted symlink
+            # at a predictable name would have the write land on its target
+            fd, temp = tempfile.mkstemp(
+                prefix=f"{self.pid}.", suffix=".tmp", dir=self.directory
+            )
+            try:
+                if not self._private and hasattr(os, "fchmod"):
+                    # mkstemp makes it 0600; a shared folder's other servers
+                    # must read it, as they could the open()-made file before
+                    os.fchmod(fd, 0o644)
+                with os.fdopen(fd, "w") as f:
+                    json.dump(
+                        [
+                            [int(claim[0]), float(claim[1])]
+                            + ([float(claim[2])] if len(claim) > 2 else [])
+                            for claim in claims
+                        ],
+                        f,
+                    )
+                os.replace(temp, path)
+            except BaseException:
+                with contextlib.suppress(OSError):
+                    os.remove(temp)
+                raise
         except OSError as e:
             logger.debug(f"Could not publish host claims: {e}")
 
@@ -562,6 +636,8 @@ class HostClaims:
         servers on this host are running."""
         out = []
         try:
+            if self._private:
+                _ensure_private_dir(self.directory)
             names = os.listdir(self.directory)
         except OSError:
             return out
@@ -577,13 +653,13 @@ class HostClaims:
             try:
                 with open(path) as f:
                     entries = json.load(f)
-                for worker_pid, peak_mb in entries:
-                    out.append(
-                        (
-                            float(peak_mb),
-                            committed_rss_mb(int(worker_pid), device=False),
-                        )
-                    )
-            except (OSError, ValueError, TypeError):
+                for entry in entries:
+                    worker_pid, peak_mb = entry[0], entry[1]
+                    pinned = float(entry[2]) if len(entry) > 2 else 0.0
+                    committed = committed_rss_mb(int(worker_pid), device=False)
+                    if committed is not None:
+                        committed += pinned
+                    out.append((float(peak_mb), committed))
+            except (OSError, ValueError, TypeError, IndexError):
                 continue
         return out

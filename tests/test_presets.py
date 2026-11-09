@@ -359,3 +359,18 @@ def test_the_estimate_prices_a_default_run_at_the_default_bundle(tmp_path):
 
     assert estimate({}) == estimate({"tier": "standard"})
     assert estimate({})["minutes"] == 10
+
+
+@pytest.mark.parametrize("chosen", [["draft"], {"tier": "draft"}])
+def test_an_unhashable_selector_value_is_a_finding_not_a_crash(chosen):
+    (problem,) = preset_errors(definition(), {"tier": chosen})
+    assert problem["path"] == "arguments.tier"
+
+
+def test_a_bundle_naming_an_undeclared_variable_logs_no_error_when_read(caplog):
+    d = definition(presets={"tier": {"standard": {"nope": 1, "width": 640}}})
+    variables = copy.deepcopy(d["variables"])
+    with caplog.at_level("ERROR", logger="dw"):
+        apply_presets(d, {}, variables, strict=False)
+    assert variables["width"] == 640
+    assert not [r for r in caplog.records if r.levelname == "ERROR"]

@@ -707,6 +707,22 @@ def _names_to_load(pipeline, arguments):
     return [name for name in names if name in specs]
 
 
+def component_dtype(torch_dtype, name):
+    """The dtype one component loads as. A per-component dict resolves the way
+    diffusers resolves it - the component's own entry, else 'default', else
+    float32 - so the key and the load read the dtype the weights really have,
+    not the whole dict (whose str() would key every component alike)."""
+    if not isinstance(torch_dtype, dict):
+        return torch_dtype
+    if name in torch_dtype:
+        return torch_dtype[name]
+    if "default" in torch_dtype:
+        return torch_dtype["default"]
+    import torch
+
+    return torch.float32
+
+
 class _Candidate:
     """One component an SDNQ config quantizes on this load, keyed."""
 
@@ -722,7 +738,9 @@ class _Candidate:
         self.model_cls = spec.type_hint
         self.load_id = getattr(spec, "load_id", None)
         config = kwargs["quantization_config"]
-        self.torch_dtype = kwargs.get("torch_dtype", kwargs.get("dtype"))
+        self.torch_dtype = component_dtype(
+            kwargs.get("torch_dtype", kwargs.get("dtype")), name
+        )
         # Read now: sdnq clears the devices on the config it quantized with
         self.return_device = getattr(config, "return_device", None) or "cpu"
         self.config_arguments = config_snapshot(config)
@@ -756,7 +774,9 @@ class _SwallowedOOM(logging.Handler):
             message = record.getMessage()
         except Exception:
             return
-        match = re.match(r"Failed to create component (\S+?):", message)
+        # Leading whitespace and a quoted name tolerated: the wording is
+        # diffusers' own, and a newline before it would defeat a bare match
+        match = re.match(r"\s*Failed to create component '?(\S+?)'?:", message)
         if match is None:
             return
         lowered = message.lower()

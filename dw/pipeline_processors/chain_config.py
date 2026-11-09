@@ -3,7 +3,9 @@
 `ChainConfig` reads and refuses the block's settings for one run and plans
 its segments: by count (`segments`), by length (`duration_seconds`) or by a
 matched track (`match_audio`). `plan_segments`, `snap_frames` and
-`validate_frame_snap` are the plan's arithmetic, and `chain_segment_count`
+`validate_frame_snap` are the plan's arithmetic, `derive_frame_snaps` gives a
+length-planned block with no `frame_snap` the one its `num_frames` variable's
+constraint declares, and `chain_segment_count`
 is the pure count the cost estimate asks too, as `chain_holds_audio`,
 `chain_audio_floor` and `chain_checks_segment_1` are the pure audio-check
 rules (#1221). Split out of `chain.py`, which
@@ -17,12 +19,15 @@ from dataclasses import dataclass
 from ..dsp import as_channels_samples
 from ..events import emit_log
 from .chain_check import AUDIO_DBFS_MIN, segment_check
+from .. import references
+from ..variable_constraints import declared_constraints
 from .chain_rules import (
     CHAIN_CAPSTONE,
     CHAIN_CAPSTONE_FROM_END,
     CHAIN_LATENT_CARRY,
-    MATCH_AUDIO_SOURCE_RULE,
+    CHAIN_RESUME_FROM,
     chain_capstone_problem,
+    chain_carry_pick_problem,
     chain_check_problem,
     chain_keystone_slot,
     chain_keystone_slot_problem,
@@ -30,7 +35,10 @@ from .chain_rules import (
     chain_length_problem,
     chain_look_hold_flags,
     chain_look_hold_problem,
+    chain_needs_frame_snap,
+    chain_resume_problem,
     keystone_slot_plan_problem,
+    match_audio_source_problem,
 )
 from .h3_hold import hold_audio_reference
 from .h3_rules import (
@@ -43,7 +51,6 @@ from .h3_rules import (
     KEYSTONE_NONE,
     anchor_strength_problem,
     chain_anchor_problem,
-    chain_carry_pick_problem,
     chain_keystone_problem,
     guide_backoff_problems,
     guide_chain_problems,
@@ -119,6 +126,10 @@ class ChainConfig:
         self.frame_snap = chain_definition.get("frame_snap", None)
         self.save_segments = bool(chain_definition.get("save_segments", False))
         self.keep_segments = bool(chain_definition.get("keep_segments", False))
+        # An earlier run's kept segments to start from (chain_resume.py); the
+        # reference itself is refused there, as a location
+        _raise_chain_problem(chain_resume_problem(chain_definition))
+        self.resume_from = chain_definition.get(CHAIN_RESUME_FROM)
 
         self.source_audio = None
         self.source_rate = None
@@ -129,12 +140,6 @@ class ChainConfig:
 
         if match_audio:
             self._plan_from_audio(arguments, base_dir)
-            # Only a matched chain renders its shortened last segment at its
-            # planned length (chain._segment_arguments), so only its plan can
-            # leave a frame slot past a segment's end
-            _raise_chain_problem(
-                keystone_slot_plan_problem(self.keystone_slot, self.plan)
-            )
         elif duration is not None:
             self.total_frames, self.plan = _duration_plan(chain_definition, arguments)
             logger.info(
@@ -143,6 +148,13 @@ class ChainConfig:
             )
         else:
             self._plan_from_segments(segments, arguments, head_trim)
+        if self.total_frames is not None:
+            # A length-planned chain renders its shortened last segment at
+            # its planned length (chain._segment_arguments), so its plan can
+            # leave a frame slot past a segment's end
+            _raise_chain_problem(
+                keystone_slot_plan_problem(self.keystone_slot, self.plan)
+            )
 
     def _read_continuity(self, chain_definition):
         self.continuity = chain_definition.get("continuity", "last_frame")
@@ -178,7 +190,9 @@ class ChainConfig:
         self.keystone_slot = chain_keystone_slot(chain_definition)
 
         # Segment 1's late frame past every later segment's end (#1187), a spike
-        _raise_chain_problem(chain_capstone_problem(chain_definition))
+        _raise_chain_problem(
+            chain_capstone_problem(chain_definition, _argument(arguments, "num_frames"))
+        )
         capstone = chain_definition.get(CHAIN_CAPSTONE)
         self.capstone = capstone and {
             "enter_below_sigma": float(capstone["enter_below_sigma"]),
@@ -243,9 +257,11 @@ class ChainConfig:
         self.tail_trim = 0
         _raise_chain_problems(guide_backoff_problems(chain_definition))
         if self.continuity != GUIDE_CONTINUITY:
-            return self.trim_frames
+            return _head_trim(chain_definition)
         _raise_chain_problems(guide_chain_problems(chain_definition))
-        self.guide_frames = chain_definition.get("guide_frames", GUIDE_CHAIN_DEFAULT)
+        # The one rule the duration plan and the cost estimate's segment
+        # count derive the head trim by too (_head_trim)
+        self.guide_frames = _head_trim(chain_definition)
         self.guide_backoff = int(chain_definition.get("guide_backoff", 0))
         self.tail_trim = self.guide_backoff
         if _guide_holds_audio(chain_definition):
@@ -302,6 +318,9 @@ class ChainConfig:
                 "as the per-segment length"
             )
 
+        problem = match_audio_source_problem(arguments)
+        if problem:
+            raise ValueError(problem)
         held = arguments.get(HOLD_AUDIO_INPUT)
         if held is not None:
             # Read once here, sliced per segment - each slice is a reference
@@ -328,9 +347,45 @@ class ChainConfig:
         )
 
 
+def derive_frame_snaps(definition):
+    """Give every chain block planned by length (`duration_seconds`,
+    `match_audio`) that declares no `frame_snap` the constraint its step's
+    `num_frames` variable declares, in place, as `"constraint:<name>"` for
+    `resolve_constraint_references` to resolve. Run before variables
+    substitute, while the `variable:` reference is still visible. Returns
+    [(step name, variable name)] for each block changed, for the run's log.
+
+    Without it a 6.5 s LTX chain at 24 fps with 121-frame segments plans a
+    37-frame last segment, which the pipeline floors to 33 - a short take. A
+    block whose `num_frames` is a literal, or a variable with no modulus
+    constraint, is left as written; validate warns on it
+    (`frame_snap_warnings` in dw/guides.py)."""
+    constraints = declared_constraints(definition)
+    derived = []
+    for _, step, pipeline, _, _ in references.iter_steps(
+        definition.get("steps"), None, "pipeline"
+    ):
+        chain = pipeline.get("chain")
+        if not isinstance(chain, dict) or chain_needs_frame_snap(chain) is None:
+            continue
+        arguments = pipeline.get("arguments")
+        num_frames = (
+            arguments.get("num_frames") if isinstance(arguments, dict) else None
+        )
+        name = references.ref_name(references.VARIABLE, num_frames)
+        constraint = constraints.get(name) if name is not None else None
+        if not isinstance(constraint, dict) or "modulus" not in constraint:
+            continue
+        chain["frame_snap"] = references.make_ref(references.CONSTRAINT, name)
+        derived.append((step.get("name"), name))
+    return derived
+
+
 def _head_trim(chain_definition):
     """Head frames each segment after the first drops: the guide a `guide`
-    chain laid in, else `trim_frames`."""
+    chain laid in, else `trim_frames`. The one owner of that rule:
+    `ChainConfig` reads its head trim here, as `_duration_plan` (and so
+    `chain_segment_count`, the cost estimate's) does."""
     if chain_definition.get("continuity", "last_frame") == GUIDE_CONTINUITY:
         return int(chain_definition.get("guide_frames", GUIDE_CHAIN_DEFAULT))
     return int(chain_definition.get("trim_frames", 1))
@@ -390,7 +445,9 @@ def chain_segment_count(chain_definition, arguments):
 
 def _guide_holds_audio(chain_definition):
     """Whether a `guide` chain carries its audio across each seam
-    (`carry_audio`, default true), so no segment generates its own."""
+    (`carry_audio`, default true), so the seam needs no crossfade. The guide
+    holds only its own span, which the head trim drops: what each segment
+    keeps is still generated (`chain_holds_audio` does not count it)."""
     return chain_definition.get(
         "continuity", "last_frame"
     ) == GUIDE_CONTINUITY and bool(chain_definition.get("carry_audio", True))
@@ -398,13 +455,13 @@ def _guide_holds_audio(chain_definition):
 
 def chain_holds_audio(chain_definition, arguments):
     """Whether the chain's audio is held rather than generated by each
-    segment: a `match_audio` track (and its `hold_audio`), a step
-    `hold_audio`, or a guide that carries the audio across each seam.
+    segment: a `match_audio` track (and its `hold_audio`), or a step
+    `hold_audio`. A guide carrying its audio is not: the held guide span is
+    the head trim, so every kept sample is generated and can drop out.
     Pure: the run's `ChainConfig` and the cost estimate both ask it."""
     return (
         bool(chain_definition.get("match_audio"))
         or _argument(arguments, HOLD_AUDIO_INPUT) is not None
-        or _guide_holds_audio(chain_definition)
     )
 
 
@@ -543,9 +600,10 @@ def _resolve_fps(chain_definition, arguments):
 def _find_audio_reference(arguments):
     """The single audio reference a match_audio chain with no `hold_audio`
     slices per segment."""
-    references = arguments.get("references", None)
-    if not isinstance(references, list):
-        raise ValueError(MATCH_AUDIO_SOURCE_RULE)
+    problem = match_audio_source_problem(arguments)
+    if problem:
+        raise ValueError(problem)
+    references = arguments.get("references") or []
 
     audio_references = [
         reference

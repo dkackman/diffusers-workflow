@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 
+from dw.pipeline_processors.h3_rules import REFINE_WINDOWS_ENV_VAR
 from dw.workflow import Workflow
 
 ROOT = Path(__file__).resolve().parent
@@ -27,7 +28,7 @@ SHOTS = ("static", "static_long", "moving", "dialogue")
 
 def test_template_validates_for_every_shot(monkeypatch):
     # on a normal server: no shot needs the windowed refine's scratch flag
-    monkeypatch.delenv("DW_EXPERIMENTAL_REFINE_WINDOWS", raising=False)
+    monkeypatch.delenv(REFINE_WINDOWS_ENV_VAR, raising=False)
     for shot in SHOTS:
         assert _workflow().validation_errors({"shot": shot}) == []
     assert _workflow().validation_errors({}) == []
@@ -120,6 +121,11 @@ def test_continuity_last_frame_is_still_the_old_chain_block():
     assert chain.pop("keystone_slot", None) is None
     assert chain.pop("check") is False  # off by default, as before
     assert chain.pop("retries") == 0
+    # Every take spills its segments since resume_from (Don, 2026-11-08),
+    # off by default before; no resume by default
+    assert chain.pop("resume_from", None) is None
+    assert chain.pop("save_segments") is True
+    assert before.pop("save_segments") is False
     assert chain == before
 
 
@@ -183,7 +189,8 @@ def test_turning_the_anchor_off_on_a_static_shot_is_refused_as_documented():
 
 
 def test_check_and_retries_are_variables_and_price_the_worst_case():
-    """`retries` on a checked chain grows the estimate by 1 + (N-1)(1+retries)."""
+    """`retries` on a checked chain grows the estimate by N(1+retries): the
+    guide template generates its audio, so segment 1 is checked too."""
     from dw.cost_scaling import _worst_case_retries
 
     template = json.loads(TEMPLATE.read_text())
@@ -197,4 +204,4 @@ def test_check_and_retries_are_variables_and_price_the_worst_case():
         factor = _worst_case_retries(
             definition, {**template["variables"], **variables}
         )[0]
-        assert factor == (1 + 2 * (1 + retries)) / 3
+        assert factor == 1 + retries

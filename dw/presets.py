@@ -81,6 +81,10 @@ def apply_presets(definition, arguments, variables, *, strict=True):
             set_variables(values, variables)
             continue
         for name, value in values.items():
+            if name not in variables:
+                # preset_errors reports it once; set_variables would log an
+                # ERROR for it on every effective_variables reader
+                continue
             try:
                 set_variables({name: value}, variables)
             except (ValueError, TypeError, SecurityError):
@@ -201,7 +205,9 @@ def preset_errors(definition, arguments=None):
                 }
             )
         if isinstance(arguments, dict) and selector in arguments:
-            if arguments[selector] not in bundles:
+            chosen = arguments[selector]
+            # A list or object can never name a bundle (nor be looked up)
+            if not isinstance(chosen, str) or chosen not in bundles:
                 errors.append(
                     {
                         "path": f"arguments.{selector}",

@@ -18,6 +18,37 @@ variable, run it again, compare takes and keep the one you like.
   <img alt="A workspace's overview in the web UI: recent outputs from an agent-made musical trailer, its jobs, and the workflows the agent wrote" src="docs/img/ui-overview.jpg">
 </picture>
 
+### Coming from ComfyUI?
+
+The job is the same: load models, wire steps together, get media out. What changes is
+who builds the graph and how it is checked before it runs.
+
+| | ComfyUI | diffusers-workflow |
+|---|---|---|
+| A workflow is | a node graph you draw | a JSON document of named steps an agent writes, and you can edit as a form |
+| A new model needs | a custom node pack | nothing, if diffusers has the pipeline: any pipeline class is reachable by name |
+| Mistakes are found | links are type-checked on queue; the rest when it runs | at validation: schema, references and every argument against the real pipeline signatures, before any model loads |
+| Before a long render | no estimate | `validate_workflow` quotes GPU minutes from this machine's own run history |
+| Between runs | models stay loaded | models stay loaded (one persistent worker per GPU) |
+| A result | an image with the graph embedded | the same, and a job that keeps the exact workflow it ran, drawn as a data-flow graph, re-runnable with a new seed |
+
+It is not a ComfyUI replacement for hand-wiring a graph node by node. It is for
+describing what you want and letting an agent compose, price, run and judge it, then
+taking over in the browser where that is quicker.
+
+### What it makes
+
+| | Ready-made templates |
+|---|---|
+| **Images** | FLUX 3 Klein (text, edits, multi-reference, layout boxes), FLUX.1 / FLUX.2 / Krea, Qwen Image (and edit), Z-Image, SDXL and SD 1.5; ControlNet, IP-Adapter, LoRA, inpaint and outpaint |
+| **Video with sound** | MiniMax H3 (dialogue, multi-shot cuts, music videos, reference subjects and voices), LTX-2.5 (image-to-video, keyframes, 2x upscale, restore and colourise, alpha mattes), Kandinsky 6 |
+| **Music, speech, sound** | MiniMax Music 3 (sung lyrics or instrumental), Audio8 TTS voice cloning and MMS TTS, MMAudio sound effects from text or under a clip, Whisper transcription |
+| **Longer than one clip** | chained segments that hold the look and audio level across seams, repair of one bad segment in place, music and narration of any length, storyboards and timed animatics, cut-and-score assembly, and an OpenTimelineIO export that DaVinci Resolve opens as one clip per shot |
+
+Anything else diffusers can load runs from a workflow too; the templates are where the
+agent starts, not a limit. The full list is in [workflows/](workflows/) and the
+[dw plugin](plugins/dw/README.md).
+
 ## Getting started
 
 **1. Install.** The script picks the right torch build for your platform, creates a
@@ -109,7 +140,8 @@ The [dw plugin](plugins/dw/README.md) adds what a general-purpose agent can't kn
 on its own: one skill per model family (MiniMax H3 and Music 3, LTX-2.5, Kandinsky 6,
 FLUX 3 Klein) that picks the template for a request and states the rules that bite.
 Cross-cutting skills cover script-to-video, series with a consistent cast,
-storyboards and animatics, and a shared camera-and-look vocabulary.
+storyboards and animatics, pieces longer than one clip, and a shared
+camera-and-look vocabulary.
 
 ![The same session hours later: shots rendering one at a time, with the agent reporting progress between them](docs/img/claude-generating.png)
 
@@ -182,6 +214,38 @@ you do, the [Workflow Guide](docs/WORKFLOW_GUIDE.md) is the reference, the
 a command-line client, `python -m dw.run workflow.json prompt="a cat"`, which queues
 a job on a running server (see [Server & Web UI](docs/SERVER.md#the-command-line)).
 
+Here is the shape, trimmed: a still from FLUX 3 Klein, animated by LTX-2.5.
+
+```json
+{
+    "variables": { "prompt": "a lighthouse at dusk, waves breaking", "seed": null },
+    "seed": "variable:seed",
+    "steps": [
+        {
+            "name": "still",
+            "pipeline": {
+                "configuration": { "component_type": "ModularPipeline" },
+                "from_pretrained_arguments": { "model_name": "black-forest-labs/flux-3-image-klein" },
+                "arguments": { "prompt": "variable:prompt", "width": 1280, "height": 720 }
+            }
+        },
+        {
+            "name": "clip",
+            "pipeline": {
+                "configuration": { "component_type": "LTX2ImageToVideoPipeline" },
+                "from_pretrained_arguments": { "model_name": "Lightricks/LTX-2.5-Diffusers" },
+                "arguments": { "prompt": "variable:prompt", "image": "previous_result:still" }
+            },
+            "result": { "content_type": "video/mp4" }
+        }
+    ]
+}
+```
+
+`component_type` is a diffusers class name and `arguments` are its `__call__`
+arguments, so the diffusers docs are the reference for what a step takes. The real
+templates add the device placement, quantization and size rules each model needs.
+
 The engine also covers:
 
 - **Quantization:** BitsAndBytes, TorchAO, GGUF, SDNQ and optimum-quanto, set per
@@ -189,8 +253,8 @@ The engine also covers:
 - **Acceleration:** FirstBlockCache, FasterCache, MagCache, TaylorSeerCache,
   `torch.compile` and attention backends.
 - **Adapters and prompts:** LoRA, IP-Adapter and A1111-style prompt weighting.
-- **Long video and caching:** long-video chaining with audio-driven length, and
-  step-output caching, so re-running a fixed-seed workflow finishes instantly.
+- **Step-output caching:** re-running a fixed-seed workflow, or one that changed
+  only a later step, reuses the steps that did not change.
 - **Utility tasks:** upscaling, face restoration, segmentation, captioning, frame
   interpolation, audio slicing, cut-and-score assembly and more.
 

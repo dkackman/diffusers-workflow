@@ -1047,3 +1047,89 @@ def test_a_pipeline_step_missing_from_the_runs_key_table_is_an_error(tmp_path):
 
     with pytest.raises(RuntimeError, match="'gen' is not in this run's pipeline"):
         workflow.create_step_action(_model_step("gen", "m"), {}, {}, 1, "cpu")
+
+
+def test_release_models_task_evicts_idle_warm_pipelines():
+    """#1265: a warm worker's pipeline from an earlier job is freed before a
+    release_models task loads; one this run already claimed stays."""
+    from dw.pipeline_ownership import evict_idle_for_task
+
+    pipelines = {"old-job-klein": object(), "claimed": object()}
+    evict_idle_for_task(pipelines, {"claimed"}, "upsample")
+    assert list(pipelines) == ["claimed"]
+
+
+@pytest.mark.parametrize("kind", ["task", "workflow"])
+def test_release_models_step_frees_a_previous_jobs_pipeline_through_run(kind, tmp_path):
+    """#1265: through Workflow.run, a release_models step of either kind - a
+    task, or a composed child like the flux3 templates' upsample step - frees
+    a pipeline a warm worker kept from an earlier job before it loads."""
+    import json
+
+    child = tmp_path / "child.json"
+    child.write_text(
+        json.dumps(
+            {
+                "id": "child",
+                "steps": [
+                    {
+                        "name": "t",
+                        "task": {
+                            "command": "text_generation",
+                            "arguments": {"prompt": "hi"},
+                        },
+                    }
+                ],
+            }
+        )
+    )
+    step = {"name": "upsample", "release_models": True}
+    if kind == "task":
+        step["task"] = {"command": "text_generation", "arguments": {"prompt": "hi"}}
+    else:
+        step["workflow"] = {"path": str(child)}
+    workflow = Workflow({"id": "t1265", "steps": [step]}, str(tmp_path), "test.json")
+    pipelines = {"previous-job-klein": MagicMock()}
+    with patch.object(
+        Step, "run", lambda self, *args, **kwargs: MagicMock(result_list=[])
+    ):
+        with patch("dw.pipeline_ownership.empty_device_cache"):
+            try:
+                workflow.run({}, previous_pipelines=pipelines)
+            except Exception:
+                pass
+    assert "previous-job-klein" not in pipelines
+
+
+def test_a_composed_childs_release_models_spares_the_parents_pipelines(tmp_path):
+    """A child keeps its own ownership table but shares the parent's
+    pipeline dict, so it is handed what the parent (and its ancestors) hold:
+    a release_models task inside the child must not evict a model a later
+    parent step addresses by pipeline_reference."""
+    import json
+
+    from dw.pipeline_ownership import evict_idle_for_task
+
+    child_path = tmp_path / "child.json"
+    task = {"command": "text_generation", "arguments": {"prompt": "hi"}}
+    child_path.write_text(
+        json.dumps({"id": "child", "steps": [{"name": "t", "task": task}]})
+    )
+    grandchild_path = tmp_path / "grandchild.json"
+    grandchild_path.write_text(
+        json.dumps({"id": "grandchild", "steps": [{"name": "t", "task": task}]})
+    )
+    parent = Workflow({"id": "parent", "steps": []}, str(tmp_path), "p.json")
+    parent.pipeline_ownership.record("gen", "parent-key")
+    child = parent._sub_workflow_action(
+        {"name": "inner", "workflow": {"path": str(child_path)}}, 1
+    )
+    child.pipeline_ownership.record("own", "child-key")
+    grandchild = child._sub_workflow_action(
+        {"name": "deeper", "workflow": {"path": str(grandchild_path)}}, 1
+    )
+    assert grandchild.claimed_pipeline_keys() == {"parent-key", "child-key"}
+
+    pipelines = {"parent-key": object(), "child-key": object(), "old-job": object()}
+    evict_idle_for_task(pipelines, set(grandchild.claimed_pipeline_keys()), "t")
+    assert sorted(pipelines) == ["child-key", "parent-key"]

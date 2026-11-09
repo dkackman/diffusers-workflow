@@ -48,6 +48,33 @@ RERUN_SPEC_KEYS = (
     "note",
 )
 
+RERUN_SEED_UNKNOWN = "rerun_seed_unknown"
+
+
+def keep_drawn_seed(arguments, variable, realized):
+    """`arguments` with the parent's drawn seed folded into `variable`, and
+    the warnings that says - for a rerun with overrides, so a draft
+    promoted with one changed variable keeps the parent's staging.
+
+    A template whose seed variable defaults to null draws the seed at run
+    time; the number lives only in the realized workflow (`realized`, the
+    run's `workflow.json`, top-level `seed`), never in the job's arguments.
+    An argument already naming the seed is kept. When the realized seed is
+    not on record (a run directory swept, or a job from before run
+    tracking) the arguments are left alone and a `rerun_seed_unknown`
+    warning says the rerun draws a fresh one."""
+    if variable is None or arguments.get(variable) is not None:
+        return arguments, []
+    seed = (realized or {}).get("seed")
+    if isinstance(seed, int) and not isinstance(seed, bool):
+        return {**arguments, variable: seed}, []
+    return arguments, [
+        f"{RERUN_SEED_UNKNOWN}: the seed the original run drew for "
+        f"'{variable}' is not on record, so this rerun draws a fresh seed "
+        "and may not keep the original's staging"
+    ]
+
+
 # A long run emits thousands of progress events; the tail is what explains
 # the outcome. Bounded so history stays a summary store, not an event log
 MAX_PERSISTED_EVENTS = 200
@@ -332,6 +359,11 @@ class Job:
         return {
             **self.summary(),
             "arguments": self.spec.get("arguments", {}),
+            **(
+                {"overrides": self.spec["overrides"]}
+                if self.spec.get("overrides")
+                else {}
+            ),
             "warnings": self.warnings,
             "manifest": self.manifest,
             "error": self.error,

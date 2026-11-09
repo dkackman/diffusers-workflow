@@ -2662,12 +2662,18 @@ class TestTiersPriceFromTheObservedDefault:
         assert (standard["minutes"], standard["basis"]) == (5.5, "observed")
         assert best["basis"] == "derived"
         assert best["scaled"] == (
-            "scaled from the observed 5.5 min: canvas 1344x768 vs 960x544"
+            "scaled from the observed 5.5 min (4.1 min of it fixed): "
+            "canvas 1344x768 vs 960x544"
         )
         assert best["differs"] == ["weights_dtype"]
         assert best["low_confidence"] is True
-        # 5.5 x (1344 x 768) / (960 x 544)
-        assert best["minutes"] == pytest.approx(10.9, abs=0.05)
+        # The entry's fixed share (10 of 13.5 min) held, the rest scaled by
+        # (1344 x 768) / (960 x 544), as the curated row is (#1224)
+        share = 10 / 13.5
+        area = (1344 * 768) / (960 * 544)
+        assert best["minutes"] == pytest.approx(
+            5.5 * (share + (1 - share) * area), abs=0.05
+        )
         assert standard["minutes"] < best["minutes"]
 
     def test_dialogue_short_best_scales_its_observed_default(self, plan):
@@ -2689,10 +2695,16 @@ class TestTiersPriceFromTheObservedDefault:
         assert draft["basis"] == "observed"
         assert draft["tempered"] is True
         assert draft["observed_minutes"] == 3.0
-        # 5.5 x 4/5 steps, not 13.5 x 4/5 x 2/3 segments (7.2)
-        assert draft["curated_minutes"] == pytest.approx(4.4)
-        assert draft["minutes"] == pytest.approx(4.4 * 2 / 3 + 3.0 / 3, abs=0.05)
-        assert "scaled from the observed 5.5 min: steps 4 vs 5" in draft["scaled"]
+        # 5.5 with its fixed share (10 of 13.5 min) held and the rest x 4/5
+        # steps - not the curated 13.5 scaled
+        share = 10 / 13.5
+        partner = 5.5 * (share + (1 - share) * 4 / 5)
+        assert draft["curated_minutes"] == pytest.approx(partner, abs=0.05)
+        assert draft["minutes"] == pytest.approx(partner * 2 / 3 + 3.0 / 3, abs=0.05)
+        assert (
+            "scaled from the observed 5.5 min (4.1 min of it fixed): steps 4 vs 5"
+            in draft["scaled"]
+        )
         assert "curated" not in draft["scaled"]
         assert "tier" not in (draft.get("differs") or [])
         assert draft["minutes"] < standard["minutes"]
@@ -2706,3 +2718,77 @@ class TestTiersPriceFromTheObservedDefault:
         # 10 + 3.5 x (the 7.2 / 13.5 proportional factor)
         assert draft["curated_minutes"] == pytest.approx(11.87, abs=0.05)
         assert "scaled from the curated 13.5 min" in draft["scaled"]
+
+
+class TestResumedChainEstimate:
+    """A chain resumed from an earlier run's kept segments prices only the
+    segments it renders (chain_resume.kept_count, cost_scaling)."""
+
+    RUN = "20261108-100000-aaaaaaaa"
+
+    def _definition(self, resume_from):
+        variables = {"segments": 4, "resume_from": None}
+        definition = {
+            "cost": [{"device": "cuda", "name": "card", "minutes": 40}],
+            "cost_drivers": ["segments"],
+            "variables": variables,
+            "steps": [
+                {
+                    "pipeline": {
+                        "chain": {
+                            "segments": "variable:segments",
+                            "fps": 4,
+                            "save_segments": True,
+                            "resume_from": "variable:resume_from",
+                        },
+                        "arguments": {},
+                    }
+                }
+            ],
+        }
+        expanded = {"variables": {**variables, "resume_from": resume_from}}
+        return definition, expanded
+
+    @pytest.fixture
+    def kept(self, tmp_path):
+        """Two kept segment files of a dead run, under an active output root."""
+        from dw.runs import activate_output_root, deactivate_output_root
+
+        run = tmp_path / "outputs" / "chained" / self.RUN
+        run.mkdir(parents=True)
+        for index in (0, 1):
+            (run / f"chained.video.0.segment-{index:03d}.mp4").write_bytes(b"")
+        token = activate_output_root(str(tmp_path / "outputs"))
+        yield f"chained/{self.RUN}/chained.video.0.segment-000.mp4"
+        deactivate_output_root(token)
+
+    def test_a_resolvable_resume_prices_the_rest(self, kept):
+        from dw import references
+        from dw.plan import estimate
+
+        reference = references.make_ref(references.OUTPUT, kept)
+        quoted = estimate(*self._definition(reference), {}, "cuda", None, None)
+
+        assert quoted["minutes"] == pytest.approx(20.0)
+        assert "2 of 4 segment(s) kept" in quoted["scaled"]
+
+    def test_an_unresolvable_resume_prices_every_segment_and_says_so(self, kept):
+        from dw import references
+        from dw.pipeline_processors.chain_resume import UNRESOLVED_NOTE
+        from dw.plan import estimate
+
+        missing = references.make_ref(
+            references.OUTPUT, "chained/latest/none.0.segment-000.mp4"
+        )
+        quoted = estimate(*self._definition(missing), {}, "cuda", None, None)
+
+        assert quoted["minutes"] == pytest.approx(40.0)
+        assert UNRESOLVED_NOTE in quoted["differs"]
+
+    def test_no_resume_is_todays_estimate(self, kept):
+        from dw.plan import estimate
+
+        quoted = estimate(*self._definition(None), {}, "cuda", None, None)
+
+        assert quoted["minutes"] == pytest.approx(40.0)
+        assert not quoted.get("differs")

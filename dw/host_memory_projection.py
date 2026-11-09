@@ -270,7 +270,7 @@ def projected_mb(definition, list_entries, rows):
         return None
     field = projection[-1]
     runs = sum(isinstance(row.get(field), (int, float)) for row in rows)
-    return {"projected_mb": projection[0], "runs": runs}
+    return {"projected_mb": projection[0], "runs": runs, "field": field}
 
 
 def host_memory_warnings(definition, list_entries, rows, ceiling_mb):

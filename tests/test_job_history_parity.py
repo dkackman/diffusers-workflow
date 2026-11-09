@@ -40,8 +40,12 @@ def _job(**extra):
 
 @pytest.mark.parametrize(
     "extra",
-    [{}, {"note": "a test", "rerun_of": "abc123def456"}],
-    ids=["optional-unset", "optional-set"],
+    [
+        {},
+        {"note": "a test", "rerun_of": "abc123def456"},
+        {"rerun_of": "abc123def456", "overrides": {"steps": 4}},
+    ],
+    ids=["optional-unset", "optional-set", "overrides-set"],
 )
 def test_history_serves_the_keys_a_live_job_does(tmp_path, extra):
     job = _job(**extra)
@@ -56,3 +60,13 @@ def test_history_serves_the_keys_a_live_job_does(tmp_path, extra):
     for key, value in job.summary().items():
         assert summary[key] == value, key
         assert detail[key] == value, key
+
+
+def test_a_reopened_history_still_reports_the_overrides(tmp_path):
+    path = tmp_path / "jobs.sqlite"
+    job = _job(overrides={"steps": 4})
+    JobHistory(path).record(job)
+
+    reopened = JobHistory(path)
+
+    assert reopened.get(job.id)["overrides"] == {"steps": 4}

@@ -27,11 +27,13 @@ from .cost_scaling import (
     OTHER_DEVICE,
     PER_ENTRY,
     UNKNOWN,
+    _choose_entry,
     _driver_scaling,
+    fixed_share,
     fixed_minutes,
     _entry_cost_field_shifted,
     _scaled,
-    _worst_case_retries,
+    _chain_render_scaling,
 )
 from .elision import elide_definition
 from . import references
@@ -190,7 +192,7 @@ def build_plan(
             candidate.workflow_dir,
             measured_entries=measured_entries,
             observed=_observed_block(
-                observed, arguments, definition, expanded, entries
+                observed, arguments, definition, expanded, entries, device
             ),
             cached_steps=cache_hits,
             total_steps=step_count,
@@ -199,7 +201,9 @@ def build_plan(
     }
 
 
-def _observed_block(observed, arguments, definition=None, expanded=None, entries=None):
+def _observed_block(
+    observed, arguments, definition=None, expanded=None, entries=None, device=None
+):
     """The `observed` block for this run, from a block or from a callable
     the caller passed - best effort, since a figure is a nicety and a plan
     that raised because history could not be read would cost the caller the
@@ -219,10 +223,12 @@ def _observed_block(observed, arguments, definition=None, expanded=None, entries
         block = observed(args)
         if definition is not None:
             if not isinstance(block, dict):
-                block = _scaled_observed(observed, args, definition, expanded, entries)
+                block = _scaled_observed(
+                    observed, args, definition, expanded, entries, device
+                )
             elif _thin(block):
                 baseline = _scaled_observed(
-                    observed, args, definition, expanded, entries
+                    observed, args, definition, expanded, entries, device
                 )
                 if baseline is not None:
                     block = {**block, "baseline": baseline}
@@ -239,7 +245,7 @@ def _thin(block):
     return isinstance(runs, int) and runs < SMALL_N_THRESHOLD
 
 
-def _scaled_observed(observed, arguments, definition, expanded, entries):
+def _scaled_observed(observed, arguments, definition, expanded, entries, device=None):
     """History of the run with the preset selectors left at their defaults,
     scaled to `arguments`' drivers, or None when there is none or nothing
     but the selector itself moved.
@@ -269,10 +275,12 @@ def _scaled_observed(observed, arguments, definition, expanded, entries):
     differs = [name for name in unscaled if name not in selectors]
     if not axes and not differs:
         return None
+    fixed = block["cold_minutes"] * fixed_share(definition, device)
     scaled = {
-        **block,
-        "cold_minutes": block["cold_minutes"] * factor,
+        **block,  # the fixed share held, as _scaled holds it (#1224)
+        "cold_minutes": fixed + (block["cold_minutes"] - fixed) * factor,
         "scaled": f"scaled from the observed {round(block['cold_minutes'], 1)} min"
+        + (f" ({_shown_minutes(fixed)} min of it fixed)" if fixed else "")
         + (": " + ", ".join(axes) if axes else ""),
     }
     if differs:
@@ -770,7 +778,9 @@ def estimate(
     A composed child is not added to it: an observed run is the whole run,
     children included, already measured.
     """
-    measured = _with_worst_case(_observed(observed, device), definition, expanded)
+    measured = _with_worst_case(
+        _observed(observed, device), definition, expanded, device
+    )
     own = _own_price(definition, expanded, list_entries, device, measured_entries)
     if measured is not None and _entry_cost_field_shifted(definition, expanded):
         # The history's drivers match on the list's length, not on what each
@@ -787,6 +797,7 @@ def estimate(
             ),
             definition,
             expanded,
+            device,
         )
         if partner is None:
             partner = own
@@ -870,10 +881,10 @@ def _unpriced_reason(definition):
     )
 
 
-def _with_worst_case(measured, definition, expanded):
+def _with_worst_case(measured, definition, expanded, device=None):
     """An observed or inherited estimate with a checked chain's worst-case
     re-rolls quoted on it, as the curated figure quotes them (#1246): the
-    history is read as N segment renders, and `_worst_case_retries` says how
+    history is read as N segment renders, and `_chain_render_scaling` says how
     many a run at `expanded`'s variables may pay. Unchanged when nothing can
     re-roll. A history that ran checked already holds what re-rolls it drew,
     so this is an upper bound, which is what the worst case promises. This
@@ -882,7 +893,7 @@ def _with_worst_case(measured, definition, expanded):
     if measured is None or measured.get("minutes") is None:
         return measured
     variables = (expanded or {}).get("variables") or {}
-    factor, axes, unscaled = _worst_case_retries(definition, variables)
+    factor, axes, unscaled = _chain_render_scaling(definition, variables)
     if unscaled:
         measured = {
             **measured,
@@ -891,9 +902,11 @@ def _with_worst_case(measured, definition, expanded):
         }
     if not axes:
         return measured
+    # A re-roll renders the segment again; it does not load the model again
+    fixed = measured["minutes"] * fixed_share(definition, device)
     worst = {
         **measured,
-        "minutes": round(measured["minutes"] * factor, 1),
+        "minutes": round(fixed + (measured["minutes"] - fixed) * factor, 1),
         "scaled": "; ".join(
             part
             for part in (
@@ -1009,20 +1022,6 @@ def _only_composes_children(definition):
         ):
             return False
     return True
-
-
-def _choose_entry(cost, device):
-    """The `cost` entry a run on `device` is quoted from, as (entry, basis):
-    this device's own (CATALOG), else the first (OTHER_DEVICE); (None, UNKNOWN)
-    for no entry. The one place this choice is made - `_price` and the entry's
-    `fixed_minutes` (#1224) both read it."""
-    entries = [entry for entry in (cost or []) if isinstance(entry, dict)]
-    if not entries:
-        return None, UNKNOWN
-    own = next((entry for entry in entries if entry.get("device") == device), None)
-    if own is None:
-        return entries[0], OTHER_DEVICE
-    return own, CATALOG
 
 
 def _price(cost, device, list_entries, measured_entries):

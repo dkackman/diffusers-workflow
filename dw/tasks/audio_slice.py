@@ -95,8 +95,9 @@ def slice_audio(
 
     'end_snap_seconds' (off by default; 0 is off too) moves an end that cuts
     into the source back to the quietest point - the lowest RMS over a
-    SLICE_SNAP_WINDOW_SECONDS window - within that many seconds before it,
-    which in a song is a phrase gap or a bar break. The slice comes out that
+    SLICE_SNAP_WINDOW_SECONDS window - within that many seconds before it
+    and never into the slice's first half, which in a song is a phrase gap
+    or a bar break. The slice comes out that
     much shorter; the track carries the length asked for and how far the cut
     moved, so crossfade_audio does not report it as a section that ended
     early. An end the source does not reach has nothing to snap.
@@ -280,8 +281,8 @@ def _end_of_slice(
 
 def _snap_end_to_quiet(waveform, total, start, length, sample_rate, window_seconds):
     """The slice length with its end moved back to the quietest point in the
-    last `window_seconds` before it - the centre of the SLICE_SNAP_WINDOW
-    with the lowest RMS - or `length` unchanged when the end does not cut
+    last `window_seconds` before it, and in the slice's second half - the
+    centre of the SLICE_SNAP_WINDOW with the lowest RMS - or `length` unchanged when the end does not cut
     into the source or nothing in the window is quieter than the end itself.
     The latest of equally quiet points wins, so an even level keeps the
     exact cut."""
@@ -289,7 +290,13 @@ def _snap_end_to_quiet(waveform, total, start, length, sample_rate, window_secon
     half = max(int(round(SLICE_SNAP_WINDOW_SECONDS * sample_rate / 2)), 1)
     if end >= total:
         return length
-    lo = max(start + half, end - int(round(window_seconds * sample_rate)))
+    # Never past the slice's midpoint: a window as long as the slice would
+    # otherwise find a quiet lead-in and leave a sliver of the asked section
+    lo = max(
+        start + half,
+        start + length // 2,
+        end - int(round(window_seconds * sample_rate)),
+    )
     hi = min(end, total - half)
     if hi <= lo:
         return length

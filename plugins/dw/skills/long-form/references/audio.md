@@ -21,6 +21,9 @@ A longer narration is cut into takes at sentence boundaries and joined.
   this pair to see or edit the takes before speaking them. `split-takes`
   returns `{takes, count, words}`. Pass the edited list as `takes`. The list
   is a variable because the engine expands `for_each` before a run starts.
+- **Check the speech.** After `narration-long`, run
+  `templates/check-narration` on the narration with the same text; re-speak
+  the takes it lists.
 - **Listen at the joins.** The same seed does not make takes sound alike. If
   the voice drifts between takes, lower `max_seconds`. A join is also where a
   level step shows, so read `get_gallery_metadata`'s levels before relying on
@@ -90,9 +93,10 @@ audio_duration}`. Each section is trimmed, faded and crossfaded into the next
 ## A bed under cut scenes
 
 - **`templates/assemble-and-score`** cuts the shots and lays one score under
-  them. It mixes each shot's own sound beneath the score, and `match_levels`
-  evens the shots out before the join. `series-episodes` has the full
-  procedure.
+  them. It mixes each shot's own sound beneath the score. Even the shots by
+  loudness with `match_levels: lufs`; deliver at -16 LUFS with the
+  template's `target_lufs: -16`, which its `balanced` step's
+  `normalize_audio` applies. `series-episodes` has the full procedure.
 - **Room tone.** `find_loop_bed` picks the window of a recording worth
   looping, measured as it will sound looped. `loop_audio` then lays it under
   dialogue gaps.
@@ -130,9 +134,9 @@ the source's own frames at the source's own frame rate, under the new track.
   step cheaper. The audio length and the returned picture stay the source's.
 - Validation refuses refine arguments with it, a chained step, and
   `latents`.
-- There is no catalog template yet; the draft waits on Don's listen. Compose
-  the step from `get_guide("workflows", section="Audio over a finished
-  picture")`, starting from `templates/minimax/video-with-audio`.
+- Run it from `templates/minimax/add-sound` (Don's listen passed it at
+  `listen_scale` 1, 2026-11-06), which sets all of the above. The guide's
+  *Audio over a finished picture* section has the step's rules.
 
 This is the lever for replacing or adding a take's sound without redrawing
 its picture: a silent LTX or chained take, or a take whose voice came out

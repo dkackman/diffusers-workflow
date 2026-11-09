@@ -151,6 +151,11 @@ Host RAM is the tighter budget than VRAM on a 64GiB box. Loading H3 peaks around
 model first (Z-Image drawing a subject, Music3 writing a song) must free it with
 `release_pipeline` before H3 loads - with it, the multi-model digital-short
 workflows below fit; without it, the load is an OOM kill, not a slowdown.
+The weights dtype moves the host figure too: an int4 H3 worker holds about
+42-51GB, an int8 one about 63-69GB (`bench/records/tiers.md`, *Host RAM*). The
+long-form templates declare it per `tier` as `host_ram_gb` (51, or 69 for the
+int8 `best` tier), so a 64GB host refuses `best` before it loads rather than
+OOM-killing it.
 
 Ref2VA reaches 1344x768 too: the canvas isn't tied to the FL2VA 768p checkpoint, only
 its shift/alpha pairing is. The trade-off is frame count, not a config change:

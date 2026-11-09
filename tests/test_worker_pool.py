@@ -454,7 +454,7 @@ class TestOomRanking:
         manager, _ = self._pair(pool)
         values = {101: 1000, 102: 0}
         monkeypatch.setattr(
-            "dw.server.jobs.read_oom_score_adj", lambda pid: values.get(pid)
+            "dw.server.worker_memory.read_oom_score_adj", lambda pid: values.get(pid)
         )
 
         workers = manager.workers()
@@ -1368,6 +1368,27 @@ class TestHostRamGate:
         manager, first_gate, second_gate = self._two_cards(pool)
         for slot in manager.slots:
             slot.manager.pid = lambda: os.getpid()
+        self.submit(manager, "running", host_gb=30)
+        first_gate.wait_started()
+        other = HostClaims(directory=manager._host_claims().directory, pid=os.getppid())
+        assert [peak for peak, _ in other.foreign()] == [30 * GB]
+        first_gate.release.set()
+
+    def test_a_job_on_a_cold_worker_is_claimed_once_it_is_up(self, pool, host):
+        # A cold card's worker is spawned in the job thread, after dispatch,
+        # so the dispatch pass has no pid to claim it under; the claim is
+        # published once ensure_worker returns, or the job runs unseen
+        manager, first_gate, second_gate = self._two_cards(pool)
+        for slot in manager.slots:
+            up = {"pid": None}
+            spawn = slot.manager.ensure_worker
+
+            def ensure_worker(*args, _spawn=spawn, _up=up, **kwargs):
+                _up["pid"] = os.getpid()
+                return _spawn(*args, **kwargs)
+
+            slot.manager.ensure_worker = ensure_worker
+            slot.manager.pid = lambda _up=up: _up["pid"]
         self.submit(manager, "running", host_gb=30)
         first_gate.wait_started()
         other = HostClaims(directory=manager._host_claims().directory, pid=os.getppid())

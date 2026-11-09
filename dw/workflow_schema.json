@@ -601,6 +601,18 @@
                     ],
                     "pattern": "^variable:",
                     "default": false
+                },
+                "resume_from": {
+                    "description": "Resume a chain that died part way: an 'output:' reference naming one segment file an earlier run of the same chain left (<prefix>.<n>.segment-NNN.mp4; the failed chain's 'chain_resume_hint' warning quotes the first). That run's finished segments become segments 1..k and only k+1..N render. Each kept file must hold the frames the plan puts on the timeline for its segment, or the run is refused naming the segment: a resume never changes the plan. The files are copied, not moved, into this run's spill. Needs save_segments true and continuity 'last_frame' or 'guide', and is refused with experimental_latent_carry; a guide resume's first seam carries the decoded audio, which the 'chain_resumed' warning says. A bare path is refused. Null or absent is no resume. Accepts a 'variable:' reference.",
+                    "oneOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "default": null
                 }
             },
             "anyOf": [
@@ -1347,6 +1359,21 @@
                 "task": {
                     "description": "The name of a task that transformers.Pipeline understands",
                     "type": "string"
+                },
+                "torch_dtype": {
+                    "description": "The dtype to load the weights as, e.g. torch.bfloat16 - or diffusers' per-component form, an object from component name to dtype, e.g. {\"default\": \"torch.bfloat16\", \"audio_vae\": \"torch.float32\", \"vocoder\": \"torch.float32\"}. 'default' applies to every component the object does not name; without it those load as torch.float32. Each value must name a dtype: a {}-escaped value is refused.",
+                    "oneOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            },
+                            "minProperties": 1
+                        }
+                    ]
                 }
             },
             "additionalProperties": {

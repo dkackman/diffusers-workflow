@@ -62,7 +62,13 @@ def _worker_rss_mb(slot):
     committed = committed_rss_mb(pid, device=False)
     if committed is None:
         return None
-    return committed + (device_term_mb(getattr(slot, "last_memory", None)) or 0.0)
+    return committed + _pinned_mb(slot)
+
+
+def _pinned_mb(slot):
+    """The driver-pinned host memory of `slot`'s worker at its last report,
+    published with its claim so another server reads it on this basis."""
+    return device_term_mb(getattr(slot, "last_memory", None)) or 0.0
 
 
 def _worker_pid(slot):
@@ -86,8 +92,21 @@ class Dispatcher:
             job = self.jobs.get(slot.current_job_id) if slot.current_job_id else None
             pid = _worker_pid(slot)
             if job is not None and job.host_ram_need and pid is not None:
-                out.append((pid, job.host_ram_need[0]))
+                out.append((pid, job.host_ram_need[0], _pinned_mb(slot)))
         return out
+
+    def _start_worker(self, slot, job):
+        """Start `slot`'s worker if it is not up, then claim `job` for the
+        other servers on the host. `_next_dispatch` can only claim a job whose
+        worker already has a pid; a cold card's worker is spawned here, in
+        the job thread, so without this the job runs unseen by them (#1227)."""
+        slot.manager.ensure_worker(self.log_level)
+        if not job.host_ram_need:
+            return
+        with self._lock:
+            claims = self._host_claims()
+            with claims.lock():
+                claims.publish(self._running_claims())
 
     def _next_dispatch(self):
         """(slot, job) for the next job to start, or None - `_pick` under the
@@ -104,7 +123,7 @@ class Dispatcher:
                 pid = _worker_pid(slot)
                 need = job.host_ram_need
                 if need and pid is not None:
-                    claims.publish(running + [(pid, need[0])])
+                    claims.publish(running + [(pid, need[0], _pinned_mb(slot))])
             return picked
 
     def _pick(self, claims):

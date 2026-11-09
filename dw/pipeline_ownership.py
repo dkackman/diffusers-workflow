@@ -241,6 +241,35 @@ def evict_superseded(pipelines, step_name, prior_key):
     )
 
 
+def evict_idle_for_task(pipelines, claimed_keys, step_name):
+    """Free the pipelines a warm worker kept from an earlier job before a
+    `release_models` task step loads its model (#1265).
+
+    `release_models` declares the task's model too big to share the card
+    with a pipeline (a prompt upsampler and the generation model it feeds).
+    Within a job the template orders them; across jobs the previous job's
+    pipeline is still resident and would sit beside the task model. Only
+    pipelines this run has not claimed yet go: a later step that wants one
+    reloads it, as it would after any eviction. `claimed_keys` are the keys
+    this run's earlier steps recorded."""
+    idle = [key for key in pipelines if key not in claimed_keys]
+    if not idle:
+        return
+    before = allocated_mb()
+    for key in idle:
+        del pipelines[key]
+    gc.collect()
+    empty_device_cache()
+    _release_host_caches(step_name)
+    get_context().emit(
+        "pipeline_released",
+        step=step_name,
+        reason="task_models_need_room",
+        gpu_memory_allocated_mb=allocated_mb(),
+        gpu_memory_allocated_before_mb=before,
+    )
+
+
 def reclaim_after_step(step_data, step_name):
     """The cleanup between steps, once the run has dropped its references
     to the step's action and result."""

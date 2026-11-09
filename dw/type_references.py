@@ -12,7 +12,7 @@ import re
 
 from . import references
 from .argument_media import is_media_reference
-from .arguments import fetch_constant, is_constant_reference
+from .arguments import fetch_constant, is_constant_reference, is_escaped
 from .for_each import render_path
 from .introspection import (
     CLASS_NAME_PATTERN,
@@ -95,6 +95,8 @@ def _loose_type_reference_error(key, value, path, warnings=None):
     as a diffusers attribute and dies after the model has loaded, so one that
     fails to resolve is reported to `warnings` (when given) with its braced
     spelling - a warning, since the key may still be read as something else."""
+    if key == "torch_dtype" and isinstance(value, dict):
+        return _per_component_dtype_error(key, value, path, warnings)
     if not isinstance(value, str) or not _DOTTED_NAME_PATTERN.match(value):
         return None
 
@@ -114,6 +116,61 @@ def _loose_type_reference_error(key, value, path, warnings=None):
                     ),
                 }
             )
+    return None
+
+
+def _per_component_dtype_error(key, value, path, warnings=None):
+    """diffusers' per-component torch_dtype dict ({"default": ..., "vocoder":
+    ...}): every value is loaded as a dtype at run time (arguments.
+    realize_per_component_dtype), so one that is escaped or names no dtype is
+    refused here, at the component's own path, rather than after the job is
+    queued. A value a variable fills is checked once it is substituted. A dict
+    without 'default' is legal - diffusers loads every component it does not
+    name as float32 - so that is a warning, not an error."""
+    for component, dtype in value.items():
+        component_path = path + (component,)
+        if not isinstance(dtype, str):
+            return {
+                "path": component_path,
+                "message": (
+                    f"{key} for component '{component}' has to be a dtype name "
+                    f"such as torch.float32, not {dtype!r}"
+                ),
+            }
+        if references.is_ref(references.VARIABLE, dtype):
+            continue
+        if is_escaped(dtype):
+            return {
+                "path": component_path,
+                "message": (
+                    f"{key} for component '{component}' is {{}}-escaped "
+                    f"({dtype!r}): a per-component dtype has to name a dtype, "
+                    "such as torch.float32"
+                ),
+            }
+        try:
+            load_type_from_name(dtype, key)
+        except UntrustedWorkflowError as e:
+            return {"path": component_path, "message": str(e)}
+        except (ImportError, AttributeError, ValueError):
+            return {
+                "path": component_path,
+                "message": (
+                    f"{key} for component '{component}' names an unknown dtype "
+                    f"{dtype!r}; use a torch dtype such as torch.float32"
+                ),
+            }
+    if "default" not in value and warnings is not None:
+        warnings.append(
+            {
+                "path": path,
+                "message": (
+                    f"{key} names no 'default': every component it does not name "
+                    "(" + ", ".join(repr(c) for c in value) + " are named) "
+                    "loads as torch.float32"
+                ),
+            }
+        )
     return None
 
 

@@ -13,6 +13,11 @@ one template carries them all and its `description` spells out the per-checkpoin
 argument sets. The `templates/ltx2/` and `templates/minimax/` subfolders each
 hold a family whose members build on one baseline.
 
+The full catalog is `list_workflows` over MCP, or `GET /api/workflows` and the web
+UI's Workflows page, each entry with its shape and description. This guide and
+`docs/TASKS.md` link only the templates that show a feature, so a template
+named in neither is still in the catalog.
+
 **`workflows/models/`** records a hardware fact: the quantization, offloading and
 component placement that make one checkpoint fit a real card. Each is runnable
 and carries a `configures` naming the template it is an instance of:
@@ -1006,7 +1011,14 @@ run that moves `num_inference_steps`, `width`/`height` or `num_frames` (per
 entry in a list, summed) is quoted scaled in proportion to them, so a figure
 measured at another size or step count is re-priced to the defaults before it
 is written (dialogue-short's 42 min at 1344x768 is 21.2 at its 960x544). An
-entry carrying `cost` has been run to completion on the device it names; one
+entry's `scales_with` names further drivers its figure is proportional to: a
+scalar variable, or a field of a list driver's entries summed over them
+(Music 3's `audio_duration`, summed over `music-long`'s sections). Its
+`fixed_minutes` is the share that does not scale (model load, encode, decode),
+held out of the scaling: a moved run is quoted `fixed_minutes + (minutes -
+fixed_minutes) x factor`, so a long chain is not charged its load once per
+segment (`minimax/chained-segments` declares 10). Absent, the whole figure
+scales. An entry carrying `cost` has been run to completion on the device it names; one
 without has only been authored, and its first run is the one that finds out
 what its description could not check.
 
@@ -1017,8 +1029,8 @@ reports the result as `observed` beside the curated `cost`, so a 345-frame run
 never informs a 124-frame figure, and a list driver buckets on its length.
 With no drivers, the figure falls back to runs that overrode nothing at all, so
 a measured workflow with no drivers mostly answers "unknown". A driver the
-estimate cannot scale along (anything but steps, width, height and frames,
-such as a weights dtype, a LoRA name or an audio duration) still splits the
+estimate cannot scale along (anything but steps, width, height, frames and
+the entry's `scales_with`, such as a weights dtype or a LoRA name) still splits the
 buckets, a text value by its exact value. When a run moves one off its
 default, the curated figure is kept but carries `low_confidence: true`, and
 `differs` names the drivers. Each name must be a variable the workflow
@@ -1234,8 +1246,10 @@ workflow, `result_index` counts the argument-combination iterations the step ran
 cartesian product, above), and `artifact_index` counts multiple artifacts within one result
 (`num_images_per_prompt > 1`, or a dict result saved key by key); a JSON result is one
 `{base_name}-{result_index}.json`. In a composed child the composing step's name leads
-`base_name`. `file_base_name` may not
-contain a path separator; `"file_base_name": "episode"` in a `final` subfolder writes
+`base_name`. `file_base_name` is one name of letters, digits, `_`, `.`, `@`
+and `-`, starting with a letter, digit or underscore, so an `output:` reference
+can name the file it writes; anything else, a path separator included, is
+refused at validation, naming the character; `"file_base_name": "episode"` in a `final` subfolder writes
 `final/episode-0.0.mp4`. The derived name is what makes two steps' files distinct, so when
 you replace it on more than one step in the same subfolder, give each a different name -
 otherwise the second one gets a `-2` counter.
@@ -1939,7 +1953,7 @@ head: N segments of F frames give F + (N - 1)(F - P) frames - 3 x 124 at P = 22 
 | `carry_frames` | refused - the carry is always the last `guide_frames` frames |
 | `guide_backoff` | 0 (default) or a multiple of 17: the carry is the `guide_frames` frames that many before the segment's end (audio sliced the same span), and every segment but the last loses that tail at assembly, so the join lands inside the held copy and each segment's least-constrained tail is replaced by the next take. Frames drop by the back-off per seam (3 x 124 at P = 22 and 17 is 294). Needs `num_frames` above P + back-off. Refused off `guide` continuity and with `match_audio` or `duration_seconds` |
 | `keystone` | `none` (default) or `segment_1`: on `fl2va`, every later segment's keyframe is segment 1's frame 0 instead of the guide's first frame, so each segment is pulled back toward the clean start of the chain. The guide stays the carried tail, and the keyframe region is trimmed at assembly, so segment 1's frame never reaches the output. Refused on `last_frame` (there the keyframe is the only carry), and any other value is refused naming the two |
-| `keystone_slot` | with `keystone: "segment_1"`, where segment 1's frame 0 sits in each later segment. `first` (or null, the default) is plain keystone, the keyframe above. `last` makes it the fl2va `last_image` instead and the keyframe is the guide's first frame again: on a static two-minute take it held the backdrop and the face with no reset pop, and the subject eases back to the opening pose at each segment's end (`bench/records/structural.md`, *Keystone slot*). `last` needs a step `image` and refuses a step `last_image` of its own. `{"frame": 17j}` is a one-frame guide at that frame, past the guide's frames and inside the segment (a `match_audio` plan's shortened last segment included); its `enter_below_sigma` gate is refused unless `DW_EXPERIMENTAL_REFINE_WINDOWS=1`. The name `experimental_keystone_slot` is refused naming this one. `templates/minimax/chained-segments` sets `last` under `shot: static_long` |
+| `keystone_slot` | with `keystone: "segment_1"`, where segment 1's frame 0 sits in each later segment. `first` (or null, the default) is plain keystone, the keyframe above. `last` makes it the fl2va `last_image` instead and the keyframe is the guide's first frame again: on a static two-minute take it held the backdrop and the face with no reset pop, and the subject eases back to the opening pose at each segment's end (`bench/records/structural.md`, *Keystone slot*). `last` needs a step `image` and refuses a step `last_image` of its own. `{"frame": 17j}` is a one-frame guide at that frame, past the guide's frames and inside the segment (a `match_audio` or `duration_seconds` plan's shortened last segment included); its `enter_below_sigma` gate is refused unless `DW_EXPERIMENTAL_REFINE_WINDOWS=1`. The name `experimental_keystone_slot` is refused naming this one. `templates/minimax/chained-segments` sets `last` under `shot: static_long` |
 | `carry_pick` | `{"sharpest": N}`, N from 1 to 8, with `last_frame` continuity on any model family: the next segment's keyframe is the sharpest of the segment's last N frames (variance of a 3x3 Laplacian on luma, ties to the latest) instead of the last, so a motion-blurred final frame does not pass its softness on. The segment is trimmed after the picked frame so motion continues from it (the last segment keeps its tail), and the job log names the pick per seam. Absent = the last frame; other continuities or other values are refused naming the allowed ones; `match_audio` and `duration_seconds` are refused (the plan covers the length up front and the pick drops frames per seam, so the video would fall short - use `segments`); and when `num_frames` is known N must be less than `num_frames` minus `trim_frames`, or the pick could empty a segment |
 | `look_hold` | `true` or `{"pickup", "creep", "texture", "precompensate"}` booleans, any model family: pixel corrections on each later segment's frames before its carry is taken (below). On a guide chain `pickup` and `precompensate` do not apply (the carried guide is a whole clip, left alone); an explicit `true` for either there is refused, and `true` alone runs `creep` and `texture` only |
 | `trim_frames` | ignored (the trim is P), with a note in the job log |
@@ -2626,8 +2640,11 @@ joined into a single file:
   held track's slice is that segment's `hold_audio`, a reference's replaces the
   reference - and the final video is muxed with the **original, unsliced track** - so
   the soundtrack has no seams at all. Requires
-  `num_frames` (the per-segment length) and a frame rate. One of `segments`,
-  `match_audio` or `duration_seconds` must be given.
+  `num_frames` (the per-segment length) and a frame rate, and a track: a step with
+  neither `hold_audio` nor a `references` list is refused. One of
+  `segments`, `match_audio` or `duration_seconds` must be given, and `segments`
+  beside `match_audio` is refused (beside `duration_seconds` it is ignored). Validation asks both rules of the
+  substituted block, so a `variable:` value is caught before the model loads.
 - `duration_seconds` — instead of a count, ask for the chain by its length: the plan
   covers `round(duration_seconds * fps)` frames (the same planner `match_audio` uses,
   so the last segment shrinks to what remains, snapped by `frame_snap`), and the
@@ -2684,6 +2701,11 @@ joined into a single file:
   "max_frames": 345 }`. Where the workflow already declares that rule as a
   `variable_constraints` entry, write `"frame_snap": "constraint:num_frames"`
   instead, so the numbers live in one place (*What a variable is allowed to be*).
+  A `duration_seconds` or `match_audio` chain that declares no `frame_snap` derives
+  one when the step's `num_frames` is a `variable:` whose constraint has a `modulus`
+  (the run logs that it did); when it cannot - a literal `num_frames`, or no
+  constraint - validation warns at `chain.frame_snap`, since the shortened last
+  segment is otherwise asked for a count the pipeline may floor in silence.
 - `prompts` — optional per-segment prompt list for narrative progression; segment
   `i` uses `prompts[min(i, len - 1)]`.
 - `check` — check each segment after the first before it is kept (any model family):
@@ -2697,8 +2719,41 @@ joined into a single file:
   at save time, and they are removed once it is written (`keep_segments: true`
   retains them). A crashed chain leaves the finished segments behind - stitch
   them by hand by listing their paths in a `concat_videos` step (`trim_frames: 0`,
-  the trim was already applied). Requires PyAV and a frame rate. The trade-off is
-  one extra encode/decode cycle through h264 for the segment files.
+  the trim was already applied), or resume the chain from them (`resume_from`).
+  Requires PyAV and a frame rate. The trade-off is one extra encode/decode cycle
+  through h264 for the segment files. Both chain templates set it on.
+- `resume_from` — resume a chain that died part way: an `output:` reference naming
+  one segment file an earlier run of the same chain left. A chain that fails after
+  spilling a segment says so in a `chain_resume_hint` job warning quoting the first
+  file's reference (`output:<workflow>/<run id>/<prefix>.0.segment-000.mp4`); a
+  failed run's files resolve by name, with or without its manifest. Rerun with the
+  same settings and that reference: its finished segments become segments 1..k and
+  only k+1..N render, which the estimate prices (N - k segments; a reference that
+  does not resolve yet is priced for every segment and says so). Each kept file must
+  hold the frames the plan puts on the timeline for its segment, or the run is
+  refused naming the segment and both counts - a resume never changes the plan. The
+  files are copied, not moved, into the new run's spill, so the new take stands on
+  its own and `keep_segments` names them on its shots (with `resumed: true`). The
+  carry is read off the last kept file: its last frame (`last_frame`), or its last
+  `guide_frames` frames and their audio (`guide`). That first resumed seam's audio
+  guide is the file's decoded AAC track, not a live carry, which the run's
+  `chain_resumed` warning ("Resumed k of N segments from ...") says. `anchor` and
+  `keystone` read segment 1 from the first kept file; the kept segments are not
+  checked again, and the first rendered one is checked against the last kept one as
+  usual. `look_hold` reads its scene from the first kept file and is fed the last
+  one's carry, but its learned boost starts again. Needs `save_segments: true` and
+  continuity `last_frame` or `guide`; refused with `experimental_latent_carry` (the
+  latents are not on disk) and as a bare path. The kept seams' audio is joined
+  with the short declick fade the chain gives a seam with no head material, not the
+  `crossfade_ms` blend: a kept file holds only its on-timeline audio, so the blend
+  material is gone (the first rendered seam is crossfaded as usual). All kept files
+  must carry audio or none may, and the rendered segments must agree with them, or
+  the run is refused rather than laying a track shorter than the picture. Under a
+  `previous_result` fan-out each iteration resumes from its own files: the
+  reference names the iteration the hint quoted, and every iteration takes the
+  `<prefix>.<its iteration>.segment-NNN.mp4` siblings beside it. An iteration with
+  none there, or one that finished (a complete set it is not the named one of),
+  renders in full, which a `chain_resumed` warning with `kept: 0` says.
 
 The chain runs inside one iteration of the step, so it composes with
 `previous_result` fan-out (three keyframes in, three chained videos out), and a
@@ -2740,13 +2795,16 @@ video, its audio, its shot record, a `save_segments` file or the look-hold state
 | `look_ratio` | the previous segment: the largest saturation, lightness or contrast step across the seam over that measure's own rate inside either segment (`analyze_seams`'s measure) | `look_ratio_max` 5.5 | above the ceiling |
 | `texture_ratio` | segment 1: the mean fine-band (2-8 px) luma texture of 4 evenly spaced frames, whole frame | `texture_ratio_max` 2 | above it or below its inverse (doubled or halved); `null` skips it |
 | `cut_ratio` | the segment itself: its largest frame change over its own typical change, floored as `jump_ratio` is - a cut inside the segment, past the seam's windows, which the seam measures do not see | `cut_ratio_max` 3.5 | above the ceiling; `null` skips it |
-| `audio_dbfs` | the segment itself: the RMS level (dBFS, to 0.1) of its generated audio over the kept span, past the head trim; segment 1 included | `audio_dbfs_min` -70 | below the floor; `null` skips it. Skipped (no level) when the segment has no generated audio or the audio is held: `match_audio` or its `hold_audio`, a step `hold_audio` argument, or a `guide` chain carrying its audio |
+| `audio_dbfs` | the segment itself: the RMS level (dBFS, to 0.1) of its generated audio over the kept span, past the head trim; segment 1 included | `audio_dbfs_min` -70 | below the floor; `null` skips it. Skipped (no level) when the segment has no generated audio or the audio is held: `match_audio` or its `hold_audio`, or a step `hold_audio` argument. A `guide` chain carrying its audio is measured: the guide holds only the span the head trim drops |
 
 A segment whose prompt asks for a cut inside it fails `cut_ratio` and re-rolls, so set
 `check: {"cut_ratio_max": null}` to turn that measure off. A step that asks for silence
 fails `audio_dbfs` the same way: set `"audio_dbfs_min": null`. The floor sits between the
 -87.8 to -89.2 dBFS that dropout (silent) segments measured and the -57 dBFS of the
-quietest real one. Unlike `texture_ratio`, a failed `audio_dbfs` re-rolls.
+quietest real one. Unlike `texture_ratio`, a failed `audio_dbfs` re-rolls. The re-roll
+draws fresh noise but is not guaranteed to bring sound back: on the one repro measured
+(LTX-2.5 on mps), both seeds read about -89 dBFS and the re-roll cost about 3 minutes.
+The `chain_segment_silent` warning reports the segment either way.
 
 `"check": true` uses those ceilings; `"check": {"jump_ratio_max": 20}` overrides the ones
 it names. `face` is reserved and must be `null`. The jump and look ceilings are twice the
@@ -2783,8 +2841,8 @@ under the floor (the re-rolls exhausted, or `check` off, the floor then fixed at
 gets a `warning` (`kind: "chain_segment_silent"`) with the segment number, its
 `audio_dbfs` and the floor; `audio_dbfs_min: null` silences it. `best_attempt` is
 unchanged. A cost estimate quotes the worst case: a checked chain that generates its
-audio (floor on, no `match_audio`, no step `hold_audio`, not a `guide` chain carrying
-audio) re-rolls segment 1 too, so N segments cost up to N(1 + `retries`) segment renders;
+audio (floor on, no `match_audio`, no step `hold_audio`; a `guide` chain carrying its
+audio counts, its held span being the head trim) re-rolls segment 1 too, so N segments cost up to N(1 + `retries`) segment renders;
 any other checked chain never re-rolls segment 1 and costs up to
 1 + (N - 1)(1 + `retries`). The curated figure, measured without re-rolls, paid N.
 

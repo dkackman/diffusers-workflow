@@ -29,6 +29,7 @@ from .variables import (
     set_variables,
 )
 from .pipeline_processors.pipeline import Pipeline, apply_runtime_settings
+from .pipeline_processors.chain_config import derive_frame_snaps
 from .tasks.task import Task
 from . import get_device
 from .pipeline_ownership import (
@@ -204,6 +205,11 @@ class Workflow:
     # deep-copied them again; the child's one copy is _owned_arguments, on
     # entry. None for a workflow nothing composed
     _handed_arguments = None
+    # The pipeline keys the enclosing runs' steps hold, handed down when a
+    # parent composes this workflow: a release_models task inside a child
+    # must not evict a model a parent step loaded and a later parent step
+    # still addresses (pipeline_reference, a reused key). Empty at top level
+    _claimed_by_ancestors = frozenset()
 
     def __init__(self, workflow_definition, output_dir, file_spec, workflow_dir=None):
         self.workflow_definition = workflow_definition
@@ -218,6 +224,13 @@ class Workflow:
         # Which pipeline each step owns. run() replaces it per run; this one
         # serves a step action created outside run()
         self.pipeline_ownership = PipelineOwnership()
+
+    def claimed_pipeline_keys(self):
+        """The pipeline keys this run's steps recorded and every enclosing
+        run's: what a release_models task here must leave loaded."""
+        return frozenset(self.pipeline_ownership.keys_by_step.values()) | (
+            self._claimed_by_ancestors
+        )
 
     @property
     def name(self):
@@ -392,6 +405,16 @@ class Workflow:
         """Stage two of preparing a definition: every 'variable:'
         substituted, every 'constraint:' frame_snap resolved and every
         for_each expanded. Returns the new definition."""
+        # A chain planned by length with no frame_snap takes the one its
+        # num_frames variable's constraint declares - before substitution,
+        # while the 'variable:' is still visible, so the last segment lands
+        # on the pipeline's grid rather than being floored in silence
+        for step_name, variable in derive_frame_snaps(definition):
+            logger.info(
+                f"Step '{step_name}': chain frame_snap derived from "
+                f"variable_constraints.{variable}, so a shortened last segment "
+                "snaps to a count the pipeline accepts"
+            )
         if variables is not None:
             # replace_variables returns a new structure rather than mutating
             # in place, so the result must be captured here
@@ -870,6 +893,10 @@ class Workflow:
         # The parent's objects arrive as this child's arguments; the child
         # copies them once on entry rather than editing the parent's
         workflow._composed = True
+        # The child shares this run's pipeline dict but keeps its own
+        # ownership table, so what this run (and its ancestors) hold is
+        # handed down for the child's release_models to spare
+        workflow._claimed_by_ancestors = self.claimed_pipeline_keys()
         # One execution, one directory: the child writes into the
         # parent's run directory and leaves no manifest of its own - its
         # steps roll up into the parent's manifest already

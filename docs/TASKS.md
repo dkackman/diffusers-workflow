@@ -628,7 +628,8 @@ workflow guide).
 | `audio_bleed_gain_db` | No | Gain applied to the bled tail before it is added, in dB - negative ducks a tail that would otherwise push the seam over 0 dBFS (default: 0, unchanged) |
 | `seam_fade_ms` | No | Fade on each side of a seam that gets neither a crossfade nor a bleed - for tonal material, not for a continuous bed (default: 3, just enough not to click) |
 | `fps` | No | Frame rate of the videos - required to join audio when trimming, and the rate the joined file is written at unless `result.fps` overrides it. An input carrying a different rate is re-timed, with an `fps_overrides_input` warning |
-| `match_levels` | No | Even the shots' loudness out before joining - `"rms"` for perceived level (the measurement `get_gallery_metadata` reports as `mean_dbfs`), `"peak"` for the loudest sample. Off by default |
+| `match_levels` | No | Even the shots' loudness out before joining - `"rms"` for perceived level (the measurement `get_gallery_metadata` reports as `mean_dbfs`), `"peak"` for the loudest sample, `"lufs"` for BS.1770 integrated loudness (the unit editors deliver in; held at -1 dBTP true peak, and a shot under 0.4 s is matched by rms with a `match_levels_short_shot` warning). Off by default |
+| `match_levels_lufs` | No | The loudness `"lufs"` moves every shot to (default -16 LUFS; -23 is EBU R128 broadcast). A shot whose true peak would pass -1 dBTP is held there and reported as `match_levels_held`. `match_levels_dbfs` is refused with `"lufs"` |
 | `match_levels_dbfs` | No | The level `match_levels` moves every shot to (default: -1 dBFS for `peak`, -20 dBFS for `rms`). A shot that would clip at the target is held at -3 dBFS peak instead for `rms` (room for the AAC mux; -0.5 for `peak`), reported as a `match_levels_held` warning with a per-shot log event |
 | `sample_rate` | No | The joined soundtrack's rate. Default: the highest among the inputs, the rest resampled up with a warning (#108) |
 | `continuous_joins` | No | `true` when the joins continue one take rather than cut between shots, for example pieces of one chain take joined back up. Each seam is recorded without `hard_cut`, so `analyze_seams` measures its frame jump as it measures a chain's own seams, and the audio keeps the default few-ms declick (`seam_fade_ms: 0` butt-joins it). Refused beside `seam_fade_ms` above 0 or `audio_bleed_ms` (default: `false`, every seam a cut) |
@@ -714,7 +715,8 @@ to `join_into_song`).
   than 3 dB is an `inner_level_step` warning. Left off, a spread of 6 dB or more
   is a job warning, unless a later step such as `pair_audio` replaces the track.
   A shot at or below -40 dBFS, or one needing 20 dB or more of gain, is reported
-  as `match_levels_near_silent`.
+  as `match_levels_near_silent`. Under `"lufs"` the `inner_level_step` check
+  still measures rms.
 - **Sample rate.** Inputs at different rates are resampled up to the highest,
   with a warning, unless `sample_rate` pins the target.
 - **Joined track.** The soundtrack is fitted to the joined frames. A track short
@@ -729,9 +731,13 @@ to `join_into_song`).
 A joined piece as an editable timeline: an OpenTimelineIO `.otioz` bundle that
 DaVinci Resolve (18.5+) imports with one clip per shot. The bundle is a zip of
 `version.txt` (`1.0.0`), `content.otio` and a `media/` folder; each clip's
-`target_url` is `media/<file>`. The OTIO JSON is written directly, so there is
+`target_url` is `media/<file>`, percent-encoded. The OTIO JSON is written directly, so there is
 no `opentimelineio` dependency. Rates are the exact rational the engine writes
 (23.976 is 24000/1001, stored by OTIO as a float) with integral frame values.
+When a clip's file sits in a run of the output directory, the clip's OTIO
+`metadata.dw.source` holds that file's `output:` reference (the joined video's on
+every clip, each source's in `sources` mode); the job page offers it to copy, for
+`chain_take`/`chain_output`. A file outside a run records none.
 
 Checked by hand in Resolve 21 (2026-11-06): File > Import > Timeline takes the
 `.otioz`, or its unzipped `content.otio` beside `media/`, and gives one clip per
@@ -757,14 +763,15 @@ an `.otio` reports "The clip was not found".
 | Argument | Meaning |
 | -------- | ------- |
 | `video` | The joined video, a stored file (`asset:`, `output:` or a path). A clip still in memory is refused: the bundle carries the file |
-| `sources` | One file per shot, in order. Each clip then points at its own file over that file's whole range. Default: every clip points into `video` over its shot's span, so the bundle holds one media file |
+| `sources` | One file per shot, in order. Each clip then points at its own file over that file's whole range, at that file's own frame rate, and the bundle holds those files, not `video`. A count other than one per shot is refused. Default: every clip points into `video` over its shot's span, so the bundle holds one media file |
 | `shots` | Shot records; else the video's own from the run manifest, else the whole file is one clip |
 | `name` | The timeline's name |
 
 By default there is one video track and, when the file has a soundtrack, one
 audio track. Where the shots leave frames uncovered the track carries a gap, so
 clips and gaps add up to the video's length; shots that overlap are refused,
-since a track lays its clips end to end. The concept and schema come from
+since a track lays its clips end to end, and so is a shot that runs past the
+video's last frame. The concept and schema come from
 leonardofrito/Directors-Cut (MIT); see [ATTRIBUTIONS.md](ATTRIBUTIONS.md).
 
 ### dissolve_videos
@@ -797,8 +804,9 @@ The [join input rules](#join-input-rules) apply.
 | `fade_out_frames` | No | Frames over which the last video sinks into it (default: 0) |
 | `fade_color` | No | The RGB colour the fades come from and go to (default: black) |
 | `fps` | No | Frame rate of the videos - required to crossfade audio at a dissolve, and the rate the dissolved file is written at unless `result.fps` overrides it |
-| `match_levels` | No | Even the shots' loudness out before joining - `"rms"` or `"peak"`, as with [`concat_videos`](#concat_videos). Off by default |
+| `match_levels` | No | Even the shots' loudness out before joining - `"rms"`, `"peak"` or `"lufs"`, as with [`concat_videos`](#concat_videos). Off by default |
 | `match_levels_dbfs` | No | As with `concat_videos` |
+| `match_levels_lufs` | No | As with `concat_videos` |
 | `sample_rate` | No | The joined soundtrack's rate. Default: the highest among the inputs, the rest resampled up with a warning |
 
 Every seam shortens the result by one overlap, so eight 124-frame shots joined
@@ -962,6 +970,12 @@ repair sits on the take:
 | `head_frames` | No | Segment k-1's last frames, held at the render's frame 0: a whole-latent length, 17m + 5 from 22 (default `22`) |
 | `tail_frames` | No | Segment k+1's frames held as a guide ending at the render's last frame, a whole-latent length (default `39`, so the tail hold outnumbers the head) |
 | `width`, `height` | No | The render's canvas; when given, refused unless it is the segment files' own size |
+
+A `chain_take` alone whose segment files cannot be found is refused with the
+fix for its case: a take run without `keep_segments` (re-run the chain with
+`keep_segments` and `save_segments`), a take that is already a repair, which
+leaves no segment files (repair the original chain take), and a take copied
+away from its run, with no manifest beside it (pass `chain_output` as well).
 
 It returns a record for later steps (`previous_result:cut.<field>`):
 `head_guide` and `tail_guide` (clips with their audio, cut from the segment
@@ -1540,7 +1554,7 @@ needed only for a bare waveform, and given, it wins.
 | `lead_frames` | No | Frame form only, default 0: extra audio before the cut. The slice starts at `start_frame - lead_frames` and still runs `num_frames`, so `start_frame` 48 with `lead_frames` 12 at 24 fps is audio from frame 36 for `num_frames` frames. A whole number, 0 or above; a nonzero value is refused with the seconds form, and refused when `start_frame - lead_frames` is below zero (by `validate_workflow` for literals, at run time otherwise) |
 | `sample_rate` | With a waveform | Rate of a bare waveform |
 | `past_end` | No | `"pad"` (default) zero-pads a slice past the end of the source to the length asked; `"stop"` cuts it at the end, so a short source keeps its own length (logged), and the track carries the length asked for to `fade_audio` and `crossfade_audio`. A slice starting at or past the end is refused with `"stop"` |
-| `end_snap_seconds` | No | Off by default (0 is off too); zero or above. When the slice's end cuts into the source, the end moves back to the centre of the quietest 0.2 s window (lowest RMS) within this many seconds before it, never before the slice's start; an even level keeps the exact cut. The slice comes out that much shorter (logged), and the track carries the asked length and the snap on to `fade_audio` and `crossfade_audio`, which counts it in the joined total but not as a track that ended early. An end the source does not reach has nothing to snap |
+| `end_snap_seconds` | No | Off by default (0 is off too); zero or above. When the slice's end cuts into the source, the end moves back to the centre of the quietest 0.2 s window (lowest RMS) within this many seconds before it, never into the slice's first half (the slice keeps at least half its asked length); an even level keeps the exact cut. The slice comes out that much shorter (logged), and the track carries the asked length and the snap on to `fade_audio` and `crossfade_audio`, which counts it in the joined total but not as a track that ended early. An end the source does not reach has nothing to snap |
 
 ### gain_audio
 
@@ -2883,7 +2897,9 @@ A validate's `downloads_required` lists the repo for the `mode` given; `model_na
 
 Two tasks promote a MiniMax-H3 take in latent space; the workflow guide's
 [Promoting an H3 take](WORKFLOW_GUIDE.md#promoting-an-h3-take-to-768p-in-latent-space-upscale_h3_latents-and-decode_h3_latents)
-section has the full recipe.
+section has the full recipe. A third, `encode_h3_latents`, goes the other way
+for the experimental windowed refine of a long take
+([Refining a long take in time windows](WORKFLOW_GUIDE.md#experimental-refining-a-long-take-in-time-windows)).
 
 ### upscale_h3_latents
 
@@ -2906,11 +2922,35 @@ latents. `downloads_required` lists the upscaler file.
 
 Decode H3 latents to frames through diffusers' `MiniMaxH3VideoDecodeStep` (VAE
 in fp32), so the colours match the pipeline's own decode. Takes `latents` (a
-pipeline step's `latents` or an `upscale_h3_latents` result) and `model_name`
-(default `MiniMaxAI/MiniMax-H3`, its `vae` subfolder). Returns one video of the
+pipeline step's `latents` or an `upscale_h3_latents` result), `model_name`
+(default `MiniMaxAI/MiniMax-H3`, its `vae` subfolder) and `num_frames` (keep
+only the first that many frames: an `encode_h3_latents` step's `source_frames`,
+so a padded take comes back at its own length). Returns one video of the
 first batch item at 24 fps with no audio; `pair_audio` puts a soundtrack back.
+Latents too short to decode to any frame (one or two latent frames) are
+refused, and so is a `num_frames` above what the latents decode to.
 It declares no `required_weights`: the VAE is the one the H3 pipeline step
 already cached.
+
+### encode_h3_latents
+
+Experimental. Encode a finished take into one H3 video latent, one 17-frame VAE
+clip at a time, so a take too long to encode whole (a `source_video` refine
+encodes it as one float32 tensor) still reaches a refine. The result is
+bit-identical to the whole-take encode.
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `source` | Yes | The take: an `output:`/`asset:` video file, read a clip's range at a time, or an earlier step's video. 24 fps, both sides a multiple of 32 |
+| `model_name` | No | The MiniMax-H3 repo whose `vae` subfolder encodes (default `MiniMaxAI/MiniMax-H3`) |
+
+Returns `latents` (the refine's `latents` argument), `num_frames` (the take
+padded with its last frame up to the next 17m + 5, the refine's `num_frames`)
+and `source_frames` (the take's own count, for `decode_h3_latents`'
+`num_frames`). Refused: a take that is not 24 fps, a side off the 32 grid, an
+empty take, and one over 30 minutes. A file header that claims far more frames
+than its duration holds is refused; one that claims a few more (a
+variable-frame-rate take) is encoded at the duration's count, with a warning.
 
 ## Face Restoration
 
@@ -3200,6 +3240,40 @@ The engine expands `for_each` before a run, so the list cannot feed a
 text, runs this task, and hands the takes to `templates/narration-from-takes`
 as a child workflow, which expands its own `for_each`. Refused: empty text, a limit that is not
 above zero.
+
+## Checking a Narration
+
+`check_narration` checks that a long narration spoke its script
+(`dw/tasks/narration_check.py`). A narration is assembled from takes
+(`templates/narration-long`) and a take can loop, skip or stop early with
+nothing saying so. The joined audio is transcribed once with the pipeline
+`transcribe_audio` caches, the words heard are aligned to the script's words
+in order, and each dropped or inserted word is attributed to its take.
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `audio` | Yes | The narration: an audio file, a video's soundtrack, or a waveform (with `sample_rate`) |
+| `text` | One of | The script as one string, split into takes as `split_takes` does by default |
+| `takes` | One of | The takes it was spoken from: a list, or one string split as `text` is |
+| `max_word_error_rate` | No | A take over this fails (default 0.1; 0 to 1) |
+| `model_name` | No | A Whisper-class ASR model (the `transcribe_audio` default) |
+| `device`, `sample_rate` | No | As `transcribe_audio` |
+
+Exactly one of `text` and `takes` is given; both or neither is refused. It
+answers `{takes, checked, failed, worst}`: per take `{index, text, words,
+dropped, inserted, word_error_rate, ok}`, where the rate is dropped plus
+inserted words over the take's expected words; `failed` lists the indices over
+the limit; `worst` is `{index, word_error_rate}`. An inserted word that
+replaces expected words (a word misheard) belongs to the take of the words it
+replaces; a pure insertion belongs to the take whose words it sits in front of
+(the last take when it follows them all), so a filler between two takes counts
+against the later one. The exception is a pure insertion at a take boundary
+whose words repeat the end of the take before it: that belongs to the earlier
+take, because the alignment can match either copy of a looped take and leave
+the repeat in front of the next one. A looped take therefore shows as
+insertions in its own take, with the takes after it still aligned. Each failing take also emits a
+`narration_take_mismatch` warning naming the take, its rate and its first
+dropped words. `templates/check-narration` runs it.
 
 ## Extracting Sections
 
@@ -3784,6 +3858,9 @@ Canny edge detection followed by ControlNet generation:
 - [best-of-n-to-video.json](../workflows/templates/best-of-n-to-video.json) — `judge` and `select` pick the best of several stills
 - [relevel-clip.json](../workflows/templates/relevel-clip.json) — Fix a clipping soundtrack on a rendered clip without re-rendering
 - [generate-speech.json](../workflows/templates/generate-speech.json) — Speak a line with a local text-to-speech model
+- [split-takes.json](../workflows/templates/split-takes.json) — `split_takes` alone: see or edit a long text's takes before speaking them
+- [check-narration.json](../workflows/templates/check-narration.json) — `check_narration`: the script against the joined speech, per take
+- [narration-long.json](../workflows/templates/narration-long.json) — Split a long text into takes, speak each in one cloned voice and join them
 - [voice-timbre-reference.json](../workflows/templates/minimax/voice-timbre-reference.json) — Generate a voice and condition H3's `<Audio 1>` on it
 - [dissolve-between-shots.json](../workflows/templates/dissolve-between-shots.json) — Dissolve between supplied shots and mix a score under their own audio
 - [face-repair.json](../workflows/templates/ltx2/face-repair.json) — Track, refine and paste back a wide shot's small face

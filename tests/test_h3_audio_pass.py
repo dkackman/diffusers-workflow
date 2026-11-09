@@ -591,6 +591,19 @@ class TestHeldVideos:
         assert held.shape == videos.shape
         assert np.allclose(held[1] * 255, source)
 
+    def test_a_tensor_batch_held_off_24_fps_keeps_the_rate(self):
+        import torch
+
+        from dw.output_extraction import held_videos
+
+        source = source_frames()
+        videos = torch.zeros((1, FRAMES, 3, HEIGHT, WIDTH))
+        held = held_videos(videos, source, fps=30)
+        # A tensor carries no rate, so the held frames come back as the np form
+        assert getattr(held, "fps", None) == 30
+        assert np.allclose(np.asarray(held)[0] * 255, source)
+        assert isinstance(held_videos(videos, source, fps=24), torch.Tensor)
+
     def test_a_result_without_the_held_video_is_todays(self):
         from dw.output_extraction import modular_artifacts
 

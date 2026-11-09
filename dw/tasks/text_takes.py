@@ -69,10 +69,17 @@ def _is_abbreviation(before):
 
 
 def _words_allowed(max_seconds, words_per_second):
+    from ..task_domains import real_number
+
+    checked = []
     for name, value in (
         ("max_seconds", max_seconds),
         ("words_per_second", words_per_second),
     ):
+        # A command-line value for a variable declared null arrives as text
+        if isinstance(value, str):
+            value = real_number(value, name, "split_takes")
+        checked.append(value)
         if (
             isinstance(value, bool)
             or not isinstance(value, (int, float))
@@ -80,6 +87,7 @@ def _words_allowed(max_seconds, words_per_second):
             or value <= 0
         ):
             raise ValueError(f"split_takes: {name} must be above zero, got {value!r}")
+    max_seconds, words_per_second = checked
     return max(1, int(max_seconds * words_per_second))
 
 

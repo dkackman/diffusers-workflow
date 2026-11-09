@@ -74,12 +74,8 @@ class TestGeometry:
     ):
         shortest = head + frames[segment - 1] + tail
         num_frames = shortest + (5 - shortest) % 17
-        try:
-            geometry = repair_geometry(frames, segment, num_frames, head, tail)
-        except ValueError as error:
-            # Only a neighbour too short for the tail guide may refuse
-            assert "tail guide would be" in str(error)
-            return
+        # Every case here fits: a refusal is a regression, not a skip
+        geometry = repair_geometry(frames, segment, num_frames, head, tail)
         assert splice_length(frames, segment, geometry) == sum(frames)
         assert geometry["total_frames"] == sum(frames)
         assert geometry["tail_frame"] % 17 == 0
@@ -340,10 +336,33 @@ class TestSegmentFiles:
         with pytest.raises(ValueError, match="keep_segments: true"):
             self._cut(made)
 
-    def test_a_take_copied_away_names_chain_output(self, tmp_path):
+    def test_a_take_copied_away_without_its_manifest_names_the_run(self, tmp_path):
+        # chain_output cannot help: the splice needs the shots, so the cut
+        # must not send the caller after a refusal
         made = write_run(str(tmp_path), [40, 51, 51, 51], manifest=False)
-        with pytest.raises(ValueError, match="copied away.*chain_output"):
+        with pytest.raises(ValueError, match="copied away.*manifest.json") as error:
             self._cut(made)
+        assert "pass 'chain_output'" not in str(error.value)
+
+    def test_a_take_without_shots_is_refused_before_any_decode(
+        self, tmp_path, monkeypatch
+    ):
+        import dw.tasks.chain_repair as chain_repair
+
+        made = write_run(str(tmp_path), [40, 51, 51, 51], manifest=False)
+
+        def no_decode(path):
+            raise AssertionError("refused before the neighbours decode")
+
+        monkeypatch.setattr(chain_repair, "load_audio_video", no_decode)
+        with pytest.raises(ValueError, match="chain's own output with its shots"):
+            chain_repair_cut(
+                chain_take=made["take"],
+                chain_output=made["segments"][0],
+                segment=2,
+                num_frames=107,
+                tail_frames=22,
+            )
 
     def test_a_take_beside_a_manifest_but_not_its_segments_names_chain_output(
         self, tmp_path
@@ -357,6 +376,60 @@ class TestSegmentFiles:
         with pytest.raises(ValueError, match="copied away.*chain_output"):
             chain_repair_cut(
                 chain_take=str(copy_run / "final" / os.path.basename(made["take"])),
+                segment=2,
+                num_frames=107,
+                tail_frames=22,
+            )
+
+    def test_a_pruned_segment_beside_a_take_in_its_run_is_named(self, tmp_path):
+        # Some named files still beside the take: it is in its run and one
+        # was deleted, not copied away
+        made = write_run(str(tmp_path), [40, 51, 51, 51])
+        os.remove(made["segments"][2])
+        with pytest.raises(ValueError, match="segment file .* is gone"):
+            self._cut(made)
+
+    def test_an_extra_segment_beside_chain_output_is_named_not_blamed_on_the_take(
+        self, tmp_path
+    ):
+        # More files than the take has shots: another run's or a re-render's
+        # file was left beside them. The take's shots are fine - the refusal
+        # must say what to move, not that the take "has none"
+        made = write_run(str(tmp_path), [40, 51, 51])
+        run = os.path.dirname(os.path.dirname(made["take"]))
+        copy_run = tmp_path / "copy"
+        os.makedirs(copy_run / "final")
+        shutil.copy(made["take"], copy_run / "final")
+        shutil.copy(os.path.join(run, "manifest.json"), copy_run)
+        last = made["segments"][-1]
+        shutil.copy(last, last.replace("segment-002", "segment-003"))
+        with pytest.raises(ValueError) as raised:
+            chain_repair_cut(
+                chain_take=str(copy_run / "final" / os.path.basename(made["take"])),
+                chain_output=made["segments"][0],
+                segment=2,
+                num_frames=107,
+                tail_frames=22,
+            )
+        message = str(raised.value)
+        assert "3 shots" in message and "4 segment file" in message
+        assert "move" in message
+        assert "it has none" not in message
+
+    def test_a_missing_last_segment_beside_chain_output_is_refused(self, tmp_path):
+        # A gap check on the files alone cannot see a missing highest index;
+        # the take's shot count can
+        made = write_run(str(tmp_path), [40, 51, 51, 51])
+        run = os.path.dirname(os.path.dirname(made["take"]))
+        copy_run = tmp_path / "copy"
+        os.makedirs(copy_run / "final")
+        shutil.copy(made["take"], copy_run / "final")
+        shutil.copy(os.path.join(run, "manifest.json"), copy_run)
+        os.remove(made["segments"][-1])
+        with pytest.raises(ValueError, match="4 shots but only 3 segment file"):
+            chain_repair_cut(
+                chain_take=str(copy_run / "final" / os.path.basename(made["take"])),
+                chain_output=made["segments"][0],
                 segment=2,
                 num_frames=107,
                 tail_frames=22,
@@ -499,6 +572,43 @@ class TestSplice:
         for index in (0, 3):
             assert spliced.shots[index] == own[index], index
         assert not any("segment_file" in shot for shot in spliced.shots)
+
+    def test_a_render_track_short_of_the_span_warns_of_the_silence(
+        self, tmp_path, monkeypatch
+    ):
+        import dw.tasks.chain_repair as chain_repair
+
+        made = write_run(str(tmp_path), [40, 51, 51, 51], crossfade_ms=75)
+        cut = chain_repair_cut(
+            chain_take=made["take"], segment=2, num_frames=107, tail_frames=22
+        )
+        render = stand_in_render(cut)
+        # A full second of the render's soundtrack is missing at its end
+        render.audio = render.audio[:, : render.audio.shape[1] - RATE]
+        warnings = []
+        monkeypatch.setattr(
+            chain_repair, "emit_warning", lambda m, **d: warnings.append(d)
+        )
+        chain_repair_splice(
+            chain_take=cut["chain_take"],
+            video=render,
+            segment=2,
+            start_frame=cut["start_frame"],
+            end_frame=cut["end_frame"],
+            keep_start=cut["keep_start"],
+        )
+        assert [w["kind"] for w in warnings] == ["splice_audio_short"]
+        assert warnings[0]["silent_seconds"] > 0
+
+    def test_a_full_render_track_does_not_warn(self, tmp_path, monkeypatch):
+        import dw.tasks.chain_repair as chain_repair
+
+        warnings = []
+        monkeypatch.setattr(
+            chain_repair, "emit_warning", lambda m, **d: warnings.append(d)
+        )
+        repaired(write_run(str(tmp_path), [40, 51, 51, 51], crossfade_ms=75))
+        assert warnings == []
 
     def test_the_repaired_seams_are_recorded_as_the_chain_records_one(self, tmp_path):
         made = write_run(str(tmp_path), [40, 51, 51, 51], crossfade_ms=75)
@@ -751,7 +861,17 @@ class TestTemplate:
         assert definition["variables"]["keep_segments"] is False
         (chain,) = list(chain_blocks(definition))
         assert chain["keep_segments"] == "variable:keep_segments"
-        assert chain["save_segments"] in ("variable:keep_segments", True)
+        # The guide chain spills every take (Don, 2026-11-08): a chain that
+        # dies leaves its finished segments for resume_from
+        expected = (
+            (True,)
+            if name == "chained-segments.json"
+            else (
+                "variable:keep_segments",
+                True,
+            )
+        )
+        assert chain["save_segments"] in expected
         assert "repair-segment" in definition["description"]
 
 

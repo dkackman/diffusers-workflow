@@ -18,6 +18,7 @@ from dw.pipeline_processors.chain_check import (
     check_audio,
     check_segment,
     segment_check,
+    texture_base,
 )
 from dw.pipeline_processors.chain_rules import chain_check_problem
 
@@ -46,7 +47,7 @@ def test_a_jump_over_the_threshold_fails_and_names_the_measure():
     before = frames_of(ramp())
     after = frames_of(ramp(reverse=True))
 
-    result = check_segment(before, after, before, SegmentCheck())
+    result = check_segment(before, after, texture_base(before), SegmentCheck())
 
     assert not result.passed
     assert result.failed == ["jump_ratio"]
@@ -56,7 +57,9 @@ def test_a_jump_over_the_threshold_fails_and_names_the_measure():
 def test_a_seamless_segment_passes():
     before = frames_of(noise(1))
 
-    result = check_segment(before, frames_of(noise(1)), before, SegmentCheck())
+    result = check_segment(
+        before, frames_of(noise(1)), texture_base(before), SegmentCheck()
+    )
 
     assert result.passed and result.failed == []
     assert result.measures["jump_ratio"] == 0
@@ -65,7 +68,9 @@ def test_a_seamless_segment_passes():
 def test_a_static_shot_with_near_zero_motion_does_not_fail_on_jump():
     # Both shots static: their own typical delta is ~0, under the assess
     # floor, so the seam's change is divided by the floor and not by ~0
-    result = check_segment(grey(100), grey(105), grey(100), SegmentCheck())
+    result = check_segment(
+        grey(100), grey(105), texture_base(grey(100)), SegmentCheck()
+    )
 
     assert "jump_ratio" not in result.failed
     assert result.measures["typical_delta"] == 2.0
@@ -76,14 +81,18 @@ def test_hard_cut_seams_are_never_checked():
     before = frames_of(noise(1))
     after = frames_of(noise(2))
 
-    result = check_segment(before, after, before, SegmentCheck(), hard_cut=True)
+    result = check_segment(
+        before, after, texture_base(before), SegmentCheck(), hard_cut=True
+    )
 
     assert result.passed and result.failed == []
     assert result.measures == {"skipped": "hard_cut"}
 
 
 def test_a_look_step_over_the_threshold_fails_on_look():
-    result = check_segment(grey(100), grey(160), grey(100), SegmentCheck())
+    result = check_segment(
+        grey(100), grey(160), texture_base(grey(100)), SegmentCheck()
+    )
 
     assert "look_ratio" in result.failed
     assert result.measures["look_ratio_measure"] == "lightness"
@@ -94,8 +103,8 @@ def test_texture_drift_from_segment_1_fails_both_ways():
     smooth = grey(128)
     check = SegmentCheck(jump_ratio_max=1e9, look_ratio_max=1e9)
 
-    blurred = check_segment(textured, smooth, textured, check)
-    crusted = check_segment(smooth, textured, smooth + smooth, check)
+    blurred = check_segment(textured, smooth, texture_base(textured), check)
+    crusted = check_segment(smooth, textured, texture_base(smooth + smooth), check)
 
     assert blurred.failed == ["texture_ratio"]
     assert blurred.measures["texture_ratio"] < 1 / TEXTURE_RATIO_MAX
@@ -103,13 +112,33 @@ def test_texture_drift_from_segment_1_fails_both_ways():
     assert crusted.measures["texture_ratio"] is None
     assert "texture_ratio" not in crusted.failed
 
+    # And the sharper way: a faintly textured segment 1, a crusty later one
+    rng = numpy.random.default_rng(2)
+    faint = frames_of((118 + rng.random((32, 32, 3)) * 20).astype(numpy.uint8))
+    sharpened = check_segment(faint, textured, texture_base(faint), check)
+    assert sharpened.failed == ["texture_ratio"]
+    assert sharpened.measures["texture_ratio"] > TEXTURE_RATIO_MAX
+
+
+def test_segment_1_texture_is_the_base_measured_once():
+    textured = frames_of(noise(1))
+    smooth = grey(128)
+    check = SegmentCheck(jump_ratio_max=1e9, look_ratio_max=1e9)
+    base = texture_base(textured)
+    assert isinstance(base, float) and base > 0
+    by_base = check_segment(textured, smooth, base, check)
+    assert by_base.failed == ["texture_ratio"]
+    # No base to measure against reads as no ratio, not a failure
+    unmeasured = check_segment(textured, smooth, None, check)
+    assert unmeasured.measures["texture_ratio"] is None
+
 
 def test_texture_is_not_checked_when_its_threshold_is_none_or_frames_are_small():
     textured = frames_of(noise(1))
     off = SegmentCheck(1e9, 1e9, None)
-    assert check_segment(textured, grey(128), textured, off).passed
+    assert check_segment(textured, grey(128), texture_base(textured), off).passed
     tiny = frames_of(noise(1, size=8))
-    small = check_segment(tiny, tiny, tiny, SegmentCheck())
+    small = check_segment(tiny, tiny, texture_base(tiny), SegmentCheck())
     assert small.measures["texture_ratio"] is None
 
 
@@ -250,7 +279,6 @@ def test_the_estimate_quotes_the_worst_case_retries():
     [
         ({"audio_dbfs_min": None}, {}, {}),
         (True, {}, {"hold_audio": "asset:track.wav"}),
-        (True, {"continuity": "guide"}, {}),
     ],
 )
 def test_the_estimate_leaves_segment_1_out_when_no_audio_is_measured(
@@ -278,6 +306,17 @@ def test_a_match_audio_chain_holds_its_audio():
     assert _chain_checks_audio(definition, {})
     definition["steps"][0]["pipeline"]["chain"]["match_audio"] = True
     assert not _chain_checks_audio(definition, {})
+
+
+def test_a_guide_chain_carrying_its_audio_checks_segment_1():
+    # The guide holds only the span the head trim drops, so the kept audio
+    # is generated and segment 1 is floored like any other chain's
+    from dw.plan import estimate
+
+    definition, expanded = _priced(3, True, 1)
+    definition["steps"][0]["pipeline"]["chain"]["continuity"] = "guide"
+    quoted = estimate(definition, expanded, {}, "cuda", None, None)
+    assert quoted["minutes"] == pytest.approx(10.0 * 3 * 2)
 
 
 def test_a_guide_chain_that_does_not_carry_its_audio_checks_segment_1():
@@ -338,7 +377,7 @@ def test_a_cut_inside_the_segment_fails_on_cut_ratio():
     before = frames_of(noise(1))
     after = frames_of(noise(1), 2) + frames_of(noise(7), 10)
 
-    result = check_segment(before, after, before, SegmentCheck())
+    result = check_segment(before, after, texture_base(before), SegmentCheck())
 
     assert result.failed == ["cut_ratio"]
     assert result.measures["jump_ratio"] == 0
@@ -354,7 +393,7 @@ def test_steady_motion_inside_the_segment_passes_cut_ratio():
         for n in range(12)
     ]
 
-    result = check_segment(after[:1] * 4, after, after, SegmentCheck())
+    result = check_segment(after[:1] * 4, after, texture_base(after), SegmentCheck())
 
     assert "cut_ratio" not in result.failed
     assert result.measures["cut_ratio"] <= 1.5
@@ -365,7 +404,7 @@ def test_cut_ratio_null_skips_it():
     after = frames_of(noise(1), 2) + frames_of(noise(7), 10)
 
     check = segment_check({"cut_ratio_max": None})
-    result = check_segment(before, after, before, check)
+    result = check_segment(before, after, texture_base(before), check)
 
     assert result.passed
     assert chain_check_problem({"check": {"cut_ratio_max": 0}})
@@ -416,14 +455,18 @@ class TestAudioFloor:
         result = check_segment(
             before,
             frames_of(noise(1)),
-            before,
+            texture_base(before),
             SegmentCheck(),
             audio=numpy.zeros((2, 100)),
         )
         assert result.failed == ["audio_dbfs"]
         assert result.measures["audio_dbfs"] == -120.0
         loud = check_segment(
-            before, frames_of(noise(1)), before, SegmentCheck(), audio=tone(-20)
+            before,
+            frames_of(noise(1)),
+            texture_base(before),
+            SegmentCheck(),
+            audio=tone(-20),
         )
         assert loud.passed
         assert loud.measures["audio_dbfs"] == pytest.approx(-20, abs=0.1)
@@ -443,8 +486,12 @@ class TestAudioFloor:
             {"segments": 2, "check": True}, {"hold_audio": object()}
         )
         assert step_held.audio_held and step_held.audio_floor is None
+        # A guide carrying its audio holds only the span its head trim drops:
+        # the kept audio is generated, so it is floored and segment 1 checked
         guide = ChainConfig({"segments": 2, "check": True, "continuity": "guide"}, {})
-        assert guide.audio_held and not guide.checks_segment_1
+        assert guide.guide_holds_audio
+        assert not guide.audio_held and guide.audio_floor == AUDIO_DBFS_MIN
+        assert guide.checks_segment_1
 
 
 def _observed_quote(check, retries, **block):
@@ -461,6 +508,19 @@ def test_an_observed_estimate_quotes_the_worst_case_retries():
     assert quoted["minutes"] == pytest.approx(60.0)
     assert quoted["basis"] == "derived"
     assert "6 renders for 3" in quoted["scaled"]
+
+
+def test_an_observed_worst_case_holds_the_fixed_share():
+    # A re-roll renders a segment again; it does not load the model again.
+    # The entry's fixed share (12 of 30 min) is held, as the curated path
+    # holds it (#1224)
+    from dw.plan import estimate
+
+    definition, expanded = _priced(3, True, 1)
+    definition["cost"][0]["fixed_minutes"] = 12
+    history = {"cold_minutes": 30.0, "cold_runs": 10, "device": "cuda"}
+    quoted = estimate(definition, expanded, {}, "cuda", None, None, observed=history)
+    assert quoted["minutes"] == pytest.approx(12 + 18 * 2)
 
 
 def test_an_inherited_estimate_quotes_the_worst_case_retries():

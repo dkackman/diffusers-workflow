@@ -30,7 +30,7 @@ from .arguments import realize_args
 from .elision import elide_definition, warn_elided
 from .for_each import group_of
 from .media import probe_metadata
-from .pipeline_ownership import allocated_mb, finish_release
+from .pipeline_ownership import allocated_mb, evict_idle_for_task, finish_release
 from .pipeline_processors.timing import mark, step_timer
 from .previous_results import StepResults
 from .realize import pin_output_reference, realize_workflow
@@ -993,6 +993,18 @@ def _run_started_step(workflow, loop, index, step_data, step, step_seed, record,
     # borrows it - whether a later step will be a hit too is not
     # known until that step's own lookup
     mark("load_started")
+    if (
+        cached_result is None
+        and ("task" in step_data or "workflow" in step_data)
+        and step_data.get("release_models", False)
+    ):
+        # A composed child (the flux3 templates' upsample step) carries the
+        # flag on the parent step, so a `workflow` step counts as a task here
+        evict_idle_for_task(
+            loop.pipelines,
+            set(workflow.claimed_pipeline_keys()),
+            step_data["name"],
+        )
     if cached_result is None:
         workflow._load_deferred_borrows(
             loop.workflow_id, steps, index, loop.shared_components, loop.pipelines

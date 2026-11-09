@@ -215,6 +215,57 @@ def _realize_type_reference(arg, k, v):
     elif isinstance(v, type):
         # the value already a type
         arg[k] = v
+    elif isinstance(v, dict) and k == PER_COMPONENT_DTYPE_KEY:
+        arg[k] = realize_per_component_dtype(v, k)
+
+
+# The key whose dict form names a dtype per pipeline component - diffusers'
+# own {"default": ..., "<component>": ...} form of from_pretrained's torch_dtype
+PER_COMPONENT_DTYPE_KEY = "torch_dtype"
+
+
+def realize_per_component_dtype(value, key=PER_COMPONENT_DTYPE_KEY):
+    """Realize a per-component torch_dtype dict: every value loads as a dtype.
+
+    The keys are the pipeline's component names (plus 'default', which diffusers
+    applies to every component the dict does not name - and without which those
+    load as float32). Nothing here knows a model's components: any name passes
+    through to diffusers. A value has to be a dtype name; a {} escape means
+    "keep this a string", which no component can load as, so it is refused
+    rather than handed on as a string diffusers would reject far from here. A
+    value an earlier realize pass already loaded is kept."""
+    realized = {}
+    for component, dtype in value.items():
+        if isinstance(dtype, EscapedString) or is_escaped(dtype):
+            raise ValueError(
+                f"{key} for component '{component}' is {{}}-escaped ({dtype!r}): "
+                "a per-component dtype has to name a dtype, such as torch.float32"
+            )
+        if isinstance(dtype, str):
+            try:
+                realized[component] = load_type_from_name(dtype, key)
+            except (ImportError, AttributeError, ValueError) as e:
+                raise ValueError(
+                    f"{key} for component '{component}' names an unknown dtype "
+                    f"{dtype!r}: {e}"
+                ) from e
+        elif _is_dtype(dtype):
+            realized[component] = dtype
+        else:
+            raise ValueError(
+                f"{key} for component '{component}' has to be a dtype name such "
+                f"as torch.float32, not {type(dtype).__name__} {dtype!r}"
+            )
+    return realized
+
+
+def _is_dtype(value):
+    """Whether a value is an already-loaded torch dtype"""
+    try:
+        import torch
+    except ImportError:  # pragma: no cover - torch is a hard dependency
+        return False
+    return isinstance(value, torch.dtype)
 
 
 def _realize_nested(arg, k, v, base_dir, apply_key_conventions=True):

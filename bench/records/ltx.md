@@ -102,7 +102,55 @@ LTX sometimes renders a near-silent segment, about -89 dBFS against -23 to
   judged on picture, as the S1/S2 ruling does for scenes with no held voice.
 - The chain check does not catch it. A segment-level silence check (RMS under
   about -70 dBFS where the prompt asks for sound) would. Worth an issue: is
-  it MPS-only, and is it the audio VAE or the vocoder?
+  it MPS-only, and is it the audio VAE or the vocoder? (#1221; the chain
+  check's `audio_dbfs` floor and `chain_segment_silent` warning now catch it.)
+
+### Cause
+
+**The conditioning, not the audio decode** (#1221 stage B2, #1267; mini-ai,
+MPS, 2026-11-08). Two runs of the S5 seed-2 control, the realized workflow
+of `7fbfc3451e90`, differing only in `torch_dtype`:
+
+| run | job | `torch_dtype` | seg 1 | seg 2 | seg 3 | seg 3, muxed |
+|---|---|---|---|---|---|---|
+| B, control | `cb3697f4179c` | `"torch.bfloat16"` | -46.3 | -56.8 | **-88.7** | -91.7 |
+| A, fp32 decode | `b860e3bc8dd6` | `{"default": "torch.bfloat16", "audio_vae": "torch.float32", "vocoder": "torch.float32"}` | -46.3 | -56.8 | **-103.5** | -128.8 |
+
+Levels in dBFS. The segment columns are the shot's `audio_dbfs`: the RMS of
+the generated audio over the kept span, which is what the chain check
+measures. "Muxed" is `assess_output`'s shot RMS of the final file.
+
+- **The probe stands.** Run B's segment 3 reads -88.7, within 0.5 dB of the
+  -89.2 in the table above, though only just. Segments 1 and 2 don't
+  match that table's control row (-42.4, -46.5). This server has rendered
+  seed 2 as -46.3 / -56.8 since at least `1deff016d727`, so the take has
+  moved since the 2026-11-06 bench runs, and the dropout moved with it.
+  Run B is the control for run A because the two share their latents.
+  Segments 1 and 2 agree to 0.1 dB, and the decode runs after denoising.
+- **The reading.** In run A, segment 3 is still far under -70. It gets
+  quieter, close to digital silence (-128.8 muxed), and is not restored.
+  The fp32 decode turns these latents into silence. bf16 only added
+  rounding noise on top (the -89). So the audio decode doesn't cause the
+  dropout. The cause is the **conditioning**: what segment 3 is generated
+  from, which is segment 2's last frame plus prompt 3.
+- **Re-roll.** This record doesn't settle whether a re-roll can bring sound
+  back. A fresh seed draws fresh audio noise against the same conditioning.
+  The one re-roll on record, `1deff016d727` (segment 3 re-rolled at seed
+  1000005, -88.6), stayed silent. Whether `audio_dbfs` stays re-rollable
+  or becomes warn-only is Don's call, asked on #1221.
+- **No vocoder-only run.** Neither the vocoder nor the audio VAE was
+  tested alone, and the cause doesn't depend on telling them apart. There
+  is no vocoder-only run because LTX-2's decode casts the latents to
+  `audio_vae.dtype` but passes the mel to the vocoder uncast
+  (`pipeline_ltx2_image2video.py:1766-1768`). A dict with only one of them
+  in fp32 fails with a dtype mismatch. Both load in fp32 together, or
+  neither does.
+- **Open by construction: MPS-only?** CUDA and MPS draw different noise
+  from the same seed, so the lem take (`645d8600ac92`) is a different
+  draw. It can't show whether these conditions would also go silent on
+  CUDA.
+- **No stage C.** The fp32 decode doesn't remove the dropout, so the LTX
+  templates keep their bf16 `audio_vae` and `vocoder`.
 
 ## Setup
 
