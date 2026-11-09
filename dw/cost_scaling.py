@@ -406,7 +406,12 @@ def words_check_term(definition, variables):
     each checked segment, segment 1 among them, in the worst case
     L(1 + retries) passes, L the segments past the kept ones that have a
     line (`_chain_lined_segments`). Additive, not a factor - it does not
-    grow with the canvas or the steps."""
+    grow with the canvas or the steps.
+
+    Not priced: the second pass of a failed words check on a segment with
+    a head trim (`line_clipped_at_head`, #1300). It runs only on a failure,
+    on a model the first pass warmed, so it stays inside the per-pass worst
+    case above."""
     if not _chain_checks_words(definition, variables):
         return 0.0, None
     segments = _chain_segments(definition, variables)
