@@ -1033,8 +1033,9 @@ class TestSeparationIsRepeatable(unittest.TestCase):
         random.seed(7)
         expected_next = random.random()
         random.seed(7)
-        with patch.dict(sys.modules, {"demucs.apply": fake_module}), patch.object(
-            va, "_load_separator", return_value=model
+        with (
+            patch.dict(sys.modules, {"demucs.apply": fake_module}),
+            patch.object(va, "_load_separator", return_value=model),
         ):
             va._run_separator_stems(wave, 100, "cpu", torch.float32)
             va._run_separator_stems(wave, 100, "cpu", torch.float32)
