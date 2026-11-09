@@ -2644,7 +2644,13 @@ joined into a single file:
   frame-aligned per-segment chunks, each segment is generated against its slice - a
   held track's slice is that segment's `hold_audio`, a reference's replaces the
   reference - and the final video is muxed with the **original, unsliced track** - so
-  the soundtrack has no seams at all. Requires
+  the soundtrack has no seams at all. Under `continuity: "guide"` a held track's
+  slice already starts at the guide span, so the guide carries video only:
+  `carry_audio` is forced off, and the job log says so once. Validate warns on a
+  chain step with `hold_audio` and no `match_audio` (every segment holds the whole
+  track from its start) and on a held chain whose `num_frames` is not divisible by 3:
+  H3's audio latents run at 40 a second against 24 fps, so the on-grid `17n+5`
+  lengths are 141, 192, 243, 294 and 345. Requires
   `num_frames` (the per-segment length) and a frame rate, and a track: a step with
   neither `hold_audio` nor a `references` list is refused. One of
   `segments`, `match_audio` or `duration_seconds` must be given, and `segments`

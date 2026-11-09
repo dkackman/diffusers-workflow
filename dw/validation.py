@@ -48,6 +48,7 @@ from .guides import (
     guide_noise_errors,
     frame_snap_warnings,
     chain_lines_warnings,
+    held_audio_warnings,
     guide_noise_warnings,
     guides_errors,
     selflift_errors,
@@ -799,6 +800,12 @@ WARNING_CHECKS = [
     Check(
         "frame_snap_warnings",
         lambda c: frame_snap_warnings(c.expanded, c.source_indices),
+    ),
+    # A chain step's hold_audio with no match_audio (every segment holds the
+    # whole track) or a num_frames off H3's 3-frame audio grid
+    Check(
+        "held_audio_warnings",
+        lambda c: held_audio_warnings(c.expanded, c.source_indices),
     ),
 ]
 

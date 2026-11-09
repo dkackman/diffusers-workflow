@@ -51,7 +51,11 @@ from .adapter_compatibility import (
     WORKFLOW_KEY,
 )
 from .for_each import render_path
-from .pipeline_processors.h3_guides import default_num_frames
+from .pipeline_processors.h3_guides import (
+    AUDIO_GRID_FRAMES,
+    AUDIO_GRID_LENGTHS,
+    default_num_frames,
+)
 from .pipeline_processors.chain_rules import (
     CHAIN_CAPSTONE,
     CHAIN_KEYSTONE_SLOT,
@@ -79,6 +83,7 @@ from .pipeline_processors.h3_rules import (
     GUIDE_CONTINUITY,
     GUIDE_LIMIT,
     GUIDE_NOISE_INPUT,
+    HOLD_AUDIO_INPUT,
     LATENT_ANCHOR_INPUT,
     LATENT_ANCHOR_STRENGTH_INPUT,
     anchor_strength_problem,
@@ -511,6 +516,47 @@ def chain_lines_warnings(workflow_definition, source_indices=None):
             "a number, on a chain whose audio is generated (no match_audio or "
             f"hold_audio){where}"
         )
+    return warnings
+
+
+def held_audio_warnings(workflow_definition, source_indices=None):
+    """["path: message"] for a chain step that holds a track (`hold_audio`):
+    with no `match_audio` every segment holds the whole track from its start,
+    and a literal `num_frames` off H3's 3-frame audio grid puts each seam
+    mid-latent. Unresolved references are left to the run."""
+    warnings = []
+    for _, _, pipeline, source, where in references.iter_steps(
+        workflow_definition.get("steps"), source_indices, "pipeline"
+    ):
+        chain = pipeline.get("chain")
+        arguments = pipeline.get("arguments")
+        if not isinstance(chain, dict) or not isinstance(arguments, dict):
+            continue
+        if arguments.get(HOLD_AUDIO_INPUT) is None:
+            continue
+        match_audio = chain.get("match_audio")
+        if not match_audio and not (
+            isinstance(match_audio, str)
+            and references.is_ref(references.UNRESOLVED, match_audio)
+        ):
+            path = render_path(("steps", source, "pipeline", "chain", "match_audio"))
+            warnings.append(
+                f"{path}: every segment holds the whole track from its start; "
+                f"set match_audio: true to give each segment its slice{where}"
+            )
+        num_frames = arguments.get("num_frames")
+        if (
+            isinstance(num_frames, int)
+            and not isinstance(num_frames, bool)
+            and num_frames % AUDIO_GRID_FRAMES
+        ):
+            path = render_path(("steps", source, "pipeline", "arguments", "num_frames"))
+            lengths = ", ".join(str(n) for n in AUDIO_GRID_LENGTHS)
+            warnings.append(
+                f"{path}: H3's audio latents run at 40 a second; {num_frames} "
+                f"frames is off the {AUDIO_GRID_FRAMES}-frame audio grid; the "
+                f"nearest on-grid lengths are {lengths}{where}"
+            )
     return warnings
 
 

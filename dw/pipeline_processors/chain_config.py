@@ -128,7 +128,7 @@ class ChainConfig:
         self._read_continuity(chain_definition)
         self._read_experiments(chain_definition, arguments)
         self._read_carry(chain_definition)
-        head_trim = self._read_guide(chain_definition)
+        head_trim = self._read_guide(chain_definition, arguments)
         self.head_trim = head_trim
         self.prompts = resolved_prompts or chain_definition.get("prompts", None)
         self.fps = _resolve_fps(chain_definition, arguments)
@@ -265,7 +265,7 @@ class ChainConfig:
         self.trim_frames = int(chain_definition.get("trim_frames", 1))
         self.crossfade_ms = float(chain_definition.get("crossfade_ms", 75))
 
-    def _read_guide(self, chain_definition):
+    def _read_guide(self, chain_definition, arguments=None):
         """The guide chain's settings; returns the head trim every later
         segment drops - the guide it laid in, or trim_frames off a guide."""
         # A guide chain trims the guide it laid in, not trim_frames, and a
@@ -284,7 +284,16 @@ class ChainConfig:
         self.guide_frames = _head_trim(chain_definition)
         self.guide_backoff = int(chain_definition.get("guide_backoff", 0))
         self.tail_trim = self.guide_backoff
-        if _guide_holds_audio(chain_definition):
+        if self.carry_audio and _guide_carry_held(chain_definition, arguments):
+            # Each segment's held slice already starts at the guide span, so a
+            # guide carrying audio would hold the overlap twice - as guide
+            # audio rows and as the held rows written after them
+            self.carry_audio = False
+            emit_log(
+                "Guide chain: carry_audio is off - the chain holds its track, "
+                "and each segment's held slice already covers the guide span"
+            )
+        if self.carry_audio and _guide_holds_audio(chain_definition):
             self.guide_holds_audio = True
             self.crossfade_ms = 0.0
         return self.guide_frames
@@ -471,6 +480,16 @@ def _guide_holds_audio(chain_definition):
     return chain_definition.get(
         "continuity", "last_frame"
     ) == GUIDE_CONTINUITY and bool(chain_definition.get("carry_audio", True))
+
+
+def _guide_carry_held(chain_definition, arguments):
+    """Whether a `guide` chain holds a matched track (`match_audio` with a
+    step `hold_audio`), which the guide's audio carry would hold again."""
+    return (
+        chain_definition.get("continuity", "last_frame") == GUIDE_CONTINUITY
+        and bool(chain_definition.get("match_audio"))
+        and _argument(arguments, HOLD_AUDIO_INPUT) is not None
+    )
 
 
 def chain_holds_audio(chain_definition, arguments):

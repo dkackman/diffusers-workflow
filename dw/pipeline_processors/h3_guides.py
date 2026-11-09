@@ -82,6 +82,13 @@ LAYOUT_ANCHORS = (
     "_fill_audio_positions",
 )
 
+# H3's audio latents run at 40 a second against its 24 fps, so a segment lands
+# on the audio grid only at a frame count divisible by 3 - on the 17n+5 render
+# grid, these lengths. A held chain off it puts each seam mid-latent
+# (`held_audio_warnings` in dw/guides.py).
+AUDIO_GRID_FRAMES = 3
+AUDIO_GRID_LENGTHS = (141, 192, 243, 294, 345)
+
 
 def default_num_frames():
     """The `num_frames` H3 renders when a step passes none: the stock layout
