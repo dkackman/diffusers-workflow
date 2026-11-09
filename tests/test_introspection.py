@@ -369,6 +369,12 @@ def test_a_match_levels_lufs_without_lufs_mode_is_warned_about():
             workflow_argument_warnings(step(match_levels_lufs=-16, match_levels="lufs"))
             == []
         )
+        both = workflow_argument_warnings(
+            step(match_levels_dbfs=-20, match_levels="lufs")
+        )
+        assert (
+            len(both) == 1 and "refused" in both[0] and "match_levels_dbfs" in both[0]
+        )
 
 
 def test_a_bleed_over_one_input_is_warned_about():

@@ -137,23 +137,27 @@ def _inert_match_levels_dbfs_warnings(step, command, arguments):
     resolving to compare against a domain."""
     if command not in ("concat_videos", "dissolve_videos"):
         return []
+    from .tasks.joins import MATCH_MEASURES, _match_target
+
     name = step.get("name")
     mode = arguments.get("match_levels")
     warnings = []
-    if "match_levels_lufs" in arguments and isinstance(
-        arguments.get("match_levels_lufs"), (int, float)
-    ):
-        if not mode:
-            warnings.append(
-                f"Step '{name}': 'match_levels_lufs' has no effect when "
-                f"'match_levels' is unset - pass \"lufs\" for the target to apply."
-            )
-        elif mode in ("rms", "peak"):
-            warnings.append(
-                f"Step '{name}': 'match_levels_lufs' only applies to "
-                f"'match_levels': \"lufs\", and the run is refused with "
-                f'"{mode}" - use \'match_levels_dbfs\' for "{mode}".'
-            )
+    dbfs = arguments.get("match_levels_dbfs")
+    lufs = arguments.get("match_levels_lufs")
+    dbfs = dbfs if isinstance(dbfs, (int, float)) else None
+    lufs = lufs if isinstance(lufs, (int, float)) else None
+    if lufs is not None and not mode:
+        warnings.append(
+            f"Step '{name}': 'match_levels_lufs' has no effect when "
+            f"'match_levels' is unset - pass \"lufs\" for the target to apply."
+        )
+    elif mode in MATCH_MEASURES:
+        # the pairing of measure and target is joins._match_target's rule:
+        # ask it on the literals rather than restating it here
+        try:
+            _match_target(mode, dbfs, lufs, 48000, command)
+        except ValueError as refusal:
+            warnings.append(f"Step '{name}': the run is refused - {refusal}")
     if "match_levels_dbfs" not in arguments or mode:
         return warnings
     if not isinstance(arguments.get("match_levels_dbfs"), (int, float)):
