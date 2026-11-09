@@ -80,8 +80,8 @@ def _insertion_owner(pairs, index, expected_tokens, heard_tokens, starts, cursor
     """The take a pure insertion run starting at pairs[index] belongs to,
     sitting in front of expected position `cursor`.
 
-    At a take boundary, a run whose words repeat the tail of the take
-    before it belongs to that take; otherwise the take it sits in front of,
+    At a take boundary, a run whose words repeat the tail or the head of
+    the take before it belongs to that take; otherwise the take it sits in front of,
     or the last take when it follows them all."""
     if cursor in starts[1:]:
         previous = starts.index(cursor) - 1
@@ -91,8 +91,11 @@ def _insertion_owner(pairs, index, expected_tokens, heard_tokens, starts, cursor
                 break
             run.append(heard_tokens[j])
         tail = expected_tokens[starts[previous] : cursor]
-        if len(run) <= len(tail) and tail[-len(run) :] == run:
-            return previous
+        if run and len(run) <= len(tail):
+            # a repeat of the end of the take before (looped), or of its
+            # beginning (restarted and abandoned), is that take's
+            if tail[-len(run) :] == run or tail[: len(run)] == run:
+                return previous
     if cursor >= len(expected_tokens):
         return len(starts) - 1
     return _take_at(starts, len(expected_tokens), cursor)
@@ -128,36 +131,35 @@ def _owners(pairs, expected_tokens, heard_tokens, starts):
 
 
 def _asr(waveform, rate, device, model_name):
-    """The production transcriber: `transcribe_audio` on the shared cache."""
+    """The production transcriber: `transcribe_audio` on the shared cache.
+
+    Tests replace this module attribute; it is not a task argument."""
     return transcribe_audio(waveform, device, rate, model_name=model_name)
 
 
 def check_narration(
+    audio,
     takes=None,
-    audio=None,
     device="cpu",
     sample_rate=None,
     model_name=None,
     max_word_error_rate=DEFAULT_MAX_WORD_ERROR_RATE,
-    transcribe=None,
     text=None,
 ):
     """Task command: check that a narration speaks its script, take by take.
 
     Args:
+        audio: Path or URL of the narration (or of a video whose soundtrack
+            is taken), or a waveform (which needs sample_rate)
         takes: The takes the narration was spoken from, in order: a list of
             strings, or one string, split as `split_takes` splits (give this
             or `text`)
-        audio: Path or URL of the narration (or of a video whose soundtrack
-            is taken), or a waveform (which needs sample_rate)
         device: Target device ("cuda", "mps", "cpu")
         sample_rate: Sample rate of a waveform passed directly
         model_name: A Whisper-class ASR model (default: the one
             `transcribe_audio` uses)
         max_word_error_rate: A take whose dropped plus inserted words, over
             its expected words, exceed this fails (0 to 1)
-        transcribe: A callable (waveform, rate, device, model_name) -> text
-            standing in for the ASR; for tests
         text: The script as one string, split into takes; the alternative
             to `takes`
 
@@ -168,16 +170,13 @@ def check_narration(
         with no takes)
 
     Raises:
-        ValueError: If neither or both of `takes` and `text` are given, or the
-            audio is missing
+        ValueError: If neither or both of `takes` and `text` are given
     """
     if (takes is None) == (text is None):
         raise ValueError(
             "check_narration needs exactly one of 'text' or 'takes' - the "
             "script as one string, or as the takes it was spoken in"
         )
-    if audio is None:
-        raise ValueError("check_narration needs 'audio', the narration to check")
     if takes is None:
         takes = text
     if isinstance(takes, str):
@@ -186,7 +185,7 @@ def check_narration(
 
     waveform, rate = waveform_and_rate(audio, sample_rate, "check_narration")
     model = model_source({"model_name": model_name})
-    heard = (transcribe or _asr)(waveform, rate, device, model)
+    heard = _asr(waveform, rate, device, model)
 
     per_take = [normalize(take) for take in takes]
     expected = [word for words in per_take for word in words]
