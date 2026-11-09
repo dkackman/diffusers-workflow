@@ -69,8 +69,10 @@ AUDIO_DBFS_MIN = -70.0
 
 # - words_similarity: the least similarity of what a dialogue segment is heard
 #   to say to its line (#1262), check_script's measure on one line.
-#   PROVISIONAL 0.80 until bench/records/words.md sets it from Don's accepted
-#   and rejected constitution-walk-2 takes; its own constant, apart from
+#   0.80, the ceiling bench/records/words.md measured on the constitution-walk-2
+#   takes: no good take scored under 0.90, but a bad take (a dropped head
+#   word, 0.9565) scored above good ones, so the measure does not separate
+#   good from bad and a chain does not re-roll on it by default; its own constant, apart from
 #   check_script's DEFAULT_SIMILARITY (0.85), because a chain re-rolls on it
 WORDS_SIMILARITY_MIN = 0.80
 # The check_script findings that fail a segment's words whatever its

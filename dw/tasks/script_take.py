@@ -290,7 +290,8 @@ def _folded_heard(heard):
         run = heard[k : k + count]
         k += count
         if count == 1:
-            folded.append(run[0])
+            # A lone number word still becomes its digits ('one' is '1')
+            folded.append(dict(run[0], word=word))
             continue
         texts = list(dict.fromkeys(entry["text"] for entry in run))
         folded.append(
