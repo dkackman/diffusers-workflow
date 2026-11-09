@@ -14,8 +14,8 @@ index order, complete) as its segments 1..k and render only k+1..N:
   is iteration i of the dead one. The reference names one iteration's file
   (the one the hint quoted); every iteration takes the siblings with its own
   number beside it (`own_segments`). One with none there, or with a
-  complete set it is not the named one of (it finished), renders in full
-  and says so in a `chain_resumed` warning with `kept: 0`.
+  complete set (it finished) renders in full - the named one too, in a
+  fan-out; a lone chain with every segment kept is refused - and says so in a `chain_resumed` warning with `kept: 0`.
 
 - The plan does not move: every kept file must hold the frames the plan puts
   on the timeline for its segment (`check_plan`), and k must be under N.
@@ -285,7 +285,12 @@ def _iteration_base(named):
 
 
 def _names_iteration(named, spill):
-    """Whether the reference names this spill's own iteration."""
+    """Whether a finished set is refused rather than rendered in full: the
+    reference names this spill's own iteration of a chain that does not fan
+    out. A fan-out's finished iteration renders in full whichever iteration
+    the reference names (#1307)."""
+    if getattr(spill, "fan_out", False):
+        return False
     base = _iteration_base(named)
     return base is None or base[1] == spill.iteration
 

@@ -153,6 +153,9 @@ class Step:
         result,
     ):
         """Run the action once per argument set, adding each to `result`."""
+        # A chain resume tells a fan-out's finished iteration (rendered in
+        # full) from a lone chain with nothing left to render (refused)
+        step_action.chain_fan_out = len(iterations) > 1
         for i, arguments in enumerate(iterations, 1):
             run_context.check_cancelled()
             logger.debug(
