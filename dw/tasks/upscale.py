@@ -143,6 +143,11 @@ def resolve_model_path(model_name, filename=None):
         )
 
     if filename is not None:
+        # Joined onto the cache directory by hf_hub_download, so a name that
+        # is absolute or climbs is a path on this machine (GHSA-ch56-2p9f-95cg)
+        from ..security import validate_weight_name
+
+        validate_weight_name(filename, what="filename")
         logger.debug(f"Downloading {filename} from {model_name}")
         return hf_hub_download(repo_id=model_name, filename=filename)
 

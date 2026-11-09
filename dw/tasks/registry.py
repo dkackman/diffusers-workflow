@@ -111,6 +111,7 @@ def register_command(
     choices=None,
     static_check=None,
     media_arguments=(),
+    weight_file_arguments=(),
     whole_numbers=(),
     required_weights=None,
 ):
@@ -171,6 +172,11 @@ def register_command(
         media_arguments: Names of arguments that name a file to read but not
             by the media-key convention (`dw/locations.py`) - confined like
             a media key at validation (#630)
+        weight_file_arguments: Names of arguments that name a file inside
+            the command's model repo (a `filename` the Hub download
+            joins onto the cache) - refused at validation unless a plain relative
+            name, like a `weight_name` (`dw/locations.py`,
+            GHSA-ch56-2p9f-95cg)
         whole_numbers: Names of the arguments with a domain that the command
             reads as whole numbers (`task_domains.whole_number`): 3, 3.0,
             "3" and "3.0" are 3, and 3.5 is refused - at validation as at
@@ -218,6 +224,8 @@ def register_command(
             rules["static_check"] = static_check
         if media_arguments:
             rules["media_arguments"] = tuple(media_arguments)
+        if weight_file_arguments:
+            rules["weight_file_arguments"] = tuple(weight_file_arguments)
         if whole_numbers:
             rules["whole_numbers"] = tuple(whole_numbers)
         if required_weights:
