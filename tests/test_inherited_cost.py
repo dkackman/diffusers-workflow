@@ -818,3 +818,44 @@ def test_the_comparison_substitutes_as_the_run_does():
     mixed = [{"run": {"width": "variable:missing", "num_frames": "variable:n"}}]
     assert _found(mixed, "num_frames", {"n": 124}) == {"124"}
     assert _found(mixed, "width", {"n": 124}) == {'"variable:missing"'}
+
+
+class TestChainSegmentsScaleTheInheritedFigure:
+    """#1305: a chain is one pipeline step, so a fallback to the template's
+    default bucket must still scale by its segment count."""
+
+    @staticmethod
+    def chain_definition(name, segments):
+        return {
+            "id": name,
+            "variables": {"segments": segments},
+            "cost_drivers": ["segments"],
+            "steps": [
+                {
+                    "id": "gen",
+                    "pipeline": PIPELINE,
+                    "run": {
+                        "chain": {"segments": "variable:segments"},
+                        "arguments": {"num_frames": 124},
+                    },
+                }
+            ],
+        }
+
+    def test_three_segments_cost_more_than_the_two_measured(self):
+        template = self.chain_definition("t", 2)
+        history = {"templates/t": [run(6 * MINUTE, {"segments": 2})]}
+        two = inherited(
+            self.chain_definition("inline", 2),
+            [("templates/t", template)],
+            history,
+        )
+        three = inherited(
+            self.chain_definition("inline", 3),
+            [("templates/t", template)],
+            history,
+            {"segments": 3},
+        )
+        assert two["cold_minutes"] == 6.0
+        assert three["cold_minutes"] > two["cold_minutes"]
+        assert "segments 3 vs 2" in three["scaled"]
