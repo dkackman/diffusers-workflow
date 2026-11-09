@@ -403,6 +403,9 @@ def chain_prompts_errors(workflow_definition, source_indices=None):
         chain = pipeline.get("chain")
         if not isinstance(chain, dict) or not isinstance(chain.get("prompts"), str):
             continue
+        # One reference to a list resolves at run time (resolve_chain_lists)
+        if references.is_ref(references.PREVIOUS_RESULT, chain["prompts"]):
+            continue
         path = render_path(("steps", source, "pipeline", "chain", "prompts"))
         errors.append(
             {

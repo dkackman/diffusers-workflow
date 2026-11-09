@@ -2713,6 +2713,9 @@ joined into a single file:
   segment is otherwise asked for a count the pipeline may floor in silence.
 - `prompts` — optional per-segment prompt list for narrative progression; segment
   `i` uses `prompts[min(i, len - 1)]`.
+  The whole list may be one `previous_result:<step>.<key>` naming a JSON list of
+  strings (a `narration_lines` step's `prompts`); a result that is not a list of
+  strings is refused at run time, naming the step and key.
 - `lines` — optional list of strings, one expected spoken line per segment, exactly as
   many as segments (unlike `prompts`, the last is not repeated; a wrong length or a
   non-string is refused). Read only by the `words` check. Segment `k`'s line is
@@ -2720,6 +2723,9 @@ joined into a single file:
   `prompt`. An empty string, or no `<d>`, means no line: the shot records `words: null`
   and the segment is not re-rolled for it. Validate warns when `lines` is set but the
   words check is off.
+  Like `prompts`, `lines` may be one `previous_result:<step>.<key>` naming a list of
+  strings (a `narration_lines` step's `lines`); validate accepts it unresolved and the
+  run checks its length against the plan.
 - `check` — check each segment after the first before it is kept (any model family):
   `true` for the default ceilings, an object to set any of them, absent or `false` for
   no check (the chain is unchanged). See *Checking each segment* below.

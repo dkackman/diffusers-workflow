@@ -115,6 +115,7 @@ def run_chain(pipeline, chain_definition, arguments):
         arguments,
         getattr(pipeline, "chain_prompts", None),
         getattr(pipeline, "base_dir", None),
+        getattr(pipeline, "chain_lines", None),
     )
     continuity = CONTINUITY_MODES[config.continuity](config)
     if config.continuity == GUIDE_CONTINUITY:

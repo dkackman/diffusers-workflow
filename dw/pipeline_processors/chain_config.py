@@ -117,7 +117,12 @@ class ChainConfig:
     """Validated chain settings plus the planned segments for one run."""
 
     def __init__(
-        self, chain_definition, arguments, resolved_prompts=None, base_dir=None
+        self,
+        chain_definition,
+        arguments,
+        resolved_prompts=None,
+        base_dir=None,
+        resolved_lines=None,
     ):
         segments, match_audio, duration = _chain_length(chain_definition)
         self._read_continuity(chain_definition)
@@ -154,7 +159,7 @@ class ChainConfig:
             self._plan_from_segments(segments, arguments, head_trim)
         # Each segment's own line for the words check (#1262), one per
         # segment: refused against the plan, which match_audio sets only now
-        self.lines = chain_definition.get(CHAIN_LINES)
+        self.lines = resolved_lines or chain_definition.get(CHAIN_LINES)
         _raise_chain_problem(chain_lines_problem(self.lines, len(self.plan)))
         self.step_prompt = _argument(arguments, "prompt")
         if self.total_frames is not None:
