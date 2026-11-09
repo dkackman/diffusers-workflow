@@ -334,6 +334,73 @@ def _chain_checks_audio(definition, variables):
     return chain_checks_segment_1(chain, arguments)
 
 
+def _chain_checks_words(definition, variables):
+    """Whether the workflow's one checked chain runs the words measure
+    (#1262): `check` an object whose `words_similarity_min` is not null, the
+    audio not held. The rule is the run's own,
+    `chain_config.chain_checks_words`, asked at `variables`."""
+    from .pipeline_processors.chain_config import chain_checks_words
+
+    blocks = list(_chain_blocks(definition.get("steps")))
+    if len(blocks) != 1:
+        return False
+    chain, arguments = blocks[0]
+    chain = {key: _resolved(value, variables) for key, value in chain.items()}
+    if isinstance(chain.get("check"), dict):
+        chain["check"] = {
+            key: _resolved(value, variables) for key, value in chain["check"].items()
+        }
+    arguments = {key: _resolved(value, variables) for key, value in arguments.items()}
+    return chain_checks_words(chain, arguments)
+
+
+# One Whisper pass on CPU per checked attempt, at the first pass's 3.0 s on
+# lem (bench/records/words.md): the warm passes are 1.3 s, so this is the
+# worst case, as the re-roll count is
+WORDS_CHECK_MINUTES = 0.05
+
+
+def words_check_term(definition, variables):
+    """(minutes, axis) the words measure adds to a checked chain's quote
+    (#1262), (0.0, None) when it is off: one Whisper pass per attempt of
+    each checked segment, segment 1 among them, in the worst case
+    (N - kept)(1 + retries) passes. Additive, not a factor - it does not
+    grow with the canvas or the steps. Every checked segment is counted as
+    having a line: the estimate cannot read a `<d>` from a prompt it has
+    not resolved."""
+    if not _chain_checks_words(definition, variables):
+        return 0.0, None
+    segments = _chain_segments(definition, variables)
+    if not segments:
+        return 0.0, None
+    kept = min(_chain_kept(definition, variables)[0], segments)
+    passes = (segments - kept) * (1 + _chain_retries(definition, variables))
+    if passes <= 0:
+        return 0.0, None
+    minutes = passes * WORDS_CHECK_MINUTES
+    return minutes, f"words check: {passes} Whisper pass(es), {_shown(minutes)} min"
+
+
+def with_words_check(price, definition, expanded):
+    """`price` with `words_check_term` added: its minutes, a `derived`
+    basis (another device's stays `other_device`), and the term named in
+    `scaled`. A price with no minutes, or a chain not words-checked, is
+    returned as it is."""
+    minutes, axis = words_check_term(definition, expanded.get("variables") or {})
+    if not minutes or price.get("minutes") is None:
+        return price
+    basis = OTHER_DEVICE if price["basis"] == OTHER_DEVICE else DERIVED
+    scaled = price.get("scaled")
+    return {
+        **price,
+        "minutes": price["minutes"] + minutes,
+        "basis": basis,
+        "scaled": f"{scaled}, {axis}"
+        if scaled
+        else f"from the curated {_shown(price['minutes'])} min: {axis}",
+    }
+
+
 def _worst_case_retries(definition, variables):
     """(factor, axes, unscaled) for the worst case of a checked chain's
     re-rolls, as `chain_check` runs them. Each checked segment may render

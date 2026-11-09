@@ -471,7 +471,7 @@
                     "additionalProperties": false
                 },
                 "check": {
-                    "description": "Check each segment before keeping it, any model family: after the first, its seam against the previous segment (the picture jump and the look step, measured as analyze_seams measures them) and its fine-band texture against segment 1's. true uses the default ceilings; an object overrides any of 'jump_ratio_max', 'look_ratio_max', 'texture_ratio_max' (a number above 1 bounding the ratio both ways, or null to skip it) and 'cut_ratio_max' (the largest frame step inside the segment over its typical step - a cut a few frames after the seam; null skips it); and 'audio_dbfs_min' (the floor, in dBFS below 0, of the segment's generated audio as kept; default -70, null skips it, and it is never measured when the chain holds its audio); 'face' is reserved and must be null. A failed segment is re-rendered up to 'retries' times. Segment 1 has no seam and is checked for its audio level only. Absent or false = off, and the chain is unchanged. Accepts a 'variable:' reference.",
+                    "description": "Check each segment before keeping it, any model family: after the first, its seam against the previous segment (the picture jump and the look step, measured as analyze_seams measures them) and its fine-band texture against segment 1's. true uses the default ceilings; an object overrides any of 'jump_ratio_max', 'look_ratio_max', 'texture_ratio_max' (a number above 1 bounding the ratio both ways, or null to skip it) and 'cut_ratio_max' (the largest frame step inside the segment over its typical step - a cut a few frames after the seam; null skips it); and 'audio_dbfs_min' (the floor, in dBFS below 0, of the segment's generated audio as kept; default -70, null skips it, and it is never measured when the chain holds its audio); 'words_similarity_min' (a number above 0 and at most 1, or null, the default: the least similarity of what Whisper hears in each segment's kept audio to its expected line - 'lines', else the segment's prompt's <d> dialogue; a segment with no line records words null and is not re-rolled for it, and it is never measured when the chain holds its audio); 'face' is reserved and must be null. A failed segment is re-rendered up to 'retries' times. Segment 1 has no seam and is checked for its audio level, and its words when 'words_similarity_min' is set. Absent or false = off, and the chain is unchanged. Accepts a 'variable:' reference.",
                     "type": ["boolean", "object", "string"],
                     "properties": {
                         "jump_ratio_max": {"type": ["number", "string"], "exclusiveMinimum": 0},
@@ -482,12 +482,18 @@
                         },
                         "texture_ratio_max": {"type": ["number", "string", "null"], "exclusiveMinimum": 1},
                         "audio_dbfs_min": {"type": ["number", "string", "null"]},
+                        "words_similarity_min": {"type": ["number", "string", "null"]},
                         "face": {"type": "null"}
                     },
                     "additionalProperties": false
                 },
+                "lines": {
+                    "description": "The line each segment is expected to speak, one string per segment, in order, for the words check ('check' with 'words_similarity_min'); unlike 'prompts', the last is not repeated, so it must hold exactly one per segment. Segment k's line is lines[k], else the <d> dialogue of its prompt in 'prompts' (the last repeating), else of the step's 'prompt'; an empty string is no line. Nothing else reads it, and validate warns when the words check is off. Accepts a 'variable:' reference.",
+                    "type": ["array", "string"],
+                    "items": {"type": "string"}
+                },
                 "retries": {
-                    "description": "With 'check' on, how many times a segment that fails its check is re-rendered from the same carry, each at a new seed (the step's seed plus the attempt number times 1000003): 0 to 3, default 0. When every attempt fails, the chain keeps the attempt with the fewest failed measures (then the lowest jump), records 'check_failed' on its shot, warns and finishes. A cost estimate quotes the worst case. Above 0 without 'check' is refused. Accepts a 'variable:' reference.",
+                    "description": "With 'check' on, how many times a segment that fails its check is re-rendered from the same carry, each at a new seed (the step's seed plus the attempt number times 1000003): 0 to 3, default 0. When every attempt fails, the chain keeps the attempt with the fewest failed measures (then the lowest jump; among attempts failing only their words, the highest similarity), records 'check_failed' on its shot, warns and finishes. A cost estimate quotes the worst case. Above 0 without 'check' is refused. Accepts a 'variable:' reference.",
                     "type": ["integer", "string"],
                     "minimum": 0,
                     "maximum": 3,

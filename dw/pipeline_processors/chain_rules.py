@@ -219,9 +219,13 @@ CHAIN_CHECK_FIELDS = (
     "texture_ratio_max",
     "cut_ratio_max",
     "audio_dbfs_min",
+    "words_similarity_min",
     "face",
 )
 CHAIN_RETRIES_MAX = 3
+# Each segment's own line, which the words check holds its heard audio to
+# (#1262): one string per segment, never repeated past its end as `prompts` is
+CHAIN_LINES = "lines"
 
 
 def _number_over(value, floor):
@@ -255,7 +259,8 @@ def chain_check_finding(chain):
     `check` is true (the default ceilings), false, or an object of
     `CHAIN_CHECK_FIELDS`: the ratio ceilings above 0, `texture_ratio_max`
     above 1 (it bounds the ratio both ways) or null, `audio_dbfs_min` a
-    floor below 0 or null, `face` null. `retries`
+    floor below 0 or null, `words_similarity_min` a similarity above 0 and at
+    most 1, or null (the default, the words measure off), `face` null. `retries`
     is a whole number from 0 to `CHAIN_RETRIES_MAX`; above 0 it needs the
     check on, as with no check nothing fails. Unresolved references are left
     to the run, whose `ChainConfig` asks this same rule.
@@ -292,6 +297,15 @@ def chain_check_finding(chain):
                 "check audio_dbfs_min is a floor in dBFS, so must be a number "
                 f"below 0 or null, got {floor!r}"
             )
+        words = check.get("words_similarity_min")
+        if words is not None and not (
+            _number_over(words, 0) and (isinstance(words, str) or words <= 1)
+        ):
+            return "check", (
+                "check words_similarity_min is the least similarity of a "
+                "segment's heard words to its line, so must be a number above 0 "
+                f"and at most 1, or null, got {words!r}"
+            )
         if check.get("face") is not None:
             return (
                 "check",
@@ -324,6 +338,35 @@ def chain_check_problem(chain):
     """`chain_check_finding`'s message alone, or None."""
     finding = chain_check_finding(chain)
     return finding[1] if finding else None
+
+
+def chain_lines_problem(lines, segment_count):
+    """The reason a chain block's `lines` is refused, or None (#1262): a list
+    of strings, one per segment - `segment_count` of them when the count can
+    be told (None leaves the length to the run, which asks this same rule
+    against its plan). An unresolved reference, as the whole list or one
+    entry, is left to the run."""
+    if lines is None or (
+        isinstance(lines, str) and references.is_ref(references.UNRESOLVED, lines)
+    ):
+        return None
+    if not isinstance(lines, list) or not lines:
+        return (
+            "lines must be a list of strings, one per segment (the line each "
+            f"segment speaks), got {lines!r}"
+        )
+    wrong = [entry for entry in lines if not isinstance(entry, str)]
+    if wrong:
+        return (
+            "lines must hold only strings, one per segment (the line each "
+            f"segment speaks), got {wrong[0]!r}"
+        )
+    if segment_count is not None and len(lines) != segment_count:
+        return (
+            f"lines holds {len(lines)} line(s) for {segment_count} segment(s) - "
+            "one per segment; unlike prompts, the last is not repeated"
+        )
+    return None
 
 
 # The experimental late capstone (#1187, #1199 Task 14 Step 4): segment 1's

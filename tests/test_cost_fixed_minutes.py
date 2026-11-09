@@ -104,3 +104,111 @@ def test_the_h3_chain_template_quotes_the_measured_runs_within_1_3x():
     seven = _quote(definition, segments=7, **base)["minutes"]
     assert 28.3 / 1.3 < three < 28.3 * 1.3
     assert 71.0 / 1.3 < seven < 71.0 * 1.3
+
+
+def _words_chain(check, retries=2, segments=3, **chain):
+    chain = {"segments": segments, "fps": 4, "retries": retries, **chain}
+    if check is not None:
+        chain["check"] = check
+    return {
+        "variables": {},
+        "steps": [{"pipeline": {"chain": chain, "arguments": {}}}],
+    }
+
+
+class TestWordsCheckTerm:
+    ON = {"words_similarity_min": 0.8}
+
+    def test_every_segment_attempt_is_a_pass_segment_1_included(self):
+        from dw.cost_scaling import WORDS_CHECK_MINUTES, words_check_term
+
+        minutes, axis = words_check_term(_words_chain(self.ON), {})
+        # 3 segments, 1 + 2 retries each
+        assert minutes == pytest.approx(9 * WORDS_CHECK_MINUTES) == pytest.approx(0.45)
+        assert "9 Whisper pass" in axis and "words check" in axis
+
+    def test_retries_scale_the_passes(self):
+        from dw.cost_scaling import words_check_term
+
+        assert words_check_term(_words_chain(self.ON, retries=0), {})[0] == (
+            pytest.approx(0.15)
+        )
+        assert words_check_term(_words_chain(self.ON, retries=3, segments=5), {})[
+            0
+        ] == pytest.approx(1.0)
+
+    @pytest.mark.parametrize(
+        "check", [None, False, True, {"words_similarity_min": None}]
+    )
+    def test_off_is_nothing(self, check):
+        from dw.cost_scaling import words_check_term
+
+        assert words_check_term(_words_chain(check), {}) == (0.0, None)
+
+    def test_held_audio_is_nothing(self):
+        from dw.cost_scaling import words_check_term
+
+        definition = _words_chain(self.ON, match_audio=True)
+        assert words_check_term(definition, {}) == (0.0, None)
+
+    def test_references_resolve_at_the_variables(self):
+        from dw.cost_scaling import words_check_term
+
+        definition = _words_chain({"words_similarity_min": "variable:w"})
+        assert words_check_term(definition, {"w": None}) == (0.0, None)
+        assert words_check_term(definition, {"w": 0.7})[0] == pytest.approx(0.45)
+
+    def test_a_resumed_chain_leaves_the_kept_segments_out(self, monkeypatch):
+        from dw.cost_scaling import words_check_term
+        from dw.pipeline_processors import chain_resume
+
+        monkeypatch.setattr(chain_resume, "kept_count", lambda chain: 2)
+        definition = _words_chain(self.ON, resume_from="output:run/x.mp4")
+        # 3 - 2 = 1 segment left, 1 + 2 attempts
+        assert words_check_term(definition, {})[0] == pytest.approx(0.15)
+        monkeypatch.setattr(chain_resume, "kept_count", lambda chain: 3)
+        assert words_check_term(definition, {}) == (0.0, None)
+
+    def test_with_words_check_adds_the_minutes_and_names_the_term(self):
+        from dw.cost_scaling import with_words_check
+
+        price = {"minutes": 10.0, "basis": "catalog", "measured_on": None}
+        out = with_words_check(price, _words_chain(self.ON), {"variables": {}})
+        assert out["minutes"] == pytest.approx(10.45)
+        assert out["basis"] == "derived"
+        assert "words check" in out["scaled"]
+        assert price["minutes"] == 10.0
+
+    def test_with_words_check_appends_to_an_existing_scaled_note(self):
+        from dw.cost_scaling import with_words_check
+
+        price = {
+            "minutes": 10.0,
+            "basis": "derived",
+            "measured_on": None,
+            "scaled": "x2 steps",
+        }
+        out = with_words_check(price, _words_chain(self.ON), {"variables": {}})
+        assert out["scaled"].startswith("x2 steps, words check")
+
+    def test_with_words_check_keeps_the_other_device_basis(self):
+        from dw.cost_scaling import OTHER_DEVICE, with_words_check
+
+        price = {"minutes": 10.0, "basis": OTHER_DEVICE, "measured_on": None}
+        out = with_words_check(price, _words_chain(self.ON), {"variables": {}})
+        assert out["basis"] == OTHER_DEVICE
+
+    def test_with_words_check_leaves_a_price_without_minutes_alone(self):
+        from dw.cost_scaling import with_words_check
+
+        price = {"minutes": None, "basis": "unknown", "measured_on": None}
+        assert with_words_check(price, _words_chain(self.ON), {"variables": {}}) == (
+            price
+        )
+
+    def test_with_words_check_leaves_an_unchecked_chain_alone(self):
+        from dw.cost_scaling import with_words_check
+
+        price = {"minutes": 10.0, "basis": "catalog", "measured_on": None}
+        out = with_words_check(price, _words_chain(True), {"variables": {}})
+        assert out == price

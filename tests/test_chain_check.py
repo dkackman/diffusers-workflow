@@ -13,14 +13,26 @@ from dw.pipeline_processors.chain_check import (
     JUMP_RATIO_MAX,
     LOOK_RATIO_MAX,
     TEXTURE_RATIO_MAX,
+    WORDS_SIMILARITY_DEFAULT,
+    CheckResult,
     SegmentCheck,
     audio_dbfs,
+    best_attempt,
     check_audio,
     check_segment,
     segment_check,
     texture_base,
+    with_words,
 )
-from dw.pipeline_processors.chain_rules import chain_check_problem
+from dw.pipeline_processors.chain_config import (
+    chain_checks_segment_1,
+    chain_checks_words,
+    segment_line,
+)
+from dw.pipeline_processors.chain_rules import (
+    chain_check_problem,
+    chain_lines_problem,
+)
 
 
 def noise(seed, size=32):
@@ -560,3 +572,422 @@ def test_a_literal_floor_at_or_above_0_is_refused_saying_below_0(floor, tmp_path
     assert "audio_dbfs_min" in messages
     assert "below 0" in messages
     assert "greater than or equal to the maximum" not in messages
+
+
+def _words(similarity=0.95, passed=True):
+    return {
+        "similarity": similarity,
+        "heard": "hello there",
+        "findings": [],
+        "passed": passed,
+        "seam_head_dropped": [],
+    }
+
+
+class TestWordsMeasure:
+    def test_the_default_is_off(self):
+        assert WORDS_SIMILARITY_DEFAULT is None
+        assert SegmentCheck().words_similarity_min is None
+        assert segment_check(True).words_similarity_min is None
+
+    def test_segment_check_reads_the_minimum(self):
+        assert segment_check({"words_similarity_min": 0.8}).words_similarity_min == 0.8
+        assert segment_check({"words_similarity_min": 1}).words_similarity_min == 1.0
+        assert (
+            segment_check({"words_similarity_min": None}).words_similarity_min is None
+        )
+
+    def test_a_passing_answer_is_recorded_and_does_not_fail(self):
+        result = CheckResult(True, {"jump_ratio": 1.0}, [], None)
+        answer = _words()
+        out = with_words(result, answer)
+        assert out is result
+        assert out.measures["words"] is answer
+        assert out.passed and out.failed == []
+
+    def test_a_failing_answer_fails_the_words_measure(self):
+        result = CheckResult(True, {"jump_ratio": 1.0}, [], None)
+        out = with_words(result, _words(0.5, passed=False))
+        assert not out.passed
+        assert out.failed == ["words"]
+
+    def test_a_failing_answer_keeps_the_other_failures(self):
+        result = CheckResult(False, {}, ["jump_ratio"], None)
+        out = with_words(result, _words(0.5, passed=False))
+        assert out.failed == ["jump_ratio", "words"]
+
+    def test_none_records_null_and_never_fails(self):
+        result = CheckResult(True, {}, [], None)
+        out = with_words(result, None)
+        assert "words" in out.measures and out.measures["words"] is None
+        assert out.passed and out.failed == []
+
+    def test_a_segment_one_result_can_carry_words(self):
+        out = with_words(check_audio(None, SegmentCheck()), _words(0.4, False))
+        assert out.failed == ["words"]
+
+
+def _failed(*names, similarity=None, jump=None):
+    measures = {}
+    if jump is not None:
+        measures["jump_ratio"] = jump
+    if similarity is not None:
+        measures["words"] = _words(similarity, passed=False)
+    return CheckResult(not names, measures, list(names), None)
+
+
+class TestBestAttemptWithWords:
+    def test_words_only_failures_rank_by_higher_similarity(self):
+        results = [
+            _failed("words", similarity=0.3, jump=1.0),
+            _failed("words", similarity=0.7, jump=9.0),
+            _failed("words", similarity=0.5, jump=0.1),
+        ]
+        assert best_attempt(results) == 1
+
+    def test_equal_similarity_keeps_the_earliest(self):
+        results = [
+            _failed("words", similarity=0.6),
+            _failed("words", similarity=0.6),
+        ]
+        assert best_attempt(results) == 0
+
+    def test_a_words_only_failure_ranks_after_another_one_measure_failure(self):
+        results = [
+            _failed("words", similarity=0.99, jump=0.5),
+            _failed("jump_ratio", jump=50.0),
+        ]
+        assert best_attempt(results) == 1
+
+    def test_a_pass_beats_a_words_only_failure(self):
+        results = [_failed("words", similarity=0.99), _failed(jump=3.0)]
+        assert best_attempt(results) == 1
+
+    def test_a_words_only_failure_beats_a_two_measure_failure(self):
+        results = [
+            _failed("jump_ratio", "words", similarity=0.9, jump=1.0),
+            _failed("words", similarity=0.1),
+        ]
+        assert best_attempt(results) == 1
+
+    def test_a_null_similarity_ranks_last_among_words_only(self):
+        results = [
+            CheckResult(False, {"words": _words(None, False)}, ["words"], None),
+            _failed("words", similarity=0.1),
+        ]
+        assert best_attempt(results) == 1
+
+    def test_without_words_the_ranking_is_unchanged(self):
+        results = [_failed("jump_ratio", jump=9.0), _failed("jump_ratio", jump=4.0)]
+        assert best_attempt(results) == 1
+
+
+class TestWordsRules:
+    @pytest.mark.parametrize("value", [0.8, 1, 0.01, None, "variable:x"])
+    def test_accepted(self, value):
+        check = {"words_similarity_min": value}
+        assert chain_check_problem({"check": check}) is None
+
+    @pytest.mark.parametrize("value", [0, 0.0, -0.5, 1.5, "high", True, False, [0.5]])
+    def test_refused_naming_the_key(self, value):
+        problem = chain_check_problem({"check": {"words_similarity_min": value}})
+        assert problem and "words_similarity_min" in problem
+
+    def test_lines_accept_none_a_reference_and_the_right_length(self):
+        assert chain_lines_problem(None, 3) is None
+        assert chain_lines_problem("variable:lines", 3) is None
+        assert chain_lines_problem(["a", "b", "c"], 3) is None
+        assert chain_lines_problem(["a", "b"], None) is None
+        assert chain_lines_problem(["", "b"], 2) is None
+
+    @pytest.mark.parametrize(
+        "lines, count, words",
+        [
+            ("just a string", 1, "list of strings"),
+            ({"a": 1}, 1, "list of strings"),
+            ([], 2, "list of strings"),
+            (["a", 2], 2, "only strings"),
+            ([None, "a"], 2, "only strings"),
+            (["a", "b"], 3, "2 line(s) for 3"),
+            (["a", "b", "c"], 2, "3 line(s) for 2"),
+        ],
+    )
+    def test_lines_refused(self, lines, count, words):
+        assert words in chain_lines_problem(lines, count)
+
+    def test_segment_line_prefers_lines_and_never_repeats_them(self):
+        lines = ["one", "", "  ", "four"]
+        assert segment_line(lines, None, "p", 0) == "one"
+        assert segment_line(lines, None, "p", 1) is None
+        assert segment_line(lines, None, "p", 2) is None
+        assert segment_line(lines, None, "p", 3) == "four"
+        assert segment_line(lines, None, "<d>fallback</d>", 4) is None
+
+    def test_lines_win_over_the_prompts(self):
+        assert segment_line(["mine"], ["<d>theirs</d>"], "<d>step</d>", 0) == "mine"
+
+    def test_segment_line_reads_the_prompts_repeating_the_last(self):
+        prompts = ["<d>first</d>", "no dialogue here", "<d>third</d>"]
+        assert segment_line(None, prompts, "<d>step</d>", 0) == "first"
+        assert segment_line(None, prompts, "<d>step</d>", 1) is None
+        assert segment_line(None, prompts, "<d>step</d>", 2) == "third"
+        assert segment_line(None, prompts, "<d>step</d>", 7) == "third"
+
+    def test_segment_line_falls_back_to_the_step_prompt(self):
+        assert segment_line(None, None, "A man: <d>hi there</d>", 3) == "hi there"
+        assert segment_line(None, [], "A man: <d>hi there</d>", 0) == "hi there"
+        assert segment_line(None, None, "no dialogue", 0) is None
+        assert segment_line(None, None, None, 0) is None
+        assert segment_line([], None, "<d>x</d>", 0) == "x"
+
+    @pytest.mark.parametrize(
+        "chain, arguments, words, segment_1",
+        [
+            ({}, {}, False, False),
+            ({"check": False}, {}, False, False),
+            ({"check": True}, {}, False, True),
+            ({"check": {"words_similarity_min": 0.8}}, {}, True, True),
+            ({"check": {"words_similarity_min": None}}, {}, False, True),
+            # words alone checks segment 1, with the audio floor off
+            (
+                {"check": {"words_similarity_min": 0.8, "audio_dbfs_min": None}},
+                {},
+                True,
+                True,
+            ),
+            (
+                {"check": {"words_similarity_min": None, "audio_dbfs_min": None}},
+                {},
+                False,
+                False,
+            ),
+            ({"check": {"words_similarity_min": "variable:w"}}, {}, True, True),
+            # a held audio track is not the segment's own speech
+            (
+                {"check": {"words_similarity_min": 0.8}, "match_audio": True},
+                {},
+                False,
+                False,
+            ),
+            (
+                {"check": {"words_similarity_min": 0.8}},
+                {"hold_audio": "asset:t.wav"},
+                False,
+                False,
+            ),
+            # check true is the default ceilings: the words measure stays off
+            ({"check": True, "match_audio": True}, {}, False, False),
+            # no check, no words
+            ({"words_similarity_min": 0.8}, {}, False, False),
+        ],
+    )
+    def test_truth_table(self, chain, arguments, words, segment_1):
+        assert chain_checks_words(chain, arguments) is words
+        assert chain_checks_segment_1(chain, arguments) is segment_1
+
+    def test_chain_config_reads_lines_and_asks_the_rules(self):
+        from dw.pipeline_processors.chain import ChainConfig
+
+        config = ChainConfig(
+            {
+                "segments": 2,
+                "check": {"words_similarity_min": 0.8},
+                "lines": ["a", "b"],
+            },
+            {"prompt": "<d>step</d>"},
+        )
+        assert config.checks_words and config.checks_segment_1
+        assert config.check.words_similarity_min == 0.8
+        assert config.segment_line(0) == "a" and config.segment_line(1) == "b"
+        plain = ChainConfig({"segments": 2, "check": True}, {"prompt": "<d>s</d>"})
+        assert not plain.checks_words
+        assert plain.segment_line(1) == "s"
+
+    def test_chain_config_refuses_lines_of_the_wrong_length(self):
+        from dw.pipeline_processors.chain import ChainConfig
+
+        with pytest.raises(ValueError, match="2 line"):
+            ChainConfig({"segments": 3, "lines": ["a", "b"]}, {})
+
+    def test_the_schema_takes_the_new_keys(self):
+        import json
+        from pathlib import Path
+
+        import jsonschema
+
+        schema = json.loads(
+            (Path(__file__).parent.parent / "dw/workflow_schema.json").read_text()
+        )
+        chain = {"$defs": schema["$defs"], **schema["$defs"]["chain"]}
+        for value in (0.8, None, "variable:w"):
+            jsonschema.validate(
+                {"segments": 2, "check": {"words_similarity_min": value}}, chain
+            )
+        jsonschema.validate({"segments": 2, "lines": ["a", "b"]}, chain)
+        jsonschema.validate({"segments": 2, "lines": "variable:lines"}, chain)
+        with pytest.raises(jsonschema.ValidationError):
+            jsonschema.validate({"segments": 2, "lines": [1, 2]}, chain)
+        with pytest.raises(jsonschema.ValidationError):
+            jsonschema.validate({"segments": 2, "lines": 3}, chain)
+
+
+class TestWordsEstimate:
+    WORDS = {"words_similarity_min": 0.8}
+
+    def test_a_words_checked_chain_quotes_more_than_without(self):
+        unchecked = _minutes(3, None, None)
+        null = _minutes(3, {"words_similarity_min": None}, 1)
+        words = _minutes(3, self.WORDS, 1)
+        assert unchecked["minutes"] == pytest.approx(30)
+        assert null["minutes"] == pytest.approx(60)
+        assert words["minutes"] > null["minutes"] > unchecked["minutes"]
+        # 3 segments, segment 1 included, 2 attempts each = 6 passes
+        assert words["minutes"] == pytest.approx(60 + 6 * 0.05)
+
+    def test_the_scaled_text_names_the_words_check(self):
+        words = _minutes(3, self.WORDS, 1)
+        assert "words check" in words["scaled"]
+        assert "6 Whisper pass" in words["scaled"]
+        assert "words check" not in _minutes(3, True, 1)["scaled"]
+
+    def test_the_term_is_additive_not_a_factor(self):
+        # the ratio of 5 segments to 3 is not applied to the Whisper passes
+        words = _minutes(5, self.WORDS, 2)
+        assert words["minutes"] == pytest.approx(10.0 * 5 * 3 + 15 * 0.05, abs=0.06)
+
+    def test_a_held_audio_chain_adds_nothing(self):
+        from dw.plan import estimate
+
+        definition, expanded = _priced(3, self.WORDS, 1)
+        definition["steps"][0]["pipeline"]["chain"]["match_audio"] = True
+        quoted = estimate(definition, expanded, {}, "cuda", None, None)
+        assert "words check" not in quoted.get("scaled", "")
+
+    def test_the_estimate_and_the_run_agree(self):
+        from dw.cost_scaling import _chain_checks_words
+        from dw.pipeline_processors.chain import ChainConfig
+
+        for check, expected in (
+            (self.WORDS, True),
+            ({"words_similarity_min": None}, False),
+            (True, False),
+        ):
+            definition, _ = _priced(3, check, 1)
+            assert _chain_checks_words(definition, {}) is expected
+            config = ChainConfig({"segments": 3, "check": check}, {})
+            assert config.checks_words is expected
+
+
+class TestWordsValidation:
+    """The whole-workflow path: the chained-segments template with the words
+    keys written into its chain block (#1262)."""
+
+    @staticmethod
+    def _workflow(tmp_path, **chain):
+        import json
+        from pathlib import Path
+
+        from dw.workflow import workflow_from_definition
+
+        template = (
+            Path(__file__).parent.parent
+            / "workflows/templates/ltx2/chained-segments.json"
+        )
+        definition = json.loads(template.read_text())
+        block = definition["steps"][0]["pipeline"]["chain"]
+        block.pop("duration_seconds", None)
+        block["segments"] = 3
+        block.update(chain)
+        definition["variables"].update(words=0.8, check=True)
+        return workflow_from_definition(definition, str(tmp_path))
+
+    def _errors(self, tmp_path, **chain):
+        from dw.validation import workflow_errors
+
+        errors = workflow_errors(self._workflow(tmp_path, **chain))
+        return [e for e in errors if "chain" in str(e.get("path"))], errors
+
+    def _warnings(self, tmp_path, **chain):
+        from dw import validation
+
+        workflow = self._workflow(tmp_path, **chain)
+        return validation.run_warning_check(workflow, "chain_lines_warnings", None)
+
+    @pytest.mark.parametrize("value", [0, 1.5, "high", -1, True])
+    def test_a_bad_minimum_is_refused(self, tmp_path, value):
+        found, errors = self._errors(tmp_path, check={"words_similarity_min": value})
+        messages = " ".join(str(e) for e in errors)
+        assert "words_similarity_min" in messages, errors
+
+    @pytest.mark.parametrize("value", [0.8, 1, None, "variable:words"])
+    def test_a_good_minimum_is_accepted(self, tmp_path, value):
+        _, errors = self._errors(tmp_path, check={"words_similarity_min": value})
+        assert "words_similarity_min" not in " ".join(str(e) for e in errors)
+
+    def test_lines_of_the_right_length_are_accepted(self, tmp_path):
+        found, errors = self._errors(
+            tmp_path,
+            check={"words_similarity_min": 0.8},
+            lines=["a", "b", "c"],
+        )
+        assert "lines" not in " ".join(str(e) for e in errors), errors
+
+    def test_lines_of_the_wrong_length_are_refused_at_their_path(self, tmp_path):
+        _, errors = self._errors(
+            tmp_path, check={"words_similarity_min": 0.8}, lines=["a", "b"]
+        )
+        (error,) = [e for e in errors if str(e["path"]).endswith("chain.lines")]
+        assert error["path"] == "steps[0].pipeline.chain.lines"
+        assert "2 line(s) for 3" in error["message"]
+
+    def test_a_non_string_entry_is_refused(self, tmp_path):
+        _, errors = self._errors(
+            tmp_path, check={"words_similarity_min": 0.8}, lines=["a", 2, "c"]
+        )
+        # the schema refuses the entry before the rule is asked
+        assert any("chain.lines" in str(e["path"]) for e in errors), errors
+
+    def test_lines_with_the_check_off_validate_but_warn(self, tmp_path):
+        found, errors = self._errors(tmp_path, check=False, lines=["a", "b", "c"])
+        assert "lines" not in " ".join(str(e) for e in errors), errors
+        (warning,) = self._warnings(tmp_path, check=False, lines=["a", "b", "c"])
+        assert "nothing reads 'lines'" in warning
+        assert warning.startswith("steps[0].pipeline.chain.lines:")
+
+    def test_lines_warn_with_a_null_minimum_or_no_check(self, tmp_path):
+        lines = ["a", "b", "c"]
+        assert self._warnings(tmp_path, check=True, lines=lines)
+        assert self._warnings(
+            tmp_path, check={"words_similarity_min": None}, lines=lines
+        )
+        assert self._warnings(tmp_path, lines=lines)
+
+    def test_lines_do_not_warn_when_the_words_check_reads_them(self, tmp_path):
+        lines = ["a", "b", "c"]
+        assert (
+            self._warnings(tmp_path, check={"words_similarity_min": 0.8}, lines=lines)
+            == []
+        )
+
+    def test_unresolved_references_do_not_warn(self):
+        from dw.guides import chain_lines_warnings
+
+        lines = ["a", "b", "c"]
+        for check in (
+            "variable:check",
+            {"words_similarity_min": "variable:words"},
+        ):
+            step = {
+                "name": "s",
+                "pipeline": {"chain": {"segments": 3, "check": check, "lines": lines}},
+            }
+            assert chain_lines_warnings({"steps": [step]}) == [], check
+
+    def test_no_lines_no_warning(self, tmp_path):
+        assert self._warnings(tmp_path, check=False) == []
+        assert self._warnings(tmp_path, check=True) == []
+
+    def test_the_warning_check_is_registered(self):
+        from dw import validation
+
+        assert "chain_lines_warnings" in [c.name for c in validation.WARNING_CHECKS]
