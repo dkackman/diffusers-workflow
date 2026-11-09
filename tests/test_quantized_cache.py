@@ -1428,6 +1428,11 @@ class TestFromPretrained:
 class TestPerComponentCallSite:
     """load_component, the path load_optional_component takes, end to end."""
 
+    @pytest.fixture(autouse=True)
+    def _roomy_disk(self, monkeypatch):
+        # the save gate reads the host's free space; pin it so the run does not
+        monkeypatch.setattr(qc.shutil, "disk_usage", disk(1000, 900))
+
     def configuration(self, component_type):
         return {"component_type": component_type, "preserve_device_placement": True}
 
@@ -1556,6 +1561,11 @@ class TestTransformersRoundTrip:
     """An entry is saved under the model's own tensor names, so a transformers
     model with a weight conversion mapping loads back (#827: LTX-2.5's Gemma 4
     text encoder saved in its checkpoint layout and failed every lookup)."""
+
+    @pytest.fixture(autouse=True)
+    def _roomy_disk(self, monkeypatch):
+        # the save gate reads the host's free space; pin it so the run does not
+        monkeypatch.setattr(qc.shutil, "disk_usage", disk(1000, 900))
 
     @staticmethod
     def gemma4():

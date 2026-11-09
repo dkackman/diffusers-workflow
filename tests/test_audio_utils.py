@@ -1009,9 +1009,12 @@ class TestNormalizeAudioLimit:
         import time
 
         waveform = self._bursty(seconds=180.0, channels=2)
-        started = time.perf_counter()
+        # CPU time, not wall clock: a loaded parallel run stretches wall time
+        # (12.8 s seen under -n auto against ~3 s alone) without the limiter
+        # doing any more work
+        started = time.process_time()
         self._run(waveform, peak_dbfs=-1.0, target_lufs=-14.0)
-        assert time.perf_counter() - started < 10.0
+        assert time.process_time() - started < 10.0
 
     def test_limit_must_be_a_bool(self):
         from dw.tasks.audio_dynamics import normalize_audio
