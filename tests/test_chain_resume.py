@@ -517,3 +517,14 @@ def test_realize_args_leaves_a_resume_from_output_reference_for_the_resume():
     steps = [{"pipeline": {"chain": {"resume_from": ref, "segments": 3}}}]
     realize_args(steps)
     assert steps[0]["pipeline"]["chain"]["resume_from"] == ref
+
+
+def test_a_variable_named_resume_from_keeps_its_output_reference():
+    """The variables pass realizes before substitution into the chain block,
+    so a variable named resume_from must keep the reference too (#1304)."""
+    from dw.arguments import realize_args
+
+    ref = "output:wf/20261109-150726-52a306d2/final/p.0.segment-001.mp4"
+    variables = {"resume_from": ref}
+    realize_args(variables, apply_key_conventions=False)
+    assert variables["resume_from"] == ref
