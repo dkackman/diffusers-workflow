@@ -962,7 +962,11 @@ class TestByCard:
         return JobHistory(tmp_path / "jobs.sqlite")
 
     def _costs(self, history, monkeypatch, default):
-        monkeypatch.setattr("dw.devices.is_default_device", lambda device=None: default)
+        # The default card is this card's model when `default`, else another
+        monkeypatch.setattr(
+            "dw.devices.card_name",
+            lambda device=None: self.CARD if default else "Some Other Card",
+        )
         costs = ObservedCosts(history)
         # What device() would have read from torch on a 3090 box
         costs._device = ("cuda", self.CARD)
@@ -1005,13 +1009,31 @@ class TestByCard:
 
         assert costs.observed("templates/x", workflow())["runs"] == 2
 
-    def test_rows_from_before_jobs_carried_a_device_do_not_count_off_the_default_card(
+    def test_rows_from_before_jobs_carried_a_device_do_not_count_for_another_model(
         self, tmp_path, monkeypatch
     ):
         history = self._history(tmp_path, [None, None, "cuda:1 " + self.CARD])
         costs = self._costs(history, monkeypatch, default=False)
 
         assert costs.observed("templates/x", workflow())["runs"] == 1
+
+    def test_old_rows_count_for_the_non_default_card_of_the_same_model(
+        self, tmp_path, monkeypatch
+    ):
+        """#1278: two identical cards, only pre-device rows, plan routed to
+        cuda:1 - the rows ran on the default card, a card of the same name."""
+        monkeypatch.setattr(
+            "dw.devices.card_name", lambda device=None: "NVIDIA GeForce RTX 3090"
+        )
+        monkeypatch.setattr("dw.devices.detect_device", lambda: "cuda:0")
+        costs = ObservedCosts(self._history(tmp_path, [None] * 7))
+        costs._device = ("cuda", "NVIDIA GeForce RTX 3090")
+        costs._card = "NVIDIA GeForce RTX 3090"
+
+        observed = costs.observed("templates/x", workflow(), card="cuda:1")
+
+        assert observed is not None
+        assert observed["runs"] == 7
 
     def _two_card_costs(self, tmp_path, monkeypatch, devices):
         names = {
@@ -1022,6 +1044,7 @@ class TestByCard:
         monkeypatch.setattr(
             "dw.devices.is_default_device", lambda device=None: device == "cuda:0"
         )
+        monkeypatch.setattr("dw.devices.detect_device", lambda: "cuda:0")
         costs = ObservedCosts(self._history(tmp_path, devices))
         costs._device = ("cuda", names["cuda:0"])
         costs._card = names["cuda:0"]

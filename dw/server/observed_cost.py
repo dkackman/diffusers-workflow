@@ -356,22 +356,24 @@ class ObservedCosts:
         counts when the card name matches, whichever index it had - a 3090
         run tells a 3090 estimate, not a 4090 one. A row from before jobs
         carried a device (no `device_ordinal`) ran on the box's default
-        card, so it counts only for that card."""
-        from ..devices import is_default_device
+        card, so it counts as that card's *name* (#1278): on a box of two
+        identical cards a plan routed to the non-default one still matches
+        them, as a run of the same model of card."""
+        from ..devices import card_name, detect_device
 
         if card is not None:
-            _, name, default = self.card(card)
+            _, name, _ = self.card(card)
         else:
             self.device()
             name = self._card
-            try:
-                default = is_default_device()
-            except Exception:
-                default = True
+        try:
+            default_name = card_name(detect_device())
+        except Exception:
+            default_name = name
         kept = []
         for row in rows:
             if row.get("device_ordinal") is None:
-                if default:
+                if default_name == name:
                     kept.append(row)
             elif row.get("device_card") == name:
                 kept.append(row)
