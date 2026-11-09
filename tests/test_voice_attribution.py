@@ -1001,3 +1001,42 @@ class TestAttributeLinesTemplate(unittest.TestCase):
             [(line["start"], line["end"]) for line in lines],
             [(0.0, 4.0), (4.0, 10.0)],
         )
+
+
+class TestSeparationIsRepeatable(unittest.TestCase):
+    """#1293: a long clip's random shift is seeded, so two separations of the
+    same audio (two steps in one job) give the same stems."""
+
+    def test_same_audio_same_shift_and_caller_random_state_kept(self):
+        import random
+        import types
+
+        import torch
+
+        from dw.tasks import voice_attribution as va
+
+        drawn = []
+
+        def fake_apply(model, mix, device, split, shifts):
+            drawn.append(random.randint(0, 10**9))  # what demucs does per call
+            return torch.zeros(1, 4, 2, mix.shape[-1])
+
+        model = types.SimpleNamespace(
+            samplerate=100,
+            audio_channels=2,
+            max_allowed_segment=1.0,
+            sources=["drums", "bass", "other", "vocals"],
+        )
+        fake_module = types.ModuleType("demucs.apply")
+        fake_module.apply_model = fake_apply
+        wave = numpy.random.RandomState(0).randn(1, 500).astype(numpy.float32)
+        random.seed(7)
+        expected_next = random.random()
+        random.seed(7)
+        with patch.dict(sys.modules, {"demucs.apply": fake_module}), patch.object(
+            va, "_load_separator", return_value=model
+        ):
+            va._run_separator_stems(wave, 100, "cpu", torch.float32)
+            va._run_separator_stems(wave, 100, "cpu", torch.float32)
+        self.assertEqual(drawn[0], drawn[1])
+        self.assertEqual(random.random(), expected_next)
