@@ -29,7 +29,7 @@
   )
 </script>
 
-<div class="timeline" aria-label="Timeline {summary.name}">
+<div class="timeline" role="group" aria-label="Timeline {summary.name}">
   <div class="scroll">
     {#each tracks as track (track.kind + track.name)}
       {@const widths = shares(track)}
@@ -41,7 +41,7 @@
               <div
                 class="block gap"
                 style:flex-basis="{widths[index] * 100}%"
-                title="gap · {item.seconds ?? 0} s"
+                title="gap · {Number((item.seconds ?? 0).toFixed(1))} s"
               ></div>
             {:else}
               <div class="block clip" style:flex-basis="{widths[index] * 100}%">
