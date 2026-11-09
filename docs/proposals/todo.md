@@ -37,6 +37,14 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **Words check for dialogue chains** (#1262, stages #1297-#1299), shipped
+  2026-11-09. The H3 chain check gains a `words` measure: each segment's kept
+  audio is transcribed on CPU Whisper and compared with its line (`lines[k]`
+  or the prompt's `<d>`), re-rolling on a low similarity or a script finding.
+  Number words fold to digits in the shared normaliser. Good and bad takes
+  didn't separate on similarity, so `words_similarity_min` ships `null`
+  (0.80 recommended explicitly). `guide_end: "pause"` was cut:
+  `complete/chain-words-check-complete.md`.
 - **Camera moves classified as static or moving** (#1200, stage #1255),
   shipped 2026-11-07. Each of the 13 move ids in the `cinematography`
   vocabulary has a `class`. Only `static` is `static`. Every `moving` id
