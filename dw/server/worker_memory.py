@@ -192,7 +192,8 @@ def clear_memory(slots, lock, timeout=30, device=None):
         if device is not None:
             busy = workers[0]
             raise WorkerBusy(f"{busy['device']} is running job {busy['job']}")
-        raise WorkerBusy("Every card is running a job")
+        running = ", ".join(f"{w['device']} is running job {w['job']}" for w in workers)
+        raise WorkerBusy(f"Every card is running a job ({running})")
     if device is not None:
         return {
             "cleared": True,

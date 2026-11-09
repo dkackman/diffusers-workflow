@@ -1004,8 +1004,11 @@ class TestMemoryPerCard:
         gate_a.wait_started()
         gate_b.wait_started()
 
-        with pytest.raises(WorkerBusy):
+        with pytest.raises(WorkerBusy) as refused:
             manager.clear_memory()
+        for job in jobs:
+            assert job.id in str(refused.value)
+        assert "cuda:0" in str(refused.value) and "cuda:1" in str(refused.value)
 
         gate_a.release.set()
         gate_b.release.set()
