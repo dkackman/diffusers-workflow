@@ -523,31 +523,67 @@ def test_a_failed_final_encode_draws_the_resume_hint(outputs, events, monkeypatc
     assert hint["resume_from"] == _first_file_reference()
 
 
+def _short_decode_at(monkeypatch, refused_call):
+    """The `refused_call`-th kept file decodes one frame short of its
+    header, so `_Kept.add`'s real decode-vs-header check refuses it."""
+    from dw.pipeline_processors import chain_resume
+
+    original = chain_resume.load_audio_video
+    calls = []
+
+    def decode(location, *args, **kwargs):
+        video = original(location, *args, **kwargs)
+        calls.append(location)
+        if len(calls) == refused_call:
+            video.frames = video.frames[:-1]
+        return video
+
+    monkeypatch.setattr(chain_resume, "load_audio_video", decode)
+
+
+def _second_run_segments(outputs):
+    return sorted(p.name for p in (outputs / WORKFLOW / SECOND_RUN).glob("*.mp4"))
+
+
 def test_a_load_failure_after_copying_draws_the_resume_hint(
     outputs, events, monkeypatch
 ):
-    from dw.pipeline_processors import chain_resume
-
+    """The second kept file is refused after the first was accepted: the hint
+    counts and names the accepted one only, and the refused copy is gone."""
     _dead_run(outputs, events)
     events.clear()
-
-    original = chain_resume._Kept.add
-    calls = []
-
-    def second_refuses(self, path, copied):
-        calls.append(path)
-        if len(calls) == 2:
-            raise ValueError("kept file refused")
-        return original(self, path, copied)
-
-    monkeypatch.setattr(chain_resume._Kept, "add", second_refuses)
-    with pytest.raises(ValueError, match="kept file refused"):
+    _short_decode_at(monkeypatch, 2)
+    with pytest.raises(ValueError, match="decodes to"):
         run_chain(
             _pipeline(outputs, SECOND_RUN, _factory()),
             _chain(resume_from=_first_file_reference()),
             _arguments(),
         )
-    assert len(_warnings(events, "chain_resume_hint")) == 1
+    (hint,) = _warnings(events, "chain_resume_hint")
+    assert hint["segments"] == 1
+    assert "after 1 finished segment(s)" in hint["message"]
+    assert hint["resume_from"] == references.make_ref(
+        references.OUTPUT, f"{WORKFLOW}/{SECOND_RUN}/chained.video.0.segment-000.mp4"
+    )
+    assert _second_run_segments(outputs) == ["chained.video.0.segment-000.mp4"]
+
+
+def test_a_refusal_of_the_first_kept_file_draws_no_resume_hint(
+    outputs, events, monkeypatch
+):
+    """Nothing accepted, nothing to resume from: no hint naming the refused
+    file, and no copy of it left in the new run."""
+    _dead_run(outputs, events)
+    events.clear()
+    _short_decode_at(monkeypatch, 1)
+    with pytest.raises(ValueError, match="decodes to"):
+        run_chain(
+            _pipeline(outputs, SECOND_RUN, _factory()),
+            _chain(resume_from=_first_file_reference()),
+            _arguments(),
+        )
+    assert _warnings(events, "chain_resume_hint") == []
+    assert _second_run_segments(outputs) == []
 
 
 def test_realize_args_leaves_a_resume_from_output_reference_for_the_resume():

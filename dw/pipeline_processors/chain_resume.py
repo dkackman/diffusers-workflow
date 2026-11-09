@@ -62,8 +62,11 @@ Known approximations, none of them silent reuse:
   anchor is segment 1 as rendered, so a resumed anchor is shorter than the
   live one.
 - A failure inside `load` draws a `chain_resume_hint` only when it had already
-  copied files into the spill (a resumable prefix); one before any copy has
-  none to name, and the earlier run's files are the ones `resume_from` names.
+  accepted kept files into the spill (a resumable prefix), and the hint counts
+  and names only those: a file `_Kept.add` refuses (its decode disagrees with
+  its header, say) has its copy taken back out of the spill first. A refusal
+  of the first file, or one before any copy (`check_plan`), has none to name,
+  and the earlier run's files are the ones `resume_from` names.
 - A spill's `-2` dedupe suffix (`...segment-000-2.mp4`, flat layout) is not
   matched by `SEGMENT_FILE`: moot while each job has its own run directory.
 - The iteration number counts `run_chain` calls on one Pipeline wrapper; an
@@ -244,7 +247,15 @@ def load(config, spill, hold=None):
     _check_kept_audio(config, sources)
     kept = _Kept(config)
     for path in sources:
-        spill.frame_count += kept.add(path, _copied_into(spill, path))
+        copy = _copied_into(spill, path)
+        try:
+            count = kept.add(path, copy)
+        except Exception:
+            # A refused file is no part of a resumable prefix: the hint a
+            # failure here draws names only the files already accepted
+            _discard_copy(spill, copy)
+            raise
+        spill.frame_count += count
     last = kept.last
     if hold is not None:
         # The scene, as segment 1 sets it; the boost is not recoverable
@@ -463,6 +474,15 @@ def _copied_into(spill, source):
     shutil.copyfile(source, target)
     spill.paths.append(target)
     return target
+
+
+def _discard_copy(spill, copy):
+    """Take a refused kept file's copy back out of this run's spill."""
+    spill.paths.remove(copy)
+    try:
+        os.remove(copy)
+    except OSError:
+        logger.warning(f"Chain resume: could not remove refused copy {copy}")
 
 
 def _carry(config, last, hold):

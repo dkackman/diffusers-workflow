@@ -154,8 +154,9 @@ def run_chain(pipeline, chain_definition, arguments):
     try:
         resumed = chain_resume.load(config, spill, hold)
     except Exception:
-        # A refusal after some files were copied leaves a resumable prefix
-        # in this run's spill; one before any copy draws no hint
+        # load keeps only accepted files in the spill (a refused one's copy
+        # is taken back out), so the hint names a resumable prefix, and a
+        # refusal of the first file draws none
         chain_resume.warn_resumable(spill)
         raise
     if resumed is not None:
