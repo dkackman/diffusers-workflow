@@ -293,7 +293,7 @@ class ObservedCosts:
         self._rows = {}
         self._device = None
         self._card = None
-        # (kind, card name, is the default card) per named card, read once
+        # (kind, card name) per named card, read once
         self._cards = {}
 
     def device(self):
@@ -329,11 +329,11 @@ class ObservedCosts:
         return self._device
 
     def card(self, ordinal):
-        """A named card ('cuda:1') as (type, card name, whether it is the
-        box's default card) - what `observed(card=...)` prices for. Read
-        once per card, for the same reason `device` is."""
+        """A named card ('cuda:1') as (type, card name) - what
+        `observed(card=...)` prices for. Read once per card, for the same
+        reason `device` is."""
         if ordinal not in self._cards:
-            from ..devices import card_name, is_default_device
+            from ..devices import card_name
 
             kind = str(ordinal).split(":", 1)[0]
             try:
@@ -341,11 +341,7 @@ class ObservedCosts:
             except Exception:
                 logger.debug("observed cost: could not read %s's name", ordinal)
                 name = None
-            try:
-                default = is_default_device(ordinal)
-            except Exception:
-                default = True
-            self._cards[ordinal] = (kind, name, default)
+            self._cards[ordinal] = (kind, name)
         return self._cards[ordinal]
 
     def _on_this_card(self, rows, card=None):
@@ -359,17 +355,15 @@ class ObservedCosts:
         card, so it counts as that card's *name* (#1278): on a box of two
         identical cards a plan routed to the non-default one still matches
         them, as a run of the same model of card."""
-        from ..devices import card_name, detect_device
+        from ..devices import detect_device
 
         if card is not None:
-            _, name, _ = self.card(card)
+            _, name = self.card(card)
         else:
             self.device()
             name = self._card
-        try:
-            default_name = card_name(detect_device())
-        except Exception:
-            default_name = name
+        # The default card's name through the owner, so it is read once
+        default_name = self.card(detect_device())[1]
         kept = []
         for row in rows:
             if row.get("device_ordinal") is None:
@@ -439,7 +433,7 @@ class ObservedCosts:
         if not rows:
             return None
         if card is not None:
-            device, device_name, _ = self.card(card)
+            device, device_name = self.card(card)
             device_name = device_name if device == "cuda" else None
         else:
             device, device_name = self.device()
