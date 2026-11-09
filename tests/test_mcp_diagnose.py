@@ -871,6 +871,15 @@ def test_clip_note_leaves_other_entries_alone():
     assert clip_note({"note": None}) == {"note": None}
 
 
+def test_gallery_shows_only_first_line_of_multiline_note():
+    note = "score 4/5 · judged_by x\nsubject: apple\ndefects: none"
+    gallery = {"files": [{"name": "a.png", "note": note}]}
+    client, _ = scripted({("GET", "/api/gallery"): (200, gallery)})
+    entry = catalog.list_gallery(client)["files"][0]
+    assert entry["note"] == "score 4/5 · judged_by x"
+    assert entry["note_truncated"] is True
+
+
 def test_gallery_clips_long_notes_but_metadata_does_not():
     gallery = {"files": [{"name": "a.png", "note": "x" * 500, "role": "final"}]}
     client, _ = scripted({("GET", "/api/gallery"): (200, gallery)})
