@@ -91,3 +91,33 @@ def test_guard_words_lone_number_word_becomes_digits():
         [{"start": 0.1, "end": 0.4, "text": " One"}], _voiced(1.0), RATE
     )
     assert [h["word"] for h in heard] == ["1"]
+
+
+def test_guard_words_without_number_words_is_unfolded():
+    """Stage A's fold is the identity on a take with no number word (the
+    ep198 freezer/air take of C-F503): guard_words gives what it gave
+    before the fold existed."""
+    chunks = [
+        {"start": 0.1, "end": 0.3, "text": " Who"},
+        {"start": 0.3, "end": 0.5, "text": " left"},
+        {"start": 0.5, "end": 0.8, "text": " the freezer"},
+        {"start": 0.9, "end": 1.2, "text": " Uh,"},
+    ]
+    heard, _ = guard_words(chunks, _voiced(1.5), RATE)
+    assert [(h["word"], h["text"], h["start"], h["end"]) for h in heard] == [
+        ("who", "Who", 0.1, 0.3),
+        ("left", "left", 0.3, 0.5),
+        ("the", "the freezer", 0.5, 0.8),
+        ("freezer", "the freezer", 0.5, 0.8),
+        ("uh", "Uh,", 0.9, 1.2),
+    ]
+
+
+def test_digits_written_apart_are_not_one_number():
+    """'2 1' (said 'two one') is not '21'; a year in halves still joins."""
+    from dw.tasks.script_findings import line_similarity
+
+    assert line_similarity(["article", "2", "1"], ["article", "21"]) < 1.0
+    assert line_similarity(["article", "21"], ["article", "2", "1"]) < 1.0
+    assert line_similarity(normalize_words("seventeen eighty-seven"), ["1787"]) == 1.0
+    assert line_similarity(["candle", "crumbs"], ["candlecrumbs"]) == 1.0

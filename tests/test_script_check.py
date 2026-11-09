@@ -1675,3 +1675,9 @@ def test_digit_line_heard_as_number_words_scores_one():
     answer = run(["Article 1"], words("Article One"))
     assert answer["lines"][0]["similarity"] == 1.0
     assert rules(answer, "line_mismatch") == []
+
+
+def test_digits_written_apart_heard_as_one_number_score_under_one():
+    """C-F743(d): a line '2 1' heard as '21' is a different number."""
+    answer = run(["Article 2 1."], words("Article 21"))
+    assert answer["lines"][0]["similarity"] < 1.0
