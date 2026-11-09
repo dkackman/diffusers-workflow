@@ -53,6 +53,27 @@ def workflow(drivers=None, **variables):
     return definition
 
 
+class TestResumedChainRows:
+    def test_a_resumed_chain_run_is_not_a_full_run_s_basis(self):
+        definition = workflow(["num_frames"], num_frames=124, resume=None)
+        definition["steps"] = [
+            {
+                "chain": {"resume_from": "variable:resume"},
+                "arguments": {},
+            }
+        ]
+        observed = observed_for(
+            definition,
+            [
+                run(10 * MINUTE, {"resume": "output:r/a"}),
+                run(30 * MINUTE, {}),
+            ],
+        )
+
+        assert observed["runs"] == 1
+        assert observed["cold_minutes"] == 30.0
+
+
 class TestComparability:
     def test_runs_at_the_same_driver_values_are_one_bucket(self):
         """Different prompts and seeds, same frame count: one figure."""

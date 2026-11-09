@@ -523,7 +523,14 @@ class JobManager(Dispatcher):
 
         arguments = {**arguments, **(overrides or {})}
         spec["rerun_warnings"] = []
-        if overrides and not new_seed:
+        seed_variable = self.seed_variable(job_id)
+        # An explicit null override means "draw fresh": not a gap to fill
+        # with the parent's realized seed
+        draws_fresh = (
+            seed_variable is not None
+            and (overrides or {}).get(seed_variable, 1) is None
+        )
+        if overrides and not new_seed and not draws_fresh:
             arguments, spec["rerun_warnings"] = keep_drawn_seed(
                 arguments, self.seed_variable(job_id), self.realized(job_id)
             )
