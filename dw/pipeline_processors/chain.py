@@ -231,14 +231,20 @@ def run_chain(pipeline, chain_definition, arguments):
         pipeline.segment_label = None
         pipeline.latent_anchor_source = None
 
-    return _stitched(
-        config,
-        spill,
-        timeline.frames,
-        timeline.audio,
-        timeline.audio_rate,
-        timeline.shots,
-    )
+    try:
+        return _stitched(
+            config,
+            spill,
+            timeline.frames,
+            timeline.audio,
+            timeline.audio_rate,
+            timeline.shots,
+        )
+    except Exception:
+        # Every segment is on disk by now; the final encode failing is a
+        # chain that can resume with all of them kept
+        chain_resume.warn_resumable(spill)
+        raise
 
 
 def _warn_idle_keystone(config, arguments):
