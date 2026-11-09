@@ -27,7 +27,12 @@ from ..vram_inheritance import (
     sets_differently,
     template_identity,
 )
-from ..cost_scaling import FRAMES_DRIVER, STEPS_DRIVER, scale_curated
+from ..cost_scaling import (
+    FRAMES_DRIVER,
+    STEPS_DRIVER,
+    _chain_segments,
+    scale_curated,
+)
 from .observed_cost import declared_drivers
 from ..library import ASSETS_KIND, LORAS_KIND, PROMPTS_KIND, library_path
 from ..workspace import (
@@ -313,6 +318,16 @@ def _scale_past_template(definition, template, drivers, arguments):
         reasons.append(
             f"runs the pipeline in {steps} steps, template measured {template_steps}"
         )
+    # A chain is one pipeline step however many segments it renders, so its
+    # length is its own axis (#1305): a fallback to the template's default
+    # bucket would otherwise quote 3 segments at the 2 it was measured on
+    mine_segments = _chain_segments(
+        definition, effective_variables(definition, arguments)
+    )
+    bucket_segments = _chain_segments(bucket, bucket["variables"])
+    if mine_segments and bucket_segments and mine_segments != bucket_segments:
+        factor *= mine_segments / bucket_segments
+        reasons.append(f"segments {mine_segments} vs {bucket_segments}")
     # Each axis read per pipeline step, the template's variables as the
     # bucket sets them, and averaged for `scale_curated`; a step that does
     # not set it as a number is left out
