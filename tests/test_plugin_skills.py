@@ -1926,6 +1926,65 @@ class TestLongFormSkill:
         for idea in ("keystone", "backoff", "sharpest", "guide `look_hold`"):
             assert idea in text, idea
 
+    def test_the_words_measure_is_the_engine_s(self):
+        """#1262 stage C: *Per seam* names the words measure, its default
+        (off, from words.md's no-separation verdict) and the engine's
+        ceiling, and the every_attempt_failed path to repair-segment."""
+        from dw.pipeline_processors import chain_check
+
+        assert chain_check.WORDS_SIMILARITY_DEFAULT is None
+        body = _flat(skill_body(LONG_FORM_SKILL))
+        per_seam = body[body.index("## 4. Per seam") : body.index("## 5.")]
+        ceiling = f"{chain_check.WORDS_SIMILARITY_MIN:g}"
+        assert "`words`" in per_seam
+        assert f'`"check": {{"words_similarity_min": {ceiling}}}`' in per_seam
+        assert "off by default (`null`)" in per_seam
+        assert "`every_attempt_failed: true`" in per_seam
+        assert "`repair-segment`" in per_seam
+        assert "`lines`" in per_seam
+        assert "bench/records/words.md" in per_seam
+        # The stale "not a template variable" line went with #1252
+        assert "not a template variable" not in body
+
+        repair = _flat(
+            _read(os.path.join(LONG_FORM_DIR, "references", "run-and-repair.md"))
+        )
+        assert (
+            f"`words` (`words_similarity_min`, default `null` = off; {ceiling} when set)"
+            in repair
+        )
+        assert f'"words_similarity_min": {ceiling}' in repair
+        assert "`every_attempt_failed: true`" in repair
+        assert "`repair-segment`" in repair
+        for finding in (
+            "line_clipped_at_end",
+            "transcript_loop",
+            "tag_spoken",
+            "unscripted_speech",
+            "line_clipped_at_head",
+        ):
+            assert f"`{finding}`" in repair, finding
+
+    def test_the_template_passes_lines_to_the_chain(self):
+        with open(CHAINED_SEGMENTS, encoding="utf-8") as handle:
+            spec = json.load(handle)
+        assert spec["variables"]["lines"] is None
+        chain = spec["steps"][0]["pipeline"]["chain"]
+        assert chain["lines"] == "variable:lines"
+        assert chain["check"] == "variable:check"
+        assert "`lines`" in spec["description"]
+        assert "`words_similarity_min`" in spec["description"]
+
+    def test_the_h3_dialogue_reference_gives_a_line_per_segment(self):
+        text = _flat(
+            _read(os.path.join(os.path.dirname(H3_SKILL), "references", "dialogue.md"))
+        )
+        section = text[text.index("## A line per segment in a chain") :]
+        assert "`prompts`, one per segment" in section
+        assert "**Or pass `lines`**" in section
+        assert "the last is not repeated" in section
+        assert '`check: {"words_similarity_min": 0.8}`' in section
+
 
 LONG_FORM_LEVERS = os.path.join(LONG_FORM_DIR, "references", "levers.md")
 H3_CHAINS = os.path.join(os.path.dirname(H3_SKILL), "references", "chains.md")

@@ -2,19 +2,19 @@
 
 Part of the `long-form` skill. Sources: `bench/records/check.md`,
 `bench/records/repair.md`, `bench/records/noise-floor.md` (*Chain check
-thresholds*), and `docs/WORKFLOW_GUIDE.md`, *Checking each segment*
+thresholds*), `bench/records/words.md`, and `docs/WORKFLOW_GUIDE.md`, *Checking each segment*
 (`get_guide("workflows", section="Checking each segment")`).
 
 ## The per-segment check
 
-Add the check on the chain block of `templates/minimax/chained-segments`
-(`steps[0].pipeline.chain`):
+Pass the check as arguments to `templates/minimax/chained-segments`:
 
 ```json
-"chain": { "...": "the template's keys", "check": true, "retries": 1 }
+{ "check": true, "retries": 1 }
 ```
 
-Each segment is measured before it is kept (segment 1 for `audio_dbfs` only):
+Each segment is measured before it is kept (segment 1 for `audio_dbfs` and
+`words` only):
 
 | Measure | Against | On failure |
 | --- | --- | --- |
@@ -23,6 +23,7 @@ Each segment is measured before it is kept (segment 1 for `audio_dbfs` only):
 | `cut_ratio` (ceiling 3.5) | a cut inside the segment, which the seam windows miss | re-roll |
 | `audio_dbfs` (floor -70 dBFS) | the segment's own generated audio level, segment 1 included; held audio is skipped | re-roll |
 | `texture_ratio` (ceiling 2) | segment 1's fine texture, doubled or halved | warn-only, no re-roll |
+| `words` (`words_similarity_min`, default `null` = off; 0.8 when set) | the segment's line (`lines`, else its prompt's `<d>`), against its kept audio transcribed by Whisper on CPU; segment 1 included | re-roll |
 
 - **Why `cut_ratio` exists.** The seam measures caught 1 of 3 broken renders,
   the one whose break sat at the seam. A cut 26 frames past the seam passed.
@@ -52,6 +53,47 @@ Each segment is measured before it is kept (segment 1 for `audio_dbfs` only):
   S5 repro on mini-ai both seeds read about -89 dBFS and the re-roll cost
   about 3 minutes. A segment still silent after it is reported by
   `chain_segment_silent` and by its shot's `check_failed`.
+- **The words check, for a dialogue chain.** It is off by default:
+  `bench/records/words.md` found no clean separation of the takes Don kept
+  from the ones he re-rendered. Turn it on with an object:
+
+  ```json
+  { "check": { "words_similarity_min": 0.8 }, "retries": 1,
+    "lines": ["We the people of the United States,",
+              "in order to form a more perfect union,"] }
+  ```
+
+  0.8 (`chain_check.WORDS_SIMILARITY_MIN`) passed every good take seen and
+  catches only gross failures: a wrong, missing or garbled line. It does
+  not catch one word dropped at a segment's head, which is what Don's bad
+  takes shared (similarities 0.94-0.96, above two good takes at 0.90). A segment
+  also fails, at any similarity, on `line_clipped_at_end`,
+  `transcript_loop`, `tag_spoken` or `unscripted_speech`.
+  - **The line.** `lines` holds one string per segment, exactly as many as
+    there are segments; unlike `prompts`, the last is not repeated. Without
+    `lines`, segment k's line is the `<d>` dialogue of its prompt. A segment
+    with no line (no `<d>`, or `""`) records `words: null` and is never
+    re-rolled for it.
+  - **The seam.** The guide's carried words are already cut by the head
+    trim. A partial word from the previous line at the head of the kept
+    span is dropped before scoring (`seam_head_dropped`); an invented word
+    counts.
+  - **When it fails.** The `chain_check_failed` warning carries `heard`,
+    `similarity` and `findings` for the kept attempt (the higher
+    similarity, among words-only failures). With
+    `every_attempt_failed: true`, every seed spoke the line wrong, so the
+    cause may be in the carry, which a fresh seed inherits: repair that
+    segment with `repair-segment` (below) rather than raise `retries`.
+    That needs `keep_segments: true` and an interior segment (2 to N-1);
+    segment 1 or N can't be repaired in place, so re-render the take or
+    split the line differently across `prompts`.
+  - **`line_clipped_at_head`** in the findings means the line opened inside
+    the guide's head trim, so its first words were cut from the take. A
+    fresh seed starts the line at the same place: move the line later in
+    the prompt rather than re-rolling (#1300).
+  - **Cost.** One Whisper pass on CPU per attempt, about 1.3 s for an 8 s
+    segment on lem once loaded (`words.md`), counted in `plan.estimate`.
+    No VRAM is added beside H3.
 - **Cost.** The quote is the worst case: N(1 + `retries`) segment renders
   for a checked chain that generates its audio (floor on, no `match_audio`,
   no step `hold_audio`; a guide chain carrying its audio counts), else
@@ -112,7 +154,8 @@ Unmeasured: no bench record covers a resumed take yet.
 ## The repair ladder
 
 1. Re-roll the segment (the check does this during the run).
-2. Repair it in place (`repair-segment`).
+2. Repair it in place (`repair-segment`). A words failure on every attempt
+   (`every_attempt_failed`) skips straight here.
 3. Make the seam a cut: the shot list's `join: cut`, rendered fresh
    (`script-to-video`, `references/joins.md` there).
 

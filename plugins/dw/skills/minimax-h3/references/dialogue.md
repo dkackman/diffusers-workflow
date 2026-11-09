@@ -56,6 +56,27 @@ Measured, not a limit the model enforces (row 1):
 Prompts of any length reach the model whole: the H3 text encoder doesn't
 truncate (row 7).
 
+## A line per segment in a chain
+
+`templates/minimax/chained-segments` uses `prompt` for every segment, so a
+`<d>` line in it is spoken again in each one. For dialogue across a chain:
+
+- **Give each segment its own line.** Pass `prompts`, one per segment, each
+  with that segment's `<d>` line and no other. Size each line to the
+  segment's clip, as above.
+- **Or pass `lines`** when the prompts don't carry the words in `<d>`, or
+  when an enhanced prompt's wording may drift from the script. It holds one
+  string per segment, exactly as many as there are segments. Unlike
+  `prompts`, the last is not repeated. A chain that holds its audio
+  (`match_audio`, `hold_audio`) is never words-checked.
+- **Check the words.** `check: {"words_similarity_min": 0.8}` with
+  `retries: 1` transcribes each segment's kept audio and re-rolls a segment
+  that speaks a wrong, missing or garbled line. It reads `lines[k]`, else
+  the `<d>` of segment k's prompt. It is off by default, and a segment with
+  no line skips it (`words: null`). The threshold, what it misses, and
+  what to do when every attempt fails are in the `long-form` skill's
+  `references/run-and-repair.md`, from `bench/records/words.md`.
+
 ## Text on screen
 
 Text quoted verbatim in the prompt, as the built-in enhancer writes it,

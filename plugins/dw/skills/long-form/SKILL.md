@@ -110,11 +110,9 @@ the ideas that were measured and cut. Read it before proposing a counter.
 
 ## 4. Per seam: the check, then the repair
 
-Turn on the per-segment check for any chain you mean to keep. It is a
-key on the chain block, not a template variable: `get_workflow`, add
-`"check": true, "retries": 1` to `steps[0].pipeline.chain`, and
-`save_workflow` the whole document under a project name. A merge patch
-replaces `steps` whole.
+Turn on the per-segment check for any chain you mean to keep: pass
+`check: true, retries: 1` as arguments to `templates/minimax/chained-segments`
+(`check` also takes the object below).
 
 - `jump_ratio`, `look_ratio` and `cut_ratio` re-roll a failing segment at a
   new seed, from the same carry.
@@ -129,6 +127,15 @@ replaces `steps` whole.
   inherits it (`bench/records/check.md`; ruling R38).
 - A segment whose prompt asks for a cut inside it needs
   `"check": {"cut_ratio_max": null}`, or it re-rolls for nothing.
+- `words` re-rolls a dialogue segment (segment 1 too) whose kept audio,
+  transcribed, reads under `words_similarity_min` against its line, or
+  clips, loops or invents words. It is off by default (`null`): the
+  bench found no clean split of good takes from bad. Set
+  `"check": {"words_similarity_min": 0.8}` (the ceiling 0.8 catches a
+  wrong, missing or garbled line, `bench/records/words.md`). The line is
+  the template's `lines` variable, one per segment, else the segment
+  prompt's `<d>`. A warning with `every_attempt_failed: true` means the
+  carry is the cause: repair with `repair-segment`, not more `retries`.
 
 When a kept take still has one bad interior segment,
 `templates/minimax/repair-segment` re-renders it between its neighbours
@@ -190,5 +197,6 @@ guide chain. Quote `plan.estimate` from `validate_workflow`, never these.
 
 The long-form design (`docs/proposals/long-form-media.md`, sections 1-2).
 The bench records `counters.md`, `check.md`, `repair.md`, `structural.md`,
-`noise-floor.md`, `determinism.md` and `for-don.md` under `bench/records/`.
+`noise-floor.md`, `determinism.md`, `words.md` and `for-don.md` under
+`bench/records/`.
 `docs/WORKFLOW_GUIDE.md`, *Checking each segment*. `docs/TASKS.md`.
