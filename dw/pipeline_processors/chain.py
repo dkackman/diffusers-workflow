@@ -151,7 +151,13 @@ def run_chain(pipeline, chain_definition, arguments):
     segment_1_texture = None
 
     # An earlier run's kept segments, copied in as segments 1..k
-    resumed = chain_resume.load(config, spill, hold)
+    try:
+        resumed = chain_resume.load(config, spill, hold)
+    except Exception:
+        # A refusal after some files were copied leaves a resumable prefix
+        # in this run's spill; one before any copy draws no hint
+        chain_resume.warn_resumable(spill)
+        raise
     if resumed is not None:
         resumed.lay_down(timeline)
         carry, raw_carry = resumed.carry, resumed.raw_carry

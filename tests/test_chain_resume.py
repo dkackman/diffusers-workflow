@@ -508,6 +508,33 @@ def test_a_failed_final_encode_draws_the_resume_hint(outputs, events, monkeypatc
     assert hint["resume_from"] == _first_file_reference()
 
 
+def test_a_load_failure_after_copying_draws_the_resume_hint(
+    outputs, events, monkeypatch
+):
+    from dw.pipeline_processors import chain_resume
+
+    _dead_run(outputs, events)
+    events.clear()
+
+    original = chain_resume._Kept.add
+    calls = []
+
+    def second_refuses(self, path, copied):
+        calls.append(path)
+        if len(calls) == 2:
+            raise ValueError("kept file refused")
+        return original(self, path, copied)
+
+    monkeypatch.setattr(chain_resume._Kept, "add", second_refuses)
+    with pytest.raises(ValueError, match="kept file refused"):
+        run_chain(
+            _pipeline(outputs, SECOND_RUN, _factory()),
+            _chain(resume_from=_first_file_reference()),
+            _arguments(),
+        )
+    assert len(_warnings(events, "chain_resume_hint")) == 1
+
+
 def test_realize_args_leaves_a_resume_from_output_reference_for_the_resume():
     """The run's argument pass resolves output: references to paths; a
     chain's resume_from must reach the resume as the reference (#1304)."""

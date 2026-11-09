@@ -31,7 +31,7 @@ index order, complete) as its segments 1..k and render only k+1..N:
   warning says; every later seam is a live carry. The latent carry is
   refused with a resume (`chain_rules.chain_resume_problem`).
 - `anchor`, `keystone` and the capstone read segment 1 from the first kept
-  file. The kept segments are not checked again; with `check`, the first
+  file (see the anchor and capstone approximations below). The kept segments are not checked again; with `check`, the first
   rendered segment is checked against the last kept one as usual.
 - `look_hold` cannot be re-derived faithfully: `LookHold` learns its boost
   from each segment's rendered opening against the keyframe it was fed, and
@@ -54,9 +54,16 @@ index order, complete) as its segments 1..k and render only k+1..N:
 Known approximations, none of them silent reuse:
 
 - Under `carry_pick` the capstone frame is read off segment 1's file by its
-  tail trim alone, so it is off by segment 1's unknown `picked_back`, and
-  `anchor` frames lack segment 1's carry_pick tail trim. Prefer not to resume
-  a chain that sets `capstone` with `carry_pick`; the frame is close, not exact.
+  tail trim alone, so it is off by segment 1's unknown `picked_back`. Prefer
+  not to resume a chain that sets `capstone` with `carry_pick`; the frame is
+  close, not exact.
+- `anchor` frames are segment 1's kept file, which lacks its tail trim
+  (`tail_trim`, plus `picked_back` under `carry_pick`), while a live run's
+  anchor is segment 1 as rendered, so a resumed anchor is shorter than the
+  live one.
+- A failure inside `load` draws a `chain_resume_hint` only when it had already
+  copied files into the spill (a resumable prefix); one before any copy has
+  none to name, and the earlier run's files are the ones `resume_from` names.
 - A spill's `-2` dedupe suffix (`...segment-000-2.mp4`, flat layout) is not
   matched by `SEGMENT_FILE`: moot while each job has its own run directory.
 - The iteration number counts `run_chain` calls on one Pipeline wrapper; an
