@@ -1,0 +1,50 @@
+[
+  {
+    "name": "narrated-candidate-s1",
+    "scene": "s3-dialogue-walk",
+    "workflow": "narrated-take.json",
+    "arguments": {
+      "stop_after": 12,
+      "shot": "dialogue",
+      "experimental_latent_carry": true,
+      "keystone": "segment_1",
+      "keystone_slot": "latent",
+      "experimental_capstone": {
+        "enter_below_sigma": 0.7
+      },
+      "anchor_every": 3
+    },
+    "seed": 1,
+    "workflow_id_suffix": "-narrated-candidate",
+    "moments": [
+      "frame:48",
+      "frame:720",
+      "frame:1440",
+      "frame:2040"
+    ]
+  },
+  {
+    "name": "narrated-candidate-s2",
+    "scene": "s3-dialogue-walk",
+    "workflow": "narrated-take.json",
+    "arguments": {
+      "stop_after": 12,
+      "shot": "dialogue",
+      "experimental_latent_carry": true,
+      "keystone": "segment_1",
+      "keystone_slot": "latent",
+      "experimental_capstone": {
+        "enter_below_sigma": 0.7
+      },
+      "anchor_every": 3
+    },
+    "seed": 2,
+    "workflow_id_suffix": "-narrated-candidate",
+    "moments": [
+      "frame:48",
+      "frame:720",
+      "frame:1440",
+      "frame:2040"
+    ]
+  }
+]

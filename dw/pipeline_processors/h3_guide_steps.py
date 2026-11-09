@@ -1,5 +1,7 @@
 """MiniMax-H3 guides: the four blocks dw puts into the denoise graph for a
-`guides` call, and the row and position arithmetic they run.
+`guides` call, and the row and position arithmetic they run - plus, behind
+DW_EXPERIMENTAL_REFINE_WINDOWS, the latent keystone's restore block
+(`DwH3KeystoneRestoreStep`, put in by h3_guides.insert_keystone_restore).
 
 What a guide is, and where the blocks go, is dw/pipeline_processors/h3_guides.py,
 which puts them in. They live here, at module level, rather than in a factory
@@ -55,6 +57,8 @@ from .h3_rules import (
     GUIDE_LATENTS_PER_CHUNK,
     GUIDE_NOISE_INPUT,
     GUIDES_INPUT,
+    KEYSTONE_LATENTS,
+    KEYSTONE_RESTORE_ROWS,
     guide_end_problem,
     guide_frame_problem,
     guide_noise_taper,
@@ -323,6 +327,52 @@ def carried_guide_audio(components, guide, start, count):
     return carried[:, :count].to("cpu", torch.float32).reshape(-1, width)
 
 
+def keystone_latent_0(index, guide, encoded):
+    """(latents, own): a guide's `encoded` latents with its `keystone_latents`,
+    `(1, C, 1, h, w)`, written over its latent 0 - the experimental latent
+    keystone (chain keystone_slot "latent"), held there for the whole denoise
+    like every condition row - and the guide's own latent 0 it replaced, which
+    `DwH3KeystoneRestoreStep` writes back after the loop."""
+    keystone = guide[KEYSTONE_LATENTS]
+    expected = (*encoded.shape[:2], 1, *encoded.shape[3:])
+    if tuple(keystone.shape) != expected:
+        raise ValueError(
+            f"guides[{index}]: its {KEYSTONE_LATENTS} are {tuple(keystone.shape)}, "
+            f"and its latent 0 is {expected}"
+        )
+    own = encoded[:, :, :1].clone()
+    written = encoded.clone()
+    written[:, :, :1] = keystone.to(written.device, written.dtype)
+    logger.info(f"Guide {index}: latent 0 held as the keystone's latent")
+    return written, own
+
+
+def keystone_restore_rows(positions, keyframe_rows, owns, patch_size):
+    """[(first row, packed rows)] in `latents` of each keystone guide's own
+    latent 0 (`keystone_latent_0`; `owns` None for the other guides), packed
+    the way diffusers packs a condition (frame-major, so latent 0 is a guide's
+    first rows), or None. The guide rows follow the keyframe rows in guide
+    order (`splice_guide_rows`)."""
+    restore, start = [], keyframe_rows
+    for rows, own in zip(positions, owns):
+        if own is not None:
+            packed = before_denoise.patchify_video_latents(own, patch_size)
+            restore.append((start, packed))
+        start += rows.shape[0]
+    return restore or None
+
+
+def encode_frame_latent(components, frame):
+    """One decoded frame (PIL) as its `(1, C, 1, h, w)` latent, encoded the
+    way the layout encodes a guide clip, on the CPU in float32 - a resumed
+    chain's latent keystone (chain_resume.encode_keystone)."""
+    pixels = np.ascontiguousarray(np.asarray(frame.convert("RGB")))[None]
+    encoded = DwH3GuideLayoutStep._encode_pixels(
+        components, torch.from_numpy(pixels), components._execution_device
+    )
+    return encoded.to("cpu", torch.float32)
+
+
 class DwH3GuideLayoutStep(ModularPipelineBlocks):
     model_name = "minimax-h3"
 
@@ -386,6 +436,7 @@ class DwH3GuideLayoutStep(ModularPipelineBlocks):
             OutputParam("condition_latents", type_hint=list),
             OutputParam(GUIDE_AUDIO_ROWS, type_hint=torch.Tensor),
             OutputParam(GATED_GUIDE_ROWS, type_hint=list),
+            OutputParam(KEYSTONE_RESTORE_ROWS, type_hint=list),
         ]
 
     @torch.no_grad()
@@ -412,6 +463,12 @@ class DwH3GuideLayoutStep(ModularPipelineBlocks):
             num_text,
             state.get(GUIDE_NOISE_INPUT) or 0.0,
         )
+        owns = [None] * len(guides)
+        for index, guide in enumerate(guides):
+            if guide.get(KEYSTONE_LATENTS) is not None:
+                latents[index], owns[index] = keystone_latent_0(
+                    index, guide, latents[index]
+                )
         layout = splice_guide_rows(
             tuple(laid[name].cpu() for name in _PACKED)
             + (laid["num_condition_video_rows"],),
@@ -430,6 +487,12 @@ class DwH3GuideLayoutStep(ModularPipelineBlocks):
         state.set(
             GATED_GUIDE_ROWS,
             gated_guide_rows(guides, positions, laid["num_condition_video_rows"]),
+        )
+        state.set(
+            KEYSTONE_RESTORE_ROWS,
+            keystone_restore_rows(
+                positions, laid["num_condition_video_rows"], owns, components.patch_size
+            ),
         )
         # Keyframes first, then guides: the order the rows were laid out in
         state.set("condition_latents", list(laid["condition_latents"] or []) + latents)
@@ -679,5 +742,42 @@ class DwH3GuideAudioStep(ModularPipelineBlocks):
         block_state.audio_latents = torch.cat(
             [rows.to(audio_latents.device, audio_latents.dtype), audio_latents]
         )
+        self.set_block_state(state, block_state)
+        return components, state
+
+
+class DwH3KeystoneRestoreStep(ModularPipelineBlocks):
+    model_name = "minimax-h3"
+
+    @property
+    def description(self):
+        return (
+            "dw (experimental): after the denoise loop, writes each latent-keystone guide's own latent-0 rows "
+            "back over the keystone the layout held there, so the condition prefix leaves the loop as the carry "
+            "laid it. Does nothing when no guide carried `keystone_latents`."
+        )
+
+    @property
+    def inputs(self):
+        return [
+            InputParam(name="latents", type_hint=torch.Tensor, required=True),
+            InputParam(name=KEYSTONE_RESTORE_ROWS, type_hint=list, default=None),
+        ]
+
+    @property
+    def intermediate_outputs(self):
+        return [OutputParam("latents", type_hint=torch.Tensor)]
+
+    @torch.no_grad()
+    def __call__(self, components, state):
+        block_state = self.get_block_state(state)
+        restore = getattr(block_state, KEYSTONE_RESTORE_ROWS)
+        if not restore:
+            return components, state
+        latents = block_state.latents
+        for start, rows in restore:
+            latents[start : start + rows.shape[0]] = rows.to(
+                latents.device, latents.dtype
+            )
         self.set_block_state(state, block_state)
         return components, state

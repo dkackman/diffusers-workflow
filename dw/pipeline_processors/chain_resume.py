@@ -28,8 +28,14 @@ index order, complete) as its segments 1..k and render only k+1..N:
   the file ends where a guide back-off cut it, so no back-off is taken
   again. That first resumed seam's audio guide is the decoded AAC track,
   re-encoded with no latents (Don, 2026-11-08), which the `chain_resumed`
-  warning says; every later seam is a live carry. The latent carry is
-  refused with a resume (`chain_rules.chain_resume_problem`).
+  warning says; every later seam is a live carry. Under the experimental
+  latent carry that first resumed seam is likewise a decoded guide, encoded
+  again by the layout - the carried latents are not on disk - which the
+  warning says too (`reencoded_guide: true`); the rendered segments carry
+  latents again.
+- A latent keystone (`keystone_slot: "latent"`) is segment 1's decoded frame 0
+  from the first kept file, VAE-encoded once here (`encode_keystone`), not
+  the frame-0 latent the live segment 1 gave.
 - `anchor`, `keystone` and the capstone read segment 1 from the first kept
   file (see the anchor and capstone approximations below). The kept segments are not checked again; with `check`, the first
   rendered segment is checked against the last kept one as usual.
@@ -103,7 +109,11 @@ from ..tasks.video_utils import load_audio_video
 from ..writers import output_file_path
 from .chain_check import audio_dbfs, face_base, measure_frames, texture_base
 from .chain_continuity import _SegmentCarry
-from .chain_rules import CHAIN_RESUME_FROM, resume_reference_problem
+from .chain_rules import (
+    CHAIN_RESUME_FROM,
+    LatentKeystone,
+    resume_reference_problem,
+)
 from .h3_rules import ANCHOR_SEGMENT_1, GUIDE_CONTINUITY, KEYSTONE_SEGMENT_1
 
 logger = logging.getLogger("dw")
@@ -226,10 +236,31 @@ def check_plan(kept_paths, plan, tail_trim=0, slack=0):
             )
 
 
-def load(config, spill, hold=None):
+def encode_keystone(pipeline, frame):
+    """A latent keystone's latent from a decoded frame: one VAE encode on the
+    loaded H3 pipeline (h3_guide_steps.encode_frame_latent). The seam a test
+    replaces."""
+    from .h3_guide_steps import encode_frame_latent
+
+    return encode_frame_latent(pipeline.pipeline, frame)
+
+
+def _keystone(config, first, pipeline):
+    """Segment 1's keystone off the first kept file: its frame 0, with that
+    frame encoded again under keystone_slot "latent"."""
+    if config.keystone != KEYSTONE_SEGMENT_1:
+        return None
+    frame = first.frames[0].copy()
+    if not config.latent_keystone:
+        return frame
+    return LatentKeystone(frame, encode_keystone(pipeline, frame))
+
+
+def load(config, spill, hold=None, pipeline=None):
     """Copy the kept segments `config.resume_from` names into `spill` and
     return the state the chain continues from, or None with no resume.
-    `hold`, the chain's LookHold, is brought up to the last kept segment."""
+    `hold`, the chain's LookHold, is brought up to the last kept segment;
+    `pipeline`, the step's wrapper, encodes a latent keystone."""
     if config.resume_from is None:
         return None
     named = resolved_reference(config.resume_from, _current_run_id(spill))
@@ -271,6 +302,7 @@ def load(config, spill, hold=None):
         kept=len(sources),
         segments=len(config.plan),
         resume_from=config.resume_from,
+        **({"reencoded_guide": True} if config.latent_carry else {}),
     )
     return ResumeState(
         kept=list(spill.paths),
@@ -282,9 +314,7 @@ def load(config, spill, hold=None):
         carry=carry,
         raw_carry=raw_carry,
         anchor_frames=kept.first.frames if config.anchor == ANCHOR_SEGMENT_1 else None,
-        keystone_frame=kept.first.frames[0].copy()
-        if config.keystone == KEYSTONE_SEGMENT_1
-        else None,
+        keystone_frame=_keystone(config, kept.first, pipeline),
         capstone_frame=capstone,
         previous_kept=measure_frames(last.frames) if config.check else None,
         segment_1_texture=texture_base(kept.first.frames) if config.check else None,
@@ -553,6 +583,13 @@ def _resumed_warning(config, count, reference):
             "decoded track (AAC, re-encoded, no latents) rather than a live "
             "carry"
         )
+    if config.latent_carry:
+        message += (
+            f"; the first resumed seam's guide is segment {count}'s decoded "
+            "frames, encoded again, rather than its carried latents"
+        )
+    if config.latent_keystone:
+        message += "; the latent keystone is segment 1's decoded frame 0, encoded again"
     return message
 
 

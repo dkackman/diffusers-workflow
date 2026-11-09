@@ -30,12 +30,16 @@ from .chain_check import AUDIO_DBFS_MIN, segment_check
 from .. import references
 from ..variable_constraints import declared_constraints
 from .chain_rules import (
+    CHAIN_ANCHOR_EVERY,
     CHAIN_CAPSTONE,
     CHAIN_CAPSTONE_FROM_END,
     CHAIN_LATENT_CARRY,
     CHAIN_LINES,
     CHAIN_RESUME_FROM,
     CHAIN_STOP_AFTER,
+    KEYSTONE_SLOT_LATENT,
+    anchors_segment,
+    chain_anchor_every_problem,
     chain_capstone_problem,
     chain_carry_pick_problem,
     chain_check_problem,
@@ -288,12 +292,14 @@ class ChainConfig:
         # The previous segment's own latents as its guide (#1150), a spike
         _raise_chain_problem(
             chain_latent_carry_problem(
-                chain_definition,
-                _argument(arguments, GUIDE_NOISE_INPUT),
-                _argument(arguments, HOLD_AUDIO_INPUT),
+                chain_definition, _argument(arguments, GUIDE_NOISE_INPUT)
             )
         )
         self.latent_carry = chain_definition.get(CHAIN_LATENT_CARRY) is True
+        # Which later segments take the keystone and capstone (Task 9), a spike
+        _raise_chain_problem(chain_anchor_every_problem(chain_definition))
+        every = stop_after_value(chain_definition.get(CHAIN_ANCHOR_EVERY))
+        self.anchor_every = 1 if every is None else every
 
         # The sharpest of the last N frames as the keyframe (#1032)
         _raise_chain_problem(
@@ -318,6 +324,15 @@ class ChainConfig:
         self.audio_floor = chain_audio_floor(chain_definition, arguments)
         self.checks_segment_1 = chain_checks_segment_1(chain_definition, arguments)
         self.checks_words = chain_checks_words(chain_definition, arguments)
+
+    def anchors(self, index):
+        """Whether segment `index` takes the keystone and the capstone."""
+        return anchors_segment(index, self.anchor_every)
+
+    @property
+    def latent_keystone(self):
+        """Whether segment 1's frame-0 latent is the keystone (Task 9)."""
+        return self.keystone_slot == KEYSTONE_SLOT_LATENT
 
     def segment_line(self, index):
         """The line segment `index` is meant to speak, or None (#1262):

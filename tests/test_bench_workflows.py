@@ -267,3 +267,37 @@ def test_a_templates_tier_bundles_name_declared_variables(name):
     for tier, bundle in bundles.items():
         undeclared = set(bundle) - set(definition["variables"])
         assert not undeclared, (tier, sorted(undeclared))
+
+
+def test_the_narrated_take_copy_is_the_template_plus_the_exposed_keys():
+    """bench/workflows/narrated-take.json is templates/minimax/narrated-take
+    with the experimental chain keys read from variables (whose defaults are
+    the template's own chain) and the CP0 inputs as defaults - nothing else,
+    so the control arm runs the template as shipped."""
+    exposed = {
+        "experimental_latent_carry": False,
+        "keystone": "none",
+        "keystone_slot": None,
+        "experimental_capstone": None,
+        "anchor_every": None,
+    }
+    inputs = {"image", "narration", "script", "scene", "speaker", "soundscape"}
+    template = json.loads(
+        (
+            BENCH.parent / "workflows" / "templates" / "minimax" / "narrated-take.json"
+        ).read_text(encoding="utf-8")
+    )
+    copy = json.loads((BENCH / "workflows" / "narrated-take.json").read_text())
+    variables = copy.pop("variables")
+    assert {k: variables.pop(k) for k in exposed} == exposed
+    assert {k: v for k, v in variables.items() if k not in inputs} == {
+        k: v for k, v in template.pop("variables").items() if k not in inputs
+    }
+    chain = copy["steps"][1]["pipeline"]["chain"]
+    for key in exposed:
+        assert chain.pop(key) == f"variable:{key}"
+    for key in ("id", "description"):
+        template.pop(key)
+        copy.pop(key)
+    copy.pop("summary")
+    assert copy == template

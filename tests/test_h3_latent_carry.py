@@ -189,13 +189,7 @@ def h3_workflow(chain=None, arguments=None):
         ({"continuity": "last_segment"}, None, "continuity 'guide'"),
         ({"look_hold": True}, None, "look_hold"),
         ({"look_hold": {"texture": True}}, None, "look_hold"),
-        (
-            {"match_audio": True, "segments": None},
-            None,
-            "match_audio",
-        ),
         ({}, {"guide_noise": 0.4}, "guide_noise"),
-        ({}, {"hold_audio": "asset:track.wav"}, "hold_audio"),
         ({CHAIN_LATENT_CARRY: "yes"}, None, "true or false"),
     ],
 )
@@ -210,6 +204,24 @@ def test_an_incompatible_combination_is_refused_at_validate_time(
         if error["path"] == f"steps[0].pipeline.chain.{CHAIN_LATENT_CARRY}"
     ]
     assert own and any(match in message for message in own), errors
+
+
+@pytest.mark.parametrize(
+    "chain, arguments",
+    [
+        ({"match_audio": True, "segments": None}, None),
+        ({}, {"hold_audio": "asset:track.wav"}),
+        ({"match_audio": True, "segments": None}, {"hold_audio": "asset:track.wav"}),
+    ],
+)
+def test_a_held_track_combines_with_the_carry_at_validate_time(
+    flag_on, chain, arguments
+):
+    # Task 9: a held narration's chain carries its video latents only
+    chain = {CHAIN_LATENT_CARRY: True, "continuity": "guide", **chain}
+    assert chain_latent_carry_problem(chain) is None
+    paths = [error["path"] for error in anchor_errors(h3_workflow(chain, arguments))]
+    assert f"steps[0].pipeline.chain.{CHAIN_LATENT_CARRY}" not in paths
 
 
 def test_a_zero_guide_noise_is_not_a_conflict(flag_on):
@@ -231,16 +243,39 @@ def test_the_run_refuses_what_validation_refuses(flag_on):
         )
 
 
-def test_the_run_refuses_a_step_holding_audio(flag_on):
-    shape = GuideChainShape()
-    pipeline = FakePipeline(LatentOutputs())
-    with pytest.raises(ValueError, match="hold_audio"):
-        run_chain(
-            pipeline,
-            shape.chain(**{CHAIN_LATENT_CARRY: True}),
-            shape.arguments(hold_audio="asset:track.wav"),
-        )
-    assert pipeline.calls == []
+HELD_RATE = 2400  # 100 samples a frame
+
+
+def test_latent_carry_with_held_audio_carries_video_only(flag_on):
+    references = pytest.importorskip(
+        "diffusers.modular_pipelines.minimax_h3.references"
+    )
+    # Three whole 124-frame segments of a held track: 124 + 2 * 102 frames
+    track = torch.arange((124 + 2 * 102) * 100, dtype=torch.float32).repeat(2, 1)
+    held = references.MiniMaxH3AudioReference(audio=track, sample_rate=HELD_RATE)
+    outputs = LatentOutputs()
+    pipeline = FakePipeline(outputs)
+
+    run_chain(
+        pipeline,
+        outputs.shape.chain(
+            **{CHAIN_LATENT_CARRY: True, "match_audio": True, "segments": None}
+        ),
+        outputs.shape.arguments(
+            hold_audio=held, output=["videos", "audio", "sampling_rate"]
+        ),
+    )
+
+    assert len(pipeline.calls) == 3
+    count = latent_frames(22)
+    for index, call in enumerate(pipeline.calls[1:], start=1):
+        (guide,) = call["guides"]
+        previous = outputs.kept[index - 1]
+        assert torch.equal(guide["latents"], previous["latents"][:, :, -count:])
+        # The held slice is each segment's own: no audio rides the guide
+        assert "audio_latents" not in guide
+        assert not guide.get("audio")
+        assert call["hold_audio"] is not held
 
 
 def test_the_layout_refuses_guide_noise_on_a_latent_guide(monkeypatch):

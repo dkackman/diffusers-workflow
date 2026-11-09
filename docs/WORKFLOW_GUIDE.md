@@ -1958,7 +1958,8 @@ head: N segments of F frames give F + (N - 1)(F - P) frames - 3 x 124 at P = 22 
 | `carry_frames` | refused - the carry is always the last `guide_frames` frames |
 | `guide_backoff` | 0 (default) or a multiple of 17: the carry is the `guide_frames` frames that many before the segment's end (audio sliced the same span), and every segment but the last loses that tail at assembly, so the join lands inside the held copy and each segment's least-constrained tail is replaced by the next take. Frames drop by the back-off per seam (3 x 124 at P = 22 and 17 is 294). Needs `num_frames` above P + back-off. Refused off `guide` continuity and with `match_audio` or `duration_seconds` |
 | `keystone` | `none` (default) or `segment_1`: on `fl2va`, every later segment's keyframe is segment 1's frame 0 instead of the guide's first frame, so each segment is pulled back toward the clean start of the chain. The guide stays the carried tail, and the keyframe region is trimmed at assembly, so segment 1's frame never reaches the output. Refused on `last_frame` (there the keyframe is the only carry), and any other value is refused naming the two |
-| `keystone_slot` | with `keystone: "segment_1"`, where segment 1's frame 0 sits in each later segment. `first` (or null, the default) is plain keystone, the keyframe above. `last` makes it the fl2va `last_image` instead and the keyframe is the guide's first frame again: on a static two-minute take it held the backdrop and the face with no reset pop, and the subject eases back to the opening pose at each segment's end (`bench/records/structural.md`, *Keystone slot*). `last` needs a step `image` and refuses a step `last_image` of its own. `{"frame": 17j}` is a one-frame guide at that frame, past the guide's frames and inside the segment (a `match_audio` or `duration_seconds` plan's shortened last segment included); its `enter_below_sigma` gate is refused unless `DW_EXPERIMENTAL_REFINE_WINDOWS=1`. The name `experimental_keystone_slot` is refused naming this one. `templates/minimax/chained-segments` sets `last` under `shot: static_long` |
+| `keystone_slot` | with `keystone: "segment_1"`, where segment 1's frame 0 sits in each later segment. `first` (or null, the default) is plain keystone, the keyframe above. `last` makes it the fl2va `last_image` instead and the keyframe is the guide's first frame again: on a static two-minute take it held the backdrop and the face with no reset pop, and the subject eases back to the opening pose at each segment's end (`bench/records/structural.md`, *Keystone slot*). `last` needs a step `image` and refuses a step `last_image` of its own. `{"frame": 17j}` is a one-frame guide at that frame, past the guide's frames and inside the segment (a `match_audio` or `duration_seconds` plan's shortened last segment included); its `enter_below_sigma` gate is refused unless `DW_EXPERIMENTAL_REFINE_WINDOWS=1`. The name `experimental_keystone_slot` is refused naming this one. `templates/minimax/chained-segments` sets `last` under `shot: static_long`. **Experimental**, refused unless `DW_EXPERIMENTAL_REFINE_WINDOWS=1`: `latent` writes segment 1's frame-0 latent (its own output latent; on a resume, its decoded frame 0 encoded again) over each later segment's guide latent 0 for the whole denoise, with segment 1's frame 0 as the keyframe too, so the two condition rows at time 0 agree; the guide's own latent 0 is put back after the loop, before decode. It combines with `experimental_latent_carry`, a held track and `experimental_capstone` |
+| `anchor_every` | **Experimental**, refused unless `DW_EXPERIMENTAL_REFINE_WINDOWS=1`: the keystone and `experimental_capstone` apply only on later segments whose 0-based index `i` has `i % anchor_every == 0` - `3` anchors segments 3, 6, 9 (by index) and leaves the rest a plain guide chain. A whole number from 1, default 1 (every later segment); refused on a chain with neither `keystone: "segment_1"` nor `experimental_capstone` |
 | `carry_pick` | `{"sharpest": N}`, N from 1 to 8, with `last_frame` continuity on any model family: the next segment's keyframe is the sharpest of the segment's last N frames (variance of a 3x3 Laplacian on luma, ties to the latest) instead of the last, so a motion-blurred final frame does not pass its softness on. The segment is trimmed after the picked frame so motion continues from it (the last segment keeps its tail), and the job log names the pick per seam. Absent = the last frame; other continuities or other values are refused naming the allowed ones; `match_audio` and `duration_seconds` are refused (the plan covers the length up front and the pick drops frames per seam, so the video would fall short - use `segments`); and when `num_frames` is known N must be less than `num_frames` minus `trim_frames`, or the pick could empty a segment |
 | `look_hold` | `true` or `{"pickup", "creep", "texture", "precompensate"}` booleans, any model family: pixel corrections on each later segment's frames before its carry is taken (below). On a guide chain `pickup` and `precompensate` do not apply (the carried guide is a whole clip, left alone); an explicit `true` for either there is refused, and `true` alone runs `creep` and `texture` only |
 | `trim_frames` | ignored (the trim is P), with a note in the job log |
@@ -2686,8 +2687,12 @@ joined into a single file:
   segment's keyframe is segment 1's frame 0 instead of the guide's first frame (see
   *Chaining with a guide*).
 - `keystone_slot` — with `keystone: "segment_1"`: `first` (default), `last` (segment 1's
-  frame 0 as every later segment's fl2va `last_image`) or `{"frame": 17j}` (see
+  frame 0 as every later segment's fl2va `last_image`) or `{"frame": 17j}`, plus the
+  experimental `latent` (segment 1's frame-0 latent over each guide's latent 0) (see
   *Chaining with a guide*).
+- `anchor_every` — experimental: apply the keystone and `experimental_capstone` only on
+  every n-th later segment (0-based index `i % n == 0`); default 1 (see *Chaining with a
+  guide*).
 - `anchor_strength` — with `anchor: "segment_1"`, how far that match goes: 0 to 1,
   default 1 (the full match).
 - `carry_frames` — with `last_segment`, bound the carry to the last N frames of the
@@ -2771,8 +2776,11 @@ joined into a single file:
   checked again, and the first rendered one is checked against the last kept one as
   usual. `look_hold` reads its scene from the first kept file and is fed the last
   one's carry, but its learned boost starts again. Needs `save_segments: true` and
-  continuity `last_frame` or `guide`; refused with `experimental_latent_carry` (the
-  latents are not on disk) and as a bare path. The kept seams' audio is joined
+  continuity `last_frame` or `guide`; refused as a bare path. Under the experimental
+  `experimental_latent_carry` the first resumed seam's guide is the last kept file's
+  decoded frames, encoded again (the carried latents are not on disk), which the
+  `chain_resumed` warning says (`reencoded_guide: true`); later seams carry latents
+  again. The kept seams' audio is joined
   with the short declick fade the chain gives a seam with no head material, not the
   `crossfade_ms` blend: a kept file holds only its on-timeline audio, so the blend
   material is gone (the first rendered seam is crossfaded as usual). All kept files

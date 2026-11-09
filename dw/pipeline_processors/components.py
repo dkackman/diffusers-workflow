@@ -28,7 +28,7 @@ from .mag_calibration import (  # noqa: F401 - re-exported for pipeline.py
     get_cache_transformer,
 )
 from .h3_anchor import insert_latent_anchor
-from .h3_guides import insert_guides
+from .h3_guides import insert_guides, insert_keystone_restore
 from .h3_hold import core_denoise_sequences, insert_audio_hold
 from .h3_mask import insert_mask_blocks
 from .h3_rules import refine_windows_enabled
@@ -817,6 +817,8 @@ def _assemble_loaded(
             from .h3_windows import insert_refine_windows
 
             insert_refine_windows(component)
+            # ...and the latent keystone's restore (h3_guides, Task 9)
+            insert_keystone_restore(component)
             # ...and the mid-schedule SelfLift (h3_selflift.py, #1195)
             from .h3_selflift import insert_selflift
 

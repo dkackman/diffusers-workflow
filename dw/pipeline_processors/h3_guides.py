@@ -45,7 +45,10 @@ from .h3_rules import (
     GUIDE_LATENTS_BLOCK,
     HOLD_BEFORE,
     HOLD_BLOCK,
+    KEYSTONE_LATENTS,
+    KEYSTONE_RESTORE_BLOCK,
     LAYOUT_STEP,
+    RELEASE_BEFORE,
     REFINE_WINDOWS_ENV_VAR,
     GUIDE_FRAMES_PER_CHUNK,
     GUIDE_LATENTS_PER_CHUNK,
@@ -259,7 +262,8 @@ def prepared_guide(where, index, guide, base_dir):
             f"{where}[{index}] must be {{video, frame}}, got {type(guide).__name__}"
         )
     unknown = sorted(
-        set(guide) - {"video", "frame", "audio", *CAPSTONE_KEYS, *LATENT_KEYS}
+        set(guide)
+        - {"video", "frame", "audio", *CAPSTONE_KEYS, *LATENT_KEYS, KEYSTONE_LATENTS}
     )
     if unknown:
         raise ValueError(
@@ -314,6 +318,7 @@ def prepared_guide(where, index, guide, base_dir):
         )
         frames = frames[:length]
     carried = _carried_latents(f"{where}[{index}]", guide, frames.shape[0])
+    keystone = _keystone_latents(f"{where}[{index}]", guide)
     return {
         "video": frames,
         "frame": guide.get("frame"),
@@ -321,6 +326,7 @@ def prepared_guide(where, index, guide, base_dir):
         "sample_rate": sample_rate,
         **capstone,
         **carried,
+        **keystone,
     }
 
 
@@ -372,6 +378,33 @@ def _carried_latents(where, guide, num_frames):
             f"{getattr(rows, 'shape', type(rows).__name__)}"
         )
     return given
+
+
+def _keystone_latents(where, guide):
+    """A guide's latent keystone (chain keystone_slot "latent"), checked: {}
+    without one. A scratch spike, refused unless REFINE_WINDOWS_ENV_VAR is on;
+    a `(1, C, 1, h, w)` tensor, written over the guide's latent 0 by the
+    layout (h3_guide_steps.keystone_latent_0)."""
+    keystone = guide.get(KEYSTONE_LATENTS)
+    if keystone is None:
+        return {}
+    if not refine_windows_enabled():
+        raise ValueError(
+            f"{where}: {KEYSTONE_LATENTS} is an experimental latent keystone, off "
+            f"unless {REFINE_WINDOWS_ENV_VAR}=1 is set where the pipeline loads"
+        )
+    if guide.get(CAPSTONE_PAST_END) or guide.get(CAPSTONE_GATE) is not None:
+        raise ValueError(f"{where}: a capstone guide carries no {KEYSTONE_LATENTS}")
+    if (
+        not isinstance(keystone, torch.Tensor)
+        or keystone.ndim != 5
+        or keystone.shape[2] != 1
+    ):
+        raise ValueError(
+            f"{where}: '{KEYSTONE_LATENTS}' is one latent frame, a (1, C, 1, h, w) "
+            f"tensor, got {getattr(keystone, 'shape', type(keystone).__name__)}"
+        )
+    return {KEYSTONE_LATENTS: keystone}
 
 
 def latent_guide_tail(latents, audio_latents, num_frames, count, back, fps=H3_FPS):
@@ -534,6 +567,26 @@ def insert_guides(pipeline):
                 prefix + GUIDE_AUDIO_BLOCK, audio_block(), names.index(audio_before)
             )
         inserted = True
+    return inserted
+
+
+def insert_keystone_restore(pipeline):
+    """Put `DwH3KeystoneRestoreStep` in front of `after_denoise` in every
+    `t2va`/`fl2va` core-denoise sequence, for the experimental latent keystone;
+    it does nothing unless a guide carries `keystone_latents`. The loader puts
+    it in behind REFINE_WINDOWS_ENV_VAR only. Idempotent; returns whether any
+    sequence has it."""
+    from .h3_guide_steps import DwH3KeystoneRestoreStep
+
+    inserted = False
+    for prefix, sequence in _layout_sequences(pipeline):
+        names = list(sequence.sub_blocks)
+        name, before = prefix + KEYSTONE_RESTORE_BLOCK, prefix + RELEASE_BEFORE
+        if name not in names and before in names:
+            sequence.sub_blocks.insert(
+                name, DwH3KeystoneRestoreStep(), names.index(before)
+            )
+        inserted = inserted or name in sequence.sub_blocks
     return inserted
 
 
