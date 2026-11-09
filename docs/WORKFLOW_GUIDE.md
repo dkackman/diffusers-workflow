@@ -2834,15 +2834,20 @@ re-rolling the chain, when the chain kept its segment files (`save_segments` and
 `keep_segments`, which the H3 chain templates set from their `keep_segments` variable):
 [workflows/templates/minimax/repair-segment.json](../workflows/templates/minimax/repair-segment.json)
 renders segment k once with segment k-1's last frames as a guide at frame 0 and segment
-k+1's frames as a guide ending at the render's end, both holding their audio, then
-splices the new frames into the take itself (`chain_take`). Outside the repaired span the
+k+1's frames as a guide ending at the render's end, both holding their audio on a chain's
+own track, then splices the new frames into the take itself (`chain_take`). Outside the repaired span the
 output is the take: its frame count, its picture and its soundtrack, every other seam's
 blend included. The new frames also replace the first 12 frames of segment k+1 (the
 17-frame grid's remainder, [`chain_repair_cut`](TASKS.md#chain_repair_cut)). The two
 repaired seams are not cuts, so `analyze_seams` checks them as it checks a chain's own.
-Interior segments only: the first and the last need a one-sided repair. The chain's
-settings (canvas, steps, LoRA, counters) are passed to it
-as arguments, and the seed is new by default.
+The last segment is repaired with the head guide only, the render ending at the take's
+end; the first needs a one-sided repair this template does not make. The chain's
+settings are passed to it as arguments - `tier` sets canvas, steps, weights, LoRA and
+shifts together, and its `narrated_standard` and `narrated_best` are the narrated take's -
+and the seed is new by default. For a `match_audio` take (a narrated take) the cut slices
+the take's own track under the render's frames and the render holds it (`hold_audio`), so
+the redrawn mouth follows the words heard; the guides then carry picture only, and the
+master track stays muxed unchanged.
 
 #### Checking each segment: `check` and `retries`
 

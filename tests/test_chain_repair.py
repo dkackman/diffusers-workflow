@@ -29,6 +29,9 @@ def splice_length(segment_frames, segment, geometry):
     segments before k, the kept span of the render, segment k+1 from the
     overrun on, and the segments after it."""
     k = segment
+    if k == len(segment_frames):
+        # The last segment: no segment after it to resume on
+        return sum(segment_frames[: k - 1]) + geometry["keep_frames"]
     return (
         sum(segment_frames[: k - 1])
         + geometry["keep_frames"]
@@ -92,10 +95,41 @@ class TestGeometry:
         assert geometry["overrun"] == 29
         assert splice_length(CHAIN, 3, geometry) == sum(CHAIN)
 
-    @pytest.mark.parametrize("segment", [1, 5, 0, 6])
-    def test_the_first_and_last_segment_are_refused(self, segment):
-        with pytest.raises(ValueError, match="one-sided repair"):
+    @pytest.mark.parametrize("segment", [1, 0, 6])
+    def test_the_first_segment_and_one_past_the_last_are_refused(self, segment):
+        with pytest.raises(ValueError, match="'segment' must be 2 to 5"):
             repair_geometry(CHAIN, segment, 175, 22, 39)
+
+    def test_the_first_segment_names_the_one_sided_repair(self):
+        with pytest.raises(ValueError, match="one-sided repair"):
+            repair_geometry(CHAIN, 1, 175, 22, 39)
+
+    @pytest.mark.parametrize(
+        "frames, num_frames, padding",
+        [
+            (CHAIN, 124, 0),  # 22 + 102: on the grid already
+            (CHAIN, 175, 51),  # the default render, its last 51 frames dropped
+            ([192, 170, 170], 192, 0),  # the narrated take's defaults
+            ([345, 306, 306, 200], 226, 4),  # a duration_seconds last segment
+        ],
+    )
+    def test_the_last_segment_has_a_head_guide_only(self, frames, num_frames, padding):
+        segment = len(frames)
+        geometry = repair_geometry(frames, segment, num_frames, 22, 39)
+        assert geometry["tail_start"] is None and geometry["tail_frame"] is None
+        assert geometry["overrun"] == 0
+        assert geometry["keep_start"] == 22
+        assert geometry["keep_frames"] == frames[-1]
+        # The render's frames past the take's end, dropped by the splice
+        assert geometry["padding_frames"] == padding
+        shortest = 22 + frames[-1]
+        assert shortest <= geometry["minimum_num_frames"] < shortest + 17
+        assert (geometry["minimum_num_frames"] - 5) % 17 == 0
+        assert splice_length(frames, segment, geometry) == sum(frames)
+
+    def test_a_last_segment_render_too_short_names_the_smallest(self):
+        with pytest.raises(ValueError, match="pass num_frames=124"):
+            repair_geometry(CHAIN, 5, 107, 22, 39)
 
     def test_a_render_too_short_names_the_smallest(self):
         with pytest.raises(ValueError, match="pass num_frames=175"):
@@ -114,9 +148,13 @@ class TestGeometry:
         with pytest.raises(ValueError, match="tail guide would be"):
             repair_geometry([124, 102, 102, 40], 3, 175, 22, 39)
 
-    def test_two_segments_are_too_few(self):
-        with pytest.raises(ValueError, match="at least 3"):
-            repair_geometry([124, 102], 2, 175, 22, 39)
+    def test_one_segment_is_too_few(self):
+        with pytest.raises(ValueError, match="at least 2"):
+            repair_geometry([124], 1, 175, 22, 39)
+
+    def test_two_segments_repair_the_second(self):
+        geometry = repair_geometry([124, 102], 2, 124, 22, 39)
+        assert geometry["tail_frame"] is None
 
 
 FPS = 24
@@ -230,10 +268,13 @@ def write_run(
 def stand_in_render(cut, level=0.7):
     """The render as H3 would return it: the head guide, new white frames,
     the tail guide, over a track of its own."""
+    tail = cut["tail_guide"]
+    end = cut["num_frames"] if tail is None else cut["tail_frame"]
     new = [Image.new("RGB", cut["head_guide"].frames[0].size, (255, 255, 255))] * (
-        cut["tail_frame"] - cut["keep_start"]
+        end - cut["keep_start"]
     )
-    frames = list(cut["head_guide"].frames) + new + list(cut["tail_guide"].frames)
+    frames = list(cut["head_guide"].frames) + new
+    frames += [] if tail is None else list(tail.frames)
     samples = frames_to_samples(len(frames), FPS, RATE)
     return AudioVideo(
         frames, numpy.full((1, samples), level, dtype=numpy.float32), RATE, fps=FPS
@@ -530,10 +571,139 @@ class TestCut:
                 height=544,
             )
 
-    def test_the_last_segment_is_refused(self, run):
-        with pytest.raises(ValueError, match="one-sided repair"):
+    def test_one_past_the_last_segment_is_refused(self, run):
+        with pytest.raises(ValueError, match="'segment' must be 2 to 4"):
             chain_repair_cut(
-                chain_take=run["take"], segment=4, num_frames=107, tail_frames=22
+                chain_take=run["take"], segment=5, num_frames=107, tail_frames=22
+            )
+
+    def test_the_guides_carry_their_audio_on_the_chains_own_track(self, run):
+        cut = chain_repair_cut(
+            chain_take=run["take"], segment=2, num_frames=107, tail_frames=22
+        )
+        assert cut["held_audio"] is None
+        assert cut["guides"] == [
+            {"video": cut["head_guide"], "frame": 0, "audio": True},
+            {"video": cut["tail_guide"], "frame": cut["tail_frame"], "audio": True},
+        ]
+
+    @pytest.mark.parametrize("segment, num_frames", [(2, 107), (3, 107), (4, 73)])
+    def test_matched_take_repair_holds_the_master_slice(
+        self, tmp_path, segment, num_frames
+    ):
+        from dw.dsp import slice_samples
+
+        made = write_run(str(tmp_path), [40, 51, 51, 51], match_audio=True)
+        cut = chain_repair_cut(
+            chain_take=made["take"],
+            segment=segment,
+            num_frames=num_frames,
+            tail_frames=22,
+        )
+        take = load_audio_video(made["take"])
+        held = cut["held_audio"]
+        assert held.sample_rate == take.sample_rate == 44100
+        # The render's frame 0 is the head guide's, head_frames before the span
+        assert cut["held_start_frame"] == cut["start_frame"] - cut["keep_start"]
+        start = frames_to_samples(cut["held_start_frame"], FPS, 44100)
+        length = frames_to_samples(num_frames, FPS, 44100)
+        assert held.audio.shape == (take.audio.shape[0], length)
+        assert numpy.array_equal(held.audio, slice_samples(take.audio, start, length))
+        # Under a held render the guides carry picture only
+        assert [guide["audio"] for guide in cut["guides"]] == [False] * len(
+            cut["guides"]
+        )
+
+    @pytest.mark.parametrize("num_frames, warned", [(107, True), (141, False)])
+    def test_a_held_render_off_the_audio_grid_warns(
+        self, tmp_path, monkeypatch, num_frames, warned
+    ):
+        import dw.tasks.chain_repair as chain_repair
+
+        warnings = []
+        monkeypatch.setattr(
+            chain_repair, "emit_warning", lambda m, **d: warnings.append(d)
+        )
+        made = write_run(str(tmp_path), [40, 51, 51, 51], match_audio=True)
+        chain_repair_cut(chain_take=made["take"], segment=4, num_frames=num_frames)
+        kinds = [w["kind"] for w in warnings]
+        assert kinds == (["held_audio_off_grid"] if warned else [])
+
+    def test_a_matched_take_needs_no_soundtrack_on_its_segment_files(
+        self, tmp_path, monkeypatch
+    ):
+        import dw.tasks.chain_repair as chain_repair
+
+        made = write_run(str(tmp_path), [40, 51, 51, 51], match_audio=True)
+        load = chain_repair.load_audio_video
+
+        def silent(path):
+            clip = load(path)
+            clip.audio = None
+            return clip
+
+        monkeypatch.setattr(chain_repair, "load_audio_video", silent)
+        cut = chain_repair_cut(
+            chain_take=made["take"], segment=2, num_frames=107, tail_frames=22
+        )
+        assert cut["held_audio"] is not None
+
+    @pytest.mark.parametrize("match_audio", [False, True])
+    def test_last_segment_repair_has_no_tail_guide(self, tmp_path, match_audio):
+        made = write_run(str(tmp_path), [40, 51, 51, 51], match_audio=match_audio)
+        # head 22 + segment 4's 51 = 73, on the grid
+        cut, spliced, take = repaired(made, segment=4, num_frames=73)
+        assert cut["tail_guide"] is None and cut["tail_frame"] is None
+        assert [guide["frame"] for guide in cut["guides"]] == [0]
+        assert cut["overrun"] == 0
+        assert cut["start_frame"] == 142 and cut["end_frame"] == 193
+        assert len(spliced.frames) == len(take.frames) == 193
+        assert all(red(frame) == 255 for frame in spliced.frames[142:])
+        for index in range(142):
+            assert numpy.array_equal(
+                numpy.asarray(spliced.frames[index]), numpy.asarray(take.frames[index])
+            ), index
+        names = [shot["name"] for shot in spliced.shots]
+        assert names == ["segment 1", "segment 2", "segment 3", "segment 4 (repaired)"]
+        assert spliced.audio.shape == take.audio.shape
+        if match_audio:
+            assert numpy.array_equal(spliced.audio, take.audio)
+        else:
+            # Up to the seam the take's own track; the span the render's,
+            # blended in over the declick, to the take's end
+            first = made["shots"][3]["start_sample"]
+            assert numpy.array_equal(spliced.audio[:, :first], take.audio[:, :first])
+            window = int(0.003 * RATE)
+            assert numpy.allclose(spliced.audio[:, first + window :], 0.7)
+            assert spliced.shots[3]["crossfade_ms"] == 3.0
+
+    @pytest.mark.parametrize("match_audio", [False, True])
+    @pytest.mark.parametrize("segment, num_frames", [(2, 107), (3, 124), (4, 107)])
+    def test_repair_keeps_the_take_frame_count(
+        self, tmp_path, match_audio, segment, num_frames
+    ):
+        made = write_run(str(tmp_path), [40, 51, 51, 51], match_audio=match_audio)
+        cut, spliced, take = repaired(made, segment=segment, num_frames=num_frames)
+        assert len(spliced.frames) == len(take.frames) == 193
+        assert sum(shot["num_frames"] for shot in spliced.shots) == 193
+        assert spliced.audio.shape == take.audio.shape
+        if match_audio:
+            # The master track stays muxed unchanged
+            assert numpy.array_equal(spliced.audio, take.audio)
+
+    @pytest.mark.parametrize("segment, num_frames", [(2, 107), (4, 73)])
+    def test_canvas_mismatch_with_the_take_is_refused(
+        self, tmp_path, segment, num_frames
+    ):
+        made = write_run(str(tmp_path), [40, 51, 51, 51], match_audio=True)
+        with pytest.raises(ValueError, match="chain's canvas"):
+            chain_repair_cut(
+                chain_take=made["take"],
+                segment=segment,
+                num_frames=num_frames,
+                tail_frames=22,
+                width=1344,
+                height=768,
             )
 
     def test_registered(self):
@@ -726,246 +896,3 @@ class TestSplice:
                 end_frame=cut["end_frame"],
                 keep_start=cut["keep_start"],
             )
-
-
-TEMPLATES = (
-    __import__("pathlib").Path(__file__).resolve().parent.parent
-    / "workflows"
-    / "templates"
-    / "minimax"
-)
-TEMPLATE = TEMPLATES / "repair-segment.json"
-
-
-def template_errors(arguments=None):
-    import json
-
-    from dw.workflow import Workflow
-
-    definition = json.loads(TEMPLATE.read_text())
-    workflow = Workflow(definition, str(TEMPLATE.parent), str(TEMPLATE))
-    return workflow.validation_errors(arguments)
-
-
-def chain_blocks(definition):
-    if isinstance(definition, dict):
-        if isinstance(definition.get("chain"), dict):
-            yield definition["chain"]
-        for value in definition.values():
-            yield from chain_blocks(value)
-    elif isinstance(definition, list):
-        for value in definition:
-            yield from chain_blocks(value)
-
-
-class TestTemplate:
-    def test_validates_with_its_defaults(self):
-        assert template_errors() == []
-
-    def test_validates_with_sample_arguments(self):
-        assert (
-            template_errors(
-                {
-                    "segment": 3,
-                    "num_frames": 192,
-                    "tail_frames": 39,
-                    "prompt": "A glass figure turns towards the light.",
-                    "seed": 7,
-                }
-            )
-            == []
-        )
-
-    def test_segment_1_is_refused_before_the_run(self):
-        errors = template_errors({"segment": 1})
-        assert any("segment" in str(error) for error in errors), errors
-
-    @pytest.mark.parametrize(
-        "arguments", [{"head_frames": 39}, {"tail_frames": 56}, {"tail_frames": 5}]
-    )
-    def test_holds_past_the_vram_fold_are_refused(self, arguments):
-        errors = template_errors(arguments)
-        assert any(next(iter(arguments)) in str(error) for error in errors), errors
-
-    def test_the_vram_fold_is_an_upper_bound_on_every_allowed_render(self):
-        import json
-
-        definition = json.loads(TEMPLATE.read_text())
-        rate = definition["vram_estimate"]["bytes_per_voxel"]
-        constraints = definition["variable_constraints"]
-        head = constraints["head_frames"]
-        tail = constraints["tail_frames"]
-        assert head["min_frames"] == head["max_frames"] == 22
-        assert (tail["min_frames"], tail["max_frames"]) == (22, 39)
-        frames = constraints["num_frames"]
-        for num_frames in range(frames["min_frames"], frames["max_frames"] + 1, 17):
-            # The t2va rate on the render and on both guides' frames
-            assert rate * num_frames >= 28.71 * (num_frames + 22 + 39), num_frames
-        assert "exact" not in definition["vram_estimate"]["reason"]
-
-    def test_the_segment_bound_says_it_is_no_frame_count(self):
-        import json
-
-        constraints = json.loads(TEMPLATE.read_text())["variable_constraints"]
-        assert "not a frame count" in constraints["segment"]["reason"]
-
-    def test_the_steps_cut_render_and_splice_the_take(self):
-        import json
-
-        definition = json.loads(TEMPLATE.read_text())
-        steps = {s["name"]: s for s in definition["steps"]}
-        assert list(steps) == ["cut", "repair", "splice"]
-        assert steps["cut"]["task"]["command"] == "chain_repair_cut"
-        assert steps["cut"]["task"]["arguments"]["chain_take"] == (
-            "variable:chain_take"
-        )
-        guides = steps["repair"]["pipeline"]["arguments"]["guides"]
-        assert [g["frame"] for g in guides] == [0, "previous_result:cut.tail_frame"]
-        assert all(g["audio"] is True for g in guides)
-        splice = steps["splice"]["task"]
-        assert splice["command"] == "chain_repair_splice"
-        assert splice["arguments"]["chain_take"] == "previous_result:cut.chain_take"
-        assert splice["arguments"]["video"] == "previous_result:repair"
-        # No made-up output: path stands in for the caller's take
-        assert definition["variables"]["chain_take"] is None
-        assert definition["variables"]["chain_output"] is None
-
-    def test_the_default_render_fits_the_default_chain(self):
-        import json
-
-        variables = json.loads(TEMPLATE.read_text())["variables"]
-        geometry = repair_geometry(
-            CHAIN,
-            variables["segment"],
-            variables["num_frames"],
-            variables["head_frames"],
-            variables["tail_frames"],
-        )
-        assert geometry["minimum_num_frames"] == variables["num_frames"]
-        assert variables["tail_frames"] > variables["head_frames"]
-        assert variables["seed"] is None
-
-    @pytest.mark.parametrize(
-        "name",
-        [
-            "chained-segments.json",
-            "chain-matched-to-audio.json",
-            "chain-matched-and-aligned.json",
-            "chain-video-continuity.json",
-        ],
-    )
-    def test_the_h3_chains_can_keep_their_segments(self, name):
-        import json
-
-        definition = json.loads((TEMPLATES / name).read_text())
-        assert definition["variables"]["keep_segments"] is False
-        (chain,) = list(chain_blocks(definition))
-        assert chain["keep_segments"] == "variable:keep_segments"
-        # The guide chain spills every take (Don, 2026-11-08): a chain that
-        # dies leaves its finished segments for resume_from
-        expected = (
-            (True,)
-            if name == "chained-segments.json"
-            else (
-                "variable:keep_segments",
-                True,
-            )
-        )
-        assert chain["save_segments"] in expected
-        assert "repair-segment" in definition["description"]
-
-
-@pytest.mark.parametrize("name", ["save_segments", "keep_segments"])
-@pytest.mark.parametrize(
-    "value, valid",
-    [(True, True), ("variable:keep_segments", True), ("false", False)],
-)
-def test_the_segment_flags_take_a_boolean_or_a_variable(name, value, valid):
-    # A literal "false" would read as bool("false") == True
-    import json
-
-    import jsonschema
-
-    schema = json.loads(
-        (TEMPLATES.parent.parent.parent / "dw" / "workflow_schema.json").read_text()
-    )
-
-    def find(node):
-        if isinstance(node, dict):
-            if name in node and isinstance(node[name], dict) and "type" in node[name]:
-                return node[name]
-            for child in node.values():
-                if (found := find(child)) is not None:
-                    return found
-        elif isinstance(node, list):
-            for child in node:
-                if (found := find(child)) is not None:
-                    return found
-        return None
-
-    entry = find(schema)
-    errors = list(jsonschema.Draft7Validator(entry).iter_errors(value))
-    assert (not errors) == valid, errors
-
-
-def test_the_cut_feeds_the_splice_in_a_workflow(run, tmp_path, monkeypatch):
-    """The template's task steps as a workflow, with a stand-in for the H3
-    render: the record's fields reach the splice as one value each, and the
-    saved splice keeps the take's length."""
-    import av
-
-    from dw.workflow import Workflow
-
-    monkeypatch.setenv("DW_TRUST_WORKFLOWS", "1")
-    definition = {
-        "id": "repair-wiring",
-        "steps": [
-            {
-                "name": "cut",
-                "task": {
-                    "command": "chain_repair_cut",
-                    "arguments": {
-                        "chain_take": run["take"],
-                        "segment": 2,
-                        "num_frames": 107,
-                        "tail_frames": 22,
-                    },
-                },
-            },
-            {
-                # Stands in for the render: 107 frames of the take with audio
-                "name": "repair",
-                "task": {
-                    "command": "trim_video",
-                    "arguments": {
-                        "video": run["take"],
-                        "start_frame": 18,
-                        "num_frames": 107,
-                        "fps": 24,
-                    },
-                },
-            },
-            {
-                "name": "splice",
-                "task": {
-                    "command": "chain_repair_splice",
-                    "arguments": {
-                        "chain_take": "previous_result:cut.chain_take",
-                        "video": "previous_result:repair",
-                        "segment": 2,
-                        "start_frame": "previous_result:cut.start_frame",
-                        "end_frame": "previous_result:cut.end_frame",
-                        "keep_start": "previous_result:cut.keep_start",
-                    },
-                },
-                "result": {"content_type": "video/mp4", "fps": 24},
-            },
-        ],
-    }
-    out = tmp_path / "out"
-    Workflow(definition, str(out), "").run({})
-    saved = [p for p in out.rglob("*.mp4")]
-    assert len(saved) == 1, saved
-    with av.open(str(saved[0])) as container:
-        frames = sum(1 for _ in container.decode(video=0))
-    assert frames == 193

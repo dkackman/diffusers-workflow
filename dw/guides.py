@@ -16,7 +16,8 @@ load, with the helpers the run-time check calls (`guide_frame_problem`,
   stream, and a clip that, cut to a whole-latent length, runs past the end of a
   render whose `num_frames` is a literal.
 
-A `previous_result:` or other unresolved value, or a video that cannot be located
+A `previous_result:` or other unresolved value - an entry's, or the whole list's
+(repair-segment's cut lays its guides out) - or a video that cannot be located
 or probed, names nothing yet and is left to the run-time check. An empty list is
 no guides.
 
@@ -227,6 +228,10 @@ def _step_problems(pipeline, arguments, base_dir, probe):
     problem = _takes_guides_problem(pipeline, arguments)
     if problem:
         return [(None, problem)]
+    if isinstance(guides, str) and references.is_ref(references.UNRESOLVED, guides):
+        # The whole list from an earlier step (repair-segment's cut): its
+        # entries are the run-time check's
+        return []
     if not isinstance(guides, (list, tuple)):
         return [
             (
