@@ -490,7 +490,12 @@ def _chain_kept(definition, variables):
     kept = kept_count({"resume_from": value})
     if not kept:
         return kept, [UNRESOLVED_NOTE]
-    fans_out = "previous_result" in json.dumps(definition.get("steps"), default=str)
+    fans_out = any(
+        True
+        for _ in references.iter_previous_result_references(
+            blocks[0][1], descend_into_from=False
+        )
+    )
     return kept, [FANOUT_NOTE] if fans_out else []
 
 
