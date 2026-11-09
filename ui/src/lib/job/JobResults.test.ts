@@ -24,11 +24,22 @@ const timeline = {
           rate: 24,
           seconds: 2,
           media: 'media/a.mp4',
+          source: 'output:run1/a.mp4',
+        },
+        {
+          type: 'Clip',
+          name: 'asset clip',
+          start_frame: 0,
+          frames: 48,
+          rate: 24,
+          seconds: 2,
+          media: 'media/b.mp4',
+          source: null,
         },
       ],
     },
   ],
-  members: ['content.otio', 'media/a.mp4'],
+  members: ['content.otio', 'media/a.mp4', 'media/b.mp4'],
 }
 
 vi.mock('../api', () => ({
@@ -56,18 +67,29 @@ it('fetches an .otioz once and renders its timeline strip', async () => {
     fileGroups: [
       {
         step: 'join',
-        files: ['cut.otioz', 'media/a.mp4'],
+        files: ['run1/cut.otioz', 'run1/a.mp4', 'run1/b.mp4'],
         reused: false,
         subfolder: '',
         role: null,
       },
     ],
     unsaved: [],
-    kinds: { 'cut.otioz': null, 'media/a.mp4': 'video' },
+    kinds: {
+      'run1/cut.otioz': null,
+      'run1/a.mp4': 'video',
+      'run1/b.mp4': 'video',
+    },
     seedVariable: null,
   })
   await waitFor(() => expect(screen.getByText('opening · 2 s')).toBeTruthy())
   expect(container.querySelector('[role="group"]')).toBeTruthy()
   const calls = vi.mocked(api.galleryMetadata).mock.calls.map((c) => c[0])
-  expect(calls).toEqual(['cut.otioz'])
+  // Linked by recorded source; b.mp4 shares a job file's name but has none
+  expect(
+    screen.getByRole('link', { name: 'Download media/a.mp4' }),
+  ).toBeTruthy()
+  expect(
+    screen.queryByRole('link', { name: 'Download media/b.mp4' }),
+  ).toBeNull()
+  expect(calls).toEqual(['run1/cut.otioz'])
 })
