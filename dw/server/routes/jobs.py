@@ -1023,12 +1023,11 @@ def _inherited_cost_warnings(estimate):
         return [f"cost estimate withheld: {estimate['withheld']}"]
     if not isinstance(estimate, dict) or estimate.get("basis") != "inherited":
         return []
-    from ...pipeline_processors.chain_resume import FANOUT_NOTE, UNRESOLVED_NOTE
-
     entries = estimate.get("differs") or []
-    # The resume notes are whole sentences; the rest are short names that
-    # fit "its X differs from that template".
-    notes = [e for e in entries if e in (FANOUT_NOTE, UNRESOLVED_NOTE)]
+    # Sort by shape: a short name ("resume_from", "reference count") fits
+    # "its X differs from that template"; anything longer is a whole
+    # sentence (the resume notes) and gets a sentence of its own.
+    notes = [e for e in entries if len(str(e).split()) > 3]
     differs = [e for e in entries if e not in notes]
     warning = (
         f"cost estimate is inherited from this box's runs of {estimate.get('inherited_from')} "

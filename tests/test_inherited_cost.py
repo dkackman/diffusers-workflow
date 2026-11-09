@@ -894,3 +894,22 @@ def test_fanout_note_is_its_own_sentence():
     assert "its the resume quote" not in text
     assert "differs from that template" not in text
     assert text.endswith(f". Note: {FANOUT_NOTE}")
+
+
+def test_sentence_shaped_differs_entries_are_their_own_sentences():
+    from dw.pipeline_processors.chain_resume import FANOUT_NOTE
+
+    refused = "resume_from keeps 3 segment(s) and the chain plans 3: nothing is left to render, the run is refused"
+    estimate = {
+        "basis": "inherited",
+        "inherited_from": "t",
+        "differs": [refused, FANOUT_NOTE],
+    }
+    text = _inherited_cost_warnings(estimate)[0]
+    assert "differs from that template" not in text
+    assert f". Note: {refused}" in text
+    assert text.endswith(f". Note: {FANOUT_NOTE}")
+    short = _inherited_cost_warnings(
+        {"basis": "inherited", "inherited_from": "t", "differs": ["resume_from", "reference count"]}
+    )[0]
+    assert "its resume_from, reference count differ from that template" in short
