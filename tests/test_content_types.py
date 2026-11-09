@@ -130,3 +130,27 @@ class TestValidationErrorsIntegration:
         assert workflow.validation_errors() == []
         errors = workflow.validation_errors(arguments={"kind": "video"})
         assert [e["path"] for e in errors] == ["steps[0].result.content_type"]
+
+
+class TestExportTimelineContentType:
+    def _timeline(self, content_type):
+        return {
+            "steps": [
+                {
+                    "name": "cut",
+                    "task": {"command": "export_timeline", "arguments": {}},
+                    "result": {"content_type": content_type},
+                }
+            ]
+        }
+
+    def test_a_wellformed_but_wrong_type_is_refused_naming_otioz(self):
+        errors = content_type_errors(
+            self._timeline("application/vnd.pixar.opentimelineio+zip")
+        )
+        assert len(errors) == 1
+        assert errors[0]["path"] == "steps[0].result.content_type"
+        assert "application/x-otioz" in errors[0]["message"]
+
+    def test_otioz_is_accepted(self):
+        assert content_type_errors(self._timeline("application/x-otioz")) == []
