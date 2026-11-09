@@ -59,9 +59,11 @@ from .chain_check import (
     best_attempt,
     check_audio,
     check_segment,
+    check_words,
     measure_frames,
     reroll_seed,
     texture_base,
+    with_words,
 )
 from . import chain_resume
 from .chain_config import ChainConfig
@@ -530,7 +532,7 @@ def _checked_attempt(
             pipeline, arguments, config, segment, continuity, state, number, attempts
         )
         kept_audio = _kept_audio(attempt, segment, config)
-        results.append(
+        result = (
             check_audio(kept_audio, config.check)
             if segment.index == 0
             else check_segment(
@@ -541,6 +543,11 @@ def _checked_attempt(
                 audio=kept_audio,
             )
         )
+        if config.checks_words:
+            result = with_words(
+                result, _segment_words(kept_audio, attempt, segment, config)
+            )
+        results.append(result)
         kept_index = best_attempt(results)
         if kept_index == number:
             best, best_index = attempt, number
@@ -553,11 +560,37 @@ def _checked_attempt(
         "result": results[best_index],
         "kept": best_index,
         "seed": best.seed,
+        # Every attempt failed its words: a fresh seed did not fix them, so
+        # the cause may be in the carry (#1262)
+        "every_attempt_failed": all("words" in r.failed for r in results),
     }
 
 
+def _segment_words(kept_audio, attempt, segment, config):
+    """The words measure of one attempt (#1262): `check_words` on its kept
+    audio against the segment's line, the line before it given for the
+    seam-head rule - or None when the segment has no line or no audio, so
+    it is never failed for words."""
+    line = config.segment_line(segment.index)
+    if line is None or kept_audio is None or attempt.rate is None:
+        return None
+    previous = config.segment_line(segment.index - 1) if segment.index else None
+    return check_words(
+        kept_audio, attempt.rate, line, previous, config.check.words_similarity_min
+    )
+
+
+def _shown_value(result, name):
+    """A failed measure's value as a failure names it: the words measure by
+    its similarity, every other by its number."""
+    value = result.measures.get(name)
+    if name == "words" and isinstance(value, dict):
+        return value.get("similarity")
+    return value
+
+
 def _failures(result):
-    return ", ".join(f"{name} {result.measures.get(name)}" for name in result.failed)
+    return ", ".join(f"{name} {_shown_value(result, name)}" for name in result.failed)
 
 
 def _record_check(shot, segment, config, checked):
@@ -573,11 +606,29 @@ def _record_check(shot, segment, config, checked):
     if kept:
         # The seed the kept re-roll ran at, so the run can be repeated
         shot["seed"] = checked.get("seed")
+    if "words" in result.measures:
+        # The kept attempt's words, null for a segment with no line (#1262)
+        shot["words"] = result.measures["words"]
     if result.passed:
         return
     # Texture alone ends the loop on attempt 1 without trying the budget
     exhausted = result.rerolls
     shot["check_failed"] = list(result.failed)
+    words = result.measures.get("words") if "words" in result.failed else None
+    detail = {}
+    if words is not None:
+        detail = {
+            "heard": words["heard"],
+            "similarity": words["similarity"],
+            "findings": words["findings"],
+        }
+        if checked.get("every_attempt_failed"):
+            detail["every_attempt_failed"] = True
+            detail["note"] = (
+                "every attempt failed its words, so a fresh seed is not the "
+                "fix: the cause may be in the carry - repair the segment with "
+                "templates/minimax/repair-segment rather than more retries"
+            )
     emit_warning(
         f"Chain segment {segment.index + 1}/{len(config.plan)} failed its check "
         + (
@@ -587,13 +638,15 @@ def _record_check(shot, segment, config, checked):
             else f"({_failures(result)}); kept attempt {kept + 1} of "
             f"{checked['attempts']}; texture drift is not re-rolled, "
             "a fresh seed inherits the carry"
-        ),
+        )
+        + (f" - {detail['note']}" if "note" in detail else ""),
         kind="chain_check_failed",
         segment=segment.index + 1,
         measures=list(result.failed),
-        values={name: result.measures.get(name) for name in result.failed},
+        values={name: _shown_value(result, name) for name in result.failed},
         kept_attempt=kept + 1,
         attempts=checked["attempts"],
+        **detail,
     )
 
 

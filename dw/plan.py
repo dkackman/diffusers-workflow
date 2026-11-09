@@ -33,6 +33,7 @@ from .cost_scaling import (
     fixed_minutes,
     _entry_cost_field_shifted,
     _scaled,
+    with_words_check,
     _chain_render_scaling,
 )
 from .elision import elide_definition
@@ -493,6 +494,8 @@ def _own_price(definition, expanded, list_entries, device, measured_entries):
             _driver_scaling(definition, expanded, list_entries),
             fixed_minutes(_choose_entry(definition.get("cost"), device)[0]),
         )
+        # A words-checked chain's Whisper passes, on top (#1262)
+        own = with_words_check(own, definition, expanded)
     return own
 
 
@@ -569,6 +572,7 @@ def _child_catalog_price(child_definition, child_cost, step_arguments, device):
             _driver_scaling(child_definition, child_expanded, child_list_entries),
             fixed_minutes(_choose_entry(child_cost, device)[0]),
         )
+        child = with_words_check(child, child_definition, child_expanded)
     return child
 
 

@@ -16,8 +16,12 @@ marked cuts.
 
 `check_words` is the dialogue measure (#1262): a segment's kept audio
 transcribed and held to its line with check_script's comparison, after the
-seam-head rule drops the previous line's carried words at its head. Nothing
-in the chain calls it yet (stage A of #1262).
+seam-head rule drops the previous line's carried words at its head. A
+checked chain whose `check` sets `words_similarity_min` runs it on every
+segment with a line, segment 1 included (`chain_config.segment_line`), and
+`with_words` folds its answer into the segment's CheckResult as `words`, a
+re-rolling measure. The default minimum is None, the measure off:
+bench/records/words.md found no clean separation of good takes from bad.
 
 Measurement and choice only: nothing here renders, and nothing here touches
 the timeline. The chain keys are validated by `chain_rules.chain_check_problem`.
@@ -72,9 +76,12 @@ AUDIO_DBFS_MIN = -70.0
 #   0.80, the ceiling bench/records/words.md measured on the constitution-walk-2
 #   takes: no good take scored under 0.90, but a bad take (a dropped head
 #   word, 0.9565) scored above good ones, so the measure does not separate
-#   good from bad and a chain does not re-roll on it by default; its own constant, apart from
-#   check_script's DEFAULT_SIMILARITY (0.85), because a chain re-rolls on it
+#   good from bad and a chain does not re-roll on it by default
+#   (WORDS_SIMILARITY_DEFAULT, None: the separation gate of #1262). 0.80 is the
+#   most a chain should set; its own constant, apart from check_script's
+#   DEFAULT_SIMILARITY (0.85), because a chain re-rolls on it
 WORDS_SIMILARITY_MIN = 0.80
+WORDS_SIMILARITY_DEFAULT = None
 # The check_script findings that fail a segment's words whatever its
 # similarity: speech cut off by the segment's end, Whisper stuck in a loop, a
 # markup word spoken aloud, words matched to no line (an ad-lib or a repeat)
@@ -90,7 +97,14 @@ WORDS_FINDINGS = (
 SEAM_TAIL_WORDS = 3
 
 # The measures a check can fail, in the order a failure names them
-MEASURES = ("jump_ratio", "look_ratio", "texture_ratio", "cut_ratio", "audio_dbfs")
+MEASURES = (
+    "jump_ratio",
+    "look_ratio",
+    "texture_ratio",
+    "cut_ratio",
+    "audio_dbfs",
+    "words",
+)
 
 # Measures that warn and record but never re-roll a segment (ruling R38):
 # texture drift is in the carry, so a fresh seed from the same carry inherits
@@ -109,13 +123,16 @@ REROLL_PRIME = 1000003
 class SegmentCheck:
     """The ceilings one segment is held to. `texture_ratio_max` bounds the
     fine-band ratio both ways (None skips it); `audio_dbfs_min` is the floor
-    of its generated audio (None skips it); `face` is reserved."""
+    of its generated audio (None skips it); `words_similarity_min` the least
+    similarity of its heard words to its line (None, the default, skips the
+    words measure); `face` is reserved."""
 
     jump_ratio_max: float = JUMP_RATIO_MAX
     look_ratio_max: float = LOOK_RATIO_MAX
     texture_ratio_max: float | None = TEXTURE_RATIO_MAX
     cut_ratio_max: float | None = CUT_RATIO_MAX
     audio_dbfs_min: float | None = AUDIO_DBFS_MIN
+    words_similarity_min: float | None = WORDS_SIMILARITY_DEFAULT
     face: None = None
 
 
@@ -147,7 +164,12 @@ def segment_check(value):
         for name in ("jump_ratio_max", "look_ratio_max")
         if name in value
     }
-    for name in ("texture_ratio_max", "cut_ratio_max", "audio_dbfs_min"):
+    for name in (
+        "texture_ratio_max",
+        "cut_ratio_max",
+        "audio_dbfs_min",
+        "words_similarity_min",
+    ):
         if name in value:
             fields[name] = None if value[name] is None else float(value[name])
     return SegmentCheck(**fields)
@@ -254,14 +276,36 @@ def check_segment(
     return CheckResult(not failed, measures, failed, after_data)
 
 
+def with_words(result, words):
+    """`result` with a segment's words answer (`check_words`, or None for a
+    segment with no line) recorded as its `words` measure, failing it when
+    the answer did not pass. A segment with no line is never failed for it:
+    nothing says what it should speak (#1262)."""
+    result.measures["words"] = words
+    if words is not None and not words["passed"]:
+        result.failed.append("words")
+        result.passed = False
+    return result
+
+
+def _words_only(result):
+    return result.failed == ["words"]
+
+
 def best_attempt(results):
     """The index of the attempt to keep: fewest failed measures, then the
-    lowest jump ratio, then the earliest."""
+    lowest jump ratio, then the earliest. Attempts that failed words alone
+    rank after any other one-measure failure and among themselves by the
+    higher similarity (#1262): their pictures passed, so the jump says
+    nothing about which spoke its line best."""
 
     def rank(index):
         result = results[index]
+        if _words_only(result):
+            similarity = (result.measures.get("words") or {}).get("similarity")
+            return (1, 1, -(similarity or 0.0), index)
         jump = result.measures.get("jump_ratio")
-        return (len(result.failed), math.inf if jump is None else jump, index)
+        return (len(result.failed), 0, math.inf if jump is None else jump, index)
 
     return min(range(len(results)), key=rank)
 
