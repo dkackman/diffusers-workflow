@@ -99,6 +99,7 @@ def _handle_dissolve_videos(task, arguments, previous_pipelines):
         "name": "The timeline's name.",
     },
     media_arguments=("sources",),
+    result_content_type="application/x-otioz",
 )
 def _handle_export_timeline(task, arguments, previous_pipelines):
     """Write a joined video's shots as an OpenTimelineIO bundle"""

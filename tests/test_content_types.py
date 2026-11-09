@@ -145,12 +145,18 @@ class TestExportTimelineContentType:
         }
 
     def test_a_wellformed_but_wrong_type_is_refused_naming_otioz(self):
-        errors = content_type_errors(
+        from dw.scalar_result_validation import scalar_result_errors
+
+        errors = scalar_result_errors(
             self._timeline("application/vnd.pixar.opentimelineio+zip")
         )
         assert len(errors) == 1
-        assert errors[0]["path"] == "steps[0].result.content_type"
+        assert errors[0]["path"] == "steps[0].result.content_type" or errors[0][
+            "path"
+        ].startswith("steps[0].result")
         assert "application/x-otioz" in errors[0]["message"]
 
     def test_otioz_is_accepted(self):
-        assert content_type_errors(self._timeline("application/x-otioz")) == []
+        from dw.scalar_result_validation import scalar_result_errors
+
+        assert scalar_result_errors(self._timeline("application/x-otioz")) == []

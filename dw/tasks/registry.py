@@ -114,6 +114,7 @@ def register_command(
     weight_file_arguments=(),
     whole_numbers=(),
     required_weights=None,
+    result_content_type=None,
 ):
     """
     Decorator to register a command handler function.
@@ -187,6 +188,12 @@ def register_command(
             #975). A string, so the plan path imports the module only for a
             workflow that has the command
 
+        result_content_type: The one content type the command's `result` may
+            name, for a command that writes a single fixed container
+            (`export_timeline`'s .otioz): any other is refused at validation
+            (dw/scalar_result_validation.py, #1302) rather than saved as an
+            extensionless file
+
     Returns:
         Decorator function
     """
@@ -208,6 +215,8 @@ def register_command(
             "provided": tuple(provided),
             "returns": returns,
         }
+        if result_content_type:
+            info["result_content_type"] = result_content_type
         if assessment:
             info["assessment"] = True
         if summary:

@@ -131,20 +131,6 @@ def content_type_fault(value):
     return None
 
 
-def _timeline_fault(step, value):
-    """`export_timeline` writes only an .otioz bundle: any other result type
-    would leave an extensionless file the gallery cannot describe (#1302)."""
-    task = step.get("task")
-    if not isinstance(task, dict) or task.get("command") != "export_timeline":
-        return None
-    if isinstance(value, str) and value.strip().lower() == OTIOZ_CONTENT_TYPE:
-        return None
-    return (
-        f"Invalid content_type: {value!r} - export_timeline writes an .otioz "
-        f"bundle, so its result content_type is '{OTIOZ_CONTENT_TYPE}'"
-    )
-
-
 def content_type_errors(workflow_definition, source_indices=None):
     """Every result 'content_type' that no writer will accept, as
     [{path, message}].
@@ -157,7 +143,7 @@ def content_type_errors(workflow_definition, source_indices=None):
     find in the file they wrote; the member is named in the message.
     """
     errors = []
-    for _, step, result, source, where in references.iter_steps(
+    for _, _, result, source, where in references.iter_steps(
         workflow_definition.get("steps"), source_indices, "result"
     ):
         if CONTENT_TYPE_KEY not in result:
@@ -168,8 +154,6 @@ def content_type_errors(workflow_definition, source_indices=None):
         if references.is_ref(references.SUBSTITUTED, value):
             continue
         fault = content_type_fault(value)
-        if fault is None:
-            fault = _timeline_fault(step, value)
         if fault is not None:
             errors.append(
                 {
