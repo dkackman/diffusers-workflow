@@ -2713,6 +2713,13 @@ joined into a single file:
   segment is otherwise asked for a count the pipeline may floor in silence.
 - `prompts` — optional per-segment prompt list for narrative progression; segment
   `i` uses `prompts[min(i, len - 1)]`.
+- `lines` — optional list of strings, one expected spoken line per segment, exactly as
+  many as segments (unlike `prompts`, the last is not repeated; a wrong length or a
+  non-string is refused). Read only by the `words` check. Segment `k`'s line is
+  `lines[k]`, else the `<d>` dialogue of `prompts[min(k, len - 1)]`, else of the step's
+  `prompt`. An empty string, or no `<d>`, means no line: the shot records `words: null`
+  and the segment is not re-rolled for it. Validate warns when `lines` is set but the
+  words check is off.
 - `check` — check each segment after the first before it is kept (any model family):
   `true` for the default ceilings, an object to set any of them, absent or `false` for
   no check (the chain is unchanged). See *Checking each segment* below.
@@ -2801,6 +2808,7 @@ video, its audio, its shot record, a `save_segments` file or the look-hold state
 | `texture_ratio` | segment 1: the mean fine-band (2-8 px) luma texture of 4 evenly spaced frames, whole frame | `texture_ratio_max` 2 | above it or below its inverse (doubled or halved); `null` skips it |
 | `cut_ratio` | the segment itself: its largest frame change over its own typical change, floored as `jump_ratio` is - a cut inside the segment, past the seam's windows, which the seam measures do not see | `cut_ratio_max` 3.5 | above the ceiling; `null` skips it |
 | `audio_dbfs` | the segment itself: the RMS level (dBFS, to 0.1) of its generated audio over the kept span, past the head trim; segment 1 included | `audio_dbfs_min` -70 | below the floor; `null` skips it. Skipped (no level) when the segment has no generated audio or the audio is held: `match_audio` or its `hold_audio`, or a step `hold_audio` argument. A `guide` chain carrying its audio is measured: the guide holds only the span the head trim drops |
+| `words` | the segment's expected line (see `lines`): its kept audio transcribed (Whisper, on CPU) and compared with `check_script`'s similarity; segment 1 included | `words_similarity_min` `null` (off) | below the minimum, a number above 0 and at most 1. Off by default: `bench/records/words.md` found no clean separation of good takes from bad. `chain_check.WORDS_SIMILARITY_MIN` (0.80) is the ceiling that passed every good take seen, and catches only gross failures (a wrong or missing line, a garbled segment). Never measured when the chain holds its audio (`match_audio`, `hold_audio`), and skipped for a segment with no line |
 
 A segment whose prompt asks for a cut inside it fails `cut_ratio` and re-rolls, so set
 `check: {"cut_ratio_max": null}` to turn that measure off. A step that asks for silence
@@ -2840,7 +2848,15 @@ Each shot of a checked chain records `attempts`; a re-rolled one records the `se
 kept attempt ran at, and one that failed every attempt records `check_failed` (the
 measures its kept attempt failed). The job gets one `warning` (`kind:
 "chain_check_failed"`) per such segment, naming the measures, their values and the kept
-attempt, and the job log names each re-roll. Each shot also records `audio_dbfs`, the kept
+attempt, and the job log names each re-roll. When `words` failed, the warning also carries
+`heard`, `similarity` and `findings` (`values.words` is the similarity); when every
+attempt failed `words` it adds `every_attempt_failed: true` and a `note` to repair the
+segment with `templates/minimax/repair-segment` rather than retry more, since the cause
+may be in the carry, which a fresh seed inherits. A shot of a words-checked chain also
+records `words` (`similarity`, `heard`, `findings`, `passed`, `seam_head_dropped`) for
+the kept attempt, or `null` with no line. Among attempts failing only `words`,
+`best_attempt` keeps the higher similarity; a words-only failure ranks after any other
+single-measure failure. Each shot also records `audio_dbfs`, the kept
 attempt's level, when it is measurable. A kept segment whose generated audio still reads
 under the floor (the re-rolls exhausted, or `check` off, the floor then fixed at -70)
 gets a `warning` (`kind: "chain_segment_silent"`) with the segment number, its
@@ -2849,7 +2865,10 @@ unchanged. A cost estimate quotes the worst case: a checked chain that generates
 audio (floor on, no `match_audio`, no step `hold_audio`; a `guide` chain carrying its
 audio counts, its held span being the head trim) re-rolls segment 1 too, so N segments cost up to N(1 + `retries`) segment renders;
 any other checked chain never re-rolls segment 1 and costs up to
-1 + (N - 1)(1 + `retries`). The curated figure, measured without re-rolls, paid N.
+1 + (N - 1)(1 + `retries`). The curated figure, measured without re-rolls, paid N. With `words` active the
+estimate adds about 0.05 min (one Whisper CPU pass) per worst-case attempt,
+(segments - kept) x (1 + `retries`) passes with segment 1 counted as checked, named in
+the estimate's `scaled` text as "words check: N Whisper pass(es)".
 
 ## Schedulers
 
