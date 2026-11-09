@@ -1657,3 +1657,21 @@ def test_line_similarity_wrong_short_line_still_fails():
     expected = ["those", "are", "candle", "crumbs"]
     assert line_similarity(expected, ["these", "are", "bread", "crumbs"]) < 0.6
     assert line_similarity(expected, ["no", "way"]) < 0.6
+
+
+def test_number_word_line_heard_as_digits_scores_one():
+    answer = run(["Article One"], words("Article 1."))
+    assert answer["lines"][0]["similarity"] == 1.0
+    assert rules(answer, "line_mismatch") == []
+
+
+def test_number_word_split_over_chunks_scores_one():
+    answer = run(["twenty-one"], words("twenty one"))
+    assert answer["lines"][0]["similarity"] == 1.0
+    assert rules(answer, "line_mismatch") == []
+
+
+def test_digit_line_heard_as_number_words_scores_one():
+    answer = run(["Article 1"], words("Article One"))
+    assert answer["lines"][0]["similarity"] == 1.0
+    assert rules(answer, "line_mismatch") == []
