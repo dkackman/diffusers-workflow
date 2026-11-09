@@ -589,8 +589,23 @@ def _shown_value(result, name):
     return value
 
 
+def _failure_text(result, name):
+    """One failed measure as a log or warning names it. A words failure also
+    names the findings that failed it and what was heard: a passing
+    similarity still fails on any WORDS_FINDINGS finding (#1262), and the
+    number alone would not say why."""
+    text = f"{name} {_shown_value(result, name)}"
+    words = result.measures.get(name) if name == "words" else None
+    if not isinstance(words, dict):
+        return text
+    rules = list(dict.fromkeys(f.get("rule") for f in words.get("findings") or ()))
+    if rules:
+        text += f" with {', '.join(str(rule) for rule in rules)}"
+    return text + f", heard {words.get('heard', '')!r}"
+
+
 def _failures(result):
-    return ", ".join(f"{name} {_shown_value(result, name)}" for name in result.failed)
+    return "; ".join(_failure_text(result, name) for name in result.failed)
 
 
 def _record_check(shot, segment, config, checked):
