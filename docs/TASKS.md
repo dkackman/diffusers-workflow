@@ -3643,12 +3643,12 @@ How the alignment reads a take:
 - A dropped line comes back with `heard: ""` and a `line_mismatch` at where it should have been.
 - An added line's words go to `unmatched` and lower no line's similarity.
 - A line spoken out of order reads as a mismatch on that line.
-- Whisper mishears names and numbers (`2` for `two`), so listen before re-rolling a take on a mismatch.
+- Whisper mishears names and homophones (`pane` for `pain`), so listen before re-rolling a take on a mismatch. Number words and digits already read as the same, so `2` for `two` costs nothing.
 - A quiet line can be discarded by the guard. Discarded words are reported under `discarded`, not hidden.
 
 A malformed `lines` - not a list, an entry without text, an unknown key in a line object - is refused at validation, at `steps[i].task.arguments.lines`, as is a `similarity` outside 0..1. A line naming a shot the map lacks is refused, listing the map's shots, and so is a line naming a shot the map holds twice; a literal `shots` and literal lines are checked against each other at validation, and a `shots` or `lines` that is a reference is checked when the step runs.
 
-**Example:** [check-script.json](../workflows/templates/check-script.json) — check a take against its script and save the answer as JSON. Its defaults are `openai/whisper-large-v3-turbo` at `similarity` 0.6, not the task's `openai/whisper-base` at 0.85: turbo scored correct lines 0.71 to 1.00 and wrong or missing ones 0.00, where base scored correct lines as low as 0.43 on mishearings (#609). Number words and digits are read as the same (`twenty one` and `21`, `Amendment Ten` and `Amendment 10`, #1297), so neither Whisper's choice nor the script's costs similarity.
+**Example:** [check-script.json](../workflows/templates/check-script.json) — check a take against its script and save the answer as JSON. Its defaults are `openai/whisper-large-v3-turbo` at `similarity` 0.6, not the task's `openai/whisper-base` at 0.85: turbo scored correct lines 0.71 to 1.00 and wrong or missing ones 0.00, where base scored correct lines as low as 0.43 on mishearings (#609). Number words and digits are read as the same (`twenty one` and `21`, `Amendment Ten` and `Amendment 10`, #1297), so neither Whisper's choice nor the script's costs similarity. A hyphenated compound is split at the hyphen first and then folded, so `twenty-one` is `21` too. Digits written apart stay separate numbers: `2 1` is not `21`, though a year said in halves (`17 87`) is `1787`.
 
 ## Frame Interpolation
 

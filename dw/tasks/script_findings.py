@@ -43,8 +43,8 @@ def mismatch_rule(similarity):
         "line_mismatch",
         similarity,
         "the take's words for this line are this similar to the script - listen"
-        " before re-rolling: Whisper mishears names and numbers ('2' for 'two')"
-        " on a correct take",
+        " before re-rolling: Whisper mishears names and homophones on a correct"
+        " take (number words and digits already read as the same)",
     )
 
 
@@ -189,7 +189,12 @@ def line_similarity(expected, heard):
 def _merge_compounds(words, other):
     """`words` with adjacent words joined where the join is a word of `other`:
     a compound written open on one side and closed on the other ('candle
-    crumbs' / 'candlecrumbs') is a spelling choice, not a different line."""
+    crumbs' / 'candlecrumbs') is a spelling choice, not a different line.
+
+    Digits join only as a year said in halves - two pieces of two digits
+    each ('17 87' is '1787', the fold of 'seventeen eighty seven'). Other
+    digits written apart are separate numbers: '2 1' (said 'two one') is
+    not '21' (#1297)."""
     targets = set(other)
     out = []
     i = 0
@@ -197,7 +202,10 @@ def _merge_compounds(words, other):
         for span in (3, 2):
             if i + span > len(words):
                 continue
-            joined = "".join(words[i : i + span])
+            pieces = words[i : i + span]
+            if all(piece.isdigit() for piece in pieces) and not _year_halves(pieces):
+                continue
+            joined = "".join(pieces)
             if joined in targets:
                 out.append(joined)
                 i += span
@@ -206,6 +214,11 @@ def _merge_compounds(words, other):
             out.append(words[i])
             i += 1
     return out
+
+
+def _year_halves(pieces):
+    """Whether digit `pieces` are a year said in halves: two of two digits."""
+    return len(pieces) == 2 and all(len(piece) == 2 for piece in pieces)
 
 
 def tail_level(mono, sample_rate, end=None):

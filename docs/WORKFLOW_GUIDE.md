@@ -804,7 +804,8 @@ by the source, and `validate_workflow` names the entries to add or drop.
    a markup word spoken aloud, speech in a shot meant to be silent, a last word
    clipped by the cut. Words Whisper invents over silence or music are under
    `discarded`, not findings. A line's similarity reads number words and
-   digits as the same (`Amendment Ten` heard as `Amendment 10` scores 1.0), but
+   digits as the same (`Amendment Ten` heard as `Amendment 10` scores 1.0; a
+   hyphenated compound is split and then folded, so `twenty-one` is `21`), but
    a spelling variant (`defence`/`defense`) still costs it, and a dropped
    word or two costs a long line too little to show (`Nor` dropped from a
    13-word line scores 0.96): read `heard` too, not only the score. The plan comes back `basis: "unknown"` with
