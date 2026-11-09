@@ -23,15 +23,14 @@ def test_running_max_holds_when_rss_drops():
     baseline_peak_mb = 62192.34
     running_max_mb = None
 
+    # Process peak flat at the baseline: no growth, so no job peak (#1288)
+    # and current rss never leaks in as one.
     readings = [
         {"host_memory_peak_rss_mb": 62192.34, "host_memory_rss_mb": 922.199},
-        {"host_memory_peak_rss_mb": 62192.34, "host_memory_rss_mb": 922.199},
-        {"host_memory_peak_rss_mb": 62192.34, "host_memory_rss_mb": 936.961},
-        {"host_memory_peak_rss_mb": 62192.34, "host_memory_rss_mb": 940.699},
         {"host_memory_peak_rss_mb": 62192.34, "host_memory_rss_mb": 949.852},
-        # Final reading: post-run cleanup drops current rss well below the
-        # 949.852 max already seen - the running max must hold, not drop.
-        {"host_memory_peak_rss_mb": 62192.34, "host_memory_rss_mb": 932.563},
+        # The peak then grows a little; the running max holds afterwards.
+        {"host_memory_peak_rss_mb": 62292.34, "host_memory_rss_mb": 949.852},
+        {"host_memory_peak_rss_mb": 62292.34, "host_memory_rss_mb": 100.0},
     ]
 
     reported = []
@@ -39,8 +38,9 @@ def test_running_max_holds_when_rss_drops():
         running_max_mb = _job_scoped_peak_rss_mb(info, baseline_peak_mb, running_max_mb)
         reported.append(running_max_mb)
 
-    assert reported == sorted(reported)
-    assert reported[-1] == 949.852
+    assert reported[:2] == [None, None]
+    assert reported[2] == reported[3]
+    assert abs(reported[3] - 100.0) < 1e-6
 
 
 def test_running_max_none_baseline_returns_previous_max():
@@ -49,8 +49,18 @@ def test_running_max_none_baseline_returns_previous_max():
     )
 
 
-def test_running_max_first_reading_with_no_growth_uses_current_rss():
+def test_no_growth_records_null_not_current_rss():
+    """#1288: a warm run that grows nothing must not report the worker's
+    resident rss as its own peak."""
     result = _job_scoped_peak_rss_mb(
         {"host_memory_peak_rss_mb": 500.0, "host_memory_rss_mb": 123.0}, 500.0, None
     )
-    assert result == 123.0
+    assert result is None
+
+
+def test_growth_after_flat_readings_is_reported():
+    flat = {"host_memory_peak_rss_mb": 500.0, "host_memory_rss_mb": 9000.0}
+    assert _job_scoped_peak_rss_mb(flat, 500.0, None) is None
+    grown = {"host_memory_peak_rss_mb": 800.0, "host_memory_rss_mb": 9000.0}
+    assert _job_scoped_peak_rss_mb(grown, 500.0, None) == 300.0
+    assert _job_scoped_peak_rss_mb(flat, 500.0, 300.0) == 300.0
