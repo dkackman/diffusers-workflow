@@ -3277,6 +3277,142 @@ the takes after it still aligned. Each failing take also emits a
 `narration_take_mismatch` warning naming the take, its rate and its first
 dropped words. `templates/check-narration` runs it.
 
+## Retiming a Narration
+
+A narrated long take is spoken first and pictured after: an H3 chain renders
+the picture in fixed-length segments, so the speech is fitted to the chain's
+frame grid (`dw/tasks/narration_retime.py`). `retime_narration` sets every
+pause by the punctuation it follows and moves the pause nearest each segment
+boundary so the boundary falls in silence; `narration_lines` then reads the
+line each planned segment speaks, and fills a prompt per segment from a
+template. Both take their word times from one word-timestamp transcription
+(the `transcribe_audio` pipeline, levelled as `check_script` levels it).
+
+```json
+{
+    "steps": [
+        {
+            "name": "retime",
+            "task": {
+                "command": "retime_narration",
+                "arguments": {
+                    "audio": "previous_result:speech",
+                    "text": "variable:script",
+                    "segment_frames": 192,
+                    "guide_frames": 22,
+                    "fps": 24
+                }
+            },
+            "result": { "content_type": "audio/wav" }
+        },
+        {
+            "name": "lines",
+            "task": {
+                "command": "narration_lines",
+                "arguments": {
+                    "audio": "previous_result:retime.audio",
+                    "text": "variable:script",
+                    "segment_frames": 192,
+                    "guide_frames": 22,
+                    "prompt_template": "variable:segment_prompt",
+                    "fill": { "scene": "variable:scene" }
+                }
+            },
+            "result": { "content_type": "application/json" }
+        }
+    ]
+}
+```
+
+### `retime_narration`
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `audio` | Yes | The narration: an audio file, a video's soundtrack, a track from an earlier step, or a waveform (with `sample_rate`) |
+| `text` | No | The script. Its punctuation, spelling and section breaks win over Whisper's |
+| `comma_seconds` | No | The pause after a word ending `,` `;` or `:` (default 0.3) |
+| `sentence_seconds` | No | The pause after a word ending `.` `?` or `!` (default 0.6) |
+| `section_seconds` | No | The pause at a section break in `text`: a blank line, or a line opening "Amendment" (default 1.0) |
+| `min_gap_seconds` | No | A gap shorter than this is left alone, and no boundary is placed in it (default 0.12) |
+| `segment_frames` | No | Frames a chain segment generates. With it, the boundaries are placed and reported |
+| `guide_frames` | No | The chain's guide frames, the head each segment after the first trims (default 0) |
+| `fps` | No | Frame rate the frames are counted at (default 24) |
+| `boundary_slack_seconds` | No | The most one gap may be lengthened or shortened to bring a boundary into it (default 0.25) |
+| `model_name` | No | A Whisper-class ASR model (the `transcribe_audio` default) |
+| `device`, `sample_rate` | No | As `transcribe_audio` |
+
+The seconds arguments are zero or above, `fps` is above zero, and
+`segment_frames` and `guide_frames` are whole numbers.
+
+A gap of at least `min_gap_seconds` after a word whose punctuation names a
+class takes that class's length. A gap with no punctuation keeps its length.
+When `text` is given, the punctuation comes from the script, aligned to the
+words heard, and the stronger class wins: a sentence end before a blank line
+is a section. Without `text` it comes from Whisper's chunk text, which never
+marks a section. A pause is shortened by cutting out its middle. It is
+lengthened by inserting the source's own room tone at its middle: the best
+`find_loop_bed` candidate, else the source's quietest 250 ms window, looped
+with `loop_audio`. Every cut is a 10 ms equal-power crossfade, so the result
+is never digital zero where the source was not.
+
+The boundaries are the kept-span ends of `plan_segments` over the retimed
+length, with `guide_frames` as the head trim. Segment 1 ends at
+`segment_frames`, then every `segment_frames - guide_frames` frames after it.
+A boundary already inside a gap stays there. Otherwise the gap before the
+word it falls in is lengthened (pushing that word later) or shortened
+(pulling it earlier so the next gap reaches the boundary), whichever moves
+less, by at most `boundary_slack_seconds`. A shortened gap keeps at least
+half its length, and a gap holding an earlier boundary is never moved off
+it. A boundary no such move reaches, such as one inside a word longer than
+twice the slack, is reported and left where it is. It is never forced
+through a word.
+
+The step answers `{audio, report}`: the retimed track, and a report saved as
+JSON beside it. Later steps read them as `previous_result:retime.audio` and
+`previous_result:retime.report`. The report is:
+
+- `words`: `[{word, start, end}]` at their retimed times.
+- `pauses`: `[{after, class, before_seconds, after_seconds}]` for every gap
+  that has a class or was moved for a boundary (`class` null for the latter).
+- `duration_seconds`: the retimed length.
+- `boundaries`: `[{segment, seconds, in_gap}]`, present with
+  `segment_frames`. `segment` is the 0-based index of the segment that ends there.
+- `mid_word_boundaries`: `[{segment, word}]`, the boundaries left inside a word.
+
+### `narration_lines`
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `audio` | Yes | The narration, usually `previous_result:retime.audio` |
+| `segment_frames` | Yes | Frames a chain segment generates |
+| `guide_frames` | No | The chain's guide frames (default 0) |
+| `fps` | No | Frame rate (default 24) |
+| `text` | No | The script, whose spelling and punctuation the lines take |
+| `prompt_template` | No | A prompt holding `{line}` and the placeholders `fill` names |
+| `fill` | No | `{placeholder: value}` for the template's other placeholders |
+| `model_name`, `device`, `sample_rate` | No | As `retime_narration` |
+
+The audio's length plans the segments (`plan_segments`, the frames covering
+the audio). Each segment's line is the words whose midpoint falls in its kept
+span. Segment 1 keeps `[0, segment_frames)` and each later segment keeps the
+frames after its trimmed head. The answer is a JSON document:
+
+- `lines`: one string per planned segment.
+- `prompts`: present only with `prompt_template`. It is the template once per
+  line, with `{line}` and every `fill` key substituted.
+- `segments`: `[{index, start_seconds, end_seconds, line}]`.
+- `mid_word_boundaries`: `[{segment, word}]`, the kept-span ends that fall inside a word.
+- `total_frames`: the frames the plan covers.
+
+A chain step reads them as `previous_result:lines.prompts` or
+`previous_result:lines.lines`. The prompt text is the caller's: the task
+writes no model's prompt format of its own.
+
+Both commands refuse audio in which no words are heard, naming the command.
+`narration_lines` also refuses a missing `segment_frames`, and a template
+placeholder that `fill` does not give, naming that placeholder. An attribute
+or index placeholder (`{line.upper}`, `{}`) counts as one `fill` does not give.
+
 ## Extracting Sections
 
 Reduce generated text to a known set of labelled sections, dropping anything else:
