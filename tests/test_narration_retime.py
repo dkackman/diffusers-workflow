@@ -221,6 +221,39 @@ def test_boundary_inside_a_long_word_is_reported_not_forced(heard):
     assert congress["start"] == pytest.approx(6.8, abs=0.01)
 
 
+@pytest.mark.parametrize(
+    "words",
+    [
+        # 4.0 s falls inside "d."; a grown gap lands it on the margin
+        [
+            ("a", 0.2, 0.5),
+            ("b", 1.0, 1.5),
+            ("c", 2.5, 3.7),
+            ("d.", 3.9, 4.5),
+            ("e", 4.7, 5.2),
+        ],
+        # the same with a short last word and a tighter run of words
+        [
+            ("a", 0.2, 0.5),
+            ("b", 1.0, 1.5),
+            ("c", 2.5, 3.6),
+            ("d.", 3.9, 4.05),
+            ("e", 4.1, 5.2),
+        ],
+    ],
+)
+def test_boundary_nudged_onto_the_margin_reports_in_gap(heard, words):
+    track, chunks = build(words, 6.0)
+    heard(chunks)
+
+    report = retime_narration(track, segment_frames=96, guide_frames=10, fps=24)[
+        "report"
+    ]
+
+    assert report["boundaries"][0]["in_gap"] is True
+    assert report["mid_word_boundaries"] == []
+
+
 def test_no_words_is_refused(heard):
     track, _ = build([], 2.0)
     heard([])
@@ -314,6 +347,41 @@ def test_an_attribute_placeholder_is_refused(heard):
             guide_frames=12,
             prompt_template="<d>{line.upper}</d>",
         )
+
+
+def _lines_with(heard, template, **kwargs):
+    track, chunks = build(LINE_WORDS, 4.5)
+    heard(chunks)
+    return narration_lines(
+        track, segment_frames=48, guide_frames=12, prompt_template=template, **kwargs
+    )
+
+
+@pytest.mark.parametrize(
+    "template",
+    ["<d>{line:>999999999}</d>", "<d>{line!r}</d>", "{0}", "{line[0]}", "{ line }"],
+)
+def test_format_spec_placeholder_is_refused(heard, template):
+    with pytest.raises(ValueError, match="narration_lines.*placeholder"):
+        _lines_with(heard, template)
+
+
+def test_escaped_braces_are_literal(heard):
+    answer = _lines_with(heard, "{{style}} <d>{line}</d> }}")
+
+    assert answer["prompts"] == [
+        f"{{style}} <d>{line}</d> }}" for line in answer["lines"]
+    ]
+
+
+def test_unbalanced_brace_is_refused(heard):
+    with pytest.raises(ValueError, match="narration_lines"):
+        _lines_with(heard, "<d>{line</d>")
+
+
+def test_filled_prompt_over_the_cap_is_refused(heard):
+    with pytest.raises(ValueError, match=r"narration_lines.*segment 0"):
+        _lines_with(heard, "{big} {line}", fill={"big": "x" * 20_001})
 
 
 def test_narration_lines_with_no_words_is_refused(heard):

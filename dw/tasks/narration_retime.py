@@ -26,7 +26,6 @@ zero where the source was not.
 import logging
 import math
 import re
-import string
 
 
 from .audio_transcription import (
@@ -66,6 +65,9 @@ SEAM_SECONDS = 0.01
 # A boundary placed in a gap sits at least this far from the words either
 # side of it (or at the gap's middle, for a gap shorter than twice this)
 BOUNDARY_MARGIN_SECONDS = 0.02
+# Moves aim this far past the margin; margin tests allow _TOLERANCE of float noise.
+_AIM_EXTRA = 1e-3
+_TOLERANCE = 1e-6
 # The window looped for room tone when find_loop_bed finds no candidate
 QUIET_WINDOW_SECONDS = 0.25
 _QUIET_HOP_SECONDS = 0.05
@@ -234,7 +236,7 @@ def _boundary_word(out, spans, boundary):
     the margin; otherwise the word it falls in, or the nearest word."""
     for _i, a, b in spans:
         margin = min(BOUNDARY_MARGIN_SECONDS, (b - a) / 2)
-        if a + margin <= boundary <= b - margin:
+        if a + margin - _TOLERANCE <= boundary <= b - margin + _TOLERANCE:
             return None
     nearest = min(
         out,
@@ -253,21 +255,24 @@ def _moves(spans, boundary, previous, slack):
     shortened (pulling that word earlier, so the next gap reaches it). A gap
     holding the boundary before, or wholly before it, is not moved."""
     m = BOUNDARY_MARGIN_SECONDS
-    before = [s for s in spans if s[1] + m <= boundary]
-    after = [s for s in spans if s[1] + m > boundary]
+    before = [s for s in spans if s[1] + m - _TOLERANCE <= boundary]
+    after = [s for s in spans if s[1] + m - _TOLERANCE > boundary]
     if not before:
         return []
     i, a, b = before[-1]
     free = previous is None or a > previous
     moves = []
-    grow = boundary + m - b
+    aim = (
+        m + _AIM_EXTRA
+    )  # land just clear of the margin, so float noise cannot fall short
+    grow = boundary + aim - b
     if grow <= slack and (free or previous <= b):
         moves.append((grow, i, grow))
     if after:
         _j, next_a, next_b = after[0]
-        shrink = next_a + m - boundary
+        shrink = next_a + aim - boundary
         fits = shrink <= (b - a) / 2 and next_b - next_a >= 2 * m
-        if shrink <= slack and fits and (free or previous <= b - shrink - m):
+        if shrink <= slack and fits and (free or previous <= b - shrink - aim):
             moves.append((shrink, i, -shrink))
     return moves
 
@@ -531,28 +536,54 @@ def retime_narration(
     return {"audio": as_track(retimed, rate, RETIME), "report": JsonRecord(report)}
 
 
+_PLACEHOLDER = re.compile(r"\{\{|\}\}|\{([^{}]*)\}|[{}]")
+MAX_PROMPT_CHARS = 20_000
+
+
 def filled_prompts(prompt_template, fill, lines):
-    """The template once per line, `{line}` and every `fill` key substituted.
-    A placeholder that is neither - '{speaker}' with no 'speaker' in fill,
-    '{line.upper}', '{}' - is refused, naming it."""
+    """The template once per line, `{line}` and every `fill` key substituted
+    by plain text replacement. `{{` and `}}` are literal braces; any other
+    brace - a format spec, a conversion, an attribute or index, a name `fill`
+    does not give - is refused, naming it. A filled prompt over
+    MAX_PROMPT_CHARS is refused, naming its segment."""
     if fill is not None and not isinstance(fill, dict):
         raise ValueError(f"{LINES}: 'fill' must be an object of placeholder values")
     values = {str(key): str(value) for key, value in (fill or {}).items()}
-    try:
-        fields = [f for _t, f, _s, _c in string.Formatter().parse(prompt_template)]
-    except ValueError as error:
-        raise ValueError(f"{LINES}: prompt_template is not a template: {error}")
-    for field in fields:
-        if field is not None and field != "line" and field not in values:
+    allowed = {**values, "line": None}
+
+    def check(match):
+        token = match.group(0)
+        if token in ("{{", "}}"):
+            return
+        name = match.group(1)
+        if name not in allowed:
             raise ValueError(
-                f"{LINES}: prompt_template names the placeholder {{{field}}}, "
-                f"which 'fill' does not give (it gives "
-                f"{sorted(values) or 'nothing'}; {{line}} is the segment's line)"
+                f"{LINES}: prompt_template has the placeholder {token!r}, which "
+                f"is not a bare name 'fill' gives (it gives "
+                f"{sorted(values) or 'nothing'}; {{line}} is the segment's line; "
+                f"write {{{{ and }}}} for literal braces)"
             )
-    try:
-        return [prompt_template.format_map({**values, "line": line}) for line in lines]
-    except (KeyError, IndexError, ValueError) as error:
-        raise ValueError(f"{LINES}: prompt_template could not be filled: {error}")
+
+    for match in _PLACEHOLDER.finditer(prompt_template):
+        check(match)
+    prompts = []
+    for index, line in enumerate(lines):
+        pieces = {**values, "line": line}
+
+        def put(match):
+            token = match.group(0)
+            if token in ("{{", "}}"):
+                return token[0]
+            return pieces[match.group(1)]
+
+        prompt = _PLACEHOLDER.sub(put, prompt_template)
+        if len(prompt) > MAX_PROMPT_CHARS:
+            raise ValueError(
+                f"{LINES}: the prompt for segment {index} is {len(prompt)} "
+                f"characters, over the {MAX_PROMPT_CHARS} cap"
+            )
+        prompts.append(prompt)
+    return prompts
 
 
 def _segment_lines(words, plan, fps, end_seconds):

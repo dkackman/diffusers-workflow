@@ -3410,8 +3410,15 @@ writes no model's prompt format of its own.
 
 Both commands refuse audio in which no words are heard, naming the command.
 `narration_lines` also refuses a missing `segment_frames`, and a template
-placeholder that `fill` does not give, naming that placeholder. An attribute
-or index placeholder (`{line.upper}`, `{}`) counts as one `fill` does not give.
+placeholder that `fill` does not give, naming that placeholder.
+
+`prompt_template` is filled by plain substitution, not Python formatting. A
+placeholder is a bare name in braces, `{line}` or one of `fill`'s keys. Anything
+else in braces is refused: a format spec (`{line:>9}`), a conversion
+(`{line!r}`), attribute or index access (`{line.upper}`, `{line[0]}`), a
+position (`{0}`, `{}`), or a stray single brace. Write `{{` and `}}` for a
+literal `{` and `}`. A filled prompt over 20,000 characters is refused, naming
+its segment.
 
 ## Extracting Sections
 
