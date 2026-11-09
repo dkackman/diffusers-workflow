@@ -2067,7 +2067,7 @@ Returns `{lag_seconds, confidence, max_lag_seconds, audio_seconds, reference_sec
 
 ### measure_lip_sync
 
-Measure whether a speaker's mouth moves with the audio. `measure_sync` lines a track up against its source slice; this lines the picture up against the audio. YuNet finds the face in each frame, and the mouth box runs across its two mouth-corner landmarks and down from them by the distance between the corners. The mouth signal is the mean absolute grey-level change in that box from the frame before; the audio signal is its RMS envelope, one value per frame's span of samples. The two are Pearson-correlated over the frames with a face, at every whole-frame lag within `max_lag_seconds`, and the best lag answers. The result is JSON and nothing is built:
+Measure whether a speaker's mouth moves with the audio. `measure_sync` lines a track up against its source slice; this lines the picture up against the audio. YuNet finds the face in each frame, and the mouth box runs across its two mouth-corner landmarks and down from them by the distance between the corners. The mouth signal is the mean absolute grey-level change in that box from the frame before; the audio signal is its RMS envelope, one value per frame's span of samples. The two are Pearson-correlated over the frames with a face, at whole-frame lags. It is a coarse take-level indicator, not a per-segment check. The result is JSON and nothing is built:
 
 ```json
 {
@@ -2076,7 +2076,7 @@ Measure whether a speaker's mouth moves with the audio. `measure_sync` lines a t
         "command": "measure_lip_sync",
         "arguments": {
             "video": "previous_result:shot",
-            "max_lag_seconds": 0.4
+            "max_lag_seconds": 1.0
         }
     },
     "result": { "content_type": "application/json" }
@@ -2087,9 +2087,9 @@ Measure whether a speaker's mouth moves with the audio. `measure_sync` lines a t
 | -------- | -------- | ----------- |
 | `video` | Yes | The clip of the speaker: an `asset:`/`output:` reference, a path, or an earlier step's video |
 | `audio` | No | The audio the mouth is held to, an [audio input](#slice_audio) or a video carrying a soundtrack. Default: the video's own track |
-| `max_lag_seconds` | No | The largest lag searched, either way (default `0.4`) |
+| `max_lag_seconds` | No | The largest lag searched, either way (default `1`, at most `2`; a larger value is refused). The search never reaches past the frames minus 8 |
 
-Returns `{correlation, lag_seconds, frames_with_face, frames, max_lag_seconds}`. **`lag_seconds` is positive when the audio is late** against the mouth, as `measure_sync`'s is. `correlation` is -1 to 1, and `null` (with `lag_seconds`) when no frame, or too few, had a face. It is a number to compare takes by, not a verdict: a still face, a face in profile or a hidden mouth reads low on good sync, and no threshold is set. A checked chain records the same measure per segment as `lip_sync` ([WORKFLOW_GUIDE](WORKFLOW_GUIDE.md#checking-each-segment-check-and-retries)). Reads YuNet's weights (`opencv/face_detection_yunet`), listed in the plan's `downloads_required`. In code, `dw.tasks.lip_sync.lip_sync_score(frames, waveform, sample_rate, fps, max_lag_seconds=0.4)` measures frames and a waveform held in memory.
+Returns `{correlation, lag_seconds, best_correlation, frames_with_face, frames, max_lag_seconds}`. `correlation` is the best r (-1 to 1) within 3 frames of lag 0; `lag_seconds` is the best lag within `max_lag_seconds` and `best_correlation` its r. **`lag_seconds` is positive when the audio is late** against the mouth, as `measure_sync`'s is. Each is `null` when no frame, or too few, had a face. On 70 real H3 dialogue segments a track 0.5 s late moved the best lag to about +12 to +14 frames, while a segment's own audio sat at 0 to +2; but good and bad correlations overlapped (the 10th percentile of good was 0.14, the 90th of late 0.27), so one segment's correlation is not a verdict (`bench/records/narrated.md`, *Sync calibration*). Read the lag over a whole take, and judge sync by eye; a still face, a face in profile or a hidden mouth reads low on good sync. A checked chain does not measure it. Reads YuNet's weights (`opencv/face_detection_yunet`), listed in the plan's `downloads_required`. In code, `dw.tasks.lip_sync.lip_sync_score(frames, waveform, sample_rate, fps, max_lag_seconds=1.0)` measures frames and a waveform held in memory.
 
 ### analyze_beats
 

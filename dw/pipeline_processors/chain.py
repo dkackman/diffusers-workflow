@@ -61,13 +61,13 @@ from .chain_check import (
     check_segment,
     check_words,
     face_base,
-    face_sync_record,
+    face_record,
     failures_text as _failures,
     measure_frames,
     reroll_seed,
     shown_value as _shown_value,
     texture_base,
-    with_face_sync,
+    with_face_drop,
     with_words,
 )
 from . import chain_resume
@@ -574,21 +574,7 @@ def _checked_attempt(
             result = with_words(
                 result, _segment_words(kept_audio, attempt, segment, config)
             )
-        # Held or generated, the attempt's own track is what its mouths move to
-        sync = (
-            _on_timeline_audio(attempt.audio, segment, config, attempt.rate)
-            if config.fps
-            else None
-        )
-        result = with_face_sync(
-            result,
-            attempt.kept,
-            segment_1[1],
-            sync,
-            attempt.rate,
-            config.fps,
-            config.check,
-        )
+        result = with_face_drop(result, attempt.kept, segment_1[1], config.check)
         results.append(result)
         kept_index = best_attempt(results)
         if kept_index == number:
@@ -646,7 +632,7 @@ def _record_check(shot, segment, config, checked):
     if kept:
         # The seed the kept re-roll ran at, so the run can be repeated
         shot["seed"] = checked.get("seed")
-    shot["check"] = face_sync_record(result)
+    shot["check"] = face_record(result)
     if "words" in result.measures:
         # The kept attempt's words, null for a segment with no line (#1262)
         shot["words"] = result.measures["words"]

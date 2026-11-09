@@ -23,14 +23,15 @@ segment with a line, segment 1 included (`chain_config.segment_line`), and
 re-rolling measure. The default minimum is None, the measure off:
 bench/records/words.md found no clean separation of good takes from bad.
 
-`with_face_sync` folds in the identity and lip-sync measures, both warn-only:
-`face_drop`, segment 1's median SFace similarity to its own frame 0
-(`face_base`, measured once) minus this segment's to that same frame
-(`face_drift.face_similarities`), and `lip_sync`, the correlation of the
-mouth's motion with the audio's loudness (`lip_sync.lip_sync_score`). Their
-ceilings `face_drop_max` and `lip_sync_min` default to None: measured and
-recorded on the shot's `check`, never failed, until the bench sets them. A
-model that cannot load leaves the measure None rather than failing a chain.
+`with_face_drop` folds in the identity measure, warn-only: `face_drop`,
+segment 1's median SFace similarity to its own frame 0 (`face_base`, measured
+once, from frame 1 on) minus this segment's to that same frame
+(`face_drift.face_similarities`). Its ceiling `face_drop_max` defaults to
+None: measured and recorded on the shot's `check`, never failed, until the
+bench sets it. A model that cannot load leaves the measure None rather than
+failing a chain. Lip sync is not measured here: no threshold separated one
+segment's good audio from bad (ruling R9, bench/records/narrated.md), so
+`measure_lip_sync` is a take-level task only.
 
 Measurement and choice only: nothing here renders, and nothing here touches
 the timeline. The chain keys are validated by `chain_rules.chain_check_problem`.
@@ -108,12 +109,10 @@ WORDS_FINDINGS = (
 # head_trim, and the one or two before it
 SEAM_TAIL_WORDS = 3
 
-# - face_drop: how far a segment's faces have moved from segment 1's frame 0,
-#   below segment 1's own median similarity to it; lip_sync: the least
-#   correlation of mouth motion with audio loudness. Both None by default -
-#   measured and recorded, never failed - until the bench sets them
+# face_drop: how far a segment's faces have moved from segment 1's frame 0,
+# below segment 1's own median similarity to it. None by default - measured
+# and recorded, never failed - until the bench sets it
 FACE_DROP_DEFAULT = None
-LIP_SYNC_DEFAULT = None
 # Frames of a segment, evenly spaced, its face similarity is the median of
 FACE_SAMPLES = 8
 
@@ -126,17 +125,16 @@ MEASURES = (
     "audio_dbfs",
     "words",
     "face_drop",
-    "lip_sync",
 )
 
 # Measures that warn and record but never re-roll a segment (ruling R38):
 # texture drift is in the carry, so a fresh seed from the same carry inherits
-# it (bench/records/check.md); an identity or sync measure is not yet known to
-# be one a new seed fixes. The others a new seed can fix
-WARN_ONLY = ("texture_ratio", "face_drop", "lip_sync")
+# it (bench/records/check.md); the identity measure is not yet known to be
+# one a new seed fixes. The others a new seed can fix
+WARN_ONLY = ("texture_ratio", "face_drop")
 
-# The measures with_face_sync records on a checked segment's shot `check`
-FACE_SYNC_RECORD = ("face_drop", "lip_sync", "lip_sync_lag_seconds")
+# The measures with_face_drop records on a checked segment's shot `check`
+FACE_RECORD = ("face_drop",)
 
 # The failed measures that read the `words` answer: a failed one, and a passed
 # one whose opening is missing (#1308)
@@ -157,8 +155,8 @@ class SegmentCheck:
     of its generated audio (None skips it); `words_similarity_min` the least
     similarity of its heard words to its line (None, the default, skips the
     words measure); `face_drop_max` the most a segment's face similarity
-    may fall below segment 1's, `lip_sync_min` the least lip-sync
-    correlation (None, the defaults, measure and record without failing)."""
+    may fall below segment 1's (None, the default, measures and records
+    without failing)."""
 
     jump_ratio_max: float = JUMP_RATIO_MAX
     look_ratio_max: float = LOOK_RATIO_MAX
@@ -167,7 +165,6 @@ class SegmentCheck:
     audio_dbfs_min: float | None = AUDIO_DBFS_MIN
     words_similarity_min: float | None = WORDS_SIMILARITY_DEFAULT
     face_drop_max: float | None = FACE_DROP_DEFAULT
-    lip_sync_min: float | None = LIP_SYNC_DEFAULT
 
 
 @dataclass
@@ -204,7 +201,6 @@ def segment_check(value):
         "audio_dbfs_min",
         "words_similarity_min",
         "face_drop_max",
-        "lip_sync_min",
     ):
         if name in value:
             fields[name] = None if value[name] is None else float(value[name])
@@ -337,13 +333,6 @@ def _face_scores(frames, reference, samples):
     return face_similarities(frames, reference, samples)
 
 
-def _sync_score(frames, waveform, sample_rate, fps):
-    """The seam the lip-sync measure sits behind: `lip_sync_score`."""
-    from ..tasks.lip_sync import lip_sync_score
-
-    return lip_sync_score(frames, waveform, sample_rate, fps)
-
-
 def _measured(name, measure, *args):
     """`measure(*args)`, or None when it raises: a measure that only records
     must never fail the chain it is measuring (a reduced cv2, no weights)."""
@@ -356,49 +345,54 @@ def _measured(name, measure, *args):
 
 def face_base(frames):
     """(reference, median): segment 1's frame 0 and the median similarity of
-    segment 1's sampled frames to it - what every later segment's face_drop
-    is measured from, once. None when frame 0 holds no face (or the models
-    cannot load): face_drop is then never measured."""
-    if not len(frames):
+    segment 1's sampled frames from index 1 on to it - frame 0 against itself
+    would match at 1.0 and lift the base - which every later segment's
+    face_drop is measured from, once. None when frame 0 holds no face (one
+    log line says so) or the models cannot load: face_drop is then never
+    measured."""
+    if len(frames) < 2:
         return None
+    from ..tasks.face_drift import NoFaceInReference
+
     reference = frames[0]
-    scores = _measured("face_drop", _face_scores, frames, reference, FACE_SAMPLES)
+    try:
+        scores = _face_scores(list(frames[1:]), reference, FACE_SAMPLES)
+    except NoFaceInReference:
+        # Said once, in the chain's words: the task's own message asks for a
+        # reference picture, which a chain's caller never gave
+        logger.info(
+            "Chain check: face_drop not measured - segment 1's first frame "
+            "shows no face"
+        )
+        return None
+    except Exception as error:
+        logger.warning(f"Chain check: face_drop not measured ({error})")
+        return None
     if not scores:
         return None
     return reference, float(numpy.median(scores))
 
 
-def with_face_sync(result, frames, base, audio, sample_rate, fps, check):
+def with_face_drop(result, frames, base, check):
     """`result` with the segment's `face_drop` (against `face_base`'s `base`,
-    None without one or with no face in the segment) and `lip_sync` (its
-    frames against `audio`, None without audio) recorded, failing a measure
-    only when the check sets its ceiling. Both are WARN_ONLY: a failure is
+    None without one or with no face in the segment) recorded, failing it
+    only when the check sets `face_drop_max`. WARN_ONLY: a failure is
     recorded and warned, never re-rolled."""
     drop = None
     if base is not None:
         scores = _measured("face_drop", _face_scores, frames, base[0], FACE_SAMPLES)
         if scores:
             drop = round(base[1] - float(numpy.median(scores)), 3)
-    sync = None
-    if audio is not None and sample_rate and fps:
-        sync = _measured("lip_sync", _sync_score, frames, audio, sample_rate, fps)
-    correlation = None if sync is None else sync.get("correlation")
     result.measures["face_drop"] = drop
-    result.measures["lip_sync"] = correlation
-    result.measures["lip_sync_lag_seconds"] = (
-        None if sync is None else sync.get("lag_seconds")
-    )
     if check.face_drop_max is not None and _over(drop, check.face_drop_max):
         result.failed.append("face_drop")
-    if _under(correlation, check.lip_sync_min):
-        result.failed.append("lip_sync")
     result.passed = result.passed and not result.failed
     return result
 
 
-def face_sync_record(result):
-    """The identity and sync measures of a checked segment, for its shot."""
-    return {name: result.measures.get(name) for name in FACE_SYNC_RECORD}
+def face_record(result):
+    """The identity measure of a checked segment, for its shot."""
+    return {name: result.measures.get(name) for name in FACE_RECORD}
 
 
 def shown_value(result, name):

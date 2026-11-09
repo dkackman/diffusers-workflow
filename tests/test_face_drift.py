@@ -333,3 +333,11 @@ def test_face_similarities_scores_in_memory_frames(probe):
 def test_face_similarities_refuses_a_reference_with_no_face(probe):
     with pytest.raises(ValueError, match="no face"):
         fd.face_similarities([a_face()], frame(), samples=1)
+
+
+def test_face_similarities_detects_only_the_sampled_frames(probe):
+    # 40 frames, 8 samples: YuNet runs on the reference and the 8, not all 40
+    frames = [a_face()] * 40
+    scores = fd.face_similarities(frames, frames[0], samples=8)
+    assert len(scores) == 8
+    assert probe.calls == 9

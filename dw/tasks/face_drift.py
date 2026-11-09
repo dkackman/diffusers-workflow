@@ -145,10 +145,16 @@ def _reference_picture(reference):
     )
 
 
+class NoFaceInReference(ValueError):
+    """The reference picture holds no face: a ValueError to a task's caller,
+    and told apart by the chain check, whose reference is segment 1's frame 0
+    rather than a picture the caller gave (`chain_check.face_base`)."""
+
+
 def _reference_embedding(detect, recognizer, reference, notes):
     faces = _embeddings(detect, recognizer, _reference_picture(reference))
     if not faces:
-        raise ValueError(
+        raise NoFaceInReference(
             f"{COMMAND}: no face found in 'reference' - give a picture with the "
             "character's face in it"
         )
@@ -266,7 +272,8 @@ def face_similarities(frames, reference, samples, device=None):
 
     `frames` are PIL images or RGB arrays; `reference` an image, an array or
     a stored path, whose largest face is held. A reference with no face is
-    refused (ValueError); a clip with no face answers []."""
+    refused (NoFaceInReference, a ValueError); a clip with no face answers
+    []. YuNet and SFace run on the reference and the sampled frames only."""
     detect, recognizer = _models(device)
     embedding = _reference_embedding(detect, recognizer, reference, [])
     total = len(frames)

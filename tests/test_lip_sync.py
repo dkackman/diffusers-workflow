@@ -5,6 +5,10 @@ module's `_mouth_box` seam is replaced, so no weights are read. A synthetic
 clip's mouth box steps in brightness by a known envelope each frame, and the
 audio is a tone whose RMS follows the same envelope: in sync, the two
 correlate at lag 0; with the audio delayed, at the delay.
+
+`correlation` is the best r within SYNC_WINDOW_FRAMES of lag 0 - the
+take-level indicator (ruling R9) - and `lag_seconds`/`best_correlation` are
+the best lag within max_lag_seconds and its r.
 """
 
 import numpy as np
@@ -63,6 +67,7 @@ def test_synced_mouth_scores_high_at_zero_lag(fixed_mouth):
     levels = envelope()
     answer = ls.lip_sync_score(mouth_frames(levels), tone(levels), RATE, FPS)
     assert answer["correlation"] > 0.8
+    assert answer["best_correlation"] == answer["correlation"]
     assert abs(answer["lag_seconds"]) < 1 / FPS
     assert answer["frames_with_face"] == FRAMES
 
@@ -73,7 +78,10 @@ def test_shifted_audio_scores_at_its_shift(fixed_mouth):
         mouth_frames(levels), tone(levels, delay_seconds=0.3), RATE, FPS
     )
     assert answer["lag_seconds"] == pytest.approx(0.3, abs=1.5 / FPS)
-    assert answer["correlation"] > 0.8
+    assert answer["best_correlation"] > 0.8
+    # 0.3 s is 7 frames, outside the window round lag 0: the take-level
+    # correlation reads the shift as out of sync
+    assert answer["correlation"] < 0.5
 
 
 def test_audio_from_another_clip_scores_low(fixed_mouth):
@@ -86,7 +94,12 @@ def test_no_face_returns_none(monkeypatch):
     monkeypatch.setattr(ls, "_mouth_box", lambda rgb, device=None: None)
     levels = envelope()
     answer = ls.lip_sync_score(mouth_frames(levels), tone(levels), RATE, FPS)
-    assert answer == {"correlation": None, "lag_seconds": None, "frames_with_face": 0}
+    assert answer == {
+        "correlation": None,
+        "lag_seconds": None,
+        "best_correlation": None,
+        "frames_with_face": 0,
+    }
 
 
 def test_the_mouth_box_comes_from_the_mouth_corners(monkeypatch):
@@ -121,3 +134,35 @@ def test_the_task_is_registered_as_json():
     info = task_command_info("measure_lip_sync")
     assert info["returns"] == "json"
     assert info["implementation"] == "dw.tasks.lip_sync.measure_lip_sync"
+
+
+def test_the_default_search_reaches_one_second():
+    assert ls.DEFAULT_MAX_LAG_SECONDS == 1.0
+
+
+def test_max_lag_over_the_cap_is_refused(fixed_mouth):
+    levels = envelope()
+    video = AudioVideo(mouth_frames(levels), tone(levels), RATE, fps=FPS)
+    with pytest.raises(ValueError, match="measure_lip_sync.*max_lag_seconds"):
+        ls.measure_lip_sync(video, max_lag_seconds=ls.MAX_LAG_SECONDS_CAP + 0.5)
+    # At the cap it measures
+    assert ls.measure_lip_sync(video, max_lag_seconds=ls.MAX_LAG_SECONDS_CAP)[
+        "correlation"
+    ] == pytest.approx(1.0, abs=0.2)
+
+
+@pytest.mark.parametrize("count, reach", [(12, 12 - ls.MIN_PAIRS), (5, 0)])
+def test_reach_is_capped_by_the_frames(fixed_mouth, monkeypatch, count, reach):
+    lengths = []
+    correlation = ls._correlation
+
+    def counted(first, second):
+        lengths.append(len(first))
+        return correlation(first, second)
+
+    monkeypatch.setattr(ls, "_correlation", counted)
+    levels = envelope()[:count]
+    # One second at 24 fps would be 24 lags either way, past what 12 frames hold
+    ls.lip_sync_score(mouth_frames(levels), tone(envelope()), RATE, FPS, 1.0)
+    assert len(lengths) == 2 * reach + 1
+    assert min(lengths) == count - reach

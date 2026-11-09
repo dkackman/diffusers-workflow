@@ -9,15 +9,20 @@ mouth signal is the mean absolute grey-level change inside that box from the
 frame before (the box of the later frame, applied to both). The audio signal
 is its RMS envelope at the frame rate: one value per frame's span of
 samples. The two are Pearson-correlated over the frames that had a face, at
-every whole-frame lag within ±`max_lag_seconds`, and the best lag answers:
-`correlation` there, and `lag_seconds`, positive when the audio is LATE
-against the mouth (as `measure_sync`'s lag is).
+whole-frame lags. `correlation` is the best r within SYNC_WINDOW_FRAMES of
+lag 0; `lag_seconds` is the best lag within ±`max_lag_seconds` (positive when
+the audio is LATE against the mouth, as `measure_sync`'s is) and
+`best_correlation` its r.
 
-A number to compare takes by, not a verdict: a still face, a face in
-profile or a mouth hidden by a hand reads low on good sync, and a mouth that
-moves to music reads high. `lip_sync_score` is the measure on frames and a
-waveform in memory, which the chain check (`chain_check.with_face_sync`)
-and a calibration script call; `measure_lip_sync` is the task.
+A coarse take-level indicator, not a verdict, and not a chain measure (ruling
+R9): on 70 real H3 dialogue segments no threshold separated one segment's
+own audio from audio 0.5 s late or from another segment's
+(bench/records/narrated.md, "Sync calibration"). The best lag tells a late
+track (it clusters at +12..+14 frames) far better than one correlation does.
+A still face, a face in profile or a mouth hidden by a hand reads low on
+good sync, and a mouth that moves to music reads high. `lip_sync_score` is
+the measure on frames and a waveform in memory, which a calibration script
+calls; `measure_lip_sync` is the task.
 
 Models: YuNet through `face_track.face_detector_model`, the one loader.
 """
@@ -34,7 +39,13 @@ logger = logging.getLogger("dw")
 
 COMMAND = "measure_lip_sync"
 
-DEFAULT_MAX_LAG_SECONDS = 0.4
+DEFAULT_MAX_LAG_SECONDS = 1.0
+# The most a task may search, either way: the search is one Pearson r per
+# whole-frame lag, and a sync error past two seconds is no lip-sync question
+MAX_LAG_SECONDS_CAP = 2.0
+# The lags either side of 0 the take-level `correlation` is the best of: the
+# calibration's good segments clustered at 0..+2 frames
+SYNC_WINDOW_FRAMES = 3
 # The detector score below which a face is ignored, as face_drift's
 DETECTOR_CONFIDENCE = 0.6
 # The fewest frame pairs a lag's correlation is read over
@@ -141,6 +152,31 @@ def _correlation(first, second):
     return float(np.corrcoef(a, b)[0, 1])
 
 
+def _lag_correlations(signal, envelope, reach):
+    """{lag: r} for every whole-frame lag within ±reach with an answer: the
+    mouth at frame i against the audio at frame i + lag."""
+    count = len(signal)
+    answers = {}
+    for lag in range(-reach, reach + 1):
+        if lag >= 0:
+            mouth, audio = signal[: count - lag], envelope[lag:]
+        else:
+            mouth, audio = signal[-lag:], envelope[: count + lag]
+        r = _correlation(mouth, audio)
+        if r is not None:
+            answers[lag] = r
+    return answers
+
+
+def _best(answers, reach):
+    """(lag, r) of the highest r within ±reach, or None."""
+    within = [(r, lag) for lag, r in answers.items() if abs(lag) <= reach]
+    if not within:
+        return None
+    r, lag = max(within)
+    return lag, r
+
+
 def lip_sync_score(
     frames,
     waveform,
@@ -156,34 +192,40 @@ def lip_sync_score(
         waveform: Its audio, (channels, samples) or 1-D, aligned to frame 0
         sample_rate: The waveform's rate
         fps: The frames' rate
-        max_lag_seconds: The largest lag searched, either way
+        max_lag_seconds: The largest lag searched, either way; never more
+            lags than the frames leave MIN_PAIRS pairs at
         device: Where YuNet runs
 
     Returns:
-        {correlation, lag_seconds, frames_with_face}: the Pearson correlation
-        of the mouth signal and the audio envelope at the best lag (None with
-        too few frames with a face, or a flat signal), the lag in seconds
-        (positive when the audio is late), and how many frames had a face
+        {correlation, lag_seconds, best_correlation, frames_with_face}: the
+        best Pearson r of the mouth signal and the audio envelope within
+        SYNC_WINDOW_FRAMES of lag 0, the best lag within max_lag_seconds in
+        seconds (positive when the audio is late) and its r - each None with
+        too few frames with a face, or a flat signal - and how many frames had
+        a face
     """
     signal, found = _mouth_signal(list(frames), device)
-    answer = {"correlation": None, "lag_seconds": None, "frames_with_face": found}
+    answer = {
+        "correlation": None,
+        "lag_seconds": None,
+        "best_correlation": None,
+        "frames_with_face": found,
+    }
     if found == 0 or not sample_rate or not fps:
         return answer
     envelope = _envelope(waveform, sample_rate, fps, len(signal))
-    reach = int(round(float(max_lag_seconds) * float(fps)))
-    best = None
-    for lag in range(-reach, reach + 1):
-        # The mouth at frame i against the audio at frame i + lag
-        if lag >= 0:
-            mouth, audio = signal[: len(signal) - lag], envelope[lag:]
-        else:
-            mouth, audio = signal[-lag:], envelope[: len(envelope) + lag]
-        r = _correlation(mouth, audio)
-        if r is not None and (best is None or r > best[0]):
-            best = (r, lag)
+    # A lag past len - MIN_PAIRS leaves too few pairs to read: never search it
+    ceiling = max(0, len(signal) - MIN_PAIRS)
+    reach = min(int(round(float(max_lag_seconds) * float(fps))), ceiling)
+    window = min(SYNC_WINDOW_FRAMES, ceiling)
+    answers = _lag_correlations(signal, envelope, max(reach, window))
+    near = _best(answers, window)
+    best = _best(answers, reach)
+    if near is not None:
+        answer["correlation"] = round(near[1], PLACES)
     if best is not None:
-        answer["correlation"] = round(best[0], PLACES)
-        answer["lag_seconds"] = round(best[1] / float(fps), PLACES)
+        answer["lag_seconds"] = round(best[0] / float(fps), PLACES)
+        answer["best_correlation"] = round(best[1], PLACES)
     return answer
 
 
@@ -212,12 +254,14 @@ def measure_lip_sync(
         audio: The audio to hold the mouth to - a file, a generated audio
             result, or a video carrying a soundtrack; by default the video's
             own track
-        max_lag_seconds: The largest lag searched, either way
+        max_lag_seconds: The largest lag searched, either way - above 0 and
+            at most MAX_LAG_SECONDS_CAP
         device: Where the face detector runs
 
     Returns:
-        {correlation, lag_seconds, frames_with_face, frames, max_lag_seconds}:
-        `lip_sync_score`'s answer, with the frames read and the search reach
+        {correlation, lag_seconds, best_correlation, frames_with_face, frames,
+        max_lag_seconds}: `lip_sync_score`'s answer, with the frames read and
+        the search reach
     """
     from ..task_domains import real_number
     from .audio_utils import waveform_and_rate
@@ -228,6 +272,11 @@ def measure_lip_sync(
     reach = real_number(max_lag_seconds, "max_lag_seconds", COMMAND, required=True)
     if reach <= 0:
         raise ValueError(f"{COMMAND}: max_lag_seconds must be above 0")
+    if reach > MAX_LAG_SECONDS_CAP:
+        raise ValueError(
+            f"{COMMAND}: max_lag_seconds must be at most {MAX_LAG_SECONDS_CAP}, "
+            f"got {reach}"
+        )
     clip = _clip(video)
     fps = getattr(clip, "fps", None)
     if not fps:

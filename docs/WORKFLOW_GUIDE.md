@@ -2840,7 +2840,7 @@ as arguments, and the seed is new by default.
 
 With `check` on, each segment is measured before anything of it reaches the stitched
 video, its audio, its shot record, a `save_segments` file or the look-hold state. Segment
-1 has no seam, so it is measured for `audio_dbfs`, `words` and `lip_sync` only:
+1 has no seam, so it is measured for `audio_dbfs` and `words` only:
 
 | Measure | Against | Default ceiling | Fails when |
 |---|---|---|---|
@@ -2850,8 +2850,7 @@ video, its audio, its shot record, a `save_segments` file or the look-hold state
 | `cut_ratio` | the segment itself: its largest frame change over its own typical change, floored as `jump_ratio` is - a cut inside the segment, past the seam's windows, which the seam measures do not see | `cut_ratio_max` 3.5 | above the ceiling; `null` skips it |
 | `audio_dbfs` | the segment itself: the RMS level (dBFS, to 0.1) of its generated audio over the kept span, past the head trim; segment 1 included | `audio_dbfs_min` -70 | below the floor; `null` skips it. Skipped (no level) when the segment has no generated audio or the audio is held: `match_audio` or its `hold_audio`, or a step `hold_audio` argument. A `guide` chain carrying its audio is measured: the guide holds only the span the head trim drops |
 | `words` | the segment's expected line (see `lines`): its kept audio transcribed (Whisper, on CPU) and compared with `check_script`'s similarity; segment 1 included | `words_similarity_min` `null` (off) | below the minimum, a number above 0 and at most 1, or on any of the findings `line_clipped_at_end`, `transcript_loop`, `tag_spoken`, `unscripted_speech` at any similarity; the re-roll log and the `chain_check_failed` message name the findings and what was heard (`words 1.0 with unscripted_speech, heard '...'`). Off by default: `bench/records/words.md` found no clean separation of good takes from bad. `chain_check.WORDS_SIMILARITY_MIN` (0.80) is the ceiling that passed every good take seen, and catches only gross failures (a wrong or missing line, a garbled segment). Never measured when the chain holds its audio (`match_audio`, `hold_audio`), and skipped for a segment with no line |
-| `face_drop` | segment 1: its median SFace similarity (`analyze_face_drift`'s scoring) of 8 evenly spaced frames to its own frame 0, minus this segment's median to that same frame 0; segment 1 itself is not measured | `face_drop_max` `null` (record only) | above the ceiling, a number above 0. Warn-only, like `texture_ratio`: recorded and warned, never re-rolled. `null` (unmeasured) when segment 1's frame 0 or this segment holds no face, or the face models cannot load |
-| `lip_sync` | the segment itself: the correlation of its mouth motion (the grey change inside a mouth box cut from YuNet's mouth corners) with its audio's RMS envelope, at the best lag within 0.4 s ([`measure_lip_sync`](TASKS.md#measure_lip_sync)); segment 1 included. Read from the attempt's own audio track, held or generated | `lip_sync_min` `null` (record only) | below the floor, a number above -1 and at most 1. Warn-only. `null` when the segment has no audio or too few frames with a face |
+| `face_drop` | segment 1: its median SFace similarity (`analyze_face_drift`'s scoring) of 8 evenly spaced frames from frame 1 on to its own frame 0, minus this segment's median to that same frame 0; segment 1 itself is not measured | `face_drop_max` `null` (record only) | above the ceiling, a number above 0. Warn-only, like `texture_ratio`: recorded and warned, never re-rolled. `null` (unmeasured) when segment 1's frame 0 or this segment holds no face, or the face models cannot load |
 
 A segment whose prompt asks for a cut inside it fails `cut_ratio` and re-rolls, so set
 `check: {"cut_ratio_max": null}` to turn that measure off. A step that asks for silence
@@ -2863,9 +2862,14 @@ draws fresh noise but is not guaranteed to bring sound back: on the one repro me
 The `chain_segment_silent` warning reports the segment either way.
 
 `"check": true` uses those ceilings; `"check": {"jump_ratio_max": 20}` overrides the ones
-it names. `face_drop` and `lip_sync` are measured on every checked segment and recorded on
-its shot as `check` (`{face_drop, lip_sync, lip_sync_lag_seconds}`), but fail nothing
-until `face_drop_max` or `lip_sync_min` is set: no bench has yet set either. The jump and look ceilings are twice the
+it names. `face_drop` is measured on every checked segment and recorded on its shot as
+`check` (`{face_drop}`), but fails nothing until `face_drop_max` is set: no bench has yet
+set it. A checked chain lists the YuNet and SFace weights it reads in the plan's
+`downloads_required`. Lip sync is not a segment measure: on 70 real H3 dialogue segments
+no threshold separated a segment's own audio from audio 0.5 s late or another segment's
+(`bench/records/narrated.md`, *Sync calibration*), so judge sync by eye, and use
+[`measure_lip_sync`](TASKS.md#measure_lip_sync) as a coarse indicator over a whole take.
+`lip_sync_min` is refused as an unknown key. The jump and look ceilings are twice the
 99th percentile of the bench's unchecked S1-S3 chains (`bench/records/noise-floor.md`);
 the cut ceiling sits between the 2.98 most of 282 good bench segments read and the 4.16 of a cut 26 frames past a seam (`bench/records/check.md`); the texture ceiling is still provisional, because those chains' own texture ratio is the
 drift it exists to catch. A static segment's own
@@ -2885,8 +2889,7 @@ re-roll is repeatable from the manifest. The first attempt that passes is kept. 
 `1 + retries` fail, the chain keeps the one with the fewest failed measures, then the
 lowest `jump_ratio`, and finishes - it never restructures the run. `texture_ratio` is
 warn-only: texture drift is in the carry, so a fresh seed from the same carry inherits
-it. `face_drop` and `lip_sync` are warn-only too, until a bench shows a fresh seed fixes
-them. A segment that fails only warn-only measures is kept as rendered, recorded in
+it. `face_drop` is warn-only too, until a bench shows a fresh seed fixes it. A segment that fails only warn-only measures is kept as rendered, recorded in
 `check_failed` and warned, and not re-rolled; one that also fails another measure re-rolls as above,
 and choosing the kept attempt still counts every failed measure. The kept attempt's
 frames and audio are the ones stitched, and the seam is crossfaded against them.
