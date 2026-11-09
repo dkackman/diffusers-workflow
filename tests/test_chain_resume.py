@@ -336,6 +336,21 @@ def test_a_fan_out_renders_an_iteration_that_finished_in_full(outputs, events):
     assert sum(1 for shot in second.shots if shot.get("resumed")) == 2
 
 
+def test_a_fan_out_naming_its_finished_iteration_renders_it_in_full(outputs, events):
+    _fanned_out_dead_run(outputs, events, keep_iteration_0=True)
+
+    pipeline = _pipeline(outputs, SECOND_RUN, _factory())
+    pipeline.chain_fan_out = True
+    chain = _chain(resume_from=_iteration_reference(0))
+    first = run_chain(pipeline, chain, _arguments())
+    second = run_chain(pipeline, chain, _arguments())
+
+    # Naming iteration 0 does not abort the job: it renders in full (#1307)
+    assert not any(shot.get("resumed") for shot in first.shots)
+    assert sum(1 for shot in second.shots if shot.get("resumed")) == 2
+    assert any(w["kept"] == 0 for w in _warnings(events, "chain_resumed"))
+
+
 def test_the_named_iteration_with_every_segment_kept_is_refused(outputs, events):
     pipeline = _pipeline(outputs, FIRST_RUN, _factory())
     run_chain(pipeline, _chain(), _arguments())

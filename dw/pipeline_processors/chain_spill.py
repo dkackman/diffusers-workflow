@@ -155,6 +155,7 @@ class SegmentSpill:
 
         self.output_dir = output_dir
         self.iteration = iteration
+        self.fan_out = bool(getattr(pipeline, "chain_fan_out", False))
         self.base_name = f"{file_prefix}.{iteration}"
         self.fps = config.fps
         self.paths = []
