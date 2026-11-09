@@ -14,6 +14,11 @@ it to the audio floor alone. `check_segment` can skip a seam marked
 `hard_cut`, but `run_chain` never passes it: a chain's own seams are never
 marked cuts.
 
+`check_words` is the dialogue measure (#1262): a segment's kept audio
+transcribed and held to its line with check_script's comparison, after the
+seam-head rule drops the previous line's carried words at its head. Nothing
+in the chain calls it yet (stage A of #1262).
+
 Measurement and choice only: nothing here renders, and nothing here touches
 the timeline. The chain keys are validated by `chain_rules.chain_check_problem`.
 """
@@ -61,6 +66,26 @@ CUT_RATIO_MAX = 3.5
 #   take). -70 sits between. Family-independent: generated audio is taken as
 #   wanted, and a step that wants silence sets the floor to null
 AUDIO_DBFS_MIN = -70.0
+
+# - words_similarity: the least similarity of what a dialogue segment is heard
+#   to say to its line (#1262), check_script's measure on one line.
+#   PROVISIONAL 0.80 until bench/records/words.md sets it from Don's accepted
+#   and rejected constitution-walk-2 takes; its own constant, apart from
+#   check_script's DEFAULT_SIMILARITY (0.85), because a chain re-rolls on it
+WORDS_SIMILARITY_MIN = 0.80
+# The check_script findings that fail a segment's words whatever its
+# similarity: speech cut off by the segment's end, Whisper stuck in a loop, a
+# markup word spoken aloud, words matched to no line (an ad-lib or a repeat)
+WORDS_FINDINGS = (
+    "line_clipped_at_end",
+    "transcript_loop",
+    "tag_spoken",
+    "unscripted_speech",
+)
+# The words of the line before a segment's that the seam-head rule looks for
+# at the head of its kept span: the carry's last word, cut part-way by
+# head_trim, and the one or two before it
+SEAM_TAIL_WORDS = 3
 
 # The measures a check can fail, in the order a failure names them
 MEASURES = ("jump_ratio", "look_ratio", "texture_ratio", "cut_ratio", "audio_dbfs")
@@ -302,3 +327,105 @@ def _texture_ratio(frames, segment_1_texture):
     if not segment_1_texture or value is None:
         return None
     return round(value / segment_1_texture, 4)
+
+
+def _whisper_chunks(waveform, sample_rate, device="cpu"):
+    """transcribe_audio's word chunks for a waveform, levelled as check_script
+    levels a take - the same model cache, so a chain loads Whisper once."""
+    from ..tasks.audio_transcription import transcribe_audio
+    from ..tasks.script_take import level_for_transcription
+
+    leveled, _ = level_for_transcription(waveform)
+    return transcribe_audio(
+        leveled, device=device, sample_rate=sample_rate, timestamps="word"
+    )["chunks"]
+
+
+def _seam_head(chunks, expected, previous_line):
+    """(kept, dropped): `chunks` with the seam-head rule applied. A chunk
+    heard before the first word that aligns to the line (`expected`, its
+    normalized words) is dropped when every word of it is one of the last
+    SEAM_TAIL_WORDS words of `previous_line` - a carried word the head trim
+    cut part-way. A chunk there that matches nothing is kept: an invented
+    word counts."""
+    import difflib
+
+    from ..script_lines import normalize_words, strip_markup
+
+    if not previous_line or not expected:
+        return list(chunks), []
+    tail = set(normalize_words(strip_markup(previous_line)[0])[-SEAM_TAIL_WORDS:])
+    owner, flat = [], []
+    for index, chunk in enumerate(chunks):
+        words = normalize_words(chunk.get("text", ""))
+        owner.extend([index] * len(words))
+        flat.extend(words)
+    matcher = difflib.SequenceMatcher(None, expected, flat, autojunk=False)
+    first = next(
+        (j for op, _i1, _i2, j, _j2 in matcher.get_opcodes() if op == "equal"), None
+    )
+    if first is None or not tail:
+        return list(chunks), []
+    head = set(owner[:first]) - {owner[first]}
+    dropped = {
+        index
+        for index in head
+        if set(normalize_words(chunks[index].get("text", ""))) <= tail
+    }
+    kept = [chunk for index, chunk in enumerate(chunks) if index not in dropped]
+    return kept, [chunks[index] for index in sorted(dropped)]
+
+
+def check_words(
+    audio, sample_rate, line, previous_line, minimum, transcribe=None, device="cpu"
+):
+    """Whether a dialogue segment's kept audio speaks its line (#1262), as
+    {similarity, heard, findings, passed, seam_head_dropped}.
+
+    `audio` is the kept span ((channels, samples) or 1-D), `line` the text
+    the segment is meant to speak (markup kept: `script_lines.dialogue_text`
+    or the chain's `lines`), `previous_line` the line of the segment before
+    it (None for segment 1), `minimum` the least similarity that passes
+    (None holds only the findings). `transcribe(waveform, sample_rate)` gives
+    word chunks; by default Whisper's, on `device`.
+
+    The comparison is `script_check.check` unchanged, on one line and no
+    shots, after the seam-head rule (`_seam_head`) drops carried words of
+    `previous_line` at the head. `findings` are its WORDS_FINDINGS, each of
+    which fails the segment; so does a similarity under `minimum`, or none
+    (the line looped and was never transcribed). `heard` is the transcript
+    after the seam-head rule, joined; `seam_head_dropped` the chunks it
+    dropped."""
+    from ..script_lines import normalize_words, parse_lines
+    from ..tasks.script_check import check
+    from ..tasks.script_findings import DEFAULT_SIMILARITY
+
+    parsed = parse_lines([line])
+    expected = normalize_words(parsed[0]["text"])
+    waveform = numpy.asarray(audio, dtype=numpy.float32)
+    if waveform.ndim == 1:
+        waveform = waveform[numpy.newaxis, :]
+    mono = waveform[0] if waveform.shape[0] == 1 else waveform.mean(axis=0)
+    if transcribe is None:
+
+        def transcribe(wave, rate):
+            return _whisper_chunks(wave, rate, device)
+
+    chunks, dropped = _seam_head(
+        transcribe(waveform, sample_rate), expected, previous_line
+    )
+    threshold = DEFAULT_SIMILARITY if minimum is None else float(minimum)
+    answer = check(parsed, chunks, mono, sample_rate, threshold)
+    similarity = answer["lines"][0]["similarity"]
+    findings = [f for f in answer["findings"] if f["rule"] in WORDS_FINDINGS]
+    low = similarity is None or (minimum is not None and similarity < minimum)
+    heard = " ".join(
+        text for text in (chunk.get("text", "").strip() for chunk in chunks) if text
+    )
+    return {
+        "similarity": similarity,
+        "heard": heard,
+        "findings": findings,
+        "passed": not low and not findings,
+        "seam_head_dropped": [chunk.get("text", "").strip() for chunk in dropped],
+    }

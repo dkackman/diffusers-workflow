@@ -23,7 +23,7 @@ from types import SimpleNamespace
 
 from .. import dsp
 from ..assessment_rules import DEAD_AIR_FLOOR_DBFS
-from ..script_lines import looped_texts_firsts, normalize_words
+from ..script_lines import fold_numbers, looped_texts_firsts, normalize_words
 from .assess import DEAD_AIR_WINDOW, sample_span
 
 # A heard word is guarded (discarded as unheard) when its loudest
@@ -189,7 +189,8 @@ def round_seconds(value, places=3):
 def guard_words(chunks, mono, sample_rate, script_words=None):
     """Split transcribe_audio's word chunks into (heard, discarded).
 
-    `heard` is [{word, text, start, end}], one per normalized word - a chunk
+    `heard` is [{word, text, start, end}], one per normalized word, a run of
+    number words folded to one across chunks (`_folded_heard`) - a chunk
     that normalizes to nothing ('♪', '...') is neither; `discarded` is
     [{text, start, end, level_dbfs, reason, count}] for a chunk at or below
     the floor ("below_floor"), a chunk repeating the previous one's exact span
@@ -202,10 +203,13 @@ def guard_words(chunks, mono, sample_rate, script_words=None):
     words the script holds) contains all of its words and it has real
     duration and speech level: Whisper loops on a line it did hear (#961).
     """
-    spoken = []
+    spoken, raw = [], {}
     for chunk in chunks:
         words = normalize_words(chunk.get("text", ""))
         if words:
+            # The chunk's words before number folding, so a number Whisper
+            # gave a chunk per word ('twenty', 'one') folds whole below
+            raw[len(spoken)] = normalize_words(chunk.get("text", ""), numbers=False)
             spoken.append((chunk, words))
     # The loop detector is script_lines' (shared with transcribe_audio's
     # `suspect: "repetition"`); a chunk with no word is in no loop
@@ -265,7 +269,7 @@ def guard_words(chunks, mono, sample_rate, script_words=None):
             run_end = index if reason in ("repetition", "repeated_span") else None
             continue
         run_end = None
-        for word in words:
+        for word in raw[index]:
             heard.append(
                 {
                     "word": word,
@@ -274,7 +278,30 @@ def guard_words(chunks, mono, sample_rate, script_words=None):
                     "end": end,
                 }
             )
-    return heard, discarded
+    return _folded_heard(heard), discarded
+
+
+def _folded_heard(heard):
+    """`heard` with each run of number words folded to its digits across
+    chunks (`script_lines.fold_numbers`, #1297): one entry spanning the run,
+    its `text` the run's chunks' texts joined."""
+    folded, k = [], 0
+    for word, count in fold_numbers([entry["word"] for entry in heard]):
+        run = heard[k : k + count]
+        k += count
+        if count == 1:
+            folded.append(run[0])
+            continue
+        texts = list(dict.fromkeys(entry["text"] for entry in run))
+        folded.append(
+            {
+                "word": word,
+                "text": " ".join(texts),
+                "start": run[0]["start"],
+                "end": run[-1]["end"],
+            }
+        )
+    return folded
 
 
 def per_shot_chunks(transcribe, waveform, rate, spans):
