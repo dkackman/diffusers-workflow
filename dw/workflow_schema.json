@@ -619,6 +619,16 @@
                         }
                     ],
                     "default": null
+                },
+                "stop_after": {
+                    "description": "Render a probe of the take: the plan stays the full take's (the same segment count, num_frames and guide grid), but only its first N segments render, and the take is muxed with the match_audio track cut to the rendered frames. The run logs 'chain_stopped_after'; each shot carries 'planned_segments'. A whole number of at least 1; at or past the plan's count the whole take renders. Needs save_segments and keep_segments true: a second run of the same chain with stop_after cleared and resume_from naming the probe's last segment file continues it at segment N+1. A resume that keeps N or more segments with stop_after still N is refused before anything is copied. Null or absent renders the whole take. Accepts a 'variable:' reference.",
+                    "type": [
+                        "integer",
+                        "string",
+                        "null"
+                    ],
+                    "minimum": 1,
+                    "default": null
                 }
             },
             "anyOf": [

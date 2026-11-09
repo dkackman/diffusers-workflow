@@ -238,6 +238,7 @@ def load(config, spill, hold=None):
     ):
         _warn_rendered_in_full(config, spill, sources)
         return None
+    _check_stop_after(config, len(sources))
     check_plan(
         sources,
         config.plan,
@@ -288,6 +289,18 @@ def load(config, spill, hold=None):
         segment_1_texture=texture_base(kept.first.frames) if config.check else None,
         warning=warning,
     )
+
+
+def _check_stop_after(config, kept):
+    """Refuse a probe's `stop_after` at or under the segments a resume keeps:
+    it counts from segment 1, so this run would render nothing."""
+    if config.stop_after is not None and kept >= config.stop_after:
+        raise ValueError(
+            f"Chain {CHAIN_RESUME_FROM} keeps {kept} segment(s) and stop_after "
+            f"{config.stop_after} ends the take at segment {config.stop_after}: "
+            f"nothing is left to render - clear stop_after to continue the "
+            f"take to its {len(config.plan)} planned segments, or raise it"
+        )
 
 
 def _iteration_base(named):

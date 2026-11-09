@@ -9,7 +9,9 @@ constraint declares, and `chain_segment_count`
 is the pure count the cost estimate asks too, as `chain_holds_audio`,
 `chain_audio_floor` and `chain_checks_segment_1` are the pure audio-check
 rules (#1221), and `chain_checks_words` and `segment_line` the words
-check's (#1262). Split out of `chain.py`, which
+check's (#1262). `take_frames`, `take_track` and `trimmed_take_shots` cut
+the stitched take to its plan, or to a probe's rendered segments
+(`stop_after`). Split out of `chain.py`, which
 imports this module and never the reverse.
 """
 
@@ -17,7 +19,11 @@ import logging
 import math
 from dataclasses import dataclass
 
-from ..dsp import as_channels_samples
+import torch
+
+from ..dsp import as_channels_samples, slice_samples
+from ..shots import without_samples
+from ..task_domains import frames_to_samples
 from ..script_lines import dialogue_text
 from ..events import emit_log
 from .chain_check import AUDIO_DBFS_MIN, segment_check
@@ -29,6 +35,7 @@ from .chain_rules import (
     CHAIN_LATENT_CARRY,
     CHAIN_LINES,
     CHAIN_RESUME_FROM,
+    CHAIN_STOP_AFTER,
     chain_capstone_problem,
     chain_carry_pick_problem,
     chain_check_problem,
@@ -41,6 +48,7 @@ from .chain_rules import (
     chain_look_hold_problem,
     chain_needs_frame_snap,
     chain_resume_problem,
+    chain_stop_after_problem,
     keystone_slot_plan_problem,
     match_audio_source_problem,
 )
@@ -139,6 +147,9 @@ class ChainConfig:
         # reference itself is refused there, as a location
         _raise_chain_problem(chain_resume_problem(chain_definition))
         self.resume_from = chain_definition.get(CHAIN_RESUME_FROM)
+        # A probe renders the plan's first k segments only (chain_rules)
+        _raise_chain_problem(chain_stop_after_problem(chain_definition))
+        self.stop_after = chain_definition.get(CHAIN_STOP_AFTER)
 
         self.source_audio = None
         self.source_rate = None
@@ -169,6 +180,66 @@ class ChainConfig:
             _raise_chain_problem(
                 keystone_slot_plan_problem(self.keystone_slot, self.plan)
             )
+
+    @property
+    def stops_early(self):
+        """Whether `stop_after` ends this run before the plan's last segment."""
+        return self.stop_after is not None and self.stop_after < len(self.plan)
+
+    @property
+    def end_index(self):
+        """One past the last segment this run renders."""
+        return self.stop_after if self.stops_early else len(self.plan)
+
+    def take_frames(self, shots):
+        """(frames, shots) of the stitched take: the plan's `total_frames`
+        (None for a count-planned chain), or a probe's rendered frames when
+        `stop_after` ended the run early, which it logs; each shot is marked
+        with the plan's segment count, which a probe's take falls short of."""
+        planned = len(self.plan)
+        shots = [{**shot, "planned_segments": planned} for shot in shots]
+        if not self.stops_early:
+            return self.total_frames, shots
+        rendered = sum(shot["num_frames"] for shot in shots)
+        emit_log(
+            f"Chain stopped after {self.stop_after} of {planned} segments "
+            f"({rendered} frames): resume_from its last segment file renders "
+            f"the other {planned - self.stop_after}",
+            kind="chain_stopped_after",
+            stop_after=self.stop_after,
+            segments=planned,
+            frames=rendered,
+        )
+        return rendered, shots
+
+    def take_track(self, total_frames):
+        """The matched track under the take: whole, unsliced, or a probe's
+        stretch of it, cut to its rendered frames."""
+        if not self.stops_early:
+            return self.source_audio
+        length = frames_to_samples(total_frames, self.fps, self.source_rate)
+        return self.source_audio[:, :length]
+
+    def audio_slice(self, segment):
+        """The segment's piece of the matched track, as a new reference of the
+        matched one's type - the original is never touched."""
+        start = frames_to_samples(segment.audio_start_frame, self.fps, self.source_rate)
+        length = frames_to_samples(segment.num_frames, self.fps, self.source_rate)
+        piece = slice_samples(self.source_audio, start, length)
+        return type(self.audio_reference)(
+            audio=torch.from_numpy(piece), sample_rate=self.source_rate
+        )
+
+    def sliced_references(self, segment, segment_references):
+        """A copy of the references list with the segment's audio slice
+        swapped in. The original list and reference objects are never
+        touched - iteration arguments share nested values, so they must not
+        be mutated in place."""
+        sliced = self.audio_slice(segment)
+        return [
+            sliced if reference is self.audio_reference else reference
+            for reference in segment_references
+        ]
 
     def _read_continuity(self, chain_definition):
         self.continuity = chain_definition.get("continuity", "last_frame")
@@ -374,6 +445,27 @@ class ChainConfig:
             f"Chaining to match {duration:.2f}s of audio: {self.total_frames} "
             f"frames across {len(self.plan)} segments"
         )
+
+
+def trimmed_take_shots(shots, total_frames, total_samples=None):
+    """A length-planned chain's shots, cut where its overshooting picture is.
+
+    A match_audio soundtrack is the caller's own, laid under whole rather than
+    built segment by segment, so no shot has a stretch of it to measure: the
+    sample side is cleared, not derived. A duration_seconds chain's generated
+    audio is cut to `total_samples`, and each shot's stretch of it with it.
+    """
+    trimmed = []
+    for shot in shots if total_samples is not None else without_samples(shots):
+        if shot["start_frame"] >= total_frames:
+            break
+        end = min(shot["start_frame"] + shot["num_frames"], total_frames)
+        cut = {**shot, "num_frames": end - shot["start_frame"]}
+        if total_samples is not None:
+            start = min(shot["start_sample"], total_samples)
+            cut["num_samples"] = min(shot["num_samples"], total_samples - start)
+        trimmed.append(cut)
+    return trimmed
 
 
 def derive_frame_snaps(definition):

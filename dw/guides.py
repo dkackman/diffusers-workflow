@@ -62,6 +62,7 @@ from .pipeline_processors.chain_rules import (
     CHAIN_LINES,
     CHAIN_LATENT_CARRY,
     CHAIN_RESUME_FROM,
+    CHAIN_STOP_AFTER,
     chain_capstone_problem,
     chain_carry_pick_problem,
     chain_check_finding,
@@ -71,6 +72,7 @@ from .pipeline_processors.chain_rules import (
     chain_look_hold_problem,
     chain_needs_frame_snap,
     chain_resume_problem,
+    chain_stop_after_problem,
     resume_reference_problem,
 )
 from .pipeline_processors.h3_rules import (
@@ -436,8 +438,8 @@ def _chain_rule_findings(chain, arguments):
     """(chain key, problem) for every chain-block rule this step's chain
     breaks, in the order validation reports them: the anchor strength, the
     carry pick, the look hold, the keystone and its slot, the capstone, the
-    latent carry, the per-segment check, the expected lines and the
-    resume."""
+    latent carry, the per-segment check, the expected lines, the probe's
+    stop_after and the resume."""
     arguments = arguments if isinstance(arguments, dict) else {}
     num_frames = arguments.get("num_frames")
     strength = chain.get("anchor_strength")
@@ -467,6 +469,7 @@ def _chain_rule_findings(chain, arguments):
             ),
         )
     )
+    findings.append((CHAIN_STOP_AFTER, chain_stop_after_problem(chain)))
     resume_from = chain.get(CHAIN_RESUME_FROM)
     findings.append(
         (

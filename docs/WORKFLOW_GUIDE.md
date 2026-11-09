@@ -2783,6 +2783,26 @@ joined into a single file:
   `<prefix>.<its iteration>.segment-NNN.mp4` siblings beside it. An iteration with
   none there, or one that finished (a complete set it is not the named one of),
   renders in full, which a `chain_resumed` warning with `kept: 0` says.
+- `stop_after` — render a probe: only the plan's first k segments (a whole number of
+  at least 1; at or past the plan's count the whole take renders). Needs
+  `save_segments` and `keep_segments` true. See *Probe, then continue* below.
+
+**Probe, then continue.** `stop_after: k` leaves the plan the full take's - the same
+segment count, `num_frames` and guide grid, so the same narration plans the same
+segments - and renders segments 1..k only. The take is muxed with the `match_audio`
+track cut to the rendered frames (a `duration_seconds` take's generated audio is cut
+the same way), the run logs `chain_stopped_after` ("Chain stopped after k of N
+segments"), and every shot carries `planned_segments: N`, so the manifest says the take
+falls short. Watch the probe; to continue it, run the same chain again with
+`stop_after` cleared and `resume_from` naming the probe's last segment file
+(`output:<workflow>/<run id>/<prefix>.0.segment-<k-1>.mp4`, the `segment_file` of its
+last shot): its k files become segments 1..k and only k+1..N render, through the resume
+rules above. A `stop_after` still at or under k is refused before anything is copied,
+since it would render nothing. The first resumed seam is not a live carry: its guide (or
+keyframe) is decoded from the probe's last file - h264 frames, and for a `guide` chain
+its AAC audio unless the step holds its track (`hold_audio`, which carries no guide
+audio) - which the `chain_resumed` warning says. A probe's job history is left out of
+this server's observed cost, as a resume's is.
 
 The chain runs inside one iteration of the step, so it composes with
 `previous_result` fan-out (three keyframes in, three chained videos out), and a

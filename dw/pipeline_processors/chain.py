@@ -44,7 +44,6 @@ from ..media_types import AudioVideo, fit_codec_padding
 from ..output_extraction import get_artifact_list
 from ..events import emit_log, emit_warning
 from ..shots import shot_record, without_samples
-from ..dsp import slice_samples
 from ..task_domains import frames_to_samples
 from ..tasks.joins import equal_power_crossfade_join
 from ..tasks.video_utils import frames_as_pil_list
@@ -66,7 +65,7 @@ from .chain_check import (
     with_words,
 )
 from . import chain_resume
-from .chain_config import ChainConfig
+from .chain_config import ChainConfig, trimmed_take_shots
 from .chain_continuity import CONTINUITY_MODES, _generated_audio
 from .chain_look import LookHold
 from .h3_anchor import anchor_refusal
@@ -173,7 +172,7 @@ def run_chain(pipeline, chain_definition, arguments):
         segment_1_texture = resumed.segment_1_texture
 
     try:
-        for segment in config.plan[resumed.count if resumed else 0 :]:
+        for segment in config.plan[resumed.count if resumed else 0 : config.end_index]:
             logger.info(
                 f"Chain segment {segment.index + 1}/{len(config.plan)}"
                 + (f": {segment.num_frames} frames" if segment.num_frames else "")
@@ -805,31 +804,31 @@ def _stitched(config, spill, frames, audio, audio_rate, shots):
     track, or no audio at all."""
     if spill is not None:
         frames = spilled_frames(config, spill)
+    # A probe's take ends at its last rendered segment (stop_after)
+    total_frames, shots = config.take_frames(shots)
 
     if config.source_audio is not None:
         # The video matches the track's duration; the original, unsliced audio
         # is muxed in so the soundtrack has no seams
         if spill is None:
-            frames = frames[: config.total_frames]
+            frames = frames[:total_frames]
         return AudioVideo(
             frames,
-            config.source_audio,
+            config.take_track(total_frames),
             config.source_rate,
             fps=config.fps,
-            shots=_trimmed_shots(shots, config.total_frames),
+            shots=trimmed_take_shots(shots, total_frames),
         )
 
     if config.duration_seconds is not None:
         # The plan overshoots by design; the picture and the generated audio
         # are cut to the asked length together
         if spill is None:
-            frames = frames[: config.total_frames]
+            frames = frames[:total_frames]
         if audio is not None:
-            audio = audio[
-                :, : frames_to_samples(config.total_frames, config.fps, audio_rate)
-            ]
-        shots = _trimmed_shots(
-            shots, config.total_frames, audio.shape[1] if audio is not None else None
+            audio = audio[:, : frames_to_samples(total_frames, config.fps, audio_rate)]
+        shots = trimmed_take_shots(
+            shots, total_frames, audio.shape[1] if audio is not None else None
         )
     elif audio is None:
         shots = without_samples(shots)
@@ -937,10 +936,10 @@ def _segment_arguments(
         segment_arguments["num_frames"] = segment.num_frames
     if config.source_audio is not None:
         if config.holds_audio:
-            segment_arguments[HOLD_AUDIO_INPUT] = _audio_slice(config, segment)
+            segment_arguments[HOLD_AUDIO_INPUT] = config.audio_slice(segment)
         else:
-            segment_arguments["references"] = _sliced_references(
-                config, segment, arguments["references"]
+            segment_arguments["references"] = config.sliced_references(
+                segment, arguments["references"]
             )
 
     if segment.index > 0:
@@ -1017,51 +1016,6 @@ def _check_guide_chain(pipeline, arguments, chain_definition, config):
             "Guide chain: crossfade_ms is ignored - the guide holds the audio "
             "across each seam (set carry_audio false to crossfade instead)"
         )
-
-
-def _trimmed_shots(shots, total_frames, total_samples=None):
-    """A length-planned chain's shots, cut where its overshooting picture is.
-
-    A match_audio soundtrack is the caller's own, laid under whole rather than
-    built segment by segment, so no shot has a stretch of it to measure: the
-    sample side is cleared, not derived. A duration_seconds chain's generated
-    audio is cut to `total_samples`, and each shot's stretch of it with it.
-    """
-    trimmed = []
-    for shot in shots if total_samples is not None else without_samples(shots):
-        if shot["start_frame"] >= total_frames:
-            break
-        end = min(shot["start_frame"] + shot["num_frames"], total_frames)
-        cut = {**shot, "num_frames": end - shot["start_frame"]}
-        if total_samples is not None:
-            start = min(shot["start_sample"], total_samples)
-            cut["num_samples"] = min(shot["num_samples"], total_samples - start)
-        trimmed.append(cut)
-    return trimmed
-
-
-def _audio_slice(config, segment):
-    """The segment's piece of the matched track, as a new reference of the
-    matched one's type - the original is never touched."""
-    start = frames_to_samples(segment.audio_start_frame, config.fps, config.source_rate)
-    length = frames_to_samples(segment.num_frames, config.fps, config.source_rate)
-    piece = slice_samples(config.source_audio, start, length)
-    return type(config.audio_reference)(
-        audio=torch.from_numpy(piece), sample_rate=config.source_rate
-    )
-
-
-def _sliced_references(config, segment, references):
-    """A copy of the references list with the segment's audio slice swapped in.
-
-    The original list and reference objects are never touched - iteration
-    arguments share nested values, so they must not be mutated in place.
-    """
-    sliced = _audio_slice(config, segment)
-    return [
-        sliced if reference is config.audio_reference else reference
-        for reference in references
-    ]
 
 
 def _single_artifact(output):

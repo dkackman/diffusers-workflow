@@ -45,6 +45,8 @@ A shot is a dict:
 - `segment_file` - a chain run with `save_segments` and `keep_segments` names
   each segment's file on its shot, as written (a rerun's '-2' dedupe
   included), beside the take - how `chain_repair_cut` finds them (#1169)
+- `planned_segments` - every shot of a chain's take carries its plan's segment
+  count, which a probe's take (`stop_after`) falls short of
 
 Every other `AudioVideo` constructor either carries the list (same frames),
 rescales it (`interpolate_frames`), re-measures the sample side for a new

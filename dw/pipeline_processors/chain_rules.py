@@ -757,3 +757,31 @@ def chain_resume_problem(chain):
             "own spill, so it needs save_segments true"
         )
     return None
+
+
+# A probe of the take (`stop_after`): the plan is the full take's, only its
+# first k segments render, and a resume_from naming the last of them continues
+CHAIN_STOP_AFTER = "stop_after"
+
+
+def chain_stop_after_problem(chain):
+    """The reason a chain block's `stop_after` is refused, or None: absent,
+    null or unresolved is a full take. Refused: anything but a whole number
+    of at least 1, and a probe without `save_segments` and `keep_segments`
+    true, which would leave no segment files to continue from."""
+    value = chain.get(CHAIN_STOP_AFTER)
+    if value is None or _unresolved(value):
+        return None
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        return (
+            f"{CHAIN_STOP_AFTER} must be a whole number of at least 1 "
+            f"(the segments the probe renders), got {value!r}"
+        )
+    for key in ("save_segments", "keep_segments"):
+        setting = chain.get(key, False)
+        if setting is not True and not _unresolved(setting):
+            return (
+                f"{CHAIN_STOP_AFTER} renders a probe that a {CHAIN_RESUME_FROM} "
+                f"naming its last segment file continues, so it needs {key} true"
+            )
+    return None

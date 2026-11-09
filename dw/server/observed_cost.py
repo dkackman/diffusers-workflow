@@ -165,16 +165,18 @@ def _every_step_was_reused(manifest_text):
     )
 
 
-def _was_resumed(definition, row_arguments):
-    """Whether this run's chain was given a `resume_from`, by its own
-    arguments. Read from the setting, not from the kept files, which a swept
-    run directory no longer has."""
+def _was_partial(definition, row_arguments):
+    """Whether this run's chain rendered only part of its plan: given a
+    `resume_from`, or a probe's `stop_after`, by its own arguments. Read from
+    the setting, not from the kept files, which a swept run directory no
+    longer has."""
     from ..cost_scaling import _chain_blocks, _resolved
 
     variables = effective_variables(definition, row_arguments)
     return any(
-        _resolved(chain.get("resume_from"), variables) is not None
+        _resolved(chain.get(key), variables) is not None
         for chain, _ in _chain_blocks(definition.get("steps"))
+        for key in ("resume_from", "stop_after")
     )
 
 
@@ -243,9 +245,10 @@ def observed_for(definition, rows, device=None, device_name=None, arguments=None
             continue
         if _bucket_key(definition, row_arguments) != wanted:
             continue
-        if _was_resumed(definition, row_arguments):
-            # Rendered only the segments after its kept ones: its duration
-            # is not a full-N run's, and resume_from is no cost driver
+        if _was_partial(definition, row_arguments):
+            # Rendered only part of the plan (the segments after its kept
+            # ones, or a probe's first k): its duration is not a full-N
+            # run's, and neither setting is a cost driver
             continue
         duration = row["duration"]
         if duration is None or duration <= 0:
