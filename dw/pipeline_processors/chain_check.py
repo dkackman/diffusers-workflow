@@ -463,13 +463,50 @@ def _clipped_at_head(chunks, expected, previous_line, head_seconds):
             "rule": "line_clipped_at_head",
             "severity": "warn",
             "at": {"seconds": round(float(start), 3), "word": chunk["text"].strip()},
-            "value": round(float(head_seconds), 3),
+            "value": round(float(start), 3),
             "threshold": round(float(head_seconds), 3),
             "says": (
                 "the line starts inside the frames the chain trims off the head of"
                 " the segment, so its opening words are cut from the delivered"
                 " video; a fresh seed starts it at the same place - move the line"
                 " later in the prompt (an 'at N seconds' cue past the guide span)"
+            ),
+        }
+    return None
+
+
+def _opens_mid_line(chunks, expected, head_seconds, within=0.1):
+    """line_clipped_at_head for a kept span that already passed, or None:
+    the span's first word starts within `within` seconds of its first sample
+    and is not the line's first word, so speech was running when the head
+    trim cut, and the line's opening is gone (#1308). Reported, not failed:
+    the similarity cleared the floor, and a fresh seed starts the line at
+    the same place."""
+    from ..script_lines import normalize_words
+
+    if not expected:
+        return None
+    for chunk in chunks:
+        text = chunk.get("text", "").strip()
+        if not text:
+            continue
+        start = chunk.get("start")
+        words = normalize_words(text)
+        if start is None or start > within or not words or words[0] == expected[0]:
+            return None
+        return {
+            "rule": "line_clipped_at_head",
+            "severity": "warn",
+            "at": {"seconds": round(float(start), 3), "word": text},
+            "value": round(float(start), 3),
+            "threshold": round(float(head_seconds), 3),
+            "says": (
+                "the delivered video opens mid-line: speech is already running at"
+                " the first sample, on a word that is not the line's first, so"
+                " the line started inside the frames the chain trims off the head;"
+                " the segment passed its words check, but its opening is cut -"
+                " move the line later in the prompt (an 'at N seconds' cue past"
+                " the guide span)"
             ),
         }
     return None
@@ -526,7 +563,8 @@ def check_words(
     similarity = answer["lines"][0]["similarity"]
     findings = [f for f in answer["findings"] if f["rule"] in WORDS_FINDINGS]
     low = similarity is None or (minimum is not None and similarity < minimum)
-    if (low or findings) and full_audio is not None and head_seconds > 0:
+    failed = low or bool(findings)
+    if failed and full_audio is not None and head_seconds > 0:
         # The kept span fails its line: look at the audio the head trim cut
         # off, where the line may have opened (#1300). Only a failure pays
         # for the second transcription
@@ -538,6 +576,15 @@ def check_words(
         )
         if clipped is not None:
             findings.append(clipped)
+    passed = not failed
+    if passed and head_seconds > 0 and previous_line:
+        # A pass can hide a head clip (#1308): the similarity cleared the
+        # floor with the line's opening missing. The kept span's own word
+        # timings show it without a second pass: speech already running at
+        # its first sample, on a word that is not the line's first
+        clipped = _opens_mid_line(chunks, expected, head_seconds)
+        if clipped is not None:
+            findings.append(clipped)
     heard = " ".join(
         text for text in (chunk.get("text", "").strip() for chunk in chunks) if text
     )
@@ -545,6 +592,6 @@ def check_words(
         "similarity": similarity,
         "heard": heard,
         "findings": findings,
-        "passed": not low and not findings,
+        "passed": passed,
         "seam_head_dropped": [chunk.get("text", "").strip() for chunk in dropped],
     }

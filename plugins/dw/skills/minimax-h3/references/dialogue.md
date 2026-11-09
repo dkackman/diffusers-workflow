@@ -69,6 +69,20 @@ truncate (row 7).
   string per segment, exactly as many as there are segments. Unlike
   `prompts`, the last is not repeated. A chain that holds its audio
   (`match_audio`, `hold_audio`) is never words-checked.
+- **Cue a carried segment's line past the guide span** (#1308). In a
+  `guide` chain every segment after the first opens with `guide_frames`
+  (22, about 0.92 s at 24 fps) of the previous segment, and the chain trims
+  them off the delivered video. H3 starts a line at frame 0 when the prompt
+  gives no time, so the line opens inside the trim and its first words are
+  lost ("In order to form a more perfect union." delivered as "It is to form
+  a more perfect union."). In the `prompts` entries for segments 2 and on,
+  write the line after a timing cue past the guide span, in the form
+  the shot prompts use: `From 1.5 seconds into the target video, a calm man
+  says: <d>[English] ...</d>`, and leave the first 1.5 s as the speaker's
+  closed-mouth beat. Size the line for the shortened remainder of the clip.
+  The chain's `line_clipped_at_head` finding (a failed words check, or a
+  pass whose kept span opens mid-line) says when this is needed. Segment 1
+  has no guide, so its line needs no cue.
 - **Check the words.** `check: {"words_similarity_min": 0.8}` with
   `retries: 1` transcribes each segment's kept audio and re-rolls a segment
   that speaks a wrong, missing or garbled line. It reads `lines[k]`, else

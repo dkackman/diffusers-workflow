@@ -122,6 +122,34 @@ def test_line_clipped_at_head_names_a_line_opened_in_the_trimmed_head():
     assert "line_clipped_at_head" in rules
     finding = next(f for f in answer["findings"] if f["rule"] == "line_clipped_at_head")
     assert finding["at"]["word"] == "in"
+    # value is the word's start, threshold the trim length
+    assert finding["value"] == finding["at"]["seconds"] == 0.3
+    assert finding["threshold"] == 0.92
+
+
+def test_marginal_pass_with_a_clipped_opening_is_reported_without_a_second_pass():
+    calls = []
+    line = "In order to form a more perfect union"
+    heard = words("to form a more perfect union", start=0.0, step=0.3, length=0.25)
+
+    def transcribe(wave, rate):
+        calls.append(wave.shape)
+        return heard
+
+    answer = check_words(
+        voiced(3.0),
+        RATE,
+        line,
+        "We the people",
+        0.5,
+        transcribe=transcribe,
+        full_audio=voiced(3.92),
+        head_seconds=0.92,
+    )
+    assert answer["passed"] is True
+    assert len(calls) == 1
+    finding = next(f for f in answer["findings"] if f["rule"] == "line_clipped_at_head")
+    assert finding["value"] == 0.0 and finding["threshold"] == 0.92
 
 
 def test_no_head_finding_when_the_line_opens_after_the_trim():
