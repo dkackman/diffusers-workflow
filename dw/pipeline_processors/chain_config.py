@@ -49,6 +49,7 @@ from .chain_rules import (
     chain_needs_frame_snap,
     chain_resume_problem,
     chain_stop_after_problem,
+    stop_after_value,
     keystone_slot_plan_problem,
     match_audio_source_problem,
 )
@@ -149,7 +150,7 @@ class ChainConfig:
         self.resume_from = chain_definition.get(CHAIN_RESUME_FROM)
         # A probe renders the plan's first k segments only (chain_rules)
         _raise_chain_problem(chain_stop_after_problem(chain_definition))
-        self.stop_after = chain_definition.get(CHAIN_STOP_AFTER)
+        self.stop_after = stop_after_value(chain_definition.get(CHAIN_STOP_AFTER))
 
         self.source_audio = None
         self.source_rate = None

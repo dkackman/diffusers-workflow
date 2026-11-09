@@ -178,7 +178,7 @@ def test_resume_of_a_complete_take_still_refuses(outputs, events):
         )
 
 
-@pytest.mark.parametrize("value", [0, -1, 1.5, True, "2"])
+@pytest.mark.parametrize("value", [0, -1, 1.5, True, "0", "1.5"])
 def test_stop_after_zero_is_refused(outputs, value):
     problem = chain_stop_after_problem({"stop_after": value})
     assert problem and "stop_after" in problem and "whole number" in problem
@@ -235,3 +235,147 @@ def test_a_probe_run_is_not_a_full_run_s_observed_basis():
 
     assert observed["runs"] == 1
     assert observed["cold_minutes"] == 30.0
+
+
+def test_stop_after_digit_string_is_accepted(outputs, events):
+    kept = {"save_segments": True, "keep_segments": True}
+    assert chain_stop_after_problem({"stop_after": "2", **kept}) is None
+    assert "whole number" in chain_stop_after_problem({"stop_after": "0", **kept})
+    pipeline = _pipeline(outputs, FIRST_RUN)
+
+    result = run_chain(pipeline, _chain(stop_after="2"), _arguments())
+
+    assert len(pipeline.calls) == 2
+    assert result.frames.frame_count == 9 + 8
+    assert _logs(events, "chain_stopped_after")[0]["stop_after"] == 2
+
+
+def test_staged_probe_continues_to_its_new_stop(outputs, events):
+    run_chain(_pipeline(outputs, FIRST_RUN), _chain(stop_after=2), _arguments())
+    pipeline = _pipeline(outputs, SECOND_RUN)
+
+    result = run_chain(
+        pipeline,
+        _chain(stop_after=4, resume_from=_segment_reference(1)),
+        _arguments(),
+    )
+
+    assert len(pipeline.calls) == 2
+    rendered = 9 + 8 * 3
+    assert result.frames.frame_count == rendered
+    assert [shot.get("resumed", False) for shot in result.shots] == [
+        True,
+        True,
+        False,
+        False,
+    ]
+    assert torch.equal(
+        torch.as_tensor(result.audio),
+        _track()[:, : frames_to_samples(rendered, FPS, RATE)],
+    )
+
+
+class TestProbeEstimate:
+    """A probe is quoted for the segments it renders (cost_scaling)."""
+
+    RUN = "20261109-090000-cccccccc"
+
+    def _definition(self, chain, minutes=40, **variables):
+        definition = {
+            "cost": [{"device": "cuda", "name": "card", "minutes": minutes}],
+            "variables": {"resume_from": None, **variables},
+            "steps": [
+                {
+                    "pipeline": {
+                        "chain": {
+                            "fps": 4,
+                            "save_segments": True,
+                            "keep_segments": True,
+                            "resume_from": "variable:resume_from",
+                            **chain,
+                        },
+                        "arguments": {},
+                    }
+                }
+            ],
+        }
+        return definition
+
+    def _quote(self, definition, **variables):
+        from dw.plan import estimate
+
+        expanded = {"variables": {**definition["variables"], **variables}}
+        return estimate(definition, expanded, {}, "cuda", None, None)
+
+    @pytest.fixture
+    def kept(self, tmp_path):
+        """Two kept segment files of a probe, under an active output root."""
+        run_dir = tmp_path / "outputs" / "probed" / self.RUN
+        run_dir.mkdir(parents=True)
+        for index in (0, 1):
+            (run_dir / f"probed.video.0.segment-{index:03d}.mp4").write_bytes(b"")
+        token = activate_output_root(str(tmp_path / "outputs"))
+        yield references.make_ref(
+            references.OUTPUT, f"probed/{self.RUN}/probed.video.0.segment-000.mp4"
+        )
+        deactivate_output_root(token)
+
+    def test_probe_estimate_scales_by_stop_after(self):
+        quoted = self._quote(self._definition({"segments": 4, "stop_after": 1}))
+        assert quoted["minutes"] == pytest.approx(10.0)
+        assert "probe: 1 of 4 segment(s)" in quoted["scaled"]
+
+        # a digit string, as dw.run passes it, prices the same
+        quoted = self._quote(self._definition({"segments": 4, "stop_after": "1"}))
+        assert quoted["minutes"] == pytest.approx(10.0)
+
+        # at or past the plan's count the whole take renders
+        whole = self._quote(self._definition({"segments": 4, "stop_after": 9}))
+        assert whole["minutes"] == pytest.approx(40.0)
+        assert "probe" not in (whole.get("scaled") or "")
+
+        # a worst-case re-roll is priced over the rendered segments only: a
+        # chain that may generate its audio checks segment 1 too, so 2 of 4
+        # segments x (1 + 1 retry) = 4 renders, where the whole take is 8
+        checked = self._quote(
+            self._definition(
+                {"segments": 4, "stop_after": 2, "check": True, "retries": 1}
+            )
+        )
+        assert checked["minutes"] == pytest.approx(40.0)
+        assert "probe: 2 of 4 segment(s)" in checked["scaled"]
+        assert "4 renders" in checked["scaled"]
+
+        # an unresolved reference leaves the quote as today, with a note
+        unresolved = self._quote(
+            self._definition(
+                {"segments": 4, "stop_after": "previous_result:count.value"}
+            )
+        )
+        assert unresolved["minutes"] == pytest.approx(40.0)
+        assert any("stop_after" in note for note in unresolved["differs"])
+
+    def test_staged_probe_estimate_counts_only_the_new_segments(self, kept):
+        definition = self._definition({"segments": 5, "stop_after": 4}, minutes=50)
+        quoted = self._quote(definition, resume_from=kept)
+
+        assert quoted["minutes"] == pytest.approx(20.0)
+        assert "probe: segments 3..4 of 5" in quoted["scaled"]
+
+    def test_matched_probe_estimate_prices_k_segments(self, kept):
+        matched = self._definition({"match_audio": True}, minutes=6)
+        assert self._quote(matched)["minutes"] == pytest.approx(6.0)
+
+        quoted = self._quote(
+            self._definition({"match_audio": True, "stop_after": 3}, minutes=6)
+        )
+        assert quoted["minutes"] == pytest.approx(18.0)
+        assert "probe: 3 segment(s)" in quoted["scaled"]
+        assert "track" in quoted["scaled"]
+
+        staged = self._quote(
+            self._definition({"match_audio": True, "stop_after": 3}, minutes=6),
+            resume_from=kept,
+        )
+        assert staged["minutes"] == pytest.approx(6.0)
+        assert "probe: segment(s) 3..3" in staged["scaled"]

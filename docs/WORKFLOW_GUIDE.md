@@ -2802,7 +2802,11 @@ since it would render nothing. The first resumed seam is not a live carry: its g
 keyframe) is decoded from the probe's last file - h264 frames, and for a `guide` chain
 its AAC audio unless the step holds its track (`hold_audio`, which carries no guide
 audio) - which the `chain_resumed` warning says. A probe's job history is left out of
-this server's observed cost, as a resume's is.
+this server's observed cost, as a resume's is. The estimate quotes a probe for the
+segments it renders: k of N of the take's figure (segments k0+1..k of N for a probe
+that resumes k0 kept ones), and for a `match_audio` chain, whose N comes from the track,
+k - k0 times the per-segment figure; `stop_after` may be a digit string
+(`python -m dw.run ... stop_after=12`).
 
 The chain runs inside one iteration of the step, so it composes with
 `previous_result` fan-out (three keyframes in, three chained videos out), and a

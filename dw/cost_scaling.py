@@ -417,6 +417,9 @@ def words_check_term(definition, variables):
     segments = _chain_segments(definition, variables)
     if not segments:
         return 0.0, None
+    # A probe checks only the segments it renders
+    stop = _chain_stop_after(definition, variables)[0]
+    segments = min(segments, stop) if stop else segments
     kept = min(_chain_kept(definition, variables)[0], segments)
     lined = _chain_lined_segments(definition, variables, kept, segments)
     passes = lined * (1 + _chain_retries(definition, variables))
@@ -504,17 +507,101 @@ def _chain_kept(definition, variables):
     return kept, [FANOUT_NOTE] if fans_out else []
 
 
+# The estimate's note when a chain's stop_after does not resolve at validate
+STOP_AFTER_UNRESOLVED_NOTE = (
+    "priced for the whole take; stop_after is not resolvable at validate"
+)
+
+
+def _chain_stop_after(definition, variables):
+    """(k, unscaled) for the workflow's one chain at `variables`: its
+    `stop_after` as a whole number (a digit string read as one, as the run
+    reads it - `chain_rules.stop_after_value`), None when absent, null or
+    not resolvable, with the plan note for the last, so the take is priced
+    whole."""
+    from .pipeline_processors.chain_rules import stop_after_value
+
+    blocks = list(_chain_blocks(definition.get("steps")))
+    if len(blocks) != 1:
+        return None, []
+    value = _resolved(blocks[0][0].get("stop_after"), variables)
+    if value is None:
+        return None, []
+    stop = stop_after_value(value)
+    if isinstance(stop, bool) or not isinstance(stop, int) or stop < 1:
+        return None, [STOP_AFTER_UNRESOLVED_NOTE]
+    return stop, []
+
+
+def _probe_scaling(definition, variables, stop, kept, segments):
+    """(factor, axes, unscaled) for a probe that renders segments kept+1..stop:
+    over the N a countable chain plans, or - a `match_audio` chain, whose N
+    the track sets at run time - as that many renders of the figure, read as
+    one segment's. Each checked segment may re-roll; segment 1 is checked
+    only for a chain measuring its generated audio (`_worst_case_retries`),
+    every resumed one is checked."""
+    rendered = stop - kept
+    if rendered <= 0:
+        return (
+            1.0,
+            [],
+            [
+                f"resume_from keeps {kept} segment(s) and stop_after {stop} ends "
+                "the take there: nothing is left to render, the run is refused"
+            ],
+        )
+    retries = _chain_retries(definition, variables)
+    checked = rendered
+    if not kept and not _chain_checks_audio(definition, variables):
+        checked = rendered - 1
+    renders = rendered - checked + checked * (1 + retries)
+    if segments:
+        axis = (
+            f"probe: segments {kept + 1}..{stop} of {segments}"
+            if kept
+            else f"probe: {stop} of {segments} segment(s)"
+        )
+        factor = renders / segments
+    else:
+        axis = (
+            f"probe: segment(s) {kept + 1}..{stop}"
+            if kept
+            else f"probe: {stop} segment(s)"
+        ) + " at the per-segment figure; the full take's length comes from the track"
+        factor = float(renders)
+    if retries:
+        axis += (
+            f", worst case {retries} re-roll(s) of each checked one: {renders} renders"
+        )
+    return factor, [axis], []
+
+
 def _chain_render_scaling(definition, variables):
     """(factor, axes, unscaled) for the segment renders a run pays against
-    the N a figure was measured over: a resumed chain renders only the
-    segments after its kept ones, every one of them after a seam and so
+    the N a figure was measured over: a probe (`stop_after`) renders only
+    segments up to its k (`_probe_scaling`); a resumed chain renders only
+    the segments after its kept ones, every one of them after a seam and so
     checked, (N - k)(1 + retries) in the worst case; any other chain is
     `_worst_case_retries`'s."""
     kept, unscaled = _chain_kept(definition, variables)
+    stop, stop_unscaled = _chain_stop_after(definition, variables)
+    unscaled = unscaled + stop_unscaled
+    segments = _chain_segments(definition, variables)
+    if stop is not None:
+        if segments and stop < segments:
+            factor, axes, probe_unscaled = _probe_scaling(
+                definition, variables, stop, min(kept, segments), segments
+            )
+            return factor, axes, probe_unscaled + unscaled
+        blocks = list(_chain_blocks(definition.get("steps")))
+        if not segments and _resolved(blocks[0][0].get("match_audio"), variables):
+            factor, axes, probe_unscaled = _probe_scaling(
+                definition, variables, stop, kept, None
+            )
+            return factor, axes, probe_unscaled + unscaled
     if not kept:
         factor, axes, retry_unscaled = _worst_case_retries(definition, variables)
         return factor, axes, retry_unscaled + unscaled
-    segments = _chain_segments(definition, variables)
     if not segments:
         return 1.0, [], ["resume_from", *unscaled]
     if kept >= segments:

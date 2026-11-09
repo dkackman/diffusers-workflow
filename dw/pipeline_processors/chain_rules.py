@@ -764,14 +764,24 @@ def chain_resume_problem(chain):
 CHAIN_STOP_AFTER = "stop_after"
 
 
+def stop_after_value(value):
+    """`stop_after` as the run reads it: a digit string ("12", as
+    `python -m dw.run ... stop_after=12` passes it) as its whole number, as
+    `segments` is read; anything else as it is."""
+    if isinstance(value, str) and value.isascii() and value.isdigit():
+        return int(value)
+    return value
+
+
 def chain_stop_after_problem(chain):
     """The reason a chain block's `stop_after` is refused, or None: absent,
     null or unresolved is a full take. Refused: anything but a whole number
-    of at least 1, and a probe without `save_segments` and `keep_segments`
+    of at least 1 (or its digit string, `stop_after_value`), and a probe without `save_segments` and `keep_segments`
     true, which would leave no segment files to continue from."""
     value = chain.get(CHAIN_STOP_AFTER)
     if value is None or _unresolved(value):
         return None
+    value = stop_after_value(value)
     if isinstance(value, bool) or not isinstance(value, int) or value < 1:
         return (
             f"{CHAIN_STOP_AFTER} must be a whole number of at least 1 "
