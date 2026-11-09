@@ -37,6 +37,10 @@ Every validator raises `PathTraversalError` or `InvalidInputError` (both
   `root`, for directory walks that must not follow a link out.
 - `validate_weight_name(name, ...)` - A file name inside a Hub repo: no
   leading `/` or `~`, no backslash or drive, no empty, `.` or `..` segment.
+  Applied at validate to every `weight_name` and to each task argument a
+  command declares with `register_command(weight_file_arguments=...)` (the
+  `filename` of `upscale`, `restore_faces` and `interpolate_frames`), and
+  again before the download.
 
 ### Name Validation
 

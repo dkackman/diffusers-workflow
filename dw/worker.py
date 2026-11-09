@@ -69,19 +69,20 @@ def _job_scoped_peak_rss_mb(info, baseline_peak_mb, running_max_mb):
     is that same process-lifetime figure read at this job's first phase
     boundary; because ru_maxrss is monotonic non-decreasing, growth since
     then is unambiguously this job's doing. A job that caused no growth at
-    all (it rode an earlier, larger peak) has no meaningful "job peak" to
-    report as a delta, so this floors at the job's current rss instead of
-    reporting a number that undersells what is resident right now - but the
-    current rss can *fall* between readings (cleanup, GC), and a peak must
-    not: `running_max_mb` is the highest value this function has returned
-    for this job so far, and the candidate for this reading is folded into
-    it rather than replacing it outright.
+    all (it rode an earlier, larger peak) has no job peak to report: it
+    returns `running_max_mb` unchanged (None when nothing grew). It used to
+    floor at the worker's current rss, but in a warm worker that is what
+    other cached models hold, not this job's cost, and the host-RAM
+    projection's all-time max over a key then inherited it (#1288). A null
+    peak is left out of the projection. `running_max_mb` is the highest
+    value this function has returned for this job so far; a peak must not
+    fall between readings.
     """
     peak = info.get("host_memory_peak_rss_mb")
     if peak is None or baseline_peak_mb is None:
         return running_max_mb
     growth = peak - baseline_peak_mb
-    candidate = growth if growth > 0 else info.get("host_memory_rss_mb")
+    candidate = growth if growth > 0 else None
     if candidate is None:
         return running_max_mb
     if running_max_mb is None or candidate > running_max_mb:

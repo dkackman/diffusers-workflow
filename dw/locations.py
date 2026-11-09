@@ -82,6 +82,13 @@ PIPELINE_MEDIA_ARGUMENTS = ("latent_anchor",)
 # commands' `videos` list (SE-F045, GHSA-75fh-g499-53cf)
 TASK_MEDIA_ARGUMENTS = RegistryTable("media_arguments")
 
+# Task arguments that name a file inside the command's model repo by a name
+# other than `weight_name` - the spandrel and RIFE commands' `filename`
+# (`register_command(weight_file_arguments=...)`). hf_hub_download joins it
+# onto the cache directory, so it gets validate_weight_name's refusal of an
+# absolute or climbing name, the same as a weight_name (GHSA-ch56-2p9f-95cg)
+TASK_WEIGHT_FILE_ARGUMENTS = RegistryTable("weight_file_arguments")
+
 # Of those, the arguments read from a local file only: no loader fetches
 # them, so an http(s) URL is refused rather than passed on as a location
 LOCAL_ONLY_TASK_ARGUMENTS = {
@@ -694,6 +701,14 @@ def _task_media_errors(step, path, base_dir, errors):
     if not isinstance(arguments, dict):
         return
     command = task.get("command")
+    for key in TASK_WEIGHT_FILE_ARGUMENTS.get(command, ()):
+        value = arguments.get(key)
+        if isinstance(value, str) and not _deferred(value):
+            message = _refusal(validate_weight_name, value, None, f"'{key}'")
+            if message:
+                errors.append(
+                    {"path": f"{path}.task.arguments.{key}", "message": message}
+                )
     local_only = LOCAL_ONLY_TASK_ARGUMENTS.get(command, ())
     for key in TASK_MEDIA_ARGUMENTS.get(command, ()):
         here = f"{path}.task.arguments.{key}"
