@@ -79,6 +79,7 @@ def _handle_separate_stems(task, arguments, previous_pipelines):
     implementation="dw.tasks.upscale.upscale_image",
     consumes_device=True,
     required_weights="dw.tasks.upscale.required_weights",
+    weight_file_arguments=("filename",),
 )
 def _handle_upscale(task, arguments, previous_pipelines):
     """Upscale an image using a spandrel-compatible super-resolution model"""
@@ -117,6 +118,7 @@ def _handle_diffusion_upscale(task, arguments, previous_pipelines):
     implementation="dw.tasks.restore_faces.restore_faces",
     consumes_device=True,
     required_weights="dw.tasks.restore_faces.required_weights",
+    weight_file_arguments=("filename",),
 )
 def _handle_restore_faces(task, arguments, previous_pipelines):
     """Restore faces in an image using a spandrel-compatible face restoration model"""
@@ -222,6 +224,7 @@ def _handle_remove_object(task, arguments, previous_pipelines):
     implementation="dw.tasks.interpolate_frames.interpolate_frames",
     consumes_device=True,
     required_weights="dw.tasks.interpolate_frames.required_weights",
+    weight_file_arguments=("filename",),
 )
 def _handle_interpolate_frames(task, arguments, previous_pipelines):
     """Interpolate video frames to increase frame rate"""

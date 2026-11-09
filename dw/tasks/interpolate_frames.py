@@ -166,9 +166,14 @@ def _load_rife_model(device, model_name=None, filename=None):
     from huggingface_hub import hf_hub_download
     from .model_cache import cached_model
 
+    from ..security import validate_weight_name
+
     repo_id, weights_file = rife_source(
         {"model_name": model_name, "filename": filename}
     )
+    # Joined onto the cache directory by hf_hub_download, so a name that is
+    # absolute or climbs is a path on this machine (GHSA-ch56-2p9f-95cg)
+    validate_weight_name(weights_file, what="filename")
 
     def load_net():
         model_path = hf_hub_download(repo_id=repo_id, filename=weights_file)
