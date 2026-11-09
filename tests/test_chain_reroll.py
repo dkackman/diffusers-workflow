@@ -296,7 +296,7 @@ def test_segment_1_is_re_rolled_on_its_words(monkeypatch):
 
 def test_a_reroll_that_passes_its_words_keeps_the_good_take(monkeypatch):
     class Once(FakeWords):
-        def __call__(self, audio, sample_rate, line, previous_line, minimum):
+        def __call__(self, audio, sample_rate, line, previous_line, minimum, **kwargs):
             self.calls.append((line, previous_line, minimum))
             bad = line == "two two" and len(self.calls) == 2
             return _heard(0.4, False) if bad else _heard(0.97, True, heard=line)
@@ -315,7 +315,7 @@ def test_not_every_attempt_failing_is_not_flagged_so(monkeypatch):
     import dw.pipeline_processors.chain as chain_module
 
     class Mixed(FakeWords):
-        def __call__(self, audio, sample_rate, line, previous_line, minimum):
+        def __call__(self, audio, sample_rate, line, previous_line, minimum, **kwargs):
             self.calls.append((line, previous_line, minimum))
             bad = line == "two two" and len(self.calls) == 2
             return _heard(0.4, False) if bad else _heard(0.97, True, heard=line)

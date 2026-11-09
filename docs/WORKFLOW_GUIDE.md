@@ -2855,7 +2855,11 @@ attempt failed `words` it adds `every_attempt_failed: true` and a `note` to repa
 segment with `templates/minimax/repair-segment` rather than retry more, since the cause
 may be in the carry, which a fresh seed inherits. A shot of a words-checked chain also
 records `words` (`similarity`, `heard`, `findings`, `passed`, `seam_head_dropped`) for
-the kept attempt, or `null` with no line. Among attempts failing only `words`,
+the kept attempt, or `null` with no line. A failed `words` on a segment with a head trim
+(a guide chain's 22 guide frames) also transcribes the audio the trim cut off; if the
+line's first heard word starts inside that span the findings carry `line_clipped_at_head`
+(#1300): the opening words are cut from the delivered video and a fresh seed starts the
+line at the same place, so move the line later in the prompt instead of re-rolling. Among attempts failing only `words`,
 `best_attempt` keeps the higher similarity; a words-only failure ranks after any other
 single-measure failure. Each shot also records `audio_dbfs`, the kept
 attempt's level, when it is measurable. A kept segment whose generated audio still reads

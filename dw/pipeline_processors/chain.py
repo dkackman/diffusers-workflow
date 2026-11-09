@@ -586,8 +586,17 @@ def _segment_words(kept_audio, attempt, segment, config):
     if line is None or kept_audio is None or attempt.rate is None:
         return None
     previous = config.segment_line(segment.index - 1) if segment.index else None
+    # The whole audio and the span the head trim cuts off, so a failing line
+    # can be told apart from one whose opening the trim cut (#1300)
+    head_seconds = segment.head_trim / config.fps if config.fps else 0.0
     return check_words(
-        kept_audio, attempt.rate, line, previous, config.check.words_similarity_min
+        kept_audio,
+        attempt.rate,
+        line,
+        previous,
+        config.check.words_similarity_min,
+        full_audio=attempt.audio if head_seconds else None,
+        head_seconds=head_seconds,
     )
 
 

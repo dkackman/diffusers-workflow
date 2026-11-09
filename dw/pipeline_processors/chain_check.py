@@ -446,8 +446,45 @@ def _seam_head(chunks, expected, previous_line):
     return kept, [chunks[index] for index in sorted(dropped)]
 
 
+def _clipped_at_head(chunks, expected, previous_line, head_seconds):
+    """line_clipped_at_head (#1300) as a finding, or None: `chunks` is the
+    transcript of a segment's whole audio, head trim included. The line's
+    opening is cut when the first word heard after the seam-head rule starts
+    inside the first `head_seconds` - the span the chain trims off the head -
+    so what the kept span opens on is already the line's middle."""
+    kept, _ = _seam_head(chunks, expected, previous_line)
+    for chunk in kept:
+        if not chunk.get("text", "").strip():
+            continue
+        start = chunk.get("start")
+        if start is None or start >= head_seconds:
+            return None
+        return {
+            "rule": "line_clipped_at_head",
+            "severity": "warn",
+            "at": {"seconds": round(float(start), 3), "word": chunk["text"].strip()},
+            "value": round(float(head_seconds), 3),
+            "threshold": round(float(head_seconds), 3),
+            "says": (
+                "the line starts inside the frames the chain trims off the head of"
+                " the segment, so its opening words are cut from the delivered"
+                " video; a fresh seed starts it at the same place - move the line"
+                " later in the prompt (an 'at N seconds' cue past the guide span)"
+            ),
+        }
+    return None
+
+
 def check_words(
-    audio, sample_rate, line, previous_line, minimum, transcribe=None, device="cpu"
+    audio,
+    sample_rate,
+    line,
+    previous_line,
+    minimum,
+    transcribe=None,
+    device="cpu",
+    full_audio=None,
+    head_seconds=0.0,
 ):
     """Whether a dialogue segment's kept audio speaks its line (#1262), as
     {similarity, heard, findings, passed, seam_head_dropped}.
@@ -489,6 +526,18 @@ def check_words(
     similarity = answer["lines"][0]["similarity"]
     findings = [f for f in answer["findings"] if f["rule"] in WORDS_FINDINGS]
     low = similarity is None or (minimum is not None and similarity < minimum)
+    if (low or findings) and full_audio is not None and head_seconds > 0:
+        # The kept span fails its line: look at the audio the head trim cut
+        # off, where the line may have opened (#1300). Only a failure pays
+        # for the second transcription
+        whole = numpy.asarray(full_audio, dtype=numpy.float32)
+        if whole.ndim == 1:
+            whole = whole[numpy.newaxis, :]
+        clipped = _clipped_at_head(
+            transcribe(whole, sample_rate), expected, previous_line, head_seconds
+        )
+        if clipped is not None:
+            findings.append(clipped)
     heard = " ".join(
         text for text in (chunk.get("text", "").strip() for chunk in chunks) if text
     )

@@ -89,6 +89,73 @@ def test_line_clipped_at_end_fails():
     assert answer["passed"] is False
 
 
+def head_check(line, kept_chunks, full_chunks, head_seconds=0.92, previous=None):
+    """check_words on a kept span whose whole audio the fake transcribes
+    differently: the full audio is the longer array."""
+    kept = voiced(3.0)
+    full = voiced(3.0 + head_seconds)
+
+    def transcribe(wave, rate):
+        return full_chunks if wave.shape[-1] == full.shape[-1] else kept_chunks
+
+    return check_words(
+        kept,
+        RATE,
+        line,
+        previous,
+        0.8,
+        transcribe=transcribe,
+        full_audio=full,
+        head_seconds=head_seconds,
+    )
+
+
+def test_line_clipped_at_head_names_a_line_opened_in_the_trimmed_head():
+    line = "In order to form a more perfect union"
+    full = words(
+        "in order to form a more perfect union", start=0.3, step=0.3, length=0.25
+    )
+    kept = [dict(c, start=c["start"] - 0.92, end=c["end"] - 0.92) for c in full[4:]]
+    answer = head_check(line, kept, full)
+    assert answer["passed"] is False
+    rules = [f["rule"] for f in answer["findings"]]
+    assert "line_clipped_at_head" in rules
+    finding = next(f for f in answer["findings"] if f["rule"] == "line_clipped_at_head")
+    assert finding["at"]["word"] == "in"
+
+
+def test_no_head_finding_when_the_line_opens_after_the_trim():
+    line = "In order to form a more perfect union"
+    full = words(
+        "in order to form a more perfect union", start=1.2, step=0.3, length=0.25
+    )
+    kept = [dict(c, start=c["start"] - 0.92, end=c["end"] - 0.92) for c in full[4:]]
+    answer = head_check(line, kept, full)
+    assert answer["passed"] is False
+    assert "line_clipped_at_head" not in [f["rule"] for f in answer["findings"]]
+
+
+def test_passing_segment_is_not_transcribed_twice():
+    calls = []
+
+    def transcribe(wave, rate):
+        calls.append(wave.shape)
+        return words("hello world")
+
+    answer = check_words(
+        voiced(2.0),
+        RATE,
+        "hello world",
+        None,
+        0.8,
+        transcribe=transcribe,
+        full_audio=voiced(3.0),
+        head_seconds=0.92,
+    )
+    assert answer["passed"] is True
+    assert len(calls) == 1
+
+
 def test_transcript_loop_fails():
     chunks = words("how", 0.0) + words(
         " ".join(["the lid is gone"] * 8), 1.0, step=0.3, length=0.2
