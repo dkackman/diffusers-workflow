@@ -576,7 +576,7 @@ def frame_snap_warnings(workflow_definition, source_indices=None):
     none was written and none could be derived from a `num_frames` variable's
     constraint (`derive_frame_snaps`). Its shortened last segment is then
     asked for whatever count remains, which the pipeline may floor or round
-    in silence."""
+    in silence. Advisory: a pipeline with no frame grid is unaffected."""
     warnings = []
     for _, _, pipeline, source, where in references.iter_steps(
         workflow_definition.get("steps"), source_indices, "pipeline"
@@ -589,7 +589,8 @@ def frame_snap_warnings(workflow_definition, source_indices=None):
         warnings.append(
             f"{path}: a {key} chain with no frame_snap asks its shortened last "
             "segment for whatever count remains, which the pipeline may floor "
-            "or round in silence - set 'frame_snap' on the chain, or make the "
+            "or round in silence (ignore this if the pipeline has no frame "
+            "grid) - set 'frame_snap' on the chain, or make the "
             "step's 'num_frames' a 'variable:' whose 'variable_constraints' "
             f"entry has a modulus, from which it is derived{where}"
         )
