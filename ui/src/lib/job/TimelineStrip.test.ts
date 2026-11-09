@@ -1,9 +1,9 @@
 import { cleanup, render, screen } from '@testing-library/svelte'
 import { afterEach, expect, it } from 'vitest'
-
-afterEach(cleanup)
 import TimelineStrip from './TimelineStrip.svelte'
 import type { TimelineItem, TimelineSummary } from '../timeline'
+
+afterEach(cleanup)
 
 const item = (
   type: string,

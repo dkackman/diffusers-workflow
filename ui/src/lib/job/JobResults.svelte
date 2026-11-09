@@ -72,14 +72,14 @@
     })
   })
 
-  // A run that wrote no image (video and audio only, as H3 and LTX do) has
-  // no lookup above to read its inputs from, so the first output of any kind
+  // A run that wrote no image or timeline (video and audio only, as H3 and
+  // LTX do) has no lookup above to read its inputs from, so the first output of any kind
   // is asked once - never one probe per file
   let probedFirst = false
   $effect(() => {
     const files = fileGroups.flatMap((group) => group.files)
     if (!files.length || probedFirst) return
-    if (files.some((file) => kindOf(file) === 'image')) return
+    if (files.some((file) => kindOf(file) === 'image' || isBundle(file))) return
     probedFirst = true
     api
       .galleryMetadata(
@@ -115,12 +115,18 @@
   // the previous one. The job's own workspace rides along too, so its media
   // still loads correctly if the picker has since moved elsewhere.
   const fileUrl = (path: string) => outputUrl(path, job.id, job.workspace)
-  // A bundle member that is one of this job's files, by file name
+  // A bundle member that is one of this job's files: by full path first (the
+  // member itself, or a job file ending in it). Only a member under the
+  // bundle's own media/ folder falls back to a file name, and only when one
+  // job file has it - a sources-mode member that merely shares a name with
+  // another file must not download that file
   const memberHref = (member: string) => {
+    const all = fileGroups.flatMap((group) => group.files)
     const name = member.split('/').pop()
-    const match = fileGroups
-      .flatMap((group) => group.files)
-      .find((file) => file.split('/').pop() === name)
+    const byName = all.filter((file) => file.split('/').pop() === name)
+    const match =
+      all.find((file) => file === member || file.endsWith('/' + member)) ??
+      (member.startsWith('media/') && byName.length === 1 ? byName[0] : null)
     return match ? api.outputDownloadUrl(match, job.workspace) : null
   }
 </script>
