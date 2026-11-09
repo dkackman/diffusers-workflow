@@ -685,6 +685,7 @@ TEMPLATE_PIPELINE_KEYS = {
     "generate-speech.json": {},
     "narration-from-takes.json": {},
     "narration-long.json": {},
+    "narration-retime.json": {},
     "split-takes.json": {},
     "check-narration.json": {},
     "image-edit.json": {
