@@ -379,3 +379,170 @@ class TestProbeEstimate:
         )
         assert staged["minutes"] == pytest.approx(6.0)
         assert "probe: segment(s) 3..3" in staged["scaled"]
+
+
+def _take_manifest(planned, shots=None):
+    """A chain take's manifest entry: one shot per rendered segment, each
+    carrying the plan's segment count (dw/shots.py `planned_segments`)."""
+    count = planned if shots is None else shots
+    return [
+        {
+            "step": "take",
+            "shots": [
+                {
+                    "name": f"segment {index + 1}",
+                    "start_frame": index * 9,
+                    "num_frames": 9,
+                    "planned_segments": planned,
+                }
+                for index in range(count)
+            ],
+        }
+    ]
+
+
+class TestMatchedObservedHistory:
+    """A match_audio chain's N is the track's, unknown at validate, so its
+    observed history (own or inherited) is priced per segment: each full
+    take's minutes over the segments it rendered."""
+
+    @staticmethod
+    def _matched(**chain):
+        return {
+            "id": "matched",
+            "cost_drivers": ["num_frames"],
+            "variables": {"num_frames": 9, "stop_after": None},
+            "steps": [
+                {
+                    "pipeline": {
+                        "chain": {
+                            "match_audio": True,
+                            "fps": 4,
+                            "save_segments": True,
+                            "keep_segments": True,
+                            "stop_after": "variable:stop_after",
+                            **chain,
+                        },
+                        "arguments": {"num_frames": "variable:num_frames"},
+                    }
+                }
+            ],
+        }
+
+    @staticmethod
+    def _quote(definition, observed, **variables):
+        from dw.plan import estimate
+
+        expanded = {"variables": {**definition["variables"], **variables}}
+        return estimate(definition, expanded, {}, "cuda", None, None, observed=observed)
+
+    def test_matched_chain_history_is_normalized_per_segment(self):
+        definition = self._matched()
+        rows = [
+            # 40 min over 10 segments, 30 over 6: 4 and 5 a segment
+            run(40 * MINUTE, manifest=_take_manifest(10)),
+            run(30 * MINUTE, manifest=_take_manifest(6), finished_at=1_700_000_100.0),
+        ]
+        block = observed_for(definition, rows, device="cuda", arguments={})
+        assert block["per_segment"] is True
+        assert block["cold_minutes"] == pytest.approx(4.5)
+        assert block["runs"] == 2
+
+        # A probe of 3 is three segments at that figure, said in the text
+        probe = observed_for(
+            definition, rows, device="cuda", arguments={"stop_after": 3}
+        )
+        quoted = self._quote(definition, probe, stop_after=3)
+        assert quoted["minutes"] == pytest.approx(13.5)
+        assert "probe: 3 segment(s) at the per-segment figure" in quoted["scaled"]
+
+    def test_matched_chain_inherited_history_is_normalized(self):
+        from tests.test_inherited_cost import PIPELINE, inherited
+
+        # A countable template measured over 4 segments; the inline workflow
+        # with its pipeline is a matched chain
+        template = {
+            "id": "t",
+            "variables": {"segments": 4},
+            "cost_drivers": ["segments"],
+            "steps": [
+                {
+                    "id": "gen",
+                    "pipeline": PIPELINE,
+                    "run": {
+                        "chain": {"segments": "variable:segments"},
+                        "arguments": {"num_frames": 124},
+                    },
+                }
+            ],
+        }
+        inline = {
+            "id": "inline",
+            "variables": {"stop_after": None},
+            "steps": [
+                {
+                    "id": "gen",
+                    "pipeline": PIPELINE,
+                    "run": {
+                        "chain": {
+                            "match_audio": True,
+                            "stop_after": "variable:stop_after",
+                        },
+                        "arguments": {"num_frames": 124},
+                    },
+                }
+            ],
+        }
+        history = {
+            "templates/t": [run(20 * MINUTE, {"segments": 4})],
+        }
+        block = inherited(inline, [("templates/t", template)], history)
+        assert block["inherited_from"] == "templates/t"
+        assert block["per_segment"] is True
+        assert block["cold_minutes"] == pytest.approx(5.0)
+
+        # (the stub server serves cpu; the quote is asked for cuda)
+        quoted = self._quote(inline, {**block, "device": "cuda"}, stop_after=2)
+        assert quoted["minutes"] == pytest.approx(10.0)
+        assert "per-segment figure" in quoted["scaled"]
+
+    def test_matched_full_take_quotes_per_segment_without_guessing_n(self):
+        definition = self._matched()
+        rows = [run(40 * MINUTE, manifest=_take_manifest(10))]
+        block = observed_for(definition, rows, device="cuda", arguments={})
+        quoted = self._quote(definition, block)
+        assert quoted["minutes"] == pytest.approx(4.0)
+        assert "per segment; the track sets the count" in quoted["scaled"]
+
+    def test_countable_chain_history_unchanged(self):
+        definition = self._matched()
+        chain = definition["steps"][0]["pipeline"]["chain"]
+        del chain["match_audio"]
+        chain["segments"] = 4
+        rows = [run(40 * MINUTE, manifest=_take_manifest(4))]
+        block = observed_for(definition, rows, device="cuda", arguments={})
+        assert "per_segment" not in block
+        assert block["cold_minutes"] == pytest.approx(40.0)
+        probe = observed_for(
+            definition, rows, device="cuda", arguments={"stop_after": 1}
+        )
+        quoted = self._quote(definition, probe, stop_after=1)
+        assert quoted["minutes"] == pytest.approx(10.0)
+        assert "probe: 1 of 4 segment(s)" in quoted["scaled"]
+
+    def test_run_without_segment_count_is_left_out(self):
+        definition = self._matched()
+        rows = [
+            run(40 * MINUTE, manifest=_take_manifest(10)),
+            # an older take whose shots carry no plan count
+            run(90 * MINUTE, manifest=[{"step": "take"}]),
+        ]
+        block = observed_for(definition, rows, device="cuda", arguments={})
+        assert block["runs"] == 1
+        assert block["cold_minutes"] == pytest.approx(4.0)
+
+        # nothing countable at all: no figure
+        assert (
+            observed_for(definition, [run(90 * MINUTE)], device="cuda", arguments={})
+            is None
+        )

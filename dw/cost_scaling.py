@@ -593,8 +593,7 @@ def _chain_render_scaling(definition, variables):
                 definition, variables, stop, min(kept, segments), segments
             )
             return factor, axes, probe_unscaled + unscaled
-        blocks = list(_chain_blocks(definition.get("steps")))
-        if not segments and _resolved(blocks[0][0].get("match_audio"), variables):
+        if matched_chain(definition, variables):
             factor, axes, probe_unscaled = _probe_scaling(
                 definition, variables, stop, kept, None
             )
@@ -629,6 +628,45 @@ def _chain_render_scaling(definition, variables):
         ],
         unscaled,
     )
+
+
+def matched_chain(definition, variables):
+    """Whether the workflow's one chain takes its length from its
+    `match_audio` track at `variables`, so its segment count is the run's to
+    find and unknown at validate."""
+    blocks = list(_chain_blocks(definition.get("steps")))
+    return (
+        len(blocks) == 1
+        and bool(_resolved(blocks[0][0].get("match_audio"), variables))
+        and not _chain_segments(definition, variables)
+    )
+
+
+# The estimate's axis for a matched take quoted at a per-segment figure
+PER_SEGMENT_NOTE = "per segment; the track sets the count"
+# Its note when the figure it was handed is a whole take's
+WHOLE_TAKE_NOTE = (
+    "the observed figure is a whole take's, not per segment, so it is not "
+    "scaled by the segments rendered"
+)
+
+
+def observed_render_scaling(definition, variables, measured):
+    """`_chain_render_scaling` for an observed or inherited estimate
+    (`dw/plan.py` `_with_worst_case`). A countable chain's is unchanged. A
+    matched chain's history is per segment (`observed_cost.observed_for`
+    divides each take by the segments it rendered): a probe is that many
+    renders of it, and a full take, whose count only the track knows, is
+    quoted at the per-segment figure, said so. A matched chain handed a
+    whole take's figure is not multiplied, and is flagged."""
+    if not matched_chain(definition, variables):
+        return _chain_render_scaling(definition, variables)
+    if not measured.get("per_segment"):
+        return 1.0, [], [WHOLE_TAKE_NOTE]
+    factor, axes, unscaled = _chain_render_scaling(definition, variables)
+    if _chain_stop_after(definition, variables)[0] is None:
+        axes = [PER_SEGMENT_NOTE, *axes]
+    return factor, axes, unscaled
 
 
 def _declared_axis_scaling(name, default_value, value, list_entries, proportional):

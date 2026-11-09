@@ -11,8 +11,10 @@ from pathlib import Path
 import pytest
 
 from dw.plan import build_plan
+from dw.server.observed_cost import observed_for
 from dw.validation import workflow_errors
 from dw.workflow import workflow_from_definition
+from tests.test_observed_cost import MINUTE, run
 
 TEMPLATE = (
     Path(__file__).resolve().parent.parent
@@ -83,21 +85,41 @@ def test_validates_with_a_probe(tmp_path, plan):
     assert lines["arguments"]["audio"] == "variable:narration"
 
     # ...and the plan says so: a probe of 12 segments, priced per segment,
-    # whose full length comes from the track
-    def history(arguments):
-        return {
-            "device": "cuda",
-            "name": "RTX 3090",
-            "runs": 3,
-            "cold_minutes": 4.0,
-            "cold_runs": 3,
+    # whose full length comes from the track. The history is one full take
+    # of 10 segments in 40 minutes, so 4 minutes a segment
+    take = [
+        {
+            "step": "take",
+            "shots": [
+                {"name": f"segment {i}", "planned_segments": 10} for i in range(10)
+            ],
         }
+    ]
+    rows = [run(40 * MINUTE, manifest=take)]
+
+    def history(arguments):
+        return observed_for(
+            load(), rows, device="cuda", device_name="RTX 3090", arguments=arguments
+        )
+
+    assert history({})["cold_minutes"] == 4.0
+    assert history({})["per_segment"] is True
 
     answer = plan(ARGUMENTS, observed=history)
     assert answer["steps"] == 2
     scaled = answer["estimate"]["scaled"]
-    assert "probe: 12 segment(s)" in scaled
+    assert "from the observed 4 min" in scaled
+    assert "probe: 12 segment(s) at the per-segment figure" in scaled
     assert "comes from the track" in scaled
+    # segment 1 unchecked (the track is held), 11 checked with 1 re-roll:
+    # 1 + 11 x 2 = 23 renders of the 4-minute segment, not of the 40-minute take
+    assert "23 renders" in scaled
+    assert answer["estimate"]["minutes"] == pytest.approx(92.0)
+
+    # the full take, whose count only the track knows, is one segment's figure
+    full = plan({**ARGUMENTS, "stop_after": None}, observed=history)
+    assert full["estimate"]["minutes"] == pytest.approx(4.0)
+    assert "per segment; the track sets the count" in full["estimate"]["scaled"]
 
 
 @pytest.mark.parametrize("missing", REQUIRED)
