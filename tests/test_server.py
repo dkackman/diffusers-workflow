@@ -6296,7 +6296,10 @@ def test_rerun_override_of_the_seed_with_new_seed_is_refused(server, no_hub):
         )
         assert response.status_code == 400
         detail = response.json()["detail"]
-        assert "'seed'" in detail and "new_seed" in detail
+        assert detail == (
+            "'new_seed' and an override of the seed variable 'seed' "
+            "cannot both be given"
+        )
 
 
 def drawn_seed_workflow():
@@ -6329,6 +6332,22 @@ def realizing_script(output_dir, seed):
         yield {"type": "success", "message": "ok", "run_count": 1, "manifest": []}
 
     return script
+
+
+def test_a_null_seed_override_draws_fresh_instead_of_keeping_the_parent_s(
+    server, no_hub, tmp_path
+):
+    with server(realizing_script(str(tmp_path / "outputs"), 424242)) as client:
+        first = client.post(
+            "/api/jobs",
+            json={"workflow": drawn_seed_workflow(), "arguments": {"prompt": "a"}},
+        ).json()
+        wait_for_status(client, first["id"], TERMINAL_STATES)
+        response = client.post(
+            f"/api/jobs/{first['id']}/rerun", json={"arguments": {"seed": None}}
+        )
+        assert response.status_code == 201, response.json()
+        assert response.json()["arguments"].get("seed") is None
 
 
 def test_a_rerun_with_overrides_keeps_the_parent_s_drawn_seed(server, no_hub, tmp_path):

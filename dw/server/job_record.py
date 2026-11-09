@@ -70,8 +70,9 @@ def keep_drawn_seed(arguments, variable, realized):
         return {**arguments, variable: seed}, []
     return arguments, [
         f"{RERUN_SEED_UNKNOWN}: the seed the original run drew for "
-        f"'{variable}' is not on record, so this rerun draws a fresh seed "
-        "and may not keep the original's staging"
+        f"'{variable}' is not on record, so this rerun uses the variable's "
+        "default (a fresh seed when that is null) and may not keep the "
+        "original's staging"
     ]
 
 
