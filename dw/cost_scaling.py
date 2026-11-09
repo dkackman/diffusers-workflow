@@ -556,6 +556,31 @@ def _declared_axis_scaling(name, default_value, value, list_entries, proportiona
     return factor, axes
 
 
+def chain_segment_scaling(
+    was_definition, was_variables, now_definition, now_variables, drivers
+):
+    """The one rule for a chain's length (#1305): (ratio, reason, unscaled)
+    for the run of `now_definition` at `now_variables` against the one
+    measured as `was_definition` at `was_variables`. The ratio is now/was
+    with the reason "segments N vs M"; when either count cannot be told and
+    one of the chain-length `drivers` differs between the two, they come
+    back as unscaled and the ratio stays 1.0. `_driver_scaling` (the
+    catalog figure) and `dw/server/deps.py` (the inherited one) both call
+    it."""
+    was = _chain_segments(was_definition, was_variables)
+    now = _chain_segments(now_definition, now_variables)
+    if was and now:
+        if was != now:
+            return now / was, f"segments {now} vs {was}", []
+        return 1.0, None, []
+    moved = any(
+        _driver_comparable(now_variables.get(name))
+        != _driver_comparable(was_variables.get(name))
+        for name in drivers
+    )
+    return 1.0, None, list(drivers) if moved else []
+
+
 def _driver_scaling(definition, expanded, list_entries, baseline=None):
     """How far the declared `cost_drivers` moved the run away from the
     defaults the curated `cost` was measured at, as (factor, axes, unscaled),
@@ -612,18 +637,13 @@ def _driver_scaling(definition, expanded, list_entries, baseline=None):
     factor, scaled_axes = scaled
     scaled_axes = scaled_axes + axes
     if chain_drivers:
-        was = _chain_segments(definition, defaults)
-        now = _chain_segments(definition, effective)
-        if was and now:
-            if was != now:
-                factor *= now / was
-                scaled_axes.append(f"segments {now} vs {was}")
-        elif any(
-            _driver_comparable(effective.get(name))
-            != _driver_comparable(defaults.get(name))
-            for name in chain_drivers
-        ):
-            unscaled.extend(chain_drivers)
+        ratio, reason, chain_unscaled = chain_segment_scaling(
+            definition, defaults, definition, effective, chain_drivers
+        )
+        factor *= ratio
+        if reason:
+            scaled_axes.append(reason)
+        unscaled.extend(chain_unscaled)
     if baseline is not None:
         # A ratio between two runs: the re-rolls are in both
         return factor, scaled_axes, unscaled

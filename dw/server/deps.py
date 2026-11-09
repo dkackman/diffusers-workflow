@@ -30,7 +30,8 @@ from ..vram_inheritance import (
 from ..cost_scaling import (
     FRAMES_DRIVER,
     STEPS_DRIVER,
-    _chain_segments,
+    CHAIN_LENGTH_DRIVERS,
+    chain_segment_scaling,
     scale_curated,
 )
 from .observed_cost import declared_drivers
@@ -296,7 +297,8 @@ def _means(keys, values):
 def _scale_past_template(definition, template, drivers, arguments):
     """How the workflow's size compares to the template run the bucket was
     measured on (#821, #851, #866): (factor, reason). The factor is the
-    ratio of pipeline steps times what `scale_curated` makes of the mean
+    ratio of pipeline steps, times the chain's segments ratio
+    (`chain_segment_scaling`, the catalog figure's rule), times what `scale_curated` makes of the mean
     frames, inference steps and canvas per pipeline step - one rule, so the
     catalog figure and this one quote a request alike - and the reason names
     each axis that moved. (1, None) when the workflow is the template's
@@ -321,13 +323,18 @@ def _scale_past_template(definition, template, drivers, arguments):
     # A chain is one pipeline step however many segments it renders, so its
     # length is its own axis (#1305): a fallback to the template's default
     # bucket would otherwise quote 3 segments at the 2 it was measured on
-    mine_segments = _chain_segments(
-        definition, effective_variables(definition, arguments)
+    ratio, reason, unscaled = chain_segment_scaling(
+        bucket,
+        bucket["variables"],
+        definition,
+        effective_variables(definition, arguments),
+        CHAIN_LENGTH_DRIVERS,
     )
-    bucket_segments = _chain_segments(bucket, bucket["variables"])
-    if mine_segments and bucket_segments and mine_segments != bucket_segments:
-        factor *= mine_segments / bucket_segments
-        reasons.append(f"segments {mine_segments} vs {bucket_segments}")
+    factor *= ratio
+    if reason:
+        reasons.append(reason)
+    if unscaled:
+        return None, f"{', '.join(unscaled)} differ and cannot be compared"
     # Each axis read per pipeline step, the template's variables as the
     # bucket sets them, and averaged for `scale_curated`; a step that does
     # not set it as a number is left out

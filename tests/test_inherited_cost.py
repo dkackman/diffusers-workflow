@@ -859,3 +859,24 @@ class TestChainSegmentsScaleTheInheritedFigure:
         assert two["cold_minutes"] == 6.0
         assert three["cold_minutes"] > two["cold_minutes"]
         assert "segments 3 vs 2" in three["scaled"]
+
+    def test_the_catalog_rule_and_the_inherited_one_agree(self):
+        """The inherited path and `_driver_scaling` share one rule: the same
+        ratio and the same reason for 3 segments against 2."""
+        from dw.cost_scaling import CHAIN_LENGTH_DRIVERS, chain_segment_scaling
+
+        two = self.chain_definition("t", 2)
+        three = self.chain_definition("t", 3)
+        ratio, reason, unscaled = chain_segment_scaling(
+            two, two["variables"], three, three["variables"], CHAIN_LENGTH_DRIVERS
+        )
+        assert (ratio, reason, unscaled) == (1.5, "segments 3 vs 2", [])
+        history = {"templates/t": [run(6 * MINUTE, {"segments": 2})]}
+        block = inherited(
+            self.chain_definition("inline", 3),
+            [("templates/t", two)],
+            history,
+            {"segments": 3},
+        )
+        assert block["cold_minutes"] == 9.0
+        assert reason in block["scaled"]
