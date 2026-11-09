@@ -1023,8 +1023,14 @@ def _inherited_cost_warnings(estimate):
         return [f"cost estimate withheld: {estimate['withheld']}"]
     if not isinstance(estimate, dict) or estimate.get("basis") != "inherited":
         return []
-    differs = estimate.get("differs") or []
-    return [
+    from ...pipeline_processors.chain_resume import FANOUT_NOTE, UNRESOLVED_NOTE
+
+    entries = estimate.get("differs") or []
+    # The resume notes are whole sentences; the rest are short names that
+    # fit "its X differs from that template".
+    notes = [e for e in entries if e in (FANOUT_NOTE, UNRESOLVED_NOTE)]
+    differs = [e for e in entries if e not in notes]
+    warning = (
         f"cost estimate is inherited from this box's runs of {estimate.get('inherited_from')} "
         "(same pipeline), not of this workflow"
         + (f"; {estimate['scaled']}" if estimate.get("scaled") else "")
@@ -1034,7 +1040,8 @@ def _inherited_cost_warnings(estimate):
             if differs
             else ""
         )
-    ]
+    )
+    return [warning + "".join(f". Note: {note}" for note in notes)]
 
 
 def _host_memory_warnings(state, name, definition, list_entries, *, workspace=None):

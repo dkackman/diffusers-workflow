@@ -880,3 +880,17 @@ class TestChainSegmentsScaleTheInheritedFigure:
         )
         assert block["cold_minutes"] == 9.0
         assert reason in block["scaled"]
+
+
+def test_fanout_note_is_its_own_sentence():
+    from dw.pipeline_processors.chain_resume import FANOUT_NOTE
+
+    estimate = {
+        "basis": "inherited",
+        "inherited_from": "t",
+        "differs": [FANOUT_NOTE],
+    }
+    text = _inherited_cost_warnings(estimate)[0]
+    assert "its the resume quote" not in text
+    assert "differs from that template" not in text
+    assert text.endswith(f". Note: {FANOUT_NOTE}")
