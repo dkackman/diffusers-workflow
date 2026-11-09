@@ -349,30 +349,54 @@ def _seam_head(chunks, expected, previous_line):
     normalized words) is dropped when every word of it is one of the last
     SEAM_TAIL_WORDS words of `previous_line` - a carried word the head trim
     cut part-way. A chunk there that matches nothing is kept: an invented
-    word counts."""
-    import difflib
+    word counts.
 
-    from ..script_lines import normalize_words, strip_markup
+    The heard words are the owners' (Script check row): each chunk's
+    words unfolded (`normalize_words(numbers=False)`), then folded across
+    chunks by `fold_numbers`, as `guard_words` builds them, so 'twenty' and
+    'one' heard as two chunks are the one word '21' here as in `check`. The
+    head is `script_check.align`'s: the heard words it leaves unassigned
+    before the line's first assigned word. A head word folded across chunks
+    drops every chunk it spans. The guard's discards (below the floor, a
+    loop) are not applied here: `check` applies them to the chunks kept."""
+    from ..script_lines import fold_numbers, normalize_words, strip_markup
+    from ..tasks.script_check import align
 
     if not previous_line or not expected:
         return list(chunks), []
     tail = set(normalize_words(strip_markup(previous_line)[0])[-SEAM_TAIL_WORDS:])
-    owner, flat = [], []
-    for index, chunk in enumerate(chunks):
-        words = normalize_words(chunk.get("text", ""))
-        owner.extend([index] * len(words))
-        flat.extend(words)
-    matcher = difflib.SequenceMatcher(None, expected, flat, autojunk=False)
-    first = next(
-        (j for op, _i1, _i2, j, _j2 in matcher.get_opcodes() if op == "equal"), None
-    )
-    if first is None or not tail:
+    if not tail:
         return list(chunks), []
-    head = set(owner[:first]) - {owner[first]}
+    owners = [
+        index
+        for index, chunk in enumerate(chunks)
+        for _ in normalize_words(chunk.get("text", ""), numbers=False)
+    ]
+    unfolded = [
+        word
+        for chunk in chunks
+        for word in normalize_words(chunk.get("text", ""), numbers=False)
+    ]
+    heard, spans, k = [], [], 0
+    for word, count in fold_numbers(unfolded):
+        heard.append({"word": word})
+        spans.append(set(owners[k : k + count]))
+        k += count
+    assigned, unassigned = align([expected], heard)
+    if not assigned[0]:
+        return list(chunks), []
+    first = min(assigned[0])
+    head = {j for j, _ in unassigned if j < first}
+    # A chunk is dropped when every heard word touching it is a head word
+    # from the tail; one shared with the line's first word stays
+    touching = {}
+    for j, chunk_indices in enumerate(spans):
+        for index in chunk_indices:
+            touching.setdefault(index, []).append(j)
     dropped = {
         index
-        for index in head
-        if set(normalize_words(chunks[index].get("text", ""))) <= tail
+        for index, words in touching.items()
+        if all(j in head and heard[j]["word"] in tail for j in words)
     }
     kept = [chunk for index, chunk in enumerate(chunks) if index not in dropped]
     return kept, [chunks[index] for index in sorted(dropped)]

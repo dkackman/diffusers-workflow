@@ -125,6 +125,30 @@ def test_seam_head_word_of_previous_line_is_dropped():
     assert answer["passed"] is True
 
 
+def test_seam_head_number_folded_across_chunks_is_dropped():
+    # The previous line ends "twenty-one" (tail {"21"}); Whisper hears the
+    # carry as two chunks, which fold to one word as check_script folds them
+    answer = check(
+        "of the United States",
+        words("twenty one of the United States"),
+        previous_line="Amendment twenty-one",
+    )
+    assert answer["seam_head_dropped"] == ["twenty", "one"]
+    assert answer["heard"] == "of the United States"
+    assert answer["similarity"] == 1.0
+    assert answer["passed"] is True
+
+
+def test_seam_head_chunk_sharing_the_lines_first_word_is_kept():
+    chunks = [
+        {"start": 0.0, "end": 0.4, "text": " people of"},
+        *words("the United States", start=0.5),
+    ]
+    answer = check("of the United States", chunks, previous_line="we the people")
+    assert answer["seam_head_dropped"] == []
+    assert answer["heard"].startswith("people of")
+
+
 def test_invented_head_word_is_kept():
     answer = check(
         "of the United States",

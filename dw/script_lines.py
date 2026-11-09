@@ -106,7 +106,17 @@ def fold_numbers(words):
     'and' inside a number after a hundred or a scale ('two hundred and
     five') is part of it. A year said in halves ('seventeen eighty seven')
     folds to '17 87', which line_similarity's compound join reads as
-    '1787'; ordinals ('first') are left as words."""
+    '1787'; ordinals ('first') are left as words.
+
+    Not transformers' Whisper `EnglishNumberNormalizer`
+    (`transformers.models.whisper.english_normalizer`), checked at the
+    pinned transformers: it leaves a lone small number as a word ('article
+    one' stays 'article one', so the 'Article One'/'Article 1' case this
+    exists for would still differ), rewrites words that are not numbers
+    ('first' -> '1st', 'five percent' -> '5%', 'one dollar' -> '$one'), and
+    returns a string, not how many words each fold spans - which
+    `script_take._folded_heard` needs to give a folded word its chunks'
+    span."""
     folded = []
     i = 0
     while i < len(words):
