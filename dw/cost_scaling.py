@@ -359,7 +359,7 @@ def _is_literal_text(value):
     stands: a string that is no reference and holds no `{...}` substitution."""
     return (
         isinstance(value, str)
-        and not any(value.startswith(kind) for kind in references.DEFERRED)
+        and not references.is_ref(references.DEFERRED, value)
         and "{" not in value
     )
 
