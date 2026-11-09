@@ -101,7 +101,7 @@ from ..tasks.chain_repair import SEGMENT_FILE, segment_files
 from ..tasks.joins import equal_power_crossfade_join
 from ..tasks.video_utils import load_audio_video
 from ..writers import output_file_path
-from .chain_check import audio_dbfs, measure_frames, texture_base
+from .chain_check import audio_dbfs, face_base, measure_frames, texture_base
 from .chain_continuity import _SegmentCarry
 from .chain_rules import CHAIN_RESUME_FROM, resume_reference_problem
 from .h3_rules import ANCHOR_SEGMENT_1, GUIDE_CONTINUITY, KEYSTONE_SEGMENT_1
@@ -139,6 +139,7 @@ class ResumeState:
     previous_kept: object  # the last kept segment's check measures, or None
     segment_1_texture: object
     warning: str
+    segment_1_face: object = None  # chain_check.face_base of segment 1
 
     def lay_down(self, timeline):
         """Put the kept segments on the chain's timeline."""
@@ -288,6 +289,7 @@ def load(config, spill, hold=None):
         previous_kept=measure_frames(last.frames) if config.check else None,
         segment_1_texture=texture_base(kept.first.frames) if config.check else None,
         warning=warning,
+        segment_1_face=face_base(kept.first.frames) if config.check else None,
     )
 
 

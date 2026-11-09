@@ -54,14 +54,20 @@ from .chain_spill import (  # noqa: F401 - SegmentedFrames and SavedFrames re-ex
     spilled_frames,
 )
 from .chain_check import (
+    WORDS_MEASURES,
     audio_dbfs,
     best_attempt,
     check_audio,
     check_segment,
     check_words,
+    face_base,
+    face_sync_record,
+    failures_text as _failures,
     measure_frames,
     reroll_seed,
+    shown_value as _shown_value,
     texture_base,
+    with_face_sync,
     with_words,
 )
 from . import chain_resume
@@ -88,10 +94,6 @@ from .h3_rules import (
 )
 
 logger = logging.getLogger("dw")
-
-# The failed measures that read the `words` answer: a failed one, and a passed
-# one whose opening is missing (#1308)
-WORDS_MEASURES = frozenset({"words", "words_opening"})
 
 
 def run_chain(pipeline, chain_definition, arguments):
@@ -148,11 +150,11 @@ def run_chain(pipeline, chain_definition, arguments):
 
     # The step's seed, which a re-roll offsets (chain_check.reroll_seed); the
     # previous segment's kept frames, which a check measures the seam
-    # against, and segment 1's fine-band texture, which it measures drift by
-    # (measured once, rather than from its frames at every check)
+    # against, and segment 1's fine-band texture and face base (frame 0 and
+    # its median match), which it measures drift by - each measured once
     seed = _step_seed(arguments)
     previous_kept = None
-    segment_1_texture = None
+    segment_1_texture = segment_1_face = None
 
     # An earlier run's kept segments, copied in as segments 1..k
     try:
@@ -170,6 +172,7 @@ def run_chain(pipeline, chain_definition, arguments):
         capstone_frame = resumed.capstone_frame
         previous_kept = resumed.previous_kept
         segment_1_texture = resumed.segment_1_texture
+        segment_1_face = resumed.segment_1_face
 
     try:
         for segment in config.plan[resumed.count if resumed else 0 : config.end_index]:
@@ -197,7 +200,7 @@ def run_chain(pipeline, chain_definition, arguments):
                     continuity,
                     state,
                     previous_kept,
-                    segment_1_texture,
+                    (segment_1_texture, segment_1_face),
                 )
             else:
                 attempt = _render_attempt(
@@ -217,6 +220,7 @@ def run_chain(pipeline, chain_definition, arguments):
                 # Keep the kept segment's small measures, not its frames
                 if segment.index == 0:
                     segment_1_texture = texture_base(attempt.kept)
+                    segment_1_face = face_base(attempt.kept)
                     previous_kept = measure_frames(attempt.kept)
                 else:
                     previous_kept = checked["result"].frame_data
@@ -526,9 +530,10 @@ def _checked_attempt(
     continuity,
     state,
     previous_kept,
-    segment_1_texture,
+    segment_1,
 ):
-    """Render a segment, check it against the one before and segment 1, and
+    """Render a segment, check it against the one before and segment 1 - its
+    (texture, face) bases - and
     re-roll it from the same state up to `config.retries` times while it
     fails. Returns (the kept attempt, its record): the attempt with the
     fewest failed measures, then the lowest jump ratio (`best_attempt`), and
@@ -560,7 +565,7 @@ def _checked_attempt(
             else check_segment(
                 previous_kept,
                 attempt.kept,
-                segment_1_texture,
+                segment_1[0],
                 config.check,
                 audio=kept_audio,
             )
@@ -569,6 +574,21 @@ def _checked_attempt(
             result = with_words(
                 result, _segment_words(kept_audio, attempt, segment, config)
             )
+        # Held or generated, the attempt's own track is what its mouths move to
+        sync = (
+            _on_timeline_audio(attempt.audio, segment, config, attempt.rate)
+            if config.fps
+            else None
+        )
+        result = with_face_sync(
+            result,
+            attempt.kept,
+            segment_1[1],
+            sync,
+            attempt.rate,
+            config.fps,
+            config.check,
+        )
         results.append(result)
         kept_index = best_attempt(results)
         if kept_index == number:
@@ -613,36 +633,6 @@ def _segment_words(kept_audio, attempt, segment, config):
     )
 
 
-def _shown_value(result, name):
-    """A failed measure's value as a failure names it: the words measure by
-    its similarity, every other by its number."""
-    value = result.measures.get(name)
-    if name in WORDS_MEASURES:
-        value = result.measures.get("words")
-    if name in WORDS_MEASURES and isinstance(value, dict):
-        return value.get("similarity")
-    return value
-
-
-def _failure_text(result, name):
-    """One failed measure as a log or warning names it. A words failure also
-    names the findings that failed it and what was heard: a passing
-    similarity still fails on any WORDS_FINDINGS finding (#1262), and the
-    number alone would not say why."""
-    text = f"{name} {_shown_value(result, name)}"
-    words = result.measures.get("words") if name in WORDS_MEASURES else None
-    if not isinstance(words, dict):
-        return text
-    rules = list(dict.fromkeys(f.get("rule") for f in words.get("findings") or ()))
-    if rules:
-        text += f" with {', '.join(str(rule) for rule in rules)}"
-    return text + f", heard {words.get('heard', '')!r}"
-
-
-def _failures(result):
-    return "; ".join(_failure_text(result, name) for name in result.failed)
-
-
 def _record_check(shot, segment, config, checked):
     """Put a checked segment's attempts on its shot - and, when every attempt
     failed, the measures its kept attempt failed, with one job warning that
@@ -656,6 +646,7 @@ def _record_check(shot, segment, config, checked):
     if kept:
         # The seed the kept re-roll ran at, so the run can be repeated
         shot["seed"] = checked.get("seed")
+    shot["check"] = face_sync_record(result)
     if "words" in result.measures:
         # The kept attempt's words, null for a segment with no line (#1262)
         shot["words"] = result.measures["words"]
@@ -690,8 +681,8 @@ def _record_check(shot, segment, config, checked):
             f"{checked['attempts']}, the closest"
             if exhausted
             else f"({_failures(result)}); kept attempt {kept + 1} of "
-            f"{checked['attempts']}; texture drift is not re-rolled, "
-            "a fresh seed inherits the carry"
+            f"{checked['attempts']}; a warn-only measure is not re-rolled "
+            "(texture drift is in the carry, which a fresh seed inherits)"
         )
         + (f" - {detail['note']}" if "note" in detail else ""),
         kind="chain_check_failed",

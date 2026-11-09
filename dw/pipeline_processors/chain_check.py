@@ -23,14 +23,26 @@ segment with a line, segment 1 included (`chain_config.segment_line`), and
 re-rolling measure. The default minimum is None, the measure off:
 bench/records/words.md found no clean separation of good takes from bad.
 
+`with_face_sync` folds in the identity and lip-sync measures, both warn-only:
+`face_drop`, segment 1's median SFace similarity to its own frame 0
+(`face_base`, measured once) minus this segment's to that same frame
+(`face_drift.face_similarities`), and `lip_sync`, the correlation of the
+mouth's motion with the audio's loudness (`lip_sync.lip_sync_score`). Their
+ceilings `face_drop_max` and `lip_sync_min` default to None: measured and
+recorded on the shot's `check`, never failed, until the bench sets them. A
+model that cannot load leaves the measure None rather than failing a chain.
+
 Measurement and choice only: nothing here renders, and nothing here touches
 the timeline. The chain keys are validated by `chain_rules.chain_check_problem`.
 """
 
+import logging
 import math
 from dataclasses import dataclass, field
 
 import numpy
+
+logger = logging.getLogger("dw")
 
 # The default ceilings, set from the 99th percentile of each seam measure
 # across the noise-floor runs of S1-S3 (bench/records/noise-floor.md, "Chain
@@ -96,6 +108,15 @@ WORDS_FINDINGS = (
 # head_trim, and the one or two before it
 SEAM_TAIL_WORDS = 3
 
+# - face_drop: how far a segment's faces have moved from segment 1's frame 0,
+#   below segment 1's own median similarity to it; lip_sync: the least
+#   correlation of mouth motion with audio loudness. Both None by default -
+#   measured and recorded, never failed - until the bench sets them
+FACE_DROP_DEFAULT = None
+LIP_SYNC_DEFAULT = None
+# Frames of a segment, evenly spaced, its face similarity is the median of
+FACE_SAMPLES = 8
+
 # The measures a check can fail, in the order a failure names them
 MEASURES = (
     "jump_ratio",
@@ -104,12 +125,22 @@ MEASURES = (
     "cut_ratio",
     "audio_dbfs",
     "words",
+    "face_drop",
+    "lip_sync",
 )
 
 # Measures that warn and record but never re-roll a segment (ruling R38):
 # texture drift is in the carry, so a fresh seed from the same carry inherits
-# it (bench/records/check.md). The others a new seed can fix
-WARN_ONLY = ("texture_ratio",)
+# it (bench/records/check.md); an identity or sync measure is not yet known to
+# be one a new seed fixes. The others a new seed can fix
+WARN_ONLY = ("texture_ratio", "face_drop", "lip_sync")
+
+# The measures with_face_sync records on a checked segment's shot `check`
+FACE_SYNC_RECORD = ("face_drop", "lip_sync", "lip_sync_lag_seconds")
+
+# The failed measures that read the `words` answer: a failed one, and a passed
+# one whose opening is missing (#1308)
+WORDS_MEASURES = frozenset({"words", "words_opening"})
 
 # Frames of a segment, evenly spaced, its fine-band texture is the mean of
 TEXTURE_SAMPLES = 4
@@ -125,7 +156,9 @@ class SegmentCheck:
     fine-band ratio both ways (None skips it); `audio_dbfs_min` is the floor
     of its generated audio (None skips it); `words_similarity_min` the least
     similarity of its heard words to its line (None, the default, skips the
-    words measure); `face` is reserved."""
+    words measure); `face_drop_max` the most a segment's face similarity
+    may fall below segment 1's, `lip_sync_min` the least lip-sync
+    correlation (None, the defaults, measure and record without failing)."""
 
     jump_ratio_max: float = JUMP_RATIO_MAX
     look_ratio_max: float = LOOK_RATIO_MAX
@@ -133,7 +166,8 @@ class SegmentCheck:
     cut_ratio_max: float | None = CUT_RATIO_MAX
     audio_dbfs_min: float | None = AUDIO_DBFS_MIN
     words_similarity_min: float | None = WORDS_SIMILARITY_DEFAULT
-    face: None = None
+    face_drop_max: float | None = FACE_DROP_DEFAULT
+    lip_sync_min: float | None = LIP_SYNC_DEFAULT
 
 
 @dataclass
@@ -169,6 +203,8 @@ def segment_check(value):
         "cut_ratio_max",
         "audio_dbfs_min",
         "words_similarity_min",
+        "face_drop_max",
+        "lip_sync_min",
     ):
         if name in value:
             fields[name] = None if value[name] is None else float(value[name])
@@ -292,6 +328,108 @@ def with_words(result, words):
         result.failed.append("words_opening")
         result.passed = False
     return result
+
+
+def _face_scores(frames, reference, samples):
+    """The seam the face models sit behind: `face_similarities`."""
+    from ..tasks.face_drift import face_similarities
+
+    return face_similarities(frames, reference, samples)
+
+
+def _sync_score(frames, waveform, sample_rate, fps):
+    """The seam the lip-sync measure sits behind: `lip_sync_score`."""
+    from ..tasks.lip_sync import lip_sync_score
+
+    return lip_sync_score(frames, waveform, sample_rate, fps)
+
+
+def _measured(name, measure, *args):
+    """`measure(*args)`, or None when it raises: a measure that only records
+    must never fail the chain it is measuring (a reduced cv2, no weights)."""
+    try:
+        return measure(*args)
+    except Exception as error:
+        logger.warning(f"Chain check: {name} not measured ({error})")
+        return None
+
+
+def face_base(frames):
+    """(reference, median): segment 1's frame 0 and the median similarity of
+    segment 1's sampled frames to it - what every later segment's face_drop
+    is measured from, once. None when frame 0 holds no face (or the models
+    cannot load): face_drop is then never measured."""
+    if not len(frames):
+        return None
+    reference = frames[0]
+    scores = _measured("face_drop", _face_scores, frames, reference, FACE_SAMPLES)
+    if not scores:
+        return None
+    return reference, float(numpy.median(scores))
+
+
+def with_face_sync(result, frames, base, audio, sample_rate, fps, check):
+    """`result` with the segment's `face_drop` (against `face_base`'s `base`,
+    None without one or with no face in the segment) and `lip_sync` (its
+    frames against `audio`, None without audio) recorded, failing a measure
+    only when the check sets its ceiling. Both are WARN_ONLY: a failure is
+    recorded and warned, never re-rolled."""
+    drop = None
+    if base is not None:
+        scores = _measured("face_drop", _face_scores, frames, base[0], FACE_SAMPLES)
+        if scores:
+            drop = round(base[1] - float(numpy.median(scores)), 3)
+    sync = None
+    if audio is not None and sample_rate and fps:
+        sync = _measured("lip_sync", _sync_score, frames, audio, sample_rate, fps)
+    correlation = None if sync is None else sync.get("correlation")
+    result.measures["face_drop"] = drop
+    result.measures["lip_sync"] = correlation
+    result.measures["lip_sync_lag_seconds"] = (
+        None if sync is None else sync.get("lag_seconds")
+    )
+    if check.face_drop_max is not None and _over(drop, check.face_drop_max):
+        result.failed.append("face_drop")
+    if _under(correlation, check.lip_sync_min):
+        result.failed.append("lip_sync")
+    result.passed = result.passed and not result.failed
+    return result
+
+
+def face_sync_record(result):
+    """The identity and sync measures of a checked segment, for its shot."""
+    return {name: result.measures.get(name) for name in FACE_SYNC_RECORD}
+
+
+def shown_value(result, name):
+    """A failed measure's value as a failure names it: the words measure by
+    its similarity, every other by its number."""
+    value = result.measures.get(name)
+    if name in WORDS_MEASURES:
+        value = result.measures.get("words")
+    if name in WORDS_MEASURES and isinstance(value, dict):
+        return value.get("similarity")
+    return value
+
+
+def _failure_text(result, name):
+    """One failed measure as a log or warning names it. A words failure also
+    names the findings that failed it and what was heard: a passing
+    similarity still fails on any WORDS_FINDINGS finding (#1262), and the
+    number alone would not say why."""
+    text = f"{name} {shown_value(result, name)}"
+    words = result.measures.get("words") if name in WORDS_MEASURES else None
+    if not isinstance(words, dict):
+        return text
+    rules = list(dict.fromkeys(f.get("rule") for f in words.get("findings") or ()))
+    if rules:
+        text += f" with {', '.join(str(rule) for rule in rules)}"
+    return text + f", heard {words.get('heard', '')!r}"
+
+
+def failures_text(result):
+    """Every failed measure of a CheckResult, as the log and warning name them."""
+    return "; ".join(_failure_text(result, name) for name in result.failed)
 
 
 def _words_only(result):

@@ -319,3 +319,17 @@ def test_sface_cache_key_carries_the_revision(monkeypatch):
     )
     fd._models()
     assert keys and fd.SFACE_REVISION in keys[0]
+
+
+def test_face_similarities_scores_in_memory_frames(probe):
+    frames = [a_face()] * 4 + [frame()] * 2 + [a_face(PERSON_B)] * 2
+    scores = fd.face_similarities(frames, frames[0], samples=8)
+    # The two blank frames have no face; the other person matches at ~0
+    assert len(scores) == 6
+    assert sum(s > 0.99 for s in scores) == 4 and sum(s < 0.5 for s in scores) == 2
+    assert probe.calls == 9  # the reference, then every sampled frame
+
+
+def test_face_similarities_refuses_a_reference_with_no_face(probe):
+    with pytest.raises(ValueError, match="no face"):
+        fd.face_similarities([a_face()], frame(), samples=1)

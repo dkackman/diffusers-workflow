@@ -109,6 +109,20 @@ def _clear_task_model_cache():
 
 
 @pytest.fixture(autouse=True)
+def _no_face_models_in_chain_checks(monkeypatch):
+    """A checked chain measures face_drop and lip_sync on every segment, and
+    those read YuNet and SFace weights; the suite's fake pipelines render
+    flat frames with no face. Each seam answers as for a clip with no face,
+    so no test downloads or runs the models through a chain. A test of the
+    measures patches over this one (tests/test_chain_check_face_sync.py).
+    """
+    import dw.pipeline_processors.chain_check as chain_check
+
+    monkeypatch.setattr(chain_check, "_face_scores", lambda *args: [])
+    monkeypatch.setattr(chain_check, "_sync_score", lambda *args: None)
+
+
+@pytest.fixture(autouse=True)
 def _clear_step_cache_after_test():
     """Ensure dw.step_cache.step_cache is empty after every test.
 

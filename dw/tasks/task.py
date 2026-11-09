@@ -20,6 +20,7 @@ from ..task_domains import FINITE, coerce_arguments
 from ..trust import require_trusted_task_arguments
 from . import beats  # noqa: F401 - registers analyze_beats
 from . import measure_sync  # noqa: F401 - registers measure_sync
+from . import lip_sync  # noqa: F401 - registers measure_lip_sync
 from . import phrases  # noqa: F401 - registers analyze_phrases
 from . import cuts  # noqa: F401 - registers plan_cuts
 from . import trim  # noqa: F401 - registers trim_video

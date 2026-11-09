@@ -211,8 +211,8 @@ def chain_look_hold_problem(chain):
 
 
 # The per-segment check and its bounded re-roll (chain_check.py): the fields a
-# `check` object may set (`face` is reserved, null only) and the most re-rolls
-# a checked segment may take. Family-independent
+# `check` object may set and the most re-rolls a checked segment may take.
+# Family-independent
 CHAIN_CHECK_FIELDS = (
     "jump_ratio_max",
     "look_ratio_max",
@@ -220,7 +220,8 @@ CHAIN_CHECK_FIELDS = (
     "cut_ratio_max",
     "audio_dbfs_min",
     "words_similarity_min",
-    "face",
+    "face_drop_max",
+    "lip_sync_min",
 )
 CHAIN_RETRIES_MAX = 3
 # Each segment's own line, which the words check holds its heard audio to
@@ -260,7 +261,9 @@ def chain_check_finding(chain):
     `CHAIN_CHECK_FIELDS`: the ratio ceilings above 0, `texture_ratio_max`
     above 1 (it bounds the ratio both ways) or null, `audio_dbfs_min` a
     floor below 0 or null, `words_similarity_min` a similarity above 0 and at
-    most 1, or null (the default, the words measure off), `face` null. `retries`
+    most 1, or null (the default, the words measure off), `face_drop_max`
+    a number above 0 or null and `lip_sync_min` a correlation above -1 and at
+    most 1 or null (both null by default: measured, never failed). `retries`
     is a whole number from 0 to `CHAIN_RETRIES_MAX`; above 0 it needs the
     check on, as with no check nothing fails. Unresolved references are left
     to the run, whose `ChainConfig` asks this same rule.
@@ -306,11 +309,9 @@ def chain_check_finding(chain):
                 "segment's heard words to its line, so must be a number above 0 "
                 f"and at most 1, or null, got {words!r}"
             )
-        if check.get("face") is not None:
-            return (
-                "check",
-                f"check face is reserved and must be null, got {check['face']!r}",
-            )
+        face_sync = _face_sync_finding(check)
+        if face_sync is not None:
+            return face_sync
     elif not (
         check is None
         or isinstance(check, bool)
@@ -330,6 +331,28 @@ def chain_check_finding(chain):
         return "retries", (
             f"retries {retries} needs check on - a re-roll replaces a segment "
             "its check failed, and with no check no segment fails"
+        )
+    return None
+
+
+def _face_sync_finding(check):
+    """chain_check_finding's rule for a check object's identity and sync
+    ceilings, or None."""
+    drop = check.get("face_drop_max")
+    if drop is not None and not _number_over(drop, 0):
+        return "check", (
+            "check face_drop_max is the most a segment's face similarity may "
+            "fall below segment 1's, so must be a number above 0 or null, "
+            f"got {drop!r}"
+        )
+    sync = check.get("lip_sync_min")
+    if sync is not None and not (
+        _number_over(sync, -1) and (isinstance(sync, str) or sync <= 1)
+    ):
+        return "check", (
+            "check lip_sync_min is the least correlation of a segment's mouth "
+            "motion with its audio, so must be a number above -1 and at most "
+            f"1, or null, got {sync!r}"
         )
     return None
 
