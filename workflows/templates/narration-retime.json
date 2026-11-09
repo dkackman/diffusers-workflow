@@ -1,14 +1,21 @@
 {
   "id": "NarrationRetime",
-  "description": "Retimes a spoken narration onto an H3 chain's frame grid and checks it against its script: every pause is set by the punctuation it follows ('comma_seconds', 'sentence_seconds', 'section_seconds' for a blank line), and the pause nearest each segment boundary is moved so the boundary falls in silence. Saves the retimed track and a JSON report (words, pauses, boundaries). 'num_frames' and 'guide_frames' must equal the take's own chain settings, or the boundaries land in the wrong places. 'mid_word_boundaries' in the report should be empty before a take is rendered. 'script' is required, since the engine has no conditional step: the check always runs, and its answer lists any take over the word error rate.",
+  "description": "Retimes a spoken narration onto an H3 chain's frame grid and checks it against its script: every pause is set by the punctuation it follows ('comma_seconds', 'sentence_seconds', 'section_seconds' for a blank line), and the pause nearest each segment boundary is moved so the boundary falls in silence. Saves the retimed track and a JSON report (words, pauses, boundaries). 'num_frames' and 'guide_frames' must equal the take's own chain settings, or the boundaries land in the wrong places. 'mid_word_boundaries' in the report should be empty before a take is rendered. 'script' is required and enforced (a run is refused while it is null), since the engine has no conditional step: the check always runs, and its answer lists any take over the word error rate.",
   "variables": {
     "narration": "asset:narration.wav",
-    "script": "Somebody finished the pistachio. Nobody is saying anything.",
+    "script": null,
     "comma_seconds": 0.3,
     "sentence_seconds": 0.6,
     "section_seconds": 1.0,
     "num_frames": 192,
     "guide_frames": 22
+  },
+  "variable_constraints": {
+    "script": {
+      "required": true,
+      "min_length": 1,
+      "reason": "the script the narration speaks, used to set the pause classes and to check every word; a placeholder would check against the wrong text"
+    }
   },
   "steps": [
     {
