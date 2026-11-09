@@ -528,3 +528,76 @@ def test_a_variable_named_resume_from_keeps_its_output_reference():
     variables = {"resume_from": ref}
     realize_args(variables, apply_key_conventions=False)
     assert variables["resume_from"] == ref
+
+
+def _prepared_chain(tmp_path, variable, ref, chain_extra=None):
+    """A chain step whose resume_from names `variable`, prepared the way a
+    run prepares it (the variables pass, substitution, expansion) and then
+    realized by the steps pass, as Workflow.run does both."""
+    import copy
+
+    from dw.arguments import realize_args
+    from dw.workflow import Workflow
+    from dw.workflow_run import prepare_definition
+
+    chain = {
+        "segments": 3,
+        "save_segments": True,
+        "resume_from": f"variable:{variable}",
+    }
+    chain.update(chain_extra or {})
+    definition = {
+        "id": "wf",
+        "variables": {variable: ref},
+        "steps": [
+            {
+                "name": "chained",
+                "pipeline": {
+                    "configuration": {"pipeline_type": "diffusers.DiffusionPipeline"},
+                    "from_pretrained_arguments": {"model_name": "m"},
+                    "chain": chain,
+                    "arguments": {"prompt": "p"},
+                },
+            }
+        ],
+    }
+    wf = Workflow(copy.deepcopy(definition), str(tmp_path / "out"), None)
+    prepared, _, _ = prepare_definition(
+        wf, copy.deepcopy(wf.workflow_definition), {}, str(tmp_path)
+    )
+    steps = prepared["steps"]
+    realize_args(steps, str(tmp_path))
+    return steps[0]["pipeline"]["chain"]
+
+
+@pytest.mark.parametrize("variable", ["resume_from", "resume_seg", "from_here"])
+def test_any_variable_a_chain_resumes_from_keeps_its_output_reference(
+    tmp_path, variable
+):
+    """Whatever the variable carrying it is called, the value reaching the
+    chain's resume_from is the output: reference the resume resolves, not a
+    path the variables pass realized it to and the resume refuses (#1304)."""
+    from dw.pipeline_processors.chain_rules import resume_reference_problem
+
+    ref = "output:wf/20261109-155308-7853e9f9/final/p.0.segment-000.mp4"
+    chain = _prepared_chain(tmp_path, variable, ref)
+    assert chain["resume_from"] == ref
+    assert resume_reference_problem(chain["resume_from"]) is None
+
+
+def test_resume_variables_names_only_resume_from_output_references():
+    from dw.pipeline_processors.chain_rules import resume_variables
+
+    steps = [
+        {"pipeline": {"chain": {"resume_from": "variable:seg"}}},
+        {"workflow": {"arguments": {"resume_from": "variable:down"}}},
+        {"task": {"arguments": {"video": "variable:clip"}}},
+        {"pipeline": {"chain": {"resume_from": "variable:asset_one"}}},
+    ]
+    variables = {
+        "seg": "output:wf/r/p.0.segment-000.mp4",
+        "down": "output:wf/r/p.0.segment-001.mp4",
+        "clip": "output:wf/r/clip.mp4",
+        "asset_one": "asset:clip.mp4",
+    }
+    assert resume_variables(steps, variables) == {"seg", "down"}
