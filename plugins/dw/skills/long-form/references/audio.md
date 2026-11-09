@@ -150,5 +150,7 @@ the joined narration as `narration`, the script as `script` (a blank line marks
 a section), and the take's own `num_frames` and `guide_frames`. It sets each
 pause by its punctuation (`comma_seconds`, `sentence_seconds`,
 `section_seconds`), brings a word junction onto each segment boundary so no
-boundary cuts through a word, and checks the result against the script. Read the
-report's `mid_word_boundaries`: it should be empty before any take is rendered.
+boundary cuts through a word, and checks the result against the script. The
+report's `mid_word_boundaries` is advisory: a few are fine, since the narration
+is held and a cut inside a word is heard unbroken (it only splits that word
+between two segments' lines); if many appear, raise `boundary_slack_seconds`.

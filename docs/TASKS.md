@@ -3382,7 +3382,7 @@ JSON beside it. Later steps read them as `previous_result:retime.audio` and
 - `duration_seconds`: the retimed length.
 - `boundaries`: `[{segment, seconds, in_gap}]`, present with
   `segment_frames`. `segment` is the 0-based index of the segment that ends there.
-- `mid_word_boundaries`: `[{segment, word}]`, the boundaries left inside a word.
+- `mid_word_boundaries`: `[{segment, word}]`, the boundaries left inside a word. Advisory, not a gate: a few are fine, since the narration is held and a cut inside a word is heard unbroken; it only splits that word between two segments' lines. If many appear, raise `boundary_slack_seconds`. A boundary after the last word is the take's tail and is not reported.
 
 ### `narration_lines`
 
@@ -3409,7 +3409,7 @@ so it lands in that word's segment. The answer is a JSON document:
 - `prompts`: present only with `prompt_template`. It is the template once per
   line, with `{line}` and every `fill` key substituted.
 - `segments`: `[{index, start_seconds, end_seconds, line}]`.
-- `mid_word_boundaries`: `[{segment, word}]`, the kept-span ends that fall inside a word.
+- `mid_word_boundaries`: `[{segment, word}]`, the kept-span ends that fall inside a word by more than 0.08 s on both sides (Whisper's word times on edited audio jitter by tens of ms). Advisory, like the retime report's.
 - `total_frames`: the frames the plan covers.
 
 A chain step reads them as `previous_result:lines.prompts` or

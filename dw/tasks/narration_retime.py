@@ -70,6 +70,10 @@ BOUNDARY_MARGIN_SECONDS = 0.02
 _AIM_EXTRA = 1e-3
 _TOLERANCE = 1e-6
 # The window looped for room tone when find_loop_bed finds no candidate
+# narration_lines judges a boundary mid-word only when it lies inside a word
+# by more than this on both sides: Whisper's word times on edited audio jitter
+# by tens of ms, so a strict start < t < end reads junction placements as cuts.
+WORD_JITTER_SECONDS = 0.08
 QUIET_WINDOW_SECONDS = 0.25
 _QUIET_HOP_SECONDS = 0.05
 
@@ -466,7 +470,10 @@ def _boundaries(out, junctions, duration, grid):
     ends = kept_span_ends(_frames(duration, fps), segment_frames, guide_frames, fps)
     boundaries, stuck = [], []
     for index, seconds in enumerate(ends):
-        in_gap = any(_holds(j, seconds, margin=False) for j in junctions)
+        # past the last word is the take's tail, not a cut through a word
+        in_gap = seconds >= out[-1]["end"] or any(
+            _holds(j, seconds, margin=False) for j in junctions
+        )
         boundaries.append(
             {"segment": index, "seconds": round(seconds, 4), "in_gap": in_gap}
         )
@@ -771,7 +778,9 @@ def narration_lines(
         {"segment": s["index"], "word": w["word"]}
         for s in segments[:-1]
         for w in words
-        if w["start"] < s["end_seconds"] < w["end"]
+        if w["start"] + WORD_JITTER_SECONDS
+        < s["end_seconds"]
+        < w["end"] - WORD_JITTER_SECONDS
     ]
     answer["total_frames"] = total
     return answer

@@ -567,3 +567,32 @@ def test_lines_use_script_spelling(heard):
     ]
     # the comma the script puts after the word Whisper missed sets the pause
     assert gap_after(report, "twenty dollars,") == pytest.approx(0.3, abs=0.02)
+
+
+def test_final_take_end_is_not_a_boundary(heard):
+    # the last word ends at 6.0 s; the chain's final boundary (8.0 s) sits in
+    # the silence after it, which is not a seam through a word
+    words = [("a", 0.2, 0.6), ("b", 5.5, 6.0)]
+    track, chunks = build(words, 9.0)
+    heard(chunks)
+
+    report = retime_narration(track, segment_frames=192, guide_frames=22, fps=24)[
+        "report"
+    ]
+
+    assert report["mid_word_boundaries"] == []
+    assert all(b["in_gap"] for b in report["boundaries"])
+
+
+def test_lines_mid_word_tolerates_whisper_jitter(heard):
+    # segment 0 ends at 8.0 s (192 frames at 24 fps)
+    def mid_word(start, end):
+        track, chunks = build([("a", 0.2, 0.6), ("word", start, end)], 12.0)
+        heard(chunks)
+        return narration_lines(track, segment_frames=192, guide_frames=22, fps=24)[
+            "mid_word_boundaries"
+        ]
+
+    assert mid_word(7.95, 9.0) == []  # 0.05 s inside the word's start
+    assert mid_word(7.8, 9.0) == [{"segment": 0, "word": "word"}]  # 0.2 s inside
+    assert mid_word(6.5, 8.05) == []  # 0.05 s inside the word's end
