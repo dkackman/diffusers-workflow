@@ -51,6 +51,23 @@ index order, complete) as its segments 1..k and render only k+1..N:
 - The step generator restarts at the step's seed, so the rendered segments
   are not the renders the dead run would have made next.
 
+Known approximations, none of them silent reuse:
+
+- Under `carry_pick` the capstone frame is read off segment 1's file by its
+  tail trim alone, so it is off by segment 1's unknown `picked_back`, and
+  `anchor` frames lack segment 1's carry_pick tail trim. Prefer not to resume
+  a chain that sets `capstone` with `carry_pick`; the frame is close, not exact.
+- A spill's `-2` dedupe suffix (`...segment-000-2.mp4`, flat layout) is not
+  matched by `SEGMENT_FILE`: moot while each job has its own run directory.
+- The iteration number counts `run_chain` calls on one Pipeline wrapper; an
+  in-step retry on the same wrapper would shift the numbers, which shows as a
+  `chain_resumed` warning with `kept: 0` (a render in full), never as reuse.
+- `resume_from` resolves a `latest` or `vN` run id as of before this run
+  started, so iteration 0's copies into the new run never become the
+  reference of iteration 1.
+- The estimate (`kept_count`) prices every fan-out iteration at the named
+  iteration's count; see `FANOUT_NOTE`.
+
 `kept_count` is what the cost estimate asks (`cost_scaling`): the segments a
 resolvable `resume_from` skips, 0 when it is unset or does not resolve yet.
 """
@@ -66,7 +83,7 @@ from .. import references
 from ..events import emit_warning
 from ..media import probe_metadata
 from ..media_types import fit_codec_padding
-from ..runs import output_root, resolve_output_reference
+from ..runs import is_run_id, output_root, resolve_output_reference
 from ..security import PathTraversalError, SecurityError, validate_path
 from ..shots import shot_record
 from ..task_domains import frames_to_samples
@@ -74,7 +91,7 @@ from ..tasks.chain_repair import SEGMENT_FILE, segment_files
 from ..tasks.joins import equal_power_crossfade_join
 from ..tasks.video_utils import load_audio_video
 from ..writers import output_file_path
-from .chain_check import measure_frames, texture_base
+from .chain_check import audio_dbfs, measure_frames, texture_base
 from .chain_continuity import _SegmentCarry
 from .chain_rules import CHAIN_RESUME_FROM, resume_reference_problem
 from .h3_rules import ANCHOR_SEGMENT_1, GUIDE_CONTINUITY, KEYSTONE_SEGMENT_1
@@ -83,6 +100,13 @@ logger = logging.getLogger("dw")
 
 # The estimate's note when `resume_from` names a file that is not there yet
 UNRESOLVED_NOTE = "priced for every segment; resume_from is not resolvable at validate"
+
+# The estimate's note when the resuming step fans out over previous_result
+FANOUT_NOTE = (
+    "the resume quote assumes every fan-out iteration resumes by the named "
+    "iteration's segment count; an iteration whose files are missing, or that "
+    "finished, renders in full and costs that many segments more"
+)
 
 
 @dataclass
@@ -131,14 +155,22 @@ class ResumeState:
         )
 
 
-def resolved_reference(value):
+def resolved_reference(value, before=None):
     """The file a `resume_from` value names, validated: refused as a
     location unless it is an output reference, then resolved against the
-    run's output root."""
+    run's output root. `before`, the current run id, narrows `latest` to the
+    runs that started before it."""
     problem = resume_reference_problem(value)
     if problem:
         raise PathTraversalError(problem)
-    return resolve_output_reference(value)
+    return resolve_output_reference(value, before=before)
+
+
+def _current_run_id(spill):
+    """The run id of the directory this run spills into, or None when the
+    layout has none (flat)."""
+    name = os.path.basename(os.path.normpath(spill.output_dir))
+    return name if is_run_id(name) else None
 
 
 def kept_count(chain):
@@ -189,7 +221,7 @@ def load(config, spill, hold=None):
     `hold`, the chain's LookHold, is brought up to the last kept segment."""
     if config.resume_from is None:
         return None
-    named = resolved_reference(config.resume_from)
+    named = resolved_reference(config.resume_from, _current_run_id(spill))
     sources = own_segments(named, spill)
     if sources is None or (
         len(sources) >= len(config.plan) and not _names_iteration(named, spill)
@@ -331,6 +363,13 @@ class _Kept:
         """Decode one copied file onto the kept timeline; returns its frames."""
         video = load_audio_video(copy)
         count = len(video.frames)
+        header = (probe_metadata(copy) or {}).get("frame_count")
+        if header is not None and header != count:
+            # check_plan went by the header; the timeline goes by the decode
+            raise ValueError(
+                f"Chain {CHAIN_RESUME_FROM}: kept file {os.path.basename(source)} "
+                f"decodes to {count} frames but its header says {header}"
+            )
         start_sample = self.audio.shape[1] if self.audio is not None else 0
         self._join_audio(video, count)
         shot = shot_record(
@@ -343,6 +382,7 @@ class _Kept:
         shot["num_samples"] = (
             self.audio.shape[1] if self.audio is not None else 0
         ) - start_sample
+        self._record_level(shot, video)
         if self.config.keep_segments:
             shot["segment_file"] = os.path.basename(copy)
         self.shots.append(shot)
@@ -352,6 +392,29 @@ class _Kept:
             self.first = video
         self.last = video
         return count
+
+    def _record_level(self, shot, video):
+        """The kept file's generated audio level on its shot, and the silent
+        floor warning the rendered segments get (they were measured in the
+        dead run, from the unencoded audio; this reads the file's AAC)."""
+        if self.config.audio_held or video.audio is None:
+            return
+        level = audio_dbfs(video.audio)
+        if level is None:
+            return
+        shot["audio_dbfs"] = level
+        floor = self.config.audio_floor
+        if floor is None or level >= floor:
+            return
+        emit_warning(
+            f"Chain kept segment {len(self.shots) + 1}/{len(self.config.plan)} "
+            f"is silent: its audio reads {level} dBFS, under the {floor:g} dBFS "
+            "floor",
+            kind="chain_segment_silent",
+            segment=len(self.shots) + 1,
+            audio_dbfs=level,
+            floor=floor,
+        )
 
     def _join_audio(self, video, count):
         """Lay a kept file's own track end to end on the joined one, declicked

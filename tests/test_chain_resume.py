@@ -411,3 +411,98 @@ def test_kept_and_rendered_segments_must_agree_on_audio(
         run_chain(pipeline, _chain(resume_from=_first_file_reference()), _arguments())
 
     assert "segment 3" in str(refused.value)
+
+
+def test_a_latest_reference_under_a_fan_out_names_the_dead_run_for_every_iteration(
+    outputs, events
+):
+    _fanned_out_dead_run(outputs, events, keep_iteration_0=True)
+    # Iteration 0 as a partial take too, so both iterations have something kept
+    for path in (outputs / WORKFLOW / FIRST_RUN).glob(
+        "chained.video.0.segment-00[23].mp4"
+    ):
+        path.unlink()
+    latest = references.make_ref(
+        references.OUTPUT, f"{WORKFLOW}/latest/chained.video.0.segment-000.mp4"
+    )
+
+    pipeline = _pipeline(outputs, SECOND_RUN, _factory())
+    chain = _chain(resume_from=latest)
+    first = run_chain(pipeline, chain, _arguments())
+    second = run_chain(pipeline, chain, _arguments())
+
+    # Iteration 0's copies in the new run did not become iteration 1's reference
+    assert sum(1 for shot in first.shots if shot.get("resumed")) == 2
+    assert sum(1 for shot in second.shots if shot.get("resumed")) == 2
+    assert not [w for w in _warnings(events, "chain_resumed") if w["kept"] == 0]
+
+
+def test_a_kept_segment_that_decodes_to_another_frame_count_is_refused(
+    outputs, events, monkeypatch
+):
+    from dw.pipeline_processors import chain_resume
+
+    _dead_run(outputs, events)
+    real = chain_resume.probe_metadata
+    monkeypatch.setattr(
+        chain_resume,
+        "probe_metadata",
+        lambda path: (
+            {**(real(path) or {}), "frame_count": 99}
+            if "segment-000-" not in str(path)
+            and "/chained.video.0.segment-000" in str(path)
+            and SECOND_RUN in str(path)
+            else real(path)
+        ),
+    )
+    pipeline = _pipeline(outputs, SECOND_RUN, _factory())
+    with pytest.raises(ValueError, match="decodes to"):
+        run_chain(pipeline, _chain(resume_from=_first_file_reference()), _arguments())
+
+
+def test_kept_segments_carry_their_audio_level_and_a_silent_one_warns(outputs, events):
+    _dead_run(outputs, events, audio=True)
+    pipeline = _pipeline(outputs, SECOND_RUN, _factory(audio=True))
+
+    result = run_chain(
+        pipeline, _chain(resume_from=_first_file_reference()), _arguments()
+    )
+
+    assert all(shot.get("audio_dbfs") is not None for shot in result.shots[:2])
+
+    # A silent kept set warns, as a rendered silent segment does
+    silent = _factory(fail_at=2)
+
+    def mute(arguments, index):
+        out = silent(arguments, index)
+        out["audio"] = torch.zeros(1, 1, round(arguments["num_frames"] / FPS * RATE))
+        out["sampling_rate"] = RATE
+        return out
+
+    events.clear()
+    first_run = outputs / WORKFLOW / FIRST_RUN
+    for path in first_run.glob("*.mp4"):
+        path.unlink()
+    with pytest.raises(SegmentFailed):
+        run_chain(_pipeline(outputs, FIRST_RUN, mute), _chain(), _arguments())
+    run_chain(
+        _pipeline(outputs, SECOND_RUN, _factory(audio=True)),
+        _chain(resume_from=_first_file_reference()),
+        _arguments(),
+    )
+    assert len(_warnings(events, "chain_segment_silent")) >= 2
+
+
+def test_a_failed_final_encode_draws_the_resume_hint(outputs, events, monkeypatch):
+    from dw.pipeline_processors import chain as chain_module
+
+    def broken(*args, **kwargs):
+        raise RuntimeError("encode died")
+
+    monkeypatch.setattr(chain_module, "_stitched", broken)
+    pipeline = _pipeline(outputs, FIRST_RUN, _factory())
+    with pytest.raises(RuntimeError, match="encode died"):
+        run_chain(pipeline, _chain(), _arguments())
+
+    (hint,) = _warnings(events, "chain_resume_hint")
+    assert hint["resume_from"] == _first_file_reference()
