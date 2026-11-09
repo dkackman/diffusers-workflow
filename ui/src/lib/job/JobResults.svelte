@@ -115,18 +115,16 @@
   // the previous one. The job's own workspace rides along too, so its media
   // still loads correctly if the picker has since moved elsewhere.
   const fileUrl = (path: string) => outputUrl(path, job.id, job.workspace)
-  // A bundle member that is one of this job's files: by full path first (the
-  // member itself, or a job file ending in it). Only a member under the
-  // bundle's own media/ folder falls back to a file name, and only when one
-  // job file has it - a sources-mode member that merely shares a name with
-  // another file must not download that file
-  const memberHref = (member: string) => {
-    const all = fileGroups.flatMap((group) => group.files)
-    const name = member.split('/').pop()
-    const byName = all.filter((file) => file.split('/').pop() === name)
-    const match =
-      all.find((file) => file === member || file.endsWith('/' + member)) ??
-      (member.startsWith('media/') && byName.length === 1 ? byName[0] : null)
+  // A bundle member is linked only when the clip that plays it recorded an
+  // `output:` source that is one of this job's files. Members are all
+  // media/<name>, so a name says nothing: an asset that shares a name with a
+  // job file has no source here and gets no link
+  const memberHref = (_member: string, source: string | null) => {
+    const path = referenceName(source, OUTPUT)
+    if (!path) return null
+    const match = fileGroups
+      .flatMap((group) => group.files)
+      .find((file) => file === path)
     return match ? api.outputDownloadUrl(match, job.workspace) : null
   }
 </script>

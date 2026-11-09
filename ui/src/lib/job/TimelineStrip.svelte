@@ -12,8 +12,14 @@
   }: {
     summary: TimelineSummary
     /** A download URL for a bundle member that is one of the job's files */
-    memberHref?: (member: string) => string | null
+    memberHref?: (member: string, source: string | null) => string | null
   } = $props()
+
+  // The `output:` reference a clip recorded for the member it plays, if any
+  const sourceOf = (member: string) =>
+    summary.tracks
+      .flatMap((track) => track.items)
+      .find((item) => item.media === member && item.source)?.source ?? null
 
   // Video above audio, whatever order the bundle lists them in
   const tracks = $derived(
@@ -23,7 +29,7 @@
   )
   const downloads = $derived(
     summary.members.flatMap((member) => {
-      const href = memberHref(member)
+      const href = memberHref(member, sourceOf(member))
       return href ? [{ member, href }] : []
     }),
   )
