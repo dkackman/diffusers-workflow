@@ -274,10 +274,9 @@ def test_the_narrated_take_copy_is_the_template_plus_the_exposed_keys():
     with the experimental chain keys read from variables (whose defaults are
     the template's own chain) and the CP0 inputs as defaults - nothing else,
     so the control arm runs the template as shipped."""
+    # keystone, keystone_slot and keyframes are the template's own (Task 11a)
     exposed = {
         "experimental_latent_carry": False,
-        "keystone": "none",
-        "keystone_slot": None,
         "experimental_capstone": None,
         "anchor_every": None,
     }
