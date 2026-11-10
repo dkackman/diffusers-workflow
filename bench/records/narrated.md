@@ -142,3 +142,74 @@ The backdrop drifts in both (the colonnade gives way to rows of trees).
 The candidate moves the face drift from about 30-36 s to about 70 s and
 removes the saturation burn, at no extra wall time; neither arm holds a
 face to 85 s. Seed 1 only.
+
+### Static long (keystone segment_1, slot last) - job 7f52bc5b09b6
+
+Seed 1, 12 segments, 282 min wall. `face_drop` stays within ±0.015 of
+segment 1 throughout; saturation 68 to 75 to 73; `cut_ratio` re-rolled
+segments 2 and 3. Eye: face and backdrop hold to 85 s, but she stands:
+every segment eases back to the opening frame, so there is no walk.
+
+### Face repair on the candidate - jobs 44be41a64140, d56817f8fa5d
+
+`templates/minimax/face-repair` on candidate segments 6 and 11 (about 7.4
+min each). It softens the glaze but has no reference to aim at: the face
+comes back blurrier and, on segment 11, older. Dropped as a fix.
+
+### Don's CP1 verdict (2026-11-10)
+
+The candidate's glaze is distracting by 40 s; the control degrades
+markedly by 40 s; the static long take holds the face throughout. A
+walk with the static take's face quality wins, at a higher budget. Arms
+D (keystone `last` every 3 segments: pulls her back to the walk's start)
+and A (candidate anchors every segment: its anchors barely moved
+`face_drop`) were dropped before running. Next: the moving keystone
+(`docs/proposals/narrated-long-take.md`, Amendment 1).
+
+## Moving keystone: keyframes
+
+### v1: Klein edit per keyframe (dropped)
+
+Twelve `templates/flux3/image-edit` runs on the speaker still (seed 1110),
+one per segment end, each asking for the background "d metres further down
+the avenue" (d = 7 to 84). About 1 min each on cuda:0.
+
+- Identity holds: SFace similarity to the still 0.907-0.931.
+- Framing is consistent between keyframes but pulled back from the still:
+  face width 274 px against the still's 361 (0.76x), so segment 1 would
+  read as a dolly-out.
+- The recession stalls: keyframes 1-3 move the colonnade back, 4-12 are
+  near-identical. Distance asked for in words stops working past ~28 m.
+
+### v2: one plate, widening crops, the matted speaker (approved)
+
+1. **Plate.** `templates/flux3/image-edit` at 2048x1168 on the still
+   shrunk to half size in a grey border, asked to outpaint and remove her
+   (seeds 1110, 1111; jobs 39f1ab8bdc05, d9d5d922b1cf). Seed 1111 kept: a
+   centred colonnade at the end of a tree-lined avenue.
+2. **Crops.** Keyframe k (0-12) is a 1.75:1 crop of the plate whose width
+   grows geometrically from 1155 px to the plate's 2048 (1.77x over the
+   walk, ~4.9% per segment), the building's base held at 56% of the
+   height and its centre easing from 72% of the width to the middle,
+   resized to 1344x768 with a 3 px Gaussian blur for depth of field.
+3. **Speaker.** `remove_background` (RMBG-2.0) on the still (job
+   7ed5e7747fdb), pasted onto every crop at the same pixels.
+
+Her face is the still's own pixels in every keyframe: size, position and
+identity cannot drift. The backdrop recedes steadily from keyframe 1 to
+12. Matte edges (hair, earrings, collar) hold at full size.
+
+Tried first and dropped: `templates/flux3/multi-reference` composites of
+the still onto crops 1, 6 and 12 (seed 1110; jobs 302d42a0f24c,
+95514085cb39, f0a4fd947702). The backdrop followed the crops and identity
+held (0.913, 0.926, 0.930), but face scale wandered at 0.95x, 0.77x and
+0.90x: a zoom pump at every segment end.
+
+The chain starts from keyframe 0 (her on the tightest crop), not the
+still, whose closer, different building would swap partway through
+segment 1. Assets: `asset:uploads/bench/keyframes-v2/kf00.jpg` to
+`kf12.jpg`. Don approved the series 2026-11-10.
+
+Watch at CP1: every keyframe holds the same expression and pose, so
+each segment lands on the same face. If that reads as a tic, vary the
+expression per keyframe.
