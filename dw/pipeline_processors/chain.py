@@ -111,14 +111,14 @@ def run_chain(pipeline, chain_definition, arguments):
         A single AudioVideo holding the stitched frames, and either the joined
         generated audio, the original match_audio track, or no audio at all
     """
-    # Step.run resolved any previous_result references in the chain's prompts,
-    # which the chain block cannot express on its own
+    # The block's previous_result: lists, Step.run resolved (resolve_chain_lists)
     config = ChainConfig(
         chain_definition,
         arguments,
         getattr(pipeline, "chain_prompts", None),
         getattr(pipeline, "base_dir", None),
         getattr(pipeline, "chain_lines", None),
+        getattr(pipeline, "chain_keystone_images", None),
     )
     continuity = CONTINUITY_MODES[config.continuity](config)
     if config.continuity == GUIDE_CONTINUITY:
@@ -323,6 +323,8 @@ def _keystone_note(config, arguments):
         if arguments.get(config.segment_argument) is None:
             return None
         return "opens on segment 1's frame 0"
+    if config.keystone_images:
+        return "ends on keystone_images[{entry}] (its last_image)"
     if slot == KEYSTONE_SLOT_LAST:
         return "ends on segment 1's frame 0 (its last_image)"
     if slot == KEYSTONE_SLOT_LATENT:
@@ -336,11 +338,10 @@ def _log_seam_holds(config, segment, attempt, state, keystone_note=None):
     `_keystone_note` says) and corrected by the look hold; the first only
     sets the scene, and its carry may be pre-compensated for the next."""
     seam = f"Chain seam {segment.index}/{len(config.plan) - 1}"
-    keystone = state.keystone_frame if config.anchors(segment.index) else None
+    keystone = config.keystone_for(segment.index, state.keystone_frame)
     if keystone is not None and keystone_note:
-        emit_log(
-            f"{seam}: keystone applied - segment {segment.index + 1} {keystone_note}"
-        )
+        note = keystone_note.format(entry=segment.index)
+        emit_log(f"{seam}: keystone applied - segment {segment.index + 1} {note}")
     if attempt.hold is None:
         return
     parts = ", ".join(name for name, on in config.look_hold.items() if on)
@@ -455,7 +456,7 @@ def _render_attempt(
         continuity,
         state.carry,
         state.anchor_frames,
-        state.keystone_frame if anchored else None,
+        config.keystone_for(segment.index, state.keystone_frame),
     )
     if anchored and state.capstone_frame is not None:
         _add_capstone(segment_arguments, state.capstone_frame, config.capstone)
@@ -954,6 +955,8 @@ def _segment_arguments(
             segment_arguments[LATENT_ANCHOR_INPUT] = anchor_frames
             if config.anchor_strength is not None:
                 segment_arguments[LATENT_ANCHOR_STRENGTH_INPUT] = config.anchor_strength
+    elif keystone is not None:  # segment 1's own keystone_images entry
+        place_keystone(segment_arguments, keystone, config.keystone_slot)
     return segment_arguments
 
 

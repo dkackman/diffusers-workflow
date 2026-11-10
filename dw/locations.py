@@ -68,8 +68,10 @@ MEDIA_KEY_NAMES = ("image", "video", "audio", "location", "from_file")
 # the key match above would miss them: MiniMax-H3's `latent_anchor` (#1166,
 # `h3_rules.LATENT_ANCHOR_INPUT`, pinned equal by tests/test_h3_anchor.py)
 # takes a video the way a guide's `video` does, and is refused here the same
-# way rather than only by the loader at run time (SE-F061)
-PIPELINE_MEDIA_ARGUMENTS = ("latent_anchor",)
+# way rather than only by the loader at run time (SE-F061); and a chain's
+# `keystone_images` (`chain_rules.CHAIN_KEYSTONE_IMAGES`), one image per
+# segment, which the chain loads itself (#1308 Amendment 1)
+PIPELINE_MEDIA_ARGUMENTS = ("latent_anchor", "keystone_images")
 
 # Task arguments that name a file to read but not by the conventions above -
 # a generic name the key match would miss, so each command declares them on

@@ -198,7 +198,8 @@ def _as_frame_lists(artifacts):
 
 
 def resolve_chain_lists(step_action, previous_results):
-    """Resolve a pipeline chain's `prompts` and `lines` against previous results.
+    """Resolve a pipeline chain's `prompts`, `lines` and `keystone_images`
+    against previous results.
 
     These lists are not part of the step's argument template, so the cartesian
     pass that expands `previous_result:` everywhere else never reaches them.
@@ -211,11 +212,12 @@ def resolve_chain_lists(step_action, previous_results):
     artifacts uses the first), or one `previous_result:<step>.<key>` string
     naming a JSON list of strings - how a `narration_lines` step hands on its
     `prompts` and `lines`. A `lines` list with no reference in it is left to
-    the run as written.
+    the run as written. `keystone_images` (#1308 Amendment 1) resolves the
+    same way to images (`_resolve_image_list`).
 
     The resolved lists are left on the step action (`chain_prompts`,
-    `chain_lines`) for run_chain to pick up, and nothing happens at all for a
-    pipeline without them.
+    `chain_lines`, `chain_keystone_images`) for run_chain to pick up, and
+    nothing happens at all for a pipeline without them.
     """
     definition = getattr(step_action, "pipeline_definition", None)
     if not isinstance(definition, dict):
@@ -242,6 +244,15 @@ def resolve_chain_lists(step_action, previous_results):
     ):
         step_action.chain_lines = _resolve_chain_list(
             step_action, "lines", lines, previous_results
+        )
+
+    images = chain.get("keystone_images", None)
+    if images and (
+        isinstance(images, str)
+        or any(references.is_ref(references.PREVIOUS_RESULT, e) for e in images)
+    ):
+        step_action.chain_keystone_images = _resolve_image_list(
+            step_action, images, previous_results
         )
 
 
@@ -282,6 +293,38 @@ def _resolve_chain_list(step_action, key, value, previous_results):
             entry = artifacts[0]
         resolved.append(entry)
     return resolved
+
+
+def _first_image(artifact):
+    """One image out of what a reference hands on: the first of a list (an
+    image step's `images`, one per for_each entry), else the artifact."""
+    return artifact[0] if isinstance(artifact, list) and artifact else artifact
+
+
+def _resolve_image_list(step_action, value, previous_results):
+    """A chain's `keystone_images` resolved: one `previous_result:` naming a
+    list of images (an image step's `images`, or a for_each step's results,
+    one image each - the first per entry), or a list whose reference entries
+    each resolve to their first image. What is not an image is the run's to
+    refuse (ChainConfig)."""
+    if isinstance(value, str):
+        if not references.is_ref(references.PREVIOUS_RESULT, value):
+            return value
+        artifacts = get_previous_results(
+            previous_results, references.ref_name(references.PREVIOUS_RESULT, value)
+        )
+        if len(artifacts) == 1 and isinstance(artifacts[0], list):
+            artifacts = artifacts[0]
+        if not artifacts:
+            raise ValueError(
+                f"Step {getattr(step_action, 'name', '?')!r}: chain "
+                f"'keystone_images' reference '{value}' produced no images"
+            )
+        return [_first_image(artifact) for artifact in artifacts]
+    resolved = _resolve_chain_list(
+        step_action, "keystone_images", value, previous_results
+    )
+    return [_first_image(entry) for entry in resolved]
 
 
 def find_previous_result_refs(arguments):

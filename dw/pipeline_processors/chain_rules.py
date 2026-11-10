@@ -9,9 +9,11 @@ rules, when that module reached the size ceiling (#1192); the carry pick
 """
 
 import math
+import os
 from dataclasses import dataclass
 
 from .. import references
+from ..security import ALLOWED_IMAGE_EXTENSIONS
 
 # The look hold (#1191): pixel corrections applied to each finished segment
 # before its carry is taken. Family-independent
@@ -758,7 +760,8 @@ def segment_1_keystone(slot, frame, latent_0):
 
 
 def place_keystone(arguments, keystone, slot, segment_argument="image"):
-    """Put segment 1's keystone frame into a later segment's `arguments` at
+    """Put a segment's keystone frame - segment 1's, or under
+    `keystone_images` the segment's own entry - into its `arguments` at
     `slot` (`chain_keystone_slot`, not None): as its `last_image`, as a
     one-frame guide after the carried one, or (a `LatentKeystone`) as the
     carried guide's `keystone_latents` with its frame as the keyframe."""
@@ -778,6 +781,134 @@ def place_keystone(arguments, keystone, slot, segment_argument="image"):
         guide["enter_below_sigma"] = slot["enter_below_sigma"]
     # A copy: iteration arguments share nested values
     arguments["guides"] = list(arguments.get("guides") or []) + [guide]
+
+
+# The moving keystone (#1308 Amendment 1): one image per segment, segment
+# k's fl2va last_image (entry k, 0-based) in place of segment 1's frame 0,
+# under keystone "segment_1" at keystone_slot "last" - segment 1 included,
+# off the anchor_every cadence none. MiniMax-H3 fl2va only
+CHAIN_KEYSTONE_IMAGES = "keystone_images"
+KEYSTONE_IMAGES_RULE = (
+    f"{CHAIN_KEYSTONE_IMAGES} is a list of images, one per segment (image "
+    "paths, asset:/output: references, URLs or previous_result: references), "
+    "or one previous_result:<step>.<key> naming a list of images"
+)
+
+
+def _is_image_entry(entry):
+    """Whether a `keystone_images` entry names an image as far as can be told
+    before it loads: a loaded image, a reference still to resolve, a URL, a
+    {location} or {media_type: image} dict, or a path (or asset:/output:
+    reference) with an image extension."""
+    if hasattr(entry, "mode") and hasattr(entry, "size"):
+        return True
+    if isinstance(entry, dict):
+        return entry.get("media_type", "image") == "image" and "location" in entry
+    if not isinstance(entry, str) or not entry:
+        return False
+    if references.is_ref(references.UNRESOLVED, entry):
+        return True
+    if entry.startswith(("http://", "https://")):
+        return True
+    if references.is_ref(references.DEFERRED, entry) and not references.is_ref(
+        (references.ASSET, references.OUTPUT), entry
+    ):
+        return False
+    return os.path.splitext(entry)[1].lower() in ALLOWED_IMAGE_EXTENSIONS
+
+
+def _keystone_images_list_problem(images):
+    """Why a `keystone_images` value is not a list of image entries, or None;
+    one previous_result: string is the run's to resolve."""
+    if isinstance(images, str):
+        if references.is_ref(references.UNRESOLVED, images):
+            return None
+        return f"{KEYSTONE_IMAGES_RULE}, got the string {images!r}"
+    if not isinstance(images, list) or not images:
+        return f"{KEYSTONE_IMAGES_RULE}, got {images!r}"
+    for index, entry in enumerate(images):
+        if not _is_image_entry(entry):
+            return (
+                f"{CHAIN_KEYSTONE_IMAGES} entry {index} is not an image "
+                f"reference ({KEYSTONE_IMAGES_RULE}), got {entry!r}"
+            )
+    return None
+
+
+def _keystone_images_step_problem(chain, arguments, run):
+    """Why the step cannot take `keystone_images`, or None: a `last_image` of
+    its own, and at the run (`run`) no fl2va keyframe or a ref2va call."""
+    if arguments is None:
+        return None
+    if arguments.get("last_image") is not None:
+        return (
+            f"{CHAIN_KEYSTONE_IMAGES} sets every segment's last_image, and the "
+            "step passes one of its own - drop one"
+        )
+    if not run:
+        return None
+    if arguments.get("references") is not None:
+        return (
+            f"{CHAIN_KEYSTONE_IMAGES} sets an fl2va last_image, and this step "
+            "passes references (ref2va) - use fl2va"
+        )
+    if arguments.get(chain.get("segment_argument", "image")) is None:
+        return (
+            f"{CHAIN_KEYSTONE_IMAGES} sets an fl2va last_image, and the step "
+            "has no keyframe - it needs fl2va with an image"
+        )
+    return None
+
+
+def keystone_images_count_problem(images, segment_count):
+    """Why `keystone_images` is too short for the plan, or None: fewer
+    entries than the planned segments (a probe's `stop_after` included,
+    since the probe is continued). None when the count cannot be told yet."""
+    if segment_count is None or not isinstance(images, list):
+        return None
+    if len(images) >= segment_count:
+        return None
+    return (
+        f"{CHAIN_KEYSTONE_IMAGES} holds {len(images)} image(s) for "
+        f"{segment_count} planned segment(s) - one per segment, the full "
+        f"plan's even for a probe (stop_after), which is continued"
+    )
+
+
+def chain_keystone_images_problem(chain, segment_count=None, arguments=None, run=False):
+    """The reason a chain block's `keystone_images` is refused, or None.
+    Absent, null or unresolved is off. Refused: without keystone 'segment_1'
+    at keystone_slot 'last'; anything but a non-empty list of image entries
+    (or one previous_result: string); a step `last_image` of its own; at the
+    run (`run`), a step with no fl2va keyframe or passing references; and a
+    list shorter than `segment_count` when it is known."""
+    images = chain.get(CHAIN_KEYSTONE_IMAGES)
+    if images is None or _unresolved_value(images):
+        return None
+    from .h3_rules import KEYSTONE_SEGMENT_1
+
+    keystone = chain.get("keystone")
+    slot = chain.get(CHAIN_KEYSTONE_SLOT)
+    if (keystone != KEYSTONE_SEGMENT_1 and not _unresolved(keystone)) or (
+        slot != KEYSTONE_SLOT_LAST and not _unresolved(slot)
+    ):
+        return (
+            f"{CHAIN_KEYSTONE_IMAGES} replaces segment 1's frame 0 as each "
+            f"segment's last_image, so it needs keystone '{KEYSTONE_SEGMENT_1}' "
+            f"and {CHAIN_KEYSTONE_SLOT} '{KEYSTONE_SLOT_LAST}', got keystone "
+            f"{keystone!r} and {CHAIN_KEYSTONE_SLOT} {slot!r}"
+        )
+    return (
+        _keystone_images_list_problem(images)
+        or _keystone_images_step_problem(chain, arguments, run)
+        or keystone_images_count_problem(images, segment_count)
+    )
+
+
+def _unresolved_value(value):
+    """A variable:/item:/gather: string still to substitute; a lone
+    previous_result: is a list reference the list rule passes on."""
+    return isinstance(value, str) and references.is_ref(references.SUBSTITUTED, value)
 
 
 # A chain resumed from an earlier run's kept segments (`resume_from`,

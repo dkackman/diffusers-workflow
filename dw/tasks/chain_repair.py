@@ -43,12 +43,18 @@ import re
 
 import numpy
 
-from ..dsp import as_channels_samples, equal_power_ramps, resample_waveform
+from ..dsp import (
+    as_channels_samples,
+    equal_power_ramps,
+    resample_waveform,
+    slice_samples,
+)
 from ..events import emit_warning
 from ..locations import validate_media_path
-from ..media import probe_metadata
-from ..media_types import AudioVideo
-from ..pipeline_processors.h3_rules import GUIDE_FRAMES_PER_CHUNK
+from ..media import NoSoundtrack, decode_soundtrack, probe_metadata
+from ..media_types import AudioTrack, AudioVideo, fit_codec_padding
+from ..pipeline_processors.h3_guides import AUDIO_GRID_FRAMES, AUDIO_GRID_LENGTHS
+from ..pipeline_processors.h3_rules import GUIDE_FRAMES_PER_CHUNK, H3_FPS
 from ..runs import manifest_beside, shots_beside
 from ..security import validate_path
 from ..shots import shot_record, shots_for_file
@@ -88,37 +94,44 @@ def repair_geometry(segment_frames, segment, num_frames, head_frames, tail_frame
     """Where the repair render's guides sit and how the splice is cut.
 
     Args:
-        segment_frames: Each segment file's frame count, in chain order
-        segment: The segment to repair, 1-based; not the first or the last
+        segment_frames: Each segment file's frame count, in chain order (the
+            repaired segment's own entry is its span on the take)
+        segment: The segment to repair, 1-based; not the first
         num_frames: The repair render's length, on the 17n + 5 grid
         head_frames: Frames of segment k-1's tail held at frame 0
-        tail_frames: Frames of segment k+1 held at the render's end
+        tail_frames: Frames of segment k+1 held at the render's end; unused
+            for the last segment, which has nothing after it to hold
 
     Returns:
         A dict: `head_start` (where in segment k-1 the head guide starts),
         `tail_start` (where in segment k+1 the tail guide starts, which is
         also `overrun`, the frames of k+1 the repair replaces), `tail_frame`
         (the render frame the tail guide is placed at), `keep_start` and
-        `keep_frames` (the render span spliced in), `minimum_num_frames`
-        and `total_frames` (the take's, unchanged by the splice).
+        `keep_frames` (the render span spliced in), `padding_frames` (the
+        render's frames past the take's end, dropped: the last segment's
+        only), `minimum_num_frames` and `total_frames` (the take's,
+        unchanged by the splice). The last segment has no tail guide:
+        `tail_start` and `tail_frame` are None and `overrun` 0.
 
     Raises:
         ValueError: naming the argument and the value that would work.
     """
     count = len(segment_frames)
-    if count < 3:
+    if count < 2:
         raise ValueError(
             f"{COMMAND}: the chain has {count} segment file(s); repairing one in "
-            "place needs a segment on each side of it, so at least 3"
+            "place needs a segment before it to hold, so at least 2"
         )
-    if segment < 2 or segment > count - 1:
+    if segment < 2 or segment > count:
         raise ValueError(
-            f"{COMMAND}: 'segment' must be 2 to {count - 1} of this {count}-segment "
-            f"chain, got {segment}. Segment 1 has no segment before it to hold "
-            f"and segment {count} none after it - the first and the last need a "
-            "one-sided repair (one guide), which this command does not cut"
+            f"{COMMAND}: 'segment' must be 2 to {count} of this {count}-segment "
+            f"chain, got {segment}. Segment 1 has no segment before it to hold - "
+            "the first needs a one-sided repair (a tail guide only), which this "
+            "command does not cut"
         )
-    for name, frames in (("head_frames", head_frames), ("tail_frames", tail_frames)):
+    last = segment == count
+    holds = (("head_frames", head_frames), ("tail_frames", tail_frames))
+    for name, frames in holds:
         problem = _hold_problem(name, frames)
         if problem:
             raise ValueError(problem)
@@ -127,22 +140,40 @@ def repair_geometry(segment_frames, segment, num_frames, head_frames, tail_frame
             f"{COMMAND}: 'num_frames' must be on H3's 17n + 5 grid, got {num_frames}"
         )
 
-    before, replaced, after = segment_frames[segment - 2 : segment + 1]
+    before, replaced = segment_frames[segment - 2 : segment]
     if before < head_frames:
         raise ValueError(
             f"{COMMAND}: segment {segment - 1} has {before} frames, fewer than "
             f"the {head_frames}-frame head guide"
         )
-    shortest = head_frames + replaced + tail_frames
-    over = (5 - shortest) % GUIDE_FRAMES_PER_CHUNK
-    minimum = shortest + over
-    overrun = num_frames - shortest
-    if overrun < 0:
+    tail = 0 if last else tail_frames
+    shortest = head_frames + replaced + tail
+    minimum = shortest + (5 - shortest) % GUIDE_FRAMES_PER_CHUNK
+    if num_frames < shortest:
+        held = "" if last else f" and a {tail_frames}-frame tail guide"
         raise ValueError(
             f"{COMMAND}: 'num_frames' {num_frames} cannot hold segment {segment} "
-            f"({replaced} frames) between a {head_frames}-frame head and a "
-            f"{tail_frames}-frame tail guide - pass num_frames={minimum}"
+            f"({replaced} frames) after a {head_frames}-frame head guide{held} - "
+            f"pass num_frames={minimum}"
         )
+    geometry = {
+        "head_start": before - head_frames,
+        "keep_start": head_frames,
+        "minimum_num_frames": minimum,
+        "total_frames": sum(segment_frames),
+    }
+    if last:
+        # The render ends at the take's end; its frames past it are dropped
+        return {
+            **geometry,
+            "tail_start": None,
+            "overrun": 0,
+            "tail_frame": None,
+            "keep_frames": replaced,
+            "padding_frames": num_frames - shortest,
+        }
+    after = segment_frames[segment]
+    overrun = num_frames - shortest
     if overrun + tail_frames > after:
         raise ValueError(
             f"{COMMAND}: the tail guide would be segment {segment + 1}'s frames "
@@ -150,14 +181,12 @@ def repair_geometry(segment_frames, segment, num_frames, head_frames, tail_frame
             f"lower num_frames (the smallest is {minimum}) or tail_frames"
         )
     return {
-        "head_start": before - head_frames,
+        **geometry,
         "tail_start": overrun,
         "overrun": overrun,
         "tail_frame": num_frames - tail_frames,
-        "keep_start": head_frames,
         "keep_frames": replaced + overrun,
-        "minimum_num_frames": minimum,
-        "total_frames": sum(segment_frames),
+        "padding_frames": 0,
     }
 
 
@@ -346,7 +375,7 @@ def check_take_shots(command, shots, segment, start):
     render's GPU minutes, not after. Without the shots the track's kind (the
     chain's, or a match_audio one kept whole) and the seams' blends cannot be
     told, so nothing is guessed."""
-    if shots and len(shots) > segment and shots[segment - 1]["start_frame"] == start:
+    if shots and len(shots) >= segment and shots[segment - 1]["start_frame"] == start:
         return
     raise ValueError(
         f"{command}: the take must be the chain's own output with its shots "
@@ -380,9 +409,10 @@ def chain_repair_cut(
             take's shots name files that are not beside it (the take and its
             manifest copied away from them); then the others are found beside
             it by name. The take's shots are needed either way
-        segment: The segment to re-render, 1-based; 2 to N-1
+        segment: The segment to re-render, 1-based; 2 to N. The last one has
+            a head guide only, and the render ends at the take's end
         num_frames: The repair render's length - at least segment k's frames
-            plus both guides, on the 17n + 5 grid; a smaller one is refused
+            plus its guides, on the 17n + 5 grid; a smaller one is refused
             naming the smallest that fits
         head_frames: Segment k-1's last frames held at the render's frame 0
         tail_frames: Segment k+1's frames held at the render's end - more
@@ -392,11 +422,16 @@ def chain_repair_cut(
             segment files' own size - a repair renders on the chain's canvas
 
     Returns:
-        A dict for the template's later steps: `head_guide` and `tail_guide`
-        (AudioVideo clips with their audio), `keyframe` (the head guide's
-        first frame), `tail_frame`, `keep_start`, `chain_take` (the take's
-        path) and `start_frame`/`end_frame` (the take's frames the render's
-        span replaces), with the geometry's numbers beside them.
+        A dict for the template's later steps: `guides` (the render's guides
+        argument: the head guide at frame 0 and, but for the last segment,
+        the tail guide at `tail_frame`), `held_audio` (a match_audio take's
+        own track under the render's frames, from `held_start_frame`, for
+        the render to hold - None for a chain's own track; under it the
+        guides carry picture only), `head_guide` and `tail_guide` (AudioVideo
+        clips; no tail guide for the last segment), `keyframe` (the head
+        guide's first frame), `keep_start`, `chain_take` (the take's path)
+        and `start_frame`/`end_frame` (the take's frames the render's span
+        replaces), with the geometry's numbers beside them.
     """
     segment = whole_number(segment, "segment", COMMAND, required=True)
     num_frames = whole_number(num_frames, "num_frames", COMMAND, required=True)
@@ -415,64 +450,141 @@ def chain_repair_cut(
     )
 
     take, shots, paths = _locate(chain_take, chain_output)
-    if not 2 <= segment <= len(paths) - 1:
+    if not 2 <= segment <= len(paths):
         # The geometry's own refusal, before anything is decoded
         repair_geometry([0] * len(paths), segment, num_frames, 22, 22)
     # The splice refuses a take without shots placing the segment too, but
     # only after the render: refused here, before the neighbours' decode
     placed = (
-        shots[segment - 1]["start_frame"] if shots and len(shots) > segment else None
+        shots[segment - 1]["start_frame"] if shots and len(shots) >= segment else None
     )
     check_take_shots(COMMAND, shots, segment, placed)
     spans, total = _take_spans(shots)
-    previous = load_audio_video(paths[segment - 2])
-    following = load_audio_video(paths[segment])
-    for clip, path in ((previous, paths[segment - 2]), (following, paths[segment])):
-        if clip.audio is None:
-            raise ValueError(
-                f"{COMMAND}: {os.path.basename(path)} has no soundtrack, and the "
-                "repair holds the neighbours' audio over both guides"
-            )
+    matched = _matched(shots)
+    previous, following, counts = _neighbours(paths, spans, segment, matched)
     _check_canvas(previous.frames[0].size, width, height, paths[segment - 2])
-    counts = [frames for _, frames in spans]
-    for index, clip in ((segment - 2, previous), (segment, following)):
-        last = index == len(spans) - 1
-        if counts[index] > len(clip.frames) or (
-            not last and counts[index] != len(clip.frames)
-        ):
-            raise ValueError(
-                f"{COMMAND}: the take's segment {index + 1} is {counts[index]} "
-                f"frames, but {os.path.basename(paths[index])} holds "
-                f"{len(clip.frames)} - they are not the same run's"
-            )
-    counts[segment - 2] = len(previous.frames)
-    counts[segment] = len(following.frames)
     geometry = repair_geometry(counts, segment, num_frames, head_frames, tail_frames)
     start = spans[segment - 1][0]
     end = min(start + geometry["keep_frames"], total)
+    held_start = start - head_frames
+    held = (
+        _held_slice(take, total, previous.fps, held_start, num_frames)
+        if matched
+        else None
+    )
 
     head_guide = trim_video(previous, geometry["head_start"], head_frames)
-    tail_guide = trim_video(following, geometry["tail_start"], tail_frames)
+    tail_guide = (
+        None
+        if following is None
+        else trim_video(following, geometry["tail_start"], tail_frames)
+    )
+    guides = [{"video": head_guide, "frame": 0, "audio": held is None}]
+    if tail_guide is not None:
+        guides.append(
+            {
+                "video": tail_guide,
+                "frame": geometry["tail_frame"],
+                "audio": held is None,
+            }
+        )
     logger.info(
         f"{COMMAND}: segment {segment} of {len(paths)} - render {num_frames} "
-        f"frames, head guide {head_frames} at 0, tail guide {tail_frames} at "
-        f"{geometry['tail_frame']}; take frames {start}..{end - 1} of {total} "
-        "replaced"
+        f"frames, head guide {head_frames} at 0"
+        + (
+            ""
+            if tail_guide is None
+            else f", tail guide {tail_frames} at {geometry['tail_frame']}"
+        )
+        + f"; take frames {start}..{end - 1} of {total} replaced"
+        + ("" if held is None else f", the take's track held from frame {held_start}")
     )
     return {
         **geometry,
         "keep_frames": end - start,
         "total_frames": total,
+        "num_frames": num_frames,
         "segments": len(paths),
         "segment_frames": counts,
         "segment_files": list(paths),
         "chain_take": take,
         "start_frame": start,
         "end_frame": end,
+        "guides": guides,
+        "held_audio": held,
+        "held_start_frame": held_start if held is not None else None,
         "head_guide": head_guide,
         "tail_guide": tail_guide,
         "keyframe": head_guide.frames[0],
     }
+
+
+def _matched(shots):
+    """Whether the take's track is a match_audio one, laid under it whole:
+    its shots record no sample side."""
+    return all(shot.get("start_sample") is None for shot in shots)
+
+
+def _neighbours(paths, spans, segment, matched):
+    """(segment k-1's clip, segment k+1's or None for the last, the frame
+    counts the geometry takes): each neighbour checked against the take's
+    span of it. A chain's own track needs both neighbours' soundtracks, which
+    the guides carry; a match_audio take's guides carry picture only."""
+    last = segment == len(paths)
+    previous = load_audio_video(paths[segment - 2])
+    following = None if last else load_audio_video(paths[segment])
+    counts = [frames for _, frames in spans]
+    for index, clip in ((segment - 2, previous), (segment, following)):
+        if clip is None:
+            continue
+        if clip.audio is None and not matched:
+            raise ValueError(
+                f"{COMMAND}: {os.path.basename(paths[index])} has no soundtrack, "
+                "and the repair holds the neighbours' audio over the guides"
+            )
+        final = index == len(spans) - 1
+        if counts[index] > len(clip.frames) or (
+            not final and counts[index] != len(clip.frames)
+        ):
+            raise ValueError(
+                f"{COMMAND}: the take's segment {index + 1} is {counts[index]} "
+                f"frames, but {os.path.basename(paths[index])} holds "
+                f"{len(clip.frames)} - they are not the same run's"
+            )
+        counts[index] = len(clip.frames)
+    return previous, following, counts
+
+
+def _held_slice(take, total, fps, start_frame, num_frames):
+    """A match_audio take's own track under the render's `num_frames` from
+    take frame `start_frame`, as the chain holds a segment's slice
+    (chain_config.audio_slice): zero-padded past the take's end, so the last
+    segment's render, which can run past it, holds silence there. The track
+    is decoded alone and fitted to the take's frames as the splice's decode
+    fits it, so the slice is the very samples the spliced take keeps. None
+    when the take has no soundtrack."""
+    try:
+        track, rate = decode_soundtrack(take)
+    except NoSoundtrack:
+        return None
+    fps = fps or H3_FPS
+    track = fit_codec_padding(track, total, fps, rate)
+    if num_frames % AUDIO_GRID_FRAMES:
+        emit_warning(
+            f"{COMMAND}: H3's audio latents run at 40 a second, and a "
+            f"{num_frames}-frame render is off their 3-frame grid, so the held "
+            f"track drifts against the picture; the on-grid lengths are "
+            f"{', '.join(str(n) for n in AUDIO_GRID_LENGTHS)}",
+            kind="held_audio_off_grid",
+            command=COMMAND,
+            num_frames=num_frames,
+        )
+    piece = slice_samples(
+        track,
+        frames_to_samples(start_frame, fps, rate),
+        frames_to_samples(num_frames, fps, rate),
+    )
+    return AudioTrack(piece, rate)
 
 
 def _check_canvas(size, width, height, path):
@@ -570,7 +682,7 @@ def _spliced_track(take, video, fps, shots, segment, start, end, keep_start):
     """(track, (in ms, out ms) or None, (first sample, end sample) or None)."""
     if take.audio is None:
         return None, None, None
-    if all(shot.get("start_sample") is None for shot in shots):
+    if _matched(shots):
         # match_audio: the caller's own track, laid under the take whole
         return take.audio, None, None
     if getattr(video, "audio", None) is None:
@@ -579,12 +691,16 @@ def _spliced_track(take, video, fps, shots, segment, start, end, keep_start):
         )
     rate = take.sample_rate
     track = as_channels_samples(take.audio)
-    after = shots[segment]
     first = int(shots[segment - 1]["start_sample"])
-    last = int(after["start_sample"]) + frames_to_samples(
-        end - after["start_frame"], fps, rate
-    )
-    last = min(last, track.shape[1])
+    if segment == len(shots):
+        # The last segment: the span runs to the take's end, one seam in
+        last = track.shape[1]
+    else:
+        after = shots[segment]
+        last = int(after["start_sample"]) + frames_to_samples(
+            end - after["start_frame"], fps, rate
+        )
+        last = min(last, track.shape[1])
     own = as_channels_samples(video.audio)
     if video.sample_rate != rate:
         own = resample_waveform(own, video.sample_rate, rate)
@@ -607,7 +723,8 @@ def _spliced_track(take, video, fps, shots, segment, start, end, keep_start):
         piece if piece.shape[0] == span.shape[0] else piece.mean(axis=0, keepdims=True)
     )
     blends = []
-    for side, index in (("in", segment - 1), ("out", segment)):
+    seams = (("in", segment - 1), ("out", segment))[: 2 if segment < len(shots) else 1]
+    for side, index in seams:
         window = min(int(_blend_ms(shots, index) / 1000.0 * rate), span.shape[1] // 2)
         blends.append(round(window / rate * 1000, 1))
         if not window:
@@ -646,6 +763,9 @@ def _spliced_shots(shots, segment, start, end, keep_start, blends, samples):
     if blends and blends[0]:
         repaired["crossfade_ms"] = blends[0]
     result = [*clean[: segment - 1], repaired]
+    if segment == len(shots):
+        # The last segment: nothing after the span resumes
+        return result
     after = clean[segment]
     after_end = after["start_frame"] + after["num_frames"]
     if after_end > end:

@@ -429,6 +429,51 @@ capstone, stat anchor, per-segment stills) are screened at 90 s, seed 1, with a
 checkpoint after each pair. The cold drill (a 60-120 s monologue) and its runs are
 outside this budget.
 
+## Amendment 1 (CP1, Don, 2026-11-10): the moving keystone
+
+**What CP1 showed** (`bench/records/narrated.md`, seed 1, 86 s):
+- **Control:** degrades markedly by 40 s.
+- **Candidate** (latent carry, latent keystone every 3, capstone): it removes the colour
+  burn, but the glaze is distracting by 40 s (Don's eye; the measures put it later).
+- **`static_long`:** holds the face to 86 s (`face_drop` within ±0.015), but she stands.
+  Its last-image pin pulls every segment back to the opening still, so there is no walk.
+- **Face-repair post-pass** on the candidate's segments 6 and 11: it softens the face and
+  shifts the identity. It has no picture to aim at, so it is dropped.
+
+**The finding.** The one thing measured to hold the face is ending every segment on a
+clean picture of her. The opening still cannot be that picture for a walk: it pulls her
+back to the start, which is a reset (defect 2).
+
+**The change.** The remaining CP2 screen, and the second-line arms other than
+per-segment stills, are replaced by per-segment stills: the *moving keystone*.
+1. **Keyframes.** A series of clean stills of her along the walk, one per segment. Each
+   is drawn on FLUX 3 Klein from the speaker still, which holds identity, scarf, coat
+   and size in frame. The backdrop progresses: the camera tracks back at her pace, so
+   she keeps her size and the avenue recedes behind her. Keyframe *k* is what segment
+   *k*'s last frame should look like.
+2. **The chain feature.** `keystone_images`: a list with one image per segment, or one
+   `previous_result:` list. Under `keystone_slot: last`, segment *k* takes entry *k* as
+   its fl2va `last_image` in place of segment 1's frame 0. It resolves like the chain's
+   `prompts`/`lines` (`resolve_chain_lists`). It works with `anchor_every`: segments
+   off the cadence get no last image. It works with probes and `resume_from`: entry *k*
+   stays segment *k*'s at any start. It works with held narration. The list is refused
+   if it is shorter than the planned segments, naming both counts.
+3. **The template and skill.** `narrated-take` gains an optional `keyframes` variable,
+   and the long-form skill gains the keyframe step: draw, review, then render.
+
+**Bench.**
+- **Keyframes first.** Don reviews the 12-keyframe series for the 86 s probe before any
+  video is rendered. The risk to check: the backdrop and face must be consistent from
+  one keyframe to the next, or the walk morphs.
+- **Arm.** Moving keystone, guide carry, seed 1, `stop_after: 12`, judged against
+  `static_long` (face) and the candidate (walk). Then seed 2, then CP3/CP4 on the winner.
+- **Added GPU.** About 10-14 h, approved by Don. Daytime GPU work runs on cuda:0 only;
+  cuda:1 is loud.
+
+**What it costs if wrong.** If the keyframes are inconsistent, the face changes slightly
+at every segment end, a pulse every 7 s. That shows at the keyframe review, before any
+video is spent.
+
 ## Left to the builder
 
 - Task names, module placement and the ARCHITECTURE map rows.

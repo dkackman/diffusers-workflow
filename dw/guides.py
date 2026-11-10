@@ -16,7 +16,8 @@ load, with the helpers the run-time check calls (`guide_frame_problem`,
   stream, and a clip that, cut to a whole-latent length, runs past the end of a
   render whose `num_frames` is a literal.
 
-A `previous_result:` or other unresolved value, or a video that cannot be located
+A `previous_result:` or other unresolved value - an entry's, or the whole list's
+(repair-segment's cut lays its guides out) - or a video that cannot be located
 or probed, names nothing yet and is left to the run-time check. An empty list is
 no guides.
 
@@ -59,6 +60,7 @@ from .pipeline_processors.h3_guides import (
 from .pipeline_processors.chain_rules import (
     CHAIN_ANCHOR_EVERY,
     CHAIN_CAPSTONE,
+    CHAIN_KEYSTONE_IMAGES,
     CHAIN_KEYSTONE_SLOT,
     CHAIN_LINES,
     CHAIN_LATENT_CARRY,
@@ -67,6 +69,7 @@ from .pipeline_processors.chain_rules import (
     chain_capstone_problem,
     chain_carry_pick_problem,
     chain_check_finding,
+    chain_keystone_images_problem,
     chain_keystone_slot_problem,
     chain_anchor_every_problem,
     chain_latent_carry_problem,
@@ -227,6 +230,10 @@ def _step_problems(pipeline, arguments, base_dir, probe):
     problem = _takes_guides_problem(pipeline, arguments)
     if problem:
         return [(None, problem)]
+    if isinstance(guides, str) and references.is_ref(references.UNRESOLVED, guides):
+        # The whole list from an earlier step (repair-segment's cut): its
+        # entries are the run-time check's
+        return []
     if not isinstance(guides, (list, tuple)):
         return [
             (
@@ -420,7 +427,7 @@ def anchor_errors(workflow_definition, source_indices=None):
             continue
         errors += [
             {"path": render_path(base + ("chain", key)), "message": f"{problem}{where}"}
-            for key, problem in _chain_rule_findings(chain, arguments)
+            for key, problem in _chain_rule_findings(chain, arguments, pipeline)
         ]
         path = render_path(base + ("chain", "anchor"))
         problem = chain_anchor_problem(chain)
@@ -436,12 +443,13 @@ def anchor_errors(workflow_definition, source_indices=None):
     return errors
 
 
-def _chain_rule_findings(chain, arguments):
+def _chain_rule_findings(chain, arguments, pipeline=None):
     """(chain key, problem) for every chain-block rule this step's chain
     breaks, in the order validation reports them: the anchor strength, the
-    carry pick, the look hold, the keystone and its slot, the capstone, the
-    latent carry, the anchor spacing, the per-segment check, the expected
-    lines, the probe's stop_after and the resume."""
+    carry pick, the look hold, the keystone, its slot and its per-segment
+    images, the capstone, the latent carry, the anchor spacing, the
+    per-segment check, the expected lines, the probe's stop_after and the
+    resume."""
     arguments = arguments if isinstance(arguments, dict) else {}
     num_frames = arguments.get("num_frames")
     strength = chain.get("anchor_strength")
@@ -454,6 +462,13 @@ def _chain_rule_findings(chain, arguments):
         ("look_hold", chain_look_hold_problem(chain)),
         ("keystone", chain_keystone_problem(chain)),
         (CHAIN_KEYSTONE_SLOT, chain_keystone_slot_problem(chain, num_frames)),
+        (
+            CHAIN_KEYSTONE_IMAGES,
+            _keystone_images_step_problem(pipeline or {}, chain)
+            or chain_keystone_images_problem(
+                chain, _segment_count(chain, arguments), arguments
+            ),
+        ),
         (CHAIN_CAPSTONE, chain_capstone_problem(chain, num_frames)),
         (
             CHAIN_LATENT_CARRY,
@@ -479,6 +494,31 @@ def _chain_rule_findings(chain, arguments):
         )
     )
     return [(key, problem) for key, problem in findings if problem]
+
+
+def _keystone_images_step_problem(pipeline, chain):
+    """Why a step cannot take a chain's `keystone_images`, or None: it is not
+    MiniMax-H3, or it loads a workflow other than fl2va - the per-segment
+    images are fl2va last images. Not literal is left to the run."""
+    if chain.get(CHAIN_KEYSTONE_IMAGES) is None:
+        return None
+    problem = not_h3(pipeline, CHAIN_KEYSTONE_IMAGES, taken_by=("fl2va",))
+    if problem:
+        return problem
+    from_pretrained = pipeline.get(FROM_PRETRAINED_KEY)
+    workflow = (
+        from_pretrained.get(WORKFLOW_KEY) if isinstance(from_pretrained, dict) else None
+    )
+    if (
+        isinstance(workflow, str)
+        and workflow != "fl2va"
+        and not references.is_ref(references.UNRESOLVED, workflow)
+    ):
+        return (
+            f"{CHAIN_KEYSTONE_IMAGES} sets each segment's fl2va last_image, and "
+            f"this step loads the '{workflow}' workflow - use fl2va"
+        )
+    return None
 
 
 def _segment_count(chain, arguments):

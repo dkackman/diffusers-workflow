@@ -1,7 +1,7 @@
 {
   "id": "BenchNarratedTake",
   "summary": "templates/minimax/narrated-take with the experimental chain keys exposed, on the CP0 Constitution narration.",
-  "description": "Narrated long take bench (#1308 plan Task 9 step 5, CP1/CP2): a copy of templates/minimax/narrated-take - the template composed by its catalog name could not take them - whose chain block also reads experimental_latent_carry, keystone, keystone_slot, experimental_capstone and anchor_every from variables of those names. Their defaults (false, 'none', null, null, null) are the template's own chain, so an arm passing none of them runs the template as shipped; tests/test_bench_workflows.py pins the copy to the template. The defaults are the CP0 inputs: 'narration' is the retimed track approved at CP0 (run templates/narration-retime/20261109-200509-4083f66c, final/narration-retimed-0.0-audio.wav, 302.57 s), uploaded as asset:bench/constitution-narration-retimed.wav; 'image' is the Constitution walk's speaker still (constitution-walk-2, output:templates/flux3/image-edit/20261108-011458-22568496/final/Flux3KleinImageEdit-edit.1-0.0.jpg), uploaded as asset:bench/constitution-speaker.jpg; 'script' is the Preamble and the ten amendments the narration speaks. The end of Amendment 3 (85.11 s) falls in segment 12 (ends 85.92 s), so a probe to it is stop_after 12.",
+  "description": "Narrated long take bench (#1308 plan Task 9 step 5, CP1/CP2): a copy of templates/minimax/narrated-take - the template composed by its catalog name could not take them - whose chain block also reads experimental_latent_carry, experimental_capstone and anchor_every from variables of those names (keystone, keystone_slot and keyframes are the template's own variables now). Their defaults (false, null, null) are the template's own chain, so an arm passing none of them runs the template as shipped; tests/test_bench_workflows.py pins the copy to the template. The defaults are the CP0 inputs: 'narration' is the retimed track approved at CP0 (run templates/narration-retime/20261109-200509-4083f66c, final/narration-retimed-0.0-audio.wav, 302.57 s), uploaded as asset:bench/constitution-narration-retimed.wav; 'image' is the Constitution walk's speaker still (constitution-walk-2, output:templates/flux3/image-edit/20261108-011458-22568496/final/Flux3KleinImageEdit-edit.1-0.0.jpg), uploaded as asset:bench/constitution-speaker.jpg; 'script' is the Preamble and the ten amendments the narration speaks. The end of Amendment 3 (85.11 s) falls in segment 12 (ends 85.92 s), so a probe to it is stop_after 12.",
   "shape": "sequence",
   "vram_estimate": {
     "base_gb": 16.3,
@@ -74,6 +74,7 @@
     "experimental_latent_carry": false,
     "keystone": "none",
     "keystone_slot": null,
+    "keyframes": null,
     "experimental_capstone": null,
     "anchor_every": null
   },
@@ -81,6 +82,11 @@
     "shot": {
       "dialogue": {
         "continuity": "guide"
+      },
+      "walk_keyframed": {
+        "continuity": "guide",
+        "keystone": "segment_1",
+        "keystone_slot": "last"
       }
     },
     "tier": {
@@ -303,6 +309,7 @@
           "experimental_latent_carry": "variable:experimental_latent_carry",
           "keystone": "variable:keystone",
           "keystone_slot": "variable:keystone_slot",
+          "keystone_images": "variable:keyframes",
           "experimental_capstone": "variable:experimental_capstone",
           "anchor_every": "variable:anchor_every"
         },

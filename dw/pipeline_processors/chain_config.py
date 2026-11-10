@@ -33,6 +33,7 @@ from .chain_rules import (
     CHAIN_ANCHOR_EVERY,
     CHAIN_CAPSTONE,
     CHAIN_CAPSTONE_FROM_END,
+    CHAIN_KEYSTONE_IMAGES,
     CHAIN_LATENT_CARRY,
     CHAIN_LINES,
     CHAIN_RESUME_FROM,
@@ -43,6 +44,7 @@ from .chain_rules import (
     chain_capstone_problem,
     chain_carry_pick_problem,
     chain_check_problem,
+    chain_keystone_images_problem,
     chain_keystone_slot,
     chain_keystone_slot_problem,
     chain_latent_carry_problem,
@@ -53,6 +55,7 @@ from .chain_rules import (
     chain_needs_frame_snap,
     chain_resume_problem,
     chain_stop_after_problem,
+    keystone_images_count_problem,
     stop_after_value,
     keystone_slot_plan_problem,
     match_audio_source_problem,
@@ -107,6 +110,24 @@ def _raise_chain_problems(problems):
         raise ValueError("; ".join(f"Chain {message}" for _, message in problems))
 
 
+def _loaded_images(images, base_dir):
+    """`keystone_images`' entries as loaded images, each a path, URL or
+    {location} loaded under the media location policy (dw/locations.py), a
+    loaded image kept; None when the chain has none."""
+    if not images:
+        return None
+    from ..argument_media import fetch_image
+
+    loaded = [fetch_image(entry, base_dir) for entry in images]
+    for index, image in enumerate(loaded):
+        if not (hasattr(image, "mode") and hasattr(image, "size")):
+            raise ValueError(
+                f"Chain {CHAIN_KEYSTONE_IMAGES} entry {index} is not an image, "
+                f"got {type(image).__name__}"
+            )
+    return loaded
+
+
 def _chain_length(chain_definition):
     """(segments, match_audio, duration_seconds), refused unless the chain
     asks for its length exactly one way."""
@@ -136,9 +157,17 @@ class ChainConfig:
         resolved_prompts=None,
         base_dir=None,
         resolved_lines=None,
+        resolved_keystone_images=None,
     ):
         segments, match_audio, duration = _chain_length(chain_definition)
         self._read_continuity(chain_definition)
+        # A per-segment last image (#1308 Amendment 1), resolved by Step.run
+        # when it named a previous result; checked before the keystone slot
+        if resolved_keystone_images is not None:
+            chain_definition = {
+                **chain_definition,
+                CHAIN_KEYSTONE_IMAGES: resolved_keystone_images,
+            }
         self._read_experiments(chain_definition, arguments)
         self._read_carry(chain_definition)
         head_trim = self._read_guide(chain_definition, arguments)
@@ -177,6 +206,11 @@ class ChainConfig:
         # segment: refused against the plan, which match_audio sets only now
         self.lines = resolved_lines or chain_definition.get(CHAIN_LINES)
         _raise_chain_problem(chain_lines_problem(self.lines, len(self.plan)))
+        # The full plan's count, a probe's too: the probe is continued
+        _raise_chain_problem(
+            keystone_images_count_problem(self.keystone_images, len(self.plan))
+        )
+        self.keystone_images = _loaded_images(self.keystone_images, base_dir)
         self.step_prompt = _argument(arguments, "prompt")
         if self.total_frames is not None:
             # A length-planned chain renders its shortened last segment at
@@ -268,6 +302,15 @@ class ChainConfig:
 
         # Segment 1's frame 0 as every later keyframe (#1187)
         _raise_chain_problem(chain_keystone_problem(chain_definition))
+        # ...or each segment's own last image (#1308 Amendment 1)
+        _raise_chain_problem(
+            chain_keystone_images_problem(
+                chain_definition,
+                arguments=arguments if isinstance(arguments, dict) else None,
+                run=True,
+            )
+        )
+        self.keystone_images = chain_definition.get(CHAIN_KEYSTONE_IMAGES)
         self.keystone = chain_definition.get("keystone", KEYSTONE_NONE)
         # Where the keystone sits in each later segment (#1187)
         _raise_chain_problem(
@@ -328,6 +371,15 @@ class ChainConfig:
     def anchors(self, index):
         """Whether segment `index` takes the keystone and the capstone."""
         return anchors_segment(index, self.anchor_every)
+
+    def keystone_for(self, index, keystone_frame):
+        """The keystone segment `index` takes, or None: its own
+        `keystone_images` entry (segment 1's, as its last_image, too), else
+        segment 1's `keystone_frame` - each on the anchor_every cadence."""
+        if self.keystone_images:
+            on = index == 0 or self.anchors(index)
+            return self.keystone_images[index] if on else None
+        return keystone_frame if self.anchors(index) else None
 
     @property
     def latent_keystone(self):

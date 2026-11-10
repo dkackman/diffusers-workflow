@@ -345,8 +345,12 @@ LEGITIMATE_MENTIONS = {
         "prompt",
         "segment",
     },
-    # a field of the chain block the repaired take was run with
-    "workflows/templates/minimax/repair-segment.json": {"keep_segments"},
+    # a field of the chain block the repaired take was run with, and the
+    # render step's own 'hold_audio' argument (the narration it holds)
+    "workflows/templates/minimax/repair-segment.json": {
+        "keep_segments",
+        "hold_audio",
+    },
     # the pipeline's 'cache' block it writes inline, not the H3 templates'
     # variable of that name
     "workflows/templates/step-caching.json": {"cache"},

@@ -965,8 +965,8 @@ repair sits on the take:
 | -------- | -------- | ----------- |
 | `chain_take` | One of the two | The chain's final video. Its shots (the run manifest beside it) give each segment's place on the take and name its segment file |
 | `chain_output` | One of the two | One of the chain's segment files. Alone, the take is found through the run manifest that names it. Beside a take whose shots name no files, the others are found by name beside it, and refused when they disagree in rate or size (two runs mixed in one directory) or leave a gap; `chain_repair_splice` still needs the take's shots |
-| `segment` | Yes | The segment to re-render, 1-based. Only 2 to N-1: the first has no segment before it and the last none after it, and are refused |
-| `num_frames` | Yes | The repair render's length, on the 17n + 5 grid: at least `head_frames` + segment k's frames + `tail_frames`, rounded up onto the grid. A smaller one is refused naming the smallest; a larger one reaches further into segment k+1 |
+| `segment` | Yes | The segment to re-render, 1-based, 2 to N: the first has no segment before it and is refused. The last has the head guide only, and the render ends at the take's end |
+| `num_frames` | Yes | The repair render's length, on the 17n + 5 grid: at least `head_frames` + segment k's frames + `tail_frames` (no `tail_frames` for the last segment), rounded up onto the grid. A smaller one is refused naming the smallest; a larger one reaches further into segment k+1, or for the last segment past the take's end, where its frames are dropped (`padding_frames`) |
 | `head_frames` | No | Segment k-1's last frames, held at the render's frame 0: a whole-latent length, 17m + 5 from 22 (default `22`) |
 | `tail_frames` | No | Segment k+1's frames held as a guide ending at the render's last frame, a whole-latent length (default `39`, so the tail hold outnumbers the head) |
 | `width`, `height` | No | The render's canvas; when given, refused unless it is the segment files' own size |
@@ -978,11 +978,19 @@ leaves no segment files (repair the original chain take), and a take copied
 away from its run, with no manifest beside it (pass `chain_output` as well).
 
 It returns a record for later steps (`previous_result:cut.<field>`):
-`head_guide` and `tail_guide` (clips with their audio, cut from the segment
-files, for two `guides` entries with `"audio": true`), `keyframe` (the head
+`guides` (the render's whole `guides` argument: the head guide at frame 0
+and, but for the last segment, the tail guide at `tail_frame`), `held_audio`
+(for a `match_audio` take - its shots record no sample side - the take's own
+track sliced under the render's frames from `held_start_frame`, the head
+guide's first frame on the take, zero-padded past the take's end, for the
+render's `hold_audio`; the guides then carry picture only, and a render off
+H3's 3-frame audio grid warns `held_audio_off_grid`; null for a chain's own
+track, where the guides carry their audio), `head_guide` and `tail_guide`
+(clips cut from the segment files; no tail guide for the last segment),
+`keyframe` (the head
 guide's first frame, the fl2va keyframe a guide chain gives its own
 segments), `tail_frame` (where the tail guide is placed: `num_frames -
-tail_frames`, always on 17j), `keep_start` (the render frame the kept span
+tail_frames`, always on 17j; null for the last segment), `keep_start` (the render frame the kept span
 starts at), `chain_take`, and `start_frame`/`end_frame` (the take's frames
 the span replaces), with `overrun`, `segment_frames`, `segment_files` and
 `total_frames` (the take's). The neighbours are counted from their decode.
@@ -1013,7 +1021,8 @@ seam keeps its crossfade or declick. A `match_audio` take keeps its own track
 whole under the repaired picture. Otherwise the span's audio is the render's
 own, at the take's rate, blended in from the take's track and back into it
 inside the span, over the window the chain blended those seams with (the
-shot's `crossfade_ms`, else the few-ms declick). Its shots are the take's,
+shot's `crossfade_ms`, else the few-ms declick); a repaired last segment
+blends in only, its span running to the take's end. Its shots are the take's,
 each keeping its records (a chain seam's `crossfade_ms` and `trim_frames`),
 with the span as one `segment k (repaired)` shot and the next shot starting
 where the take resumes. Those two record their seams as a chain seam is: the

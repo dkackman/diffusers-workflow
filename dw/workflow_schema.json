@@ -442,6 +442,13 @@
                     "required": ["frame"],
                     "additionalProperties": false
                 },
+                "keystone_images": {
+                    "description": "The moving keystone (#1308 Amendment 1), MiniMax-H3 fl2va guide chains with keystone 'segment_1' at keystone_slot 'last': one image per segment, in order, segment k's fl2va last_image (entry k-1) in place of segment 1's frame 0 - segment 1 included - so each segment ends on its own picture, such as a keyframe drawn along a walk. With anchor_every, a later segment off the cadence gets no last image. Entry k stays segment k's on a probe (stop_after) and a resume_from. A list of image paths, asset:/output: references, URLs or previous_result: references (each its first image), or one previous_result:<step>.<key> naming a list of images (an image step's 'images', one per for_each entry). Refused: without keystone 'segment_1' and keystone_slot 'last'; an entry that is not an image; off an H3 fl2va step; with a step 'last_image' of its own; and fewer entries than the planned segments, the full plan's even for a probe. Accepts a 'variable:' reference; null is off.",
+                    "type": ["array", "string", "null"],
+                    "items": {
+                        "type": ["string", "object"]
+                    }
+                },
                 "experimental_latent_carry": {
                     "description": "Scratch spike (#1150, refused unless DW_EXPERIMENTAL_REFINE_WINDOWS=1), MiniMax-H3 guide chains: each later segment's guide takes the previous segment's own final latents (its guide_frames tail, video and generated audio) as condition rows in place of decoding and re-encoding those frames. Needs continuity 'guide'; refused with look_hold or a nonzero guide_noise. A chain holding its track (match_audio, a step hold_audio) carries the video latents only. False or null is off.",
                     "type": ["boolean", "string", "null"]
