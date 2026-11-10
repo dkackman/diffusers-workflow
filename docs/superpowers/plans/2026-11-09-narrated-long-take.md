@@ -397,6 +397,96 @@
 
 ---
 
+### Task 11a: `keystone_images`, the moving keystone (Amendment 1)
+
+The spec is the proposal's *Amendment 1*. A chain key `keystone_images` holds one image
+per segment. Under `keystone: "segment_1"` with `keystone_slot: "last"`, each later
+segment *k* (1-based) on the `anchor_every` cadence takes entry *k-1* as its fl2va
+`last_image`, in place of segment 1's frame 0. Segment 1 takes entry 0 as its own
+`last_image` only when the step has no `last_image`.
+
+**Files:**
+- `dw/pipeline_processors/chain_rules.py`: the refusals, and `place_keystone` taking a
+  per-segment frame.
+- `dw/pipeline_processors/chain_config.py`: reads the list.
+- `dw/pipeline_processors/chain.py`: per-segment placement, segment 1 included, and the
+  job-log note.
+- `dw/previous_results.py`: `resolve_chain_lists` also resolves `keystone_images`, same
+  rules as `prompts`: a list of refs/paths, or one `previous_result:<step>.<key>`. An
+  image-producing step (FLUX 3 Klein edit with `for_each`) hands on its list of images;
+  the first artifact per entry.
+- `dw/workflow_schema.json`: the chain key.
+- `workflows/templates/minimax/narrated-take.json`: optional `keyframes` variable (list,
+  default null; a null drops the key), wired to `keystone_images`. A non-null value
+  also needs `keystone: segment_1` and `keystone_slot: last`. Add a `shot` preset,
+  `walk_keyframed`, that sets both.
+- `bench/workflows/narrated-take.json`: re-sync; the pin test enforces it.
+- Docs: WORKFLOW_GUIDE *Chaining with a guide*, the `keystone_slot` row plus a
+  `keystone_images` row.
+- Tests: new `tests/test_chain_keystone_images.py`.
+
+**Refusals,** each naming the key and the allowed values:
+- the key without `keystone: segment_1` and `keystone_slot: last`;
+- a list shorter than the planned segment count (the `match_audio` plan, `segments`, or
+  `duration_seconds`), naming both counts. A probe (`stop_after`) still needs the full
+  plan's length, because the probe is continued;
+- an entry that is not an image reference;
+- the key on a non-H3 or non-fl2va step;
+- the key on a step that sets its own `last_image`.
+
+**Behaviour pins:**
+- `test_segment_k_takes_entry_k_as_last_image`: 4 segments, a fake step; the recorded
+  `last_image` per segment is entries 0..3.
+- `test_anchor_every_skips_off_cadence_segments`: with `anchor_every: 2`, segments at
+  1-based positions 2 and 4 get a last image and position 3 gets none (keep the
+  0-based `i % n == 0` rule as `config.anchors(i)` has it).
+- `test_resume_keeps_entry_k_for_segment_k`: a resume after segment 2 places entries 2
+  and 3 on segments 3 and 4.
+- `test_previous_result_list_resolves`: one `previous_result:keys.images` naming a
+  4-image list resolves in order.
+- One test per refusal.
+- The held-narration path: a `match_audio` plus `hold_audio` chain places last images
+  with guide audio forced off as today. This is a regression pin, not new behaviour.
+
+**Ratchet:** chain.py (1,095), plan.py (1,099) and validation.py (1,093) sit at the
+1,100-line ceiling. New logic goes in `chain_rules.py`, or a new module if that file
+nears the ceiling. `scripts/arch_metrics.py --check docs/stabilization/baseline.json`
+must be no worse than base (oversize 2, complex 3).
+
+Commit: `feat(chain): keystone_images - a per-segment last image (moving keystone)`.
+
+### Task 11b: Keyframe series and review (Amendment 1)
+
+This is controller work and needs no code. lem runs on cuda:0 by day.
+
+1. **Avenue plate.** Draw one wide plate on FLUX 3 Klein: the s3 avenue and colonnade,
+   empty, matching the speaker still's light and lens.
+2. **Recession.** Derive 12 plates for the probe. The camera tracks back, so the
+   colonnade recedes: plate *k* is the wide plate centre-cropped to a field that widens
+   by a constant ratio per segment. Fit the ratio to an unhurried walk of about 1 m/s
+   over 7.1 s per segment.
+3. **Composite.** For each plate, a FLUX 3 Klein multi-reference edit: picture 1 is the
+   speaker still (identity, wardrobe, framing), picture 2 is plate *k*. Use one seed and
+   one prompt for the whole series.
+4. **Measure.** `analyze_face_drift` of each keyframe against the speaker still, plus a
+   contact sheet. Keyframes outside the band of the static-long take's segments get
+   redrawn.
+5. **Review.** Don approves the series before Task 11c.
+
+Record the results in `bench/records/narrated.md`, *Moving keystone: keyframes*.
+
+### Task 11c: Moving-keystone bench (Amendment 1)
+
+- **Arm:** `bench/arms/narrated-moving-keystone.json`. The control's arguments plus
+  `keystone: segment_1`, `keystone_slot: last`, and `keystone_images` = the 12 approved
+  keyframes as `asset:` refs. Seed 1, `stop_after: 12`. The full 43-entry list is drawn
+  only at CP3.
+- **Measures:** CP1's set (`face_drop` per segment, saturation, `analyze_seams`, eye at
+  0/30/40/60/85 s), plus a walk check: the backdrop advances and there is no pull-back.
+  Don judges it against `static_long` (face) and the candidate (walk).
+- **Then:** seed 2. CP3 and CP4 take the winner, extending the keyframe series to all
+  43 segments.
+
 ## Phase 5: Promote and finish the agent layer
 
 ### Task 12: The `narrated` preset, promoted
