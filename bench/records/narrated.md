@@ -241,3 +241,22 @@ Face crops at 30/60/85 s match the static long take's at the same
 times (both carry the same etched skin texture from about 30 s), and
 show none of the candidate's glaze. Whether it reads as a walk is
 Don's call on the take.
+
+## CP1: moving keystone, seed 2 - job e7917ab0cab4
+
+Same arm, seed 2. 210 min wall, no re-rolls.
+
+| Segment | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `face_drop` | -0.002 | 0.023 | 0.006 | 0.012 | 0.023 | 0.018 | 0.003 | 0.003 | 0.014 | 0.014 | 0.032 |
+
+| Saturation at | 1 s | 15 s | 30 s | 45 s | 60 s | 75 s | 85 s |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| moving keystone s2 | 75.0 | 75.1 | 77.5 | 79.7 | 74.7 | 76.6 | 78.5 |
+
+Seams: jump_ratio mean 0.37, max 0.60; look_ratio max 0.63.
+
+Eye: face crops at 1/30/85 s match seed 1's. One sway inside segment 9
+(about 58-61 s): she drifts right of centre and the colonnade comes out
+from behind her, sharper, then she is back on her mark by 62 s as the
+segment lands on its keyframe. Both seeds replicate the face hold.
