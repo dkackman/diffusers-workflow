@@ -213,3 +213,31 @@ segment 1. Assets: `asset:uploads/bench/keyframes-v2/kf00.jpg` to
 Watch at CP1: every keyframe holds the same expression and pose, so
 each segment lands on the same face. If that reads as a tic, vary the
 expression per keyframe.
+
+## CP1: moving keystone, seed 1 - job 514b463a855f
+
+`shot: walk_keyframed`, opening on keyframe 0, keyframes 1-12 as each
+segment's last image, otherwise the control's arguments. 12 segments,
+219 min wall, no re-rolls.
+
+| Segment | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `face_drop` | 0.006 | 0.007 | 0.020 | 0.014 | 0.008 | 0.010 | 0.013 | 0.020 | 0.010 | 0.032 | 0.041 |
+
+Against CP1's arms at segment 12: control 0.207, candidate 0.205.
+
+| Saturation at | 0 s | 15 s | 30 s | 45 s | 60 s | 75 s | 85 s |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| moving keystone | 75.5 | 74.8 | 78.9 | 78.7 | 79.2 | 78.5 | 80.3 |
+
+(Keyframe 0's plate starts warmer than the still, 75.5 against 68.)
+
+Seams: jump_ratio mean 0.60, max 0.83; look_ratio max 0.89; audio level
+step max 2.1 dB - the cleanest seams of any CP1 arm.
+
+Eye: the backdrop recedes as the keyframes do (colonnade large at 0 s,
+behind her head by 60 s, an avenue of trees at 85 s), with no pull-back.
+Face crops at 30/60/85 s match the static long take's at the same
+times (both carry the same etched skin texture from about 30 s), and
+show none of the candidate's glaze. Whether it reads as a walk is
+Don's call on the take.
