@@ -83,6 +83,11 @@
       "dialogue": {
         "continuity": "guide"
       },
+      "standing": {
+        "continuity": "guide",
+        "keystone": "segment_1",
+        "keystone_slot": "last"
+      },
       "walk_keyframed": {
         "continuity": "guide",
         "keystone": "segment_1",

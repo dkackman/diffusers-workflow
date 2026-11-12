@@ -45,6 +45,7 @@ Record per scene `length_seconds` and `continuity` in the shot document's
 | One clip | at most 14.4 s (H3), about 17 s (LTX-2.5 at 768) | the family skills |
 | Cuts | place, time or angle changes, or a beat allows a cut | `templates/minimax/dialogue-short`, `templates/minimax/music-video`, `templates/minimax/shots-batch`, then `templates/assemble-and-score` |
 | Chain | one action, line or camera move must cross the ceiling unbroken | `templates/minimax/chained-segments`; LTX: `templates/ltx2/chained-segments`, `templates/ltx2/extend-clip` |
+| Narrated take | a speaking subject in one place, held to a narration | `templates/narration-retime`, then `templates/minimax/narrated-take` |
 | Bridge | a cut must land on a fixed frame | `templates/minimax/first-and-last-frame`, `templates/minimax/last-frame-only` |
 
 Prefer cuts. A cut resets drift and costs nothing at the seam. Chain only
@@ -76,6 +77,16 @@ Set `shot` on `templates/minimax/chained-segments` from the shot's
 - **`shot: dialogue`** (a speaking subject in motion): guide, no counters.
   Every counter was inside the floor or lost. Voice carries through the
   guide (`carry_audio`).
+
+- **A speaking subject in one place is a narrated take.** Make the
+  narration with `templates/narration-retime`, listen, then run
+  `templates/minimax/narrated-take`. `shot: dialogue` holds about 30 s;
+  `shot: standing` (no keyframes) holds to about 85 s (seed 1 only);
+  choose `standing` unless the user supplies keyframes;
+  `walk_keyframed` needs a hand-built keyframe per segment. Longer than a
+  take is passages joined as cuts, one take each: not yet run end to end
+  (`bench/records/narrated.md`). Procedure: `references/run-and-repair.md`,
+  *A narrated take*.
 
 Two rules that bite:
 
@@ -123,6 +134,8 @@ Turn on the per-segment check for any chain you mean to keep: pass
   not guaranteed to bring sound back (on the measured repro both seeds read
   about -89), so don't spend `retries` expecting a fix: the
   `chain_segment_silent` warning reports the segment either way.
+- `face_drop` (narrated take) is recorded, never failed: read it per segment
+  (`references/run-and-repair.md`).
 - `texture_ratio` is warn-only: the drift is in the carry, so a re-roll
   inherits it (`bench/records/check.md`; ruling R38).
 - A segment whose prompt asks for a cut inside it needs
@@ -197,6 +210,6 @@ guide chain. Quote `plan.estimate` from `validate_workflow`, never these.
 
 The long-form design (`docs/proposals/long-form-media.md`, sections 1-2).
 The bench records `counters.md`, `check.md`, `repair.md`, `structural.md`,
-`noise-floor.md`, `determinism.md`, `words.md` and `for-don.md` under
+`noise-floor.md`, `determinism.md`, `words.md`, `for-don.md` and `narrated.md` under
 `bench/records/`.
 `docs/WORKFLOW_GUIDE.md`, *Checking each segment*. `docs/TASKS.md`.

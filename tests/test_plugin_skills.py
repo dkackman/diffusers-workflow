@@ -1910,6 +1910,35 @@ class TestLongFormSkill:
             assert verdict in text, verdict
         assert "experimental_keystone_slot" not in text
 
+    def test_the_narrated_take_rule_cites_its_record_and_presets(self):
+        """A speaking subject held to narration is one take: the template's
+        `standing` and `dialogue` presets by length, longer than a take is
+        passages joined as cuts, cited to bench/records/narrated.md."""
+        text = self._text()
+        for phrase in (
+            "A speaking subject in one place is a narrated take",
+            "`templates/narration-retime`",
+            "`templates/minimax/narrated-take`",
+            "`shot: standing`",
+            "passages joined as cuts",
+            "not yet run end to end",
+            "`face_drop`",
+            "bench/records/narrated.md",
+        ):
+            assert phrase in text, phrase
+        spec = json.load(
+            open(
+                os.path.join(
+                    REPO_ROOT, "workflows", "templates", "minimax", "narrated-take.json"
+                ),
+                encoding="utf-8",
+            )
+        )
+        assert spec["presets"]["shot"]["standing"]["keystone_slot"] == "last"
+        for name in ("run-and-repair.md", "levers.md"):
+            body = _flat(_read(os.path.join(LONG_FORM_DIR, "references", name)))
+            assert "bench/records/narrated.md" in body, name
+
     def test_the_move_class_comes_from_the_vocabulary(self):
         """#1255: the "until #1200" stand-in is replaced by a pointer to the
         cinematography vocabulary's `class` column, in both files."""

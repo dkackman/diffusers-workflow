@@ -2,7 +2,7 @@
 
 Part of the `long-form` skill. Sources: `bench/records/check.md`,
 `bench/records/repair.md`, `bench/records/noise-floor.md` (*Chain check
-thresholds*), `bench/records/words.md`, and `docs/WORKFLOW_GUIDE.md`, *Checking each segment*
+thresholds*), `bench/records/words.md`, `bench/records/narrated.md`, and `docs/WORKFLOW_GUIDE.md`, *Checking each segment*
 (`get_guide("workflows", section="Checking each segment")`).
 
 ## The per-segment check
@@ -161,6 +161,43 @@ Unmeasured: no bench record covers a resumed take yet.
    (`every_attempt_failed`) skips straight here.
 3. Make the seam a cut: the shot list's `join: cut`, rendered fresh
    (`script-to-video`, `references/joins.md` there).
+
+## A narrated take: narration, probe, judge, continue
+
+A speaking subject held to a narration is `templates/minimax/narrated-take`,
+measured in `bench/records/narrated.md` (12 segments, about 86 s, tier `best`,
+seed 1; about 18-19 min per segment on dialogue and walk_keyframed; standing took 282 min for 12 segments (about 23.5, with two re-rolls), on an RTX 3090).
+
+1. **Narration.** `templates/narration-retime` makes the held track. Its
+   `num_frames` and `guide_frames` must equal the take's (192 and 22), or
+   the segment boundaries land in the wrong places. Listen to it with
+   `get_output_audio` before spending GPU time on picture.
+2. **Probe.** Validate the take with `stop_after` set: 4 segments for
+   `shot: dialogue`, up to 12 for `shot: standing`. The estimate prices only
+   those segments. Pick `shot` by length: `dialogue` is good for about 30 s;
+   `standing` holds to about 85 s (she stands, and each segment eases back to
+   the opening frame); `walk_keyframed` moves, and needs one hand-built
+   keyframe per segment, each with an open, mid-word mouth.
+3. **Judge.** Read each shot's `face_drop`, which is recorded and never
+   failed. It is the face's drift from segment 1: `dialogue` read 0.003-0.057
+   to 30 s, then 0.146 at 36 s, where an eye first calls the face etched;
+   `standing` stayed within 0.015 to 85 s (seed 1 only); `walk_keyframed` stayed at or under
+   0.041 on two seeds. A rising `face_drop` is the face, so the tool is
+   `get_output_frames(at=...)` late in the take; seams are
+   `assess_output(probe="analyze_seams")`. Lip sync is judged by eye
+   (`measure_lip_sync` is a coarse take-level indicator, not a segment check).
+4. **Continue.** Run again with `resume_from` set to the `output:` reference
+   of the probe's last kept segment and `stop_after` cleared to `null`. Only
+   the segments after it render.
+5. **Repair.** One bad segment is re-rendered in place with
+   `templates/minimax/repair-segment` (the take keeps its segments). A face
+   that drifted on its own is not repaired this way:
+   `templates/minimax/face-repair` had no reference to aim at and was dropped.
+
+Longer than one clean take: split the script into passages, make one narrated
+take per passage (its own `narration-retime`, its own opening still or angle),
+and join them as cuts with the tools named above. Not yet run end to end.
+Nothing is measured past 86 s.
 
 ## Export the cut for an editor
 
