@@ -1959,7 +1959,7 @@ head: N segments of F frames give F + (N - 1)(F - P) frames - 3 x 124 at P = 22 
 | `guide_backoff` | 0 (default) or a multiple of 17: the carry is the `guide_frames` frames that many before the segment's end (audio sliced the same span), and every segment but the last loses that tail at assembly, so the join lands inside the held copy and each segment's least-constrained tail is replaced by the next take. Frames drop by the back-off per seam (3 x 124 at P = 22 and 17 is 294). Needs `num_frames` above P + back-off. Refused off `guide` continuity and with `match_audio` or `duration_seconds` |
 | `keystone` | `none` (default) or `segment_1`: on `fl2va`, every later segment's keyframe is segment 1's frame 0 instead of the guide's first frame, so each segment is pulled back toward the clean start of the chain. The guide stays the carried tail, and the keyframe region is trimmed at assembly, so segment 1's frame never reaches the output. Refused on `last_frame` (there the keyframe is the only carry), and any other value is refused naming the two |
 | `keystone_slot` | with `keystone: "segment_1"`, where segment 1's frame 0 sits in each later segment. `first` (or null, the default) is plain keystone, the keyframe above. `last` makes it the fl2va `last_image` instead and the keyframe is the guide's first frame again: on a static two-minute take it held the backdrop and the face with no reset pop, and the subject eases back to the opening pose at each segment's end (`bench/records/structural.md`, *Keystone slot*). `last` needs a step `image` and refuses a step `last_image` of its own. `{"frame": 17j}` is a one-frame guide at that frame, past the guide's frames and inside the segment (a `match_audio` or `duration_seconds` plan's shortened last segment included); its `enter_below_sigma` gate is refused unless `DW_EXPERIMENTAL_REFINE_WINDOWS=1`. The name `experimental_keystone_slot` is refused naming this one. `templates/minimax/chained-segments` sets `last` under `shot: static_long`; under `last`, `keystone_images` replaces segment 1's frame 0 with each segment's own picture (the next row). **Experimental**, refused unless `DW_EXPERIMENTAL_REFINE_WINDOWS=1`: `latent` writes segment 1's frame-0 latent (its own output latent; on a resume, its decoded frame 0 encoded again) over each later segment's guide latent 0 for the whole denoise, with segment 1's frame 0 as the keyframe too, so the two condition rows at time 0 agree; the guide's own latent 0 is put back after the loop, before decode. It combines with `experimental_latent_carry`, a held track and `experimental_capstone` |
-| `keystone_images` | the moving keystone (`docs/proposals/narrated-long-take.md`, *Amendment 1*): with `keystone: "segment_1"` at `keystone_slot: "last"`, one image per segment, in order, and segment k's fl2va `last_image` is entry k - 1 in place of segment 1's frame 0 - segment 1 included - so each segment ends on its own picture, such as a keyframe drawn along a walk, rather than being pulled back to the opening still. A list of image paths, `asset:`/`output:` references, URLs or `previous_result:` references (each its first image), or one `previous_result:<step>.<key>` naming a list of images: an image step's `images`, one per `for_each` entry, the first image of each (resolved like `prompts` and `lines`). With `anchor_every`, a later segment off the cadence gets no last image; on a probe (`stop_after`) and a `resume_from`, entry k stays segment k's. Refused, naming the key: without `keystone: "segment_1"` and `keystone_slot: "last"`; an entry that is not an image; off an H3 `fl2va` step; with a step `last_image` of its own; and fewer entries than the planned segments (the `match_audio` plan, `segments` or `duration_seconds`; the full plan's even for a probe, which is continued), naming both counts - at validate when the count can be told there, else before segment 1 renders. A held narration (`match_audio` with a step `hold_audio`) places them the same way, its guides carrying picture only. `templates/minimax/narrated-take` takes them as `keyframes` under `shot: walk_keyframed` |
+| `keystone_images` | the moving keystone (`docs/proposals/complete/narrated-long-take-complete.md`, *Amendment 1*): with `keystone: "segment_1"` at `keystone_slot: "last"`, one image per segment, in order, and segment k's fl2va `last_image` is entry k - 1 in place of segment 1's frame 0 - segment 1 included - so each segment ends on its own picture, such as a keyframe drawn along a walk, rather than being pulled back to the opening still. A list of image paths, `asset:`/`output:` references, URLs or `previous_result:` references (each its first image), or one `previous_result:<step>.<key>` naming a list of images: an image step's `images`, one per `for_each` entry, the first image of each (resolved like `prompts` and `lines`). With `anchor_every`, a later segment off the cadence gets no last image; on a probe (`stop_after`) and a `resume_from`, entry k stays segment k's. Refused, naming the key: without `keystone: "segment_1"` and `keystone_slot: "last"`; an entry that is not an image; off an H3 `fl2va` step; with a step `last_image` of its own; and fewer entries than the planned segments (the `match_audio` plan, `segments` or `duration_seconds`; the full plan's even for a probe, which is continued), naming both counts - at validate when the count can be told there, else before segment 1 renders. A held narration (`match_audio` with a step `hold_audio`) places them the same way, its guides carrying picture only. `templates/minimax/narrated-take` takes them as `keyframes` under `shot: walk_keyframed` |
 | `anchor_every` | **Experimental**, refused unless `DW_EXPERIMENTAL_REFINE_WINDOWS=1`: the keystone and `experimental_capstone` apply only on later segments whose 0-based index `i` has `i % anchor_every == 0` - `3` anchors segments 3, 6, 9 (by index) and leaves the rest a plain guide chain. A whole number from 1, default 1 (every later segment); refused on a chain with neither `keystone: "segment_1"` nor `experimental_capstone` |
 | `carry_pick` | `{"sharpest": N}`, N from 1 to 8, with `last_frame` continuity on any model family: the next segment's keyframe is the sharpest of the segment's last N frames (variance of a 3x3 Laplacian on luma, ties to the latest) instead of the last, so a motion-blurred final frame does not pass its softness on. The segment is trimmed after the picked frame so motion continues from it (the last segment keeps its tail), and the job log names the pick per seam. Absent = the last frame; other continuities or other values are refused naming the allowed ones; `match_audio` and `duration_seconds` are refused (the plan covers the length up front and the pick drops frames per seam, so the video would fall short - use `segments`); and when `num_frames` is known N must be less than `num_frames` minus `trim_frames`, or the pick could empty a segment |
 | `look_hold` | `true` or `{"pickup", "creep", "texture", "precompensate"}` booleans, any model family: pixel corrections on each later segment's frames before its carry is taken (below). On a guide chain `pickup` and `precompensate` do not apply (the carried guide is a whole clip, left alone); an explicit `true` for either there is refused, and `true` alone runs `creep` and `texture` only |
@@ -2946,6 +2946,58 @@ any other checked chain never re-rolls segment 1 and costs up to
 estimate adds about 0.05 min (one Whisper CPU pass) per worst-case attempt,
 (segments - kept) x (1 + `retries`) passes with segment 1 counted as checked, named in
 the estimate's `scaled` text as "words check: N Whisper pass(es)".
+
+### A narrated long take
+
+A long take of one speaker held to a narration is two templates run in order.
+`templates/narration-retime` makes the narration, retimed so each segment's
+line fits its span. `templates/minimax/narrated-take` renders one H3 segment per
+line as a `match_audio` guide chain that holds the narration as its soundtrack,
+so the speech heard is the narration itself and the guide carries picture only.
+The evidence is `bench/records/narrated.md`.
+
+**The audio grid.** `num_frames` and `guide_frames` must be the same in both
+templates (192 and 22 by default). The retime cuts the narration at segment
+boundaries computed from them, and the take's chain lands its segments on the
+same boundaries; if they differ, each segment starts in the wrong place in the
+speech. Keep `num_frames` on H3's 3-frame audio grid (141, 192, 243, 294, 345)
+or validation warns that the held slices drift. Listen to the retimed track
+before spending GPU time on picture.
+
+**Probe, then continue.** Validate with `stop_after` set to the number of
+segments the chosen `shot` holds (4 for `dialogue`, up to 12 for `standing`);
+the estimate prices only those. Run the probe and judge it. If it holds, run
+again with `resume_from` set to the `output:` reference of the probe's last kept
+segment and `stop_after` set to `null`, which renders only the segments after
+it. A bad segment is re-rendered in place with `templates/minimax/repair-segment`.
+
+**`face_drop`.** Each segment's shot record carries `face_drop`: how far the
+face has drifted from segment 1's. It is recorded and never failed, because the
+template's `check` leaves its ceiling `null`. Read it per segment next to a late
+frame (`get_output_frames`). A step up is the face changing, and the first one an
+eye called was 0.146 at 36 s on `dialogue`.
+
+**What was measured** (12 segments, about 86 s, tier `best`, about 18-19 minutes
+per segment on an RTX 3090). The narration is held unbroken under every `shot`.
+
+- `shot: dialogue` (the default): the face is etched by about 30 s and
+  `face_drop` steps up at segment 6 (36 s). Good for a take of about 30 s.
+- `shot: standing` (`keystone: segment_1`, `keystone_slot: last`, no keyframes):
+  face and backdrop hold to 85 s, `face_drop` within 0.015. The speaker stands;
+  each segment eases back to the opening frame.
+- `shot: walk_keyframed` with `keyframes`: the face holds to 85 s (`face_drop` at
+  most 0.041 on two seeds), with the cleanest seams, at the price of a
+  hand-built keyframe per segment. Closed-mouth keyframes drop lip sync at
+  segment ends, so each needs an open, mid-word mouth, and a keyframe face that
+  differs from the still is followed and accumulates.
+- No arm cleared face, lip sync and motion together at 86 s, and nothing is
+  measured past 86 s. `experimental_latent_carry` with `experimental_capstone`
+  and the latent keystone (`anchor_every`) stay experimental.
+
+A piece longer than one clean take is split into passages, one narrated take per
+passage (its own `narration-retime`, its own opening still or angle), joined as
+cuts. That composition is not yet run end to end. The design is
+`docs/proposals/complete/narrated-long-take-complete.md`.
 
 ## Schedulers
 

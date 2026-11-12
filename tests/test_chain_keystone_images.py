@@ -460,3 +460,26 @@ def test_the_template_validates_keyframes_only_on_the_walk_preset(tmp_path):
     assert any(CHAIN_KEYSTONE_IMAGES in str(e.get("message")) for e in refused)
     # the dialogue default still validates with no keyframes
     assert errors({}) == []
+
+
+def test_the_standing_preset_is_the_keyframe_free_keystone(tmp_path):
+    """`standing`: guide continuity, keystone segment_1 at slot `last`, no
+    keyframes - the narrated take held to about 85 s with no keyframe built
+    (bench/records/narrated.md). It validates with the keyframes left null."""
+    from dw.validation import workflow_errors
+    from dw.workflow import workflow_from_definition
+    from tests.test_narrated_take_template import ARGUMENTS
+
+    definition = json.loads(TEMPLATE.read_text())
+    shots = definition["presets"]["shot"]
+    assert shots["standing"] == {
+        "continuity": "guide",
+        "keystone": "segment_1",
+        "keystone_slot": "last",
+    }
+    assert "keyframes" not in shots["standing"]
+    assert list(shots) == ["dialogue", "standing", "walk_keyframed"]
+    workflow = workflow_from_definition(definition, str(tmp_path))
+    assert (
+        workflow_errors(workflow, copy.deepcopy(ARGUMENTS) | {"shot": "standing"}) == []
+    )

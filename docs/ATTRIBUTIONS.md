@@ -140,6 +140,21 @@ re-render, and the chain's own text encoder, length and sizes kept
 [dw/tasks/chain_repair.py](../dw/tasks/chain_repair.py);
 [#1169](https://github.com/dkackman/diffusers-workflow/issues/1169)).
 
+### [matlowai/h3-long-video-research](https://github.com/matlowai/h3-long-video-research)
+
+A research repository on long MiniMax H3 videos, under CC BY 4.0. Its findings
+informed the narrated take (`templates/minimax/narrated-take`), which dw built
+and measured itself; no text or data was copied. The measurements dw reports are
+its own, in
+[bench/records/narrated.md](../bench/records/narrated.md).
+
+### [roycho87/NerdNotes](https://github.com/roycho87/NerdNotes)
+
+Tests 16-18 of the NerdNotes collection, under CC BY-SA, informed the narrated
+take (`templates/minimax/narrated-take`), which dw rebuilt and measured in its
+own code. No text or data was copied; because the licence is share-alike, only
+the concepts were taken.
+
 ### [roycho87/geiru_context_suite](https://github.com/roycho87/geiru_context_suite)
 
 A set of ComfyUI nodes for long MiniMax H3 videos, under GPL-3.0, so only the
@@ -149,7 +164,7 @@ concept was taken, together with seitanism's context hold. It inspired
 [#1189](https://github.com/dkackman/diffusers-workflow/issues/1189)): handing the
 next segment the frames one block before the end and dropping the previous
 segment's last block at assembly, so the join lands inside the held copy. The
-same suite's idea of a first-segment keyframe, and NerdNotes' (no licence, so
+same suite's idea of a first-segment keyframe, and NerdNotes' (CC BY-SA, so
 concepts only), inspired `keystone`
 ([#1187](https://github.com/dkackman/diffusers-workflow/issues/1187)): segment 1's
 frame 0 as every later segment's keyframe, pulling the chain back toward its

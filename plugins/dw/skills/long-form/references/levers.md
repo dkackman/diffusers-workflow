@@ -87,6 +87,39 @@ Static shots only: slot `last` pins every segment's end to segment 1's
 pose, and plain keystone lost the look on S2's arc in round 1. Never use
 either on a moving shot.
 
+## Narrated take levers
+
+Each verdict is `bench/records/narrated.md` (a narrated take of about 86 s, 12
+segments, seed 1 unless said, tier `best`). No arm cleared face, lip sync and
+motion together at 86 s, and nothing is measured past 86 s.
+
+- **`shot: dialogue`** (guide continuity, the default): the narration holds
+  unbroken, the face is etched by about 30 s and `face_drop` steps up at
+  segment 6 (36 s). Good for a take of about 30 s.
+- **`shot: standing`** (`keystone: segment_1`, `keystone_slot: last`, no
+  keyframes): face and backdrop hold to 85 s, `face_drop` within 0.015. She
+  stands; each segment eases back to the opening frame. The keyframe-free way
+  to a longer take.
+- **`shot: walk_keyframed`** (the moving keystone, `keyframes`): the face
+  holds to 85 s (`face_drop` at most 0.041 on two seeds) with the cleanest
+  seams. It costs one hand-built keyframe per segment. A closed-mouth keyframe
+  drops lip sync at the segment's end, so each needs an open, mid-word mouth.
+  A keyframe face that differs from the still, such as an edit that ages it, is
+  followed and accumulates. A walk did not read at chest-up framing; a slow
+  lateral camera arc did, but with the arc keyframes the face over-sharpens
+  from about 45 s.
+- **`experimental_latent_carry` with `experimental_capstone`**: holds
+  saturation flat, does not hold the face past about 60-70 s alone. Stays
+  experimental; no key rename.
+- **Latent keystone and `anchor_every`**: no measured gain. Stay experimental.
+- **`templates/minimax/face-repair`** on a drifted narrated segment: dropped.
+  It softens the glaze but has no reference to aim at, and the face comes back
+  blurrier and, on one segment, older.
+- **Kandinsky S2V 1.0 Lite distilled** (86 s spike): failed on identity, the
+  face drifting to a different, darker one by 85 s.
+- **Passages joined as cuts**: the released shape for a piece longer than one
+  clean take. Not yet run end to end.
+
 ## Measured and cut: do not re-propose
 
 - **hand-over backoff** (#1189) ties on S1 and loses on S2 and S3.

@@ -5,8 +5,8 @@ description: Use when a dw MCP server is connected and the user hands over a scr
 
 # Script to video on a dw server
 
-Turning a script into shots is the one piece none of the other skills
-cover. Everything downstream of a shot list already exists: `dw:minimax-h3`
+Turning a script into shots is the one piece no other skill covers.
+Everything downstream of a shot list already exists: `dw:minimax-h3`
 and `dw:ltx-2.5` pick a template per shot's shape, `h3-prompt-writing`
 writes the structured prompt, `dw:series-episodes` keeps a cast consistent,
 and `templates/assemble-and-score` cuts and scores the result. This skill
@@ -15,9 +15,9 @@ to the engine - see "Not in scope" below for what it deliberately declines.
 
 ## 1. Read the script and the server
 
-`get_server_info` for device and workspace, the way every dw skill starts.
-Read the script as prose and dialogue, the way a person would - this skill
-does not parse screenplay formats.
+`get_server_info` for device and workspace, as every dw skill starts.
+Read the script as prose and dialogue; this skill does not parse screenplay
+formats.
 
 ## 2. Decompose into a shot list, not a shot count
 
@@ -51,7 +51,8 @@ Fill in this shape before writing any prompt:
 
 Save the list as `<project>/shots`, a compiled `<project>/shot-NN` per
 shot, and a scene longer than one clip in `<project>/scenes`
-(`long-form`): `references/shot-document.md`.
+(`long-form`, which has a monologue's narrated take):
+`references/shot-document.md`.
 
 Whatever the user supplied is locked; copy it, don't improve it. A field
 they left blank stays blank - ask, or mark it unspecified - and you invent

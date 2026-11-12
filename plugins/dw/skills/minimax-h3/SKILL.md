@@ -63,7 +63,8 @@ H3 generates video and audio together. Every template fits a 24 GB card.
   (the previous tail as a video reference), `templates/minimax/chain-matched-to-audio`
   (a track sets the length), `templates/minimax/chain-matched-and-aligned`
   (per-segment prompts). What a guide seam trims and carries:
-  `references/chains.md`.
+  `references/chains.md`. A long monologue held to a narration is
+  `long-form`'s narrated take.
 - **A piece with cuts**: fresh shots from shared portraits, then a concat.
   `templates/minimax/dialogue-short` (Z-Image draws the cast, one shot per
   `shots` entry, `concat_videos` splices) and `templates/minimax/music-video`
