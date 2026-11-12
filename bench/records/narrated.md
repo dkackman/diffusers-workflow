@@ -328,3 +328,21 @@ saturation climbs by 20, and the face is soft throughout (`ks2v-vs-h3-faces.jpg`
 narration is unbroken and there is no reset, but H3 with the moving keystone holds the
 face far better. Lite base (50 steps, guidance 3.0) and Pro (21B, would need 4-bit on
 24 GB) are untested.
+
+## Arc v4 + latent carry, seed 1 - job 3147f5720689
+
+| at 0.5/15/30/45/60/75/85 s | moving keystone s1 | arc v3 + latent | arc v4 + latent |
+|---|---|---|---|
+| saturation | 75.4/75.3/79.4/79.2/79.7/79.0/80.8 | 73.5/74.7/76.0/78.4/77.8/78.5/76.5 | 73.4/73.5/76.0/76.3/75.4/77.0/76.3 |
+| SFace similarity to first frame | 1/.95/.90/.93/.92/.91/.91 | 1/.91/.90/.87/.91/.90/.90 | 1/.93/.71/.92/.91/.79/.85 |
+| face-crop Laplacian variance | 603/610/700/595/826/554/696 | 614/552/773/955/789/969/995 | 621/558/708/756/944/986/1118 |
+
+face_drop per segment 0.010-0.074 (max at segment 11); still-mouth bins 2, neither near
+a segment end; seam_jump max 1.08, mean 0.79; texture fine 0.052.
+
+Reading: the mouth-only keyframes removed the orange, aged cast of v3 and saturation is
+the flattest of any arm; lip sync is the best of any arm. The face still sharpens
+through the take (crop sharpness nearly doubles by 85 s, folds deepen from about 45 s;
+`arc4-faces.jpg`). Moving keystone s1 (v2 keyframes, no latent carry) does not sharpen
+this way. Which of latent carry, the graded and blurred plate, or the arc causes it is
+not isolated. Per R20, keyframe iteration stops here.
