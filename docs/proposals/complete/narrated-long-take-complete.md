@@ -508,3 +508,59 @@ video is spent.
   2512.05081, training-free sink frames), InfiniteTalk (2508.14033, re-anchoring to
   near keyframes), LongCat-Video-Avatar 1.5 (2605.26486, a warning that always-on
   references repeat motion: the case for every-Nth cadence).
+
+## Verdicts (2026-11-12)
+
+Closed by Don on 2026-11-12: ship what the bench measured and stop the research. The
+evidence is `bench/records/narrated.md`; every arm is seed 1 at 12 segments (about 86 s)
+unless said.
+
+**The three defects of constitution-walk-2.**
+
+| Defect | Outcome |
+| --- | --- |
+| Halting pauses in the narration | Fixed. The narration is retimed once and held unbroken under the whole take. |
+| Pose and progress resets | Fixed within a take: no arm reset. |
+| Facial burn | Held down, not removed. No arm cleared face, lip sync and motion together at 86 s, and nothing is measured past 86 s. |
+
+**What shipped.**
+
+- `templates/narration-retime` and `templates/minimax/narrated-take`: the held
+  narration, a segment per line, probe with `stop_after` and continue with
+  `resume_from`, `face_drop` recorded per segment, `repair-segment` on a narrated take.
+- Three `shot` presets:
+  - `dialogue`: clean to about 30 s.
+  - `standing` (static keystone): face and backdrop hold to 85 s, seed 1 only; she stands.
+  - `walk_keyframed` (the moving keystone, Amendment 1): the face holds to 85 s on two
+    seeds, at the cost of a hand-built keyframe per segment.
+- A piece longer than one clean take is passages joined as cuts, one take each. This
+  is the fallback of *If the bench fails*. It has not been run end to end.
+- #1308 (b): a segment missing its opening words re-rolls, then reports.
+
+**What did not ship.**
+
+- The unbroken 5-minute constitution take (CP3, CP4) and the cold drill were not run.
+- Latent carry and the capstone stay behind the experimental flag: they hold saturation
+  flat and do not hold the face past about 60-70 s. The latent keystone and
+  `anchor_every` showed no gain.
+- A walk did not read at chest-up framing. A slow camera arc did, with keyframes.
+- The lip-sync measure left the chain check (it did not separate good from bad takes);
+  `measure_lip_sync` stays as a take-level task.
+
+**Arms.**
+
+| Arm | Face at 85 s | Colour | Notes |
+| --- | --- | --- | --- |
+| Control (guide carry) | `face_drop` 0.21, etched by 30 s | saturation 68 to 81 | |
+| Candidate (latent carry, capstone, latent keystone every 3) | 0.21, natural to about 60 s | flat | |
+| Static keystone | within 0.015 | 68 to 73 | she stands; two re-rolls |
+| Moving keystone, v2 keyframes | at most 0.041, two seeds | 75 to 81 | lip sync drops at closed-mouth keyframes; sway, no walk |
+| Arc, v3 keyframes (with and without latent carry) | at most 0.068 | 74 to 81 / 77 | the Klein mouth edits aged the face |
+| Arc, v4 keyframes + latent carry | at most 0.074 | 73 to 76 | best lip sync; face over-sharpens from about 45 s |
+| Kandinsky S2V 1.0 Lite distilled (spike, outside dw) | SFace 0.71 | 71 to 91 | fails on identity |
+
+**Left open** (measured gaps, for follow-up issues): the multi-passage shape run end to
+end with a cold agent; the cause of the over-sharpening under the arc keyframes (one
+isolating run, v4 without latent carry, was in flight at close); split unsample on the
+copied overlap (TrentHunter82, NerdNotes issue 3) as a burn lever; H3 context windows
+(#1188); Kandinsky S2V Pro at 4-bit.
