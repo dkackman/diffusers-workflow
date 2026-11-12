@@ -308,3 +308,23 @@ a hand-built keyframe per segment that no agent can build through MCP. Nothing i
 tested past 86 s. diffusers 0.43.0 ships Kandinsky S2V 1.0 (reference frame + speech
 track, 5 s chunks with FramePack memory, MIT). Don approved: spike S2V on the same still
 and narration, run v4 once on H3, then stop keyframe iteration either way.
+
+## Kandinsky S2V 1.0 spike (2026-11-12) - Lite distilled, 86 s, seed 1
+
+Standalone script on lem (`~/spikes/ks2v`, diffusers 0.43.0 beside the server's 0.42.1),
+`kandinskylab/Kandinsky-S2V-1.0-Lite-distill-Diffusers`, 16 steps, keyframes-v2 kf00 +
+the retimed narration, auto CPU offload, cuda:0. 768x512, 25 fps, peak 17.0 GiB, about
+2.6 min per 5 s chunk (86 s in about 50 min).
+
+| at 0.5/15/30/45/60/75/85 s | moving keystone s1 | arc + latent s1 | S2V Lite distilled |
+|---|---|---|---|
+| SFace similarity to first frame | 1/.95/.90/.93/.92/.91/.91 | 1/.91/.90/.87/.91/.90/.90 | 1/.90/.80/.76/.87/.79/.71 |
+| saturation | 75.4 -> 80.8 | 73.5 -> 76.5 | 70.9 -> 91.0 |
+| face-crop Laplacian variance | 554-826 | 552-995 | 60-238 |
+| still-mouth bins | 7 | 2 | 5 |
+
+Reading: fails. Identity drifts to a different, darker face by 85 s, the earrings go,
+saturation climbs by 20, and the face is soft throughout (`ks2v-vs-h3-faces.jpg`). The
+narration is unbroken and there is no reset, but H3 with the moving keystone holds the
+face far better. Lite base (50 steps, guidance 3.0) and Pro (21B, would need 4-bit on
+24 GB) are untested.
