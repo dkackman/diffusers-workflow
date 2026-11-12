@@ -2977,13 +2977,12 @@ template's `check` leaves its ceiling `null`. Read it per segment next to a late
 frame (`get_output_frames`). A step up is the face changing, and the first one an
 eye called was 0.146 at 36 s on `dialogue`.
 
-**What was measured** (12 segments, about 86 s, tier `best`, about 18-19 minutes
-per segment on an RTX 3090). The narration is held unbroken under every `shot`.
+**What was measured** (12 segments, about 86 s, tier `best`; about 18-19 min per segment on dialogue and walk_keyframed; standing took 282 min for 12 segments (about 23.5, with two re-rolls), on an RTX 3090). The narration is held unbroken under every `shot`.
 
 - `shot: dialogue` (the default): the face is etched by about 30 s and
   `face_drop` steps up at segment 6 (36 s). Good for a take of about 30 s.
 - `shot: standing` (`keystone: segment_1`, `keystone_slot: last`, no keyframes):
-  face and backdrop hold to 85 s, `face_drop` within 0.015. The speaker stands;
+  face and backdrop hold to 85 s, `face_drop` within 0.015 (seed 1 only). The speaker stands;
   each segment eases back to the opening frame.
 - `shot: walk_keyframed` with `keyframes`: the face holds to 85 s (`face_drop` at
   most 0.041 on two seeds), with the cleanest seams, at the price of a

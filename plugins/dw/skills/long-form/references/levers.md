@@ -97,7 +97,7 @@ motion together at 86 s, and nothing is measured past 86 s.
   unbroken, the face is etched by about 30 s and `face_drop` steps up at
   segment 6 (36 s). Good for a take of about 30 s.
 - **`shot: standing`** (`keystone: segment_1`, `keystone_slot: last`, no
-  keyframes): face and backdrop hold to 85 s, `face_drop` within 0.015. She
+  keyframes): face and backdrop hold to 85 s, `face_drop` within 0.015 (seed 1 only). She
   stands; each segment eases back to the opening frame. The keyframe-free way
   to a longer take.
 - **`shot: walk_keyframed`** (the moving keystone, `keyframes`): the face
@@ -106,8 +106,8 @@ motion together at 86 s, and nothing is measured past 86 s.
   drops lip sync at the segment's end, so each needs an open, mid-word mouth.
   A keyframe face that differs from the still, such as an edit that ages it, is
   followed and accumulates. A walk did not read at chest-up framing; a slow
-  lateral camera arc did, but with the arc keyframes the face over-sharpens
-  from about 45 s.
+  lateral camera arc did, but arc v4 + latent carry sharpens from about
+  45 s; the cause is not isolated.
 - **`experimental_latent_carry` with `experimental_capstone`**: holds
   saturation flat, does not hold the face past about 60-70 s alone. Stays
   experimental; no key rename.

@@ -164,7 +164,7 @@ walk with the static take's face quality wins, at a higher budget. Arms
 D (keystone `last` every 3 segments: pulls her back to the walk's start)
 and A (candidate anchors every segment: its anchors barely moved
 `face_drop`) were dropped before running. Next: the moving keystone
-(`docs/proposals/narrated-long-take.md`, Amendment 1).
+(`docs/proposals/complete/narrated-long-take-complete.md`, Amendment 1).
 
 ## Moving keystone: keyframes
 

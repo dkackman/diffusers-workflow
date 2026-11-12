@@ -166,7 +166,7 @@ Unmeasured: no bench record covers a resumed take yet.
 
 A speaking subject held to a narration is `templates/minimax/narrated-take`,
 measured in `bench/records/narrated.md` (12 segments, about 86 s, tier `best`,
-seed 1; about 18-19 min per segment on an RTX 3090).
+seed 1; about 18-19 min per segment on dialogue and walk_keyframed; standing took 282 min for 12 segments (about 23.5, with two re-rolls), on an RTX 3090).
 
 1. **Narration.** `templates/narration-retime` makes the held track. Its
    `num_frames` and `guide_frames` must equal the take's (192 and 22), or
@@ -181,7 +181,7 @@ seed 1; about 18-19 min per segment on an RTX 3090).
 3. **Judge.** Read each shot's `face_drop`, which is recorded and never
    failed. It is the face's drift from segment 1: `dialogue` read 0.003-0.057
    to 30 s, then 0.146 at 36 s, where an eye first calls the face etched;
-   `standing` stayed within 0.015 to 85 s; `walk_keyframed` stayed at or under
+   `standing` stayed within 0.015 to 85 s (seed 1 only); `walk_keyframed` stayed at or under
    0.041 on two seeds. A rising `face_drop` is the face, so the tool is
    `get_output_frames(at=...)` late in the take; seams are
    `assess_output(probe="analyze_seams")`. Lip sync is judged by eye
