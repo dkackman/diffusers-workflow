@@ -559,8 +559,8 @@ unless said.
 | Arc, v4 keyframes + latent carry | at most 0.074 | 73 to 76 | best lip sync; face over-sharpens from about 45 s |
 | Kandinsky S2V 1.0 Lite distilled (spike, outside dw) | SFace 0.71 | 71 to 91 | fails on identity |
 
-**Left open** (measured gaps, for follow-up issues): the multi-passage shape run end to
-end with a cold agent; the cause of the over-sharpening under the arc keyframes (one
-isolating run, v4 without latent carry, was in flight at close); split unsample on the
-copied overlap (TrentHunter82, NerdNotes issue 3) as a burn lever; H3 context windows
-(#1188); Kandinsky S2V Pro at 4-bit.
+**Left open** (follow-up issues): the multi-passage shape run end to end with a cold
+agent (#1311); the cause of the over-sharpening under the arc keyframes, with one
+isolating run, v4 without latent carry, in flight at close (#1312); split unsample on
+the copied overlap as a burn lever (#1313); Kandinsky S2V Pro at 4-bit (#1314); H3
+context windows (#1188). #1308's verification on lem is still owed.
