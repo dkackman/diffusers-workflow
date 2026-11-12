@@ -260,3 +260,51 @@ Eye: face crops at 1/30/85 s match seed 1's. One sway inside segment 9
 (about 58-61 s): she drifts right of centre and the colonnade comes out
 from behind her, sharper, then she is back on her mark by 62 s as the
 segment lands on its keyframe. Both seeds replicate the face hold.
+
+### Don's verdict on the moving keystone (2026-11-11)
+
+Faces good on both seeds, "maybe some slight burn". No walking, only sway. Seed 2 drops
+lip sync on occasion; seed 1 is better. Don chose a slow lateral camera arc over a walk.
+
+Mouth stillness (YuNet mouth box, grey diff per frame against audio RMS, half-second
+bins, flagged when speech > 0.7x median and mouth < 0.45x median): seed 2 had 12 flagged
+bins, 7 of them within 0.8 s of a segment end - the closed-mouth keyframes pull the
+mouth shut as each segment lands.
+
+## Keyframes v3: camera arc, mid-word mouths, graded plate
+
+One plate, graded to the still's background (Reinhard LAB), cropped along a lateral arc
+(left 105 -> 505 px over 12 segments), the matted speaker pasted with a 65 px drift.
+Keyframes 1-12 cycle four Klein open-mouth edits of the still, aligned on the YuNet
+landmarks. Arms: `bench/arms/narrated-arc.json`, `narrated-arc-latent.json`.
+
+## Arc, seed 1 - jobs f2775de46a93 (arc), 7f9f6f106524 (arc + latent carry + capstone 0.7)
+
+| | moving keystone s1 | arc | arc + latent |
+|---|---|---|---|
+| face_drop, segments 2-12 max | 0.041 | 0.068 | 0.049 |
+| saturation 0/15/30/45/60/75/85 s | 76.0/75.3/79.4/79.2/79.7/79.0/80.8 | 73.8/74.8/78.2/80.9/79.3/77.5/77.2 | 73.8/74.7/76.0/78.4/77.8/78.5/76.5 |
+| still-mouth bins | 7 | 3 | 2 |
+| seam_jump max / mean | 0.83 / 0.60 | 1.09 / 0.65 | 1.22 / 0.88 |
+| texture fine, last vs first segment | 0.148 | 0.002 | 0.009 |
+
+Reading: the arc reads (building and trees cross behind her), no reset, lip sync better.
+The face is **more** burned than the moving keystone from about 30 s: deeper, sharper
+folds and warmer skin (`arc-faces.jpg`). The texture measure is whole-frame and missed
+it. Cause: the Klein open-mouth edits aged the whole face (`kf-faces-v2-v3.jpg`), and
+the chain follows its keyframes. Seam scores include the camera move.
+
+## Keyframes v4: the original face, only the mouth blended in
+
+The v3 series with each variant reduced to a feathered mouth ellipse (centre the YuNet
+mouth midpoint, radii 0.95 x 0.62 mouth widths, blur 0.14) over the original matte,
+colour-shifted to the original on a ring around the ellipse. Arm:
+`bench/arms/narrated-arc4-latent.json`.
+
+## Path assessment (2026-11-12)
+
+At 86 s the chain holds narration and pose; burn is not fixed, and identity now rests on
+a hand-built keyframe per segment that no agent can build through MCP. Nothing is
+tested past 86 s. diffusers 0.43.0 ships Kandinsky S2V 1.0 (reference frame + speech
+track, 5 s chunks with FramePack memory, MIT). Don approved: spike S2V on the same still
+and narration, run v4 once on H3, then stop keyframe iteration either way.
