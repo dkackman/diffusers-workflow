@@ -47,6 +47,7 @@ from .chain_rules import (
     chain_keystone_images_problem,
     chain_keystone_slot,
     chain_keystone_slot_problem,
+    CHAIN_LATENT_CARRY_LEVELLED,
     chain_latent_carry_problem,
     chain_length_problem,
     chain_lines_problem,
@@ -338,7 +339,9 @@ class ChainConfig:
                 chain_definition, _argument(arguments, GUIDE_NOISE_INPUT)
             )
         )
-        self.latent_carry = chain_definition.get(CHAIN_LATENT_CARRY) is True
+        carried = chain_definition.get(CHAIN_LATENT_CARRY)
+        self.latent_level = carried == CHAIN_LATENT_CARRY_LEVELLED
+        self.latent_carry = carried is True or self.latent_level
         # Which later segments take the keystone and capstone (Task 9), a spike
         _raise_chain_problem(chain_anchor_every_problem(chain_definition))
         every = stop_after_value(chain_definition.get(CHAIN_ANCHOR_EVERY))

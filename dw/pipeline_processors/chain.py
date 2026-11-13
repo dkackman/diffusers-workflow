@@ -75,7 +75,7 @@ from .chain_config import ChainConfig, trimmed_take_shots
 from .chain_continuity import CONTINUITY_MODES, _generated_audio
 from .chain_look import LookHold
 from .h3_anchor import anchor_refusal
-from .h3_guides import guides_refusal, latent_guide_tail
+from .h3_guides import guides_refusal, latent_guide_tail, latent_level, levelled
 from .chain_rules import (
     CHAIN_CAPSTONE,
     CHAIN_LATENT_CARRY,
@@ -137,6 +137,7 @@ def run_chain(pipeline, chain_definition, arguments):
     # The corrected frames' look-hold state, and the last carry before any
     # pre-compensation (what a later segment's opening is graded to)
     hold = LookHold(config.look_hold) if config.look_hold else None
+    level = None  # a levelled latent carry's reference, set by the first tail
     raw_carry = None
     # Segment 1's decoded frames, the latent anchor of every later segment
     # under `anchor: "segment_1"` (#1166) - the same frame objects the output
@@ -190,6 +191,7 @@ def run_chain(pipeline, chain_definition, arguments):
                 keystone_frame,
                 seed,
                 capstone_frame,
+                level,
             )
             if config.check is not None and (
                 segment.index > 0 or config.checks_segment_1
@@ -213,7 +215,7 @@ def run_chain(pipeline, chain_definition, arguments):
             # Only the kept attempt reaches the timeline: its carry, its
             # look-hold state, its frames and its audio
             carry, raw_carry = attempt.carry, attempt.raw_carry
-            hold = attempt.hold
+            hold, level = attempt.hold, attempt.level
             if segment.index == 0:
                 anchor_frames, keystone_frame, capstone_frame = _from_segment_1(
                     config, attempt.rendered, attempt.latent_0
@@ -421,6 +423,7 @@ class _ChainState:
     keystone_frame: object
     seed: int  # None when the step passes neither a generator nor a seed
     capstone_frame: object = None
+    level: object = None  # the first carried tail's latent_level, when levelled
 
 
 @dataclass
@@ -438,6 +441,7 @@ class _Attempt:
     tail_trim: int
     seed: int = None
     latent_0: object = None  # segment 1's frame-0 latent, a latent keystone's
+    level: object = None  # the level later tails are pulled to, when levelled
 
 
 def _render_attempt(
@@ -495,6 +499,9 @@ def _render_attempt(
     rendered = frames_as_pil_list(artifact)
     if config.latent_carry:
         carry = _with_latent_tail(carry, taken, config, len(rendered))
+    level = state.level
+    if config.latent_level:
+        level = _levelled_tail(carry, level, segment.index)
     segment_audio, segment_rate = _generated_audio(artifact)
     # A segment's own generated audio can run a codec-padding sliver
     # short of the frames it was asked for - the same gap #197 fixed for
@@ -531,6 +538,7 @@ def _render_attempt(
         tail_trim,
         seed,
         taken[0][:, :, :1].clone() if latent_0 else None,
+        level,
     )
 
 
@@ -891,6 +899,23 @@ def _taken_latents(output):
     return latents.detach().cpu(), (
         audio.detach().cpu() if isinstance(audio, torch.Tensor) else None
     )
+
+
+def _levelled_tail(carry, level, index):
+    """The level a levelled carry holds (#1322): the first tail this run
+    carries sets it and goes on as rendered; every later tail is pulled back
+    to it before the next segment reads it. The finished frames are untouched."""
+    if level is None:
+        emit_log(f"Levelled carry: segment {index + 1}'s tail sets the level")
+        return latent_level(carry.latents)
+    mean, spread = latent_level(carry.latents)
+    carry.latents = levelled(carry.latents, level)
+    emit_log(
+        f"Levelled carry: segment {index + 1}'s tail pulled back - mean off by "
+        f"{float((mean - level[0]).abs().mean()):.4f}, spread x"
+        f"{float((spread / level[1].clamp_min(1e-6)).mean()):.3f} of the level"
+    )
+    return level
 
 
 def _with_latent_tail(carry, taken, config, num_frames):

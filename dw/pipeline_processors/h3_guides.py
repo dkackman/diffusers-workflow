@@ -447,6 +447,27 @@ def latent_guide_tail(latents, audio_latents, num_frames, count, back, fps=H3_FP
     return video, audio
 
 
+def latent_level(latents):
+    """(mean, spread) of a `(1, C, T, h, w)` latent per channel, each
+    `(1, C, 1, 1, 1)`: what `levelled` pulls a later tail back to."""
+    values = latents.float()
+    return (
+        values.mean(dim=(2, 3, 4), keepdim=True),
+        values.std(dim=(2, 3, 4), keepdim=True),
+    )
+
+
+def levelled(latents, reference):
+    """`latents` with each channel's mean and spread set to `reference`'s (a
+    `latent_level`), in the latents' own dtype (#1322): a carried tail pulled
+    back to the tone of the first one. A channel with no spread keeps its
+    values and takes the mean only."""
+    mean, spread = latent_level(latents)
+    target_mean, target_spread = reference
+    gain = torch.where(spread > 1e-6, target_spread / spread.clamp_min(1e-6), 1.0)
+    return ((latents.float() - mean) * gain + target_mean).to(latents.dtype)
+
+
 # The experimental late capstone's guide keys (#1187; h3_windows.py)
 CAPSTONE_KEYS = (CAPSTONE_PAST_END, CAPSTONE_GATE)
 

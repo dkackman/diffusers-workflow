@@ -489,6 +489,10 @@ def anchors_segment(index, every):
 # that guide's condition rows (h3_guides.latent_guide_tail). A scratch spike
 # behind the windowed refine's flag (h3_rules), MiniMax-H3 guide chains only
 CHAIN_LATENT_CARRY = "experimental_latent_carry"
+# The carry levelled (#1322): each carried tail is pulled back to the channel
+# mean and spread of the first tail the run carried, before the next segment
+# reads it (h3_guides.levelled), so a drift in tone does not stack across seams
+CHAIN_LATENT_CARRY_LEVELLED = "levelled"
 
 
 def chain_latent_carry_problem(chain, guide_noise=None):
@@ -517,8 +521,11 @@ def chain_latent_carry_problem(chain, guide_noise=None):
             f"{CHAIN_LATENT_CARRY} is a scratch spike, off unless "
             f"{REFINE_WINDOWS_ENV_VAR}=1 is set where the pipeline loads"
         )
-    if carry is not True:
-        return f"{CHAIN_LATENT_CARRY} is true or false, got {carry!r}"
+    if carry is not True and carry != CHAIN_LATENT_CARRY_LEVELLED:
+        return (
+            f"{CHAIN_LATENT_CARRY} is true, false or "
+            f"'{CHAIN_LATENT_CARRY_LEVELLED}', got {carry!r}"
+        )
     continuity = chain.get("continuity", "last_frame")
     unresolved = isinstance(continuity, str) and references.is_ref(
         references.UNRESOLVED, continuity

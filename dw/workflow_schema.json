@@ -450,7 +450,7 @@
                     }
                 },
                 "experimental_latent_carry": {
-                    "description": "Scratch spike (#1150, refused unless DW_EXPERIMENTAL_REFINE_WINDOWS=1), MiniMax-H3 guide chains: each later segment's guide takes the previous segment's own final latents (its guide_frames tail, video and generated audio) as condition rows in place of decoding and re-encoding those frames. Needs continuity 'guide'; refused with look_hold or a nonzero guide_noise. A chain holding its track (match_audio, a step hold_audio) carries the video latents only. False or null is off.",
+                    "description": "Scratch spike (#1150, refused unless DW_EXPERIMENTAL_REFINE_WINDOWS=1), MiniMax-H3 guide chains: each later segment's guide takes the previous segment's own final latents (its guide_frames tail, video and generated audio) as condition rows in place of decoding and re-encoding those frames. Needs continuity 'guide'; refused with look_hold or a nonzero guide_noise. A chain holding its track (match_audio, a step hold_audio) carries the video latents only. 'levelled' (#1322) is the carry with each tail's video latents pulled back, per channel, to the mean and spread of the first tail the run carried, before the next segment reads it; the finished frames are untouched, and a resumed chain levels to the first tail it renders. False or null is off.",
                     "type": ["boolean", "string", "null"]
                 },
                 "anchor_every": {

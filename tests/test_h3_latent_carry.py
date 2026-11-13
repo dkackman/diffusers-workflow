@@ -190,7 +190,7 @@ def h3_workflow(chain=None, arguments=None):
         ({"look_hold": True}, None, "look_hold"),
         ({"look_hold": {"texture": True}}, None, "look_hold"),
         ({}, {"guide_noise": 0.4}, "guide_noise"),
-        ({CHAIN_LATENT_CARRY: "yes"}, None, "true or false"),
+        ({CHAIN_LATENT_CARRY: "yes"}, None, "true, false or"),
     ],
 )
 def test_an_incompatible_combination_is_refused_at_validate_time(
@@ -616,3 +616,64 @@ def test_end_to_end_a_segment_hands_on_latents_shaped_as_the_tail_takes(
     assert audio.shape[0] == 2 and audio.shape[2] == audio_latents_for(124)
     tail, rows = h3_guides.latent_guide_tail(latents, audio, 124, 22, 0)
     assert tail.shape[2] == 7 and rows.shape[:2] == (2, 37)
+
+
+# 8. The levelled carry (#1322): later tails pulled back to the first's level
+
+
+def test_levelled_is_an_accepted_value_and_anything_else_is_named(flag_on):
+    chain = {"continuity": "guide", CHAIN_LATENT_CARRY: "levelled"}
+    assert chain_latent_carry_problem(chain) is None
+    assert "'levelled'" in chain_latent_carry_problem({**chain, CHAIN_LATENT_CARRY: 1})
+
+
+def test_levelled_sets_each_channels_mean_and_spread_to_the_reference():
+    generator = torch.Generator().manual_seed(7)
+    first = torch.randn(1, 4, 7, 4, 4, generator=generator)
+    later = torch.randn(1, 4, 7, 4, 4, generator=generator) * 1.4 + 0.3
+    out = h3_guides.levelled(later.half(), h3_guides.latent_level(first))
+    assert out.dtype == torch.float16
+    mean, spread = h3_guides.latent_level(out)
+    wanted_mean, wanted_spread = h3_guides.latent_level(first)
+    assert torch.allclose(mean, wanted_mean, atol=5e-3)
+    assert torch.allclose(spread, wanted_spread, atol=5e-3)
+
+
+def test_levelled_leaves_a_flat_channel_its_values_and_moves_its_mean():
+    flat = torch.full((1, 2, 7, 4, 4), 0.5)
+    reference = (torch.full((1, 2, 1, 1, 1), 0.2), torch.ones(1, 2, 1, 1, 1))
+    assert torch.allclose(
+        h3_guides.levelled(flat, reference), torch.full_like(flat, 0.2)
+    )
+
+
+def test_a_levelled_chain_hands_on_the_first_tail_as_rendered_and_levels_the_rest(
+    flag_on,
+):
+    pipeline, outputs, _ = run_latent_chain(
+        **{CHAIN_LATENT_CARRY: "levelled", "segments": 3}
+    )
+    count = latent_frames(22)
+    first = outputs.kept[0]["latents"][:, :, -count:]
+    assert torch.equal(pipeline.calls[1]["guides"][0]["latents"], first)
+    second = outputs.kept[1]["latents"][:, :, -count:]
+    handed = pipeline.calls[2]["guides"][0]["latents"]
+    assert not torch.equal(handed, second)
+    assert torch.allclose(
+        handed, h3_guides.levelled(second, h3_guides.latent_level(first))
+    )
+    # The audio rows are carried as rendered
+    audio = audio_latents_for(22)
+    assert torch.equal(
+        pipeline.calls[2]["guides"][0]["audio_latents"],
+        outputs.kept[1]["audio_latents"][:, :, -audio:].permute(0, 2, 1),
+    )
+
+
+def test_a_plain_latent_carry_is_not_levelled(flag_on):
+    pipeline, outputs, _ = run_latent_chain(segments=3)
+    count = latent_frames(22)
+    assert torch.equal(
+        pipeline.calls[2]["guides"][0]["latents"],
+        outputs.kept[1]["latents"][:, :, -count:],
+    )
