@@ -465,7 +465,7 @@ rises less than half as far, and the face is never etched. The cost is the other
 direction: from about 60 s the picture softens (face sharpness 219 to 107) and by 85 s
 it is slightly hazy and pale. Identity drifts as in the control (similarity .76 against
 .74; face_drop reaches 0.195 at segment 12) - levelling does not hold the face, only the
-tone. Still-mouth bins 1. Seam peak 0.8-1.6x the median frame difference, as smooth as
+tone. Still-mouth bins 1. Seam peak 0.7-1.7x the median frame difference, as smooth as
 the control.
 
 One seed; Don has not viewed it (`levelled-carry-s1.mp4`,
