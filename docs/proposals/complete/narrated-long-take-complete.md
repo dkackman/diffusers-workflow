@@ -558,6 +558,8 @@ unless said.
 | Arc, v3 keyframes (with and without latent carry) | at most 0.068 | 74 to 81 / 77 | the Klein mouth edits aged the face |
 | Arc, v4 keyframes + latent carry | at most 0.074 | 73 to 76 | best lip sync; face over-sharpens from about 45 s |
 | Arc, v4 keyframes, no latent carry (finished after close) | at most 0.075 | 73 to 77 | face sharpness flat to 86 s; 3 still-mouth bins; one seed, not yet viewed by Don |
+| Masked handoff, plain `dialogue` (2026-11-13, after close; #1322) | not measured (SFace .60 at 86 s) | 68 to 85 | no over-sharpening, colour still climbs at seams, a bump at about half the seams |
+| Levelled latent carry, plain `dialogue` (2026-11-13, after close; #1322) | 0.195 | 69 to 67 | no burn on the measures, soft from about 60 s; Don's eye: she becomes progressively glossy. Rejected |
 | Kandinsky S2V 1.0 Lite distilled (spike, outside dw) | SFace 0.71 | 71 to 91 | fails on identity |
 
 **Left open** (follow-up issues): the multi-passage shape run end to end with a cold
@@ -566,3 +568,12 @@ agent (#1311); the over-sharpening under the arc keyframes, which the isolating 
 `bench/records/narrated.md`); split unsample on
 the copied overlap as a burn lever (#1313); Kandinsky S2V Pro at 4-bit (#1314); H3
 context windows (#1188). #1308's verification on lem is still owed.
+
+**Second close (2026-11-13).** Two handoffs taken from ComfyUI-Continuity were tested on
+the plain `dialogue` take after the close: the masked handoff (built from unchained
+regional-edit steps) and the levelled latent carry (`experimental_latent_carry:
+"levelled"`, d2967163). Neither cleared the take, and Don closed the experiment. The
+`levelled` value stays as part of the experimental spike, off by default. No take with
+the keyframed arms' face quality has her walking: the arms that hold the face pin her
+pose and she sways, and the unanchored arms burn, glaze or gloss. Evidence:
+`bench/records/narrated.md`, the two 2026-11-13 sections.

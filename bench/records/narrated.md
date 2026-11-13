@@ -472,3 +472,9 @@ One seed; Don has not viewed it (`levelled-carry-s1.mp4`,
 `levelled-vs-control-faces.jpg`). Untried: a partial pull (the spread left alone, or
 half strength) against the late softening, and levelled with the keystone or v4
 keyframes for identity.
+
+### Don's verdict (2026-11-13)
+
+On `levelled-carry-s1.mp4`: "she becomes progressively glossy". Rejected; the stills and
+the face-sharpness measure read the gloss as softening and missed it. Don closed the
+experiment here. The untried combinations above were not run.
