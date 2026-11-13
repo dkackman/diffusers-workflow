@@ -432,3 +432,43 @@ bump at about half the seams, and the first seam is followed by ~0.4 s of refram
 
 One seed, different from the control's; Don has not viewed it
 (`masked-handoff-s1.mp4`, `masked-vs-control-faces.jpg`).
+
+## Levelled latent carry, seed 1 - job b800065fb772 (refs #1322)
+
+`experimental_latent_carry: "levelled"` (d2967163) on the plain `dialogue` take: each
+carried tail's video latents are pulled back, per channel, to the mean and spread of
+segment 1's tail before the next segment reads them. No keystone, no keyframes. Same
+seed and conditions as the control (`20261109-225944-af94be0b`), so segment 1 is the
+same render. 192 min for 12 segments, no re-rolls.
+
+| measure | control: total / seams / in-segment | levelled: total / seams / in-segment |
+|---|---|---|
+| luma | +0.3 / -0.6 / +0.9 | +4.1 / -4.3 / +8.4 |
+| saturation | +12.5 / +18.4 / -5.9 | -2.6 / +6.6 / -9.2 |
+| face saturation | +21.3 / +33.8 / -12.5 | +9.2 / +13.7 / -4.5 |
+| face sharpness | +648 / +624 / +24 | -170 / -252 / +83 |
+
+| window | control | levelled |
+|---|---|---|
+| 0-10 s | 204 / 101.3 / .92 | 219 / 100.5 / .93 |
+| 20-30 s | 280 / 109.2 / .89 | 239 / 105.2 / .89 |
+| 40-50 s | 546 / 110.6 / .78 | 225 / 103.5 / .83 |
+| 60-70 s | 830 / 117.2 / .79 | 174 / 107.7 / .81 |
+| 80-90 s | 986 / 118.8 / .74 | 107 / 105.5 / .76 |
+
+What the level pulled back grew through the take: the tail's channel means sat 0.061
+from the level at segment 2 and 0.191 at segment 12, its spread 1.03x and 1.07x. Each
+segment drifts further inside itself even though it starts from a levelled tail.
+
+Reading. The burn is gone: whole-frame saturation ends where it began, face saturation
+rises less than half as far, and the face is never etched. The cost is the other
+direction: from about 60 s the picture softens (face sharpness 219 to 107) and by 85 s
+it is slightly hazy and pale. Identity drifts as in the control (similarity .76 against
+.74; face_drop reaches 0.195 at segment 12) - levelling does not hold the face, only the
+tone. Still-mouth bins 1. Seam peak 0.8-1.6x the median frame difference, as smooth as
+the control.
+
+One seed; Don has not viewed it (`levelled-carry-s1.mp4`,
+`levelled-vs-control-faces.jpg`). Untried: a partial pull (the spread left alone, or
+half strength) against the late softening, and levelled with the keystone or v4
+keyframes for identity.
