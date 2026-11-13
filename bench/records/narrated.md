@@ -346,3 +346,39 @@ through the take (crop sharpness nearly doubles by 85 s, folds deepen from about
 `arc4-faces.jpg`). Moving keystone s1 (v2 keyframes, no latent carry) does not sharpen
 this way. Which of latent carry, the graded and blurred plate, or the arc causes it is
 not isolated. Per R20, keyframe iteration stops here.
+
+## Arc v4 without latent carry, seed 1 - job ddbac3a46144
+
+The isolating run for #1312: the arc v4 arm with `experimental_latent_carry` off
+(`bench/arms/narrated-arc4.json`), everything else as job 3147f5720689. 246 min, two
+re-rolls (segments 2 and 6).
+
+Face crop, every sixth frame, per 10 s window (median Laplacian variance of the crop at
+256 px / mean HSV saturation of the crop / median SFace similarity to the first frame).
+The crop is sized differently from the table above, so compare within this table only.
+
+| window | moving keystone s1 | arc v4 + latent | arc v4, no latent |
+|---|---|---|---|
+| 0-10 s | 452 / 99.8 / .92 | 477 / 101.3 / .92 | 472 / 101.8 / .92 |
+| 10-20 s | 508 / 102.3 / .91 | 489 / 104.4 / .90 | 439 / 104.7 / .90 |
+| 20-30 s | 536 / 104.1 / .90 | 533 / 103.7 / .88 | 410 / 107.6 / .88 |
+| 30-40 s | 512 / 104.5 / .89 | 482 / 109.2 / .85 | 435 / 106.0 / .89 |
+| 40-50 s | 492 / 103.8 / .90 | 604 / 105.0 / .88 | 468 / 104.4 / .89 |
+| 50-60 s | 626 / 104.0 / .90 | 680 / 106.3 / .89 | 519 / 107.0 / .89 |
+| 60-70 s | 566 / 102.7 / .90 | 808 / 106.7 / .90 | 462 / 106.0 / .89 |
+| 70-80 s | 451 / 101.7 / .89 | 710 / 107.4 / .89 | 407 / 104.7 / .89 |
+| 80-90 s | 469 / 103.1 / .87 | 856 / 104.7 / .87 | 390 / 102.8 / .89 |
+
+Whole-frame saturation at 0.5/15/30/45/60/75/85 s: 73.3/73.7/77.3/76.6/76.6/75.7/75.0.
+face_drop per segment 0.026-0.075 (max at segment 7). Still-mouth bins 3 (moving
+keystone s1: 7; v4 + latent: 2). seam_jump max 0.89, mean 0.59 (v4 + latent: 1.08 /
+0.79); texture fine 0.050. Lowest single-frame SFace similarity 0.51 (60-70 s window);
+v4 + latent dips to 0.21, moving keystone s1 to 0.75.
+
+Reading: latent carry is what over-sharpens the face. With it off, crop sharpness stays
+between 390 and 519 for the whole take, where the same keyframes with latent carry climb
+from 477 to 856. The plate, the arc and the v4 keyframes are cleared. The v4 mouth-only
+keyframes keep their lip-sync gain without latent carry (3 still-mouth bins against 7
+for the v2 keyframes). On these measures this is the cleanest 86 s arm, and it is the
+shipped `walk_keyframed` configuration with v4-style keyframes. One seed; Don has not
+viewed it (`cp1-arc4-s1.mp4`, `arc4-nolatent-faces.jpg`).

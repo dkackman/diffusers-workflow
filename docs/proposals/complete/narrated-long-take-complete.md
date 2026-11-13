@@ -557,10 +557,12 @@ unless said.
 | Moving keystone, v2 keyframes | at most 0.041, two seeds | 75 to 81 | lip sync drops at closed-mouth keyframes; sway, no walk |
 | Arc, v3 keyframes (with and without latent carry) | at most 0.068 | 74 to 81 / 77 | the Klein mouth edits aged the face |
 | Arc, v4 keyframes + latent carry | at most 0.074 | 73 to 76 | best lip sync; face over-sharpens from about 45 s |
+| Arc, v4 keyframes, no latent carry (finished after close) | at most 0.075 | 73 to 77 | face sharpness flat to 86 s; 3 still-mouth bins; one seed, not yet viewed by Don |
 | Kandinsky S2V 1.0 Lite distilled (spike, outside dw) | SFace 0.71 | 71 to 91 | fails on identity |
 
 **Left open** (follow-up issues): the multi-passage shape run end to end with a cold
-agent (#1311); the cause of the over-sharpening under the arc keyframes, with one
-isolating run, v4 without latent carry, in flight at close (#1312); split unsample on
+agent (#1311); the over-sharpening under the arc keyframes, which the isolating run
+(v4 without latent carry, finished after close) traced to latent carry (#1312,
+`bench/records/narrated.md`); split unsample on
 the copied overlap as a burn lever (#1313); Kandinsky S2V Pro at 4-bit (#1314); H3
 context windows (#1188). #1308's verification on lem is still owed.
