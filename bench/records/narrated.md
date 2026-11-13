@@ -382,3 +382,53 @@ keyframes keep their lip-sync gain without latent carry (3 still-mouth bins agai
 for the v2 keyframes). On these measures this is the cleanest 86 s arm, and it is the
 shipped `walk_keyframed` configuration with v4-style keyframes. One seed; Don has not
 viewed it (`cp1-arc4-s1.mp4`, `arc4-nolatent-faces.jpg`).
+
+## Masked handoff probe, seed 101-112 - job 64a392dcebe1 (refs #1322)
+
+A test of the handoff ComfyUI-Continuity calls "masked": the previous segment's tail is
+written into the new segment's own latent and held under a mask, where the guide chain
+passes it as extra condition rows. No engine change - twelve unchained fl2va steps in one
+workflow, each with `source_video` (the previous tail, 22 frames, padded to 192),
+`mask_video` (22 black frames, then white), `mask_grow` 0, `refine_strength` 1.0, the
+tail's first frame as `image`, and the narration slice as `hold_audio`. Plain `dialogue`
+conditions otherwise: no keystone, no keyframes, no latent carry. The tail goes through a
+VAE encode, not as raw latents. Compared with the `dialogue` control, seed 1
+(`20261109-225944-af94be0b`); the two differ in seed as well as handoff.
+
+Drift split into the step across each seam (1 s after minus 1 s before, summed over 11
+seams) and the slope inside each segment:
+
+| measure | control: total / seams / in-segment | masked: total / seams / in-segment |
+|---|---|---|
+| luma | +0.3 / -0.6 / +0.9 | +2.8 / +11.6 / -8.7 |
+| saturation | +12.5 / +18.4 / -5.9 | +17.6 / +20.5 / -2.8 |
+| face saturation | +21.3 / +33.8 / -12.5 | +24.1 / +39.4 / -15.3 |
+| face sharpness | +648 / +624 / +24 | -109 / -145 / +36 |
+
+Face crop per 10 s window (median sharpness / mean saturation / median SFace similarity
+to the first frame), same script as the table above:
+
+| window | control | masked |
+|---|---|---|
+| 0-10 s | 204 / 101.3 / .92 | 169 / 97.1 / .92 |
+| 20-30 s | 280 / 109.2 / .89 | 207 / 105.9 / .84 |
+| 40-50 s | 546 / 110.6 / .78 | 219 / 110.6 / .71 |
+| 60-70 s | 830 / 117.2 / .79 | 203 / 119.6 / .71 |
+| 80-90 s | 986 / 118.8 / .74 | 190 / 118.2 / .60 |
+
+Reading. The masked handoff removes the over-sharpening: face-crop sharpness stays
+between 156 and 262 for 86 s where the control climbs from 204 to 986, and the crops show
+smooth skin at 85 s where the control is etched. It does not remove the colour drift:
+saturation still steps up at every seam by the same amount, and brightness now steps up
+too. Identity holds less well (similarity .60 at the end against .74), with nothing but
+the tail to anchor it. Still-mouth bins 4, all in the first 10 s.
+
+Seam defects of this construction. The mask rounds to whole latent cells, so 18 of the 22
+tail frames were held and frames 18-21 were regenerated; the workflow's own join (trim
+22) therefore shows a one-frame jump of 3-4x the median frame difference at every seam.
+A local join at 18 brings the seam peak to 0.9-3.1x (control 0.9-1.8x), still a visible
+bump at about half the seams, and the first seam is followed by ~0.4 s of reframing.
+14 min per segment against 18-19 for the guide chain; 165 min for the take.
+
+One seed, different from the control's; Don has not viewed it
+(`masked-handoff-s1.mp4`, `masked-vs-control-faces.jpg`).
