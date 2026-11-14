@@ -194,10 +194,33 @@ seed 1; about 18-19 min per segment on dialogue and walk_keyframed; standing too
    that drifted on its own is not repaired this way:
    `templates/minimax/face-repair` had no reference to aim at and was dropped.
 
-Longer than one clean take: split the script into passages, make one narrated
-take per passage (its own `narration-retime`, its own opening still or angle),
-and join them as cuts with the tools named above. Not yet run end to end.
-Nothing is measured past 86 s.
+### Longer than one take: passages joined as cuts
+
+A piece longer than one clean take is passages joined as cuts, one narrated
+take each. Not yet run end to end; nothing is measured past 86 s.
+
+1. **One narration for the whole script.** Speak it once with
+   `templates/narration-long` from one voice reference (`audio.md`), then
+   retime it once with `templates/narration-retime`. One track gives one
+   voice, one room tone and one level across every cut; a narration made per
+   passage gives none of those.
+2. **Passages.** Split the script at paragraph or section breaks so each
+   passage fits its preset. At the retimed pace (about 126 words a minute,
+   `bench/records/narrated.md`) that is about 60 words for `shot: dialogue`
+   (about 30 s) and about 175 words for `shot: standing` (about 85 s). Cut
+   the retimed track at those section-break pauses with `slice_audio`
+   (`start_seconds`/`duration_seconds`, the cut in the middle of the pause;
+   the retime report's `words` give the times), and `keep_output` each slice.
+   A slice's segment boundaries restart at its cut, so its
+   `mid_word_boundaries` are not the whole track's: they stay advisory.
+3. **Takes.** Run one `templates/minimax/narrated-take` per passage: that
+   passage's slice as `narration`, that passage's text as `script`, and **a
+   different still or angle** for each. A cut to the same still reads as a
+   reset. Probe passage 1 first, as above.
+4. **Join.** Author a one-step `concat_videos` workflow: the takes as
+   `output:` refs in order, `trim_frames: 0` (a hard cut), `match_levels:
+   "lufs"` (off by default), `fps: 24`. Every take must be the same frame
+   size. Then `export_timeline` (below) if an editor is wanted.
 
 ## Export the cut for an editor
 
