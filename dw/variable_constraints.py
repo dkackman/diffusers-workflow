@@ -46,8 +46,10 @@ the next consumer picking 61.
 import logging
 import math
 import numbers
+import re
 
 from . import references
+from .presets import PRESETS_KEY, bundle_sources, coerced_bundles, effective_variables
 
 logger = logging.getLogger("dw")
 
@@ -55,6 +57,67 @@ CONSTRAINTS_KEY = "variable_constraints"
 # The fields a `frame_snap` block carries, which are the fields a constraint
 # is checked on - the rest of a constraint says what to do about a violation
 SNAP_FIELDS = ("modulus", "remainder", "min_frames", "max_frames")
+# A string value's rule: its length once surrounding whitespace is dropped.
+# A Music 3 `lyrics: ""` passed validation and failed at run time - the
+# pipeline refuses empty lyrics, and an instrumental is a tag-only body, which
+# the template's own `reason` says (#1199)
+MIN_LENGTH = "min_length"
+# A variable with no default: it is declared `null` and this marks the null as
+# "nothing given", so an omitted value is refused by name rather than by
+# whatever a placeholder default would have resolved to (#1253). A stored
+# default is not judged against it - there is none to judge
+REQUIRED = "required"
+# A string value's words against a sibling number of seconds, warned and
+# never refused: music-long cuts a section at its `seconds`, so a lyric
+# longer than that fits loses its last lines, and the rate is whatever the
+# workflow measured (#1199 bench). A [bracketed] tag is markup, not a word
+MAX_WORDS_PER_SECOND = "max_words_per_second"
+SECONDS_FROM = "seconds_from"
+_TAG = re.compile(r"\[[^\]\n]*\]")
+
+
+def word_count(text):
+    """The words in `text`, a [bracketed] tag not counting as one."""
+    return len(_TAG.sub(" ", text).split())
+
+
+def density_notice(name, value, constraint, siblings):
+    """(message, words, most words allowed) for a string with more words than
+    its seconds hold at the constraint's `max_words_per_second`, or None.
+
+    The seconds are read from `siblings[seconds_from]`: the same list entry
+    for an entry field, the workflow's variables for a top-level one. A
+    value that is not a string, or seconds that are not a number yet (a
+    reference), is not judged.
+    """
+    rate = constraint.get(MAX_WORDS_PER_SECOND)
+    source = constraint.get(SECONDS_FROM)
+    if not isinstance(value, str) or not rate or not isinstance(source, str):
+        return None
+    seconds = siblings.get(source) if isinstance(siblings, dict) else None
+    if isinstance(seconds, bool) or not isinstance(seconds, numbers.Real):
+        try:
+            seconds = float(seconds) if isinstance(seconds, str) else None
+        except ValueError:
+            seconds = None
+    if seconds is None or not math.isfinite(seconds) or seconds <= 0:
+        return None
+    words = word_count(value)
+    allowed = rate * seconds
+    if words <= allowed:
+        return None
+    reason = constraint.get("reason")
+    because = f" - {reason}" if reason else ""
+    return (
+        (
+            f"'{name}' has {words} words for {seconds:g} s ('{source}'), "
+            f"{words / seconds:.2f} a second, past the {rate:g} this workflow "
+            f"declares (about {math.floor(allowed)} words in {seconds:g} s), so "
+            f"its last lines may never be heard{because}"
+        ),
+        words,
+        math.floor(allowed),
+    )
 
 
 def declared_constraints(definition):
@@ -214,12 +277,31 @@ def snapped(value, constraint):
     return target
 
 
+def _length_violations(value, constraint):
+    """Why a string value breaks a `min_length` rule, as phrases.
+
+    A null counts as empty: a pipeline handed None for its lyric fails the
+    same way as one handed "". Anything else that is not a string (a list, a
+    number) is not this rule's to judge.
+    """
+    minimum = constraint.get(MIN_LENGTH)
+    if minimum is None or not (value is None or isinstance(value, str)):
+        return []
+    if len((value or "").strip()) >= minimum:
+        return []
+    if minimum == 1:
+        return ["must not be empty"]
+    return [f"must be at least {minimum} characters"]
+
+
 def violations(value, constraint):
     """Why `value` breaks `constraint`, as phrases, or [] when it does not.
 
     Judged on the value the run would use, so a constraint that rounds is
     only ever refused for a bound the rounded number still breaks.
     """
+    if constraint.get(MIN_LENGTH) is not None:
+        return _length_violations(value, constraint)
     number = effective(value, constraint)
     if number is None:
         return []
@@ -241,6 +323,11 @@ def _accepted(constraint):
     """The rule as a phrase a consumer can act on, which is the half of #96
     that stops the next caller picking 61: the range and the step, together."""
     parts = []
+    minimum = constraint.get(MIN_LENGTH)
+    if minimum == 1:
+        parts.append("a non-empty string")
+    elif minimum is not None:
+        parts.append(f"a string of at least {minimum} characters")
     low, high = constraint.get("min_frames"), constraint.get("max_frames")
     if low is not None and high is not None:
         parts.append(f"{low} to {high}")
@@ -254,8 +341,20 @@ def _accepted(constraint):
     return ", ".join(parts)
 
 
+def required_refusal(name, value, constraint):
+    """The refusal for a `required` variable left null, or None."""
+    if not constraint.get(REQUIRED) or value is not None:
+        return None
+    reason = constraint.get("reason")
+    because = f": {reason}" if reason else ""
+    return f"'{name}' is required and has no default{because}"
+
+
 def refusal(name, value, constraint):
     """The one wording every layer uses for a value outside its constraint."""
+    missing = required_refusal(name, value, constraint)
+    if missing is not None:
+        return missing
     problems = violations(value, constraint)
     if not problems:
         return None
@@ -263,12 +362,22 @@ def refusal(name, value, constraint):
     because = f" - {reason}" if reason else ""
     target = snapped(value, constraint)
     rounding = f" (rounds up to {target})" if target is not None else ""
+    shown = repr(value) if value is None or isinstance(value, str) else value
     return (
-        f"'{name}' is {value}{rounding}, which this workflow does not "
+        f"'{name}' is {shown}{rounding}, which this workflow does not "
         f"accept: {'; '.join(problems)}. Accepted: {_accepted(constraint)}{because}. "
         f"The rule is declared on the workflow, so it is checked before "
         f"anything loads rather than after the weights are in memory"
     )
+
+
+def checked_refusal(name, value, constraint, arguments):
+    """`refusal`, except that checking the document (no `arguments`) does not
+    judge a required variable's stored null: it has no default to judge
+    (#1253)."""
+    if arguments is None and required_refusal(name, value, constraint):
+        return None
+    return refusal(name, value, constraint)
 
 
 def snap_notice(name, value, constraint):
@@ -292,21 +401,27 @@ def constraint_errors(definition, arguments=None, supplied=()):
     """Every declared constraint a value breaks, as [{path, message}].
 
     A value the caller supplied is reported at `arguments.<name>`, where they
-    wrote it; a stored default at `variables.<name>`. A constraint that
+    wrote it; a stored default at `variables.<name>`; a preset bundle's value
+    at `presets.<selector>.<value>.<name>` - every bundle, chosen or not. A constraint that
     declares `snap: "up"` and can reach a legal value is a warning rather
     than an error - the run will round it, and saying so is the point.
     """
     constraints = declared_constraints(definition)
     if not constraints:
         return []
-    variables = definition.get("variables") or {}
-    values = {**variables, **(arguments or {})}
+    # What the run uses: the chosen preset bundle under the arguments. A
+    # value the chosen bundle set is left to the every-bundle pass below,
+    # so it is reported once, where its author wrote it
+    values = effective_variables(definition, arguments)
+    from_bundle = bundle_sources(definition, arguments)
     errors = []
     for name in sorted(constraints):
         constraint = constraints[name]
         if not isinstance(constraint, dict) or name not in values:
             continue
-        message = refusal(name, values[name], constraint)
+        if name in from_bundle:
+            continue
+        message = checked_refusal(name, values[name], constraint, arguments)
         if message is None:
             # Either legal, or legal once rounded - a value the workflow
             # rounds is a warning (constraint_warnings), never an error
@@ -314,6 +429,8 @@ def constraint_errors(definition, arguments=None, supplied=()):
         where = "arguments" if name in (supplied or ()) else "variables"
         errors.append({"path": f"{where}.{name}", "message": message})
     for variable, index, name, entry in entry_targets(definition, values):
+        if variable in from_bundle:
+            continue
         message = refusal(name, entry[name], constraints[name])
         if message is None:
             continue
@@ -321,6 +438,26 @@ def constraint_errors(definition, arguments=None, supplied=()):
         errors.append(
             {"path": f"{where}.{variable}[{index}].{name}", "message": message}
         )
+    # Every bundle, chosen or not: a bundle is a default the author wrote,
+    # so one outside a rule is as wrong as a default outside it would be
+    for selector, label, bundle in coerced_bundles(definition):
+        where = f"{PRESETS_KEY}.{selector}.{label}"
+        for name in sorted(bundle):
+            constraint = constraints.get(name)
+            if not isinstance(constraint, dict):
+                continue
+            message = refusal(name, bundle[name], constraint)
+            if message is not None:
+                errors.append({"path": f"{where}.{name}", "message": message})
+        for variable, index, name, entry in entry_targets(definition, bundle):
+            message = refusal(name, entry[name], constraints[name])
+            if message is not None:
+                errors.append(
+                    {
+                        "path": f"{where}.{variable}[{index}].{name}",
+                        "message": message,
+                    }
+                )
     return errors
 
 
@@ -335,7 +472,8 @@ def constraint_warnings(definition, arguments=None):
     constraints = declared_constraints(definition)
     if not constraints:
         return []
-    values = {**(definition.get("variables") or {}), **(arguments or {})}
+    # the chosen preset bundle's values round as a caller's would
+    values = effective_variables(definition, arguments)
     notices = []
     for name in sorted(constraints):
         constraint = constraints[name]
@@ -348,7 +486,40 @@ def constraint_warnings(definition, arguments=None):
         notice = snap_notice(name, entry[name], constraints[name])
         if notice is not None:
             notices.append(f"{variable}[{index}]: {notice}")
+    notices.extend(message for message, _ in density_notices(definition, values))
     return notices
+
+
+def density_notices(definition, values):
+    """Every value with more words than its seconds hold, as
+    (message, fields) - the one walk the validate and run passes share."""
+    constraints = declared_constraints(definition)
+    found = []
+    for name in sorted(constraints):
+        constraint = constraints[name]
+        if not isinstance(constraint, dict) or name not in values:
+            continue
+        answer = density_notice(name, values[name], constraint, values)
+        if answer is not None:
+            message, words, allowed = answer
+            found.append(
+                (message, {"variable": name, "words": words, "max_words": allowed})
+            )
+    for variable, index, name, entry in entry_targets(definition, values):
+        answer = density_notice(name, entry[name], constraints[name], entry)
+        if answer is not None:
+            message, words, allowed = answer
+            found.append(
+                (
+                    f"{variable}[{index}]: {message}",
+                    {
+                        "variable": f"{variable}[{index}].{name}",
+                        "words": words,
+                        "max_words": allowed,
+                    },
+                )
+            )
+    return found
 
 
 def snap_constraints(definition, variables):
@@ -399,6 +570,8 @@ def apply_constraints(definition, variables):
         return
     for message, label, value in snap_constraints(definition, variables):
         emit_warning(message, kind="value_snapped", variable=label, value=value)
+    for message, fields in density_notices(definition, variables):
+        emit_warning(message, kind="text_may_overrun", **fields)
     for name in sorted(constraints):
         constraint = constraints[name]
         if not isinstance(constraint, dict) or name not in variables:

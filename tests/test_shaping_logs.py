@@ -2,15 +2,17 @@
 
 import numpy
 
-from dw.tasks import audio_utils, joins
-from dw.tasks.audio_utils import fade_audio, resample_audio, slice_audio
+from dw.tasks import audio_slice, audio_utils, joins
+from dw.tasks.audio_slice import slice_audio
+from dw.tasks.audio_utils import fade_audio, resample_audio
 from dw.tasks.joins import _declick_join
 
 
 def _capture(monkeypatch):
     lines = []
-    # the shaping commands log from audio_utils, the declick from joins
-    for module in (audio_utils, joins):
+    # the shaping commands log from audio_utils and audio_slice, the declick
+    # from joins
+    for module in (audio_utils, audio_slice, joins):
         monkeypatch.setattr(
             module, "emit_log", lambda msg, **kw: lines.append((msg, kw))
         )

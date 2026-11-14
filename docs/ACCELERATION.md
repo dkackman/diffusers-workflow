@@ -255,6 +255,32 @@ Typical gains are 1.3-1.5x on diffusion transformers, and compile stacks with th
 
 **Example:** [flux-dev-compile.json](../workflows/models/flux-dev-compile.json), [flux-torchao.json](../workflows/models/flux-torchao.json)
 
+## Per-Component Dtype
+
+A pipeline's `from_pretrained_arguments.torch_dtype` can be diffusers' per-component dict instead of one dtype. This keeps sensitive components at higher precision while the rest of the pipeline stays narrow:
+
+```json
+"from_pretrained_arguments": {
+    "model_name": "Lightricks/LTX-2",
+    "torch_dtype": {
+        "default": "torch.bfloat16",
+        "audio_vae": "torch.float32",
+        "vocoder": "torch.float32"
+    }
+}
+```
+
+**Components a pipeline chains together must share a dtype** unless the pipeline casts between them. For LTX-2, load `audio_vae` and `vocoder` in the same dtype. The decode casts the audio latents to `audio_vae.dtype`, then hands the mel to the vocoder with no cast. A vocoder-only dict validates, then fails at decode with a dtype mismatch (on MPS: `Input type (c10::BFloat16) and bias type (float) should be the same`). The engine doesn't check this, because which components chain is model knowledge.
+
+- **Keys** are the pipeline's component names, passed through to diffusers as written. The engine knows no model's components.
+- **`default`** covers every component the dict doesn't name. Without it, those components load as `torch.float32`, and `validate_workflow` warns.
+- **Values** must each name a dtype. A `{}`-escaped value or an unknown name is refused, and the error names the component.
+- **Readers:**
+  - The MPS float16 warning names each float16 component.
+  - The quantized cache keys each component on its own dtype.
+  - The warm-pipeline cache keys each dict separately from the single-dtype form.
+- **Scope:** a component declared in its own `components` entry still takes its own single `torch_dtype`.
+
 ## Layerwise Casting
 
 Store a component's weights in a narrow dtype and upcast only for compute:
@@ -311,17 +337,21 @@ A workflow that offloads keeps its weights in host memory, so the card can sit n
 
 ## TF32 and cuDNN
 
-Device-level settings, read once at startup from `~/.diffusers_helper/settings.json` (the directory moves with `DIFFUSERS_HELPER_ROOT`):
+Device-level settings from `~/.diffusers_helper/settings.json` (the directory moves with `DIFFUSERS_HELPER_ROOT`). They are process-wide torch flags, so every process that runs a pipeline applies them (`configure_torch` in `dw/__init__.py`): the CLI at startup, and each `dw.serve` worker when it starts and again at the start of every job. A settings change reaches served jobs after a server restart. The first job a fresh worker runs narrates what it ran with, read back from torch after the pipelines loaded, as a `log` event: `torch: cudnn benchmark=false deterministic=true, tf32=false`.
+
+The defaults give the same output for the same seed, whatever else the host is doing (#1229; `bench/records/determinism.md`):
 
 | Setting | Default | Effect |
 | ------- | ------- | ------ |
-| `enable_tf32` | `true` | `torch.set_float32_matmul_precision("high")`, and on CUDA also `torch.backends.cuda.matmul.allow_tf32 = True`. ~2x faster matmuls on Ampere and newer (RTX 30/40, A100, H100) with minor precision loss |
-| `cudnn_benchmark` | `true` | CUDA only. Autotunes cuDNN algorithm selection: fastest for fixed input sizes, overhead when sizes vary run to run |
-| `cudnn_deterministic` | `false` | CUDA only. `true` trades speed for reproducible output given the same seed |
+| `enable_tf32` | `false` | `true` sets `torch.set_float32_matmul_precision("high")`, and on CUDA also `torch.backends.cuda.matmul.allow_tf32 = True`: faster fp32 matmuls on Ampere and newer (RTX 30/40, A100, H100), numerically different from full fp32. Most pipelines run in bf16, so this mostly touches fp32 text encoders and VAEs |
+| `cudnn_benchmark` | `false` | CUDA only. `true` autotunes cuDNN's algorithm choice by timing it. Timing moves with host load, so on a two-card server, or a card next to other GPU work, the same seed can give different output |
+| `cudnn_deterministic` | `true` | CUDA only. Restricts cuDNN to its deterministic algorithms. With `cudnn_benchmark` also on, the autotuner picks among those only |
 
 ```json
-{ "enable_tf32": true, "cudnn_benchmark": true, "cudnn_deterministic": false }
+{ "enable_tf32": false, "cudnn_benchmark": false, "cudnn_deterministic": true }
 ```
+
+The catalog `cost` rows were measured with benchmark and TF32 off. Turning either on is a speed opt-in that gives up same-seed reproducibility.
 
 ## Environment Defaults
 
@@ -347,4 +377,5 @@ Apple Silicon has narrower acceleration support than CUDA:
 - Ops the MPS backend lacks run on the CPU with `PYTORCH_ENABLE_MPS_FALLBACK=1` (set by the `fp4-fp8-for-torch-mps` package install.sh adds), and dw logs torch's warning when one does. Without it they raise.
 - Memory figures are real: allocated, driver-reserved, and Metal's recommended working set as the total. `vram_estimate` checks a Mac against that total; the per-voxel figures were calibrated on CUDA.
 - Cost estimates on a Mac are the CUDA figures (`basis: "other_device"`) until the Mac's own runs build observed history; expect them to be optimistic.
+- A 24 GB Mac (about 17.8 GB recommended working set; an approximate figure, not re-measured - the exact limit is what the device reports and varies by macOS version and machine) is refused at the `minimax/chained-segments` defaults under either continuity (about 18.3 GB projected with a guide, 18.0 GB without). `num_frames` cannot be lowered (the template accepts 124 and up), so lower the canvas: 768x448 passes under guide (`Workflow.validation_errors`); 864x480 passes only under `last_frame`.
 - Offloading gains less than on CUDA, since unified memory is already shared between CPU and GPU.

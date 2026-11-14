@@ -349,6 +349,13 @@ def get_value(v, desired_type, name=None):
         )
         return v
 
+    # An escaped value ("{int8}" for a *_dtype argument, already unbraced by
+    # the parent's realize pass) keeps its marker when handed to a composed
+    # child: str(v) returns a plain str, and the child's own realize pass
+    # would then load the bare name as a type (#1228)
+    if desired_type is str and isinstance(v, str) and type(v) is not str:
+        return v
+
     # Special handling for boolean string values - bool("0") and bool("no") are
     # both truthy in Python, which would silently invert the user's intent, so
     # only a known set of true/false spellings is accepted here
@@ -360,6 +367,18 @@ def get_value(v, desired_type, name=None):
             return False
         var_label = name if name is not None else "<unknown>"
         message = f"Cannot interpret '{v}' as true/false for variable '{var_label}'"
+        logger.error(message)
+        raise ValueError(message)
+
+    # A dict or list for a variable typed bool by its default would fold to
+    # True through bool(v) with no word (#1250): refuse it, naming the variable
+    if isinstance(v, (dict, list)) and desired_type is bool:
+        var_label = name if name is not None else "<unknown>"
+        message = (
+            f"Cannot convert variable '{var_label}' value {v!r} to type bool: "
+            f"this variable is typed bool by its default and takes true or "
+            f"false, not an object or list"
+        )
         logger.error(message)
         raise ValueError(message)
 

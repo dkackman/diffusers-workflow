@@ -17,6 +17,10 @@ from functools import lru_cache
 from . import references
 from .arguments import names_no_media
 from .for_each import render_path
+from .pipeline_processors.chain_rules import (
+    chain_length_problem,
+    match_audio_source_problem,
+)
 from .schema import load_schema, validate_data_all
 from .references import (
     FROM_ARGUMENTS_KEY,
@@ -24,6 +28,7 @@ from .references import (
     FROM_PREVIOUS_RESULT_KEY,
     iter_steps,
 )
+from .variable_constraints import CONSTRAINTS_KEY, REQUIRED
 from .task_domains import (
     SELECT_RULES,
     SELECT_THRESHOLD_RULES,
@@ -399,6 +404,9 @@ def chain_prompts_errors(workflow_definition, source_indices=None):
         chain = pipeline.get("chain")
         if not isinstance(chain, dict) or not isinstance(chain.get("prompts"), str):
             continue
+        # One reference to a list resolves at run time (resolve_chain_lists)
+        if references.is_ref(references.PREVIOUS_RESULT, chain["prompts"]):
+            continue
         path = render_path(("steps", source, "pipeline", "chain", "prompts"))
         errors.append(
             {
@@ -410,4 +418,57 @@ def chain_prompts_errors(workflow_definition, source_indices=None):
                 ),
             }
         )
+    return errors
+
+
+# --- A chain's length and its matched track (#1259) ---------------------------
+#
+# The schema's `not` clause only sees an integer `segments`; a `variable:`
+# reference passes it, and the run refused after the model load. These are
+# the run's own rules (chain_rules.py), asked of the substituted block.
+
+
+def _held_by_a_required_null(written, source, arguments):
+    """Whether a chain step's `hold_audio` is null only because the author
+    wrote it as a `required` variable left null. That null is "nothing given",
+    which the variable's own constraint refuses by name when a caller omits
+    it, and which checking the document does not judge (#1253) - so the
+    matched track is not missing a second time."""
+    if (arguments or {}).get("hold_audio") is not None:
+        return False
+    steps = (written or {}).get("steps")
+    if not isinstance(steps, list) or not 0 <= source < len(steps):
+        return False
+    step = steps[source] if isinstance(steps[source], dict) else {}
+    pipeline = step.get("pipeline") if isinstance(step.get("pipeline"), dict) else {}
+    held = (pipeline.get("arguments") or {}).get("hold_audio")
+    if not references.is_ref(references.VARIABLE, held):
+        return False
+    name = references.ref_name(references.VARIABLE, held)
+    constraint = ((written or {}).get(CONSTRAINTS_KEY) or {}).get(name) or {}
+    return constraint.get(REQUIRED) is True
+
+
+def chain_length_errors(workflow_definition, source_indices=None, written=None):
+    """Every chain that asks for its length not exactly one way, or that
+    matches audio with no track to match, as [{path, message}]. `written`
+    is the definition as the author wrote it, so a track held from a
+    `required` variable left null is left to that variable's own refusal."""
+    errors = []
+    for _, _, pipeline, source, _ in iter_steps(
+        workflow_definition.get("steps"), source_indices, "pipeline"
+    ):
+        chain = pipeline.get("chain")
+        if not isinstance(chain, dict):
+            continue
+        path = render_path(("steps", source, "pipeline", "chain"))
+        problem = chain_length_problem(chain)
+        if (
+            problem is None
+            and chain.get("match_audio") is True
+            and not _held_by_a_required_null(written, source, pipeline.get("arguments"))
+        ):
+            problem = match_audio_source_problem(pipeline.get("arguments"))
+        if problem:
+            errors.append({"path": path, "message": problem})
     return errors

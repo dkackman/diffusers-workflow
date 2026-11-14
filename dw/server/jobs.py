@@ -36,18 +36,15 @@ can attach late (or reconnect) and replay from where it left off.
 import os
 import copy
 import json
-import secrets
 import time
+import uuid
 import logging
 import threading
 from contextlib import contextmanager
 
 from ..events import NON_INTERRUPTIBLE_PHASES
 from ..worker_protocol import Execute, workflow_identity
-from ..devices import device_ordinal
-from ..host_memory import process_rss_mb, read_oom_score_adj
 from ..worker_manager import WorkerManager
-from ..workflow_run import SEED_BITS
 from ..security import (
     SecurityError,
     validate_json_size,
@@ -61,7 +58,8 @@ from ..settings import resolve_path
 from ..workspace import DEFAULT_WORKSPACE_NAME
 from . import dispatch, job_results, pool, worker_memory
 from .dispatch import Dispatcher
-from .job_history import JobHistory
+from .job_history import JobHistory, close_dead_servers, hold_server_lock
+from .job_history import release_server_lock
 from .outputs import job_run_directory, with_run_note, with_run_state
 from .job_record import (
     ACK_NONE,
@@ -72,6 +70,7 @@ from .job_record import (
     RUNNING,
     TERMINAL_STATES,
     Job,
+    rerun_arguments,
 )
 from .pool import WorkerSlot
 from .worker_memory import WorkerBusy
@@ -128,6 +127,11 @@ class JobManager(Dispatcher):
         # The first card's worker - what the single-worker callers address
         self.worker_manager = self.slots[0].manager
         self.history = JobHistory(history_path or resolve_path("jobs.sqlite"))
+        # Stamped on each job's history row; its lock says it is alive (#1220)
+        self.instance = uuid.uuid4().hex
+        self._server_lock = hold_server_lock(self.history, self.instance)
+        # Before the runner starts and before the app takes a request
+        close_dead_servers(self.history, self.instance)
         self.jobs = {}
         # Reentrant: cancel() finishes a queued job while holding it, and
         # _finish's terminal-job trim needs it again on the same thread
@@ -163,6 +167,17 @@ class JobManager(Dispatcher):
             if not running:
                 return None
             return min(running, key=lambda slot: slot.started_at or 0).current_job_id
+
+    # ------------------------------------------------------- restart record
+
+    def _record_open(self, job):
+        """Write a live job's row - queued at submit, running at dispatch and
+        at run_start. Logged, never raised: a missing row must not cost the
+        job (#1220)."""
+        try:
+            self.history.record(job)
+        except Exception as e:
+            logger.warning(f"Could not record job {job.id} in history: {e}")
 
     # ------------------------------------------------------------- affinity
 
@@ -238,6 +253,7 @@ class JobManager(Dispatcher):
         preferred_device=None,
         note=None,
         rerun_of=None,
+        overrides=None,
     ):
         """Record a job request and queue it.
 
@@ -285,7 +301,8 @@ class JobManager(Dispatcher):
         `note` is the run's note, already cleaned (`admitted_note`): kept on
         the job and written into the run directory when the run opens.
 
-        `rerun_of` is the job this one reruns, recorded so the list can say so.
+        `rerun_of` is the job this one reruns, recorded so the list can say so;
+        `overrides` the variables the rerun changed, recorded beside it.
 
         `workflow_path`, `workflow` and `base_dir` are the request as the
         caller made it, kept for a rerun (which admits afresh) and for
@@ -337,9 +354,14 @@ class JobManager(Dispatcher):
             spec["note"] = note
         if rerun_of:
             spec["rerun_of"] = rerun_of
+        if overrides:
+            spec["overrides"] = overrides
 
         job = Job(spec)
         job.host_ram_need = host_ram_need
+        job.server_instance = self.instance
+        # Its row before anyone can see it: no outcome is written first (#1220)
+        self._record_open(job)
         with self._lock:
             self.jobs[job.id] = job
             self._needs[job.id] = pool.dispatch_need(self.slots, vram_need)
@@ -473,14 +495,15 @@ class JobManager(Dispatcher):
             return None
         return name if name in (definition.get("variables") or {}) else None
 
-    def rerun_spec(self, job_id, new_seed=False):
+    def rerun_spec(self, job_id, new_seed=False, overrides=None):
         """The spec and arguments a rerun of `job_id` would submit, as
         (spec, arguments), or None for an unknown job - split from rerun()
         so a route can admit the run before queuing it (#85).
 
         `new_seed` draws a fresh seed into the workflow's seed variable
-        (see rerun). Raises ValueError when it cannot, and when the named
-        workspace the job ran in is gone."""
+        (see rerun). `overrides` are variables merged over the stored
+        arguments first, keeping a seed the original drew (rerun_arguments).
+        Raises ValueError when it cannot, or the job's workspace is gone."""
         job = self.jobs.get(job_id)
         if job is not None:
             spec = {key: job.spec[key] for key in RERUN_SPEC_KEYS if key in job.spec}
@@ -496,17 +519,13 @@ class JobManager(Dispatcher):
             }
             arguments = historical["arguments"]
 
-        if new_seed:
-            variable = self.seed_variable(job_id)
-            if variable is None:
-                raise ValueError(
-                    "This workflow does not draw its seed from a variable, so "
-                    "a rerun cannot change it. A workflow with no seed at all "
-                    "already draws a fresh one every run."
-                )
-            # Bounded so the number survives its trip through a browser as
-            # JSON - see SEED_BITS
-            arguments = {**arguments, variable: secrets.randbits(SEED_BITS)}
+        arguments, spec["rerun_warnings"] = rerun_arguments(
+            arguments,
+            overrides,
+            new_seed,
+            self.seed_variable(job_id),
+            lambda: self.realized(job_id),
+        )
 
         workspace = spec.get("workspace")
         if (
@@ -530,6 +549,7 @@ class JobManager(Dispatcher):
         arguments=None,
         vram_need=None,
         host_ram_need=None,
+        overrides=None,
     ):
         """Queue a fresh job from a previous job's spec.
 
@@ -560,7 +580,9 @@ class JobManager(Dispatcher):
         there, which is what makes a same-seed rerun finish at once. When
         that card is busy, the rerun takes any free card it fits.
         """
-        prepared = self.rerun_spec(job_id, new_seed=new_seed and arguments is None)
+        prepared = self.rerun_spec(
+            job_id, new_seed=new_seed and arguments is None, overrides=overrides
+        )
         if prepared is None:
             return None
         spec, recorded = prepared
@@ -581,12 +603,14 @@ class JobManager(Dispatcher):
                 if acknowledged_cost is not None
                 else spec.get("acknowledged_cost")
             ),
-            warnings=warnings,
+            # keep_drawn_seed's, unless a new_seed replaced the drawn seed
+            warnings=[*(warnings or []), *([] if new_seed else spec["rerun_warnings"])],
             vram_need=vram_need,
             host_ram_need=host_ram_need,
             preferred_device=self._original_device(job_id),
             note=spec.get("note"),
             rerun_of=job_id,
+            overrides=overrides,
         )
 
     def _original_device(self, job_id):
@@ -769,6 +793,9 @@ class JobManager(Dispatcher):
             thread.join(timeout=max(0.0, deadline - time.monotonic()))
         for slot in self.slots:
             slot.manager.shutdown_worker()
+        self._host_claims().withdraw()
+        release_server_lock(self._server_lock)
+        self._server_lock = None
 
     # ---------------------------------------------------------------- runner
 
@@ -796,6 +823,8 @@ class JobManager(Dispatcher):
                 # The worker switches to this identity for the run
                 slot.last_identity = self._job_identity(job)
             job.add_event({"event": "job_status", "status": RUNNING})
+            # Before the job's thread exists, so _finish always writes last
+            self._record_open(job)
             thread = threading.Thread(
                 target=self._run_job,
                 args=(slot, job),
@@ -881,7 +910,7 @@ class JobManager(Dispatcher):
                     # so the outcome is the cancel itself
                     outcome = (CANCELLED, None, None)
                 else:
-                    manager.ensure_worker(self.log_level)
+                    self._start_worker(slot, job)
                     self._rank_for_oom(slot, job)
                     command = Execute(
                         # The snapshot admission checked, which the worker runs
@@ -908,6 +937,7 @@ class JobManager(Dispatcher):
                         slot,
                         job.spec.get("output_dir") or self.output_dir,
                         worker_memory.record_memory,
+                        on_run_start=lambda: self._record_open(job),
                     )
             except Exception as e:
                 logger.error(f"Job {job.id} failed: {e}", exc_info=True)
@@ -1015,28 +1045,7 @@ class JobManager(Dispatcher):
         job it is running, whether its worker process is alive, and that
         process's resident host memory - the pool shares one machine's RAM.
         """
-        with self._lock:
-            running = [(slot, slot.current_job_id) for slot in self.slots]
-        described = []
-        for slot, job_id in running:
-            pid = slot.manager.pid() if hasattr(slot.manager, "pid") else None
-            entry = {
-                "device": device_ordinal(slot.device),
-                "name": slot.device_fields()[1],
-                "vram_gb": slot.capacity_gb(),
-                "current_job": job_id,
-                "alive": slot.alive(),
-            }
-            rss = process_rss_mb(pid) if pid is not None else None
-            if rss is not None:
-                entry["host_memory_rss_mb"] = rss
-            if pid is not None and slot.alive():
-                entry["pid"] = pid
-                adj = read_oom_score_adj(pid)
-                if adj is not None:
-                    entry["oom_score_adj"] = adj
-            described.append(entry)
-        return described
+        return worker_memory.describe_workers(self.slots, self._lock)
 
     # ---------------------------------------------------------------- memory
 

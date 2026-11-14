@@ -1,5 +1,6 @@
 """Tests for transcribe_audio task."""
 
+from dw.security import SecurityError
 import unittest
 from unittest.mock import patch, MagicMock
 
@@ -76,6 +77,22 @@ class TestTranscribeAudio(unittest.TestCase):
         )
 
         self.assertEqual(mock_pipeline.call_args[1]["model"], "openai/whisper-tiny")
+
+    @patch.object(audio_transcription, "hf_pipeline")
+    @patch.object(audio_transcription, "validate_model_name")
+    def test_the_model_name_is_checked_again_at_run_time(self, check, mock_pipeline):
+        # A name that arrives by previous_result: is deferred at validate, so
+        # the location policy's refusal has to stop the load here
+        check.side_effect = SecurityError("outside every root")
+        self._mock_pipe(mock_pipeline)
+        waveform, rate = self._waveform()
+
+        with self.assertRaises(SecurityError):
+            transcribe_audio(
+                waveform, device="cpu", sample_rate=rate, model_name="/etc"
+            )
+        check.assert_called_once_with("/etc")
+        mock_pipeline.assert_not_called()
 
     @patch("dw.tasks.audio_transcription.hf_pipeline")
     def test_downmixes_stereo_to_mono(self, mock_pipeline):

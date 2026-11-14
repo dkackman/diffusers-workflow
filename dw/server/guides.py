@@ -69,6 +69,42 @@ GUIDES = {
         "IP_ADAPTER.md",
         "Conditioning generation on a reference image with IP-Adapter.",
     ),
+    "server": (
+        "SERVER.md",
+        "The HTTP server: choosing the card (--devices), the jobs API and its "
+        "progress events, workspaces, files and models. Served because the "
+        "other guides link into it.",
+    ),
+    "security": (
+        "SECURITY.md",
+        "The validators and the trust gate: what a workflow may reach and "
+        "what a caller must acknowledge. Served because the other guides "
+        "link into it.",
+    ),
+    "remote": (
+        "REMOTE.md",
+        "Using a dw server on another machine. Served because the other "
+        "guides link into it.",
+    ),
+    "worker": (
+        "WORKER_GUIDE.md",
+        "The persistent GPU worker: model caching between runs and the queue "
+        "protocol. Served because the other guides link into it.",
+    ),
+    "mcp": (
+        "MCP.md",
+        "The MCP tool surface. Served because the other guides link into it.",
+    ),
+    "docker": (
+        "DOCKER.md",
+        "Running the server in a container. Served because the other guides "
+        "link into it.",
+    ),
+    "security-quickref": (
+        "SECURITY_QUICKREF.md",
+        "The validators and trust gate at a glance. Served because the other "
+        "guides link into it.",
+    ),
     "workspaces": (
         "WORKSPACES.md",
         "How a run's workflows, prompts, assets and outputs are rooted, and "
@@ -157,6 +193,9 @@ def _sections(text):
     return SECTION_PATTERN.findall(text)
 
 
+_PAREN_SUFFIX = re.compile(r"\s*\([^()]*(?:\([^()]*\)[^()]*)*\)\s*$")
+
+
 def _normalized(heading):
     """A heading reduced to what a loose match compares.
 
@@ -171,11 +210,17 @@ def _extract_section(text, section):
     """One section's text, heading included, or None if there is no such one."""
     wanted = _normalized(section)
     matches = list(SECTION_PATTERN.finditer(text))
-    for index, match in enumerate(matches):
-        if _normalized(match.group(1)) != wanted:
-            continue
-        end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
-        return match.group(1), text[match.start() : end].rstrip() + "\n"
+    # Exact first; then the heading with a trailing parenthesised suffix
+    # (usually a code path: "Trust gate (`dw/trust.py`)") dropped.
+    for compare in (
+        _normalized,
+        lambda heading: _normalized(_PAREN_SUFFIX.sub("", heading)),
+    ):
+        for index, match in enumerate(matches):
+            if compare(match.group(1)) != wanted:
+                continue
+            end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+            return match.group(1), text[match.start() : end].rstrip() + "\n"
     return None
 
 

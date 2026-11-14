@@ -1,0 +1,117 @@
+[
+  {
+    "name": "lc-anchor25-s1-120s-s1166",
+    "scene": "s1-static",
+    "workflow": "s1-static.json",
+    "arguments": {
+      "segments": 6,
+      "continuity": "guide",
+      "duration_seconds": 120,
+      "anchor": "segment_1",
+      "anchor_strength": 0.25,
+      "latent_carry": true
+    },
+    "seed": 1166,
+    "workflow_id_suffix": "-lc",
+    "moments": [
+      "frame:62",
+      "frame:1501",
+      "frame:2868"
+    ]
+  },
+  {
+    "name": "lc-anchor25-s1-120s-s2",
+    "scene": "s1-static",
+    "workflow": "s1-static.json",
+    "arguments": {
+      "segments": 6,
+      "continuity": "guide",
+      "duration_seconds": 120,
+      "anchor": "segment_1",
+      "anchor_strength": 0.25,
+      "latent_carry": true
+    },
+    "seed": 2,
+    "workflow_id_suffix": "-lc",
+    "moments": [
+      "frame:62",
+      "frame:1501",
+      "frame:2868"
+    ]
+  },
+  {
+    "name": "lc-guide-s2-s1166",
+    "scene": "s2-arc",
+    "workflow": "s2-arc.json",
+    "arguments": {
+      "segments": 6,
+      "continuity": "guide",
+      "latent_carry": true
+    },
+    "seed": 1166,
+    "workflow_id_suffix": "-lc",
+    "moments": [
+      "frame:62",
+      "frame:277",
+      "frame:583"
+    ]
+  },
+  {
+    "name": "lc-guide-s2-s2",
+    "scene": "s2-arc",
+    "workflow": "s2-arc.json",
+    "arguments": {
+      "segments": 6,
+      "continuity": "guide",
+      "latent_carry": true
+    },
+    "seed": 2,
+    "workflow_id_suffix": "-lc",
+    "moments": [
+      "frame:62",
+      "frame:277",
+      "frame:583"
+    ]
+  },
+  {
+    "name": "ks-pixel-anchor25-s1-120s-s1166",
+    "scene": "s1-static",
+    "workflow": "s1-static.json",
+    "arguments": {
+      "segments": 6,
+      "continuity": "guide",
+      "duration_seconds": 120,
+      "anchor": "segment_1",
+      "anchor_strength": 0.25,
+      "keystone": "segment_1"
+    },
+    "seed": 1166,
+    "workflow_id_suffix": "-ksp",
+    "moments": [
+      "frame:62",
+      "frame:1501",
+      "frame:2868"
+    ]
+  },
+  {
+    "name": "ks-lc-anchor25-s1-120s-s1166",
+    "scene": "s1-static",
+    "workflow": "s1-static.json",
+    "arguments": {
+      "segments": 6,
+      "continuity": "guide",
+      "duration_seconds": 120,
+      "anchor": "segment_1",
+      "anchor_strength": 0.25,
+      "latent_carry": true,
+      "keystone": "segment_1"
+    },
+    "seed": 1166,
+    "workflow_id_suffix": "-ksl",
+    "moments": [
+      "frame:62",
+      "frame:1501",
+      "frame:2868"
+    ]
+  }
+]

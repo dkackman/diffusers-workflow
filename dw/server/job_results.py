@@ -57,18 +57,36 @@ def relative_output_names(paths, output_dir):
     return names
 
 
-def relative_manifest(manifest, output_dir):
-    """A manifest list with every entry's 'files' relativised - the
-    rendering `get_job` and `step_end`/`workflow_end` events must all
-    agree on (#284)."""
+def relative_shots(shots, output_dir):
+    """A step's `shots` with each `file` named as `files` names it. A step
+    that wrote several files marks every shot with the one it sits in
+    (dw/shots.py), and that is the worker's absolute path
+    (GHSA-5m72-m9g5-q8vp)."""
+    if not isinstance(shots, list):
+        return shots
     return [
         (
-            {**entry, "files": relative_output_names(entry["files"], output_dir)}
-            if "files" in entry
-            else entry
+            {**shot, "file": relative_output_names([shot["file"]], output_dir)[0]}
+            if isinstance(shot, dict) and isinstance(shot.get("file"), str)
+            else shot
         )
-        for entry in manifest
+        for shot in shots
     ]
+
+
+def relative_manifest(manifest, output_dir):
+    """A manifest list with every entry's 'files' and its shots' 'file'
+    relativised - the rendering `get_job` and `step_end`/`workflow_end`
+    events must all agree on (#284)."""
+    relative = []
+    for entry in manifest:
+        entry = dict(entry)
+        if "files" in entry:
+            entry["files"] = relative_output_names(entry["files"], output_dir)
+        if "shots" in entry:
+            entry["shots"] = relative_shots(entry["shots"], output_dir)
+        relative.append(entry)
+    return relative
 
 
 def record_manifest(job, manifest, output_dir):
@@ -92,6 +110,8 @@ def record_progress(job, event, output_dir):
         # A running job's page renders each output as its step ends,
         # before there is a manifest to classify
         event["output_kinds"] = output_kinds([{"files": event["files"]}])
+    if "shots" in event:
+        event["shots"] = relative_shots(event["shots"], output_dir)
     if "manifest" in event:
         # workflow_end carries the run's full manifest nested under this
         # key - it must match get_job's rendering of the same list rather
@@ -144,14 +164,32 @@ def record_run_memory(job, info, slot, record_memory):
         job.host_memory_job_peak_rss_mb = max(
             job_peak, job.host_memory_job_peak_rss_mb or 0
         )
+    # The committed part of the worker's RSS (RssAnon + RssShmem + the
+    # driver's pinned pages; host_memory.committed_mb): RSS counts the
+    # checkpoint pages a worker maps, page cache the host-RAM gate must not
+    # charge again (#869). A max over the run's readings - committed memory
+    # has no high-water mark, so this is a lower bound on the true peak and
+    # the gate keeps a margin over it (pool.with_margin).
+    #
+    # The two peaks are on different bases: the RSS peak above is job-scoped
+    # growth over the run's baseline, this one an absolute reading of the
+    # whole process, a previous run's leftovers included. Nothing compares
+    # the two; peaks_for_key and the fit take one basis or the other
+    committed = info.get("host_memory_committed_mb")
+    if committed is not None:
+        job.host_memory_job_peak_committed_mb = max(
+            committed, getattr(job, "host_memory_job_peak_committed_mb", None) or 0
+        )
 
 
-def consume_results(job, manager, slot, output_dir, record_memory):
+def consume_results(job, manager, slot, output_dir, record_memory, on_run_start=None):
     """Read `manager`'s worker messages until the run ends; returns the
     terminal (status, error, traceback) for the caller to apply once the
     card no longer counts the job as current. `slot` is the card's: it
     keeps the run's memory readings, through `record_memory`. `output_dir`
-    is the job's own, which its file names are reported relative to."""
+    is the job's own, which its file names are reported relative to.
+    `on_run_start()` is called once the run has named its directory, so
+    the history row a restart closes can point at it (#1220)."""
     while True:
         try:
             message = manager.get_result()
@@ -178,6 +216,8 @@ def consume_results(job, manager, slot, output_dir, record_memory):
 
         if isinstance(reply, Progress):
             record_progress(job, dict(reply.event), output_dir)
+            if on_run_start and reply.event.get("event") == "run_start":
+                on_run_start()
         elif isinstance(reply, Output):
             job.add_event({"event": "log", "message": reply.message or ""})
         elif isinstance(reply, WorkflowLoaded):

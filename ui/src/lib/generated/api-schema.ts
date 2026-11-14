@@ -930,7 +930,8 @@ export interface paths {
          *     a new submission would be - a reference that resolved when the
          *     original ran may not any more. Takes `acknowledged_cost` as POST
          *     /api/jobs does; a bound one is checked against the stored spec's
-         *     plan - the fresh seed of `new_seed` does not change a fingerprint.
+         *     plan of the merged arguments - a fresh seed of `new_seed` never changes
+         *     a fingerprint, an override of `arguments` may.
          */
         post: operations["rerun_job_api_jobs__job_id__rerun_post"];
         delete?: never;
@@ -2451,7 +2452,7 @@ export interface components {
             job: components["schemas"]["JobRef"] | null;
             /**
              * Media
-             * @description The probe of an audio or video file, or an image's kind, width, height and mode; null for another file.
+             * @description The probe of an audio or video file, or an image's kind, width, height and mode, or an .otioz's timeline (tracks, clips with durations, members); null for another file.
              */
             media: {
                 [key: string]: unknown;
@@ -2535,7 +2536,7 @@ export interface components {
             version: string;
             /**
              * Worker Alive
-             * @description Whether any worker is alive. Workers are on-demand: false on an idle server that has not run a job yet, or after a memory clear, is normal - no model process is resident, not a fault.
+             * @description Whether any worker is alive. Workers are on-demand: false on an idle server that has not run a job yet is normal - no model process is resident, not a fault. A memory clear keeps a live worker alive (same pid); it frees models, it does not restart the process.
              */
             worker_alive: boolean;
             /**
@@ -2586,6 +2587,11 @@ export interface components {
              * @description Read from job history rather than a live job.
              */
             historical?: boolean;
+            /**
+             * Host Memory Job Peak Committed Mb
+             * @description The job's peak committed host memory in MB (anonymous + shared + device-mapped pages), the figure the host-RAM gate projects from; null until a reading lands.
+             */
+            host_memory_job_peak_committed_mb?: number | null;
             /** Id */
             id: string;
             /**
@@ -2604,6 +2610,13 @@ export interface components {
              */
             output_kinds?: {
                 [key: string]: ("image" | "video" | "audio" | "text") | null;
+            };
+            /**
+             * Overrides
+             * @description The variables a rerun changed from the job it reran; absent when none were.
+             */
+            overrides?: {
+                [key: string]: unknown;
             };
             /** @description Where a running (or failed) job had got to; live jobs only. */
             progress?: components["schemas"]["JobProgress"] | null;
@@ -2824,6 +2837,13 @@ export interface components {
              * @description The note it was submitted with; also its run's note.
              */
             note?: string;
+            /**
+             * Overrides
+             * @description The variables a rerun changed from the job it reran; absent when none were.
+             */
+            overrides?: {
+                [key: string]: unknown;
+            };
             /**
              * Queue Position
              * @description Index in the waiting queue; only while queued.
@@ -3383,10 +3403,10 @@ export interface components {
         PlanHostMemory: {
             /**
              * Basis
-             * @description `observed`: the largest job peak of this machine's successful runs with the same pipelines, quantization and offload; `fit`: projected from this workflow's own runs for the requested list length.
+             * @description `observed`: the largest job peak of this machine's successful runs with the same pipelines, quantization and offload; `fit`: projected from this workflow's own runs for the requested list length; `declared`: the workflow's own `host_ram_gb`, larger than anything observed.
              * @enum {string}
              */
-            basis: "observed" | "fit";
+            basis: "observed" | "fit" | "declared";
             /**
              * Projected Mb
              * @description The host RAM, in MB, this run is projected to hold at its peak.
@@ -3494,6 +3514,13 @@ export interface components {
              * @description Cost acknowledgement: true (recorded), or an object {fingerprint, minutes, downloads} bound to the plan validate answered with - then the run is refused with 409 if its plan changed
              */
             acknowledged_cost?: boolean | components["schemas"]["AcknowledgedCost"] | null;
+            /**
+             * Arguments
+             * @description Variable overrides merged over the original job's arguments before admission (a draft promoted with {"tier": "standard"}), keeping the original's seed unless `new_seed`. A variable the workflow does not declare is refused; the seed variable cannot be overridden together with `new_seed`.
+             */
+            arguments?: {
+                [key: string]: unknown;
+            } | null;
             /**
              * New Seed
              * @description Draw a fresh seed into the workflow's seed variable. Without it a rerun repeats the original arguments exactly, which the step cache serves from the earlier run - the same seed and inputs would produce the same files.

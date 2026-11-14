@@ -9,7 +9,9 @@ deep inside `save_artifact` on `write() argument must be str, not float`,
 naming neither the step nor the command. Checked here against the command's
 own declared `returns` kind (`dw/tasks/task.py`'s `register_command`) rather
 than a name match on `judge`, so a future scalar-returning task is covered
-by declaring itself rather than by a second special case here.
+by declaring itself rather than by a second special case here. A command
+that writes one fixed container declares `result_content_type` (`export_timeline`,
+#1302): any other content_type would save an extensionless file.
 
 A "json" command (the assessment probes, #387) answers a dict of
 measurements, which `Result.save` writes whole only under
@@ -30,7 +32,7 @@ named at save time (`Result.save_artifact`).
 """
 
 from .for_each import render_path
-from .references import iter_steps
+from .references import SUBSTITUTED, is_ref, iter_steps
 from .tasks.task import task_command_info
 
 RESULT_KEY = "result"
@@ -102,6 +104,17 @@ def scalar_result_errors(workflow_definition, source_indices=None):
                     f"content_type '{JSON_CONTENT_TYPE}', not "
                     f"{result.get('content_type')!r}"
                 )
+        elif (
+            info.get("result_content_type")
+            and "content_type" in result
+            and result["content_type"] != info["result_content_type"]
+            and not is_ref(SUBSTITUTED, result["content_type"])
+        ):
+            message = (
+                f"{command} writes one fixed container - 'result' content_type "
+                f"must be '{info['result_content_type']}', not "
+                f"{result.get('content_type')!r}"
+            )
         elif returns == "scalar":
             message = (
                 f"{command} returns a number, not an artifact - "

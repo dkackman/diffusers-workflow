@@ -79,7 +79,9 @@ class CatalogTools:
         excluded. A variable the workflow bounds is
         reported under `constraints` beside its default - the range and the
         step it has to land on - so a frame count is read rather than
-        guessed at."""
+        guessed at. A variable whose constraint says `required: true` has
+        no default (its stored value is null): give it in `arguments`, or
+        validate and run refuse it by name."""
         return catalog.get_workflow(self.client, name, variables_only=variables_only)
 
     def get_schema(self, section: str | None = None) -> dict:
@@ -194,7 +196,9 @@ class CatalogTools:
         its next run. A card running a job is skipped (`workers` says
         which); refused with a 409 when no card asked about is idle - wait
         and retry. No model process resident succeeds with a null
-        `info`."""
+        `info`. This frees memory only: the worker process stays alive with
+        the same pid, so process-level state (and one-time startup log
+        lines) is not renewed."""
         return catalog.clear_memory(self.client, device)
 
     def get_health(
@@ -209,7 +213,9 @@ class CatalogTools:
         `worker_alive: false` on an otherwise healthy server (`status: ok`)
         is the normal idle state, not a fault - workers are on-demand
         subprocesses that start with the next job, so none is resident
-        before the first run or after a memory clear."""
+        before the first run. A memory clear frees the models but keeps
+        the worker process alive (same pid, `alive: true`): to get a fresh
+        process the worker must exit, which a clear does not do."""
         return catalog.get_health(self.client)
 
     def get_server_info(
@@ -317,6 +323,9 @@ class CatalogTools:
         sample rate, channels, fps, size and level - how an agent that
         cannot listen checks a deliverable, or an image's measured
         `width`/`height`; `media.shots` places a joined video's shots.
+        For an `.otioz` (export_timeline) `media` is the timeline: `tracks`
+        (clips in order with name, frames, seconds, media member),
+        `has_audio_track` and `members`.
         `include_workflow=false` omits the large embedded workflow.
         `envelope=true` adds that level second by second
         (`media.envelope.rms_dbfs` / `peak_dbfs`), which says *where* in a

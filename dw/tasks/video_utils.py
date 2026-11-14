@@ -41,8 +41,9 @@ from ..task_domains import (
 from ..task_problems import (  # noqa: F401
     MAX_STILLS_FPS,
     MAX_STILLS_SECONDS,
+    stills_frame_counts,
+    stills_memory_problem,
     stills_to_video_problems,
-    MAX_STILLS_BYTES,
 )
 
 logger = logging.getLogger("dw")
@@ -322,16 +323,12 @@ def stills_to_video(images, durations, fps=24):
             f"{first[0]}x{first[1]} and {other[0]}x{other[1]} - resize them "
             "to match first"
         )
-    counts = [max(1, round(float(s) * fps)) for s in seconds]
+    counts = stills_frame_counts(seconds, fps)
     width, height = stills[0].size
-    needed = sum(counts) * height * width * 3
-    if needed > MAX_STILLS_BYTES:
-        raise ValueError(
-            f"stills_to_video would hold {sum(counts)} frames of "
-            f"{width}x{height} ({needed / 1024**3:.1f} GiB), over the "
-            f"{MAX_STILLS_BYTES / 1024**3:g} GiB limit - shorten 'durations', "
-            "lower 'fps', or use smaller images"
-        )
+    # The rule validate applies when the stills are files (#1199)
+    too_big = stills_memory_problem(seconds, fps, width, height)
+    if too_big:
+        raise ValueError(too_big)
     frames = numpy.empty((sum(counts), height, width, 3), dtype=numpy.uint8)
     shots, start = [], 0
     for index, (still, count) in enumerate(zip(stills, counts), start=1):
@@ -552,6 +549,22 @@ def local_video_path(location, base_dir=None):
     validated_path = validate_media_path(location, base_dir, "a video argument")
     validate_file_extension(validated_path, ALLOWED_VIDEO_EXTENSIONS)
     return validated_path
+
+
+def local_path_or_video(source):
+    """`(path, source)` for a take a caller reads its own way: the local file
+    a VideoFileReference or a local video location names, with `source` as
+    given, or None and the video loaded (`load_audio_video`) for a URL, or
+    None and `source` as given for frames already in memory (join_windows'
+    source and encode_h3_latents' take, #695)."""
+    if isinstance(source, VideoFileReference):
+        return source.path, source
+    if is_video_location(source):
+        path = local_video_path(source)
+        if path is None:
+            return None, load_audio_video(source)
+        return path, source
+    return None, source
 
 
 def is_video_location(value):

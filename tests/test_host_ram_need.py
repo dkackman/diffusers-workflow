@@ -17,7 +17,15 @@ from fastapi.testclient import TestClient
 
 from dw.host_memory_projection import host_memory_warnings, projected_mb
 from dw.server.app import create_app
-from dw.server.host_ram_need import host_memory_block, memory_key, projected_peak
+from dw import host_memory
+from dw.host_memory import HostClaims
+from dw.server.host_ram_need import (
+    declared_mb,
+    host_memory_block,
+    host_too_small,
+    memory_key,
+    projected_peak,
+)
 from dw.server.job_history import JobHistory
 from dw.server.job_record import SUCCEEDED, Job
 from dw.server.jobs import JobManager
@@ -389,4 +397,503 @@ class TestValidateRoute:
             "projected_mb": 51234,
             "basis": "observed",
             "runs": 1,
+        }
+
+
+class TestCommittedPeak:
+    """A worker's RSS counts the checkpoint pages it maps (RssFile) - page
+    cache the kernel can drop and a second worker mapping the same weights
+    shares, which MemAvailable already counts as free. An H3 chain peaked at
+    ~122 GB RSS with ~43 GB of it committed (RssAnon), so the gate held every
+    queued H3 job for a figure three times what it would take."""
+
+    def test_the_committed_peak_is_the_need(self, tmp_path):
+        definition = template()
+        history = JobHistory(str(tmp_path / "jobs.sqlite"))
+        job = recorded_job("a", definition, 122000)
+        job.host_memory_job_peak_committed_mb = 43000
+        history.record(job)
+
+        assert projected_peak(definition, {}, history) == (43000, "observed", 1)
+
+    def test_runs_that_measured_it_supersede_rss_only_rows(self, tmp_path):
+        definition = template()
+        history = JobHistory(str(tmp_path / "jobs.sqlite"))
+        history.record(recorded_job("old", definition, 122000))
+        job = recorded_job("new", definition, 120000)
+        job.host_memory_job_peak_committed_mb = 44000
+        history.record(job)
+
+        assert history.peaks_for_key(memory_key(definition)) == [44000]
+
+    def test_rss_only_history_still_answers(self, tmp_path):
+        definition = template()
+        history = JobHistory(str(tmp_path / "jobs.sqlite"))
+        history.record(recorded_job("old", definition, 122000))
+
+        assert history.peaks_for_key(memory_key(definition)) == [122000]
+
+
+class TestRecordRunMemory:
+    def test_the_committed_peak_is_the_largest_committed_reading(self):
+        from dw.server.job_results import record_run_memory
+
+        class Slot:
+            last_memory = None
+
+        job = recorded_job("a", template(), None)
+        for committed in (5000, 43000, 30000):
+            record_run_memory(
+                job,
+                # RssAnon alone is not the committed figure: shmem and the
+                # driver's pinned pages are in host_memory_committed_mb
+                {"host_memory_committed_mb": committed, "host_memory_rss_anon_mb": 1},
+                Slot(),
+                lambda info, slot: None,
+            )
+
+        assert job.host_memory_job_peak_committed_mb == 43000
+
+
+class TestWorkerCommittedRss:
+    def test_a_workers_committed_rss_leaves_out_its_mapped_files(self, tmp_path):
+        from dw.host_memory import committed_rss_mb
+
+        status = tmp_path / "status"
+        status.write_text(
+            "VmRSS:\t108026044 kB\nRssAnon:\t42561384 kB\nRssFile:\t64928348 kB\n"
+        )
+
+        assert committed_rss_mb(None, status_path=str(status)) == pytest.approx(
+            42561384 / 1024
+        )
+
+
+class TestTheFitOnCommittedHistory:
+    """The fit is a list run's projection from the workflow's own rows, and
+    those rows carried only RSS: an accumulating list's fit on ~122 GB-RSS
+    runs beat the ~43 GB committed observed max and became the need again,
+    a comparison of two bases. Once a row has the committed peak, the fit
+    reads committed rows."""
+
+    def _history(self, tmp_path, definition):
+        history = JobHistory(str(tmp_path / "jobs.sqlite"))
+        for job_id, count, rss, committed in (
+            ("a", 2, 100000, 20000),
+            ("b", 4, 120000, 30000),
+        ):
+            job = recorded_job(
+                job_id, definition, rss, arguments={"shots": [{"prompt": "p"}] * count}
+            )
+            job.host_memory_job_peak_committed_mb = committed
+            history.record(job)
+        return history
+
+    def test_a_list_runs_fit_reads_committed_rows(self, tmp_path):
+        definition = shots_definition()
+        history = self._history(tmp_path, definition)
+        rows = [
+            {**row, "host_memory_job_peak_committed_mb": committed}
+            for row, committed in zip(
+                shot_rows((2, 100000), (4, 120000)), (20000, 30000)
+            )
+        ]
+
+        need = projected_peak(
+            definition,
+            {"shots": [{"prompt": "p"}] * 8},
+            history,
+            rows=rows,
+            list_entries={"shots": 8},
+        )
+
+        # committed: 20000 at 2, 30000 at 4 -> 50000 at 8 (RSS would be 160000)
+        assert need == (50000, "fit", 2)
+
+    def test_the_history_rows_carry_the_committed_peak(self, tmp_path):
+        definition = shots_definition()
+        history = self._history(tmp_path, definition)
+
+        rows = next(iter(history.finished_runs().values()))
+
+        assert sorted(r["host_memory_job_peak_committed_mb"] for r in rows) == [
+            20000,
+            30000,
+        ]
+
+    def test_rss_only_rows_still_fit_on_rss(self):
+        definition = shots_definition()
+        fit = projected_mb(
+            definition, {"shots": 8}, shot_rows((2, 100000), (4, 120000))
+        )
+        assert fit == {
+            "projected_mb": 160000,
+            "runs": 2,
+            "field": "host_memory_job_peak_rss_mb",
+        }
+
+    def test_a_fit_on_another_basis_than_the_keys_peaks_does_not_win(self, tmp_path):
+        # The workflow's rows read RSS (160000 at 8 shots); the key's own
+        # runs read committed (30000). An RSS fit over a committed max would
+        # over-project by the page cache - the observed figure answers
+        definition = shots_definition()
+        history = self._history(tmp_path, definition)
+        need = projected_peak(
+            definition,
+            {"shots": [{"prompt": "p"}] * 8},
+            history,
+            rows=shot_rows((2, 100000), (4, 120000)),
+            list_entries={"shots": 8},
+        )
+        assert need == (30000, "observed", 2)
+
+
+class TestHostRamMargin:
+    """The stored peak is the largest of readings taken at phase boundaries,
+    a lower bound on the true peak, so the gate keeps a margin above it."""
+
+    def test_a_need_that_only_just_fits_waits_for_its_margin(self):
+        from dw.server.pool import host_ram_wait
+
+        # 40 GB need, 42 GB free: inside the 10% margin
+        assert host_ram_wait(40 * 1024, 42 * 1024, [(None, None)]) is not None
+        assert host_ram_wait(40 * 1024, 45 * 1024, [(None, None)]) is None
+
+    def test_a_small_need_keeps_the_minimum_margin(self):
+        from dw.server.pool import HOST_RAM_MARGIN_MIN_MB, host_ram_wait
+
+        need = 4 * 1024
+        free = need + HOST_RAM_MARGIN_MIN_MB - 1
+        assert host_ram_wait(need, free, [(None, None)]) is not None
+        assert host_ram_wait(need, free + 2, [(None, None)]) is None
+
+    def test_a_running_jobs_peak_is_charged_with_its_margin(self):
+        from dw.server.pool import host_ram_wait
+
+        # The running job sits at its recorded 30 GB peak, which is a lower
+        # bound: 3 GB more of growth is charged, so 46 GB available is 43 GB
+        # free against the 44 GB the 40 GB need takes with its own margin
+        need = 40 * 1024
+        assert host_ram_wait(need, 46 * 1024, [(30 * 1024, 30 * 1024)]) is not None
+        assert host_ram_wait(need, 48 * 1024, [(30 * 1024, 30 * 1024)]) is None
+
+    def test_the_margin(self):
+        from dw.server.pool import with_margin
+
+        assert with_margin(100 * 1024) == 110 * 1024
+        assert with_margin(1024) == 1024 + 2048
+
+
+class TestDispatchWorkerReading:
+    def test_a_slots_worker_is_read_as_committed_memory(self, monkeypatch):
+        from dw.server import dispatch
+
+        asked = []
+        monkeypatch.setattr(
+            dispatch,
+            "committed_rss_mb",
+            lambda pid, device=True: asked.append((pid, device)) or 43000.0,
+        )
+
+        class Manager:
+            def pid(self):
+                return 4242
+
+        class Slot:
+            manager = Manager()
+
+        assert dispatch._worker_rss_mb(Slot()) == 43000.0
+        assert asked == [(4242, False)]
+
+    def test_a_slot_without_a_worker_is_no_reading(self, monkeypatch):
+        from dw.server import dispatch
+
+        monkeypatch.setattr(
+            dispatch, "committed_rss_mb", lambda pid, device=True: 1 / 0
+        )
+
+        class Manager:
+            def pid(self):
+                return None
+
+        class Slot:
+            manager = Manager()
+
+        class NoPid:
+            manager = object()
+
+        assert dispatch._worker_rss_mb(Slot()) is None
+        assert dispatch._worker_rss_mb(NoPid()) is None
+
+
+class TestDispatchNeverReadsSmaps:
+    def _proc(self, tmp_path, monkeypatch):
+        from dw import host_memory
+
+        status = tmp_path / "status"
+        status.write_text("RssAnon:\t2048 kB\nRssFile:\t999 kB\nRssShmem:\t1024 kB\n")
+        monkeypatch.setattr(host_memory, "_has_proc", lambda: True)
+        monkeypatch.setattr(
+            host_memory,
+            "_proc_path",
+            lambda pid, name: str(status) if name == "status" else 1 / 0,
+        )
+        monkeypatch.setattr(host_memory, "device_mapped_mb", lambda *a, **k: 1 / 0)
+
+    def _slot(self, last_memory):
+        class Manager:
+            def pid(self):
+                return 4242
+
+        class Slot:
+            manager = Manager()
+
+        slot = Slot()
+        slot.last_memory = last_memory
+        return slot
+
+    def test_adds_the_last_reported_device_figure(self, tmp_path, monkeypatch):
+        from dw.server import dispatch
+
+        self._proc(tmp_path, monkeypatch)
+        report = {
+            "host_memory_committed_mb": 10.0,
+            "host_memory_rss_anon_mb": 4.0,
+            "host_memory_rss_shmem_mb": 1.0,
+        }
+        assert dispatch._worker_rss_mb(self._slot(report)) == 3.0 + 5.0
+
+    def test_no_report_falls_back_to_status_only(self, tmp_path, monkeypatch):
+        from dw.server import dispatch
+
+        self._proc(tmp_path, monkeypatch)
+        assert dispatch._worker_rss_mb(self._slot(None)) == 3.0
+        assert dispatch._worker_rss_mb(self._slot({})) == 3.0
+
+
+H3_TEMPLATE = "workflows/templates/minimax/chained-segments.json"
+
+
+def h3():
+    with open(H3_TEMPLATE) as file:
+        return json.load(file)
+
+
+class TestDeclaredHostRam:
+    """#1227: the tier rows declare their host RAM; int8 is the heavy one."""
+
+    def test_each_tier_declares_its_figure(self):
+        definition = h3()
+        assert declared_mb(definition, {"tier": "draft"}) == 51 * 1024
+        assert declared_mb(definition, {"tier": "standard"}) == 51 * 1024
+        assert declared_mb(definition, {"tier": "best"}) == 69 * 1024
+        assert declared_mb(definition, None) == 51 * 1024
+
+    def test_an_explicit_argument_beats_the_bundle(self):
+        assert declared_mb(h3(), {"tier": "best", "host_ram_gb": 80}) == 80 * 1024
+
+    def test_a_definition_without_a_declaration_has_none(self):
+        assert declared_mb(template(), {}) is None
+        assert declared_mb({"host_ram_gb": 0}, {}) is None
+        assert declared_mb({"host_ram_gb": "variable:nope"}, {}) is None
+
+    def test_the_declaration_is_a_floor_under_an_observed_peak(self):
+        definition = h3()
+        assert projected_peak(definition, {"tier": "best"}, None) == (
+            69 * 1024,
+            "declared",
+            0,
+        )
+
+    def test_a_larger_observed_peak_wins(self, tmp_path):
+        history = JobHistory(str(tmp_path / "jobs.sqlite"))
+        definition = h3()
+        arguments = {"tier": "best"}
+        history.record(recorded_job("a", definition, 80000.0, arguments=arguments))
+        mb, basis, _ = projected_peak(definition, arguments, history)
+        assert (mb, basis) == (80000.0, "observed")
+
+    def test_a_host_too_small_for_the_declaration_is_refused(self):
+        best = host_too_small(h3(), {"tier": "best"}, 64 * 1024)
+        assert best is not None and "64 GB" in best and "69 GB" in best
+        # int4 on the same 64 GB host: 51 GB plus margin fits
+        assert host_too_small(h3(), {"tier": "standard"}, 64 * 1024) is None
+        # a 128 GB host holds either, one at a time
+        assert host_too_small(h3(), {"tier": "best"}, 125 * 1024) is None
+        # no reading of the host, no refusal
+        assert host_too_small(h3(), {"tier": "best"}, None) is None
+
+
+class TestSmallHostIsRefusedUpFront:
+    def test_validate_refuses_the_best_tier_on_a_64_gb_host(self, server, monkeypatch):
+        monkeypatch.setattr(
+            "dw.server.admission.host_memory_stats",
+            lambda: {"total_mb": 64 * 1024},
+        )
+        manager, client = server
+        with client:
+            response = client.post(
+                "/api/validate", json={"workflow_path": "Heavy", "arguments": {}}
+            )
+            assert response.status_code == 200
+            assert response.json()["valid"] is True
+
+    def test_admission_adds_the_error(self, monkeypatch):
+        from dw.server import admission
+
+        monkeypatch.setattr(
+            admission, "host_memory_stats", lambda: {"total_mb": 64 * 1024}
+        )
+
+        class Candidate:
+            workflow_definition = h3()
+
+        class Fake:
+            workflow = Candidate()
+            arguments = {"tier": "best"}
+            errors = []
+
+        fake = Fake()
+        admission._refuse_for_small_host(fake)
+        assert fake.errors[0]["path"] == "host_ram_gb"
+        assert "64 GB" in fake.errors[0]["message"]
+
+
+class TestHostClaims:
+    def test_another_live_servers_claim_is_seen_and_ones_own_is_not(self, tmp_path):
+        mine = HostClaims(directory=str(tmp_path), pid=os.getpid())
+        theirs = HostClaims(directory=str(tmp_path), pid=os.getppid())
+        mine.publish([(999999, 1000.0)])
+        theirs.publish([(999998, 2000.0)])
+        assert mine.foreign() == [(2000.0, None)]
+        assert theirs.foreign() == [(1000.0, None)]
+
+    def test_a_dead_servers_claim_is_dropped(self, tmp_path):
+        dead = HostClaims(directory=str(tmp_path), pid=2**22 + 12345)
+        dead.publish([(999999, 1000.0)])
+        reader = HostClaims(directory=str(tmp_path), pid=os.getpid())
+        assert reader.foreign() == []
+        assert not os.path.exists(os.path.join(str(tmp_path), f"{dead.pid}.json"))
+
+    def test_withdrawing_removes_the_claim(self, tmp_path):
+        theirs = HostClaims(directory=str(tmp_path), pid=os.getppid())
+        theirs.publish([(999999, 1000.0)])
+        theirs.withdraw()
+        assert HostClaims(directory=str(tmp_path)).foreign() == []
+
+
+class TestHostClaimsFolderSafety:
+    """The default claims folder sits at a predictable path in the shared
+    temp dir; another local user must not be able to plant it."""
+
+    def _default(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("DW_HOST_CLAIMS_DIR", raising=False)
+        monkeypatch.setattr(host_memory.tempfile, "gettempdir", lambda: str(tmp_path))
+        return host_memory.claims_dir()
+
+    def test_a_default_folder_others_can_write_is_refused(self, tmp_path, monkeypatch):
+        folder = self._default(tmp_path, monkeypatch)
+        os.makedirs(folder)
+        os.chmod(folder, 0o777)
+        HostClaims(pid=os.getppid()).publish([(999999, 1000.0)])
+        assert os.listdir(folder) == []
+        # and a claim planted there is not read
+        with open(os.path.join(folder, f"{os.getppid()}.json"), "w") as f:
+            f.write("[[999999, 50000.0]]")
+        assert HostClaims(pid=os.getpid()).foreign() == []
+
+    def test_a_symlinked_default_folder_is_refused(self, tmp_path, monkeypatch):
+        folder = self._default(tmp_path, monkeypatch)
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir(mode=0o700)
+        os.symlink(elsewhere, folder)
+        HostClaims(pid=os.getppid()).publish([(999999, 1000.0)])
+        assert os.listdir(elsewhere) == []
+
+    def test_a_private_default_folder_is_used(self, tmp_path, monkeypatch):
+        self._default(tmp_path, monkeypatch)
+        HostClaims(pid=os.getppid()).publish([(999999, 1000.0)])
+        assert HostClaims(pid=os.getpid()).foreign() == [(1000.0, None)]
+
+    def test_a_planted_temp_symlink_is_not_followed(self, tmp_path):
+        target = tmp_path / "victim.txt"
+        target.write_text("keep me")
+        folder = tmp_path / "claims"
+        folder.mkdir()
+        mine = HostClaims(directory=str(folder), pid=os.getpid())
+        os.symlink(target, folder / f"{mine.pid}.json.tmp")
+        mine.publish([(999999, 1000.0)])
+        assert target.read_text() == "keep me"
+        assert HostClaims(directory=str(folder), pid=os.getppid()).foreign() == [
+            (1000.0, None)
+        ]
+
+
+class TestHostClaimsPinnedTerm:
+    def test_a_foreign_claim_is_read_with_its_pinned_memory(
+        self, tmp_path, monkeypatch
+    ):
+        # The publisher's driver-pinned pages are left out of a status read;
+        # without them the job would be charged them again as growth to come
+        monkeypatch.setattr(
+            host_memory, "committed_rss_mb", lambda pid, device=True: 40000.0
+        )
+        theirs = HostClaims(directory=str(tmp_path), pid=os.getppid())
+        theirs.publish([(999999, 60000.0, 15000.0)])
+        mine = HostClaims(directory=str(tmp_path), pid=os.getpid())
+        assert mine.foreign() == [(60000.0, 55000.0)]
+
+    def test_a_two_field_claim_still_reads(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(
+            host_memory, "committed_rss_mb", lambda pid, device=True: 40000.0
+        )
+        with open(tmp_path / f"{os.getppid()}.json", "w") as f:
+            f.write("[[999999, 60000.0]]")
+        mine = HostClaims(directory=str(tmp_path), pid=os.getpid())
+        assert mine.foreign() == [(60000.0, 40000.0)]
+
+
+class TestDeclaredBasisReachesTheApi:
+    def test_a_declared_figure_is_a_valid_plan_host_memory(self):
+        # projected_peak answers "declared" for a template's host_ram_gb that
+        # beats its history; the response model must accept it, or
+        # /api/validate fails its own response validation with a 500
+        from dw.server.api_models import PlanHostMemory
+
+        block = host_memory_block((51 * 1024, "declared", 0))
+        assert PlanHostMemory(**block).basis == "declared"
+
+    def test_validate_answers_for_a_template_that_declares_host_ram(
+        self, tmp_path, monkeypatch
+    ):
+        # A host big enough that the small-host refusal stays out of it
+        monkeypatch.setattr(
+            "dw.server.admission.host_memory_stats",
+            lambda: {"total_mb": 1024 * 1024},
+        )
+        root = Workspace(tmp_path / "studio", "flag").ensure()
+        definition = {**valid_workflow("declares"), "host_ram_gb": 40}
+        with open(os.path.join(root.workflows, "H3.json"), "w") as file:
+            json.dump(definition, file)
+        manager = JobManager(
+            root.outputs,
+            worker_manager=ScriptedWorkerManager(success_script),
+            history_path=str(tmp_path / "jobs.sqlite"),
+            workflow_dir=root.workflows,
+        )
+        app = create_app(
+            workflow_dir=root.workflows,
+            output_dir=root.outputs,
+            job_manager=manager,
+            prompt_dir=root.prompts,
+            asset_dir=root.assets,
+            workspace=root.root,
+        )
+        with TestClient(app, base_url="http://localhost") as client:
+            response = client.post("/api/validate", json={"workflow_path": "H3"})
+        assert response.status_code == 200
+        assert response.json()["plan"]["host_memory"] == {
+            "projected_mb": 40 * 1024,
+            "basis": "declared",
+            "runs": 0,
         }

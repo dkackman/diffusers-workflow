@@ -29,20 +29,147 @@ _MARKUP = re.compile(
     r"<\s*/?\s*([^<>]*?)\s*>|\[([^\[\]]*)\]|\(\s*(S\d+(?:\s*,\s*S\d+)*)\s*\)"
 )
 _NON_WORD = re.compile(r"[^\w']+")
+# A thousands separator between digits ('1,787'), dropped so the number is
+# one word
+_DIGIT_GROUP = re.compile(r"(?<=\d),(?=\d{3}\b)")
+
+_UNITS = {
+    word: value
+    for value, word in enumerate(
+        "zero one two three four five six seven eight nine ten eleven twelve"
+        " thirteen fourteen fifteen sixteen seventeen eighteen nineteen".split()
+    )
+}
+_TENS = {
+    word: 10 * value
+    for value, word in enumerate(
+        "twenty thirty forty fifty sixty seventy eighty ninety".split(), start=2
+    )
+}
+_SCALES = {"thousand": 1000, "million": 1000000, "billion": 1000000000}
 
 
-def normalize_words(text):
+def _number_group(words, start):
+    """The cardinal written in number words at `words[start:]`, as (value,
+    end); value None when `words[start]` starts none."""
+    total = current = 0
+    end = start
+    last = None  # "unit", "teen", "tens", "hundred" or "scale"
+    while end < len(words):
+        word = words[end]
+        if word in _UNITS:
+            value = _UNITS[word]
+            kind = "teen" if value >= 10 else "unit"
+            # A unit follows tens, a hundred or a scale; anything else after a
+            # unit or a teen is the next number ('twenty one twenty two')
+            if last in ("unit", "teen") or (kind == "teen" and last == "tens"):
+                break
+            current += value
+        elif word in _TENS:
+            if last in ("unit", "teen", "tens"):
+                break
+            current += _TENS[word]
+            kind = "tens"
+        elif word == "hundred":
+            if last == "hundred":
+                break
+            current = (current or 1) * 100
+            kind = "hundred"
+        elif word in _SCALES:
+            if last is None or last == "scale":
+                break
+            total += (current or 1) * _SCALES[word]
+            current = 0
+            kind = "scale"
+        elif (
+            word == "and"
+            and last in ("hundred", "scale")
+            and end + 1 < len(words)
+            and (words[end + 1] in _UNITS or words[end + 1] in _TENS)
+        ):
+            end += 1
+            continue
+        else:
+            break
+        last = kind
+        end += 1
+    if end == start:
+        return None, start
+    return total + current, end
+
+
+def fold_numbers(words):
+    """`words` (normalized, number words not folded) with each run of English
+    number words replaced by its digits, as [(word, count)]: `count` the
+    words the entry stands for. 'One' and '1' then compare equal, and
+    'twenty one' (from 'twenty-one', the hyphen already a split) and '21'.
+    'and' inside a number after a hundred or a scale ('two hundred and
+    five') is part of it. A year said in halves ('seventeen eighty seven')
+    folds to '17 87', which line_similarity's compound join reads as
+    '1787'; ordinals ('first') are left as words.
+
+    Not transformers' Whisper `EnglishNumberNormalizer`
+    (`transformers.models.whisper.english_normalizer`), checked at the
+    pinned transformers: it leaves a lone small number as a word ('article
+    one' stays 'article one', so the 'Article One'/'Article 1' case this
+    exists for would still differ), rewrites words that are not numbers
+    ('first' -> '1st', 'five percent' -> '5%', 'one dollar' -> '$one'), and
+    returns a string, not how many words each fold spans - which
+    `script_take._folded_heard` needs to give a folded word its chunks'
+    span."""
+    folded = []
+    i = 0
+    while i < len(words):
+        value, end = _number_group(words, i)
+        if value is None:
+            folded.append((words[i], 1))
+            i += 1
+            continue
+        folded.append((str(value), end - i))
+        i = end
+    return folded
+
+
+def normalize_words(text, numbers=True):
     """`text` as a list of words: lowercase, punctuation stripped, apostrophes
     kept (a curly one read as straight) but not at a word's edges, where they
     are quotation marks. Punctuation splits words, so 'well-known' is the two
-    words 'well known' on both sides of the comparison."""
+    words 'well known' on both sides of the comparison - and 'twenty-one'
+    is 'twenty one'.
+
+    With `numbers` (the default), a run of number words is then folded to
+    its digits (`fold_numbers`, #1297): 'Article One' and 'Article 1' are the
+    same words, and so are 'twenty-one' and '21'. A thousands comma is
+    dropped first ('1,787' is '1787'). A caller that folds across several
+    texts - one heard word per chunk, 'twenty' then 'one' - passes
+    numbers=False and folds the joined list itself (`guard_words`)."""
     text = text.lower().replace("’", "'").replace("‘", "'")
+    text = _DIGIT_GROUP.sub("", text)
     words = []
     for word in _NON_WORD.sub(" ", text).split():
         word = word.strip("'_")
         if word:
             words.append(word)
+    if numbers:
+        return [word for word, _ in fold_numbers(words)]
     return words
+
+
+# One <d>...</d> body of a prompt; an unclosed <d> runs to the prompt's end
+_DIALOGUE = re.compile(r"<\s*d\s*>(.*?)(?:<\s*/\s*d\s*>|\Z)", re.IGNORECASE | re.DOTALL)
+
+
+def dialogue_text(prompt):
+    """The `<d>...</d>` bodies of an H3 prompt, joined in order with a space
+    (#1262): the line a dialogue segment is meant to speak. The markup
+    inside a body ('[English]', '<cutoff>', '(S1)') is kept, so check_script's
+    parse_lines strips it and hears it as `tag_spoken`; the prose outside
+    every body is left out. '' when the prompt holds no `<d>` (or is not a
+    string)."""
+    if not isinstance(prompt, str):
+        return ""
+    bodies = (" ".join(body.split()) for body in _DIALOGUE.findall(prompt))
+    return " ".join(body for body in bodies if body)
 
 
 # A run of heard words that repeats with a period of at most

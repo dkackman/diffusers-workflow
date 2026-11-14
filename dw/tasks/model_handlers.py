@@ -79,6 +79,7 @@ def _handle_separate_stems(task, arguments, previous_pipelines):
     implementation="dw.tasks.upscale.upscale_image",
     consumes_device=True,
     required_weights="dw.tasks.upscale.required_weights",
+    weight_file_arguments=("filename",),
 )
 def _handle_upscale(task, arguments, previous_pipelines):
     """Upscale an image using a spandrel-compatible super-resolution model"""
@@ -117,6 +118,7 @@ def _handle_diffusion_upscale(task, arguments, previous_pipelines):
     implementation="dw.tasks.restore_faces.restore_faces",
     consumes_device=True,
     required_weights="dw.tasks.restore_faces.required_weights",
+    weight_file_arguments=("filename",),
 )
 def _handle_restore_faces(task, arguments, previous_pipelines):
     """Restore faces in an image using a spandrel-compatible face restoration model"""
@@ -222,6 +224,7 @@ def _handle_remove_object(task, arguments, previous_pipelines):
     implementation="dw.tasks.interpolate_frames.interpolate_frames",
     consumes_device=True,
     required_weights="dw.tasks.interpolate_frames.required_weights",
+    weight_file_arguments=("filename",),
 )
 def _handle_interpolate_frames(task, arguments, previous_pipelines):
     """Interpolate video frames to increase frame rate"""
@@ -308,7 +311,13 @@ def _handle_upscale_h3_latents(task, arguments, previous_pipelines):
             "The MiniMax-H3 repo whose 'vae' subfolder decodes (default "
             "MiniMaxAI/MiniMax-H3)."
         ),
+        "num_frames": (
+            "Keep only the first this many frames - an encode_h3_latents "
+            "step's 'source_frames', so a padded take comes back at its length."
+        ),
     },
+    domains={"num_frames": POSITIVE},
+    whole_numbers=("num_frames",),
 )
 def _handle_decode_h3_latents(task, arguments, previous_pipelines):
     """Decode MiniMax-H3 video latents into frames"""
@@ -317,6 +326,38 @@ def _handle_decode_h3_latents(task, arguments, previous_pipelines):
     from .h3_latent_upscale import decode_h3_latents
 
     return decode_h3_latents(latents, device=task.device_for(arguments), **arguments)
+
+
+@register_command(
+    "encode_h3_latents",
+    implementation="dw.tasks.h3_latent_upscale.encode_h3_latents",
+    consumes_device=True,
+    summary=(
+        "Experimental: encode a finished 24 fps take into one MiniMax-H3 video "
+        "latent, a 17-frame VAE clip at a time (exactly the whole-take "
+        "encode), for a refine longer than a source_video can hold. Returns "
+        "{latents, num_frames, source_frames}: the refine's latents and "
+        "num_frames, and the take's own length for decode_h3_latents."
+    ),
+    parameter_descriptions={
+        "source": (
+            "The take: an 'output:'/'asset:' video file, read a clip's range at "
+            "a time, or an earlier step's video. 24 fps, sides a multiple of 32."
+        ),
+        "model_name": (
+            "The MiniMax-H3 repo whose 'vae' subfolder encodes (default "
+            "MiniMaxAI/MiniMax-H3)."
+        ),
+    },
+    media_arguments=("source",),
+)
+def _handle_encode_h3_latents(task, arguments, previous_pipelines):
+    """Encode a finished take into one MiniMax-H3 video latent, clip by clip"""
+    logger.debug("Encoding a take into H3 latents")
+    source = arguments.pop("source")
+    from .h3_latent_upscale import encode_h3_latents
+
+    return encode_h3_latents(source, device=task.device_for(arguments), **arguments)
 
 
 @register_command(

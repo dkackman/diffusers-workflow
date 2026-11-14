@@ -183,6 +183,7 @@ class JobTools:
         job_id: str,
         acknowledged_cost: bool | dict = False,
         new_seed: bool = False,
+        arguments: dict | None = None,
     ) -> dict:
         """Queue a fresh job from a previous job's stored specification. This
         costs GPU time: a rerun is a run - it occupies a GPU for
@@ -196,12 +197,15 @@ class JobTools:
 
         `acknowledged_cost` takes the same bound form as run_workflow; a
         fresh seed never changes the fingerprint, so the original plan still
-        binds a new_seed rerun."""
+        binds a new_seed rerun. `arguments` overrides variables for the rerun
+        (a draft promoted with `{"tier": "standard"}`); validate first, since an
+        override changes the plan a bound acknowledgement must name."""
         return diagnose.rerun_job(
             self.client,
             job_id,
             acknowledged_cost=acknowledged_cost,
             new_seed=new_seed,
+            arguments=arguments,
         )
 
     def move_job(

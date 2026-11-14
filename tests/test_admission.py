@@ -711,7 +711,7 @@ def _raise_with_a_path(*_args, **_kwargs):
 
 @pytest.mark.parametrize(
     "target, name",
-    [(validation, "workflow_context"), (admission_module, "argument_errors")],
+    [(validation, "workflow_context"), (validation, "argument_errors")],
     ids=["context", "argument_errors"],
 )
 def test_a_failing_gate_names_only_its_exception_type(
@@ -935,3 +935,67 @@ def test_dissolve_frames_are_checked_against_an_output_source_in_the_workspace(
         "steps[0].task.arguments.dissolve_frames"
     ]
     assert answer["errors"][0]["message"].startswith("dissolve_videos: ")
+
+
+@pytest.mark.parametrize("value", [{"precompensate": True}, ["pickup"]])
+def test_validate_and_submit_refuse_an_object_or_list_for_a_bool_variable(
+    server, value
+):
+    """A dict folded to true through bool(), with no word (#1250): validate
+    and submit both refuse it, naming the variable and its bool type."""
+    workflow = valid_workflow()
+    workflow["variables"]["look_hold"] = True
+    body = {"workflow": workflow, "arguments": {"look_hold": value}}
+    with server() as client:
+        answer = client.post("/api/validate?sizes=false", json=body).json()
+        assert answer["valid"] is False
+        assert [error["path"] for error in answer["errors"]] == ["arguments.look_hold"]
+        message = answer["errors"][0]["message"]
+        assert "'look_hold'" in message and "type bool" in message
+
+        response = client.post("/api/jobs", json=body)
+        assert response.status_code == 400, response.text
+        assert response.json()["detail"] == f"arguments.look_hold: {message}"
+        assert client.get("/api/jobs").json()["jobs"] == []
+
+
+def test_validate_and_submit_refuse_a_fraction_for_an_int_variable_alike(server):
+    """validate said valid to listen_scale 0.5 on an int default that submit
+    then refused (#1192): both now answer from validation_errors, with the
+    one message set_variables writes, and an argument-only refusal still
+    names the checked arguments and keeps its warnings."""
+    workflow = valid_workflow()
+    workflow["variables"]["scale"] = 1
+    body = {"workflow": workflow, "arguments": {"scale": 0.5}}
+    message = (
+        "scale 0.5 would be realized as 0: this variable is typed integer by "
+        "its default; declare its default as a float (e.g. 0.0) to accept "
+        "fractional values"
+    )
+    with server() as client:
+        answer = client.post("/api/validate?sizes=false", json=body).json()
+        assert answer["valid"] is False
+        assert answer["errors"] == [{"path": "arguments.scale", "message": message}]
+        assert answer["checked_arguments"] == ["scale"]
+
+        response = client.post("/api/jobs", json=body)
+        assert response.status_code == 400, response.text
+        assert response.json()["detail"] == f"arguments.scale: {message}"
+        assert client.get("/api/jobs").json()["jobs"] == []
+
+
+def test_a_bad_preset_selector_is_the_callers_error_not_the_documents(server):
+    # A tier no bundle names is reported at arguments.tier: the caller's
+    # mistake, so the answer still names what it checked, as any other
+    # bad argument's does, rather than reading as a broken document
+    workflow = for_each_workflow()
+    workflow["variables"]["tier"] = "draft"
+    workflow["presets"] = {"tier": {"draft": {}, "best": {}}}
+    with server() as client:
+        answer = client.post(
+            "/api/validate?sizes=false",
+            json={"workflow": workflow, "arguments": {"tier": "ultra"}},
+        ).json()
+    assert not answer["valid"]
+    assert [e["path"] for e in answer["errors"]] == ["arguments.tier"]
+    assert answer["checked_arguments"] == ["tier"]

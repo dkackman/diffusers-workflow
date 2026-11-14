@@ -139,7 +139,9 @@ def normalize_audio(
                     f"normalize_audio: target_lufs={target_lufs} would need "
                     f"{target_gain_db:+.1f} dB of gain, but peak_dbfs={peak_dbfs} "
                     f"caps the gain at {gain_db:+.1f} dB - lands "
-                    f"{target_gain_db - gain_db:.1f} LU below the target.",
+                    f"{target_gain_db - gain_db:.1f} LU below the target. "
+                    "Pass limit: true to hold the ceiling with a limiter and "
+                    "keep the loudness.",
                     kind="target_lufs_capped",
                     command="normalize_audio",
                     target_lufs=target_lufs,

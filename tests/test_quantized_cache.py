@@ -1428,6 +1428,11 @@ class TestFromPretrained:
 class TestPerComponentCallSite:
     """load_component, the path load_optional_component takes, end to end."""
 
+    @pytest.fixture(autouse=True)
+    def _roomy_disk(self, monkeypatch):
+        # the save gate reads the host's free space; pin it so the run does not
+        monkeypatch.setattr(qc.shutil, "disk_usage", disk(1000, 900))
+
     def configuration(self, component_type):
         return {"component_type": component_type, "preserve_device_placement": True}
 
@@ -1557,6 +1562,11 @@ class TestTransformersRoundTrip:
     model with a weight conversion mapping loads back (#827: LTX-2.5's Gemma 4
     text encoder saved in its checkpoint layout and failed every lookup)."""
 
+    @pytest.fixture(autouse=True)
+    def _roomy_disk(self, monkeypatch):
+        # the save gate reads the host's free space; pin it so the run does not
+        monkeypatch.setattr(qc.shutil, "disk_usage", disk(1000, 900))
+
     @staticmethod
     def gemma4():
         transformers = pytest.importorskip("transformers")
@@ -1625,3 +1635,57 @@ class TestTransformersRoundTrip:
         assert long.startswith("ValueError: x") and long.endswith("...")
         assert len(long) == len("ValueError: ") + qc._REASON_DETAIL_CHARS
         assert qc._error_detail(OSError()) == "OSError"
+
+
+def test_load_components_raises_on_oom_diffusers_swallowed():
+    """A real diffusers-style swallow: the component's load raises OOM, the
+    logger records "Failed to create component", and the load must still fail."""
+    import logging
+
+    import pytest
+
+    from dw import quantized_cache
+
+    class Pipe:
+        def load_components(self, **kwargs):
+            logging.getLogger("diffusers.modular_pipelines.modular_pipeline").warning(
+                "Failed to create component transformer:\n- Component spec: x\n"
+                "Traceback:\ntorch.OutOfMemoryError: CUDA out of memory."
+            )
+
+    with pytest.raises(RuntimeError, match="out of memory.*transformer"):
+        quantized_cache._load_checked(Pipe(), {})
+
+
+def test_load_components_ignores_non_oom_failure():
+    import logging
+
+    from dw import quantized_cache
+
+    class Pipe:
+        def load_components(self, **kwargs):
+            logging.getLogger("diffusers.modular_pipelines.modular_pipeline").warning(
+                "Failed to create component vae:\nTraceback:\nValueError: nope"
+            )
+
+    quantized_cache._load_checked(Pipe(), {})
+
+
+def test_load_components_raises_on_oom_after_a_leading_newline():
+    """The warning's wording is diffusers'; a newline or a quoted name before
+    it must not let a swallowed OOM through."""
+    import logging
+
+    import pytest
+
+    from dw import quantized_cache
+
+    class Pipe:
+        def load_components(self, **kwargs):
+            logging.getLogger("diffusers.modular_pipelines.modular_pipeline").warning(
+                "\nFailed to create component 'transformer':\n"
+                "Traceback:\ntorch.OutOfMemoryError: CUDA out of memory."
+            )
+
+    with pytest.raises(RuntimeError, match="out of memory.*transformer"):
+        quantized_cache._load_checked(Pipe(), {})

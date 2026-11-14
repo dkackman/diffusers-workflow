@@ -15,6 +15,7 @@ from fastapi import HTTPException, Request
 from .. import references
 from ..adapter_compatibility import catalog_index
 from ..lora_catalog import entry_errors
+from ..presets import PRESETS_KEY, effective_variables
 from ..realize import strings_with_prefix
 from ..security import SecurityError, validate_asset_reference
 from ..vram_inheritance import (
@@ -26,7 +27,14 @@ from ..vram_inheritance import (
     sets_differently,
     template_identity,
 )
-from ..cost_scaling import FRAMES_DRIVER, STEPS_DRIVER, scale_curated
+from ..cost_scaling import (
+    FRAMES_DRIVER,
+    STEPS_DRIVER,
+    CHAIN_LENGTH_DRIVERS,
+    chain_segment_scaling,
+    scale_curated,
+    matched_chain,
+)
 from .observed_cost import declared_drivers
 from ..library import ASSETS_KIND, LORAS_KIND, PROMPTS_KIND, library_path
 from ..workspace import (
@@ -287,16 +295,20 @@ def _means(keys, values):
     }
 
 
-def _scale_past_template(definition, template, drivers, arguments):
+def _scale_past_template(definition, template, drivers, arguments, per_segment=False):
     """How the workflow's size compares to the template run the bucket was
     measured on (#821, #851, #866): (factor, reason). The factor is the
-    ratio of pipeline steps times what `scale_curated` makes of the mean
+    ratio of pipeline steps, times the chain's segments ratio
+    (`chain_segment_scaling`, the catalog figure's rule), times what `scale_curated` makes of the mean
     frames, inference steps and canvas per pipeline step - one rule, so the
     catalog figure and this one quote a request alike - and the reason names
     each axis that moved. (1, None) when the workflow is the template's
-    size; (None, reason) when its size cannot be compared."""
-    # The template as the bucket's drivers set it
-    bucket = {**template, "variables": {**(template.get("variables") or {}), **drivers}}
+    size; (None, reason) when its size cannot be compared. A `per_segment`
+    figure (a matched chain's) has no segment count to compare."""
+    # The template as the bucket's drivers set it - its preset bundle
+    # folded in under them, and the block dropped so it is not applied twice
+    bucket = {key: value for key, value in template.items() if key != PRESETS_KEY}
+    bucket["variables"] = effective_variables(template, drivers)
     # Counted with for_each expanded, so a list longer than the one the
     # bucket ran (a fallback to the template's default bucket) re-prices by
     # its member count
@@ -310,6 +322,25 @@ def _scale_past_template(definition, template, drivers, arguments):
         reasons.append(
             f"runs the pipeline in {steps} steps, template measured {template_steps}"
         )
+    # A chain is one pipeline step however many segments it renders, so its
+    # length is its own axis (#1305): a fallback to the template's default
+    # bucket would otherwise quote 3 segments at the 2 it was measured on
+    ratio, reason, unscaled = (
+        (1.0, None, [])
+        if per_segment
+        else chain_segment_scaling(
+            bucket,
+            bucket["variables"],
+            definition,
+            effective_variables(definition, arguments),
+            CHAIN_LENGTH_DRIVERS,
+        )
+    )
+    factor *= ratio
+    if reason:
+        reasons.append(reason)
+    if unscaled:
+        return None, f"{', '.join(unscaled)} differ and cannot be compared"
     # Each axis read per pipeline step, the template's variables as the
     # bucket sets them, and averaged for `scale_curated`; a step that does
     # not set it as a number is left out
@@ -381,8 +412,11 @@ def inherited_observed(state, ws, definition, arguments=None, *, card=None):
     if identity is None:
         return None
     arguments = arguments or {}
-    variables = definition.get("variables")
-    variables = variables if isinstance(variables, dict) else {}
+    # the inline run's own values, its chosen preset bundle included
+    variables = effective_variables(definition, arguments)
+    # A matched chain's N is its track's: a template's takes are priced per
+    # segment, each over the segments it rendered (observed_for)
+    per_segment = {"per_segment": True} if matched_chain(definition, variables) else {}
     best = None
     withheld = None
     for name, template, writable in _catalog_listing(state, ws):
@@ -392,9 +426,9 @@ def inherited_observed(state, ws, definition, arguments=None, *, card=None):
         # workflow's own value where it has that variable, else the template's
         # default - so the bucket is the one the inline run would fall in
         drivers = {
-            driver: arguments.get(driver, variables[driver])
+            driver: variables[driver]
             for driver in declared_drivers(template)
-            if driver in arguments or driver in variables
+            if driver in variables
         }
         block = observed_for_name(
             state,
@@ -403,6 +437,7 @@ def inherited_observed(state, ws, definition, arguments=None, *, card=None):
             drivers,
             workspace=ws.name if writable else None,
             card=card,
+            **per_segment,
         )
         if not (block and block.get("cold_runs")) and drivers:
             # No run in that bucket (a frame count the template never ran at):
@@ -415,6 +450,7 @@ def inherited_observed(state, ws, definition, arguments=None, *, card=None):
                 drivers,
                 workspace=ws.name if writable else None,
                 card=card,
+                **per_segment,
             )
         if not block or not block.get("cold_runs"):
             continue
@@ -423,7 +459,9 @@ def inherited_observed(state, ws, definition, arguments=None, *, card=None):
         # multiple the template's minutes do not carry, so they re-price it
         # linearly (#851). A size that cannot be compared is withheld, with
         # the template and the reason named
-        factor, reason = _scale_past_template(definition, template, drivers, arguments)
+        factor, reason = _scale_past_template(
+            definition, template, drivers, arguments, bool(per_segment)
+        )
         if factor is None:
             withheld = withheld or (name, reason)
             continue
@@ -469,7 +507,7 @@ def server_prompt_library(state):
 
 
 def observed_for_name(
-    state, name, definition, arguments=None, *, workspace=None, card=None
+    state, name, definition, arguments=None, *, workspace=None, card=None, **per_segment
 ):
     """One workflow's `observed` block, from the same aggregate the
     listing uses - so the figure a caller reads in the listing and the
@@ -479,10 +517,13 @@ def observed_for_name(
     without them it is the figure the stored defaults give, which is the
     listing's. `workspace` scopes it to one workspace's own writable copy
     (#274); omitted, it is a shared catalog entry's pooled figure (#154).
-    `card` ('cuda:1') prices it for that card rather than the server's."""
+    `card` ('cuda:1') prices it for that card rather than the server's;
+    `per_segment=True` divides each run by the segments it rendered."""
     costs = getattr(state, "observed_costs", None)
     return (
-        costs.observed(name, definition, arguments, workspace=workspace, card=card)
+        costs.observed(
+            name, definition, arguments, workspace=workspace, card=card, **per_segment
+        )
         if costs
         else None
     )

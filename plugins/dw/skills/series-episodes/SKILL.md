@@ -81,7 +81,8 @@ voice clip, and the shot list's cast entry (`script-to-video` step 2) points at 
 
 Generate the episode's shots with `templates/minimax/dialogue-short` (or
 `music-video`), `shots` referencing the fixed cast from step 0. Drift
-happens across episodes, not within one; step 0 closes it.
+happens across episodes, not within one; step 0 closes it. A scene longer
+than one clip is planned with the `long-form` skill first.
 
 A workflow you write for an ingredient - a shot, narration, a score or cue,
 a still, a reference - sets `"role": "intermediate"` in its saving step's

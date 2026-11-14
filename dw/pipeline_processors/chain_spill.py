@@ -154,6 +154,8 @@ class SegmentSpill:
         pipeline._chain_iteration = iteration
 
         self.output_dir = output_dir
+        self.iteration = iteration
+        self.fan_out = bool(getattr(pipeline, "chain_fan_out", False))
         self.base_name = f"{file_prefix}.{iteration}"
         self.fps = config.fps
         self.paths = []
@@ -205,11 +207,11 @@ def _decode_segment(path):
 def spilled_frames(config, spill):
     """A spilled chain's frames, replayed lazily from its segment files.
 
-    match_audio overshoots by design - the tail trim happens as the lazy
-    frames replay, so the files themselves stay whole."""
+    match_audio and duration_seconds overshoot by design - the tail trim happens
+    as the lazy frames replay, so the files themselves stay whole."""
     return SegmentedFrames(
         spill.paths,
-        config.total_frames if config.source_audio is not None else None,
+        config.total_frames,
         config.keep_segments,
         spill.frame_count,
     )

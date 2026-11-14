@@ -54,6 +54,21 @@ class TestSubfolderErrors:
         assert [e["path"] for e in errors] == ["steps[0].result.file_base_name"]
         assert "subfolder" in errors[0]["message"]
 
+    def test_a_file_base_name_an_output_reference_refuses_is_reported(self):
+        # #1249: the file it names could never be referenced with 'output:'
+        definition = {"steps": [_step("a", {"file_base_name": "src a#1"})]}
+        errors = subfolder_errors(definition)
+        assert [e["path"] for e in errors] == ["steps[0].result.file_base_name"]
+        assert "' ' (position 3) is not a character" in errors[0]["message"]
+
+    def test_every_accepted_file_base_name_names_a_referenceable_output(self):
+        from dw.security import validate_output_reference
+
+        for base in ("still", "ep5-episode", "shot@a", "v1.2", "_x"):
+            definition = {"steps": [_step("a", {"file_base_name": base})]}
+            assert subfolder_errors(definition) == []
+            validate_output_reference(f"wf/run/{base}-0.0.mp4")
+
     def test_an_expanded_member_reports_the_source_step_and_names_the_member(self):
         # expand_for_each turned steps[1] into two members; the author wrote
         # one step, so the path is the source's and the member is named

@@ -707,6 +707,22 @@ def _names_to_load(pipeline, arguments):
     return [name for name in names if name in specs]
 
 
+def component_dtype(torch_dtype, name):
+    """The dtype one component loads as. A per-component dict resolves the way
+    diffusers resolves it - the component's own entry, else 'default', else
+    float32 - so the key and the load read the dtype the weights really have,
+    not the whole dict (whose str() would key every component alike)."""
+    if not isinstance(torch_dtype, dict):
+        return torch_dtype
+    if name in torch_dtype:
+        return torch_dtype[name]
+    if "default" in torch_dtype:
+        return torch_dtype["default"]
+    import torch
+
+    return torch.float32
+
+
 class _Candidate:
     """One component an SDNQ config quantizes on this load, keyed."""
 
@@ -722,7 +738,9 @@ class _Candidate:
         self.model_cls = spec.type_hint
         self.load_id = getattr(spec, "load_id", None)
         config = kwargs["quantization_config"]
-        self.torch_dtype = kwargs.get("torch_dtype", kwargs.get("dtype"))
+        self.torch_dtype = component_dtype(
+            kwargs.get("torch_dtype", kwargs.get("dtype")), name
+        )
         # Read now: sdnq clears the devices on the config it quantized with
         self.return_device = getattr(config, "return_device", None) or "cpu"
         self.config_arguments = config_snapshot(config)
@@ -741,12 +759,62 @@ class _Candidate:
         )
 
 
+class _SwallowedOOM(logging.Handler):
+    """Diffusers' modular `load_components` catches whatever a component's load
+    raises and only logs "Failed to create component X", leaving X unset. For an
+    out-of-memory that becomes a later, misleading error (a missing LoRA adapter),
+    so this notes which components died of memory and `raise_if_oom` re-raises."""
+
+    def __init__(self):
+        super().__init__(level=logging.WARNING)
+        self.components = []
+
+    def emit(self, record):
+        try:
+            message = record.getMessage()
+        except Exception:
+            return
+        # Leading whitespace and a quoted name tolerated: the wording is
+        # diffusers' own, and a newline before it would defeat a bare match
+        match = re.match(r"\s*Failed to create component '?(\S+?)'?:", message)
+        if match is None:
+            return
+        lowered = message.lower()
+        if "outofmemoryerror" in lowered or "out of memory" in lowered:
+            self.components.append(match.group(1))
+
+    def raise_if_oom(self):
+        if self.components:
+            names = ", ".join(self.components)
+            raise RuntimeError(
+                f"CUDA out of memory while loading component(s) {names}: the "
+                "component was not loaded. Free GPU memory first, e.g. add "
+                "release_models to earlier steps, or quantize/offload the component."
+            )
+
+
+def _load_checked(pipeline, arguments):
+    """`pipeline.load_components`, failing on an out-of-memory diffusers swallowed."""
+    handler = _SwallowedOOM()
+    diffusers_logger = logging.getLogger("diffusers")
+    previous_level = diffusers_logger.level
+    if previous_level == logging.NOTSET or previous_level > logging.WARNING:
+        diffusers_logger.setLevel(logging.WARNING)
+    diffusers_logger.addHandler(handler)
+    try:
+        pipeline.load_components(**arguments)
+    finally:
+        diffusers_logger.removeHandler(handler)
+        diffusers_logger.setLevel(previous_level)
+    handler.raise_if_oom()
+
+
 def load_components(pipeline, arguments):
     """`pipeline.load_components(**arguments)`, with every SDNQ-quantized
     component read from the cache where an entry exists and saved to it where
     one does not. With the cache off this is that call and nothing more."""
     if not enabled():
-        pipeline.load_components(**arguments)
+        _load_checked(pipeline, arguments)
         return
 
     try:
@@ -783,7 +851,7 @@ def load_components(pipeline, arguments):
             }
 
     started = time.monotonic()
-    pipeline.load_components(**arguments)
+    _load_checked(pipeline, arguments)
     seconds = time.monotonic() - started
 
     for candidate, reason in misses:

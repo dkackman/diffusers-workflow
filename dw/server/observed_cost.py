@@ -41,6 +41,9 @@ import json
 import logging
 import time
 
+from ..cost_scaling import matched_chain
+from ..presets import effective_variables
+
 logger = logging.getLogger("dw")
 
 COST_DRIVERS_KEY = "cost_drivers"
@@ -84,10 +87,10 @@ def _bucket_key(definition, arguments):
     variables = definition.get("variables") or {}
     drivers = declared_drivers(definition)
     if drivers:
-        return tuple(
-            (name, _comparable(arguments.get(name, variables.get(name))))
-            for name in sorted(drivers)
-        )
+        # the chosen preset bundle included: a driver a bundle moves buckets
+        # on the value the run used
+        values = effective_variables(definition, arguments)
+        return tuple((name, _comparable(values.get(name))) for name in sorted(drivers))
     if _is_task_only(definition):
         # No pipeline loads, so a task's inputs (an audio file, a list of
         # lines) are data rather than a size; with nothing declared to
@@ -163,6 +166,70 @@ def _every_step_was_reused(manifest_text):
     )
 
 
+def _was_partial(definition, row_arguments):
+    """Whether this run's chain rendered only part of its plan: given a
+    `resume_from`, or a probe's `stop_after`, by its own arguments. Read from
+    the setting, not from the kept files, which a swept run directory no
+    longer has."""
+    from ..cost_scaling import _chain_blocks, _resolved
+
+    variables = effective_variables(definition, row_arguments)
+    return any(
+        _resolved(chain.get(key), variables) is not None
+        for chain, _ in _chain_blocks(definition.get("steps"))
+        for key in ("resume_from", "stop_after")
+    )
+
+
+def _rendered_segments(definition, row_arguments, manifest_text):
+    """The segments a full chain run rendered, or None when it cannot be
+    told: the plan's count its take's shots carry (`planned_segments`,
+    `dw/shots.py`; a partial run is left out before this is asked), else a
+    countable chain's own count at the run's arguments."""
+    from ..cost_scaling import _chain_segments
+
+    try:
+        manifest = json.loads(manifest_text or "[]")
+    except (TypeError, ValueError):
+        manifest = []
+    for entry in manifest if isinstance(manifest, list) else []:
+        shots = entry.get("shots") if isinstance(entry, dict) else None
+        for shot in shots if isinstance(shots, list) else []:
+            count = shot.get("planned_segments") if isinstance(shot, dict) else None
+            if isinstance(count, int) and not isinstance(count, bool) and count > 0:
+                return count
+    return _chain_segments(definition, effective_variables(definition, row_arguments))
+
+
+def _row_duration(definition, row, wanted, per_segment):
+    """One row's comparable duration in seconds, or None when it is not a
+    measurement of the run being asked about: a step-cache replay, another
+    bucket, a partial chain, no duration, or - priced `per_segment` - a take
+    whose segment count cannot be told, which is left out of the basis."""
+    if _every_step_was_reused(row["manifest"]):
+        return None
+    try:
+        row_arguments = json.loads(row["arguments"] or "{}")
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(row_arguments, dict):
+        return None
+    if _bucket_key(definition, row_arguments) != wanted:
+        return None
+    if _was_partial(definition, row_arguments):
+        # Rendered only part of the plan (the segments after its kept
+        # ones, or a probe's first k): its duration is not a full-N
+        # run's, and neither setting is a cost driver
+        return None
+    duration = row["duration"]
+    if duration is None or duration <= 0:
+        return None
+    if not per_segment:
+        return duration
+    segments = _rendered_segments(definition, row_arguments, row["manifest"])
+    return duration / segments if segments else None
+
+
 def _median(values):
     ordered = sorted(values)
     middle = len(ordered) // 2
@@ -194,7 +261,9 @@ def _minutes_block(prefix, durations):
     }
 
 
-def observed_for(definition, rows, device=None, device_name=None, arguments=None):
+def observed_for(
+    definition, rows, device=None, device_name=None, arguments=None, per_segment=False
+):
     """This server's history for one workflow, as the `observed` block, or
     None when it has nothing comparable to report.
 
@@ -208,28 +277,28 @@ def observed_for(definition, rows, device=None, device_name=None, arguments=None
     and stays comparable to a curated `cost`, while a plan asks with the
     caller's own values and gets the figure for the run it is quoting, or
     None when this box has never run that shape (#154).
+
+    `per_segment` (set by itself for a matched chain, asked for by
+    `deps.inherited_observed` when a matched chain inherits a countable
+    template's) divides each run by the segments it rendered, and the
+    block says `per_segment: true`.
     """
     wanted = _bucket_key(definition, arguments or {})
     if wanted is None:
         # No declared drivers and the caller overrode something: nothing here
         # is comparable to the run being asked about
         return None
+    # A matched chain's segment count is its track's, so its takes are only
+    # comparable per segment (`cost_scaling.observed_render_scaling`)
+    per_segment = per_segment or matched_chain(
+        definition, effective_variables(definition, arguments)
+    )
     task_only = _is_task_only(definition)
     cold, warm, unclassified, earliest = [], [], 0, None
     # Rows arrive unordered; the recent-runs median reads newest first
     for row in sorted(rows, key=lambda r: r["finished_at"] or 0, reverse=True):
-        if _every_step_was_reused(row["manifest"]):
-            continue
-        try:
-            row_arguments = json.loads(row["arguments"] or "{}")
-        except (TypeError, ValueError):
-            continue
-        if not isinstance(row_arguments, dict):
-            continue
-        if _bucket_key(definition, row_arguments) != wanted:
-            continue
-        duration = row["duration"]
-        if duration is None or duration <= 0:
+        duration = _row_duration(definition, row, wanted, per_segment)
+        if duration is None:
             continue
         if task_only or row["had_load"]:
             cold.append(duration)
@@ -244,13 +313,13 @@ def observed_for(definition, rows, device=None, device_name=None, arguments=None
     runs = len(cold) + len(warm) + unclassified
     if not runs:
         return None
-    variables = definition.get("variables") or {}
     drivers = declared_drivers(definition)
     observed = {
         "device": device,
         "name": device_name,
         "runs": runs,
         "comparable": "drivers" if drivers else "default-arguments",
+        **({"per_segment": True} if per_segment else {}),
         **_minutes_block("cold", cold),
         **_minutes_block("warm", warm),
     }
@@ -261,10 +330,8 @@ def observed_for(definition, rows, device=None, device_name=None, arguments=None
         # The *effective* driver values - the caller's where they supplied
         # one, else the stored default - so the block says which run it is a
         # figure for rather than always describing the defaults
-        effective = {
-            name: (arguments or {}).get(name, variables.get(name))
-            for name in sorted(drivers)
-        }
+        values = effective_variables(definition, arguments)
+        effective = {name: values.get(name) for name in sorted(drivers)}
         observed["drivers"] = {
             name: len(value) if isinstance(value, list) else value
             for name, value in effective.items()
@@ -294,7 +361,7 @@ class ObservedCosts:
         self._rows = {}
         self._device = None
         self._card = None
-        # (kind, card name, is the default card) per named card, read once
+        # (kind, card name) per named card, read once
         self._cards = {}
 
     def device(self):
@@ -330,11 +397,11 @@ class ObservedCosts:
         return self._device
 
     def card(self, ordinal):
-        """A named card ('cuda:1') as (type, card name, whether it is the
-        box's default card) - what `observed(card=...)` prices for. Read
-        once per card, for the same reason `device` is."""
+        """A named card ('cuda:1') as (type, card name) - what
+        `observed(card=...)` prices for. Read once per card, for the same
+        reason `device` is."""
         if ordinal not in self._cards:
-            from ..devices import card_name, is_default_device
+            from ..devices import card_name
 
             kind = str(ordinal).split(":", 1)[0]
             try:
@@ -342,11 +409,7 @@ class ObservedCosts:
             except Exception:
                 logger.debug("observed cost: could not read %s's name", ordinal)
                 name = None
-            try:
-                default = is_default_device(ordinal)
-            except Exception:
-                default = True
-            self._cards[ordinal] = (kind, name, default)
+            self._cards[ordinal] = (kind, name)
         return self._cards[ordinal]
 
     def _on_this_card(self, rows, card=None):
@@ -357,22 +420,22 @@ class ObservedCosts:
         counts when the card name matches, whichever index it had - a 3090
         run tells a 3090 estimate, not a 4090 one. A row from before jobs
         carried a device (no `device_ordinal`) ran on the box's default
-        card, so it counts only for that card."""
-        from ..devices import is_default_device
+        card, so it counts as that card's *name* (#1278): on a box of two
+        identical cards a plan routed to the non-default one still matches
+        them, as a run of the same model of card."""
+        from ..devices import detect_device
 
         if card is not None:
-            _, name, default = self.card(card)
+            _, name = self.card(card)
         else:
             self.device()
             name = self._card
-            try:
-                default = is_default_device()
-            except Exception:
-                default = True
+        # The default card's name through the owner, so it is read once
+        default_name = self.card(detect_device())[1]
         kept = []
         for row in rows:
             if row.get("device_ordinal") is None:
-                if default:
+                if default_name == name:
                     kept.append(row)
             elif row.get("device_card") == name:
                 kept.append(row)
@@ -427,7 +490,15 @@ class ObservedCosts:
         return rows
 
     def observed(
-        self, name, definition, arguments=None, *, fresh=True, workspace=None, card=None
+        self,
+        name,
+        definition,
+        arguments=None,
+        *,
+        fresh=True,
+        workspace=None,
+        card=None,
+        per_segment=False,
     ):
         """`name`'s `observed` block. `card` ('cuda:1') prices it for that
         card - the one a plan's job would be dispatched to - rather than the
@@ -438,7 +509,7 @@ class ObservedCosts:
         if not rows:
             return None
         if card is not None:
-            device, device_name, _ = self.card(card)
+            device, device_name = self.card(card)
             device_name = device_name if device == "cuda" else None
         else:
             device, device_name = self.device()
@@ -449,6 +520,7 @@ class ObservedCosts:
                 device=device,
                 device_name=device_name,
                 arguments=arguments,
+                per_segment=per_segment,
             )
         except Exception:
             # A figure is a nicety; a listing that 500s because one row had a

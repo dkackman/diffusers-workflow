@@ -154,6 +154,7 @@ SKILL_TASKS = {
     "minimax-h3": ["join_into_song", "slice_audio", "normalize_audio", "pair_audio"],
     "script-to-video": ["concat_videos", "get_first_frame", "get_last_frame"],
     "series-episodes": ["apply_lut", "film_grain", "concat_videos", "loop_audio"],
+    "long-form": ["pair_audio", "export_timeline", "split_takes", "find_loop_bed"],
 }
 
 
@@ -1086,6 +1087,39 @@ class TestCinematographySkill:
         for axis, ids in CINE_AXES.items():
             assert _table_ids(text, f"## `{axis}`") == ids, axis
 
+    def _move_rows(self):
+        """{id: [class, means, note]} for the vocabulary's `move` table."""
+        text = self._ref("vocabulary.md")
+        start = text.index("## `move`")
+        end = text.find("\n#", start + len("## `move`"))
+        rows = {}
+        for line in text[start:end].splitlines():
+            if not line.startswith("| `"):
+                continue
+            cells = [c.strip() for c in line.strip().strip("|").split("|")]
+            rows[cells[0].strip("`")] = cells[1:]
+        return rows
+
+    def test_cinematography_every_move_has_a_static_or_moving_class(self):
+        """#1255: the long-form playbook picks an H3 `shot` preset from this
+        column; only `static` is static (push-in and handheld are moving)."""
+        rows = self._move_rows()
+        assert list(rows) == CINE_AXES["move"]
+        classes = {move: cells[0] for move, cells in rows.items()}
+        assert set(classes.values()) == {"`static`", "`moving`"}
+        assert [m for m, c in classes.items() if c == "`static`"] == ["static"]
+        assert classes["push-in"] == classes["handheld"] == "`moving`"
+        text = _flat(self._ref("vocabulary.md"))
+        assert "position and orientation don't change across the take" in text
+
+    def test_cinematography_every_moving_id_carries_the_h3_last_frame_rule(self):
+        for move, (cls, _means, note) in self._move_rows().items():
+            if cls == "`moving`":
+                assert "H3: never `last_frame` with `look_hold`/`carry_pick`" in note
+                assert "measured on the arc only" in note, move
+            else:
+                assert "last_frame" not in note, move
+
     @pytest.mark.parametrize("family", sorted(CINE_COMPILES))
     def test_cinematography_vocabulary_covers_every_family(self, family):
         text = self._ref(CINE_COMPILES[family])
@@ -1193,7 +1227,30 @@ class TestMiniMaxMusic3Skill:
         assert encoders._MAX_PROMPT_TOKENS == 5000 and "5,000 tokens" in text
         # the ceiling semantics: the language model may stop earlier
         assert re.search(r'"audio_duration",\s*default=60.0', source)
-        assert "Default\n  60 seconds" in text or "Default 60 seconds" in text
+        flat = " ".join(text.split())
+        assert "pipeline's default is 60 seconds" in flat
+        # each template's own ceiling, as the skill states it
+        for template, stated in (
+            ("music", "120 s (`music`)"),
+            ("music-video", "30 s (`music-video`)"),
+        ):
+            with open(
+                os.path.join(
+                    REPO_ROOT, "workflows", "templates", "minimax", f"{template}.json"
+                ),
+                encoding="utf-8",
+            ) as handle:
+                default = json.load(handle)["variables"]["audio_duration"]
+            assert stated.startswith(f"{default} s") and stated in flat, template
+        with open(
+            os.path.join(
+                REPO_ROOT, "workflows", "templates", "minimax", "music-long.json"
+            ),
+            encoding="utf-8",
+        ) as handle:
+            sections = json.load(handle)["variables"]["sections"]
+        assert {section["audio_duration"] for section in sections} == {45}
+        assert "45 s a section (`music-long`)" in flat
         assert "ceiling, not a target" in text
         # a tag line keeps only its leading bracketed tags, lower-cased
         assert "_LEADING_TAGS_RE" in source and hasattr(encoders, "_normalize_lyrics")
@@ -1588,6 +1645,12 @@ def _fenced_json(text):
 
 
 CINEMATOGRAPHY_KEYS = ("shot_size", "move", "lens", "light", "duration")
+SCENE_KEYS = ("id", "shots", "length_seconds", "continuity")
+
+
+def _is_scene_list(block):
+    """`<project>/scenes` (#1199 Task 25) is the shot document's other array."""
+    return all(isinstance(item, dict) and "length_seconds" in item for item in block)
 
 
 class TestShotDocumentShape:
@@ -1598,7 +1661,11 @@ class TestShotDocumentShape:
     def test_example_shot_and_two_shot_array_carry_every_key(self):
         blocks = _fenced_json(_read(SHOT_DOCUMENT))
         objects = [block for block in blocks if isinstance(block, dict)]
-        arrays = [block for block in blocks if isinstance(block, list)]
+        arrays = [
+            block
+            for block in blocks
+            if isinstance(block, list) and not _is_scene_list(block)
+        ]
         assert objects and any(len(array) == 2 for array in arrays)
         for shot in objects + [shot for array in arrays for shot in array]:
             for key in SHOT_KEYS:
@@ -1718,3 +1785,353 @@ class TestSitcomAssembly:
             assert f"| `{name}` |" in section, name
         flat = " ".join(text.split())
         assert "planned `start_frame` and `cut_frames`" in flat
+
+
+LONG_FORM_DIR = os.path.join(PLUGIN_DIR, "skills", "long-form")
+LONG_FORM_SKILL = os.path.join(LONG_FORM_DIR, "SKILL.md")
+CHAINED_SEGMENTS = os.path.join(
+    REPO_ROOT, "workflows", "templates", "minimax", "chained-segments.json"
+)
+
+
+def test_long_form_skill_is_named_in_the_readme_and_claude_md():
+    """The long-form playbook (#1199 Task 24) is a cross-cutting skill like
+    storyboard: it ships, and the two documents that enumerate skills name it."""
+    assert LONG_FORM_SKILL in SKILLS
+    for document in (
+        os.path.join(PLUGIN_DIR, "README.md"),
+        os.path.join(REPO_ROOT, "CLAUDE.md"),
+    ):
+        assert "`long-form`" in open(document, encoding="utf-8").read(), document
+
+
+class TestLongFormSkill:
+    """The playbook's settled rules are the template's and the bench's; the
+    open questions stay marked until a record settles them."""
+
+    def _text(self):
+        return " ".join(skill_text(LONG_FORM_SKILL).split())
+
+    def test_the_shot_presets_are_the_template_s(self):
+        with open(CHAINED_SEGMENTS, encoding="utf-8") as handle:
+            spec = json.load(handle)
+        presets = spec["presets"]["shot"]
+        assert presets["static"] == {
+            "continuity": "guide",
+            "anchor": "segment_1",
+            "anchor_strength": 0.25,
+        }
+        assert presets["static_long"] == {
+            "continuity": "guide",
+            "keystone": "segment_1",
+            "keystone_slot": "last",
+        }
+        assert presets["moving"] == {"continuity": "guide"}
+        assert presets["dialogue"] == {"continuity": "guide"}
+        assert spec["variables"]["continuity"] == "guide"
+        text = self._text()
+        for shot in ("static", "static_long", "moving", "dialogue"):
+            assert f"`shot: {shot}`" in text, shot
+        assert "`anchor_strength` 0.25" in text
+
+    def test_the_cost_row_is_the_template_s(self):
+        with open(CHAINED_SEGMENTS, encoding="utf-8") as handle:
+            spec = json.load(handle)
+        (row,) = spec["cost"]
+        assert f"{row['minutes']} min" in self._text()
+
+    def test_the_check_ceilings_are_the_engine_s(self):
+        from dw.pipeline_processors import chain_check
+
+        text = self._text()
+        assert '`"check": {"cut_ratio_max": null}`' in text
+        assert "warn-only" in text
+        for name, ceiling in (
+            ("jump_ratio", chain_check.JUMP_RATIO_MAX),
+            ("look_ratio", chain_check.LOOK_RATIO_MAX),
+            ("cut_ratio", chain_check.CUT_RATIO_MAX),
+            ("texture_ratio", chain_check.TEXTURE_RATIO_MAX),
+        ):
+            assert f"`{name}` (ceiling {ceiling:g})" in text, name
+        # The audio floor re-rolls (#1221), so it is quoted as a floor, not
+        # a warn-only ceiling
+        assert f"`audio_dbfs` (floor {chain_check.AUDIO_DBFS_MIN:g} dBFS)" in text
+        assert '`"audio_dbfs_min": null`' in text
+
+    def test_the_audio_re_roll_is_not_promised_to_fix_silence(self):
+        # Plan v2 of #1221: on the S5 repro both seeds read about -89 dBFS,
+        # so the skill and the guide say a re-roll may not bring sound back
+        guide = " ".join(
+            open(os.path.join(REPO_ROOT, "docs", "WORKFLOW_GUIDE.md"), encoding="utf-8")
+            .read()
+            .split()
+        )
+        for text in (self._text(), guide):
+            assert "not guaranteed to bring sound back" in text
+            assert "`chain_segment_silent`" in text
+
+    def test_the_quoted_worst_case_is_the_estimate_s(self):
+        # Both branches of cost_scaling._worst_case_retries (#1221)
+        text = self._text()
+        assert "N(1 + `retries`)" in text
+        assert "1 + (N - 1)(1 + `retries`)" in text
+
+    def test_every_rule_cites_the_bench(self):
+        text = self._text()
+        for record in (
+            "counters.md",
+            "check.md",
+            "repair.md",
+            "structural.md",
+            "noise-floor.md",
+            "determinism.md",
+        ):
+            assert f"bench/records/{record}" in text, record
+
+    def test_the_open_questions_are_marked_pending(self):
+        text = self._text()
+        assert "pending measurement" in text
+        for topic in ("windowed refine", "latent carry", "capstone", "tier", "ltx"):
+            assert topic in text.lower(), topic
+
+    def test_the_measured_levers_carry_their_verdicts(self):
+        """The structural levers, the keystone and LTX parity were measured
+        (bench/records/structural.md, repair.md, ltx.md): each names its
+        verdict rather than reading as pending."""
+        text = " ".join(self._text().split())
+        for verdict in (
+            "not a burn fix",  # windowed refine
+            "not a default",  # latent carry
+            "does not win",  # late capstone
+            "Don ruled slot `last` the static long-take default",  # keystone
+            "stays the `templates/ltx2/chained-segments` default",
+            "Cap an LTX-2.5 chain at about 15-20 s",
+        ):
+            assert verdict in text, verdict
+        assert "experimental_keystone_slot" not in text
+
+    def test_the_narrated_take_rule_cites_its_record_and_presets(self):
+        """A speaking subject held to narration is one take: the template's
+        `standing` and `dialogue` presets by length, longer than a take is
+        passages joined as cuts, cited to bench/records/narrated.md."""
+        text = self._text()
+        for phrase in (
+            "A speaking subject in one place is a narrated take",
+            "`templates/narration-retime`",
+            "`templates/minimax/narrated-take`",
+            "`shot: standing`",
+            "passages joined as cuts",
+            "not yet run end to end",
+            "`face_drop`",
+            "bench/records/narrated.md",
+        ):
+            assert phrase in text, phrase
+        spec = json.load(
+            open(
+                os.path.join(
+                    REPO_ROOT, "workflows", "templates", "minimax", "narrated-take.json"
+                ),
+                encoding="utf-8",
+            )
+        )
+        assert spec["presets"]["shot"]["standing"]["keystone_slot"] == "last"
+        for name in ("run-and-repair.md", "levers.md"):
+            body = _flat(_read(os.path.join(LONG_FORM_DIR, "references", name)))
+            assert "bench/records/narrated.md" in body, name
+
+    def test_the_move_class_comes_from_the_vocabulary(self):
+        """#1255: the "until #1200" stand-in is replaced by a pointer to the
+        cinematography vocabulary's `class` column, in both files."""
+        text = self._text()
+        assert "#1200" not in text and "until #1200" not in text
+        assert "`class` column of `cinematography/references/vocabulary.md`" in text
+        assert "`push-in` and `handheld` included, is `shot: moving`" in text
+        levers = _flat(_read(LONG_FORM_LEVERS))
+        assert "#1200" not in levers
+        assert "`class` column of `cinematography/references/vocabulary.md`" in levers
+
+    def test_the_cut_ideas_are_named_so_they_are_not_re_proposed(self):
+        text = self._text()
+        for idea in ("keystone", "backoff", "sharpest", "guide `look_hold`"):
+            assert idea in text, idea
+
+    def test_the_words_measure_is_the_engine_s(self):
+        """#1262 stage C: *Per seam* names the words measure, its default
+        (off, from words.md's no-separation verdict) and the engine's
+        ceiling, and the every_attempt_failed path to repair-segment."""
+        from dw.pipeline_processors import chain_check
+
+        assert chain_check.WORDS_SIMILARITY_DEFAULT is None
+        body = _flat(skill_body(LONG_FORM_SKILL))
+        per_seam = body[body.index("## 4. Per seam") : body.index("## 5.")]
+        ceiling = f"{chain_check.WORDS_SIMILARITY_MIN:g}"
+        assert "`words`" in per_seam
+        assert f'`"check": {{"words_similarity_min": {ceiling}}}`' in per_seam
+        assert "off by default (`null`)" in per_seam
+        assert "`every_attempt_failed: true`" in per_seam
+        assert "`repair-segment`" in per_seam
+        assert "`lines`" in per_seam
+        assert "bench/records/words.md" in per_seam
+        # The stale "not a template variable" line went with #1252
+        assert "not a template variable" not in body
+
+        repair = _flat(
+            _read(os.path.join(LONG_FORM_DIR, "references", "run-and-repair.md"))
+        )
+        assert (
+            f"`words` (`words_similarity_min`, default `null` = off; {ceiling} when set)"
+            in repair
+        )
+        assert f'"words_similarity_min": {ceiling}' in repair
+        assert "`every_attempt_failed: true`" in repair
+        assert "`repair-segment`" in repair
+        for finding in (
+            "line_clipped_at_end",
+            "transcript_loop",
+            "tag_spoken",
+            "unscripted_speech",
+            "line_clipped_at_head",
+        ):
+            assert f"`{finding}`" in repair, finding
+
+    def test_the_template_passes_lines_to_the_chain(self):
+        with open(CHAINED_SEGMENTS, encoding="utf-8") as handle:
+            spec = json.load(handle)
+        assert spec["variables"]["lines"] is None
+        chain = spec["steps"][0]["pipeline"]["chain"]
+        assert chain["lines"] == "variable:lines"
+        assert chain["check"] == "variable:check"
+        assert "`lines`" in spec["description"]
+        assert "`words_similarity_min`" in spec["description"]
+
+    def test_the_template_check_takes_the_words_object(self):
+        """The skills tell a caller to pass `check: {"words_similarity_min":
+        0.8}` to this template: a bool default refused that object, so `lines`
+        could never reach a words check through it (#1299 bounce). Its null
+        default takes true, false or the object, and off stays off."""
+        from dw.cost_scaling import words_check_term
+        from dw.pipeline_processors.chain_check import segment_check
+        from dw.variables import set_variables
+
+        with open(CHAINED_SEGMENTS, encoding="utf-8") as handle:
+            spec = json.load(handle)
+        assert spec["variables"]["check"] is None
+        assert segment_check(spec["variables"]["check"]) is None
+
+        lines = ["Rise now.", "The old ones are listening."]
+        variables = dict(spec["variables"])
+        set_variables(
+            {
+                "segments": 2,
+                "retries": 1,
+                "check": {"words_similarity_min": 0.8},
+                "lines": lines,
+            },
+            variables,
+        )
+        assert variables["check"] == {"words_similarity_min": 0.8}
+        assert segment_check(variables["check"]).words_similarity_min == 0.8
+        minutes, axis = words_check_term(spec, variables)
+        assert minutes > 0 and "words check" in axis
+
+        plain = dict(spec["variables"])
+        set_variables({"segments": 2, "check": True, "lines": lines}, plain)
+        assert plain["check"] is True
+        assert segment_check(True) is not None
+        assert words_check_term(spec, plain) == (0.0, None)
+
+    def test_the_h3_dialogue_reference_gives_a_line_per_segment(self):
+        text = _flat(
+            _read(os.path.join(os.path.dirname(H3_SKILL), "references", "dialogue.md"))
+        )
+        section = text[text.index("## A line per segment in a chain") :]
+        assert "`prompts`, one per segment" in section
+        assert "**Or pass `lines`**" in section
+        assert "the last is not repeated" in section
+        assert '`check: {"words_similarity_min": 0.8}`' in section
+
+
+LONG_FORM_LEVERS = os.path.join(LONG_FORM_DIR, "references", "levers.md")
+H3_CHAINS = os.path.join(os.path.dirname(H3_SKILL), "references", "chains.md")
+STORYBOARD_SKILL = os.path.join(PLUGIN_DIR, "skills", "storyboard", "SKILL.md")
+MUSIC3_SKILL = os.path.join(PLUGIN_DIR, "skills", "minimax-music3", "SKILL.md")
+
+
+def _flat(text):
+    return " ".join(text.split())
+
+
+class TestLongFormPointers:
+    """#1199 Task 25: the planning skills carry a scene's length and
+    continuity, and the family skills hand anything longer than one clip to
+    the `long-form` playbook instead of restating it."""
+
+    def test_the_shot_document_plans_length_and_continuity_per_scene(self):
+        text = _flat(_read(SHOT_DOCUMENT))
+        assert "<project>/scenes" in text
+        assert "`length_seconds`" in text and "`continuity`" in text
+        for shape in ("`one_clip`", "`cuts`", "`chain`", "`bridge`"):
+            assert shape in text, shape
+        assert "`long-form`" in text
+        scenes = [
+            block
+            for block in _fenced_json(_read(SHOT_DOCUMENT))
+            if isinstance(block, list) and _is_scene_list(block)
+        ]
+        assert scenes, "the shot document shows a worked `<project>/scenes`"
+        shapes = {"one_clip", "cuts", "chain", "bridge"}
+        for scene in scenes[0]:
+            assert set(scene) == set(SCENE_KEYS), scene
+            assert isinstance(scene["length_seconds"], (int, float))
+            assert scene["continuity"] in shapes, scene
+
+    @pytest.mark.parametrize(
+        "path", [H3_SKILL, LTX_SKILL], ids=["minimax-h3", "ltx-2.5"]
+    )
+    def test_a_video_family_hands_longer_than_one_clip_to_long_form(self, path):
+        body = _flat(skill_body(path))
+        assert "**Longer than one clip" in body
+        assert "the `long-form` skill first" in body
+
+    @pytest.mark.parametrize(
+        "path",
+        [STORYBOARD_SKILL, SCRIPT_SKILL, SERIES_SKILL],
+        ids=["storyboard", "script-to-video", "series-episodes"],
+    )
+    def test_a_planning_skill_points_a_long_scene_to_long_form(self, path):
+        assert "`long-form`" in skill_body(path)
+
+    def test_music_over_one_track_points_to_the_long_form_audio_recipes(self):
+        body = _flat(skill_body(MUSIC3_SKILL))
+        assert "`long-form/references/audio.md`" in body
+
+    def test_the_community_drift_notes_moved_into_the_playbook(self):
+        chains = _read(H3_CHAINS)
+        assert "NerdNotes" not in chains
+        assert "`long-form`" in chains
+        levers = _flat(_read(LONG_FORM_LEVERS))
+        assert "NerdNotes" in levers
+        for claim in (
+            "half-static",
+            "segments 3-6",
+            "masked area",
+            "Whole-frame averages",
+            "#1033",
+        ):
+            assert claim in levers, claim
+
+    @pytest.mark.parametrize(
+        "path",
+        [
+            H3_SKILL,
+            LTX_SKILL,
+            STORYBOARD_SKILL,
+            SCRIPT_SKILL,
+            SERIES_SKILL,
+            MUSIC3_SKILL,
+        ],
+        ids=lambda p: os.path.basename(os.path.dirname(p)),
+    )
+    def test_every_touched_skill_holds_its_budget(self, path):
+        size = len(skill_body(path).encode("utf-8"))
+        assert size <= SKILL_SIZE_LIMIT, f"{path} is {size} bytes"

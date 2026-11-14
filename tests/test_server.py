@@ -1631,6 +1631,33 @@ def test_gallery_lists_media_and_reads_metadata(server, tmp_path):
             is None
         )
 
+        # an .otioz reports its timeline in `media` (#1254)
+        import json as _json
+        import zipfile as _zip
+
+        clip = {
+            "OTIO_SCHEMA": "Clip.1",
+            "name": "shot 0",
+            "source_range": {
+                "duration": {"rate": 24.0, "value": 48},
+                "start_time": {"rate": 24.0, "value": 0},
+            },
+            "media_reference": {"target_url": "media/a.mp4"},
+        }
+        doc = {
+            "name": "cut",
+            "tracks": {
+                "children": [{"kind": "Video", "name": "Video", "children": [clip]}]
+            },
+        }
+        with _zip.ZipFile(outputs / "cut.otioz", "w") as z:
+            z.writestr("content.otio", _json.dumps(doc))
+            z.writestr("media/a.mp4", b"x")
+        timeline = client.get("/api/gallery/cut.otioz/metadata").json()["media"]
+        assert timeline["kind"] == "timeline"
+        assert timeline["members"] == ["content.otio", "media/a.mp4"]
+        assert timeline["tracks"][0]["items"][0]["seconds"] == 2.0
+
         # confinement
         assert client.get("/api/gallery/..%2Fsecret.png/metadata").status_code == 404
 
@@ -5268,6 +5295,42 @@ def test_a_historical_job_with_no_manifest_reports_no_output_kinds(server, tmp_p
         assert detail.json()["output_kinds"] == {}
 
 
+def test_a_historical_job_serves_its_committed_peak(server, tmp_path):
+    """#1214: the gate's recorded per-job committed peak reaches job detail."""
+    from dw.server.job_history import JobHistory
+
+    class Row:
+        id = "peaked"
+        workflow_name = "w"
+        catalog_name = None
+        status = "succeeded"
+        created_at = 1.0
+        started_at = 1.0
+        finished_at = 2.0
+        manifest = None
+        warnings = []
+        error = None
+        events = []
+        run_id = None
+        run_dir = None
+        acknowledged = "none"
+        spec = {"workspace": "default"}
+        host_memory_job_peak_committed_mb = 45324.0
+
+    JobHistory(str(tmp_path / "jobs.sqlite")).record(Row())
+    with server(success_script) as client:
+        detail = client.get("/api/jobs/peaked")
+        assert detail.status_code == 200, detail.text
+        assert detail.json()["host_memory_job_peak_committed_mb"] == 45324.0
+
+
+def test_slim_job_keeps_the_committed_peak():
+    from dw_mcp.diagnose import slim_job
+
+    slim = slim_job({"id": "j", "host_memory_job_peak_committed_mb": 1234.5})
+    assert slim["host_memory_job_peak_committed_mb"] == 1234.5
+
+
 def test_output_kinds_tolerates_a_job_with_no_manifest():
     from dw.server.outputs import output_kinds
 
@@ -6176,6 +6239,186 @@ class TestBoundAcknowledgement:
             assert response.json()["detail"]["reason"] == "fingerprint"
 
 
+def overridable_workflow(seeded=False):
+    workflow = valid_workflow("overridable")
+    workflow["variables"]["num_images_per_prompt"] = 1
+    workflow["steps"][0]["pipeline"]["arguments"]["num_images_per_prompt"] = (
+        "variable:num_images_per_prompt"
+    )
+    if seeded:
+        workflow["seed"] = "variable:seed"
+        workflow["variables"]["seed"] = 1
+    return workflow
+
+
+def test_rerun_overrides_merge_onto_the_stored_arguments(server, no_hub):
+    with server(success_script) as client:
+        first = client.post(
+            "/api/jobs",
+            json={
+                "workflow": overridable_workflow(),
+                "arguments": {"prompt": "a", "num_images_per_prompt": 1},
+            },
+        ).json()
+        wait_for_status(client, first["id"], TERMINAL_STATES)
+        response = client.post(
+            f"/api/jobs/{first['id']}/rerun",
+            json={"arguments": {"num_images_per_prompt": 2}},
+        )
+        assert response.status_code == 201, response.json()
+        body = response.json()
+        assert body["arguments"]["num_images_per_prompt"] == 2
+        assert body["arguments"]["prompt"] == "a"
+        assert body["overrides"] == {"num_images_per_prompt": 2}
+        assert "overrides" not in client.get(f"/api/jobs/{first['id']}").json()
+
+
+def test_rerun_override_of_an_undeclared_variable_is_refused(server, no_hub):
+    with server(success_script) as client:
+        first = client.post("/api/jobs", json={"workflow": valid_workflow()}).json()
+        wait_for_status(client, first["id"], TERMINAL_STATES)
+        response = client.post(
+            f"/api/jobs/{first['id']}/rerun", json={"arguments": {"nope": 1}}
+        )
+        assert response.status_code == 400
+        assert "Unknown variable 'nope'" in response.json()["detail"]
+
+
+def test_rerun_override_of_the_seed_with_new_seed_is_refused(server, no_hub):
+    with server(success_script) as client:
+        first = client.post(
+            "/api/jobs", json={"workflow": overridable_workflow(seeded=True)}
+        ).json()
+        wait_for_status(client, first["id"], TERMINAL_STATES)
+        response = client.post(
+            f"/api/jobs/{first['id']}/rerun",
+            json={"new_seed": True, "arguments": {"seed": 7}},
+        )
+        assert response.status_code == 400
+        detail = response.json()["detail"]
+        assert detail == (
+            "'new_seed' and an override of the seed variable 'seed' "
+            "cannot both be given"
+        )
+
+
+def drawn_seed_workflow():
+    """A template that draws its seed: `variable:seed` with a null default."""
+    workflow = overridable_workflow(seeded=True)
+    workflow["variables"]["seed"] = None
+    return workflow
+
+
+def realizing_script(output_dir, seed):
+    """A worker that reports a run directory holding a realized workflow
+    whose seed is pinned to `seed`, the way Workflow.run writes it."""
+
+    def script(command):
+        relative = (
+            f"drawn/{len(os.listdir(output_dir)) if os.path.isdir(output_dir) else 0}"
+        )
+        run_dir = os.path.join(output_dir, *relative.split("/"))
+        os.makedirs(run_dir, exist_ok=True)
+        with open(os.path.join(run_dir, "workflow.json"), "w") as handle:
+            json.dump({**command.get("workflow", {}), "seed": seed}, handle)
+        yield {
+            "type": "progress",
+            "event": "run_start",
+            "run_id": relative,
+            "identity": "drawn",
+            "run_dir": relative,
+            "version": 1,
+        }
+        yield {"type": "success", "message": "ok", "run_count": 1, "manifest": []}
+
+    return script
+
+
+def test_a_null_seed_override_draws_fresh_instead_of_keeping_the_parent_s(
+    server, no_hub, tmp_path
+):
+    with server(realizing_script(str(tmp_path / "outputs"), 424242)) as client:
+        first = client.post(
+            "/api/jobs",
+            json={"workflow": drawn_seed_workflow(), "arguments": {"prompt": "a"}},
+        ).json()
+        wait_for_status(client, first["id"], TERMINAL_STATES)
+        response = client.post(
+            f"/api/jobs/{first['id']}/rerun", json={"arguments": {"seed": None}}
+        )
+        assert response.status_code == 201, response.json()
+        assert response.json()["arguments"].get("seed") is None
+
+
+def test_a_rerun_with_overrides_keeps_the_parent_s_drawn_seed(server, no_hub, tmp_path):
+    with server(realizing_script(str(tmp_path / "outputs"), 424242)) as client:
+        first = client.post(
+            "/api/jobs",
+            json={"workflow": drawn_seed_workflow(), "arguments": {"prompt": "a"}},
+        ).json()
+        wait_for_status(client, first["id"], TERMINAL_STATES)
+        assert "seed" not in first["arguments"]
+        response = client.post(
+            f"/api/jobs/{first['id']}/rerun",
+            json={"arguments": {"num_images_per_prompt": 2}},
+        )
+        assert response.status_code == 201, response.json()
+        body = response.json()
+        assert body["arguments"]["seed"] == 424242
+        assert body["arguments"]["num_images_per_prompt"] == 2
+        assert not any("rerun_seed_unknown" in w for w in body["warnings"])
+
+
+def test_a_rerun_with_overrides_and_new_seed_draws_a_different_seed(
+    server, no_hub, tmp_path
+):
+    with server(realizing_script(str(tmp_path / "outputs"), 424242)) as client:
+        first = client.post(
+            "/api/jobs", json={"workflow": drawn_seed_workflow()}
+        ).json()
+        wait_for_status(client, first["id"], TERMINAL_STATES)
+        response = client.post(
+            f"/api/jobs/{first['id']}/rerun",
+            json={"new_seed": True, "arguments": {"num_images_per_prompt": 2}},
+        )
+        assert response.status_code == 201, response.json()
+        seed = response.json()["arguments"]["seed"]
+        assert isinstance(seed, int) and seed != 424242
+
+
+def test_a_rerun_with_overrides_leaves_an_explicit_seed_alone(server, no_hub, tmp_path):
+    with server(realizing_script(str(tmp_path / "outputs"), 424242)) as client:
+        first = client.post(
+            "/api/jobs",
+            json={"workflow": drawn_seed_workflow(), "arguments": {"seed": 5}},
+        ).json()
+        wait_for_status(client, first["id"], TERMINAL_STATES)
+        response = client.post(
+            f"/api/jobs/{first['id']}/rerun",
+            json={"arguments": {"num_images_per_prompt": 2}},
+        )
+        assert response.status_code == 201, response.json()
+        assert response.json()["arguments"]["seed"] == 5
+
+
+def test_a_rerun_with_overrides_says_so_when_the_drawn_seed_is_unknown(server, no_hub):
+    # success_script reports no run directory, so no realized workflow
+    with server(success_script) as client:
+        first = client.post(
+            "/api/jobs", json={"workflow": drawn_seed_workflow()}
+        ).json()
+        wait_for_status(client, first["id"], TERMINAL_STATES)
+        response = client.post(
+            f"/api/jobs/{first['id']}/rerun",
+            json={"arguments": {"num_images_per_prompt": 2}},
+        )
+        assert response.status_code == 201, response.json()
+        body = response.json()
+        assert "seed" not in body["arguments"]
+        unknown = [w for w in body["warnings"] if "rerun_seed_unknown" in w]
+        assert len(unknown) == 1 and "fresh seed" in unknown[0]
+
+
 class TestBoundRerun:
     def test_a_rerun_with_the_original_plan_queues_even_with_a_new_seed(
         self, server, no_hub
@@ -6205,6 +6448,41 @@ class TestBoundRerun:
             )
             assert response.status_code == 409
             assert response.json()["detail"]["reason"] == "fingerprint"
+
+    def test_overrides_that_change_the_plan_refuse_the_original_acknowledgement(
+        self, server, no_hub
+    ):
+        changed = {
+            "shots": [{"name": "a", "prompt": "a"}, {"name": "b", "prompt": "b"}]
+        }
+        with server(success_script) as client:
+            plan = plan_for(client, list_workflow())
+            first = client.post(
+                "/api/jobs",
+                json={"workflow": list_workflow(), "acknowledged_cost": bound(plan)},
+            ).json()
+            wait_for_status(client, first["id"], TERMINAL_STATES)
+            response = client.post(
+                f"/api/jobs/{first['id']}/rerun",
+                json={"arguments": changed, "acknowledged_cost": bound(plan)},
+            )
+            assert response.status_code == 409
+            assert response.json()["detail"]["reason"] == "fingerprint"
+
+    def test_an_acknowledgement_of_the_merged_arguments_queues(self, server, no_hub):
+        changed = {
+            "shots": [{"name": "a", "prompt": "a"}, {"name": "b", "prompt": "b"}]
+        }
+        with server(success_script) as client:
+            first = client.post("/api/jobs", json={"workflow": list_workflow()}).json()
+            wait_for_status(client, first["id"], TERMINAL_STATES)
+            merged = plan_for(client, list_workflow(), changed)
+            response = client.post(
+                f"/api/jobs/{first['id']}/rerun",
+                json={"arguments": changed, "acknowledged_cost": bound(merged)},
+            )
+            assert response.status_code == 201, response.json()
+            assert response.json()["acknowledged"] == "bound"
 
     def test_a_rerun_with_true_is_unchanged(self, server, no_hub):
         with server(success_script) as client:
@@ -6783,3 +7061,21 @@ def test_a_validator_failure_is_logged_once_by_the_validate_route(
     assert response.status_code == 200
     records = [r for r in caplog.records if r.levelno >= logging.ERROR]
     assert len(records) == 1, [r.getMessage() for r in records]
+
+
+def test_unrealized_job_workflow_folds_the_chosen_preset(server):
+    """The fallback fold applies the bundle the recorded selector chose, as
+    the run did (presets)."""
+    workflow = valid_workflow()
+    workflow["variables"].update({"tier": "standard", "steps": 20})
+    workflow["presets"] = {"tier": {"draft": {"steps": 4}, "standard": {"steps": 12}}}
+    with server(success_script) as client:
+        submitted = client.post(
+            "/api/jobs", json={"workflow": workflow, "arguments": {"tier": "draft"}}
+        ).json()
+        wait_for_status(client, submitted["id"], TERMINAL_STATES)
+        client.app.state.job_manager.jobs.pop(submitted["id"])
+        body = client.get(f"/api/jobs/{submitted['id']}/workflow").json()
+
+    assert body["realized"] is False
+    assert body["definition"]["variables"]["steps"] == 4

@@ -20,6 +20,7 @@ from .step_cache import borrowed_pipeline_keys
 from .runs import activate_output_root, deactivate_output_root
 from .schema import format_validation_errors
 from .for_each import expand_for_each
+from .presets import apply_presets
 from .variables import (
     ConstantError,
     argument_errors,
@@ -28,6 +29,7 @@ from .variables import (
     set_variables,
 )
 from .pipeline_processors.pipeline import Pipeline, apply_runtime_settings
+from .pipeline_processors.chain_config import derive_frame_snaps
 from .tasks.task import Task
 from . import get_device
 from .pipeline_ownership import (
@@ -203,6 +205,11 @@ class Workflow:
     # deep-copied them again; the child's one copy is _owned_arguments, on
     # entry. None for a workflow nothing composed
     _handed_arguments = None
+    # The pipeline keys the enclosing runs' steps hold, handed down when a
+    # parent composes this workflow: a release_models task inside a child
+    # must not evict a model a parent step loaded and a later parent step
+    # still addresses (pipeline_reference, a reused key). Empty at top level
+    _claimed_by_ancestors = frozenset()
 
     def __init__(self, workflow_definition, output_dir, file_spec, workflow_dir=None):
         self.workflow_definition = workflow_definition
@@ -217,6 +224,13 @@ class Workflow:
         # Which pipeline each step owns. run() replaces it per run; this one
         # serves a step action created outside run()
         self.pipeline_ownership = PipelineOwnership()
+
+    def claimed_pipeline_keys(self):
+        """The pipeline keys this run's steps recorded and every enclosing
+        run's: what a release_models task here must leave loaded."""
+        return frozenset(self.pipeline_ownership.keys_by_step.values()) | (
+            self._claimed_by_ancestors
+        )
 
     @property
     def name(self):
@@ -317,7 +331,9 @@ class Workflow:
         os.makedirs(target, exist_ok=True)
         return target
 
-    def _fold(self, definition, arguments, *, fold_arguments, constrain):
+    def _fold(
+        self, definition, arguments, *, fold_arguments, constrain, strict_presets=True
+    ):
         """Stage one of preparing a definition, shared by validation, the
         run and the record: constants realized, the caller's `arguments`
         folded in when `fold_arguments`, list entries' own references
@@ -329,6 +345,13 @@ class Workflow:
 
         Raises ConstantError for a 'constant:' variable default that fails
         to resolve, naming the variable.
+
+        The chosen preset bundle (dw/presets.py) is applied whatever
+        `fold_arguments` is - with no usable arguments, the default bundle -
+        since a bundle is part of what the declared defaults mean.
+        `strict_presets` false (validation) leaves a bundle value that will
+        not coerce at its default rather than raising; `preset_errors`
+        reports it.
         """
         variables = definition.get("variables")
         if not isinstance(variables, dict):
@@ -350,6 +373,14 @@ class Workflow:
                     realize_constants(value)
             except (ValueError, InvalidInputError, UntrustedWorkflowError) as e:
                 raise ConstantError(f"variables.{name}", str(e)) from e
+        # the chosen bundle first, so the caller's own values land over it;
+        # with no usable arguments that is the selector's default bundle
+        apply_presets(
+            definition,
+            arguments if fold_arguments else {},
+            variables,
+            strict=strict_presets,
+        )
         if fold_arguments:
             # set variable values from the arguments passed to the workflow;
             # these may come from the command line or from a parent workflow
@@ -373,7 +404,22 @@ class Workflow:
     def _expand(definition, variables, source_indices=None):
         """Stage two of preparing a definition: every 'variable:'
         substituted, every 'constraint:' frame_snap resolved and every
-        for_each expanded. Returns the new definition."""
+        for_each expanded. Returns the new definition.
+
+        `derive_frame_snaps` mutates `definition` in place, so the caller must
+        pass a deep copy (both do). It runs before `expand_for_each`, so a
+        chain inside a `for_each` step is not derived; validate still warns on
+        the expanded definition (`frame_snap_warnings`)."""
+        # A chain planned by length with no frame_snap takes the one its
+        # num_frames variable's constraint declares - before substitution,
+        # while the 'variable:' is still visible, so the last segment lands
+        # on the pipeline's grid rather than being floored in silence
+        for step_name, variable in derive_frame_snaps(definition):
+            logger.info(
+                f"Step '{step_name}': chain frame_snap derived from "
+                f"variable_constraints.{variable}, so a shortened last segment "
+                "snaps to a count the pipeline accepts"
+            )
         if variables is not None:
             # replace_variables returns a new structure rather than mutating
             # in place, so the result must be captured here
@@ -405,6 +451,7 @@ class Workflow:
                 fold_arguments=bool(arguments)
                 and not argument_errors(definition, arguments),
                 constrain=snap_constraints,
+                strict_presets=False,
             )
             source_indices = []
             expanded = self._expand(definition, variables, source_indices)
@@ -851,6 +898,10 @@ class Workflow:
         # The parent's objects arrive as this child's arguments; the child
         # copies them once on entry rather than editing the parent's
         workflow._composed = True
+        # The child shares this run's pipeline dict but keeps its own
+        # ownership table, so what this run (and its ancestors) hold is
+        # handed down for the child's release_models to spare
+        workflow._claimed_by_ancestors = self.claimed_pipeline_keys()
         # One execution, one directory: the child writes into the
         # parent's run directory and leaves no manifest of its own - its
         # steps roll up into the parent's manifest already

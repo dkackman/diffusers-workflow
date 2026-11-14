@@ -28,7 +28,7 @@ server uses, and in what order they are resolved, is in
 [WORKSPACES.md](WORKSPACES.md). Running it for other machines is
 [REMOTE.md](REMOTE.md); in a container, [DOCKER.md](DOCKER.md).
 
-### The HTTP API
+## The HTTP API
 
 Everything the web UI and the MCP server do goes through one HTTP API, and a
 running server describes it:
@@ -40,7 +40,7 @@ running server describes it:
 | `/openapi.json` | The OpenAPI document itself |
 
 The same document is committed as
-[`ui/src/lib/generated/openapi.json`](../ui/src/lib/generated/openapi.json)
+`ui/src/lib/generated/openapi.json`
 for client generation or reading without a server. It is generated, not
 written: `scripts/dump_openapi.py` writes it from the server, CI fails when
 the committed copy is stale, and its `info.version` is fixed at `"0"` so it
@@ -54,7 +54,7 @@ Each job runs in a persistent GPU worker ([WORKER_GUIDE.md](WORKER_GUIDE.md)):
 models stay loaded between runs, so re-running a workflow with a new prompt
 skips the load.
 
-### The command line
+## The command line
 
 `dw.run` is a thin client of `dw.serve`: it queues a job over HTTP, prints
 its progress, and reports the run directory the server wrote to - start the
@@ -77,7 +77,7 @@ only says which server and which of its workspaces to run in.
 `python -m dw.test` runs a small built-in workflow end to end - it downloads
 SD 1.5 (a few GB) and generates one image on whichever accelerator was found.
 
-### Environment
+## Environment
 
 The server reads these from its environment (e.g. `.env`) and its workers inherit them; changing one needs a restart.
 
@@ -88,8 +88,9 @@ The server reads these from its environment (e.g. `.env`) and its workers inheri
 | `DW_PUBLIC_URL` | unset | The origin absolute URLs in responses are built from ([REMOTE.md](REMOTE.md#urls-handed-to-a-person)) |
 | `DW_QUANTIZED_CACHE` | off | `1` caches SDNQ on-the-fly-quantized components on disk, so a later cold load skips the quantize. Anything else is off. See [QUANTIZATION.md](QUANTIZATION.md#cached-on-the-fly-dw_quantized_cache) |
 | `DW_QUANTIZED_CACHE_DIR` | `<HF_HOME>/dw-quantized` | Where the cache lives; resolved to an absolute path at start and pinned for the workers |
+| `DW_HOST_CLAIMS_DIR` | `<tmp>/dw-host-claims-<uid>` | The folder every `dw.serve` on the machine shares for its running jobs' host-RAM claims, so one server's host-RAM hold counts another's jobs ([Dispatch](#dispatch)). Servers that should see each other must agree on it |
 
-### Choosing the card
+## Choosing the card
 
 `--devices cuda:1` runs the worker on that card, pinned with
 `CUDA_VISIBLE_DEVICES` (and `DW_DEVICE=cuda`), so inside the worker it is the
@@ -152,7 +153,10 @@ icon, a finish-alert toggle, the theme toggle, and links to these docs and
   workflow schema), and **flow**, a read-only data-flow graph - a box per
   step, an arrow per `previous_result` labelled with the argument it feeds,
   entry steps marked, and fan-in steps flagged with their cartesian-product
-  multiplier where it is known statically. Clicking a step in the flow jumps
+  multiplier where it is known statically; a chained step draws its
+  segments inside its box, one chip per segment with what each seam carries.
+  A variable declared `required: true` is marked required in the form.
+  Clicking a step in the flow jumps
   to it in the form. Validate, save and run from the same screen; a valid
   verdict shows the run's plan - step and list counts, the estimate with its
   basis, how many steps the step cache would serve, and the weights to
@@ -162,15 +166,21 @@ icon, a finish-alert toggle, the theme toggle, and links to these docs and
   ![The editor in split view: the variables as a form beside the workflow JSON](img/ui-editor.png)
 
 - **Jobs** - the workspace's queue and run history (history persists in
-  `~/.diffusers_helper/jobs.sqlite`), filterable by status; a waiting job
+  `~/.diffusers_helper/jobs.sqlite`; a job queued or running when the
+  server stopped is listed as `cancelled` with `error` starting
+  `server restart:`, and `rerun_job` resubmits it; each server holds a
+  lock under `servers/` beside the database for its life, so a second server
+  sharing the database leaves a live sibling's jobs alone), filterable by status; a waiting job
   shows its place in line, can be moved, and shows `waiting_for` while held
   for host RAM. A job's page streams step progress, denoise ticks, the phase
-  between them (loading, decoding, saving), its log, and its results as they
+  between them (loading, decoding, saving; a model download shows its bytes and rate), its log, and its results as they
   land - finals first, intermediates folded, and a section per
   `result.subfolder` when a step chose one. **Cancel**, **Run again**,
   **New seed**, and **Export** (gathers the run into the workspace's `exports/` with
   `POST /api/jobs/{id}/export` and downloads the zip - the same bundle as
-  MCP's `export_job`; replacing an existing export asks first).
+  MCP's `export_job`; replacing an existing export asks first). An `.otioz`
+  among the results is drawn as a timeline strip (clips sized by duration, gaps
+  hatched, a copy button for each clip's `output:` reference).
 
   ![A finished job: a warning about a level jump at a cut, then the workflow as a data-flow graph from the edit and soundtrack through mixing and normalizing to the film](img/ui-job.png)
 
@@ -270,7 +280,7 @@ server's refusal when a job is running:
 | --- | --- |
 | `POST /api/jobs` | Queue a run: `{"workflow_path": ...}` or an inline `{"workflow": {...}, "base_dir": ...}`, plus `arguments` for variable overrides. `workflow_path` accepts a stored workflow name as listed by `/api/workflows` (with or without `.json`, nested names included), or a relative/absolute path that still resolves under `--workflow-dir` - confined the same way the `/api/workflows` CRUD routes are; a path that names a real file outside that directory is rejected with 400, not opened. Answers with argument warnings from signature checking. Takes an optional `acknowledged_cost`: `true` is recorded as `acknowledged: boolean`; the object `{fingerprint, minutes, downloads}` from a validate answer's `plan` is `bound` - the server re-plans the run for the arguments given and answers **409** when the fingerprint differs or a repo in `downloads_required` (pipeline `model_name`s and the repos task steps fetch) is not in `downloads` (a download that has since vanished is not a refusal); the body is `{"detail": {message, reason: "fingerprint" \| "downloads" \| "unplannable", acknowledged, plan, acknowledge}}` with the current plan, so the caller re-quotes from it, and `acknowledge` - the `{fingerprint, minutes, downloads}` to resend - whenever there is a plan. A `null` in `downloads` (a URL with no repo) is ignored. The validate `plan` sent unedited is bound too: when `downloads` is absent, its `downloads_required` repos (and `estimate.minutes`) are what was acknowledged; an explicit `downloads`, even `[]`, wins. `minutes` is recorded, never compared. Nothing is required: the web UI and every caller that sends nothing are `acknowledged: none`, and every job answer and history row carries `acknowledged` (and `acknowledged_cost` when bound). `POST /api/jobs/{id}/rerun` takes the same field and checks against the stored spec; a fresh seed does not change a fingerprint. |
 | `GET /api/jobs?workspace=&status=&limit=` | Queue + history summaries, oldest first, with `total` beside them. `status` narrows to one state or a comma-separated set (`queued`, `running`, `succeeded`, `failed`, `cancelled`; anything else is a 400); `limit` keeps the newest N, and `total` still reports how many matched, so a bounded answer cannot be mistaken for a complete one. Each summary carries `device`, the card the job ran on (`"cuda:1 NVIDIA GeForce RTX 3090"`; null while queued and for older jobs), and `rerun_of`, present on a job started by rerun: the id of the job it reran; absent for a fresh submit. No parameters means every job, which is what the web UI polls |
-| `GET /api/jobs/{id}` | Full detail: spec, events, manifest, error. A manifest entry for a step served from the step cache carries `reused: true`. Every entry carries `subfolder` - the in-run subfolder the step's `result.subfolder` chose, `''` for none. A `for_each` step appears in the manifest as its members (`shot@wide_open`, `shot@closeup`), because the manifest records what ran; the run's `workflow.json` keeps the `for_each` form, because it records what was asked Carries `output_kinds`: each manifest file mapped to its media kind (`image`, `video`, `audio`, `text`, or null), and each file-carrying run event (`step_end`) carries the same map for its own files. The entry of a pipeline step that ran carries `timing` (see [Step timing](WORKSPACES.md#step-timing)). Carries `rerun_of` - present on a job started by rerun: the id of the job it reran; absent for a fresh submit. |
+| `GET /api/jobs/{id}` | Full detail: spec, events, manifest, error. A manifest entry for a step served from the step cache carries `reused: true`. Every entry carries `subfolder` - the in-run subfolder the step's `result.subfolder` chose, `''` for none. A `for_each` step appears in the manifest as its members (`shot@wide_open`, `shot@closeup`), because the manifest records what ran; the run's `workflow.json` keeps the `for_each` form, because it records what was asked Carries `output_kinds`: each manifest file mapped to its media kind (`image`, `video`, `audio`, `text`, or null), and each file-carrying run event (`step_end`) carries the same map for its own files. The entry of a pipeline step that ran carries `timing` (see [Step timing](WORKSPACES.md#step-timing)). Carries `rerun_of` - present on a job started by rerun: the id of the job it reran; absent for a fresh submit. Carries `host_memory_job_peak_committed_mb`, the job's peak committed host memory (anonymous + shared + device-mapped pages, the figure the host-RAM gate projects from), null until a reading lands (#1214). |
 | `DELETE /api/jobs/{id}/run` | Delete the run directory a finished job wrote, whole, from the output root the job ran against (no workspace selector applies): `{job_id, run_dir, deleted, run_swept}`. 404 for an unknown job or one with no run directory, 409 for one still queued or running |
 | `GET /api/jobs/{id}/workflow` | The workflow the job ran: `{id, definition, realized, seed_variable}`. `seed_variable` names the variable a `new_seed` rerun would draw into (null when the workflow has none), read from the workflow as written rather than the realized copy, whose seed is pinned. `realized: true` is the copy the run itself wrote (`workflow.json` in its run directory), with arguments, seed, prompts and `output:latest` pinned; `false` falls back to the submitted definition, which is what a job from before run tracking has. 404 means neither is readable - the job itself still is. The equivalent MCP tool is `get_job_workflow` (see [MCP.md](MCP.md#diagnose)) |
 | `POST /api/jobs/{id}/export?workspace=&overwrite=` | Gather one finished job into `<workspace>/exports/<job id>/`: `workflow.json`, `manifest.json`, `job.json`, `README.md`, `assets/`, `inputs/`, `outputs/`. 201 with the file list, total bytes, anything it could not find, a `zip_url`, and the three JSON files inline. 404 unknown job, 409 for a job still running or an existing export without `overwrite` |
@@ -278,7 +288,7 @@ server's refusal when a job is running:
 | `GET /api/jobs/{id}/events` | Server-sent events stream; `?after=N` / `Last-Event-ID` replay missed events, so reconnects are lossless. Every event carries `seq` and `at` - seconds since the job started (since it was queued, for the events before that) - so a step's cost is a subtraction: `step_start` to `generating` is what a reused pipeline still pays before it runs; `generating` is emitted when the pipeline call starts, so `generating` to the first `pipeline_step` is the prompt and reference encoding plus the first denoise pass (`timing.encode_s` in the manifest is the encoding alone; see [Step timing](WORKSPACES.md#step-timing)). A job in memory keeps every event; one served from history (after a restart, or once it is older than the 20 most recent finished jobs) keeps only its last 200 |
 | `GET /api/jobs/{id}/event-log?after=-1&limit=200&kinds=` | The same events as the SSE stream, as one JSON page: `{id, status, events, last_seq, truncated, note}`. `after` is exclusive; page by passing back the previous `last_seq`. `limit` is capped at 1000. `kinds` (repeatable) keeps events whose `event` or `kind` is one of those named (`log`, `warning`, `phase_stall`, ...). A job restored from history serves the bounded event tail persisted with it; a job that finished before events were retained returns an empty list and a `note` saying so. |
 | `POST /api/jobs/{id}/cancel` | Cooperative cancel: takes effect at the next step boundary or denoise step. During a model load or a task step, which cannot be interrupted, a `cancel_pending` event says it waits for that to finish |
-| `POST /api/jobs/{id}/rerun` | Re-queue a finished job's spec. Body `{"new_seed": true}` draws a fresh seed into the workflow's seed variable instead of repeating the original arguments; 400 when the workflow pins its seed to a literal or names none. A plain rerun of a seeded workflow is served whole from the step cache — the earlier run's files, republished with `reused: true`, generating nothing. The new job's summary and detail carry `rerun_of`: the id of the job it reran (absent on a fresh submit) |
+| `POST /api/jobs/{id}/rerun` | Re-queue a finished job's spec. Body `{"new_seed": true}` draws a fresh seed into the workflow's seed variable instead of repeating the original arguments; 400 when the workflow pins its seed to a literal or names none. Body `{"arguments": {...}}` merges variable overrides over the stored arguments before admission (shallow, by name; the one-call promotion of a draft is `{"arguments": {"tier": "standard"}}`, which keeps the draft's staging at the same seed - `best` re-stages, so it is a render of its own). A rerun with `arguments` keeps the original's seed unless `new_seed`: a seed the template drew at run time (a null seed variable) is read from the original's realized workflow, and when that is gone the job carries a `rerun_seed_unknown` warning and draws a fresh one. A variable the workflow does not declare is a 400, the seed variable together with `new_seed` is a 400, and a bound `acknowledged_cost` is checked against the plan of the merged arguments. The new job's detail carries `overrides` when any were given. A plain rerun of a seeded workflow is served whole from the step cache — the earlier run's files, republished with `reused: true`, generating nothing. The new job's summary and detail carry `rerun_of`: the id of the job it reran (absent on a fresh submit) |
 | `POST /api/jobs/{id}/move` | Reorder a queued job: `{"direction": "up"\|"down"\|"front"\|"back"}`. Job listings carry each waiting job's `queue_position`, and `waiting_for` while one is held for host RAM. |
 
 ### Dispatch
@@ -317,16 +327,36 @@ peak (`host_ram_need`; see
 [Host-memory history](WORKSPACES.md#host-memory-history)). When it fits a
 free card, dispatch also checks host RAM: available is `MemAvailable` less
 what each running job's projected peak still has to add beyond its worker's
-resident size now (nothing for a running job with no figure), and the job is
-held while its peak exceeds available plus the resident size of the idle
-worker it would reuse. Backfill applies. A job is never held when no other
-job is running, nor when it has no figure, nor where host RAM cannot be read
-(macOS without psutil), and with one card the gate is never exercised. A held
-job is re-checked every 10 s. The hold emits one `queue_wait` event (message
-`waiting for host RAM: needs ~N GB, ~M GB free`; not a `warning`), and job
+committed memory now (nothing for a running job with no figure), and the job is
+held while its peak exceeds available plus the committed memory of the idle
+worker it would reuse. Committed is RssAnon + RssShmem + the pages of the
+worker's `/dev/nvidia*` mappings (the driver's pinned host memory, which Linux
+files under RssFile); the rest of RssFile, the checkpoint pages a worker
+mmaps, is page cache that `MemAvailable` already counts as free. Two workers
+loading different checkpoints evict and re-read each other's pages - a
+slowdown, not an OOM. Every peak is taken with a margin of 10%, at least 2 GB,
+since a peak recorded at phase boundaries is a lower bound. Backfill applies.
+Another `dw.serve` on the same machine counts too (#1227): each server
+publishes its running jobs' peaks to a shared claims directory
+(`DW_HOST_CLAIMS_DIR`, else a per-user folder in the system temp dir) under
+a file lock, and each dispatch adds the other live servers' claims to its own
+running jobs. The default folder is used only while it is a real directory
+the server's user owns that no one else can write: one planted at that
+predictable path by another local user is refused, and the gate falls back
+to this server's own jobs. A job is claimed once its worker is up, so a
+job on a cold card counts as soon as its worker starts. A claim carries the
+worker's driver-pinned host memory, so a sibling charges it on the basis
+this server's own gate does. A job is never held when no other job is running on this server
+or another, nor when it has no figure, nor where host RAM cannot be read
+(macOS without psutil). A held job is re-checked every 10 s. The hold emits one `queue_wait` event (message
+`waiting for host RAM: needs ~N GB with its margin, ~M GB free`; not a `warning`), and job
 detail and summaries carry `waiting_for` - that message - only while held.
-The gate never refuses a submit; it only delays a start, and the OOM ranking
-is the backstop for a wrong projection.
+An observed or fitted figure never refuses a submit; it only delays a start,
+and the OOM ranking is the backstop for a wrong projection. A workflow's
+declared `host_ram_gb` (a number or a `variable:` a `presets.tier` bundle
+sets) is a floor under the projection, and the one figure that refuses:
+validate and submit fail at `host_ram_gb` when it, with the margin, exceeds
+the host's total RAM - the H3 `best` tier's 69 GB on a 64 GB machine.
 
 **Affinity.** Among the free cards a job fits, dispatch prefers a rerun's
 original card, else the card whose worker last ran the same workflow (the
@@ -549,9 +579,12 @@ The editor's forms come from these; they are just as usable from scripts:
   `width` x `height` and `num_frames` - per entry in a list, summed - that
   the caller moved off the variable defaults a `cost` entry is measured at,
   with `scaled` naming each moved axis; an estimate, not a measurement; a
-  non-numeric value of one of those is `unknown`). Any other declared
-  driver moved off its default - H3's `weights_dtype` or LoRA, a music
-  `audio_duration` - has no rule to scale by: the (scaled) figure is kept
+  non-numeric value of one of those is `unknown`). A driver a `cost` entry
+  names in `scales_with` scales the same way: Music 3's `audio_duration`,
+  or that field summed over `music-long`'s sections. The ceiling is what is
+  quoted, so a track that ends early costs less. Any other declared
+  driver moved off its default - H3's `weights_dtype` or LoRA - has no rule
+  to scale by: the (scaled) figure is kept
   under whatever basis it has, with `low_confidence` true and `differs`
   naming the drivers that moved, because it was measured at another setting
   of them; `other_device` (no entry for
@@ -574,10 +607,12 @@ The editor's forms come from these; they are just as usable from scripts:
   none - an `observed` figure already measured the whole run, children
   included, so nothing is added to it and `partial` is false; and
   `host_memory`, `{projected_mb, basis, runs}`, the run's projected host-RAM
-  peak - `basis` is `observed` (the largest job peak RSS of this machine's
-  successful runs with the same memory key) or `fit` (the list-run projection
-  from the workflow's own history), and the key is absent when there is no
-  figure. `plan` is `null` when
+  peak - `basis` is `observed` (the largest committed job peak of this
+  machine's successful runs with the same memory key, or the largest job peak
+  RSS where none measured it), `fit` (the list-run projection from the
+  workflow's own history, on the same basis) or `declared` (the workflow's
+  `host_ram_gb`, when it is larger than either; `runs` is 0), and the key is
+  absent when there is no figure. `plan` is `null` when
   it could not be built; an invalid answer carries no `plan` key.
 
 ## Files and models
@@ -689,7 +724,10 @@ The editor's forms come from these; they are just as usable from scripts:
   the metadata route reports the file's `role` and the run's `inputs` too,
   and `findings`: each level problem the probed soundtrack shows
   (`full_scale`, `near_silent`), measured against `dw/audio_qc.py`'s
-  thresholds, in the assess route's finding shape
+  thresholds, in the assess route's finding shape. For an `.otioz` bundle
+  (`export_timeline`), the metadata's `media` is the timeline - `tracks`
+  (clips in order with name, frames, seconds and media member),
+  `has_audio_track` and `members` (#1254)
 - `GET /api/gallery/{name:path}/download` — download an output file
 - `GET /api/builtin-workflows` — the packaged fragments a sub-workflow step
   names as `builtin:<name>.json` (`dw/workflows/`), which no workflow listing
@@ -1089,3 +1127,7 @@ more exposed than that.
 
 Running on another machine - token, firewall, systemd unit, the browser,
 `--mcp`, and beyond the LAN - is [REMOTE.md](REMOTE.md).
+
+### Host-RAM gate: mixed bases
+
+The RSS peak a job records is job-scoped growth over the run's baseline; the committed peak is an absolute reading of the whole worker process, a previous run's leftovers included. Nothing compares the two. The dispatcher reads a running worker's committed memory from `/proc/<pid>/status` alone (never smaps, which is slow for a large worker) and adds the driver-pinned term from the worker's last memory report.

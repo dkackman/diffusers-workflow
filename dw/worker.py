@@ -23,7 +23,13 @@ from dw.path_redaction import redact_event, redact_paths
 from dw.log_setup import setup_logging, set_log_level
 from dw.settings import load_settings, resolve_path
 from dw.events import RunContext, WorkflowCancelled
-from dw import get_device_type, empty_device_cache, device_memory_stats
+from dw import (
+    configure_torch,
+    device_memory_stats,
+    empty_device_cache,
+    get_device_type,
+    torch_flags_report,
+)
 from dw.worker_protocol import (
     poisons_cuda_context,
     Cancelled,
@@ -63,19 +69,20 @@ def _job_scoped_peak_rss_mb(info, baseline_peak_mb, running_max_mb):
     is that same process-lifetime figure read at this job's first phase
     boundary; because ru_maxrss is monotonic non-decreasing, growth since
     then is unambiguously this job's doing. A job that caused no growth at
-    all (it rode an earlier, larger peak) has no meaningful "job peak" to
-    report as a delta, so this floors at the job's current rss instead of
-    reporting a number that undersells what is resident right now - but the
-    current rss can *fall* between readings (cleanup, GC), and a peak must
-    not: `running_max_mb` is the highest value this function has returned
-    for this job so far, and the candidate for this reading is folded into
-    it rather than replacing it outright.
+    all (it rode an earlier, larger peak) has no job peak to report: it
+    returns `running_max_mb` unchanged (None when nothing grew). It used to
+    floor at the worker's current rss, but in a warm worker that is what
+    other cached models hold, not this job's cost, and the host-RAM
+    projection's all-time max over a key then inherited it (#1288). A null
+    peak is left out of the projection. `running_max_mb` is the highest
+    value this function has returned for this job so far; a peak must not
+    fall between readings.
     """
     peak = info.get("host_memory_peak_rss_mb")
     if peak is None or baseline_peak_mb is None:
         return running_max_mb
     growth = peak - baseline_peak_mb
-    candidate = growth if growth > 0 else info.get("host_memory_rss_mb")
+    candidate = growth if growth > 0 else None
     if candidate is None:
         return running_max_mb
     if running_max_mb is None or candidate > running_max_mb:
@@ -134,6 +141,15 @@ class WorkflowWorker:
         # process, and ConcurrentRotatingFileHandler exists to share it safely
         settings = load_settings()
         setup_logging(resolve_path(settings.log_filename), log_level)
+
+        # The PyTorch settings (TF32, cuDNN) belong to this process, and
+        # startup() runs only in the parent, which runs no pipeline - so
+        # the worker applies them itself, before it loads anything (#1229),
+        # for the card it is pinned to
+        self.settings = settings
+        configure_torch(settings, get_device_type())
+        # Whether this process has narrated the flags it ran a job with yet
+        self.torch_flags_reported = False
 
         # Workflow state. Identity (path, or id for inline definitions) decides
         # when the model cache is dropped wholesale - switching workflows frees
@@ -271,6 +287,11 @@ class WorkflowWorker:
 
         try:
             self._activate_job(command, job)
+            # A reading at job start (#1296): until the first phase
+            # boundary the server would otherwise keep serving the
+            # previous job's post-run reading as the card's current one.
+            # Not the job-scoped baseline - that stays the first phase's
+            self._reply(MemoryInfo(info=self._get_memory_info()))
             self._prepare_workflow(command, job)
             self._run_job(command, job)
             self._report_success(job)
@@ -427,6 +448,9 @@ class WorkflowWorker:
                 self._reply(MemoryInfo(info=memory_info))
 
         job.context = RunContext(on_event=_on_event)
+        # Again at each job start: cheap, and undoes anything an earlier
+        # job's imports set on these process-wide flags (#1229)
+        configure_torch(self.settings, get_device_type())
         watcher = self._watch_commands(job.context)
         try:
             workflow.run(
@@ -439,12 +463,26 @@ class WorkflowWorker:
             self._record_step_keys(workflow)
             watcher.stop()
 
+        self._report_torch_flags(job.context)
+
         self._evict_untouched_pipelines(job.context)
 
         self.run_count += 1
 
         # Aggressive memory cleanup after execution
         self._cleanup_between_runs()
+
+    def _report_torch_flags(self, context):
+        """Narrate the PyTorch flags on this worker's first finished job, once
+        per process (#1229). Read back from torch.backends after the run, so
+        after its pipelines loaded: a dependency that overrode dw's settings
+        shows here rather than hiding behind what settings.json asked for."""
+        if self.torch_flags_reported:
+            return
+        self.torch_flags_reported = True
+        message = torch_flags_report()
+        logger.info(message)
+        context.emit("log", message=message)
 
     def _report_success(self, job: "_Job"):
         """Phase 4: the job's final memory reading, then the success reply.

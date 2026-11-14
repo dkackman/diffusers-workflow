@@ -16,7 +16,8 @@ load, with the helpers the run-time check calls (`guide_frame_problem`,
   stream, and a clip that, cut to a whole-latent length, runs past the end of a
   render whose `num_frames` is a literal.
 
-A `previous_result:` or other unresolved value, or a video that cannot be located
+A `previous_result:` or other unresolved value - an entry's, or the whole list's
+(repair-segment's cut lays its guides out) - or a video that cannot be located
 or probed, names nothing yet and is left to the run-time check. An empty list is
 no guides.
 
@@ -32,6 +33,11 @@ guides step rule refuses (`_takes_guides_problem`: off H3, ref2va, or passing
 other than guide or last_frame, or carried into `references`
 (`chain_anchor_problem`, shared with the run).
 
+The experimental latent carry (#1150; `experimental_latent_carry`) is refused
+there too, by `chain_latent_carry_problem` (shared with the run): the flag
+off, a continuity other than guide, a look_hold or the step's nonzero
+`guide_noise`; with a held track it carries video latents only.
+
 Fixed guide noise (#1166) is refused by `guide_noise_errors`: a `guide_noise`
 that is not a number in [0, 1) (`guide_noise_problem`, shared with the run), or
 one on a step the guides step rule refuses. `guide_noise_warnings` says when it
@@ -46,7 +52,34 @@ from .adapter_compatibility import (
     WORKFLOW_KEY,
 )
 from .for_each import render_path
-from .pipeline_processors.h3_guides import default_num_frames
+from .pipeline_processors.h3_guides import (
+    AUDIO_GRID_FRAMES,
+    AUDIO_GRID_LENGTHS,
+    default_num_frames,
+)
+from .pipeline_processors.chain_rules import (
+    CHAIN_ANCHOR_EVERY,
+    CHAIN_CAPSTONE,
+    CHAIN_KEYSTONE_IMAGES,
+    CHAIN_KEYSTONE_SLOT,
+    CHAIN_LINES,
+    CHAIN_LATENT_CARRY,
+    CHAIN_RESUME_FROM,
+    CHAIN_STOP_AFTER,
+    chain_capstone_problem,
+    chain_carry_pick_problem,
+    chain_check_finding,
+    chain_keystone_images_problem,
+    chain_keystone_slot_problem,
+    chain_anchor_every_problem,
+    chain_latent_carry_problem,
+    chain_lines_problem,
+    chain_look_hold_problem,
+    chain_needs_frame_snap,
+    chain_resume_problem,
+    chain_stop_after_problem,
+    resume_reference_problem,
+)
 from .pipeline_processors.h3_rules import (
     ANCHOR_NONE,
     CHAIN_CONTINUITY_MODES,
@@ -57,9 +90,14 @@ from .pipeline_processors.h3_rules import (
     GUIDE_CONTINUITY,
     GUIDE_LIMIT,
     GUIDE_NOISE_INPUT,
+    HOLD_AUDIO_INPUT,
     LATENT_ANCHOR_INPUT,
+    LATENT_ANCHOR_STRENGTH_INPUT,
+    anchor_strength_problem,
     RENDER_GRID,
     chain_anchor_problem,
+    chain_keystone_problem,
+    guide_backoff_problems,
     guide_chain_problems,
     guide_end_problem,
     guide_frame_problem,
@@ -192,6 +230,10 @@ def _step_problems(pipeline, arguments, base_dir, probe):
     problem = _takes_guides_problem(pipeline, arguments)
     if problem:
         return [(None, problem)]
+    if isinstance(guides, str) and references.is_ref(references.UNRESOLVED, guides):
+        # The whole list from an earlier step (repair-segment's cut): its
+        # entries are the run-time check's
+        return []
     if not isinstance(guides, (list, tuple)):
         return [
             (
@@ -263,6 +305,13 @@ def guide_chain_errors(workflow_definition, source_indices=None):
                 }
             )
             continue
+        for key, message in guide_backoff_problems(chain):
+            errors.append(
+                {
+                    "path": render_path(base + ("chain", key)),
+                    "message": message,
+                }
+            )
         if continuity != GUIDE_CONTINUITY:
             continue
         problem = _takes_guides_problem(pipeline, pipeline.get("arguments"))
@@ -331,6 +380,24 @@ def guide_lengths(pipeline, base_dir=None, probe=None):
     return lengths
 
 
+def _strength_argument_errors(arguments, base, where):
+    """A `latent_anchor_strength` argument out of range, or with no
+    `latent_anchor` for it to set (#1190), as [{path, message}]."""
+    if not isinstance(arguments, dict):
+        return []
+    strength = arguments.get(LATENT_ANCHOR_STRENGTH_INPUT)
+    if strength is None:
+        return []
+    path = render_path(base + ("arguments", LATENT_ANCHOR_STRENGTH_INPUT))
+    problem = anchor_strength_problem(strength)
+    if problem is None and arguments.get(LATENT_ANCHOR_INPUT) is None:
+        problem = (
+            f"{LATENT_ANCHOR_STRENGTH_INPUT} sets how far {LATENT_ANCHOR_INPUT} "
+            f"goes, and the step has no {LATENT_ANCHOR_INPUT}"
+        )
+    return [{"path": path, "message": f"{problem}{where}"}] if problem else []
+
+
 def anchor_errors(workflow_definition, source_indices=None):
     """Every latent statistics anchor refused before the run, as
     [{path, message}]: a `latent_anchor` argument on a step that cannot take
@@ -354,9 +421,14 @@ def anchor_errors(workflow_definition, source_indices=None):
                         "message": f"{problem}{where}",
                     }
                 )
+        errors += _strength_argument_errors(arguments, base, where)
         chain = pipeline.get("chain")
         if not isinstance(chain, dict):
             continue
+        errors += [
+            {"path": render_path(base + ("chain", key)), "message": f"{problem}{where}"}
+            for key, problem in _chain_rule_findings(chain, arguments, pipeline)
+        ]
         path = render_path(base + ("chain", "anchor"))
         problem = chain_anchor_problem(chain)
         if problem:
@@ -369,6 +441,167 @@ def anchor_errors(workflow_definition, source_indices=None):
         if problem:
             errors.append({"path": path, "message": f"{problem}{where}"})
     return errors
+
+
+def _chain_rule_findings(chain, arguments, pipeline=None):
+    """(chain key, problem) for every chain-block rule this step's chain
+    breaks, in the order validation reports them: the anchor strength, the
+    carry pick, the look hold, the keystone, its slot and its per-segment
+    images, the capstone, the latent carry, the anchor spacing, the
+    per-segment check, the expected lines, the probe's stop_after and the
+    resume."""
+    arguments = arguments if isinstance(arguments, dict) else {}
+    num_frames = arguments.get("num_frames")
+    strength = chain.get("anchor_strength")
+    findings = [
+        (
+            "anchor_strength",
+            None if strength is None else anchor_strength_problem(strength),
+        ),
+        ("carry_pick", chain_carry_pick_problem(chain, num_frames)),
+        ("look_hold", chain_look_hold_problem(chain)),
+        ("keystone", chain_keystone_problem(chain)),
+        (CHAIN_KEYSTONE_SLOT, chain_keystone_slot_problem(chain, num_frames)),
+        (
+            CHAIN_KEYSTONE_IMAGES,
+            _keystone_images_step_problem(pipeline or {}, chain)
+            or chain_keystone_images_problem(
+                chain, _segment_count(chain, arguments), arguments
+            ),
+        ),
+        (CHAIN_CAPSTONE, chain_capstone_problem(chain, num_frames)),
+        (
+            CHAIN_LATENT_CARRY,
+            chain_latent_carry_problem(chain, arguments.get(GUIDE_NOISE_INPUT)),
+        ),
+        (CHAIN_ANCHOR_EVERY, chain_anchor_every_problem(chain)),
+    ]
+    findings.append(chain_check_finding(chain) or (None, None))
+    findings.append(
+        (
+            CHAIN_LINES,
+            chain_lines_problem(
+                chain.get(CHAIN_LINES), _segment_count(chain, arguments)
+            ),
+        )
+    )
+    findings.append((CHAIN_STOP_AFTER, chain_stop_after_problem(chain)))
+    resume_from = chain.get(CHAIN_RESUME_FROM)
+    findings.append(
+        (
+            CHAIN_RESUME_FROM,
+            resume_reference_problem(resume_from) or chain_resume_problem(chain),
+        )
+    )
+    return [(key, problem) for key, problem in findings if problem]
+
+
+def _keystone_images_step_problem(pipeline, chain):
+    """Why a step cannot take a chain's `keystone_images`, or None: it is not
+    MiniMax-H3, or it loads a workflow other than fl2va - the per-segment
+    images are fl2va last images. Not literal is left to the run."""
+    if chain.get(CHAIN_KEYSTONE_IMAGES) is None:
+        return None
+    problem = not_h3(pipeline, CHAIN_KEYSTONE_IMAGES, taken_by=("fl2va",))
+    if problem:
+        return problem
+    from_pretrained = pipeline.get(FROM_PRETRAINED_KEY)
+    workflow = (
+        from_pretrained.get(WORKFLOW_KEY) if isinstance(from_pretrained, dict) else None
+    )
+    if (
+        isinstance(workflow, str)
+        and workflow != "fl2va"
+        and not references.is_ref(references.UNRESOLVED, workflow)
+    ):
+        return (
+            f"{CHAIN_KEYSTONE_IMAGES} sets each segment's fl2va last_image, and "
+            f"this step loads the '{workflow}' workflow - use fl2va"
+        )
+    return None
+
+
+def _segment_count(chain, arguments):
+    """The chain's segment count where the block tells it, else None."""
+    from .pipeline_processors.chain_config import chain_segment_count
+
+    return chain_segment_count(chain, arguments)
+
+
+def chain_lines_warnings(workflow_definition, source_indices=None):
+    """["path: message"] for a chain `lines` that nothing reads (#1262): only
+    the words measure reads it, and it runs only with `check` an object
+    whose `words_similarity_min` is not null, on a chain whose audio is not
+    held. Unresolved references are left to the run."""
+    from .pipeline_processors.chain_config import chain_checks_words
+
+    warnings = []
+    for _, _, pipeline, source, where in references.iter_steps(
+        workflow_definition.get("steps"), source_indices, "pipeline"
+    ):
+        chain = pipeline.get("chain")
+        if not isinstance(chain, dict) or chain.get(CHAIN_LINES) is None:
+            continue
+        check = chain.get("check")
+        if isinstance(check, str) and references.is_ref(references.UNRESOLVED, check):
+            continue
+        if isinstance(check, dict) and isinstance(
+            check.get("words_similarity_min"), str
+        ):
+            continue
+        arguments = pipeline.get("arguments")
+        arguments = arguments if isinstance(arguments, dict) else {}
+        if chain_checks_words(chain, arguments):
+            continue
+        path = render_path(("steps", source, "pipeline", "chain", CHAIN_LINES))
+        warnings.append(
+            f"{path}: nothing reads 'lines' - the words check reads it, and it "
+            "runs only with 'check' an object whose 'words_similarity_min' is "
+            "a number, on a chain whose audio is generated (no match_audio or "
+            f"hold_audio){where}"
+        )
+    return warnings
+
+
+def held_audio_warnings(workflow_definition, source_indices=None):
+    """["path: message"] for a chain step that holds a track (`hold_audio`):
+    with no `match_audio` every segment holds the whole track from its start,
+    and a literal `num_frames` off H3's 3-frame audio grid puts each seam
+    mid-latent. Unresolved references are left to the run."""
+    warnings = []
+    for _, _, pipeline, source, where in references.iter_steps(
+        workflow_definition.get("steps"), source_indices, "pipeline"
+    ):
+        chain = pipeline.get("chain")
+        arguments = pipeline.get("arguments")
+        if not isinstance(chain, dict) or not isinstance(arguments, dict):
+            continue
+        if arguments.get(HOLD_AUDIO_INPUT) is None:
+            continue
+        match_audio = chain.get("match_audio")
+        if not match_audio and not (
+            isinstance(match_audio, str)
+            and references.is_ref(references.UNRESOLVED, match_audio)
+        ):
+            path = render_path(("steps", source, "pipeline", "chain", "match_audio"))
+            warnings.append(
+                f"{path}: every segment holds the whole track from its start; "
+                f"set match_audio: true to give each segment its slice{where}"
+            )
+        num_frames = arguments.get("num_frames")
+        if (
+            isinstance(num_frames, int)
+            and not isinstance(num_frames, bool)
+            and num_frames % AUDIO_GRID_FRAMES
+        ):
+            path = render_path(("steps", source, "pipeline", "arguments", "num_frames"))
+            lengths = ", ".join(str(n) for n in AUDIO_GRID_LENGTHS)
+            warnings.append(
+                f"{path}: H3's audio latents run at 40 a second; {num_frames} "
+                f"frames is off the {AUDIO_GRID_FRAMES}-frame audio grid; the "
+                f"nearest on-grid lengths are {lengths}{where}"
+            )
+    return warnings
 
 
 def _guide_noise_steps(workflow_definition, source_indices):
@@ -427,6 +660,93 @@ def guide_noise_warnings(workflow_definition, source_indices=None):
     return warnings
 
 
+def frame_snap_warnings(workflow_definition, source_indices=None):
+    """["path: message"] for a chain planned by length (`duration_seconds`,
+    `match_audio`) that, once substituted, still declares no `frame_snap` -
+    none was written and none could be derived from a `num_frames` variable's
+    constraint (`derive_frame_snaps`). Its shortened last segment is then
+    asked for whatever count remains, which the pipeline may floor or round
+    in silence. Advisory: a pipeline with no frame grid is unaffected."""
+    warnings = []
+    for _, _, pipeline, source, where in references.iter_steps(
+        workflow_definition.get("steps"), source_indices, "pipeline"
+    ):
+        chain = pipeline.get("chain")
+        key = chain_needs_frame_snap(chain) if isinstance(chain, dict) else None
+        if key is None:
+            continue
+        path = render_path(("steps", source, "pipeline", "chain", "frame_snap"))
+        warnings.append(
+            f"{path}: a {key} chain with no frame_snap asks its shortened last "
+            "segment for whatever count remains, which the pipeline may floor "
+            "or round in silence (ignore this if the pipeline has no frame "
+            "grid) - set 'frame_snap' on the chain, or make the "
+            "step's 'num_frames' a 'variable:' whose 'variable_constraints' "
+            f"entry has a modulus, from which it is derived{where}"
+        )
+    return warnings
+
+
+def selflift_errors(workflow_definition, source_indices=None):
+    """Every `experimental_selflift` refused before the run, as
+    [{path, message}] (#1195; dw/pipeline_processors/h3_selflift.py): the
+    flag off, a step that is not H3 t2va/fl2va, a step `cache` or a chain
+    capstone, and the call rules the run asks too (`selflift_problems`)."""
+    from .pipeline_processors.h3_rules import (
+        REFINE_WINDOWS_ENV_VAR,
+        SELFLIFT_INPUT,
+        refine_windows_enabled,
+    )
+    from .pipeline_processors.h3_selflift import selflift_problems
+
+    errors = []
+    for _, _, pipeline, source, where in references.iter_steps(
+        workflow_definition.get("steps"), source_indices, "pipeline"
+    ):
+        arguments = pipeline.get("arguments")
+        if not isinstance(arguments, dict) or arguments.get(SELFLIFT_INPUT) is None:
+            continue
+        path = render_path(("steps", source, "pipeline", "arguments", SELFLIFT_INPUT))
+        if not refine_windows_enabled():
+            problems = [
+                f"{SELFLIFT_INPUT} is a scratch spike, off unless "
+                f"{REFINE_WINDOWS_ENV_VAR}=1 is set where the pipeline loads"
+            ]
+        else:
+            configuration = pipeline.get("configuration")
+            cached = (
+                isinstance(configuration, dict)
+                and configuration.get("cache") is not None
+            )
+            chain = pipeline.get("chain")
+            problems = [
+                problem
+                for problem in [
+                    _takes_guides_problem(pipeline, arguments, SELFLIFT_INPUT)
+                ]
+                if problem
+            ]
+            if (
+                isinstance(chain, dict)
+                and chain.get("experimental_capstone") is not None
+            ):
+                problems.append(
+                    f"{SELFLIFT_INPUT} does not combine with a chain's "
+                    f"experimental_capstone: its gated rows are row ranges of "
+                    f"the full canvas's layout"
+                )
+            slot = chain.get(CHAIN_KEYSTONE_SLOT) if isinstance(chain, dict) else None
+            if isinstance(slot, dict) and slot.get("enter_below_sigma") is not None:
+                problems.append(
+                    f"{SELFLIFT_INPUT} does not combine with a gated "
+                    f"{CHAIN_KEYSTONE_SLOT}: its gated rows are row ranges of "
+                    f"the full canvas's layout"
+                )
+            problems += selflift_problems(arguments, has_cache=cached)
+        errors += [{"path": path, "message": f"{p}{where}"} for p in problems]
+    return errors
+
+
 __all__ = [
     "anchor_errors",
     "guide_chain_errors",
@@ -434,4 +754,5 @@ __all__ = [
     "guide_noise_errors",
     "guide_noise_warnings",
     "guides_errors",
+    "selflift_errors",
 ]

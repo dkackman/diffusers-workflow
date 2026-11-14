@@ -261,6 +261,27 @@ class TestTheRealDocs:
         for name in guides.GUIDES:
             assert guides.read_guide(name).strip()
 
+    def test_a_served_guide_links_only_docs_that_are_served(self):
+        # #1237: a link a served guide follows must land in a guide the MCP
+        # serves, or the consumer holding only the MCP dead-ends.
+        import re
+
+        served = {meta[0] for meta in guides.GUIDES.values()}
+        # every relative link to a markdown doc, wherever it sits (examples are
+        # linked as repo paths and carry their own note)
+        link = re.compile(r"(?<!!)\]\((?!https?:|mailto:|#)([^)#\s]+\.md)")
+        unserved = {}
+        for name in guides.GUIDES:
+            for target in link.findall(guides.read_guide(name)):
+                # credits for third-party models; not guidance for a consumer
+                if target not in served and target != "ATTRIBUTIONS.md":
+                    unserved.setdefault(name, set()).add(target)
+        assert not unserved
+
+    def test_the_server_guide_reaches_the_sections_other_guides_link(self):
+        for section in ("Choosing the card", "Progress events"):
+            assert guides.get_guide("server", section=section)["content"].strip()
+
     def test_the_tasks_guide_indexes_speech_generation(self):
         tasks = next(g for g in guides.list_guides()["guides"] if g["name"] == "tasks")
 
@@ -479,3 +500,26 @@ class TestRoutes:
 
         assert response.status_code == 404
         assert "Speech Generation, Frame Interpolation" in response.json()["detail"]
+
+
+class TestParenthesisedHeadingSuffix:
+    """#1257: a heading's trailing "(`path`)" is optional in a section name."""
+
+    @pytest.mark.parametrize(
+        "guide, asked, heading",
+        [
+            ("security-quickref", "Trust gate", "Trust gate (`dw/trust.py`)"),
+            ("security-quickref", "HTTP", "HTTP (`dw/server/http_security.py`)"),
+        ],
+    )
+    def test_the_real_guide_resolves_without_the_suffix(self, guide, asked, heading):
+        body = guides.get_guide(guide, section=asked)
+
+        assert body["section"] == heading
+
+    def test_the_full_heading_still_resolves(self):
+        body = guides.get_guide(
+            "security-quickref", section="Trust gate (`dw/trust.py`)"
+        )
+
+        assert body["section"] == "Trust gate (`dw/trust.py`)"

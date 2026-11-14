@@ -347,7 +347,8 @@ class SparseH3AttnProcessor:
 
 
 # The H3 forward's leading positional parameters, for a caller that passes
-# them positionally; diffusers' denoiser passes them by name
+# them positionally; diffusers' denoiser passes them by name. The forward
+# hooks here and in h3_tst read their arguments through `forward_arg`
 _FORWARD_ARGS = (
     "hidden_states",
     "audio_hidden_states",
@@ -359,7 +360,8 @@ _FORWARD_ARGS = (
 )
 
 
-def _forward_arg(args, kwargs, name):
+def forward_arg(args, kwargs, name):
+    """The H3 forward's argument `name`, passed by name or by position."""
     if name in kwargs:
         return kwargs[name]
     index = _FORWARD_ARGS.index(name)
@@ -397,9 +399,9 @@ def _same_layout(layout, position_ids, token_tags) -> bool:
 def _pre_hook(component, args, kwargs):
     """Decide the call on its first forward; keep the tile map current after."""
     state = component._dw_sparse_state
-    hidden_states = _forward_arg(args, kwargs, "hidden_states")
-    position_ids = _forward_arg(args, kwargs, "position_ids")
-    token_tags = _forward_arg(args, kwargs, "token_tags")
+    hidden_states = forward_arg(args, kwargs, "hidden_states")
+    position_ids = forward_arg(args, kwargs, "position_ids")
+    token_tags = forward_arg(args, kwargs, "token_tags")
     if position_ids is None or token_tags is None:
         missing = "position_ids/token_tags were not passed"
         if state.decided and state.reason is None:

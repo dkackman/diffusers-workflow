@@ -224,7 +224,7 @@ def _in_memory_thumbs(frames):
     """(thumbnails, looks) of an AudioVideo's frames, one frame at a time: a
     list, an (N, H, W, C) array, or a SegmentedFrames replaying (N, H, W, 3)
     chunks. Both None for no frames."""
-    from ..pipeline_processors.chain import SegmentedFrames
+    from ..pipeline_processors.chain_spill import SegmentedFrames
 
     thumbs = []
     looks = []
@@ -244,6 +244,25 @@ def _in_memory_thumbs(frames):
     if not thumbs:
         return None, None
     return numpy.stack(thumbs), numpy.stack(looks)
+
+
+def frame_measures(frames):
+    """(thumbnails, looks) of in-memory frames - the public name the chain's
+    per-segment check (dw/pipeline_processors/chain_check.py) reads them by;
+    `_in_memory_thumbs` is the one reduction."""
+    return _in_memory_thumbs(frames)
+
+
+def seam_measures(thumbs, looks, previous, shot, fade=0):
+    """The picture and look measurements `analyze_seams` takes at the seam
+    `shot` opens, over thumbnails and looks already reduced - the public name
+    the chain's per-segment check measures a seam by, before the segment is
+    on any timeline. `_seam_video` and `_seam_look` are the arithmetic."""
+    media = Media(thumbs, None, None, None, looks=looks)
+    return {
+        **_seam_video(media, previous, shot, fade),
+        **_seam_look(media, previous, shot, fade),
+    }
 
 
 def _file_path(video):

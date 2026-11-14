@@ -37,6 +37,27 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **Words check for dialogue chains** (#1262, stages #1297-#1299), shipped
+  2026-11-09. The H3 chain check gains a `words` measure: each segment's kept
+  audio is transcribed on CPU Whisper and compared with its line (`lines[k]`
+  or the prompt's `<d>`), re-rolling on a low similarity or a script finding.
+  Number words fold to digits in the shared normaliser. Good and bad takes
+  didn't separate on similarity, so `words_similarity_min` ships `null`
+  (0.80 recommended explicitly). `guide_end: "pause"` was cut:
+  `complete/chain-words-check-complete.md`.
+- **Camera moves classified as static or moving** (#1200, stage #1255),
+  shipped 2026-11-07. Each of the 13 move ids in the `cinematography`
+  vocabulary has a `class`. Only `static` is `static`. Every `moving` id
+  carries the H3 "never `last_frame` with `look_hold`/`carry_pick`" note,
+  and `long-form` picks its `shot` preset from that column. No new ids. The
+  measurement probe is parked as #1260:
+  `complete/move-class-complete.md`.
+- **Long-form media** (#1199), shipped 2026-11-06. Static long takes (`shot:
+  static_long`, the H3 keystone at the last slot), `look_hold` on by default in the
+  LTX chain, the `minimax/add-sound` audio pass, long narration and music joins,
+  `tier: draft | standard | best` on six H3 templates, and the long-form skill.
+  Verdicts per idea, job ids and what was cut are in
+  `complete/long-form-media-complete.md`.
 - **H3 guide-chain drift counters** (#1166, stages #1173-#1175), shipped
   2026-11-02. Two off-by-default H3 options: `latent_anchor` with
   `chain.anchor: "segment_1"`, a pre-decode per-channel latent statistics
@@ -565,6 +586,14 @@ remaining deferred fix is recorded in
   `dialogue.md` and check-script line say so. Probe record:
   `audits/2026-11-h3-dialogue-pacing-probes.md`; design record:
   `complete/h3-dialogue-pacing-complete.md`. Enhancer follow-up: #1186.
+- **Served workers apply dw's PyTorch settings** (#1229, stage #1238),
+  shipped 2026-11-07. Before this, `enable_tf32`, `cudnn_benchmark` and
+  `cudnn_deterministic` never reached a served job: only `startup()` applied
+  them, and the spawned worker never called it. The worker now applies them
+  at start and at each job, and narrates them once per process. The new
+  defaults are benchmark off, deterministic on, TF32 off. On lem, a seeded
+  SD 1.5 image was byte-identical under two-card load, with no slowdown and
+  no cost row moved. Design record: `complete/torch-settings-complete.md`.
 
 ## Declined
 

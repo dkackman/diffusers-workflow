@@ -1,0 +1,15 @@
+[
+  {
+    "name": "t20-template-static-long-120s-s1166",
+    "scene": "s1-static",
+    "workflow": "t20-template-static-long.json",
+    "arguments": {},
+    "seed": 1166,
+    "workflow_id_suffix": "-t20",
+    "moments": [
+      "frame:62",
+      "frame:1501",
+      "frame:2868"
+    ]
+  }
+]

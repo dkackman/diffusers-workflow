@@ -1,7 +1,7 @@
 {
     "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
     "name": "diffusers-workflow",
-    "description": "Skills for driving a diffusers-workflow server from Claude Code: a composition skill per model family, one for cutting a series from them, one camera-and-look vocabulary compiled per family, and storyboards with a timed animatic.",
+    "description": "Skills for driving a diffusers-workflow server from Claude Code: a composition skill per model family, one for cutting a series from them, one camera-and-look vocabulary compiled per family, storyboards with a timed animatic, and a playbook for pieces longer than one clip.",
     "owner": {
         "name": "Don Kackman"
     },
@@ -9,7 +9,7 @@
         {
             "name": "dw",
             "source": "./plugins/dw",
-            "description": "Compose MiniMax H3 video, MiniMax Music 3, LTX-2.5, Kandinsky 6.0 and FLUX 3 Klein workflows over a dw MCP server, cut a multi-episode series from them, direct camera and look in each family's caption format, and storyboard a scene before it is filmed: which template fits which shape, the hard rules, cost, and how to judge the output. Prompt format comes from the vendors' own guides."
+            "description": "Compose MiniMax H3 video, MiniMax Music 3, LTX-2.5, Kandinsky 6.0 and FLUX 3 Klein workflows over a dw MCP server, cut a multi-episode series from them, direct camera and look in each family's caption format, storyboard a scene before it is filmed, and plan a piece longer than one clip from measured levers: which template fits which shape, the hard rules, cost, and how to judge the output. Prompt format comes from the vendors' own guides."
         }
     ]
 }

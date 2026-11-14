@@ -2,7 +2,7 @@
 sliced past where that source ends, warned about before the run (#402).
 
 `slice_audio` zero-pads a slice that reaches past its source and only says so
-at run time (`_warn_on_slice_past_end`, `dw/tasks/audio_utils.py`) - a
+at run time (`_warn_on_slice_past_end`, `dw/tasks/audio_slice.py`) - a
 correct message, but late when the slice sits downstream of a long render
 (#402's repro: `assemble-and-score` scoring a 15.5 s cut with a 4.96 s
 `score` asset, `validate_workflow` answering clean). Mirrors
@@ -116,6 +116,11 @@ def slice_past_end_warnings(
             continue
         task_args = task.get("arguments")
         if not isinstance(task_args, dict):
+            continue
+        # A slice that stops at the end of its source pads nothing - it
+        # keeps a short source at its own length - so there is no silence
+        # to warn about
+        if task_args.get("past_end") == "stop":
             continue
 
         path = resolve_probe_path(task_args.get("audio"), base_dir, "an audio argument")

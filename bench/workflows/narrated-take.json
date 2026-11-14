@@ -1,0 +1,347 @@
+{
+  "id": "BenchNarratedTake",
+  "summary": "templates/minimax/narrated-take with the experimental chain keys exposed, on the CP0 Constitution narration.",
+  "description": "Narrated long take bench (#1308 plan Task 9 step 5, CP1/CP2): a copy of templates/minimax/narrated-take - the template composed by its catalog name could not take them - whose chain block also reads experimental_latent_carry, experimental_capstone and anchor_every from variables of those names (keystone, keystone_slot and keyframes are the template's own variables now). Their defaults (false, null, null) are the template's own chain, so an arm passing none of them runs the template as shipped; tests/test_bench_workflows.py pins the copy to the template. The defaults are the CP0 inputs: 'narration' is the retimed track approved at CP0 (run templates/narration-retime/20261109-200509-4083f66c, final/narration-retimed-0.0-audio.wav, 302.57 s), uploaded as asset:bench/constitution-narration-retimed.wav; 'image' is the Constitution walk's speaker still (constitution-walk-2, output:templates/flux3/image-edit/20261108-011458-22568496/final/Flux3KleinImageEdit-edit.1-0.0.jpg), uploaded as asset:bench/constitution-speaker.jpg; 'script' is the Preamble and the ten amendments the narration speaks. The end of Amendment 3 (85.11 s) falls in segment 12 (ends 85.92 s), so a probe to it is stop_after 12.",
+  "shape": "sequence",
+  "vram_estimate": {
+    "base_gb": 16.3,
+    "bytes_per_voxel": 28.71,
+    "bytes_per_guide_voxel": 28.71,
+    "voxel_variables": [
+      "width",
+      "height",
+      "num_frames"
+    ],
+    "reason": "each segment is one H3 run, so the ceiling is a segment's: the t2va calibration (#324) - peak activation memory scales with width * height * num_frames - plus, under 'guide' continuity, the guide each segment after the first is given, which is encoded on the target canvas and costs about as much per voxel as the clip itself (docs/proposals/h3-guide-vram.md, #694)"
+  },
+  "host_ram_gb": "variable:host_ram_gb",
+  "cost_drivers": [
+    "tier",
+    "continuity",
+    "shot",
+    "num_frames",
+    "num_inference_steps",
+    "width",
+    "height",
+    "weights_dtype",
+    "lora_model_name",
+    "attention_backend",
+    "cache",
+    "check",
+    "retries"
+  ],
+  "variables": {
+    "tier": "best",
+    "host_ram_gb": 69,
+    "image": "asset:bench/constitution-speaker.jpg",
+    "narration": "asset:bench/constitution-narration-retimed.wav",
+    "script": "We the People of the United States, in Order to form a more perfect Union, establish Justice, insure domestic Tranquility, provide for the common defence, promote the general Welfare, and secure the Blessings of Liberty to ourselves and our Posterity, do ordain and establish this Constitution for the United States of America.\n\nAmendment One. Congress shall make no law respecting an establishment of religion, or prohibiting the free exercise thereof; or abridging the freedom of speech, or of the press; or the right of the people peaceably to assemble, and to petition the Government for a redress of grievances.\n\nAmendment Two. A well regulated Militia, being necessary to the security of a free State, the right of the people to keep and bear Arms, shall not be infringed.\n\nAmendment Three. No Soldier shall, in time of peace be quartered in any house, without the consent of the Owner, nor in time of war, but in a manner to be prescribed by law.\n\nAmendment Four. The right of the people to be secure in their persons, houses, papers, and effects, against unreasonable searches and seizures, shall not be violated, and no Warrants shall issue, but upon probable cause, supported by Oath or affirmation, and particularly describing the place to be searched, and the persons or things to be seized.\n\nAmendment Five. No person shall be held to answer for a capital, or otherwise infamous crime, unless on a presentment or indictment of a Grand Jury, except in cases arising in the land or naval forces, or in the Militia, when in actual service in time of War or public danger; nor shall any person be subject for the same offence to be twice put in jeopardy of life or limb; nor shall be compelled in any criminal case to be a witness against himself, nor be deprived of life, liberty, or property, without due process of law; nor shall private property be taken for public use, without just compensation.\n\nAmendment Six. In all criminal prosecutions, the accused shall enjoy the right to a speedy and public trial, by an impartial jury of the State and district wherein the crime shall have been committed, which district shall have been previously ascertained by law, and to be informed of the nature and cause of the accusation; to be confronted with the witnesses against him; to have compulsory process for obtaining witnesses in his favor, and to have the Assistance of Counsel for his defence.\n\nAmendment Seven. In Suits at common law, where the value in controversy shall exceed twenty dollars, the right of trial by jury shall be preserved, and no fact tried by a jury, shall be otherwise re-examined in any Court of the United States, than according to the rules of the common law.\n\nAmendment Eight. Excessive bail shall not be required, nor excessive fines imposed, nor cruel and unusual punishments inflicted.\n\nAmendment Nine. The enumeration in the Constitution, of certain rights, shall not be construed to deny or disparage others retained by the people.\n\nAmendment Ten. The powers not delegated to the United States by the Constitution, nor prohibited by it to the States, are reserved to the States respectively, or to the people.",
+    "scene": "a close-up from the top of the shoulders up of the woman in <Picture 1>, centred, with close-cropped silver natural hair, small gold stud earrings, a charcoal grey wool overcoat over a cream turtleneck and a deep burgundy wool scarf, the bare elm-lined gravel path and the pale neoclassical stone building softly out of focus behind her, in soft overcast late-afternoon light with a muted earthy grade. She walks slowly and steadily toward the camera, which travels backward on a smooth dolly at exactly her walking pace, her eyes level on the lens, her face composed and grave.",
+    "speaker": "a Black American woman in her mid-sixties with a low, warm alto voice that carries the settled weight of age, a faint natural huskiness, a slow, measured, serious delivery with clear diction and quiet resolve, never theatrical",
+    "soundscape": "Quiet open-air park ambience under her voice: a soft steady breeze through the bare elm branches, the slow, even crunch of her shoes on the gravel, faint distant birdsong.",
+    "prompt_template": "For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced.\n\nintegrated_multimodal_description: [Shot 1] Live-action, cinematic, photorealistic, one continuous shot that carries over without a break from the previous shot. The shot opens exactly on <Picture 1>: {scene} Preserving the speaker's face, clothing, framing and the setting exactly, the camera holds its framing for the whole shot: it never pushes in, and the speaker stays the same size in frame from the first frame to the last. (S1), {speaker}, at the same quiet level and unhurried pace as before, is already speaking and continues mid-flow, lips and jaw shaping every word clearly and in time with the sound: <d>[English] {line}</d> The delivery carries straight on to the end of the shot, with no pause to start over.\n\noverall_soundscape: {soundscape} The ambience runs under the voice throughout and never drops out.\n\nnon_diegetic_music: N/A",
+    "shot": "dialogue",
+    "continuity": "guide",
+    "num_frames": 192,
+    "guide_frames": 22,
+    "stop_after": null,
+    "resume_from": null,
+    "keep_segments": true,
+    "check": {
+      "jump_ratio_max": 4.0,
+      "look_ratio_max": 5.5,
+      "cut_ratio_max": 3.5,
+      "words_similarity_min": null,
+      "face_drop_max": null
+    },
+    "retries": 1,
+    "width": 1344,
+    "height": 768,
+    "num_inference_steps": 20,
+    "video_shift": 12.0,
+    "audio_shift": 3.0,
+    "weights_dtype": "{int8}",
+    "lora_scale": 1.0,
+    "lora_alpha": null,
+    "lora_model_name": null,
+    "lora_weight_name": "minimax_h3_fl2v_turbo_4step_v1.2_768p_bf16.safetensors",
+    "lora_adapter_name": "turbo",
+    "seed": null,
+    "attention_backend": "sparse",
+    "sparse_tau": 0.5,
+    "sparse_topk": 0.15,
+    "cache": null,
+    "experimental_latent_carry": false,
+    "keystone": "none",
+    "keystone_slot": null,
+    "keyframes": null,
+    "experimental_capstone": null,
+    "anchor_every": null
+  },
+  "presets": {
+    "shot": {
+      "dialogue": {
+        "continuity": "guide"
+      },
+      "standing": {
+        "continuity": "guide",
+        "keystone": "segment_1",
+        "keystone_slot": "last"
+      },
+      "walk_keyframed": {
+        "continuity": "guide",
+        "keystone": "segment_1",
+        "keystone_slot": "last"
+      }
+    },
+    "tier": {
+      "standard": {
+        "width": 960,
+        "height": 544,
+        "num_inference_steps": 20,
+        "weights_dtype": "{int4}",
+        "host_ram_gb": 51
+      },
+      "best": {
+        "width": 1344,
+        "height": 768,
+        "num_inference_steps": 20,
+        "weights_dtype": "{int8}",
+        "host_ram_gb": 69
+      }
+    }
+  },
+  "variable_constraints": {
+    "image": {
+      "required": true,
+      "reason": "the speaker's first frame, <Picture 1> of every segment prompt; a placeholder would film the wrong person"
+    },
+    "narration": {
+      "required": true,
+      "reason": "the retimed narration from templates/narration-retime, the take's held soundtrack and the source of its segment count; there is no sensible default track"
+    },
+    "script": {
+      "required": true,
+      "min_length": 1,
+      "reason": "the text the narration speaks, so each segment's line carries its spelling and punctuation"
+    },
+    "scene": {
+      "required": true,
+      "min_length": 1,
+      "reason": "the shot's framing, the speaker's look and the setting, written for this take; a placeholder would describe another scene"
+    },
+    "speaker": {
+      "required": true,
+      "min_length": 1,
+      "reason": "the speaker's voice and delivery for the (S1) tag; a placeholder would describe another voice"
+    },
+    "num_frames": {
+      "modulus": 17,
+      "remainder": 5,
+      "min_frames": 124,
+      "max_frames": 345,
+      "snap": "up",
+      "reason": "the video VAE encodes 17 * n + 5 frames, and MiniMax-H3 generates between 5 and 15 seconds at 24 fps"
+    },
+    "width": {
+      "modulus": 32,
+      "remainder": 0,
+      "reason": "MiniMax-H3's pipeline refuses a `width` or `height` that is not a multiple of 32, and only after the weights have loaded; refused here instead, with no 'snap', since rounding would be a silent change to the size asked for"
+    },
+    "height": {
+      "modulus": 32,
+      "remainder": 0,
+      "reason": "MiniMax-H3's pipeline refuses a `width` or `height` that is not a multiple of 32, and only after the weights have loaded; refused here instead, with no 'snap', since rounding would be a silent change to the size asked for"
+    }
+  },
+  "seed": "variable:seed",
+  "steps": [
+    {
+      "name": "lines",
+      "task": {
+        "command": "narration_lines",
+        "arguments": {
+          "audio": "variable:narration",
+          "text": "variable:script",
+          "segment_frames": "variable:num_frames",
+          "guide_frames": "variable:guide_frames",
+          "fps": 24,
+          "prompt_template": "variable:prompt_template",
+          "fill": {
+            "scene": "variable:scene",
+            "speaker": "variable:speaker",
+            "soundscape": "variable:soundscape"
+          }
+        }
+      },
+      "result": {
+        "content_type": "application/json",
+        "file_base_name": "narration-lines",
+        "subfolder": "intermediate"
+      }
+    },
+    {
+      "name": "take",
+      "pipeline": {
+        "configuration": {
+          "component_type": "ModularPipeline",
+          "pre_load_modules": [
+            "sdnq"
+          ],
+          "load_components": {
+            "dtype": "torch.bfloat16",
+            "quantization_config": {
+              "transformer": {
+                "configuration": {
+                  "config_type": "sdnq.SDNQConfig"
+                },
+                "arguments": {
+                  "weights_dtype": "variable:weights_dtype",
+                  "quantization_device": "cuda",
+                  "return_device": "cpu",
+                  "use_quantized_matmul": true,
+                  "dequantize_fp32": false,
+                  "modules_to_not_convert": [
+                    "proj_in",
+                    "audio_proj_in",
+                    "context_embedder",
+                    "time_embedder",
+                    "time_proj",
+                    "token_refiner",
+                    "norm_out",
+                    "proj_out",
+                    "audio_proj_out"
+                  ]
+                }
+              },
+              "text_encoder": {
+                "configuration": {
+                  "config_type": "sdnq.SDNQConfig"
+                },
+                "arguments": {
+                  "weights_dtype": "variable:weights_dtype",
+                  "quantization_device": "cuda",
+                  "return_device": "cpu",
+                  "dequantize_fp32": false,
+                  "modules_to_not_convert": [
+                    ".model.visual",
+                    "lm_head"
+                  ]
+                }
+              },
+              "vae": {
+                "configuration": {
+                  "config_type": "sdnq.SDNQConfig"
+                },
+                "arguments": {
+                  "weights_dtype": "{int8}",
+                  "quant_conv": true,
+                  "use_quantized_matmul_conv": true,
+                  "quantization_device": "cuda",
+                  "return_device": "cpu",
+                  "dequantize_fp32": false
+                }
+              }
+            }
+          },
+          "components": {
+            "transformer": {
+              "attention_backend": "variable:attention_backend",
+              "sparse_tau": "variable:sparse_tau",
+              "sparse_topk": "variable:sparse_topk",
+              "group_offload": {
+                "offload_type": "block_level",
+                "num_blocks_per_group": 2,
+                "use_stream": true,
+                "record_stream": true,
+                "low_cpu_mem_usage": true
+              }
+            },
+            "text_encoder": {
+              "remove_modules": [
+                "lm_head"
+              ]
+            },
+            "text_encoder.model": {
+              "truncate_layers": {
+                "language_model.layers": 51
+              },
+              "group_offload": {
+                "offload_type": "leaf_level"
+              }
+            },
+            "vae": {
+              "device": "cuda",
+              "residency": "on_demand"
+            },
+            "audio_vae": {
+              "device": "cuda",
+              "residency": "on_demand"
+            }
+          },
+          "cache": "variable:cache"
+        },
+        "from_pretrained_arguments": {
+          "model_name": "MiniMaxAI/MiniMax-H3",
+          "workflow": "fl2va"
+        },
+        "loras": [
+          {
+            "model_name": "variable:lora_model_name",
+            "weight_name": "variable:lora_weight_name",
+            "adapter_name": "variable:lora_adapter_name",
+            "scale": "variable:lora_scale",
+            "alpha": "variable:lora_alpha"
+          }
+        ],
+        "chain": {
+          "match_audio": true,
+          "prompts": "previous_result:lines.prompts",
+          "continuity": "variable:continuity",
+          "guide_frames": "variable:guide_frames",
+          "check": "variable:check",
+          "retries": "variable:retries",
+          "stop_after": "variable:stop_after",
+          "segment_argument": "image",
+          "trim_frames": 2,
+          "crossfade_ms": 80,
+          "fps": 24,
+          "frame_snap": "constraint:num_frames",
+          "save_segments": true,
+          "keep_segments": "variable:keep_segments",
+          "resume_from": "variable:resume_from",
+          "experimental_latent_carry": "variable:experimental_latent_carry",
+          "keystone": "variable:keystone",
+          "keystone_slot": "variable:keystone_slot",
+          "keystone_images": "variable:keyframes",
+          "experimental_capstone": "variable:experimental_capstone",
+          "anchor_every": "variable:anchor_every"
+        },
+        "scheduler": {
+          "shift": "variable:video_shift"
+        },
+        "audio_scheduler": {
+          "shift": "variable:audio_shift"
+        },
+        "arguments": {
+          "image": "variable:image",
+          "hold_audio": "variable:narration",
+          "num_frames": "variable:num_frames",
+          "width": "variable:width",
+          "height": "variable:height",
+          "num_inference_steps": "variable:num_inference_steps",
+          "output": [
+            "videos",
+            "audio",
+            "sampling_rate"
+          ]
+        }
+      },
+      "result": {
+        "content_type": "video/mp4",
+        "fps": 24,
+        "subfolder": "final"
+      }
+    }
+  ]
+}

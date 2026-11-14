@@ -1,0 +1,39 @@
+{
+  "id": "BenchT16PersonMask",
+  "summary": "A per-frame person mask of one cut: segment (GroundingDINO + SAM2) on every frame.",
+  "description": "Task 16 (#1194) spike, step 1: the per-frame person mask a performer replacement needs. 'video' (an output: reference to one cut) is read as frames, and segment runs on each frame with the text prompt 'person', giving one mask frame per source frame (white is the person) at the source's size and rate, for a regional edit's mask_video. GroundingDINO base and SAM2 hiera-large are both Apache-2.0. Detection runs per frame with no tracking, so a frame where the detector misses comes back black.",
+  "variables": {
+    "video": "output:BenchS4Montage/20261104-040255-9813688b/intermediate/BenchS4Montage-shot@deflect.3-0.0.mp4",
+    "prompt": "person",
+    "threshold": 0.3,
+    "seed": 0
+  },
+  "steps": [
+    {
+      "name": "frames",
+      "task": {
+        "command": "video_frames",
+        "arguments": {
+          "video": "variable:video"
+        }
+      }
+    },
+    {
+      "name": "mask",
+      "task": {
+        "command": "segment",
+        "arguments": {
+          "image": "previous_result:frames",
+          "prompt": "variable:prompt",
+          "threshold": "variable:threshold"
+        }
+      },
+      "result": {
+        "content_type": "video/mp4",
+        "fps": 24,
+        "subfolder": "final",
+        "file_base_name": "mask"
+      }
+    }
+  ]
+}

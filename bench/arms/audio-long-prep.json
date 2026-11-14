@@ -1,0 +1,9 @@
+[
+  {
+    "name": "s6-narrator-ref-s1166",
+    "scene": "s6-narration",
+    "workflow": "narrator-reference-s6.json",
+    "arguments": {},
+    "seed": 1166
+  }
+]

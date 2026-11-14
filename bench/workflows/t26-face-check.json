@@ -1,0 +1,28 @@
+{
+  "id": "BenchT26FaceCheck",
+  "summary": "Score a stored clip's faces against one portrait (analyze_face_drift).",
+  "description": "Task 26 (#1193) follow-up: analyze_face_drift of 'video' (an output: reference) against 'reference', so a clip already rendered can be scored against a second face - claim 2's clips against the unmentioned stranger portrait, to see whether his face blended into hers.",
+  "variables": {
+    "video": "output:BenchT26Ref2VA/latest/final/BenchT26Ref2VA-clip.0-0.0.mp4",
+    "reference": "asset:bench/t26-stranger.jpg",
+    "seed": 0
+  },
+  "steps": [
+    {
+      "name": "face",
+      "task": {
+        "command": "analyze_face_drift",
+        "arguments": {
+          "video": "variable:video",
+          "reference": "variable:reference",
+          "samples_per_shot": 16
+        }
+      },
+      "result": {
+        "content_type": "application/json",
+        "subfolder": "final",
+        "file_base_name": "face"
+      }
+    }
+  ]
+}

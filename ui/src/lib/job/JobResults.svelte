@@ -13,6 +13,8 @@
   import RoleTag from '../gallery/RoleTag.svelte'
   import { ASSET, OUTPUT, referenceName } from '../references'
   import { wsHref } from '../routes'
+  import { isTimeline } from '../timeline'
+  import TimelineStrip from './TimelineStrip.svelte'
 
   // The Results panel's body: each output beside what made it, sectioned by
   // subfolder and grouped by step, then the steps that wrote nothing. The
@@ -35,18 +37,23 @@
 
   // The generation metadata embedded in each image, keyed by file - per
   // file rather than per step, since each image of a batch carries its own
-  // seed. Images only: the metadata route decodes an audio or video file
-  // whole to probe it, and nothing it would report is shown here. A key
-  // present with null is a lookup already in flight or failed
+  // seed. Images and .otioz timelines only: the metadata route decodes an
+  // audio or video file whole to probe it, and nothing it would report is
+  // shown here. A key present with null is a lookup already in flight or
+  // failed. A timeline's summary is the response's `media`, kept per file in
+  // fileMedia beside the embedded metadata
   let runInputs = $state<GalleryInput[]>([])
   let fileMeta = $state<Record<string, Record<string, unknown> | null>>({})
+  let fileMedia = $state<Record<string, Record<string, unknown> | null>>({})
+  const isBundle = (file: string) => file.toLowerCase().endsWith('.otioz')
   $effect(() => {
     const workspace = job.workspace
     const pending = fileGroups
       .flatMap((group) => group.files)
       .filter(
         (file) =>
-          kindOf(file) === 'image' && !(file in untrack(() => fileMeta)),
+          (kindOf(file) === 'image' || isBundle(file)) &&
+          !(file in untrack(() => fileMeta)),
       )
     if (!pending.length) return
     untrack(() => {
@@ -56,6 +63,7 @@
           .galleryMetadata(file, workspace)
           .then((r) => {
             fileMeta[file] = r.metadata
+            if (isBundle(file)) fileMedia[file] = r.media
             // The run's inputs are the same whichever output asks
             if (r.inputs?.length && !runInputs.length) runInputs = r.inputs
           })
@@ -64,14 +72,14 @@
     })
   })
 
-  // A run that wrote no image (video and audio only, as H3 and LTX do) has
-  // no lookup above to read its inputs from, so the first output of any kind
+  // A run that wrote no image or timeline (video and audio only, as H3 and
+  // LTX do) has no lookup above to read its inputs from, so the first output of any kind
   // is asked once - never one probe per file
   let probedFirst = false
   $effect(() => {
     const files = fileGroups.flatMap((group) => group.files)
     if (!files.length || probedFirst) return
-    if (files.some((file) => kindOf(file) === 'image')) return
+    if (files.some((file) => kindOf(file) === 'image' || isBundle(file))) return
     probedFirst = true
     api
       .galleryMetadata(
@@ -107,6 +115,18 @@
   // the previous one. The job's own workspace rides along too, so its media
   // still loads correctly if the picker has since moved elsewhere.
   const fileUrl = (path: string) => outputUrl(path, job.id, job.workspace)
+  // A bundle member is linked only when the clip that plays it recorded an
+  // `output:` source that is one of this job's files. Members are all
+  // media/<name>, so a name says nothing: an asset that shares a name with a
+  // job file has no source here and gets no link
+  const memberHref = (_member: string, source: string | null) => {
+    const path = referenceName(source, OUTPUT)
+    if (!path) return null
+    const match = fileGroups
+      .flatMap((group) => group.files)
+      .find((file) => file === path)
+    return match ? api.outputDownloadUrl(match, job.workspace) : null
+  }
 </script>
 
 {#if allReused}
@@ -227,6 +247,9 @@
             </div>
           {/if}
         </div>
+        {#if isBundle(file) && isTimeline(fileMedia[file])}
+          <TimelineStrip summary={fileMedia[file]} {memberHref} />
+        {/if}
       </div>
     {/each}
   {/each}

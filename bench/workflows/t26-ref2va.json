@@ -1,0 +1,196 @@
+{
+  "id": "BenchT26Ref2VA",
+  "summary": "One Ref2VA turbo clip from one or two image references, for the #1193 claims.",
+  "description": "Task 26 (#1193): templates/minimax/reference-to-video's ref2va step as shipped (ref2v 8-step turbo LoRA, 9 steps, shift 12/3, int4, sparse, 960x544, 124 frames) with its audio reference dropped and image references 'picture_1' and an optional 'picture_2' (null drops it). Claim 2 runs a second portrait the prompt never names against no second portrait; claim 3 runs the full walker picture against a face-and-hair crop of it, with a prompt that dresses her differently. A last step scores the clip's faces against 'face_reference' (analyze_face_drift).",
+  "variables": {
+    "prompt": "subject_definitions:\n<Subject 1> is the woman in <Picture 1>.\n\nsummary:\n[reference generation] The target video shows <Subject 1>.",
+    "picture_1": "asset:bench/walker.png",
+    "picture_2": null,
+    "num_frames": 124,
+    "width": 960,
+    "height": 544,
+    "num_inference_steps": 9,
+    "video_shift": 12.0,
+    "audio_shift": 3.0,
+    "lora_scale": 1.0,
+    "lora_alpha": null,
+    "lora_model_name": "lightx2v/Minimax-h3-Turbo",
+    "lora_weight_name": "minimax_h3_ref2v_turbo_8step_v1.0_768p_bf16.safetensors",
+    "lora_adapter_name": "turbo",
+    "weights_dtype": "{int4}",
+    "attention_backend": "sparse",
+    "sparse_tau": 0.5,
+    "sparse_topk": 0.15,
+    "cache": null,
+    "seed": 1001,
+    "face_reference": "asset:bench/walker.png"
+  },
+  "seed": "variable:seed",
+  "steps": [
+    {
+      "name": "clip",
+      "pipeline": {
+        "configuration": {
+          "component_type": "ModularPipeline",
+          "pre_load_modules": [
+            "sdnq"
+          ],
+          "load_components": {
+            "dtype": "torch.bfloat16",
+            "quantization_config": {
+              "transformer_ref": {
+                "configuration": {
+                  "config_type": "sdnq.SDNQConfig"
+                },
+                "arguments": {
+                  "weights_dtype": "variable:weights_dtype",
+                  "quantization_device": "cuda",
+                  "return_device": "cpu",
+                  "use_quantized_matmul": true,
+                  "dequantize_fp32": false,
+                  "modules_to_not_convert": [
+                    "proj_in",
+                    "audio_proj_in",
+                    "context_embedder",
+                    "time_embedder",
+                    "time_proj",
+                    "token_refiner",
+                    "norm_out",
+                    "proj_out",
+                    "audio_proj_out"
+                  ]
+                }
+              },
+              "text_encoder": {
+                "configuration": {
+                  "config_type": "sdnq.SDNQConfig"
+                },
+                "arguments": {
+                  "weights_dtype": "variable:weights_dtype",
+                  "quantization_device": "cuda",
+                  "return_device": "cpu",
+                  "dequantize_fp32": false,
+                  "modules_to_not_convert": [
+                    ".model.visual",
+                    "lm_head"
+                  ]
+                }
+              },
+              "vae": {
+                "configuration": {
+                  "config_type": "sdnq.SDNQConfig"
+                },
+                "arguments": {
+                  "weights_dtype": "{int8}",
+                  "quant_conv": true,
+                  "use_quantized_matmul_conv": true,
+                  "quantization_device": "cuda",
+                  "return_device": "cpu",
+                  "dequantize_fp32": false
+                }
+              }
+            }
+          },
+          "components": {
+            "transformer_ref": {
+              "attention_backend": "variable:attention_backend",
+              "sparse_tau": "variable:sparse_tau",
+              "sparse_topk": "variable:sparse_topk",
+              "group_offload": {
+                "offload_type": "block_level",
+                "num_blocks_per_group": 1,
+                "use_stream": true,
+                "record_stream": true,
+                "low_cpu_mem_usage": true
+              }
+            },
+            "text_encoder": {
+              "remove_modules": [
+                "lm_head"
+              ]
+            },
+            "text_encoder.model": {
+              "truncate_layers": {
+                "language_model.layers": 51
+              },
+              "group_offload": {
+                "offload_type": "leaf_level"
+              }
+            },
+            "vae": {
+              "device": "cuda",
+              "residency": "on_demand"
+            },
+            "audio_vae": {
+              "device": "cuda",
+              "residency": "on_demand"
+            }
+          },
+          "cache": "variable:cache"
+        },
+        "from_pretrained_arguments": {
+          "model_name": "MiniMaxAI/MiniMax-H3",
+          "workflow": "ref2va"
+        },
+        "loras": [
+          {
+            "model_name": "variable:lora_model_name",
+            "weight_name": "variable:lora_weight_name",
+            "adapter_name": "variable:lora_adapter_name",
+            "scale": "variable:lora_scale",
+            "alpha": "variable:lora_alpha"
+          }
+        ],
+        "scheduler": {
+          "shift": "variable:video_shift"
+        },
+        "audio_scheduler": {
+          "shift": "variable:audio_shift"
+        },
+        "arguments": {
+          "prompt": "variable:prompt",
+          "references": [
+            {
+              "reference_type": "diffusers.modular_pipelines.minimax_h3.MiniMaxH3ImageReference",
+              "from_file": "variable:picture_1"
+            },
+            {
+              "reference_type": "diffusers.modular_pipelines.minimax_h3.MiniMaxH3ImageReference",
+              "from_file": "variable:picture_2"
+            }
+          ],
+          "num_frames": "variable:num_frames",
+          "width": "variable:width",
+          "height": "variable:height",
+          "num_inference_steps": "variable:num_inference_steps",
+          "output": [
+            "videos",
+            "audio",
+            "sampling_rate"
+          ]
+        }
+      },
+      "result": {
+        "content_type": "video/mp4",
+        "fps": 24,
+        "subfolder": "final"
+      }
+    },
+    {
+      "name": "face",
+      "task": {
+        "command": "analyze_face_drift",
+        "arguments": {
+          "video": "previous_result:clip",
+          "reference": "variable:face_reference",
+          "samples_per_shot": 16
+        }
+      },
+      "result": {
+        "content_type": "application/json",
+        "subfolder": "intermediate",
+        "file_base_name": "face"
+      }
+    }
+  ]
+}

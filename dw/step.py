@@ -2,7 +2,7 @@ import logging
 from .events import WorkflowCancelled, get_context
 from .introspection import missing_task_argument_message, missing_task_arguments
 from .result import Result
-from .previous_results import get_iterations, resolve_chain_prompts
+from .previous_results import get_iterations, resolve_chain_lists
 from .tasks.task import Task
 
 logger = logging.getLogger("dw")
@@ -93,7 +93,7 @@ class Step:
 
             # A chained pipeline's per-segment prompts live outside the argument
             # template, so they are resolved here rather than by the pass below
-            resolve_chain_prompts(step_action, previous_results)
+            resolve_chain_lists(step_action, previous_results)
 
             # Get all possible argument combinations for this step
             # This expands any references to previous results into concrete values
@@ -153,6 +153,9 @@ class Step:
         result,
     ):
         """Run the action once per argument set, adding each to `result`."""
+        # A chain resume tells a fan-out's finished iteration (rendered in
+        # full) from a lone chain with nothing left to render (refused)
+        step_action.chain_fan_out = len(iterations) > 1
         for i, arguments in enumerate(iterations, 1):
             run_context.check_cancelled()
             logger.debug(

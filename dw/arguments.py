@@ -17,6 +17,7 @@ from .type_helpers import (
 from .prompts import fetch_prompt
 from .assets import fetch_asset, is_asset_reference
 from .runs import fetch_output, is_output_reference
+from .pipeline_processors.chain_rules import CHAIN_RESUME_FROM
 from .argument_media import (
     is_media_reference,
     fetch_media,
@@ -111,12 +112,24 @@ def realize_args(arg, base_dir=None, apply_key_conventions=True):
             name is not the argument it will end up filling, so 'image' guessed
             a variable named that way into a PIL Image before the step that
             actually names its argument 'video' ever saw the value (#365).
-            Nested structures still recurse with this at its default, since by
-            then a dict key is a real argument name again
+            Off holds at every depth: a field of a variable's entry - the
+            'video' of a for_each list of {name, video} objects - is no more
+            the argument it fills than the variable's own name is, and loading
+            it here handed 'item:video' a silent frame list rather than the
+            file trim_video reads with its soundtrack (#1199). Objects are
+            built by the steps pass too, once their '_type' has loaded
     """
     if isinstance(arg, dict):
         logger.debug(f"Processing dictionary arguments: {list(arg.keys())}")
         for k, v in arg.items():
+            if k == CHAIN_RESUME_FROM and is_output_reference(v):
+                # By key name, at any depth. A variable that a resume_from
+                # names is held out of the variables pass by its caller,
+                # whatever it is called (chain_rules.resume_variables).
+                # A chain's resume_from stays the reference: the resume
+                # resolves it itself, against the run ids that started before
+                # this run, and refuses a resolved path as a location
+                continue
             v, handled = _realize_explicit_reference(v, base_dir)
             arg[k] = v
             if handled:
@@ -150,11 +163,11 @@ def realize_args(arg, base_dir=None, apply_key_conventions=True):
             ):
                 _realize_type_reference(arg, k, v)
             else:
-                _realize_nested(arg, k, v, base_dir)
+                _realize_nested(arg, k, v, base_dir, apply_key_conventions)
 
     # Recursively process lists
     elif isinstance(arg, list):
-        _realize_list(arg, base_dir)
+        _realize_list(arg, base_dir, apply_key_conventions)
 
 
 def _realize_explicit_reference(value, base_dir, containers=True):
@@ -211,12 +224,66 @@ def _realize_type_reference(arg, k, v):
     elif isinstance(v, type):
         # the value already a type
         arg[k] = v
+    elif isinstance(v, dict) and k == PER_COMPONENT_DTYPE_KEY:
+        arg[k] = realize_per_component_dtype(v, k)
 
 
-def _realize_nested(arg, k, v, base_dir):
+# The key whose dict form names a dtype per pipeline component - diffusers'
+# own {"default": ..., "<component>": ...} form of from_pretrained's torch_dtype
+PER_COMPONENT_DTYPE_KEY = "torch_dtype"
+
+
+def realize_per_component_dtype(value, key=PER_COMPONENT_DTYPE_KEY):
+    """Realize a per-component torch_dtype dict: every value loads as a dtype.
+
+    The keys are the pipeline's component names (plus 'default', which diffusers
+    applies to every component the dict does not name - and without which those
+    load as float32). Nothing here knows a model's components: any name passes
+    through to diffusers. A value has to be a dtype name; a {} escape means
+    "keep this a string", which no component can load as, so it is refused
+    rather than handed on as a string diffusers would reject far from here. A
+    value an earlier realize pass already loaded is kept."""
+    realized = {}
+    for component, dtype in value.items():
+        if isinstance(dtype, EscapedString) or is_escaped(dtype):
+            raise ValueError(
+                f"{key} for component '{component}' is {{}}-escaped ({dtype!r}): "
+                "a per-component dtype has to name a dtype, such as torch.float32"
+            )
+        if isinstance(dtype, str):
+            try:
+                realized[component] = load_type_from_name(dtype, key)
+            except (ImportError, AttributeError, ValueError) as e:
+                raise ValueError(
+                    f"{key} for component '{component}' names an unknown dtype "
+                    f"{dtype!r}: {e}"
+                ) from e
+        elif _is_dtype(dtype):
+            realized[component] = dtype
+        else:
+            raise ValueError(
+                f"{key} for component '{component}' has to be a dtype name such "
+                f"as torch.float32, not {type(dtype).__name__} {dtype!r}"
+            )
+    return realized
+
+
+def _is_dtype(value):
+    """Whether a value is an already-loaded torch dtype"""
+    try:
+        import torch
+    except ImportError:  # pragma: no cover - torch is a hard dependency
+        return False
+    return isinstance(value, torch.dtype)
+
+
+def _realize_nested(arg, k, v, base_dir, apply_key_conventions=True):
     """Recursively process a nested value, then build any object it
     describes - the type reference it names is realized by the recursion."""
-    realize_args(v, base_dir)
+    realize_args(v, base_dir, apply_key_conventions)
+    if not apply_key_conventions:
+        # The type an object names has not loaded; the steps pass builds it
+        return
     realized = realize_object(v, base_dir)
     if realized is OMITTED:
         raise ValueError(
@@ -228,7 +295,7 @@ def _realize_nested(arg, k, v, base_dir):
     arg[k] = realized
 
 
-def _realize_list(arg, base_dir):
+def _realize_list(arg, base_dir, apply_key_conventions=True):
     """Realize a list in place: each entry resolves as an explicit reference
     or is processed and built as an object."""
     logger.debug("Processing list arguments")
@@ -238,12 +305,13 @@ def _realize_list(arg, base_dir):
         if handled:
             continue
         try:
-            realize_args(item, base_dir)
+            realize_args(item, base_dir, apply_key_conventions)
         except ValueError as error:
             if isinstance(item, dict) and "name" in item:
                 raise ValueError(f"{error} (step '{item['name']}')") from error
             raise
-        arg[i] = realize_object(item, base_dir)
+        if apply_key_conventions:
+            arg[i] = realize_object(item, base_dir)
     # An optional entry whose media is null leaves the list rather than
     # reaching the pipeline as a reference with nothing in it
     if any(item is OMITTED for item in arg):
@@ -926,6 +994,7 @@ _LAZY_FRAME_COMMANDS = frozenset(
         "analyze_seams",
         "analyze_sync_drift",
         "analyze_face_drift",
+        "export_timeline",
         "window_video",
         "trim_video",
         "generate_sound_effects",

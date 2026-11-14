@@ -29,7 +29,8 @@ from dw.task_domains import (
     task_argument_errors,
 )
 from dw.dsp import resample_waveform
-from dw.tasks.audio_utils import resample_audio, slice_audio
+from dw.tasks.audio_slice import slice_audio
+from dw.tasks.audio_utils import resample_audio
 from dw.workflow import Workflow
 
 
@@ -550,3 +551,11 @@ def test_transcript_problem_lives_in_task_problems_and_names_plan_cuts():
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+@pytest.mark.parametrize("value", ["abc", "", "inf", "nan"])
+def test_a_whole_number_argument_refusal_says_a_whole_number_for(value):
+    from dw.task_domains import domain_violation, POSITIVE
+
+    _, message = domain_violation("window_video", "num_frames", value, POSITIVE, True)
+    assert "needs a whole number for 'num_frames'" in message

@@ -1,0 +1,13 @@
+[
+  {
+    "name": "repair-s3-seg4",
+    "scene": "s3-dialogue-walk",
+    "workflow": "../../workflows/templates/minimax/repair-segment.json",
+    "arguments": {
+      "chain_take": "output:BenchS3DialogueWalk-chk/20261105-082441-006f3a57/final/BenchS3DialogueWalk-chk-chained_keyframe_to_video_audio.0-0.0.mp4",
+      "segment": 4,
+      "prompt": "For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced.\n\nintegrated_multimodal_description: [Shot 1] Cinematic, live-action, one continuous shot. The shot opens exactly on <Picture 1>: a woman in her early thirties with shoulder-length dark hair, in a long olive coat, walks toward the camera down a quiet cobblestone street at golden hour. A faint smile crosses her face as she keeps walking toward the camera. The woman (S1), a warm, low female alto voice, calm and unhurried, says <d>[English] Funny how a place waits for you without asking.</d> The camera holds a steady medium shot at eye level, keeping pace with her as she walks.\n\noverall_soundscape: Soft footsteps on cobblestones, a faint breeze, distant street ambience.\n\nnon_diegetic_music: None."
+    },
+    "seed": 4
+  }
+]

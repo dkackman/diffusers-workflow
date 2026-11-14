@@ -12,7 +12,7 @@ import json
 import logging
 import os
 from types import SimpleNamespace
-from typing import Optional, Union
+from typing import Any, Optional, Union
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -32,6 +32,7 @@ from ..api_models import (
 from ...events import select_kinds
 from ...host_memory_projection import CEILING_FRACTION, host_memory_warnings
 from ...plan import build_plan, gate_warnings, missing_repo_errors
+from ...presets import apply_presets
 from ...schema import format_validation_errors
 from ...security import SecurityError, validate_path
 from ...variables import set_variables
@@ -368,10 +369,15 @@ def get_job_workflow(request: Request, job_id: str):
                 name: arguments[name] for name in arguments if name in variables
             }
             # Fold through the owner, so a value is validated and coerced to
-            # the default's type exactly as it was when the run started
+            # the default's type exactly as it was when the run started -
+            # the chosen preset bundle first, as Workflow._fold applies it
             try:
+                apply_presets(definition, declared, variables)
                 set_variables(declared, variables)
                 folded = list(declared)
+                # The bundle's values are folded in now; kept, it would
+                # overwrite them on a re-run
+                definition.pop("presets", None)
             except (SecurityError, TypeError, ValueError) as exc:
                 definition = copy.deepcopy(manager.definition(job_id))
                 failure = str(exc)
@@ -412,6 +418,15 @@ class RerunRequest(BaseModel):
         "the step cache serves from the earlier run - the same seed and "
         "inputs would produce the same files.",
     )
+    arguments: Optional[dict[str, Any]] = Field(
+        default=None,
+        description="Variable overrides merged over the original job's "
+        "arguments before admission (a draft promoted with "
+        '{"tier": "standard"}), keeping the original\'s seed unless '
+        "`new_seed`. A variable the workflow does not declare is "
+        "refused; the seed variable cannot be overridden together with "
+        "`new_seed`.",
+    )
     acknowledged_cost: Optional[Union[bool, AcknowledgedCost]] = ACKNOWLEDGED_COST_FIELD
 
 
@@ -426,12 +441,15 @@ def rerun_job(request: Request, job_id: str, body: RerunRequest = RerunRequest()
     a new submission would be - a reference that resolved when the
     original ran may not any more. Takes `acknowledged_cost` as POST
     /api/jobs does; a bound one is checked against the stored spec's
-    plan - the fresh seed of `new_seed` does not change a fingerprint."""
+    plan of the merged arguments - a fresh seed of `new_seed` never changes
+    a fingerprint, an override of `arguments` may."""
     state = request.app.state
     manager = request.app.state.job_manager
     form = acknowledgement_form(body.acknowledged_cost)
     try:
-        prepared = manager.rerun_spec(job_id, new_seed=body.new_seed)
+        prepared = manager.rerun_spec(
+            job_id, new_seed=body.new_seed, overrides=body.arguments
+        )
         if prepared is None:
             raise HTTPException(status_code=404, detail="Unknown job")
         spec, arguments = prepared
@@ -482,6 +500,7 @@ def rerun_job(request: Request, job_id: str, body: RerunRequest = RerunRequest()
             warnings=admission.warnings,
             # The arguments admitted - the fresh seed already drawn
             arguments=arguments,
+            overrides=body.arguments,
             admitted=admission.workflow,
             vram_need=admission.vram_need,
             host_ram_need=admission.host_ram_need,
@@ -1004,8 +1023,13 @@ def _inherited_cost_warnings(estimate):
         return [f"cost estimate withheld: {estimate['withheld']}"]
     if not isinstance(estimate, dict) or estimate.get("basis") != "inherited":
         return []
-    differs = estimate.get("differs") or []
-    return [
+    entries = estimate.get("differs") or []
+    # Sort by shape: a short name ("resume_from", "reference count") fits
+    # "its X differs from that template"; anything longer is a whole
+    # sentence (the resume notes) and gets a sentence of its own.
+    notes = [e for e in entries if len(str(e).split()) > 3]
+    differs = [e for e in entries if e not in notes]
+    warning = (
         f"cost estimate is inherited from this box's runs of {estimate.get('inherited_from')} "
         "(same pipeline), not of this workflow"
         + (f"; {estimate['scaled']}" if estimate.get("scaled") else "")
@@ -1015,7 +1039,8 @@ def _inherited_cost_warnings(estimate):
             if differs
             else ""
         )
-    ]
+    )
+    return [warning + "".join(f". Note: {note}" for note in notes)]
 
 
 def _host_memory_warnings(state, name, definition, list_entries, *, workspace=None):

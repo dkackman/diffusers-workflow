@@ -20,6 +20,7 @@ import numpy
 
 from .. import preferred_task_dtype
 from ..events import emit_warning
+from ..locations import validate_model_name
 from .model_cache import cached_model, hf_pipeline_placement
 from .weights import argument_or_default, repo_entries
 from ..assessment_rules import DEAD_AIR_FLOOR_DBFS
@@ -115,7 +116,9 @@ def transcribe_audio(audio, device="cpu", sample_rate=None, **kwargs):
             0
         ]
 
-    model_name = model_source(kwargs)
+    # Checked here as well as at validate: a model_name that arrives by
+    # previous_result: is deferred there, and must not name a host directory
+    model_name = validate_model_name(model_source(kwargs))
     dtype = preferred_task_dtype(device)
 
     def load_pipe():

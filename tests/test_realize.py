@@ -90,6 +90,19 @@ class TestVariablesAndSeed:
         assert realized["seed"] == 991
         assert realized["variables"]["seed_arg"] == 991
 
+    def test_presets_are_dropped_so_a_rerun_keeps_the_folded_values(self):
+        source = definition()
+        source["variables"].update({"quality": "fast", "steps": 20})
+        source["presets"] = {"quality": {"fast": {"steps": 4}}}
+
+        realized, _ = realize_workflow(source, folded(source, {"steps": 30}), 7)
+
+        assert realized["variables"]["steps"] == 30
+        assert "presets" not in realized
+        assert "presets" in source
+        # Re-running the realized copy with no arguments reproduces the run
+        assert folded(realized, {})["steps"] == 30
+
     def test_the_input_definition_is_not_mutated(self):
         original = definition()
         before = copy.deepcopy(original)

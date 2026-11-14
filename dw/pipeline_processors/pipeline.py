@@ -645,11 +645,14 @@ class Pipeline(H3Arguments):
         """Call the pipeline with optional attention backend and cache contexts."""
         arguments = self._with_step_callback(arguments)
         self._check_refine(arguments)
+        self._check_selflift(arguments)
         arguments = self._with_mask(arguments)
         arguments = self._with_held_audio(arguments)
         arguments = self._with_guides(arguments)
         arguments = self._with_guide_noise(arguments)
         arguments = self._with_latent_anchor(arguments)
+        # The experimental TST correction (#1196), installed for this call only
+        arguments, tst = self._take_tst(arguments)
         # The load is over and the denoise loop is starting. Pipelines whose
         # signature has no step callback report nothing else at all, so this
         # is the only thing that distinguishes running from still loading
@@ -671,6 +674,17 @@ class Pipeline(H3Arguments):
             # Entered after the uninstall callbacks are pushed, so it closes
             # (and reports a fallback) while the processors are still on
             stack.enter_context(sparse_call(self.pipeline, label))
+            if tst is not None:
+                from .h3_tst import tst_call
+
+                stack.enter_context(
+                    tst_call(
+                        self.pipeline,
+                        tst,
+                        arguments.get("num_inference_steps"),
+                        label,
+                    )
+                )
 
             stack.enter_context(captured_mag_calibration(self.pipeline, arguments))
             stack.enter_context(

@@ -187,12 +187,17 @@ def gallery_metadata(
             )
         elif kind == "image":
             media = _image_media(path)
+        elif extension == ".otioz":
+            # An editable timeline bundle: its clips, tracks and members (#1254)
+            from ...tasks.timeline_export import summarize_bundle
+
+            media = summarize_bundle(path)
         else:
             media = None
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
-    if kind == "image":
-        pass  # no shots in a still
+    if kind == "image" or extension == ".otioz":
+        pass  # no shots in a still, and a timeline lists its own clips
     elif media is not None and source == "output":
         # Where each shot of a joined video sits, as the run that wrote
         # it recorded (dw/shots.py) - null for a file not joined from shots

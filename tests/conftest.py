@@ -62,7 +62,7 @@ def _isolate_device_capacity(monkeypatch):
 
     The check uses the serving device's own capacity when no 'cost' entry
     describes its backend (dw/vram_estimate.py `_entries_for`), so on a
-    24 GB Mac - a 17.8 GB Metal working set - a template's own defaults were
+    24 GB Mac - an approximate 17.8 GB Metal working set - a template's own defaults were
     refused and its tests failed there and nowhere else. With no capacity
     read, every machine gets what CI gets. A test about the device ceiling
     patches its own capacity, which wins over this one.
@@ -106,6 +106,19 @@ def _clear_task_model_cache():
     clear_model_cache()
     yield
     clear_model_cache()
+
+
+@pytest.fixture(autouse=True)
+def _no_face_models_in_chain_checks(monkeypatch):
+    """A checked chain measures face_drop on every segment, which reads
+    YuNet and SFace weights; the suite's fake pipelines render flat frames
+    with no face. The seam answers as for a clip with no face, so no test
+    downloads or runs the models through a chain. A test of the measure
+    patches over this one (tests/test_chain_check_face_sync.py).
+    """
+    import dw.pipeline_processors.chain_check as chain_check
+
+    monkeypatch.setattr(chain_check, "_face_scores", lambda *args: [])
 
 
 @pytest.fixture(autouse=True)
@@ -275,3 +288,10 @@ def gallery_client(tmp_path, output_root):
         prompt_dir=str(tmp_path / "prompts"),
     )
     return TestClient(app, base_url="http://localhost")
+
+
+@pytest.fixture(autouse=True)
+def _isolated_host_claims(tmp_path, monkeypatch):
+    # Servers on one host share a claims folder (dw/host_memory.py HostClaims,
+    # #1227); a test's manager must not see another test's or the machine's
+    monkeypatch.setenv("DW_HOST_CLAIMS_DIR", str(tmp_path / "host-claims"))

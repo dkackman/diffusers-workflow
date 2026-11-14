@@ -28,9 +28,10 @@ from .mag_calibration import (  # noqa: F401 - re-exported for pipeline.py
     get_cache_transformer,
 )
 from .h3_anchor import insert_latent_anchor
-from .h3_guides import insert_guides
+from .h3_guides import insert_guides, insert_keystone_restore
 from .h3_hold import core_denoise_sequences, insert_audio_hold
 from .h3_mask import insert_mask_blocks
+from .h3_rules import refine_windows_enabled
 from .placement import (
     apply_on_demand_placement,
     create_components_manager,
@@ -811,19 +812,39 @@ def _assemble_loaded(
 
     if core_denoise_sequences(component):
         attach_tile_blocks(component)
+        # ...and, behind its scratch flag, the time-windowed refine (h3_windows.py)
+        if refine_windows_enabled():
+            from .h3_windows import insert_refine_windows
+
+            insert_refine_windows(component)
+            # ...and the latent keystone's restore (h3_guides, Task 9)
+            insert_keystone_restore(component)
+            # ...and the mid-schedule SelfLift (h3_selflift.py, #1195)
+            from .h3_selflift import insert_selflift
+
+            insert_selflift(component)
 
 
 def _warn_float16_on_mps(component_name, from_pretrained_arguments, device):
     """MPS (Apple Silicon) has numerical instability with float16 matmul operations,
     producing NaN values that result in black images. The dtype is left as asked for -
     silently loading a model in a dtype the workflow did not request would be worse -
-    so this only warns."""
-    if (
-        get_device_type(device) == "mps"
-        and from_pretrained_arguments.get("torch_dtype") == torch.float16
-    ):
+    so this only warns. A per-component torch_dtype dict warns for each
+    component it loads in float16 ('default' standing for the rest)."""
+    if get_device_type(device) != "mps":
+        return
+    torch_dtype = from_pretrained_arguments.get("torch_dtype")
+    if isinstance(torch_dtype, dict):
+        names = [
+            f"{component_name}.{part}"
+            for part, dtype in torch_dtype.items()
+            if dtype == torch.float16
+        ]
+    else:
+        names = [component_name] if torch_dtype == torch.float16 else []
+    for name in names:
         logger.warning(
-            f"{component_name} loads in float16 on MPS, which can produce NaN "
+            f"{name} loads in float16 on MPS, which can produce NaN "
             "values (black images) on Apple Silicon - bfloat16 is the usual fix"
         )
 

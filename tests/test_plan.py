@@ -242,6 +242,7 @@ KEPT_TOP_LEVEL_KEYS = {
     "id",  # names every file the run saves, and the step cache keys on it
     "variables",  # the folded values are the work
     "variable_constraints",  # a rule rounds or refuses a value
+    "presets",  # a bundle sets the variables the caller did not pass
     "argument_template",  # read as arguments when not run as a child
     "seed",  # removed separately: a seed is not the work, but it is the output
     "steps",
@@ -275,6 +276,7 @@ class TestFingerprintKeys:
             "cost",
             "cost_drivers",
             "description",
+            "host_ram_gb",
             "shape",
             "summary",
             "traits",
@@ -909,6 +911,33 @@ class TestObservedEstimate:
         plan(definition(), arguments={"shots": shots}, observed=history)
         assert asked == [{"shots": shots}]
 
+    def test_an_unrun_tier_scales_the_default_tiers_history(self, plan):
+        """#1236: history exists for the default tier only. A draft tier is
+        that figure scaled by the steps ratio, not the curated row (which
+        would quote 10 x 4/8 = 5 min)."""
+        spec = definition()
+        spec["variables"]["tier"] = "standard"
+        spec["variables"]["num_inference_steps"] = 8
+        spec["cost_drivers"] = ["tier", "num_inference_steps"]
+        spec["presets"] = {
+            "tier": {
+                "standard": {"num_inference_steps": 8},
+                "draft": {"num_inference_steps": 4},
+            }
+        }
+        spec["steps"][0]["pipeline"]["arguments"]["num_inference_steps"] = (
+            "variable:num_inference_steps"
+        )
+
+        def history(arguments):
+            return observed(minutes=3.0) if arguments.get("tier") is None else None
+
+        answer = plan(spec, arguments={"tier": "draft"}, observed=history)["estimate"]
+        assert answer["basis"] == "derived"
+        assert answer["minutes"] == 1.5
+        assert "observed 3.0 min" in answer["scaled"]
+        assert answer["low_confidence"] is True
+
     def test_a_callable_that_raises_falls_back_to_the_cost_block(self, plan):
         def boom(arguments):
             raise RuntimeError("no history")
@@ -1286,13 +1315,119 @@ class TestUnscalableDrivers:
         answer = plan(template, arguments=arguments)["estimate"]
         assert "low_confidence" not in answer
 
-    def test_music_at_another_duration(self, plan):
-        """#440's case, now a flagged figure rather than `unknown`."""
+    def test_an_undeclared_scalar_driver_is_flagged_not_scaled(self, plan):
+        """#440's case before #1199: a driver no rule scales stays flagged."""
         template = _repo_json(CATALOG_MUSIC)
+        for entry in template["cost"]:
+            entry.pop("scales_with", None)
         answer = plan(template, arguments={"audio_duration": 240})["estimate"]
         assert (answer["minutes"], answer["basis"]) == (3.6, "catalog")
         assert answer["low_confidence"] is True
         assert answer["differs"] == ["audio_duration"]
+
+
+CATALOG_MUSIC_LONG = "workflows/templates/minimax/music-long.json"
+
+
+def proportional(spec, *names):
+    for entry in spec["cost"]:
+        entry["scales_with"] = list(names)
+    return spec
+
+
+class TestDeclaredProportionalDrivers:
+    """#1199 drill: `templates/minimax/music` quoted 3.6 min whatever its
+    `audio_duration`, and `music-long` had no figure at all. A cost entry's
+    `scales_with` names the drivers its figure is proportional to - a scalar
+    variable, or a field summed over a list driver's entries - so the
+    workflow, not the engine, says what a music ceiling costs."""
+
+    def test_a_declared_scalar_scales_in_proportion(self, plan):
+        spec = proportional(definition(), "audio_duration")
+        spec["variables"]["audio_duration"] = 120
+        spec["cost_drivers"] = ["audio_duration"]
+        answer = plan(spec, arguments={"audio_duration": 240})["estimate"]
+        assert (answer["minutes"], answer["basis"]) == (20.0, "derived")
+        assert answer["scaled"] == (
+            "scaled from the curated 10 min: audio_duration 240 vs 120"
+        )
+        assert "differs" not in answer
+
+    def test_a_declared_scalar_at_its_default_is_the_figure(self, plan):
+        spec = proportional(definition(), "audio_duration")
+        spec["variables"]["audio_duration"] = 120
+        spec["cost_drivers"] = ["audio_duration"]
+        answer = plan(spec)["estimate"]
+        assert (answer["minutes"], answer["basis"]) == (10.0, "catalog")
+
+    def test_a_declared_field_is_summed_over_a_list(self, plan):
+        spec = proportional(definition(), "audio_duration")
+        spec["variables"]["shots"] = [
+            {"name": "a", "prompt": "one", "audio_duration": 45},
+            {"name": "b", "prompt": "two", "audio_duration": 45},
+        ]
+        spec["cost_drivers"] = ["shots"]
+        spec["variables"]["takes"] = [{"audio_duration": 45}]
+        spec["cost_drivers"].append("takes")
+        takes = [{"audio_duration": 90}, {"audio_duration": 45}]
+        # `takes` is priced by no for_each, so its sum carries the ratio
+        answer = plan(spec, arguments={"takes": takes})["estimate"]
+        assert (answer["minutes"], answer["basis"]) == (30.0, "derived")
+        assert answer["scaled"].endswith("audio_duration 135 vs 45 over takes")
+
+    def test_every_catalog_scales_with_names_a_driver_or_its_field(self):
+        import pathlib
+
+        root = pathlib.Path(__file__).resolve().parent.parent
+        found = 0
+        for path in sorted((root / "workflows").rglob("*.json")):
+            spec = json.loads(path.read_text())
+            if not isinstance(spec, dict):
+                continue
+            variables = spec.get("variables") or {}
+            drivers = [n for n in spec.get("cost_drivers") or [] if n in variables]
+            reachable = set(drivers)
+            for name in drivers:
+                if isinstance(variables[name], list):
+                    for entry in variables[name]:
+                        if isinstance(entry, dict):
+                            reachable.update(entry)
+            for entry in spec.get("cost") or []:
+                for name in entry.get("scales_with") or []:
+                    found += 1
+                    assert name in reachable, f"{path.name}: scales_with {name}"
+        assert found
+
+    def test_music_scales_with_its_ceiling(self, plan):
+        template = _repo_json(CATALOG_MUSIC)
+        answer = plan(template, arguments={"audio_duration": 240})["estimate"]
+        assert (answer["minutes"], answer["basis"]) == (7.2, "derived")
+        assert "audio_duration 240 vs 120" in answer["scaled"]
+        assert "differs" not in answer
+
+    def test_music_long_quotes_its_defaults(self, plan):
+        template = _repo_json(CATALOG_MUSIC_LONG)
+        answer = plan(template)["estimate"]
+        assert answer["basis"] == "catalog"
+        assert answer["minutes"] is not None
+
+    def test_music_long_scales_with_its_sections_and_their_ceilings(self, plan):
+        template = _repo_json(CATALOG_MUSIC_LONG)
+        curated = next(e for e in template["cost"] if e["device"] == "cuda")["minutes"]
+        defaults = template["variables"]["sections"]
+        was = sum(entry["audio_duration"] for entry in defaults)
+        sections = [
+            dict(
+                defaults[n % len(defaults)],
+                name=f"part_{n}",
+                seconds=85,
+                audio_duration=128,
+            )
+            for n in range(4)
+        ]
+        answer = plan(template, arguments={"sections": sections})["estimate"]
+        assert answer["basis"] == "derived"
+        assert answer["minutes"] == pytest.approx(curated * 512 / was, abs=0.1)
 
     def test_a_thin_bucket_blends_toward_a_flagged_figure(self, plan):
         """One int8 run, blended toward the int4 catalog figure: the blend
@@ -1412,6 +1547,21 @@ class TestSubWorkflowEstimate:
         answer = plan(parent)["estimate"]
         assert (answer["minutes"], answer["partial"]) == (5.0, True)
         assert answer["unpriced"] == ["parent"]
+
+    def test_narration_long_is_priced_through_its_child(self, plan, tmp_path):
+        """The shipped template's own step is a split task; its cost block
+        covers that, so the estimate is the child's and not partial (#1222)."""
+        import shutil
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parent.parent / "workflows" / "templates"
+        for name in ("narration-long.json", "narration-from-takes.json"):
+            shutil.copy(root / name, tmp_path / name)
+        spec = json.loads((tmp_path / "narration-long.json").read_text())
+        answer = plan(spec)["estimate"]
+        assert answer["minutes"] is not None
+        assert (answer["partial"], answer["unpriced"]) == (False, [])
+        assert any("unknown until the run" in note for note in answer["differs"])
 
     def test_a_fully_unpriced_workflow_is_unknown_not_partial(self, plan):
         """No cost block anywhere - 'unknown' already says nobody has a
@@ -2479,3 +2629,223 @@ class TestUnpricedNamesTheChildren:
         assert (answer["minutes"], answer["basis"]) == (None, "unknown")
         assert answer["partial"] is False
         assert [name for name in answer["unpriced"]] == ["child.json"]
+
+
+CATALOG_CHAINED = "workflows/templates/minimax/chained-segments.json"
+
+
+class TestTiersPriceFromTheObservedDefault:
+    """#1236 on the real templates: with this box's history of the default
+    tier, every other tier is priced from it, not from the curated row -
+    `best`, which moves `weights_dtype` too, and a `draft` whose own history
+    is a single run, tempered toward the observed default scaled rather than
+    toward the curated row scaled."""
+
+    @staticmethod
+    def history(by_tier):
+        def answer(arguments):
+            return by_tier.get(arguments.get("tier"))
+
+        return answer
+
+    def quote(self, plan, path, arguments, by_tier):
+        template = _repo_json(path)
+        return plan(template, arguments=arguments, observed=self.history(by_tier))[
+            "estimate"
+        ]
+
+    def test_best_scales_the_observed_default_and_names_weights(self, plan):
+        by_tier = {None: observed(minutes=5.5, runs=7)}
+        args = {"segments": 2}
+        standard = self.quote(plan, CATALOG_CHAINED, args, by_tier)
+        best = self.quote(plan, CATALOG_CHAINED, {**args, "tier": "best"}, by_tier)
+        assert (standard["minutes"], standard["basis"]) == (5.5, "observed")
+        assert best["basis"] == "derived"
+        assert best["scaled"] == (
+            "scaled from the observed 5.5 min (4.1 min of it fixed): "
+            "canvas 1344x768 vs 960x544"
+        )
+        assert best["differs"] == ["weights_dtype"]
+        assert best["low_confidence"] is True
+        # The entry's fixed share (10 of 13.5 min) held, the rest scaled by
+        # (1344 x 768) / (960 x 544), as the curated row is (#1224)
+        share = 10 / 13.5
+        area = (1344 * 768) / (960 * 544)
+        assert best["minutes"] == pytest.approx(
+            5.5 * (share + (1 - share) * area), abs=0.05
+        )
+        assert standard["minutes"] < best["minutes"]
+
+    def test_dialogue_short_best_scales_its_observed_default(self, plan):
+        by_tier = {None: observed(minutes=38.6, runs=5)}
+        best = self.quote(plan, CATALOG_DIALOGUE, {"tier": "best"}, by_tier)
+        assert best["basis"] == "derived"
+        assert best["scaled"].startswith("scaled from the observed 38.6 min")
+        assert "curated" not in best["scaled"]
+        assert best["minutes"] > 38.6
+
+    def test_a_thin_draft_bucket_tempers_toward_the_observed_default(self, plan):
+        by_tier = {
+            None: observed(minutes=5.5, runs=7),
+            "draft": observed(minutes=3.0, runs=1),
+        }
+        args = {"segments": 2}
+        standard = self.quote(plan, CATALOG_CHAINED, args, by_tier)
+        draft = self.quote(plan, CATALOG_CHAINED, {**args, "tier": "draft"}, by_tier)
+        assert draft["basis"] == "observed"
+        assert draft["tempered"] is True
+        assert draft["observed_minutes"] == 3.0
+        # 5.5 with its fixed share (10 of 13.5 min) held and the rest x 4/5
+        # steps - not the curated 13.5 scaled
+        share = 10 / 13.5
+        partner = 5.5 * (share + (1 - share) * 4 / 5)
+        assert draft["curated_minutes"] == pytest.approx(partner, abs=0.05)
+        assert draft["minutes"] == pytest.approx(partner * 2 / 3 + 3.0 / 3, abs=0.05)
+        assert (
+            "scaled from the observed 5.5 min (4.1 min of it fixed): steps 4 vs 5"
+            in draft["scaled"]
+        )
+        assert "curated" not in draft["scaled"]
+        assert "tier" not in (draft.get("differs") or [])
+        assert draft["minutes"] < standard["minutes"]
+
+    def test_a_thin_bucket_with_no_default_history_tempers_toward_curated(self, plan):
+        by_tier = {"draft": observed(minutes=3.0, runs=1)}
+        args = {"segments": 2, "tier": "draft"}
+        draft = self.quote(plan, CATALOG_CHAINED, args, by_tier)
+        assert draft["tempered"] is True
+        # 10 of the curated 13.5 min is the template's fixed_minutes (#1224):
+        # 10 + 3.5 x (the 7.2 / 13.5 proportional factor)
+        assert draft["curated_minutes"] == pytest.approx(11.87, abs=0.05)
+        assert "scaled from the curated 13.5 min" in draft["scaled"]
+
+
+class TestResumedChainEstimate:
+    """A chain resumed from an earlier run's kept segments prices only the
+    segments it renders (chain_resume.kept_count, cost_scaling)."""
+
+    RUN = "20261108-100000-aaaaaaaa"
+
+    def _definition(self, resume_from):
+        variables = {"segments": 4, "resume_from": None}
+        definition = {
+            "cost": [{"device": "cuda", "name": "card", "minutes": 40}],
+            "cost_drivers": ["segments"],
+            "variables": variables,
+            "steps": [
+                {
+                    "pipeline": {
+                        "chain": {
+                            "segments": "variable:segments",
+                            "fps": 4,
+                            "save_segments": True,
+                            "resume_from": "variable:resume_from",
+                        },
+                        "arguments": {},
+                    }
+                }
+            ],
+        }
+        expanded = {"variables": {**variables, "resume_from": resume_from}}
+        return definition, expanded
+
+    @pytest.fixture
+    def kept(self, tmp_path):
+        """Two kept segment files of a dead run, under an active output root."""
+        from dw.runs import activate_output_root, deactivate_output_root
+
+        run = tmp_path / "outputs" / "chained" / self.RUN
+        run.mkdir(parents=True)
+        for index in (0, 1):
+            (run / f"chained.video.0.segment-{index:03d}.mp4").write_bytes(b"")
+        token = activate_output_root(str(tmp_path / "outputs"))
+        yield f"chained/{self.RUN}/chained.video.0.segment-000.mp4"
+        deactivate_output_root(token)
+
+    def test_a_resolvable_resume_prices_the_rest(self, kept):
+        from dw import references
+        from dw.plan import estimate
+
+        reference = references.make_ref(references.OUTPUT, kept)
+        quoted = estimate(*self._definition(reference), {}, "cuda", None, None)
+
+        assert quoted["minutes"] == pytest.approx(20.0)
+        assert "2 of 4 segment(s) kept" in quoted["scaled"]
+
+    def test_a_fan_out_resume_says_the_quote_assumes_every_iteration_resumes(
+        self, kept
+    ):
+        from dw import references
+        from dw.pipeline_processors.chain_resume import FANOUT_NOTE
+        from dw.plan import estimate
+
+        reference = references.make_ref(references.OUTPUT, kept)
+        definition, expanded = self._definition(reference)
+        step = definition["steps"][0]["pipeline"]
+        step["arguments"]["prompt"] = "previous_result:earlier.prompts"
+        quoted = estimate(definition, expanded, {}, "cuda", None, None)
+
+        assert quoted["minutes"] == pytest.approx(20.0)
+        assert FANOUT_NOTE in quoted["differs"]
+
+        plain = estimate(*self._definition(reference), {}, "cuda", None, None)
+        assert FANOUT_NOTE not in (plain.get("differs") or [])
+
+    def test_a_reference_outside_the_chain_step_or_in_prose_is_no_fan_out(self, kept):
+        from dw import references
+        from dw.pipeline_processors.chain_resume import FANOUT_NOTE
+        from dw.plan import estimate
+
+        reference = references.make_ref(references.OUTPUT, kept)
+        definition, expanded = self._definition(reference)
+        step = definition["steps"][0]["pipeline"]
+        step["arguments"]["prompt"] = "a previous_result of a long walk"
+        definition["steps"].append(
+            {
+                "name": "other",
+                "pipeline": {
+                    "type": "X",
+                    "arguments": {"prompt": "previous_result:chained"},
+                },
+            }
+        )
+        quoted = estimate(definition, expanded, {}, "cuda", None, None)
+
+        assert FANOUT_NOTE not in (quoted.get("differs") or [])
+
+    def test_an_unresolvable_resume_prices_every_segment_and_says_so(self, kept):
+        from dw import references
+        from dw.pipeline_processors.chain_resume import UNRESOLVED_NOTE
+        from dw.plan import estimate
+
+        missing = references.make_ref(
+            references.OUTPUT, "chained/latest/none.0.segment-000.mp4"
+        )
+        quoted = estimate(*self._definition(missing), {}, "cuda", None, None)
+
+        assert quoted["minutes"] == pytest.approx(40.0)
+        assert UNRESOLVED_NOTE in quoted["differs"]
+
+    def test_no_resume_is_todays_estimate(self, kept):
+        from dw.plan import estimate
+
+        quoted = estimate(*self._definition(None), {}, "cuda", None, None)
+
+        assert quoted["minutes"] == pytest.approx(40.0)
+        assert not quoted.get("differs")
+
+
+class TestResumedChainWithNothingToRender(TestResumedChainEstimate):
+    """A reference keeping every planned segment is not scaled, and says why (#1306)."""
+
+    def test_the_quote_names_the_refusal_not_a_bare_resume_from(self, kept):
+        from dw import references
+        from dw.plan import estimate
+
+        reference = references.make_ref(references.OUTPUT, kept)
+        definition, expanded = self._definition(reference)
+        expanded["variables"]["segments"] = 2
+        quoted = estimate(definition, expanded, {}, "cuda", None, None)
+
+        assert any("nothing is left to render" in d for d in quoted["differs"])
+        assert quoted["low_confidence"] is True

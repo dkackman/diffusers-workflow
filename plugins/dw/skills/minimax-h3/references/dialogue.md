@@ -56,6 +56,42 @@ Measured, not a limit the model enforces (row 1):
 Prompts of any length reach the model whole: the H3 text encoder doesn't
 truncate (row 7).
 
+## A line per segment in a chain
+
+`templates/minimax/chained-segments` uses `prompt` for every segment, so a
+`<d>` line in it is spoken again in each one. For dialogue across a chain:
+
+- **Give each segment its own line.** Pass `prompts`, one per segment, each
+  with that segment's `<d>` line and no other. Size each line to the
+  segment's clip, as above.
+- **Or pass `lines`** when the prompts don't carry the words in `<d>`, or
+  when an enhanced prompt's wording may drift from the script. It holds one
+  string per segment, exactly as many as there are segments. Unlike
+  `prompts`, the last is not repeated. A chain that holds its audio
+  (`match_audio`, `hold_audio`) is never words-checked.
+- **Cue a carried segment's line past the guide span** (#1308). In a
+  `guide` chain every segment after the first opens with `guide_frames`
+  (22, about 0.92 s at 24 fps) of the previous segment, and the chain trims
+  them off the delivered video. H3 starts a line at frame 0 when the prompt
+  gives no time, so the line opens inside the trim and its first words are
+  lost ("In order to form a more perfect union." delivered as "It is to form
+  a more perfect union."). In the `prompts` entries for segments 2 and on,
+  write the line after a timing cue past the guide span, in the form
+  the shot prompts use: `From 1.5 seconds into the target video, a calm man
+  says: <d>[English] ...</d>`, and leave the first 1.5 s as the speaker's
+  closed-mouth beat. Size the line for the shortened remainder of the clip.
+  The chain's `line_clipped_at_head` finding (a failed words check) says
+  when this is needed. A segment that still opens past its first words
+  re-rolls once; for a long monologue use a narrated take. Segment 1 has no
+  guide, so its line needs no cue.
+- **Check the words.** `check: {"words_similarity_min": 0.8}` with
+  `retries: 1` transcribes each segment's kept audio and re-rolls a segment
+  that speaks a wrong, missing or garbled line. It reads `lines[k]`, else
+  the `<d>` of segment k's prompt. It is off by default, and a segment with
+  no line skips it (`words: null`). The threshold, what it misses, and
+  what to do when every attempt fails are in the `long-form` skill's
+  `references/run-and-repair.md`, from `bench/records/words.md`.
+
 ## Text on screen
 
 Text quoted verbatim in the prompt, as the built-in enhancer writes it,
@@ -82,6 +118,13 @@ rule and none is worth prompt words yet:
     neither spoken nor turned into invented words (rows 6, 6b);
   - a negated noun ("There is no dog in the room") didn't render the
     thing (row 10b);
+  - what a `<d>` line talks about isn't acted out. A woman in a T-shirt
+    saying her brother borrowed her red raincoat drew no raincoat, no
+    brother and no extra arms, with or without the sentence "Spoken words
+    are only heard: the shot shows what it describes, not what anyone talks
+    about" (T2VA turbo, one speaker, static shot;
+    `2026-11-longvideos-claims.md` claim 1, #1193). Row 10's rule is
+    about the prose, not the line;
   - leaving the words out of `<d>` when a track is held for lip sync
     (WanGP's claim) is not needed: one person in frame, Ref2VA with the
     track held, sung and spoken, moved the mouth at the same instants with

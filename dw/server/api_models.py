@@ -105,8 +105,9 @@ class HealthInfo(ApiModel):
     version: str
     worker_alive: bool = Field(
         description="Whether any worker is alive. Workers are on-demand: false on an "
-        "idle server that has not run a job yet, or after a memory clear, is normal - "
-        "no model process is resident, not a fault."
+        "idle server that has not run a job yet is normal - no model process "
+        "is resident, not a fault. A memory clear keeps a live worker alive "
+        "(same pid); it frees models, it does not restart the process."
     )
     current_job: str | None = Field(
         description="The longest-running job; `workers` names every running one."
@@ -412,6 +413,9 @@ class JobSummary(ApiModel):
     rerun_of: str = sometimes(
         "The job this one reran; absent for a job submitted fresh."
     )
+    overrides: dict = sometimes(
+        "The variables a rerun changed from the job it reran; absent when none were."
+    )
 
 
 class StepTiming(ApiModel):
@@ -525,6 +529,12 @@ class JobDetail(JobSummary):
     progress: JobProgress | None = Field(
         default=None,
         description="Where a running (or failed) job had got to; live jobs only.",
+    )
+    host_memory_job_peak_committed_mb: int | float | None = Field(
+        default=None,
+        description="The job's peak committed host memory in MB (anonymous + "
+        "shared + device-mapped pages), the figure the host-RAM gate projects "
+        "from; null until a reading lands.",
     )
     output_kinds: dict[str, OutputKind | None] = sometimes(
         "Each output file's kind; null for a kind the gallery does not "
@@ -690,10 +700,11 @@ class PlanHostMemory(ApiModel):
     projected_mb: int = Field(
         description="The host RAM, in MB, this run is projected to hold at its peak."
     )
-    basis: Literal["observed", "fit"] = Field(
+    basis: Literal["observed", "fit", "declared"] = Field(
         description="`observed`: the largest job peak of this machine's successful "
         "runs with the same pipelines, quantization and offload; `fit`: projected "
-        "from this workflow's own runs for the requested list length."
+        "from this workflow's own runs for the requested list length; `declared`: "
+        "the workflow's own `host_ram_gb`, larger than anything observed."
     )
     runs: int = Field(description="How many runs the figure is read from.")
 
@@ -825,7 +836,8 @@ class GalleryMetadata(ApiModel):
     version: int | None
     media: dict[str, Any] | None = Field(
         description="The probe of an audio or video file, or an image's kind, width, height "
-        "and mode; null for another file."
+        "and mode, or an .otioz's timeline (tracks, clips with durations, members); "
+        "null for another file."
     )
     findings: list[LevelFinding]
     role: Literal["final", "intermediate"] | None = sometimes(

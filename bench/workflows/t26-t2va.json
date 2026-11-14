@@ -1,0 +1,27 @@
+{
+  "id": "BenchT26T2VA",
+  "summary": "One T2VA turbo clip from a probe prompt, for the #1193 claims.",
+  "description": "Task 26 (#1193): templates/minimax/video-with-audio as shipped (4-step fl2v v1.2 turbo LoRA, 5 steps, shift 6/3, int4, sparse, 960x544, 124 frames), composed by its catalog name with only 'prompt' and 'seed' set, so claims 1 (a spoken line acts out what it names) and 5 (a named steady hum reads as a drone; unstated music gets added) are probed on the template a user runs.",
+  "variables": {
+    "prompt": "summary:\n[text generation] The target video shows a quiet street at dusk.\n\ndetailed_description:\nThe target video is in realistic photographic style. [Shot 1] A static wide shot of a quiet street at dusk.\n\noverall_soundscape:\nA quiet street.\n\nnon_diegetic_music:\nNone.",
+    "seed": 1001
+  },
+  "seed": "variable:seed",
+  "steps": [
+    {
+      "name": "clip",
+      "workflow": {
+        "path": "templates/minimax/video-with-audio",
+        "arguments": {
+          "prompt": "variable:prompt",
+          "seed": "variable:seed"
+        }
+      },
+      "result": {
+        "content_type": "video/mp4",
+        "fps": 24,
+        "subfolder": "final"
+      }
+    }
+  ]
+}

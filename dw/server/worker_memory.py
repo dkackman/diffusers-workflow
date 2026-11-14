@@ -17,6 +17,8 @@ import time
 import uuid
 import logging
 
+from ..devices import device_ordinal
+from ..host_memory import process_rss_mb, read_oom_score_adj
 from ..worker_protocol import (
     ClearMemory,
     MemoryCleared,
@@ -190,7 +192,8 @@ def clear_memory(slots, lock, timeout=30, device=None):
         if device is not None:
             busy = workers[0]
             raise WorkerBusy(f"{busy['device']} is running job {busy['job']}")
-        raise WorkerBusy("Every card is running a job")
+        running = ", ".join(f"{w['device']} is running job {w['job']}" for w in workers)
+        raise WorkerBusy(f"Every card is running a job ({running})")
     if device is not None:
         return {
             "cleared": True,
@@ -237,3 +240,29 @@ def clear_slot(slot, lock, timeout):
     slot.last_identity = None
     record_memory(reply.info, slot)
     return {"device": device, "cleared": True, "info": slot.last_memory}
+
+
+def describe_workers(slots, lock):
+    """One /api/health entry per card (`JobManager.workers`)."""
+    with lock:
+        running = [(slot, slot.current_job_id) for slot in slots]
+    described = []
+    for slot, job_id in running:
+        pid = slot.manager.pid() if hasattr(slot.manager, "pid") else None
+        entry = {
+            "device": device_ordinal(slot.device),
+            "name": slot.device_fields()[1],
+            "vram_gb": slot.capacity_gb(),
+            "current_job": job_id,
+            "alive": slot.alive(),
+        }
+        rss = process_rss_mb(pid) if pid is not None else None
+        if rss is not None:
+            entry["host_memory_rss_mb"] = rss
+        if pid is not None and slot.alive():
+            entry["pid"] = pid
+            adj = read_oom_score_adj(pid)
+            if adj is not None:
+                entry["oom_score_adj"] = adj
+        described.append(entry)
+    return described

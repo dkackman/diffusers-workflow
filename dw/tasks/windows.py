@@ -71,7 +71,7 @@ from .video_utils import (
     frames_as_array,
     is_video_location,
     load_audio_video,
-    local_video_path,
+    local_path_or_video,
 )
 
 logger = logging.getLogger("dw")
@@ -358,13 +358,7 @@ def join_windows(videos, source, num_frames, overlap, curve="cosine", fps=None):
     if not isinstance(videos, list) or not videos:
         raise ValueError("join_windows needs a non-empty list of windows in 'videos'")
 
-    path = None
-    if isinstance(source, VideoFileReference):
-        path = source.path
-    elif is_video_location(source):
-        path = local_video_path(source)
-        if path is None:
-            source = load_audio_video(source)
+    path, source = local_path_or_video(source)
     if path is not None:
         # The header and the soundtrack only: the picture is the windows'
         shape = video_shape(path)

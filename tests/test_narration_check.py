@@ -1,0 +1,175 @@
+"""check_narration: the script against the speech, per take."""
+
+import numpy
+import pytest
+
+from dw.tasks import narration_check
+from dw.tasks.narration_check import align, check_narration, normalize
+
+TAKES = ["the cat sat.", "on the mat."]
+
+
+def fake(transcript):
+    return lambda waveform, rate, device, model_name: transcript
+
+
+SILENCE = numpy.zeros((1, 160), dtype=numpy.float32)
+
+
+@pytest.fixture(autouse=True)
+def _no_asr(monkeypatch):
+    monkeypatch.setattr(narration_check, "_asr", fake(""))
+
+
+def run(transcript, takes=TAKES, **kwargs):
+    narration_check._asr = fake(transcript)
+    return check_narration(SILENCE, takes, sample_rate=16000, **kwargs)
+
+
+def test_normalize_lowercases_and_drops_punctuation():
+    assert normalize("The Cat, sat!") == ["the", "cat", "sat"]
+
+
+def test_align_pairs_each_token():
+    pairs = align(["a", "b"], ["a", "x", "b"])
+    assert ("equal", 0, 0) in pairs
+    assert ("inserted", None, 1) in pairs
+    assert ("equal", 1, 2) in pairs
+
+
+def test_a_word_perfect_narration_passes():
+    result = run("The cat sat on the mat")
+    assert all(take["ok"] for take in result["takes"])
+    assert result["failed"] == []
+    assert result["checked"] == 2
+    assert result["worst"]["word_error_rate"] == 0.0
+
+
+def test_a_dropped_word_is_attributed_to_its_take():
+    result = run("the cat on the mat")
+    first, second = result["takes"]
+    assert first["dropped"] == ["sat"]
+    assert first["word_error_rate"] == pytest.approx(1 / 3, abs=1e-3)
+    assert first["ok"] is False
+    assert second["ok"] is True
+    assert result["failed"] == [0]
+    assert result["worst"]["index"] == 0
+
+
+def test_a_looped_take_shows_as_inserted_and_later_takes_still_align():
+    result = run("the cat sat the cat sat on the mat")
+    first, second = result["takes"]
+    assert first["inserted"] == ["the", "cat", "sat"]
+    assert first["ok"] is False
+    assert second["ok"] is True
+    assert second["dropped"] == [] and second["inserted"] == []
+
+
+def test_the_lengths_need_not_match_but_a_string_is_split():
+    text = "One two three. Four five six."
+    narration_check._asr = fake("one two three four five six")
+    result = check_narration(SILENCE, text, sample_rate=16000)
+    assert result["checked"] == 1
+    assert result["takes"][0]["ok"] is True
+
+
+def test_each_failing_take_warns():
+    from dw.events import RunContext, activate_context, deactivate_context
+
+    events = []
+    token = activate_context(RunContext(on_event=events.append))
+    try:
+        run("the cat on the mat")
+    finally:
+        deactivate_context(token)
+    warnings = [e for e in events if e.get("kind") == "narration_take_mismatch"]
+    assert len(warnings) == 1
+    message = warnings[0]["message"]
+    assert "take 0" in message and "0.33" in message and "sat" in message
+
+
+def test_text_and_takes_are_alternatives_exactly_one():
+    check = check_narration
+    with pytest.raises(ValueError, match="text.*takes"):
+        check(SILENCE, None, sample_rate=16000)
+    with pytest.raises(ValueError, match="text.*takes"):
+        check(SILENCE, TAKES, sample_rate=16000, text="hello")
+    narration_check._asr = fake("hello there")
+    ok = check(SILENCE, None, sample_rate=16000, text="hello there.")
+    assert ok["failed"] == []
+
+
+def test_the_threshold_is_a_unit_interval_domain():
+    from dw.task_domains import TASK_ARGUMENT_DOMAINS, UNIT
+
+    assert TASK_ARGUMENT_DOMAINS["check_narration"]["max_word_error_rate"] == UNIT
+
+
+def test_a_misheard_last_word_is_blamed_on_its_own_take():
+    result = run("the cat sad on the mat")
+    first, second = result["takes"]
+    assert first["dropped"] == ["sat"] and first["inserted"] == ["sad"]
+    assert second["ok"] is True
+    assert second["inserted"] == [] and second["dropped"] == []
+    assert result["failed"] == [0]
+
+
+def test_a_pure_insert_at_a_boundary_belongs_to_the_next_take():
+    result = run("the cat sat um on the mat")
+    first, second = result["takes"]
+    assert first["inserted"] == []
+    assert second["inserted"] == ["um"]
+
+
+def test_a_repeat_aligned_after_its_first_copy_belongs_to_the_take_it_repeats():
+    # A short take after the loop makes SequenceMatcher align the first copy
+    # of the repeated take and leave the repeat in front of the next take
+    takes = [
+        "The fox ran far today and then further still.",
+        "Then it slept under a tree.",
+        "It woke.",
+    ]
+    heard = " ".join([takes[0], takes[1], takes[1], takes[2]])
+    result = run(heard, takes=takes)
+    first, looped, last = result["takes"]
+    assert first["ok"] is True
+    assert looped["ok"] is False
+    assert looped["inserted"] == ["then", "it", "slept", "under", "a", "tree"]
+    assert last["ok"] is True
+    assert last["inserted"] == []
+    assert result["failed"] == [1]
+
+
+def test_a_boundary_insertion_is_charged_whole_not_split_at_a_matching_tail():
+    # "um sat" is not the tail of take 0, though "sat" alone is: the run is
+    # decided once, so its last word does not re-match on its own
+    from dw.tasks.narration_check import _owners
+
+    expected = ["the", "cat", "sat", "on", "the", "mat"]
+    heard = ["the", "cat", "sat", "um", "sat", "on", "the", "mat"]
+    pairs = [("equal", k, k) for k in range(3)]
+    pairs += [("inserted", None, 3), ("inserted", None, 4)]
+    pairs += [("equal", k, k + 2) for k in range(3, 6)]
+    dropped, inserted = _owners(pairs, expected, heard, [0, 3])
+    assert inserted == [[], ["um", "sat"]]
+    assert dropped == [[], []]
+
+
+def test_a_restarted_and_abandoned_take_is_charged_to_that_take():
+    from dw.tasks.narration_check import _owners
+
+    expected = ["e", "f", "g", "h", "x", "y"]
+    heard = ["e", "f", "g", "h", "e", "f", "x", "y"]
+    pairs = [("equal", k, k) for k in range(4)]
+    pairs += [("inserted", None, 4), ("inserted", None, 5)]
+    pairs += [("equal", k, k + 2) for k in range(4, 6)]
+    dropped, inserted = _owners(pairs, expected, heard, [0, 4])
+    assert inserted == [["e", "f"], []]
+
+
+def test_transcribe_is_not_a_task_argument_and_audio_is_required():
+    import inspect
+
+    params = inspect.signature(check_narration).parameters
+    assert "transcribe" not in params
+    assert params["audio"].default is inspect.Parameter.empty

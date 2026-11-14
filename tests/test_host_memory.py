@@ -9,6 +9,8 @@ import builtins
 import os
 import sys
 
+import pytest
+
 from dw import host_memory
 
 
@@ -228,3 +230,180 @@ def test_read_oom_score_adj_reads_proc_or_none():
         )
     else:
         assert read_oom_score_adj(os.getpid()) is None
+
+
+# ------------------------------------------------- committed memory (#869)
+
+# A /proc/<pid>/smaps excerpt shaped like lem's H3 worker: an anonymous
+# mapping, a mapped checkpoint, a /dev/zero shared mapping and the NVIDIA
+# driver's /dev/nvidiactl and /dev/nvidia-uvm mappings - the last two are
+# pinned host pages that the kernel files under RssFile
+SMAPS = """\
+7d0000000000-7d0040000000 rw-p 00000000 00:00 0
+Size:            1048576 kB
+Rss:              102400 kB
+Anonymous:        102400 kB
+7d1000000000-7d1100000000 r--p 00000000 103:02 1234                       /models/h3/model.safetensors
+Size:            4194304 kB
+Rss:              409600 kB
+Anonymous:             0 kB
+7d2000000000-7d2000fc0000 rw-s 00000000 00:01 77                         /dev/zero (deleted)
+Size:              16128 kB
+Rss:               16128 kB
+200400000-203400000 rw-s 00000000 00:07 881                              /dev/nvidiactl
+Size:              49152 kB
+Rss:               49152 kB
+Anonymous:             0 kB
+204800000-204a00000 rw-s 204800000 00:07 909                             /dev/nvidia-uvm
+Size:               2048 kB
+Rss:                2048 kB
+200200000-200400000 rw-s 00000000 00:07 891                              /dev/nvidia0
+Size:               2048 kB
+Rss:                   0 kB
+"""
+
+
+def _status(tmp_path, text):
+    path = tmp_path / "status"
+    path.write_text(text)
+    return str(path)
+
+
+def _smaps(tmp_path, text=SMAPS):
+    path = tmp_path / "smaps"
+    path.write_text(text)
+    return str(path)
+
+
+def test_rss_split_reads_shmem(tmp_path):
+    status = _status(
+        tmp_path, "RssAnon:\t102400 kB\nRssFile:\t204800 kB\nRssShmem:\t16384 kB\n"
+    )
+    assert host_memory.rss_split_mb(status)["shmem_mb"] == 16.0
+
+
+def test_device_mapped_pages_are_the_nvidia_mappings_rss(tmp_path):
+    assert host_memory.device_mapped_mb(_smaps(tmp_path)) == (49152 + 2048) / 1024
+
+
+def test_device_mapped_pages_unreadable_is_none(tmp_path):
+    assert host_memory.device_mapped_mb(str(tmp_path / "missing")) is None
+
+
+def test_committed_is_anon_plus_shmem_plus_driver_mapped(tmp_path):
+    status = _status(
+        tmp_path, "RssAnon:\t102400 kB\nRssFile:\t462848 kB\nRssShmem:\t16128 kB\n"
+    )
+    assert host_memory.committed_mb(status, _smaps(tmp_path)) == (
+        (102400 + 16128 + 49152 + 2048) / 1024
+    )
+
+
+def test_committed_without_an_rssanon_line_is_none(tmp_path):
+    status = _status(tmp_path, "VmRSS:\t300 kB\n")
+    assert host_memory.committed_mb(status, _smaps(tmp_path)) is None
+    assert host_memory.committed_rss_mb(None, status_path=status) is None
+
+
+def test_a_failed_status_read_on_linux_is_none_not_full_rss(tmp_path, monkeypatch):
+    # /proc is there, but the process's status is not readable (it exited
+    # between the pid lookup and the read): its full RSS would under-charge
+    monkeypatch.setattr(host_memory, "_has_proc", lambda: True)
+    monkeypatch.setattr(host_memory, "process_rss_mb", lambda pid: 99999.0)
+    monkeypatch.setattr(
+        host_memory, "_proc_path", lambda pid, name: str(tmp_path / f"gone-{name}")
+    )
+    assert host_memory.committed_rss_mb(4242) is None
+
+
+def test_without_proc_a_workers_committed_rss_is_its_whole_rss(monkeypatch):
+    # macOS: no /proc and no split, so the peaks it is compared with are RSS
+    # too, and the whole RSS is the reading on the same basis
+    monkeypatch.setattr(host_memory, "_has_proc", lambda: False)
+    monkeypatch.setattr(host_memory, "process_rss_mb", lambda pid: 1234.0)
+    assert host_memory.committed_rss_mb(4242) == 1234.0
+
+
+def test_the_pid_path_reads_that_processes_status_and_smaps(tmp_path, monkeypatch):
+    _status(tmp_path, "RssAnon:\t102400 kB\nRssShmem:\t16128 kB\n")
+    _smaps(tmp_path)
+    asked = []
+
+    def proc_path(pid, name):
+        asked.append((pid, name))
+        return str(tmp_path / name)
+
+    monkeypatch.setattr(host_memory, "_has_proc", lambda: True)
+    monkeypatch.setattr(host_memory, "_proc_path", proc_path)
+    assert host_memory.committed_rss_mb(4242) == (
+        (102400 + 16128 + 49152 + 2048) / 1024
+    )
+    assert asked == [(4242, "status"), (4242, "smaps")]
+
+
+def test_no_pid_is_no_reading():
+    assert host_memory.committed_rss_mb(None) is None
+    assert host_memory.committed_rss_mb(0) is None
+
+
+def test_fields_carry_the_committed_reading(monkeypatch):
+    monkeypatch.setattr(
+        host_memory,
+        "rss_split_mb",
+        lambda: {"anon_mb": 100.0, "file_mb": 400.0, "shmem_mb": 16.0},
+    )
+    monkeypatch.setattr(host_memory, "device_mapped_mb", lambda: 50.0)
+    fields = host_memory.host_memory_fields()
+    assert fields["host_memory_rss_shmem_mb"] == 16.0
+    assert fields["host_memory_committed_mb"] == 166.0
+
+
+def test_fields_reuse_a_recent_device_reading(monkeypatch):
+    # smaps is read whole (seconds on a large worker); the memory report at
+    # every phase boundary reuses a reading inside DEVICE_TERM_SECONDS
+    reads = []
+
+    def device():
+        reads.append(1)
+        return 50.0
+
+    clock = [1000.0]
+    monkeypatch.setattr(
+        host_memory,
+        "rss_split_mb",
+        lambda: {"anon_mb": 100.0, "file_mb": 400.0, "shmem_mb": 16.0},
+    )
+    monkeypatch.setattr(host_memory, "device_mapped_mb", device)
+    monkeypatch.setattr(host_memory.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(host_memory, "_device_term", [None, None, None])
+    for _ in range(3):
+        assert host_memory.host_memory_fields()["host_memory_committed_mb"] == 166.0
+    assert len(reads) == 1
+    clock[0] += host_memory.DEVICE_TERM_SECONDS + 1
+    host_memory.host_memory_fields()
+    assert len(reads) == 2
+
+
+class TestPrivateClaimsDir:
+    """`_ensure_private_dir` refuses a default claims folder another user can
+    write - a posix rule. Windows reports 0o777 for every ordinary folder, so
+    the mode check there would refuse them all and HostClaims would stop."""
+
+    class _Stat:
+        def __init__(self, mode):
+            self.st_mode = mode
+            self.st_uid = os.geteuid() if hasattr(os, "geteuid") else 0
+
+    def test_a_group_writable_folder_is_refused_on_posix(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(os, "name", "posix")
+        monkeypatch.setattr(os, "lstat", lambda path: self._Stat(0o40775))
+        with pytest.raises(OSError, match="writable by others"):
+            host_memory._ensure_private_dir(str(tmp_path / "claims"))
+
+    def test_the_mode_is_not_read_on_windows(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(os, "name", "nt")
+        monkeypatch.setattr(os, "lstat", lambda path: self._Stat(0o40777))
+        host_memory._ensure_private_dir(str(tmp_path / "claims"))
+
+    def test_a_folder_this_process_made_passes(self, tmp_path):
+        host_memory._ensure_private_dir(str(tmp_path / "claims"))

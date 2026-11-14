@@ -68,8 +68,10 @@ MEDIA_KEY_NAMES = ("image", "video", "audio", "location", "from_file")
 # the key match above would miss them: MiniMax-H3's `latent_anchor` (#1166,
 # `h3_rules.LATENT_ANCHOR_INPUT`, pinned equal by tests/test_h3_anchor.py)
 # takes a video the way a guide's `video` does, and is refused here the same
-# way rather than only by the loader at run time (SE-F061)
-PIPELINE_MEDIA_ARGUMENTS = ("latent_anchor",)
+# way rather than only by the loader at run time (SE-F061); and a chain's
+# `keystone_images` (`chain_rules.CHAIN_KEYSTONE_IMAGES`), one image per
+# segment, which the chain loads itself (#1308 Amendment 1)
+PIPELINE_MEDIA_ARGUMENTS = ("latent_anchor", "keystone_images")
 
 # Task arguments that name a file to read but not by the conventions above -
 # a generic name the key match would miss, so each command declares them on
@@ -81,6 +83,13 @@ PIPELINE_MEDIA_ARGUMENTS = ("latent_anchor",)
 # `clip`, `repaired`, `track` and `fit` (#773, SE-F045), and the joining
 # commands' `videos` list (SE-F045, GHSA-75fh-g499-53cf)
 TASK_MEDIA_ARGUMENTS = RegistryTable("media_arguments")
+
+# Task arguments that name a file inside the command's model repo by a name
+# other than `weight_name` - the spandrel and RIFE commands' `filename`
+# (`register_command(weight_file_arguments=...)`). hf_hub_download joins it
+# onto the cache directory, so it gets validate_weight_name's refusal of an
+# absolute or climbing name, the same as a weight_name (GHSA-ch56-2p9f-95cg)
+TASK_WEIGHT_FILE_ARGUMENTS = RegistryTable("weight_file_arguments")
 
 # Of those, the arguments read from a local file only: no loader fetches
 # them, so an http(s) URL is refused rather than passed on as a location
@@ -694,6 +703,14 @@ def _task_media_errors(step, path, base_dir, errors):
     if not isinstance(arguments, dict):
         return
     command = task.get("command")
+    for key in TASK_WEIGHT_FILE_ARGUMENTS.get(command, ()):
+        value = arguments.get(key)
+        if isinstance(value, str) and not _deferred(value):
+            message = _refusal(validate_weight_name, value, None, f"'{key}'")
+            if message:
+                errors.append(
+                    {"path": f"{path}.task.arguments.{key}", "message": message}
+                )
     local_only = LOCAL_ONLY_TASK_ARGUMENTS.get(command, ())
     for key in TASK_MEDIA_ARGUMENTS.get(command, ()):
         here = f"{path}.task.arguments.{key}"

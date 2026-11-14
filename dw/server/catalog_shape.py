@@ -62,6 +62,8 @@ _MEDIA_ARGUMENTS = frozenset(
         "video",
         "audio",
         "mask_image",
+        # An H3 step's take to edit or sound (#1192: add-sound has no other)
+        "source_video",
         "urls",
         "videos",
         "clip",
@@ -410,6 +412,13 @@ def terse_constraint(rule):
     if not isinstance(rule, dict):
         return rule
     parts = []
+    if rule.get("required"):
+        parts.append("required")
+    minimum = rule.get("min_length")
+    if minimum == 1:
+        parts.append("non-empty")
+    elif minimum is not None:
+        parts.append(f"{minimum}+ chars")
     if rule.get("modulus"):
         parts.append(f"{rule['modulus']}*n+{rule.get('remainder', 0)}")
     low, high = rule.get("min_frames"), rule.get("max_frames")
@@ -474,6 +483,16 @@ def project_listing(
                 for key in COMPACT_FIELDS
                 if key not in _COMPACT_WHEN_SET or detail.get(key)
             }
+            if isinstance(slim.get("cost"), list):
+                # `scales_with` is how `plan.estimate` prices a run off the
+                # defaults; the quote carries the answer, so the compact
+                # listing spends no tokens on the rule (#1199)
+                slim["cost"] = [
+                    {k: v for k, v in entry.items() if k != "scales_with"}
+                    if isinstance(entry, dict)
+                    else entry
+                    for entry in slim["cost"]
+                ]
             if slim.get("constraints"):
                 # A rule that reaches only a list-entry field is reported
                 # beside that field under `lists`, so repeating it here

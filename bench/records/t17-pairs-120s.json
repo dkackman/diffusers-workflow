@@ -1,0 +1,594 @@
+[
+  {
+    "arm": "t17-s1-120s-r030-rebased",
+    "scene": "s1-static",
+    "moments": [
+      "frame:62",
+      "frame:300",
+      "frame:583",
+      "frame:1000",
+      "frame:1501",
+      "frame:2000",
+      "frame:2500",
+      "frame:2868"
+    ],
+    "source": {
+      "measures": {
+        "seam_jump_mean": 0.9432142857142857,
+        "seam_jump_max": 1.86,
+        "seam_look_mean": 1.0325,
+        "seam_look_max": 2.7,
+        "seam_level_step_db_mean": 5.834285714285714,
+        "seam_level_step_db_max": 24.34,
+        "typical_delta_mean": 2.0892857142857144,
+        "texture_fine_seg_last": 1.1076040063709027,
+        "texture_mid_seg_last": 0.43039061064808104,
+        "texture_coarse_seg_last": 0.01932700686817017,
+        "face_fine_seg_last": 0.04024648279647207
+      },
+      "seams": [
+        {
+          "seconds": 5.167,
+          "jump_ratio": 0.69,
+          "look_ratio": 1.98,
+          "level_step_db": 16.58,
+          "typical_delta": 2.0
+        },
+        {
+          "seconds": 9.417,
+          "jump_ratio": 1.15,
+          "look_ratio": 1.57,
+          "level_step_db": 5.73,
+          "typical_delta": 2.0
+        },
+        {
+          "seconds": 13.667,
+          "jump_ratio": 0.78,
+          "look_ratio": 1.16,
+          "level_step_db": 12.1,
+          "typical_delta": 2.0
+        },
+        {
+          "seconds": 17.917,
+          "jump_ratio": 0.98,
+          "look_ratio": 0.47,
+          "level_step_db": 23.54,
+          "typical_delta": 2.0
+        },
+        {
+          "seconds": 22.167,
+          "jump_ratio": 1.04,
+          "look_ratio": 0.46,
+          "level_step_db": 2.85,
+          "typical_delta": 2.0
+        },
+        {
+          "seconds": 26.417,
+          "jump_ratio": 0.89,
+          "look_ratio": 0.43,
+          "level_step_db": 24.17,
+          "typical_delta": 2.0
+        },
+        {
+          "seconds": 30.667,
+          "jump_ratio": 0.88,
+          "look_ratio": 0.31,
+          "level_step_db": 1.96,
+          "typical_delta": 2.0
+        },
+        {
+          "seconds": 34.917,
+          "jump_ratio": 0.87,
+          "look_ratio": 0.63,
+          "level_step_db": 18.52,
+          "typical_delta": 2.0
+        },
+        {
+          "seconds": 39.167,
+          "jump_ratio": 0.82,
+          "look_ratio": 0.41,
+          "level_step_db": 4.08,
+          "typical_delta": 2.0
+        },
+        {
+          "seconds": 43.417,
+          "jump_ratio": 0.75,
+          "look_ratio": 0.81,
+          "level_step_db": 0.37,
+          "typical_delta": 2.0
+        },
+        {
+          "seconds": 47.667,
+          "jump_ratio": 0.78,
+          "look_ratio": 0.92,
+          "level_step_db": 24.34,
+          "typical_delta": 2.0
+        },
+        {
+          "seconds": 51.917,
+          "jump_ratio": 0.75,
+          "look_ratio": 0.36,
+          "level_step_db": 3.78,
+          "typical_delta": 2.0
+        },
+        {
+          "seconds": 56.167,
+          "jump_ratio": 1.29,
+          "look_ratio": 2.37,
+          "level_step_db": 1.93,
+          "typical_delta": 2.0
+        },
+        {
+          "seconds": 60.417,
+          "jump_ratio": 0.86,
+          "look_ratio": 0.68,
+          "level_step_db": 1.49,
+          "typical_delta": 2.0
+        },
+        {
+          "seconds": 64.667,
+          "jump_ratio": 0.85,
+          "look_ratio": 0.47,
+          "level_step_db": 1.32,
+          "typical_delta": 2.0
+        },
+        {
+          "seconds": 68.917,
+          "jump_ratio": 0.74,
+          "look_ratio": 0.74,
+          "level_step_db": 0.05,
+          "typical_delta": 2.0
+        },
+        {
+          "seconds": 73.167,
+          "jump_ratio": 0.96,
+          "look_ratio": 1.53,
+          "level_step_db": 1.71,
+          "typical_delta": 2.0
+        },
+        {
+          "seconds": 77.417,
+          "jump_ratio": 0.76,
+          "look_ratio": 0.47,
+          "level_step_db": 0.27,
+          "typical_delta": 2.0
+        },
+        {
+          "seconds": 81.667,
+          "jump_ratio": 0.73,
+          "look_ratio": 0.53,
+          "level_step_db": 0.59,
+          "typical_delta": 2.0
+        },
+        {
+          "seconds": 85.917,
+          "jump_ratio": 0.69,
+          "look_ratio": 0.65,
+          "level_step_db": 4.57,
+          "typical_delta": 2.07
+        },
+        {
+          "seconds": 90.167,
+          "jump_ratio": 0.84,
+          "look_ratio": 0.56,
+          "level_step_db": 3.56,
+          "typical_delta": 2.07
+        },
+        {
+          "seconds": 94.417,
+          "jump_ratio": 0.76,
+          "look_ratio": 0.53,
+          "level_step_db": 0.15,
+          "typical_delta": 2.0
+        },
+        {
+          "seconds": 98.667,
+          "jump_ratio": 1.23,
+          "look_ratio": 1.82,
+          "level_step_db": 1.87,
+          "typical_delta": 2.48
+        },
+        {
+          "seconds": 102.917,
+          "jump_ratio": 1.07,
+          "look_ratio": 1.9,
+          "level_step_db": 1.55,
+          "typical_delta": 2.48
+        },
+        {
+          "seconds": 107.167,
+          "jump_ratio": 1.24,
+          "look_ratio": 1.89,
+          "level_step_db": 1.44,
+          "typical_delta": 2.0
+        },
+        {
+          "seconds": 111.417,
+          "jump_ratio": 1.08,
+          "look_ratio": 1.26,
+          "level_step_db": 2.04,
+          "typical_delta": 2.16
+        },
+        {
+          "seconds": 115.667,
+          "jump_ratio": 1.07,
+          "look_ratio": 1.3,
+          "level_step_db": 2.51,
+          "typical_delta": 2.62
+        },
+        {
+          "seconds": 119.917,
+          "jump_ratio": 1.86,
+          "look_ratio": 2.7,
+          "level_step_db": 0.29,
+          "typical_delta": 2.62
+        }
+      ],
+      "texture": {
+        "fine": [
+          0.0,
+          0.15334517616385027,
+          0.36683259200135493,
+          0.49667659932345387,
+          0.7713517464612992,
+          0.9314887724824489,
+          1.0123241014626363,
+          1.1076040063709027
+        ],
+        "mid": [
+          0.0,
+          0.04591805925855212,
+          0.12383734756733206,
+          0.1793955659595618,
+          0.27112590517376556,
+          0.3186770924337395,
+          0.3560729875623916,
+          0.43039061064808104
+        ],
+        "coarse": [
+          0.0,
+          0.0018679258900470392,
+          0.015490472469675862,
+          0.02192424808923237,
+          0.05175386349388206,
+          0.012653034895651024,
+          0.046590245329657345,
+          0.01932700686817017
+        ]
+      },
+      "face_texture": {
+        "fine": [
+          0.0,
+          0.015167130564098437,
+          0.12309067426459207,
+          0.12689992361469846,
+          0.15003529283126704,
+          0.01129735428088317,
+          0.1233189866295138,
+          0.04024648279647207
+        ],
+        "mid": [
+          0.0,
+          0.09213803415701627,
+          0.14758993036246842,
+          0.10169097434619166,
+          0.10143820315481389,
+          0.018883519785137505,
+          0.10940684489191058,
+          0.010156863945357199
+        ],
+        "coarse": [
+          0.0,
+          0.0013690755403704359,
+          0.11575207550746598,
+          0.23291343411926282,
+          0.1845605158279526,
+          0.37441778849122875,
+          0.3569688225676066,
+          0.3325853675759032
+        ]
+      },
+      "motion_mean": 0.6359326839447021
+    },
+    "refined": {
+      "measures": {
+        "seam_jump_mean": 0.7339285714285715,
+        "seam_jump_max": 1.93,
+        "seam_look_mean": 1.1560714285714284,
+        "seam_look_max": 2.96,
+        "seam_level_step_db_mean": 5.962142857142857,
+        "seam_level_step_db_max": 24.94,
+        "typical_delta_mean": 2.0410714285714286,
+        "texture_fine_seg_last": 1.0932291171246382,
+        "texture_mid_seg_last": 0.4061496299894634,
+        "texture_coarse_seg_last": 0.0035929966129105866,
+        "face_fine_seg_last": 0.085910805999141
+      },
+      "seams": [
+        {
+          "seconds": 5.167,
+          "jump_ratio": 0.4,
+          "look_ratio": 1.07,
+          "level_step_db": 17.11,
+          "typical_delta": 2.0
+        },
+        {
+          "seconds": 9.417,
+          "jump_ratio": 0.68,
+          "look_ratio": 1.14,
+          "level_step_db": 6.19,
+          "typical_delta": 2.0
+        },
+        {
+          "seconds": 13.667,
+          "jump_ratio": 0.54,
+          "look_ratio": 1.1,
+          "level_step_db": 12.25,
+          "typical_delta": 2.0
+        },
+        {
+          "seconds": 17.917,
+          "jump_ratio": 0.61,
+          "look_ratio": 1.06,
+          "level_step_db": 24.46,
+          "typical_delta": 2.0
+        },
+        {
+          "seconds": 22.167,
+          "jump_ratio": 0.41,
+          "look_ratio": 0.62,
+          "level_step_db": 2.97,
+          "typical_delta": 2.0
+        },
+        {
+          "seconds": 26.417,
+          "jump_ratio": 0.4,
+          "look_ratio": 0.54,
+          "level_step_db": 24.94,
+          "typical_delta": 2.0
+        },
+        {
+          "seconds": 30.667,
+          "jump_ratio": 0.4,
+          "look_ratio": 0.22,
+          "level_step_db": 2.01,
+          "typical_delta": 2.0
+        },
+        {
+          "seconds": 34.917,
+          "jump_ratio": 0.35,
+          "look_ratio": 0.25,
+          "level_step_db": 18.8,
+          "typical_delta": 2.0
+        },
+        {
+          "seconds": 39.167,
+          "jump_ratio": 0.35,
+          "look_ratio": 0.37,
+          "level_step_db": 4.16,
+          "typical_delta": 2.0
+        },
+        {
+          "seconds": 43.417,
+          "jump_ratio": 0.46,
+          "look_ratio": 0.61,
+          "level_step_db": 0.26,
+          "typical_delta": 2.0
+        },
+        {
+          "seconds": 47.667,
+          "jump_ratio": 0.81,
+          "look_ratio": 1.22,
+          "level_step_db": 24.59,
+          "typical_delta": 2.0
+        },
+        {
+          "seconds": 51.917,
+          "jump_ratio": 0.63,
+          "look_ratio": 1.11,
+          "level_step_db": 3.79,
+          "typical_delta": 2.0
+        },
+        {
+          "seconds": 56.167,
+          "jump_ratio": 0.99,
+          "look_ratio": 2.75,
+          "level_step_db": 1.93,
+          "typical_delta": 2.0
+        },
+        {
+          "seconds": 60.417,
+          "jump_ratio": 0.45,
+          "look_ratio": 0.06,
+          "level_step_db": 1.49,
+          "typical_delta": 2.0
+        },
+        {
+          "seconds": 64.667,
+          "jump_ratio": 0.59,
+          "look_ratio": 0.33,
+          "level_step_db": 1.33,
+          "typical_delta": 2.0
+        },
+        {
+          "seconds": 68.917,
+          "jump_ratio": 0.54,
+          "look_ratio": 1.11,
+          "level_step_db": 0.05,
+          "typical_delta": 2.0
+        },
+        {
+          "seconds": 73.167,
+          "jump_ratio": 0.75,
+          "look_ratio": 1.64,
+          "level_step_db": 1.71,
+          "typical_delta": 2.0
+        },
+        {
+          "seconds": 77.417,
+          "jump_ratio": 0.54,
+          "look_ratio": 1.03,
+          "level_step_db": 0.27,
+          "typical_delta": 2.0
+        },
+        {
+          "seconds": 81.667,
+          "jump_ratio": 0.5,
+          "look_ratio": 0.9,
+          "level_step_db": 0.59,
+          "typical_delta": 2.0
+        },
+        {
+          "seconds": 85.917,
+          "jump_ratio": 0.59,
+          "look_ratio": 1.2,
+          "level_step_db": 4.58,
+          "typical_delta": 2.0
+        },
+        {
+          "seconds": 90.167,
+          "jump_ratio": 0.57,
+          "look_ratio": 0.88,
+          "level_step_db": 3.58,
+          "typical_delta": 2.0
+        },
+        {
+          "seconds": 94.417,
+          "jump_ratio": 0.52,
+          "look_ratio": 0.59,
+          "level_step_db": 0.16,
+          "typical_delta": 2.0
+        },
+        {
+          "seconds": 98.667,
+          "jump_ratio": 0.58,
+          "look_ratio": 0.62,
+          "level_step_db": 1.88,
+          "typical_delta": 2.0
+        },
+        {
+          "seconds": 102.917,
+          "jump_ratio": 1.77,
+          "look_ratio": 2.85,
+          "level_step_db": 1.55,
+          "typical_delta": 2.0
+        },
+        {
+          "seconds": 107.167,
+          "jump_ratio": 1.57,
+          "look_ratio": 2.77,
+          "level_step_db": 1.44,
+          "typical_delta": 2.0
+        },
+        {
+          "seconds": 111.417,
+          "jump_ratio": 1.09,
+          "look_ratio": 1.06,
+          "level_step_db": 2.05,
+          "typical_delta": 2.03
+        },
+        {
+          "seconds": 115.667,
+          "jump_ratio": 1.53,
+          "look_ratio": 2.31,
+          "level_step_db": 2.52,
+          "typical_delta": 2.56
+        },
+        {
+          "seconds": 119.917,
+          "jump_ratio": 1.93,
+          "look_ratio": 2.96,
+          "level_step_db": 0.28,
+          "typical_delta": 2.56
+        }
+      ],
+      "texture": {
+        "fine": [
+          0.0,
+          0.1370009950914923,
+          0.39077931460384646,
+          0.5385901045640593,
+          0.8384000231862799,
+          0.9491490388061438,
+          1.0028427347809536,
+          1.0932291171246382
+        ],
+        "mid": [
+          0.0,
+          0.03397233036929515,
+          0.1031412430904608,
+          0.15496158451434483,
+          0.24467156606991705,
+          0.2761338770236644,
+          0.3589307099640712,
+          0.4061496299894634
+        ],
+        "coarse": [
+          0.0,
+          0.0010607630715225192,
+          0.00129836602440019,
+          0.004033584385524984,
+          0.02669515306480456,
+          0.009685606260966047,
+          0.03178443736746201,
+          0.0035929966129105866
+        ]
+      },
+      "face_texture": {
+        "fine": [
+          0.0,
+          0.04398417837780762,
+          0.1547125311548257,
+          0.1832527190643538,
+          0.17692661868671514,
+          0.071654757971895,
+          0.16902806785841507,
+          0.085910805999141
+        ],
+        "mid": [
+          0.0,
+          0.10754319038342584,
+          0.17875576171266588,
+          0.10968900394252303,
+          0.1568015854940254,
+          0.005439656500560437,
+          0.09736684176884565,
+          0.0028736296164729408
+        ],
+        "coarse": [
+          0.0,
+          0.004009678284475416,
+          0.1000805483273801,
+          0.20730275269289963,
+          0.15697542553148014,
+          0.3526050332096982,
+          0.3369300072861077,
+          0.30872034432115203
+        ]
+      },
+      "motion_mean": 0.5277568101882935
+    },
+    "fidelity": {
+      "psnr_db": [
+        31.14,
+        30.68,
+        28.1,
+        26.01,
+        24.06,
+        23.45,
+        24.17,
+        23.74
+      ],
+      "ssim": [
+        0.9113,
+        0.9082,
+        0.8746,
+        0.8344,
+        0.809,
+        0.8118,
+        0.8261,
+        0.8274
+      ]
+    }
+  }
+]

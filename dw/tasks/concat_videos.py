@@ -43,7 +43,9 @@ def concat_videos(
     fps=None,
     match_levels=None,
     match_levels_dbfs=None,
+    match_levels_lufs=None,
     sample_rate=None,
+    continuous_joins=False,
 ):
     """Concatenate a list of videos into a single AudioVideo.
 
@@ -95,7 +97,11 @@ def concat_videos(
         match_levels: Even the shots' loudness out before joining -
             "rms" matches perceived level (the measurement
             get_gallery_metadata reports as mean_dbfs), "peak" matches the
-            loudest sample. Off by default. Shots generated independently
+            loudest sample, "lufs" matches BS.1770 integrated loudness (the
+            unit editors deliver in; a shot under 0.4 s is matched by rms
+            and warned as match_levels_short_shot; the inner_level_step
+            check on inputs that are themselves joins measures rms under
+            "lufs"). Off by default. Shots generated independently
             land 10 dB apart routinely, and that jump is the one seam
             artifact none of the fade controls can hide, because it is not
             at the seam but either side of it. Left off, a spread wide
@@ -105,9 +111,15 @@ def concat_videos(
             one wider than 3 dB is reported as an inner_level_step warning
         match_levels_dbfs: The level match_levels moves every shot to -
             defaults to -1 dBFS for "peak" and -20 dBFS for "rms". A shot
-            that would clip at the target is held at -0.5 dBFS peak instead,
+            that would clip at the target is held at -3 dBFS peak ("rms",
+            leaving room for the AAC mux) or -0.5 ("peak") instead,
             reported as a match_levels_held warning, with a per-shot log
             event naming the hold
+        match_levels_lufs: The loudness "lufs" moves every shot to -
+            defaults to -16 LUFS (-23 is EBU R128 broadcast). A shot whose
+            true peak would pass -1 dBTP is held there, reported as a
+            match_levels_held warning. Refused with any other measure, and
+            match_levels_dbfs is refused with "lufs"
         sample_rate: The rate the joined soundtrack is at. Shots that come
             from different sources routinely carry different rates - a 24 kHz
             voice clip paired onto a 32 kHz generation - and unlike a level
@@ -115,6 +127,15 @@ def concat_videos(
             highest rate among the inputs is chosen and the rest are
             resampled up to it, with a warning naming which. Give this to pin
             the target instead (#108)
+        continuous_joins: The joins continue one take rather than cut
+            between shots - a chain segment repaired in place and spliced
+            back between its neighbours (#1169). Each seam is recorded
+            without `hard_cut`, so analyze_seams measures its frame jump as
+            it does a chain's own seams, and its audio gets the default
+            few-ms declick (no `seam_fade_ms` recorded, so seam_hole still
+            measures it); `seam_fade_ms: 0` butt-joins it. A cut device
+            beside it (`seam_fade_ms` above 0, `audio_bleed_ms`) is refused.
+            Default false: every seam is a cut
 
     Returns:
         One AudioVideo; its audio is None when no input video carries any
@@ -122,9 +143,10 @@ def concat_videos(
     if not isinstance(videos, list) or not videos:
         raise ValueError("concat_videos needs a non-empty list of videos")
 
+    seam_fade_ms = _continuous_seam_fade(continuous_joins, seam_fade_ms, audio_bleed_ms)
     _warn_bleed_without_seam(videos, audio_bleed_ms)
     names, videos, clips, waveforms, sample_rate = _prepare_inputs(
-        videos, match_levels, match_levels_dbfs, sample_rate
+        videos, match_levels, match_levels_dbfs, sample_rate, match_levels_lufs
     )
 
     frames, audio, shots = _joined_tracks(
@@ -139,6 +161,7 @@ def concat_videos(
         audio_bleed_ms,
         audio_bleed_gain_db,
         seam_fade_ms,
+        continuous_joins,
     )
 
     _warn_fps_override(videos, names, fps)
@@ -159,6 +182,7 @@ def _joined_tracks(
     audio_bleed_ms,
     audio_bleed_gain_db,
     seam_fade_ms,
+    continuous_joins=False,
 ):
     """The prepared inputs joined end to end, as (frames, audio, shots):
     each video's frames after its head trim, its soundtrack joined at the
@@ -189,6 +213,7 @@ def _joined_tracks(
                 len(frames) - start_frame,
                 start_sample if has_audio else None,
                 sample_rate,
+                hard_cut=not continuous_joins,
             )
         )
 
@@ -219,6 +244,33 @@ def _joined_tracks(
             _record_seam_fade(shots[first_shot[index]], applied)
         audio_native_rate = getattr(video, "sample_rate", None)
     return frames, audio, shots
+
+
+def _continuous_seam_fade(continuous_joins, seam_fade_ms, audio_bleed_ms):
+    """The seam fade the joins take: the caller's own - None, the default
+    declick, unless asked - with a cut's devices refused for continuous
+    joins."""
+    if not isinstance(continuous_joins, bool):
+        raise ValueError(
+            f"concat_videos needs 'continuous_joins' as true or false, got "
+            f"{continuous_joins!r}"
+        )
+    if not continuous_joins:
+        return seam_fade_ms
+    if seam_fade_ms:
+        raise ValueError(
+            "concat_videos: 'continuous_joins' joins one take with only the "
+            "default few-ms declick, so "
+            f"'seam_fade_ms' ({seam_fade_ms}) cannot be set beside it - a fade "
+            "is a cut's device"
+        )
+    if audio_bleed_ms:
+        raise ValueError(
+            "concat_videos: 'continuous_joins' joins one take, so "
+            f"'audio_bleed_ms' ({audio_bleed_ms}) cannot be set beside it - a "
+            "bleed covers a cut"
+        )
+    return seam_fade_ms
 
 
 def _record_seam_fade(shot, applied):
@@ -254,7 +306,9 @@ def _warn_fps_override(videos, names, fps):
             )
 
 
-def _prepare_inputs(videos, match_levels, match_levels_dbfs, sample_rate):
+def _prepare_inputs(
+    videos, match_levels, match_levels_dbfs, sample_rate, match_levels_lufs=None
+):
     """The inputs loaded, named and made ready to join: (names, videos,
     clips, waveforms, sample_rate) - every track at one rate and, when
     asked, one level."""
@@ -263,12 +317,20 @@ def _prepare_inputs(videos, match_levels, match_levels_dbfs, sample_rate):
     check_same_frame_size(clips, "concat_videos")
     native = _input_waveforms(videos)
     if match_levels:
-        _warn_inner_level_steps(videos, names, native, match_levels)
+        _warn_inner_level_steps(
+            videos, names, native, "rms" if match_levels == "lufs" else match_levels
+        )
     waveforms, sample_rate = reconcile_sample_rates(
         "concat_videos", videos, names, native, sample_rate
     )
     waveforms = level_waveforms(
-        "concat_videos", waveforms, match_levels, match_levels_dbfs, names
+        "concat_videos",
+        waveforms,
+        match_levels,
+        match_levels_dbfs,
+        names,
+        sample_rate,
+        match_levels_lufs,
     )
     return names, videos, clips, waveforms, sample_rate
 
@@ -368,7 +430,15 @@ def _silence_channels(waveforms):
 
 
 def _shot_records_for(
-    video, name, index, head_trim, start_frame, frame_count, start_sample, sample_rate
+    video,
+    name,
+    index,
+    head_trim,
+    start_frame,
+    frame_count,
+    start_sample,
+    sample_rate,
+    hard_cut=True,
 ):
     """The shot records one input contributes to the joined picture."""
     inner = getattr(video, "shots", None)
@@ -382,7 +452,7 @@ def _shot_records_for(
         )
     else:
         video_shots = [shot_record(name, start_frame, frame_count, start_sample or 0)]
-    if index and video_shots:
+    if index and video_shots and hard_cut:
         # Every seam this step draws is a cut it chose to make, unlike a
         # chain's inner segments (continuity is expected there) - marking
         # it lets analyze_seams tell the two apart (#466)

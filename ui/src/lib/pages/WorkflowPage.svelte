@@ -3,7 +3,7 @@
   import DownloadLink from '../DownloadLink.svelte'
   import JsonEditor from '../editor/JsonEditor.svelte'
   import VariablesForm from '../editor/VariablesForm.svelte'
-  import { attentionBackendVariables } from '../editor'
+  import { attentionBackendVariables, requiredVariables } from '../editor'
   import { api } from '../api'
   import { goWs, route } from '../router.svelte'
   import { leafOf } from '../grouping'
@@ -246,6 +246,7 @@
         bind:overrides
         idPrefix="var-"
         backendVariables={attentionBackendVariables(workflow)}
+        requiredVariables={requiredVariables(workflow)}
       />
     </div>
   {:else}

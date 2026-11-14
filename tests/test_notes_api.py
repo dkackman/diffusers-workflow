@@ -101,9 +101,14 @@ def snapshot(root):
     change. The job history's SQLite file and its -wal/-shm sidecars are left
     out: the client fixture keeps them beside the studio, and a WAL
     checkpoint rewrites their bytes on the connection's schedule, not the
-    request's."""
+    request's. So is the host-claims folder (conftest's DW_HOST_CLAIMS_DIR,
+    under the same tmp_path): the dispatcher's runner thread publishes its
+    claims and takes its .lock there on its own cadence, so two snapshots
+    around one request would race it (a `...84.lock` entry failed CI once)."""
+    claims = os.environ.get("DW_HOST_CLAIMS_DIR")
     found = {}
-    for current, _dirs, names in os.walk(root):
+    for current, dirs, names in os.walk(root):
+        dirs[:] = [d for d in dirs if os.path.join(current, d) != claims]
         for name in names:
             if name.startswith("jobs.sqlite"):
                 continue

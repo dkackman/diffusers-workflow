@@ -1,0 +1,170 @@
+[
+  {
+    "arm": "r2-anchor25-keystone-s1-s1166",
+    "scene": "s1-static",
+    "seed": 1166,
+    "job_id": "8accd0c37f91",
+    "status": "succeeded",
+    "error": null,
+    "output": "BenchS1Static/20261104-171753-8ceecde3/final/BenchS1Static-chained_keyframe_to_video_audio.0-0.0.mp4",
+    "measures": {
+      "seam_jump_mean": 0.898,
+      "seam_jump_max": 1.16,
+      "seam_look_mean": 1.092,
+      "seam_look_max": 1.61,
+      "seam_level_step_db_mean": 10.75,
+      "seam_level_step_db_max": 15.17,
+      "texture_fine_seg_last": 0.3091306667237105,
+      "texture_mid_seg_last": 0.11781661838143291,
+      "texture_coarse_seg_last": 0.031219723125928647,
+      "wall_minutes": 13.29447234471639
+    }
+  },
+  {
+    "arm": "r2-anchor50-keystone-s1-s1166",
+    "scene": "s1-static",
+    "seed": 1166,
+    "job_id": "e5c7b013538f",
+    "status": "succeeded",
+    "error": null,
+    "output": "BenchS1Static/20261104-173111-4b68e3c3/final/BenchS1Static-chained_keyframe_to_video_audio.0-0.0.mp4",
+    "measures": {
+      "seam_jump_mean": 1.296,
+      "seam_jump_max": 1.74,
+      "seam_look_mean": 2.038,
+      "seam_look_max": 2.89,
+      "seam_level_step_db_mean": 5.590000000000001,
+      "seam_level_step_db_max": 14.46,
+      "texture_fine_seg_last": 0.2927186701695517,
+      "texture_mid_seg_last": 0.12763558260519758,
+      "texture_coarse_seg_last": 0.03874023726477519,
+      "wall_minutes": 13.27784192164739
+    }
+  },
+  {
+    "arm": "r2-lf-lookhold-anchor25-s1-s1166",
+    "scene": "s1-static",
+    "seed": 1166,
+    "job_id": "835379468ec3",
+    "status": "succeeded",
+    "error": null,
+    "output": "BenchS1Static/20261104-174427-ff3d1339/final/BenchS1Static-chained_keyframe_to_video_audio.0-0.0.mp4",
+    "measures": {
+      "seam_jump_mean": 0.786,
+      "seam_jump_max": 0.96,
+      "seam_look_mean": 0.626,
+      "seam_look_max": 0.85,
+      "seam_level_step_db_mean": 4.09,
+      "seam_level_step_db_max": 9.44,
+      "texture_fine_seg_last": 0.33088128461276445,
+      "texture_mid_seg_last": 0.2077561367344242,
+      "texture_coarse_seg_last": 0.00950641334071453,
+      "wall_minutes": 11.510376906394958
+    }
+  },
+  {
+    "arm": "r2-lf-lookhold-anchor50-s1-s1166",
+    "scene": "s1-static",
+    "seed": 1166,
+    "job_id": "d8b17df7dfb9",
+    "status": "succeeded",
+    "error": null,
+    "output": "BenchS1Static/20261104-175558-fade325a/final/BenchS1Static-chained_keyframe_to_video_audio.0-0.0.mp4",
+    "measures": {
+      "seam_jump_mean": 0.752,
+      "seam_jump_max": 0.93,
+      "seam_look_mean": 0.766,
+      "seam_look_max": 1.19,
+      "seam_level_step_db_mean": 5.018,
+      "seam_level_step_db_max": 7.77,
+      "texture_fine_seg_last": 0.18292503066820404,
+      "texture_mid_seg_last": 0.17800797159938728,
+      "texture_coarse_seg_last": 0.011156075845243023,
+      "wall_minutes": 11.491561122735341
+    }
+  },
+  {
+    "arm": "r2-anchor25-keystone-s1-s2",
+    "scene": "s1-static",
+    "seed": 2,
+    "job_id": "e34a5aebaab4",
+    "status": "succeeded",
+    "error": null,
+    "output": "BenchS1Static/20261104-180728-b9fccaaf/final/BenchS1Static-chained_keyframe_to_video_audio.0-0.0.mp4",
+    "measures": {
+      "seam_jump_mean": 0.8320000000000001,
+      "seam_jump_max": 1.02,
+      "seam_look_mean": 1.186,
+      "seam_look_max": 1.79,
+      "seam_level_step_db_mean": 14.018,
+      "seam_level_step_db_max": 27.16,
+      "texture_fine_seg_last": 0.3113798549487045,
+      "texture_mid_seg_last": 0.1128822421544756,
+      "texture_coarse_seg_last": 0.031291867810279345,
+      "wall_minutes": 13.297784868876139
+    }
+  },
+  {
+    "arm": "r2-anchor50-keystone-s1-s2",
+    "scene": "s1-static",
+    "seed": 2,
+    "job_id": "08e32162985c",
+    "status": "succeeded",
+    "error": null,
+    "output": "BenchS1Static/20261104-224226-52a65249/final/BenchS1Static-chained_keyframe_to_video_audio.0-0.0.mp4",
+    "measures": {
+      "seam_jump_mean": 1.068,
+      "seam_jump_max": 1.59,
+      "seam_look_mean": 1.672,
+      "seam_look_max": 2.71,
+      "seam_level_step_db_mean": 10.809999999999999,
+      "seam_level_step_db_max": 24.1,
+      "texture_fine_seg_last": 0.2463045971257111,
+      "texture_mid_seg_last": 0.10665196703853218,
+      "texture_coarse_seg_last": 0.04088462104969011,
+      "wall_minutes": 15.136626398563385
+    }
+  },
+  {
+    "arm": "r2-lf-lookhold-anchor25-s1-s2",
+    "scene": "s1-static",
+    "seed": 2,
+    "job_id": "41355297a083",
+    "status": "succeeded",
+    "error": null,
+    "output": "BenchS1Static/20261104-225732-347bb719/final/BenchS1Static-chained_keyframe_to_video_audio.0-0.0.mp4",
+    "measures": {
+      "seam_jump_mean": 0.74,
+      "seam_jump_max": 0.83,
+      "seam_look_mean": 0.76,
+      "seam_look_max": 0.9,
+      "seam_level_step_db_mean": 4.086,
+      "seam_level_step_db_max": 8.18,
+      "texture_fine_seg_last": 0.29678905334572925,
+      "texture_mid_seg_last": 0.23382692820831796,
+      "texture_coarse_seg_last": 0.014787088108712279,
+      "wall_minutes": 11.527834463119508
+    }
+  },
+  {
+    "arm": "r2-lf-lookhold-anchor50-s1-s2",
+    "scene": "s1-static",
+    "seed": 2,
+    "job_id": "c8bfadf286ce",
+    "status": "succeeded",
+    "error": null,
+    "output": "BenchS1Static/20261104-230903-c6d7f38c/final/BenchS1Static-chained_keyframe_to_video_audio.0-0.0.mp4",
+    "measures": {
+      "seam_jump_mean": 0.774,
+      "seam_jump_max": 0.88,
+      "seam_look_mean": 0.8859999999999999,
+      "seam_look_max": 1.25,
+      "seam_level_step_db_mean": 2.46,
+      "seam_level_step_db_max": 4.34,
+      "texture_fine_seg_last": 0.23561469742714838,
+      "texture_mid_seg_last": 0.2448724676437046,
+      "texture_coarse_seg_last": 0.04016118180555415,
+      "wall_minutes": 11.522495539983113
+    }
+  }
+]

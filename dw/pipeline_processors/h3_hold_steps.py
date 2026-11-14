@@ -88,6 +88,32 @@ def refine_sigmas(strength, num_points, shift):
     return sigmas.float()
 
 
+SHIFT_PROVIDED_SIGMAS = "shift_provided_sigmas"
+
+
+def set_verbatim_sigmas(scheduler, sigmas, device):
+    """`scheduler.set_timesteps(sigmas=...)` with the list taken as given.
+
+    The refine schedule is finished - `refine_sigmas` shifts it, and an explicit
+    list is the caller's own - so the scheduler must not shift it again.
+    diffusers' H3 scheduler decides that from its `shift_provided_sigmas`
+    config: unset meant verbatim until 0.44.0, where unset is refused and a
+    checkpoint may ship it true. It is held false for this one call and put
+    back, since the scheduler is cached and a stock run reads it afterwards.
+    A scheduler without the key (diffusers before it existed) is verbatim
+    already."""
+    config = getattr(scheduler, "config", None)
+    before = config.get(SHIFT_PROVIDED_SIGMAS) if config is not None else False
+    if config is None or SHIFT_PROVIDED_SIGMAS not in config or before is False:
+        scheduler.set_timesteps(sigmas=sigmas, device=device)
+        return
+    scheduler.register_to_config(**{SHIFT_PROVIDED_SIGMAS: False})
+    try:
+        scheduler.set_timesteps(sigmas=sigmas, device=device)
+    finally:
+        scheduler.register_to_config(**{SHIFT_PROVIDED_SIGMAS: before})
+
+
 def explicit_sigmas(points, strength):
     """A caller's own `refine_sigmas` schedule as the float32 tensor
     `set_timesteps(sigmas=...)` takes, used verbatim - no shift is applied.
@@ -179,6 +205,32 @@ def encode_audio_span(encoder, components, waveform, num_latents):
     )
     middle = silence.shape[1] // 2
     return fit_latents(latents, num_latents, silence[:, middle : middle + 1])
+
+
+def row_timestep_plan(block_state, device, condition_video_timestep):
+    """The row-timestep plan `set_timesteps` builds, over the state's
+    `timesteps` and `audio_timesteps`, with the conditioning video rows at
+    `condition_video_timestep(timestep)` and the reference audio rows clean
+    (1.0) - stock pins the video ones at max(t, keyframe_noise_aug)."""
+    return [
+        tuple(
+            tensor.to(device)
+            for tensor in MiniMaxH3SetTimestepsStep.build_row_timesteps(
+                block_state.video_indices,
+                block_state.audio_indices,
+                block_state.num_condition_video_rows,
+                block_state.num_condition_audio_rows,
+                block_state.text_indices.numel(),
+                float(timestep),
+                float(audio_timestep),
+                condition_video_timestep(float(timestep)),
+                1.0,
+            )
+        )
+        for timestep, audio_timestep in zip(
+            block_state.timesteps, block_state.audio_timesteps
+        )
+    ]
 
 
 @dataclasses.dataclass
@@ -407,32 +459,18 @@ class DwH3RefineScheduleStep(ModularPipelineBlocks):
             sigmas = refine_sigmas(
                 strength, block_state.num_inference_steps, components.scheduler.shift
             )
-        # Verbatim: set_timesteps(sigmas=...) applies no shift. The audio
+        # Verbatim: the list is a finished schedule, never shifted. The audio
         # schedule only has to match the video's for the loop's audio step,
         # which steps no row when every one is held
-        components.scheduler.set_timesteps(sigmas=sigmas, device=device)
-        components.audio_scheduler.set_timesteps(sigmas=sigmas, device=device)
+        set_verbatim_sigmas(components.scheduler, sigmas, device)
+        set_verbatim_sigmas(components.audio_scheduler, sigmas, device)
         block_state.timesteps = components.scheduler.timesteps
         block_state.audio_timesteps = components.audio_scheduler.timesteps
-        block_state.row_timestep_plan = [
-            tuple(
-                tensor.to(device)
-                for tensor in MiniMaxH3SetTimestepsStep.build_row_timesteps(
-                    block_state.video_indices,
-                    block_state.audio_indices,
-                    block_state.num_condition_video_rows,
-                    block_state.num_condition_audio_rows,
-                    block_state.text_indices.numel(),
-                    float(timestep),
-                    float(audio_timestep),
-                    max(float(timestep), components.keyframe_noise_aug),
-                    1.0,
-                )
-            )
-            for timestep, audio_timestep in zip(
-                block_state.timesteps, block_state.audio_timesteps
-            )
-        ]
+        block_state.row_timestep_plan = row_timestep_plan(
+            block_state,
+            device,
+            lambda timestep: max(timestep, components.keyframe_noise_aug),
+        )
 
         # Only the generated rows: FL2VA and Ref2VA conditioning rows lead
         latents = block_state.latents

@@ -33,6 +33,7 @@ Read them in this order and each introduces one new idea on top of the last.
 | Example | What it introduces |
 | ------- | ------------------ |
 | [music.json](music.json) | The minimal modular pipeline: a `components_manager` owns device placement, and the output is audio, not video |
+| [music-long.json](music-long.json) | A piece longer than one Music 3 track (practical to about 300 s): a `sections` list of `{name, caption, lyrics, seconds, audio_duration}`, each generated on the one loaded model, cut to its `seconds` at a quiet point in its last `section_end_snap_seconds` (8), and crossfaded into the next (`crossfade_ms` 1500). Sections are generated independently, so key, tempo and mix can change at a seam: repeat the style tags in every caption and listen at the joins. A section's lyric sets how long it runs; validation warns (`text_may_overrun`) past about 0.73 words a second of its `seconds` |
 | [video-with-audio.json](video-with-audio.json) | The baseline text-to-video-audio run: per-component SDNQ quantization, mixed offload, the turbo LoRA, and muxing video + audio into one file |
 | [video-with-audio-768p.json](video-with-audio-768p.json) | The same run at 1344x768 on the 768p turbo LoRA's own schedule: what a checkpoint swap costs in arguments (shift, alpha, canvas) |
 
@@ -122,6 +123,7 @@ the hosted API accept 4. Output audio is 32 kHz stereo.
 | Example | What it introduces |
 | ------- | ------------------ |
 | [regional-edit.json](regional-edit.json) | Fixing one region of a good take: `source_video` is the take, a `mask_image` marks what to regenerate (white) and keep (black), `refine_strength` 0.9 replaces an object there, and `hold_audio` is the take itself, so the rest of the picture and the whole soundtrack stay the take's |
+| [add-sound.json](add-sound.json) | A new soundtrack under a finished clip's own picture: `source_video` with no mask and no `hold_audio` is an audio pass, so every video row stays the clip's and only the audio is generated, on the base model's dialogue schedule (no turbo LoRA, 12 steps). For a silent clip whose speech, if any, was generated with that picture; it is not a re-voice, since a new line over an on-screen speaker has no mouth to match and plays as voice-over. `listen_scale` 0.5 is about 23% faster and the fastest that keeps lip sync; 0.25 loses it |
 | [face-repair.json](face-repair.json) | Repairing a good take's small, soft face: `crop_face_track` cuts the face out on H3's `17n + 5` grid (24 fps, 124 to 345 padded frames, refused before H3 loads), a t2va refine at `refine_strength` 0.6 redraws it with `hold_audio` holding the take's own soundtrack so the mouth stays on the speech, and `paste_face_track` puts it back. The gate is 0.2/0.3 of the frame width, for H3's smaller faces. A ref2va refine with the cast picture holds identity slightly better, at about 4x the denoise time |
 
 ## Writing the prompt with a model
@@ -158,10 +160,24 @@ segments means half the compounding.
 
 | Example | What it introduces |
 | ------- | ------------------ |
-| [chained-segments.json](chained-segments.json) | The simplest chain: fixed segment count, `last_frame` continuity, trimmed seams, crossfaded audio |
+| [chained-segments.json](chained-segments.json) | The simplest chain: fixed segment count, `guide` continuity by default (voice and motion carry across the seam) with `shot` presets (`static_long` for a static take past ~30 s: keystone at the last slot); `continuity: last_frame` gives trimmed seams and crossfaded audio |
 | [chain-matched-to-audio.json](chain-matched-to-audio.json) | `match_audio`: a supplied track decides the length, and the final video is muxed against the original, seamless track |
 | [chain-video-continuity.json](chain-video-continuity.json) | `last_segment` continuity: the previous segment's tail rides along as a video reference, carrying motion and voice across the seam |
 | [chain-matched-and-aligned.json](chain-matched-and-aligned.json) | Everything together for a long soundtrack-driven take, with per-segment prompts and crash-safe `save_segments` |
+| [narrated-take.json](narrated-take.json) | A long take of one speaker held to a narration retimed with `templates/narration-retime`: a `narration_lines` step writes one prompt and line per segment, the guide chain matches and holds the track, and a `stop_after` probe is continued with `resume_from` |
+| [repair-segment.json](repair-segment.json) | Re-rendering one interior segment of a finished chain (run with `keep_segments` on) between its neighbours, held to both by guides with their audio, and splicing it into the take itself, so everything outside the span stays the take's |
+
+The four chain templates, `dialogue-short` and `music-video` take a `tier`
+variable (default `standard`) that moves canvas, steps and weights together
+through `presets`, measured on the long-form bench (`bench/records/tiers.md`);
+any variable you pass still wins. `draft` drops the step count (4 on the FL2VA
+chain, 5 on the Ref2VA templates) for about 30-45% less wall time and keeps the
+standard take's staging at the same seed, so approve blocking and timing on it,
+never texture. `standard` is the templates' own defaults (960x544, int4). `best`
+is 1344x768 on int8 weights, the least crust measured, at about 1.3-1.7x
+standard's wall time; it re-stages, so it is a render of its own, not a final
+of the draft. It declares 69 GB of host RAM (`host_ram_gb`, 51 for the other
+two), so a 64 GB host refuses it up front.
 
 ## Going long: cuts (digital shorts)
 
@@ -181,6 +197,7 @@ same clip as an audio reference in each shot, as
 | Example | What it introduces |
 | ------- | ------------------ |
 | [dialogue-short.json](dialogue-short.json) | A five-shot sitcom scene: Z-Image draws the cast, one `for_each` step over a `shots` list generates a shot per entry - its prompt, its references, its length - on one loaded model, and `concat_videos` gathers the episode |
+| [shots-batch.json](shots-batch.json) | A batch of independent shots on one loaded model, each its own prompt and length, with no shared subject and no concat: promote each clip with `keep_output` and cut them together with [assemble-and-score.json](../assemble-and-score.json) as a separate job |
 | [music-video.json](music-video.json) | A music video cut to a generated song, one `shots` list driving both `for_each` groups: `slice_audio` deals each entry its frame-exact piece, the shot lip-syncs to it, and `pair_audio` lays the unbroken track over the finished edit, cut to the length of the edit by `fit: "video"` so the soundtrack follows the list rather than a constant. An entry is `name`, `prompt`, `start_frame`, `num_frames` (on H3's `17n + 5` grid, 124 to 345, never snapped), `lead_frames` and `cut_frames`: the shot renders `num_frames` from the song sliced `lead_frames` early, and a `trim` step (`trim_video`) keeps `cut_frames` after the lead, so the video is the sum of the `cut_frames`. `song` defaults to the song written; `asset:...` uses an existing one |
 | [music-video-cuts.json](music-video-cuts.json) | Plans a music video's cuts without generating anything: `transcribe_audio` times the song's lines, `analyze_beats` finds its beats, and `plan_cuts` aligns the song's own `lyrics` to them and answers a `shots` list of `start_frame`, `num_frames`, `lead_frames`, `cut_frames`, lyric and kind (on H3's grid, with a `lead_s` run-up, default 0.5 s) and `render_frames` to quote the cost from. Write a prompt per shot, drop `lyric` and `kind`, and render the list with `music-video.json` |
 

@@ -53,6 +53,27 @@ def workflow(drivers=None, **variables):
     return definition
 
 
+class TestResumedChainRows:
+    def test_a_resumed_chain_run_is_not_a_full_run_s_basis(self):
+        definition = workflow(["num_frames"], num_frames=124, resume=None)
+        definition["steps"] = [
+            {
+                "chain": {"resume_from": "variable:resume"},
+                "arguments": {},
+            }
+        ]
+        observed = observed_for(
+            definition,
+            [
+                run(10 * MINUTE, {"resume": "output:r/a"}),
+                run(30 * MINUTE, {}),
+            ],
+        )
+
+        assert observed["runs"] == 1
+        assert observed["cold_minutes"] == 30.0
+
+
 class TestComparability:
     def test_runs_at_the_same_driver_values_are_one_bucket(self):
         """Different prompts and seeds, same frame count: one figure."""
@@ -655,6 +676,34 @@ NO_DRIVERS = {
 }
 
 
+# Text-valued cost drivers, per template: a choice drawn from a short list. The
+# exemption is keyed on the template so that one template's choice cannot hide
+# a text driver appearing in another (#1243).
+H3_KNOBS = {"weights_dtype", "lora_model_name", "attention_backend"}
+TEXT_DRIVER_EXTRAS = {
+    "workflows/templates/minimax/chained-segments.json": {
+        "continuity",
+        "shot",
+        "anchor",
+        "tier",
+    },
+    "workflows/templates/minimax/chain-matched-and-aligned.json": {"tier"},
+    "workflows/templates/minimax/chain-matched-to-audio.json": {"tier"},
+    "workflows/templates/minimax/chain-video-continuity.json": {"tier"},
+    "workflows/templates/minimax/dialogue-short.json": {"tier"},
+    "workflows/templates/minimax/music-video.json": {"tier"},
+    "workflows/templates/minimax/narrated-take.json": {"continuity", "shot", "tier"},
+    "workflows/templates/minimax/repair-segment.json": {"tier"},
+}
+
+
+def _text_drivers_allowed(relative):
+    allowed = set(TEXT_DRIVER_EXTRAS.get(relative, ()))
+    if relative.startswith("workflows/templates/minimax/"):
+        allowed |= H3_KNOBS
+    return allowed
+
+
 class TestTheCatalogsDriversAreReal:
     """The sweep: a driver naming no variable checks nothing, which is the
     failure this whole module exists to avoid."""
@@ -686,9 +735,12 @@ class TestTheCatalogsDriversAreReal:
         The exception is a configuration choice drawn from a short list:
         H3's weights dtype and LoRA move the wall clock and are text, and
         bucket by exact value (#866, Q5). So is the attention backend, which
-        changes the wall clock by 2-4x (#931)."""
+        changes the wall clock by 2-4x (#931). The chained-segments template's
+        continuity, shot and anchor are likewise short-list choices: a guide
+        chain measured 13.5 min against last_frame's 9.6. The long-form
+        templates' `tier` (draft, standard, best) is one too: it selects a
+        bundle of canvas, steps and weights (bench/records/tiers.md)."""
         never = {"seed", "prompt", "negative_prompt"}
-        choices = {"weights_dtype", "lora_model_name", "attention_backend"}
         for path in sorted(
             glob.glob(
                 os.path.join(REPO_ROOT, "workflows", "**", "*.json"), recursive=True
@@ -700,7 +752,8 @@ class TestTheCatalogsDriversAreReal:
             where = os.path.relpath(path, REPO_ROOT)
             for name in definition.get("cost_drivers") or []:
                 assert name not in never, f"{where} buckets on '{name}'"
-                assert name in choices or not isinstance(variables.get(name), str), (
+                allowed = _text_drivers_allowed(where.replace(os.sep, "/"))
+                assert name in allowed or not isinstance(variables.get(name), str), (
                     f"{where} buckets on '{name}', whose default is text"
                 )
 
@@ -932,7 +985,11 @@ class TestByCard:
         return JobHistory(tmp_path / "jobs.sqlite")
 
     def _costs(self, history, monkeypatch, default):
-        monkeypatch.setattr("dw.devices.is_default_device", lambda device=None: default)
+        # The default card is this card's model when `default`, else another
+        monkeypatch.setattr(
+            "dw.devices.card_name",
+            lambda device=None: self.CARD if default else "Some Other Card",
+        )
         costs = ObservedCosts(history)
         # What device() would have read from torch on a 3090 box
         costs._device = ("cuda", self.CARD)
@@ -975,13 +1032,31 @@ class TestByCard:
 
         assert costs.observed("templates/x", workflow())["runs"] == 2
 
-    def test_rows_from_before_jobs_carried_a_device_do_not_count_off_the_default_card(
+    def test_rows_from_before_jobs_carried_a_device_do_not_count_for_another_model(
         self, tmp_path, monkeypatch
     ):
         history = self._history(tmp_path, [None, None, "cuda:1 " + self.CARD])
         costs = self._costs(history, monkeypatch, default=False)
 
         assert costs.observed("templates/x", workflow())["runs"] == 1
+
+    def test_old_rows_count_for_the_non_default_card_of_the_same_model(
+        self, tmp_path, monkeypatch
+    ):
+        """#1278: two identical cards, only pre-device rows, plan routed to
+        cuda:1 - the rows ran on the default card, a card of the same name."""
+        monkeypatch.setattr(
+            "dw.devices.card_name", lambda device=None: "NVIDIA GeForce RTX 3090"
+        )
+        monkeypatch.setattr("dw.devices.detect_device", lambda: "cuda:0")
+        costs = ObservedCosts(self._history(tmp_path, [None] * 7))
+        costs._device = ("cuda", "NVIDIA GeForce RTX 3090")
+        costs._card = "NVIDIA GeForce RTX 3090"
+
+        observed = costs.observed("templates/x", workflow(), card="cuda:1")
+
+        assert observed is not None
+        assert observed["runs"] == 7
 
     def _two_card_costs(self, tmp_path, monkeypatch, devices):
         names = {
@@ -992,6 +1067,7 @@ class TestByCard:
         monkeypatch.setattr(
             "dw.devices.is_default_device", lambda device=None: device == "cuda:0"
         )
+        monkeypatch.setattr("dw.devices.detect_device", lambda: "cuda:0")
         costs = ObservedCosts(self._history(tmp_path, devices))
         costs._device = ("cuda", names["cuda:0"])
         costs._card = names["cuda:0"]

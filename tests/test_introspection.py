@@ -357,6 +357,26 @@ def test_a_match_levels_dbfs_without_match_levels_is_warned_about():
         assert workflow_argument_warnings(step(match_levels="rms")) == []
 
 
+def test_a_match_levels_lufs_without_lufs_mode_is_warned_about():
+    for step in (_concat_step, _dissolve_step):
+        unset = workflow_argument_warnings(step(match_levels_lufs=-16))
+        assert len(unset) == 1 and "match_levels_lufs" in unset[0]
+        refused = workflow_argument_warnings(
+            step(match_levels_lufs=-16, match_levels="rms")
+        )
+        assert len(refused) == 1 and "refused" in refused[0]
+        assert (
+            workflow_argument_warnings(step(match_levels_lufs=-16, match_levels="lufs"))
+            == []
+        )
+        both = workflow_argument_warnings(
+            step(match_levels_dbfs=-20, match_levels="lufs")
+        )
+        assert (
+            len(both) == 1 and "refused" in both[0] and "match_levels_dbfs" in both[0]
+        )
+
+
 def test_a_bleed_over_one_input_is_warned_about():
     """One input has no seam for audio_bleed_ms to act on (#565), whether
     `videos` is a literal list or a variable holding one."""
@@ -370,3 +390,27 @@ def test_a_bleed_over_one_input_is_warned_about():
     arguments = {"shots": ["a.mp4", "b.mp4"]}
     assert workflow_argument_warnings(definition, arguments) == []
     assert workflow_argument_warnings(_concat_step(audio_bleed_ms=100)) == []
+
+
+def test_match_levels_pairing_warnings_resolve_variable_references():
+    """#1303: match_levels, _dbfs and _lufs sourced from variables are
+    checked against the values the run will see, not the raw reference."""
+    for step in (_concat_step, _dissolve_step):
+        definition = step(
+            match_levels="variable:meas", match_levels_lufs="variable:target"
+        )
+        definition["variables"] = {"meas": "lufs", "target": -18}
+        assert workflow_argument_warnings(definition, {}) == []
+        refused = workflow_argument_warnings(definition, {"meas": "rms"})
+        assert len(refused) == 1 and "refused" in refused[0]
+        assert "only applies to 'match_levels'" in refused[0]
+        unset = workflow_argument_warnings(definition, {"meas": None})
+        assert len(unset) == 1 and "has no effect" in unset[0]
+
+        dbfs = step(match_levels="variable:meas", match_levels_dbfs="variable:db")
+        dbfs["variables"] = {"meas": "lufs", "db": -20}
+        refused = workflow_argument_warnings(dbfs, {})
+        assert len(refused) == 1 and "refused" in refused[0]
+        dbfs["variables"]["meas"] = None
+        unset = workflow_argument_warnings(dbfs, {})
+        assert len(unset) == 1 and "has no effect" in unset[0]

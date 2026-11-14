@@ -49,6 +49,7 @@ logger = logging.getLogger("dw")
         "audio_bleed_ms": NON_NEGATIVE,
         "audio_bleed_gain_db": FINITE,
         "match_levels_dbfs": FINITE,
+        "match_levels_lufs": NON_POSITIVE,
         "seam_fade_ms": NON_NEGATIVE,
         "fps": POSITIVE,
         "sample_rate": POSITIVE,
@@ -71,6 +72,7 @@ def _handle_concat_videos(task, arguments, previous_pipelines):
         "fade_in_frames": NON_NEGATIVE,
         "fade_out_frames": NON_NEGATIVE,
         "match_levels_dbfs": FINITE,
+        "match_levels_lufs": NON_POSITIVE,
         "fps": POSITIVE,
     },
     media_arguments=("videos",),
@@ -81,6 +83,30 @@ def _handle_dissolve_videos(task, arguments, previous_pipelines):
     from .dissolve_videos import dissolve_videos
 
     return dissolve_videos(**arguments)
+
+
+@register_command(
+    "export_timeline",
+    implementation="dw.tasks.timeline_export.export_timeline",
+    summary=(
+        "Write a joined video's shots as an editable OpenTimelineIO .otioz "
+        "bundle (DaVinci Resolve 18.5+), one clip per shot."
+    ),
+    parameter_descriptions={
+        "video": "The joined video - an asset:/output: reference or a path to a stored file.",
+        "sources": "One file per shot, in order, for each clip to point at its own file; default the shots' spans of video.",
+        "shots": "Shot records; else the video's own from the run manifest, else the whole file is one clip.",
+        "name": "The timeline's name.",
+    },
+    media_arguments=("sources",),
+    result_content_type="application/x-otioz",
+)
+def _handle_export_timeline(task, arguments, previous_pipelines):
+    """Write a joined video's shots as an OpenTimelineIO bundle"""
+    logger.debug("Exporting a timeline")
+    from .timeline_export import export_timeline
+
+    return export_timeline(**arguments)
 
 
 @register_command(

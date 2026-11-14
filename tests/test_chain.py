@@ -12,14 +12,15 @@ from dataclasses import dataclass
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import numpy
 import pytest
 import torch
 from PIL import Image
 
-from dw.pipeline_processors.chain import (
-    ChainConfig,
+from dw.pipeline_processors import chain as chain_module
+from dw.pipeline_processors.chain import ChainConfig, run_chain
+from dw.pipeline_processors.chain_config import (
     plan_segments,
-    run_chain,
     snap_frames,
     validate_frame_snap,
 )
@@ -637,6 +638,26 @@ class TestSaveSegments:
         # cleaned - a cached Result stays retainable
         assert result.frames.cleaned is False
 
+    def test_kept_segment_files_are_named_on_the_take_shots(self, tmp_path):
+        # repair-segment (#1169) finds a take's segment files from its own
+        # shots rather than by globbing names a rerun's '-2' dedupe can mix
+        pipeline = self.make_pipeline(tmp_path)
+        (tmp_path / f"{pipeline.file_prefix}.0.segment-000.mp4").write_bytes(b"")
+
+        result = run_chain(pipeline, self.chain(keep_segments=True), {})
+
+        names = [shot["segment_file"] for shot in result.shots]
+        assert names[0] == f"{pipeline.file_prefix}.0.segment-000-2.mp4"
+        assert names[1:] == [
+            f"{pipeline.file_prefix}.0.segment-{index:03d}.mp4" for index in (1, 2)
+        ]
+        assert all((tmp_path / name).is_file() for name in names)
+
+    def test_segment_files_cleaned_up_are_not_named(self, tmp_path):
+        pipeline = self.make_pipeline(tmp_path)
+        result = run_chain(pipeline, self.chain(), {})
+        assert not any("segment_file" in shot for shot in result.shots)
+
     def test_generated_audio_is_muxed_into_the_segment_files(self, tmp_path):
         import av
 
@@ -921,6 +942,249 @@ class TestGuideContinuity:
         assert result.frames[124].getpixel((0, 0)) == (50, guide_frames, 7)
         assert result.frames[-1].getpixel((0, 0)) == (100, 123, 7)
 
+    def test_backoff_carries_the_frames_one_block_before_the_end(self):
+        pipeline = FakePipeline(self.output)
+
+        run_chain(
+            pipeline,
+            self.chain(guide_frames=22, guide_backoff=17),
+            self.arguments(),
+        )
+
+        guide = pipeline.calls[1]["guides"][0]
+        got = [frame.getpixel((0, 0)) for frame in guide["video"].frames]
+        assert got == [(0, f, 7) for f in range(85, 107)]
+        samples = frames_to_samples(22, self.FPS, self.RATE)
+        assert guide["video"].audio.shape[-1] == samples
+
+    def test_backoff_trims_every_segment_but_the_last(self):
+        pipeline = FakePipeline(self.output)
+
+        result = run_chain(
+            pipeline,
+            self.chain(guide_frames=22, guide_backoff=17),
+            self.arguments(),
+        )
+
+        assert len(result.frames) == 124 + 2 * (124 - 22) - 2 * 17
+        # segment 1 ends 17 frames short, the last segment keeps its tail
+        assert result.frames[106].getpixel((0, 0)) == (0, 106, 7)
+        assert result.frames[107].getpixel((0, 0)) == (50, 22, 7)
+        assert result.frames[-1].getpixel((0, 0)) == (100, 123, 7)
+        assert [s["num_frames"] for s in result.shots] == [107, 85, 102]
+        assert [s["start_frame"] for s in result.shots] == [0, 107, 192]
+
+    def test_backoff_slices_the_held_audio_to_the_same_span(self):
+        pipeline = FakePipeline(self.output)
+
+        result = run_chain(
+            pipeline,
+            self.chain(guide_frames=22, guide_backoff=17),
+            self.arguments(),
+        )
+
+        per_frame = frames_to_samples(1, self.FPS, self.RATE)
+        # the held span is 22 frames of segment 1's audio (value 1.0), taken
+        # before the tail, so it is all segment 1's
+        held = pipeline.calls[1]["guides"][0]["video"].audio
+        assert held.shape[-1] == frames_to_samples(22, self.FPS, self.RATE)
+        assert bool((held == 1.0).all())
+        # picture and track stay the same length
+        total = result.audio.shape[-1]
+        assert abs(
+            total - frames_to_samples(len(result.frames), self.FPS, self.RATE)
+        ) <= (3 * per_frame)
+        assert [s["num_samples"] for s in result.shots][-1] > 0
+
+    def test_keystone_sets_every_later_keyframe_to_segment_1_frame_0(self):
+        pipeline = FakePipeline(self.output)
+        keyframe = solid_frame((1, 2, 3))
+
+        run_chain(
+            pipeline,
+            self.chain(keystone="segment_1"),
+            self.arguments(image=keyframe),
+        )
+
+        assert pipeline.calls[0]["image"] is keyframe
+        assert pipeline.calls[1]["image"].getpixel((0, 0)) == (0, 0, 7)
+        assert pipeline.calls[2]["image"].getpixel((0, 0)) == (0, 0, 7)
+
+    def test_keystone_is_logged_per_seam(self):
+        pipeline = FakePipeline(self.output)
+        with patch.object(chain_module, "emit_log") as emit_log:
+            run_chain(
+                pipeline,
+                self.chain(keystone="segment_1"),
+                self.arguments(image=solid_frame((1, 2, 3))),
+            )
+        notes = [call.args[0] for call in emit_log.call_args_list]
+        assert any("seam 1/2: keystone applied" in n for n in notes)
+        assert any("seam 2/2: keystone applied" in n for n in notes)
+
+    def _seam_notes(self, chain, arguments):
+        with patch.object(chain_module, "emit_log") as emit_log:
+            run_chain(FakePipeline(self.output), chain, arguments)
+        return [
+            call.args[0]
+            for call in emit_log.call_args_list
+            if "keystone applied" in call.args[0]
+        ]
+
+    def test_keystone_log_says_where_the_slot_put_the_frame(self):
+        image = solid_frame((1, 2, 3))
+        opens = self._seam_notes(
+            self.chain(keystone="segment_1"), self.arguments(image=image)
+        )
+        assert opens and all("opens on segment 1's frame 0" in n for n in opens)
+        ends = self._seam_notes(
+            self.chain(keystone="segment_1", keystone_slot="last"),
+            self.arguments(image=image),
+        )
+        assert ends and all("ends on segment 1's frame 0" in n for n in ends)
+        assert not any("opens on" in n for n in ends)
+
+    def test_keystone_on_t2va_logs_nothing_applied(self):
+        # run_chain warns the keystone does nothing; the seams must not
+        # then claim it was applied
+        assert (
+            self._seam_notes(self.chain(keystone="segment_1"), self.arguments()) == []
+        )
+
+    def test_keystone_leaves_the_guide_as_the_carried_tail(self):
+        pipeline = FakePipeline(self.output)
+
+        result = run_chain(
+            pipeline,
+            self.chain(keystone="segment_1"),
+            self.arguments(image=solid_frame((1, 2, 3))),
+        )
+
+        guide = pipeline.calls[1]["guides"][0]
+        got = [frame.getpixel((0, 0)) for frame in guide["video"].frames]
+        assert got == [(0, f, 7) for f in range(102, 124)]
+        assert len(result.frames) == 124 + 2 * (124 - 22)
+        # segment 1's frame 0 appears once, at the head of the output
+        assert result.frames[0].getpixel((0, 0)) == (0, 0, 7)
+        assert result.frames[124].getpixel((0, 0)) == (50, 22, 7)
+
+    def test_keystone_is_refused_without_guide_continuity(self):
+        chain = self.chain(keystone="segment_1", continuity="last_frame")
+        with pytest.raises(ValueError, match="only carry"):
+            ChainConfig(chain, self.arguments())
+
+    def test_keystone_refuses_an_unknown_value_naming_both(self):
+        with pytest.raises(ValueError, match="none, segment_1"):
+            ChainConfig(self.chain(keystone="segment_2"), self.arguments())
+
+    def test_keystone_none_is_todays_chain(self):
+        key = solid_frame((1, 2, 3))
+        plain = run_chain(
+            FakePipeline(self.output), self.chain(), self.arguments(image=key)
+        )
+        pipeline = FakePipeline(self.output)
+        none = run_chain(
+            pipeline, self.chain(keystone="none"), self.arguments(image=key)
+        )
+
+        assert [f.getpixel((0, 0)) for f in none.frames] == [
+            f.getpixel((0, 0)) for f in plain.frames
+        ]
+        assert pipeline.calls[1]["image"].getpixel((0, 0)) == (0, 102, 7)
+
+    def test_keystone_on_t2va_warns_that_it_does_nothing(self):
+        # t2va passes no keyframe, so there is nothing for the keystone to replace
+        with patch.object(chain_module, "emit_warning") as warn:
+            run_chain(
+                FakePipeline(self.output),
+                self.chain(keystone="segment_1"),
+                self.arguments(),
+            )
+
+        assert any(
+            "keystone" in c.args[0] and "t2va" in c.args[0] for c in warn.call_args_list
+        )
+
+    def test_keystone_with_a_keyframe_does_not_warn(self):
+        with patch.object(chain_module, "emit_warning") as warn:
+            run_chain(
+                FakePipeline(self.output),
+                self.chain(keystone="segment_1"),
+                self.arguments(image=solid_frame((1, 2, 3))),
+            )
+
+        assert not any("keystone" in c.args[0] for c in warn.call_args_list)
+
+    def test_keystone_frame_is_a_copy_of_the_output_frame(self):
+        pipeline = FakePipeline(self.output)
+
+        result = run_chain(
+            pipeline,
+            self.chain(keystone="segment_1"),
+            self.arguments(image=solid_frame((1, 2, 3))),
+        )
+
+        for call in pipeline.calls[1:]:
+            assert call["image"] is not result.frames[0]
+
+    def test_keystone_validation_wires_the_rule(self):
+        from dw.guides import anchor_errors
+
+        definition = {
+            "steps": [
+                {
+                    "name": "s",
+                    "pipeline": {
+                        "chain": {"segments": 2, "keystone": "segment_1"},
+                        "arguments": {},
+                    },
+                }
+            ]
+        }
+        assert any("keystone" in e["message"] for e in anchor_errors(definition))
+
+    def test_backoff_zero_is_todays_chain(self):
+        plain = run_chain(FakePipeline(self.output), self.chain(), self.arguments())
+        zero = run_chain(
+            FakePipeline(self.output), self.chain(guide_backoff=0), self.arguments()
+        )
+
+        assert [f.getpixel((0, 0)) for f in zero.frames] == [
+            f.getpixel((0, 0)) for f in plain.frames
+        ]
+        assert zero.shots == plain.shots
+
+    def test_backoff_must_be_a_multiple_of_17(self):
+        with pytest.raises(ValueError, match="17"):
+            ChainConfig(self.chain(guide_backoff=10), self.arguments())
+
+    def test_backoff_needs_guide_continuity(self):
+        chain = self.chain(guide_backoff=17, continuity="last_frame")
+        with pytest.raises(ValueError, match="guide_backoff"):
+            ChainConfig(chain, self.arguments())
+
+    def test_backoff_is_refused_with_match_audio(self):
+        audio = torch.zeros(1, 2, int(256 / self.FPS * self.RATE))
+        chain = {
+            "match_audio": True,
+            "continuity": "guide",
+            "guide_backoff": 17,
+            "fps": self.FPS,
+            "frame_snap": MINIMAX_SNAP,
+        }
+        arguments = {
+            "num_frames": 124,
+            "references": [FakeAudioReference(audio, self.RATE)],
+        }
+        with pytest.raises(ValueError, match="match_audio"):
+            ChainConfig(chain, arguments)
+
+    def test_backoff_tail_trim_is_on_the_config(self):
+        config = ChainConfig(self.chain(guide_backoff=17), self.arguments())
+
+        assert config.tail_trim == 17
+        assert ChainConfig(self.chain(), self.arguments()).tail_trim == 0
+
     def test_the_guide_is_appended_to_the_segments_own_guides(self):
         pipeline = FakePipeline(self.output)
         own = {"video": "clip.mp4", "frame": 17}
@@ -1183,3 +1447,623 @@ class TestChainPromptsMustBeAList:
         action = SimpleNamespace(pipeline_definition={"chain": {"prompts": "abc"}})
         with pytest.raises(ValueError, match="one prompt per segment"):
             resolve_chain_prompts(action, {})
+
+
+class TestCarryPick:
+    """carry_pick (#1032): the sharpest of the last N frames is the keyframe,
+    and the segment is trimmed after it."""
+
+    def output(self, arguments, index):
+        # frame 6 of 8 is the sharp one; the rest are flat
+        frames = []
+        for f in range(8):
+            if f == 6:
+                image = Image.new("RGB", (16, 16), (0, 0, 0))
+                for x in range(0, 16, 2):
+                    for y in range(0, 16, 2):
+                        image.putpixel((x, y), (255, 255, 255))
+            else:
+                image = Image.new("RGB", (16, 16), (100, f, index))
+            frames.append(image)
+        return SimpleNamespace(frames=[frames])
+
+    def chain(self, **extra):
+        return {"segments": 2, "trim_frames": 0, "fps": 4, **extra}
+
+    def test_a_blurred_last_frame_is_replaced_by_the_sharp_one_before_it(self):
+        pipeline = FakePipeline(self.output)
+        run_chain(pipeline, self.chain(carry_pick={"sharpest": 3}), {"num_frames": 8})
+        assert pipeline.calls[1]["image"].getpixel((0, 0)) == (255, 255, 255)
+
+    def test_window_one_is_the_last_frame(self):
+        pipeline = FakePipeline(self.output)
+        result = run_chain(
+            pipeline, self.chain(carry_pick={"sharpest": 1}), {"num_frames": 8}
+        )
+        assert pipeline.calls[1]["image"].getpixel((0, 0)) == (100, 7, 0)
+        assert len(result.frames) == 16
+
+    def test_the_segment_is_trimmed_after_the_picked_frame(self):
+        pipeline = FakePipeline(self.output)
+        result = run_chain(
+            pipeline, self.chain(carry_pick={"sharpest": 3}), {"num_frames": 8}
+        )
+        # frame 6 is one back from the end: segment 1 keeps frames 0..6
+        assert [s["num_frames"] for s in result.shots] == [7, 8]
+        assert len(result.frames) == 15
+        assert result.frames[6].getpixel((0, 0)) == (255, 255, 255)
+
+    def test_the_pick_is_logged_per_seam(self):
+        pipeline = FakePipeline(self.output)
+        with patch("dw.pipeline_processors.chain.emit_log") as emit_log:
+            run_chain(
+                pipeline, self.chain(carry_pick={"sharpest": 3}), {"num_frames": 8}
+            )
+        notes = [call.args[0] for call in emit_log.call_args_list]
+        assert any("carry_pick" in n and "frame 7" in n for n in notes)
+
+    def test_the_last_segment_keeps_its_tail(self):
+        pipeline = FakePipeline(self.output)
+        result = run_chain(
+            pipeline,
+            {"segments": 3, "trim_frames": 0, "fps": 4, "carry_pick": {"sharpest": 3}},
+            {"num_frames": 8},
+        )
+        assert [s["num_frames"] for s in result.shots] == [7, 7, 8]
+
+    def test_it_is_refused_off_last_frame_naming_the_allowed_values(self):
+        chain = self.chain(carry_pick={"sharpest": 3}, continuity="guide")
+        with pytest.raises(ValueError, match="last_frame"):
+            ChainConfig(chain, {"num_frames": 8})
+
+    def test_it_is_refused_out_of_range_naming_the_range(self):
+        with pytest.raises(ValueError, match="1 and 8"):
+            ChainConfig(self.chain(carry_pick={"sharpest": 9}), {"num_frames": 8})
+
+    def test_it_is_refused_with_match_audio(self):
+        chain = self.chain(carry_pick={"sharpest": 3}, match_audio=True)
+        with pytest.raises(ValueError, match="match_audio"):
+            ChainConfig(chain, {"num_frames": 8})
+
+    def test_it_is_refused_when_the_window_could_empty_a_segment(self):
+        with pytest.raises(ValueError, match=r"num_frames 8.*trim_frames 0"):
+            ChainConfig(self.chain(carry_pick={"sharpest": 8}), {"num_frames": 8})
+        ChainConfig(self.chain(carry_pick={"sharpest": 7}), {"num_frames": 8})
+
+    def test_validation_wires_the_rule(self):
+        from dw.guides import anchor_errors
+
+        definition = {
+            "steps": [
+                {
+                    "name": "s",
+                    "pipeline": {
+                        "chain": {"segments": 2, "carry_pick": {"sharpest": 99}},
+                        "arguments": {},
+                    },
+                }
+            ]
+        }
+        assert any("carry_pick" in e["message"] for e in anchor_errors(definition))
+
+
+class TestLookHold:
+    """look_hold (#1191): off is today's chain; on, the carry is the corrected
+    frame and the stitched video is made of corrected frames."""
+
+    def output(self, arguments, index):
+        # each segment renders one shade brighter than the last, flat but not
+        # flat enough to skip the grade
+        ramp = [[(40 + 12 * x + 20 * index,) * 3 for x in range(16)]] * 16
+        image = Image.new("RGB", (16, 16))
+        image.putdata([p for row in ramp for p in row])
+        return SimpleNamespace(frames=[[image.copy() for _ in range(4)]])
+
+    def chain(self, **extra):
+        return {"segments": 3, "trim_frames": 0, "fps": 4, **extra}
+
+    def test_look_hold_off_is_todays_chain(self):
+        off_flags = {
+            "pickup": False,
+            "creep": False,
+            "texture": False,
+            "precompensate": False,
+        }
+        runs = []
+        for extra in ({}, {"look_hold": False}, {"look_hold": off_flags}):
+            pipeline = FakePipeline(self.audio_output)
+            out = run_chain(pipeline, self.chain(**extra), {})
+            runs.append((pipeline, out))
+        base_pipeline, base = runs[0]
+        for pipeline, out in runs[1:]:
+            assert [numpy.asarray(f).tolist() for f in out.frames] == [
+                numpy.asarray(f).tolist() for f in base.frames
+            ]
+            assert torch.equal(torch.as_tensor(out.audio), torch.as_tensor(base.audio))
+            fed = [numpy.asarray(c["image"]).tolist() for c in pipeline.calls[1:]]
+            assert fed == [
+                numpy.asarray(c["image"]).tolist() for c in base_pipeline.calls[1:]
+            ]
+
+    def audio_output(self, arguments, index):
+        frames = self.output(arguments, index).frames[0]
+        audio = torch.full((1, 2, 100), float(index + 1))
+        return {"videos": [frames], "audio": audio, "sampling_rate": 100}
+
+    def boosted_output(self, arguments, index):
+        """Every segment opens brighter and more contrasty than its keyframe."""
+        fed = arguments.get("image")
+        base = numpy.asarray(fed).astype(float) if fed is not None else None
+        if base is None:
+            ramp = numpy.tile(numpy.linspace(90, 170, 16), (16, 1))
+            base = numpy.stack([ramp, ramp * 0.8 + 10, ramp * 0.6 + 20], axis=-1)
+        mean = base.mean()
+        boosted = numpy.clip(mean + 8 + (base - mean) * 1.2, 0, 255).astype(numpy.uint8)
+        image = Image.fromarray(boosted)
+        frames = [image.copy() for _ in range(4)]
+        if fed is not None:
+            frames[0] = fed
+        return SimpleNamespace(frames=[frames])
+
+    def test_precompensate_feeds_a_flatter_keyframe_and_pickup_keeps_the_raw_carry(
+        self,
+    ):
+        from dw.pipeline_processors.chain_look import look
+
+        pipeline = FakePipeline(self.boosted_output)
+        out = run_chain(pipeline, self.chain(segments=4, look_hold=True), {})
+        fed = [c.get("image") for c in pipeline.calls]
+        # segment 2 is fed segment 1's carry untouched: no boost measured yet
+        assert (numpy.asarray(fed[1]) == numpy.asarray(out.frames[3])).all()
+        # segment 3 is fed a keyframe flatter than the raw carry it was cut from
+        raw_carry_2 = numpy.asarray(out.frames[7])  # segment 2's last frame
+        assert look(numpy.asarray(fed[2]))[0] < look(raw_carry_2)[0]
+        # pickup grades segment 3's opening toward that raw carry, not the fed one
+        opening = numpy.asarray(out.frames[9])  # segment 3, frame 1
+        to_raw = abs(look(opening)[0] - look(raw_carry_2)[0])
+        to_fed = abs(look(opening)[0] - look(numpy.asarray(fed[2]))[0])
+        assert to_raw < to_fed
+
+    def test_look_hold_pulls_a_later_segment_onto_the_carried_frame(self):
+        pipeline = FakePipeline(self.output)
+        out = run_chain(pipeline, self.chain(look_hold={"pickup": True}), {})
+        first_last = numpy.asarray(out.frames[3]).astype(int)
+        carried = numpy.asarray(pipeline.calls[1]["image"]).astype(int)
+        # segment 2's opening (frame 1 of it) now sits on the carried tone
+        opening = numpy.asarray(out.frames[5]).astype(int)
+        assert abs(opening.mean() - carried.mean()) < abs(
+            numpy.asarray(self.output({}, 1).frames[0][1]).astype(int).mean()
+            - carried.mean()
+        )
+        assert first_last.shape == opening.shape
+
+    def test_look_hold_is_logged_per_seam(self):
+        with patch.object(chain_module, "emit_log") as emit_log:
+            run_chain(FakePipeline(self.output), self.chain(look_hold=True), {})
+        notes = [call.args[0] for call in emit_log.call_args_list]
+        assert any("segment 1 is left as rendered" in n for n in notes)
+        assert any("seam 1/2: look_hold corrected segment 2" in n for n in notes), notes
+
+    def test_segment_one_is_left_as_rendered(self):
+        out = run_chain(FakePipeline(self.output), self.chain(look_hold=True), {})
+        raw = numpy.asarray(self.output({}, 0).frames[0][0])
+        assert (numpy.asarray(out.frames[0]) == raw).all()
+
+    def test_validation_refuses_bad_shapes_and_guide_keyframe_parts(self):
+        from dw.pipeline_processors.chain_rules import chain_look_hold_problem
+
+        assert chain_look_hold_problem({}) is None
+        assert chain_look_hold_problem({"look_hold": True}) is None
+        assert chain_look_hold_problem({"look_hold": {"creep": True}}) is None
+        assert "unknown" in chain_look_hold_problem({"look_hold": {"gloss": True}})
+        assert chain_look_hold_problem({"look_hold": "yes"})
+        assert chain_look_hold_problem({"look_hold": {"creep": 1}})
+        guide = {"continuity": "guide"}
+        assert chain_look_hold_problem({**guide, "look_hold": True}) is None
+        assert chain_look_hold_problem({**guide, "look_hold": {"pickup": True}})
+        with pytest.raises(ValueError, match="look_hold"):
+            ChainConfig(self.chain(look_hold=3), {})
+
+    def test_validate_names_a_bad_look_hold(self):
+        from dw.guides import anchor_errors
+
+        definition = {
+            "steps": [
+                {
+                    "name": "s",
+                    "pipeline": {
+                        "chain": {"segments": 2, "look_hold": "nope"},
+                        "arguments": {},
+                    },
+                }
+            ]
+        }
+        assert any("look_hold" in e["message"] for e in anchor_errors(definition))
+
+
+class TestCheckAndReroll:
+    """The per-segment check (chain_check.py) and its bounded re-roll: a
+    failed segment is rendered again from the same carry with a new seed,
+    and only the kept attempt reaches the timeline."""
+
+    SEED = 42
+    PRIME = 1000003
+
+    def chain(self, **extra):
+        return {"segments": 2, "trim_frames": 1, "fps": 4, **extra}
+
+    def arguments(self):
+        return {"generator": torch.Generator().manual_seed(self.SEED)}
+
+    @staticmethod
+    def pattern():
+        x = numpy.arange(32)
+        row = 128 + 100 * numpy.sin(2 * numpy.pi * x / 32)
+        plane = numpy.tile(row, (32, 1))
+        return numpy.stack([plane] * 3, axis=-1).astype(numpy.uint8)
+
+    def output_for(self, shifts):
+        """Segment 1 is a sinusoid; a later segment is its carry rolled
+        sideways by the shift its seed maps to (0 = a seamless take, and
+        the look is the same at any shift), and its audio is the call
+        number, so the stitched track says which attempt it came from."""
+
+        def output(arguments, index):
+            seed = arguments["generator"].initial_seed()
+            carry = arguments.get("image")
+            if carry is None:
+                pixels = self.pattern()
+            else:
+                pixels = numpy.roll(numpy.asarray(carry), shifts[seed], axis=1)
+            frames = [Image.fromarray(pixels) for _ in range(8)]
+            audio = torch.full((1, 2, 200), float(index + 1))
+            return {"videos": [frames], "audio": audio, "sampling_rate": 100}
+
+        return output
+
+    def seeds(self, *shifts):
+        return {self.SEED + n * self.PRIME: k for n, k in enumerate(shifts)}
+
+    def test_absent_check_is_todays_chain(self):
+        pipeline = FakePipeline(self.output_for(self.seeds(16)))
+        out = run_chain(pipeline, self.chain(), self.arguments())
+        assert len(pipeline.calls) == 2
+        assert all("attempts" not in shot for shot in out.shots)
+
+    def test_a_failed_segment_is_rerolled_with_a_new_seed_from_the_same_carry(self):
+        pipeline = FakePipeline(self.output_for(self.seeds(16, 0)))
+        out = run_chain(pipeline, self.chain(check=True, retries=1), self.arguments())
+
+        assert len(pipeline.calls) == 3
+        first, reroll = pipeline.calls[1], pipeline.calls[2]
+        assert first["generator"].initial_seed() == self.SEED
+        assert reroll["generator"].initial_seed() == self.SEED + self.PRIME
+        assert numpy.array_equal(
+            numpy.asarray(reroll["image"]), numpy.asarray(first["image"])
+        )
+        assert out.shots[1]["attempts"] == 2
+        assert out.shots[1]["seed"] == self.SEED + self.PRIME
+        assert "check_failed" not in out.shots[1]
+        assert out.shots[0]["attempts"] == 1
+
+    def test_the_kept_attempts_audio_replaces_the_failed_one(self):
+        pipeline = FakePipeline(self.output_for(self.seeds(16, 0)))
+        out = run_chain(pipeline, self.chain(check=True, retries=1), self.arguments())
+        plain = run_chain(
+            FakePipeline(self.output_for(self.seeds(0))),
+            self.chain(),
+            self.arguments(),
+        )
+
+        audio = numpy.asarray(out.audio)
+        # 200 samples, then 200 less the 25-sample trimmed head
+        assert audio.shape[-1] == plain.audio.shape[-1] == 375
+        # Call 3 (the re-roll) is what follows the seam; call 2 is gone
+        assert set(numpy.unique(audio[..., 200:])) == {3.0}
+        assert 2.0 not in numpy.unique(audio)
+        assert out.shots[1]["crossfade_ms"] == plain.shots[1]["crossfade_ms"]
+        assert out.shots[1]["num_samples"] == plain.shots[1]["num_samples"]
+        # And the kept attempt's frames are the ones stitched
+        assert len(out.frames) == 15
+        assert numpy.array_equal(
+            numpy.asarray(out.frames[-1]), numpy.asarray(out.frames[0])
+        )
+
+    def test_budget_exhausted_keeps_the_best_attempt_and_warns(self):
+        pipeline = FakePipeline(self.output_for(self.seeds(16, 8, 12)))
+        with patch("dw.pipeline_processors.chain.emit_warning") as warn:
+            out = run_chain(
+                pipeline, self.chain(check=True, retries=2), self.arguments()
+            )
+
+        assert len(pipeline.calls) == 4
+        shot = out.shots[1]
+        assert shot["attempts"] == 3
+        assert "jump_ratio" in shot["check_failed"]
+        assert shot["seed"] == self.SEED + self.PRIME
+        # The shift of 8 (call 3) is kept: the lowest jump of three failures
+        assert set(numpy.unique(numpy.asarray(out.audio)[..., 200:])) == {3.0}
+        expected = numpy.roll(self.pattern(), 8, axis=1)
+        assert numpy.array_equal(numpy.asarray(out.frames[8]), expected)
+        assert warn.call_count == 1
+        message = warn.call_args.args[0]
+        assert "segment 2" in message and "jump_ratio" in message
+        assert "attempt 2 of 3" in message
+        assert warn.call_args.kwargs["kind"] == "chain_check_failed"
+        assert warn.call_args.kwargs["kept_attempt"] == 2
+        # Without the words check the payload carries none of its keys
+        payload = warn.call_args.kwargs
+        for key in ("heard", "similarity", "findings", "every_attempt_failed", "note"):
+            assert key not in payload
+        assert "words" not in payload["measures"]
+        assert "words" not in out.shots[1]
+
+    def test_texture_alone_warns_and_records_without_a_reroll(self):
+        # Texture drift is in the carry; a fresh seed inherits it (R38)
+        pipeline = FakePipeline(self.output_for(self.seeds(0, 0)))
+        with (
+            patch(
+                "dw.pipeline_processors.chain_check._texture_ratio", return_value=5.0
+            ),
+            patch("dw.pipeline_processors.chain.emit_warning") as warn,
+        ):
+            out = run_chain(
+                pipeline, self.chain(check=True, retries=2), self.arguments()
+            )
+        assert len(pipeline.calls) == 2
+        assert out.shots[1]["attempts"] == 1
+        assert out.shots[1]["check_failed"] == ["texture_ratio"]
+        assert warn.call_count == 1
+        assert warn.call_args.kwargs["kind"] == "chain_check_failed"
+        assert "heard" not in warn.call_args.kwargs
+        assert "similarity" not in warn.call_args.kwargs
+
+    def test_texture_with_a_jump_still_rerolls(self):
+        pipeline = FakePipeline(self.output_for(self.seeds(16, 0)))
+        with (
+            patch(
+                "dw.pipeline_processors.chain_check._texture_ratio", return_value=5.0
+            ),
+            patch("dw.pipeline_processors.chain.emit_warning"),
+        ):
+            out = run_chain(
+                pipeline, self.chain(check=True, retries=2), self.arguments()
+            )
+        # The re-roll fixes the jump and keeps failing texture: no third render
+        assert len(pipeline.calls) == 3
+        assert out.shots[1]["attempts"] == 2
+        assert out.shots[1]["check_failed"] == ["texture_ratio"]
+
+    def test_retries_zero_never_rerolls(self):
+        pipeline = FakePipeline(self.output_for(self.seeds(16)))
+        with patch("dw.pipeline_processors.chain.emit_warning") as warn:
+            out = run_chain(
+                pipeline, self.chain(check=True, retries=0), self.arguments()
+            )
+        assert len(pipeline.calls) == 2
+        assert out.shots[1]["attempts"] == 1
+        assert "jump_ratio" in out.shots[1]["check_failed"]
+        assert "seed" not in out.shots[1]
+        assert warn.call_count == 1
+
+    def test_a_passing_segment_is_not_rerolled(self):
+        pipeline = FakePipeline(self.output_for(self.seeds(0)))
+        out = run_chain(
+            pipeline, self.chain(segments=3, check=True, retries=3), self.arguments()
+        )
+        assert len(pipeline.calls) == 3
+        assert [shot["attempts"] for shot in out.shots] == [1, 1, 1]
+
+    def test_a_reroll_leaves_the_look_hold_as_a_single_render_would(self):
+        # The failed attempts' look-hold state is dropped with them: a run
+        # that re-rolls into seamless takes stitches what one that rendered
+        # them first time does
+        chain = self.chain(segments=3, check=True, retries=1, look_hold=True)
+        rerolled = run_chain(
+            FakePipeline(self.output_for(self.seeds(16, 0))), chain, self.arguments()
+        )
+        direct = run_chain(
+            FakePipeline(self.output_for(self.seeds(0))), chain, self.arguments()
+        )
+        assert [shot["attempts"] for shot in rerolled.shots] == [1, 2, 2]
+        assert [numpy.asarray(f).tolist() for f in rerolled.frames] == [
+            numpy.asarray(f).tolist() for f in direct.frames
+        ]
+
+
+class TestAudioFloorReroll:
+    """The audio floor in the run (#1221): a kept segment's generated audio
+    is measured past its head trim, re-rolled under the floor with check on,
+    and warned of as `chain_segment_silent` either way."""
+
+    SEED = TestCheckAndReroll.SEED
+    PRIME = TestCheckAndReroll.PRIME
+    chain = TestCheckAndReroll.chain
+    arguments = TestCheckAndReroll.arguments
+    pattern = staticmethod(TestCheckAndReroll.pattern)
+
+    def silent_on(self, *silent_calls):
+        """Seamless frames every call; the calls named render silence, the
+        rest audio that reads the call number."""
+
+        def output(arguments, index):
+            carry = arguments.get("image")
+            pixels = self.pattern() if carry is None else numpy.asarray(carry)
+            frames = [Image.fromarray(pixels) for _ in range(8)]
+            level = 0.0 if index in silent_calls else 0.1 * (index + 1)
+            audio = torch.full((1, 2, 200), level)
+            return {"videos": [frames], "audio": audio, "sampling_rate": 100}
+
+        return output
+
+    def silent_warnings(self, warn):
+        return [
+            call
+            for call in warn.call_args_list
+            if call.kwargs.get("kind") == "chain_segment_silent"
+        ]
+
+    def test_a_silent_segment_2_is_rerolled_with_check_on(self):
+        pipeline = FakePipeline(self.silent_on(1))
+        with patch.object(chain_module, "emit_warning") as warn:
+            out = run_chain(
+                pipeline, self.chain(check=True, retries=1), self.arguments()
+            )
+
+        assert len(pipeline.calls) == 3
+        assert pipeline.calls[2]["generator"].initial_seed() == self.SEED + self.PRIME
+        shot = out.shots[1]
+        assert shot["attempts"] == 2 and "check_failed" not in shot
+        assert shot["audio_dbfs"] > -70
+        assert out.shots[0]["attempts"] == 1
+        assert self.silent_warnings(warn) == []
+        # The kept attempt's audio, call 3's, is what the track carries
+        tail = numpy.unique(numpy.asarray(out.audio)[..., 200:])
+        assert tail == pytest.approx([0.3])
+
+    def test_a_silent_segment_2_only_warns_with_check_off(self):
+        pipeline = FakePipeline(self.silent_on(1))
+        with patch.object(chain_module, "emit_warning") as warn:
+            out = run_chain(pipeline, self.chain(), self.arguments())
+
+        assert len(pipeline.calls) == 2
+        assert "attempts" not in out.shots[1]
+        assert out.shots[1]["audio_dbfs"] == -120.0
+        (silent,) = self.silent_warnings(warn)
+        assert silent.kwargs["segment"] == 2
+        assert silent.kwargs["audio_dbfs"] == -120.0
+        assert silent.kwargs["floor"] == -70.0
+        assert "segment 2/2 is silent" in silent.args[0]
+
+    def test_a_silent_segment_1_is_rerolled(self):
+        pipeline = FakePipeline(self.silent_on(0))
+        out = run_chain(pipeline, self.chain(check=True, retries=1), self.arguments())
+
+        assert len(pipeline.calls) == 3
+        assert pipeline.calls[1]["generator"].initial_seed() == self.SEED + self.PRIME
+        assert out.shots[0]["attempts"] == 2
+        assert out.shots[0]["seed"] == self.SEED + self.PRIME
+        assert out.shots[1]["attempts"] == 1
+
+    def test_a_segment_still_silent_after_its_retries_warns_both_ways(self):
+        pipeline = FakePipeline(self.silent_on(1, 2))
+        with patch.object(chain_module, "emit_warning") as warn:
+            out = run_chain(
+                pipeline, self.chain(check=True, retries=1), self.arguments()
+            )
+
+        assert out.shots[1]["attempts"] == 2
+        assert out.shots[1]["check_failed"] == ["audio_dbfs"]
+        kinds = [call.kwargs.get("kind") for call in warn.call_args_list]
+        assert kinds.count("chain_check_failed") == 1
+        assert kinds.count("chain_segment_silent") == 1
+
+    def test_a_null_floor_neither_rerolls_nor_warns(self):
+        pipeline = FakePipeline(self.silent_on(0, 1))
+        chain = self.chain(check={"audio_dbfs_min": None}, retries=1)
+        with patch.object(chain_module, "emit_warning") as warn:
+            out = run_chain(pipeline, chain, self.arguments())
+
+        assert len(pipeline.calls) == 2
+        assert [shot["attempts"] for shot in out.shots] == [1, 1]
+        assert self.silent_warnings(warn) == []
+        assert out.shots[1]["audio_dbfs"] == -120.0
+
+    def test_only_the_kept_span_is_measured(self):
+        # Segment 2's head trim (one frame, 25 samples at 4 fps) is loud and
+        # the rest silent: the kept span reads silent
+        def output(arguments, index):
+            carry = arguments.get("image")
+            pixels = self.pattern() if carry is None else numpy.asarray(carry)
+            frames = [Image.fromarray(pixels) for _ in range(8)]
+            audio = torch.full((1, 2, 200), 0.5)
+            if index == 1:
+                audio[..., 25:] = 0.0
+            return {"videos": [frames], "audio": audio, "sampling_rate": 100}
+
+        with patch.object(chain_module, "emit_warning") as warn:
+            out = run_chain(FakePipeline(output), self.chain(), self.arguments())
+
+        assert out.shots[1]["audio_dbfs"] == -120.0
+        assert len(self.silent_warnings(warn)) == 1
+
+
+class TestChainLengthErrors:
+    """#1259 - validate applies the run's chain length and audio-source rules."""
+
+    @staticmethod
+    def _definition(chain, arguments=None):
+        return {"steps": [{"pipeline": {"chain": chain, "arguments": arguments or {}}}]}
+
+    def test_segments_plus_match_audio_refused_after_substitution(self):
+        from dw.step_value_checks import chain_length_errors
+
+        chain = {"segments": 2, "match_audio": True}
+        errors = chain_length_errors(self._definition(chain))
+        assert len(errors) == 1
+        assert errors[0]["path"].endswith("pipeline.chain")
+        assert "exactly one of" in errors[0]["message"]
+
+    def test_match_audio_without_track_refused(self):
+        from dw.step_value_checks import chain_length_errors
+
+        errors = chain_length_errors(self._definition({"match_audio": True}))
+        assert len(errors) == 1
+        assert "hold_audio" in errors[0]["message"]
+
+    def test_match_audio_with_hold_audio_passes(self):
+        from dw.step_value_checks import chain_length_errors
+
+        definition = self._definition(
+            {"match_audio": True}, {"hold_audio": "asset:song.wav"}
+        )
+        assert chain_length_errors(definition) == []
+
+    def test_plain_segments_passes(self):
+        from dw.step_value_checks import chain_length_errors
+
+        assert chain_length_errors(self._definition({"segments": 2})) == []
+
+    def test_variable_segments_with_match_audio_refused_by_validate(self, tmp_path):
+        import json
+        import pathlib
+
+        from dw.workflow import workflow_from_definition
+
+        template = pathlib.Path(__file__).parent.parent / (
+            "workflows/templates/ltx2/chained-segments.json"
+        )
+        workflow = json.loads(template.read_text())
+        workflow["variables"]["segments"] = 2
+        workflow["variables"]["duration_seconds"] = None
+        chain = workflow["steps"][0]["pipeline"]["chain"]
+        chain["match_audio"] = True
+        errors = workflow_from_definition(
+            workflow, str(tmp_path), str(tmp_path), None
+        ).validation_errors()
+        assert any(
+            e["path"] == "steps[0].pipeline.chain" and "exactly one of" in e["message"]
+            for e in errors
+        ), errors
+
+
+class TestResumeTemplates:
+    """The two chain templates take a resume (chain_resume.py)."""
+
+    @pytest.mark.parametrize("family", ["minimax", "ltx2"])
+    def test_the_chain_templates_take_resume_from(self, family):
+        import json
+        import pathlib
+
+        template = pathlib.Path(__file__).parent.parent / (
+            f"workflows/templates/{family}/chained-segments.json"
+        )
+        workflow = json.loads(template.read_text())
+        assert workflow["variables"]["resume_from"] is None
+        chain = workflow["steps"][-1]["pipeline"]["chain"]
+        assert chain["resume_from"] == "variable:resume_from"
+        # Every take spills its finished segments as it runs, so a chain that
+        # dies at segment k leaves 1..k-1 to resume from (the H3 template's
+        # default since Don's 2026-11-08 ruling; the final output is the same)
+        assert chain["save_segments"] is True
+        assert "resume_from" in workflow["description"]

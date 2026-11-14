@@ -117,6 +117,8 @@ def test_each_step_runs_its_adapters_shift(path):
     for step, pipeline in h3_steps(definition):
         shift = resolve(definition, pipeline["scheduler"]["shift"])
         for lora in pipeline.get("loras", []):
+            if resolve(definition, lora["model_name"]) is None:
+                continue  # no repo, no adapter: add-sound runs the base model
             name = resolve(definition, lora["weight_name"])
             assert TRAINED_SHIFT[name] == shift, (
                 f"{os.path.basename(path)}:{step['name']} runs {name} at shift {shift}"
@@ -220,8 +222,17 @@ def test_each_template_steps_its_adapters_nfe(path):
     variables = definition.get("variables", {})
     if "lora_weight_name" not in variables:
         pytest.skip("no adapter on this template")
+    if variables.get("lora_model_name", "") is None:
+        pytest.skip("the adapter is off by default (add-sound runs the base model)")
     nfe = DISTILLED_NFE[variables["lora_weight_name"]]
     assert variables["num_inference_steps"] == nfe + 1, os.path.basename(path)
+
+
+# Templates that run the base model at 20 steps by choice, not for want of an
+# adapter: narrated-take is a dialogue take, and the turbo LoRA flattens H3
+# voices and lip sync, so it runs the base schedule the constitution-walk-2
+# takes were rendered on (bench/records/narrated.md)
+BASE_SCHEDULE_BY_CHOICE = {"narrated-take.json"}
 
 
 @pytest.mark.parametrize("path", H3_TEMPLATES)
@@ -233,4 +244,7 @@ def test_no_template_still_runs_the_base_model_at_twenty_steps(path):
     definition = load(path)
     if not any(True for _ in h3_steps(definition)):
         pytest.skip("no H3 step")
+    if os.path.basename(path) in BASE_SCHEDULE_BY_CHOICE:
+        assert definition["variables"]["lora_model_name"] is None
+        pytest.skip("runs the base schedule by choice, with no adapter")
     assert definition["variables"]["num_inference_steps"] != 20

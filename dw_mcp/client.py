@@ -39,13 +39,18 @@ NOTE_CLIP = 200
 
 
 def clip_note(entry, limit=NOTE_CLIP):
-    """`entry` with a `note` over `limit` characters cut to its first `limit`
-    plus an ellipsis, and `note_truncated` set - so a listing of many notes
-    stays small and says which ones to read in full (get_job,
+    """`entry` with a `note` cut to its first line, and to `limit` characters
+    of that line, plus an ellipsis and `note_truncated` set - so a listing of
+    many notes stays small and says which ones to read in full (get_job,
     get_gallery_metadata)."""
     note = entry.get("note")
-    if isinstance(note, str) and len(note) > limit:
-        return {**entry, "note": note[:limit] + "\u2026", "note_truncated": True}
+    if not isinstance(note, str):
+        return entry
+    first = note.split("\n", 1)[0].rstrip("\r")
+    if len(first) > limit:
+        return {**entry, "note": first[:limit] + "\u2026", "note_truncated": True}
+    if first != note:
+        return {**entry, "note": first, "note_truncated": True}
     return entry
 
 

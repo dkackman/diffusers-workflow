@@ -98,6 +98,12 @@ class RegistryTable(Mapping):
         return f"RegistryTable({self._rule!r}, {self._table()!r})"
 
 
+def _named_arguments(**rules):
+    """The rules that are a list of argument names, as tuples, without the
+    empty ones."""
+    return {rule: tuple(names) for rule, names in rules.items() if names}
+
+
 def register_command(
     command_name: str,
     implementation=None,
@@ -111,8 +117,10 @@ def register_command(
     choices=None,
     static_check=None,
     media_arguments=(),
+    weight_file_arguments=(),
     whole_numbers=(),
     required_weights=None,
+    result_content_type=None,
 ):
     """
     Decorator to register a command handler function.
@@ -171,6 +179,11 @@ def register_command(
         media_arguments: Names of arguments that name a file to read but not
             by the media-key convention (`dw/locations.py`) - confined like
             a media key at validation (#630)
+        weight_file_arguments: Names of arguments that name a file inside
+            the command's model repo (a `filename` the Hub download
+            joins onto the cache) - refused at validation unless a plain relative
+            name, like a `weight_name` (`dw/locations.py`,
+            GHSA-ch56-2p9f-95cg)
         whole_numbers: Names of the arguments with a domain that the command
             reads as whole numbers (`task_domains.whole_number`): 3, 3.0,
             "3" and "3.0" are 3, and 3.5 is refused - at validation as at
@@ -180,6 +193,12 @@ def register_command(
             listed in the plan's `downloads_required` (`dw/tasks/weights.py`,
             #975). A string, so the plan path imports the module only for a
             workflow that has the command
+
+        result_content_type: The one content type the command's `result` may
+            name, for a command that writes a single fixed container
+            (`export_timeline`'s .otioz): any other is refused at validation
+            (dw/scalar_result_validation.py, #1302) rather than saved as an
+            extensionless file
 
     Returns:
         Decorator function
@@ -202,6 +221,8 @@ def register_command(
             "provided": tuple(provided),
             "returns": returns,
         }
+        if result_content_type:
+            info["result_content_type"] = result_content_type
         if assessment:
             info["assessment"] = True
         if summary:
@@ -216,12 +237,15 @@ def register_command(
             rules["choices"] = {name: tuple(values) for name, values in choices.items()}
         if static_check is not None:
             rules["static_check"] = static_check
-        if media_arguments:
-            rules["media_arguments"] = tuple(media_arguments)
-        if whole_numbers:
-            rules["whole_numbers"] = tuple(whole_numbers)
         if required_weights:
             rules["required_weights"] = required_weights
+        rules.update(
+            _named_arguments(
+                media_arguments=media_arguments,
+                weight_file_arguments=weight_file_arguments,
+                whole_numbers=whole_numbers,
+            )
+        )
         _COMMAND_RULES[command_name] = rules
         logger.debug(f"Registered command handler: {command_name}")
         return func

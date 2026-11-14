@@ -1,0 +1,50 @@
+[
+  {
+    "name": "cap90-s2-s1166",
+    "scene": "s2-arc",
+    "workflow": "s2-arc.json",
+    "arguments": {
+      "capstone": {
+        "enter_below_sigma": 0.9
+      }
+    },
+    "seed": 1166,
+    "workflow_id_suffix": "-cap90"
+  },
+  {
+    "name": "cap70-s2-s1166",
+    "scene": "s2-arc",
+    "workflow": "s2-arc.json",
+    "arguments": {
+      "capstone": {
+        "enter_below_sigma": 0.7
+      }
+    },
+    "seed": 1166,
+    "workflow_id_suffix": "-cap70"
+  },
+  {
+    "name": "cap90-s2-s2",
+    "scene": "s2-arc",
+    "workflow": "s2-arc.json",
+    "arguments": {
+      "capstone": {
+        "enter_below_sigma": 0.9
+      }
+    },
+    "seed": 2,
+    "workflow_id_suffix": "-cap90"
+  },
+  {
+    "name": "cap70-s2-s2",
+    "scene": "s2-arc",
+    "workflow": "s2-arc.json",
+    "arguments": {
+      "capstone": {
+        "enter_below_sigma": 0.7
+      }
+    },
+    "seed": 2,
+    "workflow_id_suffix": "-cap70"
+  }
+]

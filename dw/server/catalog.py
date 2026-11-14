@@ -18,6 +18,7 @@ from ..security import (
     validate_prompt_reference,
 )
 from ..library import suggest_workflow_names
+from ..presets import effective_variables
 from .catalog_shape import derive_catalog_metadata
 from .observed_cost import declared_drivers
 
@@ -191,7 +192,7 @@ def workflow_details(sources_by_name):
                 # runs into comparable ones (#93). Carried here so an
                 # observed figure needs no second read of the file
                 "cost_drivers": {
-                    name: (definition.get("variables") or {}).get(name)
+                    name: effective_variables(definition).get(name)
                     for name in declared_drivers(definition)
                 },
                 "cost": cost if isinstance(cost, list) and cost else None,

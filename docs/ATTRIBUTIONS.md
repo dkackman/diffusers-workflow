@@ -132,4 +132,73 @@ segment's per-channel mean and standard deviation before decode
 [dw/pipeline_processors/h3_anchor.py](../dw/pipeline_processors/h3_anchor.py);
 [#1166](https://github.com/dkackman/diffusers-workflow/issues/1166)). The
 diagnosis it answers, colour and contrast drifting from segment to segment of
-an H3 chain, was described by Lumifel and by roycho87 (NerdNotes).
+an H3 chain, was described by Lumifel and by roycho87 (NerdNotes). It also
+inspired repairing one segment of a finished chain in place, held to both of its
+neighbours, and its rules: no tail hold on the last segment, a new seed for the
+re-render, and the chain's own text encoder, length and sizes kept
+([templates/minimax/repair-segment](../workflows/templates/minimax/repair-segment.json),
+[dw/tasks/chain_repair.py](../dw/tasks/chain_repair.py);
+[#1169](https://github.com/dkackman/diffusers-workflow/issues/1169)).
+
+### [matlowai/h3-long-video-research](https://github.com/matlowai/h3-long-video-research)
+
+A research repository on long MiniMax H3 videos, under CC BY 4.0. Its findings
+informed the narrated take (`templates/minimax/narrated-take`), which dw built
+and measured itself; no text or data was copied. The measurements dw reports are
+its own, in
+[bench/records/narrated.md](../bench/records/narrated.md).
+
+### [roycho87/NerdNotes](https://github.com/roycho87/NerdNotes)
+
+Tests 16-18 of the NerdNotes collection, under CC BY-SA, informed the narrated
+take (`templates/minimax/narrated-take`), which dw rebuilt and measured in its
+own code. No text or data was copied; because the licence is share-alike, only
+the concepts were taken.
+
+### [roycho87/geiru_context_suite](https://github.com/roycho87/geiru_context_suite)
+
+A set of ComfyUI nodes for long MiniMax H3 videos, under GPL-3.0, so only the
+concept was taken, together with seitanism's context hold. It inspired
+`guide_backoff`
+([dw/pipeline_processors/chain.py](../dw/pipeline_processors/chain.py);
+[#1189](https://github.com/dkackman/diffusers-workflow/issues/1189)): handing the
+next segment the frames one block before the end and dropping the previous
+segment's last block at assembly, so the join lands inside the held copy. The
+same suite's idea of a first-segment keyframe, and NerdNotes' (CC BY-SA, so
+concepts only), inspired `keystone`
+([#1187](https://github.com/dkackman/diffusers-workflow/issues/1187)): segment 1's
+frame 0 as every later segment's keyframe, pulling the chain back toward its
+clean start. Its Anchoring node, a source's head held in a shot's last frames
+with its audio, gave the repair's tail hold and the rule that the tail hold
+outnumbers the head (39 frames against 22 in
+[templates/minimax/repair-segment](../workflows/templates/minimax/repair-segment.json);
+[#1169](https://github.com/dkackman/diffusers-workflow/issues/1169)).
+
+harlixay7/Kinoloom (MIT; concept only, no code taken) inspired `carry_pick`
+([dw/pipeline_processors/chain_pick.py](../dw/pipeline_processors/chain_pick.py);
+[#1032](https://github.com/dkackman/diffusers-workflow/issues/1032)): picking the
+sharpest of a segment's last frames as the next keyframe rather than always the
+last, and ending the segment there.
+
+Smite79/MiniMax-H3-LongVideos (a custom no-redistribution licence; concepts only,
+no code taken) inspired `look_hold`
+([dw/pipeline_processors/chain_look.py](../dw/pipeline_processors/chain_look.py);
+[#1191](https://github.com/dkackman/diffusers-workflow/issues/1191)): a quantile
+grade of a segment's opening to the carried frame, an ease-out of contrast and
+saturation creep, an ease-out of faint texture, and a keyframe pre-compensated for
+the measured boost.
+
+Smite79/MiniMax-H3-LongVideos (concepts only, under the licence above) and WanGP
+(concept only, from [#984](https://github.com/dkackman/diffusers-workflow/issues/984))
+inspired the H3 audio pass
+([dw/pipeline_processors/h3_mask.py](../dw/pipeline_processors/h3_mask.py);
+[#1192](https://github.com/dkackman/diffusers-workflow/issues/1192)): a finished
+picture's video latents locked clean while only the audio is generated over it, and
+the listen pass on a smaller canvas.
+
+leonardofrito/Directors-Cut (MIT; concept and schema shape, no code taken)
+inspired `export_timeline`
+([dw/tasks/timeline_export.py](../dw/tasks/timeline_export.py);
+[#1197](https://github.com/dkackman/diffusers-workflow/issues/1197)): a joined
+piece written as an OpenTimelineIO `.otioz` bundle with one clip per shot, so an
+editor opens it as a timeline.

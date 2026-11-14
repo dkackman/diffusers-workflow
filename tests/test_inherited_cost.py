@@ -48,10 +48,18 @@ def state_with(history):
     """A server state whose observed costs aggregate `history` (name ->
     rows) with the real observed_for."""
 
-    def observed(name, template, arguments=None, *, workspace=None, card=None):
+    def observed(
+        name, template, arguments=None, *, workspace=None, card=None, per_segment=False
+    ):
         rows = history.get(name)
         return (
-            observed_for(template, rows, device="cpu", arguments=arguments)
+            observed_for(
+                template,
+                rows,
+                device="cpu",
+                arguments=arguments,
+                per_segment=per_segment,
+            )
             if rows
             else None
         )
@@ -818,3 +826,102 @@ def test_the_comparison_substitutes_as_the_run_does():
     mixed = [{"run": {"width": "variable:missing", "num_frames": "variable:n"}}]
     assert _found(mixed, "num_frames", {"n": 124}) == {"124"}
     assert _found(mixed, "width", {"n": 124}) == {'"variable:missing"'}
+
+
+class TestChainSegmentsScaleTheInheritedFigure:
+    """#1305: a chain is one pipeline step, so a fallback to the template's
+    default bucket must still scale by its segment count."""
+
+    @staticmethod
+    def chain_definition(name, segments):
+        return {
+            "id": name,
+            "variables": {"segments": segments},
+            "cost_drivers": ["segments"],
+            "steps": [
+                {
+                    "id": "gen",
+                    "pipeline": PIPELINE,
+                    "run": {
+                        "chain": {"segments": "variable:segments"},
+                        "arguments": {"num_frames": 124},
+                    },
+                }
+            ],
+        }
+
+    def test_three_segments_cost_more_than_the_two_measured(self):
+        template = self.chain_definition("t", 2)
+        history = {"templates/t": [run(6 * MINUTE, {"segments": 2})]}
+        two = inherited(
+            self.chain_definition("inline", 2),
+            [("templates/t", template)],
+            history,
+        )
+        three = inherited(
+            self.chain_definition("inline", 3),
+            [("templates/t", template)],
+            history,
+            {"segments": 3},
+        )
+        assert two["cold_minutes"] == 6.0
+        assert three["cold_minutes"] > two["cold_minutes"]
+        assert "segments 3 vs 2" in three["scaled"]
+
+    def test_the_catalog_rule_and_the_inherited_one_agree(self):
+        """The inherited path and `_driver_scaling` share one rule: the same
+        ratio and the same reason for 3 segments against 2."""
+        from dw.cost_scaling import CHAIN_LENGTH_DRIVERS, chain_segment_scaling
+
+        two = self.chain_definition("t", 2)
+        three = self.chain_definition("t", 3)
+        ratio, reason, unscaled = chain_segment_scaling(
+            two, two["variables"], three, three["variables"], CHAIN_LENGTH_DRIVERS
+        )
+        assert (ratio, reason, unscaled) == (1.5, "segments 3 vs 2", [])
+        history = {"templates/t": [run(6 * MINUTE, {"segments": 2})]}
+        block = inherited(
+            self.chain_definition("inline", 3),
+            [("templates/t", two)],
+            history,
+            {"segments": 3},
+        )
+        assert block["cold_minutes"] == 9.0
+        assert reason in block["scaled"]
+
+
+def test_fanout_note_is_its_own_sentence():
+    from dw.pipeline_processors.chain_resume import FANOUT_NOTE
+
+    estimate = {
+        "basis": "inherited",
+        "inherited_from": "t",
+        "differs": [FANOUT_NOTE],
+    }
+    text = _inherited_cost_warnings(estimate)[0]
+    assert "its the resume quote" not in text
+    assert "differs from that template" not in text
+    assert text.endswith(f". Note: {FANOUT_NOTE}")
+
+
+def test_sentence_shaped_differs_entries_are_their_own_sentences():
+    from dw.pipeline_processors.chain_resume import FANOUT_NOTE
+
+    refused = "resume_from keeps 3 segment(s) and the chain plans 3: nothing is left to render, the run is refused"
+    estimate = {
+        "basis": "inherited",
+        "inherited_from": "t",
+        "differs": [refused, FANOUT_NOTE],
+    }
+    text = _inherited_cost_warnings(estimate)[0]
+    assert "differs from that template" not in text
+    assert f". Note: {refused}" in text
+    assert text.endswith(f". Note: {FANOUT_NOTE}")
+    short = _inherited_cost_warnings(
+        {
+            "basis": "inherited",
+            "inherited_from": "t",
+            "differs": ["resume_from", "reference count"],
+        }
+    )[0]
+    assert "its resume_from, reference count differ from that template" in short

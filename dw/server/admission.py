@@ -36,10 +36,10 @@ from ..runs import (
     resolve_output_reference,
 )
 from ..validation import WARNING, run_checks, to_warnings
-from ..variables import argument_errors
 from ..vram_estimate import required_vram_gb
 from ..workflow import Workflow, workflow_from_definition, workflow_from_file
-from .host_ram_need import projected_peak
+from ..host_memory import host_memory_stats
+from .host_ram_need import host_too_small, projected_peak
 from .deps import ceiling_index, lora_index, server_prompt_library
 from .job_record import ACK_BOOLEAN, ACK_BOUND, ACK_NONE
 from .outputs import resolution_library
@@ -189,35 +189,35 @@ def admit(
                 capacity_label=capacity_label,
             )
             admission.errors = candidate.validation_errors(context=context)
+            # validation_errors reports the caller's own bad arguments (an
+            # unknown name, a value that will not coerce) beside the
+            # document's errors (#976), so validate and submit refuse alike;
+            # these are those, the context's one memoized list
+            refused = {
+                (e.get("path"), e.get("message")) for e in context.argument_errors
+            }
         except Exception as e:
             raise _validator_failure(e) from e
         admission.vram_need = _vram_need(candidate, context, arguments)
-        if admission.errors:
-            # Every error comes back at once (#976): the caller's own bad
-            # arguments (an unknown name) are reported beside the
-            # document's errors, not only after they are fixed
-            try:
-                known = {(e.get("path"), e.get("message")) for e in admission.errors}
-                admission.errors += [
-                    e
-                    for e in argument_errors(candidate.workflow_definition, arguments)
-                    if (e.get("path"), e.get("message")) not in known
-                ]
-            except Exception:
-                logger.debug("argument_errors skipped beside a failed document")
-            # The warnings walk the steps array, which a definition failing
-            # the schema may not have
+        # Only the document's own errors stop the warnings, which walk the
+        # steps array a definition failing the schema may not have. A
+        # finding at `arguments.<name>` is the caller's, wherever it was
+        # found - a preset selector value no bundle names among them
+        if any(
+            (e.get("path"), e.get("message")) not in refused
+            and not str(e.get("path") or "").startswith("arguments.")
+            for e in admission.errors
+        ):
             admission.schema_errors = True
             return admission
 
         definition = candidate.workflow_definition
-        # The arguments checked the way the run would check them: an
-        # undeclared name, a value that will not coerce, a reference that
-        # names nothing in this workspace. A raise here is the checks
-        # failing, not the Workflow failing to construct - validate answers
-        # it as a validator failure, as it does one from validation_errors
+        # A reference the arguments make that names nothing in this
+        # workspace - the bad names and values themselves validation_errors
+        # already refused. A raise here is the check failing, not the
+        # Workflow failing to construct - validate answers it as a validator
+        # failure, as it does one from validation_errors
         try:
-            admission.errors = argument_errors(definition, arguments)
             admission.errors += argument_reference_errors(
                 definition,
                 arguments,
@@ -499,7 +499,24 @@ def admit_for(
         admission.host_ram_need = _host_ram_need(
             state, admission, catalog_name, history_workspace
         )
+        _refuse_for_small_host(admission)
     return admission
+
+
+def _refuse_for_small_host(admission):
+    """A declared host-RAM need the machine's total RAM can never hold is an
+    error here, at submit and validate alike (#1227). Best effort: an
+    unreadable host or definition refuses nothing."""
+    try:
+        total = (host_memory_stats() or {}).get("total_mb")
+        message = host_too_small(
+            admission.workflow.workflow_definition, admission.arguments, total
+        )
+    except Exception:
+        logger.debug("Could not check the declared host RAM", exc_info=True)
+        return
+    if message:
+        admission.errors.append({"path": "host_ram_gb", "message": message})
 
 
 def _host_ram_need(state, admission, catalog_name, history_workspace):

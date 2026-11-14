@@ -590,9 +590,13 @@ with no track), and its `shots` record where each still starts.
 
 Refused: stills of different sizes (naming both); a non-positive duration; an
 `fps` out of range; a duration count that does not match a literal image list;
-a total over 600 seconds or 36000 frames; and, at run time before allocating,
-a clip over 4 GiB of uint8 frames (frames x width x height x 3). All but the
-last are caught by `validate_workflow`.
+a total over 600 seconds or 36000 frames; and, before allocating, a clip over
+the 4 GiB in-memory frame budget (frames x width x height x 3 uint8 bytes),
+naming the highest `fps` that fits, smaller images, or a split joined with
+`concat_videos`. All are caught by `validate_workflow` when the values are
+literal; the budget needs every still to be a file (`asset:`, `output:`, a
+path) whose header gives its size, so stills from an earlier step are
+checked when the run starts.
 
 ### concat_videos
 
@@ -624,9 +628,11 @@ workflow guide).
 | `audio_bleed_gain_db` | No | Gain applied to the bled tail before it is added, in dB - negative ducks a tail that would otherwise push the seam over 0 dBFS (default: 0, unchanged) |
 | `seam_fade_ms` | No | Fade on each side of a seam that gets neither a crossfade nor a bleed - for tonal material, not for a continuous bed (default: 3, just enough not to click) |
 | `fps` | No | Frame rate of the videos - required to join audio when trimming, and the rate the joined file is written at unless `result.fps` overrides it. An input carrying a different rate is re-timed, with an `fps_overrides_input` warning |
-| `match_levels` | No | Even the shots' loudness out before joining - `"rms"` for perceived level (the measurement `get_gallery_metadata` reports as `mean_dbfs`), `"peak"` for the loudest sample. Off by default |
-| `match_levels_dbfs` | No | The level `match_levels` moves every shot to (default: -1 dBFS for `peak`, -20 dBFS for `rms`). A shot that would clip at the target is held at -0.5 dBFS peak instead, reported as a `match_levels_held` warning with a per-shot log event |
+| `match_levels` | No | Even the shots' loudness out before joining - `"rms"` for perceived level (the measurement `get_gallery_metadata` reports as `mean_dbfs`), `"peak"` for the loudest sample, `"lufs"` for BS.1770 integrated loudness (the unit editors deliver in; held at -1 dBTP true peak, and a shot under 0.4 s is matched by rms with a `match_levels_short_shot` warning). Off by default |
+| `match_levels_lufs` | No | The loudness `"lufs"` moves every shot to (default -16 LUFS; -23 is EBU R128 broadcast). A shot whose true peak would pass -1 dBTP is held there and reported as `match_levels_held` (measured on H3 shots: the AAC mux leaves a held shot at about -1.2 dBTP, so the hold stands after the mux). `match_levels_dbfs` is refused with `"lufs"` |
+| `match_levels_dbfs` | No | The level `match_levels` moves every shot to (default: -1 dBFS for `peak`, -20 dBFS for `rms`). A shot that would clip at the target is held at -3 dBFS peak instead for `rms` (room for the AAC mux; -0.5 for `peak`), reported as a `match_levels_held` warning with a per-shot log event |
 | `sample_rate` | No | The joined soundtrack's rate. Default: the highest among the inputs, the rest resampled up with a warning (#108) |
+| `continuous_joins` | No | `true` when the joins continue one take rather than cut between shots, for example pieces of one chain take joined back up. Each seam is recorded without `hard_cut`, so `analyze_seams` measures its frame jump as it measures a chain's own seams, and the audio keeps the default few-ms declick (`seam_fade_ms: 0` butt-joins it). Refused beside `seam_fade_ms` above 0 or `audio_bleed_ms` (default: `false`, every seam a cut) |
 
 Shots an earlier run wrote are joined by path or URL without regenerating them.
 A file's track, and a `previous_result:` shot's, is fitted to its frames'
@@ -709,7 +715,8 @@ to `join_into_song`).
   than 3 dB is an `inner_level_step` warning. Left off, a spread of 6 dB or more
   is a job warning, unless a later step such as `pair_audio` replaces the track.
   A shot at or below -40 dBFS, or one needing 20 dB or more of gain, is reported
-  as `match_levels_near_silent`.
+  as `match_levels_near_silent`. Under `"lufs"` the `inner_level_step` check
+  still measures rms.
 - **Sample rate.** Inputs at different rates are resampled up to the highest,
   with a warning, unless `sample_rate` pins the target.
 - **Joined track.** The soundtrack is fitted to the joined frames. A track short
@@ -718,6 +725,54 @@ to `join_into_song`).
   a further 16-32 samples, logged, or warned as `joined_audio_short_after_mux`
   if it reaches a frame. The shot records are re-measured against the file as
   written, so `media.shots` stays accurate.
+
+### export_timeline
+
+A joined piece as an editable timeline: an OpenTimelineIO `.otioz` bundle that
+DaVinci Resolve (18.5+) imports with one clip per shot. The bundle is a zip of
+`version.txt` (`1.0.0`), `content.otio` and a `media/` folder; each clip's
+`target_url` is `media/<file>`, percent-encoded. The OTIO JSON is written directly, so there is
+no `opentimelineio` dependency. Rates are the exact rational the engine writes
+(23.976 is 24000/1001, stored by OTIO as a float) with integral frame values.
+When a clip's file sits in a run of the output directory, the clip's OTIO
+`metadata.dw.source` holds that file's `output:` reference (the joined video's on
+every clip, each source's in `sources` mode); the job page offers it to copy, for
+`chain_take`/`chain_output`. A file outside a run records none.
+
+Checked by hand in Resolve 21 (2026-11-06): File > Import > Timeline takes the
+`.otioz`, or its unzipped `content.otio` beside `media/`, and gives one clip per
+shot at the recorded rate. The Mac App Store build of Resolve is sandboxed and
+reads only folders it has been granted. Copy the file into
+`~/Movies/DaVinci Resolve/` (or another folder added under Media Storage) first.
+From elsewhere, such as `~/Desktop`, an `.otioz` import silently does nothing and
+an `.otio` reports "The clip was not found".
+
+```json
+{
+    "task": {
+        "command": "export_timeline",
+        "arguments": {
+            "video": "output:<identity>/latest/final/cut.mp4",
+            "name": "episode-1"
+        }
+    },
+    "result": { "content_type": "application/x-otioz" }
+}
+```
+
+| Argument | Meaning |
+| -------- | ------- |
+| `video` | The joined video, a stored file (`asset:`, `output:` or a path). A clip still in memory is refused: the bundle carries the file |
+| `sources` | One file per shot, in order. Each clip then points at its own file over that file's whole range, at that file's own frame rate, and the bundle holds those files, not `video`. A count other than one per shot is refused. Default: every clip points into `video` over its shot's span, so the bundle holds one media file |
+| `shots` | Shot records; else the video's own from the run manifest, else the whole file is one clip |
+| `name` | The timeline's name |
+
+By default there is one video track and, when the file has a soundtrack, one
+audio track. Where the shots leave frames uncovered the track carries a gap, so
+clips and gaps add up to the video's length; shots that overlap are refused,
+since a track lays its clips end to end, and so is a shot that runs past the
+video's last frame. The concept and schema come from
+leonardofrito/Directors-Cut (MIT); see [ATTRIBUTIONS.md](ATTRIBUTIONS.md).
 
 ### dissolve_videos
 
@@ -749,8 +804,9 @@ The [join input rules](#join-input-rules) apply.
 | `fade_out_frames` | No | Frames over which the last video sinks into it (default: 0) |
 | `fade_color` | No | The RGB colour the fades come from and go to (default: black) |
 | `fps` | No | Frame rate of the videos - required to crossfade audio at a dissolve, and the rate the dissolved file is written at unless `result.fps` overrides it |
-| `match_levels` | No | Even the shots' loudness out before joining - `"rms"` or `"peak"`, as with [`concat_videos`](#concat_videos). Off by default |
+| `match_levels` | No | Even the shots' loudness out before joining - `"rms"`, `"peak"` or `"lufs"`, as with [`concat_videos`](#concat_videos). Off by default |
 | `match_levels_dbfs` | No | As with `concat_videos` |
+| `match_levels_lufs` | No | As with `concat_videos` |
 | `sample_rate` | No | The joined soundtrack's rate. Default: the highest among the inputs, the rest resampled up with a warning |
 
 Every seam shortens the result by one overlap, so eight 124-frame shots joined
@@ -873,11 +929,113 @@ Keep one span of a video's frames, and its audio over the same span:
 Frames `[start_frame, start_frame + num_frames)` are kept. The audio is cut to
 the same span, each end `frames_to_samples` of a frame index rounded on its
 own, so consecutive trims tile the track exactly. A clip with audio comes back
-as an audio+video pair; a bare frame list as frames. Carried shots are clipped
+as an audio+video pair; a bare frame list as one silent clip at `fps`, so a
+step saves it as one video rather than one per frame. Carried shots are clipped
 to the span and re-based to `0`, their sample side cleared; a clip with none
 comes back as one shot named after its file (else `video 1`). A span past the clip's end is refused, naming the clip's frame count (never
 shortened or padded), as are a `num_frames` of `0` or less and a negative
 `start_frame`; `validate_workflow` catches these on literal values.
+
+### chain_repair_cut
+
+The pieces that re-render one segment of a finished chain in place (#1169),
+for [templates/minimax/repair-segment](../workflows/templates/minimax/repair-segment.json).
+A chain run with `save_segments` and `keep_segments` leaves each segment as a
+playable mp4 beside the take, and names each file on the take's shots
+(`segment_file`, in the run manifest). This command finds the files from the
+take, and cuts the guides a repair render of segment `k` needs and where the
+repair sits on the take:
+
+```json
+{
+    "task": {
+        "command": "chain_repair_cut",
+        "arguments": {
+            "chain_take": "output:minimax/MiniMaxH3I2VChained/latest/final/<the take>.mp4",
+            "segment": 3,
+            "num_frames": 175,
+            "head_frames": 22,
+            "tail_frames": 39
+        }
+    }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `chain_take` | One of the two | The chain's final video. Its shots (the run manifest beside it) give each segment's place on the take and name its segment file |
+| `chain_output` | One of the two | One of the chain's segment files. Alone, the take is found through the run manifest that names it. Beside a take whose shots name no files, the others are found by name beside it, and refused when they disagree in rate or size (two runs mixed in one directory) or leave a gap; `chain_repair_splice` still needs the take's shots |
+| `segment` | Yes | The segment to re-render, 1-based, 2 to N: the first has no segment before it and is refused. The last has the head guide only, and the render ends at the take's end |
+| `num_frames` | Yes | The repair render's length, on the 17n + 5 grid: at least `head_frames` + segment k's frames + `tail_frames` (no `tail_frames` for the last segment), rounded up onto the grid. A smaller one is refused naming the smallest; a larger one reaches further into segment k+1, or for the last segment past the take's end, where its frames are dropped (`padding_frames`) |
+| `head_frames` | No | Segment k-1's last frames, held at the render's frame 0: a whole-latent length, 17m + 5 from 22 (default `22`) |
+| `tail_frames` | No | Segment k+1's frames held as a guide ending at the render's last frame, a whole-latent length (default `39`, so the tail hold outnumbers the head) |
+| `width`, `height` | No | The render's canvas; when given, refused unless it is the segment files' own size |
+
+A `chain_take` alone whose segment files cannot be found is refused with the
+fix for its case: a take run without `keep_segments` (re-run the chain with
+`keep_segments` and `save_segments`), a take that is already a repair, which
+leaves no segment files (repair the original chain take), and a take copied
+away from its run, with no manifest beside it (pass `chain_output` as well).
+
+It returns a record for later steps (`previous_result:cut.<field>`):
+`guides` (the render's whole `guides` argument: the head guide at frame 0
+and, but for the last segment, the tail guide at `tail_frame`), `held_audio`
+(for a `match_audio` take - its shots record no sample side - the take's own
+track sliced under the render's frames from `held_start_frame`, the head
+guide's first frame on the take, zero-padded past the take's end, for the
+render's `hold_audio`; the guides then carry picture only, and a render off
+H3's 3-frame audio grid warns `held_audio_off_grid`; null for a chain's own
+track, where the guides carry their audio), `head_guide` and `tail_guide`
+(clips cut from the segment files; no tail guide for the last segment),
+`keyframe` (the head
+guide's first frame, the fl2va keyframe a guide chain gives its own
+segments), `tail_frame` (where the tail guide is placed: `num_frames -
+tail_frames`, always on 17j; null for the last segment), `keep_start` (the render frame the kept span
+starts at), `chain_take`, and `start_frame`/`end_frame` (the take's frames
+the span replaces), with `overrun`, `segment_frames`, `segment_files` and
+`total_frames` (the take's). The neighbours are counted from their decode.
+
+The frames between the two guides number 12 more than a multiple of 17
+(17n + 5 less two 17m + 5 guides), and an interior segment of a 17n + 5 chain
+with a 22- or 39-frame carry is a multiple of 17, so the new frames replace
+segment k and the first `overrun` frames of segment k+1 (12 at the smallest
+render), and the take resumes on segment k+1's frame `overrun`.
+
+### chain_repair_splice
+
+Puts a repair render's span into the take in place (#1169): the second half
+of `chain_repair_cut`.
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `chain_take` | Yes | The take, `previous_result:cut.chain_take` |
+| `video` | Yes | The repair render |
+| `segment` | Yes | The segment repaired, 1-based |
+| `start_frame`, `end_frame` | Yes | The take's frames the span replaces, from the cut |
+| `keep_start` | Yes | The render frame the span starts at, from the cut |
+
+Apart from frames `[start_frame, end_frame)` the result is the take: its
+frames, its frame count (a `duration_seconds` take, shorter than its segment
+files, stays its own length) and its track, sample for sample, so every other
+seam keeps its crossfade or declick. A `match_audio` take keeps its own track
+whole under the repaired picture. Otherwise the span's audio is the render's
+own, at the take's rate, blended in from the take's track and back into it
+inside the span, over the window the chain blended those seams with (the
+shot's `crossfade_ms`, else the few-ms declick); a repaired last segment
+blends in only, its span running to the take's end. Its shots are the take's,
+each keeping its records (a chain seam's `crossfade_ms` and `trim_frames`),
+with the span as one `segment k (repaired)` shot and the next shot starting
+where the take resumes. Those two record their seams as a chain seam is: the
+head frames trimmed (the render's head guide; the take's own head of the
+resumed shot) and the blend applied. None of them is `hard_cut`, so
+`analyze_seams` measures the repaired seams and reads every other seam as the
+take's. No shot names a `segment_file`, so a repaired take cannot be repaired
+again: re-render the chain, or repair the original take.
+
+The take must be the chain's own output with its shots (the run manifest's
+shot list): they tell a `match_audio` track from the chain's own and give each
+seam's blend. A take without them, or whose shots do not place `segment` at
+`start_frame`, is refused rather than guessed at.
 
 ### window_video
 
@@ -1363,7 +1521,18 @@ Either half of a pair may be left out: an omitted start begins at the head, an
 omitted duration runs to the end. A slice past the end of the track is
 zero-padded to the length asked for, and more than a few milliseconds of
 padding warns `slice_past_end`; to fill a cut longer than the recording, build
-a bed with [`loop_audio`](#loop_audio) and slice that.
+a bed with [`loop_audio`](#loop_audio) and slice that. `past_end: "stop"` cuts
+at the end instead, keeping a short source at its own length: a joined piece
+whose sections may come back short (`templates/minimax/music-long`) wants
+that, and [`crossfade_audio`](#crossfade_audio) then warns `joined_short` with
+the real and the asked total. A `"stop"` slice is a section kept whole up to
+its length, so one that drops a tail still playing (its RMS within 10 dB of
+the kept part's) warns `slice_dropped_loud_tail` with the seconds dropped and
+both levels, however long the tail; a slice that cuts a source a little short
+of its end (under 5% of the slice and under 10 s, any non-silent tail) warns
+`slice_trimmed_tail` whatever `past_end` is. `end_snap_seconds` moves a cut
+that lands inside the source back to its quietest point in that many seconds
+before the end - in a song, a phrase gap or a bar break.
 
 **Audio inputs.** In every audio task, `audio` (and each entry of `audios`)
 takes the path or URL of an audio file, or of a video file whose soundtrack is
@@ -1393,6 +1562,8 @@ needed only for a bare waveform, and given, it wins.
 | `start_frame` / `num_frames` / `fps` | One pair | The slice in video frames; `fps` is required, start and count may be omitted |
 | `lead_frames` | No | Frame form only, default 0: extra audio before the cut. The slice starts at `start_frame - lead_frames` and still runs `num_frames`, so `start_frame` 48 with `lead_frames` 12 at 24 fps is audio from frame 36 for `num_frames` frames. A whole number, 0 or above; a nonzero value is refused with the seconds form, and refused when `start_frame - lead_frames` is below zero (by `validate_workflow` for literals, at run time otherwise) |
 | `sample_rate` | With a waveform | Rate of a bare waveform |
+| `past_end` | No | `"pad"` (default) zero-pads a slice past the end of the source to the length asked; `"stop"` cuts it at the end, so a short source keeps its own length (logged), and the track carries the length asked for to `fade_audio` and `crossfade_audio`. A slice starting at or past the end is refused with `"stop"` |
+| `end_snap_seconds` | No | Off by default (0 is off too); zero or above. When the slice's end cuts into the source, the end moves back to the centre of the quietest 0.2 s window (lowest RMS) within this many seconds before it, never into the slice's first half (the slice keeps at least half its asked length); an even level keeps the exact cut. The slice comes out that much shorter (logged), and the track carries the asked length and the snap on to `fade_audio` and `crossfade_audio`, which counts it in the joined total but not as a track that ended early. An end the source does not reach has nothing to snap |
 
 ### gain_audio
 
@@ -1430,7 +1601,13 @@ with no duration runs to the end of the track.
 ### crossfade_audio
 
 Join audio tracks with an equal-power crossfade. Each seam overlaps the two
-tracks by the fade window:
+tracks by the fade window. When a track was sliced with `past_end: "stop"` and
+kept shorter than asked (through a `fade_audio` too), the join warns
+`joined_short`: the joined length against the length the tracks asked for,
+and each short track's kept and asked seconds. A track `slice_audio`'s
+`end_snap_seconds` cut at a quiet point is counted in the totals but named
+apart, under `snapped_tracks`; when no track ended early, that shortfall is
+logged rather than warned, since the snap was asked for:
 
 ```json
 {
@@ -1896,6 +2073,32 @@ Measure how far a shot's audio sits from the source slice it should match. `anal
 | `sample_rate` | With a waveform | Rate of a bare waveform |
 
 Returns `{lag_seconds, confidence, max_lag_seconds, audio_seconds, reference_seconds, findings, warnings}`. **`lag_seconds` is positive when the audio is late** - its events fall that many seconds after the reference's - and negative when early. `confidence` is the normalised correlation at that lag, 0 to 1. A silent or flat audio or reference gives `lag_seconds: null` and a `sync_unmeasurable` finding. Each finding is `{rule, severity, at, value, threshold, says}`. It is not part of `assess_output`.
+
+### measure_lip_sync
+
+Measure whether a speaker's mouth moves with the audio. `measure_sync` lines a track up against its source slice; this lines the picture up against the audio. YuNet finds the face in each frame, and the mouth box runs across its two mouth-corner landmarks and down from them by the distance between the corners. The mouth signal is the mean absolute grey-level change in that box from the frame before; the audio signal is its RMS envelope, one value per frame's span of samples. The two are Pearson-correlated over the frames with a face, at whole-frame lags. It is a coarse take-level indicator, not a per-segment check. The result is JSON and nothing is built:
+
+```json
+{
+    "name": "lip_sync",
+    "task": {
+        "command": "measure_lip_sync",
+        "arguments": {
+            "video": "previous_result:shot",
+            "max_lag_seconds": 1.0
+        }
+    },
+    "result": { "content_type": "application/json" }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `video` | Yes | The clip of the speaker: an `asset:`/`output:` reference, a path, or an earlier step's video |
+| `audio` | No | The audio the mouth is held to, an [audio input](#slice_audio) or a video carrying a soundtrack. Default: the video's own track |
+| `max_lag_seconds` | No | The largest lag searched, either way (default `1`, at most `2`; a larger value is refused). The search never reaches past the frames minus 8 |
+
+Returns `{correlation, lag_seconds, best_correlation, frames_with_face, frames, max_lag_seconds}`. `correlation` is the best r (-1 to 1) within 3 frames of lag 0; `lag_seconds` is the best lag within `max_lag_seconds` and `best_correlation` its r. **`lag_seconds` is positive when the audio is late** against the mouth, as `measure_sync`'s is. Each is `null` when no frame, or too few, had a face. On 70 real H3 dialogue segments a track 0.5 s late moved the best lag to about +12 to +14 frames, while a segment's own audio sat at 0 to +2; but good and bad correlations overlapped (the 10th percentile of good was 0.14, the 90th of late 0.27), so one segment's correlation is not a verdict (`bench/records/narrated.md`, *Sync calibration*). Read the lag over a whole take, and judge sync by eye; a still face, a face in profile or a hidden mouth reads low on good sync. A checked chain does not measure it. Reads YuNet's weights (`opencv/face_detection_yunet`), listed in the plan's `downloads_required`. In code, `dw.tasks.lip_sync.lip_sync_score(frames, waveform, sample_rate, fps, max_lag_seconds=1.0)` measures frames and a waveform held in memory.
 
 ### analyze_beats
 
@@ -2393,7 +2596,7 @@ MPS a failed separation falls back to the CPU and warns
 is the dialogue and `drums` + `bass` + `other`, summed with `mix_audio`, the
 rest. On H3 shots under a Music 3 score the `vocals` stem matched the dry shot
 within 0.1 dB RMS, with the score's leak about 30 dB under
-([record](proposals/audits/2026-11-dialogue-stems.md)). The rest is not a clean
+(record: `docs/proposals/audits/2026-11-dialogue-stems.md` in the repo). The rest is not a clean
 score: a shot's SFX and foley land in `drums` and `other`, so keep the score
 file when the goal is to replace the music. A speechless shot gives a
 near-silent `vocals` stem and an invented transcript, so judge "no dialogue"
@@ -2729,7 +2932,9 @@ A validate's `downloads_required` lists the repo for the `mode` given; `model_na
 
 Two tasks promote a MiniMax-H3 take in latent space; the workflow guide's
 [Promoting an H3 take](WORKFLOW_GUIDE.md#promoting-an-h3-take-to-768p-in-latent-space-upscale_h3_latents-and-decode_h3_latents)
-section has the full recipe.
+section has the full recipe. A third, `encode_h3_latents`, goes the other way
+for the experimental windowed refine of a long take
+([Refining a long take in time windows](WORKFLOW_GUIDE.md#experimental-refining-a-long-take-in-time-windows)).
 
 ### upscale_h3_latents
 
@@ -2752,11 +2957,35 @@ latents. `downloads_required` lists the upscaler file.
 
 Decode H3 latents to frames through diffusers' `MiniMaxH3VideoDecodeStep` (VAE
 in fp32), so the colours match the pipeline's own decode. Takes `latents` (a
-pipeline step's `latents` or an `upscale_h3_latents` result) and `model_name`
-(default `MiniMaxAI/MiniMax-H3`, its `vae` subfolder). Returns one video of the
+pipeline step's `latents` or an `upscale_h3_latents` result), `model_name`
+(default `MiniMaxAI/MiniMax-H3`, its `vae` subfolder) and `num_frames` (keep
+only the first that many frames: an `encode_h3_latents` step's `source_frames`,
+so a padded take comes back at its own length). Returns one video of the
 first batch item at 24 fps with no audio; `pair_audio` puts a soundtrack back.
+Latents too short to decode to any frame (one or two latent frames) are
+refused, and so is a `num_frames` above what the latents decode to.
 It declares no `required_weights`: the VAE is the one the H3 pipeline step
 already cached.
+
+### encode_h3_latents
+
+Experimental. Encode a finished take into one H3 video latent, one 17-frame VAE
+clip at a time, so a take too long to encode whole (a `source_video` refine
+encodes it as one float32 tensor) still reaches a refine. The result is
+bit-identical to the whole-take encode.
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `source` | Yes | The take: an `output:`/`asset:` video file, read a clip's range at a time, or an earlier step's video. 24 fps, both sides a multiple of 32 |
+| `model_name` | No | The MiniMax-H3 repo whose `vae` subfolder encodes (default `MiniMaxAI/MiniMax-H3`) |
+
+Returns `latents` (the refine's `latents` argument), `num_frames` (the take
+padded with its last frame up to the next 17m + 5, the refine's `num_frames`)
+and `source_frames` (the take's own count, for `decode_h3_latents`'
+`num_frames`). Refused: a take that is not 24 fps, a side off the 32 grid, an
+empty take, and one over 30 minutes. A file header that claims far more frames
+than its duration holds is refused; one that claims a few more (a
+variable-frame-rate take) is encoded at the duration's count, with a warning.
 
 ## Face Restoration
 
@@ -3010,6 +3239,230 @@ Refused: a `parts` that is not a list; a part that is neither text nor a
 number (the reference resolved to something other than text); and a list left
 with nothing once empty parts are dropped. The parts are positional; there is
 no named form.
+
+## Splitting Text into Takes
+
+`split_takes` cuts a long text into takes a speech model can say in one go
+(`dw/tasks/text_takes.py`). Audio8-TTS holds about 95 s of reference, text and
+speech together, but a take over about 40 s of speech loops, skips or stops
+early (`bench/records/audio.md`), so a long narration is spoken take by take
+and joined (`templates/narration-long`).
+
+```json
+{
+    "name": "split",
+    "task": {
+        "command": "split_takes",
+        "arguments": { "text": "variable:text", "max_seconds": 37, "words_per_second": 3.0 }
+    },
+    "result": { "content_type": "application/json" }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `text` | Yes | The text to speak |
+| `max_seconds` | No | The longest a take may run (default 37: at 3.0 words a second, 111 words, the longest voice-clone take measured word-complete) |
+| `words_per_second` | No | The rate that turns the limit into a word count (default 3.0, the voice-clone voice's measured rate; written dialogue measured 2.5 to 4 words a second as filling a clip) |
+
+It answers `{takes, count, words}`. A take ends at a sentence boundary; a
+sentence that alone is over the limit is cut at its last comma before the
+limit, else (no comma) at the word boundary nearest the limit, and the run warns.
+A take already 60% of the way to the limit ends at a paragraph break (a blank
+line), so the join's pause falls where the text has one. The takes rejoin to the text, modulo whitespace.
+The engine expands `for_each` before a run, so the list cannot feed a
+`for_each` in the same workflow. `templates/narration-long` takes the plain
+text, runs this task, and hands the takes to `templates/narration-from-takes`
+as a child workflow, which expands its own `for_each`. Refused: empty text, a limit that is not
+above zero.
+
+## Checking a Narration
+
+`check_narration` checks that a long narration spoke its script
+(`dw/tasks/narration_check.py`). A narration is assembled from takes
+(`templates/narration-long`) and a take can loop, skip or stop early with
+nothing saying so. The joined audio is transcribed once with the pipeline
+`transcribe_audio` caches, the words heard are aligned to the script's words
+in order, and each dropped or inserted word is attributed to its take.
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `audio` | Yes | The narration: an audio file, a video's soundtrack, or a waveform (with `sample_rate`) |
+| `text` | One of | The script as one string, split into takes as `split_takes` does by default |
+| `takes` | One of | The takes it was spoken from: a list, or one string split as `text` is |
+| `max_word_error_rate` | No | A take over this fails (default 0.1; 0 to 1) |
+| `model_name` | No | A Whisper-class ASR model (the `transcribe_audio` default) |
+| `device`, `sample_rate` | No | As `transcribe_audio` |
+
+Exactly one of `text` and `takes` is given; both or neither is refused. It
+answers `{takes, checked, failed, worst}`: per take `{index, text, words,
+dropped, inserted, word_error_rate, ok}`, where the rate is dropped plus
+inserted words over the take's expected words; `failed` lists the indices over
+the limit; `worst` is `{index, word_error_rate}`. An inserted word that
+replaces expected words (a word misheard) belongs to the take of the words it
+replaces; a pure insertion belongs to the take whose words it sits in front of
+(the last take when it follows them all), so a filler between two takes counts
+against the later one. The exception is a pure insertion at a take boundary
+whose words repeat the end or the beginning of the take before it: that
+belongs to the earlier take, because the alignment can match either copy of a
+looped take and leave the repeat in front of the next one, and a take
+restarted from its beginning and abandoned leaves its opening words there. A
+looped or restarted take therefore shows as insertions in its own take, with
+the takes after it still aligned. Each failing take also emits a
+`narration_take_mismatch` warning naming the take, its rate and its first
+dropped words. `templates/check-narration` runs it.
+
+## Retiming a Narration
+
+A narrated long take is spoken first and pictured after: an H3 chain renders
+the picture in fixed-length segments, so the speech is fitted to the chain's
+frame grid (`dw/tasks/narration_retime.py`). `retime_narration` sets every
+pause by the punctuation it follows and brings a word junction onto each
+segment boundary so no boundary cuts through a word; `narration_lines` then reads the
+line each planned segment speaks, and fills a prompt per segment from a
+template. Both take their word times from one word-timestamp transcription
+(the `transcribe_audio` pipeline, levelled as `check_script` levels it).
+
+```json
+{
+    "steps": [
+        {
+            "name": "retime",
+            "task": {
+                "command": "retime_narration",
+                "arguments": {
+                    "audio": "previous_result:speech",
+                    "text": "variable:script",
+                    "segment_frames": 192,
+                    "guide_frames": 22,
+                    "fps": 24
+                }
+            },
+            "result": { "content_type": "audio/wav" }
+        },
+        {
+            "name": "lines",
+            "task": {
+                "command": "narration_lines",
+                "arguments": {
+                    "audio": "previous_result:retime.audio",
+                    "text": "variable:script",
+                    "segment_frames": 192,
+                    "guide_frames": 22,
+                    "prompt_template": "variable:segment_prompt",
+                    "fill": { "scene": "variable:scene" }
+                }
+            },
+            "result": { "content_type": "application/json" }
+        }
+    ]
+}
+```
+
+### `retime_narration`
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `audio` | Yes | The narration: an audio file, a video's soundtrack, a track from an earlier step, or a waveform (with `sample_rate`) |
+| `text` | No | The script. Its punctuation, spelling and section breaks win over Whisper's |
+| `comma_seconds` | No | The pause after a word ending `,` `;` or `:` (default 0.3) |
+| `sentence_seconds` | No | The pause after a word ending `.` `?` or `!` (default 0.6) |
+| `section_seconds` | No | The pause at a section break in `text`: a blank line, or a line opening "Amendment" (default 1.0) |
+| `min_gap_seconds` | No | A gap shorter than this is left alone, and is never lengthened or shortened to move a boundary (default 0.12) |
+| `segment_frames` | No | Frames a chain segment generates. With it, the boundaries are placed and reported |
+| `guide_frames` | No | The chain's guide frames, the head each segment after the first trims (default 0) |
+| `fps` | No | Frame rate the frames are counted at (default 24) |
+| `boundary_slack_seconds` | No | The most one gap may be lengthened or shortened to bring a word junction onto a boundary (default 0.25) |
+| `model_name` | No | A Whisper-class ASR model (the `transcribe_audio` default) |
+| `device`, `sample_rate` | No | As `transcribe_audio` |
+
+The seconds arguments are zero or above, `fps` is above zero, and
+`segment_frames` and `guide_frames` are whole numbers.
+
+A gap of at least `min_gap_seconds` after a word whose punctuation names a
+class takes that class's length. A gap with no punctuation keeps its length.
+When `text` is given, the punctuation comes from the script, aligned to the
+words heard, and the stronger class wins: a sentence end before a blank line
+is a section. Without `text` it comes from Whisper's chunk text, which never
+marks a section. A pause is shortened by cutting out its middle. It is
+lengthened by inserting the source's own room tone at its middle: the best
+`find_loop_bed` candidate, else the source's quietest 250 ms window, looped
+with `loop_audio`. Every cut is a 10 ms equal-power crossfade, so the result
+is never digital zero where the source was not.
+
+The boundaries are the kept-span ends of `plan_segments` over the retimed
+length, with `guide_frames` as the head trim. Segment 1 ends at
+`segment_frames`, then every `segment_frames - guide_frames` frames after it.
+The take holds its narration and plays it unbroken, so a boundary anywhere
+at the junction of two words - from one word's end to the next word's
+start, a zero-length junction included - is in place and is not moved. In
+an eligible gap (at least `min_gap_seconds`) it keeps 20 ms clear of the
+words; in a narrower junction it may sit anywhere. A boundary inside a
+word has the nearest junction, before or after it, moved onto it by
+lengthening or shortening the nearest eligible gap before that junction -
+the only gaps whose timing changes - by at most `boundary_slack_seconds`,
+whichever move shifts less. A shortened gap keeps at least half its class
+length (its own length, for a gap with no class) and never goes under
+40 ms, and no move takes an earlier boundary out of its junction. A
+boundary no such move reaches, such as one deep inside a long word, is
+reported and left where it is. It is never forced through a word.
+
+The step answers `{audio, report}`: the retimed track, and a report saved as
+JSON beside it. Later steps read them as `previous_result:retime.audio` and
+`previous_result:retime.report`. The report is:
+
+- `words`: `[{word, start, end}]` at their retimed times.
+- `pauses`: `[{after, class, before_seconds, after_seconds}]` for every gap
+  that has a class or was moved for a boundary (`class` null for the latter).
+- `duration_seconds`: the retimed length.
+- `boundaries`: `[{segment, seconds, in_gap}]`, present with
+  `segment_frames`. `segment` is the 0-based index of the segment that ends there.
+- `mid_word_boundaries`: `[{segment, word}]`, the boundaries left inside a word. Advisory, not a gate: a few are fine, since the narration is held and a cut inside a word is heard unbroken; it only splits that word between two segments' lines. If many appear, raise `boundary_slack_seconds`. A boundary after the last word is the take's tail and is not reported.
+
+### `narration_lines`
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `audio` | Yes | The narration, usually `previous_result:retime.audio` |
+| `segment_frames` | Yes | Frames a chain segment generates |
+| `guide_frames` | No | The chain's guide frames (default 0) |
+| `fps` | No | Frame rate (default 24) |
+| `text` | No | The script, whose spelling and punctuation the lines take |
+| `prompt_template` | No | A prompt holding `{line}` and the placeholders `fill` names |
+| `fill` | No | `{placeholder: value}` for the template's other placeholders |
+| `model_name`, `device`, `sample_rate` | No | As `retime_narration` |
+
+The audio's length plans the segments (`plan_segments`, the frames covering
+the audio). Each segment's line is the words whose midpoint falls in its kept
+span. Segment 1 keeps `[0, segment_frames)` and each later segment keeps the
+frames after its trimmed head. With `text`, a line carries the script's
+words and spelling, not Whisper's: "twenty dollars," where Whisper heard
+"$20,". A script word Whisper missed is read with the heard word before it,
+so it lands in that word's segment. The answer is a JSON document:
+
+- `lines`: one string per planned segment.
+- `prompts`: present only with `prompt_template`. It is the template once per
+  line, with `{line}` and every `fill` key substituted.
+- `segments`: `[{index, start_seconds, end_seconds, line}]`.
+- `mid_word_boundaries`: `[{segment, word}]`, the kept-span ends that fall inside a word by more than 0.08 s on both sides (Whisper's word times on edited audio jitter by tens of ms). Advisory, like the retime report's.
+- `total_frames`: the frames the plan covers.
+
+A chain step reads them as `previous_result:lines.prompts` or
+`previous_result:lines.lines`. The prompt text is the caller's: the task
+writes no model's prompt format of its own.
+
+Both commands refuse audio in which no words are heard, naming the command.
+`narration_lines` also refuses a missing `segment_frames`, and a template
+placeholder that `fill` does not give, naming that placeholder.
+
+`prompt_template` is filled by plain substitution, not Python formatting. A
+placeholder is a bare name in braces, `{line}` or one of `fill`'s keys. Anything
+else in braces is refused: a format spec (`{line:>9}`), a conversion
+(`{line!r}`), attribute or index access (`{line.upper}`, `{line[0]}`), a
+position (`{0}`, `{}`), or a stray single brace. Write `{{` and `}}` for a
+literal `{` and `}`. `prompt_template` and each `fill` value are capped at 20,000 characters, and a
+filled prompt over 20,000 characters is refused, naming its segment (the length
+is counted before the prompt is built).
 
 ## Extracting Sections
 
@@ -3379,12 +3832,12 @@ How the alignment reads a take:
 - A dropped line comes back with `heard: ""` and a `line_mismatch` at where it should have been.
 - An added line's words go to `unmatched` and lower no line's similarity.
 - A line spoken out of order reads as a mismatch on that line.
-- Whisper mishears names and numbers (`2` for `two`), so listen before re-rolling a take on a mismatch.
+- Whisper mishears names and homophones (`pane` for `pain`), so listen before re-rolling a take on a mismatch. Number words and digits already read as the same, so `2` for `two` costs nothing.
 - A quiet line can be discarded by the guard. Discarded words are reported under `discarded`, not hidden.
 
 A malformed `lines` - not a list, an entry without text, an unknown key in a line object - is refused at validation, at `steps[i].task.arguments.lines`, as is a `similarity` outside 0..1. A line naming a shot the map lacks is refused, listing the map's shots, and so is a line naming a shot the map holds twice; a literal `shots` and literal lines are checked against each other at validation, and a `shots` or `lines` that is a reference is checked when the step runs.
 
-**Example:** [check-script.json](../workflows/templates/check-script.json) — check a take against its script and save the answer as JSON. Its defaults are `openai/whisper-large-v3-turbo` at `similarity` 0.6, not the task's `openai/whisper-base` at 0.85: turbo scored correct lines 0.71 to 1.00 and wrong or missing ones 0.00, where base scored correct lines as low as 0.43 on mishearings (#609). Turbo writes numbers as words (`four fifteen`), so a script with digits costs similarity.
+**Example:** [check-script.json](../workflows/templates/check-script.json) — check a take against its script and save the answer as JSON. Its defaults are `openai/whisper-large-v3-turbo` at `similarity` 0.6, not the task's `openai/whisper-base` at 0.85: turbo scored correct lines 0.71 to 1.00 and wrong or missing ones 0.00, where base scored correct lines as low as 0.43 on mishearings (#609). Number words and digits are read as the same (`twenty one` and `21`, `Amendment Ten` and `Amendment 10`, #1297), so neither Whisper's choice nor the script's costs similarity. A hyphenated compound is split at the hyphen first and then folded, so `twenty-one` is `21` too. Digits written apart stay separate numbers: `2 1` is not `21`, though a year said in halves (`17 87`) is `1787`.
 
 ## Frame Interpolation
 
@@ -3594,6 +4047,9 @@ Canny edge detection followed by ControlNet generation:
 - [best-of-n-to-video.json](../workflows/templates/best-of-n-to-video.json) — `judge` and `select` pick the best of several stills
 - [relevel-clip.json](../workflows/templates/relevel-clip.json) — Fix a clipping soundtrack on a rendered clip without re-rendering
 - [generate-speech.json](../workflows/templates/generate-speech.json) — Speak a line with a local text-to-speech model
+- [split-takes.json](../workflows/templates/split-takes.json) — `split_takes` alone: see or edit a long text's takes before speaking them
+- [check-narration.json](../workflows/templates/check-narration.json) — `check_narration`: the script against the joined speech, per take
+- [narration-long.json](../workflows/templates/narration-long.json) — Split a long text into takes, speak each in one cloned voice and join them
 - [voice-timbre-reference.json](../workflows/templates/minimax/voice-timbre-reference.json) — Generate a voice and condition H3's `<Audio 1>` on it
 - [dissolve-between-shots.json](../workflows/templates/dissolve-between-shots.json) — Dissolve between supplied shots and mix a score under their own audio
 - [face-repair.json](../workflows/templates/ltx2/face-repair.json) — Track, refine and paste back a wide shot's small face

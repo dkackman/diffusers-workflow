@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   CONTENT_TYPES,
   attentionBackendVariables,
+  requiredVariables,
   coerce,
   contentTypeOptions,
   optionsWith,
@@ -404,5 +405,19 @@ describe('attentionBackendVariables', () => {
     }
     expect(attentionBackendVariables(def)).toEqual(new Set())
     expect(attentionBackendVariables(null)).toEqual(new Set())
+  })
+})
+
+describe('requiredVariables', () => {
+  it('names the variables a constraint marks required', () => {
+    const def = {
+      variables: { reference_audio: null, seed: null },
+      variable_constraints: {
+        reference_audio: { required: true, min_length: 1 },
+        seed: { min_length: 1 },
+      },
+    }
+    expect(requiredVariables(def)).toEqual(new Set(['reference_audio']))
+    expect(requiredVariables({ variables: {} })).toEqual(new Set())
   })
 })

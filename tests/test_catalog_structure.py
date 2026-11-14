@@ -76,6 +76,12 @@ EXPECTED_SHAPES = {
         "shot",
         ["has-audio", "needs-input-media"],
     ),
+    # #1192: the clip it sounds is input media, though 'source_video' is its
+    # only media argument (regional-edit also has a 'mask_image')
+    "workflows/templates/minimax/add-sound.json": (
+        "shot",
+        ["has-audio", "needs-input-media"],
+    ),
     "workflows/templates/minimax/dialogue-short.json": (
         "sequence",
         ["has-audio", "identity-referenced"],
@@ -132,6 +138,9 @@ UTILITIES = {
     "workflows/templates/attribute-lines.json",
     "workflows/templates/audio-trim-fade.json",
     "workflows/templates/check-script.json",
+    "workflows/templates/check-narration.json",
+    "workflows/templates/narration-retime.json",
+    "workflows/templates/split-takes.json",
     "workflows/templates/face-drift-check.json",
     "workflows/templates/image-processors.json",
     "workflows/templates/minimax/music-video-cuts.json",
@@ -305,8 +314,9 @@ LEGITIMATE_MENTIONS = {
     "workflows/templates/assemble-and-score.json": {"video"},
     # the name of the sub-workflow step that makes the clip
     "workflows/templates/best-of-n-to-video.json": {"video"},
-    # attribute_voices' argument, fed the transcript rather than passed
-    "workflows/templates/attribute-lines.json": {"lines"},
+    # attribute_voices' argument, fed the transcript rather than passed; and
+    # 'segment', a value of 'timestamps' (repair-segment's variable)
+    "workflows/templates/attribute-lines.json": {"lines", "segment"},
     # the argument the composed image-to-video workflow receives
     "workflows/templates/compose-workflows.json": {"image"},
     # a 'result' field, and the point is that this workflow omits it
@@ -316,18 +326,31 @@ LEGITIMATE_MENTIONS = {
     # a field of the step's 'chain' block, which this workflow writes inline
     "workflows/templates/minimax/chain-matched-and-aligned.json": {"prompts"},
     # a field of the step's 'chain' block
-    "workflows/templates/minimax/chained-segments.json": {"trim_frames"},
+    "workflows/templates/minimax/chained-segments.json": {"trim_frames", "look_hold"},
     # fields of a 'shots' list entry, not this workflow's own variables
     "workflows/templates/minimax/dialogue-short.json": {"prompt", "num_frames"},
     # the fl2va sub-workflow's argument, named to say this one leaves it unset
     "workflows/templates/minimax/last-frame-only.json": {"image"},
     # a 'result' field the modular pipeline needs declared
     "workflows/templates/minimax/music.json": {"sample_rate"},
+    # fields of a 'sections' list entry, not this workflow's own variables
+    "workflows/templates/minimax/music-long.json": {"audio_duration", "lyrics"},
     # pair_audio's 'fit' argument and its value 'video', and the per-entry
     # 'num_frames' of a shot
     "workflows/templates/minimax/music-video.json": {"fit", "num_frames", "video"},
-    # fields of the plan's entries, which music-video's shots then take
-    "workflows/templates/minimax/music-video-cuts.json": {"num_frames", "prompt"},
+    # fields of the plan's entries, which music-video's shots then take; and
+    # 'segment', a value of 'timestamps' (repair-segment's variable)
+    "workflows/templates/minimax/music-video-cuts.json": {
+        "num_frames",
+        "prompt",
+        "segment",
+    },
+    # a field of the chain block the repaired take was run with, and the
+    # render step's own 'hold_audio' argument (the narration it holds)
+    "workflows/templates/minimax/repair-segment.json": {
+        "keep_segments",
+        "hold_audio",
+    },
     # the pipeline's 'cache' block it writes inline, not the H3 templates'
     # variable of that name
     "workflows/templates/step-caching.json": {"cache"},
@@ -552,7 +575,39 @@ def test_no_stale_entry_in_the_allowlist():
 # since the template loads no model and only encodes on the CPU, so neither
 # entry carries a cost block now. Re-measured at 12_780 after that and
 # face-drift-check's `samples_per_shot`, so the budget stands.
-COMPACT_BUDGET = 12_800
+# Then to 13_150 for `narration-long`, `split-takes` and `minimax/music-long`
+# (long-form media, task 22, 2026-11-03), measured at 13_112: three new
+# entries, the catalog's only long narration, its text splitter and its
+# multi-section music, with no cost blocks yet. Then to 13_250 (measured
+# 13_236) for `narration-from-takes`: `narration-long` now takes plain text and
+# the take-list template keeps its own entry. Then to 13_450 (measured
+# 13_432) for `minimax/repair-segment` (#1169, task 14): the catalog's only
+# in-place repair of one chain segment, 25 variables because it carries the
+# chain's own settings by argument. Then to 13_500 (measured 13_476) for the
+# #1169 review fixes: repair-segment's 'chain_take', and the 'keep_segments'
+# variable four H3 chain templates take so a chain can be repaired later.
+# Then to 13_550 (measured 13_514) for the Music 3 lyric rule (#1199 drill):
+# `lyrics`/`song_lyrics` "non-empty" on the three Music 3 templates, since an
+# empty lyric passed validation and failed after the model loaded.
+# Then to 13_700 (measured 13_634, from 13_549) for the long-form cost rows
+# (#1199): `minimax/repair-segment`'s measured 8.1 min, and
+# `narration-from-takes`' per-take rows on CUDA and MPS, which
+# `narration-long` now carries rolled up from its child.
+# Then to 13_900 (measured 13_836) for `minimax/add-sound` (#1192, task 21):
+# one new entry, the catalog's only audio pass over a finished picture (new
+# sound under the clip's own frames), with its cost block.
+# Then to 13_950 (measured 13_910) for the `reference_audio`/`reference_text`
+# non-empty rules on `narration-long` and `narration-from-takes` (#1209).
+# Then to 14_100 (measured 14_027) for `check-narration`: one new entry, the
+# catalog's only narration-against-script check, with no cost block (a
+# transcription only).
+# Then to 14_250 (measured 14_142) for `narration-retime`: one new entry, the
+# catalog's only retiming of a narration onto a chain's frame grid, with no
+# cost block (CPU transcription and a resample only).
+# Then to 14_450 (measured 14_425) for `minimax/narrated-take`: one new entry,
+# the catalog's only long take held to a retimed narration, with no cost
+# block until a per-segment figure is measured.
+COMPACT_BUDGET = 14_450
 FILTERED_BUDGET = 1_500
 
 
@@ -583,6 +638,20 @@ class _every_workflow_observed:
             "cold_runs": 10,
             "cold_range_minutes": [10.03, 14.95],
         }
+
+
+def test_the_compact_listing_drops_a_cost_entrys_scaling_rule():
+    found, _shadowed = library_path(
+        "workflows", None, primary=os.path.join(REPO_ROOT, "workflows")
+    ).entries()
+    details = workflow_details(found)
+    assert details["templates/minimax/music"]["cost"][0]["scales_with"]
+
+    compact = project_listing(details, view="compact")
+
+    (entry, *_rest) = compact["templates/minimax/music"]["cost"]
+    assert "scales_with" not in entry
+    assert entry["minutes"] == 3.6
 
 
 def test_the_compact_listing_fits_the_budget():
@@ -1099,3 +1168,38 @@ def test_ltx2_chained_segments_prompts_absent_falls_back_to_prompt():
     chain = _ltx2_chain_after_substitution(segments=2)
     config = ChainConfig(chain, {"prompt": "x"})
     assert not config.prompts
+
+
+def test_ltx2_chained_segments_holds_the_look_by_default():
+    # bench/records/ltx.md: look_hold won S5's seams on both seeds and left an
+    # LTX orbit's motion alone, at no measurable cost
+    from dw.pipeline_processors.chain import ChainConfig
+
+    chain = _ltx2_chain_after_substitution(segments=2)
+    assert chain["look_hold"] is True
+    assert ChainConfig(chain, {"prompt": "x"}).look_hold
+
+
+def test_ltx2_chained_segments_look_hold_false_is_the_plain_chain():
+    from dw.pipeline_processors.chain import ChainConfig
+
+    chain = _ltx2_chain_after_substitution(segments=2, look_hold=False)
+    assert not ChainConfig(chain, {"prompt": "x"}).look_hold
+
+
+def test_cost_drivers_show_the_default_preset_bundle_value(tmp_path):
+    # a driver the default bundle sets is shown at the bundle's value (#1232)
+    from dw.library import library_path
+
+    (tmp_path / "w.json").write_text(
+        json.dumps(
+            {
+                "variables": {"tier": "best", "steps": 10},
+                "presets": {"tier": {"best": {"steps": 40}}},
+                "cost_drivers": ["steps"],
+                "steps": [],
+            }
+        )
+    )
+    found, _ = library_path("workflows", None, primary=str(tmp_path)).entries()
+    assert workflow_details(found)["w"]["cost_drivers"] == {"steps": 40}

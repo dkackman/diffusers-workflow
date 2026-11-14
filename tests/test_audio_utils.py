@@ -237,12 +237,12 @@ class TestLoadAudio:
             load_audio(path)
 
     def test_every_audio_task_takes_a_video_path(self, tmp_path):
+        from dw.tasks.audio_slice import slice_audio
         from dw.tasks.audio_utils import (
             crossfade_audio,
             fade_audio,
             mix_audio,
             resample_audio,
-            slice_audio,
         )
         from dw.tasks.audio_dynamics import normalize_audio
 
@@ -869,6 +869,17 @@ class TestNormalizeAudioLimit:
         finally:
             deactivate_context(token)
         assert any(e.get("kind") == "target_lufs_capped" for e in events)
+        capped = [e for e in events if e.get("kind") == "target_lufs_capped"]
+        assert "limit: true" in capped[0]["message"]
+
+    def test_relevel_clip_template_exposes_limit_on_by_default(self):
+        import json
+
+        with open("workflows/templates/relevel-clip.json") as handle:
+            template = json.load(handle)
+        assert template["variables"]["limit"] is True
+        level = template["steps"][0]["task"]["arguments"]
+        assert level["limit"] == "variable:limit"
 
     def test_past_twelve_db_of_reduction_the_target_is_capped(self):
         track, logs, warnings = self._run(
@@ -998,9 +1009,12 @@ class TestNormalizeAudioLimit:
         import time
 
         waveform = self._bursty(seconds=180.0, channels=2)
-        started = time.perf_counter()
+        # CPU time, not wall clock: a loaded parallel run stretches wall time
+        # (12.8 s seen under -n auto against ~3 s alone) without the limiter
+        # doing any more work
+        started = time.process_time()
         self._run(waveform, peak_dbfs=-1.0, target_lufs=-14.0)
-        assert time.perf_counter() - started < 10.0
+        assert time.process_time() - started < 10.0
 
     def test_limit_must_be_a_bool(self):
         from dw.tasks.audio_dynamics import normalize_audio
@@ -1057,7 +1071,7 @@ class TestAudioTasksTakeAnAudioVideo:
         )
 
     def test_slice_audio_takes_the_rate_from_the_video(self):
-        from dw.tasks.audio_utils import slice_audio
+        from dw.tasks.audio_slice import slice_audio
 
         sliced = slice_audio(self.video(), start_seconds=1.0, duration_seconds=2.0)
 
@@ -1069,13 +1083,13 @@ class TestAudioTasksTakeAnAudioVideo:
     def test_no_duration_slices_to_the_end_of_the_track(self):
         """A workflow that trims only when given a length still yields the
         track - the missing half of the pair means 'to the end', not an error."""
-        from dw.tasks.audio_utils import slice_audio
+        from dw.tasks.audio_slice import slice_audio
 
         assert samples(slice_audio(self.video(), start_seconds=1.0)).shape == (300, 2)
         assert samples(slice_audio(self.video(), start_seconds=0)).shape == (400, 2)
 
     def test_no_start_slices_from_the_head_of_the_track(self):
-        from dw.tasks.audio_utils import slice_audio
+        from dw.tasks.audio_slice import slice_audio
 
         assert samples(slice_audio(self.video(), duration_seconds=2.0)).shape == (
             200,
@@ -1091,19 +1105,19 @@ class TestAudioTasksTakeAnAudioVideo:
         )
 
     def test_a_slice_in_frames_still_needs_the_frame_rate(self):
-        from dw.tasks.audio_utils import slice_audio
+        from dw.tasks.audio_slice import slice_audio
 
         with pytest.raises(ValueError, match="fps"):
             slice_audio(self.video(), start_frame=12)
 
     def test_addressing_nothing_at_all_is_still_an_error(self):
-        from dw.tasks.audio_utils import slice_audio
+        from dw.tasks.audio_slice import slice_audio
 
         with pytest.raises(ValueError, match="slice_audio needs either"):
             slice_audio(self.video())
 
     def test_a_given_rate_overrides_the_video_rate(self):
-        from dw.tasks.audio_utils import slice_audio
+        from dw.tasks.audio_slice import slice_audio
 
         sliced = slice_audio(
             self.video(), start_seconds=0.0, duration_seconds=1.0, sample_rate=50
@@ -1305,7 +1319,7 @@ class TestSlicingPastTheEndOfATrack:
         return numpy.full((channels, samples), 0.5, dtype=numpy.float32)
 
     def test_a_slice_past_the_end_is_reported(self):
-        from dw.tasks.audio_utils import slice_audio
+        from dw.tasks.audio_slice import slice_audio
 
         warnings = self.events_from(
             lambda: slice_audio(
@@ -1329,7 +1343,7 @@ class TestSlicingPastTheEndOfATrack:
         assert "silence" in warning["message"]
 
     def test_the_padding_itself_is_unchanged(self):
-        from dw.tasks.audio_utils import slice_audio
+        from dw.tasks.audio_slice import slice_audio
 
         sliced = slice_audio(
             self.tone(), start_seconds=0, duration_seconds=10.0, sample_rate=100
@@ -1339,7 +1353,7 @@ class TestSlicingPastTheEndOfATrack:
         assert numpy.all(numpy.asarray(sliced.audio)[:, 330:] == 0)
 
     def test_a_slice_inside_the_track_says_nothing(self):
-        from dw.tasks.audio_utils import slice_audio
+        from dw.tasks.audio_slice import slice_audio
 
         assert (
             self.events_from(
@@ -1355,7 +1369,7 @@ class TestSlicingPastTheEndOfATrack:
 
     def test_slicing_to_the_end_of_the_track_says_nothing(self):
         """No duration means 'to the end', which cannot overrun."""
-        from dw.tasks.audio_utils import slice_audio
+        from dw.tasks.audio_slice import slice_audio
 
         assert (
             self.events_from(
@@ -1367,7 +1381,7 @@ class TestSlicingPastTheEndOfATrack:
     def test_a_few_samples_of_rounding_are_not_a_warning(self):
         """Frame-aligned slicing lands a sample or two past the end all the
         time; a warning fired on that is noise nobody can act on."""
-        from dw.tasks.audio_utils import slice_audio
+        from dw.tasks.audio_slice import slice_audio
 
         assert (
             self.events_from(
@@ -1382,7 +1396,7 @@ class TestSlicingPastTheEndOfATrack:
         )
 
     def test_a_start_beyond_the_end_is_reported_as_all_padding(self):
-        from dw.tasks.audio_utils import slice_audio
+        from dw.tasks.audio_slice import slice_audio
 
         warnings = self.events_from(
             lambda: slice_audio(
@@ -1422,7 +1436,7 @@ class TestSliceEndingExactlyAtTheSourceReachesIt:
         return numpy.full((channels, count), 0.5, dtype=numpy.float32)
 
     def test_the_557_repro_lands_exactly_and_warns_nothing(self):
-        from dw.tasks.audio_utils import slice_audio
+        from dw.tasks.audio_slice import slice_audio
 
         # 294 frames @ 24 fps, 44.1 kHz -> 540225 samples total; the second
         # half (147..294) is exactly the tail the #557 repro sliced
@@ -1442,7 +1456,7 @@ class TestSliceEndingExactlyAtTheSourceReachesIt:
     def test_a_sub_ten_millisecond_remainder_says_nothing(self):
         """Even outside the frame-addressed case, a remainder too short to
         act on is rounding noise, not a dropped tail worth flagging."""
-        from dw.tasks.audio_utils import slice_audio
+        from dw.tasks.audio_slice import slice_audio
 
         sliced, warnings = self.events_from(
             lambda: slice_audio(
@@ -1465,7 +1479,7 @@ class TestSliceAudioCarriesSourceLevel:
     normal level and something upstream lost."""
 
     def test_a_quiet_source_is_measured_on_the_slice(self):
-        from dw.tasks.audio_utils import slice_audio
+        from dw.tasks.audio_slice import slice_audio
 
         quiet = numpy.full((1, 500), 0.001, dtype=numpy.float32)  # ~ -60 dBFS
         sliced = slice_audio(
@@ -1475,7 +1489,7 @@ class TestSliceAudioCarriesSourceLevel:
         assert sliced.source_mean_dbfs < -40.0
 
     def test_a_normal_level_source_is_measured_too(self):
-        from dw.tasks.audio_utils import slice_audio
+        from dw.tasks.audio_slice import slice_audio
 
         loud = numpy.full((1, 500), 0.5, dtype=numpy.float32)
         sliced = slice_audio(
@@ -1508,7 +1522,7 @@ class TestRateOverrideMismatch:
     def test_a_file_given_a_different_rate_is_reported(self, tmp_path):
         import soundfile
 
-        from dw.tasks.audio_utils import slice_audio
+        from dw.tasks.audio_slice import slice_audio
 
         path = tmp_path / "score.wav"
         soundfile.write(path, numpy.zeros((100, 2), dtype=numpy.float32), 32000)
@@ -1527,7 +1541,7 @@ class TestRateOverrideMismatch:
     def test_a_file_given_its_own_rate_says_nothing(self, tmp_path):
         import soundfile
 
-        from dw.tasks.audio_utils import slice_audio
+        from dw.tasks.audio_slice import slice_audio
 
         path = tmp_path / "score.wav"
         soundfile.write(path, numpy.zeros((100, 2), dtype=numpy.float32), 32000)
@@ -1542,7 +1556,7 @@ class TestRateOverrideMismatch:
     def test_a_file_given_no_rate_says_nothing(self, tmp_path):
         import soundfile
 
-        from dw.tasks.audio_utils import slice_audio
+        from dw.tasks.audio_slice import slice_audio
 
         path = tmp_path / "score.wav"
         soundfile.write(path, numpy.zeros((100, 2), dtype=numpy.float32), 32000)
@@ -1552,7 +1566,7 @@ class TestRateOverrideMismatch:
     def test_a_raw_waveform_given_a_rate_says_nothing(self):
         """A raw waveform carries no rate of its own - the override here is
         the only way to supply one at all, not a mismatch."""
-        from dw.tasks.audio_utils import slice_audio
+        from dw.tasks.audio_slice import slice_audio
 
         assert (
             self.events_from(
@@ -1566,7 +1580,7 @@ class TestRateOverrideMismatch:
         )
 
     def test_a_video_given_a_different_rate_is_reported(self, tmp_path):
-        from dw.tasks.audio_utils import slice_audio
+        from dw.tasks.audio_slice import slice_audio
 
         path = TestLoadAudio._write_video(tmp_path / "cut.mp4", sample_rate=8000)
 

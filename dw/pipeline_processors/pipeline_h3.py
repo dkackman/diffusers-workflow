@@ -9,17 +9,28 @@ and the rest are still named from there; the rules they apply live in
 """
 
 from .h3_anchor import anchor_refusal, prepared_anchor
-from .h3_guides import guide_frames_array, guides_refusal, prepared_guide
+from .h3_guides import (
+    guide_frames_array,
+    guides_refusal,
+    prepared_guide,
+    source_frame_rate,
+)
 from .h3_hold import hold_audio_reference, holds_audio, refines
-from .h3_mask import binarized, edits_regions
+from .h3_mask import binarized, edits_regions, listen_frames, passes_audio
 from .h3_rules import (
+    REFINE_WINDOWS_INPUT,
     GUIDES_INPUT,
     GUIDE_LIMIT,
     GUIDE_NOISE_INPUT,
     LATENT_ANCHOR_INPUT,
+    LATENT_ANCHOR_STRENGTH_INPUT,
     HELD_AUDIO_OUTPUT,
     HELD_AUDIO_RATE_OUTPUT,
+    HELD_VIDEO_OUTPUT,
+    HELD_VIDEO_RATE_OUTPUT,
+    H3_FPS,
     HOLD_AUDIO_INPUT,
+    LISTEN_SCALE_INPUT,
     MASK_IMAGE_INPUT,
     MASK_INPUTS,
     REFINE_SIGMAS_INPUT,
@@ -28,6 +39,10 @@ from .h3_rules import (
     REGENERATE_MASK,
     SOURCE_VIDEO_INPUT,
     edits_region,
+    is_audio_pass,
+    listen_canvas,
+    retimed_indices,
+    anchor_strength_problem,
     guide_noise_problem,
     mask_problems,
     media_problems,
@@ -44,6 +59,90 @@ def latent_anchor_source(chain_source, value):
     if isinstance(value, str):
         return f"'{value}'"
     return "the frames given in the step's arguments"
+
+
+def with_audio_pass(pipeline, arguments, where, fps):
+    """An audio pass's arguments (dw/pipeline_processors/h3_mask.py): the
+    full-size source as `HELD_VIDEO_OUTPUT` and its rate `fps` as
+    `HELD_VIDEO_RATE_OUTPUT`, asked for beside `videos` so the result plays
+    the source's own frames at the source's own rate in place of the decode.
+
+    The conditioning is what the kept rows encode. At any rate but H3_FPS it
+    is the source retimed to 24 fps over its own duration (`retimed_indices`),
+    and `num_frames` that count, so the audio generated covers the source's
+    real length; a 24 fps source is conditioned on as it is (R25). At a
+    `listen_scale` below 1 the canvas is scaled and the conditioning
+    area-resampled onto it.
+
+    Raises:
+        ValueError: If this pipeline has no audio-pass blocks
+    """
+    if not passes_audio(pipeline):
+        raise ValueError(
+            f"{where}: a source_video with no mask and no hold_audio is an "
+            f"audio pass, and this pipeline has no block to hold its picture"
+        )
+    source = arguments[SOURCE_VIDEO_INPUT]
+    arguments[HELD_VIDEO_OUTPUT] = source
+    arguments[HELD_VIDEO_RATE_OUTPUT] = fps
+    if fps != H3_FPS:
+        indices = retimed_indices(len(source), fps)
+        arguments[SOURCE_VIDEO_INPUT] = source[indices]
+        arguments["num_frames"] = len(indices)
+        emit_log(
+            f"Audio pass: the source runs at {fps:g} fps - conditioning on "
+            f"{len(indices)} frames retimed to {H3_FPS} fps; the result plays "
+            f"its own {len(source)} frames at {fps:g} fps",
+            source_fps=fps,
+            conditioning_frames=len(indices),
+        )
+    scale = arguments.get(LISTEN_SCALE_INPUT)
+    if scale is not None and scale != 1:
+        width, height = listen_canvas(arguments["width"], arguments["height"], scale)
+        arguments["width"], arguments["height"] = width, height
+        arguments[SOURCE_VIDEO_INPUT] = listen_frames(
+            arguments[SOURCE_VIDEO_INPUT], width, height
+        )
+    output = arguments.get("output")
+    names = [output] if isinstance(output, str) else list(output or [])
+    if "videos" in names:
+        arguments["output"] = names + [HELD_VIDEO_OUTPUT, HELD_VIDEO_RATE_OUTPUT]
+    return arguments
+
+
+def _take_mask(arguments, where):
+    """Pop a regional edit's mask (an image or a video) off `arguments`, put
+    it back as the bool frames under REGENERATE_MASK, and return the canvas
+    problems it has - none when the step passes no mask (an audio pass).
+
+    Raises:
+        ValueError: If the mask is not an image or video, or is all black
+    """
+    name = next((n for n in MASK_INPUTS if arguments.get(n) is not None), None)
+    if name is None:
+        return []
+    value = arguments.pop(name)
+    try:
+        if name == MASK_IMAGE_INPUT:
+            mask = binarized(value)
+        else:
+            mask = binarized(guide_frames_array(value))
+    except (AttributeError, ValueError) as e:
+        kind = "an image" if name == MASK_IMAGE_INPUT else "a video"
+        raise ValueError(f"{where}: {name} is not {kind}: {e}")
+    if not mask.any():
+        raise ValueError(
+            f"{where}: {name} is all black, so nothing would regenerate "
+            f"- white marks the region to regenerate"
+        )
+    arguments[REGENERATE_MASK] = mask
+    return media_problems(
+        name,
+        mask.shape,
+        arguments["width"],
+        arguments["height"],
+        arguments["num_frames"],
+    )
 
 
 class H3Arguments:
@@ -168,9 +267,20 @@ class H3Arguments:
                 frames of a video
         """
         value = arguments.get(LATENT_ANCHOR_INPUT)
+        strength = arguments.get(LATENT_ANCHOR_STRENGTH_INPUT)
         if value is None:
-            return arguments
+            if strength is None:
+                return arguments
+            raise ValueError(
+                f"Step '{self.name}': {LATENT_ANCHOR_STRENGTH_INPUT} sets how far "
+                f"{LATENT_ANCHOR_INPUT} goes, and there is no {LATENT_ANCHOR_INPUT}"
+            )
         where = f"Step '{self.name}': {LATENT_ANCHOR_INPUT}"
+        problem = None if strength is None else anchor_strength_problem(strength)
+        if problem:
+            raise ValueError(
+                f"Step '{self.name}': {LATENT_ANCHOR_STRENGTH_INPUT}: {problem}"
+            )
         refusal = anchor_refusal(self.pipeline)
         if refusal:
             raise ValueError(f"{where}: {refusal}")
@@ -181,6 +291,8 @@ class H3Arguments:
             )
         arguments = dict(arguments)
         arguments[LATENT_ANCHOR_INPUT] = prepared_anchor(where, value, self.base_dir)
+        if strength is not None:
+            arguments[LATENT_ANCHOR_STRENGTH_INPUT] = float(strength)
         # The one line that says the anchor applies to this call - without it
         # the job log shows only a block name (#1181)
         label = getattr(self, "segment_label", None) or self.name
@@ -196,6 +308,8 @@ class H3Arguments:
         (dw/pipeline_processors/h3_mask.py).
 
         A step without `width`, `height` or `num_frames` renders the source's.
+        An audio pass (no mask, no `hold_audio`) carries the source's own
+        frames for the result (`with_audio_pass`).
 
         Raises:
             ValueError: If this pipeline cannot take a regional edit, the
@@ -216,17 +330,33 @@ class H3Arguments:
         problems = mask_problems(arguments, chained=self.segment_label is not None)
         if problems:
             raise ValueError(f"{where}: {problems[0]}")
+        # Decided before the mask is popped below, so an edit is never misread
+        audio_pass = is_audio_pass(arguments)
         arguments = dict(arguments)
         try:
             source = guide_frames_array(arguments[SOURCE_VIDEO_INPUT])
         except ValueError as e:
             raise ValueError(f"{where}: {SOURCE_VIDEO_INPUT} is not a video: {e}")
-        arguments[SOURCE_VIDEO_INPUT] = source
         frames, height, width = source.shape[:3]
+        fps = None
+        if audio_pass:
+            fps = source_frame_rate(arguments[SOURCE_VIDEO_INPUT], frames)
+            if fps is None:
+                raise ValueError(
+                    f"{where}: an audio pass plays the source_video's own frames "
+                    f"at its own frame rate, and this source carries no frame "
+                    f"rate and no soundtrack to time it by - pass a video file "
+                    f"that declares its rate, or a step's video result"
+                )
+        arguments[SOURCE_VIDEO_INPUT] = source
+        # An audio pass at another rate renders the retimed count
+        default_frames = frames
+        if fps not in (None, H3_FPS):
+            default_frames = len(retimed_indices(frames, fps))
         for key, value in (
             ("width", width),
             ("height", height),
-            ("num_frames", frames),
+            ("num_frames", default_frames),
         ):
             if arguments.get(key) is None:
                 arguments[key] = value
@@ -236,34 +366,60 @@ class H3Arguments:
             arguments["width"],
             arguments["height"],
             arguments["num_frames"],
+            fps,
         )
-        name = next((n for n in MASK_INPUTS if arguments.get(n) is not None), None)
-        if name is not None:
-            value = arguments.pop(name)
-            try:
-                if name == MASK_IMAGE_INPUT:
-                    mask = binarized(value)
-                else:
-                    mask = binarized(guide_frames_array(value))
-            except (AttributeError, ValueError) as e:
-                kind = "an image" if name == MASK_IMAGE_INPUT else "a video"
-                raise ValueError(f"{where}: {name} is not {kind}: {e}")
-            if not mask.any():
-                raise ValueError(
-                    f"{where}: {name} is all black, so nothing would regenerate "
-                    f"- white marks the region to regenerate"
-                )
-            problems += media_problems(
-                name,
-                mask.shape,
-                arguments["width"],
-                arguments["height"],
-                arguments["num_frames"],
-            )
-            arguments[REGENERATE_MASK] = mask
+        problems += _take_mask(arguments, where)
         if problems:
             raise ValueError(f"{where}: {problems[0]}")
+        if audio_pass:
+            return with_audio_pass(self.pipeline, arguments, where, fps)
         return arguments
+
+    def _take_tst(self, arguments):
+        """`experimental_tst` off the call: (the arguments without it, the
+        settings `h3_tst.tst_call` installs, or None). Null or false is no TST.
+
+        Raises:
+            ValueError: If the flag is off, the value is not a TST object, or
+                this pipeline has no dense H3 transformer
+        """
+        from .h3_tst import TST_INPUT, tst_refusal, tst_settings
+
+        if TST_INPUT not in arguments:
+            return arguments, None
+        arguments = dict(arguments)
+        value = arguments.pop(TST_INPUT)
+        try:
+            settings = tst_settings(value)
+        except ValueError as e:
+            raise ValueError(f"Step '{self.name}': {e}") from e
+        if settings is not None:
+            refusal = tst_refusal(self.pipeline, self.configuration)
+            if refusal:
+                raise ValueError(f"Step '{self.name}': {refusal}")
+        return arguments, settings
+
+    def _check_selflift(self, arguments):
+        """Refuse an `experimental_selflift` this call cannot run, before the
+        call (h3_selflift.py, #1195).
+
+        Raises:
+            ValueError: If the flag is off, the graph has no lift, or the call
+                is one the lift refuses
+        """
+        from .h3_rules import SELFLIFT_INPUT
+
+        if arguments.get(SELFLIFT_INPUT) is None:
+            return
+        from .h3_selflift import selflift_refusal
+
+        refusal = selflift_refusal(
+            self.pipeline,
+            arguments,
+            has_cache=self.configuration.get("cache") is not None,
+        )
+        if refusal is not None:
+            raise ValueError(f"Step '{self.name}': {refusal}")
 
     def _check_refine(self, arguments):
         """Refuse a `refine_strength` the H3 refine block cannot run, before the
@@ -274,6 +430,18 @@ class H3Arguments:
                 `refine_sigmas` schedule or the step count is out of range, or the
                 step passes no `latents` or `hold_audio`
         """
+        if arguments.get(REFINE_WINDOWS_INPUT) is not None:
+            # The experimental time-windowed refine (h3_windows.py), which
+            # imports diffusers, so only when a step asks for it
+            from .h3_windows import windows_refusal
+
+            refusal = windows_refusal(
+                self.pipeline,
+                arguments,
+                has_cache=self.configuration.get("cache") is not None,
+            )
+            if refusal is not None:
+                raise ValueError(f"Step '{self.name}': {refusal}")
         given = [
             name
             for name in (REFINE_STRENGTH_INPUT, REFINE_SIGMAS_INPUT, REFINE_TILES_INPUT)

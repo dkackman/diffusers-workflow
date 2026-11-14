@@ -1,0 +1,128 @@
+[
+  {
+    "arm": "cheap-a-s1",
+    "scene": "s1-static",
+    "seed": 1166,
+    "job_id": "a438bffb764f",
+    "status": "succeeded",
+    "error": null,
+    "output": "BenchS1Static/20261104-003017-655187be/final/BenchS1Static-chained_keyframe_to_video_audio.0-0.0.mp4",
+    "measures": {
+      "seam_jump_mean": 0.882,
+      "seam_jump_max": 1.0,
+      "seam_look_mean": 1.6219999999999999,
+      "seam_look_max": 2.2,
+      "seam_level_step_db_mean": 8.854000000000001,
+      "seam_level_step_db_max": 17.77,
+      "texture_fine_seg_last": 0.502764996926132,
+      "texture_mid_seg_last": 0.17135204694593162,
+      "texture_coarse_seg_last": 0.007668630503602891,
+      "wall_minutes": 10.919583070278168
+    }
+  },
+  {
+    "arm": "cheap-b-s1",
+    "scene": "s1-static",
+    "seed": 1166,
+    "job_id": "7e18115259a6",
+    "status": "succeeded",
+    "error": null,
+    "output": "BenchS1Static/20261104-005919-f3588d64/final/BenchS1Static-chained_keyframe_to_video_audio.0-0.0.mp4",
+    "measures": {
+      "seam_jump_mean": 0.8140000000000001,
+      "seam_jump_max": 0.95,
+      "seam_look_mean": 1.392,
+      "seam_look_max": 2.54,
+      "seam_level_step_db_mean": 16.613999999999997,
+      "seam_level_step_db_max": 27.02,
+      "texture_fine_seg_last": 0.8544273526151175,
+      "texture_mid_seg_last": 0.3867239073129147,
+      "texture_coarse_seg_last": 0.0022898952157175668,
+      "wall_minutes": 10.515459883213044
+    }
+  },
+  {
+    "arm": "cheap-c-s1",
+    "scene": "s1-static",
+    "seed": 1166,
+    "job_id": "9cc328702d45",
+    "status": "succeeded",
+    "error": null,
+    "output": "BenchS1Static/20261104-011029-6cf2a1b0/final/BenchS1Static-chained_keyframe_to_video_audio.0-0.0.mp4",
+    "measures": {
+      "seam_jump_mean": 1.162,
+      "seam_jump_max": 1.63,
+      "seam_look_mean": 1.404,
+      "seam_look_max": 2.83,
+      "seam_level_step_db_mean": 7.5280000000000005,
+      "seam_level_step_db_max": 16.58,
+      "texture_fine_seg_last": 0.18974276936522114,
+      "texture_mid_seg_last": 0.10538200739962529,
+      "texture_coarse_seg_last": 0.035110393085034976,
+      "wall_minutes": 13.661045277118683
+    }
+  },
+  {
+    "arm": "cheap-a-s2",
+    "scene": "s2-arc",
+    "seed": 1166,
+    "job_id": "80eb57300971",
+    "status": "succeeded",
+    "error": null,
+    "output": "BenchS2Arc/20261104-014743-a12ce1e7/final/BenchS2Arc-chained_keyframe_to_video_audio.0-0.0.mp4",
+    "measures": {
+      "seam_jump_mean": 1.3619999999999999,
+      "seam_jump_max": 2.09,
+      "seam_look_mean": 1.286,
+      "seam_look_max": 1.74,
+      "seam_level_step_db_mean": 1.4620000000000002,
+      "seam_level_step_db_max": 3.43,
+      "texture_fine_seg_last": 3.083963956401898,
+      "texture_mid_seg_last": 2.2932110623147106,
+      "texture_coarse_seg_last": 1.4297775601219735,
+      "wall_minutes": 10.56614822546641
+    }
+  },
+  {
+    "arm": "cheap-b-s2",
+    "scene": "s2-arc",
+    "seed": 1166,
+    "job_id": "ebf09ad9fa12",
+    "status": "succeeded",
+    "error": null,
+    "output": "BenchS2Arc/20261104-020905-75a1b6b3/final/BenchS2Arc-chained_keyframe_to_video_audio.0-0.0.mp4",
+    "measures": {
+      "seam_jump_mean": 1.166,
+      "seam_jump_max": 1.63,
+      "seam_look_mean": 1.6940000000000002,
+      "seam_look_max": 3.56,
+      "seam_level_step_db_mean": 1.59,
+      "seam_level_step_db_max": 4.06,
+      "texture_fine_seg_last": 2.883403862056931,
+      "texture_mid_seg_last": 1.7066904530022595,
+      "texture_coarse_seg_last": 0.10520650290810232,
+      "wall_minutes": 10.593446962038676
+    }
+  },
+  {
+    "arm": "cheap-c-s2",
+    "scene": "s2-arc",
+    "seed": 1166,
+    "job_id": "10cbd9b21a72",
+    "status": "succeeded",
+    "error": null,
+    "output": "BenchS2Arc/20261104-023013-fa9a28f1/final/BenchS2Arc-chained_keyframe_to_video_audio.0-0.0.mp4",
+    "measures": {
+      "seam_jump_mean": 1.8539999999999999,
+      "seam_jump_max": 2.87,
+      "seam_look_mean": 4.27,
+      "seam_look_max": 6.89,
+      "seam_level_step_db_mean": 1.6260000000000001,
+      "seam_level_step_db_max": 3.35,
+      "texture_fine_seg_last": 2.5632527861842003,
+      "texture_mid_seg_last": 2.040688435068713,
+      "texture_coarse_seg_last": 2.0723558586423962,
+      "wall_minutes": 13.248008183638255
+    }
+  }
+]

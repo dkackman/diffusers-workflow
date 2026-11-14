@@ -16,15 +16,26 @@ into a quantization config) or offload is a different key. Frame count,
 resolution and reference count are not in it either (#869's D3).
 
 `projected_peak` answers, in order:
-  - `observed`: the largest `host_memory_job_peak_rss_mb` of this machine's
-    successful runs with the same key (the max, not a median: under-
-    projecting is the failure this exists for);
+  - `observed`: the largest committed peak (`host_memory_job_peak_committed_mb`,
+    RssAnon + RssShmem + the driver's pinned pages) of this machine's
+    successful runs with the same key, or the largest job peak RSS for a key
+    no run measured that on (the max, not a median: under-projecting is the
+    failure this exists for; `JobHistory.peaks_for_key`);
   - `fit`: `host_memory_projection`'s projection for a list run, from this
     workflow's own history - also ahead of `observed` when it is the larger
     for a shape that holds its pipeline across the list, since the key
     leaves list length out and a longer list outgrows the observed max
-    (#910);
+    (#910). The fit reads committed rows once any of the workflow's has
+    one, as `observed` does for the key's (`host_memory_projection.peak_field`);
+    the two can differ, so the fit is weighed against `observed` only when
+    both read the same basis;
   - otherwise None - no figure.
+
+Mapped checkpoint pages are not charged: they are page cache, which
+MemAvailable counts as free. Two workers loading different checkpoints evict
+and re-read each other's pages - a slowdown, not an OOM. The figure is a
+peak as recorded, a lower bound; the gate adds its margin
+(`pool.with_margin`).
 """
 
 import hashlib
@@ -32,6 +43,8 @@ import json
 import logging
 
 from ..host_memory_projection import projected_mb, releases_between_iterations
+from ..presets import effective_variables
+from .pool import with_margin
 from ..variables import VariableNotFoundError, replace_variables
 from ..vram_estimate import pipeline_identity
 from ..vram_inheritance import _found
@@ -61,9 +74,8 @@ def memory_key(definition, arguments=None):
     references a variable it doesn't declare."""
     if not isinstance(definition, dict):
         return None
-    variables = definition.get("variables")
-    variables = dict(variables) if isinstance(variables, dict) else {}
-    variables.update(arguments or {})
+    # the chosen preset bundle included, as the run folds it
+    variables = effective_variables(definition, arguments)
     # Deep substitution, not `_found`'s: `weights_dtype` sits inside a
     # quantization config rather than being one
     try:
@@ -81,24 +93,75 @@ def memory_key(definition, arguments=None):
     return hashlib.sha256(text.encode()).hexdigest()[:32]
 
 
+def declared_mb(definition, arguments=None):
+    """The host RAM (MB) the definition declares for the run (`host_ram_gb`,
+    a number or a `variable:` reference a presets bundle sets), or None when
+    it declares none or the figure does not resolve to a positive number
+    (#1227)."""
+    if not isinstance(definition, dict) or "host_ram_gb" not in definition:
+        return None
+    variables = effective_variables(definition, arguments)
+    try:
+        value = replace_variables({"v": definition["host_ram_gb"]}, variables)["v"]
+    except VariableNotFoundError:
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
+        return None
+    return float(value) * 1024.0
+
+
+def host_too_small(definition, arguments, total_mb):
+    """The refusal for a run whose declared host RAM (with the gate's margin)
+    exceeds the machine's total RAM - it could never start, however long it
+    waited - or None. No declaration or no reading of the host: no refusal.
+    Only the declaration refuses; an observed peak only ever delays (#1227)."""
+    declared = declared_mb(definition, arguments)
+    if declared is None or not total_mb:
+        return None
+    needed = with_margin(declared)
+    if needed <= total_mb:
+        return None
+    return (
+        f"this run declares about {declared / 1024:.0f} GB of host RAM "
+        f"({needed / 1024:.0f} GB with the gate's margin) and this host has "
+        f"{total_mb / 1024:.0f} GB in total; choose a lighter tier or weights "
+        "dtype, or run it on a larger host"
+    )
+
+
 def projected_peak(definition, arguments, history, *, rows=None, list_entries=None):
     """(mb, basis, runs) for this run's projected host-RAM peak, or None.
+
+    A declared `host_ram_gb` (`declared_mb`) is a floor under the answer: the
+    larger of it and the observed or fitted figure wins, basis `declared`
+    when it is the declared one (#1227).
 
     `history` is the server's `JobHistory` (this machine's runs); `rows` are
     this workflow's own finished runs as `ObservedCosts.rows_for` answers
     them, and `list_entries` the request's list lengths - the fit's inputs,
     absent for an inline definition, which has no history by name.
     """
+    measured = _measured_peak(definition, arguments, history, rows, list_entries)
+    declared = declared_mb(definition, arguments)
+    if declared is not None and (measured is None or declared > measured[0]):
+        return declared, "declared", 0
+    return measured
+
+
+def _measured_peak(definition, arguments, history, rows, list_entries):
     fit = projected_mb(definition, list_entries, rows or [])
     key = memory_key(definition, arguments)
     if key is not None and history is not None:
-        peaks = history.peaks_for_key(key)
+        peaks, basis = history.peaks_and_basis_for_key(key)
         if peaks:
             # The key leaves list length out, so a resident list longer than
             # any observed one outgrows the observed max: the fit's growth is
             # taken when it is the larger, as validate's warning quotes (#910)
+            # - compared only on one basis, committed or RSS: the workflow's
+            # rows and this key's may have recorded different ones
             if (
                 fit is not None
+                and (basis is None or fit.get("field") == basis)
                 and fit["projected_mb"] > max(peaks)
                 and not releases_between_iterations(definition)
             ):

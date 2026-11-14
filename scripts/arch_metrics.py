@@ -119,10 +119,17 @@ print(json.dumps({
 """
 
 
+def _excluded(path, root):
+    """Whether a path under root sits in an EXCLUDED folder. Only the parts
+    below root count: a checkout that itself lives under .claude/worktrees
+    is measured, not skipped whole."""
+    return any(part in EXCLUDED for part in path.relative_to(root).parts)
+
+
 def _sources(root, *packages):
     for package in packages:
         for path in sorted((root / package).rglob("*.py")):
-            if not any(part in EXCLUDED for part in path.parts):
+            if not _excluded(path, root):
                 yield path
 
 
@@ -458,7 +465,7 @@ def measure(root):
     metrics["claude_md_lines"] = sum(
         len(path.read_text(encoding="utf-8").splitlines())
         for path in root.rglob("CLAUDE.md")
-        if not any(part in EXCLUDED for part in path.parts)
+        if not _excluded(path, root)
     )
     metrics["duplicate_blocks"] = _duplicate_blocks(engine)
     metrics["complex_functions"] = sum(

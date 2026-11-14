@@ -58,6 +58,17 @@ class TestClean:
     def test_empty_list(self):
         assert check(step(guides=[])) == []
 
+    def test_a_whole_list_from_an_earlier_step_is_left_to_the_run(self):
+        # repair-segment's cut lays the render's guides out itself
+        assert check(step("fl2va", guides="previous_result:cut.guides")) == []
+
+    def test_a_whole_list_reference_still_needs_a_step_that_takes_guides(self):
+        error = one(step("ref2va", guides="previous_result:cut.guides"))
+        assert "ref2va" in error["message"]
+
+    def test_a_string_that_is_no_reference_is_not_a_list(self):
+        assert "must be a list" in one(step(guides="cut.guides"))["message"]
+
     @pytest.mark.parametrize("workflow", ["t2va", "fl2va"])
     def test_valid_guides(self, workflow):
         s = step(workflow, guides=[GOOD, {"video": "output:a/b.mp4", "frame": 0}])

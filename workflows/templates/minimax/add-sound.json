@@ -1,0 +1,220 @@
+{
+    "id": "MiniMaxH3AddSound",
+    "description": "Adds a new H3 soundtrack - sound, music, dialogue - under a finished clip's own picture. 'source_video' is the clip (an 'asset:' or 'output:' video, a silent one the usual case) and 'prompt' its own prompt with the sound written in: its overall_soundscape, its music and a <d> line for any speech the picture shows. The one 'sound' step is the baseline t2va pipeline given the clip as 'source_video' with no mask and no hold_audio, which makes it an audio pass: every video row is the clip's own clean latent at every step and only the audio is generated, from full noise, attending to the real picture, so the result plays the clip's own frames at its own rate under the new track. It is for a clip whose speech, if any, was generated with that picture: there the line lands on the mouth (Don's ear, 2026-11-06: very good lip sync). It is not a re-voice: a new or regenerated line over an on-screen speaker sounds dubbed, a voice-over with no mouth to match, because the picture is the clip's own pixels and its mouth was drawn for another line or none - an off-screen or voice-over line is all it can replace. It runs with no distillation LoRA on the dialogue schedule (12 steps, shifts 12/3), since the turbo LoRA is what digitizes H3 voices. 'listen_scale' 1.0 is the default; 'listen_scale' 0.5 encodes the clip at half its canvas, about 23% faster with lip sync still acceptable, the fastest scale that holds it; 0.25 loses lip sync, so keep it for a clip with no on-screen speech. The track runs the clip's length and the picture returned is full size. 'width', 'height' and 'num_frames' must be the clip's, on the 17n + 5 grid at 24 fps.",
+    "summary": "A new H3 soundtrack - sound, music, dialogue - under a finished clip's own picture.",
+    "cost": [
+        {
+            "device": "cuda",
+            "name": "RTX 3090",
+            "vram_gb": 24,
+            "minutes": 3.1
+        }
+    ],
+    "cost_drivers": [
+        "num_frames",
+        "num_inference_steps",
+        "width",
+        "height",
+        "listen_scale",
+        "weights_dtype",
+        "lora_model_name",
+        "attention_backend",
+        "cache"
+    ],
+    "vram_estimate": {
+        "base_gb": 16.3,
+        "bytes_per_voxel": 28.71,
+        "bytes_per_guide_voxel": 28.71,
+        "voxel_variables": [
+            "width",
+            "height",
+            "num_frames"
+        ],
+        "reason": "VAE decode's conv3d activation scales with the voxel count width * height * num_frames; base_gb and bytes_per_voxel are calibrated from two real runs: image-to-video's family baseline at 960x544x124 (on-demand VAE) succeeded at 18.03 GiB peak reserved (docs/WORKFLOW_GUIDE.md), and video-with-audio-768p at 1344x768x345 (the family's own num_frames ceiling) OOM'd mid-denoise needing >=25.82 GiB - 20.25 GiB already allocated plus a refused 5.57 GiB allocation, on a 23.56 GiB card (job 282172105da1, 2026-09-22) - closing the gap #265/#266 left the H3 family with nothing declared to check the engine's vram_estimate machinery against (#324)"
+    },
+    "variables": {
+        "source_video": "asset:take.mp4",
+        "prompt": "prompt:minimax/fox_dawn_context_ir",
+        "num_inference_steps": 12,
+        "num_frames": 124,
+        "width": 960,
+        "height": 544,
+        "video_shift": 12.0,
+        "audio_shift": 3.0,
+        "weights_dtype": "{int4}",
+        "lora_scale": 1.0,
+        "lora_alpha": null,
+        "lora_model_name": null,
+        "lora_weight_name": "minimax_h3_fl2v_turbo_4step_v1.2_768p_bf16.safetensors",
+        "lora_adapter_name": "turbo",
+        "seed": 42,
+        "attention_backend": "sparse",
+        "sparse_tau": 0.5,
+        "sparse_topk": 0.15,
+        "cache": null,
+        "listen_scale": 1.0
+    },
+    "variable_constraints": {
+        "num_frames": {
+            "modulus": 17,
+            "remainder": 5,
+            "min_frames": 124,
+            "max_frames": 345,
+            "snap": "up",
+            "reason": "the video VAE encodes 17 * n + 5 frames, and MiniMax-H3 generates between 5 and 15 seconds at 24 fps"
+        },
+        "width": {
+            "modulus": 32,
+            "remainder": 0,
+            "reason": "MiniMax-H3's pipeline refuses a `width` or `height` that is not a multiple of 32, and only after the weights have loaded; refused here instead, with no 'snap', since rounding would be a silent change to the size asked for"
+        },
+        "height": {
+            "modulus": 32,
+            "remainder": 0,
+            "reason": "MiniMax-H3's pipeline refuses a `width` or `height` that is not a multiple of 32, and only after the weights have loaded; refused here instead, with no 'snap', since rounding would be a silent change to the size asked for"
+        }
+    },
+    "seed": "variable:seed",
+    "steps": [
+        {
+            "name": "sound",
+            "pipeline": {
+                "configuration": {
+                    "component_type": "ModularPipeline",
+                    "pre_load_modules": [
+                        "sdnq"
+                    ],
+                    "load_components": {
+                        "dtype": "torch.bfloat16",
+                        "quantization_config": {
+                            "transformer": {
+                                "configuration": {
+                                    "config_type": "sdnq.SDNQConfig"
+                                },
+                                "arguments": {
+                                    "weights_dtype": "variable:weights_dtype",
+                                    "quantization_device": "cuda",
+                                    "return_device": "cpu",
+                                    "use_quantized_matmul": true,
+                                    "dequantize_fp32": false,
+                                    "modules_to_not_convert": [
+                                        "proj_in",
+                                        "audio_proj_in",
+                                        "context_embedder",
+                                        "time_embedder",
+                                        "time_proj",
+                                        "token_refiner",
+                                        "norm_out",
+                                        "proj_out",
+                                        "audio_proj_out"
+                                    ]
+                                }
+                            },
+                            "text_encoder": {
+                                "configuration": {
+                                    "config_type": "sdnq.SDNQConfig"
+                                },
+                                "arguments": {
+                                    "weights_dtype": "variable:weights_dtype",
+                                    "quantization_device": "cuda",
+                                    "return_device": "cpu",
+                                    "dequantize_fp32": false,
+                                    "modules_to_not_convert": [
+                                        ".model.visual",
+                                        "lm_head"
+                                    ]
+                                }
+                            },
+                            "vae": {
+                                "configuration": {
+                                    "config_type": "sdnq.SDNQConfig"
+                                },
+                                "arguments": {
+                                    "weights_dtype": "{int8}",
+                                    "quant_conv": true,
+                                    "use_quantized_matmul_conv": true,
+                                    "quantization_device": "cuda",
+                                    "return_device": "cpu",
+                                    "dequantize_fp32": false
+                                }
+                            }
+                        }
+                    },
+                    "components": {
+                        "transformer": {
+                            "attention_backend": "variable:attention_backend",
+                            "sparse_tau": "variable:sparse_tau",
+                            "sparse_topk": "variable:sparse_topk",
+                            "group_offload": {
+                                "offload_type": "block_level",
+                                "num_blocks_per_group": 2,
+                                "use_stream": true,
+                                "record_stream": true,
+                                "low_cpu_mem_usage": true
+                            }
+                        },
+                        "text_encoder": {
+                            "remove_modules": [
+                                "lm_head"
+                            ]
+                        },
+                        "text_encoder.model": {
+                            "truncate_layers": {
+                                "language_model.layers": 51
+                            },
+                            "group_offload": {
+                                "offload_type": "leaf_level"
+                            }
+                        },
+                        "vae": {
+                            "device": "cuda",
+                            "residency": "on_demand"
+                        },
+                        "audio_vae": {
+                            "device": "cuda",
+                            "residency": "on_demand"
+                        }
+                    },
+                    "cache": "variable:cache"
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "MiniMaxAI/MiniMax-H3",
+                    "workflow": "t2va"
+                },
+                "loras": [
+                    {
+                        "model_name": "variable:lora_model_name",
+                        "weight_name": "variable:lora_weight_name",
+                        "adapter_name": "variable:lora_adapter_name",
+                        "scale": "variable:lora_scale",
+                        "alpha": "variable:lora_alpha"
+                    }
+                ],
+                "scheduler": {
+                    "shift": "variable:video_shift"
+                },
+                "audio_scheduler": {
+                    "shift": "variable:audio_shift"
+                },
+                "arguments": {
+                    "prompt": "variable:prompt",
+                    "source_video": "variable:source_video",
+                    "listen_scale": "variable:listen_scale",
+                    "num_frames": "variable:num_frames",
+                    "width": "variable:width",
+                    "height": "variable:height",
+                    "num_inference_steps": "variable:num_inference_steps",
+                    "output": [
+                        "videos",
+                        "audio",
+                        "sampling_rate"
+                    ]
+                }
+            },
+            "result": {
+                "content_type": "video/mp4",
+                "subfolder": "final"
+            }
+        }
+    ]
+}

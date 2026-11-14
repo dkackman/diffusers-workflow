@@ -27,13 +27,21 @@ from .cost_scaling import (
     OTHER_DEVICE,
     PER_ENTRY,
     UNKNOWN,
+    _choose_entry,
     _driver_scaling,
+    fixed_share,
+    fixed_minutes,
     _entry_cost_field_shifted,
     _scaled,
+    with_words_check,
+    words_check_term,
+    observed_render_scaling,
 )
 from .elision import elide_definition
 from . import references
 from .plan_downloads import _sub_workflow_paths, downloads_required
+from .presets import effective_variables
+from .presets import selectors as preset_selectors
 
 # Re-exported: dw/server/routes/jobs.py and the tests read the plan's gate
 # warnings from here, beside build_plan
@@ -55,6 +63,7 @@ DOCUMENTATION_KEYS = (
     "cost",
     "cost_drivers",
     "description",
+    "host_ram_gb",
     "shape",
     "summary",
     "traits",
@@ -137,7 +146,11 @@ def build_plan(
     # cost is the cost of the work that happens
     elided = elide_definition(expanded, definition)
     entries = list_entries(definition, realized)
-    measured_entries = list_entries(definition, definition)
+    # The defaults a curated cost was measured at - the default preset
+    # bundle among them
+    measured_entries = list_entries(
+        definition, {"variables": effective_variables(definition)}
+    )
     step_count = len(expanded.get("steps") or [])
     cache_hits = cached_steps(definition, realized, arguments, cache_probe)
     # The work includes the text a stored prompt holds now, not only its
@@ -180,7 +193,9 @@ def build_plan(
             base_dir,
             candidate.workflow_dir,
             measured_entries=measured_entries,
-            observed=_observed_block(observed, arguments),
+            observed=_observed_block(
+                observed, arguments, definition, expanded, entries, device
+            ),
             cached_steps=cache_hits,
             total_steps=step_count,
             observed_for_child=observed_for_child,
@@ -188,19 +203,91 @@ def build_plan(
     }
 
 
-def _observed_block(observed, arguments):
+def _observed_block(
+    observed, arguments, definition=None, expanded=None, entries=None, device=None
+):
     """The `observed` block for this run, from a block or from a callable
     the caller passed - best effort, since a figure is a nicety and a plan
     that raised because history could not be read would cost the caller the
-    whole pre-flight."""
+    whole pre-flight.
+
+    A run whose drivers this box has never run (a preset tier, say) has no
+    bucket of its own. Rather than fall to the curated row, which can sit far
+    from this box's speed (#1236), the history of the same run under the
+    default preset is scaled by the ratio the drivers moved by. A tier whose
+    own bucket is too thin to quote alone carries that scaled figure as
+    `baseline`, the one `estimate` tempers it toward in place of the
+    curated row."""
     if not callable(observed):
         return observed if isinstance(observed, dict) else None
     try:
-        block = observed(arguments or {})
+        args = arguments or {}
+        block = observed(args)
+        if definition is not None:
+            if not isinstance(block, dict):
+                block = _scaled_observed(
+                    observed, args, definition, expanded, entries, device
+                )
+            elif _thin(block):
+                baseline = _scaled_observed(
+                    observed, args, definition, expanded, entries, device
+                )
+                if baseline is not None:
+                    block = {**block, "baseline": baseline}
     except Exception:
         logger.debug("No observed history for the plan", exc_info=True)
         return None
     return block if isinstance(block, dict) else None
+
+
+def _thin(block):
+    """Whether an observed block's cold history is below the run count
+    `_tempered` quotes at full authority."""
+    runs = block.get("cold_runs")
+    return isinstance(runs, int) and runs < SMALL_N_THRESHOLD
+
+
+def _scaled_observed(observed, arguments, definition, expanded, entries, device=None):
+    """History of the run with the preset selectors left at their defaults,
+    scaled to `arguments`' drivers, or None when there is none or nothing
+    but the selector itself moved.
+
+    A driver the preset moved that no rule scales (a tier's weights dtype)
+    keeps the figure, named in `differs`, as the curated path keeps it
+    (#866): the observed default is still far nearer this box's speed than
+    the curated row (#1236)."""
+    selectors = preset_selectors(definition)
+    base_args = {k: v for k, v in arguments.items() if k not in selectors}
+    if len(base_args) == len(arguments):
+        return None
+    block = observed(base_args)
+    if not isinstance(block, dict) or not isinstance(
+        block.get("cold_minutes"), (int, float)
+    ):
+        return None
+    if block.get("inherited_from"):
+        # Another template's history, an approximation of its own (#797)
+        return None
+    baseline = effective_variables(definition, base_args)
+    scaling = _driver_scaling(definition, expanded, entries, baseline=baseline)
+    if scaling is None:
+        return None
+    factor, axes, unscaled = scaling
+    # The selector itself moved by construction; what it moved is scaled
+    differs = [name for name in unscaled if name not in selectors]
+    if not axes and not differs:
+        return None
+    fixed = block["cold_minutes"] * fixed_share(definition, device)
+    scaled = {
+        **block,  # the fixed share held, as _scaled holds it (#1224)
+        "cold_minutes": fixed + (block["cold_minutes"] - fixed) * factor,
+        "scaled": f"scaled from the observed {round(block['cold_minutes'], 1)} min"
+        + (f" ({_shown_minutes(fixed)} min of it fixed)" if fixed else "")
+        + (": " + ", ".join(axes) if axes else ""),
+    }
+    if differs:
+        scaled["differs"] = differs
+    return scaled
 
 
 def list_entries(definition, realized):
@@ -208,8 +295,9 @@ def list_entries(definition, realized):
     read from `realized`'s folded variables - a literal list is not an
     argument and is not listed.
 
-    Passing `definition` as both arguments answers the lengths the
-    workflow's *stored defaults* carry, which is the list a catalog `cost`
+    Passing `{"variables": effective_variables(definition)}` as `realized`
+    answers the lengths the workflow's *stored defaults* carry (its default
+    preset bundle included), which is the list a catalog `cost`
     figure was measured against (`estimate`).
     """
     variables = realized.get("variables") or {}
@@ -339,8 +427,11 @@ def _tempered(block, curated_minutes):
     toward the curated figure it might be papering over rather than
     presented as if it carried the same authority as a dozen runs (#301).
 
-    With a curated minutes figure to blend toward, the point estimate is
-    pulled toward it in proportion to how thin the history is - one run
+    `curated_minutes` is the figure to blend toward: the curated row scaled
+    to the run, or this box's default-tier history scaled to it when a
+    preset tier's own bucket is the thin one (#1236). With one, the point
+    estimate is pulled toward it in proportion to how thin the history is -
+    one run
     counts for a third of the blend, two for two thirds, three or more not
     at all. The blend is marked `tempered: true` with `observed_minutes`
     (the raw point figure, the same number `list_workflows`' own
@@ -399,7 +490,13 @@ def _own_price(definition, expanded, list_entries, device, measured_entries):
         # _repriced only re-prices a for_each list's length, so a moved scalar
         # cost_driver (H3's num_inference_steps, say) is scaled here rather
         # than quoted at the figure measured for the defaults (#267, #866)
-        own = _scaled(own, _driver_scaling(definition, expanded, list_entries))
+        own = _scaled(
+            own,
+            _driver_scaling(definition, expanded, list_entries),
+            fixed_minutes(_choose_entry(definition.get("cost"), device)[0]),
+        )
+        # A words-checked chain's Whisper passes, on top (#1262)
+        own = with_words_check(own, definition, expanded)
     return own
 
 
@@ -450,14 +547,17 @@ def _child_catalog_price(child_definition, child_cost, step_arguments, device):
     child_measured_entries = {}
     child_expanded = {"variables": {}}
     if child_definition is not None:
-        child_measured_entries = _list_entries(child_definition, child_definition)
+        child_measured_entries = _list_entries(
+            child_definition, {"variables": effective_variables(child_definition)}
+        )
         # The composing step's own `arguments` are what the child
-        # actually runs with - folded over its declared defaults the
-        # same way a caller's arguments are, since `expanded` has
-        # already substituted them to concrete values (#341)
-        effective_variables = dict(child_definition.get("variables") or {})
-        effective_variables.update(step_arguments)
-        child_expanded = {"variables": effective_variables}
+        # actually runs with - folded over its declared defaults (and the
+        # preset bundle they choose) the same way a caller's arguments are,
+        # since `expanded` has already substituted them to concrete values
+        # (#341)
+        child_expanded = {
+            "variables": effective_variables(child_definition, step_arguments)
+        }
         child_list_entries = _list_entries(child_definition, child_expanded)
     child = _price(child_cost, device, child_list_entries, child_measured_entries)
     if (
@@ -471,7 +571,9 @@ def _child_catalog_price(child_definition, child_cost, step_arguments, device):
         child = _scaled(
             child,
             _driver_scaling(child_definition, child_expanded, child_list_entries),
+            fixed_minutes(_choose_entry(child_cost, device)[0]),
         )
+        child = with_words_check(child, child_definition, child_expanded)
     return child
 
 
@@ -512,6 +614,36 @@ class _ChildTotals:
             self.minutes += child["minutes"]
         else:
             self.minutes = child["minutes"]
+
+
+def _unresolved_list_note(path, child_cost, step_arguments, device):
+    """Why a child's figure may under-quote, or None: its per_entry list is
+    handed by an earlier step's output (`previous_result:` / `gather:`), so
+    its length is unknown until the run and the child was priced at its own
+    default entry count (#1222)."""
+    chosen = None
+    for entry in child_cost or []:
+        if isinstance(entry, dict) and (
+            chosen is None or entry.get("device") == device
+        ):
+            chosen = entry
+            if entry.get("device") == device:
+                break
+    per = chosen.get("per_entry") if isinstance(chosen, dict) else None
+    if not isinstance(per, dict):
+        return None
+    value = (step_arguments or {}).get(per.get("variable"))
+    if not isinstance(value, str) or not (
+        references.is_ref(references.PREVIOUS_RESULT, value)
+        or references.is_ref(references.GATHER, value)
+    ):
+        return None
+    return (
+        f"{path}: '{per['variable']}' comes from an earlier step "
+        f"({value}), so its length is unknown until the run; priced at the "
+        f"child's default {per.get('entries')} entries - add about "
+        f"{per.get('minutes')} min for each entry beyond that"
+    )
 
 
 def _unique(names):
@@ -651,7 +783,9 @@ def estimate(
     A composed child is not added to it: an observed run is the whole run,
     children included, already measured.
     """
-    measured = _observed(observed, device)
+    measured = _with_worst_case(
+        _observed(observed, device), definition, expanded, device
+    )
     own = _own_price(definition, expanded, list_entries, device, measured_entries)
     if measured is not None and _entry_cost_field_shifted(definition, expanded):
         # The history's drivers match on the list's length, not on what each
@@ -659,18 +793,31 @@ def estimate(
         # be quoted at the shorter run's minutes (#796)
         measured = None
     if measured is not None:
-        measured = _tempered(measured, own["minutes"])
-        if measured.get("tempered") and own.get("scaled"):
+        # A thin bucket blends toward this box's default-tier history scaled
+        # to its drivers when there is one, not the curated row (#1236)
+        partner = _with_worst_case(
+            _observed(
+                observed.get("baseline") if isinstance(observed, dict) else None,
+                device,
+            ),
+            definition,
+            expanded,
+            device,
+        )
+        if partner is None:
+            partner = own
+        measured = _tempered(measured, partner["minutes"])
+        if measured.get("tempered") and partner.get("scaled"):
             # What it blended toward was scaled for this run's drivers, and
             # `curated_minutes` alone does not say so (#866)
             measured["scaled"] = "; ".join(
-                part for part in (measured.get("scaled"), own["scaled"]) if part
+                part for part in (measured.get("scaled"), partner["scaled"]) if part
             )
-        if measured.get("tempered") and own.get("differs"):
+        if measured.get("tempered") and partner.get("differs"):
             # It blended toward a figure measured at another setting of a
             # driver nothing scales (#866)
             measured["differs"] = _unique(
-                (measured.get("differs") or []) + own["differs"]
+                (measured.get("differs") or []) + partner["differs"]
             )
             measured["low_confidence"] = True
         measured["cached_minutes"] = _cached_minutes(
@@ -699,6 +846,13 @@ def estimate(
                 child_definition, child_cost, step_arguments, device
             )
         totals.add(path, child, is_observed)
+        note = (
+            None
+            if is_observed
+            else _unresolved_list_note(path, child_cost, step_arguments, device)
+        )
+        if note and child["minutes"] is not None:
+            totals.differs.append(note)
     result = _rolled_up_estimate(own, totals, device, cached_steps, total_steps)
     withheld = observed.get("withheld") if isinstance(observed, dict) else None
     if withheld and result["basis"] == UNKNOWN and result["minutes"] is None:
@@ -732,6 +886,57 @@ def _unpriced_reason(definition):
     )
 
 
+def _with_worst_case(measured, definition, expanded, device=None):
+    """An observed or inherited estimate with a checked chain's worst-case
+    re-rolls quoted on it, as the curated figure quotes them (#1246): the
+    history is read as N segment renders (a matched chain's as one), and
+    `observed_render_scaling` says how many a run at `expanded` may pay. Unchanged when nothing can
+    re-roll. A history that ran checked already holds what re-rolls it drew,
+    so this is an upper bound, which is what the worst case promises. This
+    box's own history, so re-priced, is `derived`; an inherited one stays
+    `inherited`."""
+    if measured is None or measured.get("minutes") is None:
+        return measured
+    variables = (expanded or {}).get("variables") or {}
+    factor, axes, unscaled = observed_render_scaling(definition, variables, measured)
+    if unscaled:
+        measured = {
+            **measured,
+            "differs": _unique((measured.get("differs") or []) + unscaled),
+            "low_confidence": True,
+        }
+    # A words-checked chain's Whisper passes, on top, as the curated figure
+    # quotes them (#1262): additive, so they are not scaled by `factor`
+    words_minutes, words_axis = words_check_term(definition, variables)
+    if not axes and not words_minutes:
+        return measured
+    # A re-roll renders the segment again; it does not load the model again
+    fixed = measured["minutes"] * fixed_share(definition, device)
+    terms = axes + ([words_axis] if words_minutes else [])
+    worst = {
+        **measured,
+        "minutes": round(
+            fixed + (measured["minutes"] - fixed) * factor + words_minutes, 1
+        ),
+        "scaled": "; ".join(
+            part
+            for part in (
+                measured.get("scaled"),
+                f"from the observed {_shown_minutes(measured['minutes'])} min: "
+                + ", ".join(terms),
+            )
+            if part
+        ),
+    }
+    if worst["basis"] == OBSERVED:
+        worst["basis"] = DERIVED
+    return worst
+
+
+def _shown_minutes(minutes):
+    return int(minutes) if float(minutes).is_integer() else round(minutes, 1)
+
+
 def _observed(observed, device):
     """This box's history as an estimate, or None when it has nothing to
     quote from.
@@ -759,7 +964,18 @@ def _observed(observed, device):
         "unpriced": [],
         "runs": runs,
     }
+    if observed.get("per_segment"):
+        estimate["per_segment"] = True  # a matched chain's (observed_cost)
     inherited_from = observed.get("inherited_from")
+    if observed.get("scaled") and not inherited_from:
+        # This box's history of the default tier, re-priced for the drivers
+        # that moved (#1236): derived, not measured
+        estimate["basis"] = DERIVED
+        estimate["scaled"] = observed["scaled"]
+        estimate["low_confidence"] = True
+        if observed.get("differs"):
+            # Moved a driver no rule scales: measured at another setting
+            estimate["differs"] = list(observed["differs"])
     if inherited_from:
         # History of the catalog template with this workflow's pipeline,
         # not of this workflow - an approximation (#797)
@@ -776,6 +992,22 @@ def _observed(observed, device):
             estimate["scaled"] = observed["scaled"]
             estimate["low_confidence"] = True
     return estimate
+
+
+# Task commands that only cut or join text in memory: no model, no media, no
+# loop over one, so a parent whose own steps are these plus child workflows
+# has no uncosted work of its own (#1222: narration-long's `split`).
+TEXT_GLUE_TASKS = frozenset({"split_takes"})
+
+
+def _is_text_glue(step):
+    """Whether `step` is a TEXT_GLUE_TASKS task run once (no for_each)."""
+    task = step.get("task") if isinstance(step, dict) else None
+    return (
+        isinstance(task, dict)
+        and task.get("command") in TEXT_GLUE_TASKS
+        and not step.get("for_each")
+    )
 
 
 def _only_composes_children(definition):
@@ -795,6 +1027,8 @@ def _only_composes_children(definition):
     if not steps:
         return False
     for step in steps:
+        if _is_text_glue(step):
+            continue
         reference = step.get("workflow") if isinstance(step, dict) else None
         if not isinstance(reference, dict) or not isinstance(
             reference.get("path"), str
@@ -814,14 +1048,9 @@ def _price(cost, device, list_entries, measured_entries):
     changed there is nothing honest to extrapolate along, so the figure is
     withheld rather than quoted for the wrong list.
     """
-    entries = [entry for entry in (cost or []) if isinstance(entry, dict)]
-    if not entries:
-        return {"minutes": None, "basis": UNKNOWN, "measured_on": None}
-    chosen = next((entry for entry in entries if entry.get("device") == device), None)
-    basis = CATALOG
+    chosen, basis = _choose_entry(cost, device)
     if chosen is None:
-        chosen = entries[0]
-        basis = OTHER_DEVICE
+        return {"minutes": None, "basis": UNKNOWN, "measured_on": None}
     minutes = float(chosen.get("minutes", 0))
     per = chosen.get("per_entry")
     # Another device's figure is re-priced for the list length too (#589): it

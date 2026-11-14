@@ -2,6 +2,7 @@
 isolation, cancel routing, VRAM-aware dispatch with backfill, the fit check at
 submit, the OOM ranking, and what /api/health reports."""
 
+import os
 import subprocess
 import sys
 import threading
@@ -9,6 +10,7 @@ import time
 
 import pytest
 
+from dw.host_memory import HostClaims
 from dw.server.jobs import JobManager, WorkerBusy
 from dw.vram_estimate import _entries_for, required_vram_gb
 from tests.test_server import (  # noqa: F401
@@ -452,7 +454,7 @@ class TestOomRanking:
         manager, _ = self._pair(pool)
         values = {101: 1000, 102: 0}
         monkeypatch.setattr(
-            "dw.server.jobs.read_oom_score_adj", lambda pid: values.get(pid)
+            "dw.server.worker_memory.read_oom_score_adj", lambda pid: values.get(pid)
         )
 
         workers = manager.workers()
@@ -1002,8 +1004,11 @@ class TestMemoryPerCard:
         gate_a.wait_started()
         gate_b.wait_started()
 
-        with pytest.raises(WorkerBusy):
+        with pytest.raises(WorkerBusy) as refused:
             manager.clear_memory()
+        for job in jobs:
+            assert job.id in str(refused.value)
+        assert "cuda:0" in str(refused.value) and "cuda:1" in str(refused.value)
 
         gate_a.release.set()
         gate_b.release.set()
@@ -1307,7 +1312,9 @@ class TestHostRamGate:
         held = self.submit(manager, "held", host_gb=30)
         assert wait_until(lambda: held.waiting_for is not None)
         assert held.status == "queued"
-        assert held.waiting_for == "waiting for host RAM: needs ~30 GB, ~10 GB free"
+        assert held.waiting_for == (
+            "waiting for host RAM: needs ~33 GB with its margin, ~7 GB free"
+        )
         assert not second_gate.started.is_set()
         assert manager.get(held.id).summary()["waiting_for"] == held.waiting_for
 
@@ -1337,6 +1344,59 @@ class TestHostRamGate:
         host["available_mb"] = 40 * GB
         second_gate.wait_started()
         wait_for(held, {"running"})
+
+    def test_another_servers_running_job_holds_a_job_on_an_idle_pool(
+        self, pool, host, monkeypatch
+    ):
+        # #1227: no job of this server's is running, but another dw.serve on
+        # the host has claimed a heavy one it has yet to finish loading
+        monkeypatch.setattr("dw.server.dispatch.HOST_RAM_RECHECK_SECONDS", 0.05)
+        manager, first_gate, second_gate = self._two_cards(pool)
+        other = HostClaims(directory=manager._host_claims().directory, pid=os.getppid())
+        other.publish([(999999, 60 * GB)])
+        host["available_mb"] = 40 * GB
+
+        held = self.submit(manager, "held", host_gb=30)
+        assert wait_until(lambda: held.waiting_for is not None)
+        assert held.status == "queued"
+        assert not first_gate.started.is_set()
+        assert "waiting for host RAM" in held.waiting_for
+
+        # The other server's job finishing withdraws its claim
+        other.withdraw()
+        first_gate.wait_started()
+        wait_for(held, {"running"})
+
+    def test_a_started_job_is_claimed_for_the_other_servers(self, pool, host):
+        manager, first_gate, second_gate = self._two_cards(pool)
+        for slot in manager.slots:
+            slot.manager.pid = lambda: os.getpid()
+        self.submit(manager, "running", host_gb=30)
+        first_gate.wait_started()
+        other = HostClaims(directory=manager._host_claims().directory, pid=os.getppid())
+        assert [peak for peak, _ in other.foreign()] == [30 * GB]
+        first_gate.release.set()
+
+    def test_a_job_on_a_cold_worker_is_claimed_once_it_is_up(self, pool, host):
+        # A cold card's worker is spawned in the job thread, after dispatch,
+        # so the dispatch pass has no pid to claim it under; the claim is
+        # published once ensure_worker returns, or the job runs unseen
+        manager, first_gate, second_gate = self._two_cards(pool)
+        for slot in manager.slots:
+            up = {"pid": None}
+            spawn = slot.manager.ensure_worker
+
+            def ensure_worker(*args, _spawn=spawn, _up=up, **kwargs):
+                _up["pid"] = os.getpid()
+                return _spawn(*args, **kwargs)
+
+            slot.manager.ensure_worker = ensure_worker
+            slot.manager.pid = lambda _up=up: _up["pid"]
+        self.submit(manager, "running", host_gb=30)
+        first_gate.wait_started()
+        other = HostClaims(directory=manager._host_claims().directory, pid=os.getppid())
+        assert [peak for peak, _ in other.foreign()] == [30 * GB]
+        first_gate.release.set()
 
     def test_a_smaller_job_starts_past_a_held_one(self, pool, host):
         gates = [Gate(), Gate(), Gate()]
@@ -1384,12 +1444,15 @@ class TestHostRamGate:
         manager, first_gate, second_gate = self._two_cards(pool)
         self.submit(manager, "loading", host_gb=30)
         first_gate.wait_started()
-        # 40 GB free now, but the loading job will take 25 GB more of it
+        # 40 GB free now, but the loading job will take 25 GB more of it,
+        # 28 GB with its margin
         host["rss"]["cuda:0"] = 5 * GB
         host["available_mb"] = 40 * GB
         held = self.submit(manager, "next", host_gb=20)
         assert wait_until(lambda: held.waiting_for is not None)
-        assert held.waiting_for == "waiting for host RAM: needs ~20 GB, ~15 GB free"
+        assert held.waiting_for == (
+            "waiting for host RAM: needs ~22 GB with its margin, ~12 GB free"
+        )
         assert not second_gate.started.is_set()
 
     def test_the_idle_worker_it_would_reuse_counts_as_free(self, pool, host):

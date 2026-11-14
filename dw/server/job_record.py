@@ -6,12 +6,14 @@ cost acknowledgement, the spec fields a rerun needs and the event bound.
 queues them.
 """
 
+import secrets
 import threading
 import time
 import uuid
 
 from ..devices import label_of
 from ..download_watch import format_progress
+from ..workflow_run import SEED_BITS
 from ..workspace import DEFAULT_WORKSPACE_NAME
 
 QUEUED = "queued"
@@ -48,8 +50,66 @@ RERUN_SPEC_KEYS = (
     "note",
 )
 
+RERUN_SEED_UNKNOWN = "rerun_seed_unknown"
+
+
+def keep_drawn_seed(arguments, variable, realized):
+    """`arguments` with the parent's drawn seed folded into `variable`, and
+    the warnings that says - for a rerun with overrides, so a draft
+    promoted with one changed variable keeps the parent's staging.
+
+    A template whose seed variable defaults to null draws the seed at run
+    time; the number lives only in the realized workflow (`realized`, the
+    run's `workflow.json`, top-level `seed`), never in the job's arguments.
+    An argument already naming the seed is kept. When the realized seed is
+    not on record (a run directory swept, or a job from before run
+    tracking) the arguments are left alone and a `rerun_seed_unknown`
+    warning says the rerun draws a fresh one."""
+    if variable is None or arguments.get(variable) is not None:
+        return arguments, []
+    seed = (realized or {}).get("seed")
+    if isinstance(seed, int) and not isinstance(seed, bool):
+        return {**arguments, variable: seed}, []
+    return arguments, [
+        f"{RERUN_SEED_UNKNOWN}: the seed the original run drew for "
+        f"'{variable}' is not on record, so this rerun uses the variable's "
+        "default (a fresh seed when that is null) and may not keep the "
+        "original's staging"
+    ]
+
+
 # A long run emits thousands of progress events; the tail is what explains
 # the outcome. Bounded so history stays a summary store, not an event log
+def rerun_arguments(arguments, overrides, new_seed, variable, realized):
+    """A rerun's (arguments, warnings): `overrides` merged over the stored
+    `arguments`, and the seed in `variable` settled. Overrides keep the seed
+    the original drew (`keep_drawn_seed`, over `realized()`), unless one of
+    them is an explicit null for the seed - "draw fresh", not a gap to fill.
+    `new_seed` draws one here. Raises ValueError when it cannot."""
+    overrides = overrides or {}
+    arguments = {**arguments, **overrides}
+    warnings = []
+    draws_fresh = variable is not None and overrides.get(variable, 1) is None
+    if overrides and not new_seed and not draws_fresh:
+        arguments, warnings = keep_drawn_seed(arguments, variable, realized())
+    if new_seed:
+        if variable in overrides:
+            raise ValueError(
+                f"'new_seed' and an override of the seed variable "
+                f"'{variable}' cannot both be given"
+            )
+        if variable is None:
+            raise ValueError(
+                "This workflow does not draw its seed from a variable, so "
+                "a rerun cannot change it. A workflow with no seed at all "
+                "already draws a fresh one every run."
+            )
+        # Bounded so the number survives its trip through a browser as
+        # JSON - see SEED_BITS
+        arguments = {**arguments, variable: secrets.randbits(SEED_BITS)}
+    return arguments, warnings
+
+
 MAX_PERSISTED_EVENTS = 200
 
 
@@ -101,6 +161,11 @@ class Job:
         # rss when it caused no growth (#272). None for a run that never got
         # a memory_info message at all
         self.host_memory_job_peak_rss_mb = None
+        # The largest committed reading during the run (RssAnon + RssShmem +
+        # the driver's pinned pages) - RSS without the checkpoint pages the
+        # worker maps, which are page cache (#869). None where the platform
+        # has no split
+        self.host_memory_job_peak_committed_mb = None
         # The host RAM it was projected to hold at its peak when admitted,
         # (mb, basis, runs) or None (dw/server/host_ram_need.py, #869)
         self.host_ram_need = None
@@ -327,6 +392,11 @@ class Job:
         return {
             **self.summary(),
             "arguments": self.spec.get("arguments", {}),
+            **(
+                {"overrides": self.spec["overrides"]}
+                if self.spec.get("overrides")
+                else {}
+            ),
             "warnings": self.warnings,
             "manifest": self.manifest,
             "error": self.error,
@@ -335,4 +405,5 @@ class Job:
             "run_dir": self.run_dir,
             "acknowledged_cost": self.spec.get("acknowledged_cost"),
             "progress": self.progress(),
+            "host_memory_job_peak_committed_mb": self.host_memory_job_peak_committed_mb,
         }

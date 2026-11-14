@@ -1,0 +1,20 @@
+[
+  {
+    "arm": "chk-s3-seg4-broken-cut",
+    "scene": "s3-dialogue-walk",
+    "seed": 1166,
+    "job_id": "6668a913863c",
+    "status": "succeeded",
+    "error": null,
+    "output": "BenchS3DialogueWalk-chk2/20261105-141039-16409ca0/final/BenchS3DialogueWalk-chk2-chained_keyframe_to_video_audio.0-0.0.mp4"
+  },
+  {
+    "arm": "chk-s3-seg4-broken-r3",
+    "scene": "s3-dialogue-walk",
+    "seed": 1166,
+    "job_id": "ccce7adc9aaf",
+    "status": "succeeded",
+    "error": null,
+    "output": "BenchS3DialogueWalk-chk3/20261105-142638-f6817b4f/final/BenchS3DialogueWalk-chk3-chained_keyframe_to_video_audio.0-0.0.mp4"
+  }
+]

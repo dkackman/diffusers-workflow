@@ -40,6 +40,7 @@ torch = pytest.importorskip("torch")
 minimax = pytest.importorskip("diffusers.modular_pipelines.minimax_h3")
 from diffusers.modular_pipelines.modular_pipeline import PipelineState  # noqa: E402
 from diffusers.schedulers import MiniMaxH3Scheduler  # noqa: E402
+from dw.pipeline_processors.h3_hold_steps import set_verbatim_sigmas  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WORKFLOWS = ("t2va", "fl2va", "ref2va")
@@ -360,7 +361,7 @@ ROWS, WIDTH = 6, 4
 
 def comps(sigmas):
     scheduler = MiniMaxH3Scheduler(shift=6.0)
-    scheduler.set_timesteps(sigmas=sigmas)
+    set_verbatim_sigmas(scheduler, sigmas, None)
     return SimpleNamespace(scheduler=scheduler)
 
 
@@ -578,6 +579,8 @@ def args(**overrides):
         "mask_video": "asset:mask",
         "mask_grow": 1,
         "refine_strength": 0.9,
+        # Without it a source and no mask is an audio pass (#1192)
+        "hold_audio": "asset:clip",
     }
     arguments.update(overrides)
     return {k: v for k, v in arguments.items() if v is not None}
@@ -688,6 +691,36 @@ class TestOtherRules:
 
     def test_no_frame_count_skips_the_frame_check(self):
         assert media_problems("source_video", (3, 128, 128), 128, 128) == []
+
+    def test_30fps_source_matches_its_retimed_count(self):
+        # 155 frames at 30 fps is 124 at 24 fps (#1208)
+        shape = (155, 128, 128)
+        assert media_problems("source_video", shape, 128, 128, 124, 30.0) == []
+        problems = media_problems("source_video", shape, 128, 128, 155, 30.0)
+        assert len(problems) == 1
+        assert "124 once retimed" in problems[0]
+
+    def test_over_ceiling_names_the_limit(self):
+        declared = {"modulus": 17, "remainder": 5, "max_frames": 345}
+        problems = media_problems(
+            "source_video", (1413, 128, 128), 128, 128, 124, 24, declared
+        )
+        assert len(problems) == 1
+        assert "at most 345" in problems[0]
+        assert "trim it to 345" in problems[0]
+
+    def test_no_declared_ceiling_names_no_limit(self):
+        problems = media_problems("source_video", (1413, 128, 128), 128, 128, 124, 24)
+        assert len(problems) == 1
+        assert "at most" not in problems[0]
+
+    def test_the_named_ceiling_is_the_declared_one(self):
+        declared = {"modulus": 17, "remainder": 5, "max_frames": 200}
+        problems = media_problems(
+            "source_video", (300, 128, 128), 128, 128, 124, 24, declared
+        )
+        assert "at most 200" in problems[0]
+        assert "trim it to 192" in problems[0]
 
     def test_an_inpaint_mask_image_on_a_non_h3_step_is_not_a_regional_edit(self):
         assert edits_region({"mask_image": "x"}, False) is False
@@ -842,6 +875,8 @@ def probed_errors(tmp_path, **arguments):
     from dw.media import probe_metadata
 
     arguments.setdefault("refine_strength", 0.9)
+    # Without it a source and no mask is an audio pass (#1192)
+    arguments.setdefault("hold_audio", "asset:clip.mp4")
     return mask_errors(
         {"steps": [h3_step(**arguments)]}, None, str(tmp_path), probe=probe_metadata
     )
@@ -1045,8 +1080,9 @@ class TestStringStrength:
         variables = {"refine_strength": default}
         set_variables({"refine_strength": value}, variables)
         step = h3_step(
-            **args(refine_strength="variable:refine_strength"),
-            hold_audio="asset:clip.mp4",
+            **args(
+                refine_strength="variable:refine_strength", hold_audio="asset:clip.mp4"
+            ),
             num_inference_steps=5,
         )
         return replace_variables(step, variables)
@@ -1058,8 +1094,7 @@ class TestStringStrength:
 
     def test_a_literal_string_is_refused_at_its_path(self):
         step = h3_step(
-            **args(refine_strength="0.8"),
-            hold_audio="asset:clip.mp4",
+            **args(refine_strength="0.8", hold_audio="asset:clip.mp4"),
             num_inference_steps=5,
         )
         errors = self.errors(step)

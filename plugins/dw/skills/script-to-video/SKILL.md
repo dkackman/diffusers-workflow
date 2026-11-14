@@ -5,26 +5,26 @@ description: Use when a dw MCP server is connected and the user hands over a scr
 
 # Script to video on a dw server
 
-Turning a script into shots is the one piece none of the other skills
-cover. Everything downstream of a shot list already exists: `dw:minimax-h3`
+Turning a script into shots is the one piece no other skill covers.
+Everything downstream of a shot list exists: `dw:minimax-h3`
 and `dw:ltx-2.5` pick a template per shot's shape, `h3-prompt-writing`
 writes the structured prompt, `dw:series-episodes` keeps a cast consistent,
 and `templates/assemble-and-score` cuts and scores the result. This skill
-is the decision tree that connects them, in order. It does not add anything
-to the engine - see "Not in scope" below for what it deliberately declines.
+is the decision tree that connects them, in order. It adds nothing to the
+engine; "Not in scope" lists its refusals.
 
 ## 1. Read the script and the server
 
-`get_server_info` for device and workspace, the way every dw skill starts.
-Read the script as prose and dialogue, the way a person would - this skill
-does not parse screenplay formats.
+`get_server_info` for device and workspace, as every dw skill starts.
+Read the script as prose and dialogue; this skill does not parse screenplay
+formats.
 
 ## 2. Decompose into a shot list, not a shot count
 
 The unit that matters is *shots*, not lines or scenes: one scene may be
 several shots, and a `dw:minimax-h3` shot runs 5.17 to 14.4 seconds (the
 `17*n+5` frame grid, 124 to 345 frames). For each shot, name it, note
-which character(s) appear, what happens, and roughly how long it runs.
+who appears, what happens, and how long it runs.
 
 Fill in this shape before writing any prompt:
 
@@ -49,8 +49,12 @@ Fill in this shape before writing any prompt:
   `cinematography`, never invented) and `duration` (seconds); `null` leaves
   an axis to the model.
 
-Save the list as `<project>/shots` in the prompt library, one compiled
-`<project>/shot-NN` per shot: `references/shot-document.md`.
+Save the list as `<project>/shots`, a compiled `<project>/shot-NN` per
+shot, and a scene longer than one clip in `<project>/scenes`
+(`long-form`): `references/shot-document.md`.
+
+A speaking subject held to a narration longer than one clip is not a shot list: use long-form's narrated take (templates/narration-retime, then
+templates/minimax/narrated-take).
 
 Whatever the user supplied is locked; copy it, don't improve it. A field
 they left blank stays blank - ask, or mark it unspecified - and you invent
@@ -156,7 +160,7 @@ manifest to determine what was written where.
 Once every shot exists, hand off to `templates/assemble-and-score` (or the
 `dw:series-episodes` five-beat procedure, if this script is one episode of
 a series) for the recut/bed/match_levels/normalize/pair pass. That skill
-already owns this step - do not re-derive it here.
+owns this step; do not re-derive it.
 
 The shots, narration, score or cues, stills and references are ingredients
 the assembly consumes: a workflow you write or copy for one sets
@@ -179,17 +183,16 @@ directory (per its `next`).
 - **Automatic model speed optimization.** If a model is slow, that is a
   human-in-the-loop task informed by `observed_minutes`/`observed_runs` in a
   workflow listing (or `plan.estimate` with `basis: "observed"`), not
-  something this skill attempts unsupervised - the search space is large and
-  a wrong choice can silently change output quality.
+  something this skill attempts unsupervised - a wrong choice can silently
+  change output quality.
 - **Workflow authoring from scratch.** This skill picks among existing
-  catalog templates; a script whose shape no template covers is a
-  "propose a new template" conversation, not something to improvise at
-  run time.
+  catalog templates; a script no template covers is a "propose a new
+  template" conversation, not improvised.
 
 ## Sources
 
-This skill adds no new mechanism of its own - it is the decision tree over
-what already exists: `dw:minimax-h3` and `dw:ltx-2.5` (the family template
+This skill adds no new mechanism - it is the decision tree over
+what exists: `dw:minimax-h3` and `dw:ltx-2.5` (the family template
 pickers), `h3-prompt-writing` and the family prompt-writing conventions
 (the structured-prompt skills), `dw:series-episodes` (cast consistency and
 the recut/bed/match_levels/normalize/pair pass), `plan.estimate` and

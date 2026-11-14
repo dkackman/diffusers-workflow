@@ -27,10 +27,11 @@ from . import __version__, device_capacity_gb, get_device, get_device_type
 from . import references
 from .adapter_compatibility import warn_adapters
 from .arguments import realize_args
+from .pipeline_processors.chain_rules import resume_variables
 from .elision import elide_definition, warn_elided
 from .for_each import group_of
 from .media import probe_metadata
-from .pipeline_ownership import allocated_mb, finish_release
+from .pipeline_ownership import allocated_mb, evict_idle_for_task, finish_release
 from .pipeline_processors.timing import mark, step_timer
 from .previous_results import StepResults
 from .realize import pin_output_reference, realize_workflow
@@ -313,15 +314,17 @@ def prepare_definition(workflow, workflow_def, arguments, base_dir):
         # and substitution copies the variables block along with the
         # steps
         workflow_def["variables"] = recorded_variables
-        # realize the variables - explicit references only (asset:,
-        # output:, constant:, prompt:, a {media_type, location} dict).
-        # Key-name conventions (an 'image'/'video'/'_type' argument) are
-        # left off here: a variable's own name is not the argument it
-        # will end up filling, so a variable named 'image' fed to a step's
-        # 'video' argument was pre-loaded as a PIL Image before that step
-        # was ever substituted in (#365). The step-level realize_args
-        # passes below apply the conventions under the real argument key
-        realize_args(variables, base_dir, apply_key_conventions=False)
+        # realize the variables - explicit references only (asset:, output:,
+        # constant:, prompt:, a {media_type, location} dict). Key-name
+        # conventions wait for the step-level realize_args passes below, under
+        # the real argument key: a variable named 'image' fed to a step's
+        # 'video' argument was pre-loaded as a PIL Image before that step was
+        # substituted in (#365). A variable a resume_from names stays the
+        # reference (#1304)
+        held = resume_variables(workflow_def.get("steps"), variables)
+        realized = {k: v for k, v in variables.items() if k not in held}
+        realize_args(realized, base_dir, apply_key_conventions=False)
+        variables.update(realized)
     ## then replace any variable references in the workflow definition
     # with the actual values, and expand
     authored_steps = workflow_def.get("steps")
@@ -993,6 +996,18 @@ def _run_started_step(workflow, loop, index, step_data, step, step_seed, record,
     # borrows it - whether a later step will be a hit too is not
     # known until that step's own lookup
     mark("load_started")
+    if (
+        cached_result is None
+        and ("task" in step_data or "workflow" in step_data)
+        and step_data.get("release_models", False)
+    ):
+        # A composed child (the flux3 templates' upsample step) carries the
+        # flag on the parent step, so a `workflow` step counts as a task here
+        evict_idle_for_task(
+            loop.pipelines,
+            set(workflow.claimed_pipeline_keys()),
+            step_data["name"],
+        )
     if cached_result is None:
         workflow._load_deferred_borrows(
             loop.workflow_id, steps, index, loop.shared_components, loop.pipelines

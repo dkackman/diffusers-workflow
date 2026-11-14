@@ -8,6 +8,7 @@ Best effort and advisory: nothing here refuses a workflow.
 
 from . import references
 from .introspection import CLASS_NAME_PATTERN, unknown_call_arguments
+from .presets import effective_variables
 from .variables import undeclared_variable_references
 
 
@@ -123,29 +124,66 @@ def _inert_bleed_single_input_warnings(step, command, arguments, values):
     ]
 
 
-def _inert_match_levels_dbfs_warnings(step, command, arguments):
+def _resolved_any(arguments, key, values):
+    """`arguments[key]` with a `variable:name` reference resolved against
+    `values`, whatever its type; `_UNKNOWN` when the reference names nothing
+    in `values` (the run's value is not knowable here), `None` when absent."""
+    value = arguments.get(key)
+    if references.is_ref(references.VARIABLE, value):
+        name = references.ref_name(references.VARIABLE, value)
+        return values[name] if name in values else _UNKNOWN
+    return value
+
+
+_UNKNOWN = object()
+
+
+def _inert_match_levels_dbfs_warnings(step, command, arguments, values=None):
     """concat_videos and dissolve_videos only call match_levels() - the
     function that reads match_levels_dbfs as its target - when match_levels
     itself is truthy (`if match_levels:`), so a caller who passes only the
     target dBFS and leaves match_levels unset (off by default) has stated an
     intent the engine silently drops: the shots join unmatched with no trace,
     warning or otherwise (#291, the same "modifier without its enabler" class
-    #288 and #290 closed for seam_fade_ms and audio_bleed_gain_db). Literal
-    check only, like _inert_crossfade_warnings' trim_frames - match_levels is
-    "rms"/"peak"/falsy, not a number a variable: reference would need
-    resolving to compare against a domain."""
+    #288 and #290 closed for seam_fade_ms and audio_bleed_gain_db). A `variable:`
+    reference in any of the three is resolved against `values` first (#1303);
+    one that names nothing in `values` is unknowable and left alone."""
     if command not in ("concat_videos", "dissolve_videos"):
         return []
-    if "match_levels_dbfs" not in arguments or arguments.get("match_levels"):
+    from .tasks.joins import MATCH_MEASURES, _match_target
+
+    name = step.get("name")
+    # the values the run will see: a `variable:` reference resolves against
+    # the declared defaults merged with the caller's arguments (#1303)
+    values = values or {}
+    mode = _resolved_any(arguments, "match_levels", values)
+    dbfs = _resolved_any(arguments, "match_levels_dbfs", values)
+    lufs = _resolved_any(arguments, "match_levels_lufs", values)
+    if _UNKNOWN in (mode, dbfs, lufs):
         return []
-    dbfs = arguments.get("match_levels_dbfs")
-    if not isinstance(dbfs, (int, float)):
-        return []
-    return [
-        f"Step '{step.get('name')}': 'match_levels_dbfs' has no effect when "
-        f'\'match_levels\' is unset - pass "rms" or "peak" for the target '
-        f"to apply."
-    ]
+    warnings = []
+    dbfs = dbfs if isinstance(dbfs, (int, float)) else None
+    lufs = lufs if isinstance(lufs, (int, float)) else None
+    if lufs is not None and not mode:
+        warnings.append(
+            f"Step '{name}': 'match_levels_lufs' has no effect when "
+            f"'match_levels' is unset - pass \"lufs\" for the target to apply."
+        )
+    elif mode in MATCH_MEASURES:
+        # the pairing of measure and target is joins._match_target's rule:
+        # ask it on the literals rather than restating it here
+        try:
+            _match_target(mode, dbfs, lufs, 48000, command)
+        except ValueError as refusal:
+            warnings.append(f"Step '{name}': the run is refused - {refusal}")
+    if dbfs is None or mode:
+        return warnings
+    warnings.append(
+        f"Step '{name}': 'match_levels_dbfs' has no effect when "
+        f'\'match_levels\' is unset - pass "rms" or "peak" (or "lufs" '
+        f"with 'match_levels_lufs') for the target to apply."
+    )
+    return warnings
 
 
 def workflow_argument_warnings(workflow_definition, arguments=None):
@@ -164,7 +202,8 @@ def workflow_argument_warnings(workflow_definition, arguments=None):
     same values `constraint_warnings` checks a constraint against.
     """
     warnings = []
-    values = {**(workflow_definition.get("variables") or {}), **(arguments or {})}
+    # the chosen preset bundle included, as the run folds it
+    values = effective_variables(workflow_definition, arguments)
     declared = sorted(workflow_definition.get("variables") or {})
     for path, name in undeclared_variable_references(workflow_definition):
         hint = (
@@ -191,7 +230,9 @@ def workflow_argument_warnings(workflow_definition, arguments=None):
                 _inert_bleed_gain_warnings(step, command, task["arguments"], values)
             )
             warnings.extend(
-                _inert_match_levels_dbfs_warnings(step, command, task["arguments"])
+                _inert_match_levels_dbfs_warnings(
+                    step, command, task["arguments"], values
+                )
             )
             warnings.extend(
                 _inert_bleed_single_input_warnings(

@@ -528,6 +528,8 @@ LOADS_NOTHING_THE_PLAN_LISTS = {
     # Decodes with MiniMaxAI/MiniMax-H3's VAE, which the H3 pipeline step
     # that made the latents lists whole (#975 Q4)
     "decode_h3_latents": "the H3 repo, listed by its pipeline step",
+    # Encodes with the same VAE, for the H3 refine step that lists the repo
+    "encode_h3_latents": "the H3 repo, listed by its refine step",
     # Pastes crops back; loads no weights
     "paste_face_track": "nothing",
 }

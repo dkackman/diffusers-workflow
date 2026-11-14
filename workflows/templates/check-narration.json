@@ -1,0 +1,32 @@
+{
+  "id": "CheckNarration",
+  "description": "Checks that a long narration speaks its script, take by take, and answers JSON. Give the script as 'text' or as 'takes' (exactly one). Takes over 'max_word_error_rate' are listed under 'failed' and warn 'narration_take_mismatch': re-speak them. 'audio' is the joined narration.",
+  "variables": {
+    "text": null,
+    "takes": null,
+    "audio": "asset:narration.wav",
+    "max_word_error_rate": 0.1,
+    "model_name": null
+  },
+  "steps": [
+    {
+      "name": "check",
+      "task": {
+        "command": "check_narration",
+        "arguments": {
+          "text": "variable:text",
+          "takes": "variable:takes",
+          "audio": "variable:audio",
+          "max_word_error_rate": "variable:max_word_error_rate",
+          "model_name": "variable:model_name"
+        }
+      },
+      "result": {
+        "content_type": "application/json",
+        "file_base_name": "narration-check",
+        "subfolder": "final"
+      }
+    }
+  ],
+  "summary": "Checks a narration against its script take by take, answered as JSON."
+}

@@ -1,0 +1,138 @@
+{
+  "id": "NarrationFromTakes",
+  "description": "A narration longer than one take, spoken in one cloned voice and joined without audible seams. Audio8-TTS holds about 95 s of reference, text and speech together (see 'voice-clone'), so a long text is cut into takes at sentence boundaries, each take is spoken with 'voice-clone's own generate_speech arguments under one 'reference_audio', 'reference_text' and 'seed', and the takes are joined in order. 'takes' is a list of strings, and it is a variable rather than a step because the engine expands 'for_each' before a run starts, so the list cannot come from a step of the same workflow: for a plain text use 'narration-long', which cuts the text with 'split_takes' and runs this template as a child workflow with the takes (a child expands its own 'for_each' at its own run). The default is three short takes to show the shape. Each take is followed by 'gap_seconds' of silence (0.3 by default, a first guess to be tuned by ear rather than a measured pause) cut to the take's own sample rate, and 'crossfade_ms' (30 by default) is the overlap at every join: the gap is crossfaded at both ends (the take into it, then it into the next take), so the clean pause is about gap_seconds less two crossfades, and 'gap_seconds' must be above 0; the last take keeps its trailing gap, and 'slice_audio' trims it if it matters. The same seed does not make takes sound alike by itself - a different text is a different draw - so listen for a voice that drifts between takes and split into shorter takes if one does; a seam is also where a level step shows, so check the joined file's loudness before relying on it. Consent: clone only a voice you have the right to use - your own, or one whose owner has agreed - and never to impersonate or deceive. There is no default voice: 'reference_audio' (an asset: reference, at most 20 s) and 'reference_text' (exactly what is said in it) are required together, as in 'voice-clone'. The cost rows are priced per take from measured runs whose takes were 25-37 s of speech, so the short default takes cost less: 0.46 min a take on an RTX 3090 (an Audio8 narration of 12 takes, 303.8 s, in 5.5 min, bench/records/drill.md, ask 3) and 0.56 min a take on an M5 Pro (two 'narration-long' runs of 7 takes, about 202 s, in 4.1 and 3.8 min, bench/records/audio.md).",
+  "cost": [
+    {
+      "device": "cuda",
+      "name": "RTX 3090",
+      "vram_gb": 24,
+      "minutes": 1.4,
+      "per_entry": {
+        "variable": "takes",
+        "minutes": 0.46,
+        "entries": 3
+      }
+    },
+    {
+      "device": "mps",
+      "name": "M5 Pro 64GB",
+      "vram_gb": 64,
+      "minutes": 1.7,
+      "per_entry": {
+        "variable": "takes",
+        "minutes": 0.56,
+        "entries": 3
+      }
+    }
+  ],
+  "cost_drivers": [
+    "takes"
+  ],
+  "variables": {
+    "takes": [
+      "Somebody finished the pistachio and nobody is saying anything.",
+      "The fridge hums, and nobody looks up from their phone.",
+      "It was a quiet kind of guilt."
+    ],
+    "reference_audio": null,
+    "reference_text": "The words spoken in the reference clip, exactly as said.",
+    "seed": null,
+    "gap_seconds": 0.3,
+    "crossfade_ms": 30
+  },
+  "variable_constraints": {
+    "reference_audio": {
+      "required": true,
+      "min_length": 1,
+      "reason": "give an asset: reference of the voice to clone (at most 20 s) together with its reference_text"
+    },
+    "reference_text": {
+      "min_length": 1,
+      "reason": "the words spoken in reference_audio, exactly as said, are required with it"
+    }
+  },
+  "seed": "variable:seed",
+  "steps": [
+    {
+      "name": "speak",
+      "for_each": "variable:takes",
+      "task": {
+        "command": "generate_speech",
+        "arguments": {
+          "text": "item:",
+          "model_name": "Edge0/Audio8-TTS-Realistic-0.6b",
+          "reference_audio": "variable:reference_audio",
+          "reference_text": "variable:reference_text"
+        }
+      },
+      "result": {
+        "content_type": "audio/wav",
+        "save": false
+      }
+    },
+    {
+      "name": "silence_slice",
+      "for_each": "variable:takes",
+      "task": {
+        "command": "slice_audio",
+        "arguments": {
+          "audio": "previous_result:speak",
+          "start_seconds": 0,
+          "duration_seconds": "variable:gap_seconds"
+        }
+      },
+      "result": {
+        "content_type": "audio/wav",
+        "save": false
+      }
+    },
+    {
+      "name": "silence",
+      "for_each": "variable:takes",
+      "task": {
+        "command": "gain_audio",
+        "arguments": {
+          "audio": "previous_result:silence_slice",
+          "gain_db": -120
+        }
+      },
+      "result": {
+        "content_type": "audio/wav",
+        "save": false
+      }
+    },
+    {
+      "name": "gapped",
+      "for_each": "variable:takes",
+      "task": {
+        "command": "crossfade_audio",
+        "arguments": {
+          "audios": [
+            "previous_result:speak",
+            "previous_result:silence"
+          ],
+          "crossfade_ms": "variable:crossfade_ms"
+        }
+      },
+      "result": {
+        "content_type": "audio/wav",
+        "save": false
+      }
+    },
+    {
+      "name": "narration",
+      "task": {
+        "command": "crossfade_audio",
+        "arguments": {
+          "audios": "gather:gapped",
+          "crossfade_ms": "variable:crossfade_ms"
+        }
+      },
+      "result": {
+        "content_type": "audio/wav",
+        "subfolder": "final"
+      }
+    }
+  ],
+  "summary": "A narration longer than one take, spoken in one cloned voice and joined take by take."
+}
