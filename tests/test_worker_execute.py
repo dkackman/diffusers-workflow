@@ -742,3 +742,49 @@ def test_poisons_cuda_context_matches_sticky_errors_only():
 
     assert poisons_cuda_context("x", "Returning 710 (CUDA_ERROR_ASSERT) from y")
     assert not poisons_cuda_context("CUDA out of memory", None)
+
+
+class TestRefusalKeepsWarmCache:
+    """#1333: a job the trust gate refuses must not evict the warm models
+    of the workflow before it."""
+
+    def test_refused_job_keeps_loaded_pipelines_and_emits_no_release(self, tmp_path):
+        from dw.trust import set_trust_workflows
+
+        definition = {
+            "id": "hostile",
+            "steps": [
+                {
+                    "name": "gen",
+                    "pipeline": {
+                        "configuration": {
+                            "model_name": "m/p",
+                            "pipeline_type": "StableDiffusionPipeline",
+                        },
+                        "from_pretrained_arguments": {"trust_remote_code": True},
+                    },
+                }
+            ],
+        }
+        worker = _make_worker()
+        worker.workflow_identity = ("path", "/w/warm.json")
+        worker.loaded_pipelines["warm"] = object()
+        command = snapshot_command(
+            file_spec="/w/hostile.json",
+            definition=definition,
+            output_dir=str(tmp_path),
+        )
+        set_trust_workflows(False)
+        with patch("dw.worker.workflow_from_snapshot") as admit:
+            from dw.workflow import Workflow
+
+            admit.return_value = Workflow(
+                definition, str(tmp_path), "/w/hostile.json", None
+            )
+            worker._handle_execute(command)
+        messages = _drain(worker.result_queue)
+        assert "warm" in worker.loaded_pipelines
+        assert worker.workflow_identity == ("path", "/w/warm.json")
+        assert not any("Workflow changed" in str(m) for m in messages)
+        failed = [m for m in messages if m["type"] == "error"]
+        assert failed and "trust_remote_code" in str(failed[0])

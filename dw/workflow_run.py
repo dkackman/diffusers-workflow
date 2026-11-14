@@ -69,6 +69,7 @@ from .step_cache import (
     step_pipeline_keys,
 )
 from .subfolders import step_subfolder
+from .trust import require_trusted_block
 from .variable_constraints import apply_constraints
 from .vram_estimate import apply_vram_estimate
 
@@ -561,6 +562,37 @@ def cache_hits(workflow, arguments):
         deactivate_output_root(output_root_token)
 
 
+def _prepared_steps(workflow, arguments):
+    output_root_token = activate_output_root(workflow.output_dir)
+    try:
+        workflow_def = copy.deepcopy(workflow.workflow_definition)
+        base_dir = run_base_dir(workflow)
+        workflow_def, _, _ = prepare_definition(
+            workflow, workflow_def, arguments or {}, base_dir
+        )
+        steps = workflow_def.get("steps", [])
+        realize_args(steps, base_dir)
+        return steps
+    finally:
+        deactivate_output_root(output_root_token)
+
+
+def require_trusted_pipelines(workflow, arguments):
+    """Refuse an untrusted workflow whose pipeline steps reach for remote
+    code, before the worker releases the previous workflow's models: the run
+    would be refused at load, and a refusal should leave the warm cache where
+    it was. Raises what the loader's own gate raises; a definition that
+    cannot be prepared is left for the run to report."""
+    try:
+        steps = _prepared_steps(workflow, arguments)
+    except Exception as e:
+        logger.debug(f"Could not prepare the definition for the trust check: {e}")
+        return
+    for step in steps:
+        if isinstance(step, dict):
+            require_trusted_block(step.get("pipeline"), "pipeline")
+
+
 def pipeline_keys(workflow, arguments):
     """The set of pipeline cache keys a run of `workflow` with `arguments`
     loads its steps under - the table run() and cache_hits() take
@@ -574,18 +606,7 @@ def pipeline_keys(workflow, arguments):
     the price of loading step media once per switch (the price cache_hits
     already pays).
     """
-    output_root_token = activate_output_root(workflow.output_dir)
-    try:
-        workflow_def = copy.deepcopy(workflow.workflow_definition)
-        base_dir = run_base_dir(workflow)
-        workflow_def, _, _ = prepare_definition(
-            workflow, workflow_def, arguments or {}, base_dir
-        )
-        steps = workflow_def.get("steps", [])
-        realize_args(steps, base_dir)
-        return set(step_pipeline_keys(steps).values())
-    finally:
-        deactivate_output_root(output_root_token)
+    return set(step_pipeline_keys(_prepared_steps(workflow, arguments)).values())
 
 
 def prepare_run(workflow, record):

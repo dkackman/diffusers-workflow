@@ -277,6 +277,29 @@ def require_trusted_from_pretrained_arguments(arguments, what: str) -> None:
             )
 
 
+def require_trusted_block(block, what: str) -> None:
+    """require_trusted_from_pretrained_arguments over a whole definition:
+    every nested block's from_pretrained_arguments, so a gate that covers a
+    block added later without enumerating it.
+
+    Raises:
+        UntrustedWorkflowError: If untrusted and any block sets a remote-code key
+    """
+    if not isinstance(block, dict):
+        return
+    require_trusted_from_pretrained_arguments(
+        block.get("from_pretrained_arguments"), what
+    )
+    for key, value in block.items():
+        if key == "from_pretrained_arguments":
+            continue
+        if isinstance(value, dict):
+            require_trusted_block(value, key)
+        elif isinstance(value, list):
+            for entry in value:
+                require_trusted_block(entry, key)
+
+
 # generate() arguments that load and run code from the Hub. transformers'
 # generate() hands `custom_generate` (a repo id) to load_custom_generate, which
 # downloads that repo's custom_generate/generate.py and executes it in place of

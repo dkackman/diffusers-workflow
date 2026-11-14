@@ -42,7 +42,7 @@ from .timing import denoise_start_hook, is_compiled, mark
 from .remote import remote_text_encoder
 from ..type_helpers import has_method
 from ..trust import (
-    require_trusted_from_pretrained_arguments,
+    require_trusted_block,
     require_trusted_pre_load_modules,
 )
 from .. import empty_device_cache, resolve_device
@@ -317,23 +317,7 @@ class Pipeline(H3Arguments):
         # Walk the whole definition rather than the component names this class
         # knows: a gate that only covers what it remembers to enumerate stops
         # covering a block added later
-        self._check_trusted_block(self.pipeline_definition, "pipeline")
-
-    @staticmethod
-    def _check_trusted_block(block, what):
-        if not isinstance(block, dict):
-            return
-        require_trusted_from_pretrained_arguments(
-            block.get("from_pretrained_arguments"), what
-        )
-        for key, value in block.items():
-            if key == "from_pretrained_arguments":
-                continue
-            if isinstance(value, dict):
-                Pipeline._check_trusted_block(value, key)
-            elif isinstance(value, list):
-                for entry in value:
-                    Pipeline._check_trusted_block(entry, key)
+        require_trusted_block(self.pipeline_definition, "pipeline")
 
     def apply_runtime_settings(self):
         """Re-apply what a run may have changed without changing the weights:
