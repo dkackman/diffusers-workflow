@@ -1973,6 +1973,43 @@ class TestLongFormSkill:
         for name in ("`concat_videos`", "`trim_frames: 0`", "`match_levels"):
             assert name in section, name
 
+    def test_the_passage_procedure_carries_the_drill_fixes(self):
+        """#1311 stage #1338: the cold drill (`bench/records/drill.md`, *Cold
+        drill: the Gettysburg Address*) took `chained-segments` with an
+        invented voice. The recipe now names the retime template by its
+        catalog id (W1), makes a voice reference with `generate-speech` (W2),
+        says `standing` for a monologue (W4), and judges the cuts with
+        `analyze_seams` after the join (W7); the guide and levers agree."""
+        body = _read(os.path.join(LONG_FORM_DIR, "references", "run-and-repair.md"))
+        start = body.index("### Longer than one take: passages joined as cuts")
+        procedure = _flat(body[start : body.index("\n## ", start)])
+        for name in (
+            'get_workflow("templates/narration-retime")',
+            "`templates/generate-speech`",
+            "`shot: standing` for a monologue",
+            "`templates/image-edit`",
+            "is **not** this recipe",
+        ):
+            assert name in procedure, name
+        assert procedure.index("analyze_seams") > procedure.index("`concat_videos`")
+        assert "After the join" in procedure
+        guide = _read(os.path.join(REPO_ROOT, "docs", "WORKFLOW_GUIDE.md"))
+        start = guide.index("### A narrated long take")
+        section = _flat(guide[start : guide.index("\n## ", start)])
+        for name in (
+            'get_workflow("templates/narration-retime")',
+            "`templates/generate-speech`",
+            "`standing` for a monologue",
+            "not yet run end to end",
+        ):
+            assert name in section, name
+        assert section.index("analyze_seams") > section.index("`concat_videos`")
+        levers = _flat(_read(LONG_FORM_LEVERS))
+        for name in ("generate-speech", "`shot: standing` for a monologue", "analyze_seams"):
+            assert name in levers, name
+        skill = _flat(self._text())
+        assert "sum the `plan.estimate`s" in skill
+
     def test_the_move_class_comes_from_the_vocabulary(self):
         """#1255: the "until #1200" stand-in is replaced by a pointer to the
         cinematography vocabulary's `class` column, in both files."""
