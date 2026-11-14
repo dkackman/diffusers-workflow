@@ -252,3 +252,172 @@ class TestSeamLook:
         }
         names |= {entry["rule"] for entry in graded["findings"]}
         assert not any("look" in name or "detail" in name for name in names)
+
+
+def _looks_media(saturation, fps=24):
+    """A Media whose only picture data is a look per frame: saturation as
+    given, the other measures fixed, so window means are exact."""
+    looks = numpy.zeros((len(saturation), 4), dtype=numpy.float32)
+    looks[:, LOOK_MEASURES.index("saturation")] = saturation
+    looks[:, LOOK_MEASURES.index("lightness")] = 100
+    looks[:, LOOK_MEASURES.index("detail")] = 2.0
+    thumbs = numpy.zeros((len(saturation), 36, 64), numpy.uint8)
+    return Media(thumbs, None, None, fps, looks=looks)
+
+
+def _parts(segments, measure):
+    seams = sum(
+        after["first"][measure] - before["last"][measure]
+        for before, after in zip(segments, segments[1:])
+    )
+    inside = sum(entry["last"][measure] - entry["first"][measure] for entry in segments)
+    total = segments[-1]["last"][measure] - segments[0]["first"][measure]
+    return seams, inside, total
+
+
+class TestSegmentLooks:
+    """`segment_looks` on analyze_seams (#1324): each shot's look over the
+    first and last second of its own new frames."""
+
+    def test_steps_and_ramps_telescope(self):
+        """Three 48-frame shots, each ramping +1 saturation per frame and
+        stepping +20 at each seam: the parts are known and sum to the whole."""
+        saturation = []
+        for shot in range(3):
+            saturation += [50 + 20 * shot + frame for frame in range(48)]
+        media = _looks_media(saturation)
+        shots = [shot_record(name, 48 * i, 48) for i, name in enumerate("abc")]
+        answer = seams_answer(media, shots, "argument")
+        segments = answer["segment_looks"]
+
+        assert [entry["shot"] for entry in segments] == ["a", "b", "c"]
+        assert [entry["between_frames"] for entry in segments] == [
+            [0, 47],
+            [48, 95],
+            [96, 143],
+        ]
+        for entry in segments:
+            assert set(entry["first"]) == set(entry["last"]) == set(LOOK_MEASURES)
+            # mean of frames 24..47 minus mean of frames 0..23
+            assert entry["last"]["saturation"] - entry["first"]["saturation"] == 24
+            assert entry["last"]["lightness"] == entry["first"]["lightness"] == 100
+        for before, after in zip(segments, segments[1:]):
+            # first second after (ramp start + 20) against the last second before
+            assert after["first"]["saturation"] - before["last"]["saturation"] == (
+                pytest.approx(20 - 24)
+            )
+        for measure in LOOK_MEASURES:
+            seams, inside, total = _parts(segments, measure)
+            assert seams + inside == pytest.approx(total, abs=1e-6)
+        assert _parts(segments, "saturation") == (
+            pytest.approx(-8),
+            pytest.approx(72),
+            pytest.approx(64),
+        )
+
+    def test_decoded_take_telescopes_and_agrees_with_the_seam_steps(self):
+        """The real path: frames through look_stats, graded more saturated
+        at each seam."""
+        clips = [saturate(scene(36, seed=i), 1.0 + 0.3 * i) for i in range(3)]
+        frames = [frame for clip in clips for frame in clip]
+        shots = [shot_record(name, 36 * i, 36) for i, name in enumerate("abc")]
+        answer = analyze_seams(AudioVideo(frames, None, None, fps=24), shots=shots)
+        segments = answer["segment_looks"]
+        assert len(segments) == 3
+        for measure in LOOK_MEASURES:
+            seams, inside, total = _parts(segments, measure)
+            assert seams + inside == pytest.approx(total, abs=0.01)
+        for seam, before, after in zip(answer["seams"], segments, segments[1:]):
+            difference = after["first"]["saturation"] - before["last"]["saturation"]
+            assert difference > 5 and seam["saturation_step"] > 5
+        assert all(
+            isinstance(value, float)
+            for entry in segments
+            for side in ("first", "last")
+            for value in entry[side].values()
+        )
+
+    def test_a_short_segment_is_halved(self):
+        # 10 frames at 24 fps is under two windows: halves of 5
+        saturation = list(range(10)) + [100] * 48
+        media = _looks_media(saturation)
+        shots = [shot_record("a", 0, 10), shot_record("b", 10, 48)]
+        short, _long = seams_answer(media, shots, "argument")["segment_looks"]
+        assert short["between_frames"] == [0, 9]
+        assert short["first"]["saturation"] == 2  # mean of 0..4
+        assert short["last"]["saturation"] == 7  # mean of 5..9
+
+    def test_a_one_frame_segment_is_both_halves(self):
+        media = _looks_media([10, 40, 40])
+        shots = [shot_record("a", 0, 1), shot_record("b", 1, 2)]
+        first, _second = seams_answer(media, shots, "argument")["segment_looks"]
+        assert first["between_frames"] == [0, 0]
+        assert first["first"]["saturation"] == first["last"]["saturation"] == 10
+
+    def test_first_starts_after_an_overlap(self):
+        """A dissolve's fade frames belong to neither segment's windows."""
+        saturation = [10] * 48 + [500] * 12 + [70] * 48
+        media = _looks_media(saturation)
+        shots = [
+            shot_record("a", 0, 48),
+            {**shot_record("b", 48, 60), "overlap_frames": 12},
+        ]
+        a, b = seams_answer(media, shots, "argument")["segment_looks"]
+        assert a["between_frames"] == [0, 47]
+        assert b["between_frames"] == [60, 107]
+        assert b["first"]["saturation"] == 70
+        assert a["last"]["saturation"] == 10
+
+    def test_first_starts_after_a_dissolve_videos_fade(self):
+        clips = [
+            AudioVideo(
+                [Image.fromarray(frame) for frame in scene(36, seed=1)], None, None, 24
+            ),
+            AudioVideo(
+                [Image.fromarray(frame) for frame in scene(36, seed=2)], None, None, 24
+            ),
+        ]
+        joined = dissolve_videos(clips, dissolve_frames=12, fps=24)
+        answer = analyze_seams(joined)
+        _a, b = answer["segment_looks"]
+        (shot_b,) = [shot for shot in joined.shots if shot.get("overlap_frames")]
+        assert b["between_frames"][0] == shot_b["start_frame"] + 12
+
+    def test_a_segment_with_no_new_frames_is_null(self):
+        media = _looks_media([10] * 24)
+        shots = [
+            shot_record("a", 0, 12),
+            {**shot_record("b", 12, 12), "overlap_frames": 12},
+        ]
+        _a, b = seams_answer(media, shots, "argument")["segment_looks"]
+        assert b == {"shot": "b", "between_frames": None, "first": None, "last": None}
+
+    def test_frameless_media_gives_an_empty_list(self):
+        media = Media(None, None, None, 24)
+        answer = seams_answer(media, two_shots(12), "argument")
+        assert answer["segment_looks"] == []
+        assert len(answer["seams"]) == 1
+
+    def test_audio_only_gives_an_empty_list(self):
+        audio = numpy.zeros((1, 48000), dtype=numpy.float32)
+        media = Media(None, audio, 48000, None, audio_seconds=1.0)
+        answer = seams_answer(media, two_shots(12), "argument")
+        assert answer["segment_looks"] == []
+
+    def test_one_shot_gives_an_empty_list(self):
+        answer = analyze_seams(AudioVideo(scene(12), None, None, fps=24))
+        assert answer["segment_looks"] == []
+
+    def test_existing_seam_fields_unchanged(self):
+        clip = scene(24)
+        seam, answer = seam_of(clip, saturate(clip, 1.5))
+        assert set(answer) == {
+            "seams",
+            "segment_looks",
+            "findings",
+            "rules_applied",
+            "rules_skipped",
+            "shots_source",
+        }
+        assert all(field in seam for field in LOOK_FIELDS)
+        assert "segment_looks" not in seam

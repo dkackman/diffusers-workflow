@@ -866,6 +866,56 @@ def _seam_look(media, previous, shot, fade):
     return record
 
 
+def _window_look(looks, start, end):
+    """The mean of each LOOK_MEASURES column over looks[start:end]."""
+    means = looks[start:end].mean(axis=0, dtype=numpy.float64)
+    return {
+        measure: _round(means[column], 3)
+        for column, measure in enumerate(LOOK_MEASURES)
+    }
+
+
+def _segment_looks(media, records):
+    """Each shot's look at the start and the end of its own new frames (#1324):
+    the frames from after its `overlap_frames` (the dissolve fade
+    `_seam_look` steps over) to the next shot's start, or for the last shot
+    to the end of the take. `first` is the mean over the first second of
+    those frames, `last` over the last second, each clipped to the segment;
+    a segment shorter than two seconds splits its frames in half (a single
+    frame is both). With `next.first - this.last` at each seam, the seam
+    differences and the in-segment `last - first` changes sum exactly to the
+    take's last-minus-first. A measure only: no rule reads it. Empty for
+    media with no picture or fewer than two shots."""
+    looks = media.looks
+    if looks is None or not records or len(records) < 2:
+        return []
+    frames = looks.shape[0]
+    window = max(1, int(round(media.fps))) if media.fps else LOOK_WINDOW
+    segments = []
+    for index, shot in enumerate(records):
+        start = int(shot.get("start_frame", 0))
+        begin = min(frames, start + int(shot.get("overlap_frames") or 0))
+        end = _shot_end(shot, frames)
+        if index + 1 < len(records):
+            end = min(end, int(records[index + 1].get("start_frame", 0)))
+        end = max(begin, min(frames, end))
+        count = end - begin
+        entry = {"shot": shot.get("name"), "between_frames": None}
+        if count == 0:
+            entry.update(first=None, last=None)
+        else:
+            entry["between_frames"] = [begin, end - 1]
+            if count >= 2 * window:
+                head, tail = window, window
+            else:
+                head = max(1, count // 2)
+                tail = max(1, count - count // 2)
+            entry["first"] = _window_look(looks, begin, begin + head)
+            entry["last"] = _window_look(looks, end - tail, end)
+        segments.append(entry)
+    return segments
+
+
 def analyze_seams(video, shots=None):
     """Task command: measure every seam between shots, audio and picture.
 
@@ -882,9 +932,14 @@ def analyze_seams(video, shots=None):
         spectral_shift, before_rms_dbfs, after_rms_dbfs,
         frame_delta, typical_delta, jump_ratio, saturation_step,
         lightness_step, contrast_step, look_ratio, look_ratio_measure,
-        detail_ratio}], findings, rules_applied, rules_skipped,
-        shots_source}. The look fields are measures only - no rule reads
-        them - and null when the media has no picture.
+        detail_ratio}], segment_looks: [{shot, between_frames: [first,
+        last], first: {lightness, contrast, saturation, detail}, last:
+        {...}}], findings, rules_applied, rules_skipped, shots_source}. The
+        look fields are measures only - no rule reads them - and null when
+        the media has no picture. `segment_looks` is each shot's mean look
+        over the first and last second of its own new frames (after any
+        overlap), so seam differences plus in-segment changes sum to the
+        take's change; `[]` with no picture or fewer than two shots.
     """
     media = media_from(video)
     return seams_answer(media, *resolve_shots(video, media, shots))
@@ -895,7 +950,7 @@ def seams_answer(media, records, source):
     if not records or len(records) < 2:
         return _answer(
             "analyze_seams",
-            {"seams": []},
+            {"seams": [], "segment_looks": []},
             _shot_span_findings("analyze_seams", records, media),
             source,
             shot_dependent=True,
@@ -974,7 +1029,11 @@ def seams_answer(media, records, source):
             )
         )
     answer = _answer(
-        "analyze_seams", {"seams": seams}, findings, source, shot_dependent=True
+        "analyze_seams",
+        {"seams": seams, "segment_looks": _segment_looks(media, records)},
+        findings,
+        source,
+        shot_dependent=True,
     )
     if blended and "seam_hole" in answer["rules_applied"]:
         # Skipped at those seams only, but say so (#660)

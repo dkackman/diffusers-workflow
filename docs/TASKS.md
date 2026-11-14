@@ -2468,6 +2468,25 @@ scale of a 128x72 colour copy of each frame, and the numbers are not
 perceptual - a `look_ratio` of 10 is not a calibrated "visible". They are null
 when the file has no picture.
 
+The answer also carries `segment_looks`, one entry per shot in order, which
+splits a take's drift into what the seams add and what builds up inside the
+shots (#1324):
+
+| Field | Meaning |
+| ----- | ------- |
+| `segment_looks[].shot` | The shot's name |
+| `segment_looks[].between_frames` | `[first, last]` frame (inclusive) of the shot's own new frames: from after its `overlap_frames` (a dissolve's fade) to the frame before the next shot starts, or for the last shot to the end of the take. Null when the shot has no new frames |
+| `segment_looks[].first` | `{lightness, contrast, saturation, detail}`: the mean look over the first second (`round(fps)` frames) of those frames. A segment shorter than two seconds is split in half instead (a single frame is both halves). Null when the shot has no new frames |
+| `segment_looks[].last` | The same over the last second |
+
+For each measure, the seam differences (`next.first - this.last` at each
+seam) plus the in-segment changes (`last - first` for each shot) sum to the
+last shot's `last` minus the first shot's `first`, so each part is a true
+share of the take's end-to-end change. A seam difference is over 1 s windows,
+not the 4-frame windows of `saturation_step`, so the two share a direction
+but not a size. Like the look fields, `segment_looks` is a measure only: no
+rule reads it. It is `[]` when the file has no picture or fewer than two shots.
+
 ### analyze_sync_drift
 
 How far the soundtrack sits from the picture, shot by shot and over the
