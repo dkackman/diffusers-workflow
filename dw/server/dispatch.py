@@ -147,6 +147,7 @@ class Dispatcher:
             return None
         free = [slot for slot in self.slots if slot.current_job_id is None]
         if not free:
+            self._hint_gpu_busy()
             return None
         host = _HostReading(claims)
         for job_id in list(self._pending):
@@ -159,25 +160,59 @@ class Dispatcher:
             fitting = [slot for slot in free if slot.fits(need)]
             if not fitting:
                 # Waiting for a card, not for host RAM
-                job.waiting_for = None
+                self._set_wait(job, None, None)
                 continue
             slot = pool.choose_slot(
                 fitting, self._job_identity(job), self._preferred.get(job_id)
             )
             reason = self._host_ram_wait(job_id, slot, host)
             if reason is not None:
-                if job.waiting_for is None:
-                    # Once per hold, not once per pass: a wait is a moment,
-                    # so an event and a live field, never a warning (#869)
-                    job.add_event(
-                        {"event": "queue_wait", "reason": "host_ram", "message": reason}
-                    )
-                job.waiting_for = reason
+                self._set_wait(job, "host_ram", reason)
                 continue
             self._pending.remove(job_id)
             self._forget_dispatch(job)
             return slot, job
         return None
+
+    @staticmethod
+    def _set_wait(job, kind, message):
+        """Record why a queued job is held: `kind` None clears it. The
+        `queue_wait` event goes out once per hold, not once per pass: a wait
+        is a moment, so an event and a live field, never a warning (#869)."""
+        if kind is not None and getattr(job, "wait_kind", None) != kind:
+            job.add_event({"event": "queue_wait", "reason": kind, "message": message})
+        job.wait_kind = kind
+        job.waiting_for = message
+
+    def _hint_gpu_busy(self):
+        """Tell every queued job that every card is busy: how many jobs run,
+        on which cards and for how long, and how many are ahead of it. Called
+        holding _lock, when no card is free (#1355). The queue stays FIFO;
+        this only lets a consumer tell waiting from stuck."""
+        now = time.time()
+        running = []
+        for slot in self.slots:
+            if slot.current_job_id is None:
+                continue
+            started = getattr(slot, "started_at", None)
+            ran = (
+                f", running {max(0, int((now - started) // 60))} min" if started else ""
+            )
+            running.append(f"{slot.device or 'a card'}{ran}")
+        ahead = 0
+        for job_id in list(self._pending):
+            job = self.jobs.get(job_id)
+            if job is None or job.status != QUEUED:
+                continue
+            message = (
+                f"queued behind {len(running)} running job(s) on every card "
+                f"({'; '.join(running)}) and {ahead} queued job(s) ahead; "
+                "no start estimate - the queue runs in order and a task-only "
+                "job holds a card like any other"
+            )
+            # The running minutes change each pass; the event is once per hold
+            self._set_wait(job, "gpu_busy", message)
+            ahead += 1
 
     def _forget_dispatch(self, job, job_id=None):
         """Drop what dispatch keeps for a job leaving the queue - started or
@@ -188,12 +223,13 @@ class Dispatcher:
         self._preferred.pop(job_id, None)
         if job is not None:
             job.waiting_for = None
+            job.wait_kind = None
 
     def _held_for_host_ram(self):
         """The queued jobs held for host RAM now. Called holding _lock."""
         for job_id in self._pending:
             job = self.jobs.get(job_id)
-            if job is not None and job.waiting_for is not None:
+            if job is not None and getattr(job, "wait_kind", None) == "host_ram":
                 yield job
 
     @staticmethod

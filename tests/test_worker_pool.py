@@ -1413,6 +1413,34 @@ class TestHostRamGate:
         assert big.waiting_for is not None
         assert small.waiting_for is None
 
+    def test_a_job_queued_behind_busy_cards_says_so(self, pool, host):
+        """#1355: every card busy -> waiting_for and one queue_wait event
+        (gpu_busy), cleared when the job starts."""
+        manager, first_gate, second_gate = self._two_cards(pool)
+        self.submit(manager, "one")
+        self.submit(manager, "two")
+        first_gate.wait_started()
+        second_gate.wait_started()
+        queued = self.submit(manager, "behind")
+        behind = self.submit(manager, "behind2")
+        wait_for(queued, {"queued"})
+        deadline = time.time() + 5
+        while queued.waiting_for is None and time.time() < deadline:
+            time.sleep(0.05)
+        assert "behind 2 running job(s)" in queued.waiting_for
+        assert "cuda:0" in queued.waiting_for and "cuda:1" in queued.waiting_for
+        assert "0 queued job(s) ahead" in queued.waiting_for
+        deadline = time.time() + 5
+        while behind.waiting_for is None and time.time() < deadline:
+            time.sleep(0.05)
+        assert "1 queued job(s) ahead" in behind.waiting_for
+        waits = self.queue_waits(queued)
+        assert [w["reason"] for w in waits] == ["gpu_busy"]
+        first_gate.release.set()
+        second_gate.release.set()
+        wait_for(queued, {"succeeded"})
+        assert queued.waiting_for is None
+
     def test_a_job_alone_is_never_held(self, pool, host):
         host["available_mb"] = 1 * GB
         manager = pool(card(success_script, "cuda:0", 24))

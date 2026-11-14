@@ -2653,7 +2653,7 @@ export interface components {
             traceback: string | null;
             /**
              * Waiting For
-             * @description Why dispatch is holding this queued job though a card is free - 'waiting for host RAM: needs ~N GB, ~M GB free'; only while queued and held. It starts when a running job frees the RAM.
+             * @description Why dispatch is holding this queued job - 'waiting for host RAM: needs ~N GB, ~M GB free' (a card is free), or 'queued behind N running job(s) on every card (...)' when every card is busy; only while queued. Each hold also emits one queue_wait event (reason host_ram or gpu_busy).
              */
             waiting_for?: string;
             /** Warnings */
@@ -2873,7 +2873,7 @@ export interface components {
             status: "queued" | "running" | "succeeded" | "failed" | "cancelled";
             /**
              * Waiting For
-             * @description Why dispatch is holding this queued job though a card is free - 'waiting for host RAM: needs ~N GB, ~M GB free'; only while queued and held. It starts when a running job frees the RAM.
+             * @description Why dispatch is holding this queued job - 'waiting for host RAM: needs ~N GB, ~M GB free' (a card is free), or 'queued behind N running job(s) on every card (...)' when every card is busy; only while queued. Each hold also emits one queue_wait event (reason host_ram or gpu_busy).
              */
             waiting_for?: string;
             /**
