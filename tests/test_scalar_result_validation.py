@@ -376,3 +376,21 @@ class TestThroughValidationErrors(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_video_commands_refuse_a_non_video_result_content_type_1358():
+    for command in ("crop_face_track", "paste_face_track"):
+        definition = {
+            "steps": [
+                {
+                    "name": "s",
+                    "task": {"command": command, "arguments": {}},
+                    "result": {"content_type": "application/json"},
+                }
+            ]
+        }
+        errors = scalar_result_errors(definition)
+        assert len(errors) == 1, command
+        assert "video/mp4" in errors[0]["message"]
+        definition["steps"][0]["result"]["content_type"] = "video/mp4"
+        assert scalar_result_errors(definition) == []
