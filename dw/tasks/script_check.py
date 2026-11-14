@@ -110,6 +110,23 @@ logger = logging.getLogger("dw")
 # dw/script_lines.py beside the detector, which transcribe_audio shares
 
 
+# Hesitation sounds a speaker makes before a line. Heard on their own, outside
+# any line and not in the script, they are not ad-libbed speech (#1360): the
+# transcriber boosts a quiet take (#925) and so now hears a soft "Uh,".
+HESITATIONS = frozenset(
+    {"uh", "um", "uhm", "umm", "er", "erm", "hm", "hmm", "mm", "mmm", "ah", "eh"}
+)
+
+
+def _drop_hesitations(heard, unassigned, script_words):
+    """`unassigned` without the heard hesitation sounds the script never uses."""
+    return [
+        (j, near)
+        for j, near in unassigned
+        if heard[j]["word"] not in HESITATIONS or heard[j]["word"] in script_words
+    ]
+
+
 def align(expected_lines, heard):
     """Assign each heard word to the expected line it was spoken for.
 
@@ -249,6 +266,7 @@ def check(
     expected = [normalize_words(line["text"]) for line in parsed_lines]
     assigned, unassigned = align(expected, heard)
     _release_repeats(expected, heard, assigned, unassigned)
+    unassigned = _drop_hesitations(heard, unassigned, script_words)
     lines, claimed, found = _line_pass(
         parsed_lines,
         expected,

@@ -723,6 +723,20 @@ class TestUncoveredSpeech(unittest.TestCase):
 
 
 class TestUnscriptedSpeech(unittest.TestCase):
+    def test_a_filler_before_a_line_is_not_unscripted_speech(self):
+        # #1360: a soft "Uh," ahead of the scripted line is no ad-lib
+        chunks = words("Uh,", 0.0) + words("alpha bravo charlie", 1.0)
+        answer = shot_run([{"text": "alpha bravo charlie", "shot": "A"}], chunks)
+        self.assertEqual(rules(answer, "unscripted_speech"), [])
+        self.assertEqual(answer["unmatched"], [])
+
+    def test_a_filler_beside_a_real_ad_lib_leaves_only_the_ad_lib(self):
+        chunks = words("Uh, delta", 0.0) + words("alpha bravo charlie", 2.0)
+        answer = shot_run([{"text": "alpha bravo charlie", "shot": "A"}], chunks)
+        (found,) = rules(answer, "unscripted_speech")
+        self.assertEqual(found["value"], 1)
+        self.assertEqual(found["at"]["word"], "delta")
+
     def test_a_line_spoken_twice_in_its_shot_is_a_finding(self):
         chunks = words("alpha bravo charlie", 0.0) + words("alpha bravo charlie", 1.0)
         answer = shot_run([{"text": "alpha bravo charlie", "shot": "A"}], chunks)
