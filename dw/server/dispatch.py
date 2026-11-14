@@ -10,6 +10,8 @@ running jobs (#869; the figure is `dw/server/host_ram_need.py`'s, the
 comparison `pool.host_ram_wait`).
 """
 
+import time
+
 from ..host_memory import (
     HostClaims,
     committed_rss_mb,
@@ -22,6 +24,13 @@ from .job_record import QUEUED
 # How often a job held for host RAM is looked at again while nothing else
 # wakes the dispatcher - memory can be freed outside dw (#869)
 HOST_RAM_RECHECK_SECONDS = 10.0
+
+# A running job is charged the host RAM it has still to grow into only while
+# it is loading. Past this, its worker's RSS is its footprint: a recorded peak
+# is a lower bound taken at phase boundaries, and charging an hours-long job
+# the gap to a stale projection starves every queued job on an otherwise idle
+# card (#1357)
+HOST_RAM_SETTLED_SECONDS = 900.0
 
 
 class _HostReading:
@@ -187,6 +196,17 @@ class Dispatcher:
             if job is not None and job.waiting_for is not None:
                 yield job
 
+    @staticmethod
+    def _growth_peak(slot, job):
+        """The projected peak to charge a running job's remaining growth
+        against, or None once it has run past HOST_RAM_SETTLED_SECONDS (#1357)."""
+        if job is None or not job.host_ram_need:
+            return None
+        started = getattr(slot, "started_at", None)
+        if started is not None and time.time() - started > HOST_RAM_SETTLED_SECONDS:
+            return None
+        return job.host_ram_need[0]
+
     def _host_ram_wait(self, job_id, slot, host):
         """Why the queued `job_id` must not start on `slot` yet for host RAM,
         or None (pool.host_ram_wait, #869). `host` is this pass's reading,
@@ -210,7 +230,7 @@ class Dispatcher:
             available,
             [
                 (
-                    job.host_ram_need[0] if job and job.host_ram_need else None,
+                    self._growth_peak(other, job),
                     _worker_rss_mb(other),
                 )
                 for other, job in running
