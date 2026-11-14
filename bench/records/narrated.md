@@ -491,8 +491,11 @@ path, so `get_job_workflow` shows what ran.
 ### Gate (stop_after 1) - job db33868da007
 
 - Wall time 951 s: load 94.6, encode 29, denoise 738.3 (19 passes, ~37 s each), decode 70.9.
-- Process peak RSS 108,325 MB, reached at load. In-run RSS ~98 GB, ~63 GB of it
-  file-backed (the bf16 transformer, mmap'd). `host_ram_gb` was set to 110 from this.
+- Host RAM: `get_job`'s `host_memory_job_peak_committed_mb` is 37,124 MB. Committed
+  memory leaves out file-backed pages, so it misses the bf16 transformer, which is
+  mmap'd from its checkpoint. The worker process's peak RSS on lem was 108,325 MB,
+  reached at load. In-run RSS was ~98 GB, ~63 GB of it file-backed. `host_ram_gb` was
+  set to 110 from the RSS figure.
 - Peak reserved VRAM 22,142 MB.
 - No admission refusal, no OOM, under 45 min, so the full arm ran.
 
