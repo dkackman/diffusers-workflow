@@ -171,22 +171,66 @@ def _stats(out, values, name_mean, name_max):
         out[name_max] = max(values)
 
 
+SPLIT_MEASURES = ("saturation", "lightness", "contrast", "detail")
+
+
+def _number(value):
+    return (
+        float(value)
+        if isinstance(value, (int, float)) and not isinstance(value, bool)
+        else None
+    )
+
+
+def _split(out, segment_looks):
+    """Seam/segment split of each look measure (#1324), from analyze_seams'
+    `segment_looks`. With endpoint windows the parts sum exactly:
+    total = seams + segments, where seams is the sum of each next segment's
+    first window minus this one's last, and segments the sum of each
+    segment's last window minus its first. A segment without the measure is
+    skipped and the seam bridges it, so the sum still telescopes.
+
+    The split says where a measure changes, not whether a viewer sees the
+    change: it informs a viewing verdict and doesn't replace one."""
+    for m in SPLIT_MEASURES:
+        spans = []
+        for entry in segment_looks or []:
+            first = _number(((entry or {}).get("first") or {}).get(m))
+            last = _number(((entry or {}).get("last") or {}).get(m))
+            if first is not None and last is not None:
+                spans.append((first, last))
+        if not spans:
+            continue
+        steps = [b[0] - a[1] for a, b in zip(spans, spans[1:])]
+        seams = sum(steps)
+        segments = sum(last - first for first, last in spans)
+        out[f"split_{m}_total"] = spans[-1][1] - spans[0][0]
+        out[f"split_{m}_segments"] = segments
+        if not steps:
+            continue  # one segment: no seam to split by
+        out[f"split_{m}_seams"] = seams
+        if abs(seams) + abs(segments) > 0:
+            out[f"split_{m}_seam_share"] = seams / (abs(seams) + abs(segments))
+        if seams != 0:
+            agree = sum(1 for s in steps if s * seams > 0)
+            out[f"split_{m}_seam_sign"] = agree / len(steps)
+
+
 def measure(job, scene, server, token, workspace=None, moments=None):
     name = output_name(job)
     params = {"probe": "analyze_seams"}
     if workspace:
         params["workspace"] = workspace
-    seams = (
-        http(
-            "GET",
-            f"/api/gallery/{urllib.parse.quote(name, safe='/')}/assess",
-            server,
-            token,
-            params=params,
-        ).get("seams")
-        or []
+    answer = http(
+        "GET",
+        f"/api/gallery/{urllib.parse.quote(name, safe='/')}/assess",
+        server,
+        token,
+        params=params,
     )
+    seams = answer.get("seams") or []
     out = {}
+    _split(out, answer.get("segment_looks"))
     _stats(out, [s.get("jump_ratio") for s in seams], "seam_jump_mean", "seam_jump_max")
     _stats(out, [s.get("look_ratio") for s in seams], "seam_look_mean", "seam_look_max")
     _stats(
