@@ -38,6 +38,7 @@ from diffusers.utils.torch_utils import randn_tensor  # noqa: E402
 from dw.pipeline_processors.h3_hold_steps import (  # noqa: E402
     explicit_sigmas,
     refine_sigmas,
+    set_verbatim_sigmas,
     shifted_sigma_grid,
 )
 
@@ -1019,6 +1020,48 @@ def explicit_state(sigmas=RECIPE, strength=RECIPE_STRENGTH, seed=4, **kwargs):
     state = make_state(steps=len(sigmas), strength=strength, seed=seed, **kwargs)
     state.set(REFINE_SIGMAS_INPUT, list(sigmas))
     return state
+
+
+class _FlaggedScheduler:
+    """A scheduler whose config carries `shift_provided_sigmas`, as diffusers'
+    H3 scheduler does from 0.44.0: unset is refused there, true shifts."""
+
+    def __init__(self, flag, fails=False):
+        self.config = {"shift_provided_sigmas": flag}
+        self.fails = fails
+        self.seen = []
+
+    def register_to_config(self, **kwargs):
+        self.config.update(kwargs)
+
+    def set_timesteps(self, sigmas=None, device=None):
+        self.seen.append(self.config["shift_provided_sigmas"])
+        if self.fails:
+            raise RuntimeError("no schedule")
+
+
+class TestVerbatimSigmas:
+    @pytest.mark.parametrize("flag", [None, True, False])
+    def test_the_list_is_set_with_the_shift_off_and_the_config_put_back(self, flag):
+        scheduler = _FlaggedScheduler(flag)
+        set_verbatim_sigmas(scheduler, [0.5, 0.0], None)
+        assert scheduler.seen == [False]
+        assert scheduler.config["shift_provided_sigmas"] is flag
+
+    def test_the_config_is_put_back_when_the_schedule_is_refused(self):
+        scheduler = _FlaggedScheduler(True, fails=True)
+        with pytest.raises(RuntimeError, match="no schedule"):
+            set_verbatim_sigmas(scheduler, [0.5, 0.0], None)
+        assert scheduler.config["shift_provided_sigmas"] is True
+
+    def test_a_scheduler_without_the_key_is_called_as_it_is(self):
+        calls = []
+        scheduler = SimpleNamespace(
+            config={},
+            set_timesteps=lambda sigmas, device: calls.append(sigmas),
+        )
+        set_verbatim_sigmas(scheduler, [0.5, 0.0], None)
+        assert calls == [[0.5, 0.0]]
 
 
 class TestSigmaListSchedule:

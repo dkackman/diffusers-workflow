@@ -40,6 +40,7 @@ torch = pytest.importorskip("torch")
 minimax = pytest.importorskip("diffusers.modular_pipelines.minimax_h3")
 from diffusers.modular_pipelines.modular_pipeline import PipelineState  # noqa: E402
 from diffusers.schedulers import MiniMaxH3Scheduler  # noqa: E402
+from dw.pipeline_processors.h3_hold_steps import set_verbatim_sigmas  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WORKFLOWS = ("t2va", "fl2va", "ref2va")
@@ -360,7 +361,7 @@ ROWS, WIDTH = 6, 4
 
 def comps(sigmas):
     scheduler = MiniMaxH3Scheduler(shift=6.0)
-    scheduler.set_timesteps(sigmas=sigmas)
+    set_verbatim_sigmas(scheduler, sigmas, None)
     return SimpleNamespace(scheduler=scheduler)
 
 
