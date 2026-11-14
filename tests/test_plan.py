@@ -2773,8 +2773,27 @@ class TestCheckedChainQuotesMoreThanUnchecked:
         checked = self.quote(plan, self.CHECKED, history)
         unchecked = self.quote(plan, self.UNCHECKED, history)
         assert unchecked["minutes"] == 12.0
+        # The twin's own 12 min plus the curated worst-case extra (14.87 -
+        # 12.33), while the scaled text still names the checked worst case
+        assert checked["minutes"] == pytest.approx(14.6, abs=0.05)
+        assert "same chain unchecked (12 min)" in checked["scaled"]
+        assert "4 renders for 2" in checked["scaled"]
+        assert "words check: 4 Whisper pass(es)" in checked["scaled"]
+
+    @pytest.mark.parametrize("twin_minutes", [5.5, 7.1, 9.0, 12.0])
+    def test_strictly_above_the_twin_whatever_its_history(self, plan, twin_minutes):
+        # The bounce: with both buckets thin and from a fast box, pricing the
+        # checked shape on the twin's history could land at or under the
+        # twin's own quote; the floor is the twin's quote plus the extra
+        history = self.history(
+            checked=observed(minutes=5.5, runs=1),
+            unchecked=observed(minutes=twin_minutes, runs=1),
+        )
+        checked = self.quote(plan, self.CHECKED, history)
+        unchecked = self.quote(plan, self.UNCHECKED, history)
         assert checked["minutes"] > unchecked["minutes"]
-        assert "from the observed 12 min" in checked["scaled"]
+        assert "4 renders for 2" in checked["scaled"]
+        assert "words check: 4 Whisper pass(es)" in checked["scaled"]
 
     def test_a_checked_history_above_the_floor_stands(self, plan):
         history = self.history(
