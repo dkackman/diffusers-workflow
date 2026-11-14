@@ -37,6 +37,13 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **Face track subject selection** (#1321, stage #1348), shipped 2026-11-14.
+  `crop_face_track` gains `select` (`largest` default, `centre`, `left`,
+  `right`, `confident`), applied at each track start, and a lost track now
+  keeps source pixels instead of jumping to another face. Both face-repair
+  templates pass `select` through. `reference` (SFace), Gaussian smoothing and
+  per-shot `select` were cut, each with a trigger:
+  `complete/face-track-select-complete.md`.
 - **Words check for dialogue chains** (#1262, stages #1297-#1299), shipped
   2026-11-09. The H3 chain check gains a `words` measure: each segment's kept
   audio is transcribed on CPU Whisper and compared with its line (`lines[k]`
