@@ -7,7 +7,8 @@ figure: a generic diffusers driver (`num_inference_steps`, `width` and
 `height`, `num_frames`, per list entry summed) scales it in proportion
 (`scale_curated`), and so does any driver a `cost` entry names in its
 `scales_with` (a Music 3 `audio_duration`, or that field summed over a
-list driver's entries - #1199); any other declared driver that moved has no
+list driver's entries - #1199); a `denoising_step_list` driver scales by the
+passes it runs, `len - 1` (#1316, `dw/step_passes.py`); any other declared driver that moved has no
 rule to scale by, so the figure is kept and flagged. `dw/plan.py` prices the run
 and applies the answer (`_scaled`); `dw/server/deps.py` scales an inherited
 figure with the same `scale_curated`, so an inline copy and its template
@@ -23,6 +24,7 @@ import math
 
 from . import references
 from .presets import effective_variables
+from .step_passes import STEP_LIST_KEY, step_list_passes
 
 # The basis an estimate quotes its minutes on
 UNKNOWN = "unknown"
@@ -696,6 +698,19 @@ def _declared_axis_scaling(name, default_value, value, list_entries, proportiona
     return factor, axes
 
 
+def _step_list_scaling(default_value, value):
+    """A `denoising_step_list` driver as (factor, axes): the ratio of the
+    passes it runs, `len - 1`, to the default's, or None when either is not a
+    step list (#1316)."""
+    was = step_list_passes(None, {STEP_LIST_KEY: default_value})
+    now = step_list_passes(None, {STEP_LIST_KEY: value})
+    if was is None or now is None:
+        return None
+    if was == now:
+        return 1.0, []
+    return now / was, [f"passes {now} vs {was}"]
+
+
 def chain_segment_scaling(
     was_definition, was_variables, now_definition, now_variables, drivers
 ):
@@ -752,6 +767,14 @@ def _driver_scaling(definition, expanded, list_entries, baseline=None):
         default_value = defaults.get(name)
         if name in CHAIN_LENGTH_DRIVERS:
             chain_drivers.append(name)
+            continue
+        if name == STEP_LIST_KEY:
+            # A fixed sampler schedule: its passes, not a list's entries
+            moved = _step_list_scaling(default_value, effective.get(name))
+            if moved is None:
+                return None
+            factor *= moved[0]
+            axes.extend(moved[1])
             continue
         if isinstance(default_value, list) or name in proportional:
             moved = _declared_axis_scaling(

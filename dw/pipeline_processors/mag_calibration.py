@@ -14,6 +14,7 @@ import contextlib
 import logging
 
 from ..events import emit_log, emit_warning
+from ..step_passes import STEP_LIST_UNSUPPORTED, step_list_passes
 
 
 def get_cache_transformer(pipeline):
@@ -188,6 +189,16 @@ def captured_mag_calibration(pipeline, arguments=None):
     transformer = get_cache_transformer(pipeline)
     config = getattr(transformer, "_cache_config", None)
     if not getattr(config, "calibrate", False):
+        yield
+        return
+
+    if step_list_passes(pipeline, arguments) is not None:
+        # The calibration counts num_inference_steps, which a fixed step
+        # list does not take (#1316): skip it rather than end unlogged
+        emit_warning(
+            f"MagCache calibration is {STEP_LIST_UNSUPPORTED}; "
+            f"the call runs without calibrating"
+        )
         yield
         return
 

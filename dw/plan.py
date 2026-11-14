@@ -11,6 +11,11 @@ records those folded variables and inlines the prompts - so the plan
 describes the run and not an approximation of it. Nothing here knows a
 model: every minute comes from a `cost` block and every repo name from a
 `from_pretrained_arguments`.
+
+A step's denoising passes are counted by `dw/step_passes.py`: a pipeline
+whose config fixes a `denoising_step_list` runs `len - 1` of them, and a
+`denoising_step_list` cost driver scales the figure by that count
+(`cost_scaling._driver_scaling`, #1316).
 """
 
 import copy
