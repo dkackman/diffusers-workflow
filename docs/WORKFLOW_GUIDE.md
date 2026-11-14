@@ -1126,8 +1126,11 @@ reported.
 `compare_outputs(names)` (`POST /api/gallery/compare`)
 lays 2-8 outputs (variations, reruns, the same shot with and without a speed
 setting) in one grid, a row per output and a column per moment, every output
-read at the same frame number, and measures each against a `baseline` (default
-the first). Per non-baseline output it reports PSNR (dB, higher is closer;
+read at the same frame index, and measures each against a `baseline` (default
+the first). `at` lists the moments (1 to 8; default 4 evenly spaced): a number
+is **seconds** (`at=[24]` is 24 s, not frame 24, and past the end of a short
+clip), converted at the baseline's fps; the string `"frame:N"` is frame index
+N. Nothing else is accepted. Per non-baseline output it reports PSNR (dB, higher is closer;
 `identical` when equal), SSIM (structure on luma, 1.0 identical) and mean
 absolute difference (0-255, lower is closer), at source resolution, per column
 and as mean/min/max. A shared `crop` is the region both shown and measured; one
