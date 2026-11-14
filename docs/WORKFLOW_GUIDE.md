@@ -2995,10 +2995,26 @@ eye called was 0.146 at 36 s on `dialogue`.
   measured past 86 s. `experimental_latent_carry` with `experimental_capstone`
   and the latent keystone (`anchor_every`) stay experimental.
 
-A piece longer than one clean take is split into passages, one narrated take per
-passage (its own `narration-retime`, its own opening still or angle), joined as
-cuts. That composition is not yet run end to end. The design is
-`docs/proposals/complete/narrated-long-take-complete.md`.
+A piece longer than one clean take is passages joined as cuts, one narrated take
+per passage. That composition is not yet run end to end. The recipe:
+
+1. **One narration for the whole script**: `templates/narration-long` from one
+   voice reference, retimed once with `templates/narration-retime`. One track
+   keeps one voice, room tone and level across the cuts.
+2. **Passages** split at paragraph or section breaks to fit the preset: about
+   60 words for `dialogue` (about 30 s), about 175 for `standing` (about 85 s),
+   at the retimed pace of about 126 words a minute. Cut the retimed track in
+   the middle of those section-break pauses with `slice_audio`, and
+   `keep_output` each slice.
+3. **One `templates/minimax/narrated-take` per passage**, with its slice, its
+   text and a different still or angle; a cut to the same still reads as a
+   reset.
+4. **Join** with an authored one-step `concat_videos` workflow: the takes as
+   `output:` references, `trim_frames: 0` (a hard cut), `match_levels: "lufs"`
+   (off by default). Every take must be the same frame size. Then
+   `export_timeline` if an editor is wanted.
+
+The design is `docs/proposals/complete/narrated-long-take-complete.md`.
 
 ## Schedulers
 

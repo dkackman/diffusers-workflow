@@ -84,7 +84,8 @@ Set `shot` on `templates/minimax/chained-segments` from the shot's
   `shot: standing` (no keyframes) holds to about 85 s (seed 1 only);
   choose `standing` unless the user supplies keyframes;
   `walk_keyframed` needs a hand-built keyframe per segment. Longer than a
-  take is passages joined as cuts, one take each: not yet run end to end
+  take is passages joined as cuts: one `narration-long` track,
+  `slice_audio`, a take each, `concat_videos`; not yet run end to end
   (`bench/records/narrated.md`). Procedure: `references/run-and-repair.md`,
   *A narrated take*.
 

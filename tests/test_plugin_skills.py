@@ -1939,6 +1939,40 @@ class TestLongFormSkill:
             body = _flat(_read(os.path.join(LONG_FORM_DIR, "references", name)))
             assert "bench/records/narrated.md" in body, name
 
+    def test_the_passage_procedure_names_its_tools(self):
+        """#1311 stage #1336: the multi-passage procedure names its narration,
+        its cut and its join, where it once said "the tools named above" and
+        named none: one `narration-long` track, `slice_audio` passages, a
+        `concat_videos` join at `trim_frames: 0` with `match_levels`."""
+        body = _read(os.path.join(LONG_FORM_DIR, "references", "run-and-repair.md"))
+        start = body.index("### Longer than one take: passages joined as cuts")
+        end = body.index("\n## ", start)
+        procedure = _flat(body[start:end])
+        for name in (
+            "`templates/narration-long`",
+            "`templates/narration-retime`",
+            "`slice_audio`",
+            "`keep_output`",
+            "`templates/minimax/narrated-take`",
+            "different still or angle",
+            "`concat_videos`",
+            "`trim_frames: 0`",
+            '`match_levels: "lufs"`',
+            "`output:`",
+            "Not yet run end to end",
+        ):
+            assert name in procedure, name
+        assert "tools named above" not in body
+        for name in ("levers.md", "audio.md"):
+            other = _flat(_read(os.path.join(LONG_FORM_DIR, "references", name)))
+            for tool in ("narration-long", "slice_audio", "concat_videos"):
+                assert tool in other, (name, tool)
+        guide = _read(os.path.join(REPO_ROOT, "docs", "WORKFLOW_GUIDE.md"))
+        start = guide.index("### A narrated long take")
+        section = _flat(guide[start : guide.index("\n## ", start)])
+        for name in ("`concat_videos`", "`trim_frames: 0`", "`match_levels"):
+            assert name in section, name
+
     def test_the_move_class_comes_from_the_vocabulary(self):
         """#1255: the "until #1200" stand-in is replaced by a pointer to the
         cinematography vocabulary's `class` column, in both files."""

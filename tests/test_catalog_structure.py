@@ -607,6 +607,9 @@ def test_no_stale_entry_in_the_allowlist():
 # Then to 14_450 (measured 14_425) for `minimax/narrated-take`: one new entry,
 # the catalog's only long take held to a retimed narration, with no cost
 # block until a per-segment figure is measured.
+# Re-measured at 14_449.75 after `narration-retime` gained the
+# `boundary_slack_seconds` variable its own description advises raising
+# (#1311, stage #1336), so the budget stands, with no headroom left.
 COMPACT_BUDGET = 14_450
 FILTERED_BUDGET = 1_500
 

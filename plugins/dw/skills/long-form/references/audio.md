@@ -154,3 +154,9 @@ boundary cuts through a word, and checks the result against the script. The
 report's `mid_word_boundaries` is advisory: a few are fine, since the narration
 is held and a cut inside a word is heard unbroken (it only splits that word
 between two segments' lines); if many appear, raise `boundary_slack_seconds`.
+
+For a piece of several narrated passages, make and retime **one** narration for
+the whole script and cut it into passages with `slice_audio`, rather than a
+narration per passage: one track keeps one voice, room tone and level across
+the cuts, and `concat_videos`' `match_levels: "lufs"` evens what is left
+(`run-and-repair.md`, *A narrated take*).

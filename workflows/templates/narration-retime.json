@@ -8,7 +8,8 @@
     "sentence_seconds": 0.6,
     "section_seconds": 1.0,
     "num_frames": 192,
-    "guide_frames": 22
+    "guide_frames": 22,
+    "boundary_slack_seconds": 0.25
   },
   "variable_constraints": {
     "script": {
@@ -29,7 +30,8 @@
           "sentence_seconds": "variable:sentence_seconds",
           "section_seconds": "variable:section_seconds",
           "segment_frames": "variable:num_frames",
-          "guide_frames": "variable:guide_frames"
+          "guide_frames": "variable:guide_frames",
+          "boundary_slack_seconds": "variable:boundary_slack_seconds"
         }
       },
       "result": {
