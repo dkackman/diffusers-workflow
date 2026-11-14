@@ -148,6 +148,14 @@ re-render, and the chain's own text encoder, length and sizes kept
 [dw/tasks/chain_repair.py](../dw/tasks/chain_repair.py);
 [#1169](https://github.com/dkackman/diffusers-workflow/issues/1169)).
 
+### ComfyUI-Continuity
+
+Concept only, no code taken. It inspired `turbo_lead_in`
+([dw/pipeline_processors/h3_lead_in.py](../dw/pipeline_processors/h3_lead_in.py);
+[#1326](https://github.com/dkackman/diffusers-workflow/issues/1326)): running a
+call's first denoising steps without the turbo (step-distilled) LoRA, so the base
+model lays out the composition.
+
 ### [matlowai/h3-long-video-research](https://github.com/matlowai/h3-long-video-research)
 
 A research repository on long MiniMax H3 videos, under CC BY 4.0. Its findings
