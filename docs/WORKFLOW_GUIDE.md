@@ -1942,6 +1942,31 @@ loosens the carried guide too.
 | where | MiniMax-H3 `t2va` or `fl2va`, where `guides` run; refused on `ref2va`, on a step that passes `references`, and on a non-H3 step |
 | no guides | a warning, not a refusal: a step with no `guides` and no `continuity: "guide"` chain has nothing to noise |
 
+#### Laying out the composition without the turbo LoRA: `turbo_lead_in`
+
+A turbo LoRA fixes the composition in its first, high-noise evaluations. `turbo_lead_in` N
+(an H3 call argument, a whole number >= 0) runs the first N transformer evaluations of each
+pipeline call with the LoRA adapter named `turbo` at scale 0, so the base model lays out the
+scene, then at its configured scale for the rest. The unit is evaluations, not steps:
+`num_inference_steps` N runs N - 1, so a turbo template's 5 steps are 4 evaluations. Only the
+adapter named `turbo` is touched; other adapters keep their scales, and its scale is restored
+on success, error and cancel. Every chain segment and re-roll is its own call, so the count
+restarts at each. `0` or `null` is off.
+
+```json
+"pipeline": {
+    "loras": [{ "model_name": "...", "adapter_name": "turbo", "scale": 1.0 }],
+    "arguments": { "num_inference_steps": 5, "turbo_lead_in": 1 }
+}
+```
+
+Refused at validate and at run: a value that is not a whole number >= 0; N at or past the
+call's evaluations; a step with no LoRA whose `adapter_name` is `turbo` (the error lists the
+names it has); a `first_block` cache (its residual threshold reads the adapter switch as a
+change, and cached steps skip it); and a step that is not H3 (an H3-only argument). Each call
+logs one job event: `turbo lead-in: evaluations 1..N with adapter 'turbo' at 0 of M`. Under
+`torch.compile` the switch can cost a recompile ([ACCELERATION.md](ACCELERATION.md#torchcompile)).
+
 #### Chaining with a guide: `continuity: "guide"`
 
 A chain on an H3 `t2va` or `fl2va` step can carry its seam with a guide instead of a

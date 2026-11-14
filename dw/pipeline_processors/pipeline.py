@@ -650,6 +650,8 @@ class Pipeline(H3Arguments):
         arguments = self._with_latent_anchor(arguments)
         # The experimental TST correction (#1196), installed for this call only
         arguments, tst = self._take_tst(arguments)
+        # The turbo adapter held at 0 for the call's first N evaluations (#1326)
+        arguments, lead_in = self._take_lead_in(arguments)
         # The load is over and the denoise loop is starting. Pipelines whose
         # signature has no step callback report nothing else at all, so this
         # is the only thing that distinguishes running from still loading
@@ -684,6 +686,17 @@ class Pipeline(H3Arguments):
                         self.pipeline,
                         tst,
                         arguments.get("num_inference_steps"),
+                        label,
+                    )
+                )
+            if lead_in is not None:
+                from .h3_lead_in import evaluations, lead_in_call
+
+                stack.enter_context(
+                    lead_in_call(
+                        self.pipeline,
+                        lead_in,
+                        evaluations(self.pipeline, arguments),
                         label,
                     )
                 )

@@ -399,6 +399,32 @@ class H3Arguments:
                 raise ValueError(f"Step '{self.name}': {refusal}")
         return arguments, settings
 
+    def _take_lead_in(self, arguments):
+        """`turbo_lead_in` off the call: (the arguments without it, the N
+        `h3_lead_in.lead_in_call` runs, or None). Null or 0 is no lead-in.
+
+        Raises:
+            ValueError: If the value, the call's evaluations or the cache
+                refuse it, or this pipeline has no H3 transformer
+        """
+        from .h3_lead_in import LEAD_IN_INPUT, lead_in_count
+        from .h3_tst import _h3_transformers
+
+        if LEAD_IN_INPUT not in arguments:
+            return arguments, None
+        arguments = dict(arguments)
+        value = arguments.pop(LEAD_IN_INPUT)
+        if value is not None and not _h3_transformers(self.pipeline):
+            raise ValueError(
+                f"Step '{self.name}': {LEAD_IN_INPUT} is a MiniMax-H3 argument, "
+                f"and this pipeline has no MiniMax-H3 transformer"
+            )
+        try:
+            lead_in = lead_in_count(value, self.pipeline, arguments, self.configuration)
+        except ValueError as e:
+            raise ValueError(f"Step '{self.name}': {e}") from e
+        return arguments, lead_in
+
     def _check_selflift(self, arguments):
         """Refuse an `experimental_selflift` this call cannot run, before the
         call (h3_selflift.py, #1195).

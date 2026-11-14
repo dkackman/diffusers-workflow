@@ -41,6 +41,7 @@ from .content_types import content_type_errors
 from .dissolve_frame_errors import dissolve_frame_errors
 from .for_each import ForEachError, entry_field_warnings
 from .presets import apply_presets
+from .pipeline_processors.h3_lead_in import lead_in_errors
 from .pipeline_processors.h3_tst import tst_errors
 from .guides import (
     anchor_errors,
@@ -551,6 +552,12 @@ ERROR_CHECKS = [
     Check(
         "experimental_tst",
         lambda c: tst_errors(c.expanded, c.source_indices),
+    ),
+    # A turbo_lead_in off H3, not a whole number >= 0, at or past the call's
+    # evaluations, with no adapter named 'turbo', or a first_block cache (#1326)
+    Check(
+        "turbo_lead_in",
+        lambda c: lead_in_errors(c.expanded, c.source_indices),
     ),
     Check("task_signatures", _task_errors),
     # A task argument that runs Hub code, anywhere in the step - the run
