@@ -36,6 +36,7 @@ from .h3_rules import (
     REFINE_TILES_INPUT,
 )
 from .h3_tiles import run_tiled_refine
+from .modular_arguments import call_arguments
 from .pipeline_h3 import H3Arguments, latent_anchor_source  # noqa: F401 - re-exported
 from .progress import reported_blocks, reported_progress_bars
 from .timing import denoise_start_hook, is_compiled, mark
@@ -626,7 +627,12 @@ class Pipeline(H3Arguments):
         return self._call_pipeline(arguments, attn_backend)
 
     def _call_pipeline(self, arguments, attn_backend):
-        """Call the pipeline with optional attention backend and cache contexts."""
+        """Call the pipeline with optional attention backend and cache contexts.
+
+        A modular pipeline is called without its None arguments, so a block's
+        own default applies (diffusers 0.43 keeps an explicit None); a classic
+        pipeline gets them as given (#1315, modular_arguments.py).
+        """
         arguments = self._with_step_callback(arguments)
         self._check_refine(arguments)
         self._check_selflift(arguments)
@@ -695,7 +701,9 @@ class Pipeline(H3Arguments):
                         self.pipeline, arguments, self.segment_label or self.name
                     )
                 else:
-                    output = self.pipeline(**arguments)
+                    # A modular call drops its None arguments (the None
+                    # rule, dw/pipeline_processors/modular_arguments.py)
+                    output = self.pipeline(**call_arguments(self.pipeline, arguments))
             except IndexError as e:
                 cache = self.configuration.get("cache")
                 if (

@@ -54,6 +54,7 @@ from .h3_rules import (
     REFINE_TILES_INPUT,
     tile_plan,
 )
+from .modular_arguments import without_none
 from .progress import decoded_later, reported_blocks
 
 TEXT_BLOCK = "text_encoder"
@@ -322,7 +323,11 @@ def run_tiled_refine(pipeline, arguments, label, decode=None):
             f"block to leave out, and {type(pipeline).__name__} has none"
         )
     settings = arguments[REFINE_TILES_INPUT]
-    arguments = {k: v for k, v in arguments.items() if k != REFINE_TILES_INPUT}
+    # Every call below is modular: a None argument is absent, not None (the
+    # None rule, dw/pipeline_processors/modular_arguments.py)
+    arguments = without_none(
+        {k: v for k, v in arguments.items() if k != REFINE_TILES_INPUT}
+    )
     latents = arguments["latents"]
     canvas_width = latents.shape[-1] * LATENT_SCALE
     canvas_height = latents.shape[-2] * LATENT_SCALE
@@ -347,7 +352,7 @@ def run_tiled_refine(pipeline, arguments, label, decode=None):
         # What the tiles take instead of the prompt itself
         kept = _input_names(tile_blocks)
         arguments = {k: v for k, v in arguments.items() if k not in takes or k in kept}
-        arguments.update(encoded)
+        arguments = without_none({**arguments, **encoded})
 
     with swapped_blocks(pipeline, tile_blocks), decoded_later():
         tiles, held = _refine_tiles(pipeline, arguments, plan, noise, label)
