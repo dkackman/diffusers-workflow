@@ -2878,7 +2878,9 @@ any other checked chain never re-rolls segment 1 and costs up to
 1 + (N - 1)(1 + `retries`). The curated figure, measured without re-rolls, paid N. With `words` active the
 estimate adds about 0.05 min (one Whisper CPU pass) per worst-case attempt,
 (segments - kept) x (1 + `retries`) passes with segment 1 counted as checked, named in
-the estimate's `scaled` text as "words check: N Whisper pass(es)".
+the estimate's `scaled` text as "words check: N Whisper pass(es)". A checked chain never quotes less than the same chain unchecked at that worst
+case: when this box's checked history is thin and fast enough to blend below it, the
+quote is floored there and `scaled` says so ("floored at the same chain unchecked").
 
 ## Schedulers
 
