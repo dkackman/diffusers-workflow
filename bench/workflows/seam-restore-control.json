@@ -1,0 +1,1100 @@
+{
+  "id": "SeamRestoreControl",
+  "summary": "#1325 seam-restore probe, control arm: 6-segment narrated dialogue take, unchained",
+  "description": "Probe for #1325 (stage #1351), after ComfyUI-Continuity's seam restore (concept only). The narrated dialogue take's conditions (fl2va, int8, sparse, 1344x768, 20 steps, shift 12/3, narration held, the speaker still) unrolled into 6 explicit segments: each later segment is guided by a 22-frame tail of the one before (frame 0, no audio) and opens on that guide's first frame, and the take joins them with the chain's 22-frame head trim. Control arm: the raw tail is the guide. seam-restore.json is the same workflow with a ref2va restore of each tail before it is handed on. Seeds: segment k = k, restore k = 1000 + k, in both arms, pinned per step; the seed variable is only the workflow default under them.",
+  "shape": "sequence",
+  "variables": {
+    "seed": 1
+  },
+  "seed": "variable:seed",
+  "steps": [
+    {
+      "name": "aud01",
+      "task": {
+        "command": "slice_audio",
+        "arguments": {
+          "audio": "asset:bench/constitution-narration-retimed.wav",
+          "start_frame": 0,
+          "num_frames": 192,
+          "fps": 24
+        }
+      },
+      "result": {
+        "content_type": "audio/wav",
+        "save": false
+      }
+    },
+    {
+      "name": "seg01",
+      "pipeline": {
+        "configuration": {
+          "component_type": "ModularPipeline",
+          "pre_load_modules": [
+            "sdnq"
+          ],
+          "load_components": {
+            "dtype": "torch.bfloat16",
+            "quantization_config": {
+              "transformer": {
+                "configuration": {
+                  "config_type": "sdnq.SDNQConfig"
+                },
+                "arguments": {
+                  "weights_dtype": "{int8}",
+                  "quantization_device": "cuda",
+                  "return_device": "cpu",
+                  "use_quantized_matmul": true,
+                  "dequantize_fp32": false,
+                  "modules_to_not_convert": [
+                    "proj_in",
+                    "audio_proj_in",
+                    "context_embedder",
+                    "time_embedder",
+                    "time_proj",
+                    "token_refiner",
+                    "norm_out",
+                    "proj_out",
+                    "audio_proj_out"
+                  ]
+                }
+              },
+              "text_encoder": {
+                "configuration": {
+                  "config_type": "sdnq.SDNQConfig"
+                },
+                "arguments": {
+                  "weights_dtype": "{int8}",
+                  "quantization_device": "cuda",
+                  "return_device": "cpu",
+                  "dequantize_fp32": false,
+                  "modules_to_not_convert": [
+                    ".model.visual",
+                    "lm_head"
+                  ]
+                }
+              },
+              "vae": {
+                "configuration": {
+                  "config_type": "sdnq.SDNQConfig"
+                },
+                "arguments": {
+                  "weights_dtype": "{int8}",
+                  "quant_conv": true,
+                  "use_quantized_matmul_conv": true,
+                  "quantization_device": "cuda",
+                  "return_device": "cpu",
+                  "dequantize_fp32": false
+                }
+              }
+            }
+          },
+          "components": {
+            "transformer": {
+              "attention_backend": "sparse",
+              "sparse_tau": 0.5,
+              "sparse_topk": 0.15,
+              "group_offload": {
+                "offload_type": "block_level",
+                "num_blocks_per_group": 2,
+                "use_stream": true,
+                "record_stream": true,
+                "low_cpu_mem_usage": true
+              }
+            },
+            "text_encoder": {
+              "remove_modules": [
+                "lm_head"
+              ]
+            },
+            "text_encoder.model": {
+              "truncate_layers": {
+                "language_model.layers": 51
+              },
+              "group_offload": {
+                "offload_type": "leaf_level"
+              }
+            },
+            "vae": {
+              "device": "cuda",
+              "residency": "on_demand"
+            },
+            "audio_vae": {
+              "device": "cuda",
+              "residency": "on_demand"
+            }
+          }
+        },
+        "from_pretrained_arguments": {
+          "model_name": "MiniMaxAI/MiniMax-H3",
+          "workflow": "fl2va"
+        },
+        "scheduler": {
+          "shift": 12.0
+        },
+        "audio_scheduler": {
+          "shift": 3.0
+        },
+        "arguments": {
+          "prompt": "For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced.\n\nintegrated_multimodal_description: [Shot 1] Live-action, cinematic, photorealistic, one continuous shot that carries over without a break from the previous shot. The shot opens exactly on <Picture 1>: a close-up from the top of the shoulders up of the woman in <Picture 1>, centred, with close-cropped silver natural hair, small gold stud earrings, a charcoal grey wool overcoat over a cream turtleneck and a deep burgundy wool scarf, the bare elm-lined gravel path and the pale neoclassical stone building softly out of focus behind her, in soft overcast late-afternoon light with a muted earthy grade. She walks slowly and steadily toward the camera, which travels backward on a smooth dolly at exactly her walking pace, her eyes level on the lens, her face composed and grave. Preserving the speaker's face, clothing, framing and the setting exactly, the camera holds its framing for the whole shot: it never pushes in, and the speaker stays the same size in frame from the first frame to the last. (S1), a Black American woman in her mid-sixties with a low, warm alto voice that carries the settled weight of age, a faint natural huskiness, a slow, measured, serious delivery with clear diction and quiet resolve, never theatrical, at the same quiet level and unhurried pace as before, is already speaking and continues mid-flow, lips and jaw shaping every word clearly and in time with the sound: <d>[English] We the People of the United States, in Order to form a more perfect Union, establish Justice,</d> The delivery carries straight on to the end of the shot, with no pause to start over.\n\noverall_soundscape: Quiet open-air park ambience under her voice: a soft steady breeze through the bare elm branches, the slow, even crunch of her shoes on the gravel, faint distant birdsong. The ambience runs under the voice throughout and never drops out.\n\nnon_diegetic_music: N/A",
+          "hold_audio": "previous_result:aud01",
+          "num_frames": 192,
+          "width": 1344,
+          "height": 768,
+          "num_inference_steps": 20,
+          "output": [
+            "videos",
+            "audio",
+            "sampling_rate"
+          ],
+          "image": "asset:bench/constitution-speaker.jpg"
+        },
+        "seed": 1
+      },
+      "result": {
+        "content_type": "video/mp4",
+        "fps": 24,
+        "subfolder": "segments"
+      }
+    },
+    {
+      "name": "tail01",
+      "task": {
+        "command": "trim_video",
+        "arguments": {
+          "video": "previous_result:seg01",
+          "start_frame": 170,
+          "num_frames": 22
+        }
+      },
+      "result": {
+        "content_type": "video/mp4",
+        "save": false,
+        "fps": 24
+      }
+    },
+    {
+      "name": "key02",
+      "task": {
+        "command": "get_first_frame",
+        "arguments": {
+          "video": "previous_result:tail01"
+        }
+      },
+      "result": {
+        "content_type": "image/png",
+        "save": false
+      }
+    },
+    {
+      "name": "aud02",
+      "task": {
+        "command": "slice_audio",
+        "arguments": {
+          "audio": "asset:bench/constitution-narration-retimed.wav",
+          "start_frame": 170,
+          "num_frames": 192,
+          "fps": 24
+        }
+      },
+      "result": {
+        "content_type": "audio/wav",
+        "save": false
+      }
+    },
+    {
+      "name": "seg02",
+      "pipeline": {
+        "configuration": {
+          "component_type": "ModularPipeline",
+          "pre_load_modules": [
+            "sdnq"
+          ],
+          "load_components": {
+            "dtype": "torch.bfloat16",
+            "quantization_config": {
+              "transformer": {
+                "configuration": {
+                  "config_type": "sdnq.SDNQConfig"
+                },
+                "arguments": {
+                  "weights_dtype": "{int8}",
+                  "quantization_device": "cuda",
+                  "return_device": "cpu",
+                  "use_quantized_matmul": true,
+                  "dequantize_fp32": false,
+                  "modules_to_not_convert": [
+                    "proj_in",
+                    "audio_proj_in",
+                    "context_embedder",
+                    "time_embedder",
+                    "time_proj",
+                    "token_refiner",
+                    "norm_out",
+                    "proj_out",
+                    "audio_proj_out"
+                  ]
+                }
+              },
+              "text_encoder": {
+                "configuration": {
+                  "config_type": "sdnq.SDNQConfig"
+                },
+                "arguments": {
+                  "weights_dtype": "{int8}",
+                  "quantization_device": "cuda",
+                  "return_device": "cpu",
+                  "dequantize_fp32": false,
+                  "modules_to_not_convert": [
+                    ".model.visual",
+                    "lm_head"
+                  ]
+                }
+              },
+              "vae": {
+                "configuration": {
+                  "config_type": "sdnq.SDNQConfig"
+                },
+                "arguments": {
+                  "weights_dtype": "{int8}",
+                  "quant_conv": true,
+                  "use_quantized_matmul_conv": true,
+                  "quantization_device": "cuda",
+                  "return_device": "cpu",
+                  "dequantize_fp32": false
+                }
+              }
+            }
+          },
+          "components": {
+            "transformer": {
+              "attention_backend": "sparse",
+              "sparse_tau": 0.5,
+              "sparse_topk": 0.15,
+              "group_offload": {
+                "offload_type": "block_level",
+                "num_blocks_per_group": 2,
+                "use_stream": true,
+                "record_stream": true,
+                "low_cpu_mem_usage": true
+              }
+            },
+            "text_encoder": {
+              "remove_modules": [
+                "lm_head"
+              ]
+            },
+            "text_encoder.model": {
+              "truncate_layers": {
+                "language_model.layers": 51
+              },
+              "group_offload": {
+                "offload_type": "leaf_level"
+              }
+            },
+            "vae": {
+              "device": "cuda",
+              "residency": "on_demand"
+            },
+            "audio_vae": {
+              "device": "cuda",
+              "residency": "on_demand"
+            }
+          }
+        },
+        "from_pretrained_arguments": {
+          "model_name": "MiniMaxAI/MiniMax-H3",
+          "workflow": "fl2va"
+        },
+        "scheduler": {
+          "shift": 12.0
+        },
+        "audio_scheduler": {
+          "shift": 3.0
+        },
+        "arguments": {
+          "prompt": "For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced.\n\nintegrated_multimodal_description: [Shot 1] Live-action, cinematic, photorealistic, one continuous shot that carries over without a break from the previous shot. The shot opens exactly on <Picture 1>: a close-up from the top of the shoulders up of the woman in <Picture 1>, centred, with close-cropped silver natural hair, small gold stud earrings, a charcoal grey wool overcoat over a cream turtleneck and a deep burgundy wool scarf, the bare elm-lined gravel path and the pale neoclassical stone building softly out of focus behind her, in soft overcast late-afternoon light with a muted earthy grade. She walks slowly and steadily toward the camera, which travels backward on a smooth dolly at exactly her walking pace, her eyes level on the lens, her face composed and grave. Preserving the speaker's face, clothing, framing and the setting exactly, the camera holds its framing for the whole shot: it never pushes in, and the speaker stays the same size in frame from the first frame to the last. (S1), a Black American woman in her mid-sixties with a low, warm alto voice that carries the settled weight of age, a faint natural huskiness, a slow, measured, serious delivery with clear diction and quiet resolve, never theatrical, at the same quiet level and unhurried pace as before, is already speaking and continues mid-flow, lips and jaw shaping every word clearly and in time with the sound: <d>[English] insure domestic Tranquility, provide for the common defence, promote the general Welfare, and secure the</d> The delivery carries straight on to the end of the shot, with no pause to start over.\n\noverall_soundscape: Quiet open-air park ambience under her voice: a soft steady breeze through the bare elm branches, the slow, even crunch of her shoes on the gravel, faint distant birdsong. The ambience runs under the voice throughout and never drops out.\n\nnon_diegetic_music: N/A",
+          "hold_audio": "previous_result:aud02",
+          "num_frames": 192,
+          "width": 1344,
+          "height": 768,
+          "num_inference_steps": 20,
+          "output": [
+            "videos",
+            "audio",
+            "sampling_rate"
+          ],
+          "image": "previous_result:key02",
+          "guides": [
+            {
+              "video": "previous_result:tail01",
+              "frame": 0
+            }
+          ]
+        },
+        "seed": 2
+      },
+      "result": {
+        "content_type": "video/mp4",
+        "fps": 24,
+        "subfolder": "segments"
+      }
+    },
+    {
+      "name": "tail02",
+      "task": {
+        "command": "trim_video",
+        "arguments": {
+          "video": "previous_result:seg02",
+          "start_frame": 170,
+          "num_frames": 22
+        }
+      },
+      "result": {
+        "content_type": "video/mp4",
+        "save": false,
+        "fps": 24
+      }
+    },
+    {
+      "name": "key03",
+      "task": {
+        "command": "get_first_frame",
+        "arguments": {
+          "video": "previous_result:tail02"
+        }
+      },
+      "result": {
+        "content_type": "image/png",
+        "save": false
+      }
+    },
+    {
+      "name": "aud03",
+      "task": {
+        "command": "slice_audio",
+        "arguments": {
+          "audio": "asset:bench/constitution-narration-retimed.wav",
+          "start_frame": 340,
+          "num_frames": 192,
+          "fps": 24
+        }
+      },
+      "result": {
+        "content_type": "audio/wav",
+        "save": false
+      }
+    },
+    {
+      "name": "seg03",
+      "pipeline": {
+        "configuration": {
+          "component_type": "ModularPipeline",
+          "pre_load_modules": [
+            "sdnq"
+          ],
+          "load_components": {
+            "dtype": "torch.bfloat16",
+            "quantization_config": {
+              "transformer": {
+                "configuration": {
+                  "config_type": "sdnq.SDNQConfig"
+                },
+                "arguments": {
+                  "weights_dtype": "{int8}",
+                  "quantization_device": "cuda",
+                  "return_device": "cpu",
+                  "use_quantized_matmul": true,
+                  "dequantize_fp32": false,
+                  "modules_to_not_convert": [
+                    "proj_in",
+                    "audio_proj_in",
+                    "context_embedder",
+                    "time_embedder",
+                    "time_proj",
+                    "token_refiner",
+                    "norm_out",
+                    "proj_out",
+                    "audio_proj_out"
+                  ]
+                }
+              },
+              "text_encoder": {
+                "configuration": {
+                  "config_type": "sdnq.SDNQConfig"
+                },
+                "arguments": {
+                  "weights_dtype": "{int8}",
+                  "quantization_device": "cuda",
+                  "return_device": "cpu",
+                  "dequantize_fp32": false,
+                  "modules_to_not_convert": [
+                    ".model.visual",
+                    "lm_head"
+                  ]
+                }
+              },
+              "vae": {
+                "configuration": {
+                  "config_type": "sdnq.SDNQConfig"
+                },
+                "arguments": {
+                  "weights_dtype": "{int8}",
+                  "quant_conv": true,
+                  "use_quantized_matmul_conv": true,
+                  "quantization_device": "cuda",
+                  "return_device": "cpu",
+                  "dequantize_fp32": false
+                }
+              }
+            }
+          },
+          "components": {
+            "transformer": {
+              "attention_backend": "sparse",
+              "sparse_tau": 0.5,
+              "sparse_topk": 0.15,
+              "group_offload": {
+                "offload_type": "block_level",
+                "num_blocks_per_group": 2,
+                "use_stream": true,
+                "record_stream": true,
+                "low_cpu_mem_usage": true
+              }
+            },
+            "text_encoder": {
+              "remove_modules": [
+                "lm_head"
+              ]
+            },
+            "text_encoder.model": {
+              "truncate_layers": {
+                "language_model.layers": 51
+              },
+              "group_offload": {
+                "offload_type": "leaf_level"
+              }
+            },
+            "vae": {
+              "device": "cuda",
+              "residency": "on_demand"
+            },
+            "audio_vae": {
+              "device": "cuda",
+              "residency": "on_demand"
+            }
+          }
+        },
+        "from_pretrained_arguments": {
+          "model_name": "MiniMaxAI/MiniMax-H3",
+          "workflow": "fl2va"
+        },
+        "scheduler": {
+          "shift": 12.0
+        },
+        "audio_scheduler": {
+          "shift": 3.0
+        },
+        "arguments": {
+          "prompt": "For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced.\n\nintegrated_multimodal_description: [Shot 1] Live-action, cinematic, photorealistic, one continuous shot that carries over without a break from the previous shot. The shot opens exactly on <Picture 1>: a close-up from the top of the shoulders up of the woman in <Picture 1>, centred, with close-cropped silver natural hair, small gold stud earrings, a charcoal grey wool overcoat over a cream turtleneck and a deep burgundy wool scarf, the bare elm-lined gravel path and the pale neoclassical stone building softly out of focus behind her, in soft overcast late-afternoon light with a muted earthy grade. She walks slowly and steadily toward the camera, which travels backward on a smooth dolly at exactly her walking pace, her eyes level on the lens, her face composed and grave. Preserving the speaker's face, clothing, framing and the setting exactly, the camera holds its framing for the whole shot: it never pushes in, and the speaker stays the same size in frame from the first frame to the last. (S1), a Black American woman in her mid-sixties with a low, warm alto voice that carries the settled weight of age, a faint natural huskiness, a slow, measured, serious delivery with clear diction and quiet resolve, never theatrical, at the same quiet level and unhurried pace as before, is already speaking and continues mid-flow, lips and jaw shaping every word clearly and in time with the sound: <d>[English] Blessings of Liberty to ourselves and our Posterity, do ordain and establish</d> The delivery carries straight on to the end of the shot, with no pause to start over.\n\noverall_soundscape: Quiet open-air park ambience under her voice: a soft steady breeze through the bare elm branches, the slow, even crunch of her shoes on the gravel, faint distant birdsong. The ambience runs under the voice throughout and never drops out.\n\nnon_diegetic_music: N/A",
+          "hold_audio": "previous_result:aud03",
+          "num_frames": 192,
+          "width": 1344,
+          "height": 768,
+          "num_inference_steps": 20,
+          "output": [
+            "videos",
+            "audio",
+            "sampling_rate"
+          ],
+          "image": "previous_result:key03",
+          "guides": [
+            {
+              "video": "previous_result:tail02",
+              "frame": 0
+            }
+          ]
+        },
+        "seed": 3
+      },
+      "result": {
+        "content_type": "video/mp4",
+        "fps": 24,
+        "subfolder": "segments"
+      }
+    },
+    {
+      "name": "tail03",
+      "task": {
+        "command": "trim_video",
+        "arguments": {
+          "video": "previous_result:seg03",
+          "start_frame": 170,
+          "num_frames": 22
+        }
+      },
+      "result": {
+        "content_type": "video/mp4",
+        "save": false,
+        "fps": 24
+      }
+    },
+    {
+      "name": "key04",
+      "task": {
+        "command": "get_first_frame",
+        "arguments": {
+          "video": "previous_result:tail03"
+        }
+      },
+      "result": {
+        "content_type": "image/png",
+        "save": false
+      }
+    },
+    {
+      "name": "aud04",
+      "task": {
+        "command": "slice_audio",
+        "arguments": {
+          "audio": "asset:bench/constitution-narration-retimed.wav",
+          "start_frame": 510,
+          "num_frames": 192,
+          "fps": 24
+        }
+      },
+      "result": {
+        "content_type": "audio/wav",
+        "save": false
+      }
+    },
+    {
+      "name": "seg04",
+      "pipeline": {
+        "configuration": {
+          "component_type": "ModularPipeline",
+          "pre_load_modules": [
+            "sdnq"
+          ],
+          "load_components": {
+            "dtype": "torch.bfloat16",
+            "quantization_config": {
+              "transformer": {
+                "configuration": {
+                  "config_type": "sdnq.SDNQConfig"
+                },
+                "arguments": {
+                  "weights_dtype": "{int8}",
+                  "quantization_device": "cuda",
+                  "return_device": "cpu",
+                  "use_quantized_matmul": true,
+                  "dequantize_fp32": false,
+                  "modules_to_not_convert": [
+                    "proj_in",
+                    "audio_proj_in",
+                    "context_embedder",
+                    "time_embedder",
+                    "time_proj",
+                    "token_refiner",
+                    "norm_out",
+                    "proj_out",
+                    "audio_proj_out"
+                  ]
+                }
+              },
+              "text_encoder": {
+                "configuration": {
+                  "config_type": "sdnq.SDNQConfig"
+                },
+                "arguments": {
+                  "weights_dtype": "{int8}",
+                  "quantization_device": "cuda",
+                  "return_device": "cpu",
+                  "dequantize_fp32": false,
+                  "modules_to_not_convert": [
+                    ".model.visual",
+                    "lm_head"
+                  ]
+                }
+              },
+              "vae": {
+                "configuration": {
+                  "config_type": "sdnq.SDNQConfig"
+                },
+                "arguments": {
+                  "weights_dtype": "{int8}",
+                  "quant_conv": true,
+                  "use_quantized_matmul_conv": true,
+                  "quantization_device": "cuda",
+                  "return_device": "cpu",
+                  "dequantize_fp32": false
+                }
+              }
+            }
+          },
+          "components": {
+            "transformer": {
+              "attention_backend": "sparse",
+              "sparse_tau": 0.5,
+              "sparse_topk": 0.15,
+              "group_offload": {
+                "offload_type": "block_level",
+                "num_blocks_per_group": 2,
+                "use_stream": true,
+                "record_stream": true,
+                "low_cpu_mem_usage": true
+              }
+            },
+            "text_encoder": {
+              "remove_modules": [
+                "lm_head"
+              ]
+            },
+            "text_encoder.model": {
+              "truncate_layers": {
+                "language_model.layers": 51
+              },
+              "group_offload": {
+                "offload_type": "leaf_level"
+              }
+            },
+            "vae": {
+              "device": "cuda",
+              "residency": "on_demand"
+            },
+            "audio_vae": {
+              "device": "cuda",
+              "residency": "on_demand"
+            }
+          }
+        },
+        "from_pretrained_arguments": {
+          "model_name": "MiniMaxAI/MiniMax-H3",
+          "workflow": "fl2va"
+        },
+        "scheduler": {
+          "shift": 12.0
+        },
+        "audio_scheduler": {
+          "shift": 3.0
+        },
+        "arguments": {
+          "prompt": "For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced.\n\nintegrated_multimodal_description: [Shot 1] Live-action, cinematic, photorealistic, one continuous shot that carries over without a break from the previous shot. The shot opens exactly on <Picture 1>: a close-up from the top of the shoulders up of the woman in <Picture 1>, centred, with close-cropped silver natural hair, small gold stud earrings, a charcoal grey wool overcoat over a cream turtleneck and a deep burgundy wool scarf, the bare elm-lined gravel path and the pale neoclassical stone building softly out of focus behind her, in soft overcast late-afternoon light with a muted earthy grade. She walks slowly and steadily toward the camera, which travels backward on a smooth dolly at exactly her walking pace, her eyes level on the lens, her face composed and grave. Preserving the speaker's face, clothing, framing and the setting exactly, the camera holds its framing for the whole shot: it never pushes in, and the speaker stays the same size in frame from the first frame to the last. (S1), a Black American woman in her mid-sixties with a low, warm alto voice that carries the settled weight of age, a faint natural huskiness, a slow, measured, serious delivery with clear diction and quiet resolve, never theatrical, at the same quiet level and unhurried pace as before, is already speaking and continues mid-flow, lips and jaw shaping every word clearly and in time with the sound: <d>[English] this Constitution for the United States of America. Amendment One.</d> The delivery carries straight on to the end of the shot, with no pause to start over.\n\noverall_soundscape: Quiet open-air park ambience under her voice: a soft steady breeze through the bare elm branches, the slow, even crunch of her shoes on the gravel, faint distant birdsong. The ambience runs under the voice throughout and never drops out.\n\nnon_diegetic_music: N/A",
+          "hold_audio": "previous_result:aud04",
+          "num_frames": 192,
+          "width": 1344,
+          "height": 768,
+          "num_inference_steps": 20,
+          "output": [
+            "videos",
+            "audio",
+            "sampling_rate"
+          ],
+          "image": "previous_result:key04",
+          "guides": [
+            {
+              "video": "previous_result:tail03",
+              "frame": 0
+            }
+          ]
+        },
+        "seed": 4
+      },
+      "result": {
+        "content_type": "video/mp4",
+        "fps": 24,
+        "subfolder": "segments"
+      }
+    },
+    {
+      "name": "tail04",
+      "task": {
+        "command": "trim_video",
+        "arguments": {
+          "video": "previous_result:seg04",
+          "start_frame": 170,
+          "num_frames": 22
+        }
+      },
+      "result": {
+        "content_type": "video/mp4",
+        "save": false,
+        "fps": 24
+      }
+    },
+    {
+      "name": "key05",
+      "task": {
+        "command": "get_first_frame",
+        "arguments": {
+          "video": "previous_result:tail04"
+        }
+      },
+      "result": {
+        "content_type": "image/png",
+        "save": false
+      }
+    },
+    {
+      "name": "aud05",
+      "task": {
+        "command": "slice_audio",
+        "arguments": {
+          "audio": "asset:bench/constitution-narration-retimed.wav",
+          "start_frame": 680,
+          "num_frames": 192,
+          "fps": 24
+        }
+      },
+      "result": {
+        "content_type": "audio/wav",
+        "save": false
+      }
+    },
+    {
+      "name": "seg05",
+      "pipeline": {
+        "configuration": {
+          "component_type": "ModularPipeline",
+          "pre_load_modules": [
+            "sdnq"
+          ],
+          "load_components": {
+            "dtype": "torch.bfloat16",
+            "quantization_config": {
+              "transformer": {
+                "configuration": {
+                  "config_type": "sdnq.SDNQConfig"
+                },
+                "arguments": {
+                  "weights_dtype": "{int8}",
+                  "quantization_device": "cuda",
+                  "return_device": "cpu",
+                  "use_quantized_matmul": true,
+                  "dequantize_fp32": false,
+                  "modules_to_not_convert": [
+                    "proj_in",
+                    "audio_proj_in",
+                    "context_embedder",
+                    "time_embedder",
+                    "time_proj",
+                    "token_refiner",
+                    "norm_out",
+                    "proj_out",
+                    "audio_proj_out"
+                  ]
+                }
+              },
+              "text_encoder": {
+                "configuration": {
+                  "config_type": "sdnq.SDNQConfig"
+                },
+                "arguments": {
+                  "weights_dtype": "{int8}",
+                  "quantization_device": "cuda",
+                  "return_device": "cpu",
+                  "dequantize_fp32": false,
+                  "modules_to_not_convert": [
+                    ".model.visual",
+                    "lm_head"
+                  ]
+                }
+              },
+              "vae": {
+                "configuration": {
+                  "config_type": "sdnq.SDNQConfig"
+                },
+                "arguments": {
+                  "weights_dtype": "{int8}",
+                  "quant_conv": true,
+                  "use_quantized_matmul_conv": true,
+                  "quantization_device": "cuda",
+                  "return_device": "cpu",
+                  "dequantize_fp32": false
+                }
+              }
+            }
+          },
+          "components": {
+            "transformer": {
+              "attention_backend": "sparse",
+              "sparse_tau": 0.5,
+              "sparse_topk": 0.15,
+              "group_offload": {
+                "offload_type": "block_level",
+                "num_blocks_per_group": 2,
+                "use_stream": true,
+                "record_stream": true,
+                "low_cpu_mem_usage": true
+              }
+            },
+            "text_encoder": {
+              "remove_modules": [
+                "lm_head"
+              ]
+            },
+            "text_encoder.model": {
+              "truncate_layers": {
+                "language_model.layers": 51
+              },
+              "group_offload": {
+                "offload_type": "leaf_level"
+              }
+            },
+            "vae": {
+              "device": "cuda",
+              "residency": "on_demand"
+            },
+            "audio_vae": {
+              "device": "cuda",
+              "residency": "on_demand"
+            }
+          }
+        },
+        "from_pretrained_arguments": {
+          "model_name": "MiniMaxAI/MiniMax-H3",
+          "workflow": "fl2va"
+        },
+        "scheduler": {
+          "shift": 12.0
+        },
+        "audio_scheduler": {
+          "shift": 3.0
+        },
+        "arguments": {
+          "prompt": "For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced.\n\nintegrated_multimodal_description: [Shot 1] Live-action, cinematic, photorealistic, one continuous shot that carries over without a break from the previous shot. The shot opens exactly on <Picture 1>: a close-up from the top of the shoulders up of the woman in <Picture 1>, centred, with close-cropped silver natural hair, small gold stud earrings, a charcoal grey wool overcoat over a cream turtleneck and a deep burgundy wool scarf, the bare elm-lined gravel path and the pale neoclassical stone building softly out of focus behind her, in soft overcast late-afternoon light with a muted earthy grade. She walks slowly and steadily toward the camera, which travels backward on a smooth dolly at exactly her walking pace, her eyes level on the lens, her face composed and grave. Preserving the speaker's face, clothing, framing and the setting exactly, the camera holds its framing for the whole shot: it never pushes in, and the speaker stays the same size in frame from the first frame to the last. (S1), a Black American woman in her mid-sixties with a low, warm alto voice that carries the settled weight of age, a faint natural huskiness, a slow, measured, serious delivery with clear diction and quiet resolve, never theatrical, at the same quiet level and unhurried pace as before, is already speaking and continues mid-flow, lips and jaw shaping every word clearly and in time with the sound: <d>[English] Congress shall make no law respecting an establishment of religion, or prohibiting the</d> The delivery carries straight on to the end of the shot, with no pause to start over.\n\noverall_soundscape: Quiet open-air park ambience under her voice: a soft steady breeze through the bare elm branches, the slow, even crunch of her shoes on the gravel, faint distant birdsong. The ambience runs under the voice throughout and never drops out.\n\nnon_diegetic_music: N/A",
+          "hold_audio": "previous_result:aud05",
+          "num_frames": 192,
+          "width": 1344,
+          "height": 768,
+          "num_inference_steps": 20,
+          "output": [
+            "videos",
+            "audio",
+            "sampling_rate"
+          ],
+          "image": "previous_result:key05",
+          "guides": [
+            {
+              "video": "previous_result:tail04",
+              "frame": 0
+            }
+          ]
+        },
+        "seed": 5
+      },
+      "result": {
+        "content_type": "video/mp4",
+        "fps": 24,
+        "subfolder": "segments"
+      }
+    },
+    {
+      "name": "tail05",
+      "task": {
+        "command": "trim_video",
+        "arguments": {
+          "video": "previous_result:seg05",
+          "start_frame": 170,
+          "num_frames": 22
+        }
+      },
+      "result": {
+        "content_type": "video/mp4",
+        "save": false,
+        "fps": 24
+      }
+    },
+    {
+      "name": "key06",
+      "task": {
+        "command": "get_first_frame",
+        "arguments": {
+          "video": "previous_result:tail05"
+        }
+      },
+      "result": {
+        "content_type": "image/png",
+        "save": false
+      }
+    },
+    {
+      "name": "aud06",
+      "task": {
+        "command": "slice_audio",
+        "arguments": {
+          "audio": "asset:bench/constitution-narration-retimed.wav",
+          "start_frame": 850,
+          "num_frames": 192,
+          "fps": 24
+        }
+      },
+      "result": {
+        "content_type": "audio/wav",
+        "save": false
+      }
+    },
+    {
+      "name": "seg06",
+      "pipeline": {
+        "configuration": {
+          "component_type": "ModularPipeline",
+          "pre_load_modules": [
+            "sdnq"
+          ],
+          "load_components": {
+            "dtype": "torch.bfloat16",
+            "quantization_config": {
+              "transformer": {
+                "configuration": {
+                  "config_type": "sdnq.SDNQConfig"
+                },
+                "arguments": {
+                  "weights_dtype": "{int8}",
+                  "quantization_device": "cuda",
+                  "return_device": "cpu",
+                  "use_quantized_matmul": true,
+                  "dequantize_fp32": false,
+                  "modules_to_not_convert": [
+                    "proj_in",
+                    "audio_proj_in",
+                    "context_embedder",
+                    "time_embedder",
+                    "time_proj",
+                    "token_refiner",
+                    "norm_out",
+                    "proj_out",
+                    "audio_proj_out"
+                  ]
+                }
+              },
+              "text_encoder": {
+                "configuration": {
+                  "config_type": "sdnq.SDNQConfig"
+                },
+                "arguments": {
+                  "weights_dtype": "{int8}",
+                  "quantization_device": "cuda",
+                  "return_device": "cpu",
+                  "dequantize_fp32": false,
+                  "modules_to_not_convert": [
+                    ".model.visual",
+                    "lm_head"
+                  ]
+                }
+              },
+              "vae": {
+                "configuration": {
+                  "config_type": "sdnq.SDNQConfig"
+                },
+                "arguments": {
+                  "weights_dtype": "{int8}",
+                  "quant_conv": true,
+                  "use_quantized_matmul_conv": true,
+                  "quantization_device": "cuda",
+                  "return_device": "cpu",
+                  "dequantize_fp32": false
+                }
+              }
+            }
+          },
+          "components": {
+            "transformer": {
+              "attention_backend": "sparse",
+              "sparse_tau": 0.5,
+              "sparse_topk": 0.15,
+              "group_offload": {
+                "offload_type": "block_level",
+                "num_blocks_per_group": 2,
+                "use_stream": true,
+                "record_stream": true,
+                "low_cpu_mem_usage": true
+              }
+            },
+            "text_encoder": {
+              "remove_modules": [
+                "lm_head"
+              ]
+            },
+            "text_encoder.model": {
+              "truncate_layers": {
+                "language_model.layers": 51
+              },
+              "group_offload": {
+                "offload_type": "leaf_level"
+              }
+            },
+            "vae": {
+              "device": "cuda",
+              "residency": "on_demand"
+            },
+            "audio_vae": {
+              "device": "cuda",
+              "residency": "on_demand"
+            }
+          }
+        },
+        "from_pretrained_arguments": {
+          "model_name": "MiniMaxAI/MiniMax-H3",
+          "workflow": "fl2va"
+        },
+        "scheduler": {
+          "shift": 12.0
+        },
+        "audio_scheduler": {
+          "shift": 3.0
+        },
+        "arguments": {
+          "prompt": "For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced.\n\nintegrated_multimodal_description: [Shot 1] Live-action, cinematic, photorealistic, one continuous shot that carries over without a break from the previous shot. The shot opens exactly on <Picture 1>: a close-up from the top of the shoulders up of the woman in <Picture 1>, centred, with close-cropped silver natural hair, small gold stud earrings, a charcoal grey wool overcoat over a cream turtleneck and a deep burgundy wool scarf, the bare elm-lined gravel path and the pale neoclassical stone building softly out of focus behind her, in soft overcast late-afternoon light with a muted earthy grade. She walks slowly and steadily toward the camera, which travels backward on a smooth dolly at exactly her walking pace, her eyes level on the lens, her face composed and grave. Preserving the speaker's face, clothing, framing and the setting exactly, the camera holds its framing for the whole shot: it never pushes in, and the speaker stays the same size in frame from the first frame to the last. (S1), a Black American woman in her mid-sixties with a low, warm alto voice that carries the settled weight of age, a faint natural huskiness, a slow, measured, serious delivery with clear diction and quiet resolve, never theatrical, at the same quiet level and unhurried pace as before, is already speaking and continues mid-flow, lips and jaw shaping every word clearly and in time with the sound: <d>[English] free exercise thereof; or abridging the freedom of speech, or of the press;</d> The delivery carries straight on to the end of the shot, with no pause to start over.\n\noverall_soundscape: Quiet open-air park ambience under her voice: a soft steady breeze through the bare elm branches, the slow, even crunch of her shoes on the gravel, faint distant birdsong. The ambience runs under the voice throughout and never drops out.\n\nnon_diegetic_music: N/A",
+          "hold_audio": "previous_result:aud06",
+          "num_frames": 192,
+          "width": 1344,
+          "height": 768,
+          "num_inference_steps": 20,
+          "output": [
+            "videos",
+            "audio",
+            "sampling_rate"
+          ],
+          "image": "previous_result:key06",
+          "guides": [
+            {
+              "video": "previous_result:tail05",
+              "frame": 0
+            }
+          ]
+        },
+        "seed": 6
+      },
+      "result": {
+        "content_type": "video/mp4",
+        "fps": 24,
+        "subfolder": "segments"
+      }
+    },
+    {
+      "name": "take",
+      "task": {
+        "command": "concat_videos",
+        "arguments": {
+          "videos": [
+            "previous_result:seg01",
+            "previous_result:seg02",
+            "previous_result:seg03",
+            "previous_result:seg04",
+            "previous_result:seg05",
+            "previous_result:seg06"
+          ],
+          "trim_frames": 22,
+          "crossfade_ms": 80,
+          "fps": 24,
+          "continuous_joins": true
+        }
+      },
+      "result": {
+        "content_type": "video/mp4",
+        "fps": 24,
+        "subfolder": "final"
+      }
+    }
+  ]
+}

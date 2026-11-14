@@ -210,3 +210,11 @@ inspired `export_timeline`
 [#1197](https://github.com/dkackman/diffusers-workflow/issues/1197)): a joined
 piece written as an OpenTimelineIO `.otioz` bundle with one clip per shot, so an
 editor opens it as a timeline.
+
+roadmaus/ComfyUI-Continuity (MIT; concept only, no code adapted) inspired the
+seam-restore probe
+([bench/workflows/seam-restore.json](../bench/workflows/seam-restore.json);
+[#1325](https://github.com/dkackman/diffusers-workflow/issues/1325)): a
+reference-anchored, low-strength redraw of a segment's tail before it is handed
+on as the next segment's guide, so each seam starts from a reset copy rather
+than the inherited texture.
