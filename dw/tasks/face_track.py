@@ -10,14 +10,20 @@ crop came from, so a later step can paste the refined face back.
 Detection is YuNet (OpenCV's own face detector, `cv2.FaceDetectorYN`), run on
 the whole frame and on four overlapping tiles enlarged 2x, so a face only a few
 dozen pixels wide is still seen; the tiles' detections are merged by
-non-maximum suppression. One track is kept: each frame's detection is matched
-to it by overlap, confidence and distance, the box is smoothed by an
-exponential moving average, and a frame the detector misses holds the last box
-at a decaying strength for a few frames. The track starts again at each shot
-boundary the clip records, or - for a clip that records none - where the
+non-maximum suppression. One track is kept: it starts on the face `select`
+names (the largest by default; or nearest the centre, leftmost, rightmost, or
+most confident), each later frame's detection is matched to it by overlap,
+confidence and distance, the box is smoothed by an exponential moving average,
+and a frame the detector misses holds the last box at a decaying strength for
+a few frames. Past that the track is lost - no box, strength 0, so those frames
+keep the source - and it never jumps to another face: it is picked up again
+only by a face near where it was lost, or by the only face of a frame in a
+segment that has never shown two. The track starts again, by `select`, at each
+shot boundary the clip records, or - for a clip that records none - where the
 picture changes abruptly: its colour histogram drops, or the difference from
 the previous frame spikes (a cut between two framings of the same picture keeps
-its colours, so the histogram alone misses it).
+its colours, so the histogram alone misses it). Choosing the subject and
+staying lost are ideas from ComfyUI-H3-FaceRefine (MIT), reimplemented here.
 
 Each frame also carries a strength from 0 to 1: how much a face-detail pass
 should change it. A face already large in the frame has the pixels it needs,
@@ -49,6 +55,7 @@ from ..task_problems import (
     FACE_CROP_MODULUS,
     FACE_CROP_MULTIPLE,
     FACE_CROP_REMAINDER,
+    FACE_SELECT_CHOICES,
     check_face_detector_source,
     face_track_problems,
     paste_feather_problems,
@@ -77,6 +84,10 @@ EMA_ALPHA = 0.35  # weight of the new detection in the smoothed box
 HOLD_DECAY = 0.7  # strength kept per frame the detector misses
 MAX_GAP = 6  # missed frames before the track counts as lost
 MATCH_DISTANCE = 1.5  # centre distance, in face widths, a match may move
+# Centre distance, in face widths of the last box, at which a lost track may
+# pick its face up again - twice MATCH_DISTANCE, as the face moved in the gap
+REACQUIRE_DISTANCE = 3.0
+DEFAULT_SELECT = FACE_SELECT_CHOICES[0]
 HISTOGRAM_CUT = 0.5  # HSV histogram correlation below which frames are a cut
 # A cut that keeps the colours (a zoom between two framings of one picture):
 # the mean difference of small thumbnails, as a fraction of full scale, must
@@ -254,8 +265,82 @@ def _match(box, detections):
     return best
 
 
-def track_faces(detections_per_frame, frame_width, resets_at, gate_full, gate_zero):
+def select_face(detections, select, frame_width, frame_height=None):
+    """The detection a track starts on, by the `select` rule, or None.
+
+    largest: the biggest box area, ties to the higher score; centre: the
+    centre nearest the frame's (horizontal distance only when the height is
+    unknown); left / right: the smallest / largest centre x; confident: the
+    highest score - the rule before `select` existed.
+    """
+    if not detections:
+        return None
+    if select == "confident":
+        return max(detections, key=lambda d: d[4])
+    if select == "left":
+        return min(detections, key=lambda d: (_centre(d)[0], -d[4]))
+    if select == "right":
+        return max(detections, key=lambda d: (_centre(d)[0], d[4]))
+    if select == "centre":
+        mid_x = frame_width / 2
+        mid_y = frame_height / 2 if frame_height else None
+
+        def off_centre(d):
+            cx, cy = _centre(d)
+            dy = 0.0 if mid_y is None else cy - mid_y
+            return (np.hypot(cx - mid_x, dy), -d[4])
+
+        return min(detections, key=off_centre)
+    return max(detections, key=lambda d: (d[2] * d[3], d[4]))
+
+
+def _reacquire(last_box, detections, alone_so_far):
+    """The face a lost track picks up again on this frame, or None: the one
+    nearest the last box within REACQUIRE_DISTANCE of its width, else the
+    only face of a frame when the segment so far never showed two."""
+    cx, cy = _centre(last_box)
+    near = []
+    for detection in detections:
+        dx, dy = _centre(detection)
+        distance = np.hypot(dx - cx, dy - cy) / max(last_box[2], 1.0)
+        if distance <= REACQUIRE_DISTANCE:
+            near.append((distance, detection))
+    if near:
+        return min(near, key=lambda pair: pair[0])[1]
+    if alone_so_far and len(detections) == 1:
+        return detections[0]
+    return None
+
+
+def lost_ranges(frames):
+    """[{"start", "end"}]: each inclusive run of frames whose state is lost."""
+    ranges = []
+    for index, entry in enumerate(frames):
+        if entry["state"] != "lost":
+            continue
+        if ranges and ranges[-1]["end"] == index - 1:
+            ranges[-1]["end"] = index
+        else:
+            ranges.append({"start": index, "end": index})
+    return ranges
+
+
+def track_faces(
+    detections_per_frame,
+    frame_width,
+    resets_at,
+    gate_full,
+    gate_zero,
+    select=DEFAULT_SELECT,
+    frame_height=None,
+):
     """Follow one face through per-frame detections.
+
+    The track starts on the face `select` names (select_face) at frame 0 and
+    at each reset. After MAX_GAP missed frames it is lost: no box, strength 0,
+    state "lost", until a face turns up near the last box or - in a segment
+    that has never shown two faces - a frame's only face (_reacquire), or the
+    next reset starts it again by `select`. It never moves to another face.
 
     Args:
         detections_per_frame: For each frame, the [x, y, w, h, score] rows
@@ -263,25 +348,29 @@ def track_faces(detections_per_frame, frame_width, resets_at, gate_full, gate_ze
         frame_width: Source width in pixels, for the gate
         resets_at: {frame: (reason, detail)} - where the track must start again
         gate_full, gate_zero: The strength gate (gate_strength)
+        select: The start rule, one of FACE_SELECT_CHOICES
+        frame_height: Source height in pixels, for `select="centre"`
     Returns:
         (frames, resets): a dict per frame with "box" (smoothed, or None),
-        "strength" and "state" ("tracked", "held", "none"), and the list of
-        resets that happened, each {frame, reason, detail}
+        "strength" and "state" ("tracked", "held", "lost", "none"), and the
+        list of resets that happened, each {frame, reason, detail}
     """
     frames, resets = [], []
     box, hold, missed = None, 1.0, 0
+    lost_box, most_faces = None, 0
     for index, detections in enumerate(detections_per_frame):
         if index in resets_at:
             reason, detail = resets_at[index]
             resets.append({"frame": index, "reason": reason, "detail": detail})
-            box = None
+            box, lost_box, most_faces = None, None, 0
 
-        match = None
-        if box is None:
-            if detections:
-                match = max(detections, key=lambda d: d[4])
+        if lost_box is not None:
+            match = _reacquire(lost_box, detections, most_faces <= 1)
+        elif box is None:
+            match = select_face(detections, select, frame_width, frame_height)
         else:
             match = _match(box, detections)
+        most_faces = max(most_faces, len(detections))
 
         if match is not None:
             if box is None:
@@ -291,17 +380,17 @@ def track_faces(detections_per_frame, frame_width, resets_at, gate_full, gate_ze
                     (1 - EMA_ALPHA) * old + EMA_ALPHA * new
                     for old, new in zip(box, match[:4])
                 ]
-            hold, missed, state = 1.0, 0, "tracked"
+            hold, missed, state, lost_box = 1.0, 0, "tracked", None
         elif box is not None:
             missed += 1
             if missed > MAX_GAP:
                 resets.append({"frame": index, "reason": "lost", "detail": None})
-                box, state = None, "none"
+                box, lost_box, state = None, box, "lost"
             else:
                 hold *= HOLD_DECAY
                 state = "held"
         else:
-            state = "none"
+            state = "lost" if lost_box is not None else "none"
 
         if box is None:
             frames.append({"box": None, "strength": 0.0, "state": state})
@@ -499,8 +588,8 @@ def _tracked_crops(detector, rgb, shots, settings):
     """(track, resets, crops): every frame's detections tracked into one face
     (reset at each recorded shot start, else at each content cut), and the
     square cut around it. `settings` is (min_confidence, gate_full, gate_zero,
-    padding, crop_size)."""
-    min_confidence, gate_full, gate_zero, padding, crop_size = settings
+    padding, crop_size, select)."""
+    min_confidence, gate_full, gate_zero, padding, crop_size, select = settings
     height, width = rgb[0].shape[:2]
     starts = shot_starts(shots)
     if starts:
@@ -512,7 +601,9 @@ def _tracked_crops(detector, rgb, shots, settings):
         [d for d in detect_tiled(detector, frame) if d[4] >= min_confidence]
         for frame in rgb
     ]
-    track, resets = track_faces(detections, width, resets_at, gate_full, gate_zero)
+    track, resets = track_faces(
+        detections, width, resets_at, gate_full, gate_zero, select, height
+    )
 
     # A frame without a box borrows the nearest one, at strength 0, so the
     # crop does not jump to the frame centre and back across a short miss
@@ -542,6 +633,7 @@ def crop_face_track(
     min_frames=None,
     max_frames=None,
     fps=None,
+    select=DEFAULT_SELECT,
     detector_repo=DEFAULT_DETECTOR_REPO,
     detector_file=DEFAULT_DETECTOR_FILE,
     device=None,
@@ -571,6 +663,9 @@ def crop_face_track(
             (unset: no check)
         fps: Refuse the clip unless its frame rate is this, within
             FPS_TOLERANCE (unset: no check)
+        select: Which face a track starts on at frame 0, each shot start and
+            each cut - "largest", "centre", "left", "right" or "confident"
+            (select_face)
         detector_repo: Hugging Face repo holding the YuNet weights
         detector_file: The .onnx file in that repo
         device: Where detection runs; CUDA only when OpenCV was built with it
@@ -591,9 +686,12 @@ def crop_face_track(
         multiple=multiple,
         min_frames=min_frames,
         max_frames=max_frames,
+        select=select,
     )
     if problems:
         raise ValueError("; ".join(message for _, message in problems))
+    if select is None:
+        select = DEFAULT_SELECT
     check_arguments(
         "crop_face_track",
         **{
@@ -635,7 +733,7 @@ def crop_face_track(
         detector,
         rgb,
         getattr(clip, "shots", None),
-        (min_confidence, gate_full, gate_zero, padding, crop_size),
+        (min_confidence, gate_full, gate_zero, padding, crop_size, select),
     )
     face_found = any(entry["box"] is not None for entry in track)
     crops = pad_frames(crops, before, after)
@@ -656,6 +754,7 @@ def crop_face_track(
             "gate_full": gate_full,
             "gate_zero": gate_zero,
             "min_confidence": min_confidence,
+            "select": select,
             "detector": {"repo": detector_repo, "file": detector_file},
             "pad_before": before,
             "pad_after": after,
@@ -663,6 +762,7 @@ def crop_face_track(
             "face_found": face_found,
             "frames": track,
             "resets": resets,
+            "lost": lost_ranges(track),
         },
         f"{modulus}n+{remainder}",
         track_audio is not None,
@@ -691,8 +791,10 @@ def _track_record(fields, grid, with_soundtrack):
             frames=frames,
         )
     tracked = sum(entry["state"] == "tracked" for entry in track)
+    lost = sum(entry["state"] == "lost" for entry in track)
     emit_log(
-        f"crop_face_track: face in {tracked} of {frames} frames, "
+        f"crop_face_track: face in {tracked} of {frames} frames "
+        f"(select {fields['select']}), {lost} lost, "
         f"{len(fields['resets'])} reset(s), {fields['crop_frames']} crops of "
         f"{fields['crop_size']}px ({fields['pad_before']} before, "
         f"{fields['pad_after']} after for {grid})"
