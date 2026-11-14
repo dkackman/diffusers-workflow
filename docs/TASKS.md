@@ -1297,6 +1297,7 @@ face-detail pass that needs the face large and still:
 | `gate_full` | No | Face width over frame width at or below which strength is 1. Default `0.06` |
 | `gate_zero` | No | Face width over frame width at or above which strength is 0; must exceed `gate_full`. Default `0.12` |
 | `min_confidence` | No | Detections scoring below this are ignored; below `1`. Default `0.6` |
+| `select` | No | Which face the track follows when a clip shows several: `largest` (biggest box, ties to the more confident), `centre` (nearest the frame centre), `left` or `right` (smallest or largest centre x), `confident` (highest detector score). Applied only where a track starts. Default `largest` |
 | `modulus` | No | The crop count is padded to `modulus * n + remainder` frames - the frame grid of the model the crops feed. At least `1`. Default `8` |
 | `remainder` | No | The padded count's remainder, `0` up to `modulus - 1`. Default `1` |
 | `multiple` | No | `crop_size` must be a multiple of this - the model's frame-size step. At least `1`. Default `32` |
@@ -1323,7 +1324,22 @@ still seen. One track is kept, smoothed with an exponential moving average;
 across a short miss the last box is held at a decaying strength. The track
 restarts at each shot boundary the clip records, or, with none recorded, where
 the picture jumps (a sharp drop in its HSV colour histogram, or a spike in
-frame difference). A padded square around the smoothed box is cut from every
+frame difference). `select` picks the face only where a track starts: frame 0,
+each recorded shot start and each content cut.
+
+After 6 missed frames the track is lost: those frames carry a null `box`,
+strength 0 and state `lost`, and `paste_face_track` keeps the source pixels
+there. A lost track is picked up again only by a face whose centre is within 3
+face widths of the last box, or by the one face on a frame when every earlier
+frame of the segment (since frame 0, the last shot start or cut) showed at most
+one. Otherwise it stays lost until the next shot start or cut, where `select`
+applies again; it never jumps to another face.
+
+Behaviour change: on a clip with several faces the default start face is now the
+`largest`, not the most confident; `select: "confident"` restores the old rule.
+Lost frames keep the source pixels instead of restarting on another face.
+
+A padded square around the smoothed box is cut from every
 frame, resized to `crop_size`, and the crops are padded to
 `modulus * n + remainder` frames with mirrored warm-up and cool-down frames.
 
@@ -1347,13 +1363,14 @@ JSON record saved as its own `.json` file, read as
 | Field | Description |
 | ----- | ----------- |
 | `source` | `{width, height, frames, fps}` of the input |
-| `crop_size`, `padding`, `gate_full`, `gate_zero`, `min_confidence` | The parameters used |
+| `crop_size`, `padding`, `gate_full`, `gate_zero`, `min_confidence`, `select` | The parameters used |
 | `detector` | `{repo, file}` |
 | `pad_before`, `pad_after` | Mirrored frames added to the start and end |
 | `crop_frames` | Frames in `crops`, including the padding |
 | `face_found` | Whether any frame had a face |
 | `message` | Present only when no face was found |
-| `frames` | One entry per source frame: `box` (the smoothed `[x, y, w, h]`, or null), `crop` (the `[x, y, side, side]` square cut), `strength`, and `state` (`tracked`, `held` or `none`) |
+| `frames` | One entry per source frame: `box` (the smoothed `[x, y, w, h]`, or null), `crop` (the `[x, y, side, side]` square cut), `strength`, and `state` (`tracked`, `held`, `lost` or `none`) |
+| `lost` | `[{start, end}]`, the inclusive frame ranges whose state is `lost` |
 | `resets` | `[{frame, reason, detail}]` where the track restarted; `reason` is `shot`, `cut` or `lost`; a `cut`'s `detail` is `{histogram_correlation, frame_change}` |
 
 A clip with no face still succeeds: every strength is 0, the crops are the
@@ -1361,7 +1378,7 @@ centre square, and a `no_face_found` warning is raised. `validate_workflow`
 refuses, before anything downloads: a `crop_size` that is not a multiple of
 `multiple`; a `modulus` below 1; a `remainder` below 0 or not below `modulus`;
 a `gate_full` or `gate_zero` above 1, or a `gate_zero` at or below `gate_full`;
-a `min_confidence` at or above 1; a `padding` out of range; a `detector_repo`
+a `min_confidence` at or above 1; a `select` that is not one of `largest`, `centre`, `left`, `right` or `confident` (`crop_face_track needs 'select' as one of [...], got 'biggest'`; a `variable:` or `previous_result:` value is judged at run time); a `padding` out of range; a `detector_repo`
 that is not a repo id; a `detector_file` that is not a `.onnx` name; a
 `min_frames`, `max_frames` or `fps` at or below 0; and a `max_frames` below
 `min_frames`.

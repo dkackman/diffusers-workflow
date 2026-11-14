@@ -145,9 +145,10 @@ class TestTracking:
         frames, resets = ft.track_faces(dets, W, {}, 0.06, 0.12)
         assert frames[ft.MAX_GAP]["state"] == "held"
         lost_at = ft.MAX_GAP + 1
-        assert frames[lost_at]["state"] == "none"
+        assert frames[lost_at]["state"] == "lost"
         assert frames[lost_at]["box"] is None and frames[lost_at]["strength"] == 0.0
         assert resets == [{"frame": lost_at, "reason": "lost", "detail": None}]
+        assert ft.lost_ranges(frames) == [{"start": lost_at, "end": ft.MAX_GAP + 2}]
 
     def test_recovery_after_a_gap_restores_full_strength(self):
         dets = [[det()], [], [det()]]
@@ -160,6 +161,242 @@ class TestTracking:
         frames, resets = ft.track_faces(dets, W, {2: ("shot", "b")}, 0.06, 0.12)
         assert frames[2]["box"][:2] == [200, 50]
         assert resets == [{"frame": 2, "reason": "shot", "detail": "b"}]
+
+
+# Two faces per frame: a small, confident one at the left and a large, less
+# confident one at the right; the frame centre (160, 120) is nearest neither
+# side's square except MIDDLE.
+SMALL_LEFT = det(20, 100, 16, 16, 0.95)
+LARGE_RIGHT = det(250, 100, 30, 30, 0.7)
+MIDDLE = det(150, 110, 20, 20, 0.6)
+
+
+class TestSelect:
+    @pytest.mark.parametrize(
+        "select,expected",
+        [
+            ("largest", LARGE_RIGHT),
+            ("confident", SMALL_LEFT),
+            ("left", SMALL_LEFT),
+            ("right", LARGE_RIGHT),
+            ("centre", MIDDLE),
+        ],
+    )
+    def test_each_rule_picks_its_face(self, select, expected):
+        dets = [SMALL_LEFT, LARGE_RIGHT, MIDDLE]
+        assert ft.select_face(dets, select, W, H) == expected
+        frames, _ = ft.track_faces([dets] * 3, W, {}, 0.06, 0.12, select, H)
+        assert all(f["box"] == expected[:4] for f in frames)
+
+    @pytest.mark.parametrize("select", ft.FACE_SELECT_CHOICES)
+    def test_two_faces_each_rule_follows_its_face(self, select):
+        dets = [SMALL_LEFT, LARGE_RIGHT]
+        expected = {
+            "largest": LARGE_RIGHT,
+            "confident": SMALL_LEFT,
+            "left": SMALL_LEFT,
+            "right": LARGE_RIGHT,
+            "centre": LARGE_RIGHT,  # centre x 265 is nearer 160 than 28
+        }[select]
+        frames, _ = ft.track_faces([dets] * 4, W, {}, 0.06, 0.12, select, H)
+        assert [f["box"] for f in frames] == [expected[:4]] * 4
+
+    def test_largest_is_the_default(self):
+        frames, _ = ft.track_faces([[SMALL_LEFT, LARGE_RIGHT]], W, {}, 0.06, 0.12)
+        assert frames[0]["box"] == LARGE_RIGHT[:4]
+
+    def test_largest_ties_go_to_the_more_confident_face(self):
+        a, b = det(20, 100, 20, 20, 0.7), det(250, 100, 20, 20, 0.9)
+        assert ft.select_face([a, b], "largest", W, H) == b
+        assert ft.select_face([b, a], "largest", W, H) == b
+
+    def test_confident_reproduces_the_old_start(self):
+        """Before `select`, the track started on the most confident face."""
+        dets = [LARGE_RIGHT, SMALL_LEFT, MIDDLE]
+        assert ft.select_face(dets, "confident", W, H) == max(dets, key=lambda d: d[4])
+
+    def test_select_is_applied_again_at_a_reset(self):
+        # left at the start; at the shot start at frame 3 the faces swap
+        # sides, and the track starts again on the left face, not the nearest
+        first = [SMALL_LEFT, LARGE_RIGHT]
+        swapped = [det(20, 100, 30, 30, 0.7), det(250, 100, 16, 16, 0.95)]
+        frames, resets = ft.track_faces(
+            [first] * 3 + [swapped] * 3, W, {3: ("shot", "b")}, 0.06, 0.12, "left", H
+        )
+        assert frames[2]["box"] == SMALL_LEFT[:4]
+        assert frames[3]["box"] == [20, 100, 30, 30]
+        assert resets == [{"frame": 3, "reason": "shot", "detail": "b"}]
+
+
+class TestLost:
+    def lose_the_large_face(self, then):
+        """Both faces for 2 frames (largest follows the right one), then only
+        the left face for MAX_GAP + 3 frames, then `then`."""
+        gap = ft.MAX_GAP + 3
+        dets = [[SMALL_LEFT, LARGE_RIGHT]] * 2 + [[SMALL_LEFT]] * gap + then
+        return ft.track_faces(dets, W, {}, 0.06, 0.12, "largest", H)
+
+    def test_a_loss_with_another_face_present_stays_lost(self):
+        frames, resets = self.lose_the_large_face([[SMALL_LEFT]] * 2)
+        lost_at = 2 + ft.MAX_GAP
+        for entry in frames[2:lost_at]:
+            assert entry["state"] == "held"
+            assert entry["box"] == LARGE_RIGHT[:4]
+        for entry in frames[lost_at:]:
+            assert entry == {"box": None, "strength": 0.0, "state": "lost"}
+        assert ft.lost_ranges(frames) == [{"start": lost_at, "end": len(frames) - 1}]
+        assert resets == [{"frame": lost_at, "reason": "lost", "detail": None}]
+
+    def test_a_face_near_the_loss_is_picked_up(self):
+        near = det(260, 105, 30, 30, 0.8)  # a third of a width from the last box
+        frames, _ = self.lose_the_large_face([[SMALL_LEFT, near]] * 2)
+        back = len(frames) - 2
+        assert frames[back - 1]["state"] == "lost"
+        assert frames[back]["state"] == "tracked"
+        assert frames[back]["box"] == near[:4]
+        assert frames[back]["strength"] > 0
+
+    def test_a_face_beyond_reach_is_not_picked_up(self):
+        far = det(250 - 4 * 30, 100, 30, 30, 0.9)  # 4 widths left of the loss
+        frames, _ = self.lose_the_large_face([[far]])
+        assert frames[-1]["state"] == "lost"
+
+    def test_a_single_face_across_the_frame_is_picked_up(self):
+        """A segment that never showed two faces picks its one face up again
+        wherever it reappears."""
+        gap = ft.MAX_GAP + 2
+        dets = [[det(250, 100, 20, 20)]] * 2 + [[]] * gap + [[det(20, 60, 20, 20)]]
+        frames, _ = ft.track_faces(dets, W, {}, 0.06, 0.12, "largest", H)
+        assert frames[-2]["state"] == "lost"
+        assert frames[-1]["state"] == "tracked"
+        assert frames[-1]["box"] == [20, 60, 20, 20]
+
+    def test_a_single_face_is_not_picked_up_once_two_were_seen(self):
+        gap = ft.MAX_GAP + 2
+        dets = [[SMALL_LEFT, LARGE_RIGHT]] + [[]] * gap + [[det(20, 60, 20, 20)]]
+        frames, _ = ft.track_faces(dets, W, {}, 0.06, 0.12, "largest", H)
+        assert frames[-1]["state"] == "lost"
+
+    def test_a_reset_ends_the_loss_and_selects_again(self):
+        gap = ft.MAX_GAP + 2
+        dets = [[SMALL_LEFT, LARGE_RIGHT]] * 2 + [[SMALL_LEFT]] * gap
+        dets += [[SMALL_LEFT, LARGE_RIGHT]]
+        cut = len(dets) - 1
+        frames, _ = ft.track_faces(
+            dets, W, {cut: ("cut", None)}, 0.06, 0.12, "largest", H
+        )
+        assert frames[cut - 1]["state"] == "lost"
+        assert frames[cut]["state"] == "tracked"
+        assert frames[cut]["box"] == LARGE_RIGHT[:4]
+
+
+SECOND_FACE = (0, 0, 255)
+
+
+def two_faces(large=True):
+    """A frame with a small red face at the left and, if `large`, a larger
+    blue one at the right."""
+    frame = make_frame((20, 100, 12))
+    if large:
+        frame[90:120, 230:260] = SECOND_FACE
+    return frame
+
+
+@pytest.fixture
+def two_face_detector(monkeypatch):
+    """Finds the red square (score 0.95) and the blue one (0.7) as two faces."""
+
+    def detect(rgb):
+        found = []
+        red = (rgb[..., 0] > 200) & (rgb[..., 1] < 60) & (rgb[..., 2] < 60)
+        blue = (rgb[..., 2] > 200) & (rgb[..., 0] < 60) & (rgb[..., 1] < 60)
+        for mask, score in ((red, 0.95), (blue, 0.7)):
+            ys, xs = np.nonzero(mask)
+            if len(xs):
+                x0, y0 = float(xs.min()), float(ys.min())
+                w, h = float(xs.max() + 1 - x0), float(ys.max() + 1 - y0)
+                found.append([x0, y0, w, h, score])
+        return found
+
+    monkeypatch.setattr(ft, "_detector", lambda *a, **k: detect)
+
+
+class TestSelectEndToEnd:
+    def test_the_record_carries_select_and_lost(self, stub_detector):
+        result = ft.crop_face_track(clip_of([make_frame((100, 80, 16))] * 3))
+        track = result["track"]
+        assert track["select"] == "largest"
+        assert track["lost"] == []
+        json.dumps(track)
+
+    def test_select_picks_the_tracked_face(self, two_face_detector):
+        clip = clip_of([two_faces()] * 3)
+        largest = ft.crop_face_track(clip)["track"]
+        confident = ft.crop_face_track(clip, select="confident")["track"]
+        assert largest["select"] == "largest" and confident["select"] == "confident"
+        assert largest["frames"][0]["box"][0] == pytest.approx(230, abs=3)
+        assert confident["frames"][0]["box"][0] == pytest.approx(20, abs=3)
+
+    def test_a_lost_face_stays_lost_and_is_reported(self, two_face_detector):
+        arrays = [two_faces()] * 2 + [two_faces(large=False)] * (ft.MAX_GAP + 3)
+        track = ft.crop_face_track(clip_of(arrays))["track"]
+        lost_at = 2 + ft.MAX_GAP
+        assert track["lost"] == [{"start": lost_at, "end": len(arrays) - 1}]
+        for entry in track["frames"][lost_at:]:
+            assert entry["state"] == "lost" and entry["strength"] == 0.0
+            assert entry["box"] is None
+        assert {"frame": lost_at, "reason": "lost", "detail": None} in track["resets"]
+
+    def test_a_bad_select_is_refused_at_run_time(self, no_detector):
+        with pytest.raises(ValueError, match="select") as refused:
+            ft.crop_face_track(tiny_clip(3), select="biggest")
+        message = str(refused.value)
+        assert "'biggest'" in message
+        for choice in ft.FACE_SELECT_CHOICES:
+            assert choice in message
+
+
+class TestSelectValidation:
+    def test_a_bad_select_is_an_error_at_its_argument(self):
+        errors = task_argument_errors(workflow({"clip": "v.mp4", "select": "biggest"}))
+        paths = [e["path"] for e in errors]
+        assert paths == ["steps[0].task.arguments.select"], errors
+        message = errors[0]["message"]
+        assert "biggest" in message
+        for choice in ft.FACE_SELECT_CHOICES:
+            assert choice in message
+
+    @pytest.mark.parametrize("select", [*ft.FACE_SELECT_CHOICES, "variable:select"])
+    def test_a_good_or_deferred_select_validates_clean(self, select):
+        assert task_argument_errors(workflow({"clip": "v.mp4", "select": select})) == []
+
+    def test_the_task_describes_select_with_its_choices(self):
+        from dw.introspection import describe_task
+
+        found = {p["name"]: p for p in describe_task("crop_face_track")["parameters"]}
+        assert found["select"]["default"] == "largest"
+        assert found["select"]["description"]
+
+
+@pytest.mark.parametrize("family", ["ltx2", "minimax"])
+def test_the_face_repair_templates_pass_select_through(family):
+    path = os.path.join(
+        os.path.dirname(__file__),
+        "..",
+        "workflows",
+        "templates",
+        family,
+        "face-repair.json",
+    )
+    with open(path) as f:
+        template = json.load(f)
+    assert template["variables"]["select"] == "largest"
+    crop = next(
+        s
+        for s in template["steps"]
+        if s.get("task", {}).get("command") == "crop_face_track"
+    )
+    assert crop["task"]["arguments"]["select"] == "variable:select"
 
 
 class TestShotStarts:

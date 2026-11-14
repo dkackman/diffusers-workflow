@@ -28,6 +28,7 @@ from ..task_domains import (
     window_video_errors,
 )
 from ..task_problems import (
+    FACE_SELECT_CHOICES,
     INGREDIENTS_FITS,
     INGREDIENTS_LAYOUTS,
     face_drift_errors,
@@ -423,6 +424,12 @@ def _handle_stabilize_video(task, arguments, previous_pipelines):
             "Refuse the clip unless its frame rate is this, within 0.01 - the "
             "rate the model the crops feed generates at. No check when unset."
         ),
+        "select": (
+            "Which face a track starts on, at frame 0 and at each shot start "
+            "or cut: largest (the biggest box; the default), centre (nearest "
+            "the frame centre), left, right, or confident (the detector's "
+            "highest score)."
+        ),
         "detector_repo": "Hugging Face repo holding the YuNet face detector.",
         "detector_file": "The .onnx file in detector_repo.",
     },
@@ -440,6 +447,7 @@ def _handle_stabilize_video(task, arguments, previous_pipelines):
         "fps": POSITIVE,
     },
     whole_numbers=("modulus", "remainder", "multiple", "min_frames", "max_frames"),
+    choices={"select": FACE_SELECT_CHOICES},
     static_check=face_track_errors,
     media_arguments=("clip",),
 )

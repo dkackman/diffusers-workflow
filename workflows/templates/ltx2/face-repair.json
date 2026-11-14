@@ -1,7 +1,7 @@
 {
     "id": "LTX2FaceRepair",
     "description": "Repairs small, broken faces in a clip from the asset library - the far faces of a wide shot that the model rendered as a smear - and leaves everything else alone. 'crop' (crop_face_track) finds and tracks the clip's main face, smooths the track, and cuts a 'crop_size' square around it on every frame, 'padding' face-widths of context on each side; 'refine' (LTX2RefinePipeline) re-renders those crops at the same size over a three-sigma schedule; 'pasted' (paste_face_track) feathers each repaired crop back into the source at the track's box, colour-matched to it. How much each frame is repaired comes from the face's size: full strength while the face is at most 'gate_full' of the frame's width, fading to none at 'gate_zero', so a near or medium face (and a clip with no face) comes back as the source. 'strength' is the refine's one knob: an integer 0-4 that picks one of five schedules lem-tuned on face crops, from 0 (lightest - the face stays close to the smear) to 4 (re-invented - sharp, but hair and clothing can drift); default 2, a defined face that keeps the person's colouring and dress. An out-of-range 'strength' is refused by the first step, before any pipeline loads. Replace the default prompt with a description of the person (hair, clothing, lighting) to hold identity at the higher strengths. The soundtrack and shots are the source's own, and the output has one frame per source frame, written at the source's frame rate (the model itself runs at its 24 fps); 'frame_rate' overrides that rate, never the frame count. The repaired picture is saved to final/ with the source's soundtrack, and the crops and refined crops are saved to intermediate/.",
-    "summary": "Repairs a wide shot's small, smeared face in place at strength 0-4; the rest and the soundtrack kept.",
+    "summary": "Repairs a wide shot's small, smeared face in place at strength 0-4; the rest is kept.",
     "cost": [
         {
             "device": "cuda",
@@ -22,6 +22,7 @@
         "strength": 2,
         "crop_size": 512,
         "padding": 1.5,
+        "select": "largest",
         "gate_full": 0.03,
         "gate_zero": 0.06,
         "feather": 0.3,
@@ -108,6 +109,7 @@
                     "clip": "variable:source_video",
                     "crop_size": "variable:crop_size",
                     "padding": "variable:padding",
+                    "select": "variable:select",
                     "gate_full": "variable:gate_full",
                     "gate_zero": "variable:gate_zero",
                     "modulus": 8,

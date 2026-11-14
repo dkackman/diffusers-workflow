@@ -110,6 +110,14 @@ rendering the odd shots of a long take first and bridging the gaps
 finding phrase starts from the centre of the stereo mix
 ([#1095](https://github.com/dkackman/diffusers-workflow/issues/1095)).
 
+### [ComfyUI-H3-FaceRefine](https://github.com/Carasibana/ComfyUI-H3-FaceRefine)
+
+A ComfyUI node pack for refining faces in MiniMax H3 takes, under the MIT
+licence. Two concepts are reimplemented in `crop_face_track`
+([dw/tasks/face_track.py](../dw/tasks/face_track.py)): choosing which subject to
+follow when several faces are visible (`select`), and staying lost after a lost
+face track rather than jumping to another face. No code was adapted.
+
 ### [knoic/ComfyUI-MiniMaxH3-PrefixStream](https://github.com/knoic/ComfyUI-MiniMaxH3-PrefixStream)
 
 A ComfyUI node pack for MiniMax H3 prefix streaming, under the MIT licence. It
