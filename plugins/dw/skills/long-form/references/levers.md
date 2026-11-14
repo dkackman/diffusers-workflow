@@ -118,10 +118,15 @@ motion together at 86 s, and nothing is measured past 86 s.
 - **Kandinsky S2V 1.0 Lite distilled** (86 s spike): failed on identity, the
   face drifting to a different, darker one by 85 s.
 - **Passages joined as cuts**: the released shape for a piece longer than one
-  clean take: one narration for the whole script (`templates/narration-long`,
-  retimed once), cut into passages with `slice_audio`, one take per passage,
-  joined by `concat_videos` at `trim_frames: 0`, `match_levels: "lufs"`
-  (`run-and-repair.md`, *A narrated take*). Not yet run end to end.
+  clean take: one narration for the whole script (`templates/narration-long`
+  from one `templates/generate-speech` reference when the user has no voice
+  clip, retimed once with `templates/narration-retime`), cut into passages
+  with `slice_audio`, one take per passage (`shot: standing` for a monologue
+  to camera, `dialogue` only under 30 s) from a different still or angle,
+  joined by `concat_videos` at `trim_frames: 0`, `match_levels: "lufs"`, then
+  judged at each cut with `analyze_seams` and by ear (`run-and-repair.md`,
+  *A narrated take*). `chained-segments` with a voice H3 invents per passage
+  is not this shape. Not yet run end to end.
 
 ## Measured and cut: do not re-propose
 

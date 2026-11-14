@@ -80,14 +80,13 @@ Set `shot` on `templates/minimax/chained-segments` from the shot's
 
 - **A speaking subject in one place is a narrated take.** Make the
   narration with `templates/narration-retime`, listen, then run
-  `templates/minimax/narrated-take`. `shot: dialogue` holds about 30 s;
-  `shot: standing` (no keyframes) holds to about 85 s (seed 1 only);
-  choose `standing` unless the user supplies keyframes;
-  `walk_keyframed` needs a hand-built keyframe per segment. Longer than a
-  take is passages joined as cuts: one `narration-long` track,
-  `slice_audio`, a take each, `concat_videos`; not yet run end to end
-  (`bench/records/narrated.md`). Procedure: `references/run-and-repair.md`,
-  *A narrated take*.
+  `templates/minimax/narrated-take`. `shot: standing` (a monologue to
+  camera) holds about 85 s (seed 1 only), `dialogue` about 30 s;
+  `walk_keyframed` needs a keyframe per segment. Longer than a take is
+  passages joined as cuts: one `narration-long` track, `slice_audio`, a
+  take each, `concat_videos`; not yet run end to end
+  (`bench/records/narrated.md`). Procedure:
+  `references/run-and-repair.md`, *A narrated take*.
 
 Two rules that bite:
 
@@ -189,9 +188,10 @@ guide chain. Quote `plan.estimate` from `validate_workflow`, never these.
    chain quotes its worst case: N(1 + `retries`) segment renders when it
    generates its audio (segment 1 is re-rolled on the audio floor), else
    1 + (N - 1)(1 + `retries`).
-   A saved copy has no `cost` row of its own (its estimate comes back
-   `basis: unknown`), so validate the template with the same arguments and
-   scale that figure by the worst case over N.
+   A saved copy has no `cost` row (`basis: unknown`): validate the template
+   with the same arguments and scale by the worst case over N. For passages
+   joined as cuts, validate each passage and sum the `plan.estimate`s; the
+   H3 chain estimate runs high (18.3 min quoted, 7 run: `bench/records/drill.md`).
    Get the go-ahead, then `run_workflow` with `acknowledged_cost`.
 2. `wait_for_job`, then `get_job`. Each entry carries `subfolder`: `final`
    is the take or the cut, and `intermediate` is the scratch. Kept segment

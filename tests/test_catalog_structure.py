@@ -139,7 +139,6 @@ UTILITIES = {
     "workflows/templates/audio-trim-fade.json",
     "workflows/templates/check-script.json",
     "workflows/templates/check-narration.json",
-    "workflows/templates/narration-retime.json",
     "workflows/templates/split-takes.json",
     "workflows/templates/face-drift-check.json",
     "workflows/templates/image-processors.json",
@@ -676,6 +675,18 @@ def test_the_compact_listing_fits_the_budget():
     assert _tokens(sequences) <= FILTERED_BUDGET, (
         f"shape=sequence is {_tokens(sequences):.0f} tokens"
     )
+
+
+def test_the_narration_templates_list_under_audio():
+    """#1311 stage #1338 (drill W1): the passages recipe's narration and
+    retime templates both answer `list_workflows(shape="audio")`. Retime
+    declares it (it derived `utility`); narration-long derives it."""
+    found, _shadowed = library_path(
+        "workflows", None, primary=os.path.join(REPO_ROOT, "workflows")
+    ).entries()
+    audio = project_listing(workflow_details(found), view="compact", shape="audio")
+    for name in ("templates/narration-retime", "templates/narration-long"):
+        assert name in audio, name
 
 
 def _walk(value):

@@ -3024,23 +3024,38 @@ eye called was 0.146 at 36 s on `dialogue`.
   and the latent keystone (`anchor_every`) stay experimental.
 
 A piece longer than one clean take is passages joined as cuts, one narrated take
-per passage. That composition is not yet run end to end. The recipe:
+per passage. That composition is not yet run end to end. `templates/minimax/chained-segments`
+with a voice H3 invents per passage is not this recipe: nothing ties the
+passages' voices together (`bench/records/drill.md`, *Cold drill: the
+Gettysburg Address*). The recipe:
 
-1. **One narration for the whole script**: `templates/narration-long` from one
-   voice reference, retimed once with `templates/narration-retime`. One track
-   keeps one voice, room tone and level across the cuts.
-2. **Passages** split at paragraph or section breaks to fit the preset: about
-   60 words for `dialogue` (about 30 s), about 175 for `standing` (about 85 s),
-   at the retimed pace of about 126 words a minute. Cut the retimed track in
-   the middle of those section-break pauses with `slice_audio`, and
-   `keep_output` each slice.
+1. **One narration for the whole script**: `get_workflow("templates/narration-long")`
+   and `get_workflow("templates/narration-retime")`; both list under
+   `list_workflows(shape="audio")`. With no voice clip from the user, make the
+   reference first: a 5-10 s line from `templates/generate-speech`, kept as an
+   asset and passed with its exact words as the reference. Speak the script
+   once with `templates/narration-long` from that one reference and retime it
+   once with `templates/narration-retime`. One track keeps one voice, room
+   tone and level across the cuts.
+2. **Passages**: `standing` for a monologue to camera, `dialogue` only for a
+   passage under 30 s. Split at paragraph or section breaks to fit the
+   preset: about 175 words for `standing` (about 85 s), about 60 for
+   `dialogue` (about 30 s), at the retimed pace of about 126 words a minute.
+   Cut the retimed track in the middle of those section-break pauses with
+   `slice_audio`, and `keep_output` each slice.
 3. **One `templates/minimax/narrated-take` per passage**, with its slice, its
    text and a different still or angle; a cut to the same still reads as a
-   reset.
+   reset. Make the second angle from the first still with
+   `templates/image-edit`, or with the same FLUX 3 Klein portrait prompt on
+   the same seed and only the framing changed. Validate each passage and sum
+   their `plan.estimate`s; the H3 chain estimate runs high (18.3 min quoted,
+   about 7 run).
 4. **Join** with an authored one-step `concat_videos` workflow: the takes as
    `output:` references, `trim_frames: 0` (a hard cut), `match_levels: "lufs"`
-   (off by default). Every take must be the same frame size. Then
-   `export_timeline` if an editor is wanted.
+   (off by default). Every take must be the same frame size. After the join,
+   run `assess_output(probe="analyze_seams")`, `get_output_frames(seams=...)`
+   at the passage cuts and `get_output_audio` across each cut before calling
+   the piece done. Then `export_timeline` if an editor is wanted.
 
 The design is `docs/proposals/complete/narrated-long-take-complete.md`.
 
