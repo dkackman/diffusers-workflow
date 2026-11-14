@@ -2,9 +2,10 @@
 
 `get_cache_transformer` names the component a cache hook attaches to, and
 `captured_mag_calibration` turns diffusers' end-of-run calibration log record
-into job events (#891), `_report_unfinished_mag_calibration` the ratios a call
-that ran fewer forwards than its schedule left behind (#927). Imported by
-dw/pipeline_processors/components.py, which re-exports the two public names for
+into job events (#891), and `watching_unfinished_mag_calibration` the ratios a
+call that ran fewer forwards than its schedule left behind (#927), taken before
+the call's reset drops them. Imported by
+dw/pipeline_processors/components.py, which re-exports the public names for
 dw/pipeline_processors/pipeline.py, and never imports it back.
 """
 
@@ -91,28 +92,84 @@ def _report_mag_ratios(ratios, context):
     emit_warning(text)
 
 
-def _report_unfinished_mag_calibration(transformer):
-    """Report the ratios a calibrating call left in its mag state (#927).
-
-    diffusers logs a calibration only when its step counter reaches the
-    config's num_inference_steps, and a scheduler can run fewer forwards than
-    that: MiniMax-H3's turns N sigmas into N - 1 evaluations. Such a call ends
-    with its ratios still in the state, which the call's reset then drops. A
-    call that did finish has nothing left here - diffusers clears the list
-    when it logs - so nothing is reported twice.
-    """
-    if not getattr(getattr(transformer, "_cache_config", None), "calibrate", False):
-        return
+def _tail_state_manager(transformer):
+    """The StateManager of the transformer's tail mag hook, which holds the
+    calibration ratios, or None."""
     from diffusers.hooks.mag_cache import MagCacheBlockHook
 
     for module in transformer.modules():
         registry = getattr(module, "_diffusers_hook", None)
         for hook in getattr(registry, "hooks", {}).values():
             if isinstance(hook, MagCacheBlockHook) and hook.is_tail:
-                for name, state in hook.state_manager._state_cache.items():
-                    if state.calibration_ratios:
-                        _report_mag_ratios(list(state.calibration_ratios), name)
-                return
+                return getattr(hook, "state_manager", None)
+    return None
+
+
+class _UnfinishedCalibration:
+    """The ratios a calibrating call left unfinished, read while they exist.
+
+    diffusers logs a calibration only when its step counter reaches the
+    config's num_inference_steps, and a scheduler can run fewer forwards than
+    that: MiniMax-H3's turns N sigmas into N - 1 evaluations. Such a call ends
+    with its ratios still in the mag state.
+
+    When that state is dropped changed with diffusers 0.43 (#1315). 0.42 kept it
+    until dw's own reset after the call, and 0.43's ModularPipeline resets every
+    component's cache hooks in its own `finally`, before the call returns. So the
+    ratios are taken in the state manager's `reset`, just before either reset
+    clears them, and once more after the call for a state no reset has reached.
+    A call that did finish has nothing left - diffusers clears the list when it
+    logs - so nothing is reported twice.
+    """
+
+    def __init__(self, manager):
+        self.manager = manager
+        self.ratios = {}
+
+    def _take(self):
+        for name, state in list(getattr(self.manager, "_state_cache", {}).items()):
+            ratios = list(getattr(state, "calibration_ratios", None) or ())
+            if ratios:
+                self.ratios[name] = ratios
+            else:
+                self.ratios.pop(name, None)
+
+    def install(self):
+        reset = self.manager.reset
+
+        def taking_reset(*args, **kwargs):
+            self._take()
+            return reset(*args, **kwargs)
+
+        self.manager.reset = taking_reset
+
+    def remove(self):
+        # The wrapper is an instance attribute over the class's own method
+        self.manager.__dict__.pop("reset", None)
+
+    def report(self):
+        self._take()
+        for name, ratios in self.ratios.items():
+            _report_mag_ratios(ratios, name)
+        self.ratios = {}
+
+
+def watching_unfinished_mag_calibration(transformer):
+    """Start holding the ratios a calibrating call leaves unfinished (#927).
+
+    Returns:
+        (report, remove): `report()` emits them, once the call has completed;
+        `remove()` stops watching. Both are no-ops unless the transformer's
+        cache is a MagCacheConfig with calibrate on.
+    """
+    if not getattr(getattr(transformer, "_cache_config", None), "calibrate", False):
+        return (lambda: None), (lambda: None)
+    manager = _tail_state_manager(transformer)
+    if manager is None or not callable(getattr(manager, "reset", None)):
+        return (lambda: None), (lambda: None)
+    watch = _UnfinishedCalibration(manager)
+    watch.install()
+    return watch.report, watch.remove
 
 
 @contextlib.contextmanager

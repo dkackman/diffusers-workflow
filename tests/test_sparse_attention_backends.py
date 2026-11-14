@@ -3,7 +3,7 @@
 import pytest
 import torch
 
-from dw import sparse_attention
+from dw import acceleration_warnings, sparse_attention
 from dw.acceleration_warnings import CUDA_ONLY_ATTENTION_BACKENDS
 from dw.acceleration_warnings import available_attention_backends
 
@@ -29,6 +29,10 @@ def test_mps_lists_no_cuda_backends():
 
 
 def test_cuda_lists_sparse_when_kernels_present(monkeypatch):
+    # The full list, as on a CUDA box with every backend's package installed
+    monkeypatch.setattr(
+        acceleration_warnings, "attention_backend_usable", lambda b: True
+    )
     monkeypatch.setattr(sparse_attention, "_kernels_importable", lambda: True)
     names = available_attention_backends("cuda")
     assert names[0] == "native"
@@ -109,3 +113,35 @@ def test_health_carries_attention_backends(server):  # noqa: F811
         body = client.get("/api/health").json()
     assert "native" in body["attention_backends"]
     assert isinstance(body["attention_backends"], list)
+
+
+def _unusable(*unusable):
+    """A stand-in for diffusers' requirement check refusing `unusable`."""
+
+    def check(backend):
+        if backend.value in unusable:
+            raise RuntimeError(f"{backend.value} needs a package this install lacks")
+
+    return check
+
+
+def test_a_backend_diffusers_reports_unavailable_is_not_listed(monkeypatch):
+    """#1315: the list follows diffusers' own requirement check."""
+    import diffusers.models.attention_dispatch as dispatch
+
+    monkeypatch.setattr(
+        dispatch, "_check_attention_backend_requirements", _unusable("sage_hub", "flex")
+    )
+    monkeypatch.setattr(sparse_attention, "_kernels_importable", lambda: True)
+    names = available_attention_backends("cuda")
+    assert "sage_hub" not in names and "flex" not in names
+    assert "native" in names and "sparse" in names and "_native_cudnn" in names
+
+
+def test_a_diffusers_without_the_check_filters_nothing(monkeypatch):
+    import diffusers.models.attention_dispatch as dispatch
+
+    monkeypatch.delattr(dispatch, "_check_attention_backend_requirements")
+    monkeypatch.setattr(sparse_attention, "_kernels_importable", lambda: True)
+    names = available_attention_backends("cuda")
+    assert "sage_hub" in names and "flex" in names

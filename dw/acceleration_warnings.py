@@ -293,12 +293,14 @@ def available_attention_backends(device_type: str) -> list[str]:
 
     `native` first, then the other `native`-family names; on CUDA, `sparse`
     (only where the compiled kernels loaded) and the CUDA-only names. A name
-    diffusers' `AttentionBackendName` lacks is dropped, so the menu never
-    offers one the pipeline would refuse.
+    diffusers' `AttentionBackendName` lacks is dropped, and so is one diffusers'
+    own requirement check reports unusable here (a missing package, or one
+    older than that diffusers needs), so the menu never offers one the pipeline
+    would refuse.
     """
     from diffusers.models.attention_dispatch import AttentionBackendName
 
-    known = {backend.value for backend in AttentionBackendName}
+    known = {backend.value: backend for backend in AttentionBackendName}
     cuda = device_type == "cuda"
     names = ["native", "_native_flash", "_native_efficient", "_native_math"]
     if cuda:
@@ -308,4 +310,32 @@ def available_attention_backends(device_type: str) -> list[str]:
         if sparse_attention._kernels_importable():
             names.append(SPARSE_BACKEND)
         names.extend(sorted(CUDA_ONLY_ATTENTION_BACKENDS))
-    return [name for name in names if name == SPARSE_BACKEND or name in known]
+    return [
+        name
+        for name in names
+        if name == SPARSE_BACKEND
+        or (name in known and attention_backend_usable(known[name]))
+    ]
+
+
+def attention_backend_usable(backend) -> bool:
+    """Whether diffusers itself would accept `backend` (an
+    `AttentionBackendName`) on this install.
+
+    diffusers raises from its requirement check when a backend's package is
+    missing or older than it needs, and only that check knows its minimums -
+    they move with the diffusers release (0.43 refuses too-old packages), so
+    dw restates none of them. The check is private to diffusers and has no
+    public equivalent: a diffusers without it filters nothing, as before.
+    """
+    try:
+        from diffusers.models.attention_dispatch import (
+            _check_attention_backend_requirements as check,
+        )
+    except ImportError:
+        return True
+    try:
+        check(backend)
+    except (RuntimeError, ImportError, ValueError):
+        return False
+    return True

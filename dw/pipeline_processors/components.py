@@ -23,9 +23,9 @@ from ..sparse_attention import (
 from huggingface_hub.errors import HfHubHTTPError
 from .timing import counting_forwards, report_cache_stats
 from .mag_calibration import (  # noqa: F401 - re-exported for pipeline.py
-    _report_unfinished_mag_calibration,
     captured_mag_calibration,
     get_cache_transformer,
+    watching_unfinished_mag_calibration,
 )
 from .h3_anchor import insert_latent_anchor
 from .h3_guides import insert_guides, insert_keystone_restore
@@ -195,9 +195,15 @@ def set_component_attention_backend(component, backend):
     and models sage cannot serve (Music3's head_dim-256 audio decoder, LTX's
     attention mask) crash. Restoring the active backend keeps the pin on the
     component it was asked for; its processors pass their own backend explicitly.
+
+    The restore reads a private registry attribute, so it runs only while that
+    attribute exists (#1315): a diffusers that renamed it just pins the backend.
     """
     from diffusers.models.attention_dispatch import _AttentionBackendRegistry
 
+    if not hasattr(_AttentionBackendRegistry, "_active_backend"):
+        component.set_attention_backend(backend)
+        return
     active_backend = _AttentionBackendRegistry._active_backend
     try:
         component.set_attention_backend(backend)
@@ -970,16 +976,20 @@ def stateful_cache_context(pipeline, segment=None):
 
     logger.debug(f"Entering cache context for {transformer.__class__.__name__}")
     counter, stop_counting = counting_forwards(transformer)
+    report_calibration, stop_watching = watching_unfinished_mag_calibration(transformer)
     try:
         with transformer.cache_context(_CACHE_CONTEXT_NAME):
             yield
         # Only a call that completed has ratios worth pasting
-        _report_unfinished_mag_calibration(transformer)
+        report_calibration()
     finally:
         try:
+            # The counter's own tallies, taken per forward: a hook state the
+            # call has already reset (diffusers 0.43) is never read here
             report_cache_stats(counter, segment)
         finally:
             stop_counting()
+            stop_watching()
         # Private, but it is what diffusers' own pipelines call and there is no
         # public equivalent. Also clears the context an errored call left set
         transformer._reset_stateful_cache()
