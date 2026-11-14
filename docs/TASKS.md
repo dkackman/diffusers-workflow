@@ -1337,7 +1337,9 @@ applies again; it never jumps to another face.
 
 Behaviour change: on a clip with several faces the default start face is now the
 `largest`, not the most confident; `select: "confident"` restores the old rule.
-Lost frames keep the source pixels instead of restarting on another face. A padded square around the smoothed box is cut from every
+Lost frames keep the source pixels instead of restarting on another face.
+
+A padded square around the smoothed box is cut from every
 frame, resized to `crop_size`, and the crops are padded to
 `modulus * n + remainder` frames with mirrored warm-up and cool-down frames.
 
