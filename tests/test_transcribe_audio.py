@@ -78,8 +78,8 @@ class TestTranscribeAudio(unittest.TestCase):
 
         self.assertEqual(mock_pipeline.call_args[1]["model"], "openai/whisper-tiny")
 
-    @patch("dw.tasks.audio_transcription.hf_pipeline")
-    @patch("dw.tasks.audio_transcription.validate_model_name")
+    @patch.object(audio_transcription, "hf_pipeline")
+    @patch.object(audio_transcription, "validate_model_name")
     def test_the_model_name_is_checked_again_at_run_time(self, check, mock_pipeline):
         # A name that arrives by previous_result: is deferred at validate, so
         # the location policy's refusal has to stop the load here
