@@ -98,6 +98,12 @@ class RegistryTable(Mapping):
         return f"RegistryTable({self._rule!r}, {self._table()!r})"
 
 
+def _named_arguments(**rules):
+    """The rules that are a list of argument names, as tuples, without the
+    empty ones."""
+    return {rule: tuple(names) for rule, names in rules.items() if names}
+
+
 def register_command(
     command_name: str,
     implementation=None,
@@ -231,14 +237,15 @@ def register_command(
             rules["choices"] = {name: tuple(values) for name, values in choices.items()}
         if static_check is not None:
             rules["static_check"] = static_check
-        if media_arguments:
-            rules["media_arguments"] = tuple(media_arguments)
-        if weight_file_arguments:
-            rules["weight_file_arguments"] = tuple(weight_file_arguments)
-        if whole_numbers:
-            rules["whole_numbers"] = tuple(whole_numbers)
         if required_weights:
             rules["required_weights"] = required_weights
+        rules.update(
+            _named_arguments(
+                media_arguments=media_arguments,
+                weight_file_arguments=weight_file_arguments,
+                whole_numbers=whole_numbers,
+            )
+        )
         _COMMAND_RULES[command_name] = rules
         logger.debug(f"Registered command handler: {command_name}")
         return func

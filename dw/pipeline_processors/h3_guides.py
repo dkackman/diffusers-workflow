@@ -34,7 +34,7 @@ import logging
 
 import torch
 
-from ..events import emit_warning
+from ..events import emit_log, emit_warning
 from ..tasks.video_utils import load_audio_video
 from .h3_hold import core_denoise_sequences
 from .h3_rules import (
@@ -636,3 +636,20 @@ def guides_refusal(pipeline):
             f"{type(pipeline).__name__} has no '{LAYOUT_STEP}' step to take them"
         )
     return None
+
+
+def levelled_tail(carry, level, index):
+    """The level a levelled carry holds (#1322): the first tail this run
+    carries sets it and goes on as rendered; every later tail is pulled back
+    to it before the next segment reads it. The finished frames are untouched."""
+    if level is None:
+        emit_log(f"Levelled carry: segment {index + 1}'s tail sets the level")
+        return latent_level(carry.latents)
+    mean, spread = latent_level(carry.latents)
+    carry.latents = levelled(carry.latents, level)
+    emit_log(
+        f"Levelled carry: segment {index + 1}'s tail pulled back - mean off by "
+        f"{float((mean - level[0]).abs().mean()):.4f}, spread x"
+        f"{float((spread / level[1].clamp_min(1e-6)).mean()):.3f} of the level"
+    )
+    return level

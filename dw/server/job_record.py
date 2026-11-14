@@ -6,12 +6,14 @@ cost acknowledgement, the spec fields a rerun needs and the event bound.
 queues them.
 """
 
+import secrets
 import threading
 import time
 import uuid
 
 from ..devices import label_of
 from ..download_watch import format_progress
+from ..workflow_run import SEED_BITS
 from ..workspace import DEFAULT_WORKSPACE_NAME
 
 QUEUED = "queued"
@@ -78,6 +80,36 @@ def keep_drawn_seed(arguments, variable, realized):
 
 # A long run emits thousands of progress events; the tail is what explains
 # the outcome. Bounded so history stays a summary store, not an event log
+def rerun_arguments(arguments, overrides, new_seed, variable, realized):
+    """A rerun's (arguments, warnings): `overrides` merged over the stored
+    `arguments`, and the seed in `variable` settled. Overrides keep the seed
+    the original drew (`keep_drawn_seed`, over `realized()`), unless one of
+    them is an explicit null for the seed - "draw fresh", not a gap to fill.
+    `new_seed` draws one here. Raises ValueError when it cannot."""
+    overrides = overrides or {}
+    arguments = {**arguments, **overrides}
+    warnings = []
+    draws_fresh = variable is not None and overrides.get(variable, 1) is None
+    if overrides and not new_seed and not draws_fresh:
+        arguments, warnings = keep_drawn_seed(arguments, variable, realized())
+    if new_seed:
+        if variable in overrides:
+            raise ValueError(
+                f"'new_seed' and an override of the seed variable "
+                f"'{variable}' cannot both be given"
+            )
+        if variable is None:
+            raise ValueError(
+                "This workflow does not draw its seed from a variable, so "
+                "a rerun cannot change it. A workflow with no seed at all "
+                "already draws a fresh one every run."
+            )
+        # Bounded so the number survives its trip through a browser as
+        # JSON - see SEED_BITS
+        arguments = {**arguments, variable: secrets.randbits(SEED_BITS)}
+    return arguments, warnings
+
+
 MAX_PERSISTED_EVENTS = 200
 
 

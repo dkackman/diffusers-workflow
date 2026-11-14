@@ -75,7 +75,7 @@ from .chain_config import ChainConfig, trimmed_take_shots
 from .chain_continuity import CONTINUITY_MODES, _generated_audio
 from .chain_look import LookHold
 from .h3_anchor import anchor_refusal
-from .h3_guides import guides_refusal, latent_guide_tail, latent_level, levelled
+from .h3_guides import guides_refusal, latent_guide_tail, levelled_tail
 from .chain_rules import (
     CHAIN_CAPSTONE,
     CHAIN_LATENT_CARRY,
@@ -160,14 +160,7 @@ def run_chain(pipeline, chain_definition, arguments):
     segment_1_texture = segment_1_face = None
 
     # An earlier run's kept segments, copied in as segments 1..k
-    try:
-        resumed = chain_resume.load(config, spill, hold, pipeline)
-    except Exception:
-        # load keeps only accepted files in the spill (a refused one's copy
-        # is taken back out), so the hint names a resumable prefix, and a
-        # refusal of the first file draws none
-        chain_resume.warn_resumable(spill)
-        raise
+    resumed = chain_resume.load_or_hint(config, spill, hold, pipeline)
     if resumed is not None:
         resumed.lay_down(timeline)
         carry, raw_carry = resumed.carry, resumed.raw_carry
@@ -501,7 +494,7 @@ def _render_attempt(
         carry = _with_latent_tail(carry, taken, config, len(rendered))
     level = state.level
     if config.latent_level:
-        level = _levelled_tail(carry, level, segment.index)
+        level = levelled_tail(carry, level, segment.index)
     segment_audio, segment_rate = _generated_audio(artifact)
     # A segment's own generated audio can run a codec-padding sliver
     # short of the frames it was asked for - the same gap #197 fixed for
@@ -899,23 +892,6 @@ def _taken_latents(output):
     return latents.detach().cpu(), (
         audio.detach().cpu() if isinstance(audio, torch.Tensor) else None
     )
-
-
-def _levelled_tail(carry, level, index):
-    """The level a levelled carry holds (#1322): the first tail this run
-    carries sets it and goes on as rendered; every later tail is pulled back
-    to it before the next segment reads it. The finished frames are untouched."""
-    if level is None:
-        emit_log(f"Levelled carry: segment {index + 1}'s tail sets the level")
-        return latent_level(carry.latents)
-    mean, spread = latent_level(carry.latents)
-    carry.latents = levelled(carry.latents, level)
-    emit_log(
-        f"Levelled carry: segment {index + 1}'s tail pulled back - mean off by "
-        f"{float((mean - level[0]).abs().mean()):.4f}, spread x"
-        f"{float((spread / level[1].clamp_min(1e-6)).mean()):.3f} of the level"
-    )
-    return level
 
 
 def _with_latent_tail(carry, taken, config, num_frames):

@@ -36,7 +36,6 @@ can attach late (or reconnect) and replay from where it left off.
 import os
 import copy
 import json
-import secrets
 import time
 import uuid
 import logging
@@ -46,7 +45,6 @@ from contextlib import contextmanager
 from ..events import NON_INTERRUPTIBLE_PHASES
 from ..worker_protocol import Execute, workflow_identity
 from ..worker_manager import WorkerManager
-from ..workflow_run import SEED_BITS
 from ..security import (
     SecurityError,
     validate_json_size,
@@ -72,7 +70,7 @@ from .job_record import (
     RUNNING,
     TERMINAL_STATES,
     Job,
-    keep_drawn_seed,
+    rerun_arguments,
 )
 from .pool import WorkerSlot
 from .worker_memory import WorkerBusy
@@ -504,7 +502,7 @@ class JobManager(Dispatcher):
 
         `new_seed` draws a fresh seed into the workflow's seed variable
         (see rerun). `overrides` are variables merged over the stored
-        arguments first, keeping a seed the original drew (keep_drawn_seed).
+        arguments first, keeping a seed the original drew (rerun_arguments).
         Raises ValueError when it cannot, or the job's workspace is gone."""
         job = self.jobs.get(job_id)
         if job is not None:
@@ -521,35 +519,13 @@ class JobManager(Dispatcher):
             }
             arguments = historical["arguments"]
 
-        arguments = {**arguments, **(overrides or {})}
-        spec["rerun_warnings"] = []
-        seed_variable = self.seed_variable(job_id)
-        # An explicit null override means "draw fresh": not a gap to fill
-        # with the parent's realized seed
-        draws_fresh = (
-            seed_variable is not None
-            and (overrides or {}).get(seed_variable, 1) is None
+        arguments, spec["rerun_warnings"] = rerun_arguments(
+            arguments,
+            overrides,
+            new_seed,
+            self.seed_variable(job_id),
+            lambda: self.realized(job_id),
         )
-        if overrides and not new_seed and not draws_fresh:
-            arguments, spec["rerun_warnings"] = keep_drawn_seed(
-                arguments, self.seed_variable(job_id), self.realized(job_id)
-            )
-        if new_seed:
-            variable = self.seed_variable(job_id)
-            if variable in (overrides or {}):
-                raise ValueError(
-                    f"'new_seed' and an override of the seed variable "
-                    f"'{variable}' cannot both be given"
-                )
-            if variable is None:
-                raise ValueError(
-                    "This workflow does not draw its seed from a variable, so "
-                    "a rerun cannot change it. A workflow with no seed at all "
-                    "already draws a fresh one every run."
-                )
-            # Bounded so the number survives its trip through a browser as
-            # JSON - see SEED_BITS
-            arguments = {**arguments, variable: secrets.randbits(SEED_BITS)}
 
         workspace = spec.get("workspace")
         if (

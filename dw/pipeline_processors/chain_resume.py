@@ -607,6 +607,17 @@ def failure_hint(spill):
     return references.make_ref(references.OUTPUT, relative)
 
 
+def load_or_hint(config, spill, hold=None, pipeline=None):
+    """`load`, with the resume hint on a refusal. load keeps only accepted
+    files in the spill (a refused one's copy is taken back out), so the hint
+    names a resumable prefix, and a refusal of the first file draws none."""
+    try:
+        return load(config, spill, hold, pipeline)
+    except Exception:
+        warn_resumable(spill)
+        raise
+
+
 def warn_resumable(spill):
     """Tell the caller a failed chain's finished segments can be resumed
     from, naming the reference `resume_from` takes."""

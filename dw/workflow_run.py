@@ -314,15 +314,13 @@ def prepare_definition(workflow, workflow_def, arguments, base_dir):
         # and substitution copies the variables block along with the
         # steps
         workflow_def["variables"] = recorded_variables
-        # realize the variables - explicit references only (asset:,
-        # output:, constant:, prompt:, a {media_type, location} dict).
-        # Key-name conventions (an 'image'/'video'/'_type' argument) are
-        # left off here: a variable's own name is not the argument it
-        # will end up filling, so a variable named 'image' fed to a step's
-        # 'video' argument was pre-loaded as a PIL Image before that step
-        # was ever substituted in (#365). The step-level realize_args
-        # passes below apply the conventions under the real argument key
-        # Any variable a resume_from names stays the reference (#1304)
+        # realize the variables - explicit references only (asset:, output:,
+        # constant:, prompt:, a {media_type, location} dict). Key-name
+        # conventions wait for the step-level realize_args passes below, under
+        # the real argument key: a variable named 'image' fed to a step's
+        # 'video' argument was pre-loaded as a PIL Image before that step was
+        # substituted in (#365). A variable a resume_from names stays the
+        # reference (#1304)
         held = resume_variables(workflow_def.get("steps"), variables)
         realized = {k: v for k, v in variables.items() if k not in held}
         realize_args(realized, base_dir, apply_key_conventions=False)
