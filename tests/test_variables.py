@@ -364,6 +364,19 @@ def test_argument_errors_reports_a_dict_passed_for_a_string_variable():
     assert "takes a plain string" in errors[0]["message"]
 
 
+def test_argument_errors_refuses_a_boolean_for_a_float_variable():
+    """float(True) is 1.0: a JSON boolean for a float default was accepted
+    silently (#1354). A number, and a numeric string, still pass."""
+    definition = {"variables": {"comma_seconds": 0.3}}
+
+    errors = argument_errors(definition, {"comma_seconds": True})
+    assert [error["path"] for error in errors] == ["arguments.comma_seconds"]
+    assert "to type float" in errors[0]["message"]
+    assert argument_errors(definition, {"comma_seconds": False})
+    assert argument_errors(definition, {"comma_seconds": 0.5}) == []
+    assert argument_errors(definition, {"comma_seconds": "0.5"}) == []
+
+
 class TestResolveVariableValues:
     """A list-valued variable's entries may name other variables - a shot
     entry says "from_file": "variable:character_a_voice" and one variable
