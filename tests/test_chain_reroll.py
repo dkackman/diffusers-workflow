@@ -384,6 +384,20 @@ def test_opening_missing_on_every_attempt_is_reported(monkeypatch):
     assert call.kwargs["segment"] == 2
     assert "line_opening_missing" in call.args[0]
     assert call.kwargs["findings"][0]["rule"] == "line_opening_missing"
+    # #1363: the similarity passed, so the note is not about the words or carry
+    assert "failed its words" not in call.kwargs["note"]
+    assert "repair-segment" not in call.kwargs["note"]
+    assert "narrated take" in call.kwargs["note"]
+
+
+def test_segment_one_words_failure_is_not_pointed_at_repair_segment(monkeypatch):
+    fake = FakeWords(bad={"one one"})
+    pipeline, result, warn = _run_words(monkeypatch, fake, _words_chain(retries=1))
+    (call,) = _chain_check_warnings(warn)
+    assert call.kwargs["segment"] == 1
+    assert "repair-segment" not in call.kwargs["note"]
+    assert "carry" not in call.kwargs["note"]
+    assert "different seed" in call.kwargs["note"]
 
 
 def test_a_segment_with_no_line_is_neither_checked_nor_re_rolled(monkeypatch):
