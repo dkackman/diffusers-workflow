@@ -2005,7 +2005,11 @@ class TestLongFormSkill:
             assert name in section, name
         assert section.index("analyze_seams") > section.index("`concat_videos`")
         levers = _flat(_read(LONG_FORM_LEVERS))
-        for name in ("generate-speech", "`shot: standing` for a monologue", "analyze_seams"):
+        for name in (
+            "generate-speech",
+            "`shot: standing` for a monologue",
+            "analyze_seams",
+        ):
             assert name in levers, name
         skill = _flat(self._text())
         assert "sum the `plan.estimate`s" in skill
