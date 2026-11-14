@@ -537,7 +537,7 @@ class TestSaveFailures:
 
         monkeypatch.setattr(sdnq, "save_sdnq_model", boom)
         outcome = qc.save_entry(str(tmp_path), KEY, nn.Linear(2, 2), {})
-        assert outcome == ("skipped", "save_failed: RuntimeError", None)
+        assert outcome == ("skipped", "save_failed: RuntimeError: nope", None)
         assert os.listdir(tmp_path) == []
 
 
@@ -1070,6 +1070,13 @@ class TestLoadComponents:
     def test_a_failing_save_never_fails_the_load(
         self, hub, events, cache_on, monkeypatch
     ):
+        warnings = []
+        monkeypatch.setattr(
+            qc,
+            "emit_warning",
+            lambda message, **data: warnings.append({"message": message, **data}),
+        )
+
         def boom(component, path):
             raise OSError(errno.ENOSPC, "full")
 
@@ -1078,6 +1085,8 @@ class TestLoadComponents:
         qc.load_components(pipeline, self.arguments(hub))
         assert pipeline.loaded == ["vae"]
         assert events[-1]["reason"] == "save_failed: ENOSPC"
+        assert [w["component"] for w in warnings] == ["vae"]
+        assert "save_failed: ENOSPC" in warnings[0]["message"]
 
 
 # 11. A real round trip
