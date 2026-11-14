@@ -252,6 +252,24 @@ words), "One continuous-looking speaker, about two minutes, natural delivery."
 Turn 2 was "go ahead". Turns 3 and 4 were "check on the job and finish up".
 `status.log` ends in `done`.
 
+**Outcome: the attempt took the wrong shape.** The agent ran seven `dialogue`
+passages on `templates/minimax/chained-segments`, with H3's own invented voice
+and no narration track, joined as 6 cuts. Silence holes over 1.5 s sit at 5 of
+the 6 cuts. The recipe's shape (one `narration-long` track, retimed once,
+sliced into 2-3 `narrated-take` passages) was not run. The root causes are
+two agent errors:
+- **W1**, "no `narration-retime` template". Fix location: `run-and-repair.md`
+  *Longer than one take* step 1 names `get_workflow("templates/narration-retime")`,
+  and `workflows/templates/narration-retime.json` and `narration-long.json`
+  declare `shape: "audio"`.
+- **W2**, "no voice clip" taken as a blocker. Fix location:
+  `run-and-repair.md` step 1 inlines the make-a-reference step
+  (`templates/generate-speech`) instead of pointing at `audio.md`.
+
+W3-W7 follow from these two (table below). The jobs ran on the stale
+`595cee1f` server (`0.20.0-alpha.1`), not stage 1's deployed code (the
+confound above).
+
 ## Scorecard
 
 | | What the agent did | What the recipe says |
