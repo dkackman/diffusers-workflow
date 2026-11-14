@@ -52,7 +52,14 @@ from diffusers import attention_backend
 # dw.prompt_weighting (transformers) and diffusers.hooks (peft, bitsandbytes) are
 # imported where they are used - at module scope they add seconds to every startup
 
-from ..events import WorkflowCancelled, emit_log, emit_phase, get_context
+from ..events import (
+    WorkflowCancelled,
+    emit_log,
+    emit_phase,
+    emit_warning,
+    get_context,
+)
+from ..step_passes import step_list_passes
 from ..output_extraction import attach_video_frame_rate
 from ..step_cache import component_names, copy_containers
 from ..sparse_attention import (
@@ -665,8 +672,13 @@ class Pipeline(H3Arguments):
             # (and reports a fallback) while the processors are still on
             stack.enter_context(sparse_call(self.pipeline, label))
             if tst is not None:
-                from .h3_tst import tst_call
+                from .h3_tst import step_list_refusal, tst_call
 
+                skipped = step_list_refusal(self.pipeline, arguments)
+                if skipped:
+                    emit_warning(f"{label}: {skipped}")
+                    tst = None
+            if tst is not None:
                 stack.enter_context(
                     tst_call(
                         self.pipeline,
@@ -744,7 +756,11 @@ class Pipeline(H3Arguments):
             return arguments
 
         run_context = get_context()
-        num_steps = arguments.get("num_inference_steps", None)
+        # A fixed step list runs len - 1 passes and takes no
+        # num_inference_steps (#1316, dw/step_passes.py)
+        num_steps = step_list_passes(self.pipeline, arguments) or arguments.get(
+            "num_inference_steps", None
+        )
 
         def on_step_end(pipe, step_index, timestep, callback_kwargs):
             mark("pass_ended")
