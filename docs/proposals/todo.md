@@ -37,6 +37,12 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **H3 precision burn probe** (#1319, stage #1346), shipped 2026-11-14 as a
+  bench record. A bf16 transformer under block offload on one card burns at the
+  int8 control's rate, so precision is not a burn lever at int8→bf16. Tensor
+  parallelism across lem's two cards was cut, because on 3090s it can't run H3
+  above int8. It is deferred under two triggers, and the first is now shown
+  unmet: `complete/h3-bf16-burn-probe-complete.md`.
 - **Face track subject selection** (#1321, stage #1348), shipped 2026-11-14.
   `crop_face_track` gains `select` (`largest` default, `centre`, `left`,
   `right`, `confident`), applied at each track start, and a lost track now
