@@ -37,6 +37,14 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **Seam/segment split of chain drift** (#1324, stages #1349-#1350), shipped
+  2026-11-14. `analyze_seams` answers gain `segment_looks`: each shot's 1 s
+  first and last window of new frames (lightness, contrast, saturation,
+  detail), a measure no rule reads. `bench/driver.py measure` totals it into
+  `split_<m>_total`/`_seams`/`_segments`/`_seam_share`/`_seam_sign`, which sum
+  exactly. It says where a measure changes, not whether Don sees it.
+  Face-crop measures were cut, with a trigger:
+  `complete/seam-segment-split-complete.md`.
 - **H3 precision burn probe** (#1319, stage #1346), shipped 2026-11-14 as a
   bench record. A bf16 transformer under block offload on one card burns at the
   int8 control's rate, so precision is not a burn lever at int8→bf16. Tensor
