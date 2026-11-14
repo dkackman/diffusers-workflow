@@ -225,4 +225,10 @@ seam/segment drift split: `analyze_seams`' `segment_looks`
 measures ([bench/driver.py](../bench/driver.py);
 [#1324](https://github.com/dkackman/diffusers-workflow/issues/1324)), which say
 how much of a chained take's drift arrives as a step at each seam and how much
-inside the segments.
+inside the segments. The same source, again concept only, inspired the
+seam-restore probe
+([bench/workflows/seam-restore.json](../bench/workflows/seam-restore.json);
+[#1325](https://github.com/dkackman/diffusers-workflow/issues/1325)): a
+reference-anchored, low-strength redraw of a segment's tail before it is handed
+on as the next segment's guide, so each seam starts from a reset copy rather
+than the inherited texture.
