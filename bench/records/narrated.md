@@ -478,3 +478,71 @@ keyframes for identity.
 On `levelled-carry-s1.mp4`: "she becomes progressively glossy". Rejected; the stills and
 the face-sharpness measure read the gloss as softening and missed it. Don closed the
 experiment here. The untried combinations above were not run.
+
+## bf16 transformer, seed 1 - gate db33868da007, arm af390360c19b (#1319 stage 1, #1346)
+
+<!-- DRAFT: the bf16 column is filled in when af390360c19b finishes. -->
+
+`bench/workflows/narrated-take-bf16.json` is `narrated-take.json` with the transformer's
+SDNQ int8 config removed. The transformer loads in bf16 under the same block group
+offload; the text encoder and VAE stay int8 SDNQ. Every other argument matches the CP1
+control `d5584b91816d` (shot `dialogue`, seed 1, `stop_after` 12, tier `best`, no
+counters). Both jobs were submitted inline because the server can't reach `bench/` by
+path, so `get_job_workflow` shows what ran.
+
+### Gate (stop_after 1) - job db33868da007
+
+- Wall time 951 s: load 94.6, encode 29, denoise 738.3 (19 passes, ~37 s each), decode 70.9.
+- Process peak RSS 108,325 MB, reached at load. In-run RSS ~98 GB, ~63 GB of it
+  file-backed (the bf16 transformer, mmap'd). `host_ram_gb` was set to 110 from this.
+- Peak reserved VRAM 22,142 MB.
+- No admission refusal, no OOM, under 45 min, so the full arm ran.
+
+### Cost
+
+| | int8 control d5584b91816d | bf16 af390360c19b |
+|---|---|---|
+| wall, 12 segments | 233 min | TBD |
+| denoise per pass | 54.6 s | TBD |
+| host committed peak | 68,747 MB | TBD |
+
+### face_drop per segment (chain check; already relative to segment 1)
+
+| segment | int8 | bf16 |
+|---|---|---|
+| 2 | 0.003 | TBD |
+| 3 | 0.032 | TBD |
+| 4 | 0.043 | TBD |
+| 5 | 0.057 | TBD |
+| 6 | 0.146 | TBD |
+| 7 | 0.114 | TBD |
+| 8 | 0.111 | TBD |
+| 9 | 0.140 | TBD |
+| 10 | 0.148 | TBD |
+| 11 | 0.154 | TBD |
+| 12 | 0.207 | TBD |
+
+### Face crop at the CP1 windows (`bench/face_windows.py`)
+
+Sharpness (median Laplacian variance of the face crop), saturation (mean HSV S of the
+crop) and SFace similarity to the face at 0.5 s. This script's crop and scale differ
+from the earlier sections' scratch measure (the control reads 90 here against 204
+above at 0-10 s), so only the two columns in this table compare with each other.
+Growth is read from each arm's own 0-10 s window, because different weights give a
+different segment 1.
+
+| window | int8: sharp / sat / sim | bf16: sharp / sat / sim |
+|---|---|---|
+| 0-10 s | 90 / 101.7 / .92 | TBD |
+| 20-30 s | 167 / 109.6 / .90 | TBD |
+| 40-50 s | 283 / 111.9 / .80 | TBD |
+| 60-70 s | 573 / 118.4 / .80 | TBD |
+| 80-90 s | 807 / 120.4 / .74 | TBD |
+| growth 0-10 to 80-90 | 9.0x / +18.7 / -.18 | TBD |
+
+Face strip (0.5 / 40 / 60 / 85 s, int8 row above bf16): TBD (asset name).
+
+### Verdict
+
+TBD: precision is / is not a burn lever at int8 to bf16. One seed; if marginal, a
+second seed is a new `spend` ask.
