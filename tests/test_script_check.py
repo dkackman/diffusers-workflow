@@ -745,6 +745,14 @@ class TestUnscriptedSpeech(unittest.TestCase):
         self.assertEqual(found["at"]["shot"], "A")
         self.assertTrue(found["at"]["repeats_line"])
 
+    def test_the_earlier_copy_of_a_repeated_line_is_the_finding(self):
+        # #1360: the line is matched to the last copy, the first is released
+        chunks = words("alpha bravo charlie", 0.0) + words("alpha bravo charlie", 1.0)
+        answer = shot_run([{"text": "alpha bravo charlie", "shot": "A"}], chunks)
+        (found,) = rules(answer, "unscripted_speech")
+        self.assertEqual(found["at"]["seconds"], 0.0)
+        self.assertEqual(found["at"]["word"], "alpha")
+
     def test_a_doubled_line_inside_a_longer_cut_is_a_finding(self):
         # align alone keeps the second copy inside the line (similarity 0.75)
         chunks = (

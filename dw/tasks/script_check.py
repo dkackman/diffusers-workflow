@@ -200,6 +200,36 @@ def _release_repeats(expected, heard, assigned, unassigned):
     unassigned.sort()
 
 
+def _last_copy_is_the_line(heard, assigned, unassigned):
+    """When a line was heard twice word for word, the later copy is the line
+    and the earlier one is released (#1360). SequenceMatcher ties go to the
+    first copy, but #920's verified result (suite case C-F503) has the
+    finding on the first. Swaps a line's assigned words with a later
+    unassigned run of the same words that only that line neighbours."""
+    for index, own in enumerate(assigned):
+        if not own:
+            continue
+        words = [heard[j]["word"] for j in own]
+        runs = []
+        for j, near in unassigned:
+            if near == (index,) and j > own[-1]:
+                if runs and runs[-1][-1] == j - 1:
+                    runs[-1].append(j)
+                else:
+                    runs.append([j])
+        for run in runs:
+            if [heard[j]["word"] for j in run] != words or run[0] < own[-1]:
+                continue
+            if any(o and own[-1] < o[0] < run[0] for o in assigned):
+                break
+            unassigned[:] = [
+                (j, near) for j, near in unassigned if j not in set(run)
+            ] + [(j, (index,)) for j in own]
+            assigned[index] = run
+            own = run
+        unassigned.sort()
+
+
 def _no_shot_reason(shots_source, spans, parsed_lines):
     """Why speech_in_silent_shot cannot run on this call, or None when it
     can."""
@@ -266,6 +296,7 @@ def check(
     expected = [normalize_words(line["text"]) for line in parsed_lines]
     assigned, unassigned = align(expected, heard)
     _release_repeats(expected, heard, assigned, unassigned)
+    _last_copy_is_the_line(heard, assigned, unassigned)
     unassigned = _drop_hesitations(heard, unassigned, script_words)
     lines, claimed, found = _line_pass(
         parsed_lines,
