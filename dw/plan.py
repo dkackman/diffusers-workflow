@@ -219,25 +219,27 @@ def _checked_estimate(
     total_steps,
     observed_for_child,
 ):
-    """`estimate` for the run, floored, for a checked chain, at the same
-    chain unchecked priced at its worst case (#1334).
+    """`estimate` for the run, floored, for a checked chain, at what the
+    same chain unchecked quotes plus what checking adds (#1334).
 
     A checked chain's history and the same chain's unchecked history are
     separate buckets (`check` and `retries` are cost drivers). A thin checked
     bucket from a fast box tempers below the curated figure, while the
     unchecked shape with no history quotes the curated one at full
     authority, so a checked chain could quote no more than the same chain
-    unchecked. The floor is the checked run priced from the *unchecked*
-    run's own history (`_with_worst_case` adds the re-rolls and the words
-    passes to it, tempered as usual), or from the curated row when that
-    shape has none: whatever the unchecked chain would quote, plus the worst
-    case. The higher of the two is quoted, with `scaled` saying the floor
-    was taken and what this box's checked history alone said."""
+    unchecked. The floor is the unchecked twin's own quote - its own
+    expansion and its own history, exactly what validating it returns -
+    plus the worst-case extra the check carries (the re-rolls and the words
+    passes: the curated checked figure less the curated unchecked one).
+    That extra is positive whenever the chain is checked, so a checked chain
+    always quotes strictly more than its unchecked twin. The higher of the
+    checked quote and the floor is quoted, with `scaled` still naming the
+    checked worst case and saying the floor was taken."""
 
-    def quote(block):
+    def quote(shape, block):
         return estimate(
             definition,
-            expanded,
+            shape,
             entries,
             device,
             base_dir,
@@ -250,7 +252,8 @@ def _checked_estimate(
         )
 
     result = quote(
-        _observed_block(observed, arguments, definition, expanded, entries, device)
+        expanded,
+        _observed_block(observed, arguments, definition, expanded, entries, device),
     )
     if result.get("minutes") is None or not _chain_is_checked(definition, expanded):
         return result
@@ -258,31 +261,39 @@ def _checked_estimate(
     if unchecked is None:
         return result
     try:
-        # The unchecked run's own history (a fixed block is this run's, so
-        # there is none to read), priced at this checked run's worst case
-        block = None
-        if callable(observed):
-            block = _observed_block(
-                observed,
-                unchecked,
-                definition,
-                candidate.expanded_definition(unchecked),
-                entries,
-                device,
+        twin_expanded = candidate.expanded_definition(unchecked)
+        if _chain_is_checked(definition, twin_expanded):
+            return result
+        # A fixed block is this run's own history, so the twin has none
+        twin_block = (
+            _observed_block(
+                observed, unchecked, definition, twin_expanded, entries, device
             )
-        floor = quote(block)
+            if callable(observed)
+            else None
+        )
+        twin = quote(twin_expanded, twin_block)
+        extra = (quote(expanded, None).get("minutes") or 0) - (
+            quote(twin_expanded, None).get("minutes") or 0
+        )
     except Exception:
-        logger.debug("No unchecked floor for the checked chain", exc_info=True)
+        logger.warning("No unchecked floor for the checked chain", exc_info=True)
         return result
-    if floor.get("minutes") is None or floor["minutes"] <= result["minutes"]:
+    if twin.get("minutes") is None or extra <= 0:
+        return result
+    floor = round(twin["minutes"] + extra, 1)
+    if floor <= result["minutes"]:
         return result
     note = (
-        f"floored at the same chain unchecked at its worst case; this box's "
-        f"checked history alone quoted {_shown_minutes(result['minutes'])} min"
+        f"floored at the same chain unchecked ({_shown_minutes(twin['minutes'])} "
+        f"min) plus its worst case ({_shown_minutes(round(extra, 1))} min); this "
+        f"box's checked history alone quoted {_shown_minutes(result['minutes'])} min"
     )
     return {
-        **floor,
-        "scaled": "; ".join(part for part in (floor.get("scaled"), note) if part),
+        **result,
+        "minutes": floor,
+        "cached_minutes": _cached_minutes(floor, cached_steps, total_steps),
+        "scaled": "; ".join(part for part in (result.get("scaled"), note) if part),
     }
 
 
