@@ -199,8 +199,8 @@ class _LeadInState:
     restored: bool = False
     handles: list = field(default_factory=list)
 
-    def observe(self, timestep):
-        value = _timestep_value(timestep)
+    def observe(self, timestep, timestep_indices=None):
+        value = _timestep_value(timestep, timestep_indices)
         if value is None or value != self.last_timestep:
             self.evaluation += 1
             self.last_timestep = value
@@ -209,11 +209,27 @@ class _LeadInState:
             self.restored = True
 
 
-def _timestep_value(timestep):
-    """One forward's target timestep as a float: the largest entry, as clean
-    conditioning rows sit at 0 and the target at the step's noise level."""
+def _timestep_value(timestep, timestep_indices=None):
+    """One forward's target timestep as a float.
+
+    H3 passes the step's unique timesteps plus `timestep_indices`, one per
+    packed row; the target video is the trailing run of rows (as h3_tst's
+    `_target_order`), so its timestep is the last row's. A row held at full
+    noise (audio, a guide) would pin a max, so the max is only the fallback
+    for a per-token tensor with no indices."""
     if timestep is None:
         return None
+    if (
+        timestep_indices is not None
+        and hasattr(timestep_indices, "numel")
+        and timestep_indices.numel()
+        and hasattr(timestep, "reshape")
+        and timestep.numel()
+    ):
+        try:
+            return float(timestep.reshape(-1)[int(timestep_indices.reshape(-1)[-1])])
+        except (IndexError, TypeError, ValueError):
+            pass
     if hasattr(timestep, "max") and hasattr(timestep, "numel"):
         if timestep.numel() == 0:
             return None
@@ -226,7 +242,10 @@ def _timestep_value(timestep):
 
 def _make_pre_hook(state):
     def _pre_hook(component, args, kwargs):
-        state.observe(forward_arg(args, kwargs, "timestep"))
+        state.observe(
+            forward_arg(args, kwargs, "timestep"),
+            forward_arg(args, kwargs, "timestep_indices"),
+        )
         return None
 
     return _pre_hook

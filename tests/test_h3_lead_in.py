@@ -360,3 +360,16 @@ def test_segment_arguments_carry_the_lead_in():
         {LEAD_IN_INPUT: 2, "num_inference_steps": 5}, config, segment, None, None
     )
     assert result[LEAD_IN_INPUT] == 2
+
+
+# A held full-noise row (audio, a guide) must not pin the count (#1365)
+
+
+def test_a_row_held_at_full_noise_does_not_stall_the_count(h3):
+    """H3 passes unique timesteps plus a per-row index; one row stays at 1.0."""
+    with lead_in_call(pipeline_of(h3), 1, 4, "clip"):
+        for level in TIMESTEPS:
+            unique = torch.tensor([1.0, level]) if level != 1.0 else torch.tensor([1.0])
+            indices = torch.tensor([0, 0, 1 if level != 1.0 else 0])
+            h3(timestep=unique, timestep_indices=indices)
+    assert turbo_seen(h3) == [0.0] + [TURBO_SCALE] * 3
