@@ -71,15 +71,17 @@ def test_validates_with_a_probe(tmp_path, plan):
     assert _errors(tmp_path, ARGUMENTS) == []
 
     # The chain's length is the narration's: no count or duration is asked
-    # for, the track is matched and held, and the segment prompts and lines
-    # are the narration_lines step's
+    # for, the track is matched and held, and the segment prompts are the
+    # narration_lines step's
     steps = steps_by_name(load())
     chain = steps["take"]["pipeline"]["chain"]
     assert chain["match_audio"] is True
     assert "segments" not in chain and "duration_seconds" not in chain
     assert steps["take"]["pipeline"]["arguments"]["hold_audio"] == "variable:narration"
     assert chain["prompts"] == "previous_result:lines.prompts"
-    assert chain["lines"] == "previous_result:lines.lines"
+    # No chain 'lines': only the words check reads it, and a held chain has
+    # none, so naming it drew the nothing-reads-'lines' warning on every validate
+    assert "lines" not in chain
     lines = steps["lines"]["task"]
     assert lines["command"] == "narration_lines"
     assert lines["arguments"]["audio"] == "variable:narration"

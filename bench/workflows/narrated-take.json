@@ -297,7 +297,6 @@
         "chain": {
           "match_audio": true,
           "prompts": "previous_result:lines.prompts",
-          "lines": "previous_result:lines.lines",
           "continuity": "variable:continuity",
           "guide_frames": "variable:guide_frames",
           "check": "variable:check",

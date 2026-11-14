@@ -293,7 +293,6 @@
                 "chain": {
                     "match_audio": true,
                     "prompts": "previous_result:lines.prompts",
-                    "lines": "previous_result:lines.lines",
                     "continuity": "variable:continuity",
                     "keystone": "variable:keystone",
                     "keystone_slot": "variable:keystone_slot",
