@@ -449,7 +449,7 @@ def _handle_stabilize_video(task, arguments, previous_pipelines):
     whole_numbers=("modulus", "remainder", "multiple", "min_frames", "max_frames"),
     choices={"select": FACE_SELECT_CHOICES},
     static_check=face_track_errors,
-    media_arguments=("clip",),
+    media_arguments=("clip",),    result_content_type="video/mp4",
 )
 def _handle_crop_face_track(task, arguments, previous_pipelines):
     """Crop a steady square around the one face a clip follows"""
@@ -529,7 +529,7 @@ def _handle_analyze_face_drift(task, arguments, previous_pipelines):
     },
     domains={"feather": NON_NEGATIVE},
     static_check=paste_face_track_errors,
-    media_arguments=("clip", "repaired", "track"),
+    media_arguments=("clip", "repaired", "track"),    result_content_type="video/mp4",
 )
 def _handle_paste_face_track(task, arguments, previous_pipelines):
     """Blend repaired face crops back into the clip they were cut from"""
