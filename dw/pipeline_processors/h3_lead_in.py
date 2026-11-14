@@ -24,7 +24,8 @@ each layer's exact `turbo` scaling is put back in a `finally`, on success,
 error and cancel alike.
 
 Under torch.compile peft's scaling is a Python float the compiled forward
-guards on, so the scale change can cost a recompile (docs/ACCELERATION.md).
+guards on, so scale 0 compiles once per worker: +5.5 s on the first lead-in
+call on lem, nothing after it (#1352, docs/ACCELERATION.md).
 
 Refused, at validate and at the run: a value that is not a whole number of
 at least 0; N at or past the call's evaluations; a step with no adapter

@@ -1965,7 +1965,8 @@ call's evaluations; a step with no LoRA whose `adapter_name` is `turbo` (the err
 names it has); a `first_block` cache (its residual threshold reads the adapter switch as a
 change, and cached steps skip it); and a step that is not H3 (an H3-only argument). Each call
 logs one job event: `turbo lead-in: evaluations 1..N with adapter 'turbo' at 0 of M`. Under
-`torch.compile` the switch can cost a recompile ([ACCELERATION.md](ACCELERATION.md#torchcompile)).
+`torch.compile` the scale-0 graph compiles once per worker: measured at +5.5 s on the first
+lead-in call and nothing after it ([ACCELERATION.md](ACCELERATION.md#torchcompile)).
 
 #### Chaining with a guide: `continuity: "guide"`
 
