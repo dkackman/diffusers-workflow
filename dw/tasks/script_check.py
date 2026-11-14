@@ -204,29 +204,38 @@ def _last_copy_is_the_line(heard, assigned, unassigned):
     """When a line was heard twice word for word, the later copy is the line
     and the earlier one is released (#1360). SequenceMatcher ties go to the
     first copy, but #920's verified result (suite case C-F503) has the
-    finding on the first. Swaps a line's assigned words with a later
-    unassigned run of the same words that only that line neighbours."""
+    finding on the first. Swaps a line's assigned words with the last later
+    unassigned stretch of the same words that neighbours that line, with no
+    other line's words between. The stretch may sit inside a longer run of
+    unassigned words - between this line and the next, beside a filler
+    ("... open? Uh, the freezer wanted air.", ep198) - and only the copy
+    moves."""
     for index, own in enumerate(assigned):
         if not own:
             continue
         words = [heard[j]["word"] for j in own]
+        size = len(words)
         runs = []
         for j, near in unassigned:
-            if near == (index,) and j > own[-1]:
+            if index in near and j > own[-1]:
                 if runs and runs[-1][-1] == j - 1:
                     runs[-1].append(j)
                 else:
                     runs.append([j])
+        copy = None
         for run in runs:
-            if [heard[j]["word"] for j in run] != words or run[0] < own[-1]:
-                continue
             if any(o and own[-1] < o[0] < run[0] for o in assigned):
                 break
-            unassigned[:] = [
-                (j, near) for j, near in unassigned if j not in set(run)
-            ] + [(j, (index,)) for j in own]
-            assigned[index] = run
-            own = run
+            for k in range(len(run) - size + 1):
+                if [heard[j]["word"] for j in run[k : k + size]] == words:
+                    copy = run[k : k + size]
+        if copy is None:
+            continue
+        taken = set(copy)
+        unassigned[:] = [(j, near) for j, near in unassigned if j not in taken] + [
+            (j, (index,)) for j in own
+        ]
+        assigned[index] = copy
         unassigned.sort()
 
 

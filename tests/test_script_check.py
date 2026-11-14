@@ -753,6 +753,57 @@ class TestUnscriptedSpeech(unittest.TestCase):
         self.assertEqual(found["at"]["seconds"], 0.0)
         self.assertEqual(found["at"]["word"], "alpha")
 
+    def test_the_earlier_copy_is_the_finding_when_a_line_follows(self):
+        # #1360, ep198's shape: the copy sits between two lines, with a
+        # filler before the next line, so its words neighbour both lines
+        chunks = (
+            words("who left the freezer open", 0.44, 0.2, 0.15)
+            + words("who left the freezer open", 3.3, 0.2, 0.15)
+            + words("uh", 5.36)
+            + words("the freezer wanted air", 6.3)
+        )
+        lines = [
+            {"text": "Who left the freezer open?", "shot": "A"},
+            {"text": "The freezer wanted air.", "shot": "B"},
+        ]
+        spans = [
+            {"name": "A", "start": 0.0, "end": 5.167},
+            {"name": "B", "start": 5.167, "end": 10.5},
+        ]
+        answer = shot_run(lines, chunks, mono=voiced(10.5), spans=spans)
+        (found,) = rules(answer, "unscripted_speech")
+        self.assertEqual(found["at"]["seconds"], 0.44)
+        self.assertEqual(found["at"]["shot"], "A")
+        self.assertTrue(found["at"]["repeats_line"])
+        self.assertEqual(answer["lines"][0]["start"], 3.3)
+        self.assertEqual(answer["lines"][0]["similarity"], 1.0)
+        self.assertEqual(answer["lines"][1]["similarity"], 1.0)
+        self.assertEqual(
+            [w["text"] for w in answer["unmatched"]],
+            ["who", "left", "the", "freezer", "open"],
+        )
+
+    def test_a_line_listed_twice_keeps_both_copies_matched(self):
+        chunks = (
+            words("who left the freezer open", 0.44, 0.2, 0.15)
+            + words("who left the freezer open", 3.3, 0.2, 0.15)
+            + words("uh", 5.36)
+            + words("the freezer wanted air", 6.3)
+        )
+        lines = [
+            {"text": "Who left the freezer open?", "shot": "A"},
+            {"text": "Who left the freezer open?", "shot": "A"},
+            {"text": "The freezer wanted air.", "shot": "B"},
+        ]
+        spans = [
+            {"name": "A", "start": 0.0, "end": 5.167},
+            {"name": "B", "start": 5.167, "end": 10.5},
+        ]
+        answer = shot_run(lines, chunks, mono=voiced(10.5), spans=spans)
+        self.assertEqual(rules(answer, "unscripted_speech"), [])
+        self.assertEqual(answer["unmatched"], [])
+        self.assertEqual([line["start"] for line in answer["lines"]], [0.44, 3.3, 6.3])
+
     def test_a_doubled_line_inside_a_longer_cut_is_a_finding(self):
         # align alone keeps the second copy inside the line (similarity 0.75)
         chunks = (
