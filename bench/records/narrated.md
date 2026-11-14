@@ -478,3 +478,90 @@ keyframes for identity.
 On `levelled-carry-s1.mp4`: "she becomes progressively glossy". Rejected; the stills and
 the face-sharpness measure read the gloss as softening and missed it. Don closed the
 experiment here. The untried combinations above were not run.
+
+## bf16 transformer, seed 1 - gate db33868da007, arm af390360c19b (#1319 stage 1, #1346)
+
+`bench/workflows/narrated-take-bf16.json` is `narrated-take.json` with the transformer's
+SDNQ int8 config removed. The transformer loads in bf16 under the same block group
+offload; the text encoder and VAE stay int8 SDNQ. Every other argument matches the CP1
+control `d5584b91816d` (shot `dialogue`, seed 1, `stop_after` 12, tier `best`, no
+counters). Both jobs were submitted inline because the server can't reach `bench/` by
+path, so `get_job_workflow` shows what ran.
+
+### Gate (stop_after 1) - job db33868da007
+
+- Wall time 951 s: load 94.6, encode 29, denoise 738.3 (19 passes, ~37 s each), decode 70.9.
+- Process peak RSS 108,325 MB, reached at load. In-run RSS ~98 GB, ~63 GB of it
+  file-backed (the bf16 transformer, mmap'd). `host_ram_gb` was set to 110 from this.
+- Peak reserved VRAM 22,142 MB.
+- No admission refusal, no OOM, under 45 min, so the full arm ran.
+
+### Cost
+
+| | int8 control d5584b91816d | bf16 af390360c19b |
+|---|---|---|
+| wall, 12 segments | 233.0 min | 223.7 min |
+| denoise per pass | 54.6 s | 54.5 s |
+| host committed peak | 68,747 MB | 37,994 MB |
+
+The bf16 arm loaded nothing (`load_cached`: the worker still held the gate's pipeline),
+so its wall time carries no load; the control's load was 58 s. Its passes ran at the
+control's pace, not the gate's ~37 s. Committed memory leaves out file-backed pages, and
+the bf16 transformer is mmap'd from its checkpoint, so 37,994 MB does not mean bf16 used
+less host RAM. The host figure for bf16 is the gate's process peak RSS, 108,325 MB.
+
+### face_drop per segment (chain check; already relative to segment 1)
+
+| segment | int8 | bf16 |
+|---|---|---|
+| 2 | 0.003 | 0.011 |
+| 3 | 0.032 | 0.019 |
+| 4 | 0.043 | 0.027 |
+| 5 | 0.057 | 0.060 |
+| 6 | 0.146 | 0.101 |
+| 7 | 0.114 | 0.097 |
+| 8 | 0.111 | 0.183 |
+| 9 | 0.140 | 0.178 |
+| 10 | 0.148 | 0.176 |
+| 11 | 0.154 | 0.212 |
+| 12 | 0.207 | 0.225 |
+
+Mean over segments 7-12, where CP1's burn shows: int8 0.146, bf16 0.179. Both arms fail
+`texture_ratio` on segments 9-12 at the same size (int8 2.12 / 2.25 / 2.51 / 2.39, bf16
+2.17 / 2.32 / 2.49 / 2.30, from each job's warnings).
+
+### Face crop at the CP1 windows (`bench/face_windows.py`)
+
+Sharpness (median Laplacian variance of the face crop), saturation (mean HSV S of the
+crop) and SFace similarity to the face at 0.5 s. This script's crop and scale differ
+from the earlier sections' scratch measure (the control reads 90 here against 204
+above at 0-10 s), so only the two columns in this table compare with each other.
+Growth is read from each arm's own 0-10 s window, because different weights give a
+different segment 1.
+
+| window | int8: sharp / sat / sim | bf16: sharp / sat / sim |
+|---|---|---|
+| 0-10 s | 90 / 101.7 / .92 | 103 / 101.5 / .94 |
+| 20-30 s | 167 / 109.6 / .90 | 120 / 115.2 / .90 |
+| 40-50 s | 283 / 111.9 / .80 | 252 / 118.5 / .80 |
+| 60-70 s | 573 / 118.4 / .80 | 700 / 127.4 / .76 |
+| 80-90 s | 807 / 120.4 / .74 | 894 / 120.4 / .72 |
+| growth 0-10 to 80-90 | 9.0x / +18.7 / -.18 | 8.7x / +18.9 / -.22 |
+
+Face strip (0.5 / 40 / 60 / 85 s, int8 row above bf16): `asset:bench/1346-bf16-face-strip.jpg`
+in workspace `constitution-walk-3`, written by `bench/face_windows.py` from the two takes
+(`output:BenchNarratedTake/20261109-225944-af94be0b/final/BenchNarratedTake-take.1-0.0.mp4`,
+`output:BenchNarratedTakeBf16/20261114-081739-b46f591b/final/BenchNarratedTakeBf16-take.1-0.0.mp4`).
+Whether the bf16 row looks less burnt is Don's call (plan Q3).
+
+### Verdict
+
+**Precision is not a burn lever at int8 to bf16** (seed 1). The bf16 arm burns at
+the control's rate: face_drop reaches 0.225 against 0.207 at segment 12 (mean over 7-12
+0.179 against 0.146), sharpness grows 8.7x against 9.0x, saturation +18.9 against +18.7,
+and identity falls .22 against .18. Only the sharpness growth is lower in bf16, by an
+amount one seed can't separate from noise. The rest is level or worse. A lever would
+have shown as a clear drop, as int4 to int8 did (`tiers.md`: crust 1.6x instead of 4.5x).
+None showed, so this is not a marginal result and needs no second seed. The burn left
+at int8 is not quantization error. A higher-precision tier would not remove it, and
+#1319's TP trigger (a) is not met.
