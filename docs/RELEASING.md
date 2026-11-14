@@ -51,7 +51,7 @@ GitHub generates notes from commits at tag time. The sections below are the hand
 
 ### 0.20.0
 
-<!-- Drafted from v0.19.0..develop at release prep (2026-11-08). Paste into the GitHub release body once the tag has published: gh release edit v0.20.0 --notes-file ... -->
+<!-- Drafted from v0.19.0..develop at release prep (2026-11-08, extended 2026-11-13). Paste into the GitHub release body once the tag has published: gh release edit v0.20.0 --notes-file ... -->
 
 This release is long-form media: one playbook for a piece longer than one
 clip, with every lever measured on a bench before it became a default
@@ -63,7 +63,8 @@ from takes and sections, a finished picture can be given its sound, and a
 joined piece exports as an editor's timeline. A draft can be promoted, a
 chain that died can be resumed, a join can be levelled in LUFS, a
 narration can be checked against its script, and the job page draws the
-timeline.
+timeline. A chain can check that each segment spoke its line, and a take of
+one speaker can be held to a narration made first.
 
 **Breaking changes**
 
@@ -132,9 +133,58 @@ timeline.
   files. The estimate prices only the segments left to render. A chain
   that fails after a segment was saved warns with the `output:` reference
   `resume_from` would continue from.
+- `chain.stop_after: N` renders a probe: the plan stays the full take's and
+  only its first N segments render. A second run with `stop_after` cleared
+  and `resume_from` naming the probe's last segment continues it. The
+  estimate prices the segments a probe or a resume renders.
+- `resume_from` follow-ups: a fan-out resumes per iteration and a finished
+  iteration renders in full; the variable that carries the reference may
+  have any name; a kept file the load refuses leaves the copy; the resume
+  hint names accepted files only (#1268, #1269, #1270, #1304, #1307).
 - The spikes that lost on the bench ship dark behind experimental flags:
-  latent carry between segments, the late capstone, SelfLift, TST and the
+  latent carry between segments (plain, and `"levelled"`, #1322), the latent
+  keystone, `anchor_every`, the late capstone, SelfLift, TST and the
   windowed refine seam pass (#1217).
+
+**The words check** (#1262, #1297, #1298, #1299, #1300, #1308)
+
+- `chain.check` takes `words_similarity_min` (null, off, by default): Whisper
+  transcribes each segment's kept audio and compares it with the line the
+  segment was to speak - `chain.lines`, one per segment, else the `<d>`
+  dialogue of its prompt. A segment under the floor is re-rolled like any
+  other failed check, and the warning names what was heard. Number words
+  and digits compare equal.
+- A line that opens inside the trimmed head is reported as
+  `line_clipped_at_head`; a segment that passes with its opening words
+  missing re-rolls, then reports. A carried dialogue line is cued past the
+  guide span.
+- `chain.prompts` and `chain.lines` may each be one `previous_result:` list.
+  The estimate adds the transcription's cost when the check is on.
+
+**The narrated take** (#1308, `docs/proposals/complete/narrated-long-take-complete.md`)
+
+- `templates/narration-retime` (the `retime_narration` task) sets every
+  pause of a spoken narration by the punctuation it follows and brings a
+  word junction onto each segment boundary of the chain that will carry it,
+  then checks the result against the script. It saves the retimed track and
+  a report of words, pauses and boundaries. A pause is at most 60 seconds.
+- `templates/minimax/narrated-take` is an H3 guide chain matched to that
+  narration and holding it as the soundtrack: the speech heard is the
+  narration itself, the guide carries picture only, and `narration_lines`
+  cuts the script into one line per segment and fills `prompt_template` with
+  it. It is run as a probe (`stop_after`) and then continued.
+- What it holds, measured at about 86 s (`bench/records/narrated.md`):
+  `shot: dialogue` to about 30 s; `standing` (keystone, no keyframes) to
+  about 85 s on one seed, and she stands; `walk_keyframed` holds the face to
+  85 s on two seeds and moves the camera, at the price of a hand-built
+  keyframe per segment (`keyframes`, the chain's `keystone_images`). No
+  preset cleared face, lip sync and motion together, and nothing is measured
+  past 86 s. A longer piece is split into passages joined as cuts.
+- Each shot's `check` records `face_drop`, the fall in face similarity to
+  segment 1; `face_drop_max` fails a segment on it. `measure_lip_sync`
+  measures a finished take. `templates/minimax/repair-segment` repairs a
+  narrated take, its last segment included, at the take's own tier.
+- The `long-form` skill routes a speaking subject in one place to it.
 
 **Sound for a finished picture, long narration, long music** (#1208, #1209, #1210)
 
@@ -188,6 +238,11 @@ timeline.
   text-glue tasks is not partial; the fixed minutes of an entry are read
   from the entry its price came from. The MPS Music 3 row is 9.2 min
   (#1223).
+- A matched chain's observed history is priced per segment, and an
+  inherited chain figure scales by segments (#1305, #1306). A rerun with a
+  null override of the seed variable draws a fresh seed, and resumed runs
+  are left out of the observed basis (#1273). A run whose memory never grew
+  records no job peak instead of the worker's resident size (#1288).
 
 **Server and worker** (#1214, #1227, #1238, #1245, #1219, #1265)
 
@@ -208,7 +263,7 @@ timeline.
   present". A `release_models` step frees a warm worker's idle pipelines
   before its own model loads.
 
-**Validation and variables** (#1215, #1228, #1247, #1249, #1250, #1253, #1259)
+**Validation and variables** (#1215, #1228, #1247, #1249, #1250, #1253, #1259, #1271, #1302, #1303)
 
 - Validation refuses what submit and run used to refuse late: an argument
   the server refuses at submit, an empty Music 3 lyric, an animatic past the
@@ -221,6 +276,8 @@ timeline.
   templates' `reference_audio`).
 - `get_job_workflow`'s realized workflow drops `presets`, so a re-run keeps
   the folded values (#1234).
+- Validate warns when `match_levels_lufs` is set where nothing reads it, and
+  refuses an `export_timeline` result that is not `application/x-otioz`.
 
 **MCP and guides** (#1237, #1240, #1257, #1264)
 
@@ -229,6 +286,24 @@ timeline.
   trailing parenthesised suffix. The workflow guide names
   `list_workflows` as the catalog index and links only feature templates.
 
+**Security**
+
+- A task's `filename` (`upscale`, `restore_faces`, `interpolate_frames`) is
+  refused at validate and at run unless it is a plain name inside the
+  model's repo (GHSA-ch56-2p9f-95cg).
+- A step that wrote several files named each shot's `file` by the server's
+  absolute path in `get_job`, `wait_for_job` and `step_end`; it is now named
+  as `files` are (GHSA-5m72-m9g5-q8vp).
+- A transcription `model_name` that arrives by `previous_result:` is checked
+  against the location policy at run time, not only at validate.
+
+**Compatibility**
+
+- diffusers 0.44.0.dev0 refuses explicit sigmas on the H3 scheduler unless
+  its config says how to read them. Every `refine_strength` and
+  `refine_sigmas` step failed there; dw now states that its schedule is
+  finished and restores the scheduler's setting afterwards.
+
 **Fixes from the release review**
 
 - A `duration_seconds` chain on the LTX template planned its last segment
@@ -236,6 +311,11 @@ timeline.
   every Windows folder; a chain repair with extra files beside the take
   said the take had no shots; a frame reader read wrong frames after
   `close()`; and a server test raced the claims folder.
+- From the second review (2026-11-13): `narration_lines` counted frames by
+  rounding up where the chain rounds, so about one narration in 300 planned
+  a line more than the chain and was refused; an empty `script` cleared
+  every pause; a `keystone_images` list longer than the plan fetched its
+  surplus.
 
 ### 0.19.0
 
