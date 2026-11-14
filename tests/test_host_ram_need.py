@@ -897,3 +897,42 @@ class TestDeclaredBasisReachesTheApi:
             "basis": "declared",
             "runs": 0,
         }
+
+
+class TestSettledJobIsNotChargedGrowth:
+    """#1357: an hours-long running job is charged no more growth, so a queued
+    job isn't held on its stale projection while a card idles."""
+
+    def _slot(self, started_ago):
+        import time
+
+        class Slot:
+            started_at = time.time() - started_ago
+
+        return Slot()
+
+    def _job(self):
+        class Job:
+            host_ram_need = (180 * 1024, False)
+
+        return Job()
+
+    def test_loading_job_is_charged_its_peak(self):
+        from dw.server.dispatch import Dispatcher
+
+        assert Dispatcher._growth_peak(self._slot(30), self._job()) == 180 * 1024
+
+    def test_settled_job_is_charged_nothing(self):
+        from dw.server.dispatch import Dispatcher
+
+        assert Dispatcher._growth_peak(self._slot(3600), self._job()) is None
+
+    def test_gate_admits_beside_settled_job_but_not_loading_one(self):
+        from dw.server.dispatch import Dispatcher
+        from dw.server.pool import host_ram_wait
+
+        avail, need = 86 * 1024, 40 * 1024
+        for ago, held in ((30, True), (3600, False)):
+            peak = Dispatcher._growth_peak(self._slot(ago), self._job())
+            reason = host_ram_wait(need, avail, [(peak, 98 * 1024)], 19 * 1024)
+            assert (reason is not None) is held
