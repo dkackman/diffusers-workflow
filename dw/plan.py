@@ -36,6 +36,8 @@ from .cost_scaling import (
     with_words_check,
     words_check_term,
     observed_render_scaling,
+    _chain_blocks,
+    _chain_retries,
 )
 from .elision import elide_definition
 from . import references
@@ -185,7 +187,55 @@ def build_plan(
         "downloads_required": downloads_required(
             expanded, base_dir, candidate.workflow_dir, cache_dir, lookup_sizes
         ),
-        "estimate": estimate(
+        "estimate": _checked_estimate(
+            candidate,
+            arguments,
+            definition,
+            expanded,
+            entries,
+            device,
+            base_dir,
+            measured_entries=measured_entries,
+            observed=observed,
+            cached_steps=cache_hits,
+            total_steps=step_count,
+            observed_for_child=observed_for_child,
+        ),
+    }
+
+
+def _checked_estimate(
+    candidate,
+    arguments,
+    definition,
+    expanded,
+    entries,
+    device,
+    base_dir,
+    *,
+    measured_entries,
+    observed,
+    cached_steps,
+    total_steps,
+    observed_for_child,
+):
+    """`estimate` for the run, floored, for a checked chain, at the same
+    chain unchecked priced at its worst case (#1334).
+
+    A checked chain's history and the same chain's unchecked history are
+    separate buckets (`check` and `retries` are cost drivers). A thin checked
+    bucket from a fast box tempers below the curated figure, while the
+    unchecked shape with no history quotes the curated one at full
+    authority, so a checked chain could quote no more than the same chain
+    unchecked. The floor is the checked run priced from the *unchecked*
+    run's own history (`_with_worst_case` adds the re-rolls and the words
+    passes to it, tempered as usual), or from the curated row when that
+    shape has none: whatever the unchecked chain would quote, plus the worst
+    case. The higher of the two is quoted, with `scaled` saying the floor
+    was taken and what this box's checked history alone said."""
+
+    def quote(block):
+        return estimate(
             definition,
             expanded,
             entries,
@@ -193,14 +243,73 @@ def build_plan(
             base_dir,
             candidate.workflow_dir,
             measured_entries=measured_entries,
-            observed=_observed_block(
-                observed, arguments, definition, expanded, entries, device
-            ),
-            cached_steps=cache_hits,
-            total_steps=step_count,
+            observed=block,
+            cached_steps=cached_steps,
+            total_steps=total_steps,
             observed_for_child=observed_for_child,
-        ),
+        )
+
+    result = quote(
+        _observed_block(observed, arguments, definition, expanded, entries, device)
+    )
+    if result.get("minutes") is None or not _chain_is_checked(definition, expanded):
+        return result
+    unchecked = _unchecked_arguments(definition, arguments)
+    if unchecked is None:
+        return result
+    try:
+        # The unchecked run's own history (a fixed block is this run's, so
+        # there is none to read), priced at this checked run's worst case
+        block = None
+        if callable(observed):
+            block = _observed_block(
+                observed,
+                unchecked,
+                definition,
+                candidate.expanded_definition(unchecked),
+                entries,
+                device,
+            )
+        floor = quote(block)
+    except Exception:
+        logger.debug("No unchecked floor for the checked chain", exc_info=True)
+        return result
+    if floor.get("minutes") is None or floor["minutes"] <= result["minutes"]:
+        return result
+    note = (
+        f"floored at the same chain unchecked at its worst case; this box's "
+        f"checked history alone quoted {_shown_minutes(result['minutes'])} min"
+    )
+    return {
+        **floor,
+        "scaled": "; ".join(part for part in (floor.get("scaled"), note) if part),
     }
+
+
+def _chain_is_checked(definition, expanded):
+    """Whether the workflow's one chain may re-roll or words-check at
+    `expanded`'s variables - what the worst case adds to its quote."""
+    variables = (expanded or {}).get("variables") or {}
+    words_minutes, _ = words_check_term(definition, variables)
+    return _chain_retries(definition, variables) > 0 or bool(words_minutes)
+
+
+def _unchecked_arguments(definition, arguments):
+    """`arguments` with the one chain's `check` off and its `retries` 0, or
+    None when the chain's `check` is not a variable an argument can turn
+    off (a literal `check` has no unchecked twin to price)."""
+    blocks = list(_chain_blocks(definition.get("steps")))
+    if len(blocks) != 1:
+        return None
+    chain = blocks[0][0]
+    check = references.ref_name(references.VARIABLE, chain.get("check"))
+    if check is None:
+        return None
+    twin = {**(arguments or {}), check: False}
+    retries = references.ref_name(references.VARIABLE, chain.get("retries"))
+    if retries is not None:
+        twin[retries] = 0
+    return twin
 
 
 def _observed_block(

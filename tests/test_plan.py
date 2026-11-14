@@ -2720,6 +2720,77 @@ class TestTiersPriceFromTheObservedDefault:
         assert "scaled from the curated 13.5 min" in draft["scaled"]
 
 
+class TestCheckedChainQuotesMoreThanUnchecked:
+    """#1334 (C-F747): a checked dialogue chain whose thin history tempers
+    below the curated figure still quotes more than the same chain
+    unchecked, which has no history and quotes the curated figure."""
+
+    COMMON = {
+        "shot": "dialogue",
+        "segments": 2,
+        "num_frames": 124,
+        "seed": 1262,
+        "prompts": [
+            "A man speaks. <d>We the people of the United States.</d>",
+            "A man speaks. <d>In order to form a more perfect union.</d>",
+        ],
+    }
+    CHECKED = {**COMMON, "retries": 1, "check": {"words_similarity_min": 0.8}}
+    UNCHECKED = {**COMMON, "retries": 0, "check": False}
+
+    @staticmethod
+    def history(checked=None, unchecked=None):
+        def answer(arguments):
+            return unchecked if arguments.get("check") is False else checked
+
+        return answer
+
+    def quote(self, plan, arguments, history):
+        return plan(_repo_json(CATALOG_CHAINED), arguments=arguments, observed=history)[
+            "estimate"
+        ]
+
+    def test_a_thin_fast_checked_history_quotes_above_the_unchecked(self, plan):
+        history = self.history(checked=observed(minutes=5.5, runs=1))
+        checked = self.quote(plan, self.CHECKED, history)
+        unchecked = self.quote(plan, self.UNCHECKED, history)
+        assert unchecked["minutes"] == pytest.approx(12.3, abs=0.05)
+        assert checked["minutes"] > unchecked["minutes"]
+        # Floored at the unchecked chain (curated, no history) at its worst
+        # case: the curated 13.5 for 2 of 3 segments, 4 renders for 2, plus
+        # 4 Whisper passes
+        assert checked["minutes"] == pytest.approx(14.87, abs=0.05)
+        assert "4 renders for 2" in checked["scaled"]
+        assert "words check: 4 Whisper pass(es)" in checked["scaled"]
+        assert "floored at the same chain unchecked" in checked["scaled"]
+        assert "checked history alone quoted 12.3 min" in checked["scaled"]
+
+    def test_the_floor_reads_the_unchecked_chains_own_history(self, plan):
+        history = self.history(
+            checked=observed(minutes=5.5, runs=1),
+            unchecked=observed(minutes=12.0, runs=5),
+        )
+        checked = self.quote(plan, self.CHECKED, history)
+        unchecked = self.quote(plan, self.UNCHECKED, history)
+        assert unchecked["minutes"] == 12.0
+        assert checked["minutes"] > unchecked["minutes"]
+        assert "from the observed 12 min" in checked["scaled"]
+
+    def test_a_checked_history_above_the_floor_stands(self, plan):
+        history = self.history(
+            checked=observed(minutes=20.0, runs=5),
+            unchecked=observed(minutes=6.0, runs=5),
+        )
+        checked = self.quote(plan, self.CHECKED, history)
+        assert "floored" not in checked["scaled"]
+        assert "from the observed 20 min" in checked["scaled"]
+
+    def test_an_unchecked_chain_is_not_floored(self, plan):
+        history = self.history(unchecked=observed(minutes=6.0, runs=1))
+        unchecked = self.quote(plan, self.UNCHECKED, history)
+        assert "floored" not in (unchecked.get("scaled") or "")
+
+
 class TestResumedChainEstimate:
     """A chain resumed from an earlier run's kept segments prices only the
     segments it renders (chain_resume.kept_count, cost_scaling)."""
