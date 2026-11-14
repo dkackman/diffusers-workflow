@@ -25,7 +25,6 @@ zero where the source was not.
 
 import bisect
 import logging
-import math
 import re
 
 
@@ -202,14 +201,24 @@ def word_map(waveform, rate, text, device, model_name):
     `class` is the pause class of the gap after the word (None for none),
     from the script when `text` is given and from Whisper's text otherwise."""
     words = _heard_words(_word_chunks(waveform, rate, device, model_name))
-    if text is not None and words:
-        _apply_script(words, script_tokens(str(text)))
+    # A script with no words in it is no script: Whisper's own punctuation
+    # stands, rather than every pause class being cleared
+    tokens = script_tokens(str(text)) if text is not None else []
+    if tokens and words:
+        _apply_script(words, tokens)
     return words
 
 
+# The longest pause a class may be set to: the bed under it is looped room
+# tone, built a lap at a time, so an unbounded length is unbounded work
+MAX_PAUSE_SECONDS = 60.0
+
+
 def _frames(seconds, fps):
-    """Frames that cover `seconds` at `fps`."""
-    return max(1, math.ceil(seconds * fps - 1e-6))
+    """The frames a chain matched to `seconds` of audio plans at `fps` - the
+    count ChainConfig takes from a match_audio track, so the boundaries and
+    the lines are the chain's own."""
+    return max(1, round(seconds * fps))
 
 
 def kept_span_ends(total_frames, segment_frames, guide_frames, fps):
@@ -574,7 +583,8 @@ def retime_narration(
         mid_word_boundaries}
 
     Raises:
-        ValueError: If no words are heard
+        ValueError: If no words are heard, or a pause class is set past
+            MAX_PAUSE_SECONDS (60)
     """
     lengths = dict(
         zip(PAUSE_CLASSES, (comma_seconds, sentence_seconds, section_seconds))
@@ -585,6 +595,12 @@ def retime_narration(
         min_gap_seconds=min_gap_seconds,
         boundary_slack_seconds=boundary_slack_seconds,
     )
+    for name, value in lengths.items():
+        if float(value) > MAX_PAUSE_SECONDS:
+            raise ValueError(
+                f"{RETIME}: '{name}_seconds' is {value}, and a pause is at most "
+                f"{MAX_PAUSE_SECONDS:g} seconds"
+            )
     grid = _checked_grid(RETIME, segment_frames, guide_frames, fps)
     waveform, rate = waveform_and_rate(audio, sample_rate, RETIME)
     model = model_source({"model_name": model_name})

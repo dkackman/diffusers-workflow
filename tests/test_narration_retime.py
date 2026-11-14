@@ -596,3 +596,38 @@ def test_lines_mid_word_tolerates_whisper_jitter(heard):
     assert mid_word(7.95, 9.0) == []  # 0.05 s inside the word's start
     assert mid_word(7.8, 9.0) == [{"segment": 0, "word": "word"}]  # 0.2 s inside
     assert mid_word(6.5, 8.05) == []  # 0.05 s inside the word's end
+
+
+# Review fixes (0.20.0): the chain's own frame count, an empty script, a
+# bounded pause
+
+
+def test_lines_plan_the_segments_a_matched_chain_plans(heard):
+    # 192.3 frames: a chain matched to this track rounds to 192, one segment
+    # (ChainConfig), and a line more than that is refused by the chain
+    track, chunks = build([("one", 0.2, 0.5), ("two", 7.0, 7.5)], 192.3 / 24)
+    heard(chunks)
+
+    answer = narration_lines(track, segment_frames=192, guide_frames=22, fps=24)
+
+    assert answer["total_frames"] == 192
+    assert answer["lines"] == ["one two"]
+
+
+@pytest.mark.parametrize("empty", ["", "  \n "])
+def test_a_script_with_no_words_leaves_whispers_punctuation(heard, empty):
+    words = [("Hello,", 0.2, 0.6), ("there.", 1.0, 1.4), ("Again", 2.0, 2.4)]
+    track, chunks = build(words, 3.0)
+    heard(chunks)
+
+    unscripted = retime_narration(track)["report"]["pauses"]
+    assert unscripted
+    assert retime_narration(track, text=empty)["report"]["pauses"] == unscripted
+
+
+def test_a_pause_past_the_ceiling_is_refused(heard):
+    track, chunks = build([("Hello.", 0.2, 0.6), ("Again", 1.0, 1.4)], 2.0)
+    heard(chunks)
+
+    with pytest.raises(ValueError, match="'sentence_seconds' is 100000.*at most 60"):
+        retime_narration(track, sentence_seconds=100000)

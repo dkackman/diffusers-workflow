@@ -483,3 +483,17 @@ def test_the_standing_preset_is_the_keyframe_free_keystone(tmp_path):
     assert (
         workflow_errors(workflow, copy.deepcopy(ARGUMENTS) | {"shot": "standing"}) == []
     )
+
+
+def test_a_longer_list_s_surplus_is_never_loaded(tmp_path, monkeypatch):
+    from dw import argument_media
+
+    fetched = []
+
+    def fetch(entry, base_dir):
+        fetched.append(entry)
+        return entry
+
+    monkeypatch.setattr(argument_media, "fetch_image", fetch)
+    config = ChainConfig(chain(keyframes(6), segments=4), arguments())
+    assert len(fetched) == len(config.keystone_images) == 4

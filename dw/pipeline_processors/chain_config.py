@@ -211,6 +211,10 @@ class ChainConfig:
         _raise_chain_problem(
             keystone_images_count_problem(self.keystone_images, len(self.plan))
         )
+        # One per planned segment is all a chain reads: a longer list's
+        # surplus is never fetched
+        if isinstance(self.keystone_images, list):
+            self.keystone_images = self.keystone_images[: len(self.plan)]
         self.keystone_images = _loaded_images(self.keystone_images, base_dir)
         self.step_prompt = _argument(arguments, "prompt")
         if self.total_frames is not None:
