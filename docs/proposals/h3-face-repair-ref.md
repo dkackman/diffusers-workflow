@@ -1,8 +1,11 @@
 # H3 face repair with a cast reference (#1320)
 
 Design: the plan comment on #1320 (v1). This file records the stage A probe
-(#1347). Stage B, a `templates/minimax/face-repair-ref` sibling template, is
-filed only if Don rules that the probe's gate passed.
+(#1347).
+
+**Outcome: the gate failed (Don, 2026-11-14).** Stage B, a
+`templates/minimax/face-repair-ref` sibling template, is not filed, and #1320
+is closed as not planned. See *Don's ruling* below.
 
 ## Stage A probe: ref2va 0.8 / 0.9 vs t2va 0.6 (2026-11-14)
 
@@ -66,9 +69,11 @@ face.
 - **Synthetic, t2va 0.6:** keeps the smear. In the pasted frames the face is a
   blur with a dark open-mouth blob. It is not recognisably Pat.
 - **Synthetic, ref2va 0.8:** a recognisable Pat: the moustache, the brow, and
-  the face shape. It sits in the frame at the paste without a visible seam.
-  Inside the crop, the body is slightly smaller and the cabinets have moved,
-  but the feathered paste hides this at the face's scale.
+  the face shape. The face crop showed no visible seam at the paste. Inside
+  the crop, the body is slightly smaller and the cabinets have moved, and the
+  probe judged that the feathered paste hid this at the face's scale. **Don's
+  full-frame viewing overturned this:** the area around the face is visibly
+  distorted (see *Don's ruling*).
 - **Synthetic, ref2va 0.9:** also recognisable, but the scene inside the crop is
   restaged (new background and framing). In the pasted frames the face reads
   larger, with a different head pose than the body carries. This is the pop the
@@ -81,17 +86,37 @@ face.
 Not checked: mouth sync was not judged by ear against the audio. The frames
 show the mouth moving in every arm.
 
-### Proposed gate call
+### Proposed gate call (superseded)
 
-**Pass, at `refine_strength` 0.8.**
-- On the sub-0.05 face, ref2va 0.8 builds a recognisable cast face where t2va
-  0.6 leaves a smear, with no frame distortion at the paste.
-- 0.9 restages on both takes, so it is not the template's default.
-- Caveats:
-  - the sub-0.05 take is synthetic;
-  - mouth sync was judged by eye only;
-  - the runs were on the 595cee1f server.
+The probe session proposed **pass, at `refine_strength` 0.8**: on the
+sub-0.05 face, ref2va 0.8 built a recognisable cast face where t2va 0.6 left a
+smear, and the face crops showed no distortion at the paste. 0.9 restaged on
+both takes. Caveats it named: the sub-0.05 take is synthetic, mouth sync was
+judged by eye only, and the runs were on the 595cee1f server. Don's ruling
+below replaces this proposal.
 
-The ruling is Don's (plan Q2). If he passes it, stage B ships
-`face-repair-ref` at 0.8 with gate 0.2/0.3. If not, #1320 closes as measured,
-with this record.
+### Don's ruling: the gate fails (2026-11-14)
+
+Don watched all five pasted outputs in full frame: the synthetic
+take at t2va 0.6, ref2va 0.8 and ref2va 0.9, and the #1097 control at ref2va
+0.8 and 0.9.
+
+- **Every ref2va arm, at both strengths and on both takes, shows visible
+  distortion in the area around the corrected face.**
+- The shipped t2va 0.6 output was not flagged.
+- This contradicts the probe's "no seam at the paste" for ref2va 0.8. The
+  96 px face crops the grids used do not show the surrounding area, and the
+  surround is where the damage is.
+
+The plan's gate requires "no frame distortion", so it fails. Stage B is not
+filed, and #1320 closes as not planned with this record.
+
+**Lesson for any future face-pass probe:** judge the paste surround, not only
+the face crop. Look at full frames (or a crop several times the face box) of
+the pasted output, at the same moments as the face grids. This is the same
+lesson as the levelled handoff: the measures and the crops passed, and the
+viewing did not.
+
+**Reopen path:** a ref2va face pass that does not disturb the surround, shown
+on a full-frame viewing. The per-frame strength work deferred in the plan
+stays deferred behind its own trigger.
