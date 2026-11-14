@@ -207,6 +207,7 @@ ERROR_ORDER = [
     "guide_noise",
     "selflift",
     "experimental_tst",
+    "turbo_lead_in",
     "task_signatures",
     "task_remote_code",
     "component_types",

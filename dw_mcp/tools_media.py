@@ -220,8 +220,10 @@ class MediaTools:
         workspace: str | None = None,
     ) -> list[ImageContent | TextContent]:
         """2-8 outputs as one grid (a row each, a column per `at` moment,
-        the same frame number in all) with PSNR, SSIM and mean abs diff
-        against `baseline` (default the first). One `crop` box is shown
+        read at the same frame index in all) with PSNR, SSIM and mean abs diff
+        against `baseline` (default the first). `at`: a number is SECONDS (not
+        a frame number; 24 is 24 s), a string `"frame:N"` is frame index N;
+        default 4 evenly spaced frames. One `crop` box is shown
         and measured; one box per name is shown only. Takes `asset:`.
         `texture_bands` adds per-output FFT band energy over `crop`, 1+
         names (a measurement, not a score; see the workflows guide,

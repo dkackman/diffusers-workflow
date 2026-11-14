@@ -148,6 +148,14 @@ re-render, and the chain's own text encoder, length and sizes kept
 [dw/tasks/chain_repair.py](../dw/tasks/chain_repair.py);
 [#1169](https://github.com/dkackman/diffusers-workflow/issues/1169)).
 
+### ComfyUI-Continuity
+
+Concept only, no code taken. It inspired `turbo_lead_in`
+([dw/pipeline_processors/h3_lead_in.py](../dw/pipeline_processors/h3_lead_in.py);
+[#1326](https://github.com/dkackman/diffusers-workflow/issues/1326)): running a
+call's first denoising steps without the turbo (step-distilled) LoRA, so the base
+model lays out the composition.
+
 ### [matlowai/h3-long-video-research](https://github.com/matlowai/h3-long-video-research)
 
 A research repository on long MiniMax H3 videos, under CC BY 4.0. Its findings
@@ -211,7 +219,13 @@ inspired `export_timeline`
 piece written as an OpenTimelineIO `.otioz` bundle with one clip per shot, so an
 editor opens it as a timeline.
 
-roadmaus/ComfyUI-Continuity (MIT; concept only, no code adapted) inspired the
+roadmaus/ComfyUI-Continuity (MIT; concept only, no code taken) inspired the
+seam/segment drift split: `analyze_seams`' `segment_looks`
+([dw/tasks/assess.py](../dw/tasks/assess.py)) and the bench driver's `split_*`
+measures ([bench/driver.py](../bench/driver.py);
+[#1324](https://github.com/dkackman/diffusers-workflow/issues/1324)), which say
+how much of a chained take's drift arrives as a step at each seam and how much
+inside the segments. The same source, again concept only, inspired the
 seam-restore probe
 ([bench/workflows/seam-restore.json](../bench/workflows/seam-restore.json);
 [#1325](https://github.com/dkackman/diffusers-workflow/issues/1325)): a

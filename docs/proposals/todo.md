@@ -37,6 +37,27 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **Seam/segment split of chain drift** (#1324, stages #1349-#1350), shipped
+  2026-11-14. `analyze_seams` answers gain `segment_looks`: each shot's 1 s
+  first and last window of new frames (lightness, contrast, saturation,
+  detail), a measure no rule reads. `bench/driver.py measure` totals it into
+  `split_<m>_total`/`_seams`/`_segments`/`_seam_share`/`_seam_sign`, which sum
+  exactly. It says where a measure changes, not whether Don sees it.
+  Face-crop measures were cut, with a trigger:
+  `complete/seam-segment-split-complete.md`.
+- **H3 precision burn probe** (#1319, stage #1346), shipped 2026-11-14 as a
+  bench record. A bf16 transformer under block offload on one card burns at the
+  int8 control's rate, so precision is not a burn lever at int8→bf16. Tensor
+  parallelism across lem's two cards was cut, because on 3090s it can't run H3
+  above int8. It is deferred under two triggers, and the first is now shown
+  unmet: `complete/h3-bf16-burn-probe-complete.md`.
+- **Face track subject selection** (#1321, stage #1348), shipped 2026-11-14.
+  `crop_face_track` gains `select` (`largest` default, `centre`, `left`,
+  `right`, `confident`), applied at each track start, and a lost track now
+  keeps source pixels instead of jumping to another face. Both face-repair
+  templates pass `select` through. `reference` (SFace), Gaussian smoothing and
+  per-shot `select` were cut, each with a trigger:
+  `complete/face-track-select-complete.md`.
 - **Words check for dialogue chains** (#1262, stages #1297-#1299), shipped
   2026-11-09. The H3 chain check gains a `words` measure: each segment's kept
   audio is transcribed on CPU Whisper and compared with its line (`lines[k]`

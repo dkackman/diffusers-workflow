@@ -139,7 +139,6 @@ UTILITIES = {
     "workflows/templates/audio-trim-fade.json",
     "workflows/templates/check-script.json",
     "workflows/templates/check-narration.json",
-    "workflows/templates/narration-retime.json",
     "workflows/templates/split-takes.json",
     "workflows/templates/face-drift-check.json",
     "workflows/templates/image-processors.json",
@@ -171,10 +170,21 @@ def test_no_template_falls_through_to_utility(path):
         )
 
 
+# Declarations that repeat the derivation on purpose. Each is a shape a
+# recipe names an agent to list by, so it must not move if a rule changes.
+# `narration-long` derives `audio` today; the passages recipe's step 1 sends
+# the agent to `list_workflows(shape="audio")` for it (#1311 plan v2, Q6).
+PINNED_DECLARATIONS = {
+    "workflows/templates/narration-long.json": {"shape"},
+}
+
+
 @pytest.mark.parametrize("path", TEMPLATES + MODEL_CONFIGS)
 def test_a_declaration_must_differ_from_the_derivation(path):
     """An override that repeats the rules is noise that will rot when the
-    rules or the file change. Declare only what derivation gets wrong."""
+    rules or the file change. Declare only what derivation gets wrong, or
+    what a recipe pins (`PINNED_DECLARATIONS`)."""
+    pinned = PINNED_DECLARATIONS.get(path, set())
     definition = load(path)
     meta = derive_catalog_metadata(definition)
     stripped = {
@@ -182,6 +192,8 @@ def test_a_declaration_must_differ_from_the_derivation(path):
     }
     derived = derive_catalog_metadata(stripped)
     for key in meta["declared"]:
+        if key in pinned:
+            continue
         assert meta[key] != derived[key], (
             f"{path} declares {key}={meta[key]!r}, which derivation already produces"
         )
@@ -676,6 +688,20 @@ def test_the_compact_listing_fits_the_budget():
     assert _tokens(sequences) <= FILTERED_BUDGET, (
         f"shape=sequence is {_tokens(sequences):.0f} tokens"
     )
+
+
+def test_the_narration_templates_list_under_audio():
+    """#1311 stage #1338 (drill W1): the passages recipe's narration and
+    retime templates both answer `list_workflows(shape="audio")`, and both
+    declare it (Q6): retime derived `utility`, and narration-long's matching
+    derivation is pinned so a rule change cannot move it."""
+    found, _shadowed = library_path(
+        "workflows", None, primary=os.path.join(REPO_ROOT, "workflows")
+    ).entries()
+    audio = project_listing(workflow_details(found), view="compact", shape="audio")
+    for name in ("templates/narration-retime", "templates/narration-long"):
+        assert name in audio, name
+        assert load(f"workflows/{name}.json").get("shape") == "audio", name
 
 
 def _walk(value):

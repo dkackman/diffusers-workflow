@@ -1126,8 +1126,11 @@ reported.
 `compare_outputs(names)` (`POST /api/gallery/compare`)
 lays 2-8 outputs (variations, reruns, the same shot with and without a speed
 setting) in one grid, a row per output and a column per moment, every output
-read at the same frame number, and measures each against a `baseline` (default
-the first). Per non-baseline output it reports PSNR (dB, higher is closer;
+read at the same frame index, and measures each against a `baseline` (default
+the first). `at` lists the moments (1 to 8; default 4 evenly spaced): a number
+is **seconds** (`at=[24]` is 24 s, not frame 24, and past the end of a short
+clip), converted at the baseline's fps; the string `"frame:N"` is frame index
+N. Nothing else is accepted. Per non-baseline output it reports PSNR (dB, higher is closer;
 `identical` when equal), SSIM (structure on luma, 1.0 identical) and mean
 absolute difference (0-255, lower is closer), at source resolution, per column
 and as mean/min/max. A shared `crop` is the region both shown and measured; one
@@ -1938,6 +1941,31 @@ loosens the carried guide too.
 | value | a number in [0, 1); anything else, or a value outside the range, is refused naming the range. Accepts a `variable:` reference |
 | where | MiniMax-H3 `t2va` or `fl2va`, where `guides` run; refused on `ref2va`, on a step that passes `references`, and on a non-H3 step |
 | no guides | a warning, not a refusal: a step with no `guides` and no `continuity: "guide"` chain has nothing to noise |
+
+#### Laying out the composition without the turbo LoRA: `turbo_lead_in`
+
+A turbo LoRA fixes the composition in its first, high-noise evaluations. `turbo_lead_in` N
+(an H3 call argument, a whole number >= 0) runs the first N transformer evaluations of each
+pipeline call with the LoRA adapter named `turbo` at scale 0, so the base model lays out the
+scene, then at its configured scale for the rest. The unit is evaluations, not steps:
+`num_inference_steps` N runs N - 1, so a turbo template's 5 steps are 4 evaluations. Only the
+adapter named `turbo` is touched; other adapters keep their scales, and its scale is restored
+on success, error and cancel. Every chain segment and re-roll is its own call, so the count
+restarts at each. `0` or `null` is off.
+
+```json
+"pipeline": {
+    "loras": [{ "model_name": "...", "adapter_name": "turbo", "scale": 1.0 }],
+    "arguments": { "num_inference_steps": 5, "turbo_lead_in": 1 }
+}
+```
+
+Refused at validate and at run: a value that is not a whole number >= 0; N at or past the
+call's evaluations; a step with no LoRA whose `adapter_name` is `turbo` (the error lists the
+names it has); a `first_block` cache (its residual threshold reads the adapter switch as a
+change, and cached steps skip it); and a step that is not H3 (an H3-only argument). Each call
+logs one job event: `turbo lead-in: evaluations 1..N with adapter 'turbo' at 0 of M`. Under
+`torch.compile` the switch can cost a recompile ([ACCELERATION.md](ACCELERATION.md#torchcompile)).
 
 #### Chaining with a guide: `continuity: "guide"`
 
@@ -2996,23 +3024,38 @@ eye called was 0.146 at 36 s on `dialogue`.
   and the latent keystone (`anchor_every`) stay experimental.
 
 A piece longer than one clean take is passages joined as cuts, one narrated take
-per passage. That composition is not yet run end to end. The recipe:
+per passage. That composition is not yet run end to end. `templates/minimax/chained-segments`
+with a voice H3 invents per passage is not this recipe: nothing ties the
+passages' voices together (`bench/records/drill.md`, *Cold drill: the
+Gettysburg Address*). The recipe:
 
-1. **One narration for the whole script**: `templates/narration-long` from one
-   voice reference, retimed once with `templates/narration-retime`. One track
-   keeps one voice, room tone and level across the cuts.
-2. **Passages** split at paragraph or section breaks to fit the preset: about
-   60 words for `dialogue` (about 30 s), about 175 for `standing` (about 85 s),
-   at the retimed pace of about 126 words a minute. Cut the retimed track in
-   the middle of those section-break pauses with `slice_audio`, and
-   `keep_output` each slice.
+1. **One narration for the whole script**: `get_workflow("templates/narration-long")`
+   and `get_workflow("templates/narration-retime")`; both list under
+   `list_workflows(shape="audio")`. With no voice clip from the user, make the
+   reference first: a 5-10 s line from `templates/generate-speech`, kept as an
+   asset and passed with its exact words as the reference. Speak the script
+   once with `templates/narration-long` from that one reference and retime it
+   once with `templates/narration-retime`. One track keeps one voice, room
+   tone and level across the cuts.
+2. **Passages**: `standing` for a monologue to camera, `dialogue` only for a
+   passage under 30 s. Split at paragraph or section breaks to fit the
+   preset: about 175 words for `standing` (about 85 s), about 60 for
+   `dialogue` (about 30 s), at the retimed pace of about 126 words a minute.
+   Cut the retimed track in the middle of those section-break pauses with
+   `slice_audio`, and `keep_output` each slice.
 3. **One `templates/minimax/narrated-take` per passage**, with its slice, its
    text and a different still or angle; a cut to the same still reads as a
-   reset.
+   reset. Make the second angle from the first still with
+   `templates/image-edit`, or with the same FLUX 3 Klein portrait prompt on
+   the same seed and only the framing changed. Validate each passage and sum
+   their `plan.estimate`s; the H3 chain estimate runs high (18.3 min quoted,
+   about 7 run).
 4. **Join** with an authored one-step `concat_videos` workflow: the takes as
    `output:` references, `trim_frames: 0` (a hard cut), `match_levels: "lufs"`
-   (off by default). Every take must be the same frame size. Then
-   `export_timeline` if an editor is wanted.
+   (off by default). Every take must be the same frame size. After the join,
+   run `assess_output(probe="analyze_seams")`, `get_output_frames(seams=...)`
+   at the passage cuts and `get_output_audio` across each cut before calling
+   the piece done. Then `export_timeline` if an editor is wanted.
 
 The design is `docs/proposals/complete/narrated-long-take-complete.md`.
 

@@ -197,17 +197,30 @@ seed 1; about 18-19 min per segment on dialogue and walk_keyframed; standing too
 ### Longer than one take: passages joined as cuts
 
 A piece longer than one clean take is passages joined as cuts, one narrated
-take each. Not yet run end to end; nothing is measured past 86 s.
+take each, all held to one narration track. Not yet run end to end; nothing is
+measured past 86 s. `templates/minimax/chained-segments` with a voice H3
+invents per passage is **not** this recipe: nothing ties the passages' voices
+together, and the cold drill that took that path left silence holes at 5 of
+its 6 cuts (`bench/records/drill.md`, *Cold drill: the Gettysburg Address*).
 
-1. **One narration for the whole script.** Speak it once with
-   `templates/narration-long` from one voice reference (`audio.md`), then
+1. **One narration for the whole script.** Both templates are in the
+   catalog: `get_workflow("templates/narration-long")` and
+   `get_workflow("templates/narration-retime")` (both list under
+   `list_workflows(shape="audio")`). A user with no voice clip is not a
+   blocker. Make the reference first: speak a 5-10 s line with
+   `templates/generate-speech` (`model_name`
+   `Edge0/Audio8-TTS-Realistic-0.6b`), `keep_output` it, and pass it as
+   `reference_audio` with its exact words as `reference_text`. Speak the
+   script once with `templates/narration-long` from that one reference, then
    retime it once with `templates/narration-retime`. One track gives one
    voice, one room tone and one level across every cut; a narration made per
    passage gives none of those.
-2. **Passages.** Split the script at paragraph or section breaks so each
-   passage fits its preset. At the retimed pace (about 126 words a minute,
-   `bench/records/narrated.md`) that is about 60 words for `shot: dialogue`
-   (about 30 s) and about 175 words for `shot: standing` (about 85 s). Cut
+2. **Passages.** Use `shot: standing` for a monologue to camera, and
+   `shot: dialogue` only for a passage under 30 s. Split the script at
+   paragraph or section breaks so each passage fits its preset. At the
+   retimed pace (about 126 words a minute, `bench/records/narrated.md`) that
+   is about 175 words for `shot: standing` (about 85 s) and about 60 words
+   for `shot: dialogue` (about 30 s). Cut
    the retimed track at those section-break pauses with `slice_audio`
    (`start_seconds`/`duration_seconds`, the cut in the middle of the pause;
    the retime report's `words` give the times), and `keep_output` each slice.
@@ -216,11 +229,18 @@ take each. Not yet run end to end; nothing is measured past 86 s.
 3. **Takes.** Run one `templates/minimax/narrated-take` per passage: that
    passage's slice as `narration`, that passage's text as `script`, and **a
    different still or angle** for each. A cut to the same still reads as a
-   reset. Probe passage 1 first, as above.
+   reset. Make the second angle from the first still: `templates/image-edit`
+   with the new framing as its instruction, or the same FLUX 3 Klein portrait
+   prompt on the same seed with only the framing changed (closer, wider, or
+   turned). Probe passage 1 first, as above.
 4. **Join.** Author a one-step `concat_videos` workflow: the takes as
    `output:` refs in order, `trim_frames: 0` (a hard cut), `match_levels:
    "lufs"` (off by default), `fps: 24`. Every take must be the same frame
-   size. Then `export_timeline` (below) if an editor is wanted.
+   size. **After the join, judge the cut before calling the piece done:**
+   `assess_output(probe="analyze_seams")` on it, `get_output_frames(seams=...)`
+   at the passage cuts, and `get_output_audio` (`start`, `duration`) across
+   each cut, listening for a hole of silence or a step in level. Then
+   `export_timeline` (below) if an editor is wanted.
 
 ## Export the cut for an editor
 

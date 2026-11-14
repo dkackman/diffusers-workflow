@@ -34,7 +34,7 @@ Compares the first block's residual between steps to decide whether to skip the 
 }
 ```
 
-`threshold` defaults to `0.05`. Higher skips more and costs more quality. On MiniMax-H3 (RTX 3090, 1344x768, 4 references) `0.05` took 22% off a 30-step base-model job and nothing off a 12-step or turbo one. On H3 `torch.compile` cost 289 s on the first pass for about 1% per pass, `text_kv` did nothing on Ref2VA, and `taylorseer` ran out of memory. On an H3 template pass `cache={"type": "first_block", "threshold": 0.05}`, at 20 or more base steps and never with a turbo LoRA.
+`threshold` defaults to `0.05`. Higher skips more and costs more quality. On MiniMax-H3 (RTX 3090, 1344x768, 4 references) `0.05` took 22% off a 30-step base-model job and nothing off a 12-step or turbo one. On H3 `torch.compile` cost 289 s on the first pass for about 1% per pass, `text_kv` did nothing on Ref2VA, and `taylorseer` ran out of memory. On an H3 template pass `cache={"type": "first_block", "threshold": 0.05}`, at 20 or more base steps and never with a turbo LoRA. `turbo_lead_in` ([WORKFLOW_GUIDE.md](WORKFLOW_GUIDE.md#laying-out-the-composition-without-the-turbo-lora-turbo_lead_in)) is refused with a `first_block` cache: its residual threshold reads the adapter switch as a change, and cached steps skip it.
 
 **Example:** [step-caching.json](../workflows/templates/step-caching.json)
 
@@ -252,6 +252,8 @@ Typical gains are 1.3-1.5x on diffusion transformers, and compile stacks with th
 - **Pin the attention backend** on a compiled component ([Attention Backends](#attention-backends)).
 - **Don't combine `fullgraph` with a `cache`.** The cache's per-step skip decision is a data-dependent branch diffusers wraps in `torch.compiler.disable`, which needs the graph break `fullgraph: true` forbids. `validate_workflow` warns `compile_fullgraph_with_cache` on such a component.
 - **Composes with offloading**: `group_offload` and `compile` on the same component install the offload hooks first, as required.
+- **`turbo_lead_in` changes a LoRA scale mid-call.** It sets the `turbo` adapter to 0, then back, after N evaluations. Under `torch.compile` peft's scale is a Python float the compiled forward guards on, so the switch can cost a recompile.
+  <!-- turbo_lead_in compile figure: measured on lem, #1352 -->
 - **Skipped on MPS** with a warning.
 - **Quantize-on-load is a separate cost.** An SDNQ on-the-fly component re-quantizes on every cold load unless `DW_QUANTIZED_CACHE=1` ([QUANTIZATION.md](QUANTIZATION.md#cached-on-the-fly-dw_quantized_cache)).
 - **TorchAO quantization needs compile to be fast** ([QUANTIZATION.md](QUANTIZATION.md#torchao)).

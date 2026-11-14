@@ -668,11 +668,28 @@ def _record_check(shot, segment, config, checked):
         }
         if checked.get("every_attempt_failed"):
             detail["every_attempt_failed"] = True
-            detail["note"] = (
-                "every attempt failed its words, so a fresh seed is not the "
-                "fix: the cause may be in the carry - repair the segment with "
-                "templates/minimax/repair-segment rather than more retries"
-            )
+            if "words" not in result.failed:
+                # Only the opening failed: the similarity passed (#1363)
+                detail["note"] = (
+                    "every attempt opened past the line's first words (the "
+                    "similarity passed): the head trim may cut it or it is "
+                    "never spoken - try a different seed or prompt, or for a "
+                    "long monologue use a narrated take"
+                )
+            elif segment.index == 0:
+                # Segment 1 has no carry to blame and repair-segment cannot
+                # repair it (#1363)
+                detail["note"] = (
+                    "every attempt failed its words: re-render segment 1 with "
+                    "a different seed or a reworded prompt"
+                )
+            else:
+                detail["note"] = (
+                    "every attempt failed its words, so a fresh seed is not "
+                    "the fix: the cause may be in the carry - repair the "
+                    "segment with templates/minimax/repair-segment rather "
+                    "than more retries"
+                )
     emit_warning(
         f"Chain segment {segment.index + 1}/{len(config.plan)} failed its check "
         + (

@@ -405,9 +405,10 @@ class JobSummary(ApiModel):
     historical: bool = sometimes("Read from job history rather than a live job.")
     queue_position: int = sometimes("Index in the waiting queue; only while queued.")
     waiting_for: str = sometimes(
-        "Why dispatch is holding this queued job though a card is free - "
-        "'waiting for host RAM: needs ~N GB, ~M GB free'; only while queued and "
-        "held. It starts when a running job frees the RAM."
+        "Why dispatch is holding this queued job - 'waiting for host RAM: "
+        "needs ~N GB, ~M GB free' (a card is free), or 'queued behind N running "
+        "job(s) on every card (...)' when every card is busy; only while queued. "
+        "Each hold also emits one queue_wait event (reason host_ram or gpu_busy)."
     )
     note: str = sometimes("The note it was submitted with; also its run's note.")
     rerun_of: str = sometimes(

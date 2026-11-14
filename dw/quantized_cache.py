@@ -58,7 +58,7 @@ import time
 from functools import lru_cache, partial
 from types import SimpleNamespace
 
-from .events import get_context
+from .events import emit_warning, get_context
 from .security import validate_path, SecurityError
 
 logger = logging.getLogger("dw")
@@ -501,7 +501,7 @@ def save_entry(root, key, component, inputs, name=None):
             "- the job goes on without it"
         )
         shutil.rmtree(tmp, ignore_errors=True)
-        return "skipped", f"save_failed: {_error_name(e)}", None
+        return "skipped", f"save_failed: {_save_error_detail(e)}", None
 
 
 def _save_model(component, path):
@@ -545,6 +545,20 @@ def _error_name(error):
     if code is not None and code in errno.errorcode:
         return errno.errorcode[code]
     return type(error).__name__
+
+
+def _save_error_detail(error, limit=200):
+    """`_error_name`, plus the message when the name is only an exception
+    class: a `SafetensorError` alone says nothing a consumer can act on."""
+    name = _error_name(error)
+    if name != type(error).__name__:
+        return name
+    message = " ".join(str(error).split())
+    if not message:
+        return name
+    if len(message) > limit:
+        message = message[: limit - 3] + "..."
+    return f"{name}: {message}"
 
 
 # --- server start -----------------------------------------------------------
@@ -1008,3 +1022,10 @@ def _save(root, candidate, component):
         seconds=time.monotonic() - started,
         nbytes=nbytes,
     )
+    if reason and reason.startswith("save_failed"):
+        emit_warning(
+            f"Quantized cache: {candidate.name} was quantized but could not be "
+            f"saved ({reason}); each cold load of it pays the quantize again",
+            component=candidate.name,
+            reason=reason,
+        )

@@ -172,6 +172,8 @@ class Job:
         # Why dispatch is holding it while it is queued - "waiting for host
         # RAM: ..." - or None; a live state, never a warning (#869)
         self.waiting_for = None
+        # "host_ram" | "gpu_busy" | None: which wait waiting_for describes
+        self.wait_kind = None
         self.events = []
         # The running summary a poll reads - see _note_progress. Kept as the
         # events arrive rather than derived from the log on request, because
