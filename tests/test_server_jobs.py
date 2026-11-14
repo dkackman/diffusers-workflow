@@ -800,3 +800,45 @@ def test_history_keeps_the_roles_a_live_manifest_carries(tmp_path):
         assert made.history.get(job.id)["manifest"] == live
     finally:
         made.shutdown()
+
+
+class TestShotFilesAreNamedAsFilesAre:
+    """A step that wrote several files marks each shot with the file it sits
+    in; a client sees that as it sees `files`, never the host's path
+    (GHSA-5m72-m9g5-q8vp)."""
+
+    def _entry(self, root):
+        take = os.path.join(root, "flow", "run", "final", "take.1-0.0.mp4")
+        return {
+            "step": "take",
+            "files": [take],
+            "shots": [{"name": "s1", "file": take}, {"name": "s2"}],
+        }
+
+    def test_a_manifest_entry(self, tmp_path):
+        from dw.server.job_results import relative_manifest
+
+        root = str(tmp_path)
+        entry = self._entry(root)
+        (relative,) = relative_manifest([entry], root)
+        assert relative["files"] == ["flow/run/final/take.1-0.0.mp4"]
+        assert relative["shots"] == [
+            {"name": "s1", "file": "flow/run/final/take.1-0.0.mp4"},
+            {"name": "s2"},
+        ]
+        # The worker's own list is not rewritten under it
+        assert entry["shots"][0]["file"].startswith(root)
+
+    def test_a_step_end_event(self, tmp_path):
+        from dw.server.job_results import record_progress
+
+        root = str(tmp_path)
+        seen = []
+        job = type("J", (), {"add_event": lambda self, event: seen.append(event)})()
+        record_progress(job, {"event": "step_end", **self._entry(root)}, root)
+        assert root not in json.dumps(seen)
+
+    def test_shots_that_are_not_a_list_pass_through(self, tmp_path):
+        from dw.server.job_results import relative_shots
+
+        assert relative_shots(None, str(tmp_path)) is None

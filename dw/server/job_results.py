@@ -57,18 +57,36 @@ def relative_output_names(paths, output_dir):
     return names
 
 
-def relative_manifest(manifest, output_dir):
-    """A manifest list with every entry's 'files' relativised - the
-    rendering `get_job` and `step_end`/`workflow_end` events must all
-    agree on (#284)."""
+def relative_shots(shots, output_dir):
+    """A step's `shots` with each `file` named as `files` names it. A step
+    that wrote several files marks every shot with the one it sits in
+    (dw/shots.py), and that is the worker's absolute path
+    (GHSA-5m72-m9g5-q8vp)."""
+    if not isinstance(shots, list):
+        return shots
     return [
         (
-            {**entry, "files": relative_output_names(entry["files"], output_dir)}
-            if "files" in entry
-            else entry
+            {**shot, "file": relative_output_names([shot["file"]], output_dir)[0]}
+            if isinstance(shot, dict) and isinstance(shot.get("file"), str)
+            else shot
         )
-        for entry in manifest
+        for shot in shots
     ]
+
+
+def relative_manifest(manifest, output_dir):
+    """A manifest list with every entry's 'files' and its shots' 'file'
+    relativised - the rendering `get_job` and `step_end`/`workflow_end`
+    events must all agree on (#284)."""
+    relative = []
+    for entry in manifest:
+        entry = dict(entry)
+        if "files" in entry:
+            entry["files"] = relative_output_names(entry["files"], output_dir)
+        if "shots" in entry:
+            entry["shots"] = relative_shots(entry["shots"], output_dir)
+        relative.append(entry)
+    return relative
 
 
 def record_manifest(job, manifest, output_dir):
@@ -92,6 +110,8 @@ def record_progress(job, event, output_dir):
         # A running job's page renders each output as its step ends,
         # before there is a manifest to classify
         event["output_kinds"] = output_kinds([{"files": event["files"]}])
+    if "shots" in event:
+        event["shots"] = relative_shots(event["shots"], output_dir)
     if "manifest" in event:
         # workflow_end carries the run's full manifest nested under this
         # key - it must match get_job's rendering of the same list rather
