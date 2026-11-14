@@ -218,3 +218,11 @@ inspired `export_timeline`
 [#1197](https://github.com/dkackman/diffusers-workflow/issues/1197)): a joined
 piece written as an OpenTimelineIO `.otioz` bundle with one clip per shot, so an
 editor opens it as a timeline.
+
+roadmaus/ComfyUI-Continuity (MIT; concept only, no code taken) inspired the
+seam/segment drift split: `analyze_seams`' `segment_looks`
+([dw/tasks/assess.py](../dw/tasks/assess.py)) and the bench driver's `split_*`
+measures ([bench/driver.py](../bench/driver.py);
+[#1324](https://github.com/dkackman/diffusers-workflow/issues/1324)), which say
+how much of a chained take's drift arrives as a step at each seam and how much
+inside the segments.
