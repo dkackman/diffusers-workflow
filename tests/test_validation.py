@@ -322,6 +322,7 @@ WARNING_ORDER = [
     "shot_span_warnings",
     "inherited_vram_warnings",
     "acceleration_warnings",
+    "unsaved_json_warnings",
     "guide_noise_warnings",
     "chain_lines_warnings",
     "frame_snap_warnings",
