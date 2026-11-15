@@ -19,6 +19,7 @@ from .h3_hold import hold_audio_reference, holds_audio, refines
 from .h3_mask import binarized, edits_regions, listen_frames, passes_audio
 from .h3_rules import (
     REFINE_WINDOWS_INPUT,
+    renamed_windows_problem,
     GUIDES_INPUT,
     GUIDE_LIMIT,
     GUIDE_NOISE_INPUT,
@@ -456,9 +457,12 @@ class H3Arguments:
                 `refine_sigmas` schedule or the step count is out of range, or the
                 step passes no `latents` or `hold_audio`
         """
+        renamed = renamed_windows_problem(arguments)
+        if renamed is not None:
+            raise ValueError(f"Step '{self.name}': {renamed}")
         if arguments.get(REFINE_WINDOWS_INPUT) is not None:
-            # The experimental time-windowed refine (h3_windows.py), which
-            # imports diffusers, so only when a step asks for it
+            # The time-windowed refine (h3_windows.py), which imports
+            # diffusers, so only when a step asks for it
             from .h3_windows import windows_refusal
 
             refusal = windows_refusal(

@@ -474,8 +474,8 @@ CAPSTONE_KEYS = (CAPSTONE_PAST_END, CAPSTONE_GATE)
 
 def _capstone(where, guide):
     """A guide's capstone keys, checked: {} for a plain guide. Both keys are
-    a scratch spike, refused unless REFINE_WINDOWS_ENV_VAR is on, since the
-    gate is run by the windowed denoiser that flag puts in."""
+    a scratch spike, refused unless REFINE_WINDOWS_ENV_VAR is on; the gate is
+    run by the windowed denoiser, which every H3 load carries (#1230)."""
     given = {key: guide[key] for key in CAPSTONE_KEYS if key in guide}
     if not given:
         return {}

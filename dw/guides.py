@@ -747,6 +747,52 @@ def selflift_errors(workflow_definition, source_indices=None):
     return errors
 
 
+def windows_errors(workflow_definition, source_indices=None):
+    """Every `refine_windows` refused before the run, as [{path, message}]
+    (#1230; dw/pipeline_processors/h3_windows.py): the spike-era name
+    `experimental_refine_windows`, a step that is not H3 t2va/fl2va, and the
+    call rules the run asks too (`window_problems`) - the settings with their
+    defaults filled, the refine they ride on and a step `cache`. A setting
+    still a reference is left to the run."""
+    from .pipeline_processors.h3_rules import (
+        OLD_REFINE_WINDOWS_INPUT,
+        REFINE_WINDOWS_INPUT,
+        renamed_windows_problem,
+    )
+    from .pipeline_processors.h3_windows import window_problems
+
+    errors = []
+    for _, _, pipeline, source, where in references.iter_steps(
+        workflow_definition.get("steps"), source_indices, "pipeline"
+    ):
+        arguments = pipeline.get("arguments")
+        if not isinstance(arguments, dict):
+            continue
+        renamed = renamed_windows_problem(arguments)
+        if renamed:
+            path = render_path(
+                ("steps", source, "pipeline", "arguments", OLD_REFINE_WINDOWS_INPUT)
+            )
+            errors.append({"path": path, "message": f"{renamed}{where}"})
+        if arguments.get(REFINE_WINDOWS_INPUT) is None:
+            continue
+        path = render_path(
+            ("steps", source, "pipeline", "arguments", REFINE_WINDOWS_INPUT)
+        )
+        step_problem = _takes_guides_problem(pipeline, arguments, REFINE_WINDOWS_INPUT)
+        if step_problem:
+            problems = [step_problem]
+        else:
+            configuration = pipeline.get("configuration")
+            cached = (
+                isinstance(configuration, dict)
+                and configuration.get("cache") is not None
+            )
+            problems = window_problems(arguments, has_cache=cached)
+        errors += [{"path": path, "message": f"{p}{where}"} for p in problems]
+    return errors
+
+
 __all__ = [
     "anchor_errors",
     "guide_chain_errors",
@@ -755,4 +801,5 @@ __all__ = [
     "guide_noise_warnings",
     "guides_errors",
     "selflift_errors",
+    "windows_errors",
 ]

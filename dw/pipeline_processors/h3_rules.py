@@ -210,18 +210,33 @@ TILE_OVERLAP_FLOOR = 192
 LATENT_SCALE = 16
 # The rate H3 generates video at
 H3_FPS = 24
-# The experimental time-windowed refine (#1199 Task 17 Step 4,
-# dw/pipeline_processors/h3_windows.py): its call argument, and the scratch flag
-# the loader reads before it puts the windowed denoiser in. Here, not in
-# h3_windows.py, because that module imports diffusers and the loader reads the
-# flag on every H3 load
-REFINE_WINDOWS_INPUT = "experimental_refine_windows"
+# The time-windowed refine (#1199 Task 17 Step 4, #1230;
+# dw/pipeline_processors/h3_windows.py): its call argument, on every H3 load,
+# and the name it had while it was a spike, refused naming this one. Here, not
+# in h3_windows.py, because that module imports diffusers
+REFINE_WINDOWS_INPUT = "refine_windows"
+OLD_REFINE_WINDOWS_INPUT = "experimental_refine_windows"
+# The long-form spikes' one scratch flag (selflift, the capstone, latent carry,
+# the latent keystone, anchor_every, the sigma gate, TST). It kept the windowed
+# refine's name when the windows left it (#1230), and h3_tst.py reads it by
+# this name, so the name stays
 REFINE_WINDOWS_ENV_VAR = "DW_EXPERIMENTAL_REFINE_WINDOWS"
 
 
 def refine_windows_enabled():
-    """Whether the windowed refine's scratch flag is on in this process."""
+    """Whether the long-form spikes' scratch flag is on in this process."""
     return os.environ.get(REFINE_WINDOWS_ENV_VAR) == "1"
+
+
+def renamed_windows_problem(arguments):
+    """The refusal of the windowed refine's spike-era name, or None."""
+    if not isinstance(arguments, dict) or OLD_REFINE_WINDOWS_INPUT not in arguments:
+        return None
+    return (
+        f"{OLD_REFINE_WINDOWS_INPUT} is now {REFINE_WINDOWS_INPUT} - rename the "
+        f"argument (every key is optional, and {REFINE_WINDOWS_INPUT}: {{}} is "
+        f"the default windows)"
+    )
 
 
 # The experimental SelfLift (#1195, #1199 Task 19; h3_selflift.py): the early

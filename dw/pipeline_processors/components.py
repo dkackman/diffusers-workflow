@@ -818,12 +818,15 @@ def _assemble_loaded(
 
     if core_denoise_sequences(component):
         attach_tile_blocks(component)
-        # ...and, behind its scratch flag, the time-windowed refine (h3_windows.py)
-        if refine_windows_enabled():
-            from .h3_windows import insert_refine_windows
+        # ...and the time-windowed refine, its long layout and its streamed
+        # decode (h3_windows.py, #1230), each the stock path unless a call
+        # carries `refine_windows`
+        from .h3_windows import insert_refine_windows
 
-            insert_refine_windows(component)
-            # ...and the latent keystone's restore (h3_guides, Task 9)
+        insert_refine_windows(component)
+        # ...and, behind the long-form spikes' scratch flag
+        if refine_windows_enabled():
+            # ...the latent keystone's restore (h3_guides, Task 9)
             insert_keystone_restore(component)
             # ...and the mid-schedule SelfLift (h3_selflift.py, #1195)
             from .h3_selflift import insert_selflift
