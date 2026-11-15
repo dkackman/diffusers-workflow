@@ -279,11 +279,56 @@ def _video_shape(name, value, base_dir, probe):
     return None, (frames, height, width), path, fps
 
 
-def _media_problems(arguments, base_dir, probe, frames_constraint=None):
+TRIM_COMMAND = "trim_video"
+
+
+def _trimmed_frames(steps, value):
+    """The frame count a `previous_result:` source names, when it is a
+    `trim_video` step with a literal `num_frames` - what the run keeps, known
+    before it runs - else None."""
+    name = references.ref_name(references.PREVIOUS_RESULT, value)
+    if name is None:
+        return None
+    name = name.partition(".")[0]
+    for _, step, task, _, _ in references.iter_steps(steps, None, "task"):
+        if step.get("name") != name:
+            continue
+        arguments = task.get("arguments")
+        if task.get("command") != TRIM_COMMAND or not isinstance(arguments, dict):
+            return None
+        count = _static(arguments.get("num_frames"))
+        return count if count and count > 0 else None
+    return None
+
+
+def _trimmed_source_problems(arguments, frames):
+    """[(argument, problem)] for a `source_video` known only by its frame
+    count `frames` (a `trim_video` result): the frame-count rules of
+    `media_problems`, which owns the 17n + 5 grid. Its size is not known yet,
+    so the canvas is taken as the source's own; an audio pass retimes the
+    source and is left to the run."""
+    if is_audio_pass(arguments):
+        return []
+    width, height, num_frames = (
+        _static(arguments.get(k)) for k in ("width", "height", "num_frames")
+    )
+    num_frames = frames if arguments.get("num_frames") is None else num_frames
+    width, height = width or 1, height or 1
+    shape = (frames, height, width)
+    return [
+        (SOURCE_VIDEO_INPUT, p)
+        for p in media_problems(SOURCE_VIDEO_INPUT, shape, width, height, num_frames)
+    ]
+
+
+def _media_problems(arguments, base_dir, probe, frames_constraint=None, steps=None):
     """[(argument, problem)] for the regional edit's files that resolve now:
     the source's and the mask's size and frame count against the canvas - a
     canvas key the step leaves out is the source's, as at the call - and a
     mask with no white pixel."""
+    trimmed = _trimmed_frames(steps, arguments.get(SOURCE_VIDEO_INPUT))
+    if trimmed is not None:
+        return _trimmed_source_problems(arguments, trimmed)
     if probe is None:
         return []
     problems = []
@@ -372,6 +417,7 @@ def mask_errors(workflow_definition, source_indices=None, base_dir=None, probe=N
                 base_dir,
                 probe,
                 declared_constraints(workflow_definition).get("num_frames"),
+                steps,
             )
         for name, problem in problems:
             if problem is not None:
