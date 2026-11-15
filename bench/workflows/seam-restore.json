@@ -1,7 +1,7 @@
 {
   "id": "SeamRestoreProbe",
   "summary": "#1325 seam-restore probe, restore arm: 6-segment narrated dialogue take, unchained",
-  "description": "Probe for #1325 (stage #1351), after ComfyUI-Continuity's seam restore (concept only). The narrated dialogue take's conditions (fl2va, int8, sparse, 1344x768, 20 steps, shift 12/3, narration held, the speaker still) unrolled into 6 explicit segments: each later segment is guided by a 22-frame tail of the one before (frame 0, no audio) and opens on that guide's first frame, and the take joins them with the chain's 22-frame head trim. Restore arm: before it is handed on, each tail is redrawn by a ref2va held-audio refine at refine_strength 0.3 against the still, with the next segment's prompt. H3 generates at least 120 frames, so the redraw takes segment k's frames 72-191 (with the matching 120-frame narration slice) as its source, and the next segment is guided by the restore's frames 98-119, the restored copy of frames 170-191, and opens on restore frame 98 (plan v3). seam-restore-control.json is the same workflow without the restore steps. Seeds: segment k = k, restore k = 1000 + k, in both arms, pinned per step; the seed variable is only the workflow default under them.",
+  "description": "Probe for #1325 (stage #1351), after ComfyUI-Continuity's seam restore (concept only). The narrated dialogue take's conditions (fl2va, int8, sparse, 1344x768, 20 steps, shift 12/3, narration held, the speaker still) unrolled into 6 explicit segments: each later segment is guided by a 22-frame tail of the one before (frame 0, no audio) and opens on that guide's first frame, and the take joins them with the chain's 22-frame head trim. Restore arm: before it is handed on, each tail is redrawn by a ref2va held-audio refine at refine_strength 0.3 against the still, with the next segment's prompt. H3 generates at least 120 frames and a refine source must sit on its 17n+5 grid, so the redraw takes segment k's frames 68-191 (124 frames, with the matching 124-frame narration slice) as its source, and the next segment is guided by the restore's frames 102-123, the restored copy of frames 170-191, and opens on restore frame 102 (plan v5). seam-restore-control.json is the same workflow without the restore steps. Seeds: segment k = k, restore k = 1000 + k, in both arms, pinned per step; the seed variable is only the workflow default under them.",
   "shape": "sequence",
   "variables": {
     "seed": 1
@@ -162,8 +162,8 @@
         "command": "trim_video",
         "arguments": {
           "video": "previous_result:seg01",
-          "start_frame": 72,
-          "num_frames": 120
+          "start_frame": 68,
+          "num_frames": 124
         }
       },
       "result": {
@@ -178,8 +178,8 @@
         "command": "slice_audio",
         "arguments": {
           "audio": "asset:bench/constitution-narration-retimed.wav",
-          "start_frame": 72,
-          "num_frames": 120,
+          "start_frame": 68,
+          "num_frames": 124,
           "fps": 24
         }
       },
@@ -309,7 +309,7 @@
           "source_video": "previous_result:rtailsrc01",
           "refine_strength": 0.3,
           "hold_audio": "previous_result:raud01",
-          "num_frames": 120,
+          "num_frames": 124,
           "width": 1344,
           "height": 768,
           "num_inference_steps": 20,
@@ -333,7 +333,7 @@
         "command": "trim_video",
         "arguments": {
           "video": "previous_result:restore01",
-          "start_frame": 98,
+          "start_frame": 102,
           "num_frames": 22
         }
       },
@@ -516,8 +516,8 @@
         "command": "trim_video",
         "arguments": {
           "video": "previous_result:seg02",
-          "start_frame": 72,
-          "num_frames": 120
+          "start_frame": 68,
+          "num_frames": 124
         }
       },
       "result": {
@@ -532,8 +532,8 @@
         "command": "slice_audio",
         "arguments": {
           "audio": "asset:bench/constitution-narration-retimed.wav",
-          "start_frame": 242,
-          "num_frames": 120,
+          "start_frame": 238,
+          "num_frames": 124,
           "fps": 24
         }
       },
@@ -663,7 +663,7 @@
           "source_video": "previous_result:rtailsrc02",
           "refine_strength": 0.3,
           "hold_audio": "previous_result:raud02",
-          "num_frames": 120,
+          "num_frames": 124,
           "width": 1344,
           "height": 768,
           "num_inference_steps": 20,
@@ -687,7 +687,7 @@
         "command": "trim_video",
         "arguments": {
           "video": "previous_result:restore02",
-          "start_frame": 98,
+          "start_frame": 102,
           "num_frames": 22
         }
       },
@@ -870,8 +870,8 @@
         "command": "trim_video",
         "arguments": {
           "video": "previous_result:seg03",
-          "start_frame": 72,
-          "num_frames": 120
+          "start_frame": 68,
+          "num_frames": 124
         }
       },
       "result": {
@@ -886,8 +886,8 @@
         "command": "slice_audio",
         "arguments": {
           "audio": "asset:bench/constitution-narration-retimed.wav",
-          "start_frame": 412,
-          "num_frames": 120,
+          "start_frame": 408,
+          "num_frames": 124,
           "fps": 24
         }
       },
@@ -1017,7 +1017,7 @@
           "source_video": "previous_result:rtailsrc03",
           "refine_strength": 0.3,
           "hold_audio": "previous_result:raud03",
-          "num_frames": 120,
+          "num_frames": 124,
           "width": 1344,
           "height": 768,
           "num_inference_steps": 20,
@@ -1041,7 +1041,7 @@
         "command": "trim_video",
         "arguments": {
           "video": "previous_result:restore03",
-          "start_frame": 98,
+          "start_frame": 102,
           "num_frames": 22
         }
       },
@@ -1224,8 +1224,8 @@
         "command": "trim_video",
         "arguments": {
           "video": "previous_result:seg04",
-          "start_frame": 72,
-          "num_frames": 120
+          "start_frame": 68,
+          "num_frames": 124
         }
       },
       "result": {
@@ -1240,8 +1240,8 @@
         "command": "slice_audio",
         "arguments": {
           "audio": "asset:bench/constitution-narration-retimed.wav",
-          "start_frame": 582,
-          "num_frames": 120,
+          "start_frame": 578,
+          "num_frames": 124,
           "fps": 24
         }
       },
@@ -1371,7 +1371,7 @@
           "source_video": "previous_result:rtailsrc04",
           "refine_strength": 0.3,
           "hold_audio": "previous_result:raud04",
-          "num_frames": 120,
+          "num_frames": 124,
           "width": 1344,
           "height": 768,
           "num_inference_steps": 20,
@@ -1395,7 +1395,7 @@
         "command": "trim_video",
         "arguments": {
           "video": "previous_result:restore04",
-          "start_frame": 98,
+          "start_frame": 102,
           "num_frames": 22
         }
       },
@@ -1578,8 +1578,8 @@
         "command": "trim_video",
         "arguments": {
           "video": "previous_result:seg05",
-          "start_frame": 72,
-          "num_frames": 120
+          "start_frame": 68,
+          "num_frames": 124
         }
       },
       "result": {
@@ -1594,8 +1594,8 @@
         "command": "slice_audio",
         "arguments": {
           "audio": "asset:bench/constitution-narration-retimed.wav",
-          "start_frame": 752,
-          "num_frames": 120,
+          "start_frame": 748,
+          "num_frames": 124,
           "fps": 24
         }
       },
@@ -1725,7 +1725,7 @@
           "source_video": "previous_result:rtailsrc05",
           "refine_strength": 0.3,
           "hold_audio": "previous_result:raud05",
-          "num_frames": 120,
+          "num_frames": 124,
           "width": 1344,
           "height": 768,
           "num_inference_steps": 20,
@@ -1749,7 +1749,7 @@
         "command": "trim_video",
         "arguments": {
           "video": "previous_result:restore05",
-          "start_frame": 98,
+          "start_frame": 102,
           "num_frames": 22
         }
       },
