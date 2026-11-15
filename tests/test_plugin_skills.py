@@ -1921,7 +1921,8 @@ class TestLongFormSkill:
             "`templates/minimax/narrated-take`",
             "`shot: standing`",
             "passages joined as cuts",
-            "not yet run end to end",
+            "run end to end once",
+            "bench/records/drill.md",
             "`face_drop`",
             "bench/records/narrated.md",
         ):
@@ -1959,7 +1960,9 @@ class TestLongFormSkill:
             "`trim_frames: 0`",
             '`match_levels: "lufs"`',
             "`output:`",
-            "Not yet run end to end",
+            "Run end to end once",
+            "Cold drill attempt 2",
+            "Run the first passage and judge it",
         ):
             assert name in procedure, name
         assert "tools named above" not in body
@@ -2000,7 +2003,7 @@ class TestLongFormSkill:
             'get_workflow("templates/narration-retime")',
             "`templates/generate-speech`",
             "`standing` for a monologue",
-            "not yet run end to end",
+            "run end to end once",
         ):
             assert name in section, name
         assert section.index("analyze_seams") > section.index("`concat_videos`")

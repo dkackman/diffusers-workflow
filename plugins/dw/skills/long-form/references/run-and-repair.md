@@ -181,7 +181,7 @@ seed 1; about 18-19 min per segment on dialogue and walk_keyframed; standing too
 3. **Judge.** Read each shot's `face_drop`, which is recorded and never
    failed. It is the face's drift from segment 1: `dialogue` read 0.003-0.057
    to 30 s, then 0.146 at 36 s, where an eye first calls the face etched;
-   `standing` stayed within 0.015 to 85 s (seed 1 only); `walk_keyframed` stayed at or under
+   `standing` stayed within 0.015 to 85 s (seed 1; on seed 1362 it held 65.6 s, at most 0.027, `bench/records/drill.md`); `walk_keyframed` stayed at or under
    0.041 on two seeds. A rising `face_drop` is the face, so the tool is
    `get_output_frames(at=...)` late in the take; seams are
    `assess_output(probe="analyze_seams")`. Lip sync is judged by eye
@@ -197,8 +197,13 @@ seed 1; about 18-19 min per segment on dialogue and walk_keyframed; standing too
 ### Longer than one take: passages joined as cuts
 
 A piece longer than one clean take is passages joined as cuts, one narrated
-take each, all held to one narration track. Not yet run end to end; nothing is
-measured past 86 s. `templates/minimax/chained-segments` with a voice H3
+take each, all held to one narration track. Run end to end once
+(`bench/records/drill.md`, *Cold drill attempt 2*): 106.6 s from two `standing`
+passages (41.0 s and 65.6 s, `face_drop` at most 0.027) and one cut, within 4 ms
+of the narration, 0.75 s below -50 dBFS at the cut. It cost about 2.6 GPU-minutes
+per second of video on one RTX 3090 (4.6 h); `validate_workflow` gives this
+template no estimate, so quote that figure. Run the first passage and judge it
+before queueing the rest. `templates/minimax/chained-segments` with a voice H3
 invents per passage is **not** this recipe: nothing ties the passages' voices
 together, and the cold drill that took that path left silence holes at 5 of
 its 6 cuts (`bench/records/drill.md`, *Cold drill: the Gettysburg Address*).

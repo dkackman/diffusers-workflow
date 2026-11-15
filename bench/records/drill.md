@@ -398,3 +398,147 @@ was not run (no second attempt is approved).
 | `b0ea5067290e` | P3c, 6 segments |
 | `a15a5bd62cc9` | P7, the closing line, 2 segments |
 | `c89a2d8108e5` | the join: `GettysburgJoin/20261114-075802-eb0c4c07/final/gettysburg-0.0.mp4` |
+
+# Cold drill attempt 2: the Gettysburg Address as passages joined as cuts (#1311 stage 4, #1362)
+
+2026-11-14 to 2026-11-15. The same setup as attempt 1: one headless Claude Code
+session (`claude -p --model sonnet`, which ran as `claude-sonnet-5-5`,
+`--permission-mode auto`, `--max-budget-usd 15`), only the dw MCP
+(`--strict-mcp-config`), the same ask and the same turns. Three things changed:
+- the plugin snapshot is `plugins/dw` at `3a6f3c80`, which holds stage 3's fixes
+  (W1-W7, merged in `c0bfb69f`);
+- lem served develop @ `3a6f3c80` (`0.21.0-alpha.1`), not hand-started code, so
+  attempt 1's confound does not apply;
+- `run.py` adds `--disallowedTools Bash`, so the agent waits with
+  `wait_for_job` instead of the background `sleep`s that ended attempt 1's turns.
+
+Workspace `drill-1311-2` held only `speaker.jpg`: attempt 1's FLUX 3 Klein
+prompt at 1344x768 on a new seed, 1362 (`8df319857ea8`). The ask is attempt 1's
+word for word, except the workspace name. Turn 2 was "go ahead", turn 3 "check
+on the job and finish up". `status.log` ends in `done`.
+
+**Outcome: the recipe's shape was run.** The agent made a voice reference, ran
+one `narration-long` track, retimed it once, cut it with `slice_audio` at the
+paragraph break, made a second angle with `templates/image-edit`, ran two
+`standing` passages on `templates/minimax/narrated-take`, and joined them with
+`concat_videos`. Then it ran the seam check. The cut is 106.583 s against the
+narration's 106.587 s, with 1 cut and 0.75 s below -50 dBFS at it. Every W1-W7
+row from attempt 1 is closed. Two agent errors are left (V1, V2 below), and
+neither changed the piece.
+
+## Scorecard, side by side
+
+| | Attempt 1 (#1337) | Attempt 2 (#1362) | What the recipe says |
+| --- | --- | --- | --- |
+| Preset | `shot: dialogue`, `templates/minimax/chained-segments` | `templates/minimax/narrated-take`, `standing` | `narrated-take`; `standing` for a monologue to camera |
+| Passage split | 7 passages, 30 segments | 2 passages at the paragraph break: A 0-40.99 s (6 segments), B 40.99 s-end (10 segments) | 2-3 passages at paragraph breaks |
+| Narration path | none: H3 invented the voice per segment | `templates/generate-speech` reference (`266af8da13e7`), `narration-long` (v1 `4953dc82d8f0` dropped words, v2 `27089277df4e` with 25 s takes), `narration-retime` once (`bb515efe0a79`, 106.587 s, -16.9 LUFS), `slice_audio` (`699ed385b2c6`) | one `narration-long` from one reference, retimed once, cut with `slice_audio` |
+| Still per passage | the same still for all 7 | `speaker.jpg` for A, a `templates/image-edit` second angle for B (`7a326418cd63`) | a different still or angle for each |
+| Join | one-step `concat_videos`, `trim_frames: 0`, `match_levels: "lufs"` | the same (`86e43a45af77`, 29 s) | the same |
+| Seam check | none (W7) | `assess_output(analyze_seams)`, frames at 40.5-41.5 s, audio 38-44 s | `analyze_seams`, frames and audio at each cut |
+| Cost quoted | "about 60-75 minutes", from its probe | "roughly **4-5 hours**" from "about 20 minutes of GPU time per 8-second segment", its own figure: `validate_workflow` gave `plan.estimate.minutes: null` for `narrated-take` (V1) | quote `plan.estimate` |
+| Cost actual | about 42 min on both cards; $1.567 over 4 turns | A 107.5 min, B 170.7 min, join 29 s: **4.6 h**, all on cuda:0 (B queued on cuda:1, the host RAM gate serialized it behind A); $1.432 over 3 turns | |
+| Result | 2:35.17, 6 cuts, holes over 1.5 s at 5 of 6 cuts | **1:46.58** (2558 frames, 24 fps, 1344x768), -16.0 LUFS, true peak -2.6 dBFS, `length_delta_ms` 0, **1 cut**, 0.75 s below -50 dBFS at it | 1-2 cuts, length within 0.5 s of the narration, no hole over 1.5 s at a cut |
+
+The quote was close: 4-5 h quoted, 4.6 h spent. The agent's per-segment figure
+(about 2.5 min of GPU per second of video) matches the measured 2.6.
+
+## Guesses and wrong turns
+
+Agent error, quoted from `turn-1.jsonl`..`turn-3.jsonl`.
+
+| # | What it did (quote) | Why it was wrong | Fix location |
+| --- | --- | --- | --- |
+| V1 | "about 20 minutes of GPU time per 8-second segment ... about 14 segments, so roughly 4-5 hours" (turn 1) | The loop says quote `plan.estimate`, but `validate_workflow` on `narrated-take` (and on `image-edit`, `narration-retime` and the join) returned `estimate.minutes: null`, so there was nothing to quote. Its own figure was right. This is a tool gap more than an agent error. | `validate_workflow`'s estimate for `templates/minimax/narrated-take` (null). Until that has a figure, `run-and-repair.md` *Longer than one take* carries the measured cost (about 2.6 GPU-minutes per second of `standing` video). |
+| V2 | "I'll probe the first passage before spending the rest." (turn 1); then in turn 2 "The second RTX 3090 is idle ... queueing it on that card", with A and B queued 7 s apart | It skipped the probe it had promised and queued 4.6 h at once. The passages passed, so it cost nothing this time. Had A failed, B's 171 min would have been spent on the same mistake. | `run-and-repair.md` *Longer than one take*: run the first passage and judge it before queueing the rest. |
+| V3 | `get_output_audio` and `keep_output` called with `path` instead of `name` | Refused by the tool and fixed on the next call. No cost. | None needed. |
+
+**Harness artifacts, not dw text:**
+- Bash was disallowed, so the agent could not wait in the background. Turn 2
+  ran 4 h 46 min in one turn, waiting with `wait_for_job`.
+- It meant to use both cards. The host RAM gate ran B on cuda:0 after A, so in
+  effect it used one, which is what the plan named.
+- `narration-long` v1's first take dropped words. That is the model's (below),
+  and the agent caught it from the retime's report and re-spoke it with shorter
+  takes. That is the recipe working, not a wrong turn.
+
+## The constitution-walk-2 defects, measured
+
+From `assess_output` (`analyze_seams`, `analyze_shots`, `analyze_sync_drift`)
+and `get_gallery_metadata` (envelope at 0.25 s) on the final cut, and
+`get_output_frames` at 40.5-41.5 s.
+
+**Silence and pauses at the cut.** The envelope across the one cut, in dBFS:
+-48.3 (40.50 s), -63.6 (40.75), -65.6 (41.00), -63.9 (41.25), -17.5 (41.50),
+then one -51.7 blip at 41.75.
+
+| Cut | Time | Silence below -50 dBFS | Level step at the cut | Picture `jump_ratio` (in-passage 0.40-1.0) |
+| --- | --- | --- | --- | --- |
+| A / B | 41.0 s | 40.75-41.50, **0.75 s** (about 1.0 s below -40) | 0.41 dB (shot rms -20.46 against -20.05) | 10.08 |
+
+Attempt 1 had holes over 1.5 s at 5 of 6 cuts. Here the longest run below -50
+dBFS anywhere in the piece is about 0.75 s. The silence at the cut is the
+paragraph pause in the narration, not an H3 lead-in, because the passages are
+cut from one retimed track. Inside the takes there are three `shot_dead_air`
+warnings: 0.5 s at 26.47 s, 0.5 s at 58.18 s and 0.55 s at 75.65 s. The shot
+level range is 2.89 dB, against 21.26 dB inside attempt 1's passages. Spectral
+shift at the cut is 0.04. `analyze_seams` found 15 seams: the cut and 14
+in-take seams. It raised no seam findings, and `analyze_sync_drift` raised
+none.
+
+**Resets at the cut: none.** The cut goes from A's close framing to B's
+slightly wider, left-shifted angle: the same man, the same field. It reads as an
+angle change. `look_ratio` 0.66 (saturation), `detail_ratio` 0.86, frame
+difference 26.16, against attempt 1's 35.3-51.1 and `look_ratio` 7.0-11.5.
+
+**`face_drop` per passage** (segment 1 of each is null):
+
+| Passage | Segments | Seconds | `face_drop`, segments 2.. | Check |
+| --- | --- | --- | --- | --- |
+| A (`speaker.jpg`) | 6 | 41.0 | -0.0, 0.005, 0.006, 0.016, 0.017 | all passed first time |
+| B (angle B) | 10 | 65.6 | -0.007, -0.004, -0.003, -0.002, -0.002, 0.014, 0.021, 0.027, 0.009 | all passed first time |
+
+The highest is 0.027, far under the 0.146 where an eye first calls a face
+etched. Attempt 1's `dialogue` passages reached 0.187.
+
+## Open questions, answered
+
+- **Voice across the cut: one voice by construction.** Both passages are cut
+  from one `narration-long` track from one reference, so the voice cannot change
+  at the cut. **Room tone across the cut: measured, not heard.** The level step
+  is 0.41 dB and the spectral shift 0.04. Whether it sounds continuous is a
+  listening verdict for Don (cut at 41.0 s). The agent said it cannot listen and
+  flagged lip sync for the same check.
+- **`standing` on a new seed: it held.** On seed 1362 it held for 65.6 s (B, 10
+  segments), with `face_drop` at most 0.027 and every segment passing on its
+  first attempt. The record no longer holds `standing` on seed 1 only.
+- **Model limits, apart from agent error:**
+  - `narration-long` v1's first take dropped words. The retime caught it.
+  - H3 leaves 0.5-0.55 s of dead air inside three takes.
+  - The agent's errors (V1, V2) changed nothing in the piece. V1 is mostly the
+    null estimate.
+
+## Paths and job ids
+
+- Runner: `~/testing/drill-1311-2-runner/` (`ask.txt`, `run.py`, `status.log`,
+  `turn-1.jsonl`..`turn-3.jsonl`, `plugin-dw/` at `3a6f3c80`). Session
+  `45cff087-0004-47ea-b9bf-11d1bb45681c`, cwd `~/testing/drill-1311-2`.
+  Not in the repo.
+- Turns (local time; cost is cumulative): 1 16:47:41-16:48:12 ($0.268), 2
+  16:48:12-21:34:10 ($1.301), 3 21:34:11-21:34:25 ($1.432).
+- The keeper is `asset:gettysburg/gettysburg-address.mp4` in `drill-1311-2`,
+  noted KEEPER.
+
+| Job | What |
+| --- | --- |
+| `8df319857ea8` | the speaker still (setup, FLUX 3 Klein, seed 1362) |
+| `266af8da13e7` | voice reference, `templates/generate-speech` |
+| `4953dc82d8f0` | `narration-long` v1 (its first take dropped words) |
+| `63c9e0185391` | `narration-retime` of v1 |
+| `27089277df4e` | `narration-long` v2, 25 s takes |
+| `bb515efe0a79` | `narration-retime` of v2: `templates/narration-retime/20261114-225257-63c061a1/final/narration-retimed-0.0-audio.wav`, 106.587 s |
+| `699ed385b2c6` | `slice_audio` at 40.99 s |
+| `7a326418cd63` | the second angle, `templates/image-edit`: `gettysburg/speaker-angle-b.jpg` |
+| `48c68b1e1c72` | passage A, `narrated-take` `standing`, 6 segments, 984 frames (run `20261114-225505-45d023c8`), 107.5 min |
+| `50b48953037f` | passage B, `narrated-take` `standing`, 10 segments, 1574 frames (run `20261115-004231-5760a9e4`), 170.7 min |
+| `86e43a45af77` | the join: `GettysburgJoin/20261115-033327-be80b3c3/final/gettysburg-address-0.0.mp4` |

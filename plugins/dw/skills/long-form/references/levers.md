@@ -97,7 +97,7 @@ motion together at 86 s, and nothing is measured past 86 s.
   unbroken, the face is etched by about 30 s and `face_drop` steps up at
   segment 6 (36 s). Good for a take of about 30 s.
 - **`shot: standing`** (`keystone: segment_1`, `keystone_slot: last`, no
-  keyframes): face and backdrop hold to 85 s, `face_drop` within 0.015 (seed 1 only). She
+  keyframes): face and backdrop hold to 85 s, `face_drop` within 0.015 (seed 1; on seed 1362 it held 65.6 s, at most 0.027, `bench/records/drill.md`). She
   stands; each segment eases back to the opening frame. The keyframe-free way
   to a longer take.
 - **`shot: walk_keyframed`** (the moving keystone, `keyframes`): the face
@@ -126,7 +126,8 @@ motion together at 86 s, and nothing is measured past 86 s.
   joined by `concat_videos` at `trim_frames: 0`, `match_levels: "lufs"`, then
   judged at each cut with `analyze_seams` and by ear (`run-and-repair.md`,
   *A narrated take*). `chained-segments` with a voice H3 invents per passage
-  is not this shape. Not yet run end to end.
+  is not this shape. Run end to end once: 106.6 s, two `standing` passages,
+  one cut (`bench/records/drill.md`, *Cold drill attempt 2*).
 
 ## Measured and cut: do not re-propose
 
