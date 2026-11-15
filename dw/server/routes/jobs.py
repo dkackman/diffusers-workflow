@@ -26,6 +26,7 @@ from ..api_models import (
     JobList,
     JobMoved,
     JobWorkflow,
+    RestartBatchRerun,
     RunDeleted,
     ValidationResult,
 )
@@ -65,6 +66,7 @@ from ..exports import export_job
 from ..host_ram_need import host_memory_block
 from ..http_security import query_token_ok
 from ..job_record import (
+    ACK_BOOLEAN,
     ACK_BOUND,
     MAX_PERSISTED_EVENTS,
     QUEUED,
@@ -410,6 +412,44 @@ def get_job_workflow(request: Request, job_id: str):
     }
 
 
+def _admit_rerun(state, spec, arguments, *, with_plan):
+    """(workspace, admission) for a rerun of `spec` with `arguments`, the
+    pair rerun_spec answered - admitted as a new submission would be, then
+    refused (raised) when admission refused it or no card here can hold it.
+    `with_plan` builds the plan validate would, for a bound acknowledgement
+    to be checked against or a preview's estimate to be read from."""
+    manager = state.job_manager
+    workspace = workspace_for(state, spec.get("workspace"))
+    admission = admit_for(
+        state,
+        workspace,
+        workflow_path=spec.get("workflow_path"),
+        workflow=spec.get("workflow"),
+        arguments=arguments,
+        base_dir=spec.get("base_dir"),
+        output_dir=spec.get("output_dir") or manager.output_dir,
+        workflow_dir=spec.get("workflow_dir") or manager.workflow_dir,
+        plan_for=(
+            _bound_plan_for(
+                state,
+                workspace,
+                spec.get("workflow_path"),
+                arguments,
+                resolve_workflow_reference(
+                    spec.get("workflow_path"), sources_for(state, workspace)
+                )[1],
+                spec.get("catalog_name"),
+            )
+            if with_plan
+            else None
+        ),
+        catalog_name=spec.get("catalog_name"),
+    )
+    # Refuses what admission refused, and a job too big for every card
+    manager.check_fits(admission)
+    return workspace, admission
+
+
 class RerunRequest(BaseModel):
     new_seed: bool = Field(
         default=False,
@@ -453,34 +493,9 @@ def rerun_job(request: Request, job_id: str, body: RerunRequest = RerunRequest()
         if prepared is None:
             raise HTTPException(status_code=404, detail="Unknown job")
         spec, arguments = prepared
-        workspace = workspace_for(state, spec.get("workspace"))
-        admission = admit_for(
-            state,
-            workspace,
-            workflow_path=spec.get("workflow_path"),
-            workflow=spec.get("workflow"),
-            arguments=arguments,
-            base_dir=spec.get("base_dir"),
-            output_dir=spec.get("output_dir") or manager.output_dir,
-            workflow_dir=spec.get("workflow_dir") or manager.workflow_dir,
-            plan_for=(
-                _bound_plan_for(
-                    state,
-                    workspace,
-                    spec.get("workflow_path"),
-                    arguments,
-                    resolve_workflow_reference(
-                        spec.get("workflow_path"), sources_for(state, workspace)
-                    )[1],
-                    spec.get("catalog_name"),
-                )
-                if form == ACK_BOUND
-                else None
-            ),
-            catalog_name=spec.get("catalog_name"),
+        workspace, admission = _admit_rerun(
+            state, spec, arguments, with_plan=form == ACK_BOUND
         )
-        # Refuses what admission refused, and a job too big for every card
-        manager.check_fits(admission)
         if form == ACK_BOUND:
             check_bound_acknowledgement(
                 admission.plan, body.acknowledged_cost, workspace
@@ -512,6 +527,79 @@ def rerun_job(request: Request, job_id: str, body: RerunRequest = RerunRequest()
         raise
     except Exception:
         raise internal_error("Job rerun failed after admission")
+
+
+class RestartBatchRequest(BaseModel):
+    acknowledged_cost: Optional[Union[bool, AcknowledgedCost]] = Field(
+        default=None,
+        description="true queues the batch; omitted or false answers a "
+        "preview and queues nothing. An object bound to one plan is "
+        "refused: one fingerprint cannot cover every member's plan.",
+    )
+
+
+@router.post(
+    "/api/jobs/{job_id}/rerun-restart-batch",
+    response_model=RestartBatchRerun,
+    response_model_exclude_unset=True,
+)
+def rerun_restart_batch(
+    request: Request, job_id: str, body: RestartBatchRequest = RestartBatchRequest()
+):
+    """Rerun every job a server restart cancelled along with `job_id` - the
+    tombstones one dead server left, named by any one of them (#1266) -
+    oldest first, each in its own workspace and admitted as a single rerun
+    is. A member already rerun, in a deleted workspace, or refused by
+    admission is skipped with why; the rest are still queued. Without
+    `acknowledged_cost: true` nothing is queued: the answer is a preview,
+    `would_queue` with each member's estimate."""
+    state = request.app.state
+    manager = state.job_manager
+    if manager.get(job_id) is None:
+        raise HTTPException(status_code=404, detail="Unknown job")
+    form = acknowledgement_form(body.acknowledged_cost)
+    if form == ACK_BOUND:
+        raise HTTPException(
+            status_code=400,
+            detail="A bound acknowledgement cannot cover a restart batch: "
+            "it binds one plan and the batch has one per member - send "
+            "acknowledged_cost: true after reading the preview",
+        )
+    queue = form == ACK_BOOLEAN
+
+    def admit(member_id):
+        try:
+            prepared = manager.rerun_spec(member_id)
+            if prepared is None:
+                raise ValueError("no longer in history")
+            spec, arguments = prepared
+            _, admission = _admit_rerun(state, spec, arguments, with_plan=not queue)
+        except HTTPException as e:
+            raise ValueError(e.detail) from e
+        return arguments, admission
+
+    try:
+        answer = manager.rerun_restart_batch(job_id, admit, queue=queue)
+    except Exception:
+        raise internal_error("Restart batch rerun failed")
+    if answer is None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Job {job_id} is not a restart tombstone: only a job a "
+            "server restart closed as cancelled (its error starts "
+            "'server restart:', recorded since #1245) names a batch",
+        )
+    if queue:
+        answer.pop("would_queue")
+    else:
+        answer["would_queue"] = [
+            {
+                **{key: value for key, value in entry.items() if key != "admission"},
+                "estimate": (entry["admission"].plan or {}).get("estimate"),
+            }
+            for entry in answer["would_queue"]
+        ]
+    return answer
 
 
 @router.post(

@@ -597,6 +597,41 @@ class JobCancelled(ApiModel):
     status: JobStatus
 
 
+class RestartBatchQueued(ApiModel):
+    id: str = Field(description="The new job's id.")
+    rerun_of: str = Field(description="The tombstone it reruns.")
+    workflow: str | None
+    workspace: str
+
+
+class RestartBatchCandidate(ApiModel):
+    id: str = Field(description="The tombstone's id.")
+    workflow: str | None
+    workspace: str
+    estimate: "PlanEstimate | None" = Field(
+        description="The plan's estimate of the rerun; null when none was built."
+    )
+
+
+class RestartBatchSkipped(ApiModel):
+    id: str
+    reason: str = Field(
+        description="Why it was not queued: `already rerun as <id>`, a deleted "
+        "workspace, or what admission refused."
+    )
+
+
+class RestartBatchRerun(ApiModel):
+    server_instance: str = Field(description="The dead server whose batch this is.")
+    queued: list[RestartBatchQueued] = Field(
+        description="What was queued, oldest original first; empty in a preview."
+    )
+    would_queue: list[RestartBatchCandidate] = sometimes(
+        "A preview only: what `acknowledged_cost: true` would queue, oldest first."
+    )
+    skipped: list[RestartBatchSkipped]
+
+
 # ------------------------------------------------------------- validation
 
 
@@ -978,3 +1013,7 @@ class TaskList(ApiModel):
 class ClassList(ApiModel):
     kind: str
     classes: list[str]
+
+
+# Read PlanEstimate, declared after it
+RestartBatchCandidate.model_rebuild()

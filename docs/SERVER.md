@@ -168,7 +168,15 @@ icon, a finish-alert toggle, the theme toggle, and links to these docs and
 - **Jobs** - the workspace's queue and run history (history persists in
   `~/.diffusers_helper/jobs.sqlite`; a job queued or running when the
   server stopped is listed as `cancelled` with `error` starting
-  `server restart:`, and `rerun_job` resubmits it; each server holds a
+  `server restart:`, and `rerun_job` resubmits it; `POST
+  /api/jobs/{id}/rerun-restart-batch` reruns every job that one restart closed
+  (the rows of the tombstone's `server_instance`), oldest first - without
+  `acknowledged_cost: true` it answers `would_queue` with each member's
+  estimate and queues nothing, and with it each member is admitted as a single
+  rerun would be and queued with `rerun_of`; a member already rerun, or whose
+  workspace was deleted, is listed in `skipped` with its reason. A job that is
+  not a restart tombstone, or one closed before #1245 recorded the instance, is
+  a 400, and a bound acknowledgement is refused; each server holds a
   lock under `servers/` beside the database for its life, so a second server
   sharing the database leaves a live sibling's jobs alone), filterable by status; a waiting job
   shows its place in line, can be moved, and shows `waiting_for` while held
