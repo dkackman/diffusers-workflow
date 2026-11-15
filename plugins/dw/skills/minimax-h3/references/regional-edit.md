@@ -77,8 +77,15 @@ threshold 0.363); outside the mask the source holds (37.5 dB past 96 px).
    narrower prompt for the one to replace.
 2. **Choose cuts.** Drop the cuts that need no swap and merge fragments from the
    returned list. `render_frames` is what H3 renders for the cut: on the 17n+5
-   grid, 124 to 345; at most 32 cuts. The cut is padded to it and cut back to
-   `num_frames`.
+   grid, 124 to 345, and at least its `num_frames`. The cut is padded to it and
+   cut back to `num_frames`.
+
+   **Limits**, each refused by `validate_workflow` before anything is queued:
+   - 1 to 32 cuts (`for_each`'s limit);
+   - each cut's `render_frames` on 17n+5 inside 124-345 and ≥ its `num_frames`;
+   - `references` within the ref2va class's limits: at most 9 images and
+     12 files in all;
+   - a cut with no `seed` of its own renders with the workflow `seed`.
 3. **The swap line.** In the prompt's description say it exactly: "Replace the man
    in the grey flannel shirt in `<Video 1>` with `<Picture 1>`, keep the
    background, lighting, camera and performance". Describe the portrait's man in
