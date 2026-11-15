@@ -105,6 +105,38 @@ def test_mask_size_is_the_regional_edit_rule(harness):
     assert expected and expected[0] in text(harness(GOOD, mask_video="mask_small.mp4"))
 
 
+def test_too_many_references_refused(harness):
+    """The ref2va class's image limit, asked of reference_limits (plan v3, Q7)."""
+    refs = [{"reference_type": REF, "from_file": "src.mp4"}] * 10
+    out = text(harness(GOOD, references=refs))
+    assert "at most 9" in out
+    assert "got 10" in out
+
+
+def test_description_states_the_limits():
+    """get_workflow's description names the cut count, the reference limits and
+    the seed fallback (plan v3)."""
+    tpl = json.loads((TEMPLATES / "replace-performer.json").read_text())
+    desc = tpl["description"]
+    for needle in ("1 to 32 cuts", "9 images", "12 files", "workflow `seed`"):
+        assert needle in desc
+
+
+@pytest.mark.parametrize("rel", ["SKILL.md", "references/regional-edit.md"])
+def test_skill_states_the_limits(rel):
+    """Both skill files state the route's limits (plan v3, C-F891)."""
+    body = (ROOT / "plugins/dw/skills/minimax-h3" / rel).read_text()
+    for needle in (
+        "32 cuts",
+        "17n+5",
+        "124-345",
+        "9 images",
+        "12 files",
+        "workflow `seed`",
+    ):
+        assert needle in body, needle
+
+
 def test_mask_of_another_size_refused(harness):
     out = text(harness(GOOD, mask_video="mask_small.mp4"))
     assert "mask_video" in out
