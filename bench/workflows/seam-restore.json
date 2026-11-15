@@ -26,6 +26,7 @@
     },
     {
       "name": "seg01",
+      "release_pipeline": true,
       "pipeline": {
         "configuration": {
           "component_type": "ModularPipeline",
@@ -190,6 +191,7 @@
     },
     {
       "name": "restore01",
+      "release_pipeline": true,
       "pipeline": {
         "configuration": {
           "component_type": "ModularPipeline",
@@ -374,6 +376,7 @@
     },
     {
       "name": "seg02",
+      "release_pipeline": true,
       "pipeline": {
         "configuration": {
           "component_type": "ModularPipeline",
@@ -544,6 +547,7 @@
     },
     {
       "name": "restore02",
+      "release_pipeline": true,
       "pipeline": {
         "configuration": {
           "component_type": "ModularPipeline",
@@ -728,6 +732,7 @@
     },
     {
       "name": "seg03",
+      "release_pipeline": true,
       "pipeline": {
         "configuration": {
           "component_type": "ModularPipeline",
@@ -898,6 +903,7 @@
     },
     {
       "name": "restore03",
+      "release_pipeline": true,
       "pipeline": {
         "configuration": {
           "component_type": "ModularPipeline",
@@ -1082,6 +1088,7 @@
     },
     {
       "name": "seg04",
+      "release_pipeline": true,
       "pipeline": {
         "configuration": {
           "component_type": "ModularPipeline",
@@ -1252,6 +1259,7 @@
     },
     {
       "name": "restore04",
+      "release_pipeline": true,
       "pipeline": {
         "configuration": {
           "component_type": "ModularPipeline",
@@ -1436,6 +1444,7 @@
     },
     {
       "name": "seg05",
+      "release_pipeline": true,
       "pipeline": {
         "configuration": {
           "component_type": "ModularPipeline",
@@ -1606,6 +1615,7 @@
     },
     {
       "name": "restore05",
+      "release_pipeline": true,
       "pipeline": {
         "configuration": {
           "component_type": "ModularPipeline",
@@ -1790,6 +1800,7 @@
     },
     {
       "name": "seg06",
+      "release_pipeline": true,
       "pipeline": {
         "configuration": {
           "component_type": "ModularPipeline",
