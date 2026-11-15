@@ -537,12 +537,9 @@ MATCH_CEILING_DBFS = -0.5
 MATCH_RMS_CEILING_DBFS = -3.0
 
 LEVEL_SPREAD_WARN_DB = 6.0
-# A clip-held match that leaves shots this far apart says so (#1368); the same
-# step assess_output's seam_level_step flags
-MATCH_RESIDUAL_SPREAD_DB = 3.0
-
 # The level step between a multi-shot input's own shots that match_levels cannot
-# level (#876); assessment_rules' seam_level_step reads the same number
+# level (#876); assessment_rules' seam_level_step reads the same number, and so
+# does the spread a clip-held match leaves (#1368)
 INNER_LEVEL_STEP_WARN_DB = 3.0
 
 # Mirrors audio_qc.py's NEAR_SILENT_WARN_DBFS: the same mean/rms level a job's
@@ -732,7 +729,7 @@ def match_levels(
     if any_held and len(resulting) > 1:
         levels = [r[0] for r in resulting]
         spread = max(levels) - min(levels)
-        if spread >= MATCH_RESIDUAL_SPREAD_DB:
+        if spread > INNER_LEVEL_STEP_WARN_DB:
             # The held shots could not reach the target, so the others sit
             # above them: the join is not matched, and the remedy is a lower
             # target that every shot can reach (#1368)

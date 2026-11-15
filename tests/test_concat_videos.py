@@ -793,6 +793,42 @@ class TestWarningsReachTheCaller:
         assert "match_levels_dbfs" in spread[0]["message"]
         assert spread[0]["suggested_target_dbfs"] < -18
 
+    def test_the_spread_warning_shares_the_seam_level_step_threshold(self):
+        """#1368: one owner for the number, one comparator (strict >), so the
+        join-time warning and assess_output's seam_level_step agree."""
+        from dw import assessment_rules
+        from dw.events import RunContext, activate_context, deactivate_context
+        from dw.tasks import joins
+
+        spiky = numpy.full((2, 100), 0.02, dtype=numpy.float32)
+        spiky[:, 50] = 0.9
+
+        def spreads():
+            events = []
+            token = activate_context(RunContext(on_event=events.append))
+            try:
+                concat_videos(
+                    [AudioVideo(frames(4), spiky, 100), audio_video(4, 0.02)],
+                    match_levels="rms",
+                    match_levels_dbfs=-18,
+                )
+            finally:
+                deactivate_context(token)
+            return [e for e in events if e.get("kind") == "match_levels_spread"]
+
+        assert not hasattr(joins, "MATCH_RESIDUAL_SPREAD_DB")
+        assert (
+            assessment_rules.INNER_LEVEL_STEP_WARN_DB is joins.INNER_LEVEL_STEP_WARN_DB
+        )
+        found = spreads()
+        assert len(found) == 1
+        spread = found[0]["spread_db"]
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(joins, "INNER_LEVEL_STEP_WARN_DB", spread + 0.5)
+            assert spreads() == []
+            mp.setattr(joins, "INNER_LEVEL_STEP_WARN_DB", spread - 0.5)
+            assert len(spreads()) == 1
+
     def test_an_unheld_match_draws_no_spread_warning(self):
         from dw.events import RunContext, activate_context, deactivate_context
 
