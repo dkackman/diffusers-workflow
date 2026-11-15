@@ -1,7 +1,7 @@
 {
   "id": "SeamRestoreProbe",
   "summary": "#1325 seam-restore probe, restore arm: 6-segment narrated dialogue take, unchained",
-  "description": "Probe for #1325 (stage #1351), after ComfyUI-Continuity's seam restore (concept only). The narrated dialogue take's conditions (fl2va, int8, sparse, 1344x768, 20 steps, shift 12/3, narration held, the speaker still) unrolled into 6 explicit segments: each later segment is guided by a 22-frame tail of the one before (frame 0, no audio) and opens on that guide's first frame, and the take joins them with the chain's 22-frame head trim. Restore arm: before it is handed on, each tail is redrawn by a ref2va held-audio refine at refine_strength 0.3 against the still, with the next segment's prompt. seam-restore-control.json is the same workflow without the restore steps. Seeds: segment k = k, restore k = 1000 + k, in both arms, pinned per step; the seed variable is only the workflow default under them.",
+  "description": "Probe for #1325 (stage #1351), after ComfyUI-Continuity's seam restore (concept only). The narrated dialogue take's conditions (fl2va, int8, sparse, 1344x768, 20 steps, shift 12/3, narration held, the speaker still) unrolled into 6 explicit segments: each later segment is guided by a 22-frame tail of the one before (frame 0, no audio) and opens on that guide's first frame, and the take joins them with the chain's 22-frame head trim. Restore arm: before it is handed on, each tail is redrawn by a ref2va held-audio refine at refine_strength 0.3 against the still, with the next segment's prompt. H3 generates at least 120 frames, so the redraw takes segment k's frames 72-191 (with the matching 120-frame narration slice) as its source, and the next segment is guided by the restore's frames 98-119, the restored copy of frames 170-191, and opens on restore frame 98 (plan v3). seam-restore-control.json is the same workflow without the restore steps. Seeds: segment k = k, restore k = 1000 + k, in both arms, pinned per step; the seed variable is only the workflow default under them.",
   "shape": "sequence",
   "variables": {
     "seed": 1
@@ -157,13 +157,13 @@
       }
     },
     {
-      "name": "tail01",
+      "name": "rtailsrc01",
       "task": {
         "command": "trim_video",
         "arguments": {
           "video": "previous_result:seg01",
-          "start_frame": 170,
-          "num_frames": 22
+          "start_frame": 72,
+          "num_frames": 120
         }
       },
       "result": {
@@ -178,8 +178,8 @@
         "command": "slice_audio",
         "arguments": {
           "audio": "asset:bench/constitution-narration-retimed.wav",
-          "start_frame": 170,
-          "num_frames": 22,
+          "start_frame": 72,
+          "num_frames": 120,
           "fps": 24
         }
       },
@@ -306,10 +306,10 @@
               "from_file": "asset:bench/constitution-speaker.jpg"
             }
           ],
-          "source_video": "previous_result:tail01",
+          "source_video": "previous_result:rtailsrc01",
           "refine_strength": 0.3,
           "hold_audio": "previous_result:raud01",
-          "num_frames": 22,
+          "num_frames": 120,
           "width": 1344,
           "height": 768,
           "num_inference_steps": 20,
@@ -328,11 +328,27 @@
       }
     },
     {
+      "name": "rtail01",
+      "task": {
+        "command": "trim_video",
+        "arguments": {
+          "video": "previous_result:restore01",
+          "start_frame": 98,
+          "num_frames": 22
+        }
+      },
+      "result": {
+        "content_type": "video/mp4",
+        "save": false,
+        "fps": 24
+      }
+    },
+    {
       "name": "key02",
       "task": {
         "command": "get_first_frame",
         "arguments": {
-          "video": "previous_result:restore01"
+          "video": "previous_result:rtail01"
         }
       },
       "result": {
@@ -481,7 +497,7 @@
           "image": "previous_result:key02",
           "guides": [
             {
-              "video": "previous_result:restore01",
+              "video": "previous_result:rtail01",
               "frame": 0
             }
           ]
@@ -495,13 +511,13 @@
       }
     },
     {
-      "name": "tail02",
+      "name": "rtailsrc02",
       "task": {
         "command": "trim_video",
         "arguments": {
           "video": "previous_result:seg02",
-          "start_frame": 170,
-          "num_frames": 22
+          "start_frame": 72,
+          "num_frames": 120
         }
       },
       "result": {
@@ -516,8 +532,8 @@
         "command": "slice_audio",
         "arguments": {
           "audio": "asset:bench/constitution-narration-retimed.wav",
-          "start_frame": 340,
-          "num_frames": 22,
+          "start_frame": 242,
+          "num_frames": 120,
           "fps": 24
         }
       },
@@ -644,10 +660,10 @@
               "from_file": "asset:bench/constitution-speaker.jpg"
             }
           ],
-          "source_video": "previous_result:tail02",
+          "source_video": "previous_result:rtailsrc02",
           "refine_strength": 0.3,
           "hold_audio": "previous_result:raud02",
-          "num_frames": 22,
+          "num_frames": 120,
           "width": 1344,
           "height": 768,
           "num_inference_steps": 20,
@@ -666,11 +682,27 @@
       }
     },
     {
+      "name": "rtail02",
+      "task": {
+        "command": "trim_video",
+        "arguments": {
+          "video": "previous_result:restore02",
+          "start_frame": 98,
+          "num_frames": 22
+        }
+      },
+      "result": {
+        "content_type": "video/mp4",
+        "save": false,
+        "fps": 24
+      }
+    },
+    {
       "name": "key03",
       "task": {
         "command": "get_first_frame",
         "arguments": {
-          "video": "previous_result:restore02"
+          "video": "previous_result:rtail02"
         }
       },
       "result": {
@@ -819,7 +851,7 @@
           "image": "previous_result:key03",
           "guides": [
             {
-              "video": "previous_result:restore02",
+              "video": "previous_result:rtail02",
               "frame": 0
             }
           ]
@@ -833,13 +865,13 @@
       }
     },
     {
-      "name": "tail03",
+      "name": "rtailsrc03",
       "task": {
         "command": "trim_video",
         "arguments": {
           "video": "previous_result:seg03",
-          "start_frame": 170,
-          "num_frames": 22
+          "start_frame": 72,
+          "num_frames": 120
         }
       },
       "result": {
@@ -854,8 +886,8 @@
         "command": "slice_audio",
         "arguments": {
           "audio": "asset:bench/constitution-narration-retimed.wav",
-          "start_frame": 510,
-          "num_frames": 22,
+          "start_frame": 412,
+          "num_frames": 120,
           "fps": 24
         }
       },
@@ -982,10 +1014,10 @@
               "from_file": "asset:bench/constitution-speaker.jpg"
             }
           ],
-          "source_video": "previous_result:tail03",
+          "source_video": "previous_result:rtailsrc03",
           "refine_strength": 0.3,
           "hold_audio": "previous_result:raud03",
-          "num_frames": 22,
+          "num_frames": 120,
           "width": 1344,
           "height": 768,
           "num_inference_steps": 20,
@@ -1004,11 +1036,27 @@
       }
     },
     {
+      "name": "rtail03",
+      "task": {
+        "command": "trim_video",
+        "arguments": {
+          "video": "previous_result:restore03",
+          "start_frame": 98,
+          "num_frames": 22
+        }
+      },
+      "result": {
+        "content_type": "video/mp4",
+        "save": false,
+        "fps": 24
+      }
+    },
+    {
       "name": "key04",
       "task": {
         "command": "get_first_frame",
         "arguments": {
-          "video": "previous_result:restore03"
+          "video": "previous_result:rtail03"
         }
       },
       "result": {
@@ -1157,7 +1205,7 @@
           "image": "previous_result:key04",
           "guides": [
             {
-              "video": "previous_result:restore03",
+              "video": "previous_result:rtail03",
               "frame": 0
             }
           ]
@@ -1171,13 +1219,13 @@
       }
     },
     {
-      "name": "tail04",
+      "name": "rtailsrc04",
       "task": {
         "command": "trim_video",
         "arguments": {
           "video": "previous_result:seg04",
-          "start_frame": 170,
-          "num_frames": 22
+          "start_frame": 72,
+          "num_frames": 120
         }
       },
       "result": {
@@ -1192,8 +1240,8 @@
         "command": "slice_audio",
         "arguments": {
           "audio": "asset:bench/constitution-narration-retimed.wav",
-          "start_frame": 680,
-          "num_frames": 22,
+          "start_frame": 582,
+          "num_frames": 120,
           "fps": 24
         }
       },
@@ -1320,10 +1368,10 @@
               "from_file": "asset:bench/constitution-speaker.jpg"
             }
           ],
-          "source_video": "previous_result:tail04",
+          "source_video": "previous_result:rtailsrc04",
           "refine_strength": 0.3,
           "hold_audio": "previous_result:raud04",
-          "num_frames": 22,
+          "num_frames": 120,
           "width": 1344,
           "height": 768,
           "num_inference_steps": 20,
@@ -1342,11 +1390,27 @@
       }
     },
     {
+      "name": "rtail04",
+      "task": {
+        "command": "trim_video",
+        "arguments": {
+          "video": "previous_result:restore04",
+          "start_frame": 98,
+          "num_frames": 22
+        }
+      },
+      "result": {
+        "content_type": "video/mp4",
+        "save": false,
+        "fps": 24
+      }
+    },
+    {
       "name": "key05",
       "task": {
         "command": "get_first_frame",
         "arguments": {
-          "video": "previous_result:restore04"
+          "video": "previous_result:rtail04"
         }
       },
       "result": {
@@ -1495,7 +1559,7 @@
           "image": "previous_result:key05",
           "guides": [
             {
-              "video": "previous_result:restore04",
+              "video": "previous_result:rtail04",
               "frame": 0
             }
           ]
@@ -1509,13 +1573,13 @@
       }
     },
     {
-      "name": "tail05",
+      "name": "rtailsrc05",
       "task": {
         "command": "trim_video",
         "arguments": {
           "video": "previous_result:seg05",
-          "start_frame": 170,
-          "num_frames": 22
+          "start_frame": 72,
+          "num_frames": 120
         }
       },
       "result": {
@@ -1530,8 +1594,8 @@
         "command": "slice_audio",
         "arguments": {
           "audio": "asset:bench/constitution-narration-retimed.wav",
-          "start_frame": 850,
-          "num_frames": 22,
+          "start_frame": 752,
+          "num_frames": 120,
           "fps": 24
         }
       },
@@ -1658,10 +1722,10 @@
               "from_file": "asset:bench/constitution-speaker.jpg"
             }
           ],
-          "source_video": "previous_result:tail05",
+          "source_video": "previous_result:rtailsrc05",
           "refine_strength": 0.3,
           "hold_audio": "previous_result:raud05",
-          "num_frames": 22,
+          "num_frames": 120,
           "width": 1344,
           "height": 768,
           "num_inference_steps": 20,
@@ -1680,11 +1744,27 @@
       }
     },
     {
+      "name": "rtail05",
+      "task": {
+        "command": "trim_video",
+        "arguments": {
+          "video": "previous_result:restore05",
+          "start_frame": 98,
+          "num_frames": 22
+        }
+      },
+      "result": {
+        "content_type": "video/mp4",
+        "save": false,
+        "fps": 24
+      }
+    },
+    {
       "name": "key06",
       "task": {
         "command": "get_first_frame",
         "arguments": {
-          "video": "previous_result:restore05"
+          "video": "previous_result:rtail05"
         }
       },
       "result": {
@@ -1833,7 +1913,7 @@
           "image": "previous_result:key06",
           "guides": [
             {
-              "video": "previous_result:restore05",
+              "video": "previous_result:rtail05",
               "frame": 0
             }
           ]
