@@ -100,6 +100,27 @@ class TestCuts:
         assert len(starts) == 2 and abs(starts[1] - 24) <= 1
         assert sum(lengths(result)) == result["num_frames"] == 48
 
+    def test_a_path_argument_keeps_its_fps(self, window, tmp_path):
+        # An asset:/output: video was decoded to bare frames before the task
+        # saw it, so fps and the sample side came back null (#1373 bounce)
+        import dw.arguments as arguments_module
+        from diffusers.utils.export_utils import encode_video
+
+        from dw.tasks.video_utils import VideoFileReference
+
+        path = tmp_path / "two.mp4"
+        encode_video(
+            solid((200, 30, 30), 24) + solid((30, 30, 200), 24),
+            fps=24,
+            output_path=str(path),
+        )
+        task = {"command": "detect_cuts", "arguments": {"video": str(path)}}
+        arguments_module.realize_args(task, base_dir=str(tmp_path))
+        assert isinstance(task["arguments"]["video"], VideoFileReference)
+        result = detect_cuts(**task["arguments"])
+        assert result["fps"] == pytest.approx(24)
+        assert len(result["cuts"]) == 2
+
 
 class TestRenderFrames:
     @pytest.mark.parametrize("count", [1, 21, 22, 123, 124, 125, 141, 142, 344, 345])
