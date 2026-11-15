@@ -132,3 +132,32 @@ Stages:
 
 Out of scope here, and still open in #1194: the VLM cast-listing prompt, two-person cuts,
 the community swap LoRA (unsourced) and FastH3 Omni (#980).
+
+## The seam: mask_grow 0 vs 1 (#1374)
+
+**Status: not run yet. It needs CUDA (lem).** The arms are `t16-swap-g0-s1194` and
+`t16-swap-g0-s2002`, at `mask_grow` 0, in `bench/arms/t16-performer-replacement.json`. Their
+`mask_grow` 1 counterparts are the existing `t16-swap-r100-s1194` and
+`t16-swap-r100-s2002`, since the swap workflow's default is 1. #1374 was built on the
+mini-ai (MPS) loop. That host doesn't have the S4 source run
+(`BenchS4Montage/20261104-040255-9813688b`), and four H3 ref2va passes at 124 frames there
+would be unplanned spend. The run and this section's numbers are left to the lem loop.
+
+The measure is `bench/seam_bands.py`, the 16 px distance bands above made into a script:
+
+    python bench/seam_bands.py SOURCE_CUT.mp4 ARM_OUTPUT.mp4 MASK.mp4 [--json]
+
+For each band it gives:
+- the mean abs diff from the source;
+- frame-to-frame luma change in the edit and in the source;
+- the `step` between the first band outside the mask and the next one, which puts a
+  number on a hard edge.
+
+Rule (plan v2, #1194):
+- `mask_grow` 0 becomes the template default if it removes the couch-back step with no
+  hard edge, judged by the shoulder crops and a `step` no larger than `mask_grow` 1's on
+  both seeds;
+- otherwise the default stays 1.
+
+**Until then `templates/minimax/replace-performer` ships with `mask_grow` 1.** That is the
+value measured above. The eroded-mask arm is #1382.

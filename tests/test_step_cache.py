@@ -871,6 +871,11 @@ TEMPLATE_PIPELINE_KEYS = {
     "minimax/reference-to-video.json": {
         "reference_to_video_audio": "ba9915580e6a8017d8c68efbddea776985d107222546f84cca18e319298243bf"
     },
+    "minimax/replace-performer-cuts.json": {},
+    "minimax/replace-performer.json": {
+        "swap@cut-1": "ba9915580e6a8017d8c68efbddea776985d107222546f84cca18e319298243bf",
+        "swap@cut-2": "ba9915580e6a8017d8c68efbddea776985d107222546f84cca18e319298243bf",
+    },
     "minimax/face-repair.json": {
         "refine": "2a7fdf989a40500620fb03212502bbda8f52827f5fcd872b8fda182fab2fac77"
     },

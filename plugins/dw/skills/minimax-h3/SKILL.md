@@ -20,8 +20,7 @@ H3 generates video and audio together. Every template fits a 24 GB card.
 
 - **One clip, up to 14.4 seconds, from text**: `templates/minimax/video-with-audio`
   (960x544, fast), or `templates/minimax/video-with-audio-768p` to render.
-  From a one-line idea: `templates/minimax/enhance-prompt` writes it with the
-  built-in enhancer first.
+  From a one-line idea: `templates/minimax/enhance-prompt` writes it first.
 - **Pinned to a picture**: first frame `templates/minimax/image-to-video`;
   first and last `templates/minimax/first-and-last-frame`; last only
   `templates/minimax/last-frame-only`; a one-line idea plus a picture
@@ -30,8 +29,8 @@ H3 generates video and audio together. Every template fits a 24 GB card.
   `hold_audio` keeps the first frame's pixels and the mouth follows the track
   (#985; add the argument to `templates/minimax/image-to-video`'s fl2va step).
   Fallback: Ref2VA `[keyframe completion + audio reuse]`, `<Picture 1>` the
-  first frame, `<Audio 1>` the song, also held. Framing, not pixels,
-  at ~4.7x the denoise; a last frame costs 45% more and does not land.
+  first frame, `<Audio 1>` the song, also held: framing, not pixels,
+  ~4.7x the denoise; a last frame costs 45% more and does not land.
 - **Pinned to a clip** (hold earlier footage): a `guides` argument on
   `t2va`/`fl2va` - up to 4 clips, 3 on a guide chain, each at a
   `frame` that is a multiple of 17; the VRAM ceiling charges each
@@ -41,17 +40,22 @@ H3 generates video and audio together. Every template fits a 24 GB card.
   section="H3: holding a clip with `guides`")`.
 - **Fix one region of a good take** (the rest and audio stay):
   `templates/minimax/regional-edit`; first `references/regional-edit.md`.
+- **Replace a performer**: `replace-performer-cuts` on the take, drop or
+  merge its `cuts`, swap line "Replace the man in the grey flannel shirt in
+  `<Video 1>` with `<Picture 1>`…, keep the background, lighting, camera and
+  performance", then `replace-performer`; re-roll a cut via `rerun_job`, only
+  its `seed` new. Mask the source's size, 24 fps, a narrow prompt for two
+  people. `references/regional-edit.md`.
 - **A good take with a soft small face**: `templates/minimax/face-repair`.
 - **Sound for a silent clip** (picture kept): `templates/minimax/add-sound`;
-  `listen_scale` 0.5 is the fastest that keeps lip sync. Never re-voice an
-  on-screen speaker: it plays as voice-over.
+  `listen_scale` 0.5 is fastest that keeps lip sync. Never re-voice an on-screen speaker: voice-over.
 - **A consistent subject**: `templates/minimax/reference-to-video`
-  (an image fixes appearance, an audio clip voice);
+  (image: appearance, audio clip: voice);
   `templates/minimax/composable-references` adds a video reference for
   framing and camera, at ~3.4x cost;
   `templates/minimax/generated-subject-reference` draws the subject with
   Z-Image in the same workflow;
-  `templates/minimax/voice-timbre-reference` fixes a voice from a Bark line.
+  `templates/minimax/voice-timbre-reference` fixes a voice from Bark.
 - **Several boards, one generation, unbroken score**:
   `templates/minimax/storyboard`, cuts no concat matches. One beat only;
   past that, cuts.
@@ -79,10 +83,9 @@ H3 generates video and audio together. Every template fits a 24 GB card.
   `pair_audio`, in that reference's last section.
 - **Unrelated shots, no cut**: `templates/minimax/shots-batch` - one H3
   step per `shots` entry. `keep_output` each clip, then `templates/assemble-and-score` cuts and scores.
-- **Music alone**: `templates/minimax/music`; the `minimax-music3`
-  skill - its `audio_duration` is a ceiling, not a length.
-- **Replace a shot's own sound**: `templates/video-to-sound-effects` (MMAudio,
-  7-25 dB hot: `match_levels` first), then `pair_audio`.
+- **Music alone**: `templates/minimax/music`; `minimax-music3` skill:
+  `audio_duration` is a ceiling, not a length.
+- **Replace a shot's sound**: `templates/video-to-sound-effects` (MMAudio, 7-25 dB hot: `match_levels` first), then `pair_audio`.
 
 If none fits, compose from `list_tasks` (the `workflows` guide's authoring
 section).
@@ -124,9 +127,9 @@ section).
   `match_audio` chains pass it, can sing beats off the track; `music-video`
   holds each slice as well by default, and the chains' `hold_audio` variable adds a
   hold (`references/cuts.md`, #795, #808).
-- Guidance-distilled: no `guidance_scale` or negative prompt.
+- Guidance-distilled: no `guidance_scale`, no negative prompt.
 - Keep `release_pipeline` where the template puts it (frees Z-Image before
-  H3 loads, H3 before a concat), or a warm worker may SIGKILL near the end.
+  H3, H3 before a concat), or a warm worker may SIGKILL near the end.
 - Ref2VA limits: at most 9 images, 3 videos, 3 audio clips, 12 files; audio can
   never be the only reference. References are labelled in order.
 - Prompt timestamps span the generated length.

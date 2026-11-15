@@ -70,6 +70,12 @@ allow reuse here, so only concepts were taken. It inspired:
 - H3 chunk continuation in latent space ([#611](https://github.com/dkackman/diffusers-workflow/issues/611))
 - trying the Alissonerdx H3 LoRAs, which its workflows use ([#612](https://github.com/dkackman/diffusers-workflow/issues/612))
 
+### Directors-Cut
+
+MIT licence. Its cut-by-cut approach to replacing a performer in a take
+inspired `replace-performer` and `replace-performer-cuts`
+([#1194](https://github.com/dkackman/diffusers-workflow/issues/1194)).
+
 ### [Kablex/ComfyUI-Ref2VA-VSA](https://github.com/Kablex/ComfyUI-Ref2VA-VSA)
 
 Apache-2.0. Showed that MiniMax H3's Ref2VA attention could run block-sparse,

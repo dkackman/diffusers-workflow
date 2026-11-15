@@ -54,6 +54,7 @@ from .pipeline_processors.h3_rules import (
     LISTEN_SCALE_INPUT,
     MASK_IMAGE_INPUT,
     MASK_INPUTS,
+    MASK_VIDEO_INPUT,
     REFINE_SIGMAS_INPUT,
     REFINE_STRENGTH_INPUT,
     REFINE_TILES_INPUT,
@@ -282,10 +283,9 @@ def _video_shape(name, value, base_dir, probe):
 TRIM_COMMAND = "trim_video"
 
 
-def _trimmed_frames(steps, value):
-    """The frame count a `previous_result:` source names, when it is a
-    `trim_video` step with a literal `num_frames` - what the run keeps, known
-    before it runs - else None."""
+def _trim_arguments(steps, value):
+    """The arguments of the `trim_video` step a `previous_result:` value
+    names, or None when it names no trim."""
     name = references.ref_name(references.PREVIOUS_RESULT, value)
     if name is None:
         return None
@@ -296,9 +296,62 @@ def _trimmed_frames(steps, value):
         arguments = task.get("arguments")
         if task.get("command") != TRIM_COMMAND or not isinstance(arguments, dict):
             return None
-        count = _static(arguments.get("num_frames"))
-        return count if count and count > 0 else None
+        return arguments
     return None
+
+
+def _trimmed_frames(steps, value):
+    """The frame count a `previous_result:` source names, when it is a
+    `trim_video` step with a literal `num_frames` - what the run keeps, known
+    before it runs, lengthened to a literal `pad_to` past it - else None."""
+    arguments = _trim_arguments(steps, value)
+    if arguments is None:
+        return None
+    count = _static(arguments.get("num_frames"))
+    if not count or count <= 0:
+        return None
+    pad_to = _static(arguments.get("pad_to"))
+    return max(count, pad_to) if isinstance(pad_to, int) else count
+
+
+def _trimmed_file_problems(arguments, steps, base_dir, probe):
+    """[(argument, problem)] for a regional edit whose source and mask are
+    `trim_video` results of files that resolve now (#1374): a span that runs
+    past its file's end - the trim would refuse it, after the steps before
+    it have run - and a mask file whose size is not the source file's."""
+    if probe is None:
+        return []
+    problems, sizes = [], {}
+    for name in (SOURCE_VIDEO_INPUT, MASK_VIDEO_INPUT):
+        trim = _trim_arguments(steps, arguments.get(name))
+        if trim is None:
+            continue
+        _, shape, _, _ = _video_shape(name, trim.get("video"), base_dir, probe)
+        if shape is None:
+            continue
+        sizes[name] = shape[1:]
+        start, count = (_static(trim.get(k)) for k in ("start_frame", "num_frames"))
+        if isinstance(start, int) and isinstance(count, int) and count > 0:
+            if start + count > shape[0]:
+                problems.append(
+                    (
+                        name,
+                        f"{name} cuts frames {start} to {start + count} "
+                        f"(start_frame {start} + num_frames {count}) from a "
+                        f"video of {shape[0]} frames - the cut runs past its "
+                        f"end",
+                    )
+                )
+    if len(sizes) == 2 and sizes[SOURCE_VIDEO_INPUT] != sizes[MASK_VIDEO_INPUT]:
+        (sh, sw), (mh, mw) = sizes[SOURCE_VIDEO_INPUT], sizes[MASK_VIDEO_INPUT]
+        problems.append(
+            (
+                MASK_VIDEO_INPUT,
+                f"{MASK_VIDEO_INPUT} is {mw}x{mh} and source_video is "
+                f"{sw}x{sh} - the mask must be the source's size",
+            )
+        )
+    return problems
 
 
 def _trimmed_source_problems(arguments, frames):
@@ -328,7 +381,9 @@ def _media_problems(arguments, base_dir, probe, frames_constraint=None, steps=No
     mask with no white pixel."""
     trimmed = _trimmed_frames(steps, arguments.get(SOURCE_VIDEO_INPUT))
     if trimmed is not None:
-        return _trimmed_source_problems(arguments, trimmed)
+        return _trimmed_source_problems(arguments, trimmed) + _trimmed_file_problems(
+            arguments, steps, base_dir, probe
+        )
     if probe is None:
         return []
     problems = []
