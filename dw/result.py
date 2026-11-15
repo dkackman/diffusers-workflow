@@ -17,7 +17,7 @@ from .content_types import (
     guess_extension,
     refuse_active_content_type,
 )
-from .audio_qc import check_written_media, warn_without_headroom
+from .audio_qc import _peak_dbfs, check_written_media, warn_without_headroom
 from .events import emit_log, emit_phase, emit_warning
 from .media_types import (
     AudioTrack,
@@ -153,6 +153,7 @@ class Result:
         # initialized here so a caller reading it before that runs gets None
         # rather than an AttributeError.
         self._predicted_peak_dbfs = None
+        self._input_peak_dbfs = None
         # get_artifact_list(result) memoized by id(result) - see
         # _artifacts_for. Keeps result_list itself untouched, so
         # Result.retainable's attribute walk over result_list is unaffected.
@@ -450,6 +451,7 @@ class Result:
         started = time.monotonic()
         self._no_headroom_warned = False
         self._predicted_peak_dbfs = None
+        self._input_peak_dbfs = None
 
         try:
             batched = self._write_artifact_file(
@@ -484,6 +486,7 @@ class Result:
                 consumed_by_normalizer=self._consumed_by_normalizer,
                 headroom_warned=self._no_headroom_warned,
                 predicted_peak_dbfs=self._predicted_peak_dbfs,
+                input_peak_dbfs=self._input_peak_dbfs,
             )
 
         emit_log(
@@ -830,6 +833,7 @@ class Result:
                     artifact.audio, os.path.basename(output_path), emit=False
                 )
                 self._no_headroom_warned = self._predicted_peak_dbfs is not None
+                self._input_peak_dbfs = _peak_dbfs(artifact.audio)
             logger.debug(
                 f"Streaming {len(artifact.frames)} segments into {output_path}"
             )
@@ -881,6 +885,7 @@ class Result:
             audio, os.path.basename(output_path), emit=False
         )
         self._no_headroom_warned = self._predicted_peak_dbfs is not None
+        self._input_peak_dbfs = _peak_dbfs(audio)
         encode_video(
             frames_for_encoding(artifact.frames),
             fps=fps,
