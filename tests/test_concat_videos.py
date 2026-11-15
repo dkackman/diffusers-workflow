@@ -766,6 +766,47 @@ class TestWarningsReachTheCaller:
         # #681: a positional label says its count starts at 1
         assert "video 1 (counting from 1, in join order)" in warnings[0]["message"]
 
+    def test_a_clip_held_match_warns_of_the_spread_it_leaves(self):
+        """#1368: the held shot stays quiet and the other reaches the target,
+        so the join is not matched - the warning says by how much and what
+        target every shot can reach."""
+        from dw.events import RunContext, activate_context, deactivate_context
+
+        spiky = numpy.full((2, 100), 0.02, dtype=numpy.float32)
+        spiky[:, 50] = 0.9
+        video = AudioVideo(frames(4), spiky, 100)
+
+        events = []
+        token = activate_context(RunContext(on_event=events.append))
+        try:
+            concat_videos(
+                [video, audio_video(4, 0.02)],
+                match_levels="rms",
+                match_levels_dbfs=-18,
+            )
+        finally:
+            deactivate_context(token)
+
+        spread = [e for e in events if e.get("kind") == "match_levels_spread"]
+        assert len(spread) == 1
+        assert spread[0]["spread_db"] >= 3.0
+        assert "match_levels_dbfs" in spread[0]["message"]
+        assert spread[0]["suggested_target_dbfs"] < -18
+
+    def test_an_unheld_match_draws_no_spread_warning(self):
+        from dw.events import RunContext, activate_context, deactivate_context
+
+        events = []
+        token = activate_context(RunContext(on_event=events.append))
+        try:
+            concat_videos(
+                [audio_video(4, 0.05), audio_video(4, 0.02)], match_levels="rms"
+            )
+        finally:
+            deactivate_context(token)
+
+        assert [e for e in events if e.get("kind") == "match_levels_spread"] == []
+
     def test_the_near_silent_gain_is_emitted_as_a_warning_event(self):
         """#434: a near-silent input gained up to the target only ever
         reached the server's log, so job.warnings looked clean while the

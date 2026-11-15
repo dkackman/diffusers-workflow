@@ -537,6 +537,9 @@ MATCH_CEILING_DBFS = -0.5
 MATCH_RMS_CEILING_DBFS = -3.0
 
 LEVEL_SPREAD_WARN_DB = 6.0
+# A clip-held match that leaves shots this far apart says so (#1368); the same
+# step assess_output's seam_level_step flags
+MATCH_RESIDUAL_SPREAD_DB = 3.0
 
 # The level step between a multi-shot input's own shots that match_levels cannot
 # level (#876); assessment_rules' seam_level_step reads the same number
@@ -641,6 +644,8 @@ def match_levels(
         measured=any(waveform is not None for waveform in waveforms),
     )
     matched = []
+    resulting = []  # (level after gain, unit) per measured shot
+    any_held = False
     for index, waveform in enumerate(waveforms):
         label = names[index] if names else f"video {index + 1}"
         if label == f"video {index + 1}":
@@ -675,6 +680,7 @@ def match_levels(
         if peak is not None and peak + gain_db > ceiling_dbfs:
             gain_db = ceiling_dbfs - peak
             held = True
+            any_held = True
             shortfall_db = target_gain_db - gain_db
             # emit_warning rather than logger.warning: a clip-held shot stays
             # off the target and the residual spread is exactly the level
@@ -721,7 +727,34 @@ def match_levels(
             held=held,
             unit=unit,
         )
+        resulting.append((level + gain_db, target_dbfs, target_gain_db - gain_db, unit))
         matched.append((waveform * (10 ** (gain_db / 20.0))).astype(numpy.float32))
+    if any_held and len(resulting) > 1:
+        levels = [r[0] for r in resulting]
+        spread = max(levels) - min(levels)
+        if spread >= MATCH_RESIDUAL_SPREAD_DB:
+            # The held shots could not reach the target, so the others sit
+            # above them: the join is not matched, and the remedy is a lower
+            # target that every shot can reach (#1368)
+            unit = resulting[0][3]
+            suggested = min(r[1] - r[2] for r in resulting)
+            emit_warning(
+                f"{command}: match_levels left the shots {spread:.1f} dB apart "
+                f"({min(levels):.1f} to {max(levels):.1f} {unit}) because a "
+                "clip-held shot could not reach the target - the level step at "
+                "the cut remains. Pass a lower match_levels_dbfs (about "
+                f"{suggested:.0f} {unit} reaches every shot without clipping)"
+                + (
+                    ""
+                    if measure == "lufs"
+                    else ', or match_levels: "lufs" with a limiter'
+                ),
+                kind="match_levels_spread",
+                command=command,
+                spread_db=round(spread, 1),
+                suggested_target_dbfs=round(suggested, 1),
+                unit=unit,
+            )
     return matched
 
 
