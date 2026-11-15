@@ -4038,6 +4038,169 @@
         "title": "RerunRequest",
         "type": "object"
       },
+      "RestartBatchCandidate": {
+        "additionalProperties": false,
+        "properties": {
+          "estimate": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PlanEstimate"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The plan's estimate of the rerun; null when none was built."
+          },
+          "id": {
+            "description": "The tombstone's id.",
+            "title": "Id",
+            "type": "string"
+          },
+          "workflow": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workflow"
+          },
+          "workspace": {
+            "title": "Workspace",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "workflow",
+          "workspace",
+          "estimate"
+        ],
+        "title": "RestartBatchCandidate",
+        "type": "object"
+      },
+      "RestartBatchQueued": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "description": "The new job's id.",
+            "title": "Id",
+            "type": "string"
+          },
+          "rerun_of": {
+            "description": "The tombstone it reruns.",
+            "title": "Rerun Of",
+            "type": "string"
+          },
+          "workflow": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workflow"
+          },
+          "workspace": {
+            "title": "Workspace",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "rerun_of",
+          "workflow",
+          "workspace"
+        ],
+        "title": "RestartBatchQueued",
+        "type": "object"
+      },
+      "RestartBatchRequest": {
+        "properties": {
+          "acknowledged_cost": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "$ref": "#/components/schemas/AcknowledgedCost"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "true queues the batch; omitted or false answers a preview and queues nothing. An object bound to one plan is refused: one fingerprint cannot cover every member's plan.",
+            "title": "Acknowledged Cost"
+          }
+        },
+        "title": "RestartBatchRequest",
+        "type": "object"
+      },
+      "RestartBatchRerun": {
+        "additionalProperties": false,
+        "properties": {
+          "queued": {
+            "description": "What was queued, oldest original first; empty in a preview.",
+            "items": {
+              "$ref": "#/components/schemas/RestartBatchQueued"
+            },
+            "title": "Queued",
+            "type": "array"
+          },
+          "server_instance": {
+            "description": "The dead server whose batch this is.",
+            "title": "Server Instance",
+            "type": "string"
+          },
+          "skipped": {
+            "items": {
+              "$ref": "#/components/schemas/RestartBatchSkipped"
+            },
+            "title": "Skipped",
+            "type": "array"
+          },
+          "would_queue": {
+            "description": "A preview only: what `acknowledged_cost: true` would queue, oldest first.",
+            "items": {
+              "$ref": "#/components/schemas/RestartBatchCandidate"
+            },
+            "title": "Would Queue",
+            "type": "array"
+          }
+        },
+        "required": [
+          "server_instance",
+          "queued",
+          "skipped"
+        ],
+        "title": "RestartBatchRerun",
+        "type": "object"
+      },
+      "RestartBatchSkipped": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "reason": {
+            "description": "Why it was not queued: `already rerun as <id>`, a deleted workspace, or what admission refused.",
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "reason"
+        ],
+        "title": "RestartBatchSkipped",
+        "type": "object"
+      },
       "RunDeleted": {
         "additionalProperties": false,
         "properties": {
@@ -7623,6 +7786,56 @@
           }
         },
         "summary": "Rerun Job"
+      }
+    },
+    "/api/jobs/{job_id}/rerun-restart-batch": {
+      "post": {
+        "description": "Rerun every job a server restart cancelled along with `job_id` - the\ntombstones one dead server left, named by any one of them (#1266) -\noldest first, each in its own workspace and admitted as a single rerun\nis. A member already rerun, in a deleted workspace, or refused by\nadmission is skipped with why; the rest are still queued. Without\n`acknowledged_cost: true` nothing is queued: the answer is a preview,\n`would_queue` with each member's estimate.",
+        "operationId": "rerun_restart_batch_api_jobs__job_id__rerun_restart_batch_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RestartBatchRequest",
+                "default": {}
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestartBatchRerun"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Rerun Restart Batch"
       }
     },
     "/api/jobs/{job_id}/run": {

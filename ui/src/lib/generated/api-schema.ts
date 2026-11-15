@@ -940,6 +940,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/jobs/{job_id}/rerun-restart-batch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Rerun Restart Batch
+         * @description Rerun every job a server restart cancelled along with `job_id` - the
+         *     tombstones one dead server left, named by any one of them (#1266) -
+         *     oldest first, each in its own workspace and admitted as a single rerun
+         *     is. A member already rerun, in a deleted workspace, or refused by
+         *     admission is skipped with why; the rest are still queued. Without
+         *     `acknowledged_cost: true` nothing is queued: the answer is a preview,
+         *     `would_queue` with each member's estimate.
+         */
+        post: operations["rerun_restart_batch_api_jobs__job_id__rerun_restart_batch_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/jobs/{job_id}/run": {
         parameters: {
             query?: never;
@@ -3528,6 +3554,75 @@ export interface components {
              */
             new_seed: boolean;
         };
+        /** RestartBatchCandidate */
+        RestartBatchCandidate: {
+            /** @description The plan's estimate of the rerun; null when none was built. */
+            estimate: components["schemas"]["PlanEstimate"] | null;
+            /**
+             * Id
+             * @description The tombstone's id.
+             */
+            id: string;
+            /** Workflow */
+            workflow: string | null;
+            /** Workspace */
+            workspace: string;
+        };
+        /** RestartBatchQueued */
+        RestartBatchQueued: {
+            /**
+             * Id
+             * @description The new job's id.
+             */
+            id: string;
+            /**
+             * Rerun Of
+             * @description The tombstone it reruns.
+             */
+            rerun_of: string;
+            /** Workflow */
+            workflow: string | null;
+            /** Workspace */
+            workspace: string;
+        };
+        /** RestartBatchRequest */
+        RestartBatchRequest: {
+            /**
+             * Acknowledged Cost
+             * @description true queues the batch; omitted or false answers a preview and queues nothing. An object bound to one plan is refused: one fingerprint cannot cover every member's plan.
+             */
+            acknowledged_cost?: boolean | components["schemas"]["AcknowledgedCost"] | null;
+        };
+        /** RestartBatchRerun */
+        RestartBatchRerun: {
+            /**
+             * Queued
+             * @description What was queued, oldest original first; empty in a preview.
+             */
+            queued: components["schemas"]["RestartBatchQueued"][];
+            /**
+             * Server Instance
+             * @description The dead server whose batch this is.
+             */
+            server_instance: string;
+            /** Skipped */
+            skipped: components["schemas"]["RestartBatchSkipped"][];
+            /**
+             * Would Queue
+             * @description A preview only: what `acknowledged_cost: true` would queue, oldest first.
+             */
+            would_queue?: components["schemas"]["RestartBatchCandidate"][];
+        };
+        /** RestartBatchSkipped */
+        RestartBatchSkipped: {
+            /** Id */
+            id: string;
+            /**
+             * Reason
+             * @description Why it was not queued: `already rerun as <id>`, a deleted workspace, or what admission refused.
+             */
+            reason: string;
+        };
         /** RunDeleted */
         RunDeleted: {
             /** Deleted */
@@ -5252,6 +5347,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["JobDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rerun_restart_batch_api_jobs__job_id__rerun_restart_batch_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["RestartBatchRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RestartBatchRerun"];
                 };
             };
             /** @description Validation Error */

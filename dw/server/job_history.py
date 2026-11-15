@@ -197,6 +197,8 @@ RESTART_RUNNING = (
     "server restart: running when the server stopped; "
     "partial outputs may be in {run_dir}"
 )
+# The prefix every tombstone's error starts with - what a batch is matched on
+RESTART_PREFIX = "server restart:"
 # A row that was dispatched but had not reported its run directory yet
 RESTART_RUNNING_NO_RUN = (
     "server restart: running when the server stopped, before it opened a run"
@@ -293,6 +295,10 @@ class JobHistory:
                 )
             if "device_ordinal" in added or "device_card" in added:
                 connection.execute(_BACKFILL_DEVICE_FIELDS)
+            # What `rerun_ids` looks up: has any job rerun this one (#1266)
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS jobs_rerun_of ON jobs (rerun_of)"
+            )
 
     @contextlib.contextmanager
     def _connect(self):
@@ -361,6 +367,51 @@ class JobHistory:
                     (CANCELLED, finished_at, error, row["id"]),
                 )
         return [row["id"] for row in rows]
+
+    def restart_batch(self, job_id):
+        """The tombstones the server that left `job_id` left (#1266), as
+        (server_instance, [{id, workflow, workspace, created_at}]) oldest
+        first - or None when `job_id` is not one: a row closed `cancelled`
+        with a `server restart:` error and a `server_instance` (NULL on rows
+        before #1245). Its own SQL with no row cap, not the 200-row listing.
+        A retired workspace's rows are members too, `workspace` still
+        carrying DELETED_SUFFIX, so the caller can say why it skips one."""
+        pattern = RESTART_PREFIX + "%"
+        with self._lock, self._connect() as connection:
+            row = connection.execute(
+                "SELECT server_instance FROM jobs WHERE id = ? AND status = ?"
+                " AND error LIKE ? AND server_instance IS NOT NULL",
+                (job_id, CANCELLED, pattern),
+            ).fetchone()
+            if row is None:
+                return None
+            instance = row["server_instance"]
+            rows = connection.execute(
+                "SELECT id, workflow, workspace, created_at FROM jobs"
+                " WHERE server_instance = ? AND status = ? AND error LIKE ?"
+                " ORDER BY created_at, id",
+                (instance, CANCELLED, pattern),
+            ).fetchall()
+        return instance, [dict(member) for member in rows]
+
+    def rerun_ids(self, ids):
+        """{original id: rerun id} for each id among `ids` that a recorded
+        job names in `rerun_of` - open rows included, so a rerun still
+        queued counts. The earliest rerun when there are several."""
+        ids = list(ids)
+        found = {}
+        with self._lock, self._connect() as connection:
+            # Chunked under SQLite's bound-parameter limit
+            for start in range(0, len(ids), 500):
+                chunk = ids[start : start + 500]
+                marks = ", ".join("?" for _ in chunk)
+                for row in connection.execute(
+                    f"SELECT id, rerun_of FROM jobs WHERE rerun_of IN ({marks})"
+                    " ORDER BY created_at DESC",
+                    chunk,
+                ):
+                    found[row["rerun_of"]] = row["id"]
+        return found
 
     def peaks_for_key(self, key):
         return self.peaks_and_basis_for_key(key)[0]

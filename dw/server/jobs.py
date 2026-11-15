@@ -58,10 +58,12 @@ from ..settings import resolve_path
 from ..workspace import DEFAULT_WORKSPACE_NAME
 from . import dispatch, job_results, pool, worker_memory
 from .dispatch import Dispatcher
-from .job_history import JobHistory, close_dead_servers, hold_server_lock
+from .job_history import DELETED_SUFFIX, JobHistory, close_dead_servers
+from .job_history import hold_server_lock
 from .job_history import release_server_lock
 from .outputs import job_run_directory, with_run_note, with_run_state
 from .job_record import (
+    ACK_BOOLEAN,
     ACK_NONE,
     CANCELLED,
     FAILED,
@@ -136,6 +138,9 @@ class JobManager(Dispatcher):
         # Reentrant: cancel() finishes a queued job while holding it, and
         # _finish's terminal-job trim needs it again on the same thread
         self._lock = threading.RLock()  # guards job state transitions
+        # Held across a restart-batch rerun, admission included, so two
+        # concurrent batches cannot both pass its already-rerun check (#1266)
+        self._batch_lock = threading.Lock()
         # Pending job ids in run order - a list, not a Queue, so the queue
         # can be reordered while jobs wait
         self._pending = []
@@ -612,6 +617,88 @@ class JobManager(Dispatcher):
             rerun_of=job_id,
             overrides=overrides,
         )
+
+    def rerun_restart_batch(self, job_id, admit, *, queue):
+        """Rerun every tombstone the dead server that left `job_id` left
+        (#1266), oldest first - or None when `job_id` is not a restart
+        tombstone (`JobHistory.restart_batch`).
+
+        `admit(member_id)` admits one member as the single rerun route does
+        (rerun_spec -> admit_for -> check_fits) and answers (arguments,
+        admission), or raises with why it refused. With `queue` false
+        nothing is queued: the answer is the preview, each admitted member
+        under `would_queue` with its admission. With it, each is queued
+        through `rerun()`, so it carries `rerun_of`, its own VRAM and
+        host-RAM needs and the original's card.
+
+        A member already rerun (`rerun_of`, in history or live) or in a
+        deleted workspace is skipped, and so is one admission refuses; one
+        member failing never stops the rest. The batch lock makes the
+        already-rerun check and the queuing one step, so two concurrent
+        calls queue each member once."""
+        with self._batch_lock:
+            batch = self.history.restart_batch(job_id)
+            if batch is None:
+                return None
+            instance, members = batch
+            ids = [member["id"] for member in members]
+            done = self.history.rerun_ids(ids)
+            with self._lock:
+                for job in self.jobs.values():
+                    if job.rerun_of in ids and job.rerun_of not in done:
+                        done[job.rerun_of] = job.id
+            answer = {
+                "server_instance": instance,
+                "queued": [],
+                "would_queue": [],
+                "skipped": [],
+            }
+            for member in members:
+                member_id = member["id"]
+                workspace = member["workspace"] or DEFAULT_WORKSPACE_NAME
+
+                def skip(reason):
+                    answer["skipped"].append({"id": member_id, "reason": reason})
+
+                if member_id in done:
+                    skip(f"already rerun as {done[member_id]}")
+                    continue
+                if workspace.endswith(DELETED_SUFFIX):
+                    skip(f"workspace '{workspace[: -len(DELETED_SUFFIX)]}' was deleted")
+                    continue
+                try:
+                    arguments, admission = admit(member_id)
+                except Exception as e:
+                    skip(str(e) or type(e).__name__)
+                    continue
+                entry = {
+                    "id": member_id,
+                    "workflow": member["workflow"],
+                    "workspace": workspace,
+                }
+                if not queue:
+                    answer["would_queue"].append({**entry, "admission": admission})
+                    continue
+                try:
+                    job = self.rerun(
+                        member_id,
+                        admitted=admission.workflow,
+                        acknowledged=ACK_BOOLEAN,
+                        warnings=admission.warnings,
+                        arguments=arguments,
+                        vram_need=admission.vram_need,
+                        host_ram_need=admission.host_ram_need,
+                    )
+                except Exception as e:
+                    logger.warning(f"Batch rerun of {member_id} failed: {e}")
+                    skip(f"rerun failed after admission: {e}")
+                    continue
+                if job is None:
+                    skip("no longer in history")
+                    continue
+                done[member_id] = job.id
+                answer["queued"].append({**entry, "rerun_of": member_id, "id": job.id})
+            return answer
 
     def _original_device(self, job_id):
         """The ordinal of the card `job_id` ran on ('cuda:1'), or None."""
