@@ -249,6 +249,56 @@ def test_rerun_submits_once_the_cost_is_acknowledged():
     assert [entry["key"][1] for entry in seen] == ["/api/jobs/job-1/rerun"]
 
 
+BATCH_ROUTE = ("POST", "/api/jobs/job-1/rerun-restart-batch")
+
+
+def test_restart_batch_preview_passes_through_without_an_acknowledgement():
+    """The batch form's preview is how its cost gets quoted, and the server
+    queues nothing without consent - so the client gate lets it through
+    where a single rerun is refused (#1266)."""
+    preview = {"queued": [], "would_queue": [{"id": "job-1"}], "skipped": []}
+    client, seen = scripted({BATCH_ROUTE: (200, preview)})
+
+    result = diagnose.rerun_job(client, "job-1", restart_batch=True)
+
+    assert result == preview
+    assert [entry["key"] for entry in seen] == [BATCH_ROUTE]
+    assert json.loads(seen[0]["body"] or b"{}").get("acknowledged_cost") in (
+        None,
+        False,
+    ), "a preview must not carry an acknowledgement"
+
+
+def test_restart_batch_sends_the_acknowledgement_to_queue():
+    client, seen = scripted({BATCH_ROUTE: (200, {"queued": [], "skipped": []})})
+
+    diagnose.rerun_job(client, "job-1", restart_batch=True, acknowledged_cost=True)
+
+    assert json.loads(seen[0]["body"])["acknowledged_cost"] is True
+
+
+@pytest.mark.parametrize(
+    "override",
+    [{"new_seed": True}, {"arguments": {"tier": "best"}}],
+    ids=["new_seed", "arguments"],
+)
+@pytest.mark.parametrize("acknowledged", [False, True])
+def test_restart_batch_refuses_overrides_before_any_request(override, acknowledged):
+    client, seen = scripted({BATCH_ROUTE: (200, {})})
+
+    with pytest.raises(DwApiError) as caught:
+        diagnose.rerun_job(
+            client,
+            "job-1",
+            restart_batch=True,
+            acknowledged_cost=acknowledged,
+            **override,
+        )
+
+    assert str(caught.value) == diagnose.RESTART_BATCH_OVERRIDE_REFUSAL
+    assert seen == [], "a refused override must not reach the server"
+
+
 def sequenced(route, bodies):
     """Like `scripted`, but one route replays a list of bodies in order -
     for a poller that expects the job to look different call to call. The

@@ -513,3 +513,64 @@ def test_a_live_siblings_rows_are_never_members(tmp_path):
         assert restarted.history.restart_batch(queued.id) is None
     finally:
         restarted.shutdown()
+
+
+# ------------------------------------- the batch over MCP rerun_job (#1371)
+
+
+def mcp_client(client):
+    """The MCP tools' REST client, talking to the in-process app."""
+    from dw_mcp.client import DwClient
+
+    dw = DwClient(base_url="http://localhost")
+    # The TestClient is an httpx.Client already wired to the app
+    dw._http.close()
+    dw._http = client
+    return dw
+
+
+def test_mcp_rerun_job_previews_queues_then_skips_a_restart_batch(tmp_path):
+    from dw_mcp import diagnose
+
+    ids = a_dead_server_with_three_jobs(tmp_path)
+    with restarted_client(tmp_path) as (client, manager):
+        dw = mcp_client(client)
+        preview = diagnose.rerun_job(dw, ids[2], restart_batch=True)
+        assert preview["queued"] == []
+        assert [entry["id"] for entry in preview["would_queue"]] == ids
+        assert reruns(manager) == []
+
+        queued = diagnose.rerun_job(
+            dw, ids[2], restart_batch=True, acknowledged_cost=True
+        )
+        assert [entry["rerun_of"] for entry in queued["queued"]] == ids
+
+        again = diagnose.rerun_job(
+            dw, ids[2], restart_batch=True, acknowledged_cost=True
+        )
+        assert again["queued"] == []
+        assert all(
+            entry["reason"].startswith("already rerun as ")
+            for entry in again["skipped"]
+        )
+        assert len(reruns(manager)) == 3
+
+
+def test_mcp_rerun_job_refuses_a_non_tombstone_with_or_without_consent(tmp_path):
+    import pytest
+
+    from dw_mcp import diagnose
+    from dw_mcp.client import DwApiError
+
+    with restarted_client(tmp_path) as (client, manager):
+        job = submit(manager)
+        wait_until(lambda: job.status == "succeeded")
+        wait_until(lambda: stored_status(tmp_path, job.id) == "succeeded")
+        dw = mcp_client(client)
+        for acknowledged in (False, True):
+            with pytest.raises(DwApiError) as caught:
+                diagnose.rerun_job(
+                    dw, job.id, restart_batch=True, acknowledged_cost=acknowledged
+                )
+            assert "not a restart tombstone" in str(caught.value)
+        assert reruns(manager) == []

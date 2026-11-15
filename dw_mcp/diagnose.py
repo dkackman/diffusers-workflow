@@ -373,7 +373,22 @@ def cancel_job(client, job_id):
     return client.post_json(api_path("api", "jobs", job_id, "cancel"))
 
 
-def rerun_job(client, job_id, acknowledged_cost=False, new_seed=False, arguments=None):
+RESTART_BATCH_OVERRIDE_REFUSAL = (
+    "restart_batch reruns every job one server restart cancelled, each from "
+    "its own stored spec, so `new_seed` and `arguments` cannot be given with "
+    "it: one override cannot apply to every member's workflow. Rerun the "
+    "batch as stored, then rerun_job a single member with the override."
+)
+
+
+def rerun_job(
+    client,
+    job_id,
+    acknowledged_cost=False,
+    new_seed=False,
+    arguments=None,
+    restart_batch=False,
+):
     """Queue a fresh job from a previous job's stored spec. This costs the
     same GPU time as `run_workflow` and passes through the same gate - a
     rerun is a run, and the gate would be worth nothing if a job id bought
@@ -391,7 +406,23 @@ def rerun_job(client, job_id, acknowledged_cost=False, new_seed=False, arguments
 
     `arguments` overrides variables for the rerun (a draft promoted with
     `{"tier": "standard"}`); an override may change the plan, so a bound
-    acknowledgement must name the plan of the merged arguments."""
+    acknowledgement must name the plan of the merged arguments.
+
+    `restart_batch` names a batch by one of its tombstones: every job the
+    same dead server closed as `server restart:` (#1266). Without
+    `acknowledged_cost` the server answers a preview - `would_queue` with
+    each member's estimate - and queues nothing, so this form alone passes
+    the gate through: the preview is how the cost gets quoted. With it,
+    every member not already rerun is queued oldest first, each with
+    `rerun_of`. A bound acknowledgement is the server's to refuse (one
+    fingerprint cannot bind N plans)."""
+    if restart_batch:
+        if new_seed or arguments:
+            raise DwApiError(RESTART_BATCH_OVERRIDE_REFUSAL)
+        body = {"acknowledged_cost": acknowledged_cost} if acknowledged_cost else {}
+        return client.post_json(
+            api_path("api", "jobs", job_id, "rerun-restart-batch"), body
+        )
     if not acknowledged_cost:
         raise DwApiError(COST_REFUSAL)
     return client.post_json(
