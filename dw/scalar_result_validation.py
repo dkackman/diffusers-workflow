@@ -35,9 +35,9 @@ from .for_each import render_path
 from .references import (
     SUBSTITUTED,
     is_ref,
-    iter_previous_result_references,
     iter_steps,
 )
+from .step_cache import reference_resolves_to, referenced_result_names
 from .tasks.task import task_command_info
 
 RESULT_KEY = "result"
@@ -137,25 +137,6 @@ def scalar_result_errors(workflow_definition, source_indices=None):
     return errors
 
 
-def _reads_step(name, later_steps):
-    """True when any step in `later_steps` carries a previous-result reference
-    to `name` (bare, or a field/index path under it)."""
-    for step in later_steps:
-        for _, reference, _ in iter_previous_result_references(
-            step, descend_into_from=True
-        ):
-            if not isinstance(reference, str):
-                continue
-            if reference.startswith(name) and reference[len(name) :][:1] in (
-                "",
-                ".",
-                "[",
-                ":",
-            ):
-                return True
-    return False
-
-
 def unsaved_json_warnings(workflow_definition, source_indices=None):
     """["path: message"] for a step whose command answers a JSON document
     (the assessment probes) with no `result` block and no later step reading
@@ -178,7 +159,10 @@ def unsaved_json_warnings(workflow_definition, source_indices=None):
         if info.get("returns") != "json":
             continue
         name = step.get("name")
-        if isinstance(name, str) and _reads_step(name, steps[index + 1 :]):
+        if isinstance(name, str) and any(
+            reference_resolves_to(ref, name)
+            for ref in referenced_result_names(steps[index + 1 :])
+        ):
             continue
         warnings.append(
             f"{render_path(('steps', source, 'task'))}: {command} answers a JSON "
