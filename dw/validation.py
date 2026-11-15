@@ -66,7 +66,7 @@ from .previous_results import (
 )
 from .reference_limits import reference_limit_errors
 from .reference_names import reference_name_errors
-from .scalar_result_validation import scalar_result_errors
+from .scalar_result_validation import scalar_result_errors, unsaved_json_warnings
 from .schema import load_schema, validate_data_all
 from .security import InvalidInputError, SecurityError
 from .shot_span_preflight import script_shot_name_errors, shot_span_warnings
@@ -792,6 +792,12 @@ WARNING_CHECKS = [
     # cache, a CUDA-only attention backend off CUDA - each of which cost a
     # render to find out (#868)
     Check("acceleration_warnings", acceleration_warnings),
+    # A JSON-answering command (an assessment probe) with no 'result' block and
+    # no reader: its measurements go nowhere (#1366)
+    Check(
+        "unsaved_json_warnings",
+        lambda c: unsaved_json_warnings(c.expanded, c.source_indices),
+    ),
     # A guide_noise on a step with no guides and no guide chain - it would
     # noise nothing (#1166)
     Check(
