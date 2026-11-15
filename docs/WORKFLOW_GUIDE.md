@@ -3013,7 +3013,7 @@ eye called was 0.146 at 36 s on `dialogue`.
 - `shot: dialogue` (the default): the face is etched by about 30 s and
   `face_drop` steps up at segment 6 (36 s). Good for a take of about 30 s.
 - `shot: standing` (`keystone: segment_1`, `keystone_slot: last`, no keyframes):
-  face and backdrop hold to 85 s, `face_drop` within 0.015 (seed 1 only). The speaker stands;
+  face and backdrop hold to 85 s, `face_drop` within 0.015 (seed 1; on seed 1362 it held 65.6 s, at most 0.027, `bench/records/drill.md`). The speaker stands;
   each segment eases back to the opening frame.
 - `shot: walk_keyframed` with `keyframes`: the face holds to 85 s (`face_drop` at
   most 0.041 on two seeds), with the cleanest seams, at the price of a
@@ -3025,7 +3025,9 @@ eye called was 0.146 at 36 s on `dialogue`.
   and the latent keystone (`anchor_every`) stay experimental.
 
 A piece longer than one clean take is passages joined as cuts, one narrated take
-per passage. That composition is not yet run end to end. `templates/minimax/chained-segments`
+per passage. That composition is run end to end once (`bench/records/drill.md`,
+*Cold drill attempt 2*): 106.6 s from two `standing` passages and one cut, within
+4 ms of the narration, with no hole over 1.5 s at the cut. `templates/minimax/chained-segments`
 with a voice H3 invents per passage is not this recipe: nothing ties the
 passages' voices together (`bench/records/drill.md`, *Cold drill: the
 Gettysburg Address*). The recipe:

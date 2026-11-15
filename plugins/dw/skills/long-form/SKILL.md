@@ -81,11 +81,11 @@ Set `shot` on `templates/minimax/chained-segments` from the shot's
 - **A speaking subject in one place is a narrated take.** Make the
   narration with `templates/narration-retime`, listen, then run
   `templates/minimax/narrated-take`. `shot: standing` (a monologue to
-  camera) holds about 85 s (seed 1 only), `dialogue` about 30 s;
-  `walk_keyframed` needs a keyframe per segment. Longer than a take is
-  passages joined as cuts: one `narration-long` track, `slice_audio`, a
-  take each, `concat_videos`; not yet run end to end
-  (`bench/records/narrated.md`). Procedure:
+  camera) holds about 85 s (`bench/records/narrated.md`), `dialogue`
+  about 30 s; `walk_keyframed` needs a keyframe per segment. Longer is
+  passages joined as cuts: one `narration-long` track,
+  `slice_audio`, a take each, `concat_videos`; run end to end once
+  (`bench/records/drill.md`). Procedure:
   `references/run-and-repair.md`, *A narrated take*.
 
 Two rules that bite:
