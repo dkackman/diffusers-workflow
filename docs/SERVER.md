@@ -376,6 +376,32 @@ its `plan.estimate` ask about the card the job would go to now, named in
 `priced_for`. `GET /api/memory` and `POST /api/memory/clear` take an
 optional `device`.
 
+### After a restart
+
+A server that dies uncleanly (a crash, `kill -9`, a power cut) leaves its
+queued and running jobs open; the next server closes them as `cancelled`
+with an `error` starting `server restart:` - its tombstones. To get them
+back:
+
+1. Find one: `list_jobs(status="cancelled")`, then `get_job` on a candidate
+   for its `error`. Any one tombstone names the whole batch.
+2. Preview: `rerun_job(<tombstone>, restart_batch=true)` without
+   `acknowledged_cost` queues nothing and answers `would_queue` - every
+   tombstone of that restart, oldest first, each with its workspace and
+   `estimate` - plus `skipped`. Quote the total to the user.
+3. Queue: the same call with `acknowledged_cost=true` queues the members in
+   `created_at` order, each in its own workspace and each with `rerun_of`.
+   A member already rerun is skipped as `already rerun as <id>`, so a
+   repeat queues nothing twice; one in a deleted workspace, or refused by
+   admission, is skipped with its reason and the rest still queue.
+
+`new_seed` and `arguments` are refused with `restart_batch` (one override
+cannot fit every member), and so is a bound acknowledgement. A job that is
+not a tombstone, or one closed before #1245 recorded its server, is refused
+as `not a restart tombstone`. A member that was running redoes its finished
+steps: the step cache does not survive a restart. The REST form is `POST
+/api/jobs/{id}/rerun-restart-batch`.
+
 ### Step timing
 
 A pipeline step's manifest entry carries `timing`, where its time went; the
