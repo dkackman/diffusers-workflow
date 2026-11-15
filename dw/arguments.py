@@ -983,7 +983,8 @@ def resolve_relative_path(path, base_dir):
 # on an asset:/output: video (#387) - and window_video, which cuts the
 # source's soundtrack with its frames and so reads the file with its audio
 # (#601) - and trim_video, which cuts a soundtrack the same way (#627) - and
-# generate_sound_effects, which samples the file at its own rates (#1133) - see
+# generate_sound_effects, which samples the file at its own rates (#1133) - and
+# detect_cuts, whose cuts report the file's fps and sample spans (#1373) - see
 # _realize_lazy_frame_arguments
 _LAZY_FRAME_COMMANDS = frozenset(
     {
@@ -998,6 +999,7 @@ _LAZY_FRAME_COMMANDS = frozenset(
         "window_video",
         "trim_video",
         "generate_sound_effects",
+        "detect_cuts",
     }
 )
 
