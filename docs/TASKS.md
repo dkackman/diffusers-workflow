@@ -925,6 +925,7 @@ Keep one span of a video's frames, and its audio over the same span:
 | `start_frame` | Yes | The first frame kept, from `0` |
 | `num_frames` | Yes | How many frames are kept: `1` or more |
 | `fps` | No | The clip's frame rate. Defaults to the rate the clip carries; needed only to cut its audio, which is refused without one |
+| `pad_to` | No | A frame count at least `num_frames`: the last kept frame is held until the clip is this long, and its audio runs on in silence to the same end (a cut's `render_frames` from [`detect_cuts`](#detect_cuts)). The last shot covers the held frames. Omitted, the span is kept as is |
 
 Frames `[start_frame, start_frame + num_frames)` are kept. The audio is cut to
 the same span, each end `frames_to_samples` of a frame index rounded on its
@@ -932,9 +933,55 @@ own, so consecutive trims tile the track exactly. A clip with audio comes back
 as an audio+video pair; a bare frame list as one silent clip at `fps`, so a
 step saves it as one video rather than one per frame. Carried shots are clipped
 to the span and re-based to `0`, their sample side cleared; a clip with none
-comes back as one shot named after its file (else `video 1`). A span past the clip's end is refused, naming the clip's frame count (never
-shortened or padded), as are a `num_frames` of `0` or less and a negative
-`start_frame`; `validate_workflow` catches these on literal values.
+comes back as one shot named after its file (else `video 1`). A span past the clip's end is refused, naming the clip's frame count (it is
+never shortened; only `pad_to` lengthens a span, and only from inside the
+clip), as are a `num_frames` of `0` or less, a negative `start_frame`, and a
+`pad_to` below `num_frames` or not a whole number; `validate_workflow` catches
+these on literal values.
+
+### detect_cuts
+
+Find a clip's cuts, each laid out for a MiniMax-H3 render (#1194):
+
+```json
+{
+    "task": {
+        "command": "detect_cuts",
+        "arguments": {
+            "video": "asset:source.mp4",
+            "max_frames": 345
+        }
+    },
+    "result": {"content_type": "application/json"}
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `video` | Yes | The clip: a path, `asset:` or `output:` reference (read with its audio), or an earlier step's video |
+| `max_frames` | No | The longest cut kept whole, at most `345` (H3's ceiling; above it is refused). A longer cut is split into near-equal pieces (default `345`) |
+
+The result is JSON: `fps`, `num_frames` (the clip's), `max_frames`,
+`render_grid` (`modulus`, `remainder`, `min_frames`, `max_frames`, read off
+the diffusers pipeline class), and `cuts`, a list of shot records named
+`cut-1`, `cut-2`, ... in order, each with:
+
+- `start_frame`, `num_frames`; `start_sample`, `num_samples` when the clip has
+  audio (consecutive cuts tile the track);
+- `render_frames`: the smallest count on H3's `17n + 5` grid inside `124`-`345`
+  at or above `num_frames`, the `pad_to` to hand [`trim_video`](#trim_video)
+  so the cut renders whole and is trimmed back to its own length after;
+- `detail`: `{"reason": "clip start"}` for the first, else `{"reason":
+  "content", "histogram_correlation", "frame_change"}`, what the detector saw;
+- `split: true` on each piece of a cut longer than `max_frames`;
+- `too_short: true` on a cut under `22` frames (the grid's first step), which
+  would pad to `124` from almost nothing: merge it into a neighbour or skip it.
+
+Both flags are also reported as warnings on the job. Nothing is dropped: the
+list is a literal to edit. The detector is `crop_face_track`'s
+(`content_cuts`, a colour-histogram drop or a frame-difference spike), so the
+two see the same cuts; it is tuned for hard cuts and misses dissolves and
+slow fades.
 
 ### chain_repair_cut
 
