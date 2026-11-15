@@ -37,6 +37,13 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **Validate refuses H3 literals the pipeline would refuse** (#1361, stage
+  #1364), shipped 2026-11-15. `dw/pipeline_limits.py` reads H3's duration,
+  fps, 17n+5 grid and 32-multiple canvas off `MiniMaxH3ModularPipeline` and
+  refuses a literal `num_frames`, `width` or `height` outside them at
+  `steps[i].pipeline.arguments.<key>`, so inline JSON fails at validate, not
+  after the load. Catalog-held rules by model id and a no-rule warning were
+  cut, with triggers: `complete/h3-pipeline-limits-complete.md`.
 - **Narrated passages joined as cuts, run by a cold agent** (#1311, stages
   #1336-#1338, #1362), shipped 2026-11-14. The long-form recipe for a
   narrated piece longer than one take: one `narration-long` track, retimed
