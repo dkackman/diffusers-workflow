@@ -71,6 +71,7 @@ from .pipeline_processors.h3_rules import (
 )
 from .probe_paths import resolve_probe_path
 from .security import ALLOWED_AUDIO_EXTENSIONS, ALLOWED_VIDEO_EXTENSIONS
+from .tasks.trim import span_problem
 from .variable_constraints import declared_constraints
 
 # A video is held by its own soundtrack - a regional edit's source_video
@@ -318,10 +319,13 @@ def _trimmed_file_problems(arguments, steps, base_dir, probe):
     """[(argument, problem)] for a regional edit whose source and mask are
     `trim_video` results of files that resolve now (#1374): a span that runs
     past its file's end - the trim would refuse it, after the steps before
-    it have run - and a mask file whose size is not the source file's."""
+    it have run - and a mask file whose size is not the source file's. Each
+    rule is asked of its owner: the span of `trim.span_problem`, the size of
+    `media_problems` with the source's size as the canvas, as `_with_mask`
+    takes it when the step names none."""
     if probe is None:
         return []
-    problems, sizes = [], {}
+    problems, shapes = [], {}
     for name in (SOURCE_VIDEO_INPUT, MASK_VIDEO_INPUT):
         trim = _trim_arguments(steps, arguments.get(name))
         if trim is None:
@@ -329,28 +333,22 @@ def _trimmed_file_problems(arguments, steps, base_dir, probe):
         _, shape, _, _ = _video_shape(name, trim.get("video"), base_dir, probe)
         if shape is None:
             continue
-        sizes[name] = shape[1:]
+        shapes[name] = shape
         start, count = (_static(trim.get(k)) for k in ("start_frame", "num_frames"))
         if isinstance(start, int) and isinstance(count, int) and count > 0:
-            if start + count > shape[0]:
-                problems.append(
-                    (
-                        name,
-                        f"{name} cuts frames {start} to {start + count} "
-                        f"(start_frame {start} + num_frames {count}) from a "
-                        f"video of {shape[0]} frames - the cut runs past its "
-                        f"end",
-                    )
-                )
-    if len(sizes) == 2 and sizes[SOURCE_VIDEO_INPUT] != sizes[MASK_VIDEO_INPUT]:
-        (sh, sw), (mh, mw) = sizes[SOURCE_VIDEO_INPUT], sizes[MASK_VIDEO_INPUT]
-        problems.append(
-            (
-                MASK_VIDEO_INPUT,
-                f"{MASK_VIDEO_INPUT} is {mw}x{mh} and source_video is "
-                f"{sw}x{sh} - the mask must be the source's size",
+            problem = span_problem(start, count, shape[0])
+            if problem:
+                problems.append((name, f"{name} is cut by {TRIM_COMMAND}: {problem}"))
+    if len(shapes) == 2:
+        _, height, width = shapes[SOURCE_VIDEO_INPUT]
+        width = _static(arguments.get("width")) or width
+        height = _static(arguments.get("height")) or height
+        problems += [
+            (MASK_VIDEO_INPUT, p)
+            for p in media_problems(
+                MASK_VIDEO_INPUT, shapes[MASK_VIDEO_INPUT], width, height
             )
-        )
+        ]
     return problems
 
 
