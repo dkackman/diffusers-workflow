@@ -1976,6 +1976,12 @@ logs one job event: `turbo lead-in: evaluations 1..N with adapter 'turbo' at 0 o
 `torch.compile` the scale-0 graph compiles once per worker: measured at +5.5 s on the first
 lead-in call and nothing after it ([ACCELERATION.md](ACCELERATION.md#torchcompile)).
 
+No template turns it on. Measured on 8-segment `chained-segments` and
+`chain-video-continuity` chains (#1326), every lead-in made the per-cut lightness step
+larger, not smaller; on `chain-video-continuity` it held the subject's pose and texture
+better but darkened the chain and raised saturation faster
+(`docs/proposals/complete/h3-turbo-lead-in-complete.md`).
+
 #### Chaining with a guide: `continuity: "guide"`
 
 A chain on an H3 `t2va` or `fl2va` step can carry its seam with a guide instead of a
