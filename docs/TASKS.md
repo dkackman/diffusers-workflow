@@ -3016,8 +3016,8 @@ A validate's `downloads_required` lists the repo for the `mode` given; `model_na
 Two tasks promote a MiniMax-H3 take in latent space; the workflow guide's
 [Promoting an H3 take](WORKFLOW_GUIDE.md#promoting-an-h3-take-to-768p-in-latent-space-upscale_h3_latents-and-decode_h3_latents)
 section has the full recipe. A third, `encode_h3_latents`, goes the other way
-for the experimental windowed refine of a long take
-([Refining a long take in time windows](WORKFLOW_GUIDE.md#experimental-refining-a-long-take-in-time-windows)).
+for the windowed refine of a long take
+([Refining a long take in time windows](WORKFLOW_GUIDE.md#refining-a-long-take-in-time-windows)).
 
 ### upscale_h3_latents
 

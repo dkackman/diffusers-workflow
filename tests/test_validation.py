@@ -207,6 +207,7 @@ ERROR_ORDER = [
     "latent_anchor",
     "guide_noise",
     "selflift",
+    "refine_windows",
     "experimental_tst",
     "turbo_lead_in",
     "task_signatures",

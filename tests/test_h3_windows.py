@@ -14,9 +14,6 @@ from diffusers.modular_pipelines.minimax_h3.before_denoise import (  # noqa: E40
     MiniMaxH3PrepareLayoutStep,
     MiniMaxH3SetTimestepsStep,
 )
-from diffusers.modular_pipelines.minimax_h3.decoders import (  # noqa: E402
-    MiniMaxH3VideoDecodeStep,
-)
 from diffusers.modular_pipelines.minimax_h3.denoise import (  # noqa: E402
     MiniMaxH3LoopDenoiser,
     MiniMaxH3LoopSchedulerStep,
@@ -28,14 +25,15 @@ from dw.pipeline_processors.h3_hold import insert_audio_hold  # noqa: E402
 from dw.pipeline_processors.h3_mask import insert_mask_blocks  # noqa: E402
 from dw.pipeline_processors.h3_windows import (  # noqa: E402
     DENOISER,
-    ENABLE_ENV_VAR,
     REFINE_WINDOWS_INPUT,
+    WINDOW_DEFAULTS,
     DwH3WindowedLoopDenoiser,
     fuse_weights,
     insert_refine_windows,
     window_plan,
     window_problems,
     window_rows,
+    window_settings,
     windows_refine,
     windows_refusal,
 )
@@ -374,7 +372,7 @@ def test_two_windows_fuse_to_the_hand_computed_blend(positions):
 
 
 def test_true_positions_are_the_takes_own_and_rebased_start_at_its_origin():
-    state, true_stub = stub_step({"frames": 7, "overlap": 2})
+    state, true_stub = stub_step({"frames": 7, "overlap": 2, "positions": "true"})
     _, rebased_stub = stub_step({"frames": 7, "overlap": 2, "positions": "rebased"})
     fields = state.denoiser_input_fields
     global_times = fields["position_ids"][fields["video_indices"], 0]
@@ -481,7 +479,7 @@ def refine(**overrides):
         "refine_strength": 0.3,
         "latents": torch.zeros(1),
         "hold_audio": object(),
-        REFINE_WINDOWS_INPUT: {"frames": 16, "overlap": 4},
+        REFINE_WINDOWS_INPUT: {"frames": 16, "overlap": 4, "positions": "true"},
     }
     arguments.update(overrides)
     return {k: v for k, v in arguments.items() if v is not None}
@@ -496,9 +494,11 @@ def test_a_valid_call_has_no_problems():
 @pytest.mark.parametrize(
     "overrides, match",
     [
-        ({REFINE_WINDOWS_INPUT: [16, 4]}, "frames, overlap"),
+        ({REFINE_WINDOWS_INPUT: [16, 4]}, "every key optional"),
         ({REFINE_WINDOWS_INPUT: {"frames": 16, "overlap": 16}}, "overlap"),
-        ({REFINE_WINDOWS_INPUT: {"overlap": 4}}, "whole number"),
+        ({REFINE_WINDOWS_INPUT: {"overlap": 42}}, "overlap"),
+        ({REFINE_WINDOWS_INPUT: {"overlap": 4.5}}, "whole number"),
+        ({REFINE_WINDOWS_INPUT: {"frames": 40}}, "multiple of 5"),
         ({REFINE_WINDOWS_INPUT: {"frames": 16, "size": 4}}, "not size"),
         ({REFINE_WINDOWS_INPUT: {"frames": 16, "blend": "box"}}, "blend"),
         ({REFINE_WINDOWS_INPUT: {"frames": 16, "positions": "x"}}, "positions"),
@@ -559,7 +559,17 @@ def test_rebased_positions_on_the_clip_grid_are_taken():
     assert window_problems({**arguments, "num_frames": 90}) == []
     # A stride off the grid with true positions is fine
     assert (
-        window_problems(refine(**{REFINE_WINDOWS_INPUT: {"frames": 12, "overlap": 4}}))
+        window_problems(
+            refine(
+                **{
+                    REFINE_WINDOWS_INPUT: {
+                        "frames": 12,
+                        "overlap": 4,
+                        "positions": "true",
+                    }
+                }
+            )
+        )
         == []
     )
 
@@ -576,13 +586,83 @@ def test_a_step_cache_is_refused():
     assert any("cache" in p for p in window_problems(refine(), has_cache=True))
 
 
-def test_off_in_this_process_names_the_flag():
+def test_a_pipeline_without_the_windowed_denoiser_is_refused_for_it():
     pipeline = minimax.MiniMaxH3Blocks().get_workflow("t2va").init_pipeline()
     insert_audio_hold(pipeline)
-    assert ENABLE_ENV_VAR in windows_refusal(pipeline, refine())
+    refusal = windows_refusal(pipeline, refine())
+    assert "no denoise loop that windows" in refusal
+    assert h3_rules.REFINE_WINDOWS_ENV_VAR not in refusal
     insert_refine_windows(pipeline)
     assert windows_refusal(pipeline, refine()) is None
     assert windows_refusal(pipeline, refine(**{REFINE_WINDOWS_INPUT: None})) is None
+
+
+@pytest.mark.parametrize("value", [None, "1"])
+def test_the_refusal_does_not_depend_on_the_flag(monkeypatch, value):
+    if value is None:
+        monkeypatch.delenv(h3_rules.REFINE_WINDOWS_ENV_VAR, raising=False)
+    else:
+        monkeypatch.setenv(h3_rules.REFINE_WINDOWS_ENV_VAR, value)
+    pipeline = minimax.MiniMaxH3Blocks().get_workflow("t2va").init_pipeline()
+    insert_audio_hold(pipeline)
+    assert "no denoise loop that windows" in windows_refusal(pipeline, refine())
+    insert_refine_windows(pipeline)
+    assert windows_refusal(pipeline, refine()) is None
+    assert "cache" in windows_refusal(pipeline, refine(), has_cache=True)
+
+
+# 5b. The defaults
+
+
+def test_the_defaults_are_the_benched_setting():
+    assert WINDOW_DEFAULTS == {
+        "frames": 42,
+        "overlap": 12,
+        "blend": "pyramid",
+        "positions": "rebased",
+    }
+    assert window_settings({}) == WINDOW_DEFAULTS
+
+
+def test_partial_settings_keep_the_given_keys():
+    assert window_settings({"frames": 20, "blend": "cosine"}) == {
+        **WINDOW_DEFAULTS,
+        "frames": 20,
+        "blend": "cosine",
+    }
+
+
+def test_empty_settings_are_a_valid_call():
+    assert window_problems(refine(**{REFINE_WINDOWS_INPUT: {}})) == []
+
+
+def test_the_default_positions_are_rebased():
+    problems = window_problems(refine(**{REFINE_WINDOWS_INPUT: {"frames": 40}}))
+    assert problems and any("multiple of 5" in problem for problem in problems)
+    ok = {"frames": 40, "positions": "true"}
+    assert window_problems(refine(**{REFINE_WINDOWS_INPUT: ok})) == []
+
+
+@pytest.mark.parametrize(
+    "settings",
+    [
+        {"frames": "variable:frames"},
+        {"overlap": "variable:overlap"},
+        {"blend": "variable:blend"},
+        {"positions": "variable:positions"},
+        "variable:windows",
+    ],
+)
+def test_an_unresolved_setting_is_left_to_the_run(settings):
+    assert window_problems(refine(**{REFINE_WINDOWS_INPUT: settings})) == []
+
+
+def test_the_old_name_is_refused_naming_the_new_one():
+    problem = h3_rules.renamed_windows_problem({h3_rules.OLD_REFINE_WINDOWS_INPUT: {}})
+    assert REFINE_WINDOWS_INPUT in problem
+    assert h3_rules.OLD_REFINE_WINDOWS_INPUT in problem
+    assert h3_rules.renamed_windows_problem({REFINE_WINDOWS_INPUT: {}}) is None
+    assert h3_rules.renamed_windows_problem({}) is None
 
 
 # 6. End to end: the real H3 graph on tiny weights, through dw's blocks
@@ -640,13 +720,15 @@ def tiny_refine(
 
 def test_end_to_end_one_window_is_the_plain_refine(tiny_h3):
     plain = tiny_refine(tiny_h3, None)
-    one = tiny_refine(tiny_h3, {"frames": 37, "overlap": 4})
+    one = tiny_refine(tiny_h3, {"frames": 37, "overlap": 4, "positions": "true"})
     assert torch.equal(plain, one)
 
 
 def test_end_to_end_windows_run_and_differ(tiny_h3):
     plain = tiny_refine(tiny_h3, None)
-    windowed = tiny_refine(tiny_h3, {"frames": 12, "overlap": 4, "blend": "cosine"})
+    windowed = tiny_refine(
+        tiny_h3, {"frames": 12, "overlap": 4, "blend": "cosine", "positions": "true"}
+    )
     assert windowed.shape == plain.shape
     assert torch.isfinite(windowed).all()
     assert not torch.equal(plain, windowed)
@@ -664,7 +746,7 @@ def test_a_windowed_refine_lays_out_a_take_past_fifteen_seconds(tiny_h3):
     encode has no ceiling of its own."""
     result = tiny_refine(
         tiny_h3,
-        {"frames": 40, "overlap": 10},
+        {"frames": 40, "overlap": 10, "positions": "true"},
         num_frames=LONG_TAKE,
         output=["latents", "audio", "sampling_rate"],
     )
@@ -686,7 +768,11 @@ def test_the_ceiling_lifts_inside_the_guides_layout_too():
     insert_audio_hold(pipeline)
     assert insert_guides(pipeline)
     assert insert_refine_windows(pipeline)
-    latents = tiny_refine(pipeline, {"frames": 40, "overlap": 10}, num_frames=LONG_TAKE)
+    latents = tiny_refine(
+        pipeline,
+        {"frames": 40, "overlap": 10, "positions": "true"},
+        num_frames=LONG_TAKE,
+    )
     assert latents.shape[2] == 112
     with pytest.raises(ValueError, match="between 5.0 and 15.0 seconds"):
         tiny_refine(pipeline, None, num_frames=LONG_TAKE)
@@ -703,7 +789,7 @@ def test_windows_without_a_refine_keep_the_ceiling(tiny_h3):
     with pytest.raises(ValueError, match="between 5.0 and 15.0 seconds"):
         tiny_refine(
             tiny_h3,
-            {"frames": 40, "overlap": 10},
+            {"frames": 40, "overlap": 10, "positions": "true"},
             num_frames=LONG_TAKE,
             refine_strength=None,
         )
@@ -760,19 +846,37 @@ def test_a_source_video_path_is_not_counted_as_frames():
     assert window_problems(refine(latents=None, source_video=long_path)) == []
 
 
-def test_the_run_time_check_refuses_with_the_flag_off():
+def test_the_run_time_check_refuses_a_graph_without_the_windows():
     from dw.pipeline_processors.pipeline import Pipeline
 
     pipeline = minimax.MiniMaxH3Blocks().get_workflow("t2va").init_pipeline()
     insert_audio_hold(pipeline)
     step = SimpleNamespace(name="refine", pipeline=pipeline, configuration={})
-    with pytest.raises(ValueError, match=f"Step 'refine': .*{ENABLE_ENV_VAR}=1"):
+    with pytest.raises(
+        ValueError, match="Step 'refine': .*no denoise loop that windows"
+    ):
         Pipeline._check_refine(step, refine())
     insert_refine_windows(pipeline)
     assert Pipeline._check_refine(step, refine()) is None
     step.configuration = {"cache": {"type": "first_block"}}
     with pytest.raises(ValueError, match="cache"):
         Pipeline._check_refine(step, refine())
+
+
+def test_the_run_time_check_refuses_the_old_name():
+    from dw.pipeline_processors.pipeline import Pipeline
+
+    pipeline = minimax.MiniMaxH3Blocks().get_workflow("t2va").init_pipeline()
+    insert_audio_hold(pipeline)
+    insert_refine_windows(pipeline)
+    step = SimpleNamespace(name="refine", pipeline=pipeline, configuration={})
+    old = refine(**{REFINE_WINDOWS_INPUT: None})
+    old[h3_rules.OLD_REFINE_WINDOWS_INPUT] = {}
+    with pytest.raises(
+        ValueError,
+        match=r"Step 'refine': experimental_refine_windows is now refine_windows",
+    ):
+        Pipeline._check_refine(step, old)
 
 
 @pytest.fixture(scope="module")
@@ -831,7 +935,12 @@ def test_end_to_end_one_window_is_the_plain_refine_of_a_source_video(
     frames = source_frames(5)
     plain = strict_refine(tiny_h3_source, None, frames, caplog)
     one = strict_refine(tiny_h3_source, {"frames": 40}, frames, caplog)
-    two = strict_refine(tiny_h3_source, {"frames": 20, "overlap": 6}, frames, caplog)
+    two = strict_refine(
+        tiny_h3_source,
+        {"frames": 20, "overlap": 6, "positions": "true"},
+        frames,
+        caplog,
+    )
     assert torch.equal(plain, one)
     assert torch.isfinite(two).all()
     assert not torch.equal(plain, two)
@@ -843,10 +952,14 @@ def test_end_to_end_one_window_is_the_plain_refine_of_a_source_video(
 def test_the_flag_has_one_owner():
     # By source: equal string literals are interned, so `is` would pass for
     # a second copy of the name too
-    assert h3_windows.ENABLE_ENV_VAR == h3_rules.REFINE_WINDOWS_ENV_VAR
+    assert not hasattr(h3_windows, "ENABLE_ENV_VAR")
     from dw.pipeline_processors import components
 
-    assert h3_rules.REFINE_WINDOWS_ENV_VAR not in Path(components.__file__).read_text()
+    # The loader reads the flag through refine_windows_enabled, for the
+    # keystone restore and selflift, and never spells the name
+    source = Path(components.__file__).read_text()
+    assert "refine_windows_enabled" in source
+    assert h3_rules.REFINE_WINDOWS_ENV_VAR not in source
     # h3_windows names the flag in its docs; a second definition would need
     # the name as a string literal
     source = Path(h3_windows.__file__).read_text()
@@ -864,10 +977,7 @@ def test_the_flag_reads_the_environment(monkeypatch, value, on):
     assert h3_rules.refine_windows_enabled() is on
 
 
-@pytest.mark.parametrize("value, windowed", [(None, False), ("1", True)])
-def test_the_loader_inserts_the_windows_only_behind_the_flag(
-    monkeypatch, value, windowed
-):
+def loaded_t2va(monkeypatch, value):
     from dw.pipeline_processors.components import _assemble_loaded
 
     if value is None:
@@ -876,25 +986,160 @@ def test_the_loader_inserts_the_windows_only_behind_the_flag(
         monkeypatch.setenv(h3_rules.REFINE_WINDOWS_ENV_VAR, value)
     pipeline = minimax.MiniMaxH3Blocks().get_workflow("t2va").init_pipeline()
     _assemble_loaded("pipeline", type(pipeline), {}, pipeline, {})
+    return pipeline
+
+
+def has_keystone_restore(pipeline):
+    from dw.pipeline_processors.h3_guides import KEYSTONE_RESTORE_BLOCK
+
+    return any(
+        name.endswith(KEYSTONE_RESTORE_BLOCK)
+        for _, sequence in h3_windows.core_denoise_sequences(pipeline)
+        for name in sequence.sub_blocks
+    )
+
+
+@pytest.mark.parametrize("value", [None, "1"])
+def test_the_loader_inserts_the_windows_with_or_without_the_flag(monkeypatch, value):
+    pipeline = loaded_t2va(monkeypatch, value)
     denoisers = [loop.sub_blocks[DENOISER] for loop in loops(pipeline)]
     assert denoisers
     for denoiser in denoisers:
-        assert isinstance(denoiser, DwH3WindowedLoopDenoiser) is windowed
-        if not windowed:
-            assert type(denoiser) is MiniMaxH3LoopDenoiser
+        assert isinstance(denoiser, DwH3WindowedLoopDenoiser)
     # The loader's graph wraps the layout in the guides' one: the step that
     # runs is the one it holds
     layouts = h3_windows.layout_steps(pipeline)
     assert layouts
     for block in layouts:
-        assert isinstance(block, h3_windows.DwH3LongRefineLayoutStep) is windowed
-        if not windowed:
-            assert type(block) is MiniMaxH3PrepareLayoutStep
-    assert windows_refine(pipeline) is windowed
-    # A long take's decode too: a piece at a time behind the flag, stock without
+        assert isinstance(block, h3_windows.DwH3LongRefineLayoutStep)
+    assert windows_refine(pipeline)
+    # A long take's decode too: a piece at a time
     decodes = h3_windows.video_decode_steps(pipeline)
     assert decodes
     for block in decodes:
-        assert isinstance(block, h3_windows.DwH3StreamedVideoDecodeStep) is windowed
-        if not windowed:
-            assert type(block) is MiniMaxH3VideoDecodeStep
+        assert isinstance(block, h3_windows.DwH3StreamedVideoDecodeStep)
+    # The windows no longer need the flag, so the call is not refused for it
+    assert windows_refusal(pipeline, refine()) is None
+
+
+@pytest.mark.parametrize("value, restored", [(None, False), ("1", True)])
+def test_the_keystone_restore_stays_behind_the_flag(monkeypatch, value, restored):
+    assert has_keystone_restore(loaded_t2va(monkeypatch, value)) is restored
+
+
+# 8. Validate time: dw.guides.windows_errors, run by dw.validation
+
+WINDOWS_PATH = f"steps[0].pipeline.arguments.{REFINE_WINDOWS_INPUT}"
+
+
+def refine_workflow(arguments=None, workflow="t2va", configuration=None):
+    """A one-step H3 refine as a workflow definition."""
+    call = {
+        "prompt": "a cat",
+        "refine_strength": 0.3,
+        "latents": "previous_result:take",
+        "hold_audio": "previous_result:take",
+        REFINE_WINDOWS_INPUT: {},
+    }
+    call.update(arguments or {})
+    pipeline = {
+        "configuration": {"component_type": "ModularPipeline", **(configuration or {})},
+        "from_pretrained_arguments": {
+            "model_name": "MiniMaxAI/MiniMax-H3",
+            "workflow": workflow,
+        },
+        "arguments": {k: v for k, v in call.items() if v is not None},
+    }
+    return {"steps": [{"name": "refine", "pipeline": pipeline}]}
+
+
+def test_empty_settings_validate_clean():
+    from dw.guides import windows_errors
+
+    assert windows_errors(refine_workflow()) == []
+    assert windows_errors(refine_workflow(workflow="fl2va")) == []
+
+
+def test_the_old_name_is_a_validate_error_at_its_own_path():
+    from dw.guides import windows_errors
+
+    errors = windows_errors(
+        refine_workflow({REFINE_WINDOWS_INPUT: None, "experimental_refine_windows": {}})
+    )
+    assert [e["path"] for e in errors] == [
+        "steps[0].pipeline.arguments.experimental_refine_windows"
+    ]
+    assert REFINE_WINDOWS_INPUT in errors[0]["message"]
+
+
+@pytest.mark.parametrize(
+    "arguments, workflow, configuration, match",
+    [
+        ({"refine_strength": None}, "t2va", None, "refine_strength"),
+        ({"hold_audio": None}, "t2va", None, "hold_audio"),
+        ({}, "t2va", {"cache": {"type": "first_block"}}, "cache"),
+        (
+            {REFINE_WINDOWS_INPUT: {"frames": 16, "overlap": 16}},
+            "t2va",
+            None,
+            "overlap",
+        ),
+        ({REFINE_WINDOWS_INPUT: {"blend": "box"}}, "t2va", None, "blend"),
+        ({REFINE_WINDOWS_INPUT: {"frames": 40}}, "t2va", None, "multiple of 5"),
+        ({REFINE_WINDOWS_INPUT: [16, 4]}, "t2va", None, "every key optional"),
+        ({}, "ref2va", None, "refine_windows"),
+    ],
+)
+def test_a_refine_the_windows_cannot_run_is_a_validate_error(
+    arguments, workflow, configuration, match
+):
+    from dw.guides import windows_errors
+
+    errors = windows_errors(refine_workflow(arguments, workflow, configuration))
+    assert errors and all(e["path"] == WINDOWS_PATH for e in errors)
+    assert any(match in e["message"] for e in errors), errors
+
+
+@pytest.mark.parametrize(
+    "configuration, workflow",
+    [
+        ({"component_type": "StableDiffusionXLPipeline"}, "t2va"),
+        (None, "i2v"),
+    ],
+)
+def test_a_step_that_is_not_h3_is_refused(configuration, workflow):
+    from dw.guides import windows_errors
+
+    errors = windows_errors(
+        refine_workflow(workflow=workflow, configuration=configuration)
+    )
+    assert errors and all(e["path"] == WINDOWS_PATH for e in errors)
+    assert any("MiniMax-H3 argument" in e["message"] for e in errors), errors
+
+
+def test_a_variable_setting_is_not_refused_at_validate_time():
+    from dw.guides import windows_errors
+
+    for settings in (
+        {"frames": "variable:frames"},
+        {"overlap": "variable:overlap", "blend": "variable:blend"},
+        "variable:windows",
+    ):
+        assert windows_errors(refine_workflow({REFINE_WINDOWS_INPUT: settings})) == []
+
+
+def test_the_validator_runs_the_check(tmp_path):
+    import json
+
+    from dw.validation import workflow_errors
+    from dw.workflow import workflow_from_file
+
+    def errors_of(workflow, name):
+        path = tmp_path / f"{name}.json"
+        path.write_text(json.dumps({"id": name, **workflow}))
+        errors = workflow_errors(workflow_from_file(str(path), str(tmp_path)))
+        return [e for e in errors if "refine_windows" in e["path"]]
+
+    assert errors_of(refine_workflow(), "clean") == []
+    bad = errors_of(refine_workflow({"refine_strength": None}), "bad")
+    assert [e["path"] for e in bad] == [WINDOWS_PATH]
