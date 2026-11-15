@@ -105,6 +105,28 @@ class TestH3ReferenceSets:
     def test_an_unresolved_reference_is_left_to_another_pass(self):
         assert messages([{"reference_type": "variable:kind"}]) == []
         assert messages("variable:references") == []
+        assert messages(["variable:face", "item:"]) == []
+
+
+class TestBareStringReferences:
+    """H3's setup block refuses an entry that is not a reference object, after
+    the load; nothing in dw builds one from a bare string (#1374)."""
+
+    @pytest.mark.parametrize(
+        "entry", ["asset:face.jpg", "output:run/face.png", "previous_result:x", "a.png"]
+    )
+    def test_a_bare_string_is_refused_at_its_index(self, entry):
+        errors = reference_limit_errors(workflow_with([reference(IMAGE), entry]))
+        assert [e["path"] for e in errors] == [
+            "steps[0].pipeline.arguments.references[1]"
+        ]
+        assert "bare string" in errors[0]["message"]
+        assert IMAGE in errors[0]["message"]
+
+    def test_a_pipeline_not_known_to_be_h3_is_not_checked(self):
+        definition = workflow_with(["a.png"])
+        del definition["steps"][0]["pipeline"]["from_pretrained_arguments"]["workflow"]
+        assert reference_limit_errors(definition) == []
 
 
 class TestThroughTheTemplate:
