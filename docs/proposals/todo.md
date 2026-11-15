@@ -37,6 +37,12 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **H3 turbo lead-in** (#1326, stages #1352-#1353, fix #1365), shipped
+  2026-11-15 as an opt-in with a negative probe. `turbo_lead_in` N holds the
+  `turbo` adapter at 0 for each call's first N evaluations. On 8-segment
+  chains it raised the mean per-cut lightness step on every arm (+35% to
+  +129%), so Don ruled (Q4) that no template or skill uses it:
+  `complete/h3-turbo-lead-in-complete.md`.
 - **Validate refuses H3 literals the pipeline would refuse** (#1361, stage
   #1364), shipped 2026-11-15. `dw/pipeline_limits.py` reads H3's duration,
   fps, 17n+5 grid and 32-multiple canvas off `MiniMaxH3ModularPipeline` and
