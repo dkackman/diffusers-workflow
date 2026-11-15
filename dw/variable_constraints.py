@@ -17,7 +17,9 @@ reading `num_frames: 124` with no range had no way to know the rule was
 
 The rule is declared in the workflow, where `frame_snap` already puts the
 same numbers for a chain step, and the engine holds no model knowledge of its
-own (CLAUDE.md). One shape, not two: a `variable_constraints` entry takes
+own (CLAUDE.md). A literal H3 `num_frames`, `width` or `height` a workflow
+writes with no rule is checked in dw/pipeline_limits.py, against the limits
+the pipeline class publishes. One shape, not two: a `variable_constraints` entry takes
 `frame_snap`'s field names, and a chain step's `frame_snap` may be the string
 `"constraint:<variable>"` so a template states `17n + 5` once rather than
 twice in one file.

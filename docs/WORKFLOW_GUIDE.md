@@ -258,6 +258,11 @@ produces the shape it needs, and is about to write JSON. `get_schema` says what
 is *well-formed*; this section says what the engine *does* with a well-formed
 document, which is where a draft that validates still fails.
 
+H3 literal `num_frames`, `width` and `height` are checked against the
+pipeline's own limits (5-15 s on the 17n + 5 grid, so 124-345 frames;
+multiples of 32), and `variable_constraints` is still how a template refuses a
+value before substitution.
+
 When exploring variations, pass `note` to `run_workflow` saying what each run
 tests ("video_shift 5 against 3"), and call `set_note` to mark the keeper: the
 note is shown with every file the run made. Each file carries a `role`
@@ -719,7 +724,10 @@ by the source, and `validate_workflow` names the entries to add or drop.
    declared type, and an `asset:`, `prompt:` or `output:` reference that names
    nothing in this workspace each come back at `arguments.<name>`. Without them
    the verdict is about the stored definition and its defaults;
-   `checked_arguments` in the answer says which it was.
+   `checked_arguments` in the answer says which it was. A literal H3
+   `num_frames`, `width` or `height` the pipeline would refuse is an error too
+   (`dw/pipeline_limits.py`), beside the reference-set check
+   (`dw/reference_limits.py`).
 2. Fix everything reported, including the warnings: a typo against a real
    `__call__` shows up only as a warning. Signature warnings are computed only
    for a schema-valid draft (while schema errors remain, `warnings` is `[]`),

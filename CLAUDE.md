@@ -99,7 +99,9 @@ noise. `validate_path(path, base)` is a barrier only when `base` is not `None`; 
 ## Before you edit
 
 - **Model knowledge lives in `plugins/dw/` and the catalog, never in engine code.** A
-  model's rule about a value is declared in the workflow (`dw/variable_constraints.py`).
+  model's rule about a value is declared in the workflow (`dw/variable_constraints.py`),
+  or read off the diffusers class that enforces it (`dw/reference_limits.py`,
+  `dw/pipeline_limits.py`); the engine names the class, never the number.
 - **Compare backends with `get_device_type()`, not `== "cuda"`** - a device like
   `cuda:1` fails the string compare (`dw/__init__.py`).
 - **`{}` keeps a value a string**: under a `*_type`/`*_dtype`/`dtype` key `"{nf4}"` stays

@@ -190,6 +190,7 @@ ERROR_ORDER = [
     "scalar_results",
     "locations",
     "reference_limits",
+    "pipeline_limits",
     "vram_estimate",
     "null_media",
     "adapters",
