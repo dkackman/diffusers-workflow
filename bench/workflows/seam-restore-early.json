@@ -26,6 +26,7 @@
     },
     {
       "name": "seg01",
+      "release_pipeline": true,
       "pipeline": {
         "configuration": {
           "component_type": "ModularPipeline",
@@ -190,6 +191,7 @@
     },
     {
       "name": "restore01",
+      "release_pipeline": true,
       "pipeline": {
         "configuration": {
           "component_type": "ModularPipeline",
@@ -374,6 +376,7 @@
     },
     {
       "name": "seg02",
+      "release_pipeline": true,
       "pipeline": {
         "configuration": {
           "component_type": "ModularPipeline",
