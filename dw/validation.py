@@ -53,6 +53,7 @@ from .guides import (
     guide_noise_warnings,
     guides_errors,
     selflift_errors,
+    windows_errors,
 )
 from .hold_audio import hold_audio_errors, mask_errors, refine_strength_errors
 from .introspection import task_signature_errors
@@ -556,6 +557,12 @@ ERROR_CHECKS = [
     Check(
         "selflift",
         lambda c: selflift_errors(c.expanded, c.source_indices),
+    ),
+    # A refine_windows off H3 t2va/fl2va, under its old experimental_ name,
+    # or on a call it cannot window (#1230)
+    Check(
+        "refine_windows",
+        lambda c: windows_errors(c.expanded, c.source_indices),
     ),
     # The experimental TST correction (#1196): the flag off, off H3, a bad
     # value, or a transformer on dw's 'sparse' backend

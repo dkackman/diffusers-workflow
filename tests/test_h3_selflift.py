@@ -189,7 +189,7 @@ def test_a_valid_call_has_no_problems(flag_on):
         ({"source_video": "asset:take.mp4"}, "source_video"),
         ({"mask_video": "asset:m.mp4"}, "mask_video"),
         ({"references": [{"image": "asset:a.png"}]}, "references"),
-        ({h3_rules.REFINE_WINDOWS_INPUT: {"frames": 12}}, "experimental_refine"),
+        ({h3_rules.REFINE_WINDOWS_INPUT: {"frames": 12}}, "refine_windows"),
     ],
 )
 def test_a_call_that_cannot_lift_is_refused(flag_on, overrides, match):

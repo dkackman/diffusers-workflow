@@ -1,6 +1,6 @@
 {
   "id": "BenchRefineWindows",
-  "description": "Task 17 Step 4 bench: a temporal windowed refine over a finished chain. encode_h3_latents reads the take (an output: or asset: mp4) a 17-frame clip at a time; an H3 t2va refine_strength pass re-denoises it in overlapping time windows fused every step (experimental_refine_windows, needs DW_EXPERIMENTAL_REFINE_WINDOWS=1 on the server), holding the take's own soundtrack; decode_h3_latents trims the padding back to the take's length and pair_audio puts the take's own track back. Windows are in latent frames (a latent is about 4 pixel frames).",
+  "description": "Task 17 Step 4 bench: a temporal windowed refine over a finished chain. encode_h3_latents reads the take (an output: or asset: mp4) a 17-frame clip at a time; an H3 t2va refine_strength pass re-denoises it in overlapping time windows fused every step (refine_windows), holding the take's own soundtrack; decode_h3_latents trims the padding back to the take's length and pair_audio puts the take's own track back. Windows are in latent frames (a latent is about 4 pixel frames).",
   "variables": {
     "source": "output:BenchS1Static/20261104-054934-fdc9b551/final/BenchS1Static-chained_keyframe_to_video_audio.0-0.0.mp4",
     "prompt": "integrated_multimodal_description: [Shot 1] Cinematic, live-action, one continuous static shot. A young woman in a plain dark grey sweater stands centered in front of a flat painted wall of bold diagonal rainbow stripes with a black circle at upper left and a teal square at lower right. She breathes calmly, blinks, shifts her weight slightly and turns her head a little left and right, staying in place at the center of the frame. The painted wall stays exactly as it is, evenly lit by soft studio light. The camera is locked off on a tripod and never moves.\n\noverall_soundscape: Quiet studio room tone, the soft rustle of a wool sweater, calm breathing.\n\nnon_diegetic_music: None.",
@@ -172,7 +172,7 @@
           "hold_audio": "variable:source",
           "refine_strength": "variable:refine_strength",
           "num_inference_steps": "variable:num_inference_steps",
-          "experimental_refine_windows": {
+          "refine_windows": {
             "frames": "variable:window_frames",
             "overlap": "variable:window_overlap",
             "blend": "variable:window_blend",
