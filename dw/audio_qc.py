@@ -8,6 +8,7 @@ once a write succeeds.
 """
 
 import logging
+import math
 import os
 
 import numpy
@@ -122,7 +123,11 @@ def _probe_written_media(output_path):
 
 
 def warn_if_written_above_full_scale(
-    output_path, already_warned=False, info=_UNPROBED, lossless=False
+    output_path,
+    already_warned=False,
+    info=_UNPROBED,
+    lossless=False,
+    input_peak_dbfs=None,
 ):
     """Say when the file just written decodes above full scale.
 
@@ -162,6 +167,35 @@ def warn_if_written_above_full_scale(
     if peak is None or peak < CLIPPED_WARN_DBFS:
         return peak
     name = os.path.basename(output_path)
+    if not lossless and input_peak_dbfs is not None and input_peak_dbfs <= -1.0:
+        # The soundtrack handed to the encoder already had headroom (a
+        # normalize_audio step at -3 is the usual cause), so the generic
+        # "add a normalize_audio step" advice prescribes what is there
+        # (#1367). Name the number the encode added and the ceiling that
+        # clears it instead; the overshoot can be one transient, so it is
+        # not a general offset.
+        added = peak - input_peak_dbfs
+        ceiling = math.floor((input_peak_dbfs - peak - 0.5) * 2) / 2
+        emit_warning(
+            f"{name} decodes at {peak:+.2f} dBFS - above full scale, so it "
+            f"clips on playback. The soundtrack handed to the encoder peaked "
+            f"at {input_peak_dbfs:+.1f} dBFS and the encode added "
+            f"{added:+.1f} dB - usually on one transient, such as a hard "
+            f"speech onset, not across the file. A 'normalize_audio' step "
+            f"ahead of this save is not enough on its own at that ceiling: "
+            f"set its 'peak_dbfs' to {ceiling:g} or lower to clear it (a "
+            f"lower 'peak_dbfs' deepens the limiter, which can pump at a "
+            f"loud 'target_lufs' - lower that too if it warns). For a file "
+            f"already written, the 'relevel-clip' template re-levels it "
+            f"without a re-render.",
+            kind="audio_clipped",
+            file=name,
+            peak_dbfs=round(peak, 2),
+            input_peak_dbfs=round(input_peak_dbfs, 2),
+            encode_added_db=round(added, 2),
+            suggested_peak_dbfs=ceiling,
+        )
+        return peak
     if lossless:
         cause = (
             "The write itself clipped it - there was no headroom left below full scale"
@@ -392,6 +426,7 @@ def check_written_media(
     consumed_by_normalizer,
     headroom_warned,
     predicted_peak_dbfs,
+    input_peak_dbfs=None,
 ):
     """The post-write checks on an audio or video file, in their fixed order:
     probe once, shot re-measure, clipping, the held prediction, near-silence.
@@ -415,6 +450,7 @@ def check_written_media(
         info=probed_info,
         lossless=content_type.startswith("audio")
         and content_type not in LOSSY_AUDIO_CONTENT_TYPES,
+        input_peak_dbfs=input_peak_dbfs,
     )
     # A video's pre-encode prediction was held rather than emitted
     # (#174 amendment): the post-encode probe is the ground truth,

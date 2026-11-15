@@ -2184,6 +2184,23 @@ class TestTheWrittenLevel:
     def test_a_file_with_headroom_is_quiet(self):
         assert self.measured_at(-2.48) == []
 
+    def test_a_muxed_input_that_had_headroom_names_the_encode_overshoot(self):
+        """#1367: input at -3.0 (normalize_audio already there) decoded at
+        +0.29: the warning names the +3.3 dB the encode added and a
+        ceiling that clears it, not 'add a normalize at -3'."""
+        (warning,) = self.measured_at(0.29, input_peak_dbfs=-3.0)
+
+        assert warning["kind"] == "audio_clipped"
+        assert warning["encode_added_db"] == pytest.approx(3.29, abs=0.01)
+        assert warning["suggested_peak_dbfs"] == -4.0
+        assert "+3.3 dB" in warning["message"]
+        assert "'peak_dbfs' to -4" in warning["message"]
+
+    def test_an_input_without_headroom_keeps_the_generic_advice(self):
+        (warning,) = self.measured_at(0.9, input_peak_dbfs=-0.2)
+
+        assert "suggested_peak_dbfs" not in warning
+
     def test_a_file_with_no_soundtrack_is_quiet(self):
         from dw.audio_qc import warn_if_written_above_full_scale
 
