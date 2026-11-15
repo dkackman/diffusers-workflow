@@ -37,6 +37,14 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **Rerun a restart's tombstones as one batch** (#1266, stages #1370-#1371),
+  shipped 2026-11-15. `rerun_job(job_id=<a tombstone>, restart_batch=true)`
+  (REST: `POST /api/jobs/{id}/rerun-restart-batch`) previews every job the same
+  dead server left, then with `acknowledged_cost` reruns them oldest first, each
+  in its own workspace with `rerun_of`, and skips any already rerun. It was
+  verified with a staged `kill -9` drill on mini-ai, which is also #1245's
+  verify. UI and resume at startup stayed cut:
+  `complete/restart-batch-rerun-complete.md`.
 - **H3 turbo lead-in** (#1326, stages #1352-#1353, fix #1365), shipped
   2026-11-15 as an opt-in with a negative probe. `turbo_lead_in` N holds the
   `turbo` adapter at 0 for each call's first N evaluations. On 8-segment
