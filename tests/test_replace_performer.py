@@ -113,6 +113,19 @@ def test_too_many_references_refused(harness):
     assert "got 10" in out
 
 
+@pytest.mark.parametrize("count", [1, 10])
+def test_bare_string_references_refused(harness, count):
+    """A bare string never runs on H3 - its setup block takes only reference
+    objects - so it is refused at validate, at any count, and cannot slip past
+    the image limit either (#1374, C-F915)."""
+    errors = harness(GOOD, references=["src.mp4"] * count)
+    paths = [e["path"] for e in errors]
+    assert paths and all(".pipeline.arguments.references[" in p for p in paths)
+    assert len({p for p in paths}) == count
+    assert "bare string" in text(errors)
+    assert "MiniMaxH3ImageReference" in text(errors)
+
+
 def test_description_states_the_limits():
     """get_workflow's description names the cut count, the reference limits and
     the seed fallback (plan v3)."""

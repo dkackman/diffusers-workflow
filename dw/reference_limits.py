@@ -31,8 +31,10 @@ logger = logging.getLogger("dw")
 # __init__ defaults declare that family's limits. A pointer, not a number:
 # what a limit *is* stays diffusers', which is the only place it can stay
 # correct across a release
+H3_FAMILY = "diffusers.modular_pipelines.minimax_h3"
+
 REFERENCE_LIMIT_BLOCKS = {
-    "diffusers.modular_pipelines.minimax_h3": (
+    H3_FAMILY: (
         "diffusers.modular_pipelines.minimax_h3.before_encoder",
         "MiniMaxH3Ref2VASetupStep",
     ),
@@ -165,6 +167,37 @@ def _errors_for(kinds, family):
     return messages
 
 
+def _untyped_entries(entries):
+    """The indices of a reference list's entries that are bare strings.
+
+    A family in REFERENCE_LIMIT_BLOCKS takes only reference objects - H3's
+    setup block refuses anything else, after the load, because it "never
+    opens media files" - and nothing in dw turns a bare `asset:`, `output:`,
+    `previous_result:` or path string into one: only a {reference_type,
+    from_file} description is built. Left uncounted, such a list also slips
+    past the limits (#1374). A `variable:` or `item:` still spelled out is
+    another pass's complaint.
+    """
+    if not isinstance(entries, list):
+        return []
+    return [
+        index
+        for index, entry in enumerate(entries)
+        if isinstance(entry, str)
+        and not references.is_ref((references.VARIABLE, references.ITEM), entry)
+    ]
+
+
+def _untyped_message(index, entry):
+    return (
+        f"references[{index}] is the bare string {entry!r}, and MiniMax-H3 "
+        f"takes only reference objects - write it as "
+        f'{{"{REFERENCE_TYPE_KEY}": "{H3_FAMILY}.MiniMaxH3ImageReference", '
+        f'"from_file": "{entry}"}} (VideoReference or AudioReference for '
+        f"other media)."
+    )
+
+
 def reference_limit_errors(workflow_definition, source_indices=None):
     """Every reference list a pipeline would refuse, as [{path, message}].
 
@@ -174,6 +207,8 @@ def reference_limit_errors(workflow_definition, source_indices=None):
     wrote, and the member is named in the message - the same convention
     subfolder_errors uses.
     """
+    from .pipeline_processors.h3_rules import is_h3_step
+
     errors = []
     for _, _, pipeline, source, where in references.iter_steps(
         workflow_definition.get("steps"), source_indices, "pipeline"
@@ -181,6 +216,27 @@ def reference_limit_errors(workflow_definition, source_indices=None):
         arguments = pipeline.get("arguments")
         if not isinstance(arguments, dict):
             continue
+        if is_h3_step(pipeline):
+            entries = arguments.get("references")
+            for index in _untyped_entries(entries):
+                errors.append(
+                    {
+                        "path": render_path(
+                            (
+                                "steps",
+                                source,
+                                "pipeline",
+                                "arguments",
+                                "references",
+                                index,
+                            )
+                        ),
+                        "message": (
+                            f"{_untyped_message(index, entries[index]).rstrip('.')}"
+                            f"{where}."
+                        ),
+                    }
+                )
         for key, value in arguments.items():
             found = _kinds(value)
             if found is None:
