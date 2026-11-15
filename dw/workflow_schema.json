@@ -249,13 +249,38 @@
                     "maxItems": 32
                 },
                 "seed": {
-                    "description": "Default seed for the entire step. Accepts a 'variable:' reference.",
-                    "type": [
-                        "integer",
-                        "string"
-                    ],
-                    "pattern": "^variable:",
-                    "format": "int64"
+                    "description": "Default seed for the entire step. Accepts a 'variable:' reference, and on a for_each step an 'item:' reference or {\"item\": field, \"default\": ...} so each entry can carry its own seed.",
+                    "anyOf": [
+                        {
+                            "type": "integer",
+                            "format": "int64"
+                        },
+                        {
+                            "type": "string",
+                            "pattern": "^(variable|item):"
+                        },
+                        {
+                            "type": "object",
+                            "properties": {
+                                "item": {
+                                    "type": "string",
+                                    "minLength": 1
+                                },
+                                "default": {
+                                    "type": [
+                                        "integer",
+                                        "string"
+                                    ],
+                                    "pattern": "^variable:",
+                                    "format": "int64"
+                                }
+                            },
+                            "required": [
+                                "item"
+                            ],
+                            "additionalProperties": false
+                        }
+                    ]
                 },
                 "release_pipeline": {
                     "description": "Unload this step's pipeline once the step completes, freeing its memory for later steps. A later pipeline_reference to this step is an error, and the persistent worker's cross-run model cache will not retain it.",

@@ -285,7 +285,7 @@ TRIM_COMMAND = "trim_video"
 def _trimmed_frames(steps, value):
     """The frame count a `previous_result:` source names, when it is a
     `trim_video` step with a literal `num_frames` - what the run keeps, known
-    before it runs - else None."""
+    before it runs, lengthened to a literal `pad_to` past it - else None."""
     name = references.ref_name(references.PREVIOUS_RESULT, value)
     if name is None:
         return None
@@ -297,7 +297,10 @@ def _trimmed_frames(steps, value):
         if task.get("command") != TRIM_COMMAND or not isinstance(arguments, dict):
             return None
         count = _static(arguments.get("num_frames"))
-        return count if count and count > 0 else None
+        if not count or count <= 0:
+            return None
+        pad_to = _static(arguments.get("pad_to"))
+        return max(count, pad_to) if isinstance(pad_to, int) else count
     return None
 
 
