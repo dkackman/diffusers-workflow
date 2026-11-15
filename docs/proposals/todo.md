@@ -37,6 +37,15 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **Narrated passages joined as cuts, run by a cold agent** (#1311, stages
+  #1336-#1338, #1362), shipped 2026-11-14. The long-form recipe for a
+  narrated piece longer than one take: one `narration-long` track, retimed
+  once, cut with `slice_audio`, one `narrated-take` per passage from its own
+  angle, joined with `concat_videos`. Both narration templates declare
+  `shape: "audio"`. A cold Sonnet agent got the shape wrong on attempt 1 and
+  followed it on attempt 2 (1:46.58, 1 cut). Don's eye-and-ear verdict and
+  the null `narrated-take` estimate are open:
+  `complete/narrated-passages-complete.md`.
 - **Seam/segment split of chain drift** (#1324, stages #1349-#1350), shipped
   2026-11-14. `analyze_seams` answers gain `segment_looks`: each shot's 1 s
   first and last window of new frames (lightness, contrast, saturation,

@@ -563,7 +563,7 @@ unless said.
 | Kandinsky S2V 1.0 Lite distilled (spike, outside dw) | SFace 0.71 | 71 to 91 | fails on identity |
 
 **Left open** (follow-up issues): the multi-passage shape run end to end with a cold
-agent (#1311); the over-sharpening under the arc keyframes, which the isolating run
+agent (#1311, done 2026-11-14: `narrated-passages-complete.md`); the over-sharpening under the arc keyframes, which the isolating run
 (v4 without latent carry, finished after close) traced to latent carry (#1312,
 `bench/records/narrated.md`); split unsample on
 the copied overlap as a burn lever (#1313); Kandinsky S2V Pro at 4-bit (#1314); H3
