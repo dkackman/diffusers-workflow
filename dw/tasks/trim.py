@@ -93,11 +93,9 @@ def trim_video(video, start_frame, num_frames, fps=None, pad_to=None):
     frames = frames_as_pil_list(video)
     total = len(frames)
     end = start_frame + num_frames
-    if end > total:
-        raise ValueError(
-            f"{COMMAND}: start_frame {start_frame} + num_frames {num_frames} "
-            f"reaches frame {end}, but the clip has only {total} frames"
-        )
+    problem = span_problem(start_frame, num_frames, total)
+    if problem:
+        raise ValueError(f"{COMMAND}: {problem}")
     kept = frames[start_frame:end]
     logger.info(f"Trimmed to frames {start_frame}..{end - 1} of {total}")
     held = (pad_to or num_frames) - num_frames
@@ -134,6 +132,21 @@ def trim_video(video, start_frame, num_frames, fps=None, pad_to=None):
             )
         ]
     return AudioVideo(kept, audio, sample_rate, fps=fps, shots=shots)
+
+
+def span_problem(start_frame, num_frames, total):
+    """Why frames [start_frame, start_frame + num_frames) are not all in a
+    clip of `total` frames, or None. The one owner of the span rule: a span
+    past the clip's end is refused, never shortened. `trim_video` raises it,
+    and the static check of a regional edit whose source is a trim of a file
+    that resolves now (dw/hold_audio.py) asks it before anything runs."""
+    end = start_frame + num_frames
+    if end <= total:
+        return None
+    return (
+        f"start_frame {start_frame} + num_frames {num_frames} reaches frame "
+        f"{end}, but the clip has only {total} frames"
+    )
 
 
 def pad_to_problem(num_frames, pad_to):

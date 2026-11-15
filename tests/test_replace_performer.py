@@ -90,6 +90,21 @@ def test_cut_past_source_end_refused(harness):
     assert "mask_video" in out
 
 
+def test_cut_past_source_end_is_the_trim_rule(harness):
+    """The static refusal asks trim's span rule, not a copy of it (#1374)."""
+    from dw.tasks.trim import span_problem
+
+    assert span_problem(200, 120, 216) in text(harness([cut(start_frame=200)]))
+
+
+def test_mask_size_is_the_regional_edit_rule(harness):
+    """The static refusal asks h3_rules.media_problems, as _with_mask does."""
+    from dw.pipeline_processors.h3_rules import media_problems
+
+    expected = media_problems("mask_video", (124, 272, 480), 960, 544)
+    assert expected and expected[0] in text(harness(GOOD, mask_video="mask_small.mp4"))
+
+
 def test_mask_of_another_size_refused(harness):
     out = text(harness(GOOD, mask_video="mask_small.mp4"))
     assert "mask_video" in out

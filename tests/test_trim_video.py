@@ -10,7 +10,7 @@ from dw.media_types import AudioVideo
 from dw.shots import named_shots, shot_record, trimmed_shots
 from dw.tasks.concat_videos import concat_videos
 from dw.tasks.task import _COMMAND_REGISTRY
-from dw.tasks.trim import trim_video
+from dw.tasks.trim import span_problem, trim_video
 from dw.task_domains import frames_to_samples
 
 
@@ -82,6 +82,16 @@ class TestRefusals:
     def test_past_the_end(self):
         with pytest.raises(ValueError, match="only 24 frames"):
             trim_video(clip(24), 20, 5)
+
+    def test_past_the_end_is_the_span_rule(self):
+        """trim_video raises span_problem's message, the one owner (#1374)."""
+        with pytest.raises(ValueError) as raised:
+            trim_video(clip(24), 20, 5)
+        assert span_problem(20, 5, 24) in str(raised.value)
+
+    def test_span_rule(self):
+        assert span_problem(19, 5, 24) is None
+        assert "reaches frame 25" in span_problem(20, 5, 24)
 
     @pytest.mark.parametrize("count", [0, -3])
     def test_non_positive_count(self, count):
