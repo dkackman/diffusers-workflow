@@ -14,6 +14,7 @@ import pytest
 from PIL import Image
 
 import dw.tasks.face_track as ft
+import dw.tasks.scene_cuts as scene_cuts
 from dw.media_types import AudioVideo, JsonRecord
 from dw.result import Result
 from dw.security import SecurityError
@@ -431,12 +432,12 @@ class TestHistogramCuts:
     def test_cut_at_a_colour_change(self):
         a = make_frame((100, 100, 16), background=(40, 160, 60))
         b = make_frame((100, 100, 16), background=(200, 40, 200))
-        cuts = ft.content_cuts([a, a, a, b, b])
+        cuts = scene_cuts.content_cuts([a, a, a, b, b])
         assert [index for index, _ in cuts] == [3]
 
     def test_no_spurious_cut_on_a_steady_clip(self):
         frame = make_frame((100, 100, 16))
-        assert ft.content_cuts([frame] * 6) == []
+        assert scene_cuts.content_cuts([frame] * 6) == []
 
     def test_end_to_end_cut_is_recorded_as_a_reset(self, stub_detector):
         a = make_frame((100, 100, 16), background=(40, 160, 60))
@@ -477,15 +478,15 @@ class TestFramingCut:
 
     def test_zoom_cut_is_found_though_the_histogram_holds(self):
         far, near = framed_portrait(1 / 3.2), framed_portrait(1.0)
-        cuts = ft.content_cuts([far] * 6 + [near] * 6)
+        cuts = scene_cuts.content_cuts([far] * 6 + [near] * 6)
         assert [index for index, _ in cuts] == [6]
-        assert cuts[0][1]["histogram_correlation"] > ft.HISTOGRAM_CUT
-        assert cuts[0][1]["frame_change"] >= ft.CUT_MIN_CHANGE
+        assert cuts[0][1]["histogram_correlation"] > scene_cuts.HISTOGRAM_CUT
+        assert cuts[0][1]["frame_change"] >= scene_cuts.CUT_MIN_CHANGE
 
     def test_steady_pan_is_not_a_cut(self):
         near = framed_portrait(1.0)
         pan = [np.roll(near, 3 * i, axis=1) for i in range(20)]
-        assert ft.content_cuts(pan) == []
+        assert scene_cuts.content_cuts(pan) == []
 
     def test_zoom_cut_resets_the_track_with_no_held_frames(self, stub_detector):
         far, near = framed_portrait(1 / 3.2), framed_portrait(1.0)

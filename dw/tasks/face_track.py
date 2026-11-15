@@ -22,7 +22,8 @@ segment that has never shown two. The track starts again, by `select`, at each
 shot boundary the clip records, or - for a clip that records none - where the
 picture changes abruptly: its colour histogram drops, or the difference from
 the previous frame spikes (a cut between two framings of the same picture keeps
-its colours, so the histogram alone misses it). Choosing the subject and
+its colours, so the histogram alone misses it) - `content_cuts`, which
+`dw/tasks/scene_cuts.py` owns and `detect_cuts` shares. Choosing the subject and
 staying lost are ideas from ComfyUI-H3-FaceRefine (MIT), reimplemented here.
 
 Each frame also carries a strength from 0 to 1: how much a face-detail pass
@@ -62,6 +63,7 @@ from ..task_problems import (
 )
 from ..task_domains import SOURCE_FPS, check_arguments, real_number, source_fps_problem
 from ..variable_constraints import aligned
+from .scene_cuts import content_cuts
 from .video_utils import frames_as_pil_list, load_audio_video
 from .weights import argument_or_default, file_entries
 
@@ -88,14 +90,6 @@ MATCH_DISTANCE = 1.5  # centre distance, in face widths, a match may move
 # pick its face up again - twice MATCH_DISTANCE, as the face moved in the gap
 REACQUIRE_DISTANCE = 3.0
 DEFAULT_SELECT = FACE_SELECT_CHOICES[0]
-HISTOGRAM_CUT = 0.5  # HSV histogram correlation below which frames are a cut
-# A cut that keeps the colours (a zoom between two framings of one picture):
-# the mean difference of small thumbnails, as a fraction of full scale, must
-# reach CUT_MIN_CHANGE and CUT_SPIKE times the median of the frames around it
-THUMBNAIL_SIZE = (32, 18)
-CUT_MIN_CHANGE = 0.06
-CUT_SPIKE = 4.0
-CUT_WINDOW = 8  # frames each side whose differences form that median
 
 # How far a clip's frame rate may sit from a requested `fps`: 23.976 passes
 # for 23.98 but not for 24
@@ -161,65 +155,6 @@ def detect_tiled(detect, rgb):
             x, y, w, h, score = (float(v) for v in row[:5])
             found.append([x / scale + x0, y / scale + y0, w / scale, h / scale, score])
     return nms(found)
-
-
-def _hsv_histogram(rgb):
-    import cv2
-
-    hsv = cv2.cvtColor(rgb, cv2.COLOR_RGB2HSV)
-    histogram = cv2.calcHist([hsv], [0, 1], None, [32, 32], [0, 180, 0, 256])
-    return cv2.normalize(histogram, histogram).flatten()
-
-
-def _thumbnail(rgb):
-    import cv2
-
-    return cv2.resize(rgb, THUMBNAIL_SIZE, interpolation=cv2.INTER_AREA).astype(
-        np.float32
-    )
-
-
-def content_cuts(frames_rgb):
-    """Cuts nobody recorded: [(frame index, detail)] where the picture jumps.
-
-    A frame is a cut when its HSV histogram correlates with the previous
-    frame's below HISTOGRAM_CUT, or when its thumbnail difference from the
-    previous frame is a spike: at least CUT_MIN_CHANGE, and CUT_SPIKE times
-    the median difference of the CUT_WINDOW frames either side.
-    """
-    import cv2
-
-    correlations, changes = [None], [0.0]
-    previous = None
-    for rgb in frames_rgb:
-        current = (_hsv_histogram(rgb), _thumbnail(rgb))
-        if previous is not None:
-            correlations.append(
-                float(cv2.compareHist(previous[0], current[0], cv2.HISTCMP_CORREL))
-            )
-            changes.append(float(np.mean(np.abs(current[1] - previous[1]))) / 255)
-        previous = current
-
-    cuts = []
-    for index in range(1, len(changes)):
-        change = changes[index]
-        around = (
-            changes[max(1, index - CUT_WINDOW) : index]
-            + changes[index + 1 : index + 1 + CUT_WINDOW]
-        )
-        baseline = float(np.median(around)) if around else 0.0
-        spike = change >= CUT_MIN_CHANGE and change >= CUT_SPIKE * baseline
-        if correlations[index] < HISTOGRAM_CUT or spike:
-            cuts.append(
-                (
-                    index,
-                    {
-                        "histogram_correlation": round(correlations[index], 4),
-                        "frame_change": round(change, 4),
-                    },
-                )
-            )
-    return cuts
 
 
 def shot_starts(shots):
