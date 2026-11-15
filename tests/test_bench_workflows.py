@@ -36,19 +36,9 @@ def test_the_six_scene_workflows_exist():
     assert [i for i in IDS if i not in stems] == []
 
 
-OFF_GRID_RESTORE = ("seam-restore", "seam-restore-early")
-
-
 @pytest.mark.parametrize("path", WORKFLOWS, ids=lambda p: p.stem)
 def test_every_bench_workflow_validates(path):
-    errors = _errors(path)
-    if path.stem in OFF_GRID_RESTORE:
-        # #1372: validation now applies the run-time 17n + 5 check to a refine
-        # whose source is a literal 120-frame trim; the 120-frame restore
-        # geometry (plan v3 of #1325) is the lead's to re-cut onto 124
-        assert errors and all("17n + 5 grid" in e["message"] for e in errors)
-        return
-    assert errors == []
+    assert _errors(path) == []
 
 
 @pytest.mark.parametrize("path", WORKFLOWS, ids=lambda p: p.stem)
