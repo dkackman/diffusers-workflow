@@ -90,6 +90,11 @@ EXPECTED_SHAPES = {
         "sequence",
         ["has-audio", "identity-referenced"],
     ),
+    # #1374: the take it recasts is input media, and its soundtrack is paired back
+    "workflows/templates/minimax/replace-performer.json": (
+        "sequence",
+        ["has-audio", "identity-referenced", "needs-input-media"],
+    ),
     "workflows/templates/minimax/chained-segments.json": (
         "shot",
         ["chained", "has-audio", "image-conditioned", "needs-input-media"],
@@ -143,6 +148,7 @@ UTILITIES = {
     "workflows/templates/face-drift-check.json",
     "workflows/templates/image-processors.json",
     "workflows/templates/minimax/music-video-cuts.json",
+    "workflows/templates/minimax/replace-performer-cuts.json",
     "workflows/templates/recenter-crop.json",
     "workflows/templates/relevel-clip.json",
     "workflows/templates/segment.json",
@@ -340,7 +346,23 @@ LEGITIMATE_MENTIONS = {
     # a field of the step's 'chain' block
     "workflows/templates/minimax/chained-segments.json": {"trim_frames", "look_hold"},
     # fields of a 'shots' list entry, not this workflow's own variables
-    "workflows/templates/minimax/dialogue-short.json": {"prompt", "num_frames"},
+    # and 'references', the argument of the identity workflow it composes
+    # (replace-performer declares a variable of that name since #1374)
+    "workflows/templates/minimax/dialogue-short.json": {
+        "prompt",
+        "num_frames",
+        "references",
+    },
+    # 'references', the sub-workflow's argument (replace-performer declares a
+    # variable of that name since #1374)
+    "workflows/templates/minimax/chain-matched-to-audio.json": {"references"},
+    "workflows/templates/minimax/reference-to-video.json": {"references"},
+    # replace-performer's own variables, which this workflow's results feed
+    # (#1374)
+    "workflows/templates/minimax/replace-performer-cuts.json": {
+        "cuts",
+        "mask_video",
+    },
     # the fl2va sub-workflow's argument, named to say this one leaves it unset
     "workflows/templates/minimax/last-frame-only.json": {"image"},
     # a 'result' field the modular pipeline needs declared
@@ -622,8 +644,15 @@ def test_no_stale_entry_in_the_allowlist():
 # Re-measured at 14_449.75 after `narration-retime` gained the
 # `boundary_slack_seconds` variable its own description advises raising
 # (#1311, stage #1336), so the budget stands, with no headroom left.
-COMPACT_BUDGET = 14_450
-FILTERED_BUDGET = 1_500
+# Then to 14_850 (measured 14_819) for `minimax/replace-performer` and
+# `minimax/replace-performer-cuts` (#1374): two new entries, the catalog's only
+# swap of the performer in a take, cut by cut, and the cut list and person mask
+# it starts from, with no cost blocks yet.
+COMPACT_BUDGET = 14_850
+# The shape=sequence listing to 1_650 (measured 1_642) for
+# `minimax/replace-performer` (#1374), the catalog's only sequence that recasts
+# a take.
+FILTERED_BUDGET = 1_650
 
 
 def _tokens(payload):

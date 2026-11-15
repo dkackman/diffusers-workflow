@@ -3112,6 +3112,11 @@ a pipeline's own `seed` overrides its step's, which overrides the workflow's:
 }
 ```
 
+A `for_each` step's `seed` may read the entry: `"seed": "item:seed"` is the entry's
+seed, and `"seed": {"item": "seed", "default": "variable:seed"}` falls back to the
+workflow's for an entry without one, so one entry can be re-rolled alone
+(`replace-performer`).
+
 Omit `seed` entirely to let the workflow draw a random one at run time. The seed a run
 actually used - drawn or named - is recorded in its `manifest.json`, so a run you liked
 can be reproduced after the fact.

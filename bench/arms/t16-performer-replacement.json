@@ -31,5 +31,23 @@
       "refine_strength": null
     },
     "seed": 1194
+  },
+  {
+    "name": "t16-swap-g0-s1194",
+    "scene": "s4-montage",
+    "workflow": "t16-performer-swap.json",
+    "arguments": {
+      "mask_grow": 0
+    },
+    "seed": 1194
+  },
+  {
+    "name": "t16-swap-g0-s2002",
+    "scene": "s4-montage",
+    "workflow": "t16-performer-swap.json",
+    "arguments": {
+      "mask_grow": 0
+    },
+    "seed": 2002
   }
 ]

@@ -32,9 +32,10 @@
     "voxel_variables": [
       "width",
       "height",
-      "render_frames"
+      "num_frames"
     ],
-    "reason": "the transformer's peak activation memory scales with the token count the video and audio streams produce, which is proportional to width * height * the frames rendered per cut"
+    "reason": "regional-edit's estimate per cut - the swap step renders num_frames = the cut's render_frames, with its source and mask clips as guides (bytes_per_guide_voxel) - plus music-video's per-reference term, since ref2va keeps each reference's encoding resident (#1374)",
+    "gb_per_reference": 1.0
   },
   "variables": {
     "source_video": "asset:take.mp4",

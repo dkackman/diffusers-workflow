@@ -60,3 +60,42 @@ Context-IR as the take's with the changed thing described, not an instruction.
 `get_output_frames(count=12)` for the region across the clip, `get_output_audio`
 to confirm the soundtrack is the take's. Not with `refine_tiles` or on a chain
 step: validation refuses both.
+
+## Replace a performer
+
+The same engine, looped over a take's cuts: `templates/minimax/replace-performer`
+regenerates the person inside a per-frame mask from a portrait, and keeps the rest
+of each cut and the take's whole soundtrack. Measured on one cut
+(`bench/records/performer-replacement.md`): the new face matches the portrait
+better than a fresh ref2va render of it (face_drift median 0.73-0.76 against 0.68,
+threshold 0.363); outside the mask the source holds (37.5 dB past 96 px).
+
+1. **Prep.** Run `templates/minimax/replace-performer-cuts` on the take. It
+   writes `cuts` (`name`, `start_frame`, `num_frames`, `render_frames`) from
+   `detect_cuts`, and a person mask video (`video_frames` then `segment`, prompt
+   "person", threshold 0.3). For a two-person shot "person" masks both: use a
+   narrower prompt for the one to replace.
+2. **Choose cuts.** Drop the cuts that need no swap and merge fragments from the
+   returned list. `render_frames` is what H3 renders for the cut: on the 17n+5
+   grid, 124 to 345; at most 32 cuts. The cut is padded to it and cut back to
+   `num_frames`.
+3. **The swap line.** In the prompt's description say it exactly: "Replace the man
+   in the grey flannel shirt in `<Video 1>` with `<Picture 1>`, keep the
+   background, lighting, camera and performance". Describe the portrait's man in
+   `subject_definitions` and say its backdrop is not used.
+4. **Run.** `replace-performer` takes `source_video`, `mask_video` (same size as
+   the source, both 24 fps), `cuts` and the portrait. Each cut is trimmed from
+   both, edited at `refine_strength` 1.0 with the cut's own audio held, cut back
+   and joined hard (`crossfade_ms` 0); the whole source track is paired back on.
+5. **Re-roll one cut.** A cut's own `seed` overrides the workflow `seed`.
+   `rerun_job` with `arguments` giving `cuts` where only the bad cut carries a new
+   `seed`; the others keep the workflow seed and render as before.
+
+The seam: the edit regenerates a band of about 64-80 px around the person (the
+patch cell plus `mask_grow`), and that band can redraw nearby set geometry so it
+no longer lines up with the kept source. On the bench the brick wall matched, but
+the couch back beside the shoulder was redrawn lower and its top edge stepped
+against the kept couch; the magazine inside the band was redrawn with garbled
+text. `mask_grow` is the knob: the template keeps the bench's 1, 0 tightens the
+band at the cost of a harder edge. Judge a still at the silhouette, not only
+the motion.
