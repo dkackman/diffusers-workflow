@@ -106,8 +106,9 @@ class AuthoringTools:
         workspace can reach, each at `arguments.<name>`.
         `checked_arguments` says whether your values or only the stored
         defaults were checked. A value outside a bound the workflow
-        declares is an error here rather than a failed run; one the workflow rounds up
-        comes back as a warning naming what it becomes.
+        declares, or the pipeline publishes, is an error here rather than a
+        failed run; one the workflow rounds up comes back as a warning naming
+        what it becomes.
 
         Also checked: an unwritable `result.subfolder` or `file_base_name`,
         after `for_each` expansion; and each sub-workflow step - an

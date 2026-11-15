@@ -36,7 +36,25 @@ def test_the_six_scene_workflows_exist():
     assert [i for i in IDS if i not in stems] == []
 
 
-@pytest.mark.parametrize("path", WORKFLOWS, ids=lambda p: p.stem)
+# The seam-restore probe's 22-frame ref2va restore passes are below H3's 5 s
+# floor: lem refused restore01 at run time (#1351), and the pipeline_limits
+# check (#1361) now refuses them at validate. Its re-plan is #1325's
+KNOWN_REFUSED = {"seam-restore": "#1325/#1351: 22-frame ref2va restore passes"}
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        pytest.param(
+            p,
+            marks=pytest.mark.xfail(reason=KNOWN_REFUSED[p.stem], strict=True),
+        )
+        if p.stem in KNOWN_REFUSED
+        else p
+        for p in WORKFLOWS
+    ],
+    ids=lambda p: p.stem,
+)
 def test_every_bench_workflow_validates(path):
     assert _errors(path) == []
 

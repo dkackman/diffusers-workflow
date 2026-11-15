@@ -60,6 +60,7 @@ from .kernel_availability import kernel_availability_errors
 from .library import SubWorkflowNotFound
 from .locations import location_errors
 from .media import probe_metadata
+from .pipeline_limits import pipeline_limit_errors
 from .previous_results import (
     cross_entry_reference_errors,
     previous_result_reference_errors,
@@ -424,6 +425,15 @@ ERROR_CHECKS = [
     Check(
         "reference_limits",
         lambda c: reference_limit_errors(c.expanded, c.source_indices),
+    ),
+    # A literal H3 num_frames, width or height the pipeline would refuse,
+    # read off the diffusers class that enforces it (dw/pipeline_limits.py,
+    # #1361)
+    Check(
+        "pipeline_limits",
+        lambda c: pipeline_limit_errors(
+            c.expanded, c.source_indices, written=c.definition
+        ),
     ),
     # A step a declared vram_estimate projects past the card 'cost' was
     # measured on - per step, after expansion, so a for_each member is
