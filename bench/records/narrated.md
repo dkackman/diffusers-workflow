@@ -568,3 +568,155 @@ have shown as a clear drop, as int4 to int8 did (`tiers.md`: crust 1.6x instead 
 None showed, so this is not a marginal result and needs no second seed. The burn left
 at int8 is not quantization error. A higher-precision tier would not remove it, and
 #1319's TP trigger (a) is not met.
+
+## Seam restore (ref2va tail redraw), seed 1 - early ccb20cd03ffa, arm da4a93845ba9 (refs #1325, #1351)
+
+Before each seam k, the restore redraws segment k's frames 68-191 (124 frames, on H3's
+17n+5 grid) as ref2va. Each redraw runs `refine_strength` 0.3 at shift *s* = 12, which is
+ComfyUI *d* = 0.3 / (12 - 11*0.3) = 0.0345. It takes the still as reference, segment
+k+1's prompt, the matching 124-frame narration as `hold_audio`, and seed 1000+k. Restore
+frames 102-123 become segment k+1's 22-frame guide, and frame 102 becomes its image.
+Segment k keeps its own unrestored tail in the output. The control is reused, not re-run:
+`aed61997052a`, `bench/seam-restore-control`, 5912 s.
+
+- **Control take:** `bench/seam-restore-control/20261114-181113-99c25c22/final/SeamRestoreControl-take.22-0.0.mp4`
+- **Arm take:** `bench/seam-restore/20261115-200029-ff99d30b/final/SeamRestoreProbe-take.37-0.0.mp4`
+
+Both are 1042 frames, 6 segments, with audio. lem was on diffusers `0.44.0.dev0` @
+`43e30028` (`get_diffusers_state` before the early job: `{"status":"idle",
+"version":"0.44.0.dev0","commit":"43e30028af5120d8b0868cb6975b9fad39cc4fab"}`). Each
+arm job ran alone on lem, after `clear_memory` on both cards.
+
+The construction matches the control. The restore workflow, diffed against the control
+with `release_pipeline` stripped, differs only in three places:
+- the `rtailsrc`/`raud`/`restore`/`rtail` steps, which replace the control's `tail` steps;
+- `key k`'s and `seg k`'s guide source (`rtail k-1` instead of `tail k-1`);
+- the description.
+
+Variables, seeds, prompts, still, audio slices, size and schedule are identical.
+
+Two failed jobs came first. Neither is part of the arm:
+- **`dd3e9db5f675`** (plan v3): refused in `restore01`, 874 s in. Its 120-frame source was
+  off the 17n+5 grid (#1372). Host peak 66.3 GB, and it never denoised a restore.
+- **`782ceef4f82e`** (plan v5): seg01 finished, 192 frames in 903 s. restore01 completed
+  all 19 passes (+1072 s to +2181 s). The job was then SIGKILLed by the OOM killer about
+  41 s into `decode.video`. Host committed memory peaked at 124 151.9 MB, against 128 GB
+  on lem, because seg01's fl2va and restore01's ref2va pipelines were resident together.
+  Plan v6 added `release_pipeline: true` to every segment and restore step.
+
+**Gate** (early job `ccb20cd03ffa`, run `20261115-190311-7fd38e7b`, take
+`bench/seam-restore-early/20261115-190311-7fd38e7b/final/SeamRestoreProbeEarly-take.9-0.0.mp4`,
+362 frames, 47.6 min, host peak 66 058.8 MB). The gate compares seg02 against the
+control take's frames 192-361:
+
+| measure | control | restore |
+|---|---|---|
+| seg02 face-sharpness rise (seam + in-segment) | +4.6 (-16.1 + 20.7) | -9.5 (-22.4 + 12.9) |
+| seg02 face-saturation rise | -3.3 (-0.6 - 2.6) | +0.4 (+3.6 - 3.1) |
+| seam-1 score (peak / median) | 1.37 | 1.40 (1.02x the control) |
+
+The gate passed: the arm's rise is below the control's, and its seam score is under
+1.5x the control's. The full job ran.
+
+**Full job `da4a93845ba9`** (run `20261115-200029-ff99d30b`, cuda:1). 209.2 min wall
+time against the control's 98.5 min. Host peak 67 473.1 MB, against the control's
+71 057.0 MB.
+
+Measurements: every frame was measured, using YuNet's largest face. The drift split
+uses 1 s endpoint windows, the `bench/driver.py` `_split` rule.
+
+| measure | control: total / seams / in-segment | restore: total / seams / in-segment |
+|---|---|---|
+| luma | -0.5 / -0.8 / +0.3 | -3.0 / -9.0 / +5.9 |
+| saturation | +8.8 / +9.4 / -0.7 | +17.0 / +21.4 / -4.4 |
+| face saturation | +8.3 / +11.8 / -3.5 | +15.1 / +29.8 / -14.7 |
+| face sharpness | +105 / +32 / +73 | +251 / +137 / +114 |
+
+Face-sharpness step at each seam, from seg k's last 1 s to seg k+1's first 1 s:
+- control: -16.1, -1.3, +30.8, +22.8, -3.9
+- restore: -22.4, -1.9, +63.7, +26.3, +71.0
+
+Face windows: median sharpness / mean saturation / SFace similarity to the 0.5 s face,
+sampled every 0.5 s. The take is 43 s, so the windows are 10 s back to back.
+
+| window | control | restore |
+|---|---|---|
+| 0-10 s | 94 / 99.3 / .94 | 91 / 100.3 / .94 |
+| 10-20 s | 100 / 101.1 / .92 | 90 / 106.5 / .92 |
+| 20-30 s | 156 / 104.6 / .89 | 171 / 114.1 / .90 |
+| 30-40 s | 211 / 107.2 / .83 | 259 / 114.6 / .83 |
+| 40-43 s | 331 / 106.8 / .78 | 407 / 116.6 / .79 |
+
+Seam jumps. The join jump is the frame difference from (seg k, 191) to (seg k+1, 22)
+over the median frame difference (control 6.33, restore 6.07). The detail step is face
+median sharpness and mean saturation over the 6 frames either side of the join.
+
+| seam | control: jump / sharp / sat | restore: jump / sharp / sat |
+|---|---|---|
+| 1 | 1.18x / 192 -> 77 / 99.4 -> 97.8 | 1.21x / 189 -> 78 / 98.9 -> 101.6 |
+| 2 | 1.19x / 70 -> 138 / 97.7 -> 104.3 | 1.22x / 66 -> 120 / 102.4 -> 113.0 |
+| 3 | 1.46x / 96 -> 100 / 102.7 -> 106.3 | 1.45x / 92 -> 126 / 110.1 -> 118.9 |
+| 4 | 1.55x / 108 -> 160 / 106.3 -> 109.2 | 1.22x / 142 -> 194 / 117.6 -> 121.9 |
+| 5 | 1.59x / 206 -> 321 / 103.7 -> 105.8 | 0.84x / 399 -> 482 / 113.8 -> 118.0 |
+
+The peak frame difference within -2..+3 frames of each join gives the same ratios. The
+one exception is control seam 1, where it is 1.32x at frame 195.
+
+How far the redraw moved: `rtail k` (restore frames 102-123) against seg k's frames
+170-191.
+
+| seam | mean abs diff | face sharpness change | SFace similarity |
+|---|---|---|---|
+| 1 | 2.8 | -20.2 | .950 |
+| 2 | 2.8 | -2.0 | .949 |
+| 3 | 2.8 | -0.5 | .974 |
+| 4 | 2.9 | +10.5 | .963 |
+| 5 | 3.2 | +23.0 | .949 |
+
+Still-mouth bins: 0 control, 0 restore. The mouth box here is approximated from YuNet's
+mouth-corner landmarks (1.5 x 1.0 corner widths). It is not `lip_sync`'s box, so these
+counts don't compare with the other sections'.
+
+Timing (`get_job` step timing). `load_cached` was false on every step, as
+`release_pipeline` intends.
+
+| step | load | encode | denoise | per pass | decode |
+|---|---|---|---|---|---|
+| seg01 | 47.4 s | 19.5 s | 743.8 s | 39.3 s | 59.8 s |
+| restore01 | 57.6 s | 95.8 s | 859.7 s | 45.2 s | 40.6 s |
+| seg02 | 51.4 s | 38.1 s | 1038.7 s | 54.7 s | 58.0 s |
+| restore02 | 57.1 s | 96.8 s | 867.4 s | 45.2 s | 41.6 s |
+| seg03 | 51.2 s | 45.5 s | 1039.7 s | 54.7 s | 58.0 s |
+| restore03 | 58.6 s | 99.9 s | 863.1 s | 45.2 s | 43.1 s |
+| seg04 | 205.5 s | 34.5 s | 1035.4 s | 54.5 s | 63.3 s |
+| restore04 | 56.1 s | 101.6 s | 865.0 s | 45.3 s | 42.2 s |
+| seg05 | 213.8 s | 34.0 s | 1036.6 s | 54.6 s | 59.2 s |
+| restore05 | 57.9 s | 102.1 s | 861.3 s | 45.2 s | 39.8 s |
+| seg06 | 57.1 s | 40.5 s | 1037.4 s | 54.6 s | 65.9 s |
+
+- **Loads** took 913.7 s in total, 287.3 s of it for the restores.
+- **Restore denoise** took 4316.5 s, 72 min, which is a third of the job.
+- **Segment passes** ran at 54.6 s against the control's 46.9 s and the early job's 46.9 s
+  (seg02). Nothing in the step timing explains this.
+
+The probe used about 5.1 h of lem time against the 4 h approved: early 47.6 min, full
+209.2 min, and about 52 min on the failed jobs.
+
+Reading. By the same measures, the restore arm drifts more than the control, not less:
+- face sharpness rises +251 against +105, with 137 of it at the seams against 32;
+- face saturation rises +15.1 against +8.3;
+- whole-frame saturation rises +17.0 against +8.8.
+
+The gate's single-seam gain held only through seam 2. From seam 3 on, the restored
+guide hands on a sharper, more saturated tail:
+- the seam steps are +63.7 and +71.0, against the control's +30.8 and -3.9;
+- the redraw sharpens seg k's tail more at each later seam (-20 at seam 1 to +23 at
+  seam 5).
+
+The redraw keeps identity (SFace .95-.97 against the tail it replaces), and identity
+across the take matches the control's (.79 against .78 at 40 s). The join itself is no
+worse: the jump is 0.84-1.45x against the control's 1.18-1.59x, and lower at seams 4 and
+5. The detail step the source warned about doesn't show as a jump. It shows in the
+drift.
+
+One seed; Don has not viewed it (the two take paths above).
