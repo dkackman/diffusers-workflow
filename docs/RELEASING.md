@@ -51,6 +51,11 @@ GitHub generates notes from commits at tag time. The sections below are the hand
 
 ### Unreleased
 
+- **macOS: torch pinned below 2.15 (#1395).** torch 2.15 with the
+  fp4-fp8-for-torch-mps autoload fails `scalar ** mps_tensor`, which breaks
+  every Grounding-DINO run (`segment`, `track_people`,
+  `replace-performer-cuts`). The pin is lifted when fp4-fp8-for-torch-mps or
+  torch fixes the `_to_copy`/`copy_` override interaction.
 - **H3 camera moves, measured on two seeds (#1379).** All 13 move ids in the
   `cinematography` vocabulary now carry an H3 verdict on seeds 42 and 7 in
   `compile-h3.md`, where seven read "not measured" before. The axial and
