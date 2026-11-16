@@ -37,6 +37,13 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **H3 seam pass: the windowed refine out of the flag** (#1230, stages
+  #1376-#1378), shipped 2026-11-15. `refine_windows` (renamed from
+  `experimental_refine_windows`, defaults 42/12/pyramid/rebased) is validated
+  for free; a refine leaving `videos` out of its output skips its own video
+  decode; `templates/minimax/h3-seam-pass` smooths a finished take's seams at
+  about 36 GPU-min per minute of take. Not a burn fix. The flag still gates
+  every other spike: `complete/h3-seam-pass-complete.md`.
 - **Rerun a restart's tombstones as one batch** (#1266, stages #1370-#1371),
   shipped 2026-11-15. `rerun_job(job_id=<a tombstone>, restart_batch=true)`
   (REST: `POST /api/jobs/{id}/rerun-restart-batch`) previews every job the same
