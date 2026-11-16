@@ -50,7 +50,9 @@ def samples(det, rec, path):
         if i % every == 0:
             f = face(det, fr)
             if f is not None:
-                out.append((i / fps, sharpness(fr, f), rec.feature(rec.alignCrop(fr, f))))
+                out.append(
+                    (i / fps, sharpness(fr, f), rec.feature(rec.alignCrop(fr, f)))
+                )
         i += 1
     return out, n / fps
 
@@ -86,7 +88,11 @@ def main():
         for p in args:
             fr = cv2.imread(p)
             f = face(det, fr)
-            print(f"{p}: sharp {sharpness(fr, f):.0f}" if f is not None else f"{p}: no face")
+            print(
+                f"{p}: sharp {sharpness(fr, f):.0f}"
+                if f is not None
+                else f"{p}: no face"
+            )
         return
     if mode == "pair":
         sa, da = samples(det, rec, args[0])
@@ -114,7 +120,11 @@ def main():
     print(f"step: {head_b / end_a:.2f}x ({(head_b - end_a) / end_a * 100:+.0f}%)")
     print(
         "after side first reaches the before level: "
-        + (f"window starting {reach:g} s after the cut" if reach is not None else "never")
+        + (
+            f"window starting {reach:g} s after the cut"
+            if reach is not None
+            else "never"
+        )
     )
     print(f"SFace across the cut (mean feature, 1 s each side): {sim:.3f}")
 

@@ -716,3 +716,116 @@ The probe used about 5.1 h of lem time against the 4 h approved: early 47.6 min,
 
 The only ruling this record states is the gate's. Whether the restore helps is Don's
 viewing verdict, on the two take paths above. One seed.
+
+## Cut probe at the #1311 keeper's 41.0 s cut (#1385 stage A, #1388)
+
+The keeper is GettysburgJoin `be80b3c3` (job 86e43a45af77, workspace `drill-1311-2`, left
+untouched). It joins passage A (job 48c68b1e1c72, run `45d023c8`, `speaker.jpg`) to passage B
+(job 50b48953037f, run `5760a9e4`, `gettysburg/speaker-angle-b.jpg`) at 41.0 s. Everything
+below ran in workspace `bench`, one H3 job at a time.
+
+The measure is `bench/cut_windows.py` (new): `bench/face_windows.py`'s measure, which is
+YuNet's largest face, the Laplacian variance of its gray crop, and SFace cosine, taken in
+1 s windows sampled every 0.25 s. Each window is the median. "SFace across the cut" is
+the cosine between the mean features of the 1 s on each side. A clip's numbers sit a
+few percent off the source's because every arm is re-encoded.
+
+### The keeper
+
+`cut_windows.py pair A B` on the two source takes:
+
+- **A climbs to its end.** It starts at about 360, sits at about 650-800 over 31-38 s,
+  and reaches 1059 and **1141** in its last 2 s.
+- **B opens at 276**, a step of **0.24x (-76%)** at the cut.
+- **B holds at about 200-280 for its first 17 s.** It rises to about 600-900 after 45 s.
+  Its only window at or above A's end level is one spike at 54-55 s (1228), so it never
+  reaches that level for more than a second.
+- **SFace across the cut is 0.913.**
+
+This corrects `bench/records/drill.md`'s "Resets at the cut: none" (see the correction
+under it there). `detail_ratio` 0.86 is a whole-frame measure. The face crop loses about
+three quarters of its detail at the cut and does not regain it for the length of B's
+first segment.
+
+### The arms
+
+Each arm is a 16 s clip: A's last 8 s (frames 792-983), then 8 s of B or its replacement.
+The cut is at 8.0 s.
+
+| Arm | What follows the cut | Job | File (workspace `bench`) |
+|---|---|---|---|
+| C | the keeper's own cut, trimmed (join frames 792-1175) | 359bca51bb43 | `BenchCutProbeCJ/20261116-160223-dcd1316b/final/arm-c-0.0.mp4` |
+| J | B's first 8 s in four 2 s chunks, `sharpen` 1.1 / 0.75 / 0.45 / 0.2, rejoined | 359bca51bb43 | `BenchCutProbeCJ/20261116-160223-dcd1316b/final/arm-j-0.0.mp4` |
+| S | B's segment 1 re-rendered from angle B sharpened to A's end level | 88dc63d36f81 (render), f522b8e3c84d (clip) | `BenchCutProbeSL/20261116-163339-fc4b4c3f/final/arm-s-0.0.mp4` |
+| L | B's segment 1 re-rendered from A's frame 980 through flux3 image-edit | 094d3eee5576 (render), f522b8e3c84d (clip) | `BenchCutProbeSL/20261116-163339-fc4b4c3f/final/arm-l-0.0.mp4` |
+
+The inputs:
+
+- **C and J** come from `bench/workflows/cut-probe-cj.json`. J uses only `trim_video`,
+  `sharpen` and `concat_videos`.
+  - B's chunks rejoin as one continuous take (`continuous_joins`, `seam_fade_ms` 0), so
+    B's audio passes through, and that head then joins A's tail with `trim_frames` 0.
+  - The amounts were calibrated locally with Pillow's UnsharpMask (radius 2, the
+    `sharpen` task's filter) on B's 1 s windows. The first is matched to A's last 1 s.
+- **The S still** is `bench/workflows/cut-probe-stills.json` (job 6ae8e4f404d1, run
+  `BenchCutProbeStills/20261116-160341-815995d8`). It is `arm-s-still-0.0.png`: angle B
+  through `sharpen` 0.36, which measures **1119** against 634 unsharpened (-2% from 1141).
+- **The L frame** is `arm-l-frame-0.0.png` from the same job. It is A's frame 980
+  (40.83 s), the sharpest face in A's last 2 s, at 1558 (that span's median is 1091).
+  - It went through `templates/flux3/image-edit` with 7a326418cd63's instruction and
+    seed 1311 (job 314c4f2dee50,
+    `templates/flux3/image-edit/20261116-160404-0035fcca/final/Flux3KleinImageEdit-edit.1-0.0.jpg`).
+  - The edited still measures **2085**. The gate skips the render only below 799 (30%
+    under 1141), so **the gate passed** and L was rendered.
+- **The S and L renders** are `templates/minimax/narrated-take` with B's job's arguments
+  (narration, script, scene, speaker, `shot` `standing`, seed 1311). Only `image`
+  changed, and `stop_after` is 1. The renders are
+  `templates/minimax/narrated-take/20261116-160645-788405be/final/MiniMaxH3NarratedTake-take.1-0.0.mp4`
+  (S, 13.7 min) and `.../20261116-162036-dbdd2de4/final/...` (L, 12.3 min).
+- **The S and L clips** come from `bench/workflows/cut-probe-sl.json`.
+
+### Sharpness and identity at the cut
+
+Measured with `cut_windows.py clip <arm> 8`:
+
+| Arm | last 1 s before | first 1 s after | step | SFace across the cut |
+|---|---|---|---|---|
+| C | 1079 | 251 | 0.23x (-77%) | 0.902 |
+| J | 1098 | 1091 | 0.99x (-1%) | 0.921 |
+| S | 1111 | 437 | 0.39x (-61%) | 0.913 |
+| L | 1104 | 949 | 0.86x (-14%) | 0.942 |
+
+Per second after the cut (8-16 s of the clip):
+
+| Arm | 8-9 | 9-10 | 10-11 | 11-12 | 12-13 | 13-14 | 14-15 | 15-16 |
+|---|---|---|---|---|---|---|---|---|
+| C | 251 | 215 | 196 | 253 | 194 | 252 | 212 | 192 |
+| J | 1091 | 949 | 596 | 733 | 393 | 490 | 294 | 258 |
+| S | 437 | 353 | 297 | 409 | 312 | 436 | 342 | 304 |
+| L | 949 | 778 | 756 | 880 | 795 | 930 | 857 | 704 |
+
+Before the cut, all four clips read 684, 608, 535, 637, 589, 720, then about 1000 and
+about 1100: it is the same A tail.
+
+### Does B's opening keep the added detail through 8 s?
+
+- **S: partly, at a lower level.** The still was raised to 1119, but the render's first
+  second is 466 (source segment) and its 8 s settle at about 300-450 (median about 350).
+  That is about 1.4x B's 200-280 over the same seconds, but a third of the still's level.
+  H3 drops most of the added sharpening in the first second and keeps the rest to 8 s.
+- **L: yes, at about three quarters of A's end level.** The source segment reads 984
+  first, then 726-963 to 8 s, without a downward trend until the last second (726). The
+  edited still was 2085, so the render keeps about 40-45% of it. That is still 3-4x B's
+  opening.
+- **J holds by construction.** It is a filter, not a render. Its step-down (1091 down to
+  258) is the four amounts tapering into B's own level.
+
+### Limit
+
+S and L re-render only B's first segment (`stop_after` 1, plan Q3). They show how B would
+open from a new start image. They do not show B's later segments, which chain from that
+opening and are not rendered here. A full-B re-render, and whether the opening's level
+carries through B's own chain, is outside this probe. Each arm is one seed (1311).
+
+This record gives no ruling on the arms. Which reads best at the cut is Don's viewing
+verdict (plan Q2), on the four clips above.
