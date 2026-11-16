@@ -108,7 +108,8 @@ remaining deferred fix is recorded in
   vocabulary has a `class`. Only `static` is `static`. Every `moving` id
   carries the H3 "never `last_frame` with `look_hold`/`carry_pick`" note,
   and `long-form` picks its `shot` preset from that column. No new ids. The
-  measurement probe is parked as #1260:
+  measurement probe (#1260) has since run, all 13 moves at two seeds on H3
+  (#1379) and LTX-2.5 (#1380): `audits/2026-11-move-seeds.md`. Record:
   `complete/move-class-complete.md`.
 - **Long-form media** (#1199), shipped 2026-11-06. Static long takes (`shot:
   static_long`, the H3 keystone at the last slot), `look_hold` on by default in the
@@ -633,8 +634,9 @@ remaining deferred fix is recorded in
   - a sitcom multicam grammar in `series-episodes`.
 
   A measured trial put six moves × three families at honoured or partial,
-  none ignored. Record, including what was deferred (the 7 unmeasured
-  moves, tier 2 in `cinematic-addons.md`):
+  none ignored. The 7 moves it left unmeasured were measured later by
+  #1260 (`audits/2026-11-move-seeds.md`). Record, including what was
+  deferred (tier 2 in `cinematic-addons.md`):
   `complete/cinematic-controls-complete.md`.
 - **H3 dialogue pacing: split `<d>` blocks** (#1180, stages #1184, #1185),
   shipped 2026-11-02. A non-turbo probe on lem found that splitting a short

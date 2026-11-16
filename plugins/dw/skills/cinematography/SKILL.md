@@ -69,29 +69,40 @@ each family's format with a camera already in it - `ltx2/`, `kandinsky6/`,
 
 Every value here is a hint, not a promise. The models were trained on
 captions that describe camera work; none was trained on this list. dw has
-measured six named moves per video family once: one seed (42), one wide shot
-of a fixed subject, the catalog text-to-video template's defaults, each clip
-judged by its first and last frames (job ids and what the frames showed are
-in `docs/proposals/audits/2026-11-higgsfield/move-trial.md`):
+measured all 13 named moves on H3 and LTX-2.5 at two seeds (42, 7), and six
+on Kandinsky 6 at one: one wide shot of a fixed subject (a walker for
+`tracking` and `handheld`), the catalog text-to-video template's defaults,
+each clip judged by its frames. Each cell reads "seed 42, seed 7"; job
+ids and what the frames showed are in
+`docs/proposals/audits/2026-11-move-seeds.md` and
+`docs/proposals/audits/2026-11-higgsfield/move-trial.md`:
 
 | move | `minimax-h3` | `ltx-2.5` | `kandinsky-6` |
 | --- | --- | --- | --- |
-| `static` | honoured | honoured | honoured |
-| `dolly-in` | honoured | honoured | honoured |
-| `dolly-out` | honoured | honoured | honoured |
-| `truck-left` | partial | honoured | partial |
-| `crane-up` | honoured | honoured | partial |
-| `orbit` | honoured | honoured | partial |
+| `static` | honoured, honoured | honoured, honoured | honoured |
+| `dolly-in` | honoured, honoured | honoured, honoured | honoured |
+| `dolly-out` | honoured, honoured | honoured, honoured | honoured |
+| `truck-left` | partial, partial | honoured, honoured | partial |
+| `truck-right` | partial, partial | partial, honoured | not measured |
+| `crane-up` | honoured, honoured | honoured, honoured | partial |
+| `crane-down` | honoured, honoured | ignored, honoured | not measured |
+| `orbit` | honoured, honoured | honoured, honoured | partial |
+| `tracking` | partial, honoured | ignored, partial | not measured |
+| `whip-pan` | partial, partial | partial, partial | not measured |
+| `push-in` | honoured, honoured | honoured, honoured | not measured |
+| `handheld` | ignored, partial | ignored, ignored | not measured |
+| `crash-zoom` | honoured, honoured | partial, partial | not measured |
 
 *Honoured*: the move landed in the right direction at a visible size.
 *Partial*: some motion of the right kind, too small or mixed with another
 move (Kandinsky 6's truck, crane and orbit each drifted forward more than
-they moved as named). *Ignored*: no motion of that kind; a move measured so
-would read "hint only, rarely honoured" - none did in this trial. The
-other seven moves, and `flux3-klein` (a still), are not measured. One seed is
-one sample, not a rate: a longer clip can still drift (one 241-frame LTX
-image-to-video clip told "the camera remains static" pushed or arced from
-about five seconds; see
+they moved as named; both families' whip-pan revealed its target without a
+fast pan). *Ignored*: no motion of that kind. LTX-2.5's `handheld` was
+ignored on both seeds and on a reworded rerun: a hint only, rarely
+honoured. `flux3-klein` (a still) is not measured. Two seeds are two
+samples, not a rate: a split cell says the move varies by seed, and a
+longer clip can still drift (one 241-frame LTX image-to-video clip told
+"the camera remains static" pushed or arced from about five seconds; see
 `docs/proposals/audits/2026-11-story-forge-lessons.md`). So:
 
 1. Describe the move in the caption in the family's own words (the table
@@ -157,4 +168,5 @@ pulling a palette from a photo; OpenField (MIT) - director axes and an era
 control. The LTX compile rule is from the LTX-2 camera-control LoRA cards
 on Hugging Face; H3's from MiniMax's base prompt-writing guide; Kandinsky's
 from Kandinsky Lab's beautifier prompts. Audit:
-`docs/proposals/audits/2026-11-higgsfield/README.md`.
+`docs/proposals/audits/2026-11-higgsfield/README.md`. Move measurements
+(two seeds, H3 and LTX-2.5): `docs/proposals/audits/2026-11-move-seeds.md`.

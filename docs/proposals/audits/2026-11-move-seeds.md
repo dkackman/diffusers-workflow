@@ -6,7 +6,10 @@ seed each (#1148, `2026-11-higgsfield/move-trial.md`) and seven were not
 measured. It ran on lem (RTX 3090, `cuda:0`) on 2026-11-16, one H3 job at a
 time. The verdicts are in the `measured (#1148, #1260)` column of
 `plugins/dw/skills/cinematography/references/compile-h3.md`. Stage B
-of #1260 adds LTX-2.5 to this doc and the skill's own table.
+of #1260 (#1380) measured LTX-2.5 the same way. Its section,
+[LTX-2.5 (stage B)](#ltx-25-stage-b), is at the end, and its verdicts are in
+`compile-ltx-2.5.md` and the skill's own table. Everything above that
+section is H3.
 
 ## Method
 
@@ -213,3 +216,191 @@ Each cell gives the verdict and the job id. The seed-42 cells marked † are
   after the first.
 - **GPU total:** 20 new clips, 1615.7 s, or **26.9 GPU-min**, against a cap
   of 45.
+
+## LTX-2.5 (stage B)
+
+Stage B of #1260 (#1380), written by model `claude-opus-5-5` via provider
+`anthropic`. The 13 move ids were run on LTX-2.5 at seeds 42 and 7 on lem on
+2026-11-16, on develop @ 1b891f98.
+
+### Method: what differs from H3
+
+The subject, walker, seeds, grading views and verdicts are the H3 method's
+above. These differ:
+
+- **Template:** `templates/ltx2/text-to-video` at its defaults: 121 frames
+  at 24 fps (5.0 s). Only `prompt` and `seed` were passed.
+- **Cards:** lem's two RTX 3090s (`cuda:0`, `cuda:1`), one LTX job per card,
+  so two clips could run at once.
+- **Seeds:** #1148's six seed-42 LTX jobs are cited (†), and their seed-7
+  clips reuse #1148's prompts. The seven new moves ran at both seeds.
+- **Prompt:** LTX's flowing caption, not Context-IR.
+  - It opens "A wide shot frames an old red cast-iron telephone box and the
+    cobbled square around it at dusk, <move sentence>."
+  - The scene follows: "The box stands still on the wet cobbles, its small
+    glass panes glowing faintly from a bulb inside, a black iron lamp post
+    beside it casting a warm pool of light, a stone fountain to its left and
+    a row of brick shopfronts with lit windows behind it. A light mist is
+    drifting low across the cobbles. Cool blue dusk light mixing with warm
+    lamplight, photorealistic, fine detail on the wet stone and the chipped
+    red paint."
+  - `<viewpoint>` was "a front-facing angle" in every row.
+  - `crane-down` opens "A wide shot from high above frames ...", so the move
+    has somewhere to come down from.
+  - `tracking` and `handheld` open on the walker: "A wide shot frames a man
+    in a dark coat walking across a cobbled square at dusk, past an old red
+    cast-iron telephone box, <move sentence>."
+- **The move sentences, as run** (the compile row with its placeholders
+  filled):
+
+| move | sentence in the prompt |
+| --- | --- |
+| `static` | "captured from a front-facing angle, the camera remains static" |
+| `dolly-in` | "seen from a front-facing angle, as the camera dollies in toward the telephone box, the black handset behind its glass panes comes into view" |
+| `dolly-out` | "seen from a front-facing angle, as the camera dollies back from the telephone box, the whole square and its shopfronts come into view around it" |
+| `truck-left` | "seen from a front-facing angle, as the camera trucks left alongside the telephone box, the stone fountain slides into view from the left" |
+| `truck-right` | "seen from a front-facing angle, as the camera trucks right alongside the telephone box, the lamp post and the shopfronts to the right slide into view from the right" |
+| `crane-up` | "seen from a front-facing angle, as the camera cranes upward above the telephone box, the rooftops and the whole cobbled square come into view below" |
+| `crane-down` | "seen from a front-facing angle, as the camera cranes down to the telephone box's level, the shopfronts come into view behind it" |
+| `orbit` | "seen from a front-facing angle, as the camera arcs around the telephone box, the narrow side street behind it comes into view behind it" |
+| `tracking` | "seen from a front-facing angle, the camera tracks alongside the man at their pace, the telephone box and the lit shopfronts passing through the frame" |
+| `whip-pan` | "seen from a front-facing angle, the camera whip-pans left in a blur, landing on the stone fountain" |
+| `push-in` | "seen from a front-facing angle, the camera pushes in slowly toward the box's glass door, until its black handset fills the frame" |
+| `handheld` | "seen from a front-facing angle, the handheld camera sways slightly as it follows the man in the dark coat, the stone fountain drifting into view" |
+| `crash-zoom` | "seen from a front-facing angle, the camera crash-zooms in on the telephone box, until its glass panes fill the frame" |
+
+### Results
+
+Each cell gives the verdict and the job id. The seed-42 cells marked † are
+#1148's jobs.
+
+| move | seed 42 | seed 7 |
+| --- | --- | --- |
+| `static` | honoured (`417ce2c24c44`†) | honoured (`425b23694f8d`) |
+| `dolly-in` | honoured (`9223e8eb9161`†) | honoured (`6f59682880a7`) |
+| `dolly-out` | honoured (`0602c1400c3e`†) | honoured (`dab82ef05edd`) |
+| `truck-left` | honoured (`6d46ed86d897`†) | honoured (`ce019eac6774`) |
+| `truck-right` | partial (`a5b1e2fac29c`) | honoured (`24d392e88c10`) |
+| `crane-up` | honoured (`7dda520e6667`†) | honoured (`c86f14f420bf`) |
+| `crane-down` | ignored (`f08213e1b3ac`) | honoured (`e3aeae32dd3b`) |
+| `orbit` | honoured (`5134c962d4aa`†) | honoured (`22608f463b7d`) |
+| `tracking` | ignored (`67adebfa0d2a`) | partial (`b9675fc725a7`) |
+| `whip-pan` | partial (`f606f271c878`) | partial (`f13d88c502a3`) |
+| `push-in` | honoured (`f613438de363`) | honoured (`18cd7999d3ea`) |
+| `handheld` | ignored (`be0528f18824`) | ignored (`10ffc93fd38b`) |
+| `crash-zoom` | partial (`dc1adfad3fa4`) | partial (`a62565c64216`) |
+
+- Seed 7 agreed with #1148's seed 42 on all six moves measured before.
+- `handheld` was ignored on both seeds, so it got the one rerun (below). It
+  was ignored again, and its compile cell reads `ignored, ignored: hint
+  only, rarely honoured`.
+- Three moves differ between seeds: `truck-right` (partial, honoured),
+  `crane-down` (ignored, honoured) and `tracking` (ignored, partial).
+- Against H3: LTX-2.5 trucks better (left honoured on both seeds) but is
+  weaker on the fast moves. Its whip-pan and crash-zoom come out as a
+  smooth reveal and a steady push, and it never follows the walker for
+  long.
+
+### What the frames showed (new clips)
+
+- **static, 7:** the framing holds from frame 0 to 120; only the mist and
+  the light move.
+- **dolly-in, 7:** the box grows from about half the frame height to filling
+  it, its sign readable, drifting left.
+- **dolly-out, 7:** it opens on the door filling the frame and ends with the
+  box at about a third of the height, the fountain and lamp beside it and
+  the terrace behind.
+- **truck-left, 7:** the box slides right by about an eighth of the width
+  and the fountain slides in from the left, with a slight close-in.
+- **truck-right, 42 (partial):** the box holds near left of centre while the
+  background slides left: the fountain exits left and a terrace with shop
+  signs enters right. It is more an arc than a truck, with a slight
+  pull-back.
+- **truck-right, 7:** the box slides left by about a sixth of the width,
+  faster than the fountain (parallax), and closes in.
+- **crane-up, 7:** it opens close on the box at eye level, then rises and
+  pulls back, ending with the box small at the bottom edge and the square
+  and terrace opening out. The rise is mixed with a pull-back, but the rise
+  is plain.
+- **crane-down, 42 (ignored):** reversed. It opens close on the box at eye
+  level, then rises and pulls back to a high view down on the square, the
+  box small.
+- **crane-down, 7:** it opens high on the terrace with the box's top at the
+  bottom edge, then descends and closes in until the box stands at eye
+  level mid-frame.
+- **orbit, 7:** the box holds centre while the background swings from the
+  shopfront row to a side street with sky. The fountain moves from the left
+  to behind the box.
+- **tracking, 42 (ignored):** the man walks right and exits frame right by
+  about 1.4 s. The camera drifts the other way, the box moving from the
+  left edge to centre; he reappears small in the background.
+- **tracking, 7 (partial):** it follows the man to about 1.4 s, holding him
+  left of centre while the background slides. Then he falls out at the left
+  and the camera settles on the box and fountain.
+- **whip-pan, 42 (partial, 24-frame sheet):** a leftward move reveals the
+  fountain within about 1.3 s, the box going from centre to the right. It is
+  smooth, with no blur: not a whip.
+- **whip-pan, 7 (partial, 24-frame sheet):** the box nearly holds centre,
+  drifting right by about a tenth, and the lamps and fountain are revealed
+  by a pull-back, with no blur. The reveal lands; the pan does not.
+- **push-in, 42:** the box goes from about 90% of the frame height to
+  filling it, the handset visible.
+- **push-in, 7:** from about 60% of the height to filling the frame, the
+  handset visible.
+- **handheld, 42 (ignored):** the man walks right and exits by about 1.4 s.
+  The camera swings the other way onto the box and fountain, then settles.
+  There is no follow, and consecutive frames 60, 62, 64 and 66 at 480 px
+  show the box fixed: no jitter.
+- **handheld, 7 (ignored):** the man exits right by about 1.4 s. The camera
+  drifts left and pushes toward the box until it fills most of the height.
+  There is no follow; frames 60-66 show a smooth drift, not a shake.
+- **crash-zoom, 42 (partial, 24-frame sheet):** a steady push over about
+  0-3.9 s, the box going from about 70% of the height to filling the frame.
+  The lamp shows parallax, so it is a dolly, not a zoom, and not fast.
+- **crash-zoom, 7 (partial, 24-frame sheet):** the box is about a third of
+  the height and grows slowly to about 1.1 s, then steadily until it fills
+  the frame by about 4 s. It speeds up a little, but it is not a crash.
+
+### The rerun
+
+- **`handheld`, seed 42, job `2305175384ca`:** ignored. The revised
+  sentence was "seen from a front-facing angle, the shot is handheld, the
+  camera shaking with small jolts as it follows the man in the dark coat and
+  keeps him in frame, the stone fountain drifting into view", with the same
+  walker opening and scene.
+- **What it showed:** the man walks right and leaves the frame by about
+  1.4 s. The camera then arcs left onto the box and fountain and holds.
+  Consecutive frames 60, 62, 64 and 66 at 480 px show no jitter.
+- **Outcome:** the original compile sentence stays, and the cell reads
+  `ignored, ignored: hint only, rarely honoured`. LTX-2.5's text-to-video
+  has given no handheld shake on three clips.
+- `crane-down` and `tracking` each had one seed that was not ignored, so
+  neither got a rerun.
+
+### Limits
+
+- **Two seeds are two samples, not a rate**, as for H3.
+- **The walker leaves the frame.** On every LTX `tracking` and `handheld`
+  clip the man walks out within about 1.4 s. A follow that never starts and
+  a subject who walks out of shot look alike on a sheet. A walker who stays
+  longer might grade differently.
+- **The shake is fine motion.** Both handheld seeds and the rerun were
+  checked on consecutive frames, and none showed jitter.
+- **Grading was done on 768 px and 1024 px contact sheets** (24 frames for
+  `whip-pan` and `crash-zoom`), not on the full-size video.
+- **Audio was not part of the trial.** Most clips warned of near-silent
+  audio (about -41 to -56 dBFS); the prompts ask for no sound.
+
+### Notes on the run
+
+- **`get_diffusers_state`**, before the first clip and after the rerun: both
+  read `status: idle`, version `0.44.0.dev0`, commit
+  `43e30028af5120d8b0868cb6975b9fad39cc4fab`, `revert: false`.
+- **Timing:** about 36-50 s of job time per clip with weights cached (for
+  example, `a62565c64216`: denoise 31.4 s over 8 passes, decode 3.2 s). The
+  first clips on each card ran longer (up to 152 s) while the weights
+  loaded or while waiting on the other card's job.
+- **GPU total:** 20 new clips at 1209.1 s plus the rerun at 49.1 s, so
+  1258.2 s, or **21.0 GPU-min**, against a cap of 45. That is summed from
+  each job's started-to-finished time, so it overcounts a little where the
+  two cards overlapped.

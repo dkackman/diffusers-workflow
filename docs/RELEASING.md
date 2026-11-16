@@ -59,6 +59,15 @@ GitHub generates notes from commits at tag time. The sections below are the hand
   arc, not a pan. `tracking` and `handheld` vary by seed, and `handheld`
   never showed its shake. The record is
   `docs/proposals/audits/2026-11-move-seeds.md`.
+- **LTX-2.5 camera moves, measured on two seeds (#1380).** All 13 move ids
+  now carry an LTX-2.5 verdict on seeds 42 and 7 in `compile-ltx-2.5.md`,
+  and the `cinematography` skill's own table covers 13 moves for H3 and
+  LTX-2.5 (Kandinsky 6 keeps its six). Dollies, the left truck, crane-up,
+  orbit and push-in landed on every clip. Whip-pan and crash-zoom are
+  partial: a smooth reveal and a steady push, not a whip or a crash.
+  `truck-right`, `crane-down` and `tracking` vary by seed. `handheld` was
+  ignored on both seeds and on a reworded rerun, so its row reads "hint
+  only, rarely honoured". Same record.
 
 ### 0.20.0
 
