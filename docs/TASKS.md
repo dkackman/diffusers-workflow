@@ -3186,6 +3186,46 @@ Returns a grayscale PIL Image (mode "L"): white (255) for detected objects, blac
 - [segment-and-remove.json](../workflows/templates/segment-and-remove.json) — Segment, then erase the object with `remove_object` (no prompt)
 - [segment-and-inpaint.json](../workflows/templates/segment-and-inpaint.json) — Segment, then repaint the masked region with a prompt
 
+### track_people
+
+Follow each person through a clip as a mask of their own (#1194). [`segment`](#object-segmentation) masks everything its prompt matches, so on a two-person shot `person` is both of them; `track_people` separates them. It splits the clip into cuts (frame 0, every shot the clip records, every cut [`detect_cuts`](#detect_cuts)' detector finds), finds the prompt with Grounding-DINO on each cut's first frame, keeps the `max_people` largest, and propagates each through the cut with SAM2's video predictor. Masks never overlap: where two claim a pixel, the person SAM2 scores higher there keeps it.
+
+```json
+{
+    "name": "people",
+    "task": {
+        "command": "track_people",
+        "arguments": {
+            "video": "asset:take.mp4",
+            "prompt": "person",
+            "max_people": 2
+        }
+    },
+    "result": {"content_type": "video/mp4", "fps": 24, "file_base_name": "people"}
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `video` | Yes | The clip: a path, `asset:` or `output:` reference, or an earlier step's video |
+| `prompt` | No | What to track (default `person`) |
+| `max_people` | No | How many of the largest finds to track per cut (default `4`). `0` tracks nobody, loads no model and returns only `people` (`tracked: false`) |
+| `threshold` | No | Detection confidence threshold (default `0.3`) |
+| `model_name` | No | Grounding-DINO model ID (default `IDEA-Research/grounding-dino-base`) |
+| `sam_model_name` | No | SAM2 model ID (default `facebook/sam2-hiera-large`, the weights `segment` uses) |
+
+Returns, by key:
+
+- `person-1`, `person-2`, ...: one black-and-white mask video each, white where that person is, with the source's frame count and size.
+- `contact_sheet`: a PNG of each cut's first frame with every person outlined and labelled `person-N`, tiles labelled `shot-N`.
+- `people`: a JSON record: `prompt`, `threshold`, `max_people`, `fps`, `num_frames`, `width`, `height`, `tracked`, `people` (the count), and `cuts`, each `{name, start_frame, num_frames, found, people: [{name, box, score, area}]}`.
+
+Saved under a step whose result is `video/mp4` they become `<base>-person-1.mp4`, `<base>-contact_sheet.png` and `<base>-people.json`, and a later step reads `previous_result:<step>.person-2`.
+
+**Numbering is per cut.** People are numbered by mask area on each cut's first frame, largest first, so on a multi-cut clip `person-1` is the largest figure in each cut, not one identity across cuts. A cut with fewer people leaves the higher numbers black there. Check the contact sheet before choosing a mask.
+
+No person in any cut is a run-time error ("no person found"). A cut with nobody, and more people found than `max_people`, are warnings. `segment` is unchanged.
+
 ## Object Removal
 
 Erase what a mask covers and fill the hole from the surrounding texture, with no prompt (#956). `remove_object` runs [LaMa](https://github.com/advimman/lama) (big-lama) through spandrel: no diffusion, so a warm run takes well under a second on a GPU, and it runs on CUDA, MPS and CPU.

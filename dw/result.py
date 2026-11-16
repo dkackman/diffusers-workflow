@@ -75,6 +75,13 @@ AUDIO_WRITE_ARGUMENTS = ["subtype", "format", "compression_level", "bitrate_mode
 _NO_PROPERTY = object()
 
 
+def _is_still_beside_video(artifact, content_type):
+    """True for one PIL image, a mapping entry, under a video content type (#1375)."""
+    from PIL import Image
+
+    return isinstance(artifact, Image.Image) and content_type.startswith("video")
+
+
 def _refuse_scalar_artifact(artifact, file_base_name):
     """Refuse a number or bool: it is not an artifact."""
     if isinstance(artifact, (int, float, bool)):
@@ -524,6 +531,16 @@ class Result:
                     key=k,
                     content_type=content_type,
                 )
+                continue
+            if _is_still_beside_video(v, content_type):
+                # A still riding beside a step's videos (track_people's
+                # contact sheet, #1375) is saved as a PNG, not as a
+                # one-frame video; a step whose whole result is one image
+                # still writes the one-frame video it always did
+                output_path = output_file_path(output_dir, f"{file_base_name}-{k}.png")
+                logger.info(f"Saving still to {output_path}")
+                v.save(output_path)
+                saved_files.append(output_path)
                 continue
             saved_files.extend(
                 self.save_artifact(

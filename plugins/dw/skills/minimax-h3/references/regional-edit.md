@@ -73,8 +73,12 @@ threshold 0.363); outside the mask the source holds (37.5 dB past 96 px).
 1. **Prep.** Run `templates/minimax/replace-performer-cuts` on the take. It
    writes `cuts` (`name`, `start_frame`, `num_frames`, `render_frames`) from
    `detect_cuts`, and a person mask video (`video_frames` then `segment`, prompt
-   "person", threshold 0.3). For a two-person shot "person" masks both: use a
-   narrower prompt for the one to replace.
+   "person", threshold 0.3). For a two-person shot "person" masks both: set
+   `track` to the number of people and the `people` step (`track_people`) writes
+   one mask per person (`people-person-N.mp4`, numbered by size per cut, largest
+   first) and `people-contact_sheet.png`. Read the sheet to choose the number
+   for the one to replace, and pass that mask as `mask_video`; check each cut,
+   as numbering restarts at every cut. `track` 0 (default) tracks nobody.
 2. **Choose cuts.** Drop the cuts that need no swap and merge fragments from the
    returned list. `render_frames` is what H3 renders for the cut: on the 17n+5
    grid, 124 to 345, and at least its `num_frames`. The cut is padded to it and
