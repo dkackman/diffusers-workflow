@@ -1,0 +1,32 @@
+{
+  "id": "BenchNarrationReferenceAB",
+  "summary": "One Gettysburg take cloned from a synthetic or a human reference, or sampled hotter: the #1386 reference A/B.",
+  "description": "Reference A/B (#1384 stage A): Audio8-TTS (the voice-clone template's model and call) speaks one passage of the Gettysburg Address, one take of 111 words or fewer, in the voice of 'reference_audio', whose exact words are 'reference_text'. The arms are bench/arms/narration-reference-ab.json, one job each, all with this 'text' and seed 1166: 'synthetic' clones asset:bench/narrator.wav (Audio8's own default voice, bench/workflows/narrator-reference-s6.json) with default sampling; 'human' clones asset:bench/narrator-human.wav (John Greenman's public-domain LibriVox reading, bench/workflows/narrator-human-librivox.json) with default sampling; 'sampling' clones the synthetic reference with 'generate_kwargs' raising temperature above the model's effective default (0.7, from its generation_config.json). An empty 'generate_kwargs' is the model's default sampling. Keep both reference assets before running the arms: a missing asset is refused at submit.",
+  "variables": {
+    "text": "Four score and seven years ago our fathers brought forth on this continent, a new nation, conceived in Liberty, and dedicated to the proposition that all men are created equal. Now we are engaged in a great civil war, testing whether that nation, or any nation so conceived and so dedicated, can long endure. We are met on a great battle-field of that war. We have come to dedicate a portion of that field, as a final resting place for those who here gave their lives that that nation might live. It is altogether fitting and proper that we should do this.",
+    "reference_audio": "asset:bench/narrator.wav",
+    "reference_text": "The tide comes in twice a day, and the lamp has to be ready for both.",
+    "generate_kwargs": {},
+    "seed": 1166
+  },
+  "seed": "variable:seed",
+  "steps": [
+    {
+      "name": "speak",
+      "task": {
+        "command": "generate_speech",
+        "arguments": {
+          "text": "variable:text",
+          "model_name": "Edge0/Audio8-TTS-Realistic-0.6b",
+          "reference_audio": "variable:reference_audio",
+          "reference_text": "variable:reference_text",
+          "generate_kwargs": "variable:generate_kwargs"
+        }
+      },
+      "result": {
+        "content_type": "audio/wav",
+        "subfolder": "final"
+      }
+    }
+  ]
+}

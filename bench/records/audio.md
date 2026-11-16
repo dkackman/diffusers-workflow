@@ -551,3 +551,67 @@ that also stops the lyric loss.
 | s6-narr-long-t37-wps3-s1167 | `4467e6380276` | `BenchS6NarrationLong-t37/20261106-044934-a03a36cc/final/BenchS6NarrationLong-t37-narration.0-0.0.wav` |
 | s6-music-snap8-335s-s1166 | `2179e0c0c9df` | `BenchS6MusicLongFull/20261106-081846-f8973042/final/BenchS6MusicLongFull-piece.0-0.0.mp3` |
 | s6-music-snap8-335s-s1167 | `d51816c55389` | `BenchS6MusicLongFull/20261106-085848-655afa0d/final/BenchS6MusicLongFull-piece.0-0.0.mp3` |
+
+## Reference A/B (#1384 stage A, #1386)
+
+Whether the narrator's flat read comes from the synthetic reference voice or from
+sampling. Workflow `bench/workflows/narration-reference-ab.json`, arms
+`bench/arms/narration-reference-ab.json`, workspace `bench`, mini-ai (MPS). One take:
+the Gettysburg Address's first 102 words ("Four score ... that we should do this."),
+Audio8-TTS-Realistic-0.6b (revision `1e857568`) through the voice-clone call, seed
+1166 in every arm.
+
+**Verdict: pending Don** (his ear, Q3; it decides stage B).
+
+### References
+
+- **synthetic** `asset:bench/narrator.wav`: Audio8's own default voice saying "The
+  tide comes in twice a day, and the lamp has to be ready for both."
+  (`bench/workflows/narrator-reference-s6.json`, seed 1166), made on mini-ai, since
+  `drill-1311-2`'s voice-ref is on lem. Job `8af43ac5cc4e`: 4.41 s, 44100 Hz mono,
+  -22.8 LUFS, peak -7.4 dBFS.
+- **human** `asset:bench/narrator-human.wav`: John Greenman's public-domain LibriVox
+  reading of the Gettysburg Address, from
+  <https://archive.org/download/gettysburg_johng_librivox/gettysburg_address_64kb.mp3>
+  (item <https://archive.org/details/gettysburg_johng_librivox>). It was fetched over
+  https by `slice_audio` (through `validate_url()`) and cut to 91.3-100.1 s (8.8 s,
+  22050 Hz mono, -25.7 LUFS, peak -0.5 dBFS). Those bounds were placed from whisper-base
+  word timings (job `9e8156f2507e`: the sentence spans 91.76-99.58 s, with the
+  neighbours ending at 90.28 s and starting at 100.44 s). Transcript: "The world will
+  little note, nor long remember what we say here, but it can never forget what they
+  did here." Job `f15afd0703d1`, `bench/workflows/narrator-human-librivox.json`.
+- **sampling**: the synthetic reference with `generate_kwargs` `{"temperature": 1.0}`.
+  The effective default is **0.7** (`generation_config.json` at `1e857568`: `do_sample`
+  true, temperature 0.7, top_p 0.9, top_k 50; the vendored `generate()` falls back to
+  the same values). The other two arms pass an empty `generate_kwargs`, which is the
+  default sampling.
+
+### Arms
+
+Words/s is 102 words over the duration. ECAPA is the cosine similarity
+(speechbrain `spkrec-ecapa-voxceleb`) between the take and its own reference.
+
+| arm | job | duration | words/s | LUFS | ECAPA vs own reference |
+|---|---|---|---|---|---|
+| ref-ab-synthetic-s1166 | `89bf643d0511` | 36.04 s | 2.83 | -24.4 | 0.853 |
+| ref-ab-human-s1166 | `4b776f23cf9e` | 37.57 s | 2.71 | -26.6 | 0.754 |
+| ref-ab-sampling-t1.0-s1166 | `281e0c23f412` | 35.76 s | 2.85 | -24.2 | 0.854 |
+
+2026-11-16, mini-ai @ `2d669aa7` (after #1396's `_rope` fix), MPS Apple M5 Pro. Each
+job wrote one 44100 Hz mono wav in about 40-45 s. LUFS is ffmpeg `ebur128`
+integrated, silence included. The files were copied off mini-ai and measured on the
+Mac, and no extra GPU job was run.
+
+- **The two references are different speakers:** their ECAPA cosine is 0.03. So arm 2
+  is a different voice, not only a different delivery, and its lower similarity to
+  its own reference (0.75 against 0.85) can't be read as flatness. A 22 kHz, 64 kbps
+  LibriVox source is also a harder clone target than Audio8's own voice.
+- **Arm 3 changes the draws but not the numbers.** Temperature 1.0 gives a different
+  take (0.28 s shorter), with the same pace, level and similarity as arm 1.
+- **Pace:** the human arm is 4% slower (2.71 against 2.83 words/s). That is the only
+  measured move toward Don's "a titch rushed". Whether it is less flat is for the ear.
+
+Listening order for Don: arm 1, then arm 2, then arm 3 (gallery names
+`BenchNarrationReferenceAB/<run>/final/BenchNarrationReferenceAB-speak.0-0.0.wav`,
+with runs `20261116-172242-efa1dba3`, `20261116-172333-7f2ff3c4` and
+`20261116-172430-26632449`, in workspace `bench` on mini-ai).
