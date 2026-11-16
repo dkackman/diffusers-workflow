@@ -40,12 +40,12 @@ H3 generates video and audio together. Every template fits a 24 GB card.
   section="H3: holding a clip with `guides`")`.
 - **Fix one region of a good take** (the rest and audio stay):
   `templates/minimax/regional-edit`; first `references/regional-edit.md`.
-- **Replace a performer**: `replace-performer-cuts`, drop or merge its
-  `cuts`, a swap line ("Replace … with `<Picture 1>`, keep the rest"),
-  `replace-performer`; re-roll a cut by `rerun_job` with only its `seed`
-  new. Limits: 1-32 cuts; each `render_frames` on 17n+5 inside 124-345
-  and ≥ its `num_frames`; references up to 9 images, 12 files; an unseeded
-  cut renders with the workflow `seed`. `references/regional-edit.md`.
+- **Replace a performer**: `replace-performer-cuts`, trim its `cuts`,
+  `replace-performer`; the prompt gives each cut's pose and framing. A
+  cut's own `prompt`/`seed` wins over the workflow `seed`/`prompt`; re-roll one cut by
+  `rerun_job` with only its `seed` new. Limits:
+  1-32 cuts; `render_frames` on 17n+5 in 124-345, ≥ `num_frames`;
+  references ≤ 9 images, 12 files. `references/regional-edit.md`.
 - **A good take with a soft small face**: `templates/minimax/face-repair`.
 - **Sound for a silent clip** (picture kept): `templates/minimax/add-sound`;
   `listen_scale` 0.5 is fastest that keeps lip sync. Never re-voice an on-screen speaker: voice-over.

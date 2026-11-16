@@ -90,6 +90,18 @@ threshold 0.363); outside the mask the source holds (37.5 dB past 96 px).
    in the grey flannel shirt in `<Video 1>` with `<Picture 1>`, keep the
    background, lighting, camera and performance". Describe the portrait's man in
    `subject_definitions` and say its backdrop is not used.
+
+   **Describe the cut's performance.** At `refine_strength` 1.0 nothing of the
+   person survives inside the mask: the pose, action and framing come from the
+   prompt and the kept context. A prompt that says "sits on the couch" redraws a
+   standing man seated, square to the camera, in the portrait's pose. Say where
+   the person is, how they stand or sit, what they do and how the cut is framed,
+   and name every other masked person as kept (`fully_preserved`, "as in
+   `<Video 1>`"): "person" masks everyone in the shot. One prompt rarely fits
+   every cut. A cut carrying `prompt` renders with it, else the workflow `prompt`,
+   so give each cut whose framing or cast differs its own (measured on ep62,
+   #1374: with a two-shot prompt on a single-person push-in, the close-up came
+   back as a wide two-shot).
 4. **Run.** `replace-performer` takes `source_video`, `mask_video` (same size as
    the source, both 24 fps), `cuts` and the portrait. Each cut is trimmed from
    both, edited at `refine_strength` 1.0 with the cut's own audio held, cut back
@@ -103,6 +115,8 @@ patch cell plus `mask_grow`), and that band can redraw nearby set geometry so it
 no longer lines up with the kept source. On the bench the brick wall matched, but
 the couch back beside the shoulder was redrawn lower and its top edge stepped
 against the kept couch; the magazine inside the band was redrawn with garbled
-text. `mask_grow` is the knob: the template keeps the bench's 1, 0 tightens the
-band at the cost of a harder edge. Judge a still at the silhouette, not only
-the motion.
+text. `mask_grow` 0 does not fix it (#1374, two seeds): it confines the change to
+about 32 px instead of 80, but the edge is harder (`seam_bands.py` step 9.8-11.3
+against 4.4-4.5 at 1) and the couch back is still redrawn at the shoulder. The
+template keeps `mask_grow` 1. Judge a still at the silhouette, not only the
+motion.
