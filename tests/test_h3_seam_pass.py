@@ -39,6 +39,31 @@ def test_no_source_is_refused(validate):
     assert validate() != []
 
 
+def test_the_document_checked_bare_leaves_its_required_track_unjudged(tmp_path):
+    # #1253: no arguments does not judge a required null, so the refine's
+    # "needs hold_audio" rules (refine_strength, refine_windows) stay quiet
+    wf = workflow_from_definition(definition(), str(tmp_path), base_dir=str(tmp_path))
+    assert [str(e) for e in wf.validation_errors(None)] == []
+
+
+def test_arguments_without_source_are_refused_naming_it(validate):
+    errors = validate(refine_strength=0.2)
+    assert any("'source'" in e for e in errors), errors
+
+
+def test_the_shared_predicate_reads_the_written_required_variable():
+    from dw.hold_audio import held_by_a_required_null, judged_arguments
+
+    written = definition()
+    source = next(i for i, s in enumerate(written["steps"]) if s["name"] == "refine")
+    bare = {"refine_strength": 0.3, "hold_audio": None}
+    assert held_by_a_required_null(written, source, bare)
+    assert judged_arguments(bare, source, written)["hold_audio"] == "variable:source"
+    # A caller's arguments are judged as given
+    assert judged_arguments(bare, source, written, given={}) is bare
+    assert not held_by_a_required_null(written, source, {"hold_audio": "a.mp4"})
+
+
 @pytest.mark.parametrize("source", ["take.wav", "still.png"])
 def test_a_source_that_is_not_a_video_is_refused_at_validate(validate, source):
     errors = validate(source=source)
