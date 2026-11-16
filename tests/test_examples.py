@@ -182,8 +182,8 @@ def test_example_type_references_resolve(example_file):
 
     Schema validation cannot see this: a '*_type' is a string until a run loads
     it, so a class that moved, was renamed, or is only reachable by its full
-    dotted path (LTX2LatentUpsamplerModel is not exported at the top level of
-    diffusers) fails after the first model has already loaded.
+    dotted path (LTX2LatentUpsamplerModel was not exported at the top level of
+    diffusers before 0.43) fails after the first model has already loaded.
     """
     path = os.path.join(REPO_ROOT, example_file)
     with open(path, encoding="utf-8") as file:

@@ -46,7 +46,7 @@ A LoRA (Low-Rank Adaptation) adapter applies a style, subject or step-distillati
 | `subfolder` | No | Subfolder within the repo |
 | `adapter_name` | No | The adapter's name in `set_adapters()`. Defaults to the entry's position in the list (`"0"`, `"1"`, ...), counting switched-off entries |
 | `scale` | No | Adapter weight, default 1.0. Lower = less effect. Takes a `variable:` reference |
-| `alpha` | No | Network alpha, overriding the checkpoint's. peft scales an adapter by `scale * alpha / rank`, taking alpha from the file (a per-module `.alpha` tensor, else a `__metadata__` alpha, else the rank). Positive; state it only where the file records the wrong figure, after reading its header. Fails if no loaded layer carries the adapter. The run logs the effective `alpha / rank` |
+| `alpha` | No | Network alpha, overriding the checkpoint's. peft scales an adapter by `scale * alpha / rank`, taking alpha from the file (a per-module `.alpha` tensor, else a `__metadata__` alpha, else the rank). It also replaces the Kohya text-encoder per-module alphas diffusers keeps from 0.43. Positive; state it only where the file records the wrong figure, after reading its header. Fails if no loaded layer carries the adapter. The run logs the effective `alpha / rank` |
 
 Any other property (e.g. `revision`) is passed to `load_lora_weights()` unchanged.
 

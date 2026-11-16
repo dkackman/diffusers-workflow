@@ -730,6 +730,9 @@ class TestOnlyConstructibleClassesUntrusted:
             "dw.community_pipelines.pipeline_flux_rf_inversion.RFInversionFluxPipeline",
             "GGUFQuantizationConfig",
             "transformers.Mistral3ForConditionalGeneration",
+            "diffusers.models.latent_upscaler.LTX2LatentUpsamplerModel",
+            # The pre-0.43 home, deprecated until diffusers 1.0: a user's
+            # saved workflow naming it must still load (#1341)
             "diffusers.pipelines.ltx2.latent_upsampler.LTX2LatentUpsamplerModel",
             "diffusers.pipelines.ltx2.pipeline_ltx2_ic_lora.LTX2ReferenceCondition",
             "diffusers.models.autoencoders.ltx2_diffusion_decoder."

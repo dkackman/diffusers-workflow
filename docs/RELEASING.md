@@ -51,6 +51,13 @@ GitHub generates notes from commits at tag time. The sections below are the hand
 
 ### Unreleased
 
+- **diffusers floor raised to 0.43.0 (#1315).** `pyproject.toml` now
+  requires `diffusers>=0.43.0` (was `>=0.42.0`), the release develop's code
+  needs. The Models page / REST "revert to a known-good release" now
+  installs 0.43.0. The LTX-2 `two-stage` and `refine-clip` templates name the
+  latent upsampler at `diffusers.models.latent_upscaler`, its 0.43 home; the
+  old `diffusers.pipelines.ltx2.latent_upsampler` path still loads until
+  diffusers 1.0.
 - **macOS: torch pinned below 2.15 (#1395).** torch 2.15 with the
   fp4-fp8-for-torch-mps autoload fails `scalar ** mps_tensor`, which breaks
   every Grounding-DINO run (`segment`, `track_people`,
