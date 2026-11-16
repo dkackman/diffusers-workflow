@@ -8,10 +8,10 @@ repaints the other. `track_people` separates them:
    (`dw/shots.py`), and every cut `detect_cuts`' detector finds
    (`scene_cuts.content_cuts`). A track never crosses a cut, where the
    picture - and who is where - starts over.
-2. On each cut's first frame Grounding-DINO finds the prompt's boxes (the
-   detector and query form `segment` uses). Overlapping boxes of one person
-   (IoU above BOX_OVERLAP) keep the higher score, and the `max_people`
-   largest are kept.
+2. On each cut's first frame Grounding-DINO finds the prompt's boxes
+   (`segment.detect_boxes`, the detector's one owner). Overlapping boxes of
+   one person (IoU above BOX_OVERLAP) keep the higher score
+   (`torchvision.ops.nms`), and the `max_people` largest are kept.
 3. SAM2's video predictor (transformers' `Sam2VideoModel` on the same
    Apache-2.0 `facebook/sam2-hiera-large` weights `segment` loads) takes
    those boxes as prompts and propagates each person's mask through the
@@ -41,9 +41,9 @@ from ..task_domains import NON_NEGATIVE, POSITIVE, check_arguments, whole_number
 from .model_cache import cached_model
 from .registry import register_command
 from .scene_cuts import content_cuts
-from .segment import grounding_query
+from .segment import TransformersClass, detect_boxes, model_sources
 from .video_utils import VideoFileReference, frames_as_pil_list, load_audio_video
-from .weights import argument_or_default, repo_entries
+from .weights import repo_entries
 
 logger = logging.getLogger("dw")
 
@@ -65,39 +65,11 @@ SHEET_COLOURS = [
     (32, 220, 220),
 ]
 
-# segment's detector and segmenter: the SAM2 repo holds the video predictor too
-DEFAULT_DINO_MODEL = "IDEA-Research/grounding-dino-base"
-DEFAULT_SAM_MODEL = "facebook/sam2-hiera-large"
-
-
-class _TransformersClass:
-    """A `transformers` class resolved on first use, as in `segment`: the
-    plan's required_weights lookup imports this module on every validate.
-    Module-level names so tests patch them as such."""
-
-    def __init__(self, name):
-        self._name = name
-
-    def __getattr__(self, attribute):
-        import transformers
-
-        return getattr(getattr(transformers, self._name), attribute)
-
-
-AutoProcessor = _TransformersClass("AutoProcessor")
-AutoModelForZeroShotObjectDetection = _TransformersClass(
-    "AutoModelForZeroShotObjectDetection"
-)
-Sam2VideoModel = _TransformersClass("Sam2VideoModel")
-Sam2VideoProcessor = _TransformersClass("Sam2VideoProcessor")
-
-
-def model_sources(arguments):
-    """The (detector, video segmenter) repos a track_people step loads."""
-    return (
-        argument_or_default(arguments, "model_name", DEFAULT_DINO_MODEL),
-        argument_or_default(arguments, "sam_model_name", DEFAULT_SAM_MODEL),
-    )
+# The SAM2 video predictor, on the weights segment's DEFAULT_SAM_MODEL names.
+# Resolved on first use (segment's shim): the plan's required_weights lookup
+# imports this module on every validate. Module-level so tests patch them.
+Sam2VideoModel = TransformersClass("Sam2VideoModel")
+Sam2VideoProcessor = TransformersClass("Sam2VideoProcessor")
 
 
 def required_weights(arguments):
@@ -118,22 +90,20 @@ def box_area(box):
     return max(0.0, x1 - x0) * max(0.0, y1 - y0)
 
 
-def box_iou(a, b):
-    ix0, iy0 = max(a[0], b[0]), max(a[1], b[1])
-    ix1, iy1 = min(a[2], b[2]), min(a[3], b[3])
-    inter = box_area((ix0, iy0, ix1, iy1))
-    union = box_area(a) + box_area(b) - inter
-    return inter / union if union > 0 else 0.0
-
-
 def distinct_boxes(boxes, scores):
     """[(box, score)], highest score first, with any box overlapping a kept
-    one by more than BOX_OVERLAP dropped - DINO often boxes one person twice."""
-    kept = []
-    for box, score in sorted(zip(boxes, scores), key=lambda pair: -pair[1]):
-        if all(box_iou(box, other) <= BOX_OVERLAP for other, _ in kept):
-            kept.append((box, score))
-    return kept
+    one by more than BOX_OVERLAP dropped - DINO often boxes one person twice.
+    torchvision's NMS does the suppression."""
+    if len(boxes) == 0:
+        return []
+    from torchvision.ops import nms
+
+    keep = nms(
+        torch.as_tensor(boxes, dtype=torch.float32),
+        torch.as_tensor(scores, dtype=torch.float32),
+        iou_threshold=BOX_OVERLAP,
+    )
+    return [(boxes[i], scores[i]) for i in keep.tolist()]
 
 
 def cut_starts(total, shots, frames_rgb):
@@ -151,19 +121,6 @@ def cut_starts(total, shots, frames_rgb):
 # ------------------------------------------------------------------- models
 
 
-def _load_dino(model_name, device):
-    def load():
-        logger.info(f"Loading GroundingDINO from {model_name}")
-        processor = AutoProcessor.from_pretrained(model_name)
-        model = AutoModelForZeroShotObjectDetection.from_pretrained(model_name).to(
-            device
-        )
-        return processor, model
-
-    # segment's key, so a workflow running both holds one copy
-    return cached_model(("segment_dino", model_name, str(device)), load)
-
-
 def _load_sam_video(sam_model_name, device):
     def load():
         logger.info(f"Loading SAM2 video predictor from {sam_model_name}")
@@ -176,19 +133,7 @@ def _load_sam_video(sam_model_name, device):
 
 def detect_people(image, prompt, threshold, model_name, device):
     """([box xyxy], [score]) Grounding-DINO finds for the prompt on image."""
-    processor, model = _load_dino(model_name, device)
-    width, height = image.size
-    inputs = processor(
-        images=image, text=grounding_query(prompt), return_tensors="pt"
-    ).to(device)
-    with torch.inference_mode():
-        outputs = model(**inputs)
-    found = processor.post_process_grounded_object_detection(
-        outputs,
-        inputs["input_ids"],
-        threshold=threshold,
-        target_sizes=[(height, width)],
-    )[0]
+    found = detect_boxes(image, prompt, threshold, model_name, device)
     boxes = [[float(v) for v in box] for box in found["boxes"].cpu().tolist()]
     scores = [float(s) for s in found["scores"].cpu().tolist()]
     return boxes, scores

@@ -15,7 +15,7 @@ from .weights import argument_or_default, repo_entries
 logger = logging.getLogger("dw")
 
 
-class _TransformersClass:
+class TransformersClass:
     """A `transformers` class resolved on its first attribute read rather
     than at module top: the plan's `required_weights` lookup imports this
     module on every validate of a segment step, and transformers costs a
@@ -31,23 +31,24 @@ class _TransformersClass:
         return getattr(getattr(transformers, self._name), attribute)
 
 
-AutoProcessor = _TransformersClass("AutoProcessor")
-AutoModelForZeroShotObjectDetection = _TransformersClass(
+AutoProcessor = TransformersClass("AutoProcessor")
+AutoModelForZeroShotObjectDetection = TransformersClass(
     "AutoModelForZeroShotObjectDetection"
 )
-Sam2Model = _TransformersClass("Sam2Model")
-Sam2Processor = _TransformersClass("Sam2Processor")
+Sam2Model = TransformersClass("Sam2Model")
+Sam2Processor = TransformersClass("Sam2Processor")
 
-_DEFAULT_DINO_MODEL = "IDEA-Research/grounding-dino-base"
-_DEFAULT_SAM_MODEL = "facebook/sam2-hiera-large"
+# The detector and segmenter repos; track_people (person_track.py) uses both
+DEFAULT_DINO_MODEL = "IDEA-Research/grounding-dino-base"
+DEFAULT_SAM_MODEL = "facebook/sam2-hiera-large"
 
 
 def model_sources(arguments):
-    """The (detector, segmenter) repos a segment step loads - `model_name`
-    and `sam_model_name` over the defaults."""
+    """The (detector, segmenter) repos a segment or track_people step loads -
+    `model_name` and `sam_model_name` over the defaults."""
     return (
-        argument_or_default(arguments, "model_name", _DEFAULT_DINO_MODEL),
-        argument_or_default(arguments, "sam_model_name", _DEFAULT_SAM_MODEL),
+        argument_or_default(arguments, "model_name", DEFAULT_DINO_MODEL),
+        argument_or_default(arguments, "sam_model_name", DEFAULT_SAM_MODEL),
     )
 
 
@@ -62,6 +63,36 @@ def grounding_query(prompt):
     threshold, so segment returned an empty mask - where 'cat.' scored 0.40."""
     query = prompt.strip().lower()
     return query if query.endswith(".") else f"{query}."
+
+
+def detect_boxes(image, prompt, threshold, model_name, device):
+    """Grounding-DINO's answer for a text prompt on one image: the dict
+    `post_process_grounded_object_detection` returns ("boxes" xyxy in pixels,
+    "scores", "labels"). The one owner of the detector's load, cache key and
+    query form - `segment` and `track_people` (person_track.py) both call it,
+    so a workflow running both holds one copy of the model."""
+
+    def load():
+        logger.info(f"Loading GroundingDINO from {model_name}")
+        processor = AutoProcessor.from_pretrained(model_name)
+        model = AutoModelForZeroShotObjectDetection.from_pretrained(model_name).to(
+            device
+        )
+        return processor, model
+
+    processor, model = cached_model(("segment_dino", model_name, str(device)), load)
+    width, height = image.size
+    inputs = processor(
+        images=image, text=grounding_query(prompt), return_tensors="pt"
+    ).to(device)
+    with torch.inference_mode():
+        outputs = model(**inputs)
+    return processor.post_process_grounded_object_detection(
+        outputs,
+        inputs["input_ids"],
+        threshold=threshold,
+        target_sizes=[(height, width)],
+    )[0]
 
 
 def segment_image(image, prompt, device="cpu", **kwargs):
@@ -86,35 +117,10 @@ def segment_image(image, prompt, device="cpu", **kwargs):
 
     width, height = image.size
 
-    def load_dino():
-        logger.info(f"Loading GroundingDINO from {model_name}")
-        processor = AutoProcessor.from_pretrained(model_name)
-        model = AutoModelForZeroShotObjectDetection.from_pretrained(model_name).to(
-            device
-        )
-        return processor, model
-
-    dino_processor, dino_model = cached_model(
-        ("segment_dino", model_name, str(device)), load_dino
-    )
-
-    inputs = dino_processor(
-        images=image, text=grounding_query(prompt), return_tensors="pt"
-    ).to(device)
-
-    with torch.inference_mode():
-        outputs = dino_model(**inputs)
-
-    results = dino_processor.post_process_grounded_object_detection(
-        outputs,
-        inputs["input_ids"],
-        threshold=threshold,
-        target_sizes=[(height, width)],
-    )
-
-    boxes = results[0]["boxes"]
-    scores = results[0]["scores"]
-    labels = results[0]["labels"]
+    found = detect_boxes(image, prompt, threshold, model_name, device)
+    boxes = found["boxes"]
+    scores = found["scores"]
+    labels = found["labels"]
 
     logger.info(f"Detected {len(boxes)} objects: {labels} (scores: {scores.tolist()})")
 

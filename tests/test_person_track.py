@@ -13,7 +13,7 @@ from PIL import Image
 
 from dw.media_types import AudioVideo, JsonRecord
 from dw.shots import shot_record
-from dw.tasks import person_track
+from dw.tasks import person_track, segment
 from dw.tasks.model_cache import clear_model_cache
 from dw.tasks.person_track import _exclusive_masks, distinct_boxes, track_people
 
@@ -177,8 +177,8 @@ def models():
     clear_model_cache()
     dino, sam = FakeDino(), FakeSam()
     with (
-        patch.object(person_track, "AutoProcessor", dino),
-        patch.object(person_track, "AutoModelForZeroShotObjectDetection", dino),
+        patch.object(segment, "AutoProcessor", dino),
+        patch.object(segment, "AutoModelForZeroShotObjectDetection", dino),
         patch.object(person_track, "Sam2VideoProcessor", sam),
         patch.object(person_track, "Sam2VideoModel", sam),
         patch.object(person_track, "content_cuts", return_value=[]),
@@ -346,8 +346,8 @@ class TestMaxPeople:
 
         trip = Trip()
         with (
-            patch.object(person_track, "AutoProcessor", trip),
-            patch.object(person_track, "AutoModelForZeroShotObjectDetection", trip),
+            patch.object(segment, "AutoProcessor", trip),
+            patch.object(segment, "AutoModelForZeroShotObjectDetection", trip),
             patch.object(person_track, "Sam2VideoProcessor", trip),
             patch.object(person_track, "Sam2VideoModel", trip),
         ):
@@ -460,6 +460,23 @@ class TestBoxes:
 
     def test_no_boxes(self):
         assert distinct_boxes([], []) == []
+
+    def test_detection_goes_through_segments_detector(self):
+        """segment.detect_boxes is the detector's one owner (#1375 arch review):
+        track_people asks it, not a copy of its load and query."""
+        found = {
+            "boxes": torch.tensor([[1.0, 2.0, 30.0, 40.0]]),
+            "scores": torch.tensor([0.8]),
+            "labels": ["person"],
+        }
+        with patch.object(person_track, "detect_boxes", return_value=found) as ask:
+            boxes, scores = person_track.detect_people(
+                Image.new("RGB", (8, 8)), "person", 0.3, "dino", "cpu"
+            )
+        ask.assert_called_once()
+        assert boxes == [[1.0, 2.0, 30.0, 40.0]]
+        assert scores == [pytest.approx(0.8)]
+        assert person_track.detect_boxes is segment.detect_boxes
 
 
 class TestRegistration:
