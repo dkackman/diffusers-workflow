@@ -618,6 +618,18 @@ control take's frames 192-361:
 The gate passed: the arm's rise is below the control's, and its seam score is under
 1.5x the control's. The full job ran.
 
+Early-job timing (`get_job(ccb20cd03ffa)` step timing). `load_cached` was false on every
+step, as `release_pipeline` intends.
+
+| step | load | encode | denoise | per pass | decode |
+|---|---|---|---|---|---|
+| seg01 | 57.9 s | 33.7 s | 680.4 s | 34.3 s | 60.2 s |
+| restore01 | 57.0 s | 93.7 s | 746.2 s | 39.2 s | 39.5 s |
+| seg02 | 56.7 s | 48.4 s | 892.2 s | 46.9 s | 59.5 s |
+
+- **Loads** took 171.6 s in total, 57.0 s of it for the restore.
+- **Restore denoise** took 746.2 s (one restore, restore01).
+
 **Full job `da4a93845ba9`** (run `20261115-200029-ff99d30b`, cuda:1). 209.2 min wall
 time against the control's 98.5 min. Host peak 67 473.1 MB, against the control's
 71 057.0 MB.
@@ -677,7 +689,7 @@ Still-mouth bins: 0 control, 0 restore. The mouth box here is approximated from 
 mouth-corner landmarks (1.5 x 1.0 corner widths). It is not `lip_sync`'s box, so these
 counts don't compare with the other sections'.
 
-Timing (`get_job` step timing). `load_cached` was false on every step, as
+Full-job timing (`get_job(da4a93845ba9)` step timing). `load_cached` was false on every step, as
 `release_pipeline` intends.
 
 | step | load | encode | denoise | per pass | decode |
@@ -702,21 +714,5 @@ Timing (`get_job` step timing). `load_cached` was false on every step, as
 The probe used about 5.1 h of lem time against the 4 h approved: early 47.6 min, full
 209.2 min, and about 52 min on the failed jobs.
 
-Reading. By the same measures, the restore arm drifts more than the control, not less:
-- face sharpness rises +251 against +105, with 137 of it at the seams against 32;
-- face saturation rises +15.1 against +8.3;
-- whole-frame saturation rises +17.0 against +8.8.
-
-The gate's single-seam gain held only through seam 2. From seam 3 on, the restored
-guide hands on a sharper, more saturated tail:
-- the seam steps are +63.7 and +71.0, against the control's +30.8 and -3.9;
-- the redraw sharpens seg k's tail more at each later seam (-20 at seam 1 to +23 at
-  seam 5).
-
-The redraw keeps identity (SFace .95-.97 against the tail it replaces), and identity
-across the take matches the control's (.79 against .78 at 40 s). The join itself is no
-worse: the jump is 0.84-1.45x against the control's 1.18-1.59x, and lower at seams 4 and
-5. The detail step the source warned about doesn't show as a jump. It shows in the
-drift.
-
-One seed; Don has not viewed it (the two take paths above).
+The only ruling this record states is the gate's. Whether the restore helps is Don's
+viewing verdict, on the two take paths above. One seed.
