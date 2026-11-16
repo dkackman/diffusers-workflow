@@ -32,6 +32,13 @@ _DOTTED_NAME_PATTERN = re.compile(
     r"^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*$"
 )
 
+# Only identifier characters and dots, with at least one dot: a dotted name
+# as an author writes one. When it fails _DOTTED_NAME_PATTERN it is malformed
+# (an empty segment, a leading or trailing dot, a segment starting with a
+# digit), and the run cannot import it - so a component_type/scheduler_type/
+# config_type shaped like this is refused rather than skipped (#1341)
+_DOTTED_SHAPE_PATTERN = re.compile(r"^[A-Za-z0-9_.]*\.[A-Za-z0-9_.]*$")
+
 
 def _type_reference_candidates(key):
     """Names to suggest a close match from, keyed by which field was wrong."""
@@ -52,9 +59,24 @@ def _type_reference_error(key, value, path):
     resolver is what makes #345's own invariant hold: this can never refuse
     a name that would in fact have run.
 
+    A dotted name with an empty segment or a trailing dot
+    ('diffusers.models..X', 'diffusers.models.') is refused as malformed:
+    the run's import cannot load it either (#1341).
+
     Returns an error dict ({path, message}), or None if `value` would resolve.
     """
-    if not isinstance(value, str) or not _DOTTED_NAME_PATTERN.match(value):
+    if not isinstance(value, str):
+        return None
+    if not _DOTTED_NAME_PATTERN.match(value):
+        if _DOTTED_SHAPE_PATTERN.match(value):
+            return {
+                "path": path,
+                "message": (
+                    f"{key} {value!r} is not a valid dotted name: every "
+                    "segment between dots has to be a Python identifier "
+                    "(no empty segment, and no leading or trailing dot)"
+                ),
+            }
         return None
 
     try:
