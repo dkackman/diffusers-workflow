@@ -1,6 +1,6 @@
 {
     "id": "PikaH3FlexT2VA",
-    "description": "Text to video with audio through Pika H3 Flex, Pika's adapter over MiniMax-H3. The 't2va' workflow runs with no keyframe, so the clip is generated on the chosen 16:9 canvas from the prompt alone; it runs on the keyframe partition ('transformer') with Pika's fl2va adapter, as Pika's own release does. Pika H3 Flex is an adapter over MiniMax-H3's own weights: the five weight components (transformer, transformer_ref, text_encoder, vae, audio_vae) are loaded from MiniMaxAI/MiniMax-H3 at the base revision Pika's adapter manifest names, so only the scheduler, tokenizer and processor come from Pika's repo. The adapter's sampler is fixed: its blocks run the 7-point denoising_step_list [1000, 750, 500, 250, 100, 40, 0] (6 transformer passes) on their own shift, so the template sets no num_inference_steps and no scheduler shift - stated in configuration.configs only so validate counts the passes. Seeds are not comparable with the H3 templates: the same seed on the same prompt gives a different clip, so an A/B against H3 compares samples, not a matched pair. The base match itself is sampled (Pika's own runs against the pinned base, not a bit-exact reproduction). 'resolution' picks a 16:9 bucket - 480p is 832x480, 768p is 1344x768; other ratios of the same tiers (multiples of 32): 9:16 480x832 / 768x1344, 1:1 480x480 / 768x768, 4:3 640x480 / 1024x768, 3:4 480x640 / 768x1024, 21:9 960x416 / 1536x672 - pass width and height for one. The weights load at int8 SDNQ (host_ram_gb 69).",
+    "description": "Text to video with audio through Pika H3 Flex, Pika's adapter over MiniMax-H3. The 't2va' workflow runs with no keyframe, so the clip is generated on the chosen 16:9 canvas from the prompt alone; it runs on the keyframe partition ('transformer') with Pika's fl2va adapter, as Pika's own release does. Pika H3 Flex is an adapter over MiniMax-H3's own weights: the five weight components (transformer, transformer_ref, text_encoder, vae, audio_vae) are loaded from MiniMaxAI/MiniMax-H3, pinned at the commit the H3 templates load (0919fb68, the same tensors as the 42ed227e base Pika's adapter manifest names, sampled), so they share H3's int8 cache; only the scheduler, tokenizer and processor come from Pika's repo. The adapter's sampler is fixed: its blocks run the 7-point denoising_step_list [1000, 750, 500, 250, 100, 40, 0] (6 transformer passes) on their own shift, so the template sets no num_inference_steps and no scheduler shift - stated in configuration.configs only so validate counts the passes. Seeds are not comparable with the H3 templates: the same seed on the same prompt gives a different clip, so an A/B against H3 compares samples, not a matched pair. The base match itself is sampled (Pika's own runs against the pinned base, not a bit-exact reproduction). 'resolution' picks a 16:9 bucket - 480p is 832x480, 768p is 1344x768; other ratios of the same tiers (multiples of 32): 9:16 480x832 / 768x1344, 1:1 480x480 / 768x768, 4:3 640x480 / 1024x768, 3:4 480x640 / 768x1024, 21:9 960x416 / 1536x672 - pass width and height for one. The weights load at int8 SDNQ (host_ram_gb 69).",
     "summary": "Pika H3 Flex text to video with audio: MiniMax-H3 under Pika's 6-pass adapter.",
     "cost": [
         {
@@ -106,11 +106,11 @@
                             "audio_vae": "MiniMaxAI/MiniMax-H3"
                         },
                         "revision": {
-                            "transformer": "42ed227ee7df40d41602854ae760620d6eb651fe",
-                            "transformer_ref": "42ed227ee7df40d41602854ae760620d6eb651fe",
-                            "text_encoder": "42ed227ee7df40d41602854ae760620d6eb651fe",
-                            "vae": "42ed227ee7df40d41602854ae760620d6eb651fe",
-                            "audio_vae": "42ed227ee7df40d41602854ae760620d6eb651fe",
+                            "transformer": "0919fb684102ef115126612f3fbb84d1027e7317",
+                            "transformer_ref": "0919fb684102ef115126612f3fbb84d1027e7317",
+                            "text_encoder": "0919fb684102ef115126612f3fbb84d1027e7317",
+                            "vae": "0919fb684102ef115126612f3fbb84d1027e7317",
+                            "audio_vae": "0919fb684102ef115126612f3fbb84d1027e7317",
                             "default": "ca45d99f9b1d1859ffb9dc1cd6bfaaa994257f56"
                         },
                         "quantization_config": {
