@@ -2591,6 +2591,52 @@ class TestAnAdapterIsADownloadToo:
         ]
         assert looked_up == []
 
+    def test_a_file_cached_under_an_older_snapshot_is_no_download(
+        self, monkeypatch, tmp_path
+    ):
+        """#1392: `refs/main` moved to a snapshot without the file, but the
+        blob is cached under an older one, so the loader links it with no
+        download. Resolved through a `variable:` weight name, on a real
+        cache layout."""
+        import dw.plan_downloads
+        from dw.workflow import Workflow
+
+        repo = "org/turbo"
+        name = "turbo.safetensors"
+        root = tmp_path / "models--org--turbo"
+        (root / "blobs").mkdir(parents=True)
+        (root / "blobs" / ("a" * 64)).write_bytes(b"x")
+        for commit in ("old", "new"):
+            (root / "snapshots" / commit).mkdir(parents=True)
+        (root / "snapshots" / "old" / name).symlink_to(root / "blobs" / ("a" * 64))
+        (root / "refs").mkdir()
+        (root / "refs" / "main").write_text("new")
+        monkeypatch.setattr(
+            dw.plan_downloads,
+            "scan_models",
+            lambda *a: {"repos": [{"repo_id": "Lightricks/LTX-2.5-Diffusers"}]},
+        )
+        monkeypatch.setattr(
+            dw.plan_downloads, "repo_download_incomplete", lambda *a, **k: False
+        )
+        definition = self.definition()
+        definition["variables"] = {"weight": name}
+        lora = definition["steps"][0]["pipeline"]["loras"][0]
+        lora["model_name"] = repo
+        lora["weight_name"] = "variable:weight"
+        expanded = Workflow(definition, str(tmp_path), None).expanded_definition({})
+        assert expanded["steps"][0]["pipeline"]["loras"][0]["weight_name"] == name
+        required = dw.plan_downloads.downloads_required(
+            expanded, None, None, str(tmp_path), False
+        )
+        assert [e["repo"] for e in required] == []
+        # A file no snapshot holds is still a download
+        lora["weight_name"] = "other.safetensors"
+        required = dw.plan_downloads.downloads_required(
+            definition, None, None, str(tmp_path), False
+        )
+        assert [e["repo"] for e in required] == [repo]
+
     def test_the_adapter_is_named_when_it_is_absent(self, monkeypatch):
         assert self.repos(["Lightricks/LTX-2.5-Diffusers"], monkeypatch) == [
             "Lightricks/LTX-2.5-22b-IC-LoRA-Ingredients"

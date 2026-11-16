@@ -17,6 +17,7 @@ estimate and the fingerprint, and this module never imports it back.
 import copy
 import json
 import logging
+from pathlib import Path
 
 from huggingface_hub import model_info
 from huggingface_hub import get_hf_file_metadata, hf_hub_url
@@ -113,6 +114,8 @@ def downloads_required(expanded, base_dir, workflow_dir, cache_dir, lookup_sizes
         if repo in names or not _is_repo_id(repo):
             continue
         if _cached_file(repo, filename, revision or "main", cache_dir) is not None:
+            continue
+        if revision is None and _blob_cached(repo, filename, cache_dir, lookup_sizes):
             continue
         entry = {
             "repo": repo,
@@ -334,6 +337,47 @@ def gate_warnings(downloads_required):
         # A URL entry has no repo to send anyone to
         if entry.get("access_blocked") and entry.get("repo")
     ]
+
+
+def _blob_cached(repo, filename, cache_dir, check_hub):
+    """Whether `filename` sits in some snapshot of the repo other than the
+    one `refs/main` names (#1392). The hub moves `main` when any file of the
+    repo changes; the loader finds the unchanged file's blob already cached
+    and links it into the new snapshot without a download, while
+    `_cached_file` reads only the `refs/main` snapshot and calls the file
+    missing. With `check_hub` the blob must be the one the hub serves now
+    (an LFS etag is its blob's sha256); offline, or when the hub does not
+    answer, the cached copy stands, as it will for the run."""
+    from huggingface_hub.file_download import repo_folder_name
+
+    from .quantized_cache import _hub_cache_dir
+
+    try:
+        snapshots = (
+            Path(_hub_cache_dir(cache_dir))
+            / repo_folder_name(repo_id=repo, repo_type="model")
+            / "snapshots"
+        )
+        blobs = set()
+        for snapshot in snapshots.iterdir() if snapshots.is_dir() else []:
+            path = snapshot / filename
+            if path.is_file():
+                blobs.add(path.resolve().name)
+    except (OSError, ValueError):
+        return False
+    if not blobs:
+        return False
+    if check_hub:
+        try:
+            etag = get_hf_file_metadata(
+                hf_hub_url(repo, filename), timeout=SIZE_LOOKUP_TIMEOUT
+            ).etag
+        except Exception:
+            return True
+        etag = etag.strip('"') if isinstance(etag, str) else ""
+        if len(etag) == 64:
+            return etag in blobs
+    return True
 
 
 def _is_repo_id(name):
