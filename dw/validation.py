@@ -29,6 +29,7 @@ dw/step_value_checks.py.
 import copy
 import logging
 import os
+import re
 from dataclasses import dataclass, field
 from typing import Callable
 
@@ -226,6 +227,43 @@ class ValidationContext:
         return self._probes[key]
 
 
+_STEP_INDEX = re.compile(r"^steps\[(\d+)\]\.")
+
+
+def _held_once_given(context, errors):
+    """`errors` less the "needs hold_audio" findings on a step whose
+    `hold_audio` is a required variable not given yet, when the document is
+    checked with no arguments (#1253's rule, as task_signature_errors drops
+    its null-variable case): the variable has no default to judge, and a run
+    without it is refused by the required rule itself (#1378, h3-seam-pass)."""
+    if context.arguments is not None:
+        return errors
+    definition = context.definition or {}
+    constraints = definition.get("variable_constraints") or {}
+    steps = definition.get("steps") or []
+
+    def unset_required_hold(path):
+        match = _STEP_INDEX.match(path or "")
+        if not match or int(match.group(1)) >= len(steps):
+            return False
+        step = steps[int(match.group(1))]
+        pipeline = step.get("pipeline") if isinstance(step, dict) else None
+        arguments = pipeline.get("arguments") if isinstance(pipeline, dict) else None
+        held = arguments.get("hold_audio") if isinstance(arguments, dict) else None
+        if not isinstance(held, str) or not held.startswith("variable:"):
+            return False
+        name = held.removeprefix("variable:")
+        return (constraints.get(name) or {}).get("required") is True and (
+            definition.get("variables") or {}
+        ).get(name) is None
+
+    return [
+        e
+        for e in errors
+        if not ("'hold_audio'" in e["message"] and unset_required_hold(e["path"]))
+    ]
+
+
 @dataclass(frozen=True)
 class Check:
     """A registry entry: `run(context)` returns legacy error dicts or
@@ -390,7 +428,9 @@ ERROR_CHECKS = [
     # schedule fails after the checkpoint load just the same
     Check(
         "refine_strength",
-        lambda c: refine_strength_errors(c.expanded, c.source_indices),
+        lambda c: _held_once_given(
+            c, refine_strength_errors(c.expanded, c.source_indices)
+        ),
     ),
     # A regional edit on a pipeline that is not H3, a mask with no source, or a
     # source with no refine_strength, with latents or on a chained step
@@ -562,7 +602,7 @@ ERROR_CHECKS = [
     # or on a call it cannot window (#1230)
     Check(
         "refine_windows",
-        lambda c: windows_errors(c.expanded, c.source_indices),
+        lambda c: _held_once_given(c, windows_errors(c.expanded, c.source_indices)),
     ),
     # The experimental TST correction (#1196): the flag off, off H3, a bad
     # value, or a transformer on dw's 'sparse' backend

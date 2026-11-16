@@ -95,6 +95,9 @@ EXPECTED_SHAPES = {
         "sequence",
         ["has-audio", "identity-referenced", "needs-input-media"],
     ),
+    # #1378: the take it smooths is input media (its soundtrack is paired back
+    # under 'audio'), though 'source' itself is not a media argument name
+    "workflows/templates/minimax/h3-seam-pass.json": ("shot", ["needs-input-media"]),
     "workflows/templates/minimax/chained-segments.json": (
         "shot",
         ["chained", "has-audio", "image-conditioned", "needs-input-media"],
@@ -648,7 +651,10 @@ def test_no_stale_entry_in_the_allowlist():
 # `minimax/replace-performer-cuts` (#1374): two new entries, the catalog's only
 # swap of the performer in a take, cut by cut, and the cut list and person mask
 # it starts from, with no cost blocks yet.
-COMPACT_BUDGET = 14_850
+# Then to 15_000 (measured 14_981) for `minimax/h3-seam-pass` (#1230, stage
+# #1378): one new entry, the catalog's only seam smoothing of a finished take,
+# with its measured cost block.
+COMPACT_BUDGET = 15_000
 # The shape=sequence listing to 1_650 (measured 1_642) for
 # `minimax/replace-performer` (#1374), the catalog's only sequence that recasts
 # a take.

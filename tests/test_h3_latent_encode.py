@@ -171,7 +171,15 @@ def test_the_task_returns_the_latent_and_records_the_take_length(monkeypatch):
 
     result = encode_h3_latents(take)
 
-    assert set(result) == {"latents", "num_frames", "source_frames"}
+    assert set(result) == {
+        "latents",
+        "num_frames",
+        "source_frames",
+        "width",
+        "height",
+    }
+    # The take's own canvas, for the refine's width and height (#1378)
+    assert (result["width"], result["height"]) == (64, 32)
     assert result["num_frames"] == 39
     assert result["source_frames"] == 30
     assert torch.equal(result["latents"], whole_take(vae, pixels, 39))

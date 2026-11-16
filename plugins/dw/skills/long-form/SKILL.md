@@ -22,7 +22,7 @@ Each rule names its bench record (`bench/records/<name>.md` in the repo;
 
 1. `get_server_info`: the device. H3 is CUDA-first. On a 24 GB Mac,
    `templates/minimax/chained-segments` at its defaults is refused
-   (about 18.3 GB projected against an approximate 17.8 GB working set; the device reports the real limit). Lower the
+   (about 18.3 GB projected against about 17.8 GB; the device reports the real limit). Lower the
    canvas to 768x448, which fits under guide continuity. `num_frames`
    cannot drop below 124 (`docs/ACCELERATION.md`, *MPS*).
 2. `list_workflows(shape="sequence")` and `list_workflows(traits="chained")`:
@@ -88,7 +88,7 @@ Set `shot` on `templates/minimax/chained-segments` from the shot's
   (`bench/records/drill.md`). Procedure:
   `references/run-and-repair.md`, *A narrated take*.
 
-Two rules that bite:
+Rules that bite:
 
 - **Never use `last_frame` with `look_hold` or `carry_pick` on an H3
   camera move.** It froze the orbit on seed 1166 and held it back on seed 2. The
@@ -102,10 +102,10 @@ Two rules that bite:
 - **An H3 take of any other shot type drifts past about 35 s.** A 90 s
   `shot: dialogue` walk was clean to 35 s; from 45 s the face changed
   and by 60 s the picture was oversaturated and painterly. The check
-  passed every seam, because the drift is in the carry
+  passed every seam: the drift is in the carry
   (`bench/records/drill.md`, ask 1). Before quoting a longer "single
   take", say it will not hold, and offer chains of 35 s or less joined
-  by cuts (the *Cuts* row above; `minimax-h3` has the cut rules).
+  by cuts (the *Cuts* row; `minimax-h3` has the cut rules).
 - **Cap an LTX-2.5 chain at about 15-20 s (3-4 segments).** At 36 s the
   subject was replaced by about 30 s and streaks grew from 20 s. Cut and
   start the next shot from a fresh still of the subject. `last_frame`
@@ -130,10 +130,10 @@ Turn on the per-segment check for any chain you mean to keep: pass
 - `audio_dbfs` re-rolls a segment (segment 1 too) whose generated audio reads
   under `audio_dbfs_min`, -70 dBFS by default: dropout segments read -88, the
   quietest real one -57. Held audio is not measured. Set
-  `"audio_dbfs_min": null` for a step that asks for silence. The re-roll is
-  not guaranteed to bring sound back (on the measured repro both seeds read
-  about -89), so don't spend `retries` expecting a fix: the
-  `chain_segment_silent` warning reports the segment either way.
+  `"audio_dbfs_min": null` for a step that asks for silence. The re-roll
+  is not guaranteed to bring sound back (both seeds read about -89 on the
+  repro), so don't spend `retries` on it: `chain_segment_silent` reports
+  the segment either way.
 - `face_drop` (narrated take) is recorded, never failed: read it per segment
   (`references/run-and-repair.md`).
 - `texture_ratio` is warn-only: the drift is in the carry, so a re-roll
@@ -150,11 +150,12 @@ Turn on the per-segment check for any chain you mean to keep: pass
   prompt's `<d>`. A warning with `every_attempt_failed: true` means the
   carry is the cause: repair with `repair-segment`, not more `retries`.
 
-When a kept take still has one bad interior segment,
+One bad interior segment in a kept take:
 `templates/minimax/repair-segment` re-renders it between its neighbours
-(`bench/records/repair.md`). It needs the chain run with `keep_segments:
-true`. `references/run-and-repair.md` has both procedures, their costs, and
-the one break a repair cannot fix.
+(`bench/records/repair.md`; needs `keep_segments: true`).
+`references/run-and-repair.md` has both procedures, their costs, and the
+break a repair cannot fix. Seam jumps on a take worth about 36
+GPU-min per minute of it: `templates/minimax/h3-seam-pass`, not a burn fix.
 
 ## 5. Per piece: the soundtrack
 

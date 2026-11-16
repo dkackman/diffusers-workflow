@@ -135,16 +135,22 @@ motion together at 86 s, and nothing is measured past 86 s.
 - **sharpest of the last 4** (#1032, `carry_pick`) ties on S1 and froze S2.
 - **guide `look_hold`** (#1191) gains inside the floor on S1 and loses on S2.
 
+## The seam pass
+
+- **Windowed refine seam pass** (Task 17 Step 4, #1230):
+  `templates/minimax/h3-seam-pass` with `source` set to the finished take.
+  Run it after a chain or a narrated-take passage when seam jumps show and
+  the take is worth about 36 min of GPU time per minute of take (36-40,
+  about 16 GiB peak). It wins seam jump past the floor on the static, arc
+  and dialogue shots (S1, S2 and S3; look too on S2, nothing worse). It is
+  **not a burn fix**: drift against segment 1 is unchanged on every scene,
+  so restore or re-render a burnt take, don't seam-pass it
+  (`bench/records/structural.md`, *Step 4*, *Verdict*).
+
 ## Structural levers
 
 Each is experimental and behind a server flag. Do not offer any of them.
 
-- **Windowed refine seam pass** (Task 17 Step 4): wins as a seam pass on
-  every shot type measured (seam jump past the floor on S1, S2 and S3, look
-  too on S2, nothing worse), at about 36-40 min per minute of take. It is
-  **not a burn fix**: drift against segment 1 is unchanged on every scene
-  (`bench/records/structural.md`, *Step 4*, *Verdict*). Promotion waits on
-  an eye check and the feature stages.
 - **Latent carry** between segments (#1150/#1044, Task 17 Steps 2-3): **not
   a default** and not a burn fix. On the static scene the take still burns;
   on the moving scene the seams get worse on both seeds. Under the keystone
