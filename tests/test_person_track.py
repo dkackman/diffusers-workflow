@@ -534,24 +534,29 @@ class TestSaving:
         }
 
     def test_the_real_writer_saves_every_entry(self, tmp_path):
+        # Through Result.save, as a step's result is written: the file names
+        # carry save()'s `<base>-<i>.<j>` prefix, which the docs must name
+        # (the tester's bounce on #1375 found `people-0.0-person-1.mp4` where
+        # the guide said `people-person-1.mp4`)
         from dw.result import Result
 
-        saved = Result({}).save_artifact(
-            str(tmp_path), self.result_dict(), "step", "video/mp4", ".mp4"
-        )
+        result = Result({"content_type": "video/mp4", "file_base_name": "people"})
+        result.add_result(self.result_dict())
+        saved = result.save(str(tmp_path), "step")
         names = sorted(
             p.name if hasattr(p, "name") else str(p).split("/")[-1] for p in saved
         )
         assert names == [
-            "step-contact_sheet.png",
-            "step-people.json",
-            "step-person-1.mp4",
-            "step-person-2.mp4",
+            "people-0.0-contact_sheet.png",
+            "people-0.0-people.json",
+            "people-0.0-person-1.mp4",
+            "people-0.0-person-2.mp4",
         ]
         for name in names:
             assert (tmp_path / name).stat().st_size > 0
-        assert json.loads((tmp_path / "step-people.json").read_text())["people"] == 2
-        with Image.open(tmp_path / "step-contact_sheet.png") as sheet:
+        record = json.loads((tmp_path / "people-0.0-people.json").read_text())
+        assert record["people"] == 2
+        with Image.open(tmp_path / "people-0.0-contact_sheet.png") as sheet:
             assert sheet.format == "PNG" and sheet.size == (64, 40)
 
     def test_a_pil_image_under_a_video_type_is_written_as_png(self, tmp_path):
