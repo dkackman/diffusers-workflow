@@ -177,6 +177,14 @@ take (`templates/minimax/narrated-take`), which dw rebuilt and measured in its
 own code. No text or data was copied; because the licence is share-alike, only
 the concepts were taken.
 
+Tests 19-20 of the same collection (`20261113/attention_sweep.md` and
+`20261115/keystone_attention_motion_and_hybrid.md`, CC BY-SA 4.0, so concepts only)
+informed `experimental_keystone_attention`
+([dw/pipeline_processors/h3_keystone_attention.py](../dw/pipeline_processors/h3_keystone_attention.py);
+[#1391](https://github.com/dkackman/diffusers-workflow/issues/1391)): the balance
+re-split of the attention a query pays to the keyframe against the guide rows, and
+the default block subset 31-33,36-44,47. No text or data was copied.
+
 ### [roycho87/geiru_context_suite](https://github.com/roycho87/geiru_context_suite)
 
 A set of ComfyUI nodes for long MiniMax H3 videos, under GPL-3.0, so only the
@@ -195,6 +203,12 @@ with its audio, gave the repair's tail hold and the rule that the tail hold
 outnumbers the head (39 frames against 22 in
 [templates/minimax/repair-segment](../workflows/templates/minimax/repair-segment.json);
 [#1169](https://github.com/dkackman/diffusers-workflow/issues/1169)).
+
+The same suite's Keystone Attention (GPL-3.0, so concepts only; no code was read or
+copied) inspired `experimental_keystone_attention`
+([dw/pipeline_processors/h3_keystone_attention.py](../dw/pipeline_processors/h3_keystone_attention.py);
+[#1391](https://github.com/dkackman/diffusers-workflow/issues/1391)): re-weighting a
+target's attention toward a keystone.
 
 harlixay7/Kinoloom (MIT; concept only, no code taken) inspired `carry_pick`
 ([dw/pipeline_processors/chain_pick.py](../dw/pipeline_processors/chain_pick.py);
@@ -238,3 +252,11 @@ seam-restore probe
 reference-anchored, low-strength redraw of a segment's tail before it is handed
 on as the next segment's guide, so each seam starts from a reset copy rather
 than the inherited texture.
+
+### ckinpdx/ComfyUI-MMH3Tools
+
+Its Carry Attention node (concept only; no code used) inspired
+`experimental_keystone_attention`
+([dw/pipeline_processors/h3_keystone_attention.py](../dw/pipeline_processors/h3_keystone_attention.py);
+[#1391](https://github.com/dkackman/diffusers-workflow/issues/1391)): carrying a
+keyframe's weight in attention on a subset of blocks.

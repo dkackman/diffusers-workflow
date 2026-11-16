@@ -1982,6 +1982,8 @@ larger, not smaller; on `chain-video-continuity` it held the subject's pose and 
 better but darkened the chain and raised saturation faster
 (`docs/proposals/complete/h3-turbo-lead-in-complete.md`).
 
+**Experimental**, refused unless `DW_EXPERIMENTAL_REFINE_WINDOWS=1`: `experimental_keystone_attention: {"balance": 20, "blocks": "31-33,36-44,47"}`, an H3 `fl2va` call argument with `image` and `guides`, re-splits on the named blocks the attention each query pays to the keyframe rows (from `image`) against the guide rows (from `guides`), keeping their sum. A `balance` above 1 moves it toward the keyframe and 1 is no change; `blocks` are comma-separated whole numbers and inclusive `a-b` ranges, numbered 0..N-1 down diffusers' `transformer_blocks` (0-49 on H3), taking diffusers' numbering as ComfyUI's (an assumption, #1391 Q3). Refused with `experimental_tst`, sparse attention, a capstone or gated guide rows; CUDA needs cuDNN or native flash attention (`dw/pipeline_processors/h3_keystone_attention.py`).
+
 #### Chaining with a guide: `continuity: "guide"`
 
 A chain on an H3 `t2va` or `fl2va` step can carry its seam with a guide instead of a
