@@ -747,13 +747,16 @@ def selflift_errors(workflow_definition, source_indices=None):
     return errors
 
 
-def windows_errors(workflow_definition, source_indices=None):
+def windows_errors(workflow_definition, source_indices=None, written=None, given=None):
     """Every `refine_windows` refused before the run, as [{path, message}]
     (#1230; dw/pipeline_processors/h3_windows.py): the spike-era name
     `experimental_refine_windows`, a step that is not H3 t2va/fl2va, and the
     call rules the run asks too (`window_problems`) - the settings with their
     defaults filled, the refine they ride on and a step `cache`. A setting
-    still a reference is left to the run."""
+    still a reference is left to the run. `written` and `given` (the
+    caller's arguments) leave a required `hold_audio` to its own rule when
+    the document is checked bare (dw/hold_audio.py `judged_arguments`)."""
+    from .hold_audio import judged_arguments
     from .pipeline_processors.h3_rules import (
         OLD_REFINE_WINDOWS_INPUT,
         REFINE_WINDOWS_INPUT,
@@ -788,7 +791,9 @@ def windows_errors(workflow_definition, source_indices=None):
                 isinstance(configuration, dict)
                 and configuration.get("cache") is not None
             )
-            problems = window_problems(arguments, has_cache=cached)
+            problems = window_problems(
+                judged_arguments(arguments, source, written, given), has_cache=cached
+            )
         errors += [{"path": path, "message": f"{p}{where}"} for p in problems]
     return errors
 

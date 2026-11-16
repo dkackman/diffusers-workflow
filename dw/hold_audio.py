@@ -72,7 +72,7 @@ from .pipeline_processors.h3_rules import (
 from .probe_paths import resolve_probe_path
 from .security import ALLOWED_AUDIO_EXTENSIONS, ALLOWED_VIDEO_EXTENSIONS
 from .tasks.trim import span_problem
-from .variable_constraints import declared_constraints
+from .variable_constraints import CONSTRAINTS_KEY, REQUIRED, declared_constraints
 
 # A video is held by its own soundtrack - a regional edit's source_video
 HOLDABLE_EXTENSIONS = ALLOWED_AUDIO_EXTENSIONS | ALLOWED_VIDEO_EXTENSIONS
@@ -184,14 +184,64 @@ def _upscaled_canvas(steps, latents):
     return None
 
 
+def held_by_a_required_null(written, source, arguments):
+    """Whether a step's `hold_audio` is null only because the author wrote it
+    as a `required` variable left null. That null is "nothing given", which
+    the variable's own constraint refuses by name when a caller omits it,
+    and which checking the document does not judge (#1253) - so the track is
+    not reported missing a second time. `written` is the definition as
+    written, `source` the step's written index and `arguments` its
+    substituted pipeline arguments."""
+    if (arguments or {}).get(HOLD_AUDIO_INPUT) is not None:
+        return False
+    held = _written_hold(written, source)
+    if not references.is_ref(references.VARIABLE, held):
+        return False
+    name = references.ref_name(references.VARIABLE, held)
+    constraint = ((written or {}).get(CONSTRAINTS_KEY) or {}).get(name) or {}
+    return constraint.get(REQUIRED) is True
+
+
+def _written_hold(written, source):
+    """The `hold_audio` of written step `source`, as the author wrote it."""
+    steps = (written or {}).get("steps")
+    if not isinstance(steps, list) or not 0 <= source < len(steps):
+        return None
+    step = steps[source] if isinstance(steps[source], dict) else {}
+    pipeline = step.get("pipeline") if isinstance(step.get("pipeline"), dict) else {}
+    return (pipeline.get("arguments") or {}).get(HOLD_AUDIO_INPUT)
+
+
+def judged_arguments(arguments, source, written=None, given=None):
+    """A refine step's substituted `arguments` as its static checks judge
+    them. Checking the document with no arguments (`given` None, `written`
+    the definition as written) does not judge a track held from a required
+    variable left null (`held_by_a_required_null`, #1253): it stands as its
+    written reference, the way the run leaves a reference it cannot resolve
+    yet, so no "needs hold_audio" finding is raised. A caller who omits it is
+    refused by the variable's own required rule."""
+    if (
+        written is None
+        or given is not None
+        or not held_by_a_required_null(written, source, arguments)
+    ):
+        return arguments
+    return {**arguments, HOLD_AUDIO_INPUT: _written_hold(written, source)}
+
+
 _REFINE_INPUTS = (REFINE_STRENGTH_INPUT, REFINE_SIGMAS_INPUT, REFINE_TILES_INPUT)
 
 
-def refine_strength_errors(workflow_definition, source_indices=None):
+def refine_strength_errors(
+    workflow_definition, source_indices=None, written=None, given=None
+):
     """Every `refine_strength`, `refine_sigmas` or `refine_tiles` argument
     refused before the run, as [{path, message}] - walked the way
     `hold_audio_errors` walks. A problem about `refine_sigmas` or
-    `refine_tiles` is at its path; the rest are at `refine_strength`'s."""
+    `refine_tiles` is at its path; the rest are at `refine_strength`'s.
+    `written` and `given` (the caller's arguments) leave a required
+    `hold_audio` to its own rule when the document is checked bare
+    (`judged_arguments`)."""
     errors = []
     steps = workflow_definition.get("steps")
     for _, _, pipeline, source, where in references.iter_steps(
@@ -202,6 +252,7 @@ def refine_strength_errors(workflow_definition, source_indices=None):
             arguments.get(name) is None for name in _REFINE_INPUTS
         ):
             continue
+        arguments = judged_arguments(arguments, source, written, given)
         paths = {
             name: render_path(("steps", source, "pipeline", "arguments", name))
             for name in _REFINE_INPUTS
@@ -479,4 +530,10 @@ def mask_errors(workflow_definition, source_indices=None, base_dir=None, probe=N
     return errors
 
 
-__all__ = ["hold_audio_errors", "mask_errors", "refine_strength_errors"]
+__all__ = [
+    "held_by_a_required_null",
+    "hold_audio_errors",
+    "judged_arguments",
+    "mask_errors",
+    "refine_strength_errors",
+]
