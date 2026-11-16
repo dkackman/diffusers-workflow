@@ -491,6 +491,13 @@ slightly wider, left-shifted angle: the same man, the same field. It reads as an
 angle change. `look_ratio` 0.66 (saturation), `detail_ratio` 0.86, frame
 difference 26.16, against attempt 1's 35.3-51.1 and `look_ratio` 7.0-11.5.
 
+> **Correction (#1388).** "Resets at the cut: none" holds for colour and framing only.
+> The face is not continuous across the cut. Face-crop sharpness (`bench/cut_windows.py`)
+> goes from A's last 1 s at **1141** to B's first 1 s at **276**, a step of 0.24x (-76%).
+> B stays at about 200-280 for its first 17 s, while SFace across the cut is 0.913. The
+> whole-frame `detail_ratio` 0.86 hid this. See `bench/records/narrated.md`, *Cut probe
+> at the #1311 keeper's 41.0 s cut*.
+
 **`face_drop` per passage** (segment 1 of each is null):
 
 | Passage | Segments | Seconds | `face_drop`, segments 2.. | Check |

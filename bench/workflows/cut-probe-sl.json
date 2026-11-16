@@ -1,0 +1,40 @@
+{
+  "id": "BenchCutProbeSL",
+  "summary": "#1388 cut probe arms S and L as 16 s clips: A's last 8 s, then each first segment.",
+  "description": "Feature #1385 stage A (#1388). A's last 8 s (frames 792-983 of A, run 45d023c8) then the first 192 frames of each re-render of B's first segment: S (run 788405be, B's angle sharpened to A's last 1 s) and L (run dbdd2de4, A's frame 980 through flux3 image-edit). Joined by concat_videos with trim_frames 0, the cut at 8.0 s, as arm J's.",
+  "variables": {
+    "a": "output:templates/minimax/narrated-take/20261114-225505-45d023c8/final/MiniMaxH3NarratedTake-take.1-0.0.mp4",
+    "s": "output:templates/minimax/narrated-take/20261116-160645-788405be/final/MiniMaxH3NarratedTake-take.1-0.0.mp4",
+    "l": "output:templates/minimax/narrated-take/20261116-162036-dbdd2de4/final/MiniMaxH3NarratedTake-take.1-0.0.mp4"
+  },
+  "steps": [
+    {
+      "name": "a_tail",
+      "task": {"command": "trim_video", "arguments": {"video": "variable:a", "start_frame": 792, "num_frames": 192}}
+    },
+    {
+      "name": "s_head",
+      "task": {"command": "trim_video", "arguments": {"video": "variable:s", "start_frame": 0, "num_frames": 192}}
+    },
+    {
+      "name": "l_head",
+      "task": {"command": "trim_video", "arguments": {"video": "variable:l", "start_frame": 0, "num_frames": 192}}
+    },
+    {
+      "name": "arm_s",
+      "task": {
+        "command": "concat_videos",
+        "arguments": {"videos": ["previous_result:a_tail", "previous_result:s_head"], "trim_frames": 0, "fps": 24}
+      },
+      "result": {"content_type": "video/mp4", "fps": 24, "subfolder": "final", "file_base_name": "arm-s"}
+    },
+    {
+      "name": "arm_l",
+      "task": {
+        "command": "concat_videos",
+        "arguments": {"videos": ["previous_result:a_tail", "previous_result:l_head"], "trim_frames": 0, "fps": 24}
+      },
+      "result": {"content_type": "video/mp4", "fps": 24, "subfolder": "final", "file_base_name": "arm-l"}
+    }
+  ]
+}
