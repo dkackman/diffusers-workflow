@@ -135,29 +135,85 @@ the community swap LoRA (unsourced) and FastH3 Omni (#980).
 
 ## The seam: mask_grow 0 vs 1 (#1374)
 
-**Status: not run yet. It needs CUDA (lem).** The arms are `t16-swap-g0-s1194` and
-`t16-swap-g0-s2002`, at `mask_grow` 0, in `bench/arms/t16-performer-replacement.json`. Their
-`mask_grow` 1 counterparts are the existing `t16-swap-r100-s1194` and
-`t16-swap-r100-s2002`, since the swap workflow's default is 1. #1374 was built on the
-mini-ai (MPS) loop. That host doesn't have the S4 source run
-(`BenchS4Montage/20261104-040255-9813688b`), and four H3 ref2va passes at 124 frames there
-would be unplanned spend. The run and this section's numbers are left to the lem loop.
+**Result: `mask_grow` 0 does not pass the rule, so `templates/minimax/replace-performer`
+keeps `mask_grow` 1.** mask_grow 0 confines the change to about 32 px instead of about
+80 px. Its edge is harder, though (a `step` about 2.2-2.5 times mask_grow 1's on both
+seeds), and the couch back beside the right shoulder is still redrawn. Do not run the
+eroded-mask arm here: it is #1382.
 
-The measure is `bench/seam_bands.py`, the 16 px distance bands above made into a script:
+Run 2026-11-16 on lem's main server (`:8765`, workspace `bench`, cuda:0, develop
+`0de4c8f3`). The old bench server and its workspace were gone, so the deflect cut and
+its mask were copied in as `asset:bench/t16/deflect-cut.mp4` and
+`asset:bench/t16/deflect-mask.mp4` (from `BenchS4Montage/20261104-040255-9813688b` and
+job `9fb7e66a2211`). Everything else matches `t16-swap-g0-*`.
 
-    python bench/seam_bands.py SOURCE_CUT.mp4 ARM_OUTPUT.mp4 MASK.mp4 [--json]
+The mask_grow 1 arms are the 2026-11-07 runs above, on that day's code; only the
+mask_grow 0 arms were run now.
 
-For each band it gives:
-- the mean abs diff from the source;
-- frame-to-frame luma change in the edit and in the source;
-- the `step` between the first band outside the mask and the next one, which puts a
-  number on a hard edge.
+| Arm | Job | Run | Wall |
+|---|---|---|---|
+| g0, seed 1194 | `b4a85961ac8c` | `BenchT16PerformerSwap/20261116-014355-c095e171` | 4.1 min |
+| g0, seed 2002 | `15a5044427a6` | `BenchT16PerformerSwap/20261116-014824-d971d9c5` | 4.0 min (warm) |
+| g1, seed 1194 | `0aa481a58b58` | `20261107-021420-b3b99216` (old bench) | 6.2 min |
+| g1, seed 2002 | `a78e8dbf981d` | `20261107-022021-f8596e06` (old bench) | 4.0 min |
 
-Rule (plan v2, #1194):
-- `mask_grow` 0 becomes the template default if it removes the couch-back step with no
-  hard edge, judged by the shoulder crops and a `step` no larger than `mask_grow` 1's on
-  both seeds;
-- otherwise the default stays 1.
+`python bench/seam_bands.py deflect-cut.mp4 ARM.mp4 deflect-mask.mp4` gives the mean
+abs diff from the source in 16 px bands outside the union mask:
 
-**Until then `templates/minimax/replace-performer` ships with `mask_grow` 1.** That is the
-value measured above. The eroded-mask arm is #1382.
+| Arm | inside | 1-16 | 17-32 | 33-48 | 49-64 | 65-80 | 81-96 | **step** |
+|---|---|---|---|---|---|---|---|---|
+| g1 s1194 | 58.58 | 30.17 | 25.80 | 19.02 | 10.99 | 5.18 | 3.12 | **4.37** |
+| g1 s2002 | 57.11 | 27.63 | 23.17 | 18.04 | 9.89 | 4.63 | 2.98 | **4.45** |
+| g0 s1194 | 56.17 | 15.24 | 5.42 | 3.13 | 2.97 | 2.90 | 2.91 | **9.81** |
+| g0 s2002 | 55.29 | 17.19 | 5.91 | 3.11 | 2.94 | - | - | **11.29** |
+
+- Frame-to-frame luma change in the 1-16 px band is 1.97 / 2.17 for g0 and 3.08 / 3.11
+  for g1, against 1.24 in the source.
+- Full frame against the source, g0: 15.22 dB (SSIM 0.695) for s1194 and 15.36 dB for
+  s2002.
+
+**By eye** (shoulder crop `[560, 200, 400, 260]`, frames 0 and 62):
+- g0 still redraws the couch back beside the right shoulder. On s1194 it becomes a
+  separate raised cushion with a notch where it meets the kept couch. On s2002 it is a
+  raised cushion corner.
+- So the step moves closer to the silhouette instead of going away.
+- Identity, pose, the page turn and mouth timing follow the source, as at mask_grow 1.
+
+**Rule** (plan v2/v3, #1194): mask_grow 0 becomes the default only if it removes the
+couch-back step with no hard edge. That is judged by the shoulder crops, plus a `step`
+no larger than mask_grow 1's on both seeds. It fails both tests. The eroded-mask arm is
+#1382, parked behind this record.
+
+## The performance on a two-person, two-cut clip (#1374, ep62)
+
+Don's watch item: in the tester's C-F887 run, the swapped person was redrawn standing
+square to the camera in the portrait's pose, and the source performance was lost.
+
+**It reproduces, and the cause is the prompt, not the edit.** At `refine_strength` 1.0
+nothing of the person survives inside the mask. Pose, action and framing come from the
+prompt and the kept context.
+
+- **Prep:** `replace-performer-cuts` job `14e01110c193` on `ep62-episode.mp4` (248 frames).
+  - It returned two cuts, 0+124 and 124+124, and they are right. Cut-1 is a two-shot:
+    a standing young man in a vest and a seated bald man at a table. Cut-2 is one
+    push-in on the bald man, from his hands to his face.
+  - The mask covers both people in cut-1 ("person").
+- **Run 1:** job `3cd3b2b66fec`, seed 7. The prompt said "<Subject 1> sits on an
+  olive-green couch".
+  - Both masked people were redrawn seated, square to the camera, in the portrait's
+    pose. The standing man's performance and cut-2's push-in were lost: the C-F887
+    failure.
+  - The kept area held. On cut-1, `seam_bands` gives 3.2 at 81-96 px and 2.9 at 113-128,
+    the same VAE floor as deflect. So the edit, trims and pad fed the right frames, and
+    the wrong pose came from the prompt.
+- **Run 2:** job `1e170e5fab79`, seed 7, same cuts and mask. The prompt names the
+  bald man as the one replaced, keeps the vest man as `<Subject 2>` "as in
+  `<Video 1>`", and describes the two-shot's action.
+  - Cut-1 keeps the performance. The vest man stands, bends to the table and holds out
+    the takeout carton, as in the source. The portrait's man sits at the table in the
+    bald man's place, turned toward him.
+  - Cut-2 does not. The one prompt described cut-1's two-shot, so the single-person
+    push-in came back as a wide two-shot.
+- **Fix in the template:** a cut may carry its own `prompt`, read with the same
+  `{"item", "default"}` form as `seed`. The skill now says to describe each cut's pose
+  and framing.

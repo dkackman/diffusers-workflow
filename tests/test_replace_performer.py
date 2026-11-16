@@ -59,6 +59,17 @@ def test_cut_with_its_own_seed_validates_clean(harness):
     assert harness([dict(GOOD[0], seed=7), GOOD[1]]) == []
 
 
+def test_cut_with_its_own_prompt_validates_clean(harness):
+    assert harness([dict(GOOD[0], prompt="a close-up"), GOOD[1]]) == []
+
+
+def test_swap_prompt_falls_back_to_the_workflow_prompt():
+    """A cut's own prompt wins, else the workflow prompt (#1374, ep62)."""
+    tpl = json.loads((TEMPLATES / "replace-performer.json").read_text())
+    text_ = json.dumps(tpl["steps"])
+    assert '{"item": "prompt", "default": "variable:prompt"}' in text_
+
+
 def test_render_frames_off_grid_refused(harness):
     out = text(harness([cut(render_frames=125)]))
     assert "arguments.cuts[0].render_frames" in out
