@@ -818,6 +818,9 @@ TEMPLATE_PIPELINE_KEYS = {
     "minimax/narrated-take.json": {
         "take": "0959b31f34f2d8e8c8eb869d5389d7f89d1d7b7b06f219b1b51d9986c3ed51c5"
     },
+    "minimax/h3-seam-pass.json": {
+        "refine": "2a7fdf989a40500620fb03212502bbda8f52827f5fcd872b8fda182fab2fac77"
+    },
     "minimax/repair-segment.json": {
         "repair": "0d1cd2532b5c19d97ba165ddb4c715c9ead5e05c2ab6ba4db9bb182e012ec4c0"
     },

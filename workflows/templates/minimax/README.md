@@ -168,6 +168,7 @@ segments means half the compounding.
 | [chain-matched-and-aligned.json](chain-matched-and-aligned.json) | Everything together for a long soundtrack-driven take, with per-segment prompts and crash-safe `save_segments` |
 | [narrated-take.json](narrated-take.json) | A long take of one speaker held to a narration retimed with `templates/narration-retime`: a `narration_lines` step writes one prompt and line per segment, the guide chain matches and holds the track, and a `stop_after` probe is continued with `resume_from` |
 | [repair-segment.json](repair-segment.json) | Re-rendering one interior segment of a finished chain (run with `keep_segments` on) between its neighbours, held to both by guides with their audio, and splicing it into the take itself, so everything outside the span stays the take's |
+| [h3-seam-pass.json](h3-seam-pass.json) | Smoothing the seam jumps of a finished chain or passage: the whole take re-denoised at low strength (`refine_strength` 0.3) in overlapping windows fused at every step, with its own soundtrack kept. About 36-40 GPU-min per minute of take and 16 GiB peak; it smooths seams and is not a burn fix |
 
 The four chain templates, `dialogue-short` and `music-video` take a `tier`
 variable (default `standard`) that moves canvas, steps and weights together

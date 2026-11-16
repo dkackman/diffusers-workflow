@@ -3065,7 +3065,9 @@ bit-identical to the whole-take encode.
 Returns `latents` (the refine's `latents` argument), `num_frames` (the take
 padded with its last frame up to the next 17m + 5, the refine's `num_frames`)
 and `source_frames` (the take's own count, for `decode_h3_latents`'
-`num_frames`). Refused: a take that is not 24 fps, a side off the 32 grid, an
+`num_frames`), plus `width` and `height`, the take's canvas, for the refine's
+own. Refused at validate: a `source` whose extension is not a video file's.
+Refused at run time: a take that is not 24 fps, a side off the 32 grid, an
 empty take, and one over 30 minutes. A file header that claims far more frames
 than its duration holds is refused; one that claims a few more (a
 variable-frame-rate take) is encoded at the duration's count, with a warning.

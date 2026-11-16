@@ -1891,7 +1891,7 @@ class TestLongFormSkill:
     def test_the_open_questions_are_marked_pending(self):
         text = self._text()
         assert "pending measurement" in text
-        for topic in ("windowed refine", "latent carry", "capstone", "tier", "ltx"):
+        for topic in ("latent carry", "capstone", "tier", "ltx"):
             assert topic in text.lower(), topic
 
     def test_the_measured_levers_carry_their_verdicts(self):
@@ -1900,7 +1900,7 @@ class TestLongFormSkill:
         verdict rather than reading as pending."""
         text = " ".join(self._text().split())
         for verdict in (
-            "not a burn fix",  # windowed refine
+            "not a burn fix",  # windowed refine, the seam pass
             "not a default",  # latent carry
             "does not win",  # late capstone
             "Don ruled slot `last` the static long-take default",  # keystone
@@ -1909,6 +1909,28 @@ class TestLongFormSkill:
         ):
             assert verdict in text, verdict
         assert "experimental_keystone_slot" not in text
+
+    def test_the_seam_pass_is_offered_with_its_cost_and_its_limit(self):
+        """#1378: the windowed refine is measured and shipped as a template,
+        so *Per seam* names it, when its cost is worth it, and that it is not
+        a burn fix; levers.md no longer lists it under "do not offer"."""
+        body = _flat(skill_body(LONG_FORM_SKILL))
+        per_seam = body[body.index("## 4. Per seam") : body.index("## 5.")]
+        assert "`templates/minimax/h3-seam-pass`" in per_seam
+        assert "about 36 GPU-min per minute" in per_seam
+        assert "not a burn fix" in per_seam
+        levers = _flat(_read(os.path.join(LONG_FORM_DIR, "references", "levers.md")))
+        structural = levers[levers.index("## Structural levers") :]
+        structural = structural[: structural.index("## ", 3)]
+        assert "Windowed refine" not in structural
+        assert "`templates/minimax/h3-seam-pass`" in levers
+        assert "not a burn fix" in levers
+        speed = _flat(
+            _read(os.path.join(LONG_FORM_DIR, "references", "quality-and-speed.md"))
+        )
+        assert "`templates/minimax/h3-seam-pass`" in speed
+        assert "36-40 GPU-min per minute of take" in speed
+        assert "do not offer it" not in speed
 
     def test_the_narrated_take_rule_cites_its_record_and_presets(self):
         """A speaking subject held to narration is one take: the template's
