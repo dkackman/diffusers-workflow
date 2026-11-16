@@ -42,7 +42,7 @@ import torch
 
 from ..events import emit_log, emit_phase, get_context
 from ..media_types import rated_videos
-from .h3_hold import encoded_hold_audio
+from .h3_hold import core_denoise_sequences, encoded_hold_audio
 from .h3_rules import HELD_LATENTS_OUTPUT
 from .h3_rules import (
     HELD_AUDIO_OUTPUT,
@@ -51,6 +51,7 @@ from .h3_rules import (
     H3_FPS,
     LATENT_SCALE,
     REFINE_NOISE,
+    REFINE_STRENGTH_INPUT,
     REFINE_TILES_INPUT,
     tile_plan,
 )
@@ -369,3 +370,71 @@ def run_tiled_refine(pipeline, arguments, label, decode=None):
     if isinstance(requested, str):
         return outputs.get(requested)
     return {name: outputs[name] for name in requested if name in outputs}
+
+
+# A refine that asks for no decoded media (#1377): the stage-A windowed
+# refine hands its latents to `decode_h3_latents`, and the step's own call
+# decoding them first doubled the decode and its minutes
+
+
+def _decode_output_names(sub_blocks):
+    """Every state name the top-level decode blocks write."""
+    names = set()
+    for name, block in sub_blocks.items():
+        if _is_decode(name):
+            names.update(param.name for param in block.intermediate_outputs)
+    return names
+
+
+def _requested(arguments):
+    requested = arguments.get("output")
+    if not requested:
+        return None
+    return {requested} if isinstance(requested, str) else set(requested)
+
+
+def skips_decode(pipeline, arguments):
+    """Whether a call can leave the graph's decode blocks out: an H3 refine
+    (`refine_strength`, not tiled) whose `output` names something and nothing
+    a decode block writes. An absent `output` means every output, decoded
+    ones too."""
+    if arguments.get(REFINE_TILES_INPUT) is not None:
+        return False
+    if arguments.get(REFINE_STRENGTH_INPUT) is None:
+        return False
+    requested = _requested(arguments)
+    if requested is None or not core_denoise_sequences(pipeline):
+        return False
+    sub_blocks = getattr(getattr(pipeline, "_blocks", None), "sub_blocks", None)
+    if not hasattr(sub_blocks, "items"):
+        return False
+    decoded = _decode_output_names(sub_blocks)
+    return bool(decoded) and not requested & decoded
+
+
+def run_without_decode(pipeline, arguments, label):
+    """Call `pipeline` with its top-level decode blocks left out and return
+    what the call returns for `arguments["output"]`.
+
+    The graph is built from the pipeline's current blocks at call time, not
+    taken from the tiled refine's (`attach_tile_blocks` runs before the
+    loader's later swaps, `h3_windows.insert_refine_windows` among them), and
+    shares their instances, so every dw block stays in. The text encoder is
+    kept: one call, the prompt encoded inside it as a plain call does.
+    """
+    from diffusers.modular_pipelines import SequentialPipelineBlocks
+
+    kept = {
+        name: block
+        for name, block in pipeline._blocks.sub_blocks.items()
+        if not _is_decode(name)
+    }
+    blocks = SequentialPipelineBlocks.from_blocks_dict(kept)
+    emit_log(
+        f"{label}: decode skipped - output asks for "
+        f"{', '.join(sorted(_requested(arguments)))}, no decoded media",
+        decode_skipped=True,
+    )
+    with swapped_blocks(pipeline, blocks), decoded_later():
+        with reported_blocks(pipeline, label):
+            return pipeline(**arguments)
