@@ -1,0 +1,38 @@
+{
+  "id": "BenchKleinEdit3",
+  "summary": "#1317 control: the same three references and intent through templates/flux3/multi-reference (Klein).",
+  "description": "Stage A of #1317 (#1345): the Klein control arm for h3-image-edit3.json. templates/flux3/multi-reference as shipped (prompt upsampler then the 16-step edit), composed by its catalog name with the same three references (cast/estela.jpg, cast/aurelio.jpg, parhelion/kf-open.png, as image 1..3) and the same intent worded for Klein's instruction form, at the same seed.",
+  "variables": {
+    "instruction": "Place the woman from image 1 and the man from image 2 across from each other at a small table in the setting of image 3, leaning in as if mid-conversation. Keep each face, hairstyle and build exactly as in their portraits; keep the room, its light and its colour grade exactly as in image 3. Photographic, natural skin texture, medium two-shot at eye level, both faces clearly visible.",
+    "images": [
+      {
+        "location": "asset:cast/estela.jpg"
+      },
+      {
+        "location": "asset:cast/aurelio.jpg"
+      },
+      {
+        "location": "asset:parhelion/kf-open.png"
+      }
+    ],
+    "seed": 1317
+  },
+  "seed": "variable:seed",
+  "steps": [
+    {
+      "name": "edit",
+      "workflow": {
+        "path": "templates/flux3/multi-reference",
+        "arguments": {
+          "instruction": "variable:instruction",
+          "images": "variable:images",
+          "seed": "variable:seed"
+        }
+      },
+      "result": {
+        "content_type": "image/jpeg",
+        "subfolder": "final"
+      }
+    }
+  ]
+}
