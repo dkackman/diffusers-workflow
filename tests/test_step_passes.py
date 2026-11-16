@@ -62,6 +62,15 @@ def test_a_workflow_pipeline_block_is_read_at_validate_time():
     assert step_list_passes({"arguments": {STEP_LIST_KEY: SEVEN}}) == 6
 
 
+def test_a_modular_block_config_is_read_at_validate_time():
+    # A template states its blocks' list where update_components sets it
+    block = {"configuration": {"configs": {STEP_LIST_KEY: SEVEN}}, "arguments": {}}
+    assert step_list_passes(block) == 6
+    assert pipeline_step_passes(block, {"num_inference_steps": 30}) == 6
+    assert step_list_passes({"configuration": {"configs": {}}}) is None
+    assert step_list_passes({"configuration": "not a block"}) is None
+
+
 def test_without_a_step_list_the_n_minus_one_rule_holds():
     assert step_list(PlainPipeline()) is None
     assert step_list_passes(PlainPipeline(), {"num_inference_steps": 30}) is None

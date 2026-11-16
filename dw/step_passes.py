@@ -13,8 +13,9 @@ The rule is generic: no model is named here. The step list is looked for in
 the call's arguments first, then in the pipeline's config - a loaded
 pipeline's `config` (or an attribute of that name, as a modular pipeline
 exposes its config values), or, at validate time, a workflow step's
-`pipeline` block, whose `arguments` and `from_pretrained_arguments` are the
-only places a workflow can state one.
+`pipeline` block: its `arguments`, its `from_pretrained_arguments`, or the
+block configs a modular pipeline's `configuration.configs` sets through
+`update_components` (where a template states the list its blocks run).
 
 Consumers: TST's step ramp (`pipeline_processors/h3_tst.py`), MagCache
 calibration (`pipeline_processors/mag_calibration.py`), per-step progress
@@ -55,6 +56,12 @@ def _config_value(pipeline):
             block = pipeline.get(key)
             if isinstance(block, dict) and STEP_LIST_KEY in block:
                 return block[STEP_LIST_KEY]
+        configuration = pipeline.get("configuration")
+        configs = (
+            configuration.get("configs") if isinstance(configuration, dict) else None
+        )
+        if isinstance(configs, dict) and STEP_LIST_KEY in configs:
+            return configs[STEP_LIST_KEY]
         return None
     config = getattr(pipeline, "config", None)
     if hasattr(config, "get"):
