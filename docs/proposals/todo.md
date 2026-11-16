@@ -83,6 +83,14 @@ remaining deferred fix is recorded in
   followed it on attempt 2 (1:46.58, 1 cut). Don's eye-and-ear verdict and
   the null `narrated-take` estimate are open:
   `complete/narrated-passages-complete.md`.
+- **A cut's face-detail reset, closed with a late-frame still** (#1385,
+  stages #1388-#1389), shipped 2026-11-16. A take opens as smooth as its
+  still, so the #1311 keeper's cut dropped the face to 0.23x of A's end. A
+  bench probe of four arms: Don picked L (the sharpest face in A's last 2 s,
+  flux3 image-edit to B's angle, as B's still; 0.86x), and the join-time
+  sharpen read as etched. The recipe's *Takes* step carries the route. B's
+  late segments under it are unmeasured:
+  `complete/cut-detail-reset-complete.md`.
 - **Seam/segment split of chain drift** (#1324, stages #1349-#1350), shipped
   2026-11-14. `analyze_seams` answers gain `segment_looks`: each shot's 1 s
   first and last window of new frames (lightness, contrast, saturation,
