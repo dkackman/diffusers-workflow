@@ -48,6 +48,8 @@ from diffusers.modular_pipelines.modular_pipeline_utils import (
 from PIL import Image
 
 from . import h3_hold_steps
+from .h3_keystone_attention import installed as keystone_attention_installed
+from .h3_keystone_attention import publish_rows
 from .h3_rules import (
     CAPSTONE_GATE,
     CAPSTONE_PAST_END,
@@ -480,14 +482,27 @@ class DwH3GuideLayoutStep(ModularPipelineBlocks):
             components, state, guides, layout, laid, width_grid, num_text
         )
 
+        gated = gated_guide_rows(guides, positions, laid["num_condition_video_rows"])
+        # The keystone attention re-split (#1391), when installed for this
+        # call, takes the keyframe rows K and the guide video rows C from here
+        transformer = getattr(components, "transformer", None)
+        if keystone_attention_installed(transformer):
+            if gated:
+                raise ValueError(
+                    "experimental_keystone_attention does not combine with "
+                    "gated guide rows: they move the rows it re-splits"
+                )
+            publish_rows(
+                transformer,
+                num_text,
+                laid["num_condition_video_rows"],
+                sum(rows.shape[0] for rows in positions),
+            )
         for name, value in zip(_PACKED, layout):
             state.set(name, value.to(device))
         state.set("num_condition_video_rows", layout[5])
         state.set("num_condition_audio_rows", num_audio_rows)
-        state.set(
-            GATED_GUIDE_ROWS,
-            gated_guide_rows(guides, positions, laid["num_condition_video_rows"]),
-        )
+        state.set(GATED_GUIDE_ROWS, gated)
         state.set(
             KEYSTONE_RESTORE_ROWS,
             keystone_restore_rows(

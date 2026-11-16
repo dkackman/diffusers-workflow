@@ -209,6 +209,7 @@ ERROR_ORDER = [
     "selflift",
     "refine_windows",
     "experimental_tst",
+    "experimental_keystone_attention",
     "turbo_lead_in",
     "task_signatures",
     "task_remote_code",
@@ -329,6 +330,7 @@ WARNING_ORDER = [
     "chain_lines_warnings",
     "frame_snap_warnings",
     "held_audio_warnings",
+    "keystone_attention_notes",
 ]
 
 

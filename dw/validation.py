@@ -42,6 +42,10 @@ from .dissolve_frame_errors import dissolve_frame_errors
 from .for_each import ForEachError, entry_field_warnings
 from .presets import apply_presets
 from .pipeline_processors.h3_lead_in import lead_in_errors
+from .pipeline_processors.h3_keystone_attention import (
+    keystone_attention_errors,
+    keystone_attention_notes,
+)
 from .pipeline_processors.h3_tst import tst_errors
 from .guides import (
     anchor_errors,
@@ -574,6 +578,13 @@ ERROR_CHECKS = [
         "experimental_tst",
         lambda c: tst_errors(c.expanded, c.source_indices),
     ),
+    # The experimental keystone attention re-split (#1391): the flag off, not
+    # H3 fl2va with image and guides, a bad balance or block list, or with TST,
+    # sparse, a capstone or gated guide rows
+    Check(
+        "experimental_keystone_attention",
+        lambda c: keystone_attention_errors(c.expanded, c.source_indices),
+    ),
     # A turbo_lead_in off H3, not a whole number >= 0, at or past the call's
     # evaluations, with no adapter named 'turbo', or a first_block cache (#1326)
     Check(
@@ -842,6 +853,12 @@ WARNING_CHECKS = [
     Check(
         "held_audio_warnings",
         lambda c: held_audio_warnings(c.expanded, c.source_indices),
+    ),
+    # The settings an experimental_keystone_attention runs, its defaults
+    # filled (#1391) - what validate shows for `{}`
+    Check(
+        "keystone_attention_notes",
+        lambda c: keystone_attention_notes(c.expanded, c.source_indices),
     ),
 ]
 

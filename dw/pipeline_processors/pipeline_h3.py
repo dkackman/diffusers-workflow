@@ -400,6 +400,59 @@ class H3Arguments:
                 raise ValueError(f"Step '{self.name}': {refusal}")
         return arguments, settings
 
+    def _take_keystone_attention(self, arguments, tst=None):
+        """`experimental_keystone_attention` off the call: (the arguments
+        without it, the settings `h3_keystone_attention.keystone_attention_call`
+        installs, or None). Null or false is none. Taken after `_with_guides`,
+        so an empty `guides` list is already gone.
+
+        Raises:
+            ValueError: If the flag is off, the value is no keystone attention
+                object, the call is not fl2va with an image and guides, it
+                also runs TST, or this pipeline has no dense H3 transformer
+        """
+        from .h3_keystone_attention import (
+            FL2VA,
+            IMAGE_INPUT,
+            KEYSTONE_ATTENTION_INPUT,
+            keystone_attention_refusal,
+            keystone_attention_settings,
+        )
+
+        if KEYSTONE_ATTENTION_INPUT not in arguments:
+            return arguments, None
+        arguments = dict(arguments)
+        value = arguments.pop(KEYSTONE_ATTENTION_INPUT)
+        where = f"Step '{self.name}'"
+        try:
+            settings = keystone_attention_settings(value)
+        except ValueError as e:
+            raise ValueError(f"{where}: {e}") from e
+        if settings is None:
+            return arguments, None
+        workflow = self.from_pretrained_arguments.get("workflow")
+        if workflow != FL2VA:
+            raise ValueError(
+                f"{where}: {KEYSTONE_ATTENTION_INPUT} runs on an H3 fl2va call, "
+                f"and this step loads {workflow!r}"
+            )
+        for name in (IMAGE_INPUT, GUIDES_INPUT):
+            if not arguments.get(name):
+                raise ValueError(
+                    f"{where}: {KEYSTONE_ATTENTION_INPUT} re-splits attention "
+                    f"between the keyframe and guide rows, and this call passes "
+                    f"no '{name}'"
+                )
+        if tst is not None:
+            raise ValueError(
+                f"{where}: {KEYSTONE_ATTENTION_INPUT} does not combine with "
+                f"experimental_tst: both own the blocks' attention processor"
+            )
+        refusal = keystone_attention_refusal(self.pipeline, self.configuration)
+        if refusal:
+            raise ValueError(f"{where}: {refusal}")
+        return arguments, settings
+
     def _take_lead_in(self, arguments):
         """`turbo_lead_in` off the call: (the arguments without it, the N
         `h3_lead_in.lead_in_call` runs, or None). Null or 0 is no lead-in.
