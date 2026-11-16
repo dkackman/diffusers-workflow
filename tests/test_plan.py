@@ -2325,6 +2325,238 @@ class TestDownloadsRequired:
         plan(lookup_sizes=False)
 
 
+BASE = "org/flex"
+OTHER = "org/base"
+BASE_REV = "a" * 40
+OTHER_REV = "b" * 40
+WEIGHTS = ("transformer", "text_encoder", "vae")
+OWN = ("scheduler", "tokenizer")
+
+
+def _modular_index():
+    """A modular_model_index.json: three weight components and two small ones,
+    every spec on BASE, and one key that is no component."""
+    entry = lambda name: [  # noqa: E731
+        "diffusers",
+        "Thing",
+        {"pretrained_model_name_or_path": BASE, "subfolder": name, "revision": None},
+    ]
+    index = {"_class_name": "FlexModularPipeline"}
+    index.update({name: entry(name) for name in WEIGHTS + OWN})
+    return index
+
+
+def _flex_step(load_components=None):
+    """A modular step on BASE whose load_components sends the weights to OTHER
+    - under configuration, as the catalog's Pika templates write it."""
+    load_components = load_components or {
+        "pretrained_model_name_or_path": {name: OTHER for name in WEIGHTS},
+        "revision": {**{name: OTHER_REV for name in WEIGHTS}, "default": BASE_REV},
+    }
+    return {
+        "name": "flex",
+        "pipeline": {
+            "configuration": {
+                "component_type": "ModularPipeline",
+                "load_components": load_components,
+            },
+            "from_pretrained_arguments": {"model_name": BASE, "workflow": "ref2va"},
+            "loras": [
+                {"model_name": BASE, "weight_name": "ref2va/adapter.safetensors"}
+            ],
+            "arguments": {},
+        },
+        "result": {"content_type": "video/mp4"},
+    }
+
+
+def _flex_spec(*steps):
+    spec = definition()
+    spec["steps"] = list(steps) or [_flex_step()]
+    return spec
+
+
+class _Sibling:
+    def __init__(self, rfilename, size):
+        self.rfilename = rfilename
+        self.size = size
+
+
+class _Info:
+    gated = False
+
+    def __init__(self, siblings):
+        self.siblings = siblings
+
+
+GIB = 1024**3
+
+
+class TestAComponentOverrideIsNotTheWholeBaseRepo:
+    """#1343: a modular step whose load_components loads its weights from
+    another repo fetches only what is left on its own - the base repo's
+    components that no override moved, by its modular_model_index.json - and
+    its adapter file, not the base repo whole."""
+
+    @pytest.fixture
+    def hub(self, monkeypatch):
+        import dw.plan_downloads
+
+        calls = []
+        siblings = [_Sibling(f"{name}/weights.bin", 50 * GIB) for name in WEIGHTS]
+        siblings += [_Sibling(f"{name}/config.json", GIB // 2) for name in OWN]
+        siblings += [_Sibling("ref2va/adapter.safetensors", 2 * GIB)]
+
+        def fake_model_info(name, revision=None, **k):
+            calls.append((name, revision))
+            return _Info(siblings if name == BASE else [_Sibling("x", 10 * GIB)])
+
+        class Metadata:
+            size = 2 * GIB
+
+        monkeypatch.setattr(dw.plan_downloads, "model_info", fake_model_info)
+        monkeypatch.setattr(
+            dw.plan_downloads, "get_hf_file_metadata", lambda url, **k: Metadata()
+        )
+        monkeypatch.setattr(
+            dw.plan_downloads,
+            "_fetch_modular_index",
+            lambda repo, rev: _modular_index(),
+        )
+        return calls
+
+    def test_only_the_components_left_on_the_base_repo_and_the_adapter(self, plan, hub):
+        assert plan(_flex_spec(), lookup_sizes=True)["downloads_required"] == [
+            {
+                "repo": BASE,
+                "components": ["scheduler", "tokenizer"],
+                "revision": BASE_REV,
+                "gb": 1.0,
+                "gated": False,
+                "access_blocked": False,
+            },
+            {"repo": OTHER, "gb": 10.0, "gated": False, "access_blocked": False},
+            {
+                "repo": BASE,
+                "filename": "ref2va/adapter.safetensors",
+                "revision": None,
+                "gb": 2.0,
+                "gated": None,
+                "access_blocked": False,
+            },
+        ]
+        assert (BASE, BASE_REV) in hub
+
+    def test_a_component_already_cached_is_not_listed(self, plan, hub, monkeypatch):
+        import dw.plan_downloads
+
+        monkeypatch.setattr(
+            dw.plan_downloads,
+            "_cached_file",
+            lambda repo, filename, revision, cache_dir=None: (
+                "/cache/x" if repo == BASE and filename.startswith(OWN) else None
+            ),
+        )
+        repos = plan(_flex_spec(), lookup_sizes=True)["downloads_required"]
+        assert [(d["repo"], d.get("filename")) for d in repos] == [
+            (OTHER, None),
+            (BASE, "ref2va/adapter.safetensors"),
+        ]
+
+    def test_an_unreadable_index_lists_the_base_repo_whole(
+        self, plan, hub, monkeypatch
+    ):
+        """Never a miss: without the index the base repo stands for it, and
+        the whole-repo entry covers the adapter file."""
+        import dw.plan_downloads
+
+        def offline(repo, rev):
+            raise RuntimeError("offline")
+
+        monkeypatch.setattr(dw.plan_downloads, "_fetch_modular_index", offline)
+        repos = plan(_flex_spec(), lookup_sizes=True)["downloads_required"]
+        assert [(d["repo"], d.get("components"), d.get("filename")) for d in repos] == [
+            (BASE, None, None),
+            (OTHER, None, None),
+        ]
+
+    def test_offline_with_the_index_and_its_components_cached_lists_nothing(
+        self, plan, tmp_path, monkeypatch
+    ):
+        import dw.plan_downloads
+
+        snapshot = tmp_path / "snapshot"
+        for name in OWN:
+            (snapshot / name).mkdir(parents=True)
+            (snapshot / name / "config.json").write_text("{}")
+        (snapshot / "modular_model_index.json").write_text(json.dumps(_modular_index()))
+
+        def cached(repo, filename, revision, cache_dir=None):
+            if repo == BASE and filename in (
+                "modular_model_index.json",
+                "ref2va/adapter.safetensors",
+            ):
+                return str(snapshot / filename)
+            return None
+
+        monkeypatch.setattr(dw.plan_downloads, "_cached_file", cached)
+        repos = plan(_flex_spec())["downloads_required"]
+        assert [d["repo"] for d in repos] == [OTHER]
+
+    def test_offline_with_a_component_not_cached_lists_it_unsized(
+        self, plan, tmp_path, monkeypatch
+    ):
+        import dw.plan_downloads
+
+        snapshot = tmp_path / "snapshot"
+        snapshot.mkdir()
+        (snapshot / "modular_model_index.json").write_text(json.dumps(_modular_index()))
+        monkeypatch.setattr(
+            dw.plan_downloads,
+            "_cached_file",
+            lambda repo, filename, revision, cache_dir=None: (
+                str(snapshot / filename)
+                if filename == "modular_model_index.json"
+                else None
+            ),
+        )
+        [flex, other, adapter] = plan(_flex_spec())["downloads_required"]
+        assert flex == {
+            "repo": BASE,
+            "components": ["scheduler", "tokenizer"],
+            "revision": BASE_REV,
+            "gb": None,
+            "gated": None,
+            "access_blocked": None,
+        }
+        assert other["repo"] == OTHER
+        assert adapter["filename"] == "ref2va/adapter.safetensors"
+
+    def test_a_string_override_moves_every_component(self, plan, hub):
+        """`pretrained_model_name_or_path` as one string sends all of them
+        away: nothing is left to fetch from the base repo but the adapter."""
+        step = _flex_step({"pretrained_model_name_or_path": OTHER})
+        repos = plan(_flex_spec(step), lookup_sizes=True)["downloads_required"]
+        assert [(d["repo"], d.get("filename")) for d in repos] == [
+            (OTHER, None),
+            (BASE, "ref2va/adapter.safetensors"),
+        ]
+
+    def test_the_same_base_loaded_with_no_override_elsewhere_is_listed_whole(
+        self, plan, hub
+    ):
+        plain = _flex_step()
+        plain["name"] = "plain"
+        del plain["pipeline"]["configuration"]["load_components"]
+        repos = plan(_flex_spec(_flex_step(), plain), lookup_sizes=True)[
+            "downloads_required"
+        ]
+        assert [(d["repo"], d.get("components"), d.get("filename")) for d in repos] == [
+            (BASE, None, None),
+            (OTHER, None, None),
+        ]
+
+
 class TestGateWarnings:
     def test_a_blocked_repo_gets_a_warning(self):
         required = [

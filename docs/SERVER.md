@@ -594,7 +594,17 @@ The editor's forms come from these; they are just as usable from scripts:
   when it succeeds, `null` when unknown. It is listed when that file at that
   revision is not in the hub cache (checked per file, so another cached file
   of the same repo does not count), and a whole-repo entry for the same repo
-  subsumes it. Acknowledgements still compare by `repo`. `restore_faces`
+  subsumes it. A modular step whose `load_components` loads some
+  components from another repo (`pretrained_model_name_or_path`) lists
+  that repo whole and its own `model_name` by component (#1343):
+  `{repo, components, revision, gb, gated, access_blocked}`, where
+  `components` are the subfolders left on `model_name` by its
+  `modular_model_index.json` with the overrides laid over it, `revision` the
+  one `load_components` names for them (`null` for `main`), and `gb` only
+  their files not cached. Nothing left to fetch gives no entry; an index that
+  can't be read (offline, uncached) lists `model_name` whole instead. Its
+  adapter file is then a file entry of its own. Acknowledgements still
+  compare by `repo`. `restore_faces`
   also lists facexlib's weights as URL entries (`detection_Resnet50_Final.pth`,
   and `parsing_parsenet.pth` unless `use_parse` is false) while they are
   missing from facexlib's weights directory; they download outside the

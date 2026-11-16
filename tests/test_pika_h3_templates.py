@@ -157,7 +157,30 @@ def test_the_description_carries_the_caveats(name):
 def test_ref2va_uses_pikas_reference_classes():
     references = _pipeline("reference-to-video.json")["arguments"]["references"]
     types = [r["reference_type"] for r in references]
+    image = "diffusers.modular_pipelines.pika_h3_flex.PikaH3FlexImageReference"
     assert types == [
-        "diffusers.modular_pipelines.pika_h3_flex.PikaH3FlexImageReference",
+        image,
+        image,
+        image,
         "diffusers.modular_pipelines.pika_h3_flex.PikaH3FlexAudioReference",
     ]
+
+
+def test_ref2va_takes_up_to_three_images_the_extra_two_off_by_default():
+    """#1343 bounce: a second and third image reference, @Image2 and @Image3,
+    null by default so the default run sends one image (#478 drops a null)."""
+    template = _load("reference-to-video.json")
+    sources = [
+        r["from_file"]
+        for r in _pipeline("reference-to-video.json")["arguments"]["references"]
+    ]
+    assert sources == [
+        "variable:subject",
+        "variable:subject_2",
+        "variable:subject_3",
+        "variable:voice",
+    ]
+    assert template["variables"]["subject_2"] is None
+    assert template["variables"]["subject_3"] is None
+    assert "@Image2" in template["description"]
+    assert "@Image3" in template["description"]
