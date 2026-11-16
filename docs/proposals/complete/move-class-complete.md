@@ -91,7 +91,8 @@ figures.
   7 on H3 (stage #1379, 26.9 GPU-min) and LTX-2.5 (stage #1380, 21.0
   GPU-min, one rerun), 40 clips plus the rerun. The verdicts are in each
   compile table's `measured (#1148, #1260)` column and the skill's table;
-  the record is `docs/proposals/audits/2026-11-move-seeds.md`. LTX-2.5's
+  the record is `docs/proposals/audits/2026-11-move-seeds.md`, and the
+  design record `move-seeds-complete.md`. LTX-2.5's
   `handheld` was ignored on both seeds and on the rerun, so it stays a
   hint only.
 - **Benching counters on the borderline moves** (`push-in`, `handheld`)
