@@ -654,7 +654,12 @@ def test_no_stale_entry_in_the_allowlist():
 # Then to 15_000 (measured 14_981) for `minimax/h3-seam-pass` (#1230, stage
 # #1378): one new entry, the catalog's only seam smoothing of a finished take,
 # with its measured cost block.
-COMPACT_BUDGET = 15_000
+# Then to 15_475 (measured 15_454) for `pika-h3/text-to-video`,
+# `pika-h3/first-and-last-frame` and `pika-h3/reference-to-video` (#1316, stage
+# #1343): three new entries, the catalog's only Pika H3 Flex family - MiniMax-H3's
+# weights under Pika's adapter and fixed 6-pass schedule - with estimated cost
+# blocks until a measured run replaces them.
+COMPACT_BUDGET = 15_475
 # The shape=sequence listing to 1_650 (measured 1_642) for
 # `minimax/replace-performer` (#1374), the catalog's only sequence that recasts
 # a take.

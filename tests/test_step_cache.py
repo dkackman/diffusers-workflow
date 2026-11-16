@@ -917,6 +917,15 @@ TEMPLATE_PIPELINE_KEYS = {
     "outpaint.json": {
         "outpaint": "8ece64de576884be947f5af07c5713b92d3a1e641035434ef805629f12ae8c77"
     },
+    "pika-h3/first-and-last-frame.json": {
+        "first_and_last_frame_to_video_audio": "24135094c56e61cb1fe877294118966c401aa1396053f0c6f0edc1c01df39b9a"
+    },
+    "pika-h3/reference-to-video.json": {
+        "reference_to_video_audio": "010016f5d3b1cdd80130a12fb46efa0ef3fc6ea56c3f665ffffa084f0e31bd6b"
+    },
+    "pika-h3/text-to-video.json": {
+        "text_to_video_audio": "d8ad19773056d73023f784383e53f7112da87a14f576dd52c0f0a81b29f0065f"
+    },
     "prompt-weighting.json": {
         "txt2img": "745df144eb83ac12caa01de34dc7238b8595b28b70db7c960f4d1c0366b2f2f4"
     },

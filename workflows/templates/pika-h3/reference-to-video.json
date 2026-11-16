@@ -1,0 +1,250 @@
+{
+    "id": "PikaH3FlexRef2VA",
+    "description": "Reference to video with audio through Pika H3 Flex, Pika's adapter over MiniMax-H3. The 'ref2va' workflow takes a references list of Pika's own reference types - PikaH3FlexImageReference (up to 9), PikaH3FlexVideoReference (up to 3, motion or performance) and PikaH3FlexAudioReference - which the prompt addresses as @Image1, @Video1, @Audio1; here an image fixes the subject and an audio clip their voice. An image reference is encoded at the tier's reference short edge (1024 below 768p, 2048 at 768p). Runs on the reference partition ('transformer_ref') with Pika's ref2va adapter. Pika H3 Flex is an adapter over MiniMax-H3's own weights: the five weight components (transformer, transformer_ref, text_encoder, vae, audio_vae) are loaded from MiniMaxAI/MiniMax-H3 at the base revision Pika's adapter manifest names, so only the scheduler, tokenizer and processor come from Pika's repo. The adapter's sampler is fixed: its blocks run the 7-point denoising_step_list [1000, 750, 500, 250, 100, 40, 0] (6 transformer passes) on their own shift, so the template sets no num_inference_steps and no scheduler shift - stated in configuration.configs only so validate counts the passes. Seeds are not comparable with the H3 templates: the same seed on the same prompt gives a different clip, so an A/B against H3 compares samples, not a matched pair. The base match itself is sampled (Pika's own runs against the pinned base, not a bit-exact reproduction). 'resolution' picks a 16:9 bucket - 480p is 832x480, 768p is 1344x768; other ratios of the same tiers (multiples of 32): 9:16 480x832 / 768x1344, 1:1 480x480 / 768x768, 4:3 640x480 / 1024x768, 3:4 480x640 / 768x1024, 21:9 960x416 / 1536x672 - pass width and height for one. The weights load at int8 SDNQ (host_ram_gb 69).",
+    "summary": "Pika H3 Flex video with audio keeping an image's subject and an audio clip's voice.",
+    "cost": [
+        {
+            "device": "cuda",
+            "name": "RTX 3090",
+            "vram_gb": 24,
+            "minutes": 5.9
+        }
+    ],
+    "cost_drivers": [
+        "num_frames",
+        "width",
+        "height",
+        "weights_dtype",
+        "attention_backend",
+        "cache"
+    ],
+    "vram_estimate": {
+        "base_gb": 16.0,
+        "bytes_per_voxel": 28.71,
+        "gb_per_reference": 1.0,
+        "voxel_variables": [
+            "width",
+            "height",
+            "num_frames"
+        ],
+        "reason": "Ref2VA holds every reference's encoding resident beside the video latents, so the ceiling is a fixed base, a per-voxel term for the VAE decode's conv3d activation (width * height * num_frames), and a per-reference term. Classified against the 24 GB entry from the #479 field report (lem, RTX 3090 24 GB, int4 + 768p turbo LoRA, 9 steps, 2026-09-25/26) at 1344x768: 175 frames x 2 refs, 209 x 2 and 175 x 3 ran (projected 22.83, 23.77 and 23.83 GB); 209 x 3 OOM'd in reference encode needing a further 5.1 GB and 260 x 1 OOM'd at denoise step 1 needing a further 4.8 GB (projected 24.77 and 24.18 GB). The refused allocations are lower bounds, not peaks, so this is a classification with about 0.2 GB of margin either side, not a fitted curve. bytes_per_voxel is unchanged from #324's calibration (job 282172105da1); base_gb drops 0.3 GB now the references are counted separately"
+    },
+    "host_ram_gb": 69,
+    "variables": {
+        "prompt": "References: @Image1 is the subject, an astronaut in a white hard-shell suit with a gold-mirrored visor and an orange chest harness. @Audio1 is the voice timbre reference only: a measured, formal male voice, mid-range in pitch. Make a new video of the astronaut from @Image1 speaking directly to camera, head and shoulders, keeping the suit, visor and harness exactly as in @Image1. The astronaut says, in the voice of @Audio1: \"We came in peace, and we will leave the light on.\" SOUND: a soft suit-radio hiss under the voice, faint air-recycler hum. No subtitles, no captions, no text.",
+        "subject": "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/diffusers/astronaut.jpg",
+        "voice": "https://huggingface.co/datasets/Xenova/transformers.js-docs/resolve/main/jfk.wav",
+        "num_frames": 124,
+        "resolution": "480p",
+        "width": 832,
+        "height": 480,
+        "weights_dtype": "{int8}",
+        "seed": null,
+        "attention_backend": "sparse",
+        "sparse_tau": 0.5,
+        "sparse_topk": 0.15,
+        "cache": null
+    },
+    "variable_constraints": {
+        "num_frames": {
+            "modulus": 17,
+            "remainder": 5,
+            "min_frames": 124,
+            "max_frames": 345,
+            "snap": "up",
+            "reason": "the video VAE encodes 17 * n + 5 frames, and Pika H3 Flex generates between 5 and 15 seconds at 24 fps (120..360 frames, snapped up onto the 17 * n + 5 grid)"
+        },
+        "width": {
+            "modulus": 32,
+            "remainder": 0,
+            "reason": "Pika H3 Flex's canvas is a multiple of 32 on both axes, and MiniMax-H3's pipeline refuses one that is not only after the weights have loaded; refused here instead, with no 'snap', since rounding would be a silent change to the size asked for"
+        },
+        "height": {
+            "modulus": 32,
+            "remainder": 0,
+            "reason": "Pika H3 Flex's canvas is a multiple of 32 on both axes, and MiniMax-H3's pipeline refuses one that is not only after the weights have loaded; refused here instead, with no 'snap', since rounding would be a silent change to the size asked for"
+        }
+    },
+    "presets": {
+        "resolution": {
+            "480p": {
+                "width": 832,
+                "height": 480
+            },
+            "768p": {
+                "width": 1344,
+                "height": 768
+            }
+        }
+    },
+    "seed": "variable:seed",
+    "steps": [
+        {
+            "name": "reference_to_video_audio",
+            "pipeline": {
+                "configuration": {
+                    "component_type": "ModularPipeline",
+                    "pre_load_modules": [
+                        "sdnq"
+                    ],
+                    "configs": {
+                        "denoising_step_list": [
+                            1000,
+                            750,
+                            500,
+                            250,
+                            100,
+                            40,
+                            0
+                        ]
+                    },
+                    "load_components": {
+                        "dtype": "torch.bfloat16",
+                        "pretrained_model_name_or_path": {
+                            "transformer": "MiniMaxAI/MiniMax-H3",
+                            "transformer_ref": "MiniMaxAI/MiniMax-H3",
+                            "text_encoder": "MiniMaxAI/MiniMax-H3",
+                            "vae": "MiniMaxAI/MiniMax-H3",
+                            "audio_vae": "MiniMaxAI/MiniMax-H3"
+                        },
+                        "revision": {
+                            "transformer": "42ed227ee7df40d41602854ae760620d6eb651fe",
+                            "transformer_ref": "42ed227ee7df40d41602854ae760620d6eb651fe",
+                            "text_encoder": "42ed227ee7df40d41602854ae760620d6eb651fe",
+                            "vae": "42ed227ee7df40d41602854ae760620d6eb651fe",
+                            "audio_vae": "42ed227ee7df40d41602854ae760620d6eb651fe",
+                            "default": "ca45d99f9b1d1859ffb9dc1cd6bfaaa994257f56"
+                        },
+                        "quantization_config": {
+                            "transformer_ref": {
+                                "configuration": {
+                                    "config_type": "sdnq.SDNQConfig"
+                                },
+                                "arguments": {
+                                    "weights_dtype": "variable:weights_dtype",
+                                    "quantization_device": "cuda",
+                                    "return_device": "cpu",
+                                    "use_quantized_matmul": true,
+                                    "dequantize_fp32": false,
+                                    "modules_to_not_convert": [
+                                        "proj_in",
+                                        "audio_proj_in",
+                                        "context_embedder",
+                                        "time_embedder",
+                                        "time_proj",
+                                        "token_refiner",
+                                        "norm_out",
+                                        "proj_out",
+                                        "audio_proj_out"
+                                    ]
+                                }
+                            },
+                            "text_encoder": {
+                                "configuration": {
+                                    "config_type": "sdnq.SDNQConfig"
+                                },
+                                "arguments": {
+                                    "weights_dtype": "variable:weights_dtype",
+                                    "quantization_device": "cuda",
+                                    "return_device": "cpu",
+                                    "dequantize_fp32": false,
+                                    "modules_to_not_convert": [
+                                        ".model.visual",
+                                        "lm_head"
+                                    ]
+                                }
+                            },
+                            "vae": {
+                                "configuration": {
+                                    "config_type": "sdnq.SDNQConfig"
+                                },
+                                "arguments": {
+                                    "weights_dtype": "{int8}",
+                                    "quant_conv": true,
+                                    "use_quantized_matmul_conv": true,
+                                    "quantization_device": "cuda",
+                                    "return_device": "cpu",
+                                    "dequantize_fp32": false
+                                }
+                            }
+                        }
+                    },
+                    "components": {
+                        "transformer_ref": {
+                            "attention_backend": "variable:attention_backend",
+                            "sparse_tau": "variable:sparse_tau",
+                            "sparse_topk": "variable:sparse_topk",
+                            "group_offload": {
+                                "offload_type": "block_level",
+                                "num_blocks_per_group": 1,
+                                "use_stream": true,
+                                "record_stream": true,
+                                "low_cpu_mem_usage": true
+                            }
+                        },
+                        "text_encoder": {
+                            "remove_modules": [
+                                "lm_head"
+                            ]
+                        },
+                        "text_encoder.model": {
+                            "truncate_layers": {
+                                "language_model.layers": 51
+                            },
+                            "group_offload": {
+                                "offload_type": "leaf_level"
+                            }
+                        },
+                        "vae": {
+                            "device": "cuda",
+                            "residency": "on_demand"
+                        },
+                        "audio_vae": {
+                            "device": "cuda",
+                            "residency": "on_demand"
+                        }
+                    },
+                    "cache": "variable:cache"
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "Pika-Labs/Pika-H3-Flex",
+                    "workflow": "ref2va"
+                },
+                "loras": [
+                    {
+                        "model_name": "Pika-Labs/Pika-H3-Flex",
+                        "weight_name": "ref2va/adapter.safetensors",
+                        "adapter_name": "pika_flex",
+                        "scale": 1.0
+                    }
+                ],
+                "arguments": {
+                    "prompt": "variable:prompt",
+                    "references": [
+                        {
+                            "reference_type": "diffusers.modular_pipelines.pika_h3_flex.PikaH3FlexImageReference",
+                            "from_file": "variable:subject"
+                        },
+                        {
+                            "reference_type": "diffusers.modular_pipelines.pika_h3_flex.PikaH3FlexAudioReference",
+                            "from_file": "variable:voice"
+                        }
+                    ],
+                    "num_frames": "variable:num_frames",
+                    "width": "variable:width",
+                    "height": "variable:height",
+                    "output": [
+                        "videos",
+                        "audio",
+                        "sampling_rate"
+                    ]
+                }
+            },
+            "result": {
+                "content_type": "video/mp4",
+                "fps": 24,
+                "subfolder": "final"
+            }
+        }
+    ]
+}
