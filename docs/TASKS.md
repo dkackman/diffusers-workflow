@@ -3220,9 +3220,11 @@ Returns, by key:
 - `contact_sheet`: a PNG of each cut's first frame with every person outlined and labelled `person-N`, tiles labelled `shot-N`.
 - `people`: a JSON record: `prompt`, `threshold`, `max_people`, `fps`, `num_frames`, `width`, `height`, `tracked`, `people` (the count), and `cuts`, each `{name, start_frame, num_frames, found, people: [{name, box, score, area}]}`.
 
-Saved under a step whose result is `video/mp4` they become `<base>-person-1.mp4`, `<base>-contact_sheet.png` and `<base>-people.json`, and a later step reads `previous_result:<step>.person-2`.
+Saved under a step whose result is `video/mp4` they become `<base>-0.0-person-1.mp4`, `<base>-0.0-contact_sheet.png` and `<base>-0.0-people.json` (the `-0.0` is the writer's result and item index, the same prefix every step's files carry), and a later step reads `previous_result:<step>.person-2`.
 
 **Numbering is per cut.** People are numbered by mask area on each cut's first frame, largest first, so on a multi-cut clip `person-1` is the largest figure in each cut, not one identity across cuts. A cut with fewer people leaves the higher numbers black there. Check the contact sheet before choosing a mask.
+
+**Only people in a cut's first frame are tracked.** Someone who walks in later in the cut gets no mask there. So does someone who appears across a dissolve or slow fade, which the cut detector does not split (it finds hard cuts). The `people` record's `cuts` show where each track started. To mask a late entrant, trim the clip to start where they are in frame.
 
 No person in any cut is a run-time error ("no person found"). A cut with nobody, and more people found than `max_people`, are warnings. `segment` is unchanged.
 

@@ -75,8 +75,8 @@ threshold 0.363); outside the mask the source holds (37.5 dB past 96 px).
    `detect_cuts`, and a person mask video (`video_frames` then `segment`, prompt
    "person", threshold 0.3). For a two-person shot "person" masks both: set
    `track` to the number of people and the `people` step (`track_people`) writes
-   one mask per person (`people-person-N.mp4`, numbered by size per cut, largest
-   first) and `people-contact_sheet.png`. Read the sheet to choose the number
+   one mask per person (`people-0.0-person-N.mp4`, numbered by size per cut, largest
+   first) and `people-0.0-contact_sheet.png`. Read the sheet to choose the number
    for the one to replace, and pass that mask as `mask_video`; check each cut,
    as numbering restarts at every cut. `track` 0 (default) tracks nobody.
 2. **Choose cuts.** Drop the cuts that need no swap and merge fragments from the
