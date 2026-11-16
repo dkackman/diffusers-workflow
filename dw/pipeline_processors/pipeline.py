@@ -650,6 +650,8 @@ class Pipeline(H3Arguments):
         arguments = self._with_latent_anchor(arguments)
         # The experimental TST correction (#1196), installed for this call only
         arguments, tst = self._take_tst(arguments)
+        # The experimental keystone attention re-split (#1391), likewise
+        arguments, keystone_attention = self._take_keystone_attention(arguments, tst)
         # The turbo adapter held at 0 for the call's first N evaluations (#1326)
         arguments, lead_in = self._take_lead_in(arguments)
         # The load is over and the denoise loop is starting. Pipelines whose
@@ -688,6 +690,12 @@ class Pipeline(H3Arguments):
                         arguments.get("num_inference_steps"),
                         label,
                     )
+                )
+            if keystone_attention is not None:
+                from .h3_keystone_attention import keystone_attention_call
+
+                stack.enter_context(
+                    keystone_attention_call(self.pipeline, keystone_attention, label)
                 )
             if lead_in is not None:
                 from .h3_lead_in import evaluations, lead_in_call

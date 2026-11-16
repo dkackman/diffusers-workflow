@@ -57,6 +57,7 @@ CASES = {
     ),
     "selflift": (_argument("experimental_selflift", {}), None),
     "tst": (_argument("experimental_tst", {}), None),
+    "keystone_attention": (_argument("experimental_keystone_attention", {}), None),
 }
 
 KEYS = {
@@ -65,6 +66,7 @@ KEYS = {
     "anchor_every": "anchor_every",
     "selflift": "experimental_selflift",
     "tst": "experimental_tst",
+    "keystone_attention": "experimental_keystone_attention",
 }
 
 
