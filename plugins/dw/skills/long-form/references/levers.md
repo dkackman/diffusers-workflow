@@ -128,6 +128,15 @@ motion together at 86 s, and nothing is measured past 86 s.
   *A narrated take*). `chained-segments` with a voice H3 invents per passage
   is not this shape. Run end to end once: 106.6 s, two `standing` passages,
   one cut (`bench/records/drill.md`, *Cold drill attempt 2*).
+- **The next passage's still from the last take's late frame**: the cut's
+  detail reset. A fresh still opens B at 0.23x A's end face sharpness. The
+  sharpest face in A's last 2 s (`get_frame`) through
+  `templates/flux3/image-edit` to B's angle opens B at 0.86x, holding about
+  750-950 through B's first 8 s. A `sharpen`ed still opens at 0.39x, and a
+  stepped `sharpen` on B's head matches A but looks etched. Don picked the
+  late frame on viewing. Only B's first segment is measured
+  (`bench/records/narrated.md`, *Cut probe at the #1311 keeper's 41.0 s
+  cut*; `run-and-repair.md`, *Longer than one take*, *Takes*).
 
 ## Measured and cut: do not re-propose
 

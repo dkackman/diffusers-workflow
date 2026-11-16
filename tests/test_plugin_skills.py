@@ -2039,6 +2039,44 @@ class TestLongFormSkill:
         skill = _flat(self._text())
         assert "sum the `plan.estimate`s" in skill
 
+    def test_the_cut_detail_reset_names_the_late_frame_route(self):
+        """#1385 stage #1389: Don's viewing verdict on the #1388 cut probe
+        picked arm L. A cut is no longer said to cost nothing; step 3 makes
+        the next passage's still from the last take's late frame through
+        flux3 image-edit, states that only B's opening segment was measured,
+        and the guide and levers cite the probe's record."""
+        record = "Cut probe at the #1311 keeper's 41.0 s cut"
+        skill = _flat(skill_body(LONG_FORM_SKILL))
+        assert "costs nothing at the seam" not in skill
+        assert "late frame" in skill
+        body = _read(os.path.join(LONG_FORM_DIR, "references", "run-and-repair.md"))
+        start = body.index("### Longer than one take: passages joined as cuts")
+        procedure = _flat(body[start : body.index("\n## ", start)])
+        step3 = procedure[
+            procedure.index("3. **Takes.**") : procedure.index("4. **Join.**")
+        ]
+        for name in (
+            "`get_frame`",
+            "`templates/flux3/image-edit`",
+            "last 2 s",
+            "Only B's opening segment was measured",
+            "B's last segment",
+            record,
+        ):
+            assert name in step3, name
+        levers = _flat(_read(LONG_FORM_LEVERS))
+        assert record in levers
+        assert "`templates/flux3/image-edit`" in levers
+        guide = _read(os.path.join(REPO_ROOT, "docs", "WORKFLOW_GUIDE.md"))
+        start = guide.index("### A narrated long take")
+        section = _flat(guide[start : guide.index("\n## ", start)])
+        for name in (
+            "resets the face's detail",
+            "`templates/flux3/image-edit`",
+            record,
+        ):
+            assert name in section, name
+
     def test_the_move_class_comes_from_the_vocabulary(self):
         """#1255: the "until #1200" stand-in is replaced by a pointer to the
         cinematography vocabulary's `class` column, in both files."""
