@@ -3228,6 +3228,8 @@ Saved under a step whose result is `video/mp4` they become `<base>-0.0-person-1.
 
 No person in any cut is a run-time error ("no person found"). A cut with nobody, and more people found than `max_people`, are warnings. `segment` is unchanged.
 
+**A match is not proof of a person.** Grounding-DINO is open-vocabulary. At the default `threshold` of 0.3, shared with `segment`, it can match a person-free frame: a full-frame QR code scored 0.52 as "person". Each person's `score` is in the `people` record. A frame that really shows someone usually scores well above that (0.9 on the qa-cast two-shots). Check the contact sheet, and raise `threshold` (0.6 refused that QR code) if a numbered box isn't a person.
+
 ## Object Removal
 
 Erase what a mask covers and fill the hole from the surrounding texture, with no prompt (#956). `remove_object` runs [LaMa](https://github.com/advimman/lama) (big-lama) through spandrel: no diffusion, so a warm run takes well under a second on a GPU, and it runs on CUDA, MPS and CPU.
