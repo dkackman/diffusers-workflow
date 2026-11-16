@@ -76,7 +76,7 @@ _NO_PROPERTY = object()
 
 
 def _is_still_beside_video(artifact, content_type):
-    """True for one PIL image under a video content type (#1375)."""
+    """True for one PIL image, a mapping entry, under a video content type (#1375)."""
     from PIL import Image
 
     return isinstance(artifact, Image.Image) and content_type.startswith("video")
@@ -435,15 +435,6 @@ class Result:
                 file.write(json.dumps(artifact, indent=4))
             return [output_path]
 
-        if _is_still_beside_video(artifact, content_type):
-            # A still riding beside a step's videos (track_people's contact
-            # sheet, #1375) is saved as a PNG, never handed to the video
-            # writer, which has no one-frame rendering of it
-            output_path = output_file_path(output_dir, f"{file_base_name}.png")
-            logger.info(f"Saving still to {output_path}")
-            artifact.save(output_path)
-            return [output_path]
-
         if isinstance(artifact, dict):
             return self._save_mapping_artifact(
                 output_dir, artifact, file_base_name, content_type, extension
@@ -540,6 +531,16 @@ class Result:
                     key=k,
                     content_type=content_type,
                 )
+                continue
+            if _is_still_beside_video(v, content_type):
+                # A still riding beside a step's videos (track_people's
+                # contact sheet, #1375) is saved as a PNG, not as a
+                # one-frame video; a step whose whole result is one image
+                # still writes the one-frame video it always did
+                output_path = output_file_path(output_dir, f"{file_base_name}-{k}.png")
+                logger.info(f"Saving still to {output_path}")
+                v.save(output_path)
+                saved_files.append(output_path)
                 continue
             saved_files.extend(
                 self.save_artifact(

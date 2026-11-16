@@ -41,12 +41,7 @@ from ..task_domains import NON_NEGATIVE, POSITIVE, check_arguments, whole_number
 from .model_cache import cached_model
 from .registry import register_command
 from .scene_cuts import content_cuts
-from .segment import (
-    _DEFAULT_DINO_MODEL,
-    _DEFAULT_SAM_MODEL,
-    _TransformersClass,
-    grounding_query,
-)
+from .segment import grounding_query
 from .video_utils import VideoFileReference, frames_as_pil_list, load_audio_video
 from .weights import argument_or_default, repo_entries
 
@@ -70,6 +65,25 @@ SHEET_COLOURS = [
     (32, 220, 220),
 ]
 
+# segment's detector and segmenter: the SAM2 repo holds the video predictor too
+DEFAULT_DINO_MODEL = "IDEA-Research/grounding-dino-base"
+DEFAULT_SAM_MODEL = "facebook/sam2-hiera-large"
+
+
+class _TransformersClass:
+    """A `transformers` class resolved on first use, as in `segment`: the
+    plan's required_weights lookup imports this module on every validate.
+    Module-level names so tests patch them as such."""
+
+    def __init__(self, name):
+        self._name = name
+
+    def __getattr__(self, attribute):
+        import transformers
+
+        return getattr(getattr(transformers, self._name), attribute)
+
+
 AutoProcessor = _TransformersClass("AutoProcessor")
 AutoModelForZeroShotObjectDetection = _TransformersClass(
     "AutoModelForZeroShotObjectDetection"
@@ -81,8 +95,8 @@ Sam2VideoProcessor = _TransformersClass("Sam2VideoProcessor")
 def model_sources(arguments):
     """The (detector, video segmenter) repos a track_people step loads."""
     return (
-        argument_or_default(arguments, "model_name", _DEFAULT_DINO_MODEL),
-        argument_or_default(arguments, "sam_model_name", _DEFAULT_SAM_MODEL),
+        argument_or_default(arguments, "model_name", DEFAULT_DINO_MODEL),
+        argument_or_default(arguments, "sam_model_name", DEFAULT_SAM_MODEL),
     )
 
 
