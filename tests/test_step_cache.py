@@ -918,13 +918,13 @@ TEMPLATE_PIPELINE_KEYS = {
         "outpaint": "8ece64de576884be947f5af07c5713b92d3a1e641035434ef805629f12ae8c77"
     },
     "pika-h3/first-and-last-frame.json": {
-        "first_and_last_frame_to_video_audio": "24135094c56e61cb1fe877294118966c401aa1396053f0c6f0edc1c01df39b9a"
+        "first_and_last_frame_to_video_audio": "7af35d5951f5197222509c6447645ae2ccebc89526544cd45bf0898ce28e2904"
     },
     "pika-h3/reference-to-video.json": {
-        "reference_to_video_audio": "010016f5d3b1cdd80130a12fb46efa0ef3fc6ea56c3f665ffffa084f0e31bd6b"
+        "reference_to_video_audio": "0cb95dc5aa1da0005bb003359f084d7ea1b16e820809a42cafef6bfd50adf102"
     },
     "pika-h3/text-to-video.json": {
-        "text_to_video_audio": "d8ad19773056d73023f784383e53f7112da87a14f576dd52c0f0a81b29f0065f"
+        "text_to_video_audio": "aed542a148ef71032b67465b7c9b053bfe11a7789025501598aa930c60e221e1"
     },
     "prompt-weighting.json": {
         "txt2img": "745df144eb83ac12caa01de34dc7238b8595b28b70db7c960f4d1c0366b2f2f4"
