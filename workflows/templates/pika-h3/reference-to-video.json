@@ -1,6 +1,6 @@
 {
     "id": "PikaH3FlexRef2VA",
-    "description": "Reference to video with audio through Pika H3 Flex, Pika's adapter over MiniMax-H3. The 'ref2va' workflow takes a references list of Pika's own reference types - PikaH3FlexImageReference (up to 9), PikaH3FlexVideoReference (up to 3, motion or performance) and PikaH3FlexAudioReference - which the prompt addresses as @Image1, @Video1, @Audio1; here an image fixes the subject and an audio clip their voice. An image reference is encoded at the tier's reference short edge (1024 below 768p, 2048 at 768p). Runs on the reference partition ('transformer_ref') with Pika's ref2va adapter. Pika H3 Flex is an adapter over MiniMax-H3's own weights: the five weight components (transformer, transformer_ref, text_encoder, vae, audio_vae) are loaded from MiniMaxAI/MiniMax-H3 at the base revision Pika's adapter manifest names, so only the scheduler, tokenizer and processor come from Pika's repo. The adapter's sampler is fixed: its blocks run the 7-point denoising_step_list [1000, 750, 500, 250, 100, 40, 0] (6 transformer passes) on their own shift, so the template sets no num_inference_steps and no scheduler shift - stated in configuration.configs only so validate counts the passes. Seeds are not comparable with the H3 templates: the same seed on the same prompt gives a different clip, so an A/B against H3 compares samples, not a matched pair. The base match itself is sampled (Pika's own runs against the pinned base, not a bit-exact reproduction). 'resolution' picks a 16:9 bucket - 480p is 832x480, 768p is 1344x768; other ratios of the same tiers (multiples of 32): 9:16 480x832 / 768x1344, 1:1 480x480 / 768x768, 4:3 640x480 / 1024x768, 3:4 480x640 / 768x1024, 21:9 960x416 / 1536x672 - pass width and height for one. The weights load at int8 SDNQ (host_ram_gb 69).",
+    "description": "Reference to video with audio through Pika H3 Flex, Pika's adapter over MiniMax-H3. The 'ref2va' workflow takes a references list of Pika's own reference types - PikaH3FlexImageReference (up to 9), PikaH3FlexVideoReference (up to 3, motion or performance) and PikaH3FlexAudioReference - which the prompt addresses as @Image1, @Video1, @Audio1; here 'subject' (@Image1) fixes the subject and 'voice' (@Audio1) their voice; 'subject_2' and 'subject_3' are @Image2 and @Image3 when set (a null one is dropped), and a references-list variable is the way past three. An image reference is encoded at the tier's reference short edge (1024 below 768p, 2048 at 768p). Runs on the reference partition ('transformer_ref') with Pika's ref2va adapter. Pika H3 Flex is an adapter over MiniMax-H3's own weights: the five weight components (transformer, transformer_ref, text_encoder, vae, audio_vae) are loaded from MiniMaxAI/MiniMax-H3 at the base revision Pika's adapter manifest names, so only the scheduler, tokenizer and processor come from Pika's repo. The adapter's sampler is fixed: its blocks run the 7-point denoising_step_list [1000, 750, 500, 250, 100, 40, 0] (6 transformer passes) on their own shift, so the template sets no num_inference_steps and no scheduler shift - stated in configuration.configs only so validate counts the passes. Seeds are not comparable with the H3 templates: the same seed on the same prompt gives a different clip, so an A/B against H3 compares samples, not a matched pair. The base match itself is sampled (Pika's own runs against the pinned base, not a bit-exact reproduction). 'resolution' picks a 16:9 bucket - 480p is 832x480, 768p is 1344x768; other ratios of the same tiers (multiples of 32): 9:16 480x832 / 768x1344, 1:1 480x480 / 768x768, 4:3 640x480 / 1024x768, 3:4 480x640 / 768x1024, 21:9 960x416 / 1536x672 - pass width and height for one. The weights load at int8 SDNQ (host_ram_gb 69).",
     "summary": "Pika H3 Flex video with audio keeping an image's subject and an audio clip's voice.",
     "cost": [
         {
@@ -33,6 +33,8 @@
     "variables": {
         "prompt": "References: @Image1 is the subject, an astronaut in a white hard-shell suit with a gold-mirrored visor and an orange chest harness. @Audio1 is the voice timbre reference only: a measured, formal male voice, mid-range in pitch. Make a new video of the astronaut from @Image1 speaking directly to camera, head and shoulders, keeping the suit, visor and harness exactly as in @Image1. The astronaut says, in the voice of @Audio1: \"We came in peace, and we will leave the light on.\" SOUND: a soft suit-radio hiss under the voice, faint air-recycler hum. No subtitles, no captions, no text.",
         "subject": "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/diffusers/astronaut.jpg",
+        "subject_2": null,
+        "subject_3": null,
         "voice": "https://huggingface.co/datasets/Xenova/transformers.js-docs/resolve/main/jfk.wav",
         "num_frames": 124,
         "resolution": "480p",
@@ -224,6 +226,14 @@
                         {
                             "reference_type": "diffusers.modular_pipelines.pika_h3_flex.PikaH3FlexImageReference",
                             "from_file": "variable:subject"
+                        },
+                        {
+                            "reference_type": "diffusers.modular_pipelines.pika_h3_flex.PikaH3FlexImageReference",
+                            "from_file": "variable:subject_2"
+                        },
+                        {
+                            "reference_type": "diffusers.modular_pipelines.pika_h3_flex.PikaH3FlexImageReference",
+                            "from_file": "variable:subject_3"
                         },
                         {
                             "reference_type": "diffusers.modular_pipelines.pika_h3_flex.PikaH3FlexAudioReference",
