@@ -16,7 +16,7 @@
     "workflow": "narration-reference-ab.json",
     "arguments": {
       "reference_audio": "asset:bench/narrator-human.wav",
-      "reference_text": "The world will little note, nor long remember what we say here, but it can never forget what they did here.",
+      "reference_text": "The brave men, living and dead, who struggled here have consecrated it, far above our poor power to add or detract.",
       "generate_kwargs": {}
     },
     "seed": 1166

@@ -574,12 +574,13 @@ Audio8-TTS-Realistic-0.6b (revision `1e857568`) through the voice-clone call, se
   reading of the Gettysburg Address, from
   <https://archive.org/download/gettysburg_johng_librivox/gettysburg_address_64kb.mp3>
   (item <https://archive.org/details/gettysburg_johng_librivox>). It was fetched over
-  https by `slice_audio` (through `validate_url()`) and cut to 91.3-100.1 s (8.8 s,
-  22050 Hz mono, -25.7 LUFS, peak -0.5 dBFS). Those bounds were placed from whisper-base
-  word timings (job `9e8156f2507e`: the sentence spans 91.76-99.58 s, with the
-  neighbours ending at 90.28 s and starting at 100.44 s). Transcript: "The world will
-  little note, nor long remember what we say here, but it can never forget what they
-  did here." Job `f15afd0703d1`, `bench/workflows/narrator-human-librivox.json`.
+  https by `slice_audio` (through `validate_url()`) and cut to 80.7-90.65 s (9.95 s,
+  22050 Hz mono, -22.1 LUFS, peak -1.0 dBFS). Those bounds were placed from whisper
+  word timings (job `99a2840ebbff`: the sentence spans 81.2-90.28 s, with the
+  neighbours ending at 80.14 s and starting at 91.76 s). Transcript: "The brave men,
+  living and dead, who struggled here have consecrated it, far above our poor power to
+  add or detract." Job `5a4392f18673`, `bench/workflows/narrator-human-librivox.json`.
+  This is the second cut; see *Why the human cut changed*.
 - **sampling**: the synthetic reference with `generate_kwargs` `{"temperature": 1.0}`.
   The effective default is **0.7** (`generation_config.json` at `1e857568`: `do_sample`
   true, temperature 0.7, top_p 0.9, top_k 50; the vendored `generate()` falls back to
@@ -594,24 +595,39 @@ Words/s is 102 words over the duration. ECAPA is the cosine similarity
 | arm | job | duration | words/s | LUFS | ECAPA vs own reference |
 |---|---|---|---|---|---|
 | ref-ab-synthetic-s1166 | `89bf643d0511` | 36.04 s | 2.83 | -24.4 | 0.853 |
-| ref-ab-human-s1166 | `4b776f23cf9e` | 37.57 s | 2.71 | -26.6 | 0.754 |
+| ref-ab-human-s1166 | `4526d59b8bd9` | 38.96 s | 2.62 | -25.2 | 0.776 |
 | ref-ab-sampling-t1.0-s1166 | `281e0c23f412` | 35.76 s | 2.85 | -24.2 | 0.854 |
 
-2026-11-16, mini-ai @ `2d669aa7` (after #1396's `_rope` fix), MPS Apple M5 Pro. Each
+2026-11-16, mini-ai @ `2d669aa7` (after #1396's `_rope` fix; arm 2 re-run @
+`53f8172f`), MPS Apple M5 Pro. Each
 job wrote one 44100 Hz mono wav in about 40-45 s. LUFS is ffmpeg `ebur128`
 integrated, silence included. The files were copied off mini-ai and measured on the
 Mac, and no extra GPU job was run.
 
-- **The two references are different speakers:** their ECAPA cosine is 0.03. So arm 2
+- **The two references are different speakers:** their ECAPA cosine is 0.07. So arm 2
   is a different voice, not only a different delivery, and its lower similarity to
-  its own reference (0.75 against 0.85) can't be read as flatness. A 22 kHz, 64 kbps
+  its own reference (0.78 against 0.85) can't be read as flatness. A 22 kHz, 64 kbps
   LibriVox source is also a harder clone target than Audio8's own voice.
 - **Arm 3 changes the draws but not the numbers.** Temperature 1.0 gives a different
   take (0.28 s shorter), with the same pace, level and similarity as arm 1.
-- **Pace:** the human arm is 4% slower (2.71 against 2.83 words/s). That is the only
+- **Pace:** the human arm is 7% slower (2.62 against 2.83 words/s). That is the only
   measured move toward Don's "a titch rushed". Whether it is less flat is for the ear.
 
 Listening order for Don: arm 1, then arm 2, then arm 3 (gallery names
 `BenchNarrationReferenceAB/<run>/final/BenchNarrationReferenceAB-speak.0-0.0.wav`,
-with runs `20261116-172242-efa1dba3`, `20261116-172333-7f2ff3c4` and
+with runs `20261116-172242-efa1dba3`, `20261116-205133-8a54642f` and
 `20261116-172430-26632449`, in workspace `bench` on mini-ai).
+
+### Why the human cut changed
+
+The first human cut, 91.3-100.1 s ("The world will little note, nor long remember what
+we say here, but it can never forget what they did here.", job `f15afd0703d1`), made
+Audio8 drop a clause of the passage: `templates/check-script` found line 4 of 5 short
+(similarity 0.53) on both seed 1166 (job `4b776f23cf9e`, the first arm 2) and seed 1167
+(job `f7d51a00f3ca`), the same clause both times. A reference that loses words on two
+seeds would compare a broken take with two whole ones, so it was replaced rather than
+accepted. The plan fixes only "5-10 s of a LibriVox reading", not which sentence. With
+the second cut, arm 2 at seed 1166 passes `check-script` with all five lines at
+similarity 1.0 and no findings (check job `9b120bc9d204`); the tester found arms 1 and 3
+already clean. The old arm 2's numbers (37.57 s, 2.71 words/s, -26.6 LUFS, ECAPA 0.754
+against cut 1) are superseded.
