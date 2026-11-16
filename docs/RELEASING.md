@@ -49,6 +49,17 @@ A PyPI install gets released `diffusers`, which may lag the newest pipelines; in
 
 GitHub generates notes from commits at tag time. The sections below are the hand-written notes: the newest is drafted at release prep and pasted into the GitHub release body once the tag has published (`gh release edit v<version> --notes-file ...`). Items a branch's author wants the next note to name go in a new section at the top.
 
+### Unreleased
+
+- **H3 camera moves, measured on two seeds (#1379).** All 13 move ids in the
+  `cinematography` vocabulary now carry an H3 verdict on seeds 42 and 7 in
+  `compile-h3.md`, where seven read "not measured" before. The axial and
+  vertical moves, push-in, crash-zoom and orbit landed on every clip. Both
+  trucks and the whip-pan are partial: the whip-pan lands its reveal as an
+  arc, not a pan. `tracking` and `handheld` vary by seed, and `handheld`
+  never showed its shake. The record is
+  `docs/proposals/audits/2026-11-move-seeds.md`.
+
 ### 0.20.0
 
 <!-- Drafted from v0.19.0..develop at release prep (2026-11-08, extended 2026-11-13). Paste into the GitHub release body once the tag has published: gh release edit v0.20.0 --notes-file ... -->
