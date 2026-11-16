@@ -238,6 +238,22 @@ its 6 cuts (`bench/records/drill.md`, *Cold drill: the Gettysburg Address*).
    with the new framing as its instruction, or the same FLUX 3 Klein portrait
    prompt on the same seed with only the framing changed (closer, wider, or
    turned). Probe passage 1 first, as above.
+   **Make each later passage's still from the take before it.** A take's
+   face ripens as H3 runs, and the next take opens as smooth as its still,
+   so a fresh still drops the face's detail at the cut: the #1311 keeper's
+   face lost 77% of its sharpness there. Render passage A, then pull the
+   sharpest face in A's last 2 s with a `get_frame` task (`video`,
+   `frame_index`; compare the candidates with `get_output_frames`), run it
+   through `templates/flux3/image-edit` with the new angle as `instruction`
+   and the take's seed, and pass the result as passage B's `image`. Measured
+   at the keeper's cut, this kept 86% of A's end sharpness and the closest
+   identity across the cut. Sharpening a fresh still with `sharpen` kept
+   39%, and sharpening B's opening at the join reads as a filter, so use
+   neither (`bench/records/narrated.md`, *Cut probe at the #1311 keeper's
+   41.0 s cut*). Only B's opening segment was measured from such a still:
+   whether B's later segments etch from the sharper start is not. Judge
+   B's last segment with `get_output_frames` before calling the passage
+   done.
 4. **Join.** Author a one-step `concat_videos` workflow: the takes as
    `output:` refs in order, `trim_frames: 0` (a hard cut), `match_levels:
    "lufs"` (off by default), `fps: 24`. Every take must be the same frame

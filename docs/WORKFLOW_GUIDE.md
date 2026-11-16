@@ -3106,7 +3106,15 @@ Gettysburg Address*). The recipe:
    `templates/image-edit`, or with the same FLUX 3 Klein portrait prompt on
    the same seed and only the framing changed. Validate each passage and sum
    their `plan.estimate`s; the H3 chain estimate runs high (18.3 min quoted,
-   about 7 run).
+   about 7 run). A cut resets the face's detail: a take opens as smooth as
+   its still, so a fresh still drops the face to about a quarter of the
+   sharpness the take before it ended on. Make each later passage's still
+   from the take before it instead: the sharpest face in its last 2 s
+   (a `get_frame` task) through `templates/flux3/image-edit` to the new
+   angle, as the next passage's `image`. That kept 86% at the cut; only
+   the next passage's opening segment was measured, so judge its last
+   segment too (`bench/records/narrated.md`, *Cut probe at the #1311
+   keeper's 41.0 s cut*).
 4. **Join** with an authored one-step `concat_videos` workflow: the takes as
    `output:` references, `trim_frames: 0` (a hard cut), `match_levels: "lufs"`
    (off by default). Every take must be the same frame size. After the join,

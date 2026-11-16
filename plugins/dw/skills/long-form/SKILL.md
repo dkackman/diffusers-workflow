@@ -5,9 +5,9 @@ description: Use when a dw MCP server is connected and the request is longer tha
 
 # Long-form pieces on a dw server
 
-A model renders one clip at a time: H3 up to 14.4 s, LTX-2.5 about 17 s at
-768. A piece longer than that is planned per piece, then per scene, then per
-seam, then per run. This skill is that plan. The family skills
+A model renders one clip at a time (the *One clip* row). A longer
+piece is planned per piece, then per scene, then per seam, then per run.
+This skill is that plan. The family skills
 (`minimax-h3`, `ltx-2.5`, `minimax-music3`) still own their templates'
 rules and prompt formats, and their rules win. `script-to-video`,
 `storyboard` and `series-episodes` own the shot list, the boards and the
@@ -48,7 +48,9 @@ Record per scene `length_seconds` and `continuity` in the shot document's
 | Narrated take | a speaking subject in one place, held to a narration | `templates/narration-retime`, then `templates/minimax/narrated-take` |
 | Bridge | a cut must land on a fixed frame | `templates/minimax/first-and-last-frame`, `templates/minimax/last-frame-only` |
 
-Prefer cuts. A cut resets drift and costs nothing at the seam. Chain only
+Prefer cuts. A cut resets drift but drops the face to about a quarter of
+its sharpness; make the next still from the last take's late frame
+(`references/run-and-repair.md`, *Takes*). Chain only
 what must be unbroken. A soundtrack-driven chain is
 `templates/minimax/chain-matched-to-audio`; see `minimax-h3`.
 
@@ -179,9 +181,8 @@ GPU-min per minute of it: `templates/minimax/h3-seam-pass`, not a burn fix.
 
 Defaults favour quality. `references/quality-and-speed.md` has the measured
 costs, what is still being measured, and the dial. In short, the chain's
-`cost` row is 13.5 min on an RTX 3090 for 3 segments of 124 frames. The
-bench's two-minute static take took 69 min, against 52 min for the plain
-guide chain. Quote `plan.estimate` from `validate_workflow`, never these.
+`cost` row is 13.5 min on an RTX 3090 for 3 segments of 124 frames.
+Quote `plan.estimate` from `validate_workflow`, never these.
 
 ## Run and judge
 
