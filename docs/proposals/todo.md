@@ -37,6 +37,15 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **diffusers floor to 0.43.0** (#1315, stages #1340-#1341), shipped
+  2026-11-16. Stage A made develop correct on 0.43 behaviour: modular `None`
+  drop, MagCache readout across the per-call hook reset, a guarded
+  attention-backend pin, and backends filtered by diffusers' requirement check.
+  Stage B moved the floor to `diffusers>=0.43.0`, moved the LTX2 latent
+  upsampler to `diffusers.models.latent_upscaler`, and refuses a malformed
+  dotted `*_type` at validate. The suite passes alike on 0.43.0 and HEAD.
+  Every GPU parity run was cut, with triggers:
+  `complete/diffusers-043-floor-complete.md`.
 - **H3 seam pass: the windowed refine out of the flag** (#1230, stages
   #1376-#1378), shipped 2026-11-15. `refine_windows` (renamed from
   `experimental_refine_windows`, defaults 42/12/pyramid/rebased) is validated
