@@ -35,7 +35,7 @@ from .placement import (
 from .h3_rules import (
     REFINE_TILES_INPUT,
 )
-from .h3_tiles import run_tiled_refine
+from .h3_tiles import run_tiled_refine, run_without_decode, skips_decode
 from .modular_arguments import call_arguments
 from .pipeline_h3 import H3Arguments, latent_anchor_source  # noqa: F401 - re-exported
 from .progress import reported_blocks, reported_progress_bars
@@ -724,6 +724,14 @@ class Pipeline(H3Arguments):
                 if arguments.get(REFINE_TILES_INPUT) is not None:
                     output = run_tiled_refine(
                         self.pipeline, arguments, self.segment_label or self.name
+                    )
+                elif skips_decode(self.pipeline, arguments):
+                    # An H3 refine whose output asks for no decoded media
+                    # leaves the decode blocks out (#1377)
+                    output = run_without_decode(
+                        self.pipeline,
+                        call_arguments(self.pipeline, arguments),
+                        self.segment_label or self.name,
                     )
                 else:
                     # A modular call drops its None arguments (the None

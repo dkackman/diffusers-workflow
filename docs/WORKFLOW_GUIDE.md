@@ -2678,7 +2678,11 @@ A take over 15 s is four steps (`bench/workflows/refine-windows.json` runs it):
    last frame up to the next 17m + 5) and `source_frames` (the take's own count).
 2. The refine takes those `latents` and `num_frames`, `hold_audio` set to the take's own
    soundtrack (a video's track is read from the `.mp4` directly; the held track is encoded
-   whole, with no ceiling of its own), and `"latents"` in `output`.
+   whole, with no ceiling of its own), and `"latents"` in `output`. That skips the
+   step's own VAE decode: an H3 refine whose `output` names no decoded media (`videos`,
+   `audio`, `sampling_rate`) runs without its decode blocks, so the take decodes once, in
+   `decode_h3_latents`, and the job log says `decode skipped`. Ask for `videos` and the
+   step decodes as before.
 3. `decode_h3_latents` with `num_frames: previous_result:encode.source_frames` trims the
    padding so the take comes back at its own length.
 4. `pair_audio` puts back the take's own soundtrack.
