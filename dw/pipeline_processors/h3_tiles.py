@@ -372,18 +372,39 @@ def run_tiled_refine(pipeline, arguments, label, decode=None):
     return {name: outputs[name] for name in requested if name in outputs}
 
 
-# A refine that asks for no decoded media (#1377): the stage-A windowed
-# refine hands its latents to `decode_h3_latents`, and the step's own call
-# decoding them first doubled the decode and its minutes
+# A refine that leaves out decoded media it doesn't ask for (#1377): the
+# stage-A windowed refine hands its latents to `decode_h3_latents`, and the
+# step's own call decoding the video first doubled the decode and its minutes.
+# A refine asking for `audio` but not `videos` still decodes its soundtrack
 
 
-def _decode_output_names(sub_blocks):
-    """Every state name the top-level decode blocks write."""
-    names = set()
-    for name, block in sub_blocks.items():
-        if _is_decode(name):
-            names.update(param.name for param in block.intermediate_outputs)
-    return names
+def _block_outputs(block):
+    return {param.name for param in block.intermediate_outputs}
+
+
+def _trimmed(name, block, requested, dropped):
+    """`block` with every leaf that writes nothing in `requested` left out,
+    each one's dotted name appended to `dropped`: the block itself when none
+    is, None when every leaf is, else a new sequence of the kept children
+    (the same instances)."""
+    from diffusers.modular_pipelines import SequentialPipelineBlocks
+
+    children = getattr(block, "sub_blocks", None)
+    if not children:
+        if _block_outputs(block) & requested:
+            return block
+        dropped.append(name)
+        return None
+    kept = {}
+    for key, child in children.items():
+        trimmed = _trimmed(f"{name}.{key}", child, requested, dropped)
+        if trimmed is not None:
+            kept[key] = trimmed
+    if not kept:
+        return None
+    if all(kept.get(key) is child for key, child in children.items()):
+        return block
+    return SequentialPipelineBlocks.from_blocks_dict(kept)
 
 
 def _requested(arguments):
@@ -393,48 +414,63 @@ def _requested(arguments):
     return {requested} if isinstance(requested, str) else set(requested)
 
 
-def skips_decode(pipeline, arguments):
-    """Whether a call can leave the graph's decode blocks out: an H3 refine
-    (`refine_strength`, not tiled) whose `output` names something and nothing
-    a decode block writes. An absent `output` means every output, decoded
-    ones too."""
+def _decode_plan(pipeline, arguments):
+    """`(kept, dropped)`: the top-level graph with each decode block trimmed
+    to the leaves `output` asks for, and the names of the decode leaves left
+    out. None when the call can't take the route."""
     if arguments.get(REFINE_TILES_INPUT) is not None:
-        return False
+        return None
     if arguments.get(REFINE_STRENGTH_INPUT) is None:
-        return False
+        return None
     requested = _requested(arguments)
     if requested is None or not core_denoise_sequences(pipeline):
-        return False
+        return None
     sub_blocks = getattr(getattr(pipeline, "_blocks", None), "sub_blocks", None)
     if not hasattr(sub_blocks, "items"):
-        return False
-    decoded = _decode_output_names(sub_blocks)
-    return bool(decoded) and not requested & decoded
+        return None
+    kept, dropped = {}, []
+    for name, block in sub_blocks.items():
+        if not _is_decode(name):
+            kept[name] = block
+            continue
+        trimmed = _trimmed(name, block, requested, dropped)
+        if trimmed is not None:
+            kept[name] = trimmed
+    return (kept, dropped) if dropped else None
+
+
+def skips_decode(pipeline, arguments):
+    """Whether a call can leave a decode block out: an H3 refine
+    (`refine_strength`, not tiled) whose `output` names something and leaves
+    out what some decode block writes - `videos` for the video decode,
+    `audio`/`sampling_rate` for the audio one. An absent `output` means every
+    output, decoded ones too."""
+    return _decode_plan(pipeline, arguments) is not None
 
 
 def run_without_decode(pipeline, arguments, label):
-    """Call `pipeline` with its top-level decode blocks left out and return
-    what the call returns for `arguments["output"]`.
+    """Call `pipeline` with the decode blocks `output` doesn't ask for left
+    out and return what the call returns for `arguments["output"]`.
 
     The graph is built from the pipeline's current blocks at call time, not
     taken from the tiled refine's (`attach_tile_blocks` runs before the
     loader's later swaps, `h3_windows.insert_refine_windows` among them), and
     shares their instances, so every dw block stays in. The text encoder is
-    kept: one call, the prompt encoded inside it as a plain call does.
+    kept: one call, the prompt encoded inside it as a plain call does. A
+    decode block that still runs (the audio's, for a refine asking for
+    `audio`) reports its "decoding" phase as a plain call does.
     """
     from diffusers.modular_pipelines import SequentialPipelineBlocks
 
-    kept = {
-        name: block
-        for name, block in pipeline._blocks.sub_blocks.items()
-        if not _is_decode(name)
-    }
+    kept, dropped = _decode_plan(pipeline, arguments)
     blocks = SequentialPipelineBlocks.from_blocks_dict(kept)
+    decodes = any(_is_decode(name) for name in kept)
     emit_log(
-        f"{label}: decode skipped - output asks for "
-        f"{', '.join(sorted(_requested(arguments)))}, no decoded media",
-        decode_skipped=True,
+        f"{label}: decode skipped ({', '.join(dropped)}) - output asks for "
+        f"{', '.join(sorted(_requested(arguments)))}",
+        decode_skipped=dropped,
     )
-    with swapped_blocks(pipeline, blocks), decoded_later():
+    phase = contextlib.nullcontext() if decodes else decoded_later()
+    with swapped_blocks(pipeline, blocks), phase:
         with reported_blocks(pipeline, label):
             return pipeline(**arguments)

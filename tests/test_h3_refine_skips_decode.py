@@ -1,4 +1,4 @@
-"""An H3 refine whose `output` asks for no decoded media skips the decode (#1377).
+"""An H3 refine skips each decode its `output` doesn't ask for (#1377).
 
 The real H3 graph on tiny random weights (tests/test_chain_h3_native.py),
 called through dw's `Pipeline` wrapper so `_call_pipeline` picks the route.
@@ -28,20 +28,32 @@ def tiny_h3():
     return pipeline
 
 
+def _decode_leaves(name, block):
+    children = getattr(block, "sub_blocks", None)
+    if not children:
+        return [(name, block)]
+    return [
+        leaf
+        for key, child in children.items()
+        for leaf in _decode_leaves(f"{name}.{key}", child)
+    ]
+
+
 @pytest.fixture
 def decode_calls(tiny_h3, monkeypatch):
-    """The names of the top-level decode blocks as they run, in order."""
+    """The dotted names of the decode leaf blocks as they run, in order."""
     calls = []
     for name, block in tiny_h3._blocks.sub_blocks.items():
         if not _is_decode(name):
             continue
-        original = type(block).__call__
+        for leaf, step in _decode_leaves(name, block):
+            original = type(step).__call__
 
-        def spy(self, pipe, state, _name=name, _original=original):
-            calls.append(_name)
-            return _original(self, pipe, state)
+            def spy(self, pipe, state, _name=leaf, _original=original):
+                calls.append(_name)
+                return _original(self, pipe, state)
 
-        monkeypatch.setattr(type(block), "__call__", spy)
+            monkeypatch.setattr(type(step), "__call__", spy)
     assert calls == []
     return calls
 
@@ -101,10 +113,19 @@ def test_latents_only_runs_no_decode_block(tiny_h3, decode_calls):
     assert tiny_h3._blocks is blocks
 
 
-def test_asking_for_videos_runs_the_decode(tiny_h3, decode_calls):
+def test_asking_for_videos_runs_the_video_decode(tiny_h3, decode_calls):
     result = run(tiny_h3, refine_arguments(["videos", "latents"]))
-    assert any(name.startswith("decode") for name in decode_calls)
+    assert decode_calls == ["decode.video"]
     assert result["videos"] is not None
+
+
+def test_asking_for_everything_runs_both_decodes(tiny_h3, decode_calls):
+    result = run(
+        tiny_h3, refine_arguments(["videos", "audio", "sampling_rate", "latents"])
+    )
+    assert decode_calls == ["decode.video", "decode.audio"]
+    assert result["videos"] is not None
+    assert result["audio"] is not None
 
 
 def test_the_latents_are_identical_either_way(tiny_h3):
@@ -123,10 +144,34 @@ def test_a_plain_refine_without_windows_skips_it_too(tiny_h3, decode_calls):
     assert torch.equal(skipped, decoded)
 
 
-def test_asking_for_audio_still_decodes(tiny_h3, decode_calls):
-    result = run(tiny_h3, refine_arguments(["latents", "audio", "sampling_rate"]))
-    assert decode_calls
+def test_audio_without_videos_skips_only_the_video_decode(tiny_h3, decode_calls):
+    """The bounce's arm L: a refine keeping its soundtrack but handing its
+    video latents on decodes the audio and not the video."""
+    arguments = refine_arguments(["audio", "sampling_rate", "latents"])
+    assert skips_decode(tiny_h3, arguments)
+    result = run(tiny_h3, arguments)
+    assert decode_calls == ["decode.audio"]
+    assert "videos" not in result
     assert result["audio"] is not None
+    assert result["sampling_rate"]
+    decoded = latents_of(run(tiny_h3, refine_arguments(["videos", "latents"])))
+    assert torch.equal(result["latents"], decoded)
+
+
+def test_the_skip_is_logged_to_the_job(tiny_h3):
+    from dw.events import RunContext, activate_context, deactivate_context
+
+    events = []
+    token = activate_context(RunContext(on_event=events.append))
+    try:
+        run(tiny_h3, refine_arguments(["audio", "sampling_rate", "latents"]))
+    finally:
+        deactivate_context(token)
+    logs = [event for event in events if event.get("decode_skipped")]
+    assert len(logs) == 1
+    assert logs[0]["event"] == "log"
+    assert logs[0]["decode_skipped"] == ["decode.video"]
+    assert "decode skipped" in logs[0]["message"]
 
 
 # 2. The predicate
@@ -137,8 +182,9 @@ def test_asking_for_audio_still_decodes(tiny_h3, decode_calls):
     [
         ({}, True),
         ({"output": "latents"}, True),
-        ({"output": ["videos"]}, False),
-        ({"output": ["latents", "audio"]}, False),
+        ({"output": ["videos"]}, True),
+        ({"output": ["latents", "audio"]}, True),
+        ({"output": ["videos", "audio", "sampling_rate", "latents"]}, False),
         ({"output": None}, False),
         ({"output": []}, False),
         ({"refine_strength": None}, False),
