@@ -1493,6 +1493,36 @@ class TestHostRamGate:
         second_gate.wait_started()
         wait_for(job, {"running"})
 
+    def test_a_warm_idle_worker_on_another_card_is_released(
+        self, pool, host, monkeypatch
+    ):
+        """#1407: nothing is running, but the other card's idle worker holds
+        the RAM; the job is held, that worker is cleared, and the job starts."""
+        monkeypatch.setattr("dw.server.dispatch.HOST_RAM_RECHECK_SECONDS", 0.02)
+        manager, first_gate, second_gate = self._two_cards(pool)
+        warm = self.submit(manager, "warm", host_gb=10)
+        first_gate.wait_started()
+        first_gate.release.set()
+        wait_for(warm, {"succeeded"})
+        host["rss"] = {"cuda:0": 60 * GB}
+        host["available_mb"] = 20 * GB
+        cleared = []
+
+        def clear(slot, lock, timeout):
+            cleared.append(slot.device)
+            host["rss"] = {}
+            host["available_mb"] = 80 * GB
+            return {"device": slot.device, "cleared": True, "info": None}
+
+        monkeypatch.setattr("dw.server.jobs.worker_memory.clear_slot", clear)
+        job = self.submit(manager, "big", host_gb=69)
+        second_gate.wait_started()
+        wait_for(job, {"running"})
+        assert cleared == ["cuda:0"]
+        messages = [e["message"] for e in self.queue_waits(job)]
+        assert any("releasing the warm idle worker on cuda:0" in m for m in messages)
+        assert any("released the warm models on cuda:0" in m for m in messages)
+
     def test_the_event_fires_once_per_hold(self, pool, host, monkeypatch):
         monkeypatch.setattr("dw.server.dispatch.HOST_RAM_RECHECK_SECONDS", 0.02)
         manager, first_gate, second_gate = self._two_cards(pool)

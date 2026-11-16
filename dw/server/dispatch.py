@@ -85,6 +85,9 @@ def _worker_pid(slot):
     return pid if isinstance(pid, int) and pid > 0 else None
 
 
+HOST_RAM_RELEASE_SECONDS = 60  # don't re-release a card's worker sooner
+
+
 class Dispatcher:
     """The queue scan `JobManager._run_loop` asks for its next job."""
 
@@ -256,12 +259,22 @@ class Dispatcher:
             if other.current_job_id is not None
         ]
         foreign = host.foreign()
-        if not running and not foreign:
+        # A warm worker idling on another card holds its models in host RAM
+        # and waits on nothing, so it is never "running" and never frees by
+        # itself (#1407)
+        idle = [
+            (other, rss)
+            for other in self.slots
+            if other is not slot
+            and other.current_job_id is None
+            and (rss := _worker_rss_mb(other))
+        ]
+        if not running and not foreign and not idle:
             return None
         available = host.available_mb()
         if available is None:
             return None
-        return pool.host_ram_wait(
+        reason = pool.host_ram_wait(
             need,
             available,
             [
@@ -271,6 +284,22 @@ class Dispatcher:
                 )
                 for other, job in running
             ]
-            + foreign,
+            + foreign
+            # (None, None) charges nothing: it only lets the gate run with
+            # no job running, when an idle worker is all that holds the RAM
+            or [(None, None)],
             _worker_rss_mb(slot),
+        )
+        if reason is None or not idle:
+            return reason
+        now = time.time()
+        mine = self._release_idle.setdefault(job_id, set())
+        for other, rss in idle:
+            if now - self._released_at.get(id(other), 0) > HOST_RAM_RELEASE_SECONDS:
+                mine.add(other)
+        gb = sum(rss for _, rss in idle) / 1024
+        cards = ", ".join(str(other.device or "a card") for other, _ in idle)
+        return (
+            f"waiting for host RAM: {reason.split(': ', 1)[-1]}; releasing the "
+            f"warm idle worker on {cards} (~{gb:.0f} GB held) to make room"
         )

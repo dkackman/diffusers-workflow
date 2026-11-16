@@ -152,6 +152,10 @@ class JobManager(Dispatcher):
         self._host_needs = {}
         # The card a rerun prefers - the original's ordinal - by job id
         self._preferred = {}
+        # Idle workers a held job asked released for host RAM, by job id,
+        # and when each card's was last released (#1407)
+        self._release_idle = {}
+        self._released_at = {}
         # Callers holding dispatch (hold_dispatch): while any does, no queued
         # job is started, though jobs may still be submitted
         self._dispatch_holds = 0
@@ -886,6 +890,37 @@ class JobManager(Dispatcher):
 
     # ---------------------------------------------------------------- runner
 
+    def _release_idle_workers(self):
+        """Clear the warm idle workers held jobs asked released for host RAM
+        (#1407), say so on each job, and let the next pass re-check. Called
+        holding _wake; drops it while a worker clears (seconds)."""
+        asked, self._release_idle = self._release_idle, {}
+        self._wake.release()
+        try:
+            for job_id, cards in asked.items():
+                job = self.jobs.get(job_id)
+                for card in cards:
+                    self._released_at[id(card)] = time.time()
+                    try:
+                        worker_memory.clear_slot(card, self._lock, 30)
+                    except Exception as exc:
+                        logger.warning(
+                            "releasing %s for host RAM failed: %s", card.device, exc
+                        )
+                        continue
+                    if job is not None:
+                        job.add_event(
+                            {
+                                "event": "queue_wait",
+                                "reason": "host_ram",
+                                "message": f"released the warm models on {card.device} "
+                                "to free host RAM for this job; its next job there "
+                                "loads cold",
+                            }
+                        )
+        finally:
+            self._wake.acquire()
+
     def _run_loop(self):
         """The dispatcher: hand each free card the first queued job that
         fits it, and start that job on its own thread."""
@@ -897,6 +932,9 @@ class JobManager(Dispatcher):
                     picked = self._next_dispatch()
                     if picked is not None:
                         break
+                    if self._release_idle:
+                        self._release_idle_workers()
+                        continue
                     # Host RAM frees outside dw too, so a job held for it is
                     # looked at again on a timer, not only on a wake (#869)
                     held = any(self._held_for_host_ram())
