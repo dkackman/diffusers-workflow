@@ -32,6 +32,10 @@ classifiers = [
 dependencies = [
     # Core ML frameworks
     "torch>=2.14.1",
+    # torch 2.15 + the fp4-fp8-for-torch-mps autoload fails scalar ** mps_tensor
+    # (every Grounding-DINO run, Audio8 codec). Lift when either side fixes it
+    # (#1395, #1396); say so in the release notes.
+    "torch<2.15; sys_platform == 'darwin'",
     "torchvision>=0.29.1",
     # Diffusers and the HuggingFace ecosystem. The floor is the newest
     # PyPI release; the newest pipelines may need git HEAD on top, which

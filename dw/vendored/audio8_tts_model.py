@@ -23,6 +23,9 @@ or soundfile, and nothing depends on transformers' model-loading machinery:
   saver's copy of the codec) are not carried. The transformers logits/stopping
   list classes become plain lists of callables, ModelOutput/BatchFeature plain
   dataclasses and dicts.
+- The rope inverse frequencies (_rope, _precompute_rope) are computed on the
+  CPU and moved to the device, because torch 2.15 with the MPS fp4-fp8
+  autoload fails ``scalar ** mps_tensor`` (#1395, #1396); values are unchanged.
 - codec.pth loads with torch.load(weights_only=True); the deprecated legacy
   weight_norm on the quantizer projections is folded into plain weights at
   load, and the TorchScript snake activation is plain eager code.
@@ -325,13 +328,7 @@ class ArkttsRMSNorm(nn.Module):
 
 
 def _precompute_rope(length: int, head_dim: int, base: float, device=None) -> Tensor:
-    frequencies = 1.0 / (
-        base
-        ** (
-            torch.arange(0, head_dim, 2, device=device).float()[: head_dim // 2]
-            / head_dim
-        )
-    )
+    frequencies = _inverse_frequencies(base, head_dim // 2, head_dim, device)
     phases = torch.outer(torch.arange(length, device=device), frequencies)
     values = torch.polar(torch.ones_like(phases), phases)
     return torch.stack((values.real, values.imag), dim=-1).to(torch.bfloat16)
@@ -1219,10 +1216,15 @@ def load_model(
 # --- codec (upstream modeling_arktts_codec.py) ------------------------------
 
 
+def _inverse_frequencies(base: float, count: int, head_dim: int, device) -> Tensor:
+    # base ** tensor is computed on the CPU and moved: torch 2.15 with the
+    # fp4-fp8-for-torch-mps autoload fails scalar ** mps_tensor (#1395, #1396).
+    exponent = torch.arange(0, head_dim, 2).float()[:count] / head_dim
+    return (1.0 / (float(base) ** exponent)).to(device)
+
+
 def _rope(length: int, head_dim: int, base: float, device=None) -> Tensor:
-    frequencies = 1.0 / (
-        base ** (torch.arange(0, head_dim, 2, device=device).float() / head_dim)
-    )
+    frequencies = _inverse_frequencies(base, head_dim // 2, head_dim, device)
     phases = torch.outer(torch.arange(length, device=device), frequencies)
     values = torch.polar(torch.ones_like(phases), phases)
     return torch.stack((values.real, values.imag), dim=-1).to(torch.bfloat16)
