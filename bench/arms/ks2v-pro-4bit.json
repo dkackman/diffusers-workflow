@@ -1,0 +1,93 @@
+{
+  "id": "ks2v-pro-4bit",
+  "description": "#1339 probe arm: Kandinsky S2V 1.0 Pro (pi-Flow distilled) animates keyframes-v2 kf00 to the retimed narration at 768x512, 25 fps, then pair_audio lays the narration under the take. The transformer loads SDNQ int4 (bnb nf4 is the fallback), the text/audio encoder is offloaded and the VAE decodes tiled. It validates but does not run yet: S2V takes `audio` as a 16 kHz mono waveform, and dw's argument realization decodes only image and video media, so the asset reaches the pipeline as a path. The probe ran through bench/ks2v_pro_probe.py in lem's ~/spikes/ks2v venv instead (bench/records/narrated.md, 'Kandinsky S2V Pro 4-bit probe').",
+  "variables": {
+    "image": "asset:uploads/bench/keyframes-v2/kf00.jpg",
+    "narration": "asset:bench/constitution-narration-retimed.wav",
+    "num_chunks": 4,
+    "weights_dtype": "{int4}",
+    "seed": 1
+  },
+  "seed": "variable:seed",
+  "steps": [
+    {
+      "name": "take",
+      "pipeline": {
+        "configuration": {
+          "component_type": "ModularPipeline",
+          "pre_load_modules": [
+            "sdnq"
+          ],
+          "load_components": {
+            "dtype": "torch.bfloat16",
+            "quantization_config": {
+              "transformer": {
+                "configuration": {
+                  "config_type": "sdnq.SDNQConfig"
+                },
+                "arguments": {
+                  "weights_dtype": "variable:weights_dtype",
+                  "quantization_device": "cuda",
+                  "return_device": "cpu",
+                  "use_quantized_matmul": true,
+                  "dequantize_fp32": false,
+                  "modules_to_not_convert": [
+                    "time_embeddings",
+                    "text_embeddings",
+                    "pooled_text_embeddings",
+                    "audio_embeddings",
+                    "visual_embeddings",
+                    "mask_embeddings",
+                    "modulation"
+                  ]
+                }
+              }
+            }
+          },
+          "components": {
+            "text_encoder": {
+              "group_offload": {
+                "offload_type": "leaf_level"
+              }
+            },
+            "vae": {
+              "enable_tiling": true
+            }
+          }
+        },
+        "from_pretrained_arguments": {
+          "model_name": "kandinskylab/Kandinsky-S2V-1.0-Pro-distill-Diffusers"
+        },
+        "arguments": {
+          "image": "variable:image",
+          "audio": "variable:narration",
+          "width": 768,
+          "height": 512,
+          "fps": 25,
+          "num_chunks": "variable:num_chunks"
+        }
+      },
+      "result": {
+        "content_type": "video/mp4",
+        "fps": 25,
+        "subfolder": "intermediate"
+      }
+    },
+    {
+      "name": "with_narration",
+      "task": {
+        "command": "pair_audio",
+        "arguments": {
+          "video": "previous_result:take",
+          "audio": "variable:narration",
+          "fit": "video"
+        }
+      },
+      "result": {
+        "content_type": "video/mp4",
+        "fps": 25,
+        "subfolder": "final"
+      }
+    }
+  ]
+}
