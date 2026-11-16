@@ -622,6 +622,10 @@ def test_normalized_downstream_false_when_nothing_references_it():
 # The H3 steps of the nineteen minimax templates that pin an attention backend
 # moved when it defaulted to sparse instead of null (#931): the backend is part of
 # the pipeline's identity, sparse_tau is not.
+#
+# ltx2/refine-clip (upscale, refine) and ltx2/two-stage (upscale) moved when
+# the latent upsampler's component_type moved to its diffusers 0.43 home,
+# diffusers.models.latent_upscaler (#1341): a worker reloads it once.
 TEMPLATE_PIPELINE_KEYS = {
     "animatic.json": {},
     "assemble-and-score.json": {},
@@ -768,8 +772,8 @@ TEMPLATE_PIPELINE_KEYS = {
         "shot": "c3a7874569313ba50b184de0f22a52dc3f42f34fa5e53831c3586d948bf94372"
     },
     "ltx2/refine-clip.json": {
-        "refine": "cdc51f4b605ee60ec9359390b4a9fb7f60762b419637699527f5a7b1457c1f22",
-        "upscale": "f97469b7a921acca65cf45135dafd45796a29297794eabb43d3adabeeed3c33d",
+        "refine": "ef53cc602d55a8b2036b77cdd0bd6fef00d8c9e9c67fbbf8c6fb7ac8db8e1e78",
+        "upscale": "108ca1acc56d30b99194ce36f7c773c7f72cd7ff028e2f7013d772fbea797aeb",
     },
     "ltx2/refine-in-place.json": {
         "refine": "4b54a53f5c05de50d0b3094addf68b2d843135fdc02518b0ab02fb7e225b2552"
@@ -794,7 +798,7 @@ TEMPLATE_PIPELINE_KEYS = {
     "ltx2/two-stage.json": {
         "base": "21b2f1afafba342e7ca064bf431ddb00307a49bd1404eb3011c31b3d486cd239",
         "refine": "21b2f1afafba342e7ca064bf431ddb00307a49bd1404eb3011c31b3d486cd239",
-        "upscale": "caa78ea250fb765b6aff640c03219cfbc3a9c02366fd31997776520a20c8ee75",
+        "upscale": "ad41af3095ee71e0e04d90e49affb916b743867dd50633b0e2cc254f49d88f60",
     },
     "ltx2/upscale-clip.json": {
         "upscaled": "94618b4210efdaaf17afda812fbcfd9566bdaba1220a5b2518b178a154a9677c"
