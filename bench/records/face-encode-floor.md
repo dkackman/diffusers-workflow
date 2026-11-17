@@ -126,6 +126,12 @@ pass over frames that already went through the codec. An H3 clip scored in-job
 against its own first save on lem, decoder output that was never encoded before,
 would give the **upper bound**.
 
+#1400 saw the in-job and saved scores of one H3 clip differ by up to 0.045 on a
+minimum and 0.015 on a median (`docs/proposals/audits/2026-11-face-once-sheet.md`,
+S/1002). This lower bound's 0.030 min is below that 0.045, which is what a
+re-encode of already-encoded frames is expected to give; it does not contradict
+the H3 number. Its 0.016 median floor is about the audit's 0.015.
+
 ## Re-measure
 
 The arms are deterministic (repeat gap 0.000). Run
