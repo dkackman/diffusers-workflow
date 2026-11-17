@@ -34,7 +34,7 @@ Compares the first block's residual between steps to decide whether to skip the 
 }
 ```
 
-`threshold` defaults to `0.05`. Higher skips more and costs more quality. On MiniMax-H3 (RTX 3090, 1344x768, 4 references) `0.05` took 22% off a 30-step base-model job and nothing off a 12-step or turbo one. On H3 `torch.compile` cost 289 s on the first pass for about 1% per pass, `text_kv` did nothing on Ref2VA, and `taylorseer` ran out of memory. On an H3 template pass `cache={"type": "first_block", "threshold": 0.05}`, at 20 or more base steps and never with a turbo LoRA. `turbo_lead_in` ([WORKFLOW_GUIDE.md](WORKFLOW_GUIDE.md#laying-out-the-composition-without-the-turbo-lora-turbo_lead_in)) is refused with a `first_block` cache: its residual threshold reads the adapter switch as a change, and cached steps skip it.
+`threshold` defaults to `0.05`. Higher skips more and costs more quality. On MiniMax-H3 (RTX 3090, 1344x768, 4 references) `0.05` took 22% off a 30-step base-model job and nothing off a 12-step or turbo one. On H3 `torch.compile` cost 289 s on the first pass for about 1% per pass, `text_kv` did nothing on Ref2VA, and `taylorseer` ran out of memory. On an H3 template pass `cache={"type": "first_block", "threshold": 0.05}`, at 20 or more base steps and never with a turbo LoRA or on Pika H3 Flex (`templates/pika-h3/`, a fixed 6 passes). `turbo_lead_in` ([WORKFLOW_GUIDE.md](WORKFLOW_GUIDE.md#laying-out-the-composition-without-the-turbo-lora-turbo_lead_in)) is refused with a `first_block` cache: its residual threshold reads the adapter switch as a change, and cached steps skip it.
 
 **Example:** [step-caching.json](../workflows/templates/step-caching.json)
 
@@ -57,7 +57,7 @@ Magnitude-based skipping with error accumulation:
 | -------- | ------- | ----------- |
 | `mag_ratios` | required unless `calibrate` | Preset name or per-step ratio array - see below |
 | `threshold` | 0.06 | Accumulated error threshold for skipping |
-| `num_inference_steps` | 28 (diffusers) | The transformer forwards the call runs: the pipeline's `num_inference_steps`, except where the scheduler runs fewer (MiniMax-H3 runs one fewer). Set it to match the call |
+| `num_inference_steps` | 28 (diffusers) | The transformer forwards the call runs: the pipeline's `num_inference_steps`, except where the scheduler runs fewer (MiniMax-H3 runs one fewer). Set it to match the call. A fixed step-list sampler (Pika H3 Flex) takes none, and MagCache calibration is skipped there |
 | `max_skip_steps` | 3 | Max consecutive steps to skip |
 | `retention_ratio` | 0.2 | Fraction of initial steps where skipping is disabled |
 | `calibrate` | false | Measure ratios for a new model instead of skipping - see below |
@@ -75,7 +75,7 @@ For a model with no preset, run once with `"calibrate": true`:
 "cache": { "type": "mag", "calibrate": true, "num_inference_steps": 28 }
 ```
 
-Calibration skips nothing. At the end of the run the ratios appear as a job warning and a `log` event (`get_job`'s `warnings`, `get_job_events`, `export_job`): `MagCache calibration (N steps): [ ... ] — paste into mag_ratios`. While calibrating, the run's own `num_inference_steps` is used, and a mismatch with the cache's is reported as a warning. Paste the array into `mag_ratios`, drop `calibrate`, and set the cache's `num_inference_steps` to the reported `N`, which counts the forwards actually made: MiniMax-H3's scheduler turns N sigmas into N - 1 evaluations, so a 30-step H3 call reports 29 ratios.
+Calibration skips nothing. At the end of the run the ratios appear as a job warning and a `log` event (`get_job`'s `warnings`, `get_job_events`, `export_job`): `MagCache calibration (N steps): [ ... ] — paste into mag_ratios`. While calibrating, the run's own `num_inference_steps` is used, and a mismatch with the cache's is reported as a warning. Paste the array into `mag_ratios`, drop `calibrate`, and set the cache's `num_inference_steps` to the reported `N`, which counts the forwards actually made: MiniMax-H3's scheduler turns N sigmas into N - 1 evaluations, so a 30-step H3 call reports 29 ratios. That N - 1 rule is the H3 scheduler's under `num_inference_steps`, not Pika H3 Flex's step list (next paragraph).
 
 A pipeline whose config fixes a `denoising_step_list` (a distilled sampler that takes no `num_inference_steps`) runs `len - 1` passes, and that count is what the short-schedule warning, progress and cost scaling read. MagCache calibration and TST are keyed on `num_inference_steps`, so on such a pipeline both are skipped with a warning that they are not supported on a fixed step-list sampler (`dw/step_passes.py`).
 
