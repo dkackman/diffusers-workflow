@@ -32,6 +32,7 @@ from ..cost_scaling import (
     STEPS_DRIVER,
     CHAIN_LENGTH_DRIVERS,
     chain_segment_scaling,
+    guide_scaling,
     scale_curated,
     matched_chain,
 )
@@ -299,7 +300,8 @@ def _scale_past_template(definition, template, drivers, arguments, per_segment=F
     """How the workflow's size compares to the template run the bucket was
     measured on (#821, #851, #866): (factor, reason). The factor is the
     ratio of pipeline steps, times the chain's segments ratio
-    (`chain_segment_scaling`, the catalog figure's rule), times what `scale_curated` makes of the mean
+    (`chain_segment_scaling`, the catalog figure's rule), times the guided-step ratio at the template's `guide_factor`
+    (`guide_scaling`, #1426), times what `scale_curated` makes of the mean
     frames, inference steps and canvas per pipeline step - one rule, so the
     catalog figure and this one quote a request alike - and the reason names
     each axis that moved. (1, None) when the workflow is the template's
@@ -335,6 +337,18 @@ def _scale_past_template(definition, template, drivers, arguments, per_segment=F
             effective_variables(definition, arguments),
             CHAIN_LENGTH_DRIVERS,
         )
+    )
+    factor *= ratio
+    if reason:
+        reasons.append(reason)
+    # A guide the template's runs did not lay in (or did) at the factor the
+    # template declares (#1426), the catalog figure's rule
+    ratio, reason = guide_scaling(
+        bucket,
+        bucket["variables"],
+        definition,
+        effective_variables(definition, arguments),
+        template,
     )
     factor *= ratio
     if reason:

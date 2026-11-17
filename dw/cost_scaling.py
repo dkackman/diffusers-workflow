@@ -9,7 +9,10 @@ figure: a generic diffusers driver (`num_inference_steps`, `width` and
 `scales_with` (a Music 3 `audio_duration`, or that field summed over a
 list driver's entries - #1199); a `denoising_step_list` driver scales by the
 passes it runs, `len - 1` (#1316, `dw/step_passes.py`); any other declared driver that moved has no
-rule to scale by, so the figure is kept and flagged. `dw/plan.py` prices the run
+rule to scale by, so the figure is kept and flagged. A `cost` entry's
+`guide_factor` prices a pipeline step that lays in a `guides` clip at that
+many times one without (`guide_scaling`, #1426): a ref2va guide's rows are
+denoised every pass beside the target's, so it is no driver. `dw/plan.py` prices the run
 and applies the answer (`_scaled`); `dw/server/deps.py` scales an inherited
 figure with the same `scale_curated`, so an inline copy and its template
 quote one request alike. The basis labels an estimate carries live here
@@ -750,6 +753,76 @@ def chain_segment_scaling(
     return 1.0, None, list(drivers) if moved else []
 
 
+GUIDE_FACTOR_KEY = "guide_factor"
+
+
+def declared_guide_factor(definition):
+    """The `guide_factor` a workflow's `cost` entries declare (#1426): how many
+    times the scaling part of the figure one pipeline step costs when it lays
+    in a `guides` clip. The model's rule, declared by the workflow (a ref2va
+    guide doubles the video rows every pass denoises); None when no entry
+    declares a number above 1, and then a guide is not priced."""
+    entries = definition.get("cost") if isinstance(definition, dict) else None
+    for entry in entries if isinstance(entries, list) else ():
+        value = entry.get(GUIDE_FACTOR_KEY) if isinstance(entry, dict) else None
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            continue
+        if math.isfinite(value) and value > 1:
+            return float(value)
+    return None
+
+
+def _has_guide(step):
+    """Whether one pipeline step's own `guides` lays in a clip: an entry whose
+    `video` is not null, as `guides.guide_lengths` counts one."""
+    from .pipeline_processors.h3_rules import GUIDES_INPUT
+
+    arguments = step["pipeline"].get("arguments")
+    guides = arguments.get(GUIDES_INPUT) if isinstance(arguments, dict) else None
+    return any(
+        isinstance(guide, dict) and guide.get("video") is not None
+        for guide in (guides if isinstance(guides, (list, tuple)) else ())
+    )
+
+
+def _guided_steps(definition, arguments):
+    """(guided, total) pipeline steps of `definition` at `arguments`, `variable:`
+    references resolved and `for_each` expanded, as an inherited price counts
+    its steps (`vram_inheritance.pipeline_steps`)."""
+    from .vram_inheritance import pipeline_steps
+
+    steps = pipeline_steps(definition, arguments)
+    return sum(1 for step in steps if _has_guide(step)), len(steps)
+
+
+def guide_scaling(
+    was_definition, was_arguments, now_definition, now_arguments, factor_from
+):
+    """The one rule for a guide's price (#1426): (ratio, reason) for the run of
+    `now_definition` at `now_arguments` against the one measured as
+    `was_definition` at `was_arguments`, at the `guide_factor` `factor_from`
+    declares. A step with a guide costs `guide_factor` times one without, so a
+    run is 1 + (factor - 1) x its guided share of pipeline steps, and the ratio
+    is now's over was's. (1.0, None) when nothing declares a factor or the
+    guided share did not move. `_driver_scaling` (the catalog figure and this
+    box's own history) and `dw/server/deps.py` (the inherited one) both call
+    it."""
+    factor = declared_guide_factor(factor_from)
+    if factor is None:
+        return 1.0, None
+    was_guided, was_total = _guided_steps(was_definition, was_arguments)
+    now_guided, now_total = _guided_steps(now_definition, now_arguments)
+    was_share = was_guided / was_total if was_total else 0.0
+    now_share = now_guided / now_total if now_total else 0.0
+    if now_share == was_share:
+        return 1.0, None
+    ratio = (1 + (factor - 1) * now_share) / (1 + (factor - 1) * was_share)
+    return ratio, (
+        f"guides on {now_guided} of {now_total} pipeline steps vs "
+        f"{was_guided} of {was_total} (x{_shown(factor)} a guided step)"
+    )
+
+
 def _driver_scaling(definition, expanded, list_entries, baseline=None):
     """How far the declared `cost_drivers` moved the run away from the
     defaults the curated `cost` was measured at, as (factor, axes, unscaled),
@@ -821,6 +894,14 @@ def _driver_scaling(definition, expanded, list_entries, baseline=None):
         if reason:
             scaled_axes.append(reason)
         unscaled.extend(chain_unscaled)
+    # A guide's rows are denoised every pass beside the target's (#1426); not
+    # a declared driver, since a guide is usually an argument, not a variable
+    ratio, reason = guide_scaling(
+        definition, defaults, definition, effective, definition
+    )
+    factor *= ratio
+    if reason:
+        scaled_axes.append(reason)
     if baseline is not None:
         # A ratio between two runs: the re-rolls are in both
         return factor, scaled_axes, unscaled

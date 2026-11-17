@@ -1031,7 +1031,12 @@ scalar variable, or a field of a list driver's entries summed over them
 held out of the scaling: a moved run is quoted `fixed_minutes + (minutes -
 fixed_minutes) x factor`, so a long chain is not charged its load once per
 segment (`minimax/chained-segments` declares 10). Absent, the whole figure
-scales. An entry carrying `cost` has been run to completion on the device it names; one
+scales. Its
+`guide_factor` is what a pipeline step that lays in a `guides` clip costs
+against the same step without one, on the scaling part: a ref2va guide
+appends a second copy of the target's video rows, so every pass denoises
+twice the rows (`minimax/reference-to-video` declares 2, from a 3.8 and a 7.4
+min run of the same shot). Absent, a guide is not priced. An entry carrying `cost` has been run to completion on the device it names; one
 without has only been authored, and its first run is the one that finds out
 what its description could not check.
 
