@@ -3230,3 +3230,25 @@ class TestResumedChainWithNothingToRender(TestResumedChainEstimate):
 
         assert any("nothing is left to render" in d for d in quoted["differs"])
         assert quoted["low_confidence"] is True
+
+
+class TestReplacePerformerPricesRenderFrames:
+    """#1419: the estimate summed the source `num_frames`, so 32 short cuts
+    each rendered at 124 frames were quoted far below 3 long ones."""
+
+    def _cuts(self, count, num_frames):
+        return [
+            {
+                "name": f"c{i}",
+                "start_frame": i * num_frames,
+                "num_frames": num_frames,
+                "render_frames": 124,
+            }
+            for i in range(count)
+        ]
+
+    def test_many_short_cuts_cost_more_than_few_long_ones(self, plan):
+        template = _repo_json("workflows/templates/minimax/replace-performer.json")
+        many = plan(template, arguments={"cuts": self._cuts(32, 11)})["estimate"]
+        few = plan(template, arguments={"cuts": self._cuts(3, 124)})["estimate"]
+        assert many["minutes"] > few["minutes"]

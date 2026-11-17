@@ -8,6 +8,9 @@
       "name": "RTX 3090",
       "vram_gb": 24,
       "minutes": 10.2,
+      "scales_with": [
+        "render_frames"
+      ],
       "per_entry": {
         "variable": "cuts",
         "minutes": 4.0,

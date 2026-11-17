@@ -687,7 +687,21 @@ def _declared_axis_scaling(name, default_value, value, list_entries, proportiona
         return now / was, [f"{name} {_shown(now)} vs {_shown(was)}"]
     factor = 1.0
     axes = []
-    fields = [FRAMES_DRIVER] + [f for f in proportional if f != FRAMES_DRIVER]
+    declared = [f for f in proportional if f != FRAMES_DRIVER]
+    # A declared field summable on both sides (a cut's `render_frames`) is
+    # what the entries cost; the `num_frames` it is later cut back to is not
+    # counted a second time (#1419)
+    priced = [
+        f
+        for f in declared
+        if _entry_frames(default_value, f) is not None
+        and _entry_frames(value, f) is not None
+        and _entry_frames(value, f) != []
+    ]
+    if priced and _entry_frames(default_value, FRAMES_DRIVER) is not None:
+        fields = declared
+    else:
+        fields = [FRAMES_DRIVER] + declared
     for field in fields:
         summed = _list_frames_scaling(name, default_value, value, list_entries, field)
         if summed is None:
