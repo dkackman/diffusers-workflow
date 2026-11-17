@@ -67,6 +67,12 @@ def load(path):
 # is subtle enough that a rule change should have to answer to them.
 EXPECTED_SHAPES = {
     "workflows/templates/text-to-image.json": ("image", []),
+    # #1424: MiniMax-H3-Image; the edit's `images` list makes it an edit
+    "workflows/templates/minimax-h3-image/text-to-image.json": ("image", []),
+    "workflows/templates/minimax-h3-image/multi-reference.json": (
+        "image-edit",
+        ["needs-input-media"],
+    ),
     "workflows/templates/minimax/storyboard.json": (
         "shot",
         ["has-audio", "identity-referenced"],
@@ -659,7 +665,11 @@ def test_no_stale_entry_in_the_allowlist():
 # #1343): three new entries, the catalog's only Pika H3 Flex family - MiniMax-H3's
 # weights under Pika's adapter and fixed 6-pass schedule - with estimated cost
 # blocks until a measured run replaces them.
-COMPACT_BUDGET = 15_475
+# Then to 15_725 (measured 15_706) for `minimax-h3-image/text-to-image` and
+# `minimax-h3-image/multi-reference` (#1317, stage #1424): two new entries, the
+# catalog's only MiniMax-H3-Image family - a fixed 6-step image model at under
+# 6 GB of VRAM and 64 GB of host RAM - with measured cost blocks.
+COMPACT_BUDGET = 15_725
 # The shape=sequence listing to 1_650 (measured 1_642) for
 # `minimax/replace-performer` (#1374), the catalog's only sequence that recasts
 # a take.
