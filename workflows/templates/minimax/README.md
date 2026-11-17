@@ -97,7 +97,9 @@ back to 8); the 768p template once stated
 (the ComfyUI twin reads `training_scale: 0.0625`). Set `lora_alpha` only for a
 file whose own figure is wrong, and read its header first. Steps are one more than the
 file's model passes (5 for 4-step, 9 for 8-step) because the scheduler counts
-sigma grid points and the terminal zero is one of them.
+sigma grid points and the terminal zero is one of them. That rule is lightx2v's
+and the base model's: Pika H3 Flex (`../pika-h3/`) runs a fixed 6-pass step
+list and takes no `num_inference_steps` and no shift.
 
 Never put an FL2VA LoRA on a reference template: a `ref2va` step holds
 `transformer_ref` alone, so diffusers routes whatever it is handed straight

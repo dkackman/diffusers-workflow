@@ -225,6 +225,53 @@ class TestMiniMaxH3Skill:
         # The 4-step default since 2026-10-10
         assert "denoise_total_steps" in text and "reports 4" in text
 
+    def test_pika_flex_runs_six_passes_and_takes_no_steps(self):
+        """#1344: Pika H3 Flex is the carve-out from the N-1 rule above. Its
+        blocks run a fixed `denoising_step_list` (7 points, 6 passes) and take
+        no `num_inference_steps` or shift, so the skill must say so and every
+        pika-h3 template must carry the pipeline's own list and no steps."""
+        import inspect
+
+        from diffusers.modular_pipelines.pika_h3_flex import before_denoise
+
+        step_list = [1000, 750, 500, 250, 100, 40, 0]
+        assert f'ConfigSpec("denoising_step_list", {step_list})' in inspect.getsource(
+            before_denoise
+        )
+
+        skill = open(H3_SKILL, encoding="utf-8").read()
+        assert "references/pika-flex.md" in skill
+        pika = open(
+            os.path.join(os.path.dirname(H3_SKILL), "references", "pika-flex.md"),
+            encoding="utf-8",
+        ).read()
+        assert "6 passes" in pika and "no `num_inference_steps`" in pika
+        assert str(step_list) in pika
+
+        templates = glob.glob(
+            os.path.join(REPO_ROOT, "workflows", "templates", "pika-h3", "*.json")
+        )
+        assert templates
+        for path in templates:
+            with open(path, encoding="utf-8") as f:
+                workflow = json.load(f)
+            assert "num_inference_steps" not in workflow.get("variables", {}), path
+            for step in workflow["steps"]:
+                pipeline = step.get("pipeline")
+                if not pipeline:
+                    continue
+                configs = pipeline["configuration"]["configs"]
+                assert configs["denoising_step_list"] == step_list, path
+                assert len(step_list) - 1 == 6
+                arguments = pipeline.get("arguments", {})
+                for key in (
+                    "num_inference_steps",
+                    "shift",
+                    "video_shift",
+                    "audio_shift",
+                ):
+                    assert key not in arguments, (path, key)
+
     def test_the_canvas_rules_are_the_pipeline_s(self):
         import inspect
 

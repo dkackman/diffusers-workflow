@@ -9,8 +9,7 @@ H3 generates video and audio together. Every template fits a 24 GB card.
 
 ## Before anything
 
-1. `get_server_info`: the device (H3 is CUDA; quantized configs don't
-   run on mps) and the workspace.
+1. `get_server_info`: the device (H3 is CUDA) and the workspace.
 2. `list_workflows(shape="shot")`, `list_workflows(shape="sequence")` and
    `list_workflows(shape="audio")`: the family's templates by name,
    `summary`, `traits`, `cost`; it outranks names below.
@@ -34,7 +33,7 @@ H3 generates video and audio together. Every template fits a 24 GB card.
 - **Pinned to a clip** (hold earlier footage): a `guides` argument on
   `t2va`/`fl2va` - up to 4 clips, 3 on a guide chain, each at a
   `frame` that is a multiple of 17; the VRAM ceiling charges each
-  guide's frames on the canvas, dropping with each guide's length as for references. A guide holds look as well as motion: a full-length one
+  guide's frames on the canvas. A guide holds look as well as motion: a full-length one
   copies the take, and a style prompt does not restyle it. `"audio": true`
   on a guide holds its soundtrack too. Rules and example: `get_guide("workflows",
   section="H3: holding a clip with `guides`")`.
@@ -116,6 +115,7 @@ section).
 - Steps are the LoRA's passes plus one (5 for the 4-step default, 9 for
   8-step): the scheduler counts the terminal zero, so `denoise_total_steps`
   reports 4. A null `lora_model_name` drops the LoRA; raise steps and shifts too.
+  Not Pika H3 Flex (`pika-h3` templates): single clips, 6 passes, no steps or shift - `references/pika-flex.md`.
 - Dialogue shots (any `<d>` line) drop the turbo LoRA, which digitizes voices
   (~4 dB more high band): `lora_model_name: null`, `num_inference_steps: 12`,
   `video_shift: 12.0`, `audio_shift: 3.0`; int4 stays fine without it. Turbo stays the default otherwise (#984 B0).
@@ -170,7 +170,7 @@ A wanted look (clay, paper): `references/style.md`. Film-term camera or look: th
    (`timeout_capped` says the server's cap cut it; call again while
    `still_running`; on a client "timed out", retry at `timeout_seconds` 60),
    then `get_job`. Silence is no hang (encode ~6 s img, ~50 s video; 1st
-   pass 165-508 s), nor are two-minute gaps; judge by `denoise_step`
+   pass 165-508 s); judge by `denoise_step`
    (`references/watching-a-run.md`). Each entry carries `subfolder`:
    `final` is the deliverable (`episode`, `music_video`, `voyage`),
    `intermediate` the scratch.

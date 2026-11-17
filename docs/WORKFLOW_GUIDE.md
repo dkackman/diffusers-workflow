@@ -788,7 +788,9 @@ by the source, and `validate_workflow` names the entries to add or drop.
    schedule the pipeline actually runs: MiniMax H3's scheduler counts sigma
    grid points including the terminal zero, so it runs N-1 model evaluations
    for N (9 reports 8, 20 reports 19). That is the vendor's convention, not a
-   dropped step.
+   dropped step. A fixed step-list sampler is the exception: Pika H3 Flex
+   (`templates/pika-h3/`) takes no `num_inference_steps`, and its 7-point list
+   runs 6 evaluations, so `denoise_total_steps` reports 6.
 6. `get_output_image` to look at what was made, and say whether it answers
    the request. Nothing before this step establishes that it does.
    `get_output_frames` looks at a video and `get_output_audio` listens to a
@@ -1961,7 +1963,8 @@ A turbo LoRA fixes the composition in its first, high-noise evaluations. `turbo_
 (an H3 call argument, a whole number >= 0) runs the first N transformer evaluations of each
 pipeline call with the LoRA adapter named `turbo` at scale 0, so the base model lays out the
 scene, then at its configured scale for the rest. The unit is evaluations, not steps:
-`num_inference_steps` N runs N - 1, so a turbo template's 5 steps are 4 evaluations. Only the
+`num_inference_steps` N runs N - 1, so a turbo template's 5 steps are 4 evaluations (a Pika H3
+Flex step has no `turbo` adapter and no `num_inference_steps`, so the lead-in is not for it). Only the
 adapter named `turbo` is touched; other adapters keep their scales, and its scale is restored
 on success, error and cancel. Every chain segment and re-roll is its own call, so the count
 restarts at each. `0` or `null` is off.
@@ -2367,7 +2370,8 @@ so the loaded model is reused - with these `arguments`, and the step saves the r
 ```
 
 `num_inference_steps` is the number of sigma points, ending at 0, spaced by the
-scheduler's `shift`, so a refine runs `num_inference_steps - 1` denoise evaluations. Here
+scheduler's `shift`, so a refine runs `num_inference_steps - 1` denoise evaluations (H3's
+scheduler only: Pika H3 Flex's templates have no refine). Here
 `5` points at shift 12 (the example's `video_shift`) and strength 0.2 are sigma `0.2,
 0.157, 0.110, 0.058, 0`: 4 evaluations. The time a refine takes scales with `num_inference_steps`. `refine_strength`
 sets where it starts, not how many steps run: a higher strength moves the picture further
