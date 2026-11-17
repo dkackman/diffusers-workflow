@@ -284,6 +284,23 @@ def media_from(video):
     path = _file_path(video)
     if path is not None:
         return read_media(path)
+    if isinstance(video, numpy.ndarray) and video.ndim == 4:
+        # video_frames / fit_to_model hand on the frames as one array (a
+        # FittedVideo carries its rate): frames only, no soundtrack
+        thumbs, looks = _in_memory_thumbs(video)
+        fps = getattr(video, "fps", None)
+        return Media(
+            thumbs,
+            None,
+            None,
+            fps,
+            video_seconds=(thumbs.shape[0] / fps)
+            if thumbs is not None and fps
+            else None,
+            audio_seconds=None,
+            shots=None,
+            looks=looks,
+        )
     if hasattr(video, "frames") or hasattr(video, "audio"):
         audio = getattr(video, "audio", None)
         waveform = None if audio is None else dsp.as_channels_samples(audio)
@@ -313,8 +330,8 @@ def media_from(video):
         return media
     raise ValueError(
         "a probe takes a stored video (asset:, output: or a path) or the "
-        f"video an earlier step returned, not {type(video).__name__} - a URL "
-        "downloads as bare frames with no soundtrack to measure"
+        "video an earlier step returned (a video, or the frames video_frames "
+        f"or fit_to_model returned), not {type(video).__name__}"
     )
 
 

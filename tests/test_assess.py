@@ -1036,3 +1036,27 @@ class TestShotSpanOverrun:
 
         assert not [f for f in answer["findings"] if f["rule"] == "shot_span_overrun"]
         assert not any(w[1].get("kind") == "shot_span_overrun" for w in warnings)
+
+
+class TestMediaFromFrameArray:
+    """#1423: video_frames hands on a FittedVideo (frames, a rate, no .frames)."""
+
+    def test_fitted_video_is_scored_as_frames(self):
+        import numpy
+
+        from dw.media_types import FittedVideo
+        from dw.tasks.assess import media_from
+
+        frames = numpy.random.randint(0, 255, (5, 32, 48, 3), dtype=numpy.uint8)
+        media = media_from(FittedVideo(frames, fps=24, dtype=numpy.uint8))
+        assert media.frame_count == 5
+        assert media.fps == 24
+        assert media.audio is None
+
+    def test_other_object_names_accepted_forms(self):
+        import pytest
+
+        from dw.tasks.assess import media_from
+
+        with pytest.raises(ValueError, match="video_frames"):
+            media_from(object())
