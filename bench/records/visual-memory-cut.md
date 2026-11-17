@@ -150,35 +150,35 @@ with `opencv/face_detection_yunet` `face_detection_yunet_2023mar.onnx`
 
 | Pair | A's last 1 s | B's first 1 s | Step | B reaches A's end level | SFace across |
 |---|---|---|---|---|---|
-| A–B0 | 376 | 199 | 0.53x (-47%) | never | 0.842 |
-| A–B2 | 376 | 210 | 0.56x (-44%) | never | 0.699 |
-| A–B0s | 376 | 514 | 1.37x (+37%) | at 0 s | 0.696 |
-| A–B1s | 376 | 662 | 1.76x (+76%) | at 0 s | 0.581 |
-| A′–S1s | 346 | 689 | 1.99x (+99%) | at 0 s | 0.803 |
-| A′–S2 | 346 | 285 | 0.82x (-18%) | never | 0.910 |
+| A–B0 | 376 | 184 | 0.49x (-51%) | never | 0.840 |
+| A–B2 | 376 | 211 | 0.56x (-44%) | never | 0.695 |
+| A–B0s | 376 | 512 | 1.36x (+36%) | at 0 s | 0.695 |
+| A–B1s | 376 | 662 | 1.76x (+76%) | at 0 s | 0.584 |
+| A′–S1s | 347 | 697 | 2.01x (+101%) | at 0 s | 0.797 |
+| A′–S2 | 347 | 285 | 0.82x (-18%) | never | 0.908 |
 
 Per-second face sharpness (median Laplacian variance, 0-1 s … 5-6 s):
 
 | Clip | Size | Per second |
 |---|---|---|
-| A | 1344x768 | 376, 300, 310, 365, 396, 361 |
-| A′ | 1344x768 | 396, 265, 295, 288, 345, 344 |
-| B0 | 1344x768 | 199, 132, 116, 125, 150, 174 |
-| B2 | 1344x768 | 210, 169, 219, 275, 276, 293 |
-| S2 | 1344x768 | 285, 174, 168, 190, 180, 175 |
-| B0s | 960x544 | 514, 341, 289, 328, 422, 418 |
-| B1s | 960x544 | 662, 336, 330, 648, 491, 484 |
-| S1s | 960x544 | 689, 461, 494, 532, 590, 592 |
+| A | 1344x768 | 374, 300, 311, 364, 396, 361 |
+| A′ | 1344x768 | 403, 267, 292, 285, 345, 346 |
+| B0 | 1344x768 | 184, 132, 115, 126, 150, 174 |
+| B2 | 1344x768 | 211, 173, 219, 267, 274, 292 |
+| S2 | 1344x768 | 285, 174, 168, 191, 176, 175 |
+| B0s | 960x544 | 512, 339, 289, 327, 422, 431 |
+| B1s | 960x544 | 662, 335, 330, 641, 492, 485 |
+| S1s | 960x544 | 697, 464, 497, 532, 591, 593 |
 
 **Caveat: sharpness is not comparable across sizes.** Laplacian variance
 depends on resolution and on the face crop's size, so a 960x544 arm's step
 against a 1344x768 A says little on its own; the B0s, B1s and S1s steps are
 all "up" largely for that reason. Read the `s` arms against each other:
-B1s against its control B0s is 662 against 514 in the first second (1.29x)
-and higher in four of six seconds. S1s against S2 crosses sizes and carries
+B1s against its control B0s is 662 against 512 in the first second (1.29x)
+and higher in five of six seconds (all but 1-2 s). S1s against S2 crosses sizes and carries
 the same caveat. SFace (identity) is size-normalised by its aligned crop and
-is comparable: B1s is the lowest across the cut (0.581, below B0s's 0.696),
-and S2 the highest (0.910, from its replayed opening).
+is comparable: B1s is the lowest across the cut (0.584, below B0s's 0.695),
+and S2 the highest (0.908, from its replayed opening).
 
 E was not paired: the plan pairs each B arm against A, and A′ against S1/S2.
 
@@ -193,3 +193,146 @@ line with lips that follow it.
 Lem time used: about 93 min (51 before v2, then 6.4 + 20.5 + 14.8) against
 the ~86 approved, about 7 min over: a whole-clip pass cost 4.4x a control
 pass, not the 3.4x the estimate assumed, and B1s had a 429 s warm-up.
+
+## Appendix: raw `cut_windows.py pair` output
+
+Rerun on lem (develop @ ad4871e1, `venv/bin/python -I`) directly on the
+outputs under the run ids in the table above, with the two model files named
+there. The tables above were updated to these values (the first draft's
+numbers differed by up to 15 in sharpness and 0.006 in SFace; the largest
+move is B0's first second, 199 to 184). The two `WARN` lines per run are
+OpenCV's, not the script's.
+
+<details><summary>Verbatim output, six pairs</summary>
+
+```
+ad4871e1 Merge branch 'feat/1397-A-track-people-sam3' into develop
+### A-B0
+[ WARN:0@0.025] global net_impl_backend.cpp:345 setPreferableTarget Targets are not supported by the new graph engine for now
+[ WARN:0@0.133] global net_impl_backend.cpp:345 setPreferableTarget Targets are not supported by the new graph engine for now
+A (5.17 s, 21 face samples)
+    0-1   s: sharp 374
+    1-2   s: sharp 300
+    2-3   s: sharp 311
+    3-4   s: sharp 364
+    4-5   s: sharp 396
+    5-6   s: sharp 361
+B (5.17 s, 21 face samples)
+    0-1   s: sharp 184
+    1-2   s: sharp 132
+    2-3   s: sharp 115
+    3-4   s: sharp 126
+    4-5   s: sharp 150
+    5-6   s: sharp 174
+last 1 s before cut: 376   first 1 s after: 184
+step: 0.49x (-51%)
+after side first reaches the before level: never
+SFace across the cut (mean feature, 1 s each side): 0.840
+### A-B2
+[ WARN:0@0.012] global net_impl_backend.cpp:345 setPreferableTarget Targets are not supported by the new graph engine for now
+[ WARN:0@0.115] global net_impl_backend.cpp:345 setPreferableTarget Targets are not supported by the new graph engine for now
+A (5.17 s, 21 face samples)
+    0-1   s: sharp 374
+    1-2   s: sharp 300
+    2-3   s: sharp 311
+    3-4   s: sharp 364
+    4-5   s: sharp 396
+    5-6   s: sharp 361
+B (5.17 s, 21 face samples)
+    0-1   s: sharp 211
+    1-2   s: sharp 173
+    2-3   s: sharp 219
+    3-4   s: sharp 267
+    4-5   s: sharp 274
+    5-6   s: sharp 292
+last 1 s before cut: 376   first 1 s after: 211
+step: 0.56x (-44%)
+after side first reaches the before level: never
+SFace across the cut (mean feature, 1 s each side): 0.695
+### A-B0s
+[ WARN:0@0.015] global net_impl_backend.cpp:345 setPreferableTarget Targets are not supported by the new graph engine for now
+[ WARN:0@0.125] global net_impl_backend.cpp:345 setPreferableTarget Targets are not supported by the new graph engine for now
+A (5.17 s, 21 face samples)
+    0-1   s: sharp 374
+    1-2   s: sharp 300
+    2-3   s: sharp 311
+    3-4   s: sharp 364
+    4-5   s: sharp 396
+    5-6   s: sharp 361
+B (5.17 s, 21 face samples)
+    0-1   s: sharp 512
+    1-2   s: sharp 339
+    2-3   s: sharp 289
+    3-4   s: sharp 327
+    4-5   s: sharp 422
+    5-6   s: sharp 431
+last 1 s before cut: 376   first 1 s after: 512
+step: 1.36x (+36%)
+after side first reaches the before level: window starting 0 s after the cut
+SFace across the cut (mean feature, 1 s each side): 0.695
+### A-B1s
+[ WARN:0@0.015] global net_impl_backend.cpp:345 setPreferableTarget Targets are not supported by the new graph engine for now
+[ WARN:0@0.125] global net_impl_backend.cpp:345 setPreferableTarget Targets are not supported by the new graph engine for now
+A (5.17 s, 21 face samples)
+    0-1   s: sharp 374
+    1-2   s: sharp 300
+    2-3   s: sharp 311
+    3-4   s: sharp 364
+    4-5   s: sharp 396
+    5-6   s: sharp 361
+B (5.17 s, 21 face samples)
+    0-1   s: sharp 662
+    1-2   s: sharp 335
+    2-3   s: sharp 330
+    3-4   s: sharp 641
+    4-5   s: sharp 492
+    5-6   s: sharp 485
+last 1 s before cut: 376   first 1 s after: 662
+step: 1.76x (+76%)
+after side first reaches the before level: window starting 0 s after the cut
+SFace across the cut (mean feature, 1 s each side): 0.584
+### Ap-S1s
+[ WARN:0@0.012] global net_impl_backend.cpp:345 setPreferableTarget Targets are not supported by the new graph engine for now
+[ WARN:0@0.119] global net_impl_backend.cpp:345 setPreferableTarget Targets are not supported by the new graph engine for now
+A (5.17 s, 21 face samples)
+    0-1   s: sharp 403
+    1-2   s: sharp 267
+    2-3   s: sharp 292
+    3-4   s: sharp 285
+    4-5   s: sharp 345
+    5-6   s: sharp 346
+B (5.17 s, 21 face samples)
+    0-1   s: sharp 697
+    1-2   s: sharp 464
+    2-3   s: sharp 497
+    3-4   s: sharp 532
+    4-5   s: sharp 591
+    5-6   s: sharp 593
+last 1 s before cut: 347   first 1 s after: 697
+step: 2.01x (+101%)
+after side first reaches the before level: window starting 0 s after the cut
+SFace across the cut (mean feature, 1 s each side): 0.797
+### Ap-S2
+[ WARN:0@0.017] global net_impl_backend.cpp:345 setPreferableTarget Targets are not supported by the new graph engine for now
+[ WARN:0@0.124] global net_impl_backend.cpp:345 setPreferableTarget Targets are not supported by the new graph engine for now
+A (5.17 s, 21 face samples)
+    0-1   s: sharp 403
+    1-2   s: sharp 267
+    2-3   s: sharp 292
+    3-4   s: sharp 285
+    4-5   s: sharp 345
+    5-6   s: sharp 346
+B (5.17 s, 21 face samples)
+    0-1   s: sharp 285
+    1-2   s: sharp 174
+    2-3   s: sharp 168
+    3-4   s: sharp 191
+    4-5   s: sharp 176
+    5-6   s: sharp 175
+last 1 s before cut: 347   first 1 s after: 285
+step: 0.82x (-18%)
+after side first reaches the before level: never
+SFace across the cut (mean feature, 1 s each side): 0.908
+```
+
+</details>
