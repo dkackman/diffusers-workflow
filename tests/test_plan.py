@@ -2011,6 +2011,19 @@ class TestDownloadsRequired:
             "facebook/sam2-hiera-large",
         ]
 
+    def test_a_sam3_track_people_step_lists_only_the_sam3_repo(self, plan):
+        spec = definition()
+        spec["steps"].append(
+            {
+                "name": "people",
+                "task": {"command": "track_people", "arguments": {"backend": "sam3"}},
+            }
+        )
+        repos = [d["repo"] for d in plan(spec)["downloads_required"]]
+        assert repos == ["org/still-model", "facebook/sam3"]
+        assert "IDEA-Research/grounding-dino-base" not in repos
+        assert "facebook/sam2-hiera-large" not in repos
+
     def test_a_repo_a_pipeline_and_a_task_both_load_is_listed_once(self, plan):
         spec = definition()
         spec["steps"][0]["pipeline"]["from_pretrained_arguments"]["model_name"] = (
