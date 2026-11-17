@@ -192,7 +192,7 @@ are multiples of 32.
 | Host RAM, cold first quantize | 116,760 MB peak RSS of 128,712 MB; budget ~120GB on a host without the quantized cache |
 | t2i 2048x2048 | 2.0 min warm (22.3 s encode, 91.4 s denoise at 15.2 s a pass, 3.4 s decode); 38.2 min cold (2110.8 s load, which is the download and the quantize) |
 | t2i 1024x1024 | 2.5 min warm - no faster |
-| 3-reference edit, 2048x2048 | 3.8 min with the quantized cache hit on a new card (56.9 s load, 23.6 s encode, 132.1 s denoise: 89.1 s first pass then 8.6 s each, 3.5 s decode); ~5.5 GiB reserved at decode |
+| 3-reference edit, 2048x2048 | 1.3 min warm on lem 2026-11-17 (22.1 s encode, 51.7 s denoise at 8.6 s a pass, 3.3 s decode); 3.8 min in the bench with the quantized cache hit on a new card (56.9 s load, 23.6 s encode, 132.1 s denoise: 89.1 s first pass then 8.6 s each, 3.5 s decode); ~5.5 GiB reserved at decode |
 | First download | ~64 GiB (63.93 GiB: transformer and VAE; the text encoder comes from H3's repo, not H3-Image's ~204GB) |
 
 Host RAM is the binding resource, not VRAM. The cold run is the expensive one: it
