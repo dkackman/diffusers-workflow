@@ -677,8 +677,26 @@ def test_a_cached_pipeline_with_a_minutes_long_decode_warns(monkeypatch):
     assert warnings[0]["decode_s"] == 254.8
 
 
-@pytest.mark.parametrize("cached, decode_s", [(True, 19.0), (False, 254.8)])
-def test_a_normal_or_uncached_decode_does_not_warn(monkeypatch, cached, decode_s):
+def test_a_slow_decode_warns_after_a_fresh_load_with_device_memory(monkeypatch):
+    """#1417: a 140 s decode after a 4.5 s fresh load is said, with memory."""
+    warnings = []
+    monkeypatch.setattr(
+        timing_module,
+        "emit_warning",
+        lambda message, **data: warnings.append((message, data)),
+    )
+    monkeypatch.setattr(timing_module, "_device_memory_mb", lambda: (512, 24000))
+    clock, timer = new_timer()
+    _decode(clock, timer, False, 139.8)
+    assert len(warnings) == 1
+    message, data = warnings[0]
+    assert data["kind"] == "decode_slow"
+    assert data["device_free_mb"] == 512
+    assert "512 MB free of 24000 MB" in message
+
+
+@pytest.mark.parametrize("cached, decode_s", [(True, 19.0), (False, 19.0)])
+def test_a_normal_decode_does_not_warn(monkeypatch, cached, decode_s):
     warnings = []
     monkeypatch.setattr(
         timing_module, "emit_warning", lambda message, **data: warnings.append(data)

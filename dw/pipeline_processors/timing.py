@@ -43,10 +43,21 @@ _active_timer = contextvars.ContextVar("dw_step_timer", default=None)
 # worth a warning (#924)
 _SLOW_FIRST_PASS_EXTRA_S = 30.0
 
-# A decode this long on a pipeline served from cache is worth a warning (#1116):
+# A decode this long is worth a warning (#1116):
 # the same decode ran in ~19 s on a first entry, and 100-255 s on a later entry
 # of a different frame count with nothing in the job saying why
 _SLOW_DECODE_S = 60.0
+
+
+def _device_memory_mb():
+    """(free, total) MB on the current CUDA device, or None when unavailable."""
+    try:
+        if get_device_type() != "cuda":
+            return None
+        free, total = torch.cuda.mem_get_info()
+        return int(free / 2**20), int(total / 2**20)
+    except Exception:
+        return None
 
 
 def _synced_clock():
@@ -191,29 +202,43 @@ class StepTimer:
             self._warn_on_slow_decode(segment)
 
     def _warn_on_slow_decode(self, segment):
-        """Say so once per call when a cached pipeline's decode runs for minutes.
+        """Say so once per call when a decode runs for minutes.
 
-        The decode is the tail of the call, after the last denoise pass. On a
-        pipeline already loaded, a decode this long is not weights loading;
-        what it is cannot be told from here (a shape the cached pipeline has
-        not run and memory pressure on the decode device are the usual causes),
-        so the warning states the measurement and names those as things to
-        check, never as the cause (#1116, the #1119 rule). Without a word the
-        consumer sees only `phase_stall` notices."""
-        if self._load_cached is not True:
-            return
+        The decode is the tail of the call, after the last denoise pass. Weights
+        are resident by then whether the load was cached or fresh (a 4.5 s load
+        followed by a 140 s decode is as anomalous as a cached one, #1417), so
+        the warning does not depend on the load. What the cause is cannot be
+        told from here, so it states the measurement plus the decode device's
+        memory (the one fact a consumer cannot read over MCP) and names causes
+        only as things to check (#1116, the #1119 rule)."""
         decode = segment.spans()[3]
         if decode is None or decode < _SLOW_DECODE_S:
             return
+        loaded = (
+            "with the pipeline already loaded"
+            if self._load_cached
+            else "after the weights were loaded"
+        )
+        memory = _device_memory_mb()
+        memory_note = ""
+        data = {}
+        if memory is not None:
+            free_mb, total_mb = memory
+            memory_note = (
+                f" Device memory at decode end: {free_mb} MB free of {total_mb} MB."
+            )
+            data = {"device_free_mb": free_mb, "device_total_mb": total_mb}
         emit_warning(
-            f"Decode took {decode:.0f}s with the pipeline already loaded, far "
-            "past a steady decode. The cause is not identified from here: a "
-            "shape this cached pipeline has not run before (a different number "
-            "of frames) and memory pressure on the decode device are the usual "
-            "ones to check.",
+            f"Decode took {decode:.0f}s {loaded}, far past a steady decode. "
+            "The cause is not identified from here: memory pressure on the "
+            "decode device, and a shape this pipeline has not run before "
+            "(a different number of frames), are the usual ones to check; "
+            "an entry of the same shape as an earlier one rules the second out."
+            + memory_note,
             kind="decode_slow",
             decode_s=round(decode, 1),
             step=self.step,
+            **data,
         )
 
     def cache_counted(self, stats):
