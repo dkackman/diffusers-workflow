@@ -454,7 +454,7 @@ def not_h3(pipeline, argument=HOLD_AUDIO_INPUT, taken_by=H3_WORKFLOWS):
     """Why this step's pipeline cannot take `argument` - one of the H3 block
     arguments - or None when it can or cannot be told before the load.
     `taken_by` is the H3 workflows the message names as taking it: an
-    argument ref2va refuses (guides, latent_anchor) passes t2va/fl2va only,
+    argument ref2va refuses (latent_anchor, guide_noise) passes t2va/fl2va only,
     so the refusal does not send the author to a workflow that refuses it
     too. It only words the message - an H3 workflow outside it is left to
     the caller's own rule, which says why."""
@@ -603,7 +603,8 @@ GUIDE_BACKOFF_BLOCK = 17
 # Where a guide chain runs is where `guides` runs (dw/guides.py); the run and
 # validate lead their refusal with this rule
 GUIDE_CHAIN_RULE = (
-    "continuity 'guide' runs on MiniMax-H3 t2va or fl2va only - guides stay off ref2va"
+    "continuity 'guide' runs on MiniMax-H3 t2va or fl2va only - ref2va takes one "
+    "whole-render guide, never a guide chain"
 )
 
 # Every chain continuity mode, in the order chain_continuity.py registers its classes
@@ -809,6 +810,43 @@ def guide_backoff_problems(chain):
             )
         ]
     return []
+
+
+# ref2va takes `guides` too (#1411), narrowly: one clip, at frame 0, covering
+# the whole render - a performer swap's source, held under the references. Its
+# guide rows go after the target at the target's own rotary times
+# (h3_guide_steps.DwH3Ref2VAGuideLayoutStep); no guide audio, no guide noise,
+# no guide chain, no latent_anchor.
+REF2VA_GUIDE_RULE = (
+    "on ref2va, guides takes exactly one clip, at frame 0, covering the whole render"
+)
+
+
+def ref2va_guides_count_problem(count):
+    """Why a ref2va step's `guides` list of `count` entries is refused, or None."""
+    if count != 1:
+        return f"{REF2VA_GUIDE_RULE} - got {count} clips"
+    return None
+
+
+def ref2va_guide_problem(frame, length, num_frames, audio=False):
+    """Why one ref2va guide is refused, or None: `audio` on, a `frame` other
+    than 0, or a snapped `length` shorter than the `num_frames` render (a
+    length or render not known yet is not checked). A guide past the end is
+    `guide_end_problem`'s."""
+    if audio:
+        return (
+            "'audio' is refused on ref2va - a ref2va guide holds video only; "
+            "use guide audio on t2va or fl2va"
+        )
+    if frame != 0:
+        return f"{REF2VA_GUIDE_RULE}, and this guide is at frame {frame}"
+    if length is not None and num_frames is not None and length < num_frames:
+        return (
+            f"{REF2VA_GUIDE_RULE}, and this {length}-frame guide is shorter than "
+            f"the {num_frames}-frame render"
+        )
+    return None
 
 
 def guide_end_problem(frame, length, num_frames):

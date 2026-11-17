@@ -10,6 +10,7 @@ and the rest are still named from there; the rules they apply live in
 
 from .h3_anchor import anchor_refusal, prepared_anchor
 from .h3_guides import (
+    default_num_frames,
     guide_frames_array,
     guides_refusal,
     prepared_guide,
@@ -48,8 +49,25 @@ from .h3_rules import (
     mask_problems,
     media_problems,
     refine_problems,
+    ref2va_guide_problem,
+    ref2va_guides_count_problem,
 )
 from ..events import emit_log
+
+
+def check_ref2va_guide(where, guide, prepared, arguments):
+    """A ref2va step's one guide against the narrow rule (#1411): video only,
+    at frame 0, its clip cut to a whole-latent length covering the render."""
+    num_frames = arguments.get("num_frames") or default_num_frames()
+    frame = guide.get("frame") if isinstance(guide, dict) else None
+    problem = ref2va_guide_problem(
+        frame,
+        len(prepared["video"]),
+        num_frames,
+        audio=bool(guide.get("audio")) if isinstance(guide, dict) else False,
+    )
+    if problem:
+        raise ValueError(f"{where}[0]: {problem}")
 
 
 def latent_anchor_source(chain_source, value):
@@ -189,9 +207,10 @@ class H3Arguments:
         `audio` and `sample_rate`; with `audio` false or absent it carries none.
 
         Raises:
-            ValueError: If this pipeline cannot take guides, the step also passes
-                `references`, a guide is not `{video, frame, audio?}` with a video,
-                or `audio` is true on a video with no audio
+            ValueError: If this pipeline cannot take guides, a guide is not
+                `{video, frame, audio?}` with a video, `audio` is true on a video
+                with no audio, or - with `references`, ref2va (#1411) - the guides
+                are not one video-only clip at frame 0 covering the render
         """
         guides = arguments.get(GUIDES_INPUT)
         if guides is None:
@@ -204,15 +223,21 @@ class H3Arguments:
         refusal = guides_refusal(self.pipeline)
         if refusal:
             raise ValueError(f"{where}: {refusal}")
-        if arguments.get("references") is not None:
-            raise ValueError(
-                f"{where} cannot be combined with references - ref2va lays out "
-                f"its own conditioning; use guides on t2va or fl2va"
-            )
         if not isinstance(guides, (list, tuple)):
             raise ValueError(
                 f"{where} must be a list of {{video, frame}}, got {type(guides).__name__}"
             )
+        ref2va = arguments.get("references") is not None
+        if ref2va:
+            guide = guides[0] if guides else None
+            problem = ref2va_guides_count_problem(len(guides)) or (
+                isinstance(guide, dict)
+                and ref2va_guide_problem(
+                    guide.get("frame"), None, None, audio=bool(guide.get("audio"))
+                )
+            )
+            if problem:
+                raise ValueError(f"{where}: {problem}")
         if len(guides) > GUIDE_LIMIT:
             raise ValueError(
                 f"{where} takes at most {GUIDE_LIMIT} clips, got {len(guides)}"
@@ -221,6 +246,8 @@ class H3Arguments:
             prepared_guide(where, index, guide, self.base_dir)
             for index, guide in enumerate(guides)
         ]
+        if ref2va:
+            check_ref2va_guide(where, guides[0], prepared[0], arguments)
         arguments[GUIDES_INPUT] = prepared
         return arguments
 
