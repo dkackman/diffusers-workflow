@@ -326,6 +326,7 @@ WARNING_ORDER = [
     "inherited_vram_warnings",
     "acceleration_warnings",
     "unsaved_json_warnings",
+    "released_reference_warnings",
     "guide_noise_warnings",
     "chain_lines_warnings",
     "frame_snap_warnings",
@@ -1201,3 +1202,68 @@ def test_a_bad_argument_is_reported_beside_a_schema_failure(tmp_path):
     paths = [e["path"] for e in errors]
     assert "arguments.x" in paths
     assert any(p != "arguments.x" for p in paths)
+
+
+def _sd_pipeline(name, **extra):
+    return {
+        "name": name,
+        "pipeline": {
+            "component_type": "StableDiffusionPipeline",
+            "from_pretrained_arguments": {"model_name": "org/sd"},
+        },
+        **extra,
+    }
+
+
+def test_a_reference_to_a_model_a_composed_childs_release_drops_is_warned(tmp_path):
+    """#1409: a release on a workflow: step pops the child's keys, which
+    here is the model the later pipeline_reference names."""
+    from dw.workflow import Workflow
+
+    (tmp_path / "child.json").write_text(
+        json.dumps({"id": "child", "steps": [_sd_pipeline("load")]})
+    )
+    parent = {
+        "id": "parent",
+        "steps": [
+            _sd_pipeline("sd"),
+            {
+                "name": "kid",
+                "workflow": {"path": "child.json"},
+                "release_pipeline": True,
+            },
+            {"name": "again", "pipeline_reference": {"reference_name": "sd"}},
+        ],
+    }
+    workflow = Workflow(parent, str(tmp_path), str(tmp_path / "parent.json"))
+
+    warnings = validation.released_reference_warnings(
+        workflow, workflow.expanded_definition()
+    )
+
+    assert len(warnings) == 1
+    assert "steps[2]" in warnings[0] and "'kid'" in warnings[0]
+
+
+def test_a_release_of_an_unrelated_model_or_a_reload_is_not_warned(tmp_path):
+    from dw.workflow import Workflow
+
+    other = _sd_pipeline("other")
+    other["pipeline"]["from_pretrained_arguments"]["model_name"] = "org/other"
+    other["release_pipeline"] = True
+    reference = {"name": "again", "pipeline_reference": {"reference_name": "sd"}}
+    for steps in (
+        [_sd_pipeline("sd"), other, reference],
+        [
+            _sd_pipeline("sd", release_pipeline=True),
+            _sd_pipeline("sd2"),
+            {"name": "again", "pipeline_reference": {"reference_name": "sd2"}},
+        ],
+    ):
+        workflow = Workflow({"id": "p", "steps": steps}, str(tmp_path), "")
+        assert (
+            validation.released_reference_warnings(
+                workflow, workflow.expanded_definition()
+            )
+            == []
+        )
