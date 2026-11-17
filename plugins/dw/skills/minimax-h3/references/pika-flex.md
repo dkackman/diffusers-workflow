@@ -67,4 +67,17 @@ the whole of what Pika makes.
 
 ## When to pick it
 
-<!-- pending Don's Q3 verdict on #1316 -->
+Pika is an option, not the default. The `minimax` templates stay the pick
+for every shape, single-clip fl2va and ref2va included: a "fast" ask is not a
+reason to pick Pika, since its wall time is no better than H3's (about even on
+ref2va, ~1.3-1.4x on fl2va). Pick a `pika-h3` template for one clip only, and
+only when one of these is the point of the ask:
+
+- **Fidelity to a reference's look matters more than a visible speaker.**
+  Pika kept a reference's mirrored visor where H3 invented a face behind it,
+  but showed no speaker.
+- **Closer prompt-following, and re-framing the source is acceptable.** Pika
+  followed prompted motion more closely on fl2va, at the cost of re-framing
+  the keyframe.
+
+Anything chained, repaired, edited or longer than one clip is never Pika.
