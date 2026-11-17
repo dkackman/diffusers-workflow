@@ -74,3 +74,22 @@ def test_component_block_refused(gallery_client, monkeypatch):
     assert any("trust_remote_code" in e["message"] for e in body["errors"]), body[
         "errors"
     ]
+
+
+def test_error_is_at_the_step_pipeline_path(gallery_client, monkeypatch):
+    monkeypatch.setenv("DW_TRUST_WORKFLOWS", "0")
+    body = _validate(gallery_client, _workflow(trust_remote_code=True))
+    assert any(e["path"] == "steps[0].pipeline" for e in body["errors"]), body["errors"]
+
+
+def test_registry_pass_is_the_runs_gate(monkeypatch):
+    from dw.trust import pipeline_remote_code_errors
+
+    monkeypatch.setenv("DW_TRUST_WORKFLOWS", "0")
+    workflow = _workflow(custom_pipeline="some/repo")
+    (error,) = pipeline_remote_code_errors(workflow)
+    with pytest.raises(UntrustedWorkflowError) as run:
+        require_trusted_block(workflow["steps"][0]["pipeline"], "pipeline")
+    assert error["message"] == str(run.value)
+    monkeypatch.setenv("DW_TRUST_WORKFLOWS", "1")
+    assert pipeline_remote_code_errors(workflow) == []

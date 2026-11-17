@@ -213,6 +213,7 @@ ERROR_ORDER = [
     "turbo_lead_in",
     "task_signatures",
     "task_remote_code",
+    "pipeline_remote_code",
     "component_types",
     "component_names",
     "constraints",

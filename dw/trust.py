@@ -428,3 +428,28 @@ def task_remote_code_errors(workflow_definition, source_indices=None):
                 }
             )
     return errors
+
+
+def pipeline_remote_code_errors(workflow_definition, source_indices=None):
+    """require_trusted_block over each pipeline step as a validate pass: the
+    gate the worker runs before a load (workflow_run.require_trusted_steps),
+    so the same message, as [{path, message}] at the step's pipeline path
+    (#1410)."""
+    from .references import iter_steps, render_path
+
+    if workflows_are_trusted():
+        return []
+    errors = []
+    for _, _, block, source, where in iter_steps(
+        workflow_definition.get("steps"), source_indices, "pipeline"
+    ):
+        try:
+            require_trusted_block(block, "pipeline")
+        except UntrustedWorkflowError as e:
+            errors.append(
+                {
+                    "path": render_path(("steps", source, "pipeline")),
+                    "message": f"{e}{where}",
+                }
+            )
+    return errors

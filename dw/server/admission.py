@@ -37,8 +37,6 @@ from ..runs import (
 )
 from ..validation import WARNING, run_checks, to_warnings
 from ..vram_estimate import required_vram_gb
-from ..security import UntrustedWorkflowError
-from ..workflow_run import require_trusted_steps
 from ..workflow import Workflow, workflow_from_definition, workflow_from_file
 from ..host_memory import host_memory_stats
 from .host_ram_need import host_too_small, projected_peak
@@ -229,15 +227,6 @@ def admit(
             )
         except Exception as e:
             raise _validator_failure(e) from e
-        # The gate the worker runs before it loads (workflow_run's
-        # require_trusted_pipelines): an untrusted server refuses a pipeline
-        # that sets a remote-code key, so validate says so rather than
-        # answering valid for a run that will be refused (#1410). Same gate,
-        # same message
-        try:
-            require_trusted_steps(context.expanded.get("steps", []))
-        except UntrustedWorkflowError as e:
-            admission.errors.append({"path": "steps", "message": str(e)})
         # A warning never refuses: a source that fails is logged and said
         # as one internal warning, and the others still report
         admission.warnings = to_warnings(

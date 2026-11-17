@@ -88,7 +88,7 @@ from .step_value_checks import (
     select_errors,
 )
 from .task_domains import task_argument_errors
-from .trust import task_remote_code_errors
+from .trust import pipeline_remote_code_errors, task_remote_code_errors
 from .type_references import (
     component_name_errors,
     component_type_errors,
@@ -599,6 +599,12 @@ ERROR_CHECKS = [
     Check(
         "task_remote_code",
         lambda c: task_remote_code_errors(c.expanded, c.source_indices),
+    ),
+    # A pipeline block that sets a remote-code key (trust_remote_code,
+    # custom_pipeline), the gate the worker runs before a load (#1410)
+    Check(
+        "pipeline_remote_code",
+        lambda c: pipeline_remote_code_errors(c.expanded, c.source_indices),
     ),
     # A component_type/scheduler_type/config_type that does not exist, or is
     # outside the trusted ecosystem (dw/type_references.py, #345)
