@@ -55,9 +55,8 @@ from .model_cache import cached_model
 from .registry import register_command
 from .scene_cuts import content_cuts
 from .segment import TransformersClass, detect_boxes, model_sources
-from .weights import argument_or_default
 from .video_utils import VideoFileReference, frames_as_pil_list, load_audio_video
-from .weights import repo_entries
+from .weights import argument_or_default, repo_entries
 
 logger = logging.getLogger("dw")
 
@@ -102,6 +101,12 @@ DEFAULT_THRESHOLDS = {BACKEND_DINO: 0.3, BACKEND_SAM3: 0.5}
 ABSENT_LOGIT = -1.0e4
 
 
+def sam3_source(arguments):
+    """The SAM 3 repo a sam3 step loads - `sam3_model_name` over the default.
+    The one resolution both required_weights and track_people read."""
+    return argument_or_default(arguments, "sam3_model_name", DEFAULT_SAM3_MODEL)
+
+
 def required_weights(arguments):
     """The repos a track_people step loads, for the plan (dw/tasks/weights.py):
     the detector and SAM2, or with backend "sam3" SAM 3's one repo - none
@@ -111,9 +116,7 @@ def required_weights(arguments):
         if max_people == 0:
             return []
     if arguments.get("backend") == BACKEND_SAM3:
-        return repo_entries(
-            argument_or_default(arguments, "sam3_model_name", DEFAULT_SAM3_MODEL)
-        )
+        return repo_entries(sam3_source(arguments))
     return repo_entries(*model_sources(arguments))
 
 
@@ -482,7 +485,7 @@ def track_people(
     model_name, sam_model_name = model_sources(
         {"model_name": model_name, "sam_model_name": sam_model_name}
     )
-    sam3_model_name = sam3_model_name or DEFAULT_SAM3_MODEL
+    sam3_model_name = sam3_source({"sam3_model_name": sam3_model_name})
     if backend == BACKEND_SAM3 and max_people != 0:
         refusal = sam3_refusal()
         if refusal:
@@ -517,11 +520,11 @@ def track_people(
         (np.asarray(frame) for frame in frames),
     )
     bounds = starts[1:] + [total]
-    cuts, cut_masks, extra_tiles = [], [], []
+    cuts, cut_masks, tiles = [], [], []
     for number, (start, end) in enumerate(zip(starts, bounds), start=1):
         name = f"{SHOT_PREFIX}-{number}"
         if backend == BACKEND_SAM3:
-            cut, masks = _sam3_cut(
+            cut, masks, extra = _sam3_cut(
                 frames[start:end],
                 name,
                 start,
@@ -531,105 +534,29 @@ def track_people(
                 max_people,
                 device,
             )
-            cuts.append(cut)
-            cut_masks.append(masks)
-            for person_number, person in enumerate(cut["people"], start=1):
-                if person["first_frame"] > 0:
-                    offset = person["first_frame"]
-                    extra_tiles.append(
-                        (
-                            len(cuts) - 1,
-                            contact_tile(
-                                frames[start + offset],
-                                masks[offset],
-                                f"{name} @{offset} {PERSON_PREFIX}-{person_number}",
-                            ),
-                        )
-                    )
-            continue
-        boxes, scores = detect_people(
-            frames[start], prompt, threshold, model_name, device
-        )
-        found = distinct_boxes(boxes, scores)
-        kept = sorted(found, key=lambda pair: -box_area(pair[0]))[:max_people]
-        cut = {
-            "name": name,
-            "start_frame": start,
-            "num_frames": end - start,
-            "found": len(found),
-            "people": [],
-        }
-        if not kept:
-            cuts.append(cut)
-            cut_masks.append([])
-            continue
-        masks = propagate_masks(
-            frames[start:end], [box for box, _ in kept], sam_model_name, device
-        )
-        # Number by the area each mask covers on the cut's first frame
-        first = masks[0]
-        order = sorted(
-            range(len(kept)),
-            key=lambda i: (-int(first[i].sum()), -box_area(kept[i][0])),
-        )
-        masks = [[frame_masks[i] for i in order] for frame_masks in masks]
-        pixels = frames[0].width * frames[0].height
-        for rank, i in enumerate(order, start=1):
-            box, score = kept[i]
-            cut["people"].append(
-                {
-                    "name": f"{PERSON_PREFIX}-{rank}",
-                    "box": [round(v, 1) for v in box],
-                    "score": round(score, 4),
-                    "area": round(int(first[i].sum()) / pixels, 4),
-                    "first_frame": 0,
-                }
+        else:
+            cut, masks = _dino_cut(
+                frames[start:end],
+                name,
+                start,
+                prompt,
+                threshold,
+                (model_name, sam_model_name),
+                max_people,
+                device,
             )
+            extra = []
         cuts.append(cut)
         cut_masks.append(masks)
+        tiles.append(contact_tile(frames[start], masks[0] if masks else [], name))
+        tiles.extend(extra)  # sam3: each late entrant on its first frame
 
     count = max(len(cut["people"]) for cut in cuts)
     if count == 0:
-        if backend == BACKEND_SAM3:
-            where = "on any frame"
-            detector = f"backend {BACKEND_SAM3!r} (SAM 3)"
-        else:
-            where = "on the first frame"
-            detector = f"backend {BACKEND_DINO!r} (Grounding-DINO)"
-        raise ValueError(
-            f"{COMMAND}: no person found - {detector} matched nothing for "
-            f"{prompt!r} at threshold {threshold} {where} of any of "
-            f"the clip's {len(cuts)} cut(s). Lower 'threshold' or change "
-            "'prompt' if someone is in frame."
-        )
+        _refuse_nobody(backend, prompt, threshold, len(cuts))
 
     _warn_about(cuts, max_people, backend)
-    blank = Image.new("L", (frames[0].width, frames[0].height), 0)
-    result = {}
-    for person in range(count):
-        mask_frames = []
-        for (start, end), masks in zip(zip(starts, bounds), cut_masks):
-            for offset in range(end - start):
-                if masks and person < len(masks[offset]):
-                    mask = masks[offset][person]
-                    mask_frames.append(
-                        Image.fromarray(mask.astype(np.uint8) * 255, mode="L")
-                    )
-                else:
-                    mask_frames.append(blank)
-        result[f"{PERSON_PREFIX}-{person + 1}"] = AudioVideo(
-            mask_frames, None, None, fps=fps
-        )
-
-    tiles = []
-    for index, (cut, masks) in enumerate(zip(cuts, cut_masks)):
-        tiles.append(
-            contact_tile(
-                frames[cut["start_frame"]], masks[0] if masks else [], cut["name"]
-            )
-        )
-        # sam3: each late entrant also on the frame they first appear
-        tiles.extend(tile for at, tile in extra_tiles if at == index)
+    result = _mask_videos(frames[0].size, cuts, cut_masks, count, fps)
     result["contact_sheet"] = contact_sheet(tiles)
     result["people"] = JsonRecord(
         {**record, "tracked": True, "people": count, "cuts": cuts}
@@ -638,10 +565,51 @@ def track_people(
     return result
 
 
+def _dino_cut(frames, name, start, prompt, threshold, sources, max_people, device):
+    """(cut record, [frame][person] masks) for one cut on Grounding-DINO +
+    SAM2: boxes on the cut's first frame, propagated, numbered by area."""
+    model_name, sam_model_name = sources
+    boxes, scores = detect_people(frames[0], prompt, threshold, model_name, device)
+    found = distinct_boxes(boxes, scores)
+    kept = sorted(found, key=lambda pair: -box_area(pair[0]))[:max_people]
+    cut = {
+        "name": name,
+        "start_frame": start,
+        "num_frames": len(frames),
+        "found": len(found),
+        "people": [],
+    }
+    if not kept:
+        return cut, []
+    masks = propagate_masks(frames, [box for box, _ in kept], sam_model_name, device)
+    # Number by the area each mask covers on the cut's first frame
+    first = masks[0]
+    order = sorted(
+        range(len(kept)),
+        key=lambda i: (-int(first[i].sum()), -box_area(kept[i][0])),
+    )
+    masks = [[frame_masks[i] for i in order] for frame_masks in masks]
+    pixels = frames[0].width * frames[0].height
+    for rank, i in enumerate(order, start=1):
+        box, score = kept[i]
+        cut["people"].append(
+            {
+                "name": f"{PERSON_PREFIX}-{rank}",
+                "box": [round(v, 1) for v in box],
+                "score": round(score, 4),
+                "area": round(int(first[i].sum()) / pixels, 4),
+                "first_frame": 0,
+            }
+        )
+    return cut, masks
+
+
 def _sam3_cut(
     frames, name, start, prompt, threshold, sam3_model_name, max_people, device
 ):
-    """(cut record, [frame][person] masks) for one cut on SAM 3."""
+    """(cut record, [frame][person] masks, [extra contact tile]) for one cut
+    on SAM 3 - one extra tile per late entrant, on the frame it first
+    appears, since the cut's first-frame tile cannot outline it."""
     tracks, scores = sam3_track(frames, prompt, threshold, sam3_model_name, device)
     kept, masks, found = sam3_people(frames, tracks, scores, max_people)
     cut = {
@@ -660,7 +628,54 @@ def _sam3_cut(
             for rank, person in enumerate(kept, start=1)
         ],
     }
-    return cut, masks if kept else []
+    extra = [
+        contact_tile(
+            frames[person["first_frame"]],
+            masks[person["first_frame"]],
+            f"{name} @{person['first_frame']} {person['name']}",
+        )
+        for person in cut["people"]
+        if person["first_frame"] > 0
+    ]
+    return cut, masks if kept else [], extra
+
+
+def _refuse_nobody(backend, prompt, threshold, cut_count):
+    """Raise the no-person error, naming the backend that found nobody."""
+    if backend == BACKEND_SAM3:
+        where = "on any frame"
+        detector = f"backend {BACKEND_SAM3!r} (SAM 3)"
+    else:
+        where = "on the first frame"
+        detector = f"backend {BACKEND_DINO!r} (Grounding-DINO)"
+    raise ValueError(
+        f"{COMMAND}: no person found - {detector} matched nothing for "
+        f"{prompt!r} at threshold {threshold} {where} of any of "
+        f"the clip's {cut_count} cut(s). Lower 'threshold' or change "
+        "'prompt' if someone is in frame."
+    )
+
+
+def _mask_videos(size, cuts, cut_masks, count, fps):
+    """{person-N: mask video} over the whole clip, black in a cut where that
+    person number was not found."""
+    blank = Image.new("L", size, 0)
+    result = {}
+    for person in range(count):
+        mask_frames = []
+        for cut, masks in zip(cuts, cut_masks):
+            for offset in range(cut["num_frames"]):
+                if masks and person < len(masks[offset]):
+                    mask = masks[offset][person]
+                    mask_frames.append(
+                        Image.fromarray(mask.astype(np.uint8) * 255, mode="L")
+                    )
+                else:
+                    mask_frames.append(blank)
+        result[f"{PERSON_PREFIX}-{person + 1}"] = AudioVideo(
+            mask_frames, None, None, fps=fps
+        )
+    return result
 
 
 def _warn_about(cuts, max_people, backend=BACKEND_DINO):
