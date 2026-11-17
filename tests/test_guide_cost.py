@@ -94,6 +94,33 @@ def test_the_ratio_is_against_the_guides_the_figure_was_measured_with():
     assert "0 of 1 pipeline steps vs 1 of 1" in reason
 
 
+def _chained(continuity, segments=3):
+    definition = _toggled(guide_factor=2.0)
+    definition["steps"][0]["pipeline"]["chain"] = {
+        "segments": segments,
+        "continuity": continuity,
+    }
+    return definition
+
+
+def test_a_guide_chain_is_a_guided_step_as_the_vram_owner_counts_it():
+    """The cost rule asks `guides.guide_lengths` whether a step is guided, so a
+    `continuity: "guide"` chain - which appends a guide to every segment after
+    the first - is priced as guided, as the VRAM projection charges it."""
+    from dw.guides import guide_lengths
+
+    chain = _chained("guide")
+    assert guide_lengths(chain["steps"][0]["pipeline"])
+    unchained = _toggled(guide_factor=2.0)
+    ratio, reason = guide_scaling(unchained, {}, chain, {}, chain)
+    assert ratio == pytest.approx(2.0)
+    assert "1 of 1 pipeline steps vs 0 of 1" in reason
+    # a chain carried some other way, or one segment long, lays in no guide
+    for other in (_chained("last_frame"), _chained("guide", segments=1)):
+        assert not guide_lengths(other["steps"][0]["pipeline"])
+        assert guide_scaling(unchained, {}, other, {}, other) == (1.0, None)
+
+
 def _ref2va():
     return json.loads((ROOT / REF2VA).read_text())
 

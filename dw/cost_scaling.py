@@ -773,16 +773,16 @@ def declared_guide_factor(definition):
 
 
 def _has_guide(step):
-    """Whether one pipeline step's own `guides` lays in a clip: an entry whose
-    `video` is not null, as `guides.guide_lengths` counts one."""
-    from .pipeline_processors.h3_rules import GUIDES_INPUT
+    """Whether one pipeline step lays in a guide, asked of the owner
+    (`guides.guide_lengths`, the rule the VRAM projection counts by): its own
+    non-null `guides`, or the guide a `continuity: "guide"` chain appends to
+    every segment after the first. No probe is passed, so no clip is opened -
+    only whether a guide is there matters to the price. A guide chain is priced
+    as guided on every segment, segment 1 included: an over-quote by one
+    segment's guide rows, never an under-quote."""
+    from .guides import guide_lengths
 
-    arguments = step["pipeline"].get("arguments")
-    guides = arguments.get(GUIDES_INPUT) if isinstance(arguments, dict) else None
-    return any(
-        isinstance(guide, dict) and guide.get("video") is not None
-        for guide in (guides if isinstance(guides, (list, tuple)) else ())
-    )
+    return bool(guide_lengths(step["pipeline"]))
 
 
 def _guided_steps(definition, arguments):
