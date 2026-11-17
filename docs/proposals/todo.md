@@ -37,6 +37,15 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **Performer replacement** (#1194, stages #1373-#1375), shipped 2026-11-17.
+  `detect_cuts` lays a clip's cuts out on H3's 17n+5 grid, and `trim_video`
+  `pad_to` pads each cut by holding its last frame. `track_people` gives one
+  SAM2-propagated mask per person. `templates/minimax/replace-performer-cuts`
+  prepares the cut list and the mask. `replace-performer` runs a masked ref2va
+  edit per cut with a portrait, trims each cut back, and rejoins the cuts with
+  the source soundtrack. Each cut can carry its own `seed` and `prompt`, so one
+  cut can be re-rolled alone. `mask_grow` stays 1, from the seam bench:
+  `complete/performer-replacement-complete.md`.
 - **Face-once cast reference sheet** (#1400, stage #1406), closed 2026-11-17
   as a bench record, no gain. A 16:9 sheet with one head panel and four
   neck-down views held a Ref2VA clip's face worse than today's portrait
