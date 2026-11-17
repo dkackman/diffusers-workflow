@@ -48,7 +48,7 @@ Tested on our server (Ref2VA turbo, 960x544, two seeds per arm, November
 #1400), and not a rule:
 
 - No gain: a generated reference sheet (head panel plus body views) held
-  the face no better than a single portrait. It scored 0.05-0.10 lower in
+  the face no better than a single portrait. It scored 0.05-0.12 lower in
   SFace on both seeds, though no clip reused the sheet's layout. Asked for
   the face only once, Z-Image-Turbo drew a head on every figure anyway.
   Keep the portrait.
