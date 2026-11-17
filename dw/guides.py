@@ -47,6 +47,7 @@ would do nothing: a step with no `guides` and no guide chain.
 from . import references
 from .adapter_compatibility import (
     FROM_PRETRAINED_KEY,
+    H3_WORKFLOWS,
     KEYFRAME_WORKFLOWS,
     REFERENCE_WORKFLOWS,
     WORKFLOW_KEY,
@@ -103,6 +104,8 @@ from .pipeline_processors.h3_rules import (
     guide_frame_problem,
     guide_noise_problem,
     not_h3,
+    ref2va_guide_problem,
+    ref2va_guides_count_problem,
     snap_guide_length,
 )
 from .probe_paths import resolve_probe_path
@@ -152,17 +155,9 @@ def _clip_frames(video, base_dir, probe, with_audio=False):
     return None, None
 
 
-def _takes_guides_problem(pipeline, arguments, argument=GUIDES_INPUT):
-    """Why this step cannot take `argument`, or None: it is not MiniMax-H3
-    (`h3_rules.not_h3`), or it loads ref2va or passes `references` (a call
-    with references routes to ref2va). The one step rule for a `guides`
-    argument, a guide chain, a `latent_anchor` argument and a chain's
-    `anchor: "segment_1"` - every H3 t2va/fl2va-only input. A pipeline or
-    workflow that is not literal is left to the run."""
-    # Named as taken by t2va/fl2va only: ref2va refuses it below
-    h3_problem = not_h3(pipeline, argument, taken_by=KEYFRAME_WORKFLOWS)
-    if h3_problem:
-        return h3_problem
+def _is_ref2va(pipeline, arguments):
+    """Whether this step runs ref2va: it loads the ref2va workflow, or passes
+    `references` (a call with references routes to ref2va)."""
     from_pretrained = pipeline.get(FROM_PRETRAINED_KEY)
     workflow = (
         from_pretrained.get(WORKFLOW_KEY) if isinstance(from_pretrained, dict) else None
@@ -170,15 +165,31 @@ def _takes_guides_problem(pipeline, arguments, argument=GUIDES_INPUT):
     passes_references = (
         isinstance(arguments, dict) and arguments.get("references") is not None
     )
-    if workflow in REFERENCE_WORKFLOWS or passes_references:
+    return workflow in REFERENCE_WORKFLOWS or passes_references
+
+
+def _takes_guides_problem(pipeline, arguments, argument=GUIDES_INPUT):
+    """Why this step cannot take `argument`, or None: it is not MiniMax-H3
+    (`h3_rules.not_h3`), or it runs ref2va (`_is_ref2va`). The step rule for
+    a guide chain, a `latent_anchor` argument, a chain's `anchor:
+    "segment_1"`, guide noise, selflift and windows - every H3 t2va/fl2va-only
+    input. `guides` itself is ref2va's too, narrowly (#1411): `_step_problems`
+    asks `_takes_guides_problem` only for its H3 half. A pipeline or workflow
+    that is not literal is left to the run."""
+    # Named as taken by t2va/fl2va only: ref2va refuses it below
+    h3_problem = not_h3(pipeline, argument, taken_by=KEYFRAME_WORKFLOWS)
+    if h3_problem:
+        return h3_problem
+    if _is_ref2va(pipeline, arguments):
         return f"{argument} cannot be combined with ref2va / references - use t2va or fl2va"
     return None
 
 
-def _guide_problems(guide, render, base_dir, probe):
+def _guide_problems(guide, render, base_dir, probe, ref2va=False):
     """[message] for one entry of a step's `guides`, in the order
     `_step_problems` reports them; `render` is the step's literal render
-    length, or None."""
+    length, or None. On `ref2va` the guide is also held to the narrow rule
+    (`h3_rules.ref2va_guide_problem`)."""
     if not isinstance(guide, dict):
         return [f"a guide must be {{video, frame}}, got {type(guide).__name__}"]
     problems = []
@@ -212,11 +223,22 @@ def _guide_problems(guide, render, base_dir, probe):
             f"'audio' must be true or false, got {type(with_audio).__name__}"
         )
         with_audio = False
+    if ref2va:
+        problem = ref2va_guide_problem(
+            frame if frame_ok else 0, None, None, audio=with_audio
+        )
+        if problem:
+            # The audio refusal is the one to read: the stream probe is moot
+            problems.append(problem)
+            return problems
     problem, count = _clip_frames(guide["video"], base_dir, probe, with_audio)
     if problem:
         problems.append(problem)
     elif frame_ok and count is not None and render is not None:
-        problem = guide_end_problem(frame, snap_guide_length(count), render)
+        length = snap_guide_length(count)
+        problem = guide_end_problem(frame, length, render) or (
+            ref2va and ref2va_guide_problem(frame, length, render)
+        )
         if problem:
             problems.append(problem)
     return problems
@@ -227,9 +249,11 @@ def _step_problems(pipeline, arguments, base_dir, probe):
     guides = arguments[GUIDES_INPUT]
     if isinstance(guides, (list, tuple)) and not guides:
         return []
-    problem = _takes_guides_problem(pipeline, arguments)
+    # ref2va takes guides too, narrowly (#1411): one clip, checked below
+    problem = not_h3(pipeline, GUIDES_INPUT, taken_by=H3_WORKFLOWS)
     if problem:
         return [(None, problem)]
+    ref2va = _is_ref2va(pipeline, arguments)
     if isinstance(guides, str) and references.is_ref(references.UNRESOLVED, guides):
         # The whole list from an earlier step (repair-segment's cut): its
         # entries are the run-time check's
@@ -243,7 +267,11 @@ def _step_problems(pipeline, arguments, base_dir, probe):
             )
         ]
     problems = []
-    if len(guides) > GUIDE_LIMIT:
+    if ref2va:
+        problem = ref2va_guides_count_problem(len(guides))
+        if problem:
+            return [(None, problem)]
+    elif len(guides) > GUIDE_LIMIT:
         problems.append(
             (None, f"guides takes at most {GUIDE_LIMIT} clips, got {len(guides)}")
         )
@@ -251,7 +279,7 @@ def _step_problems(pipeline, arguments, base_dir, probe):
     for index, guide in enumerate(guides):
         problems.extend(
             (index, message)
-            for message in _guide_problems(guide, render, base_dir, probe)
+            for message in _guide_problems(guide, render, base_dir, probe, ref2va)
         )
     return problems
 

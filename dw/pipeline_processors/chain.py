@@ -14,7 +14,7 @@ Three ways to carry continuity:
 - guide - the previous segment's last guide_frames frames (and, with
   carry_audio, their audio) are laid in at frame 0 of the next as an H3 guide,
   and trimmed off it again, so the next segment continues the motion itself.
-  MiniMax-H3 t2va and fl2va only: guides stay off ref2va
+  MiniMax-H3 t2va and fl2va only: guide chains stay off ref2va (ref2va takes only one whole-render guide)
 
 Three ways to specify the length:
 - segments: N - run the pipeline N times as configured

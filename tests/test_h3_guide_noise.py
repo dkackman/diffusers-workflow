@@ -452,3 +452,10 @@ class TestWithGuideNoise:
         other = SimpleNamespace(name="other")
         with pytest.raises(ValueError, match="guide_noise"):
             Pipeline._with_guide_noise(step(other), {GUIDE_NOISE_INPUT: 0.3})
+
+
+def test_guide_noise_is_still_refused_on_ref2va_beside_a_valid_ref2va_guide():
+    step = definition("ref2va", guide_noise=0.4, guides=GUIDE)
+    (error,) = guide_noise_errors(step)
+    assert "ref2va" in error["message"]
+    assert error["path"] == "steps[0].pipeline.arguments.guide_noise"

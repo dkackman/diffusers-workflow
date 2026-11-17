@@ -15,7 +15,7 @@ segment's last `guide_frames` and its voice as a guide.
   tail's audio.
 - Guide continuity exists only on this template. The reference chains
   (`chain-video-continuity`, `chain-matched-to-audio`,
-  `chain-matched-and-aligned`) are ref2va, and guides stay off ref2va.
+  `chain-matched-and-aligned`) are ref2va, and guide chains stay off ref2va (ref2va takes only one whole-render guide).
 
 ## Drift
 
