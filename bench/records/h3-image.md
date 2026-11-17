@@ -83,8 +83,8 @@ develop @ 0365ece6, on 2026-11-16 and 17 (UTC).
 | H3-Image t2i 1024 (min_generation_area=1024) | — | 2.5 | not sampled | 0 | n/a | Completed at a true 1024x1024. No faster than 2048. |
 | H3-Image edit3 2048 | 3.8 (quantized cache, new card) | — | ~5.5 reserved at decode (chain step) | 0 | not scored (stills) | Completed. Both faces and costumes kept; scene light and grade kept. |
 | Klein edit3 | — | 1.6 | ~22.0 reserved at decode (chain step) | 0 | not scored (stills) | Completed. Both recognisable, flatter grade, accordion added. |
-| H3-Image still → H3 i2v 544p | **OOM in the chain**; 1.6 standalone | — | OOM: 23.14 GiB in use | 0 | **0.459 / 0.324** (16/16 faces) | See the chain OOM below. |
-| Klein still → H3 i2v 544p | not reached in the chain; 1.5 standalone | — | — | 0 | **0.211 / 0.282** (6/16 faces) | Face found in only 6 of 16 frames. |
+| H3-Image still → H3 i2v 544p (chain) | 8.1 for the whole chain, both arms (`ad655f0bec2d`) | — | ~9.6 reserved at decode | 0 | **0.423 / 0.316** (16/16 faces) | Completed in the chain after #1408. Standalone (first run): 1.6 min, 0.459 / 0.324. |
+| Klein still → H3 i2v 544p (chain) | (same chain job) | — | ~10.0 reserved at decode | 0 | **0.243 / 0.292** (6/16 faces) | Completed in the chain. Face found in only 6 of 16 frames. Standalone: 1.5 min, 0.211 / 0.282. |
 
 ### Jobs
 
@@ -95,10 +95,12 @@ develop @ 0365ece6, on 2026-11-16 and 17 (UTC).
 | t2i 1024 | `a4720895a4fd` | `20261117-002325-de966aa4` | cuda:0 |
 | H3-Image edit3 | `f2e738122c65` | `20261117-002619-62c9958a` | cuda:1 |
 | Klein edit3 | `d068d6f51d44` | `20261117-003010-21d97902` | cuda:0 |
-| Chain (OOM) | `02101087ea65` | `20261117-003210-d314f740` | cuda:0 |
+| Chain (OOM, before #1408) | `02101087ea65` | `20261117-003210-d314f740` | cuda:0 |
+| Chain (rerun after #1408, completed) | `ad655f0bec2d` | `20261117-024514-d314f740` | cuda:0 |
 | H3 i2v on the chain's H3-Image still | `e281147c8f7f` | `20261117-003902-915bf993` | cuda:0 |
 | H3 i2v on the chain's Klein still | `ba62ab6bf574` | `20261117-004051-82ca6f96` | cuda:0 |
-| SFace runs | `135e51308622`, `f5f0c84e64cc`, `b201a4e6b0da`, `a1de06d73717` | | cuda:0 |
+| SFace runs, standalone clips | `135e51308622`, `f5f0c84e64cc`, `b201a4e6b0da`, `a1de06d73717` | | cuda:0 |
+| SFace runs, chain clips (H3-Image estela, aurelio; Klein estela, aurelio) | `67704a1303de`, `8e9095e3ea2d`, `941ee01ddb09`, `cfc2c0a85a91` | | cuda:0 |
 
 ### Timing
 
@@ -110,6 +112,7 @@ develop @ 0365ece6, on 2026-11-16 and 17 (UTC).
 | H3-Image edit3 | 56.9 s (quantized-cache hit, cuda:1) | 23.6 s | 132.1 s (first pass 89.1 s, then 8.6 s each) | 3.5 s |
 | H3 i2v, H3-Image still | — | 16.6 s | 53.1 s (4 passes, 12.0 s each) | 20.0 s |
 | H3 i2v, Klein still | — | 16.8 s | 48.4 s (4 passes, 12.0 s each) | 19.9 s |
+| Chain rerun `ad655f0bec2d` | H3-Image still 57.2 s (cache hit); Klein ~17 s; H3 ~6 s | H3-Image 41.9 s | H3-Image 92.9 s (6 passes, 15.2 s each); H3 i2v generate to decode 72.5 s and 64.6 s | 3.9 s; H3 i2v ~20 s each |
 
 A 1024 pass takes the same 15.1 s as a 2048 pass, so the block-offloaded transformer is
 bound by weight transfer, not by compute. Generating at 1024 doesn't speed it up.
@@ -171,7 +174,32 @@ not a host-RAM handoff failure. Host memory was fine throughout: H3-Image peaked
 committed, and after its release RSS fell back to 1.9 GB.
 
 The H3-Image → H3 handoff that the probe measures held on host RAM. H3 i2v on its own
-then ran on each chain still. Those two runs are the clips scored above.
+then ran on each chain still; those standalone clips were scored first.
+
+### The chain rerun (after #1408)
+
+#1408 (`release_pipeline` on a `workflow:` step pops the composed child's pipelines,
+`9399df4e`) was verified and deployed (lem on develop @ 8384837e). The same
+`bench/h3-image-to-h3`, unchanged, was rerun as job `ad655f0bec2d` and completed in 483 s
+(8.1 min), both arms through to their clips.
+
+In its memory events, Klein's release now holds:
+
+- `klein_still` reads 19,216 MB allocated while generating (t=255.2) and 19,241 MB at its
+  decode (t=294.4);
+- after its save, at t=295.8, allocated is back to 8 MB;
+- H3 video loads at t=296.1 with 8 MB allocated, and the H3 i2v steps run without an OOM
+  (~9.6 and ~10.0 GiB reserved at their decodes).
+
+The H3-Image step released as before (8 MB at t=207.5). The committed host peak for the
+job was 63.2 GB.
+
+The chain's clips are scored with the same `t26-face-check` route. The SFace pairs are
+0.423 / 0.316 (H3-Image, 16/16 faces) against 0.243 / 0.292 (Klein, 6/16). They differ a
+little from the standalone pair (0.459 / 0.324 and 0.211 / 0.282) because the chain
+re-rendered both stills (no step-cache reuse, `cached_steps: 0`). The direction is the
+same: the H3-Image arm scores higher on both portraits and keeps a detectable face in
+every sampled frame.
 
 ### Look
 
@@ -207,12 +235,12 @@ as a relative A/B between the arms, not as absolute identity scores.
 
 - **The warm t2i** used seed 1318, because an identical rerun would have been served
   from the step cache.
-- **The chain's clips** come from standalone `templates/minimax/image-to-video` runs on
-  the chain's own stills, because the chain OOMed. Their recipe, prompt and seed are the
-  chain's.
+- **The chain's clips** first came from standalone `templates/minimax/image-to-video`
+  runs on the chain's own stills, because the chain OOMed (#1408). After the fix, the
+  chain itself was rerun (`ad655f0bec2d`) and its clips scored; both sets are recorded.
 - **The download gate** was measured on develop @ 8e1b27f6; the runs used 0365ece6.
 - **The edit stills** weren't scored with SFace. `t26-face-check` takes a video, and the
   bounce asked for SFace on the two video arms.
 
 GPU time for the whole probe was about 57 minutes, 35 of which were the one-time
-download and quantize.
+download and quantize, plus about 8 minutes for the chain rerun.
