@@ -37,6 +37,13 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **Face encode floor and `scored_from`** (#1418, stages #1420-#1421),
+  shipped 2026-11-17. A bench probe on mini-ai measured in-memory against
+  saved-file face scores of one clip: up to 0.016 on a median and 0.030 on a
+  minimum, a lower bound from re-encoding, almost all of it from the mp4
+  encode. `analyze_face_drift` now returns `scored_from` (frames/picture/file)
+  and a note when the forms mix. Encoded-form scoring in-job stays cut:
+  `complete/face-encode-floor-complete.md`.
 - **Performer replacement** (#1194, stages #1373-#1375), shipped 2026-11-17.
   `detect_cuts` lays a clip's cuts out on H3's 17n+5 grid, and `trim_video`
   `pad_to` pads each cut by holding its last frame. `track_people` gives one
