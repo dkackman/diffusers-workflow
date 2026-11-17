@@ -547,6 +547,8 @@ INNER_LEVEL_STEP_WARN_DB = 3.0
 # already this quiet up to the target raises a noise floor rather than
 # leveling a performance, and #434 found a +29.9 dB case that only reached
 # the log, never job.warnings
+# A hold this small is inaudible and prints as 0.0 dB (#1416)
+MATCH_HELD_NEGLIGIBLE_DB = 0.1
 MATCH_NEAR_SILENT_DBFS = -40.0
 
 MATCH_LARGE_GAIN_WARN_DB = 20.0
@@ -676,28 +678,29 @@ def match_levels(
         held = False
         if peak is not None and peak + gain_db > ceiling_dbfs:
             gain_db = ceiling_dbfs - peak
-            held = True
-            any_held = True
             shortfall_db = target_gain_db - gain_db
+            held = shortfall_db >= MATCH_HELD_NEGLIGIBLE_DB
+            any_held = any_held or held
             # emit_warning rather than logger.warning: a clip-held shot stays
             # off the target and the residual spread is exactly the level
             # jump match_levels exists to remove (#214) - a caller reading
             # the job's warnings list is the one who can act on it (#82)
-            emit_warning(
-                f"{command}: {label} would clip at the {shot_measure} target "
-                f"({peak + target_gain_db:+.1f} {ceiling_unit} peak) - held to "
-                f"{ceiling_dbfs} {ceiling_unit}, {shortfall_db:.1f} dB short of "
-                "target",
-                kind="match_levels_held",
-                command=command,
-                index=index,
-                measure_dbfs=round(level, 1),
-                target_dbfs=target_dbfs,
-                gain_db=round(gain_db, 1),
-                shortfall_db=round(shortfall_db, 1),
-                ceiling_dbfs=ceiling_dbfs,
-                unit=unit,
-            )
+            if held:
+                emit_warning(
+                    f"{command}: {label} would clip at the {shot_measure} target "
+                    f"({peak + target_gain_db:+.1f} {ceiling_unit} peak) - held to "
+                    f"{ceiling_dbfs} {ceiling_unit}, {shortfall_db:.1f} dB short of "
+                    "target",
+                    kind="match_levels_held",
+                    command=command,
+                    index=index,
+                    measure_dbfs=round(level, 1),
+                    target_dbfs=target_dbfs,
+                    gain_db=round(gain_db, 1),
+                    shortfall_db=round(shortfall_db, 1),
+                    ceiling_dbfs=ceiling_dbfs,
+                    unit=unit,
+                )
         elif level <= MATCH_NEAR_SILENT_DBFS or gain_db >= MATCH_LARGE_GAIN_WARN_DB:
             # The other end of the range `held` covers (#434): an input this
             # quiet is noise floor, not a performance at a lower level, and
