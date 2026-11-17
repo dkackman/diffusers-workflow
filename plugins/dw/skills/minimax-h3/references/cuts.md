@@ -141,7 +141,8 @@ ref2va cut shapes: `dialogue-short`, and script-to-video or series-episodes
 shots rendered through it.
 
 **Probed (lem, turbo, int4, sparse, seed 1398; November 2026; one scene, one
-seed, so one sample; #1398, record `bench/records/visual-memory-cut.md`).**
+seed, so one sample; #1398, record `bench/records/visual-memory-cut.md`;
+markers as Don viewed them, 2026-11-17).**
 E was an establishing wide and A a medium on the character. Each B was the
 reverse angle, with a prompt naming the lamp, shelf, window and coat but not
 their colours.
@@ -151,11 +152,15 @@ their colours.
 | B0 (1344x768) | none | lost (white) | dim | lost (orange sky) | lost (purple) | the reverse |
 | B2 (1344x768) | 22 frames from E's middle (51-72) | held (red) | held | held (blue night) | held (green) | the reverse, no replay |
 | B0s (960x544) | none | lost | dim | lost | lost | the reverse |
-| B1s (960x544) | A's whole 124-frame clip | held | held | held | **lost** (purple) | pulled back toward A's angle, not a clear reverse |
+| B1s (960x544) | A's whole 124-frame clip | held | held | held | **lost** (purple dress) | pulled back toward A's angle, not a clear reverse |
 
 - **A short window held all four; the whole clip held three and pulled the
   framing back to A.** The whole clip also scored the lowest identity across
   the cut (SFace 0.584, against 0.695 for its control).
+- **The whole clip lost the wardrobe colour in both arms that used one.** B1s
+  and S1s (the speech arm, also A′'s whole clip at 960x544) each put the
+  character in a purple dress, not the green coat; the 22-frame window (B2)
+  kept the coat. That is the case for the window over the whole clip.
 - **Cost, per denoise pass against the same size's control:** a 22-frame
   window 1.35x (wall 1.36x); the whole clip 4.4x (wall 2.3x to 3.2x), above
   the ~3.4x quoted for a video reference in `SKILL.md`.
@@ -216,7 +221,7 @@ entry, with the same `reference_type` and `audio: null`.
 the cut speaks, pass only a short window (the frames before the cut, its
 replayed opening trimmed), or no video reference at all. This is the source's
 claim (KadoBOT/ComfyUI-H3-Continuity-Studio): a whole clip with speech in it
-makes the new shot copy its mouth motion. The probe did not show a clear
-frame-level copy (S1s, the whole of A′ at 960x544, spoke on its own timing),
-but it was one sample read from frames, and the whole clip also cost 4.4x a
+makes the new shot copy its mouth motion. The probe did not show a copy
+(S1s, the whole of A′ at 960x544, spoke its own line on its own timing, as
+viewed), but it was one sample, and the whole clip also cost 4.4x a
 pass and pulled the angle back, so the rule holds on those grounds too.
