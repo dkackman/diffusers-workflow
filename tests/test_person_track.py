@@ -734,6 +734,17 @@ class TestSam3:
         track_people(make_video(), backend="sam3", sam3_model_name="x/y")
         assert set(sam3_models.loaded) == {"x/y"}
 
+    @pytest.mark.parametrize("given", [None, "", "x/y"])
+    def test_the_loaded_repo_is_the_one_the_plan_declares(self, sam3_models, given):
+        """required_weights and the loader read one resolution (sam3_source)."""
+        arguments = {"backend": "sam3", "sam3_model_name": given}
+        resolved = person_track.sam3_source(arguments)
+        assert person_track.required_weights(arguments) == (
+            person_track.repo_entries(resolved)
+        )
+        track_people(make_video(), backend="sam3", sam3_model_name=given)
+        assert set(sam3_models.loaded) == {resolved}
+
     def test_suppressed_and_removed_objects_are_excluded(self, sam3_models, warnings):
         sam3_models.objects = {1: RED, 2: BLUE, 3: GREEN}
         sam3_models.suppressed = {i: {2} for i in range(10)}

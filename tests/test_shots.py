@@ -88,7 +88,7 @@ EXPECTED_SITES = {
     ("dw/tasks/h3_latent_upscale.py", "decode_h3_latents"): ("none", 1),
     ("dw/tasks/face_track.py", "crop_face_track"): ("none", 1),
     # mask videos, not the source's shots - a track restarts at each cut
-    ("dw/tasks/person_track.py", "track_people"): ("none", 1),
+    ("dw/tasks/person_track.py", "_mask_videos"): ("none", 1),
     ("dw/tasks/windows.py", "window_video"): ("none", 1),
     ("dw/tasks/fit.py", "restore_to_source"): ("none", 1),
     # a guide chain's carried tail - a conditioning input, not a joined output
