@@ -917,6 +917,12 @@ TEMPLATE_PIPELINE_KEYS = {
     "outpaint.json": {
         "outpaint": "8ece64de576884be947f5af07c5713b92d3a1e641035434ef805629f12ae8c77"
     },
+    "minimax-h3-image/multi-reference.json": {
+        "multi_reference": "837e8e0f4989823775d05af1ce14c18b2edec9cfb9c32c7894a9a8fdeaf2b74b"
+    },
+    "minimax-h3-image/text-to-image.json": {
+        "text_to_image": "837e8e0f4989823775d05af1ce14c18b2edec9cfb9c32c7894a9a8fdeaf2b74b"
+    },
     "pika-h3/first-and-last-frame.json": {
         "first_and_last_frame_to_video_audio": "7af35d5951f5197222509c6447645ae2ccebc89526544cd45bf0898ce28e2904"
     },

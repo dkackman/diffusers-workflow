@@ -167,6 +167,48 @@ the model's `17n+5` ceiling (345) is reachable at 960x544, not at 1344x768.
 
 **Examples:** [reference-to-video.json](../workflows/templates/minimax/reference-to-video.json), [chain-matched-to-audio.json](../workflows/templates/minimax/chain-matched-to-audio.json), [image-to-video.json](../workflows/templates/minimax/image-to-video.json), [dialogue-short.json](../workflows/templates/minimax/dialogue-short.json) (five ref2va shots + two Z-Image portraits in ~35 minutes end to end)
 
+## MiniMax-H3-Image
+
+A low-VRAM, large-host-RAM recipe: the card holds a few GiB, the host holds the model.
+It is a modular pipeline (`MiniMaxH3ImageModularPipeline`), so everything is per
+component, and it is CUDA-only. Measured on lem (2x RTX 3090 24GB, 128GB host RAM),
+2026-11-16 and 17. The recipe, with H3's quantizer arguments:
+
+| Component | Config |
+| --------- | ------ |
+| `transformer` | SDNQ `weights_dtype` (`int8`; `quantization_device: "cuda"`, `return_device: "cpu"`), `modules_to_not_convert` read off the H3-Image transformer; `group_offload` `block_level` with `num_blocks_per_group: 2`, `use_stream: true`, `low_cpu_mem_usage: true` |
+| `text_encoder` | Loaded from `MiniMaxAI/MiniMax-H3` at the pinned revision `0919fb68`, through the per-component `load_components` override, so it shares H3's quantized cache. SDNQ at the same `weights_dtype` (`.model.visual` and `lm_head` unconverted); `remove_modules: ["lm_head"]` |
+| `text_encoder.model` | `truncate_layers: {"language_model.layers": 51}` (the pipeline reads `hidden_states[50]`), `group_offload` `leaf_level` |
+| `vae` | bf16 (H3-Image's own `AutoencoderKLMiniMaxH3Image`; H3's int8 VAE recipe does not carry over), `device: "cuda"`, `residency: "on_demand"` |
+
+The sampler is fixed by the checkpoint (6 steps, guidance distilled), so the templates
+pass no `num_inference_steps`, `guidance_scale` or `negative_prompt`. Width and height
+are multiples of 32.
+
+| Measure | Value |
+| ------- | ----- |
+| VRAM reserved | ~3.7 GiB at the end of the denoise, 5.5 GiB at the start of the decode (job memory snapshots) |
+| Host RAM, warm | 63 to 64 GB committed (the transformer and text encoder live in host RAM under offload) |
+| Host RAM, cold first quantize | 116,760 MB peak RSS of 128,712 MB; budget ~120GB on a host without the quantized cache |
+| t2i 2048x2048 | 2.0 min warm (22.3 s encode, 91.4 s denoise at 15.2 s a pass, 3.4 s decode); 38.2 min cold (2110.8 s load, which is the download and the quantize) |
+| t2i 1024x1024 | 2.5 min warm - no faster |
+| 3-reference edit, 2048x2048 | 3.8 min with the quantized cache hit on a new card (56.9 s load, 23.6 s encode, 132.1 s denoise: 89.1 s first pass then 8.6 s each, 3.5 s decode); ~5.5 GiB reserved at decode |
+| First download | ~64 GiB (63.93 GiB: transformer and VAE; the text encoder comes from H3's repo, not H3-Image's ~204GB) |
+
+Host RAM is the binding resource, not VRAM. The cold run is the expensive one: it
+downloads, then quantizes the transformer, and peaks around 117GB RSS, so the first run
+needs a ~120GB host. Once the quantized cache is warm the worker sits near 64GB. The
+cache is keyed on the quantizer arguments ([Cached on-the-fly](QUANTIZATION.md#cached-on-the-fly-dw_quantized_cache)),
+so changing them - `weights_dtype` included - repeats the cold pass.
+
+A 1024 canvas is no faster. By default the pipeline generates anything under its
+`min_generation_area` of 4194304 (~4 MP) at that area and resizes back, and the
+templates do not expose that minimum. Even at a true 1024 (the bench set
+`min_generation_area=1024`), a pass takes the same 15.1 s as a 2048 pass, since the
+block-offloaded transformer is bound by weight transfer, not compute.
+
+**Examples:** [text-to-image.json](../workflows/templates/minimax-h3-image/text-to-image.json), [multi-reference.json](../workflows/templates/minimax-h3-image/multi-reference.json) (references named `<Picture 1>`..`<Picture 3>` in the prompt)
+
 ## MiniMax-Music3
 
 Music3 runs at about 22GiB in bfloat16 under the templates' `components_manager`
