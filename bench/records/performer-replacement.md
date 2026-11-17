@@ -293,31 +293,37 @@ prompt and the kept context.
 
 ## A mask-free head swap against replace-performer (#1411, #1414)
 
-Run 2026-11-17 on lem cuda:0 (RTX 3090), develop @ 4bb60015 (stage B's whole-render
-guide). Written by claude-opus-5-5 (anthropic).
+Arm 1 and the face baseline were run 2026-11-17 on lem cuda:0 (RTX 3090), develop @
+4bb60015 (stage B's whole-render guide). Arm 3 was re-run the same day on cuda:1,
+develop @ 086aa8eb, with the plan's scene reference. Nothing on arm 3's path (ref2va,
+the whole-render guide, the LoRA loader) changed in between. Written by claude-opus-5-5
+(anthropic).
 
 **Single seed.** Every number below is seed 1194 only: one run per arm, with no spread.
 
 ### Setup
 
 - **Shot.** #1194's deflect cut (`asset:bench/t16/deflect-cut.mp4`, 960x544, 124
-  frames, 24 fps). One person is replaced by the portrait `asset:bench/t26-stranger.jpg`.
+  frames, 24 fps). It is a copy of the #1194 fixture BenchS4Montage/20261104-040255-9813688b
+  `intermediate/BenchS4Montage-shot@deflect.3-0.0.mp4`. One person is replaced by the
+  man in the portrait `asset:bench/t26-stranger.jpg`.
 - **Arm 1:** `templates/minimax/replace-performer`.
   - The cut, its person mask `asset:bench/t16/deflect-mask.mp4`, one cut of 124
     frames, and the portrait as the reference.
   - The template's own ref2va settings: turbo LoRA, 8 passes.
 - **Arm 3:** `bench/workflows/t16-recast-shot.json`, ref2va with no mask.
-  - The whole clip goes in as one full-length video guide at frame 0 (`<Video 1>`),
-    and the portrait as `<Picture 1>`.
+  - **The scene reference, as `<Picture 1>`.** This is frame 0 of the cut (grab job
+    `86a7c413ce45`), edited with `templates/minimax-h3-image/multi-reference` (job
+    `3afa8dbb3be0`, seed 1194, 1920x1088) to show the portrait's man in the performer's
+    place. It is kept as `asset:bench/t16/recast-scene-ref.png`. The edit dressed him in
+    the portrait's mustard jacket and green tee.
+  - The whole clip goes in as one full-length video guide at frame 0 (`<Video 1>`).
   - The head-swap LoRA (`loras/minimax-h3/head-swap.json`) at 1.0, in place of turbo.
   - 20 steps, CFG 1, video_shift 12, turbo off; int4 with sparse attention. The audio
     is kept with `hold_audio`.
-  - The inputs and prompt follow the LoRA author's documented use (the repo's
-    `docs/head-swap.md`). The prompt is the author's structured `head_swap:` template,
-    with the portrait's facial details filled in.
-- **What each arm replaces.** Arm 1 replaces the whole person inside the mask: face,
-  hair, the portrait's mustard jacket and green tee. Arm 3 replaces only the head and
-  keeps the source body and clothing. Face hold is scored against the portrait for both.
+  - The prompt is the LoRA author's structured `head_swap:` template (the repo's
+    `docs/head-swap.md`), with the portrait's facial details filled in.
+- **Face hold** is scored against the portrait on both arms.
 - Arms: `bench/arms/t16-recast-shot.json`. Arm 1 was run by template name over MCP.
   `bench/workflows/t16-recast-replace-performer.json` is a snapshot of the template at
   4bb60015, with that run's arguments as its defaults, because `bench/driver.py` reads
@@ -329,52 +335,58 @@ guide). Written by claude-opus-5-5 (anthropic).
 |---|---|---|---|---|---|---|
 | Source cut (baseline) | face `66b2175675da` | - | 0.056 (0.013) | - | - | - |
 | 1: replace-performer | `9c0fd3314b01` (face `36575d4889d7`) | 4.2 min (6.2) | **0.747** (0.695) | **37.5 dB** | yes: the mask edge, step 4.71 | 0.9991 (-0.02 dB) |
-| 3: head-swap LoRA + frame-0 guide | `bcca0dababf5` (face `a7a8496dd0eb`) | 19.6 min (9.1) | **0.653** (0.574) | **29.5 dB** | no: no mask, no edge (step 2.20) | 0.9991 (-0.02 dB) |
+| 3: head-swap LoRA + frame-0 guide + scene reference | `7d1c0393d177` (face `54231da0b116`) | 26.3 min (17.9) | **0.543** (0.499) | **23.1 dB** | no: no mask, no edge (step 2.10) | 0.9991 (-0.02 dB) |
 
 - **Face hold.** Each face check is `templates/face-drift-check` with 16 frames sampled
-  and threshold 0.363. All three were run in one session. All 16 frames found a face on
-  both arms, and neither arm drew a `face_drift` finding.
+  and threshold 0.363. All 16 frames found a face on both arms, and neither arm drew a
+  `face_drift` finding.
   - Arm 1's 0.747 is in line with the earlier masked swap at this seed (0.759).
 - **PSNR by region.** From a scratch numpy script (not committed). Regions are taken
   from the union of the person mask over every frame, the same mask `seam_bands` uses.
+  Arm 1 and the earlier portrait run reproduce to 0.1 dB from the same script.
 
   | Region | Arm 1 | Arm 3 |
   |---|---|---|
-  | Inside the mask | 10.8 dB | 17.6 dB |
-  | 1-32 px outside | 15.7 dB | 25.6 dB |
-  | More than 96 px outside | 37.5 dB | 29.5 dB |
+  | Inside the mask | 10.8 dB | 12.0 dB |
+  | 1-32 px outside | 15.7 dB | 21.7 dB |
+  | More than 96 px outside | 37.5 dB | 23.1 dB |
 
 - **Where the change stops** (`bench/seam_bands.py`, 16 px bands, mean abs diff).
   - **Arm 1:** 58.5 inside, then 30.7, 26.0, 18.9, 11.2 and 5.2, settling at about 2.9
     from 81-96 px. That is the same edge as the earlier deflect runs, then the VAE floor.
-  - **Arm 3:** 18.2 inside, 10.7 at 1-16 px, then about 8 from 17 px all the way to the
-    frame edge (5-8 at the far corners).
+  - **Arm 3:** 48.8 inside, 14.0 at 1-16 px, then 10-14 out to 256 px and 4-9
+    beyond.
   - There is no edge to seam in arm 3, but nothing in the frame is left as it was. The
-    background is re-rendered at roughly 2.7x the VAE floor. Flicker outside 16 px is
-    the source's (0.18-0.31 against 0.17-0.32), so this is a steady redraw, not shimmer.
+    background is re-rendered at roughly 3-4x the VAE floor. Flicker outside 16 px tracks
+    the source's band for band (0.02-0.29 against 0.04-0.33), so this is a steady
+    redraw, not shimmer.
 - **Audio.** Both tracks correlate 0.9991 with the source, so `hold_audio` held on both.
-- **Cost.** Arm 3's quote was inherited from reference-to-video at 9.1 min; it ran
-  19.6 min. Its 20 passes took 45.1 s each after a first pass of 267.4 s. Arm 1 ran
-  4.2 min against its 6.2 min quote.
+- **Cost.** Arm 3's quote was inherited (17.9 min); it ran 26.3 min. Its 20 passes
+  took 65.2 s each after a first pass of 316.2 s, plus 23.0 s of decode and 56.7 s of
+  encode. Arm 1 ran 4.2 min against its 6.2 min quote.
 
 ### By eye (frames 0, 62 and 123 of each output, for Don)
 
 Outputs (workspace `bench`):
 - Arm 1: `templates/minimax/replace-performer/20261117-193659-838443b8/final/MiniMaxH3ReplacePerformer-replaced.5-0.0.mp4`
-- Arm 3: `BenchT16RecastShot/20261117-191705-80b3d1cd/final/recast-0.0.mp4`
+- Arm 3: `BenchT16RecastShot/20261117-223645-41345183/final/recast-0.0.mp4`
 
 - **Arm 1.** A whole-person swap: the portrait's man in his mustard jacket and green tee,
   with glasses and a beard, in the source pose and page turn.
-- **Arm 3.** The head is swapped: glasses, the grey beard and greying hair on the
-  original grey flannel body. The couch, the magazine and the page turn are kept.
-  - The identity reads as weaker than arm 1's, as the 0.653 says.
+- **Arm 3.** Also a whole-person swap, now taken from the scene reference: the jacket,
+  the green tee, the glasses, the grey beard. The couch, the brick wall, the magazine and
+  the page turn are kept, and the swap holds through the shot.
+  - The face reads as a cousin of the portrait rather than the same man: fuller in the
+    cheeks, with a heavier mustache. The 0.543 agrees.
+  - The room is redrawn rather than passed through, so the brick and couch texture
+    differ slightly from the source at every frame.
 
 ### Against the gate for stage D
 
 | Criterion | Arm 3 against arm 1 | Result |
 |---|---|---|
-| Face hold within 0.03 of arm 1's | 0.653 against 0.747 (-0.094) | **fail** |
-| Untouched regions within 2 dB of arm 1's | 29.5 against 37.5 dB (-8.0) | **fail** |
+| Face hold within 0.03 of arm 1's | 0.543 against 0.747 (-0.204) | **fail** |
+| Untouched regions within 2 dB of arm 1's | 23.1 against 37.5 dB (-14.4) | **fail** |
 | No seam band needed | no mask, so no edge | pass |
 | Don prefers arm 3 on the frames | - | **pending (Don)** |
 
@@ -387,7 +399,13 @@ cannot carry it past two measured failures. The head-swap LoRA's catalog entry s
   was rewritten, and the first arm-3 run (`0514e2ebbea1`) failed on the missing file.
   The entry and the workflow are re-pinned to `61213345`, the commit that last wrote the
   file (310,177,072 bytes, which passed the Hub's scans).
-- **A scene-reference input, tried and dropped.** Before that run, I made a
-  scene-reference image as `<Picture 1>` (frame-0 grab `86a7c413ce45`, multi-reference
-  edit `3afa8dbb3be0`). Arm 3 then went with the author's documented input, the face
-  portrait, instead. The scene-reference image is not part of the result.
+- **A supplementary portrait run, outside the gate.** Before the re-run, arm 3 was run
+  once with the face portrait itself as `<Picture 1>` (the LoRA author's documented
+  input) instead of the scene reference: job `bcca0dababf5` (face `a7a8496dd0eb`), on
+  cuda:0 at 4bb60015, 19.6 min against a 9.1 min quote. It swapped the head only and kept
+  the source's grey flannel body. Its face hold was 0.653 (min 0.574). Its PSNR was
+  17.6 / 25.6 / 29.5 dB inside / 1-32 px / more than 96 px, with a step of 2.20 and an
+  even redraw of about 8 outside 16 px. That run still fails both measured criteria
+  (-0.094 face, -8.0 dB), so the verdict does not depend on which picture is used. It is
+  kept for the comparison only. The gate rows above are the plan's arm, the scene
+  reference.
