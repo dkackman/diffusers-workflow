@@ -390,3 +390,136 @@ def reference_length_errors(
                 }
             )
     return errors
+
+
+# The module a family's reference classes live in -> the block whose
+# constructor defaults bound how long a standalone audio reference may run.
+# A pointer, not a number: Pika H3 Flex declares 2 to 15 seconds there, and
+# MiniMax-H3 declares none (its encoder truncates a long clip), so it is not
+# listed and is never checked (#1427)
+DURATION_LIMIT_BLOCKS = {
+    "diffusers.modular_pipelines.pika_h3_flex": (
+        "diffusers.modular_pipelines.pika_h3_flex.before_encoder",
+        "PikaH3FlexRef2VASetupStep",
+    ),
+}
+AUDIO_KIND = "audio"
+# Header durations of a compressed file are approximate
+DURATION_SLACK_SECONDS = 0.01
+
+
+def _duration_bounds(module_name):
+    """(model name, min seconds, max seconds) the reference class's family
+    declares, or None when it declares none or diffusers cannot be read."""
+    for prefix, (module_path, class_name) in DURATION_LIMIT_BLOCKS.items():
+        if module_name != prefix and not module_name.startswith(prefix + "."):
+            continue
+        try:
+            block = getattr(importlib.import_module(module_path), class_name)
+            parameters = inspect.signature(block.__init__).parameters
+            low = parameters["min_reference_duration"].default
+            high = parameters["max_reference_duration"].default
+            if not all(isinstance(n, (int, float)) and n >= 0 for n in (low, high)):
+                return None
+        except Exception:
+            logger.debug(
+                f"No reference durations available from {prefix}", exc_info=True
+            )
+            return None
+        return getattr(block, "model_name", prefix.rsplit(".", 1)[-1]), low, high
+    return None
+
+
+def _slice_seconds(entry, steps, base_dir, probe):
+    """Seconds of an audio reference entry, or None when it cannot be told
+    before the run: a `from_previous_result` naming a `slice_audio` whose
+    length is literal (or that runs to a probed source's end), or a
+    `from_file` that resolves to a probed audio file."""
+    from .probe_paths import resolve_probe_path
+    from .slice_preflight import _as_number, _requested_region, _source
+
+    def probed(value):
+        path = resolve_probe_path(value, base_dir, "an audio argument")
+        if path is None or probe is None:
+            return None
+        return _source(path, probe)
+
+    previous = entry.get("from_previous_result")
+    if isinstance(previous, str):
+        name = previous.partition(".")[0]
+        for _, step, task, _, _ in references.iter_steps(steps, None, "task"):
+            if step.get("name") != name:
+                continue
+            args = task.get("arguments")
+            if task.get("command") != "slice_audio" or not isinstance(args, dict):
+                return None
+            if args.get("sample_rate") is not None:
+                return None
+            source = probed(args.get("audio"))
+            # Seconds need a rate; a literal one in seconds does not
+            rate = source[1] if source else 1000
+            if source is None and (
+                _as_number(args.get("duration_seconds"), float) is None
+            ):
+                return None
+            region = _requested_region(args, rate)
+            if region is None:
+                return None
+            start, length = region
+            if args.get("past_end") == "stop":
+                if source is None:
+                    return None
+                length = max(min(length, source[0] - start), 0)
+            return length / float(rate)
+        return None
+    source = probed(entry.get("from_file"))
+    return source[0] / float(source[1]) if source else None
+
+
+def reference_duration_errors(
+    workflow_definition, source_indices=None, base_dir=None, probe=None
+):
+    """Every audio reference outside its pipeline's duration bound, as
+    [{path, message}] (#1427).
+
+    Pika H3 Flex refuses a standalone audio reference outside
+    `min_reference_duration` to `max_reference_duration` seconds, after the
+    load. Checked only where the length is knowable now: a probed
+    `asset:`/`output:`/path file, or a `slice_audio` result with a literal
+    length. A variable-held or unreadable length stays the run's to refuse.
+    """
+    steps = workflow_definition.get("steps")
+    errors = []
+    for _, _, pipeline, source, where in references.iter_steps(
+        steps, source_indices, "pipeline"
+    ):
+        arguments = pipeline.get("arguments")
+        entries = arguments.get("references") if isinstance(arguments, dict) else None
+        if not isinstance(entries, list):
+            continue
+        for index, entry in enumerate(entries):
+            reference = _reference_class(entry)
+            if getattr(reference, "kind", None) != AUDIO_KIND:
+                continue
+            bounds = _duration_bounds(getattr(reference, "__module__", ""))
+            if bounds is None:
+                continue
+            model_name, low, high = bounds
+            seconds = _slice_seconds(entry, steps, base_dir, probe)
+            if seconds is None:
+                continue
+            if low - DURATION_SLACK_SECONDS <= seconds <= high + DURATION_SLACK_SECONDS:
+                continue
+            errors.append(
+                {
+                    "path": render_path(
+                        ("steps", source, "pipeline", "arguments", "references", index)
+                    ),
+                    "message": (
+                        f"Every audio reference must run {low:g} to {high:g} "
+                        f"seconds on {model_name}, got one of {seconds:.2f} "
+                        f"seconds{where}."
+                    ),
+                }
+            )
+    return errors

@@ -245,3 +245,84 @@ class TestVideoReferenceLength:
     def test_images_are_not_measured(self, tmp_path):
         definition = workflow_with([{"reference_type": IMAGE, "from_file": "a.png"}])
         assert self.run(definition, tmp_path, frames=1) == []
+
+
+class TestAudioReferenceDuration:
+    """A Pika audio reference outside the setup block's bound (#1427). The
+    bound is read off diffusers, so the tests ask the module for it."""
+
+    PIKA = "diffusers.modular_pipelines.pika_h3_flex"
+    AUDIO = f"{PIKA}.PikaH3FlexAudioReference"
+
+    def bounds(self):
+        from dw.reference_limits import _duration_bounds
+
+        return _duration_bounds(self.PIKA)
+
+    def definition(self, entry, trim=None):
+        shot = workflow_with([entry])
+        if trim is not None:
+            shot["steps"].insert(
+                0,
+                {
+                    "name": "cut",
+                    "task": {
+                        "command": "slice_audio",
+                        "arguments": {"audio": "a.wav", **trim},
+                    },
+                },
+            )
+        return shot
+
+    def run(self, definition, tmp_path, seconds=None, rate=16000):
+        from dw.reference_limits import reference_duration_errors
+
+        (tmp_path / "a.wav").write_bytes(b"")
+
+        def probe(path):
+            return {
+                "kind": "audio",
+                "duration_seconds": seconds,
+                "sample_rate": rate,
+            }
+
+        return reference_duration_errors(definition, None, str(tmp_path), probe=probe)
+
+    def file(self):
+        return {"reference_type": self.AUDIO, "from_file": "a.wav"}
+
+    def test_the_bound_comes_from_diffusers(self):
+        _, low, high = self.bounds()
+        assert (low, high) == (2.0, 15.0)
+
+    def test_a_short_file_is_refused_quoting_the_bound(self, tmp_path):
+        found = self.run(self.definition(self.file()), tmp_path, seconds=1.41)
+        assert len(found) == 1
+        assert "2 to 15 seconds" in found[0]["message"]
+        assert "1.41" in found[0]["message"]
+        assert found[0]["path"].endswith("references[0]")
+
+    def test_a_long_file_is_refused(self, tmp_path):
+        assert len(self.run(self.definition(self.file()), tmp_path, seconds=16)) == 1
+
+    def test_an_eleven_second_file_passes(self, tmp_path):
+        assert self.run(self.definition(self.file()), tmp_path, seconds=11) == []
+
+    def test_a_literal_slice_length_is_measured(self, tmp_path):
+        entry = {"reference_type": self.AUDIO, "from_previous_result": "cut"}
+        short = self.definition(entry, {"duration_seconds": 1.0})
+        assert len(self.run(short, tmp_path, seconds=30)) == 1
+        ok = self.definition(entry, {"duration_seconds": 5.0})
+        assert self.run(ok, tmp_path, seconds=30) == []
+
+    def test_a_variable_held_slice_is_left_to_the_run(self, tmp_path):
+        entry = {"reference_type": self.AUDIO, "from_previous_result": "cut"}
+        held = self.definition(entry, {"duration_seconds": "variable:n"})
+        assert self.run(held, tmp_path, seconds=30) == []
+
+    def test_an_unreadable_length_is_left_to_the_run(self, tmp_path):
+        assert self.run(self.definition(self.file()), tmp_path, seconds=None) == []
+
+    def test_minimax_audio_is_not_bounded(self, tmp_path):
+        entry = {"reference_type": AUDIO, "from_file": "a.wav"}
+        assert self.run(workflow_with([entry]), tmp_path, seconds=1.0) == []

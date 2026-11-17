@@ -191,6 +191,7 @@ ERROR_ORDER = [
     "locations",
     "reference_limits",
     "reference_length",
+    "reference_duration",
     "pipeline_limits",
     "vram_estimate",
     "null_media",
