@@ -184,6 +184,79 @@ couch-back step with no hard edge. That is judged by the shoulder crops, plus a 
 no larger than mask_grow 1's on both seeds. It fails both tests. The eroded-mask arm is
 #1382, parked behind this record.
 
+## The seam: an eroded mask (#1382)
+
+**Result: erosion does not pass the rule, so `templates/minimax/replace-performer` keeps
+`mask_grow` 1. No engine erode is proposed.** Eroding the person mask by 16 px before H3
+pools it, at `mask_grow` 0, halves mask_grow 1's hard-edge `step`. But the jump across the
+mask edge stays 6-7 times g1's step, and the crops show a ghost of the source silhouette.
+
+Run 2026-11-17 (UTC) on lem's main server (`:8765`, workspace `bench`, cuda:0, develop
+`44370b83`). How the mask was made:
+- `python bench/erode_mask.py deflect-mask.mp4 deflect-mask-e16.mp4 --px 16` removed
+  0.2259 of the mask's pixels, and the file kept the original's 124 frames at 960x544, 24 fps.
+- The file was placed beside its siblings as `asset:bench/t16/deflect-mask-e16.mp4`.
+  `upload_asset` files a named upload under `uploads/`, so it was copied into the
+  workspace's assets directory instead.
+- The arms are `t16-swap-e16-*`. They are the g0 arms with `mask_video` set to the
+  eroded mask; `source_video` names the same asset as #1374.
+
+| Arm | Job | Run | Wall |
+|---|---|---|---|
+| e16, seed 1194 | `38bc1fead1fe` | `BenchT16PerformerSwap/20261117-032650-64e9f1ff` | 4.1 min |
+| e16, seed 2002 | `b75eda2bd8a8` | `BenchT16PerformerSwap/20261117-033123-2e1e5588` | 4.0 min (warm) |
+
+**Cells.** e16 changes what H3 regenerates, so the N=24 retry the plan held in reserve
+was not needed.
+- The engine's `regenerated_cells`, from the `Regional edit` log line of 18870 patch
+  cells: **g0 7491, e16 5959**.
+- Both numbers were predicted offline with `h3_mask_cells` before the run, and the
+  eroded file read back to the same 5959.
+- For comparison, e24 would have regenerated 5291 cells (0.3255 of the pixels removed).
+
+`python bench/seam_bands.py deflect-cut.mp4 ARM.mp4 deflect-mask.mp4 --inner 2` uses the
+**original** mask for every arm. The g1 files were still on lem, under the old bench
+workspace.
+- `in 17-32` and `in 1-16` are the bands just inside the union mask (-2, -1).
+- `inside` is the rest of the inside, so it is not #1374's `inside` column.
+- `jump` is the band -1 diff minus the band 1 diff.
+
+| Arm | inside | in 17-32 | in 1-16 | 1-16 | 17-32 | 33-48 | **step** | **jump** |
+|---|---|---|---|---|---|---|---|---|
+| g1 s1194 | 54.53 | 74.95 | 66.04 | 30.17 | 25.80 | 19.02 | **4.37** | **35.87** |
+| g1 s2002 | 51.18 | 77.23 | 71.81 | 27.63 | 23.17 | 18.04 | **4.45** | **44.18** |
+| g0 s1194 | 51.96 | 74.71 | 62.49 | 15.24 | 5.42 | 3.13 | **9.81** | **47.25** |
+| g0 s2002 | 50.52 | 71.97 | 66.64 | 17.19 | 5.91 | 3.11 | **11.29** | **49.45** |
+| e16 s1194 | 47.71 | 55.97 | 33.74 | 5.24 | 3.20 | 2.98 | **2.04** | **28.50** |
+| e16 s2002 | 48.45 | 58.96 | 34.71 | 5.34 | 3.19 | 2.92 | **2.16** | **29.37** |
+
+- e16 stays near the source floor (about 2.9) from 17 px outward: the change is confined
+  to about 16 px outside the original silhouette.
+- Frame-to-frame luma change in the 1-16 px band is 1.12 / 1.14 for e16, against 1.24 in
+  the source.
+
+**By eye** (shoulder crop `[560, 200, 400, 260]`, frames 0 and 62):
+- **A ghost on both seeds.** A pale, translucent streak runs down the old silhouette, from
+  the shoulder to the magazine. The eroded-away rim is kept source, and it still holds the
+  outline of the original performer, where the new man's shoulder does not reach.
+- **The couch back on s2002.** Beside the shoulder it is still redrawn as a separate
+  cushion. On s1194 the couch top line runs on, but the streak crosses it.
+- **The rest.** Identity, pose, the page turn and mouth timing follow the source, as at
+  g0 and g1.
+
+**Rule** (plan v2, #1382): erosion works only if all four tests pass.
+
+| Test | Result |
+|---|---|
+| The couch-back step is gone | **Fails**: still redrawn on s2002 |
+| `step` is no larger than g1's on both seeds | **Passes**: 2.04 ≤ 4.37 and 2.16 ≤ 4.45 |
+| No jump between bands -1 and 1 is larger than g1's band 1-2 step | **Fails**: 28.50 and 29.37 against 4.37 and 4.45 (g1's own jumps are 35.87 and 44.18) |
+| No ghost of the source silhouette | **Fails** |
+
+**Conclusion: keep `mask_grow` 1.** A cleaner edge on the outside is paid for with a
+visible ghost on the inside. An engine erode would ship the same trade, so none is
+proposed.
+
 ## The performance on a two-person, two-cut clip (#1374, ep62)
 
 Don's watch item: in the tester's C-F887 run, the swapped person was redrawn standing
