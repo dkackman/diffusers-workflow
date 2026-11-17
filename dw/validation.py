@@ -75,6 +75,7 @@ from .reference_names import reference_name_errors
 from .scalar_result_validation import scalar_result_errors, unsaved_json_warnings
 from .schema import load_schema, validate_data_all
 from .security import InvalidInputError, SecurityError
+from .step_cache import step_pipeline_keys
 from .shot_span_preflight import script_shot_name_errors, shot_span_warnings
 from .slice_preflight import slice_past_end_warnings
 from .subfolders import subfolder_errors
@@ -693,6 +694,79 @@ def _is_seeded(definition, arguments):
     return seed is not None
 
 
+# --- A pipeline_reference whose pipeline an earlier release dropped ----------
+
+
+def _loaded_keys(workflow, expanded, depth=0):
+    """Every pipeline cache key the steps of `expanded` load: its pipeline
+    steps' own, and those of each composed child (a `workflow:` step loads
+    into the same pipelines dict under the child's keys). A child that
+    cannot be opened or expanded contributes none - the error pass owns it."""
+    keys = set(step_pipeline_keys(expanded.get("steps") or []).values())
+    if depth >= 8:
+        return keys
+    for step in expanded.get("steps") or []:
+        keys |= _child_keys(workflow, step, depth)
+    return keys
+
+
+def _child_keys(workflow, step, depth):
+    reference = step.get("workflow")
+    if not isinstance(reference, dict) or not isinstance(reference.get("path"), str):
+        return set()
+    try:
+        child, _ = workflow.open_sub_workflow(reference["path"])
+        passed = reference.get("arguments")
+        child_expanded = child.expanded_definition(
+            passed if isinstance(passed, dict) else None
+        )
+        return _loaded_keys(child, child_expanded, depth + 1)
+    except Exception:
+        return set()
+
+
+def released_reference_warnings(workflow, expanded, source_indices=None):
+    """A `pipeline_reference` naming a pipeline an earlier step's
+    `release_pipeline` dropped before the reference runs (#1409).
+
+    A release pops the step's own cache key - and, on a `workflow:` step,
+    every key its composed child loaded - so a step sharing that key (the
+    same model loaded twice under different names) is released with it. The
+    run fails at the reference, after the GPU time of every step before it;
+    a pipeline step loading the key again in between puts it back. A warning,
+    not an error: a cached step can leave the run without ever loading."""
+    steps = expanded.get("steps") or []
+    keys = step_pipeline_keys(steps)
+    released = {}
+    warnings = []
+    for index, step in enumerate(steps):
+        name = step.get("name")
+        reference = step.get("pipeline_reference")
+        if isinstance(reference, dict):
+            target = reference.get("reference_name")
+            dropper = released.get(keys.get(target))
+            if dropper is not None:
+                source = references.author_index(source_indices, index)
+                warnings.append(
+                    f"steps[{source}].pipeline_reference.reference_name: "
+                    f"'{target}' was dropped by release_pipeline on step "
+                    f"'{dropper}' (a shared model cache key), so this "
+                    "reference fails at run time with the pipeline released. "
+                    "Drop the release, or reload the model with a pipeline "
+                    "step before the reference"
+                )
+        if "pipeline" in step and name in keys:
+            released.pop(keys[name], None)
+        if step.get("release_pipeline"):
+            if name in keys:
+                dropped = {keys[name]}
+            else:
+                dropped = _child_keys(workflow, step, 0)
+            for key in dropped:
+                released[key] = name
+    return warnings
+
+
 # --- The warning registry ----------------------------------------------------
 #
 # Every warning source admit() reports that does not need the plan, in the
@@ -829,6 +903,12 @@ WARNING_CHECKS = [
     Check(
         "unsaved_json_warnings",
         lambda c: unsaved_json_warnings(c.expanded, c.source_indices),
+    ),
+    # A pipeline_reference whose model an earlier release_pipeline dropped,
+    # through a shared cache key or a composed child (#1409)
+    Check(
+        "released_reference_warnings",
+        lambda c: released_reference_warnings(c.workflow, c.expanded, c.source_indices),
     ),
     # A guide_noise on a step with no guides and no guide chain - it would
     # noise nothing (#1166)
