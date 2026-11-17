@@ -76,6 +76,16 @@ MIT licence. Its cut-by-cut approach to replacing a performer in a take
 inspired `replace-performer` and `replace-performer-cuts`
 ([#1194](https://github.com/dkackman/diffusers-workflow/issues/1194)).
 
+### [Bambushu/h3-recast](https://github.com/Bambushu/h3-recast)
+
+A ComfyUI workflow for recasting a whole MiniMax H3 shot, under the MIT
+licence; concepts only, no files copied. It gave the minimax-h3 skill's caption
+rules for a performer swap
+([plugins/dw/skills/minimax-h3/references/regional-edit.md](../plugins/dw/skills/minimax-h3/references/regional-edit.md);
+[#1411](https://github.com/dkackman/diffusers-workflow/issues/1411)): a line for
+every person in the shot, one "A becomes B" line per person, big changes landing
+where subtle ones fall back to the clip, and no colliding colour words.
+
 ### [Kablex/ComfyUI-Ref2VA-VSA](https://github.com/Kablex/ComfyUI-Ref2VA-VSA)
 
 Apache-2.0. Showed that MiniMax H3's Ref2VA attention could run block-sparse,
