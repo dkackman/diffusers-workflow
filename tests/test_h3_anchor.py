@@ -390,9 +390,10 @@ class TestAnchorErrors:
         assert "'references'" in error["message"]
 
     @pytest.mark.parametrize("workflow", ["ref2va", "fl2va"])
-    def test_the_step_rule_is_the_guides_rule(self, workflow):
-        # One owner: the anchor's refusal is the `guides` check's own reason,
-        # asked for the anchor's argument name
+    def test_the_step_rule_is_the_t2va_fl2va_rule(self, workflow):
+        # One owner: the anchor's refusal is `_takes_guides_problem`'s reason,
+        # the rule for the t2va/fl2va-only arguments, asked for the anchor's
+        # argument name
         from dw.guides import _takes_guides_problem
 
         arguments = {"latent_anchor": "clip.mp4"}

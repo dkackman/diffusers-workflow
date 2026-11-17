@@ -6,8 +6,11 @@ The rules that need no model are refused here rather than after a checkpoint
 load, with the helpers the run-time check calls (`guide_frame_problem`,
 `snap_guide_length`, `guide_end_problem`) so the two cannot drift:
 
-- a step that is not an H3 pipeline, or that loads `ref2va` or also passes
-  `references` - ref2va lays out its own conditioning;
+- a step that is not an H3 pipeline;
+- on ref2va (a step that loads `ref2va` or passes `references`), anything but
+  the narrow rule (#1411, `h3_rules.ref2va_guide_problem` and
+  `ref2va_guides_count_problem`): exactly one clip, at frame 0, covering the
+  whole render, with no `audio: true`;
 - a `guides` that is not a list, more than GUIDE_LIMIT entries, an entry that is
   not `{video, frame}` (no other key but an optional `audio`, both present);
 - a `frame` that is not a whole, non-negative multiple of 17, and an `audio` that
@@ -28,8 +31,8 @@ an H3 t2va/fl2va step, with a `guide_frames` other than 22 or 39, or with a
 
 The latent statistics anchor (#1166) is refused here too, by `anchor_errors`:
 a `latent_anchor` argument, or a chain's `anchor: "segment_1"`, on a step the
-guides step rule refuses (`_takes_guides_problem`: off H3, ref2va, or passing
-`references`), and a chain `anchor` that is unknown, paired with a continuity
+rule for the t2va/fl2va-only arguments refuses (`_takes_guides_problem`: off
+H3, ref2va, or passing `references`), and a chain `anchor` that is unknown, paired with a continuity
 other than guide or last_frame, or carried into `references`
 (`chain_anchor_problem`, shared with the run).
 
@@ -40,7 +43,7 @@ off, a continuity other than guide, a look_hold or the step's nonzero
 
 Fixed guide noise (#1166) is refused by `guide_noise_errors`: a `guide_noise`
 that is not a number in [0, 1) (`guide_noise_problem`, shared with the run), or
-one on a step the guides step rule refuses. `guide_noise_warnings` says when it
+one on a step `_takes_guides_problem` refuses. `guide_noise_warnings` says when it
 would do nothing: a step with no `guides` and no guide chain.
 """
 
@@ -173,8 +176,9 @@ def _takes_guides_problem(pipeline, arguments, argument=GUIDES_INPUT):
     (`h3_rules.not_h3`), or it runs ref2va (`_is_ref2va`). The step rule for
     a guide chain, a `latent_anchor` argument, a chain's `anchor:
     "segment_1"`, guide noise, selflift and windows - every H3 t2va/fl2va-only
-    input. `guides` itself is ref2va's too, narrowly (#1411): `_step_problems`
-    asks `_takes_guides_problem` only for its H3 half. A pipeline or workflow
+    input. `guides` itself is ref2va's too, narrowly (#1411), so
+    `_step_problems` does not ask this rule: it asks `not_h3` and
+    `_is_ref2va` itself, then `h3_rules.ref2va_guide_problem`. A pipeline or workflow
     that is not literal is left to the run."""
     # Named as taken by t2va/fl2va only: ref2va refuses it below
     h3_problem = not_h3(pipeline, argument, taken_by=KEYFRAME_WORKFLOWS)
