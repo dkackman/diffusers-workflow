@@ -1,0 +1,449 @@
+{
+  "issue": 1420,
+  "feature": 1418,
+  "plan": "v2",
+  "date": "2026-11-17",
+  "server": "mini-ai (mps Apple M5 Pro; analyze_face_drift runs YuNet/SFace on CPU), develop @ ad4871e1",
+  "workflows": [
+    "bench/workflows/probe-1418-face-encode-floor-prep.json",
+    "bench/workflows/probe-1418-face-encode-floor.json"
+  ],
+  "settings": {
+    "samples_per_shot": 16,
+    "threshold": "default",
+    "reference_jpg": "PIL defaults (quality 75, 4:2:0) of the png's pixels",
+    "saved_video": "dw's mp4 encode of a video_frames decode of the clip"
+  },
+  "delta_sign": "later arm minus FM/RP (FF/RP - FM/RP, FM/RJ - FM/RP, FF/RJ - FM/RP); the floor is the largest absolute value over clips",
+  "clips": [
+    {
+      "clip": "ep63-shot-ltx-priya",
+      "video": "asset:qa-cast/ep63-shot-ltx-priya.mp4",
+      "reference": "asset:qa-cast/priya-portrait.jpg",
+      "shape": "960x544, 121 frames; one face, close, little motion",
+      "prep_job": "b7b30ea87fd3",
+      "prep_run": "BenchProbe1418FaceEncodeFloorPrep/20261117-143848-a8600736",
+      "arms_job": "6e8242acc204",
+      "arms_run": "BenchProbe1418FaceEncodeFloor/20261117-144112-6f39f0b8",
+      "arms": {
+        "fm_rp": {
+          "shot": "video 1",
+          "num_frames": 121,
+          "frames_sampled": 16,
+          "faces_found": 16,
+          "median": 0.597,
+          "min": 0.496,
+          "shots_source": "artifact",
+          "start": null,
+          "end": null,
+          "findings": []
+        },
+        "fm_rj": {
+          "shot": "video 1",
+          "num_frames": 121,
+          "frames_sampled": 16,
+          "faces_found": 16,
+          "median": 0.598,
+          "min": 0.497,
+          "shots_source": "artifact",
+          "start": null,
+          "end": null,
+          "findings": []
+        },
+        "ff_rp": {
+          "shot": "whole",
+          "num_frames": 121,
+          "frames_sampled": 16,
+          "faces_found": 16,
+          "median": 0.601,
+          "min": 0.48,
+          "shots_source": "none",
+          "start": 0.0,
+          "end": 5.042,
+          "findings": []
+        },
+        "ff_rj": {
+          "shot": "whole",
+          "num_frames": 121,
+          "frames_sampled": 16,
+          "faces_found": 16,
+          "median": 0.603,
+          "min": 0.481,
+          "shots_source": "none",
+          "start": 0.0,
+          "end": 5.042,
+          "findings": []
+        }
+      },
+      "deltas": {
+        "video_encode": {
+          "median": 0.004,
+          "min": -0.016
+        },
+        "reference_encode": {
+          "median": 0.001,
+          "min": 0.001
+        },
+        "combined_1400": {
+          "median": 0.006,
+          "min": -0.015
+        }
+      }
+    },
+    {
+      "clip": "ep83-shot-refined-priya",
+      "video": "asset:qa-cast/ep83-shot-refined-priya.mp4",
+      "reference": "asset:qa-cast/priya-portrait.jpg",
+      "shape": "1024x576, 121 frames; a refined (second-pass) take, low match to the portrait",
+      "prep_job": "b8f6c6f82923",
+      "prep_run": "BenchProbe1418FaceEncodeFloorPrep/20261117-144220-589ac921",
+      "arms_job": "db45288c3781",
+      "arms_run": "BenchProbe1418FaceEncodeFloor/20261117-144452-b81262c4",
+      "arms": {
+        "fm_rp": {
+          "shot": "video 1",
+          "num_frames": 121,
+          "frames_sampled": 16,
+          "faces_found": 16,
+          "median": 0.176,
+          "min": 0.091,
+          "shots_source": "artifact",
+          "start": null,
+          "end": null,
+          "findings": [
+            "face_drift:warn"
+          ]
+        },
+        "fm_rj": {
+          "shot": "video 1",
+          "num_frames": 121,
+          "frames_sampled": 16,
+          "faces_found": 16,
+          "median": 0.176,
+          "min": 0.093,
+          "shots_source": "artifact",
+          "start": null,
+          "end": null,
+          "findings": [
+            "face_drift:warn"
+          ]
+        },
+        "ff_rp": {
+          "shot": "whole",
+          "num_frames": 121,
+          "frames_sampled": 16,
+          "faces_found": 16,
+          "median": 0.192,
+          "min": 0.067,
+          "shots_source": "none",
+          "start": 0.0,
+          "end": 5.042,
+          "findings": [
+            "face_drift:warn"
+          ]
+        },
+        "ff_rj": {
+          "shot": "whole",
+          "num_frames": 121,
+          "frames_sampled": 16,
+          "faces_found": 16,
+          "median": 0.192,
+          "min": 0.069,
+          "shots_source": "none",
+          "start": 0.0,
+          "end": 5.042,
+          "findings": [
+            "face_drift:warn"
+          ]
+        }
+      },
+      "deltas": {
+        "video_encode": {
+          "median": 0.016,
+          "min": -0.024
+        },
+        "reference_encode": {
+          "median": 0.0,
+          "min": 0.002
+        },
+        "combined_1400": {
+          "median": 0.016,
+          "min": -0.022
+        }
+      }
+    },
+    {
+      "clip": "ep64-shot-ltx-hal",
+      "video": "asset:qa-cast/ep64-shot-ltx-hal.mp4",
+      "reference": "asset:qa-cast/hal-portrait.jpg",
+      "shape": "960x544, 121 frames; the other cast face",
+      "prep_job": "972200f30470",
+      "prep_run": "BenchProbe1418FaceEncodeFloorPrep/20261117-144222-41ed1f45",
+      "arms_job": "3a9a3a1eb26e",
+      "arms_run": "BenchProbe1418FaceEncodeFloor/20261117-144457-b9f3fc75",
+      "arms": {
+        "fm_rp": {
+          "shot": "video 1",
+          "num_frames": 121,
+          "frames_sampled": 16,
+          "faces_found": 16,
+          "median": 0.559,
+          "min": 0.486,
+          "shots_source": "artifact",
+          "start": null,
+          "end": null,
+          "findings": []
+        },
+        "fm_rj": {
+          "shot": "video 1",
+          "num_frames": 121,
+          "frames_sampled": 16,
+          "faces_found": 16,
+          "median": 0.558,
+          "min": 0.487,
+          "shots_source": "artifact",
+          "start": null,
+          "end": null,
+          "findings": []
+        },
+        "ff_rp": {
+          "shot": "whole",
+          "num_frames": 121,
+          "frames_sampled": 16,
+          "faces_found": 16,
+          "median": 0.573,
+          "min": 0.456,
+          "shots_source": "none",
+          "start": 0.0,
+          "end": 5.042,
+          "findings": []
+        },
+        "ff_rj": {
+          "shot": "whole",
+          "num_frames": 121,
+          "frames_sampled": 16,
+          "faces_found": 16,
+          "median": 0.573,
+          "min": 0.456,
+          "shots_source": "none",
+          "start": 0.0,
+          "end": 5.042,
+          "findings": []
+        }
+      },
+      "deltas": {
+        "video_encode": {
+          "median": 0.014,
+          "min": -0.03
+        },
+        "reference_encode": {
+          "median": -0.001,
+          "min": 0.001
+        },
+        "combined_1400": {
+          "median": 0.014,
+          "min": -0.03
+        }
+      }
+    },
+    {
+      "clip": "ep89-shot-ltx-hal-cont",
+      "video": "asset:qa-cast/ep89-shot-ltx-hal-cont.mp4",
+      "reference": "asset:qa-cast/hal-portrait.jpg",
+      "shape": "960x544, 57 frames; a continuation, short",
+      "prep_job": "a3812c2e83ca",
+      "prep_run": "BenchProbe1418FaceEncodeFloorPrep/20261117-144223-57ed5568",
+      "arms_job": "6d022184883c",
+      "arms_run": "BenchProbe1418FaceEncodeFloor/20261117-144501-071e2285",
+      "arms": {
+        "fm_rp": {
+          "shot": "video 1",
+          "num_frames": 57,
+          "frames_sampled": 16,
+          "faces_found": 16,
+          "median": 0.2,
+          "min": 0.137,
+          "shots_source": "artifact",
+          "start": null,
+          "end": null,
+          "findings": [
+            "face_drift:warn"
+          ]
+        },
+        "fm_rj": {
+          "shot": "video 1",
+          "num_frames": 57,
+          "frames_sampled": 16,
+          "faces_found": 16,
+          "median": 0.2,
+          "min": 0.137,
+          "shots_source": "artifact",
+          "start": null,
+          "end": null,
+          "findings": [
+            "face_drift:warn"
+          ]
+        },
+        "ff_rp": {
+          "shot": "whole",
+          "num_frames": 57,
+          "frames_sampled": 16,
+          "faces_found": 16,
+          "median": 0.194,
+          "min": 0.14,
+          "shots_source": "none",
+          "start": 0.0,
+          "end": 2.375,
+          "findings": [
+            "face_drift:warn"
+          ]
+        },
+        "ff_rj": {
+          "shot": "whole",
+          "num_frames": 57,
+          "frames_sampled": 16,
+          "faces_found": 16,
+          "median": 0.194,
+          "min": 0.14,
+          "shots_source": "none",
+          "start": 0.0,
+          "end": 2.375,
+          "findings": [
+            "face_drift:warn"
+          ]
+        }
+      },
+      "deltas": {
+        "video_encode": {
+          "median": -0.006,
+          "min": 0.003
+        },
+        "reference_encode": {
+          "median": 0.0,
+          "min": 0.0
+        },
+        "combined_1400": {
+          "median": -0.006,
+          "min": 0.003
+        }
+      }
+    },
+    {
+      "clip": "priya-hal-two-shot",
+      "video": "asset:qa-cast/priya-hal-two-shot.mp4",
+      "reference": "asset:qa-cast/priya-portrait.jpg",
+      "shape": "960x544, 121 frames; two faces, smaller in frame, scored against Priya",
+      "prep_job": "b3899920277c",
+      "prep_run": "BenchProbe1418FaceEncodeFloorPrep/20261117-144224-1f67b5f5",
+      "arms_job": "447449bb16ba",
+      "arms_run": "BenchProbe1418FaceEncodeFloor/20261117-144504-d11bbf3b",
+      "arms": {
+        "fm_rp": {
+          "shot": "video 1",
+          "num_frames": 121,
+          "frames_sampled": 16,
+          "faces_found": 16,
+          "median": 0.21,
+          "min": 0.177,
+          "shots_source": "artifact",
+          "start": null,
+          "end": null,
+          "findings": [
+            "face_drift:warn"
+          ]
+        },
+        "fm_rj": {
+          "shot": "video 1",
+          "num_frames": 121,
+          "frames_sampled": 16,
+          "faces_found": 16,
+          "median": 0.209,
+          "min": 0.176,
+          "shots_source": "artifact",
+          "start": null,
+          "end": null,
+          "findings": [
+            "face_drift:warn"
+          ]
+        },
+        "ff_rp": {
+          "shot": "whole",
+          "num_frames": 121,
+          "frames_sampled": 16,
+          "faces_found": 16,
+          "median": 0.216,
+          "min": 0.16,
+          "shots_source": "none",
+          "start": 0.0,
+          "end": 5.042,
+          "findings": [
+            "face_drift:warn"
+          ]
+        },
+        "ff_rj": {
+          "shot": "whole",
+          "num_frames": 121,
+          "frames_sampled": 16,
+          "faces_found": 16,
+          "median": 0.215,
+          "min": 0.16,
+          "shots_source": "none",
+          "start": 0.0,
+          "end": 5.042,
+          "findings": [
+            "face_drift:warn"
+          ]
+        }
+      },
+      "deltas": {
+        "video_encode": {
+          "median": 0.006,
+          "min": -0.017
+        },
+        "reference_encode": {
+          "median": -0.001,
+          "min": -0.001
+        },
+        "combined_1400": {
+          "median": 0.005,
+          "min": -0.017
+        }
+      }
+    }
+  ],
+  "excluded_no_face": [],
+  "floor": {
+    "video_encode": {
+      "median": 0.016,
+      "min": 0.03
+    },
+    "reference_encode": {
+      "median": 0.001,
+      "min": 0.002
+    },
+    "combined_1400": {
+      "median": 0.016,
+      "min": 0.03
+    }
+  },
+  "median_floor": 0.016,
+  "min_floor": 0.03,
+  "median_floor_ge_0_02": false,
+  "median_floor_ge_0_03": false,
+  "repeats": {
+    "clip": "ep63-shot-ltx-priya",
+    "jobs": [
+      {
+        "job": "b80dc7123c69",
+        "run": "BenchProbe1418FaceEncodeFloorR1/20261117-144549-fc26687b"
+      },
+      {
+        "job": "b0067d92b97d",
+        "run": "BenchProbe1418FaceEncodeFloorR2/20261117-144553-2f1de1d8"
+      }
+    ],
+    "gap": 0.0
+  },
+  "source_4_differences": "frames_sampled 16 and num_frames equal in every arm pair; FM arms carry shots_source 'artifact' (trim_video's one shot 'video 1', start/end null, no fps in memory), FF arms shots_source 'none' (shot 'whole', start/end in seconds, note 'no shot boundaries found; the whole file was measured as one shot'). Sampling is by frame index, so the frames scored are the same indices",
+  "bound": "lower bound: the saved file here is a re-encode of an already-encoded clip's decode (one extra libx264 pass). An H3 clip scored in-job against its own first save on lem would give the upper bound (decoder output never encoded before)"
+}

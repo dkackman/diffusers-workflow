@@ -1,0 +1,99 @@
+{
+  "id": "BenchProbe1418FaceEncodeFloor",
+  "description": "Probe for #1418 stage A: the face-score gap between in-memory and saved-file forms, split by cause. One clip per run, four analyze_face_drift arms with the same reference face, samples_per_shot 16 and the default threshold. FM/RP: in-memory frames against the png reference - this job's video_frames decode of 'clip' (the pixels the prep job encoded), held as an in-memory clip by trim_video over all 'num_frames' frames, since analyze_face_drift takes a clip an earlier step returned, not a bare frame array. FM/RJ: the same frames against the jpg reference. FF/RP: the saved mp4 of the prep job's decode of the same clip ('saved_video', an output:) against the png. FF/RJ: the saved mp4 against the jpg. 'reference_png', 'reference_jpg' and 'saved_video' are the files bench/workflows/probe-1418-face-encode-floor-prep.json wrote for the same clip and reference; the defaults are the ep63 Priya prep run (job b7b30ea87fd3), and each other clip passes its own prep run's three files as arguments. FM/RP vs FF/RP is the video-encode share, FM/RP vs FM/RJ the reference-encode share, FM/RP vs FF/RJ the two together. Record: bench/records/face-encode-floor.md. CPU only.",
+  "summary": "#1418 A: four face-drift arms (frames/file x png/jpg) for one clip.",
+  "variables": {
+    "clip": "asset:qa-cast/ep63-shot-ltx-priya.mp4",
+    "num_frames": 121,
+    "saved_video": "output:BenchProbe1418FaceEncodeFloorPrep/20261117-143848-a8600736/intermediate/frames-0.0.mp4",
+    "reference_png": "output:BenchProbe1418FaceEncodeFloorPrep/20261117-143848-a8600736/intermediate/reference-0.0.png",
+    "reference_jpg": "output:BenchProbe1418FaceEncodeFloorPrep/20261117-143848-a8600736/intermediate/reference-0.0.jpg",
+    "samples_per_shot": 16
+  },
+  "steps": [
+    {
+      "name": "decode",
+      "task": {
+        "command": "video_frames",
+        "arguments": {
+          "video": "variable:clip"
+        }
+      }
+    },
+    {
+      "name": "memory",
+      "task": {
+        "command": "trim_video",
+        "arguments": {
+          "video": "previous_result:decode",
+          "start_frame": 0,
+          "num_frames": "variable:num_frames"
+        }
+      }
+    },
+    {
+      "name": "fm_rp",
+      "task": {
+        "command": "analyze_face_drift",
+        "arguments": {
+          "video": "previous_result:memory",
+          "reference": "variable:reference_png",
+          "samples_per_shot": "variable:samples_per_shot"
+        }
+      },
+      "result": {
+        "content_type": "application/json",
+        "subfolder": "intermediate",
+        "file_base_name": "fm_rp"
+      }
+    },
+    {
+      "name": "fm_rj",
+      "task": {
+        "command": "analyze_face_drift",
+        "arguments": {
+          "video": "previous_result:memory",
+          "reference": "variable:reference_jpg",
+          "samples_per_shot": "variable:samples_per_shot"
+        }
+      },
+      "result": {
+        "content_type": "application/json",
+        "subfolder": "intermediate",
+        "file_base_name": "fm_rj"
+      }
+    },
+    {
+      "name": "ff_rp",
+      "task": {
+        "command": "analyze_face_drift",
+        "arguments": {
+          "video": "variable:saved_video",
+          "reference": "variable:reference_png",
+          "samples_per_shot": "variable:samples_per_shot"
+        }
+      },
+      "result": {
+        "content_type": "application/json",
+        "subfolder": "intermediate",
+        "file_base_name": "ff_rp"
+      }
+    },
+    {
+      "name": "ff_rj",
+      "task": {
+        "command": "analyze_face_drift",
+        "arguments": {
+          "video": "variable:saved_video",
+          "reference": "variable:reference_jpg",
+          "samples_per_shot": "variable:samples_per_shot"
+        }
+      },
+      "result": {
+        "content_type": "application/json",
+        "subfolder": "intermediate",
+        "file_base_name": "ff_rj"
+      }
+    }
+  ]
+}
