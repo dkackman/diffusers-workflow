@@ -182,7 +182,7 @@ abs diff from the source in 16 px bands outside the union mask:
 **Rule** (plan v2/v3, #1194): mask_grow 0 becomes the default only if it removes the
 couch-back step with no hard edge. That is judged by the shoulder crops, plus a `step`
 no larger than mask_grow 1's on both seeds. It fails both tests. The eroded-mask arm is
-#1382, parked behind this record.
+#1382, in the next section.
 
 ## The seam: an eroded mask (#1382)
 
