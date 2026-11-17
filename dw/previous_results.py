@@ -187,12 +187,12 @@ def _as_frame_lists(artifacts):
     handed = []
     for artifact in artifacts:
         if isinstance(artifact, SavedFrames):
-            artifact = list(artifact)
+            artifact = artifact.as_list()
         elif isinstance(artifact, AudioVideo) and isinstance(
             artifact.frames, SavedFrames
         ):
             artifact = copy.copy(artifact)
-            artifact.frames = list(artifact.frames)
+            artifact.frames = artifact.frames.as_list()
         handed.append(artifact)
     return handed
 

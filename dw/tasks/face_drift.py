@@ -14,6 +14,13 @@ seams) and its two rules live here, as `measure_sync`'s do.
 The reference is one face. With none the call is refused; with several the
 largest is used and `notes` says so.
 
+`scored_from` says which form each half was scored in (#1418): a clip or a
+picture read from a file is its encoded form, while frames or a picture an
+earlier step returned in memory never went through a dw encode. The two
+forms score apart by up to the face encode floor
+(`bench/records/face-encode-floor.md`), so a score is comparable only with
+another of the same forms, and `notes` says so when the halves differ.
+
 Models: YuNet through `face_track.face_detector_model` (the one loader) and
 SFace the same way, both at a pinned revision and through the task model
 cache. OpenCV works in BGR; the pictures here are RGB until they reach it.
@@ -56,6 +63,13 @@ DEFAULT_SAMPLES = 8
 # The detector score below which a face is ignored, as crop_face_track's
 DETECTOR_CONFIDENCE = 0.6
 PLACES = 3
+
+# The face encode floor, in-memory against saved-file scores of one clip:
+# the largest gap #1418 stage A measured, a lower bound from re-encoding
+# (bench/records/face-encode-floor.md)
+FLOOR_MEDIAN = 0.016
+FLOOR_MIN = 0.030
+FLOOR_RECORD = "bench/records/face-encode-floor.md"
 
 # What a finding's `at` carries of its shot's measurement
 AT_KEYS = ("shot", "index", "start_frame", "num_frames", "start", "end")
@@ -195,6 +209,46 @@ def _stored_path(video):
     return None
 
 
+def _read_from_file(frames):
+    """True for a saved chain's frames, decoded from the file it wrote: a
+    `chain_spill.SavedFrames`, handed on to a step as a `ReadFrames` list."""
+    from ..pipeline_processors.chain_spill import ReadFrames
+
+    return isinstance(frames, ReadFrames)
+
+
+def _scored_from(video, reference):
+    """{video: "frames" | "file", reference: "picture" | "file"}: "file" for
+    anything already in its encoded form - a stored path, asset:, output:, a
+    VideoFileReference or a saved chain's frames - and "frames"/"picture" for
+    in-memory pixels that never went through a dw encode."""
+    from .video_utils import VideoFileReference
+
+    video_file = (
+        isinstance(video, (str, VideoFileReference))
+        or _read_from_file(video)
+        or _read_from_file(getattr(video, "frames", None))
+    )
+    return {
+        "video": "file" if video_file else "frames",
+        "reference": "file" if isinstance(reference, str) else "picture",
+    }
+
+
+def _mixed_forms_note(scored_from):
+    """The note a score of mixed forms carries, or None for a same-form one."""
+    from_file = [form == "file" for form in scored_from.values()]
+    if all(from_file) or not any(from_file):
+        return None
+    return (
+        f"scored_from mixes forms (video: {scored_from['video']}, reference: "
+        f"{scored_from['reference']}): compare this score only with another of "
+        "the same forms. In-memory and saved-file scores of one clip differ by "
+        f"up to {FLOOR_MEDIAN:.3f} on a median and {FLOOR_MIN:.3f} on a minimum, "
+        f"a lower bound ({FLOOR_RECORD})"
+    )
+
+
 def _picture_at(video, index):
     """One frame as a PIL image, seeking in a stored file rather than decoding it."""
     path = _stored_path(video)
@@ -332,11 +386,17 @@ def analyze_face_drift(
     Returns:
         {measurements: [{shot, index, start_frame, num_frames, start, end,
         frames_sampled, faces_found, similarity_median, similarity_min}],
-        findings, rules_applied, shots_source, notes}. `start`/`end` are
-        seconds (None when the clip has no fps); each finding's `at` carries
-        the shot's name, index, frames and times
+        findings, rules_applied, shots_source, scored_from, notes}.
+        `start`/`end` are seconds (None when the clip has no fps); each
+        finding's `at` carries the shot's name, index, frames and times.
+        `scored_from` is {video: "frames" | "file", reference: "picture" |
+        "file"}: "file" for a stored path, asset:, output: or a saved chain's
+        frames (the encoded form), "frames"/"picture" for in-memory pixels.
+        When the two differ `notes` says the score is comparable only with
+        another of the same forms, quoting the face encode floor
     """
     threshold, samples = _checked_settings(threshold, samples_per_shot)
+    scored_from = _scored_from(video, reference)
     models = _models(device)
     notes = []
     embedding = _reference_embedding(*models, reference, notes)
@@ -352,10 +412,14 @@ def analyze_face_drift(
         _measure_shot(video, index, shot, media, models, embedding, samples)
         for index, shot in enumerate(records)
     ]
+    mixed = _mixed_forms_note(scored_from)
+    if mixed:
+        notes.append(mixed)
     return {
         "measurements": measurements,
         "findings": _findings(measurements, threshold),
         "rules_applied": list(RULES),
         "shots_source": source,
+        "scored_from": scored_from,
         "notes": notes,
     }

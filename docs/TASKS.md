@@ -2555,7 +2555,7 @@ measured; with none, `shots` is empty, `max_offset_ms` is null, and only
 Whether a recurring character still looks like their cast portrait. It is not
 a probe: it measures faces, and its two rules live in the command rather than
 in the table below. It returns `measurements`, `findings`, `rules_applied`,
-`shots_source` and `notes` (no `rules_skipped`). Needs the SFace and YuNet
+`shots_source`, `scored_from` and `notes` (no `rules_skipped`). Needs the SFace and YuNet
 weights from `opencv/face_recognition_sface` and `opencv/face_detection_yunet`,
 which `validate_workflow` lists under `downloads_required`.
 
@@ -2591,6 +2591,21 @@ finding's `at` carries the shot's `shot`, `index`, `start_frame`,
 (info) for a shot where no sampled frame had a face. Like the probes, they
 are places to look, not verdicts: a turned head or a mask also lowers the
 score, so look at the shot before regenerating it.
+
+`scored_from` says which form each half was scored in:
+`{"video": "frames" | "file", "reference": "picture" | "file"}`. `"file"` is
+the encoded form: a stored path, `asset:`, `output:`, or a chain's
+`previous_result:` once `save_segments` has read it back from its saved mp4.
+`"frames"` and `"picture"` are in-memory pixels an earlier step returned,
+which never went through a dw encode. The two forms of one clip score apart:
+the **face encode floor** measured on mini-ai is **0.016 on a median and
+0.030 on a minimum**, almost all of it the video encode (a jpg reference
+moves the median by 0.001 at most). It is a lower bound, from re-encoding
+already-encoded clips; a first encode of freshly generated frames may lose
+more (`bench/records/face-encode-floor.md`). So compare a score only with
+another of the same forms, and a margin between two scores of different forms
+must clear that floor. When the two halves differ, `notes` says so and quotes
+the floor.
 
 ### Rules
 

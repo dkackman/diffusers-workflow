@@ -120,6 +120,23 @@ class SavedFrames(Sequence):
     def __getitem__(self, index):
         return self._load()[index]
 
+    def as_list(self):
+        """The decoded frames as the list a later step is handed, still naming
+        the file they came from (`ReadFrames`)."""
+        return ReadFrames(self._load(), self.path)
+
+
+class ReadFrames(list):
+    """A SavedFrames' frames as a plain list (`previous_results._as_frame_lists`),
+    carrying `path`: the saved file they were decoded from. Every consumer
+    takes it as the list it is; `analyze_face_drift` reads `path` to say its
+    score came from the encoded form, not from pixels that never went through
+    a dw encode (#1418)."""
+
+    def __init__(self, frames, path):
+        super().__init__(frames)
+        self.path = path
+
 
 class SegmentSpill:
     """Writes each completed segment to disk as a playable mp4.
