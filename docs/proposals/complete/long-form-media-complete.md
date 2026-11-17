@@ -376,7 +376,8 @@ six long-form H3 templates: `minimax/chained-segments`, `chain-video-continuity`
   0.68, the source 0.06). Outside the mask it holds 37.5 dB, and the audio is the
   source's. The one flaw is a steady step in the couch edge near the shoulder. Follow-ups:
   cut detection, a per-person SAM2 track, a `replace-performer` template, and a
-  tighter-mask bench (`bench/records/performer-replacement.md`).
+  tighter-mask bench (`bench/records/performer-replacement.md`). All built as #1194:
+  `performer-replacement-complete.md`.
 - **#1197 Resolve import of an exported `.otioz`: passes.** Don imported the bench S4
   montage (`6d33a88d24de`, exported as `ae2ecd79da44`) in Resolve 21 on 2026-11-06,
   both the `.otioz` as written and its plain `content.otio` beside `media/`. The one
