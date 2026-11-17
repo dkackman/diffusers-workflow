@@ -37,6 +37,14 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **Performer replacement seam: an eroded-mask arm** (#1382, stage #1390),
+  shipped 2026-11-16 as a bench record. `bench/erode_mask.py` eroded the person
+  mask by 16 px before H3 pools it, at `mask_grow` 0, and `seam_bands.py
+  --inner K` measures inside the silhouette. The `step` halved against
+  `mask_grow` 1, but the crops show a ghost of the source silhouette and the
+  couch back is still redrawn on one seed, so `replace-performer` keeps
+  `mask_grow` 1 and no engine erode is proposed:
+  `complete/performer-eroded-mask-complete.md`.
 - **diffusers floor to 0.43.0** (#1315, stages #1340-#1341), shipped
   2026-11-16. Stage A made develop correct on 0.43 behaviour: modular `None`
   drop, MagCache readout across the per-call hook reset, a guarded
