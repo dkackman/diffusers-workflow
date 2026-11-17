@@ -6,8 +6,8 @@
     "MiniMaxAI/MiniMax-H3"
   ],
   "workflow": "ref2va",
-  "description": "Head replacement from a reference portrait, trigger 'head_swap:', on ref2va with the source clip as one whole-render guide at frame 0 and the portrait as <Picture 1> (#1411). Benched against templates/minimax/replace-performer on #1194's deflect cut (#1414, one seed): it swaps the head and keeps the body, clothing and performance, but it holds the portrait's face less well (SFace median 0.653 against 0.747) and re-renders the whole frame (29.5 dB outside the person against 37.5)",
-  "use_when": "Not for performer replacement: templates/minimax/replace-performer holds the face better and leaves the rest of the frame alone. Worth a look only when the source body and clothing must stay and a whole-frame re-render is acceptable",
+  "description": "Head replacement from a reference image, trigger 'head_swap:', on ref2va with the source clip as one whole-render guide at frame 0 and the reference as <Picture 1> (#1411). Benched against templates/minimax/replace-performer on #1194's deflect cut (#1414, one seed) with a scene reference (frame 0 edited to show the new performer): it holds the performance but holds the face less well (SFace median 0.543 against 0.747) and re-renders the whole frame (23.1 dB outside the person against 37.5)",
+  "use_when": "Not for performer replacement: templates/minimax/replace-performer holds the face better and leaves the rest of the frame alone. Worth a look only when no person mask is available and a whole-frame re-render is acceptable",
   "scale": {
     "default": 1.0
   },
@@ -19,7 +19,7 @@
     },
     {
       "issue": 1414,
-      "note": "Bench, seed 1194 only, on lem cuda:0 (bench/records/performer-replacement.md, #1411 section). Head swap job bcca0dababf5 (20 steps, CFG 1, shift 12, 19.6 min) against replace-performer job 9c0fd3314b01 (4.2 min). Face hold vs the portrait: 0.653 against 0.747 (face checks a7a8496dd0eb, 36575d4889d7; gate: within 0.03). PSNR more than 96 px outside the person: 29.5 dB against 37.5 (gate: within 2 dB). No seam band, audio held (corr 0.9991 on both). Fails the measured gate; Don's verdict on the frames is pending. Re-pinned from 849fb3d4, which the repo's history rewrite removed, to 61213345, the commit that last wrote the file"
+      "note": "Bench, seed 1194 only, on lem (bench/records/performer-replacement.md, #1411 section). Head swap job 7d1c0393d177 with the plan's scene reference asset:bench/t16/recast-scene-ref.png as <Picture 1> (20 steps, CFG 1, shift 12, 26.3 min) against replace-performer job 9c0fd3314b01 (4.2 min). Face hold vs the portrait: 0.543 against 0.747 (face checks 54231da0b116, 36575d4889d7; gate: within 0.03). PSNR more than 96 px outside the person: 23.1 dB against 37.5 (gate: within 2 dB). No seam band, audio held (corr 0.9991 on both). Fails the measured gate; Don's verdict on the frames is pending. A supplementary run with the bare portrait as <Picture 1> (bcca0dababf5: 0.653, 29.5 dB) fails too. Re-pinned from 849fb3d4, which the repo's history rewrite removed, to 61213345, the commit that last wrote the file"
     }
   ],
   "tags": [
