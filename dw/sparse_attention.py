@@ -8,7 +8,10 @@ generated video (text, references, target audio) stays dense.
 The layout rule: H3 packs text, then the references in request order, then the
 target audio, then the target video last. A reference image carries the same
 video tag as the target, so the target video is the trailing run of video rows,
-not every video-tagged row. Rows before it go first, in segment-pure tiles
+not every video-tagged row. Within that run the first row at each grid cell
+is the target; a later row at an already-seen cell is a ref2va guide's
+condition row (a copy of the target's positions appended after it), and it
+joins the dense prefix. Rows before the target go first, in segment-pure tiles
 (contiguous runs of one tag, at most 64 rows each) that are always attended in
 full; the video tiles follow.
 
@@ -139,7 +142,7 @@ def build_tile_map(
     extra[by_key] = extra_sorted
     if gt * gh * gw != int((~extra).sum()):
         raise SparseLayoutError(
-            f"target video is not a full grid: {gt}x{gh}x{gw} != {len(vrows)} rows"
+            f"target video is not a full grid: {gt}x{gh}x{gw} != {int((~extra).sum())} rows"
         )
     prefix_rows = torch.cat([torch.arange(target_start), vrows[extra]])
     vrows, vp = vrows[~extra], vp[~extra]
