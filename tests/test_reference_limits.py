@@ -163,3 +163,85 @@ class TestThroughTheTemplate:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+class TestVideoReferenceLength:
+    """A video reference shorter than the conditioner needs (#1422). The
+    minimum is read off diffusers' encoder, so the tests ask the module for it
+    rather than writing 13."""
+
+    def chain(self, num_frames, video="clip.mp4", **trim):
+        shot = workflow_with(
+            [
+                {
+                    "reference_type": VIDEO,
+                    "from_previous_result": "window",
+                }
+            ]
+        )
+        trim_step = {
+            "name": "window",
+            "task": {
+                "command": "trim_video",
+                "arguments": {
+                    "video": video,
+                    "start_frame": 0,
+                    "num_frames": num_frames,
+                    **trim,
+                },
+            },
+        }
+        shot["steps"].insert(0, trim_step)
+        return shot
+
+    def run(self, definition, tmp_path, fps=24.0, frames=500):
+        from dw.reference_limits import reference_length_errors
+
+        for name in ("clip.mp4", "short.mp4"):
+            (tmp_path / name).write_bytes(b"")
+
+        def probe(path):
+            return {"kind": "video", "fps": fps, "frame_count": frames}
+
+        return reference_length_errors(definition, None, str(tmp_path), probe=probe)
+
+    def minimum(self):
+        from dw.reference_limits import _minimum_reference_frames
+
+        return _minimum_reference_frames()[2]
+
+    def test_a_short_literal_trim_is_refused(self, tmp_path):
+        found = self.run(self.chain(self.minimum() - 1), tmp_path)
+        assert len(found) == 1
+        assert f"at least {self.minimum()} frames at 24 fps" in found[0]["message"]
+        assert found[0]["path"].endswith("references[0]")
+
+    def test_the_minimum_itself_passes(self, tmp_path):
+        assert self.run(self.chain(self.minimum()), tmp_path) == []
+
+    def test_pad_to_lengthens_the_clip(self, tmp_path):
+        short = self.minimum() - 1
+        assert self.run(self.chain(short, pad_to=self.minimum()), tmp_path) == []
+
+    def test_a_slower_source_is_counted_at_the_pipeline_rate(self, tmp_path):
+        # half the rate: n frames resample to 2n at 24 fps
+        n = self.minimum() // 2 + 1
+        assert self.run(self.chain(n), tmp_path, fps=12.0) == []
+        assert len(self.run(self.chain(n - 2), tmp_path, fps=12.0)) == 1
+
+    def test_a_variable_held_length_is_left_to_the_run(self, tmp_path):
+        assert self.run(self.chain("variable:n"), tmp_path) == []
+
+    def test_a_clip_with_no_known_rate_is_left_alone(self, tmp_path):
+        assert self.run(self.chain(2), tmp_path, fps=None) == []
+
+    def test_a_short_file_reference_is_refused(self, tmp_path):
+        definition = workflow_with(
+            [{"reference_type": VIDEO, "from_file": "short.mp4"}]
+        )
+        assert len(self.run(definition, tmp_path, frames=self.minimum() - 1)) == 1
+        assert self.run(definition, tmp_path, frames=self.minimum()) == []
+
+    def test_images_are_not_measured(self, tmp_path):
+        definition = workflow_with([{"reference_type": IMAGE, "from_file": "a.png"}])
+        assert self.run(definition, tmp_path, frames=1) == []

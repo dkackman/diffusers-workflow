@@ -70,7 +70,7 @@ from .previous_results import (
     cross_entry_reference_errors,
     previous_result_reference_errors,
 )
-from .reference_limits import reference_limit_errors
+from .reference_limits import reference_length_errors, reference_limit_errors
 from .reference_names import reference_name_errors
 from .scalar_result_validation import scalar_result_errors, unsaved_json_warnings
 from .schema import load_schema, validate_data_all
@@ -433,6 +433,14 @@ ERROR_CHECKS = [
     Check(
         "reference_limits",
         lambda c: reference_limit_errors(c.expanded, c.source_indices),
+    ),
+    # An H3 video reference too short for the conditioner: refused after the
+    # load, and after the earlier chain steps, otherwise (#1422)
+    Check(
+        "reference_length",
+        lambda c: reference_length_errors(
+            c.expanded, c.source_indices, c.base_dir, probe=c.probe
+        ),
     ),
     # A literal H3 num_frames, width or height the pipeline would refuse,
     # read off the diffusers class that enforces it (dw/pipeline_limits.py,

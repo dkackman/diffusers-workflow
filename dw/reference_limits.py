@@ -252,3 +252,141 @@ def reference_limit_errors(workflow_definition, source_indices=None):
                     }
                 )
     return errors
+
+
+# The block whose constructor default is the rate a video reference is read at
+VIDEO_SAMPLE_BLOCK = (
+    "diffusers.modular_pipelines.minimax_h3.encoders",
+    "MiniMaxH3Ref2VATextEncoderStep",
+)
+VIDEO_KIND = "video"
+
+
+def _minimum_reference_frames():
+    """(sample_fps, fps, minimum frames at fps, merge group), or None.
+
+    Read the way diffusers' `_sample_video_condition_frames` reads it: the
+    conditioner samples every `fps / sample_fps`-th frame and Qwen3-VL merges
+    the samples in groups of `temporal_patch_size`, so a group needs
+    `round((group - 1) * stride) + 1` frames. `sample_fps` is the encoder
+    block's constructor default, `fps` the pipeline's own property and the
+    group the video processor's - none written here. Anything unreadable
+    means no check, and the pipeline still refuses at run time.
+    """
+    from .pipeline_limits import _limits as pipeline_limits
+
+    try:
+        module_path, class_name = VIDEO_SAMPLE_BLOCK
+        block = getattr(importlib.import_module(module_path), class_name)
+        sample_fps = inspect.signature(block.__init__).parameters["video_sample_fps"]
+        sample_fps = sample_fps.default
+        from transformers.models.qwen3_vl.video_processing_qwen3_vl import (
+            Qwen3VLVideoProcessor,
+        )
+
+        group = Qwen3VLVideoProcessor.temporal_patch_size
+        limits = pipeline_limits()
+        fps = limits["fps"] if limits else None
+        if not (
+            isinstance(sample_fps, (int, float))
+            and sample_fps > 0
+            and isinstance(group, int)
+            and group > 1
+            and fps
+        ):
+            return None
+    except Exception:
+        logger.debug(
+            "No reference video length available from diffusers", exc_info=True
+        )
+        return None
+    return sample_fps, fps, round((group - 1) * fps / sample_fps) + 1, group
+
+
+def _reference_clip(entry, steps, base_dir, probe):
+    """(frames, fps) of a video reference entry, each None when it cannot be
+    told before the run: a `from_previous_result` naming a `trim_video` with a
+    literal `num_frames`, or a `from_file` that resolves to a probed file."""
+    from .hold_audio import _trim_arguments, _trimmed_frames
+    from .probe_paths import resolve_probe_path
+
+    previous = entry.get("from_previous_result")
+    if isinstance(previous, str):
+        spelled = references.make_ref(references.PREVIOUS_RESULT, previous)
+        frames = _trimmed_frames(steps, spelled)
+        trim = _trim_arguments(steps, spelled) or {}
+        fps = trim.get("fps")
+        source = trim.get("video")
+        info = None
+        if probe is not None and (path := resolve_probe_path(source, base_dir)):
+            info = probe(path)
+        rate = info.get("fps") if isinstance(info, dict) else None
+        rate = rate if isinstance(rate, (int, float)) and rate > 0 else fps
+        return frames, rate if isinstance(rate, (int, float)) and rate > 0 else None
+    if probe is None:
+        return None, None
+    path = resolve_probe_path(entry.get("from_file"), base_dir)
+    info = probe(path) if path else None
+    if not isinstance(info, dict) or info.get("kind") != "video":
+        return None, None
+    frames, rate = info.get("frame_count"), info.get("fps")
+    frames = frames if isinstance(frames, int) and frames > 0 else None
+    return frames, rate if isinstance(rate, (int, float)) and rate > 0 else None
+
+
+def reference_length_errors(
+    workflow_definition, source_indices=None, base_dir=None, probe=None
+):
+    """Every H3 video reference too short for the conditioner, as [{path, message}].
+
+    A video reference is resampled to the pipeline's rate, sampled and merged
+    in groups; one with too few frames is refused by the encoder after the
+    checkpoint loads, and in a chain after the earlier steps have run (#1422).
+    Checked only where the length is knowable now: a `trim_video` result with
+    a literal `num_frames`, or an `asset:`/`output:`/path file the probe
+    reads. A length held in a variable stays the run's to refuse. A clip
+    refused only if its length at the pipeline's rate is certainly short -
+    never on a rounding borderline.
+    """
+    from .pipeline_processors.h3_rules import is_h3_step
+
+    steps = workflow_definition.get("steps")
+    errors, minimum = [], None
+    for _, _, pipeline, source, where in references.iter_steps(
+        steps, source_indices, "pipeline"
+    ):
+        arguments = pipeline.get("arguments")
+        entries = arguments.get("references") if isinstance(arguments, dict) else None
+        if not (is_h3_step(pipeline) and isinstance(entries, list)):
+            continue
+        for index, entry in enumerate(entries):
+            reference = _reference_class(entry)
+            if getattr(reference, "kind", None) != VIDEO_KIND:
+                continue
+            if minimum is None:
+                minimum = _minimum_reference_frames() or False
+            if not minimum:
+                return errors
+            sample_fps, fps, needed, group = minimum
+            frames, rate = _reference_clip(entry, steps, base_dir, probe)
+            if not frames or not rate:
+                continue
+            # Rounded up: a count that might just make the minimum is left
+            at_pipeline_rate = -(-frames * fps // rate)
+            if at_pipeline_rate >= needed:
+                continue
+            errors.append(
+                {
+                    "path": render_path(
+                        ("steps", source, "pipeline", "arguments", "references", index)
+                    ),
+                    "message": (
+                        f"A reference video is read at {sample_fps:g} fps and its "
+                        f"sampled frames are merged in groups of {group}, so it "
+                        f"must run at least {needed} frames at {fps:g} fps "
+                        f"({needed / fps:.2g} seconds), got {frames} frames at "
+                        f"{rate:g} fps{where}."
+                    ),
+                }
+            )
+    return errors
