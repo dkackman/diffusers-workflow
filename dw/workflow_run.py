@@ -841,12 +841,21 @@ def wire_child(workflow, child, step_data, index, total_steps):
     )
 
 
-def release_step_pipeline(workflow, loop, step_name):
+def release_step_pipeline(workflow, loop, step_name, step_action=None):
     """Pop a release_pipeline step's pipeline and mark it released. Returns
     the popped pipeline, or None - the caller drops its own references to
-    it and to the step's action before the release is finished."""
+    it and to the step's action before the release is finished.
+
+    A `workflow:` step has no pipeline of its own: its composed child loaded
+    into this same pipelines dict under the child's keys, so those are what
+    the release pops (#1408). The first popped pipeline is returned."""
     released = loop.pipelines.pop(workflow.pipeline_ownership.key_for(step_name), None)
     workflow.pipeline_ownership.mark_released(step_name)
+    if isinstance(step_action, type(workflow)):
+        for key in set(step_action.pipeline_ownership.keys_by_step.values()):
+            popped = loop.pipelines.pop(key, None)
+            if released is None:
+                released = popped
     return released
 
 
@@ -1071,7 +1080,11 @@ def _run_started_step(workflow, loop, index, step_data, step, step_seed, record,
     # resident through the next step's load, which is exactly when
     # both models would be in memory at once
     release = step_data.get("release_pipeline", False)
-    released = release_step_pipeline(workflow, loop, step.name) if release else None
+    released = (
+        release_step_pipeline(workflow, loop, step.name, step_action)
+        if release
+        else None
+    )
     # A hit that loaded nothing holds nothing: announcing a
     # release would report a drop that never happened. Not gated
     # on the pop alone - a sub-workflow step has no pipeline key,
