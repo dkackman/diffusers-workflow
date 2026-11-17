@@ -1889,7 +1889,7 @@ declared variable, so reference a `guides` variable or edit the argument.
 | clip length | 1, 5 or 17m + 5 frames (22, 39, 56, ... 124); any other length is cut down to the longest such length (n < 5 gives 1, 5 <= n < 22 gives 5, else 17 * ((n - 5) // 17) + 5) with a warning |
 | extent | `frame` + length must not run past `num_frames` (H3 rounds it up to 17n + 5; default 124); ending exactly at the end is fine |
 | count | at most 4 guides per step. Each guide is also checked against the card: each guide frame adds attention rows, and the template's `vram_estimate` charges each guide's frames on the canvas; `guides: []` is the same as none |
-| where | `t2va` or `fl2va` on an H3 pipeline; not with `references` (`ref2va`), not on a non-H3 pipeline |
+| where | `t2va` or `fl2va` on an H3 pipeline; with `references` (`ref2va`) exactly one video guide at frame 0 that covers the whole render (its snapped length must reach `num_frames`), video only - `guide.audio: true` is refused; not on a non-H3 pipeline |
 
 Validation refuses all of the above before the run (`dw/guides.py`); a `previous_result:`
 guide is checked at run time, when its clip exists.
@@ -1999,7 +1999,7 @@ head: N segments of F frames give F + (N - 1)(F - P) frames - 3 x 124 at P = 22 
 | Rule | Value |
 |---|---|
 | `guide_frames` | 22 (default) or 39 - a whole-latent guide length; anything else is refused |
-| where | MiniMax-H3 `t2va` or `fl2va`; refused on `ref2va`, with `references`, or on a non-H3 step - guides stay off ref2va |
+| where | MiniMax-H3 `t2va` or `fl2va`; refused on `ref2va`, with `references`, or on a non-H3 step - guide chains stay off ref2va, which takes only one whole-render guide |
 | `carry_frames` | refused - the carry is always the last `guide_frames` frames |
 | `guide_backoff` | 0 (default) or a multiple of 17: the carry is the `guide_frames` frames that many before the segment's end (audio sliced the same span), and every segment but the last loses that tail at assembly, so the join lands inside the held copy and each segment's least-constrained tail is replaced by the next take. Frames drop by the back-off per seam (3 x 124 at P = 22 and 17 is 294). Needs `num_frames` above P + back-off. Refused off `guide` continuity and with `match_audio` or `duration_seconds` |
 | `keystone` | `none` (default) or `segment_1`: on `fl2va`, every later segment's keyframe is segment 1's frame 0 instead of the guide's first frame, so each segment is pulled back toward the clean start of the chain. The guide stays the carried tail, and the keyframe region is trimmed at assembly, so segment 1's frame never reaches the output. Refused on `last_frame` (there the keyframe is the only carry), and any other value is refused naming the two |
@@ -2758,7 +2758,7 @@ joined into a single file:
   segment itself (frames and its generated soundtrack) into the next as a video
   reference, which also carries motion, camera, and voice across the seam; it
   requires a `segment_argument` that takes a references list. `guide` (MiniMax-H3
-  `t2va`/`fl2va` only) lays the previous segment's last `guide_frames` frames into the
+  `t2va`/`fl2va` only; a `ref2va` step takes one whole-render guide, not a chain) lays the previous segment's last `guide_frames` frames into the
   next as a held frame-0 guide (see *H3: holding a clip with `guides`*, *Chaining with a
   guide*).
 - `guide_frames` — with `guide`, how many frames the guide carries: 22 (default) or 39.

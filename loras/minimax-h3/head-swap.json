@@ -6,16 +6,16 @@
     "MiniMaxAI/MiniMax-H3"
   ],
   "workflow": null,
-  "description": "Blocked, not judged: head replacement from a reference image, trigger 'head_swap:'. It conditions on the source video's latents laid over the whole output grid from frame 0 (ComfyUI MiniMaxH3AddGuide); diffusers' H3 keyframe layout takes only single-frame first/last anchors, so no dw workflow can feed it its guide",
-  "use_when": "Do not use under dw until a full-length aligned guide exists (#611)",
+  "description": "Not tried: head replacement from a reference image, trigger 'head_swap:'. It conditions on the source video's latents laid over the whole output grid from frame 0 (ComfyUI MiniMaxH3AddGuide); dw's ref2va takes exactly that as one whole-render guide (#1411), but no run has judged the LoRA on it yet",
+  "use_when": "Not tried: dw's ref2va whole-render guide (#1411) is what a head swap is built on; reopen the entry once one has been run",
   "scale": {
     "default": 1.0
   },
   "status": "rejected",
   "evidence": [
     {
-      "issue": 611,
-      "note": "Blocked on #611: needs a multi-frame source-video guide aligned to the output grid at frame_idx 0, which dw's keyframe layout cannot express. Not tried and not rejected on merit; reopen the entry when #611 lands"
+      "issue": 1411,
+      "note": "Built on #1411: ref2va takes one whole-render source-video guide at frame 0 (video only), the layout this LoRA conditions on. Not tried and not rejected on merit; reopen the entry once a run has judged it"
     }
   ],
   "tags": [

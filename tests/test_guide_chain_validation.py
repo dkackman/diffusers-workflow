@@ -263,3 +263,11 @@ class TestOwnGuidesPlusTheChain:
             )
             == []
         )
+
+
+class TestRef2VAGuideDoesNotLiftTheChain:
+    def test_a_guide_chain_beside_a_valid_ref2va_guide_is_refused(self):
+        guide = [{"video": "clip.mp4", "frame": 0}]
+        error = one(definition("ref2va", guides=guide))
+        assert "ref2va" in error["message"]
+        assert "never a guide chain" in error["message"]
