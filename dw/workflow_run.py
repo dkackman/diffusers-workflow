@@ -588,6 +588,12 @@ def require_trusted_pipelines(workflow, arguments):
     except Exception as e:
         logger.debug(f"Could not prepare the definition for the trust check: {e}")
         return
+    require_trusted_steps(steps)
+
+
+def require_trusted_steps(steps):
+    """The gate over prepared steps - the one the worker runs before a load
+    and validate runs over its own expansion (#1410)."""
     for step in steps:
         if isinstance(step, dict):
             require_trusted_block(step.get("pipeline"), "pipeline")
