@@ -231,7 +231,7 @@ def _sparse_configured(configuration):
 
 def _step_problems(pipeline, arguments):
     """[message] for one step that passes the argument, the flag on."""
-    from .chain_rules import CHAIN_KEYSTONE_SLOT
+    from .chain_rules import CHAIN_CAPSTONE, CHAIN_KEYSTONE_SLOT
     from ..adapter_compatibility import FROM_PRETRAINED_KEY, WORKFLOW_KEY
 
     problems = []
@@ -281,10 +281,10 @@ def _step_problems(pipeline, arguments):
             f"{KEYSTONE_ATTENTION_INPUT} runs on dense attention, and this "
             f"step's transformer runs attention_backend 'sparse' - set it to null"
         )
-    if isinstance(chain, dict) and chain.get("experimental_capstone") is not None:
+    if isinstance(chain, dict) and chain.get(CHAIN_CAPSTONE) is not None:
         problems.append(
             f"{KEYSTONE_ATTENTION_INPUT} does not combine with a chain's "
-            f"experimental_capstone: its gated rows move the guide rows it re-splits"
+            f"{CHAIN_CAPSTONE}: its gated rows move the guide rows it re-splits"
         )
     slot = chain.get(CHAIN_KEYSTONE_SLOT) if isinstance(chain, dict) else None
     if isinstance(slot, dict) and slot.get(CAPSTONE_GATE) is not None:
