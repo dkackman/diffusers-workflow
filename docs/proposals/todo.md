@@ -46,6 +46,13 @@ remaining deferred fix is recorded in
   the source soundtrack. Each cut can carry its own `seed` and `prompt`, so one
   cut can be re-rolled alone. `mask_grow` stays 1, from the seam bench:
   `complete/performer-replacement-complete.md`.
+- **H3 turbo version vs chain burn** (#1399, stage #1403), closed 2026-11-17
+  as a bench record, no gain. lightx2v's fl2v 4step v1.3 burned no less than
+  v1.2 on `chained-segments`, and ref2v 8step v1.1 on `chain-video-continuity`
+  cut `chain_check` fails but nearly quadrupled the mean seam lightness step
+  (4.94 vs 1.26). The astronaut subject had no face, so a gray Laplacian stood
+  in for face creep, and the anti-burn arm did not run. No catalog entry, no
+  template change: `complete/h3-turbo-version-burn-complete.md`.
 - **Face-once cast reference sheet** (#1400, stage #1406), closed 2026-11-17
   as a bench record, no gain. A 16:9 sheet with one head panel and four
   neck-down views held a Ref2VA clip's face worse than today's portrait
