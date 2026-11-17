@@ -2024,6 +2024,47 @@ class TestDownloadsRequired:
         assert "IDEA-Research/grounding-dino-base" not in repos
         assert "facebook/sam2-hiera-large" not in repos
 
+    def test_a_sam3_repo_cached_as_its_config_alone_is_still_listed(
+        self, plan, tmp_path, monkeypatch
+    ):
+        # #1404: mini-ai's cache held facebook/sam3's config.json and nothing
+        # else, and the plan read the repo as present - so no quote, no gate
+        import dw.plan_downloads
+
+        cache = tmp_path / "hub"
+        repo = cache / "models--facebook--sam3"
+        snapshot = repo / "snapshots" / "c0ffee"
+        snapshot.mkdir(parents=True)
+        (repo / "refs").mkdir()
+        (repo / "refs" / "main").write_text("c0ffee")
+        (snapshot / "config.json").write_text(
+            json.dumps({"architectures": ["Sam3VideoModel"]})
+        )
+        monkeypatch.setattr(
+            dw.plan_downloads,
+            "scan_models",
+            lambda cache_dir=None: {"repos": [{"repo_id": "facebook/sam3"}]},
+        )
+        spec = {
+            "id": "people",
+            "steps": [
+                {
+                    "name": "people",
+                    "task": {
+                        "command": "track_people",
+                        "arguments": {"video": "v.mp4", "backend": "sam3"},
+                    },
+                }
+            ],
+        }
+        repos = [
+            d["repo"] for d in plan(spec, cache_dir=str(cache))["downloads_required"]
+        ]
+        assert repos == ["facebook/sam3"]
+        # Its weights arriving makes it cached, and the quote goes away
+        (snapshot / "model.safetensors").write_bytes(b"x")
+        assert plan(spec, cache_dir=str(cache))["downloads_required"] == []
+
     def test_a_repo_a_pipeline_and_a_task_both_load_is_listed_once(self, plan):
         spec = definition()
         spec["steps"][0]["pipeline"]["from_pretrained_arguments"]["model_name"] = (

@@ -50,7 +50,13 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 from ..events import emit_warning
 from ..media_types import AudioVideo, JsonRecord
-from ..task_domains import NON_NEGATIVE, POSITIVE, check_arguments, whole_number
+from ..task_domains import (
+    NON_NEGATIVE,
+    POSITIVE,
+    check_arguments,
+    choice_errors,
+    whole_number,
+)
 from .model_cache import cached_model
 from .registry import register_command
 from .scene_cuts import content_cuts
@@ -678,6 +684,13 @@ def _mask_videos(size, cuts, cut_masks, count, fps):
     return result
 
 
+def track_people_errors(arguments):
+    """[(argument, message)] for a literal `backend` outside BACKENDS, worded
+    as track_people's own refusal: `choices` alone is published by get_task,
+    and enforced at validate only through a command's static check."""
+    return choice_errors(COMMAND, arguments)
+
+
 def _warn_about(cuts, max_people, backend=BACKEND_DINO):
     empty = [cut["name"] for cut in cuts if not cut["people"]]
     if empty:
@@ -748,10 +761,14 @@ def _warn_about(cuts, max_people, backend=BACKEND_DINO):
             "the SAM License (not Apache; docs/ATTRIBUTIONS.md), and it needs "
             "transformers >= 5.21."
         ),
-        "sam3_model_name": "SAM 3 repo (backend 'sam3').",
+        "sam3_model_name": (
+            "SAM 3 repo (backend 'sam3'); null means facebook/sam3, gated "
+            "under the SAM License."
+        ),
     },
     domains={"max_people": NON_NEGATIVE, "threshold": POSITIVE},
     choices={"backend": BACKENDS},
+    static_check=track_people_errors,
     whole_numbers=("max_people",),
     media_arguments=("video",),
     result_content_type="video/mp4",

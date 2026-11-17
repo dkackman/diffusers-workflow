@@ -807,6 +807,55 @@ class TestBackendChoice:
         assert "grounding-dino" in errors[0][1] and "sam3" in errors[0][1]
         assert choice_errors("track_people", {"backend": "sam3"}) == []
 
+    @staticmethod
+    def _validate(tmp_path, backend):
+        from dw.validation import workflow_errors
+        from dw.workflow import workflow_from_definition
+
+        arguments = {"video": "v.mp4"}
+        if backend is not None:
+            arguments["backend"] = backend
+        definition = {
+            "id": "people",
+            "steps": [
+                {
+                    "name": "track",
+                    "task": {"command": "track_people", "arguments": arguments},
+                }
+            ],
+        }
+        workflow = workflow_from_definition(
+            definition, str(tmp_path), str(tmp_path), str(tmp_path)
+        )
+        return [
+            error
+            for error in workflow_errors(workflow)
+            if "backend" in str(error.get("path", ""))
+        ]
+
+    @pytest.mark.parametrize("backend", ["bogus", ""])
+    def test_validate_refuses_a_backend_outside_the_two(self, tmp_path, backend):
+        # #1404 verify bounce: get_task published the choices, but
+        # validate_workflow passed "bogus" and "" - choices alone are not enforced
+        errors = self._validate(tmp_path, backend)
+        assert [e["path"] for e in errors] == ["steps[0].task.arguments.backend"]
+        assert "grounding-dino" in errors[0]["message"]
+        assert "sam3" in errors[0]["message"]
+
+    @pytest.mark.parametrize(
+        "backend", [None, "grounding-dino", "sam3", "variable:backend"]
+    )
+    def test_validate_passes_a_good_or_deferred_backend(self, tmp_path, backend):
+        assert self._validate(tmp_path, backend) == []
+
+    def test_the_sam3_repo_description_says_what_null_means(self):
+        from dw.introspection import describe_task
+
+        parameters = describe_task("track_people")["parameters"]
+        sam3 = next(p for p in parameters if p["name"] == "sam3_model_name")
+        assert sam3["default"] is None
+        assert "facebook/sam3" in sam3["description"]
+
 
 class TestSaving:
     def result_dict(self):
