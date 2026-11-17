@@ -95,6 +95,22 @@ threshold 0.363); outside the mask the source holds (37.5 dB past 96 px).
    background, lighting, camera and performance". Describe the portrait's man in
    `subject_definitions` and say its backdrop is not used.
 
+   **A line for every person in the shot.** Write one line per person, the kept
+   ones too, left to right as they stand in the frame. A person the prompt leaves
+   out is re-dressed: the model fills them in from the rest of the caption. Write
+   each change in the "becomes" form, one line per person: "The man on the left
+   in the grey flannel shirt becomes `<Picture 1>`: a woman in her sixties with
+   short white hair"; "The woman on the right in the green coat stays as in
+   `<Video 1>`". Don't give two people colliding colour words (two "red" jackets,
+   a "blue" shirt beside a "navy" one): the colour lands on the wrong person or
+   on both.
+
+   **Big changes land, subtle ones don't.** Age, gender, hair and build change
+   reliably. A small change - an eyebrow, a slightly different nose, a shade of
+   the same hair colour - falls back to the clip's person, so check the frames
+   for it before calling the swap done. (These caption rules are after
+   h3-recast's, concepts only.)
+
    **Describe the cut's performance.** At `refine_strength` 1.0 nothing of the
    person survives inside the mask: the pose, action and framing come from the
    prompt and the kept context. A prompt that says "sits on the couch" redraws a
