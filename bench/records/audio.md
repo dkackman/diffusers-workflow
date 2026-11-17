@@ -561,7 +561,8 @@ the Gettysburg Address's first 102 words ("Four score ... that we should do this
 Audio8-TTS-Realistic-0.6b (revision `1e857568`) through the voice-clone call, seed
 1166 in every arm.
 
-**Verdict: pending Don** (his ear, Q3; it decides stage B).
+**No verdict.** #1384 closed not planned on 2026-11-16 without an ear verdict, and
+stage B (#1387) was not built. The measurements below stand as recorded.
 
 ### References
 
