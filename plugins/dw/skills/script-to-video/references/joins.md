@@ -56,6 +56,12 @@ C's source is **A**, not B.
      pattern): it keeps motion and audio context, at the cost of a
      reference slot and the VRAM that clip takes. It is an option, not the
      recipe.
+   - **When A or C speaks, never pass A's whole clip** as that reference:
+     pass only a short window of A's frames before the cut (its replayed
+     opening trimmed off C), or no video reference. The whole clip risks C
+     copying A's mouth motion, costs about 4.4x a pass, and pulls C back to
+     A's angle. Measures and the window recipe: `dw:minimax-h3`'s
+     `references/cuts.md`, *Visual memory at a cut*.
 4. `concat_videos` A, B, C in **story order**. Both seams are real picture
    cuts, so their `hard_cut` record is honest.
 5. Check the re-entry by comparing A's last frame with C's first

@@ -264,6 +264,15 @@ reference-anchored, low-strength redraw of a segment's tail before it is handed
 on as the next segment's guide, so each seam starts from a reset copy rather
 than the inherited texture.
 
+KadoBOT/ComfyUI-H3-Continuity-Studio (MIT; concept only, read at `a2ddb97`, no
+code taken) inspired the visual-memory-at-a-cut probe and guidance
+([bench/records/visual-memory-cut.md](../bench/records/visual-memory-cut.md);
+`plugins/dw/skills/minimax-h3/references/cuts.md`, *Visual memory at a cut*;
+[#1398](https://github.com/dkackman/diffusers-workflow/issues/1398)): an earlier
+shot passed as a video reference so the place, props and wardrobe hold across an
+angle change, and its rule that a shot with speech never takes a whole earlier
+clip, only the frames before the cut.
+
 ### ckinpdx/ComfyUI-MMH3Tools
 
 Its Carry Attention node (concept only; no code used) inspired
