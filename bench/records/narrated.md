@@ -829,3 +829,150 @@ carries through B's own chain, is outside this probe. Each arm is one seed (1311
 
 This record gives no ruling on the arms. Which reads best at the cut is Don's viewing
 verdict (plan Q2), on the four clips above.
+
+## #1399 turbo version vs burn (#1403)
+
+_Bench by the lead agent, model `claude-opus-5-5` via `anthropic`, 2026-11-17._
+
+The question: do the newer lightx2v turbo files burn less on an 8-segment H3 chain than
+the ones the templates ship? Each new file runs on the #1326 probe it replaces, at the
+same seed (42), prompt, size (960x544), segment count (8) and check settings (check on,
+retries 0). Only `lora_weight_name` moves. The two probe workflows are copied unchanged
+into `bench/workflows/probe-1399-*.json`. The controls are #1326's own runs, reused and
+re-measured.
+
+| Arm | Probe | Turbo file | Steps (evals) | Shift video/audio | Partition | Job | Workspace |
+|---|---|---|---|---|---|---|---|
+| A0 | chained-segments (cs-0) | `minimax_h3_fl2v_turbo_4step_v1.2_768p_bf16` | 5 (4) | 6/3 | fl2va | `5fa5a09b083f` | probe-1326 |
+| A1 | chained-segments | `minimax_h3_fl2v_turbo_4step_v1.3_768p_bf16` | 5 (4) | 6/3 | fl2va | `372b4229b0a1` | probe-1399 |
+| B0 | chain-video-continuity (cvc-0) | `minimax_h3_ref2v_turbo_8step_v1.0_768p_bf16` | 9 (8) | 12/3 | ref2va | `fecc614dc513` | probe-1326 |
+| B1 | chain-video-continuity | `minimax_h3_ref2v_turbo_8step_v1.1_768p_bf16` | 9 (8) | 12/3 | ref2va | `8f7d30d7434e` | probe-1399 |
+| C | B1 + #1151 anti-burn 0.5 | - | - | - | ref2va | did not run | - |
+
+- **Shifts.** ModelTC's spec page lists no shift for v1.3 or v1.1, so each arm keeps its
+  predecessor's: fl2va 6/3 and ref2va 12/3.
+- **Partitions.** `validate_workflow` refuses the ref2v v1.1 file on the fl2va probe
+  (cross-partition). That is as designed, so no ref2v file ran on fl2va.
+- **Runs.** One H3 job at a time on lem. Each job's `note` names its arm.
+
+### Build
+
+`get_diffusers_state` at the bench:
+
+    {"status": "idle", "version": "0.44.0.dev0",
+     "commit": "1dabc292d8413638cf0666cca6d7a6c2c765befa", "revert": false}
+
+The controls ran on 2026-11-14 on lem develop @ 0a60c514. Their job records do not hold
+the diffusers commit. Every `get_diffusers_state` recorded in that week (the move-seeds
+audit and the seam-restore record of 2026-11-15) reads `43e30028`, so the controls very
+likely ran on `43e30028`, not `1dabc292`.
+
+**The new arms and their controls therefore ran on different diffusers builds.** A
+difference smaller than this tolerance is not attributed to the turbo file:
+- creep: ±15%;
+- per-seam lightness step: ±0.3;
+- mean |L|: ±0.1.
+
+That tolerance is also the noise floor of one seed per arm.
+
+The measures are deterministic per file: measuring the same file again gives the same
+numbers. The spread between runs comes from the seed and the build, not from the
+measure.
+
+### The face measure has no face to measure
+
+The plan's burn measure is face-crop sharpness creep and SFace (YuNet + SFace,
+`bench/face_windows.py`'s measure, per 1 s window in `bench/face_creep.py`).
+
+The #1326 subject is a toy astronaut with a gold-mirrored visor, and it has no face.
+YuNet finds a "face" in:
+- A0: 2 of 140 samples;
+- A1: 31 of 140;
+- B0: 38 of 164;
+- B1: 17 of 164.
+
+Those hits are on the visor and suit and sit at a scale of 20 to 900. No arm has a
+detection in both its first and its last 1 s window. **Face creep and SFace, first to
+last, are unmeasurable on every arm.**
+
+In their place, `bench/region_creep.py` (new) takes the same Laplacian variance of the gray
+frame, per 1 s window (median of samples every 0.25 s), on two regions:
+- a fixed centre box (x 35-65%, y 5-60%);
+- the whole frame.
+
+The box does not track the subject. A's astronaut sits left of centre, and B's framing is
+tighter. The whole frame is the steadier of the two. Neither reads chroma noise. B0's
+background ends in coloured speckle that a viewer reads as burn, while its gray Laplacian
+falls.
+
+### Measurements
+
+| | A0 | A1 | B0 | B1 |
+|---|---|---|---|---|
+| Face creep / SFace first to last | no face | no face | no face | no face |
+| Whole-frame sharpness, first 1 s to last full 1 s | 687 -> 1956 (x2.85) | 640 -> 1904 (x2.97) | 158 -> 105 (x0.67) | 111 -> 163 (x1.47) |
+| Centre-box sharpness | 1418 -> 1701 (x1.20) | 1312 -> 2242 (x1.71) | 466 -> 129 (x0.28) | 354 -> 389 (x1.10) |
+| `segment_looks.detail`, seg 1 first to seg 8 last | 5.584 -> 8.078 (x1.45) | 5.711 -> 8.391 (x1.47) | 4.549 -> 6.396 (x1.41) | 4.721 -> 6.209 (x1.32) |
+| Lightness, start to end | 81.00 -> 81.01 | 80.24 -> 73.59 | 82.02 -> 68.64 | 71.32 -> 55.30 |
+| Saturation, start to end | 13.68 -> 18.52 | 13.14 -> 15.78 | 17.17 -> 23.82 | 13.19 -> 17.86 |
+| Per-seam lightness step, seams 1-7 | 0.63, 0.21, 0.19, -0.46, 0.10, -0.67, -1.38 | 0.54, 0.12, 0.54, -0.50, 0.47, -0.43, -0.39 | -2.15, -1.28, -2.05, 0.61, -0.76, -1.04, -0.93 | -4.54, -3.80, -12.72, 7.70, -2.83, -1.83, -1.14 |
+| Mean seam \|L\| | 0.52 | 0.43 | 1.26 | **4.94** |
+| `chain_check` fails | 0 | 0 | 7 (segs 2-8, jump_ratio) | 2 (segs 4-5, jump_ratio + look_ratio) |
+| Wall time (denoise) | 14.6 min (496 s) | 15.2 min (493 s) | 62.6 min (3224 s) | 53.8 min (2580 s) |
+| Transformer passes | 32 | 32 | 64 | 64 |
+
+- **Audio.** `analyze_seams` warns on seam level steps above 3 dB:
+  - A0: seams 3, 6 and 7;
+  - A1: seams 1-3;
+  - B0: seams 2, 4 and 6 (8.0, 7.1 and 14.1 dB);
+  - B1: seams 3, 4, 6 and 7 (5.8, 7.4, 5.5 and 4.6 dB).
+- **A1's audio level.** It sits about 20 dB above cs-0's.
+- **B1's seam jumps.** B1's seam `jump_ratio` is lower than B0's at 5 of 7 seams (1.7 to
+  2.4 against B0's 7.8 to 15.1).
+- **B1's lightness.** It opens 11 points darker than B0 and loses 16 more by the end.
+  Segment 4 drops to 52 (seam 3, -12.7), and segment 5 recovers 7.7.
+
+### Reading
+
+The bar is "burns less": creep at most 0.7x its own control, with SFace and seams no worse.
+
+- **A1 (fl2v v1.3) does not burn less than A0.**
+  - Its creep is no lower on either region (whole frame 1.04x A0's, centre box 1.43x),
+    and its detail climb matches (x1.47 against x1.45).
+  - Its seams are within tolerance (mean |L| 0.43 against 0.52).
+  - It darkens by 6.6 where A0 holds lightness.
+  - It does not meet the bar.
+- **B1 (ref2v v1.1) fails the bar on seams, whatever its creep.**
+  - Its mean seam |L| is 4.94 against B0's 1.26, nearly four times as large, and far
+    outside tolerance. The bar asks seams no worse.
+  - It does pass `chain_check` more often (2 fails against 7), and its seam frame jumps
+    are smaller.
+  - Its detail climbs less (x1.32 against x1.41).
+  - Its whole-frame Laplacian rises (x1.47) where B0's falls (x0.67). That says more
+    about B0's softening than about B1's burn.
+- **No file met the bar, so no catalog entry is added.**
+
+### Arm C did not run
+
+The gate has two conditions:
+1. B1's face-sharpness creep is at most 0.7x A0's;
+2. B1's `chain_check` fails are no worse than B0's.
+
+- **Condition 2 is met:** B1 has 2 fails, B0 has 7.
+- **Condition 1 cannot be evaluated as written,** because no arm has a measurable face.
+  - The stand-ins split. On the whole frame, B1's x1.47 is 0.52x A0's x2.85, which opens
+    the gate. On the centre box, B1's x1.10 is 0.92x A0's x1.20, which shuts it.
+  - A gate that cannot be read is not met, so C, about 55 min of lem, did not run.
+  - `validate_workflow` was not tried for anti-burn on ref2va. Its catalog entry lists
+    fl2va only.
+- **C could not have met the bar either way.** It is B1 plus anti-burn, so it would also
+  have to bring the seams from 4.94 back to B0's 1.26.
+
+### Limits
+
+- **One seed** per arm.
+- **Different diffusers builds** for the new arms and the controls (see *Build*).
+- **The burn measure is a stand-in.** It is the whole-frame and fixed-box gray Laplacian,
+  not the face measure, and it misses chroma noise.
+- **Any future turbo-version bench needs a different subject.** It needs a subject with a
+  visible face if face creep is to be its measure.
