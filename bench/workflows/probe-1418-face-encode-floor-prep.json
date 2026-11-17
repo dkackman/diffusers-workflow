@@ -1,0 +1,53 @@
+{
+  "id": "BenchProbe1418FaceEncodeFloorPrep",
+  "description": "Prep job for #1418 stage A (the face encode floor). Saves the three files the arm job reads back as output: references. 'frames': a video_frames decode of a stored face clip, written as the step's mp4 (dw's one encode setting: libx264 yuv420p at its default quality), so the saved file is that decode encoded once more. 'reference.png': the reference face through a pixel pass-through step (strip_exif), saved losslessly. 'reference.jpg': the same pixels saved by a dw step as image/jpeg, at PIL's defaults (quality 75, 4:2:0). No model runs; CPU only.",
+  "summary": "#1418 A prep: re-encoded mp4, png and jpg reference for the face encode floor arms.",
+  "variables": {
+    "clip": "asset:qa-cast/ep63-shot-ltx-priya.mp4",
+    "reference_image": "asset:qa-cast/priya-portrait.jpg"
+  },
+  "steps": [
+    {
+      "name": "decode",
+      "task": {
+        "command": "video_frames",
+        "arguments": {
+          "video": "variable:clip"
+        }
+      },
+      "result": {
+        "content_type": "video/mp4",
+        "subfolder": "intermediate",
+        "file_base_name": "frames"
+      }
+    },
+    {
+      "name": "reference_png",
+      "task": {
+        "command": "strip_exif",
+        "arguments": {
+          "image": "variable:reference_image"
+        }
+      },
+      "result": {
+        "content_type": "image/png",
+        "subfolder": "intermediate",
+        "file_base_name": "reference"
+      }
+    },
+    {
+      "name": "reference_jpg",
+      "task": {
+        "command": "strip_exif",
+        "arguments": {
+          "image": "previous_result:reference_png"
+        }
+      },
+      "result": {
+        "content_type": "image/jpeg",
+        "subfolder": "intermediate",
+        "file_base_name": "reference"
+      }
+    }
+  ]
+}

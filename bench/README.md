@@ -55,3 +55,5 @@ lem's firewall passes 8765 but not 8766 (a rule needs sudo: `sudo ufw allow 8766
 `total = seams + segments` exactly, because both halves use the same endpoint windows. A segment missing a measure is skipped and the seam step bridges it. A take with no `segment_looks` (one shot, no picture, or a server before #1324) gets no `split_*` keys.
 
 The split says *where* a measure changes, not whether a viewer sees the change: it informs a viewing verdict and doesn't replace one (#1324: the "progressively glossy" levelled carry was missed by the measures). The concept is from [ComfyUI-Continuity](https://github.com/roadmaus/ComfyUI-Continuity) (MIT; no code adapted).
+
+**Face scores:** a face-score margin must clear the encode floor in `records/face-encode-floor.md` (0.016 on the median, 0.030 on the min, a lower bound), and an in-job score (frames in memory) is compared only with other in-job scores, never with a score of the saved file (#1420).
