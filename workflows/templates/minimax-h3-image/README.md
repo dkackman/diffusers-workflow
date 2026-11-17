@@ -24,7 +24,7 @@ Read them in this order and each introduces one new idea on top of the last.
 | Example | What it introduces |
 | ------- | ------------------ |
 | [text-to-image.json](text-to-image.json) | The baseline. A detailed English description of the whole picture, used verbatim and truncated at 4096 tokens. The canvas is a multiple of 32 on both sides, declared up front because the pipeline only refuses one after the load. `size` picks 2048x2048 (the default) or one of the vendor's recommended sizes of about 16 MP. 2.0 min warm at 2048x2048 |
-| [multi-reference.json](multi-reference.json) | One or more references in `images`, named in the prompt one-based in list order: `<Picture 1>`, `<Picture 2>` and so on. FLUX 3 Klein names its references zero-based (`<ref_image_0>`), so a Klein prompt does not carry over. A single-image edit is a list of one. The vendor states up to 16 references; three have been timed here |
+| [multi-reference.json](multi-reference.json) | One or more references in `images`, named in the prompt one-based in list order: `<Picture 1>`, `<Picture 2>` and so on. FLUX 3 Klein names its references zero-based (`<ref_image_0>`), so a Klein prompt does not carry over. A single-image edit is a list of one. The vendor states up to 16 references; three have been timed here, 1.3 min warm at 2048x2048 |
 
 ## Hard rules
 
