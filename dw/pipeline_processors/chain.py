@@ -48,6 +48,7 @@ from ..task_domains import frames_to_samples
 from ..tasks.joins import equal_power_crossfade_join
 from ..tasks.video_utils import frames_as_pil_list
 from .chain_spill import (  # noqa: F401 - SegmentedFrames and SavedFrames re-exported
+    ReadFrames,
     SavedFrames,
     SegmentedFrames,
     SegmentSpill,
