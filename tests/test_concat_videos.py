@@ -766,6 +766,24 @@ class TestWarningsReachTheCaller:
         # #681: a positional label says its count starts at 1
         assert "video 1 (counting from 1, in join order)" in warnings[0]["message"]
 
+    def test_an_inaudible_clip_hold_draws_no_warning(self):
+        """#1416: a hold that falls 0.02 dB short of the target printed as
+        '0.0 dB short' - noise a consumer can't tell from a real hold."""
+        from dw.events import RunContext, activate_context, deactivate_context
+
+        events = []
+        token = activate_context(RunContext(on_event=events.append))
+        try:
+            concat_videos(
+                [audio_video(4, 0.5), audio_video(4, 0.5)],
+                match_levels="rms",
+                match_levels_dbfs=-2.98,
+            )
+        finally:
+            deactivate_context(token)
+
+        assert [e for e in events if e.get("kind") == "match_levels_held"] == []
+
     def test_a_clip_held_match_warns_of_the_spread_it_leaves(self):
         """#1368: the held shot stays quiet and the other reaches the target,
         so the join is not matched - the warning says by how much and what
