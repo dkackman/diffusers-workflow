@@ -1,0 +1,188 @@
+{
+  "id": "Probe1399ChainVideoContinuity",
+  "description": "#1399 stage A bench: the #1326 cvc-0 probe (templates/minimax/chain-video-continuity, 9 steps, 8 evaluations, 8-segment last_segment chain, seed 42, 960x544, check on, retries 0) unchanged, so cvc-0 fecc614dc513 is its control. Arm B1 passes lora_weight_name=minimax_h3_ref2v_turbo_8step_v1.1_768p_bf16.safetensors; nothing else moves.",
+  "seed": 42,
+  "host_ram_gb": "variable:host_ram_gb",
+  "cost_drivers": [
+    "segments",
+    "num_frames",
+    "num_inference_steps",
+    "width",
+    "height",
+    "weights_dtype",
+    "check",
+    "retries",
+    "turbo_lead_in"
+  ],
+  "vram_estimate": {
+    "base_gb": 16,
+    "bytes_per_voxel": 28.71,
+    "gb_per_reference": 1,
+    "voxel_variables": ["width", "height", "num_frames"],
+    "reason": "copied from templates/minimax/chain-video-continuity"
+  },
+  "variables": {
+    "host_ram_gb": 51,
+    "turbo_lead_in": 0,
+    "check": true,
+    "retries": 0,
+    "prompt": "subject_definitions:\n<Subject 1> is the astronaut in <Picture 1>, in a white hard-shell suit with a gold-mirrored visor, an orange chest harness and a soft-sided life-support pack.\n<Audio 1> is the voice timbre reference for <Subject 1> (S1): a recorded male voiceover, mid-range in pitch, measured and formal in delivery.\n\nsummary:\n[video continuation + reference generation + audio reference] The target video continues an unbroken take of <Subject 1> standing to camera in the setting of <Picture 1>, picking up from the state, framing and light of the reference video that precedes it.\n\nretention_analysis:\n<Subject 1> (appears in [Shot 1]): fully_preserved - the suit, visor, harness and proportions of <Picture 1> are kept exactly.\n<Audio 1>: reference - only the timbre of the recorded male voice is referenced for <Subject 1>'s breathing; none of its content is reused.\n\ndetailed_description:\nThe target video is in realistic photographic style. [Shot 1] A medium close-up frames <Subject 1> from the chest up, centred and facing camera in the setting of <Picture 1>, held as one continuous take. Warm, even sunlight falls steadily across the suit from the left and holds unchanged for the whole take, with a long soft highlight on the visor; the background sits well behind in shallow focus. <Subject 1> breathes slowly, shifts his weight very slightly and lets his head drift a few degrees off centre and back, his arms easing at his sides. The camera holds a static shot throughout, and the pose, framing and lighting continue without a break from the reference video that precedes this one.\n\noverall_soundscape:\nA broad, open outdoor room tone with a steady low wind across the microphone. The suit fabric and harness give a dry creak as he shifts his weight, and a faint regulator hiss cycles quietly, at an even level from the first frame to the last.\n\nnon_diegetic_music:\nA slow, sparse bed of sustained low strings at an even level throughout, with no build and no resolution.",
+    "subject": "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/diffusers/astronaut.jpg",
+    "voice": "https://huggingface.co/datasets/Xenova/transformers.js-docs/resolve/main/jfk.wav",
+    "num_frames": 124,
+    "segments": 8,
+    "carry_frames": 48,
+    "width": 960,
+    "height": 544,
+    "num_inference_steps": 9,
+    "video_shift": 12,
+    "audio_shift": 3,
+    "lora_scale": 1,
+    "lora_model_name": "lightx2v/Minimax-h3-Turbo",
+    "lora_weight_name": "minimax_h3_ref2v_turbo_8step_v1.0_768p_bf16.safetensors",
+    "weights_dtype": "{int4}",
+    "attention_backend": "sparse",
+    "sparse_tau": 0.5,
+    "sparse_topk": 0.15
+  },
+  "variable_constraints": {
+    "num_frames": {
+      "modulus": 17,
+      "remainder": 5,
+      "min_frames": 124,
+      "max_frames": 345,
+      "snap": "up",
+      "reason": "the video VAE encodes 17 * n + 5 frames, and MiniMax-H3 generates between 5 and 15 seconds at 24 fps"
+    },
+    "width": {"modulus": 32, "remainder": 0, "reason": "H3 needs multiples of 32"},
+    "height": {"modulus": 32, "remainder": 0, "reason": "H3 needs multiples of 32"}
+  },
+  "steps": [
+    {
+      "name": "chained_reference_to_video_audio",
+      "pipeline": {
+        "configuration": {
+          "component_type": "ModularPipeline",
+          "pre_load_modules": ["sdnq"],
+          "load_components": {
+            "dtype": "torch.bfloat16",
+            "quantization_config": {
+              "transformer_ref": {
+                "configuration": {"config_type": "sdnq.SDNQConfig"},
+                "arguments": {
+                  "weights_dtype": "variable:weights_dtype",
+                  "quantization_device": "cuda",
+                  "return_device": "cpu",
+                  "use_quantized_matmul": true,
+                  "dequantize_fp32": false,
+                  "modules_to_not_convert": [
+                    "proj_in",
+                    "audio_proj_in",
+                    "context_embedder",
+                    "time_embedder",
+                    "time_proj",
+                    "token_refiner",
+                    "norm_out",
+                    "proj_out",
+                    "audio_proj_out"
+                  ]
+                }
+              },
+              "text_encoder": {
+                "configuration": {"config_type": "sdnq.SDNQConfig"},
+                "arguments": {
+                  "weights_dtype": "variable:weights_dtype",
+                  "quantization_device": "cuda",
+                  "return_device": "cpu",
+                  "dequantize_fp32": false,
+                  "modules_to_not_convert": [".model.visual", "lm_head"]
+                }
+              },
+              "vae": {
+                "configuration": {"config_type": "sdnq.SDNQConfig"},
+                "arguments": {
+                  "weights_dtype": "{int8}",
+                  "quant_conv": true,
+                  "use_quantized_matmul_conv": true,
+                  "quantization_device": "cuda",
+                  "return_device": "cpu",
+                  "dequantize_fp32": false
+                }
+              }
+            }
+          },
+          "components": {
+            "transformer_ref": {
+              "attention_backend": "variable:attention_backend",
+              "sparse_tau": "variable:sparse_tau",
+              "sparse_topk": "variable:sparse_topk",
+              "group_offload": {
+                "offload_type": "block_level",
+                "num_blocks_per_group": 1,
+                "use_stream": true,
+                "record_stream": true,
+                "low_cpu_mem_usage": true
+              }
+            },
+            "text_encoder": {"remove_modules": ["lm_head"]},
+            "text_encoder.model": {
+              "truncate_layers": {"language_model.layers": 51},
+              "group_offload": {"offload_type": "leaf_level"}
+            },
+            "vae": {"device": "cuda", "residency": "on_demand"},
+            "audio_vae": {"device": "cuda", "residency": "on_demand"}
+          }
+        },
+        "from_pretrained_arguments": {
+          "model_name": "MiniMaxAI/MiniMax-H3",
+          "workflow": "ref2va"
+        },
+        "chain": {
+          "segments": "variable:segments",
+          "continuity": "last_segment",
+          "segment_argument": "references",
+          "carry_frames": "variable:carry_frames",
+          "carry_audio": true,
+          "check": "variable:check",
+          "retries": "variable:retries",
+          "trim_frames": 2,
+          "crossfade_ms": 80,
+          "fps": 24,
+          "frame_snap": "constraint:num_frames",
+          "save_segments": true,
+          "keep_segments": true
+        },
+        "loras": [
+          {
+            "model_name": "variable:lora_model_name",
+            "weight_name": "variable:lora_weight_name",
+            "adapter_name": "turbo",
+            "scale": "variable:lora_scale"
+          }
+        ],
+        "scheduler": {"shift": "variable:video_shift"},
+        "audio_scheduler": {"shift": "variable:audio_shift"},
+        "arguments": {
+          "prompt": "variable:prompt",
+          "references": [
+            {
+              "reference_type": "diffusers.modular_pipelines.minimax_h3.MiniMaxH3ImageReference",
+              "from_file": "variable:subject"
+            },
+            {
+              "reference_type": "diffusers.modular_pipelines.minimax_h3.MiniMaxH3AudioReference",
+              "from_file": "variable:voice"
+            }
+          ],
+          "num_frames": "variable:num_frames",
+          "width": "variable:width",
+          "height": "variable:height",
+          "num_inference_steps": "variable:num_inference_steps",
+          "turbo_lead_in": "variable:turbo_lead_in",
+          "output": ["videos", "audio", "sampling_rate"]
+        }
+      },
+      "result": {"content_type": "video/mp4", "fps": 24, "subfolder": "final"}
+    }
+  ]
+}
