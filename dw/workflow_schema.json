@@ -55,6 +55,11 @@
                         "minimum": 0,
                         "description": "The part of 'minutes' that does not scale with the cost drivers (model load, text encode, VAE decode, a LoRA fuse). A run that moves a driver is quoted fixed_minutes + (minutes - fixed_minutes) x the scale factor, so a long run is not charged the fixed share many times over. Declared by the workflow, set from two measured runs; absent means the whole figure scales."
                     },
+                    "guide_factor": {
+                        "type": "number",
+                        "minimum": 1,
+                        "description": "How many times the scaling part of 'minutes' a pipeline step costs when it lays in a 'guides' clip, against the same step without one (a ref2va guide appends a second copy of the target's video rows, so every pass denoises twice the rows). Applied per pipeline step that carries a guide, relative to the guides the figure was measured with; the fixed_minutes share is not multiplied. Declared by the workflow from a guided and an unguided run; absent means a guide is not priced."
+                    },
                     "per_entry": {
                         "type": "object",
                         "description": "For a list-driven workflow: the measured cost of one entry of 'variable' (every member it produces), and the length of the default list 'minutes' was measured with, so a run over N entries is (minutes - per_entry.minutes * entries) + per_entry.minutes * N.",
