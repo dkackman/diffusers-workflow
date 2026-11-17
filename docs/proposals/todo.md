@@ -37,6 +37,12 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **Face-once cast reference sheet** (#1400, stage #1406), closed 2026-11-17
+  as a bench record, no gain. A 16:9 sheet with one head panel and four
+  neck-down views held a Ref2VA clip's face worse than today's portrait
+  (−0.123 and −0.074 SFace median), and Z-Image-Turbo never drew the sheet
+  face-once. The adoption stage was withdrawn, and the portrait stays the
+  cast reference: `complete/face-once-sheet-complete.md`.
 - **Performer replacement seam: an eroded-mask arm** (#1382, stage #1390),
   shipped 2026-11-16 as a bench record. `bench/erode_mask.py` eroded the person
   mask by 16 px before H3 pools it, at `mask_grow` 0, and `seam_bands.py
