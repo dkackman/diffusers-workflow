@@ -4,6 +4,7 @@ behaviour derived from the frames, so the cuts, numbering, exclusive masks,
 assembly and contact sheet are the real code."""
 
 import json
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -184,6 +185,94 @@ def models():
         patch.object(person_track, "content_cuts", return_value=[]),
     ):
         yield dino, sam
+    clear_model_cache()
+
+
+YELLOW = (230, 220, 20)  # a late, large entrant
+
+
+def rects_video(count, figures):
+    """A clip of [(colour, rect, first_frame)] figures: each is drawn from its
+    first frame onward, so a later first_frame is a late entrant."""
+    frames = []
+    for i in range(count):
+        pixels = np.full((H, W, 3), BACKGROUND, np.uint8)
+        for colour, (x0, y0, x1, y1), first in figures:
+            if i >= first:
+                pixels[y0:y1, x0:x1] = colour
+        frames.append(Image.fromarray(pixels))
+    return AudioVideo(frames, None, None, fps=24)
+
+
+class FakeSam3:
+    """Stands in for Sam3VideoProcessor / Sam3VideoModel. Each object id
+    follows one colour and is reported only on frames where it is present, at
+    the frame's own resolution."""
+
+    def __init__(self, objects, claims=None):
+        self.objects = objects  # {object id: colour}
+        self.claims = claims or {}  # {object id: colour it also claims at +1}
+        self.sessions = []
+        self.prompts = []
+        self.loaded = []
+        self.suppressed = {}  # {frame index: {object id}}
+        self.removed = set()
+        self.score_threshold_detection = None
+        self.new_det_thresh = None
+
+    def from_pretrained(self, name, *_args, **_kwargs):
+        self.loaded.append(name)
+        return self
+
+    def to(self, *_args, **_kwargs):
+        return self
+
+    def init_video_session(self, video=None, **kwargs):
+        session = SimpleNamespace(
+            frames=list(video), hotstart_removed_obj_ids=set(), kwargs=kwargs
+        )
+        self.sessions.append(session)
+        return session
+
+    def add_text_prompt(self, session, prompt):
+        self.prompts.append(prompt)
+
+    def propagate_in_video_iterator(self, session):
+        session.hotstart_removed_obj_ids |= self.removed
+        for index, frame in enumerate(session.frames):
+            masks, scores = {}, {}
+            for obj_id, colour in self.objects.items():
+                present = colour_mask(frame, colour)
+                if not present.any():
+                    continue
+                logits = np.where(present, 5.0, -5.0)
+                if obj_id in self.claims:
+                    also = colour_mask(frame, self.claims[obj_id])
+                    logits = np.where(also, 1.0, logits)
+                masks[obj_id] = torch.tensor(logits, dtype=torch.float32)[None]
+                scores[obj_id] = 0.8
+            yield SimpleNamespace(
+                frame_idx=index,
+                obj_id_to_mask=masks,
+                obj_id_to_score=scores,
+                suppressed_obj_ids=set(self.suppressed.get(index, ())),
+                removed_obj_ids=set(),
+            )
+
+
+@pytest.fixture
+def sam3_models():
+    """Patch the Sam3 classes, the version refusal and the cut detector; the
+    test sets `sam3.objects`. Hands back the fake."""
+    clear_model_cache()
+    sam3 = FakeSam3({1: RED, 2: BLUE})
+    with (
+        patch.object(person_track, "Sam3VideoProcessor", sam3),
+        patch.object(person_track, "Sam3VideoModel", sam3),
+        patch.object(person_track, "sam3_refusal", lambda: None),
+        patch.object(person_track, "content_cuts", return_value=[]),
+    ):
+        yield sam3
     clear_model_cache()
 
 
@@ -514,6 +603,198 @@ class TestRegistration:
 
         described = str(describe_task("track_people"))
         assert "max_people" in described and "video" in described
+
+
+def people_of(result):
+    return result["people"]["cuts"][0]["people"]
+
+
+class TestSam3:
+    def test_a_late_entrant_gets_its_own_track(self, sam3_models, warnings):
+        sam3_models.objects = {1: RED, 2: BLUE, 3: GREEN}
+        video = rects_video(
+            10,
+            [
+                (RED, (10, 5, 50, 45), 0),
+                (BLUE, (110, 55, 140, 85), 0),
+                (GREEN, (60, 50, 80, 70), 4),
+            ],
+        )
+        result = track_people(video, backend="sam3")
+        assert person_names(result) == ["person-1", "person-2", "person-3"]
+        people = people_of(result)
+        assert [p["first_frame"] for p in people] == [0, 0, 4]
+        late = result["person-3"].frames
+        for frame in late[:4]:
+            assert not (np.asarray(frame) > 0).any()
+        for frame in late[4:]:
+            assert inside(frame, (60, 50, 80, 70)) > 0.95
+            assert outside_count(frame, (60, 50, 80, 70)) == 0
+        assert people[2]["first_frame"] > 0
+
+    def test_people_are_numbered_first_frame_by_area_then_entrants_by_time(
+        self, sam3_models, warnings
+    ):
+        # ids are shuffled against the answer; the big one enters last
+        sam3_models.objects = {9: GREEN, 5: BLUE, 2: RED, 4: YELLOW}
+        video = rects_video(
+            10,
+            [
+                (BLUE, (110, 55, 140, 85), 0),
+                (RED, (10, 5, 50, 45), 0),
+                (GREEN, (60, 50, 70, 60), 3),
+                (YELLOW, (60, 10, 100, 50), 6),
+            ],
+        )
+        result = track_people(video, backend="sam3")
+        people = people_of(result)
+        assert [p["first_frame"] for p in people] == [0, 0, 3, 6]
+        assert people[0]["area"] > people[1]["area"]
+        assert inside(result["person-1"].frames[0], (10, 5, 50, 45)) > 0.95
+        assert inside(result["person-2"].frames[0], (110, 55, 140, 85)) > 0.95
+        assert inside(result["person-3"].frames[3], (60, 50, 70, 60)) > 0.95
+        assert inside(result["person-4"].frames[6], (60, 10, 100, 50)) > 0.95
+
+    def entrant_video(self):
+        return rects_video(
+            10,
+            [
+                (RED, (10, 5, 50, 45), 0),
+                (BLUE, (110, 55, 140, 85), 0),
+                (GREEN, (60, 50, 80, 70), 4),
+            ],
+        )
+
+    def test_max_people_keeps_first_frame_people_before_entrants(
+        self, sam3_models, warnings
+    ):
+        sam3_models.objects = {1: RED, 2: BLUE, 3: GREEN}
+        result = track_people(self.entrant_video(), backend="sam3", max_people=2)
+        assert person_names(result) == ["person-1", "person-2"]
+        assert [p["first_frame"] for p in people_of(result)] == [0, 0]
+        assert result["people"]["cuts"][0]["found"] == 3
+        messages = [call.args[0] for call in warnings.call_args_list]
+        assert any("max_people" in m and "late entrants" in m for m in messages)
+
+    def test_max_people_of_three_keeps_all_without_a_cap_warning(
+        self, sam3_models, warnings
+    ):
+        sam3_models.objects = {1: RED, 2: BLUE, 3: GREEN}
+        result = track_people(self.entrant_video(), backend="sam3", max_people=3)
+        assert person_names(result) == ["person-1", "person-2", "person-3"]
+        messages = [call.args[0] for call in warnings.call_args_list]
+        assert not any("more than max_people" in m for m in messages)
+
+    def test_the_masks_never_overlap(self, sam3_models, warnings):
+        sam3_models.claims = {2: RED}  # object 2 also claims 1's figure at +1
+        result = track_people(make_video(), backend="sam3")
+        for one, two in zip(result["person-1"].frames, result["person-2"].frames):
+            assert not ((np.asarray(one) > 0) & (np.asarray(two) > 0)).any()
+        # object 2's raw mask is the larger, so it is person-1; the contested
+        # figure still went to object 1 (+5 over +1), now person-2
+        assert inside(result["person-2"].frames[0], rect_a(0)) > 0.95
+        assert inside(result["person-1"].frames[0], rect_a(0)) == 0
+        assert outside_count(result["person-1"].frames[0], rect_b(0)) == 0
+
+    def test_no_person_is_an_error_naming_sam3(self, sam3_models, warnings):
+        with pytest.raises(ValueError, match="sam3"):
+            track_people(make_video(figures=()), backend="sam3")
+
+    def test_the_default_threshold_is_sam3s_and_reaches_the_model(self, sam3_models):
+        result = track_people(make_video(), backend="sam3")
+        assert result["people"]["threshold"] == 0.5
+        assert sam3_models.score_threshold_detection == 0.5
+        assert sam3_models.new_det_thresh == 0.5
+
+    def test_an_explicit_threshold_passes_through(self, sam3_models):
+        result = track_people(make_video(), backend="sam3", threshold=0.7)
+        assert result["people"]["threshold"] == 0.7
+        assert sam3_models.score_threshold_detection == 0.7
+        assert sam3_models.new_det_thresh == 0.7
+
+    def test_the_dino_default_threshold_is_unchanged(self, models, warnings):
+        result = track_people(make_video(), prompt="person")
+        assert result["people"]["threshold"] == 0.3
+
+    def test_the_record_names_the_backend_and_the_first_frames(
+        self, sam3_models, models, warnings
+    ):
+        result = track_people(make_video(), backend="sam3")
+        assert result["people"]["backend"] == "sam3"
+        assert sam3_models.loaded == ["facebook/sam3"] * 2
+        dino = track_people(make_video(), prompt="person")
+        assert dino["people"]["backend"] == "grounding-dino"
+        assert [p["first_frame"] for p in people_of(dino)] == [0, 0]
+
+    def test_the_prompt_goes_in_without_a_trailing_period(self, sam3_models):
+        track_people(make_video(), prompt="person", backend="sam3")
+        assert sam3_models.prompts == ["person"]
+
+    def test_a_custom_repo_is_loaded(self, sam3_models):
+        track_people(make_video(), backend="sam3", sam3_model_name="x/y")
+        assert set(sam3_models.loaded) == {"x/y"}
+
+    def test_suppressed_and_removed_objects_are_excluded(self, sam3_models, warnings):
+        sam3_models.objects = {1: RED, 2: BLUE, 3: GREEN}
+        sam3_models.suppressed = {i: {2} for i in range(10)}
+        sam3_models.removed = {3}
+        result = track_people(
+            make_video(figures=("A", "B", "C")), backend="sam3", max_people=4
+        )
+        assert person_names(result) == ["person-1"]
+        assert result["people"]["cuts"][0]["found"] == 1
+
+
+class TestSam3Version:
+    def test_an_old_transformers_is_described(self, monkeypatch):
+        import transformers
+
+        monkeypatch.setattr(transformers, "__version__", "5.20.0")
+        message = person_track.sam3_refusal()
+        assert "5.21" in message and "5.20.0" in message
+
+    def test_track_people_refuses_before_loading_anything(self, monkeypatch):
+        import transformers
+
+        clear_model_cache()
+        monkeypatch.setattr(transformers, "__version__", "5.20.0")
+        touched = []
+
+        class Trip:
+            def __getattr__(self, name):
+                touched.append(name)
+                raise AssertionError("a model class was touched")
+
+        with (
+            patch.object(person_track, "Sam3VideoProcessor", Trip()),
+            patch.object(person_track, "Sam3VideoModel", Trip()),
+        ):
+            with pytest.raises(ValueError, match="5.21"):
+                track_people(make_video(), backend="sam3")
+        assert touched == []
+
+    def test_the_dino_backend_ignores_the_version(self, models, warnings, monkeypatch):
+        import transformers
+
+        monkeypatch.setattr(transformers, "__version__", "5.20.0")
+        result = track_people(make_video(), prompt="person")
+        assert person_names(result) == ["person-1", "person-2"]
+
+
+class TestBackendChoice:
+    def test_an_unknown_backend_is_refused(self):
+        with pytest.raises(ValueError) as refused:
+            track_people(make_video(), backend="bogus")
+        assert "grounding-dino" in str(refused.value)
+        assert "sam3" in str(refused.value)
+
+    def test_validation_checks_the_choice(self):
+        from dw.task_domains import choice_errors
+
+        errors = choice_errors("track_people", {"backend": "bogus"})
+        assert [name for name, _ in errors] == ["backend"]
+        assert "grounding-dino" in errors[0][1] and "sam3" in errors[0][1]
+        assert choice_errors("track_people", {"backend": "sam3"}) == []
 
 
 class TestSaving:

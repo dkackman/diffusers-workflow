@@ -3210,15 +3210,17 @@ Follow each person through a clip as a mask of their own (#1194). [`segment`](#o
 | `video` | Yes | The clip: a path, `asset:` or `output:` reference, or an earlier step's video |
 | `prompt` | No | What to track (default `person`) |
 | `max_people` | No | How many of the largest finds to track per cut (default `4`). `0` tracks nobody, loads no model and returns only `people` (`tracked: false`) |
-| `threshold` | No | Detection confidence threshold (default `0.3`) |
+| `threshold` | No | Detection score floor (default `0.3` on `grounding-dino`, `0.5` on `sam3`: the scales differ) |
+| `backend` | No | `grounding-dino` (default: DINO boxes + SAM2) or `sam3` (opt-in, see [the sam3 backend](#the-sam3-backend)); anything else is refused at validate time |
 | `model_name` | No | Grounding-DINO model ID (default `IDEA-Research/grounding-dino-base`) |
 | `sam_model_name` | No | SAM2 model ID (default `facebook/sam2-hiera-large`, the weights `segment` uses) |
+| `sam3_model_name` | No | SAM 3 repo, `sam3` backend only (default `facebook/sam3`) |
 
 Returns, by key:
 
 - `person-1`, `person-2`, ...: one black-and-white mask video each, white where that person is, with the source's frame count and size.
 - `contact_sheet`: a PNG of each cut's first frame with every person outlined and labelled `person-N`, tiles labelled `shot-N`.
-- `people`: a JSON record: `prompt`, `threshold`, `max_people`, `fps`, `num_frames`, `width`, `height`, `tracked`, `people` (the count), and `cuts`, each `{name, start_frame, num_frames, found, people: [{name, box, score, area}]}`.
+- `people`: a JSON record: `prompt`, `backend`, `threshold`, `max_people`, `fps`, `num_frames`, `width`, `height`, `tracked`, `people` (the count), and `cuts`, each `{name, start_frame, num_frames, found, people: [{name, box, score, area, first_frame}]}`.
 
 Saved under a step whose result is `video/mp4` they become `<base>-0.0-person-1.mp4`, `<base>-0.0-contact_sheet.png` and `<base>-0.0-people.json` (the `-0.0` is the writer's result and item index, the same prefix every step's files carry), and a later step reads `previous_result:<step>.person-2`.
 
@@ -3229,6 +3231,31 @@ Saved under a step whose result is `video/mp4` they become `<base>-0.0-person-1.
 No person in any cut is a run-time error ("no person found"). A cut with nobody, and more people found than `max_people`, are warnings. `segment` is unchanged.
 
 **A match is not proof of a person.** Grounding-DINO is open-vocabulary. At the default `threshold` of 0.3, shared with `segment`, it can match a person-free frame: a full-frame QR code scored 0.52 as "person". Each person's `score` is in the `people` record. A frame that really shows someone usually scores well above that (0.9 on the qa-cast two-shots). Check the contact sheet, and raise `threshold` (0.6 refused that QR code) if a numbered box isn't a person.
+
+#### The sam3 backend
+
+`"backend": "sam3"` (#1397, opt-in; `grounding-dino` stays the default) swaps the detector and SAM2 for SAM 3's video model (transformers' `Sam3VideoModel`). It takes the text prompt directly and detects on every frame of each cut, not just the first, so a late entrant (someone absent from a cut's first frame, say through a dissolve) gets a mask of their own.
+
+```json
+{
+    "name": "people",
+    "task": {
+        "command": "track_people",
+        "arguments": {
+            "video": "asset:take.mp4",
+            "prompt": "person",
+            "backend": "sam3"
+        }
+    },
+    "result": {"content_type": "video/mp4", "fps": 24, "file_base_name": "people"}
+}
+```
+
+- **Numbering:** first-frame people by area, largest first, then late entrants by first appearance. `max_people` caps in that order, and masks stay exclusive.
+- **`first_frame`:** each `people` entry records the cut-relative frame where that person first appears (always `0` on `grounding-dino`). The contact sheet adds a tile at each late entrant's first frame.
+- **`threshold`:** defaults to `0.5`, SAM 3's own detection-score default. It is not the same scale as Grounding-DINO's `0.3`, so don't carry a tuned value across backends.
+- **Weights:** `facebook/sam3` is gated on Hugging Face (accept the licence, then `hf auth login`) and is under the SAM License, not Apache; see [ATTRIBUTIONS.md](ATTRIBUTIONS.md). A validate's `downloads_required` lists only `facebook/sam3` on this path.
+- **transformers >= 5.21** is required; an older install is refused with a message naming the installed version. No dependency changes.
 
 ## Object Removal
 
