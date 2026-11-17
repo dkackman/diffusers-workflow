@@ -37,6 +37,13 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **Pika H3 Flex** (#1316, stages #1342-#1344), shipped 2026-11-17.
+  `workflows/templates/pika-h3/` holds six-step t2va, fl2va and ref2va single
+  clips. Their weight components come from `MiniMaxAI/MiniMax-H3` through
+  `load_components`, so lem downloaded only the adapters. The step list is
+  counted as len − 1 passes. Don's bench verdict: an option, not the default.
+  H3 lightx2v stays the default, and chains stay cut:
+  `complete/pika-h3-flex-complete.md`.
 - **Face encode floor and `scored_from`** (#1418, stages #1420-#1421),
   shipped 2026-11-17. A bench probe on mini-ai measured in-memory against
   saved-file face scores of one clip: up to 0.016 on a median and 0.030 on a
