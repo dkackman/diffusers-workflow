@@ -43,7 +43,8 @@ both the draw and the clip.
 Files are under `probe-1400-face-once-sheet/<run id>/`: the draw at
 `intermediate/BenchProbe1400FaceOnceSheet-draw_subject.0-0.0.jpg`, the clip at
 `final/BenchProbe1400FaceOnceSheet-reference_to_video_audio.1-0.0.mp4`, and the score at
-`intermediate/face-0.json`.
+`intermediate/face-0.json` (scored in memory; the record is re-measured from the saved files,
+see Scores).
 
 ## The draws
 
@@ -63,10 +64,45 @@ SFace cosine, the clip's faces against the arm's own draw. With several faces in
 reference, `analyze_face_drift` uses the largest one and says so in `notes` (both S runs did).
 Every sampled frame held a face (16/16 in every clip), and no shot boundary was found.
 
+### The record: scored from the saved files
+
+These are the numbers to reproduce. Each is one `analyze_face_drift` job (16 samples, default
+threshold) whose `video` is the clip's saved mp4 and whose `reference` is the same run's saved
+jpg draw, both as `output:` references in `probe-1400`. The four jobs were run 2026-11-17 on
+`develop` @ 346ea93f, and their outputs are kept. Each carries the note
+`#1406 re-measure from saved files: arm <A>, seed <n>`.
+
+| Clip | Re-measure job | Output |
+| --- | --- | --- |
+| P/1001 | `efc67c7f386a` | `remeasure_1406/20261117-073155-2f6a471b/remeasure_1406-face.0-0.json` |
+| S/1001 | `4bf84a5c7ad9` | `remeasure_1406/20261117-073208-4819b049/remeasure_1406-face.0-0.json` |
+| P/1002 | `eed1f09af2cb` | `remeasure_1406/20261117-073210-d990cd21/remeasure_1406-face.0-0.json` |
+| S/1002 | `9886f745e555` | `remeasure_1406/20261117-073212-1779ec3e/remeasure_1406-face.0-0.json` |
+
+| Seed | P median | P min | S median | S min | S − P (median) |
+| --- | --- | --- | --- | --- | --- |
+| 1001 | 0.889 | 0.847 | 0.766 | 0.708 | −0.123 |
+| 1002 | 0.837 | 0.811 | 0.763 | 0.691 | −0.074 |
+
+The task is deterministic on the same files. The tester's independent re-measure of the same
+four pairs (#1406 bounce, jobs `aace8195db51`, `8c155daf989c`, `9272a5e9a90a`, `b0ec9fb0dd1a`)
+gave exactly these eight values.
+
+### Scored inside the probe job (superseded)
+
+The probe's own last step (`face`, at `intermediate/face-0.json` in each run) scored
+`previous_result:` objects: the decoded frames before the mp4 encode, and the draw before its
+jpg save. Those differ from the saved files by up to 0.045, which is why they can't be
+reproduced from the outputs above:
+
 | Seed | P median | P min | S median | S min | S − P (median) |
 | --- | --- | --- | --- | --- | --- |
 | 1001 | 0.883 | 0.825 | 0.781 | 0.728 | −0.102 |
 | 1002 | 0.823 | 0.793 | 0.776 | 0.736 | −0.047 |
+
+So the in-memory and saved forms of one clip differed by up to 0.045 (S/1002's minimum), and by
+up to 0.015 on a median. That is close to the criterion's 0.05 margin. The outcome below is the
+same on both tables.
 
 ## First-frame leak (frames 0 and 12, and 60 for S)
 
@@ -83,7 +119,8 @@ H3 took the person from the sheet and dropped its layout on both seeds, with the
 ## Outcome
 
 **No gain.** The criterion asked for S at least 0.05 above P on both seeds, and no sheet layout
-in any S clip. The leak half holds, but S scored below P on both seeds (−0.102 and −0.047), and
+in any S clip. The leak half holds, but S scored below P on both seeds (−0.123 and −0.074 from the saved files; −0.102 and
+−0.047 as scored inside the probe jobs), and
 neither S draw was face-once, which the plan counts as a loss for S on its own.
 
 ## Known limits
@@ -92,7 +129,10 @@ neither S draw was face-once, which the plan counts as a loss for S on its own.
   each clip against its own reference, not one identity measured two ways. The comparison is
   "how well does H3 hold the reference it was given", not "which picture gives the same man".
 - #1193 saw the seed alone swing similarity by more than 0.1. With two seeds per arm, the seed
-  1002 gap (−0.047) sits inside that swing. The seed 1001 gap (−0.102) is at its edge.
+  1002 gap (−0.074) sits inside that swing. The seed 1001 gap (−0.123) is just past it.
+- Encoding moves the score. The same clip scored up to 0.045 apart before and after its
+  mp4/jpg encode (see Scores). Compare a score only with one taken from the same form of the
+  media.
 - The S scores are against the sheet's largest face, which is not always frontal. On S/1002
   it may be the profile head, and a frontal clip scores lower against a profile. This counts
   against S, but that is part of what a sheet gives H3 too.
