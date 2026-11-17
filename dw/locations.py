@@ -734,6 +734,14 @@ def _weight_rules(step):
     return None, True, False
 
 
+def _lora_weight_rules(weight_rules):
+    """A `loras` entry's weight file is safetensors whatever its shape: diffusers'
+    load_lora_weights reads any other ending as a pickle, so a subfolder (or a
+    bare name) does not move it past the suffix (SE-F066)."""
+    _, subfolders, hub_only = weight_rules
+    return (SAFETENSORS_SUFFIX,), subfolders, hub_only
+
+
 def _walk(node, path, base_dir, errors, weight_rules=(None, True, False)):
     if isinstance(node, dict):
         for key, value in node.items():
@@ -741,7 +749,8 @@ def _walk(node, path, base_dir, errors, weight_rules=(None, True, False)):
             if _named_value_errors(key, value, here, base_dir, errors, weight_rules):
                 continue
             _media_value_errors(key, value, here, base_dir, errors)
-            _walk(value, here, base_dir, errors, weight_rules)
+            rules = _lora_weight_rules(weight_rules) if key == "loras" else weight_rules
+            _walk(value, here, base_dir, errors, rules)
     elif isinstance(node, list):
         for index, item in enumerate(node):
             _walk(item, f"{path}[{index}]", base_dir, errors, weight_rules)

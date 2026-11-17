@@ -1534,6 +1534,15 @@ def test_the_instructions_say_a_hand_built_workflow_inherits_a_warning_ceiling()
         assert words in server.instructions
 
 
+def test_the_instructions_name_the_card_capacity_exception():
+    """#1343: "never refuses" is the inherited ceiling only. A catalog
+    template's own `vram_estimate` past the card is refused at validate (the
+    #900 queue gate), and the line has to say so."""
+    server = server_over(ok({}))
+
+    assert "refuses templates past the card" in server.instructions
+
+
 @pytest.mark.asyncio
 async def test_list_workflows_takes_shape_and_traits():
     tools = await tools_of(server_over(ok({})))
