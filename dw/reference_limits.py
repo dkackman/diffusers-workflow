@@ -254,31 +254,6 @@ def reference_limit_errors(workflow_definition, source_indices=None):
     return errors
 
 
-# Keys that say where a reference's media comes from; every other key is a
-# field of the reference class or an argument of its from_file()
-SOURCE_KEYS = frozenset({"from_file", "from_previous_result"})
-
-
-def _reference_keys(reference):
-    """The keys a reference class takes besides its type and media source: its
-    dataclass fields and the named parameters of its from_file(). None when the
-    class declares neither, which leaves it unchecked."""
-    names = set(getattr(reference, "__dataclass_fields__", None) or ())
-    try:
-        parameters = inspect.signature(reference.from_file).parameters.values()
-    except (AttributeError, TypeError, ValueError):
-        parameters = ()
-    for parameter in parameters:
-        if parameter.kind is inspect.Parameter.VAR_KEYWORD:
-            return None
-        if parameter.kind in (
-            inspect.Parameter.POSITIONAL_OR_KEYWORD,
-            inspect.Parameter.KEYWORD_ONLY,
-        ):
-            names.add(parameter.name)
-    return names or None
-
-
 def reference_field_errors(workflow_definition, source_indices=None):
     """Every reference key its class has no field for, as [{path, message}] (#1428).
 
@@ -304,13 +279,20 @@ def reference_field_errors(workflow_definition, source_indices=None):
                 reference = _reference_class(entry)
                 if not isinstance(getattr(reference, "kind", None), str):
                     continue
-                allowed = _reference_keys(reference)
-                if allowed is None:
+                try:
+                    named = references.named_from_file_parameters(reference)
+                except (AttributeError, TypeError, ValueError):
+                    continue
+                if named is None:
                     continue
                 for name in entry:
-                    if name == REFERENCE_TYPE_KEY or name in SOURCE_KEYS:
+                    if name in (
+                        REFERENCE_TYPE_KEY,
+                        references.FROM_FILE_KEY,
+                        references.FROM_PREVIOUS_RESULT_KEY,
+                    ):
                         continue
-                    if name in allowed:
+                    if name in named or references.has_field(reference, name):
                         continue
                     errors.append(
                         {
@@ -318,11 +300,10 @@ def reference_field_errors(workflow_definition, source_indices=None):
                                 ("steps", source, "pipeline", "arguments", key, index)
                             ),
                             "message": (
-                                f"{reference.__name__} has no field '{name}' - it "
-                                f"takes {', '.join(sorted(allowed))}. A reference "
-                                f"holds the whole clip it names; to use a window, "
-                                f"trim it first and build the reference with "
-                                f"from_previous_result{where}."
+                                f"{references.no_field_message(reference, name)}. A "
+                                f"reference holds the whole clip it names; to use a "
+                                f"window, trim it first and build the reference "
+                                f"with from_previous_result{where}."
                             ),
                         }
                     )

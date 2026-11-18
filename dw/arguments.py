@@ -1,7 +1,6 @@
 import os
 import copy
 import logging
-from inspect import Parameter, signature
 from . import references
 from .references import (
     FROM_ARGUMENTS_KEY,
@@ -607,17 +606,10 @@ def split_from_file_arguments(object_type, arguments):
     Returns:
         (arguments for from_file, fields to set on the result)
     """
-    parameters = signature(getattr(object_type, FROM_FILE_KEY)).parameters
-    if any(
-        parameter.kind is Parameter.VAR_KEYWORD for parameter in parameters.values()
-    ):
+    named = references.named_from_file_parameters(object_type)
+    if named is None:
         return arguments, {}
 
-    named = {
-        name
-        for name, parameter in parameters.items()
-        if parameter.kind in (Parameter.POSITIONAL_OR_KEYWORD, Parameter.KEYWORD_ONLY)
-    }
     accepted = {k: v for k, v in arguments.items() if k in named}
     return accepted, {k: v for k, v in arguments.items() if k not in named}
 
@@ -637,13 +629,8 @@ def apply_field_overrides(constructed, overrides, object_type):
         ValueError: If it has no field by one of those names
     """
     for name, value in overrides.items():
-        if not hasattr(constructed, name):
-            fields = getattr(object_type, "__dataclass_fields__", None)
-            takes = f" - it holds {', '.join(fields)}" if fields else ""
-            raise ValueError(
-                f"{object_type.__name__} has no field '{name}', and its "
-                f"{FROM_FILE_KEY}() does not take it either{takes}"
-            )
+        if not references.has_field(constructed, name):
+            raise ValueError(references.no_field_message(object_type, name))
         logger.debug(f"Setting {object_type.__name__}.{name} from the workflow")
         setattr(constructed, name, value)
 
