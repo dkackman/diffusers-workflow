@@ -144,7 +144,9 @@ def test_an_empty_images_list_is_refused_at_validate_with_the_reason():
     # M-F407 step 4: `images: []` validated clean; an edit with no reference
     # has nothing to edit, and the pipeline would only say so after loading
     rule = load(EDIT)["variable_constraints"]["images"]
-    errors = [e for e in _edit_errors({"images": []}) if e["path"] == "arguments.images"]
+    errors = [
+        e for e in _edit_errors({"images": []}) if e["path"] == "arguments.images"
+    ]
     assert len(errors) == 1, errors
     assert "must not be empty" in errors[0]["message"]
     assert rule["reason"] in errors[0]["message"]

@@ -827,9 +827,7 @@ class TestANonEmptyList:
     def test_a_string_is_judged_as_before(self):
         assert violations("", IMAGES) == ["must not be empty"]
         assert "a non-empty string" in refusal("images", "", IMAGES)
-        assert violations("abc", {"min_length": 5}) == [
-            "must be at least 5 characters"
-        ]
+        assert violations("abc", {"min_length": 5}) == ["must be at least 5 characters"]
 
     @pytest.mark.parametrize("rule", [H3, {"reason": "no length rule"}])
     def test_a_list_with_no_min_length_is_not_judged(self, rule):
