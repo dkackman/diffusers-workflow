@@ -169,6 +169,10 @@ class RunContext:
                 phase=phase,
                 seconds_since_phase_start=seconds_since_phase_start,
                 seconds_since_last_progress=seconds_since_last_progress,
+                # The worker's own wall clock when this tick fired: the
+                # server stamps receive time, so a tick delivered late by a
+                # frozen worker (#1435) reads as a gap, not a wrong count
+                worker_time=time.time(),
             )
 
     def cancel(self):
