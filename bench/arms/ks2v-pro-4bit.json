@@ -1,0 +1,11 @@
+[
+  {
+    "name": "ks2v-pro-4bit-s1",
+    "scene": "s3-dialogue-walk",
+    "workflow": "ks2v-pro-4bit.json",
+    "arguments": {
+      "seed": 1
+    },
+    "seed": 1
+  }
+]

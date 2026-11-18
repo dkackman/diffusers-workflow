@@ -975,4 +975,105 @@ The gate has two conditions:
 - **The burn measure is a stand-in.** It is the whole-frame and fixed-box gray Laplacian,
   not the face measure, and it misses chroma noise.
 - **Any future turbo-version bench needs a different subject.** It needs a subject with a
-  visible face if face creep is to be its measure.
+
+
+## Kandinsky S2V Pro 4-bit probe (2026-11-16 to 11-18, #1339) - Pro distilled, 20 s gate, seed 1
+
+**Result: fails the 20 s gate on all three thresholds, so the 86 s take was not run.**
+
+### Path taken
+
+This used the plan's fallback for the waveform case, outside the dw server. S2V's encoder
+step takes `audio` as a 16 kHz mono waveform. dw's argument realization decodes only
+image and video media (`dw/argument_media.py`), so an `asset:` wav reaches the pipeline as
+a path. **Onboarding needs an `audio` media branch.** `bench/arms/ks2v-pro-4bit.json` (workflow `bench/workflows/ks2v-pro-4bit.json`) is
+the dw shape, and it validates. The probe that ran is `bench/ks2v_pro_probe.py`, from
+`lem:~/spikes/ks2v` on the dw venv's interpreter.
+
+- Inputs: `kandinskylab/Kandinsky-S2V-1.0-Pro-distill-Diffusers`, 16 steps, keyframes-v2
+  kf00 with the retimed narration, 768x512, 25 fps, seed 1, cuda:0.
+- diffusers 0.43.0, torch 2.14.1+cu130 (`RECORD` lines in the logs below).
+- Backend that loaded: **SDNQ int4**, on the first try both times. bnb nf4 was never needed.
+
+### Attempt 1: 4-bit, encoders on model CPU offload (2026-11-16)
+
+GPU OOM in `KandinskyS2VDistilledCoreDenoiseStep`, chunk 1: 21.02 GiB allocated by PyTorch
+and 23.43 GiB in use on a 23.56 GiB card, while trying to allocate 862 MiB. The automatic
+retry with group offload crashed in the probe script itself. It called
+`enable_group_offload` on the Qwen2.5-Omni thinker, which has no such method (fixed in
+a732352d). Log: `lem:~/spikes/ks2v/pro-gate-20s.log`.
+
+**Pro distilled at 4-bit does not fit 24 GB without offloading the transformer.**
+
+### Attempt 2: 4-bit, transformer group-offloaded (2026-11-18)
+
+Only the transformer was group-offloaded (block level, with a stream). The encoders, CLIP
+and the VAE stayed on model CPU offload. Log: `lem:~/spikes/ks2v/pro-gate-20s-go.log`.
+Output: `lem:~/spikes/ks2v/pro-gate-20s-go-s1.mp4`, 500 frames at 25 fps (20.00 s) with a
+20.00 s AAC narration track.
+
+- **Peak VRAM: 17.1 GiB allocated, 17.6 GiB reserved.**
+- **Host memory: about 48 GB RSS for the probe.** The pinned transformer and the 7B thinker
+  pushed lem into swap. At 04:52 UTC the kernel OOM killer took the dw server's worker
+  (pid 1304878, `dw-serve.service`), not the probe. sshd took minutes to answer while it
+  thrashed.
+- **Sampling took 143.9 min for 4 chunks, 36.0 min per chunk on average.** By chunk:
+  - chunk 1: 89.3 min, with step 3 alone taking 75 min of swap thrash;
+  - chunk 2: 20.9 min;
+  - chunk 3: 17.1 min;
+  - chunk 4: 12.5 min, at 46.7 s a step once the memory pressure cleared.
+
+  Even the steady rate is about 5x Lite distilled's 2.6 min per chunk. At that rate an
+  86 s take (18 chunks) would need about 3.7 h with lem's memory otherwise idle.
+
+### Face table at the gate
+
+Measured with `bench/ks2v_gate.py`, YuNet 2023mar and SFace 2021dec, all four takes in the
+same script. SFace is the cosine to each take's own 0.5 s face. Saturation is the mean HSV S
+of the YuNet face crop. The Laplacian is the variance of that crop in grey, at native scale.
+Still-mouth bins are half-second bins over 0-20 s where the narration's RMS is above 0.7x
+its median and the mouth box's frame diff is below 0.45x its median.
+
+This script's tight crop reads saturation and Laplacian on a different scale from the
+2026-11-12 table, so those two columns compare only within this table. SFace reproduces
+the 2026-11-12 row to within 0.02. Re-run over 0.5/15/.../85 s, it gives keystone
+1/.95/.90/.93/.92/.90/.90 and Lite 1/.90/.81/.76/.86/.80/.73.
+
+| at 0.5/5/10/15/19.5 s | moving keystone s1 | arc + latent s1 | S2V Lite distilled | **S2V Pro distilled, 4-bit** |
+|---|---|---|---|---|
+| SFace similarity to first frame | 1/.87/.93/.95/.95 | 1/.91/.85/.91/.92 | 1/.85/.77/.90/.85 | **1/.76/.69/.73/.72** |
+| saturation | 105.3/104.8/107.1/100.1/109.7 | 102.6/109.1/115.2/109.5/107.4 | 93.9/88.8/105.2/100.9/107.1 | **92.0/93.2/98.4/97.4/97.4** |
+| face-crop Laplacian variance | 312/208/210/308/305 | 327/285/206/257/375 | 159/66/33/49/51 | **114/96/61/71/94** |
+| still-mouth bins (0-20 s) | 0 of 40 | 0 of 40 | 0 of 41 | 0 of 41 |
+
+Sources:
+- moving keystone s1: run `20261110-230854-abc647e9`;
+- arc + latent s1: run `20261112-040003-f9eb4c89`;
+- Lite distilled: `lem:~/spikes/ks2v/lite-distill-86s-s1.mp4`.
+
+The first three are under `constitution-walk-3/outputs`.
+
+### Gate decision
+
+| threshold | Pro at 20 s | |
+|---|---|---|
+| SFace ≥ 0.88 | 0.72 (19.5 s), never above 0.76 after 0.5 s | **fails** |
+| saturation rise ≤ 5 | 92.0 → 97.4, +5.4 | **fails** |
+| Laplacian within the H3 arms' range (206-375, both H3 arms over the same samples) | 61-114 | **fails** |
+
+**The gate fails, so the run stopped at 20 s, as the plan says.** Under Don's 2026-11-17
+ruling there is no third attempt and no further download. The Pro-distill weights stay in
+lem's default HF cache (`~/.cache/huggingface`); deleting them is Don's call.
+
+### Contact sheet
+
+`lem:~/spikes/ks2v/pro-gate-20s-faces.jpg` has one row per take, at 0.5/5/10/15/19.5 s.
+
+Reading: Pro starts close to the still. By 5 s the face is rounder and smoother, with
+waxy skin and softer folds, and by 10 s it reads as a different woman. It does not come
+back by 19.5 s. Both H3 rows hold the face and its folds. Lite drifts too, but less than
+Pro over the same 20 s. The earrings, scarf and background hold in every row.
+
+Pro at 4-bit is softer than Lite distilled at the start (114 against 159 at 0.5 s) and
+loses identity faster. Whether 4-bit SDNQ caused this or Pro does it anyway isn't
+isolated: an unquantized Pro (21B) needs about 42 GB for its transformer alone.
