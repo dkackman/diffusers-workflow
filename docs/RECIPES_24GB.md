@@ -190,15 +190,17 @@ are multiples of 32.
 | VRAM reserved | ~3.7 GiB at the end of the denoise, 5.5 GiB at the start of the decode (job memory snapshots) |
 | Host RAM, warm | 63 to 64 GB committed (the transformer and text encoder live in host RAM under offload) |
 | Host RAM, cold first quantize | 116,760 MB peak RSS of 128,712 MB; budget ~120GB on a host without the quantized cache |
-| t2i 2048x2048 | 2.0 min warm (22.3 s encode, 91.4 s denoise at 15.2 s a pass, 3.4 s decode); 38.2 min cold (2110.8 s load, which is the download and the quantize) |
+| t2i 2048x2048 | priced at 2.3 min after a load on cuda:0 (built from the phases below: a ~33 s encode after a load, as in the cold run and the edit's, plus ~10 s of job start-up and save); 2.0 min fully warm (22.3 s encode, 91.4 s denoise at 15.2 s a pass, 3.4 s decode); 38.2 min cold (2110.8 s load, which is the download and the quantize) |
 | t2i 1024x1024 | 2.5 min warm - no faster |
-| 3-reference edit, 2048x2048 | 2.2 min warm on cuda:0 2026-11-18, priced at 2.3 (32.1 s encode, 94.2 s denoise at 15.6 s a pass, 3.8 s decode; job `29a738225baa`); 1.3 min warm on cuda:1 2026-11-17 (22.1 s encode, 51.7 s denoise at 8.6 s a pass, 3.3 s decode); 3.8 min in the bench with the quantized cache hit on a new card (56.9 s load, 23.6 s encode, 132.1 s denoise: 89.1 s first pass then 8.6 s each, 3.5 s decode); ~5.5 GiB reserved at decode |
+| 3-reference edit, 2048x2048 | priced at 2.7 min: 2.68 min on cuda:0 after a load, less its 55.6 s load (job `6c336a3bfba8`: 41.5 s encode, 104.2 s denoise at 15.8 s a pass, 3.8 s decode, ~10 s start-up and save); 2.2 min fully warm on cuda:0 2026-11-18 (32.1 s encode, 94.2 s denoise at 15.6 s a pass, 3.8 s decode; job `29a738225baa`); 1.3 min warm on cuda:1 2026-11-17 (22.1 s encode, 51.7 s denoise at 8.6 s a pass, 3.3 s decode); 3.8 min in the bench with the quantized cache hit on a new card (56.9 s load, 23.6 s encode, 132.1 s denoise: 89.1 s first pass then 8.6 s each, 3.5 s decode); ~5.5 GiB reserved at decode |
 | First download | ~64 GiB (63.93 GiB: transformer and VAE; the text encoder comes from H3's repo, not H3-Image's ~204GB) |
 
 **The card gap.** The templates are priced on the slower of lem's two 3090s, which sits
 on a PCIe x4 link; this offload is bus-bound, so a card on an x16 link runs it in about
 half the time. A pass took 15.1 to 15.6 s on cuda:0 (x4) and 4.5 to 8.6 s on cuda:1
-(x16), for both templates (`bench/records/h3-image.md`, *The card gap*).
+(x16), for both templates (`bench/records/h3-image.md`, *The card gap*). Each price
+covers a run that has just loaded its models, less the load: the first text encode after
+a load runs about 10 s slower than a fully warm one.
 
 Host RAM is the binding resource, not VRAM. The cold run is the expensive one: it
 downloads, then quantizes the transformer, and peaks around 117GB RSS, so the first run
