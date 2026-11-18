@@ -1,6 +1,6 @@
 ---
 name: cinematography
-description: Use when a dw MCP server is connected and the user directs the camera or the look - a shot size, a camera move (dolly, crane, orbit, whip pan, crash zoom), a lens, lighting, a film era, a pace, or a named colour grade (noir, teal-orange, 70s stock, VHS, bleach bypass) - for an H3, LTX-2.5, Kandinsky 6 or FLUX 3 Klein generation. Gives a closed vocabulary and the one sentence each value becomes in that family's own caption format, and the grades as apply_lut palettes plus film_grain.
+description: Use when a dw MCP server is connected and the user directs the camera or the look - a shot size, a camera move (dolly, crane, orbit, whip pan, crash zoom), a lens, lighting, a film era, a pace, or a named colour grade (noir, teal-orange, 70s stock, VHS, bleach bypass) - for an H3, LTX-2.5, Kandinsky 6, FLUX 3 Klein or MiniMax-H3-Image generation. Gives a closed vocabulary and the one sentence each value becomes in that family's own caption format, and the grades as apply_lut palettes plus film_grain.
 ---
 
 # Cinematography on a dw server
@@ -10,7 +10,7 @@ and what each value becomes in each family's caption. The families already
 have a slot for this: LTX-2.5's trained caption must state a shot type, a
 camera motion and a viewpoint; Kandinsky 6 wants exactly one camera
 sentence; H3 writes camera moves inside its Context-IR shots; FLUX 3 Klein
-frames a still. This skill fills that slot the same way every time, so a
+and MiniMax-H3-Image frame a still. This skill fills that slot the same way every time, so a
 shot list can say `move: dolly-in` and mean the same thing on every family.
 
 It does not pick the template, the size or the cost. The family's own skill
@@ -59,6 +59,7 @@ skill:
 | `ltx-2.5` | `references/compile-ltx-2.5.md` - shot type, camera motion and viewpoint in one sentence; name what comes into view |
 | `kandinsky-6` | `references/compile-kandinsky-6.md` - shot size up front, exactly one camera sentence |
 | `flux3-klein` | `references/compile-flux3-klein.md` - a still: a move becomes framing |
+| `minimax-h3-image` | `references/compile-minimax-h3-image.md` - a still, often an H3 keyframe: a move becomes framing, in a verbatim description |
 
 The compiled words go into the prompt the family's own rules build; they do
 not replace it. The stored prompts (`list_prompts`, then `get_prompt`) show
@@ -99,7 +100,7 @@ move (Kandinsky 6's truck, crane and orbit each drifted forward more than
 they moved as named; both families' whip-pan revealed its target without a
 fast pan). *Ignored*: no motion of that kind. LTX-2.5's `handheld` was
 ignored on both seeds and on a reworded rerun: a hint only, rarely
-honoured. `flux3-klein` (a still) is not measured. Two seeds are two
+honoured. `flux3-klein` and `minimax-h3-image` (stills) are not measured. Two seeds are two
 samples, not a rate: a split cell says the move varies by seed, and a
 longer clip can still drift (one 241-frame LTX image-to-video clip told
 "the camera remains static" pushed or arced from about five seconds; see
@@ -134,7 +135,8 @@ look recipe takes the palette from here.
 
 1. Generate with the family's skill and its template (for example
    `templates/ltx2/text-to-video`, `templates/minimax/video-with-audio`,
-   `templates/kandinsky6/text-to-video`, `templates/flux3/text-to-image`),
+   `templates/kandinsky6/text-to-video`, `templates/flux3/text-to-image`,
+   `templates/minimax-h3-image/text-to-image`),
    with the compiled words in its prompt. Its validate, cost quote and
    `acknowledged_cost` rules apply unchanged.
 2. Check the camera with `get_output_frames` as above; check a still with
@@ -150,7 +152,7 @@ look recipe takes the palette from here.
 ## Not in scope
 
 - Any family not in the table above. The vocabulary covers H3, LTX-2.5 and
-  Kandinsky 6 video plus FLUX 3 Klein stills only; for any other family,
+  Kandinsky 6 video plus FLUX 3 Klein and MiniMax-H3-Image stills only; for any other family,
   image or audio, stop and do not borrow a table.
 - Audio-only families: `minimax-music3` has no camera, and nothing here
   applies to it. A soundtrack's mood is the music skill's.

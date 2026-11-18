@@ -3118,7 +3118,9 @@ Gettysburg Address*). The recipe:
    text and a different still or angle; a cut to the same still reads as a
    reset. Make the second angle from the first still with
    `templates/image-edit`, or with the same FLUX 3 Klein portrait prompt on
-   the same seed and only the framing changed. Validate each passage and sum
+   the same seed and only the framing changed (or, on a CUDA host with about
+   70 GB of host RAM, `templates/minimax-h3-image/multi-reference` with the
+   first still as `<Picture 1>`; not measured at a cut). Validate each passage and sum
    their `plan.estimate`s; the H3 chain estimate runs high (18.3 min quoted,
    about 7 run). A cut resets the face's detail: a take opens as smooth as
    its still, so a fresh still drops the face to about a quarter of the
