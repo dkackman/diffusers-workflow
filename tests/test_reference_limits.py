@@ -161,10 +161,6 @@ class TestThroughTheTemplate:
         assert "shot@audio_only" in errors[0]["message"]
 
 
-if __name__ == "__main__":
-    pytest.main([__file__, "-v"])
-
-
 class TestVideoReferenceLength:
     """A video reference shorter than the conditioner needs (#1422). The
     minimum is read off diffusers' encoder, so the tests ask the module for it
@@ -326,3 +322,44 @@ class TestAudioReferenceDuration:
     def test_minimax_audio_is_not_bounded(self, tmp_path):
         entry = {"reference_type": AUDIO, "from_file": "a.wav"}
         assert self.run(workflow_with([entry]), tmp_path, seconds=1.0) == []
+
+
+class TestReferenceFields:
+    """A key the reference class has no field for (#1428), read off the class."""
+
+    def found(self, entry):
+        from dw.reference_limits import reference_field_errors
+
+        return reference_field_errors(workflow_with([entry]))
+
+    def test_start_frame_is_refused_at_its_index(self):
+        entry = {**reference(VIDEO), "audio": None, "start_frame": 51}
+        found = self.found(entry)
+        assert len(found) == 1
+        assert found[0]["path"].endswith("references[0]")
+        assert "start_frame" in found[0]["message"]
+
+    def test_any_unknown_name_is_refused(self):
+        found = self.found({**reference(VIDEO), "zz_not_a_field": 1})
+        assert "zz_not_a_field" in found[0]["message"]
+
+    def test_from_previous_result_is_checked_too(self):
+        entry = {"reference_type": VIDEO, "from_previous_result": "w", "bogus": 1}
+        assert len(self.found(entry)) == 1
+
+    def test_real_fields_pass(self):
+        assert self.found({**reference(VIDEO), "audio": None, "fps": 24.0}) == []
+
+    def test_a_plain_reference_passes(self):
+        assert self.found(reference(IMAGE)) == []
+
+    def test_workflow_validation_reports_it(self):
+        entry = {**reference(VIDEO), "start_frame": 51}
+        errors = Workflow(
+            workflow_with([entry]), "outputs", "x.json"
+        ).validation_errors()
+        assert any("start_frame" in str(e) for e in errors)
+
+
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])
