@@ -30,8 +30,10 @@ the loaded transformer; the default subset is NerdNotes' (ComfyUI's numbering,
 taken as diffusers' - #1391 Q3). Unselected blocks keep H3's own processor.
 
 The passes need each one's log-sum-exp, which `dispatch_attention_fn` does not
-return, so the selected blocks run a torch-native op that does: cuDNN, else
-native flash on CUDA; the CPU flash kernel on the CPU (the unit tests). With
+return, so the selected blocks run a torch-native op that does: native flash
+or cuDNN on CUDA, in the order SDPA itself tries them (so the main pass runs
+the kernel H3's dense processor runs); the CPU flash kernel on the CPU (the
+unit tests). With
 neither, the call is refused when the first selected block runs, naming why.
 
 The rows. The guide layout step (h3_guide_steps.py) publishes K and C as packed
@@ -367,23 +369,25 @@ def resplit(out, lse, out_k, lse_k, out_c, lse_c, balance):
 
     `out*`: [B, N, S, D]; `lse*`: [B, N, S] natural-log log-sum-exps of the
     full, K-only and C-only passes. Taken in float32; returned in `out`'s
-    dtype."""
+    dtype.
+
+    The shift pK' - pK = S*b*pK/(b*pK + pC) - pK is taken in its reduced form,
+    pK*pC*(b - 1)/(b*pK + pC), and pC' - pC is its negative (S is kept): the
+    same formula, but exactly 0 at b = 1, so balance 1 returns `out` itself
+    bit for bit."""
     lse = lse.float()
     p_k = torch.exp(lse_k.float() - lse)
     p_c = torch.exp(lse_c.float() - lse)
-    total = p_k + p_c
     denominator = balance * p_k + p_c
-    p_k_new = torch.where(
+    shift = torch.where(
         denominator > 0,
-        total * balance * p_k / denominator.clamp(min=torch.finfo(torch.float32).tiny),
-        p_k,
+        p_k
+        * p_c
+        * (balance - 1.0)
+        / denominator.clamp(min=torch.finfo(torch.float32).tiny),
+        torch.zeros_like(p_k),
     )
-    p_c_new = total - p_k_new
-    result = (
-        out.float()
-        + (p_k_new - p_k)[..., None] * out_k.float()
-        + (p_c_new - p_c)[..., None] * out_c.float()
-    )
+    result = out.float() + shift[..., None] * (out_k.float() - out_c.float())
     return result.to(out.dtype)
 
 
@@ -413,11 +417,35 @@ def _cpu_flash(q, k, v, scale):
     return out, _lse_shape(lse, q)
 
 
-def lse_candidates(device_type):
+_CUDA_LSE_OPS = {
+    "FLASH_ATTENTION": ("native flash", _flash),
+    "CUDNN_ATTENTION": ("cuDNN", _cudnn),
+}
+
+
+def sdpa_priority_names():
+    """The SDPA backend names, in the order torch's dispatcher tries them, or
+    None when this torch cannot say."""
+    try:
+        order = torch._C._get_sdp_priority_order()
+        return [torch._C._SDPBackend(index).name for index in order]
+    except Exception:  # an older or newer torch without the private call
+        return None
+
+
+def lse_candidates(device_type, priority=None):
     """[(name, op)] the LSE-returning attention ops to try on `device_type`,
-    in order - none on mps."""
+    in order - none on mps.
+
+    On CUDA the order is the one SDPA itself tries (`priority`, read off torch
+    when not given): flash, then cuDNN on stock torch. H3's dense processor
+    runs SDPA, so the main pass here runs the same kernel it does and balance
+    1 reproduces a run without the argument (#1393's bounce: cuDNN ahead of
+    flash gave a 2/255 drift)."""
     if device_type == "cuda":
-        return [("cuDNN", _cudnn), ("native flash", _flash)]
+        names = priority if priority is not None else sdpa_priority_names()
+        ordered = [_CUDA_LSE_OPS[n] for n in names or () if n in _CUDA_LSE_OPS]
+        return ordered + [op for op in _CUDA_LSE_OPS.values() if op not in ordered]
     if device_type == "cpu":
         return [("CPU flash", _cpu_flash)]
     return []
@@ -441,7 +469,7 @@ def pick_lse_op(q, k, v, scale):
     why = "; ".join(reasons) or f"no LSE attention op on {q.device.type}"
     raise RuntimeError(
         f"{KEYSTONE_ATTENTION_INPUT} needs an attention op that returns its "
-        f"log-sum-exp (cuDNN or native flash on CUDA), and none runs here - {why}"
+        f"log-sum-exp (native flash or cuDNN on CUDA), and none runs here - {why}"
     )
 
 

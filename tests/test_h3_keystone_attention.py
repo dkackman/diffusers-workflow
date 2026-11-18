@@ -66,6 +66,35 @@ def test_balance_one_is_the_identity():
     torch.testing.assert_close(out, _dense_weights(q, k) @ v, atol=1e-5, rtol=1e-5)
 
 
+def test_balance_one_returns_the_main_pass_bit_for_bit():
+    # #1393's bounce: balance 1 must reproduce a run without the argument
+    gen = torch.Generator().manual_seed(7)
+    out = torch.randn(1, 2, 4, 8, generator=gen).to(torch.bfloat16)
+    out_k, out_c = torch.randn(2, 1, 2, 4, 8, generator=gen).to(torch.bfloat16)
+    lse = torch.randn(1, 2, 4, generator=gen)
+    lse_k = lse - torch.rand(1, 2, 4, generator=gen) - 0.1
+    lse_c = lse - torch.rand(1, 2, 4, generator=gen) - 0.1
+    assert torch.equal(resplit(out, lse, out_k, lse_k, out_c, lse_c, 1.0), out)
+    assert not torch.equal(resplit(out, lse, out_k, lse_k, out_c, lse_c, 20.0), out)
+
+
+def test_cuda_lse_ops_follow_the_sdpa_priority():
+    names = lambda ops: [name for name, _ in ops]  # noqa: E731
+    torch_default = [
+        "FLASH_ATTENTION",
+        "EFFICIENT_ATTENTION",
+        "MATH",
+        "CUDNN_ATTENTION",
+    ]
+    assert names(ka.lse_candidates("cuda", torch_default)) == ["native flash", "cuDNN"]
+    cudnn_first = ["CUDNN_ATTENTION", "FLASH_ATTENTION", "MATH"]
+    assert names(ka.lse_candidates("cuda", cudnn_first)) == ["cuDNN", "native flash"]
+    assert names(ka.lse_candidates("cuda", ["MATH"])) == ["native flash", "cuDNN"]
+    assert names(ka.lse_candidates("cuda")) and len(ka.lse_candidates("cuda")) == 2
+    assert names(ka.lse_candidates("cpu")) == ["CPU flash"]
+    assert ka.lse_candidates("mps") == []
+
+
 def test_balance_twenty_matches_the_dense_expected_weights():
     q, k, v = _qkv(seed=1)
     balance = 20.0
