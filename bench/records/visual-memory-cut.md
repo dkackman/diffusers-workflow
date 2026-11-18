@@ -1,8 +1,10 @@
 # Visual memory across a cut: MiniMax-H3 ref2va probe (#1398 stage A, #1401)
 
-**PRELIMINARY until Don views the arms.** The frame reads below are an
-agent's (claude-opus-5-5, anthropic), from 12-frame contact sheets and face
-crops, not a viewing or a listening. A whole-clip video reference (B1, S1)
+**Don viewed the arms on 2026-11-17 (#1402).** He confirmed the reads below
+with one correction: in B1s **and** S1s the garment is a purple dress, not a
+coat, so the green-coat marker fails in both whole-clip arms. He saw no mouth
+copy in S1s. The frame reads are otherwise an agent's (claude-opus-5-5,
+anthropic), from 12-frame contact sheets and face crops. A whole-clip video reference (B1, S1)
 does not fit the 24 GB card at 1344x768 (see *B1: out of memory*), so under
 plan v2 the whole-clip arms ran at 960x544 against their own control, B0s.
 

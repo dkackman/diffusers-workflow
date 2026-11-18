@@ -60,6 +60,13 @@ remaining deferred fix is recorded in
   the source soundtrack. Each cut can carry its own `seed` and `prompt`, so one
   cut can be re-rolled alone. `mask_grow` stays 1, from the seam bench:
   `complete/performer-replacement-complete.md`.
+- **Visual memory at a cut** (#1398, stages #1401-#1402), closed 2026-11-18
+  as guidance. A 22-frame `trim_video` window from the middle of the
+  establishing shot, passed as an H3 video reference, held all four place and
+  wardrobe markers on the reverse, at 1.35x a pass. The whole previous clip
+  lost the coat, pulled the shot toward the earlier angle, cost 4.4x, and ran
+  out of memory at 1344x768. The lip-copy rule ships as the source's claim:
+  `minimax-h3/references/cuts.md`, `complete/visual-memory-cut-complete.md`.
 - **H3 turbo version vs chain burn** (#1399, stage #1403), closed 2026-11-17
   as a bench record, no gain. lightx2v's fl2v 4step v1.3 burned no less than
   v1.2 on `chained-segments`, and ref2v 8step v1.1 on `chain-video-continuity`
