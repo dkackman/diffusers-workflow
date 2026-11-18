@@ -606,7 +606,9 @@ def _cached_minutes(minutes, cached_steps, total_steps):
     return round(minutes * remaining / total_steps, 1)
 
 
-def _own_price(definition, expanded, list_entries, device, measured_entries):
+def _own_price(
+    definition, expanded, list_entries, device, measured_entries, base_dir=None
+):
     """The workflow's own price, scaled along the cost drivers that moved."""
     own = _price(definition.get("cost"), device, list_entries, measured_entries or {})
     # `derived` and `per_entry` are re-priced by entry count alone, so a
@@ -617,7 +619,7 @@ def _own_price(definition, expanded, list_entries, device, measured_entries):
         # than quoted at the figure measured for the defaults (#267, #866)
         own = _scaled(
             own,
-            _driver_scaling(definition, expanded, list_entries),
+            _driver_scaling(definition, expanded, list_entries, base_dir=base_dir),
             fixed_minutes(_choose_entry(definition.get("cost"), device)[0]),
         )
         # A words-checked chain's Whisper passes, on top (#1262)
@@ -911,7 +913,9 @@ def estimate(
     measured = _with_worst_case(
         _observed(observed, device), definition, expanded, device
     )
-    own = _own_price(definition, expanded, list_entries, device, measured_entries)
+    own = _own_price(
+        definition, expanded, list_entries, device, measured_entries, base_dir
+    )
     if measured is not None and _entry_cost_field_shifted(definition, expanded):
         # The history's drivers match on the list's length, not on what each
         # entry renders, so a shot lengthened past anything it covered would

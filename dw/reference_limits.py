@@ -390,6 +390,33 @@ def _reference_clip(entry, steps, base_dir, probe):
     return frames, rate if isinstance(rate, (int, float)) and rate > 0 else None
 
 
+def video_reference_frames(pipeline, steps, base_dir=None, probe=None):
+    """The frame count of every video reference an H3 pipeline step receives
+    (#1429), None for one whose length cannot be told before the run: the
+    list `_reference_clip` reads each entry by, so the 13-frame minimum, the
+    VRAM projection and the price all count one clip alike. An entry whose
+    source is null is dropped from the list before the pipeline sees it
+    (`vram_estimate.reference_count`), so it is not counted here. Image and
+    audio references are not video references and are not listed."""
+    from .pipeline_processors.h3_rules import is_h3_step
+
+    arguments = pipeline.get("arguments") if isinstance(pipeline, dict) else None
+    entries = arguments.get("references") if isinstance(arguments, dict) else None
+    if not (isinstance(entries, list) and is_h3_step(pipeline)):
+        return []
+    frames = []
+    for entry in entries:
+        if not isinstance(entry, dict) or not any(
+            entry.get(key) is not None
+            for key in (references.FROM_FILE_KEY, references.FROM_PREVIOUS_RESULT_KEY)
+        ):
+            continue
+        if getattr(_reference_class(entry), "kind", None) != VIDEO_KIND:
+            continue
+        frames.append(_reference_clip(entry, steps, base_dir, probe)[0])
+    return frames
+
+
 def reference_length_errors(
     workflow_definition, source_indices=None, base_dir=None, probe=None
 ):

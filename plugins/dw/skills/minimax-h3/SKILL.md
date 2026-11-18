@@ -51,7 +51,7 @@ H3 generates video and audio together. Every template fits a 24 GB card.
 - **A consistent subject**: `templates/minimax/reference-to-video`
   (image: appearance, audio clip: voice);
   `templates/minimax/composable-references` adds a video reference for
-  framing and camera, at ~3.4x cost;
+  framing and camera, at ~4x (a 22-frame window ~1.4x);
   `templates/minimax/generated-subject-reference` draws the subject with
   Z-Image in the same workflow;
   `templates/minimax/voice-timbre-reference` fixes a voice from Bark.
@@ -163,7 +163,7 @@ A wanted look (clay, paper): `references/style.md`. Film-term camera or look: th
    load or `downloads_required` is longer). When `basis` is `unknown`,
    say so and give the shape: a 124-frame turbo clip is a few minutes
    on a 24 GB card, 345 frames three times that, an image reference twice a
-   turbo clip, a video reference 3.4x again, a chain times its segments.
+   turbo clip, a video reference ~4x again, a chain times its segments.
    Get the go-ahead, then `run_workflow` with `acknowledged_cost` = the
    plan's `{fingerprint, minutes, downloads}`.
 3. `wait_for_job` with `timeout_seconds` = the estimate plus a margin
