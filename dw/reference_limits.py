@@ -502,6 +502,12 @@ def _slice_seconds(entry, steps, base_dir, probe):
         return _source(path, probe)
 
     previous = entry.get("from_previous_result")
+    if previous is None:
+        # `from_file` takes a reference anywhere, so a step's result may be
+        # spelled there too (#1431)
+        previous = references.ref_name(
+            references.PREVIOUS_RESULT, entry.get("from_file")
+        )
     if isinstance(previous, str):
         name = previous.partition(".")[0]
         for _, step, task, _, _ in references.iter_steps(steps, None, "task"):
@@ -572,13 +578,15 @@ def reference_duration_errors(
                 high = float("inf")
             if low - DURATION_SLACK_SECONDS <= seconds <= high + DURATION_SLACK_SECONDS:
                 continue
+            # A snapped slice is checked against the minimum only: quote that
+            bound = f"at least {low:g}" if snapped else f"{low:g} to {high:g}"
             errors.append(
                 {
                     "path": render_path(
                         ("steps", source, "pipeline", "arguments", "references", index)
                     ),
                     "message": (
-                        f"Every audio reference must run {low:g} to {high:g} "
+                        f"Every audio reference must run {bound} "
                         f"seconds on {model_name}, got one of {seconds:.2f} "
                         f"seconds{where}."
                     ),

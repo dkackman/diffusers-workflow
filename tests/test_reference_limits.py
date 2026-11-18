@@ -337,6 +337,22 @@ class TestAudioReferenceDuration:
         short = self.definition(entry, {"duration_seconds": 1.0, "end_snap_seconds": 1})
         assert len(self.run(short, tmp_path, seconds=30)) == 1
 
+    def test_a_snapped_refusal_does_not_quote_inf(self, tmp_path):
+        entry = {"reference_type": self.AUDIO, "from_previous_result": "cut"}
+        short = self.definition(entry, {"duration_seconds": 1.5, "end_snap_seconds": 1})
+        message = self.run(short, tmp_path, seconds=30)[0]["message"]
+        assert "inf" not in message
+        assert "at least 2 seconds" in message
+
+    def test_from_file_naming_a_step_result_is_measured(self, tmp_path):
+        entry = {"reference_type": self.AUDIO, "from_file": "previous_result:cut"}
+        short = self.definition(entry, {"duration_seconds": 1.41})
+        found = self.run(short, tmp_path, seconds=30)
+        assert len(found) == 1
+        assert "2 to 15 seconds" in found[0]["message"]
+        ok = self.definition(entry, {"duration_seconds": 5.0})
+        assert self.run(ok, tmp_path, seconds=30) == []
+
     def test_stop_at_the_end_uses_the_runs_length_rule(self, tmp_path):
         entry = {"reference_type": self.AUDIO, "from_previous_result": "cut"}
         stop = self.definition(
