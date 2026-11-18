@@ -237,7 +237,10 @@ its 6 cuts (`bench/records/drill.md`, *Cold drill: the Gettysburg Address*).
    reset. Make the second angle from the first still: `templates/image-edit`
    with the new framing as its instruction, or the same FLUX 3 Klein portrait
    prompt on the same seed with only the framing changed (closer, wider, or
-   turned). Probe passage 1 first, as above.
+   turned). On a CUDA host with about 70 GB of host RAM, the
+   `minimax-h3-image` skill's `templates/minimax-h3-image/multi-reference`
+   is a third route, the first still as `<Picture 1>` and the new framing
+   in the prompt; it is not measured at a cut. Probe passage 1 first, as above.
    **Make each later passage's still from the take before it.** A take's
    face ripens as H3 runs, and the next take opens as smooth as its still,
    so a fresh still drops the face's detail at the cut: the #1311 keeper's

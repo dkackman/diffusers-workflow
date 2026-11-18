@@ -895,6 +895,98 @@ class TestFlux3KleinSkill:
         assert text.index("get_server_info") < text.index("templates/flux3/")
 
 
+H3_IMAGE_SKILL = os.path.join(PLUGIN_DIR, "skills", "minimax-h3-image", "SKILL.md")
+
+
+def h3_image_text():
+    """The MiniMax-H3-Image skill with its line wraps collapsed."""
+    return " ".join(skill_text(H3_IMAGE_SKILL).split())
+
+
+class TestMiniMaxH3ImageSkill:
+    """#1425: the H3-Image skill's numbers are the diffusers modular blocks'
+    (the six-step grid, the minimum generation area, the 32-pixel canvas),
+    its costs are the templates', and it routes a host that cannot run it to
+    Klein before any template is named."""
+
+    def test_the_step_count_is_the_fixed_sigma_grid_s(self):
+        from diffusers.modular_pipelines.minimax_h3_image import (
+            before_denoise,
+            modular_pipeline,
+        )
+
+        configs = {
+            c.name: c.default
+            for c in before_denoise.MiniMaxH3ImageSetTimestepsStep().expected_configs
+        }
+        # Seven sigmas, the last the terminal zero: six denoise steps.
+        assert len(configs["sample_sigmas"]) - 1 == 6
+        assert "fixed grid of six steps" in inspect.getsource(modular_pipeline)
+        assert "fixed grid of 6 steps" in h3_image_text()
+
+    def test_no_speedup_below_the_pipeline_s_minimum_area(self):
+        from diffusers.modular_pipelines.minimax_h3_image import before_denoise
+
+        defaults = {
+            p.name: p.default
+            for p in before_denoise.MiniMaxH3ImagePrepareCanvasStep().inputs
+        }
+        assert defaults["min_generation_area"] == 4194304 == 2048 * 2048
+        text = h3_image_text()
+        assert "4,194,304 pixels (2048x2048)" in text
+        assert "No speedup below 2048x2048" in text
+
+    def test_the_canvas_is_the_pipeline_s_multiple_of_32(self):
+        from diffusers.modular_pipelines.minimax_h3_image import before_denoise
+
+        assert "multiples of 32" in inspect.getsource(before_denoise)
+        assert "multiples of 32" in h3_image_text()
+
+    def test_the_costs_are_the_templates(self):
+        text = h3_image_text()
+        for name in ("text-to-image", "multi-reference"):
+            path = os.path.join(
+                REPO_ROOT, "workflows", "templates", "minimax-h3-image", f"{name}.json"
+            )
+            with open(path) as handle:
+                template = json.load(handle)
+            assert f"`templates/minimax-h3-image/{name}`" in text
+            assert f"{name} {template['cost'][0]['minutes']} min" in text
+            assert template["host_ram_gb"] == 64
+        assert "`host_ram_gb: 64`" in text
+
+    def test_the_host_ram_rules_and_the_klein_route(self):
+        text = h3_image_text()
+        for phrase in ("70 GB", "64 GB", "120 GB", "117 GB", "`plan.host_memory`"):
+            assert phrase in text, phrase
+        assert "`host_ram_gb`" in text and "`flux3-klein`" in text
+
+    def test_the_skill_starts_with_the_server(self):
+        text = h3_image_text()
+        assert text.index("get_server_info") < text.index("list_workflows")
+        assert text.index("get_server_info") < text.index("templates/minimax-h3-image/")
+
+    def test_references_are_one_based_and_the_still_goes_to_h3_as_output(self):
+        text = h3_image_text()
+        assert "`<Picture 1>`" in text and "`<ref_image_0>`" in text
+        assert "`output:<path from get_job>`" in text
+        for template in ("image-to-video", "first-and-last-frame"):
+            assert f"`templates/minimax/{template}`" in text
+
+    def test_the_h3_skill_routes_its_picture_here_or_to_klein(self):
+        flat = " ".join(skill_text(H3_SKILL).split())
+        assert "`minimax-h3-image` skill (CUDA, ~70 GB RAM), else `flux3-klein`" in flat
+
+    def test_storyboard_keeps_board_sheets_on_klein(self):
+        flat = " ".join(
+            skill_text(
+                os.path.join(PLUGIN_DIR, "skills", "storyboard", "SKILL.md")
+            ).split()
+        )
+        assert "`minimax-h3-image`" in flat
+        assert "for a board sheet, it stays on Klein" in flat
+
+
 SCRIPT_SKILL = os.path.join(PLUGIN_DIR, "skills", "script-to-video", "SKILL.md")
 SCRIPT_JOINS = os.path.join(os.path.dirname(SCRIPT_SKILL), "references", "joins.md")
 
@@ -1087,6 +1179,7 @@ CINE_COMPILES = {
     "ltx-2.5": "compile-ltx-2.5.md",
     "kandinsky-6": "compile-kandinsky-6.md",
     "flux3-klein": "compile-flux3-klein.md",
+    "minimax-h3-image": "compile-minimax-h3-image.md",
 }
 
 
@@ -1185,8 +1278,8 @@ class TestCinematographySkill:
         assert "`minimax-music3`" in section
         flat = " ".join(section.split())
         assert (
-            "covers H3, LTX-2.5 and Kandinsky 6 video plus FLUX 3 Klein stills only"
-            in flat
+            "covers H3, LTX-2.5 and Kandinsky 6 video plus FLUX 3 Klein and "
+            "MiniMax-H3-Image stills only" in flat
         )
         assert "do not borrow a table" in flat
 
