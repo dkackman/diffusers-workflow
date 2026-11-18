@@ -856,7 +856,11 @@ def _reference_multipliers(definition, arguments, exponent, base_dir=None):
     from .vram_inheritance import pipeline_steps, pipeline_values
 
     pipelines = pipeline_steps(definition, arguments)
-    all_steps = pipelines
+    # The authored steps, task steps included: a `from_previous_result` names a
+    # `trim_video` task step, which `pipeline_steps` leaves out
+    all_steps = [
+        step for step in (definition.get("steps") or []) if isinstance(step, dict)
+    ] or pipelines
     if not pipelines:
         return 1.0, []
     frames = pipeline_values(definition, "num_frames", arguments)

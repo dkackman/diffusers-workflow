@@ -180,3 +180,42 @@ class TestCost:
         assert "video reference" in reason
         none, _ = reference_scaling(template(), None, template(), None, template())
         assert none == 1.0
+
+
+def with_trim_window(num_frames=22):
+    """The inline copy `cuts.md` recommends: the reference is a `trim_video`
+    task step's result, a step `pipeline_steps` does not list."""
+    definition = with_video("clip124.mp4")
+    pipeline = definition["steps"][0]
+    reference = pipeline["pipeline"]["arguments"]["references"][0]
+    del reference["from_file"]
+    reference["from_previous_result"] = "window"
+    definition["steps"].insert(
+        0,
+        {
+            "name": "window",
+            "task": {
+                "command": "trim_video",
+                "arguments": {
+                    "video": "clip124.mp4",
+                    "start_frame": 0,
+                    "num_frames": num_frames,
+                },
+            },
+        },
+    )
+    return definition
+
+
+class TestTrimWindow:
+    def test_a_trim_video_window_is_priced_by_its_length(self):
+        ratio, reason = reference_scaling(
+            template(), None, with_trim_window(22), None, template()
+        )
+        assert ratio == pytest.approx(1.39, abs=0.05)
+        assert "22 of 124 frames" in reason
+
+    def test_a_donor_without_its_own_exponent_is_priced_by_the_steps_donor(self):
+        # replace-performer, the donor the 1344x768 canvas inherits from
+        donor = json.loads((TEMPLATE.parent / "replace-performer.json").read_text())
+        assert declared_reference_exponent(donor) == 2.0
