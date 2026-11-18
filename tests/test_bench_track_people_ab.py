@@ -81,7 +81,9 @@ def test_the_arms_pair_dino_and_sam3_on_each_fixture():
         assert arm.workflow == WORKFLOW
         assert set(arm.arguments) == {"video", "backend", "threshold"}, arm.name
         backend = arm.arguments["backend"]
-        assert arm.name.startswith({"grounding-dino": "dino-", "sam3": "sam3-"}[backend])
+        assert arm.name.startswith(
+            {"grounding-dino": "dino-", "sam3": "sam3-"}[backend]
+        )
         assert arm.arguments["threshold"] == THRESHOLDS[backend], arm.name
         pairs.setdefault(arm.arguments["video"], set()).add(backend)
     assert set(pairs) == FIXTURES
