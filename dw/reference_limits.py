@@ -254,6 +254,81 @@ def reference_limit_errors(workflow_definition, source_indices=None):
     return errors
 
 
+# Keys that say where a reference's media comes from; every other key is a
+# field of the reference class or an argument of its from_file()
+SOURCE_KEYS = frozenset({"from_file", "from_previous_result"})
+
+
+def _reference_keys(reference):
+    """The keys a reference class takes besides its type and media source: its
+    dataclass fields and the named parameters of its from_file(). None when the
+    class declares neither, which leaves it unchecked."""
+    names = set(getattr(reference, "__dataclass_fields__", None) or ())
+    try:
+        parameters = inspect.signature(reference.from_file).parameters.values()
+    except (AttributeError, TypeError, ValueError):
+        parameters = ()
+    for parameter in parameters:
+        if parameter.kind is inspect.Parameter.VAR_KEYWORD:
+            return None
+        if parameter.kind in (
+            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            inspect.Parameter.KEYWORD_ONLY,
+        ):
+            names.add(parameter.name)
+    return names or None
+
+
+def reference_field_errors(workflow_definition, source_indices=None):
+    """Every reference key its class has no field for, as [{path, message}] (#1428).
+
+    A reference is a dataclass of media, and a key that is neither one of its
+    fields nor a from_file() argument is refused by the run, or - for a
+    from_previous_result - silently dropped. An agent that writes `start_frame`
+    on an H3 video reference means a window, and the reference holds the whole
+    clip. The allowed names are read off the class, never listed here, and only
+    entries whose `reference_type` resolves to a class declaring a media `kind`
+    are looked at.
+    """
+    errors = []
+    for _, _, pipeline, source, where in references.iter_steps(
+        workflow_definition.get("steps"), source_indices, "pipeline"
+    ):
+        arguments = pipeline.get("arguments")
+        if not isinstance(arguments, dict):
+            continue
+        for key, entries in arguments.items():
+            if not isinstance(entries, list):
+                continue
+            for index, entry in enumerate(entries):
+                reference = _reference_class(entry)
+                if not isinstance(getattr(reference, "kind", None), str):
+                    continue
+                allowed = _reference_keys(reference)
+                if allowed is None:
+                    continue
+                for name in entry:
+                    if name == REFERENCE_TYPE_KEY or name in SOURCE_KEYS:
+                        continue
+                    if name in allowed:
+                        continue
+                    errors.append(
+                        {
+                            "path": render_path(
+                                ("steps", source, "pipeline", "arguments", key, index)
+                            ),
+                            "message": (
+                                f"{reference.__name__} has no field '{name}' - it "
+                                f"takes {', '.join(sorted(allowed))}. A reference "
+                                f"holds the whole clip it names; to use a window, "
+                                f"trim it first and build the reference with "
+                                f"from_previous_result{where}."
+                            ),
+                        }
+                    )
+    return errors
+
+
 # The block whose constructor default is the rate a video reference is read at
 VIDEO_SAMPLE_BLOCK = (
     "diffusers.modular_pipelines.minimax_h3.encoders",

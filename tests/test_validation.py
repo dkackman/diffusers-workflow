@@ -190,6 +190,7 @@ ERROR_ORDER = [
     "scalar_results",
     "locations",
     "reference_limits",
+    "reference_fields",
     "reference_length",
     "reference_duration",
     "pipeline_limits",

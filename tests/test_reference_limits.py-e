@@ -1,0 +1,391 @@
+"""Reference limits at validation time, not after a checkpoint load.
+
+MiniMax-H3's ref2va block refuses a reference set that breaks its limits -
+but it does so once the model is up, so a caller who ran the free
+validate_workflow, was quoted eight minutes and acknowledged it found out
+minutes in, from a failed job (#136). The numbers here are never asserted
+against literals of ours: they are read off the diffusers block that
+enforces them, which is the only place they stay correct.
+"""
+
+import json
+
+import pytest
+
+from dw.reference_limits import (
+    REFERENCE_LIMIT_BLOCKS,
+    _limits,
+    reference_limit_errors,
+)
+from dw.workflow import Workflow
+
+H3 = "diffusers.modular_pipelines.minimax_h3"
+IMAGE = f"{H3}.MiniMaxH3ImageReference"
+VIDEO = f"{H3}.MiniMaxH3VideoReference"
+AUDIO = f"{H3}.MiniMaxH3AudioReference"
+
+
+def reference(reference_type, name="x"):
+    return {"reference_type": reference_type, "from_file": f"{name}.bin"}
+
+
+def workflow_with(references):
+    return {
+        "id": "refs",
+        "steps": [
+            {
+                "name": "shot",
+                "pipeline": {
+                    "configuration": {"component_type": "ModularPipeline"},
+                    "from_pretrained_arguments": {
+                        "model_name": "MiniMaxAI/MiniMax-H3",
+                        "workflow": "ref2va",
+                    },
+                    "arguments": {"prompt": "x", "references": references},
+                },
+                "result": {"content_type": "video/mp4"},
+            }
+        ],
+    }
+
+
+def messages(references):
+    return [e["message"] for e in reference_limit_errors(workflow_with(references))]
+
+
+class TestLimitsComeFromDiffusers:
+    def test_the_block_declares_them(self):
+        model_name, per_kind, total = _limits(H3)
+        assert model_name
+        assert set(per_kind) == {"image", "video", "audio"}
+        assert total >= max(per_kind.values())
+
+    def test_an_unknown_family_is_not_checked(self):
+        assert H3 in REFERENCE_LIMIT_BLOCKS
+        assert messages([{"reference_type": "json.JSONDecoder"}]) == []
+
+
+class TestH3ReferenceSets:
+    def test_audio_cannot_be_the_only_reference(self):
+        found = messages([reference(AUDIO)])
+        assert len(found) == 1
+        assert "cannot be used on its own" in found[0]
+
+    def test_audio_paired_with_a_picture_is_fine(self):
+        assert messages([reference(IMAGE), reference(AUDIO)]) == []
+
+    def test_too_many_of_one_kind_is_refused(self):
+        _model, per_kind, _total = _limits(H3)
+        over = per_kind["audio"] + 1
+        found = messages(
+            [reference(IMAGE)] + [reference(AUDIO, f"a{i}") for i in range(over)]
+        )
+        assert len(found) == 1
+        assert f"at most {per_kind['audio']} audio references, got {over}" in found[0]
+
+    def test_the_total_is_refused_too(self):
+        _model, per_kind, total = _limits(H3)
+        found = messages(
+            [reference(IMAGE, f"i{i}") for i in range(per_kind["image"])]
+            + [reference(VIDEO, f"v{i}") for i in range(per_kind["video"])]
+            + [reference(AUDIO, f"a{i}") for i in range(per_kind["audio"])]
+        )
+        assert len(found) == 1
+        assert f"at most {total} references in total" in found[0]
+
+    def test_a_set_at_every_limit_passes(self):
+        _model, per_kind, total = _limits(H3)
+        references = [reference(IMAGE, f"i{i}") for i in range(per_kind["image"])]
+        references += [
+            reference(VIDEO, f"v{i}")
+            for i in range(min(per_kind["video"], total - len(references)))
+        ]
+        assert messages(references) == []
+
+    def test_an_unresolved_reference_is_left_to_another_pass(self):
+        assert messages([{"reference_type": "variable:kind"}]) == []
+        assert messages("variable:references") == []
+        assert messages(["variable:face", "item:"]) == []
+
+
+class TestBareStringReferences:
+    """H3's setup block refuses an entry that is not a reference object, after
+    the load; nothing in dw builds one from a bare string (#1374)."""
+
+    @pytest.mark.parametrize(
+        "entry", ["asset:face.jpg", "output:run/face.png", "previous_result:x", "a.png"]
+    )
+    def test_a_bare_string_is_refused_at_its_index(self, entry):
+        errors = reference_limit_errors(workflow_with([reference(IMAGE), entry]))
+        assert [e["path"] for e in errors] == [
+            "steps[0].pipeline.arguments.references[1]"
+        ]
+        assert "bare string" in errors[0]["message"]
+        assert IMAGE in errors[0]["message"]
+
+    def test_a_pipeline_not_known_to_be_h3_is_not_checked(self):
+        definition = workflow_with(["a.png"])
+        del definition["steps"][0]["pipeline"]["from_pretrained_arguments"]["workflow"]
+        assert reference_limit_errors(definition) == []
+
+
+class TestThroughTheTemplate:
+    """dialogue-short's `shots` entries carry the references, so the error has
+    to name the member and point at the step the author wrote."""
+
+    def _template(self):
+        path = "workflows/templates/minimax/dialogue-short.json"
+        with open(path) as handle:
+            return Workflow(json.load(handle), "outputs", path)
+
+    def test_the_template_itself_validates(self):
+        assert self._template().validation_errors() == []
+
+    def test_an_audio_only_shot_is_refused_before_the_run(self):
+        shots = [
+            {
+                "name": "audio_only",
+                "num_frames": 124,
+                "prompt": "x",
+                "references": [reference(AUDIO)],
+            }
+        ]
+        errors = [
+            e
+            for e in self._template().validation_errors({"shots": shots})
+            # the placeholder file name resolves nowhere, which is its own error
+            if not e["path"].endswith(".from_file")
+        ]
+        assert len(errors) == 1
+        assert errors[0]["path"].endswith("pipeline.arguments.references")
+        assert "shot@audio_only" in errors[0]["message"]
+
+
+class TestVideoReferenceLength:
+    """A video reference shorter than the conditioner needs (#1422). The
+    minimum is read off diffusers' encoder, so the tests ask the module for it
+    rather than writing 13."""
+
+    def chain(self, num_frames, video="clip.mp4", **trim):
+        shot = workflow_with(
+            [
+                {
+                    "reference_type": VIDEO,
+                    "from_previous_result": "window",
+                }
+            ]
+        )
+        trim_step = {
+            "name": "window",
+            "task": {
+                "command": "trim_video",
+                "arguments": {
+                    "video": video,
+                    "start_frame": 0,
+                    "num_frames": num_frames,
+                    **trim,
+                },
+            },
+        }
+        shot["steps"].insert(0, trim_step)
+        return shot
+
+    def run(self, definition, tmp_path, fps=24.0, frames=500):
+        from dw.reference_limits import reference_length_errors
+
+        for name in ("clip.mp4", "short.mp4"):
+            (tmp_path / name).write_bytes(b"")
+
+        def probe(path):
+            return {"kind": "video", "fps": fps, "frame_count": frames}
+
+        return reference_length_errors(definition, None, str(tmp_path), probe=probe)
+
+    def minimum(self):
+        from dw.reference_limits import _minimum_reference_frames
+
+        return _minimum_reference_frames()[2]
+
+    def test_a_short_literal_trim_is_refused(self, tmp_path):
+        found = self.run(self.chain(self.minimum() - 1), tmp_path)
+        assert len(found) == 1
+        assert f"at least {self.minimum()} frames at 24 fps" in found[0]["message"]
+        assert found[0]["path"].endswith("references[0]")
+
+    def test_the_minimum_itself_passes(self, tmp_path):
+        assert self.run(self.chain(self.minimum()), tmp_path) == []
+
+    def test_pad_to_lengthens_the_clip(self, tmp_path):
+        short = self.minimum() - 1
+        assert self.run(self.chain(short, pad_to=self.minimum()), tmp_path) == []
+
+    def test_a_slower_source_is_counted_at_the_pipeline_rate(self, tmp_path):
+        # half the rate: n frames resample to 2n at 24 fps
+        n = self.minimum() // 2 + 1
+        assert self.run(self.chain(n), tmp_path, fps=12.0) == []
+        assert len(self.run(self.chain(n - 2), tmp_path, fps=12.0)) == 1
+
+    def test_a_variable_held_length_is_left_to_the_run(self, tmp_path):
+        assert self.run(self.chain("variable:n"), tmp_path) == []
+
+    def test_a_clip_with_no_known_rate_is_left_alone(self, tmp_path):
+        assert self.run(self.chain(2), tmp_path, fps=None) == []
+
+    def test_a_short_file_reference_is_refused(self, tmp_path):
+        definition = workflow_with(
+            [{"reference_type": VIDEO, "from_file": "short.mp4"}]
+        )
+        assert len(self.run(definition, tmp_path, frames=self.minimum() - 1)) == 1
+        assert self.run(definition, tmp_path, frames=self.minimum()) == []
+
+    def test_images_are_not_measured(self, tmp_path):
+        definition = workflow_with([{"reference_type": IMAGE, "from_file": "a.png"}])
+        assert self.run(definition, tmp_path, frames=1) == []
+
+
+class TestAudioReferenceDuration:
+    """A Pika audio reference outside the setup block's bound (#1427). The
+    bound is read off diffusers, so the tests ask the module for it."""
+
+    PIKA = "diffusers.modular_pipelines.pika_h3_flex"
+    AUDIO = f"{PIKA}.PikaH3FlexAudioReference"
+
+    def bounds(self):
+        from dw.reference_limits import _duration_bounds
+
+        return _duration_bounds(self.PIKA)
+
+    def definition(self, entry, trim=None):
+        shot = workflow_with([entry])
+        if trim is not None:
+            shot["steps"].insert(
+                0,
+                {
+                    "name": "cut",
+                    "task": {
+                        "command": "slice_audio",
+                        "arguments": {"audio": "a.wav", **trim},
+                    },
+                },
+            )
+        return shot
+
+    def run(self, definition, tmp_path, seconds=None, rate=16000):
+        from dw.reference_limits import reference_duration_errors
+
+        (tmp_path / "a.wav").write_bytes(b"")
+
+        def probe(path):
+            return {
+                "kind": "audio",
+                "duration_seconds": seconds,
+                "sample_rate": rate,
+            }
+
+        return reference_duration_errors(definition, None, str(tmp_path), probe=probe)
+
+    def file(self):
+        return {"reference_type": self.AUDIO, "from_file": "a.wav"}
+
+    def test_the_bound_comes_from_diffusers(self):
+        _, low, high = self.bounds()
+        assert (low, high) == (2.0, 15.0)
+
+    def test_a_short_file_is_refused_quoting_the_bound(self, tmp_path):
+        found = self.run(self.definition(self.file()), tmp_path, seconds=1.41)
+        assert len(found) == 1
+        assert "2 to 15 seconds" in found[0]["message"]
+        assert "1.41" in found[0]["message"]
+        assert found[0]["path"].endswith("references[0]")
+
+    def test_a_long_file_is_refused(self, tmp_path):
+        assert len(self.run(self.definition(self.file()), tmp_path, seconds=16)) == 1
+
+    def test_an_eleven_second_file_passes(self, tmp_path):
+        assert self.run(self.definition(self.file()), tmp_path, seconds=11) == []
+
+    def test_a_literal_slice_length_is_measured(self, tmp_path):
+        entry = {"reference_type": self.AUDIO, "from_previous_result": "cut"}
+        short = self.definition(entry, {"duration_seconds": 1.0})
+        assert len(self.run(short, tmp_path, seconds=30)) == 1
+        ok = self.definition(entry, {"duration_seconds": 5.0})
+        assert self.run(ok, tmp_path, seconds=30) == []
+
+    def test_a_variable_held_slice_is_left_to_the_run(self, tmp_path):
+        entry = {"reference_type": self.AUDIO, "from_previous_result": "cut"}
+        held = self.definition(entry, {"duration_seconds": "variable:n"})
+        assert self.run(held, tmp_path, seconds=30) == []
+
+    def test_an_unreadable_length_is_left_to_the_run(self, tmp_path):
+        assert self.run(self.definition(self.file()), tmp_path, seconds=None) == []
+
+    def test_minimax_audio_is_not_bounded(self, tmp_path):
+        entry = {"reference_type": AUDIO, "from_file": "a.wav"}
+        assert self.run(workflow_with([entry]), tmp_path, seconds=1.0) == []
+
+<<<<<<< HEAD
+    def test_an_end_snap_leaves_a_long_slice_to_the_run(self, tmp_path):
+        entry = {"reference_type": self.AUDIO, "from_previous_result": "cut"}
+        snapped = self.definition(
+            entry, {"duration_seconds": 15.5, "end_snap_seconds": 1}
+        )
+        assert self.run(snapped, tmp_path, seconds=30) == []
+        plain = self.definition(entry, {"duration_seconds": 15.5})
+        assert len(self.run(plain, tmp_path, seconds=30)) == 1
+
+    def test_an_end_snap_still_refuses_a_short_slice(self, tmp_path):
+        entry = {"reference_type": self.AUDIO, "from_previous_result": "cut"}
+        short = self.definition(entry, {"duration_seconds": 1.0, "end_snap_seconds": 1})
+        assert len(self.run(short, tmp_path, seconds=30)) == 1
+
+    def test_stop_at_the_end_uses_the_runs_length_rule(self, tmp_path):
+        entry = {"reference_type": self.AUDIO, "from_previous_result": "cut"}
+        stop = self.definition(
+            entry, {"start_seconds": 9, "duration_seconds": 5, "past_end": "stop"}
+        )
+        assert len(self.run(stop, tmp_path, seconds=10)) == 1
+        from dw.task_domains import slice_kept_length
+
+        assert slice_kept_length(100, 90, 50) == 10
+=======
+
+class TestReferenceFields:
+    """A key the reference class has no field for (#1428), read off the class."""
+
+    def found(self, entry):
+        from dw.reference_limits import reference_field_errors
+
+        return reference_field_errors(workflow_with([entry]))
+
+    def test_start_frame_is_refused_at_its_index(self):
+        entry = {**reference(VIDEO), "audio": None, "start_frame": 51}
+        found = self.found(entry)
+        assert len(found) == 1
+        assert found[0]["path"].endswith("references[0]")
+        assert "start_frame" in found[0]["message"]
+
+    def test_any_unknown_name_is_refused(self):
+        found = self.found({**reference(VIDEO), "zz_not_a_field": 1})
+        assert "zz_not_a_field" in found[0]["message"]
+
+    def test_from_previous_result_is_checked_too(self):
+        entry = {"reference_type": VIDEO, "from_previous_result": "w", "bogus": 1}
+        assert len(self.found(entry)) == 1
+
+    def test_real_fields_pass(self):
+        assert self.found({**reference(VIDEO), "audio": None, "fps": 24.0}) == []
+
+    def test_a_plain_reference_passes(self):
+        assert self.found(reference(IMAGE)) == []
+
+    def test_workflow_validation_reports_it(self):
+        entry = {**reference(VIDEO), "start_frame": 51}
+        errors = Workflow(
+            workflow_with([entry]), "outputs", "x.json"
+        ).validation_errors()
+        assert any("start_frame" in str(e) for e in errors)
+
+
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])
+>>>>>>> fix/1428-reference-unknown-keys

@@ -72,6 +72,7 @@ from .previous_results import (
 )
 from .reference_limits import (
     reference_duration_errors,
+    reference_field_errors,
     reference_length_errors,
     reference_limit_errors,
 )
@@ -437,6 +438,11 @@ ERROR_CHECKS = [
     Check(
         "reference_limits",
         lambda c: reference_limit_errors(c.expanded, c.source_indices),
+    ),
+    # A key on a reference its class has no field for (#1428)
+    Check(
+        "reference_fields",
+        lambda c: reference_field_errors(c.expanded, c.source_indices),
     ),
     # An H3 video reference too short for the conditioner: refused after the
     # load, and after the earlier chain steps, otherwise (#1422)
