@@ -561,6 +561,7 @@ unless said.
 | Masked handoff, plain `dialogue` (2026-11-13, after close; #1322) | not measured (SFace .60 at 86 s) | 68 to 85 | no over-sharpening, colour still climbs at seams, a bump at about half the seams |
 | Levelled latent carry, plain `dialogue` (2026-11-13, after close; #1322) | 0.195 | 69 to 67 | no burn on the measures, soft from about 60 s; Don's eye: she becomes progressively glossy. Rejected |
 | Kandinsky S2V 1.0 Lite distilled (spike, outside dw) | SFace 0.71 | 71 to 91 | fails on identity |
+| Kandinsky S2V 1.0 Pro distilled, 4-bit SDNQ, transformer group-offloaded (probe outside dw, 2026-11-18; #1339) | not reached: stopped at the 20 s gate, SFace 0.72 at 19.5 s | +5.4 by 20 s | fails the gate on identity, saturation and sharpness; GPU OOM without offload (21.0 GiB); with offload ~48 GB host RAM and ~36 min/chunk |
 
 **Left open** (follow-up issues): the multi-passage shape run end to end with a cold
 agent (#1311, done 2026-11-14: `narrated-passages-complete.md`); the over-sharpening under the arc keyframes, which the isolating run
