@@ -37,6 +37,14 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **MiniMax-H3-Image as the stills family for H3 video** (#1317, stages
+  #1345, #1424 and #1425), shipped 2026-11-18. It adds
+  `workflows/templates/minimax-h3-image/` (text-to-image and multi-reference,
+  int8, 2048 by default, with a 64 GB warm host-RAM floor and ~120 GB on a cold
+  first run), list-length `min_length`, and the `dw:minimax-h3-image` skill.
+  The skill routes stills that feed H3 clips to H3-Image on a qualifying host;
+  everything else stays on Klein. Costs (2.3 / 2.7 min) are priced on lem's
+  PCIe-x4 cuda:0. `complete/minimax-h3-image-complete.md`.
 - **Kandinsky S2V 1.0 Pro at 4-bit probe** (#1314, stage #1339), closed
   2026-11-18 as a negative bench record. The probe ran in the spike venv,
   because S2V takes a waveform and dw's `fetch_media` has no `audio` branch.
