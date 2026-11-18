@@ -3270,7 +3270,7 @@ No person in any cut is a run-time error ("no person found"). A cut with nobody,
 - **`first_frame`:** each `people` entry records the cut-relative frame where that person first appears (always `0` on `grounding-dino`). The contact sheet adds a tile at each late entrant's first frame.
 - **`threshold`:** defaults to `0.5`, SAM 3's own detection-score default. It is not the same scale as Grounding-DINO's `0.3`, so don't carry a tuned value across backends.
 - **Weights:** `facebook/sam3` is gated on Hugging Face (accept the licence, then `hf auth login`) and is under the SAM License, not Apache; see [ATTRIBUTIONS.md](ATTRIBUTIONS.md). A validate's `downloads_required` lists only `facebook/sam3` on this path.
-- **transformers >= 5.21** is required; an older install is refused with a message naming the installed version. No dependency changes.
+- **transformers >= 5.21** is required. dw's floor is 5.21 (#1405), so a current install has it; an older venv is refused with a message naming the installed version.
 
 ## Object Removal
 
