@@ -413,9 +413,11 @@ cannot carry it past two measured failures. The head-swap LoRA's catalog entry s
 ## track_people: Grounding-DINO against SAM 3 (#1397 stage B, #1405)
 
 The mini-ai arms were run 2026-11-18 on mps (Apple M5 Pro), develop @ c10048cd, in
-workspace `bench`, one after another on one worker. The lem column waits for the lem loop:
-lem's hold on the transformers 5.21 upgrade has not been lifted. Written by
-claude-opus-5-5 (anthropic).
+workspace `bench`, one after another on one worker. The lem arms were run 2026-11-18 on
+cuda (RTX 3090, all six on cuda:0, one after another), develop @ de6fa1a3, with
+transformers 5.23.0, after the floor was raised to 5.21 (Don's ruling, 2026-11-17).
+`facebook/sam3` (6.9 GB) was downloaded before the first sam3 arm, so no wall time includes
+it. Written by claude-opus-5-5 (anthropic).
 
 ### Setup
 
@@ -441,7 +443,9 @@ claude-opus-5-5 (anthropic).
   - *Peak reserved* is the highest `gpu_memory_reserved_mb` in the job's memory events.
     The worker keeps models cached, so from the first sam3 job on, each reading includes
     both backends' resident weights (about 5.3 GB allocated). Read the numbers as
-    host-level, not per-backend.
+    host-level, not per-backend. On lem the three DINO arms ran before SAM 3 was loaded,
+    so its DINO readings are DINO alone, and its SAM 3 readings include DINO's 1.8 GB
+    still cached.
 
 ### The 12 cells
 
@@ -453,31 +457,38 @@ claude-opus-5-5 (anthropic).
 | ep62 pair | sam3 | mini-ai | `9b71cf7e89de` | 0.5 | 2 / 1 | The same figures and boxes within 3 px. The contact sheet is indistinguishable from DINO's. | none in the clip | yes | 608 s | 12.1 GB |
 | ep49 | dino | mini-ai | `8b26b9a32774` | 0.3 | 2 / 1 / 1 | Each cut's figure, plus a small left-edge detection in shot 1 (score 0.40, 0.8% of the frame). | none in the clip | yes | 315 s | 13.9 GB |
 | ep49 | sam3 | mini-ai | `184d68f81c12` | 0.5 | 2 / 1 / 3 | DINO's figures plus the same shot-1 edge detection (0.70). Shot 3 adds two **false entrants**: person-2 at frame 20 (cabinet edge, score 0.501) and person-3 at frame 46 (a photo on the fridge, 0.545). | the two false entrants above | yes | 917 s | 12.4 GB |
-| ep65 dissolve | dino | lem | pending (lem loop) | 0.3 | | | | | | |
-| ep65 dissolve | sam3 | lem | pending (lem loop) | 0.5 | | | | | | |
-| ep62 pair | dino | lem | pending (lem loop) | 0.3 | | | | | | |
-| ep62 pair | sam3 | lem | pending (lem loop) | 0.5 | | | | | | |
-| ep49 | dino | lem | pending (lem loop) | 0.3 | | | | | | |
-| ep49 | sam3 | lem | pending (lem loop) | 0.5 | | | | | | |
+| ep65 dissolve | dino | lem | `e8e7606815c3` | 0.3 | 1 | The same as mini-ai's: the first man's full body until he leaves. Nothing after that. | **missed**: the grey-jacket man has no mask | yes, person-1 is only the first man | 86 s | 5.2 GB |
+| ep65 dissolve | sam3 | lem | `c9e6a2c5da81` | 0.5 | 2 | person-1 matches DINO's. person-2 runs from the edge sliver at frame 10 to the full figure at 5.0 s. | **caught**: person-2, first_frame 10, score 0.644 | yes, one figure per mask through the transition | 219 s | 8.3 GB |
+| ep62 pair | dino | lem | `a1b9e667169d` | 0.3 | 2 / 1 | Both men in the two-shot, and the push-in's man. The boxes are within 3 px of mini-ai's. | none in the clip | yes | 172 s | 5.5 GB |
+| ep62 pair | sam3 | lem | `727f8ab83b45` | 0.5 | 2 / 1 | The same figures as DINO's, with boxes within 3 px. | none in the clip | yes | 409 s | 8.6 GB |
+| ep49 | dino | lem | `c68597460ebc` | 0.3 | 2 / 1 / 1 | Each cut's figure, plus the shot-1 left-edge detection (0.39, 0.8% of the frame). | none in the clip | yes | 244 s | 5.5 GB |
+| ep49 | sam3 | lem | `e9b234e962d1` | 0.5 | 2 / 1 / 3 | DINO's figures plus the same shot-1 edge detection (0.70). Shot 3 adds the same two **false entrants** as mini-ai: person-2 at frame 21 (the left edge, score 0.531) and person-3 at frame 46 (the photo on the fridge, 0.533). | the two false entrants above | yes | 635 s | 8.7 GB |
 
 ### Reading
 
+- **The two hosts agree cell for cell.** Every lem cell finds the same people per cut as
+  its mini-ai cell, with scores within 0.03 and first frames within one frame.
 - **Late entrants.** SAM 3 is the only backend that sees someone who arrives mid-cut.
   DINO detects on each cut's first frame and then propagates, so the ep65 entrant gets no
-  mask. A performer replacement on that clip could not target him.
+  mask, on either host. A performer replacement on that clip could not target him.
 - **Where nobody arrives, the two agree.** On ep62 and ep49 the backends find the same
   people with boxes within a few pixels. SAM 3's scores sit near 0.98, DINO's at
   0.80-0.88.
 - **SAM 3's re-detection catches false entrants as well as real ones.** Both ep49 extras
-  are background, scored just above the 0.5 floor (0.501 and 0.545). A floor of 0.55
-  would have dropped both and kept ep65's real entrant (0.626). That margin rests on
-  three scores from one run each, which is too thin to move the default.
+  are background, scored just above the 0.5 floor: 0.501 and 0.545 on mini-ai, 0.531
+  and 0.533 on lem. A floor of 0.55 would have dropped all four and kept ep65's real
+  entrant (0.626 and 0.644). That margin rests on three moments in two clips, which is
+  too thin to move the default.
 - **Cost on mps.** SAM 3 takes 2.7x (ep62) to 3.4x (ep65) DINO's wall time. Peak
   reserved memory is close: within about 2 GB either way once both are cached.
+- **Cost on cuda.** SAM 3 takes 2.4x (ep62) to 2.6x (ep49) DINO's wall time. It
+  reserves about 3 GB more at peak (8.3-8.7 GB against 5.2-5.5 GB), and 1.8 GB of that is
+  DINO still cached. Both fit on a 24 GB card with room to spare. Against mps, the 3090
+  runs DINO about 1.1-1.3x faster and SAM 3 about 1.5x faster.
 - **The extra threshold run was not used.** The plan allows one more sam3 threshold if
-  the first misses the late entrant. 0.5 caught him, so it was not needed.
+  the first misses the late entrant. 0.5 caught him on both hosts, so it was not needed.
 
-**Recommendation (mini-ai, pending lem's column): keep SAM 3 as an option (`backend:
+**Recommendation (all 12 cells, both hosts): keep SAM 3 as an option (`backend:
 "sam3"`) for clips where someone enters mid-cut, and keep Grounding-DINO as the default.
-SAM 3 matches DINO on every other cut, but costs about 3x the time on mps and adds
-near-floor false entrants that need checking on the contact sheet.**
+SAM 3 matches DINO on every other cut, costs about 2.5x the time on cuda and 3x on mps,
+and adds near-floor false entrants that need checking on the contact sheet.**
