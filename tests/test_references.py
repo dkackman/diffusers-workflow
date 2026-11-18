@@ -117,7 +117,15 @@ def test_references_imports_nothing_from_dw():
         for node in ast.walk(tree)
         if isinstance(node, (ast.Import, ast.ImportFrom))
     ]
-    assert imported == []
+    # The standard library is fine; a dw module is not
+    assert [
+        node
+        for node in imported
+        if isinstance(node, ast.ImportFrom)
+        and (node.level or (node.module or "").split(".")[0] == "dw")
+        or isinstance(node, ast.Import)
+        and any(a.name.split(".")[0] == "dw" for a in node.names)
+    ] == []
 
 
 def test_render_path_writes_a_json_path_the_way_schema_errors_do():
