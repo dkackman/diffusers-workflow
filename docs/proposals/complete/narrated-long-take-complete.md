@@ -567,7 +567,8 @@ unless said.
 agent (#1311, done 2026-11-14: `narrated-passages-complete.md`); the over-sharpening under the arc keyframes, which the isolating run
 (v4 without latent carry, finished after close) traced to latent carry (#1312,
 `bench/records/narrated.md`); split unsample on
-the copied overlap as a burn lever (#1313); Kandinsky S2V Pro at 4-bit (#1314); H3
+the copied overlap as a burn lever (#1313); Kandinsky S2V Pro at 4-bit (#1314, done
+2026-11-18: failed its 20 s gate, not onboarded, `ks2v-pro-probe-complete.md`); H3
 context windows (#1188). #1308's verification on lem is still owed.
 
 **Second close (2026-11-13).** Two handoffs taken from ComfyUI-Continuity were tested on
