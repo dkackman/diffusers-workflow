@@ -862,6 +862,30 @@ workflow.
   `reference-to-video` and `dialogue-short` templates). The `identity-referenced`
   trait in the listing marks the workflows that take one.
 
+### A portrait still that feeds an H3 clip: MiniMax-H3-Image
+
+A cast still or keyframe that will become a MiniMax-H3 clip holds its face
+better in that clip when it comes from MiniMax-H3-Image than from FLUX 3 Klein
+(`bench/records/h3-image.md`). Every other still, board sheets included, stays
+on Klein (`templates/flux3/`).
+
+1. **Check the host first.** `get_server_info`: the family is CUDA-only and
+   declares `host_ram_gb: 64`, so a host under about 70 GB of RAM is refused
+   at validate. A cold first run, on a host without its quantized cache, peaks
+   near 120 GB of host RAM and takes about 38 minutes. Below that, use Klein.
+2. **The still:** `templates/minimax-h3-image/text-to-image` (or
+   `templates/minimax-h3-image/multi-reference` to hold an existing face as
+   `<Picture 1>`). The prompt is a long, complete description, used verbatim;
+   there are no steps, guidance or negative prompt to set, and 1024 is no
+   faster than 2048. Quote `plan.estimate` and the host-RAM floor, and wait for
+   the go-ahead.
+3. **Look at it** with `get_output_image` before spending video time.
+4. **The clip:** a second job, `templates/minimax/image-to-video` (or
+   `first-and-last-frame`), with `image` as an `output:` reference to the
+   still. There is no chained template for the pair.
+
+The `dw:minimax-h3-image` plugin skill carries the costs and failure modes.
+
 ### Erasing versus repainting a masked region
 
 A request to *erase or remove* an object and a request to *put something
