@@ -5,7 +5,7 @@ The plan's fallback path. S2V's text/audio encoder step takes the speech track a
 realization only decodes image and video media (`dw/argument_media.py`), so an
 `asset:` wav reaches the pipeline as a path and fails there. Onboarding needs an
 `audio` media branch; until then the probe runs here, in lem's `~/spikes/ks2v` venv,
-and `bench/arms/ks2v-pro-4bit.json` is the shape it takes in dw once that lands.
+and `bench/arms/ks2v-pro-4bit.json` (workflow `bench/workflows/ks2v-pro-4bit.json`) is the shape it takes in dw once that lands.
 
     python ks2v_pro_probe.py REPO SECONDS SEED OUT.mp4 [--backend sdnq|bnb] [--group-offload]
 

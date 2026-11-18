@@ -839,7 +839,7 @@ verdict (plan Q2), on the four clips above.
 This used the plan's fallback for the waveform case, outside the dw server. S2V's encoder
 step takes `audio` as a 16 kHz mono waveform. dw's argument realization decodes only
 image and video media (`dw/argument_media.py`), so an `asset:` wav reaches the pipeline as
-a path. **Onboarding needs an `audio` media branch.** `bench/arms/ks2v-pro-4bit.json` is
+a path. **Onboarding needs an `audio` media branch.** `bench/arms/ks2v-pro-4bit.json` (workflow `bench/workflows/ks2v-pro-4bit.json`) is
 the dw shape, and it validates. The probe that ran is `bench/ks2v_pro_probe.py`, from
 `lem:~/spikes/ks2v` on the dw venv's interpreter.
 
