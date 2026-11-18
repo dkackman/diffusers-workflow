@@ -1,0 +1,68 @@
+[
+  {
+    "name": "dino-ep65-dissolve",
+    "scene": "s4-montage",
+    "workflow": "track-people-backend-ab.json",
+    "arguments": {
+      "video": "asset:qa-cast/ep65-shot-kf-priya-hal.mp4",
+      "backend": "grounding-dino",
+      "threshold": 0.3
+    },
+    "seed": 0
+  },
+  {
+    "name": "sam3-ep65-dissolve",
+    "scene": "s4-montage",
+    "workflow": "track-people-backend-ab.json",
+    "arguments": {
+      "video": "asset:qa-cast/ep65-shot-kf-priya-hal.mp4",
+      "backend": "sam3",
+      "threshold": 0.5
+    },
+    "seed": 0
+  },
+  {
+    "name": "dino-ep62-pair",
+    "scene": "s4-montage",
+    "workflow": "track-people-backend-ab.json",
+    "arguments": {
+      "video": "asset:qa-cast/ep62-episode.mp4",
+      "backend": "grounding-dino",
+      "threshold": 0.3
+    },
+    "seed": 0
+  },
+  {
+    "name": "sam3-ep62-pair",
+    "scene": "s4-montage",
+    "workflow": "track-people-backend-ab.json",
+    "arguments": {
+      "video": "asset:qa-cast/ep62-episode.mp4",
+      "backend": "sam3",
+      "threshold": 0.5
+    },
+    "seed": 0
+  },
+  {
+    "name": "dino-ep49",
+    "scene": "s4-montage",
+    "workflow": "track-people-backend-ab.json",
+    "arguments": {
+      "video": "asset:qa-cast/ep49-episode.mp4",
+      "backend": "grounding-dino",
+      "threshold": 0.3
+    },
+    "seed": 0
+  },
+  {
+    "name": "sam3-ep49",
+    "scene": "s4-montage",
+    "workflow": "track-people-backend-ab.json",
+    "arguments": {
+      "video": "asset:qa-cast/ep49-episode.mp4",
+      "backend": "sam3",
+      "threshold": 0.5
+    },
+    "seed": 0
+  }
+]

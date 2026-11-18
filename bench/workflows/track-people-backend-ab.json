@@ -1,0 +1,34 @@
+{
+  "id": "BenchTrackPeopleBackendAB",
+  "summary": "track_people on one clip with one backend: Grounding-DINO + SAM2 (the default) or SAM 3 (opt-in).",
+  "description": "#1397 stage B (#1405): the A/B of track_people's two backends. 'video' is the fixture clip, 'backend' the arm (grounding-dino or sam3) and 'threshold' that backend's detection score floor, set explicitly so the record names it (DINO's scale and SAM 3's differ: 0.3 and 0.5 are their defaults). The step writes person-1..N mask videos (white is that person, the source's frame count and size), a numbered contact sheet with one tile per cut and, on sam3, one per late entrant at the frame it first appears, and the people record (first_frame per person).",
+  "variables": {
+    "video": "asset:qa-cast/ep65-shot-kf-priya-hal.mp4",
+    "backend": "grounding-dino",
+    "prompt": "person",
+    "threshold": 0.3,
+    "max_people": 4,
+    "seed": 0
+  },
+  "steps": [
+    {
+      "name": "people",
+      "task": {
+        "command": "track_people",
+        "arguments": {
+          "video": "variable:video",
+          "backend": "variable:backend",
+          "prompt": "variable:prompt",
+          "threshold": "variable:threshold",
+          "max_people": "variable:max_people"
+        }
+      },
+      "result": {
+        "content_type": "video/mp4",
+        "fps": 24,
+        "subfolder": "final",
+        "file_base_name": "people"
+      }
+    }
+  ]
+}
