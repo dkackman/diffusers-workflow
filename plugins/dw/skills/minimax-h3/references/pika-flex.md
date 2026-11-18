@@ -38,8 +38,9 @@ the whole of what Pika makes.
   scheduler: pass no `video_shift`, `audio_shift` or scheduler `shift`, and
   no `lora_alpha` (the adapter runs at scale 1.0).
 - **No guidance**: no `guidance_scale`, no negative prompt.
-- **Cache off.** `cache` defaults to null. MagCache calibration and TST are
-  skipped with a warning on a fixed step-list sampler.
+- **Cache off.** `cache` defaults to null. A `mag` cache (calibrating or
+  not) is dropped and TST skipped, each with a warning, on a fixed step-list
+  sampler: the step runs uncached.
 - **Buckets.** `resolution` is `480p` (832x480, the default) or `768p`
   (1344x768). Other ratios at the same tiers, in multiples of 32, are listed
   in each template's description; pass `width` and `height` for one.

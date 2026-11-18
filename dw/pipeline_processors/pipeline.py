@@ -25,6 +25,7 @@ from .components import (
     load_and_configure_scheduler,
     load_component,
     captured_mag_calibration,
+    drops_step_list_mag_cache,
     stateful_cache_context,
 )
 from .placement import (
@@ -407,8 +408,19 @@ class Pipeline(H3Arguments):
             if sdnq_optimize:
                 apply_sdnq_optimizations(self.pipeline, sdnq_optimize)
 
-            # Enable diffusers built-in cache acceleration on transformer
-            cache_config = get_cache_configuration(self.configuration)
+            # Enable diffusers built-in cache acceleration on transformer. A
+            # mag cache on a fixed step-list sampler is dropped with a warning:
+            # it is keyed on num_inference_steps, which such a sampler does
+            # not take (#1430)
+            cache_config = (
+                None
+                if drops_step_list_mag_cache(
+                    self.configuration.get("cache"),
+                    self.pipeline,
+                    self.pipeline_definition,
+                )
+                else get_cache_configuration(self.configuration)
+            )
             if cache_config is not None:
                 enable_cache_on_transformer(
                     self.pipeline,

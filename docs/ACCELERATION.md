@@ -57,7 +57,7 @@ Magnitude-based skipping with error accumulation:
 | -------- | ------- | ----------- |
 | `mag_ratios` | required unless `calibrate` | Preset name or per-step ratio array - see below |
 | `threshold` | 0.06 | Accumulated error threshold for skipping |
-| `num_inference_steps` | 28 (diffusers) | The transformer forwards the call runs: the pipeline's `num_inference_steps`, except where the scheduler runs fewer (MiniMax-H3 runs one fewer). Set it to match the call. A fixed step-list sampler (Pika H3 Flex) takes none, and MagCache calibration is skipped there |
+| `num_inference_steps` | 28 (diffusers) | The transformer forwards the call runs: the pipeline's `num_inference_steps`, except where the scheduler runs fewer (MiniMax-H3 runs one fewer). Set it to match the call. A fixed step-list sampler (Pika H3 Flex) takes none, and a mag cache is dropped there |
 | `max_skip_steps` | 3 | Max consecutive steps to skip |
 | `retention_ratio` | 0.2 | Fraction of initial steps where skipping is disabled |
 | `calibrate` | false | Measure ratios for a new model instead of skipping - see below |
@@ -77,7 +77,7 @@ For a model with no preset, run once with `"calibrate": true`:
 
 Calibration skips nothing. At the end of the run the ratios appear as a job warning and a `log` event (`get_job`'s `warnings`, `get_job_events`, `export_job`): `MagCache calibration (N steps): [ ... ] — paste into mag_ratios`. While calibrating, the run's own `num_inference_steps` is used, and a mismatch with the cache's is reported as a warning. Paste the array into `mag_ratios`, drop `calibrate`, and set the cache's `num_inference_steps` to the reported `N`, which counts the forwards actually made: MiniMax-H3's scheduler turns N sigmas into N - 1 evaluations, so a 30-step H3 call reports 29 ratios. That N - 1 rule is the H3 scheduler's under `num_inference_steps`, not Pika H3 Flex's step list (next paragraph).
 
-A pipeline whose config fixes a `denoising_step_list` (a distilled sampler that takes no `num_inference_steps`) runs `len - 1` passes, and that count is what the short-schedule warning, progress and cost scaling read. MagCache calibration and TST are keyed on `num_inference_steps`, so on such a pipeline both are skipped with a warning that they are not supported on a fixed step-list sampler (`dw/step_passes.py`).
+A pipeline whose config fixes a `denoising_step_list` (a distilled sampler that takes no `num_inference_steps`) runs `len - 1` passes, and that count is what the short-schedule warning, progress and cost scaling read. MagCache (its ratios and its calibration) and TST are keyed on `num_inference_steps`, so on such a pipeline a `mag` cache is dropped and TST skipped, each with a warning at validate and in the job's warnings that it is not supported on a fixed step-list sampler; the step runs uncached. The short-schedule warning there says to drop the cache, never to run more steps (`dw/step_passes.py`).
 
 A pipeline that runs classifier-free guidance as two passes in separate `cond` and `uncond` cache contexts (Qwen-Image-2.1 with `true_cfg_scale` above 1 and a `negative_prompt`, or the other Qwen-Image pipelines) emits two lists, labeled `[cond]` and `[uncond]`; use the `cond` one. A guidance-distilled pipeline such as Flux, or one that batches both passes into one forward, emits one unlabeled list. A pipeline the cache cannot attach to (see `cache_unsupported` above) reports nothing.
 
