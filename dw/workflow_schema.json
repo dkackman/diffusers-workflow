@@ -175,7 +175,7 @@
                     "minimum": 1
                 },
                 "min_length": {
-                    "description": "For a string value: the fewest characters it may have once surrounding whitespace is dropped (a null counts as empty), so 1 refuses an empty string. Put what to send instead in 'reason' - a Music 3 instrumental is a tag-only lyrics body, not an empty one.",
+                    "description": "For a string value: the fewest characters it may have once surrounding whitespace is dropped. For a list value: the fewest entries it may have. A null counts as empty, so 1 refuses an empty string, an empty list and a null. Put what to send instead in 'reason' - a Music 3 instrumental is a tag-only lyrics body, not an empty one; an edit needs at least one reference image.",
                     "type": "integer",
                     "minimum": 1
                 },

@@ -438,7 +438,12 @@ A string value takes `min_length` instead: the fewest characters it may have
 once surrounding whitespace is dropped, a null counting as empty. Music 3
 refuses an empty lyric only after the model has loaded, so its templates
 declare `"lyrics": {"min_length": 1, "reason": "..."}`, and the `reason`
-says what to send instead (a tag-only body for an instrumental).
+says what to send instead (a tag-only body for an instrumental). A list value
+takes the same `min_length`, counted in entries: an edit with nothing to edit
+is refused at validate rather than at the pipeline, so
+`templates/minimax-h3-image/multi-reference` declares
+`"images": {"min_length": 1, "reason": "..."}` and `images: []` is refused at
+`arguments.images`. A list with no `min_length` is not judged by its length.
 
 `"required": true` marks a variable that has no default. Declare it `null` in
 `variables` and set the flag: a run, or a validation given `arguments`, refuses

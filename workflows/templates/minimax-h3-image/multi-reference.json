@@ -7,7 +7,7 @@
             "device": "cuda",
             "name": "RTX 3090",
             "vram_gb": 24,
-            "minutes": 1.3
+            "minutes": 2.3
         }
     ],
     "cost_drivers": [
@@ -36,6 +36,10 @@
         "seed": 1317
     },
     "variable_constraints": {
+        "images": {
+            "min_length": 1,
+            "reason": "an edit needs at least one reference picture, named <Picture 1> in the prompt; for an image from text alone use templates/minimax-h3-image/text-to-image"
+        },
         "width": {
             "modulus": 32,
             "remainder": 0,

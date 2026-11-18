@@ -231,6 +231,31 @@ The SFace caveat: `analyze_face_drift` compares each sampled frame's face with o
 reference. In a two-person frame, which face it matches isn't controlled. Read the pairs
 as a relative A/B between the arms, not as absolute identity scores.
 
+### The card gap (#1424)
+
+The same recipe ran at very different speeds on lem's two 3090s. Warm denoise passes,
+per card:
+
+| Run | Card | s per pass |
+|---|---|---|
+| t2i (lead) | cuda:0 | 15.1 |
+| edit3 (tester) | cuda:0 | 15.2 |
+| edit3 (lead) | cuda:1 | 8.6 |
+| t2i (tester) | cuda:1 | 4.5 |
+| edit3 re-measure (lead, #1424) `29a738225baa` | cuda:0 | 15.6 |
+
+The cause is the bus. Don's `nvidia-smi` showed cuda:0 on a PCIe x4 link (its maximum is
+x16) and cuda:1 on x16. The block-offloaded transformer streams its weights over that
+link every pass (a 1024 pass is no faster than a 2048 one, above), so the x4 card is
+about half as fast. Any offloaded workload on cuda:0 is slowed the same way, not just
+H3-Image.
+
+Both templates are priced on cuda:0, the slower card. The edit's re-measure at defaults
+on cuda:0 (load run `70ec38298ad7`, 58.2 s load; warm run `29a738225baa`, seed 1318 so
+it missed the step cache) took 132.3 s warm: 32.1 s encode, 94.2 s denoise (first pass
+16.1 s, then 15.6 s each), 3.8 s decode. `cost.minutes` is 2.3, which is 2.2 rounded up.
+The t2i stays at 2.0, its cuda:0 figure. If the link changes, re-measure both.
+
 ### Deviations
 
 - **The warm t2i** used seed 1318, because an identical rerun would have been served

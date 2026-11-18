@@ -789,6 +789,80 @@ class TestANonEmptyString:
         assert violations("", H3) == []
 
 
+# A MiniMax-H3-Image multi-reference `images: []` validated clean (#1424,
+# M-F407 step 4): `min_length` judged strings only. A list is now held to it
+# by its entry count, and a string keeps its rule
+IMAGES = {
+    "min_length": 1,
+    "reason": "an edit needs at least one reference picture",
+}
+
+
+class TestANonEmptyList:
+    @pytest.mark.parametrize("value", [[], None])
+    def test_an_empty_list_or_a_null_is_refused(self, value):
+        assert violations(value, IMAGES) == ["must not be empty"]
+        message = refusal("images", value, IMAGES)
+        assert IMAGES["reason"] in message
+
+    def test_an_empty_list_reads_as_a_list_s_rule(self):
+        message = refusal("images", [], IMAGES)
+        assert "'images' is []" in message
+        assert "a non-empty list" in message
+        assert "string" not in message
+
+    def test_a_list_with_an_entry_is_accepted(self):
+        assert refusal("images", [{"location": "asset:a.png"}], IMAGES) is None
+
+    def test_a_longer_minimum_counts_entries(self):
+        rule = {"min_length": 2}
+        assert violations(["a"], rule) == ["must have at least 2 entries"]
+        assert "a list of at least 2 entries" in refusal("images", ["a"], rule)
+        assert violations(["a", "b"], rule) == []
+
+    def test_a_string_entry_count_is_not_its_length(self):
+        # a list of one blank string has one entry; its text is not judged
+        assert violations([""], IMAGES) == []
+
+    def test_a_string_is_judged_as_before(self):
+        assert violations("", IMAGES) == ["must not be empty"]
+        assert "a non-empty string" in refusal("images", "", IMAGES)
+        assert violations("abc", {"min_length": 5}) == [
+            "must be at least 5 characters"
+        ]
+
+    @pytest.mark.parametrize("rule", [H3, {"reason": "no length rule"}])
+    def test_a_list_with_no_min_length_is_not_judged(self, rule):
+        assert violations([], rule) == []
+        assert refusal("images", [], rule) is None
+
+    def test_the_static_pass_refuses_it_at_the_argument(self):
+        definition = workflow_with({"images": IMAGES}, {"images": ["asset:a.png"]})
+
+        (problem,) = constraint_errors(definition, {"images": []}, supplied={"images"})
+
+        assert problem["path"] == "arguments.images"
+        assert IMAGES["reason"] in problem["message"]
+
+    def test_the_static_pass_refuses_an_empty_stored_default(self):
+        definition = workflow_with({"images": IMAGES}, {"images": []})
+
+        (problem,) = constraint_errors(definition)
+
+        assert problem["path"] == "variables.images"
+
+    def test_the_run_time_pass_refuses_it(self):
+        definition = workflow_with({"images": IMAGES}, {"images": ["asset:a.png"]})
+
+        with pytest.raises(ValueError, match="'images' is \\[\\].*must not be empty"):
+            apply_constraints(definition, {"images": []})
+
+    def test_the_run_time_pass_accepts_a_list_of_one(self):
+        definition = workflow_with({"images": IMAGES}, {"images": ["asset:a.png"]})
+
+        apply_constraints(definition, {"images": ["asset:a.png"]})
+
+
 def music3_lyric_variables(definition):
     """The variables (or list-entry fields) a Music 3 step's `lyrics`
     argument reads, as names."""
