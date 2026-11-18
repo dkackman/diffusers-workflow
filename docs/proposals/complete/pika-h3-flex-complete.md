@@ -144,6 +144,17 @@ sides. Full record: #1316 issuecomment-6962191155; outputs in workspace
   - A second park (no progress) because the Q2 bench, a stage B
     deliverable, had not run; Don sent it to the lead to run.
 - **Stage C (#1344):** none.
+- **Final check (parent, 2026-11-18): 1 bounce, on C-F808.** A plain
+  `cache: {type: "mag"}` on a Pika template validated with only the generic
+  "run >= 20 steps" short-schedule warning (impossible on a fixed 6-pass
+  list), then failed at load in diffusers for missing `mag_ratios` (job
+  `dd25e5d56b04`). Stage A's step-list skip had covered only a *calibrating*
+  MagCache. A build miss, not a plan gap.
+  - **Fix-forward stage #1430:** validate now warns `step_list_unsupported`
+    ("MagCache is not supported on a fixed step-list sampler; the run drops
+    the cache"), reading the step list through `dw/step_passes.py`, and the
+    load drops the cache (`1ec02965`, merged `f1888da2`). Architecture review
+    passed; verified on lem against C-F808 with no bounces.
 
 No `usage:` figures were recorded on the stages, so cost is left out.
 
