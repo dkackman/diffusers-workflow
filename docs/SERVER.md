@@ -654,9 +654,13 @@ The editor's forms come from these; they are just as usable from scripts:
   peak - `basis` is `observed` (the largest committed job peak of this
   machine's successful runs with the same memory key, or the largest job peak
   RSS where none measured it), `fit` (the list-run projection from the
-  workflow's own history, on the same basis) or `declared` (the workflow's
-  `host_ram_gb`, when it is larger than either; `runs` is 0), and the key is
-  absent when there is no figure. `plan` is `null` when
+  workflow's own history, on the same basis), `declared` (the workflow's
+  `host_ram_gb`, when it is larger than either or there is neither; `runs` is
+  0) or `inherited` (no run of its own memory key, no fit and no
+  declaration: the largest peak among this machine's successful runs of the
+  catalog templates that load the same single pipeline identity, each at its
+  default arguments; `runs` counts the runs of the template that gave it), and the key is absent when
+  there is no figure. `plan` is `null` when
   it could not be built; an invalid answer carries no `plan` key.
 
 ## Files and models
