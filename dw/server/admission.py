@@ -40,7 +40,12 @@ from ..vram_estimate import required_vram_gb
 from ..workflow import Workflow, workflow_from_definition, workflow_from_file
 from ..host_memory import host_memory_stats
 from .host_ram_need import host_too_small, projected_peak
-from .deps import ceiling_index, lora_index, server_prompt_library
+from .deps import (
+    ceiling_index,
+    inherited_host_ram,
+    lora_index,
+    server_prompt_library,
+)
 from .job_record import ACK_BOOLEAN, ACK_BOUND, ACK_NONE
 from .outputs import resolution_library
 
@@ -497,7 +502,7 @@ def admit_for(
     )
     if admission.ok:
         admission.host_ram_need = _host_ram_need(
-            state, admission, catalog_name, history_workspace
+            state, admission, catalog_name, history_workspace, workspace
         )
         _refuse_for_small_host(admission)
     return admission
@@ -519,7 +524,7 @@ def _refuse_for_small_host(admission):
         admission.errors.append({"path": "host_ram_gb", "message": message})
 
 
-def _host_ram_need(state, admission, catalog_name, history_workspace):
+def _host_ram_need(state, admission, catalog_name, history_workspace, workspace=None):
     """projected_peak for an admitted request - best effort: a projection
     that fails leaves no figure rather than refusing a request admission
     took."""
@@ -538,13 +543,19 @@ def _host_ram_need(state, admission, catalog_name, history_workspace):
             definition,
             {"variables": candidate.folded_variables(admission.arguments)},
         )
-        return projected_peak(
+        need = projected_peak(
             definition,
             admission.arguments,
             history,
             rows=rows,
             list_entries=entries,
         )
+        if need is None and workspace is not None:
+            # No run of its own key (an inline workflow, or one whose
+            # settings differ): the catalog template of the same pipeline
+            # identity stands in, as for cost and VRAM (#1436)
+            need = inherited_host_ram(state, workspace, definition, history)
+        return need
     except Exception:
         logger.debug("Could not project the job's host-RAM peak", exc_info=True)
         return None

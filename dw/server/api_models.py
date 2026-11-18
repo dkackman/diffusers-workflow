@@ -736,8 +736,10 @@ class PlanHostMemory(ApiModel):
     projected_mb: int = Field(
         description="The host RAM, in MB, this run is projected to hold at its peak."
     )
-    basis: Literal["observed", "fit", "declared"] = Field(
-        description="`observed`: the largest job peak of this machine's successful "
+    basis: Literal["observed", "fit", "declared", "inherited"] = Field(
+        description="`inherited`: an inline workflow with no runs of its own, read "
+        "from the largest peak of this machine's runs of the catalog template that "
+        "loads the same pipeline. `observed`: the largest job peak of this machine's successful "
         "runs with the same pipelines, quantization and offload; `fit`: projected "
         "from this workflow's own runs for the requested list length; `declared`: "
         "the workflow's own `host_ram_gb`, larger than anything observed."

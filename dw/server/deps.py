@@ -505,6 +505,30 @@ def inherited_observed(state, ws, definition, arguments=None, *, card=None):
     }
 
 
+def inherited_host_ram(state, ws, definition, history):
+    """(mb, "inherited", runs) for an inline workflow whose own memory key has
+    no run, read from this machine's runs of the catalog templates that load
+    the same pipeline identity (#1436), or None. The larger peak of the
+    matching templates wins: under-projecting is the failure the host-RAM
+    wait exists to stop. Best effort, like the rest of the projection."""
+    from .host_ram_need import memory_key
+
+    identity = template_identity(definition)
+    if identity is None or history is None:
+        return None
+    best = None
+    for _name, template, _writable in _catalog_listing(state, ws):
+        if not isinstance(template, dict) or template_identity(template) != identity:
+            continue
+        key = memory_key(template)
+        if key is None:
+            continue
+        peaks = history.peaks_for_key(key)
+        if peaks and (best is None or max(peaks) > best[0]):
+            best = (max(peaks), "inherited", len(peaks))
+    return best
+
+
 def server_prompt_library(state):
     """The prompt search path: the library this server writes to, then
     the read-only ones an --examples-dir tree brought with it. A name in
