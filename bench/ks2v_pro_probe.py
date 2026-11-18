@@ -95,8 +95,12 @@ def build(repo, backend, group_offload):
         quantization_config={"transformer": quantization_config(backend)},
     )
     if group_offload:
-        # The transformer streams its blocks from CPU and the encoders stream their
-        # leaves; the components manager's whole-model offload stays off
+        # Only the transformer streams its blocks from CPU. The text/audio encoders
+        # (the Qwen2.5-Omni thinker is a transformers model with no
+        # `enable_group_offload`), CLIP and the VAE stay on the components manager's
+        # whole-model offload. Its default strategy sizes from memory footprints,
+        # which do not describe a group-offloaded model, so this one moves every
+        # other resident model aside before any model loads: one model at a time.
         pipe.transformer.enable_group_offload(
             onload_device=torch.device("cuda"),
             offload_device=torch.device("cpu"),
@@ -104,15 +108,10 @@ def build(repo, backend, group_offload):
             num_blocks_per_group=2,
             use_stream=True,
         )
-        for name in ("text_encoder", "text_encoder_2"):
-            component = getattr(pipe, name, None)
-            if component is not None:
-                component.enable_group_offload(
-                    onload_device=torch.device("cuda"),
-                    offload_device=torch.device("cpu"),
-                    offload_type="leaf_level",
-                )
-        pipe.vae.to("cuda")
+        manager.enable_auto_cpu_offload(
+            device="cuda",
+            offload_strategy=lambda hooks, model_id, model, execution_device: hooks,
+        )
     else:
         manager.enable_auto_cpu_offload(device="cuda", memory_reserve_margin="6GiB")
     pipe.vae.enable_tiling()
