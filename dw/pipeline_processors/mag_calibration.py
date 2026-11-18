@@ -4,7 +4,8 @@
 `captured_mag_calibration` turns diffusers' end-of-run calibration log record
 into job events (#891), and `watching_unfinished_mag_calibration` the ratios a
 call that ran fewer forwards than its schedule left behind (#927), taken before
-the call's reset drops them. Imported by
+the call's reset drops them. `drops_step_list_mag_cache` says when a mag cache
+cannot run at all: on a fixed step-list sampler (#1430). Imported by
 dw/pipeline_processors/components.py, which re-exports the public names for
 dw/pipeline_processors/pipeline.py, and never imports it back.
 """
@@ -171,6 +172,32 @@ def watching_unfinished_mag_calibration(transformer):
     watch = _UnfinishedCalibration(manager)
     watch.install()
     return watch.report, watch.remove
+
+
+def drops_step_list_mag_cache(cache, *pipelines):
+    """Whether a step's `cache` is a MagCache the run must drop (#1430).
+
+    MagCache is keyed on `num_inference_steps`: its `mag_ratios` are per step
+    of that schedule, and without them diffusers refuses the config unless it
+    calibrates, which counts the same steps. A pipeline that fixes a
+    `denoising_step_list` takes neither, so the cache is dropped and the step
+    runs uncached, with the line validate gives (`step_list_unsupported` in
+    dw/acceleration_warnings.py).
+
+    Args:
+        cache: The step configuration's `cache` block, or None.
+        *pipelines: Where the step list may be read: the loaded pipeline and
+            the step's `pipeline` block (dw/step_passes.py).
+
+    Returns:
+        True, after emitting the warning, when the cache is dropped.
+    """
+    if not isinstance(cache, dict) or cache.get("type") != "mag":
+        return False
+    if all(step_list_passes(pipeline) is None for pipeline in pipelines):
+        return False
+    emit_warning(f"MagCache is {STEP_LIST_UNSUPPORTED}; this step runs uncached")
+    return True
 
 
 @contextlib.contextmanager

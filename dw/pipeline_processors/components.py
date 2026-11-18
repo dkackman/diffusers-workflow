@@ -24,6 +24,7 @@ from huggingface_hub.errors import HfHubHTTPError
 from .timing import counting_forwards, report_cache_stats
 from .mag_calibration import (  # noqa: F401 - re-exported for pipeline.py
     captured_mag_calibration,
+    drops_step_list_mag_cache,
     get_cache_transformer,
     watching_unfinished_mag_calibration,
 )

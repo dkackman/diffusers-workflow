@@ -227,6 +227,137 @@ def test_validate_warns_mag_calibration_on_a_step_list():
     assert not [w for w in plain if STEP_LIST_FEATURE in w]
 
 
+def test_validate_warns_any_mag_cache_on_a_step_list():
+    # C-F808: a plain mag cache, no calibrate and no ratios (#1430)
+    from dw.acceleration_warnings import (
+        SHORT_SCHEDULE,
+        STEP_LIST_FEATURE,
+        _cache_warnings,
+    )
+
+    warnings = _cache_warnings(
+        {"type": "mag"}, _accel_pipeline(step_list=SEVEN), "p", "", None
+    )
+    found = [w for w in warnings if STEP_LIST_FEATURE in w]
+    assert len(found) == 1
+    assert "MagCache is " + STEP_LIST_UNSUPPORTED in found[0]
+    assert "drops the cache" in found[0]
+    # The step-list line replaces the short-schedule advice, whose remedy
+    # (more steps) a fixed list cannot take
+    assert not [w for w in warnings if SHORT_SCHEDULE in w]
+    assert not [w for w in warnings if ">= 20" in w]
+
+
+def test_a_mag_cache_without_a_step_list_keeps_its_warnings():
+    from dw.acceleration_warnings import (
+        SHORT_SCHEDULE,
+        STEP_LIST_FEATURE,
+        _cache_warnings,
+    )
+
+    warnings = _cache_warnings({"type": "mag"}, _accel_pipeline(steps=8), "p", "", None)
+    assert not [w for w in warnings if STEP_LIST_FEATURE in w]
+    short = [w for w in warnings if SHORT_SCHEDULE in w]
+    assert len(short) == 1 and "run >= 20 steps" in short[0]
+
+
+def test_short_schedule_on_a_step_list_does_not_advise_more_steps():
+    from dw.acceleration_warnings import SHORT_SCHEDULE, _cache_warnings
+
+    warnings = _cache_warnings(
+        {"type": "first_block"}, _accel_pipeline(step_list=SEVEN), "p", "", None
+    )
+    short = [w for w in warnings if SHORT_SCHEDULE in w]
+    assert len(short) == 1
+    assert "run >=" not in short[0] and "drop the cache" in short[0]
+
+
+def test_validate_warns_mag_on_a_stated_block_config_list():
+    # Where the Pika templates state it: configuration.configs
+    from dw.acceleration_warnings import STEP_LIST_FEATURE, acceleration_warnings
+
+    pipeline = {
+        "configuration": {"cache": {"type": "mag"}, "configs": {STEP_LIST_KEY: SEVEN}},
+        "arguments": {"prompt": "a cat"},
+    }
+    warnings = acceleration_warnings(_expanded_context(pipeline))
+    assert len([w for w in warnings if STEP_LIST_FEATURE in w]) == 1
+
+
+# The run drops a mag cache on a step list (#1430)
+
+
+def test_drops_step_list_mag_cache(monkeypatch):
+    from dw.pipeline_processors import mag_calibration
+
+    warnings = []
+    monkeypatch.setattr(mag_calibration, "emit_warning", warnings.append)
+    drops = mag_calibration.drops_step_list_mag_cache
+    assert drops({"type": "mag"}, StepListPipeline()) is True
+    assert len(warnings) == 1 and STEP_LIST_UNSUPPORTED in warnings[0]
+    # Read from the step's pipeline block when the loaded one carries none
+    block = {"configuration": {"configs": {STEP_LIST_KEY: SEVEN}}}
+    assert drops({"type": "mag"}, PlainPipeline(), block) is True
+    assert drops({"type": "mag", "calibrate": True}, StepListPipeline()) is True
+    warnings.clear()
+    assert drops({"type": "mag"}, PlainPipeline(), {"arguments": {}}) is False
+    assert drops({"type": "first_block"}, StepListPipeline()) is False
+    assert drops(None, StepListPipeline()) is False
+    assert warnings == []
+
+
+class _CachingStepListPipeline(StepListPipeline):
+    def __init__(self):
+        super().__init__()
+        self.transformer = types.SimpleNamespace(enabled=[])
+        self.transformer.enable_cache = self.transformer.enabled.append
+
+
+def _load(component, cache):
+    from unittest.mock import MagicMock, patch
+
+    from dw.pipeline_processors.pipeline import Pipeline
+
+    definition = {
+        "configuration": {
+            "component_type": MagicMock(),
+            "device": "cpu",
+            "no_generator": True,
+            "cache": cache,
+        },
+        "arguments": {},
+    }
+    seen = []
+    context = events.RunContext(on_event=seen.append)
+    token = events.activate_context(context)
+    try:
+        with patch(
+            "dw.pipeline_processors.pipeline.load_component", return_value=component
+        ):
+            Pipeline(definition, 42, "cpu").load({})
+    finally:
+        events.deactivate_context(token)
+    return seen
+
+
+def test_a_step_list_load_runs_a_mag_cache_uncached(all_backends_available):
+    # The real load path and the real MagCacheConfig: unmodified, a mag
+    # cache with no ratios raises from diffusers while loading (C-F808)
+    component = _CachingStepListPipeline()
+    seen = _load(component, {"type": "mag"})
+    assert component.transformer.enabled == []
+    assert any(STEP_LIST_UNSUPPORTED in str(event) for event in seen)
+
+
+def test_without_a_step_list_a_mag_cache_without_ratios_still_fails(
+    all_backends_available,
+):
+    component = _CachingStepListPipeline()
+    component.config = {}
+    with pytest.raises(Exception, match="mag_ratios"):
+        _load(component, {"type": "mag"})
+
+
 def _expanded_context(pipeline):
     return types.SimpleNamespace(
         expanded={"steps": [{"name": "gen", "pipeline": pipeline}]},
