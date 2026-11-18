@@ -8,6 +8,7 @@
       "name": "RTX 3090",
       "vram_gb": 24,
       "minutes": 10.2,
+      "video_reference_exponent": 2.0,
       "scales_with": [
         "render_frames"
       ],

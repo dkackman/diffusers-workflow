@@ -253,8 +253,24 @@ H3-Image.
 Both templates are priced on cuda:0, the slower card. The edit's re-measure at defaults
 on cuda:0 (load run `70ec38298ad7`, 58.2 s load; warm run `29a738225baa`, seed 1318 so
 it missed the step cache) took 132.3 s warm: 32.1 s encode, 94.2 s denoise (first pass
-16.1 s, then 15.6 s each), 3.8 s decode. `cost.minutes` is 2.3, which is 2.2 rounded up.
-The t2i stays at 2.0, its cuda:0 figure. If the link changes, re-measure both.
+16.1 s, then 15.6 s each), 3.8 s decode. That priced the edit at 2.3.
+
+The tester's verify then ran the edit on cuda:0 straight after a load (job
+`6c336a3bfba8`, `load_cached: false`): 216.1 s wall, 55.6 s of it the load, so
+160.5 s = 2.68 min without it, 16.5% over 2.3. The denoise matched (15.8 s a pass). The
+difference was the encode, 41.5 s (33.2 s text, 8.2 s VAE) against 32.1 s, plus ~10 s of
+job start-up and save that the phase sums above leave out. The first text encode after a
+load is slower on cuda:0: 33.4 s in the cold t2i, 37.5 s and 41.9 s for the chain's
+edit, against 22.3 s for a fully warm t2i.
+
+So both templates are priced on a run that has just loaded, less its load:
+- **edit: 2.7**, from `6c336a3bfba8`'s 2.68 min, rounded up;
+- **t2i: 2.3**, built from its phases, not timed: a ~33 s encode after a load, 91.4 s
+  denoise, 3.4 s decode and ~10 s start-up and save, 138 s = 2.3 min. The `models/`
+  entry follows it.
+
+A fully warm run comes in under its price, which isn't a failure. If the link changes,
+re-measure both.
 
 ### Deviations
 

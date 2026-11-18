@@ -36,6 +36,10 @@ An over-the-shoulder needs both characters in the references. Two people in
 one still is the pipeline's weakest case: faces can swap or merge, so check
 both.
 
+The coverage boards stay on Klein. Only a cast still or keyframe that an H3
+shot will open on moves to the `minimax-h3-image` skill (`SKILL.md`, *A board
+as a start frame*).
+
 For `templates/consistent-set` (FLUX.1 Kontext, not Klein), the same idea
 applies as edits of one base picture; it is the older route and its look
 differs from Klein's.

@@ -167,6 +167,13 @@ class JobManager(Dispatcher):
         )
         self._runner.start()
 
+    def queued_count(self):
+        """How many jobs wait for a card - /api/health's `queued`. Read from
+        the in-memory queue: `list()` walks the whole history and every run's
+        note on disk, which stalled health while a job loaded (#1434)."""
+        with self._lock:
+            return len(self._pending)
+
     def running_job_id(self):
         """The oldest running job's id, or None while every card is idle -
         what /api/health reports as `current_job`; `workers()` names each

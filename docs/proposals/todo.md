@@ -37,6 +37,22 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **MiniMax-H3-Image as the stills family for H3 video** (#1317, stages
+  #1345, #1424 and #1425), shipped 2026-11-18. It adds
+  `workflows/templates/minimax-h3-image/` (text-to-image and multi-reference,
+  int8, 2048 by default, with a 64 GB warm host-RAM floor and ~120 GB on a cold
+  first run), list-length `min_length`, and the `dw:minimax-h3-image` skill.
+  The skill routes stills that feed H3 clips to H3-Image on a qualifying host;
+  everything else stays on Klein. Costs (2.3 / 2.7 min) are priced on lem's
+  PCIe-x4 cuda:0. `complete/minimax-h3-image-complete.md`.
+- **Kandinsky S2V 1.0 Pro at 4-bit probe** (#1314, stage #1339), closed
+  2026-11-18 as a negative bench record. The probe ran in the spike venv,
+  because S2V takes a waveform and dw's `fetch_media` has no `audio` branch.
+  Without offload it ran out of GPU memory (21.0 GiB). With the transformer
+  group-offloaded, SDNQ int4 loads, but it needs ~48 GB host RAM and ~36 min a
+  chunk. At 20 s it fails the gate: SFace 0.72, saturation +5.4, Laplacian
+  61-114. So there was no 86 s take and no onboarding:
+  `complete/ks2v-pro-probe-complete.md`.
 - **Pika H3 Flex** (#1316, stages #1342-#1344), shipped 2026-11-17.
   `workflows/templates/pika-h3/` holds six-step t2va, fl2va and ref2va single
   clips. Their weight components come from `MiniMaxAI/MiniMax-H3` through
@@ -60,6 +76,13 @@ remaining deferred fix is recorded in
   the source soundtrack. Each cut can carry its own `seed` and `prompt`, so one
   cut can be re-rolled alone. `mask_grow` stays 1, from the seam bench:
   `complete/performer-replacement-complete.md`.
+- **Visual memory at a cut** (#1398, stages #1401-#1402), closed 2026-11-18
+  as guidance. A 22-frame `trim_video` window from the middle of the
+  establishing shot, passed as an H3 video reference, held all four place and
+  wardrobe markers on the reverse, at 1.35x a pass. The whole previous clip
+  lost the coat, pulled the shot toward the earlier angle, cost 4.4x, and ran
+  out of memory at 1344x768. The lip-copy rule ships as the source's claim:
+  `minimax-h3/references/cuts.md`, `complete/visual-memory-cut-complete.md`.
 - **H3 turbo version vs chain burn** (#1399, stage #1403), closed 2026-11-17
   as a bench record, no gain. lightx2v's fl2v 4step v1.3 burned no less than
   v1.2 on `chained-segments`, and ref2v 8step v1.1 on `chain-video-continuity`

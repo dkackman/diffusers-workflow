@@ -30,10 +30,12 @@ Each of these cost a render to find out in Don's `h3-quality` matrix:
 - `sparse_attention_fallback`: the `sparse` attention backend on a device that
   isn't CUDA. It never fails a run: it falls back to dense attention, so this
   says the speedup is not coming, not that the job will break.
-- `step_list_unsupported`: MagCache calibration or TST on a pipeline whose
-  config fixes a `denoising_step_list` (#1316). Both are keyed on
-  `num_inference_steps`, so the run skips them; the short-schedule check
-  above counts such a pipeline's `len - 1` passes (`dw/step_passes.py`).
+- `step_list_unsupported`: a MagCache (calibrating or not) or TST on a
+  pipeline whose config fixes a `denoising_step_list` (#1316, #1430). Both are
+  keyed on `num_inference_steps`, so the run drops the mag cache and skips
+  TST. The short-schedule check above counts such a pipeline's `len - 1`
+  passes (`dw/step_passes.py`) and never advises more steps there, which a
+  fixed list cannot take; a mag cache gets this warning in its place.
 
 Every one is a warning and never a refusal. A value that cannot be resolved
 before the run (a null variable, an unknown device) leaves its warning
@@ -200,25 +202,32 @@ def _cache_warnings(cache, pipeline, path, where, context, component_type=None):
     cache_type = cache.get("type")
     warnings = []
     steps = _steps(pipeline)
-    if (
+    fixed_list = step_list_passes(pipeline) is not None
+    if cache_type == "mag" and fixed_list:
+        # MagCache is keyed on num_inference_steps (its ratios and its
+        # calibration), which a fixed step list does not take, so the run
+        # drops it (mag_calibration.drops_step_list_mag_cache): that is the
+        # one thing to say about it
+        warnings.append(
+            f"{path}: {STEP_LIST_FEATURE}: MagCache is "
+            f"{STEP_LIST_UNSUPPORTED}{where}; the run drops the cache"
+        )
+    elif (
         cache_type in THRESHOLD_CACHES
         and steps is not None
         and steps < CACHE_MIN_USEFUL_STEPS
     ):
+        # A fixed step list's length is the sampler's: more steps is no
+        # remedy there
+        remedy = (
+            "drop the cache (a fixed step-list sampler's step count cannot change)"
+            if fixed_list
+            else f"drop the cache or run >= {CACHE_MIN_USEFUL_STEPS} steps"
+        )
         warnings.append(
             f"{path}: {SHORT_SCHEDULE}: a '{cache_type}' cache on {steps:g} "
             f"steps will likely skip nothing (consecutive steps differ too much "
-            f"for its threshold) and still perturbs the result{where}; drop the "
-            f"cache or run >= {CACHE_MIN_USEFUL_STEPS} steps"
-        )
-    if (
-        cache_type == "mag"
-        and cache.get("calibrate") is True
-        and step_list_passes(pipeline) is not None
-    ):
-        warnings.append(
-            f"{path}: {STEP_LIST_FEATURE}: MagCache calibration is "
-            f"{STEP_LIST_UNSUPPORTED}{where}; the run skips it"
+            f"for its threshold) and still perturbs the result{where}; {remedy}"
         )
     reason = _cache_unsupported(component_type)
     if reason:

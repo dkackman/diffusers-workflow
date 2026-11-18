@@ -38,7 +38,7 @@ remote setup end to end.
 Claude Code users can add the composition skills with
 `/plugin marketplace add dkackman/diffusers-workflow` then
 `/plugin install dw@diffusers-workflow`: one skill per model family (MiniMax
-H3, MiniMax Music 3, LTX-2.5, Kandinsky 6, FLUX 3 Klein) plus cross-cutting
+H3, MiniMax Music 3, LTX-2.5, Kandinsky 6, FLUX 3 Klein, MiniMax-H3-Image) plus cross-cutting
 skills for scripts, series, cinematography and storyboards. See
 `plugins/dw/README.md`, which also gives the optional
 `npx skills add` lines for MiniMax's own prompt skills. Every tool works

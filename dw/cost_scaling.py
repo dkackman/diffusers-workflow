@@ -823,7 +823,112 @@ def guide_scaling(
     )
 
 
-def _driver_scaling(definition, expanded, list_entries, baseline=None):
+REFERENCE_EXPONENT_KEY = "video_reference_exponent"
+
+
+def declared_reference_exponent(definition):
+    """The `video_reference_exponent` a workflow's `cost` entries declare
+    (#1429): the power a step's cost grows by as a video reference's frames
+    grow against the step's own, `(1 + reference frames / num_frames) ** exponent`
+    times the same step without one. The model's rule, declared by the
+    workflow (the shape and number are its measurements); None when no entry
+    declares a number above 0, and then a video reference is not priced."""
+    entries = definition.get("cost") if isinstance(definition, dict) else None
+    for entry in entries if isinstance(entries, list) else ():
+        value = entry.get(REFERENCE_EXPONENT_KEY) if isinstance(entry, dict) else None
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            continue
+        if math.isfinite(value) and value > 0:
+            return float(value)
+    return None
+
+
+def _reference_multipliers(definition, arguments, exponent, base_dir=None):
+    """(mean cost multiplier over the pipeline steps, [(reference frames,
+    num_frames)] of the steps that carry a video reference of known length).
+    A step's multiplier is `(1 + reference frames / its num_frames) ** exponent`,
+    its frames read from the same reader the 13-frame minimum and the VRAM
+    charge use (`reference_limits.video_reference_frames`); a clip whose length
+    is not known before the run, or a step with no readable `num_frames`, is
+    1.0 - priced as the template, never over-quoted on a guess."""
+    from .media import probe_metadata
+    from .reference_limits import video_reference_frames
+    from .vram_inheritance import pipeline_steps, pipeline_values
+
+    pipelines = pipeline_steps(definition, arguments)
+    # The authored steps, task steps included: a `from_previous_result` names a
+    # `trim_video` task step, which `pipeline_steps` leaves out
+    all_steps = [
+        step for step in (definition.get("steps") or []) if isinstance(step, dict)
+    ] or pipelines
+    if not pipelines:
+        return 1.0, []
+    frames = pipeline_values(definition, "num_frames", arguments)
+    total, found = 0.0, []
+    for index, step in enumerate(pipelines):
+        multiplier = 1.0
+        own = frames[index] if index < len(frames) else None
+        clips = [
+            count
+            for count in video_reference_frames(
+                step["pipeline"], all_steps, base_dir, probe_metadata
+            )
+            if count
+        ]
+        if clips and own:
+            multiplier = (1 + sum(clips) / own) ** exponent
+            found.append((sum(clips), own))
+        total += multiplier
+    return total / len(pipelines), found
+
+
+def reference_scaling(
+    was_definition,
+    was_arguments,
+    now_definition,
+    now_arguments,
+    exponent_from,
+    base_dir=None,
+):
+    """The one rule for a video reference's price (#1429): (ratio, reason) for
+    the run of `now_definition` at `now_arguments` against the one measured as
+    `was_definition`, at the `video_reference_exponent` `exponent_from`
+    declares. A reference's frames are encoded and attended beside the target's
+    every pass, so a step costs `(1 + reference frames / num_frames) ** exponent`
+    times one without, a run the mean of its pipeline steps', and the ratio now's
+    over was's. (1.0, None) when nothing declares an exponent or the multiplier
+    did not move. Called from `_driver_scaling` (the catalog figure) and
+    `dw/server/deps.py` (the inherited one), as `guide_scaling` is."""
+    exponent = declared_reference_exponent(exponent_from)
+    if exponent is None:
+        return 1.0, None
+    was, _ = _reference_multipliers(was_definition, was_arguments, exponent, base_dir)
+    now, found = _reference_multipliers(
+        now_definition, now_arguments, exponent, base_dir
+    )
+    if math.isclose(now, was):
+        return 1.0, None
+    shown = " + ".join(f"{frames} of {own} frames" for frames, own in found)
+    return now / was, (
+        f"video reference {shown} (x{_shown(round(now / was, 2))}, "
+        f"(1 + reference frames / frames) ^ {_shown(exponent)})"
+    )
+
+
+def _conditioning_scaling(definition, defaults, effective, base_dir):
+    """(ratio, reasons) for the rows conditioning a run beside the target's:
+    a guide's (#1426) and a video reference's frames (#1429)."""
+    moved = (
+        guide_scaling(definition, defaults, definition, effective, definition),
+        reference_scaling(
+            definition, defaults, definition, effective, definition, base_dir
+        ),
+    )
+    reasons = [reason for _, reason in moved if reason]
+    return math.prod(ratio for ratio, _ in moved), reasons
+
+
+def _driver_scaling(definition, expanded, list_entries, baseline=None, base_dir=None):
     """How far the declared `cost_drivers` moved the run away from the
     defaults the curated `cost` was measured at, as (factor, axes, unscaled),
     or None when a scalable one moved to a value that is not a number, or a
@@ -894,14 +999,10 @@ def _driver_scaling(definition, expanded, list_entries, baseline=None):
         if reason:
             scaled_axes.append(reason)
         unscaled.extend(chain_unscaled)
-    # A guide's rows are denoised every pass beside the target's (#1426); not
-    # a declared driver, since a guide is usually an argument, not a variable
-    ratio, reason = guide_scaling(
-        definition, defaults, definition, effective, definition
-    )
+    # Not declared drivers: a guide is usually an argument, not a variable
+    ratio, reasons = _conditioning_scaling(definition, defaults, effective, base_dir)
     factor *= ratio
-    if reason:
-        scaled_axes.append(reason)
+    scaled_axes.extend(reasons)
     if baseline is not None:
         # A ratio between two runs: the re-rolls are in both
         return factor, scaled_axes, unscaled

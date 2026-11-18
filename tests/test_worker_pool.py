@@ -580,6 +580,20 @@ class TestHealth:
         assert health["workers"][0]["current_job"] is None
         assert health["worker_alive"] is False
 
+    def test_health_does_not_walk_the_job_history(self, server):  # noqa: F811
+        """#1434: health counts the queue from memory; list() reads history
+        and every run's note from disk and stalled health during a load."""
+        with server(success_script) as client:
+            manager = client.app.state.job_manager
+
+            def boom(*args, **kwargs):
+                raise AssertionError("health must not call list()")
+
+            manager.list = boom
+            health = client.get("/api/health").json()
+
+        assert health["queued"] == 0
+
     def test_two_workers_are_each_reported(self, pool):
         gate_a = Gate()
         a = card(gate_a, "cuda:0", 24)

@@ -23,7 +23,8 @@ H3 generates video and audio together. Every template fits a 24 GB card.
 - **Pinned to a picture**: first frame `templates/minimax/image-to-video`;
   first and last `templates/minimax/first-and-last-frame`; last only
   `templates/minimax/last-frame-only`; a one-line idea plus a picture
-  `templates/minimax/enhance-prompt-with-image`.
+  `templates/minimax/enhance-prompt-with-image`. Draw it with the
+  `minimax-h3-image` skill (CUDA, ~70 GB RAM), else `flux3-klein`.
 - **A locked frame that lip-syncs to a song**: FL2VA with the song held by
   `hold_audio` keeps the first frame's pixels and the mouth follows the track
   (#985; add the argument to `templates/minimax/image-to-video`'s fl2va step).
@@ -51,7 +52,7 @@ H3 generates video and audio together. Every template fits a 24 GB card.
 - **A consistent subject**: `templates/minimax/reference-to-video`
   (image: appearance, audio clip: voice);
   `templates/minimax/composable-references` adds a video reference for
-  framing and camera, at ~3.4x cost;
+  framing and camera, at ~4x (a 22-frame window ~1.4x);
   `templates/minimax/generated-subject-reference` draws the subject with
   Z-Image in the same workflow;
   `templates/minimax/voice-timbre-reference` fixes a voice from Bark.
@@ -86,8 +87,7 @@ H3 generates video and audio together. Every template fits a 24 GB card.
   `audio_duration` is a ceiling, not a length.
 - **Replace a shot's sound**: `templates/video-to-sound-effects` (MMAudio, 7-25 dB hot: `match_levels` first), then `pair_audio`.
 
-If none fits, compose from `list_tasks` (the `workflows` guide's authoring
-section).
+Else compose from `list_tasks` (the `workflows` guide's authoring section).
 
 ## Hard rules
 
@@ -132,7 +132,7 @@ section).
   H3, H3 before a concat), or a warm worker may SIGKILL near the end.
 - Ref2VA limits: at most 9 images, 3 videos, 3 audio clips, 12 files; audio can
   never be the only reference. References are labelled in order.
-- Prompt timestamps span the generated length.
+- Timestamps span the generated length.
 
 ## Prompts
 
@@ -151,7 +151,7 @@ the rules are MiniMax's:
    built-in enhancer writes the format from those guides. Its `idea` is
    framed as `Task: T2VA. Duration: 5.17 seconds. Idea: ...`.
 
-Either way: write the whole script before the first shot. Repeat a speaker's voice description verbatim across shots.
+Write the whole script before the first shot. Repeat a speaker's voice description verbatim across shots.
 Several characters: one cropped reference each, never a group picture (`references/per-character.md`).
 Lines: `references/dialogue.md` (length, what not to name, a line per chain segment). Check a draft: `references/prompt-lint.md`.
 A wanted look (clay, paper): `references/style.md`. Film-term camera or look: the `cinematography` skill.
@@ -161,15 +161,15 @@ A wanted look (clay, paper): `references/style.md`. Film-term camera or look: th
 1. `validate_workflow` first: free, catches rejected arguments.
 2. Quote `plan.estimate` from the validate answer (warm minutes; a first
    load or `downloads_required` is longer). When `basis` is `unknown`,
-   say so and give the shape: a 124-frame turbo clip is a few minutes
-   on a 24 GB card, 345 frames three times that, an image reference twice a
-   turbo clip, a video reference 3.4x again, a chain times its segments.
+   give the shape: a 124-frame turbo clip is a few minutes
+   on 24 GB, 345 frames three times that, an image reference twice a
+   turbo clip, a video reference ~4x again, a chain times its segments.
    Get the go-ahead, then `run_workflow` with `acknowledged_cost` = the
    plan's `{fingerprint, minutes, downloads}`.
 3. `wait_for_job` with `timeout_seconds` = the estimate plus a margin
    (`timeout_capped` says the server's cap cut it; call again while
    `still_running`; on a client "timed out", retry at `timeout_seconds` 60),
-   then `get_job`. Silence is no hang (encode ~6 s img, ~50 s video; 1st
+   `get_job`. Silence is no hang (encode ~6 s img, ~50 s video; 1st
    pass 165-508 s); judge by `denoise_step`
    (`references/watching-a-run.md`). Each entry carries `subfolder`:
    `final` is the deliverable (`episode`, `music_video`, `voyage`),
@@ -186,11 +186,11 @@ A wanted look (clay, paper): `references/style.md`. Film-term camera or look: th
    in that reference. Then `get_gallery_metadata` for duration/audio and hand the
    user the gallery `url`.
 5. After a run worth keeping, `get_job_workflow` and `save_workflow` it;
-   `export_job` bundles it on the server. `auth_required: false` - fetch
+   `export_job` bundles it. `auth_required: false` - fetch
    `open_url` into `exports/` (never a temp dir). `true` - hand `open_url`
    to the person.
 
 ## Sources
 
-Model card, prompt guides, `h3-prompt-writing`, diffusers' pipeline, turbo
-LoRA notes; read 2026-09-07; audit `docs/proposals/audits/2026-09-07-minimax-h3-audit.md`.
+Model card, guides, `h3-prompt-writing`, diffusers, turbo LoRA notes; read
+2026-09-07; audit `docs/proposals/audits/2026-09-07-minimax-h3-audit.md`.

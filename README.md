@@ -40,7 +40,7 @@ taking over in the browser where that is quicker.
 
 | | Ready-made templates |
 |---|---|
-| **Images** | FLUX 3 Klein (text, edits, multi-reference, layout boxes), FLUX.1 / FLUX.2 / Krea, Qwen Image (and edit), Z-Image, SDXL and SD 1.5; ControlNet, IP-Adapter, LoRA, inpaint and outpaint |
+| **Images** | FLUX 3 Klein (text, edits, multi-reference, layout boxes), MiniMax-H3-Image (text, multi-reference edits at up to ~16 MP), FLUX.1 / FLUX.2 / Krea, Qwen Image (and edit), Z-Image, SDXL and SD 1.5; ControlNet, IP-Adapter, LoRA, inpaint and outpaint |
 | **Video with sound** | MiniMax H3 (dialogue, multi-shot cuts, music videos, reference subjects and voices), LTX-2.5 (image-to-video, keyframes, 2x upscale, restore and colourise, alpha mattes), Kandinsky 6 |
 | **Music, speech, sound** | MiniMax Music 3 (sung lyrics or instrumental), Audio8 TTS voice cloning and MMS TTS, MMAudio sound effects from text or under a clip, Whisper transcription |
 | **Longer than one clip** | chained segments that hold the look and audio level across seams, repair of one bad segment in place, music and narration of any length, storyboards and timed animatics, cut-and-score assembly, and an OpenTimelineIO export that DaVinci Resolve opens as one clip per shot |

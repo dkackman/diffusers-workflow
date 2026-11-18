@@ -33,6 +33,7 @@ from ..cost_scaling import (
     CHAIN_LENGTH_DRIVERS,
     chain_segment_scaling,
     guide_scaling,
+    reference_scaling,
     scale_curated,
     matched_chain,
 )
@@ -344,6 +345,17 @@ def _scale_past_template(definition, template, drivers, arguments, per_segment=F
     # A guide the template's runs did not lay in (or did) at the factor the
     # template declares (#1426), the catalog figure's rule
     ratio, reason = guide_scaling(
+        bucket,
+        bucket["variables"],
+        definition,
+        effective_variables(definition, arguments),
+        template,
+    )
+    factor *= ratio
+    if reason:
+        reasons.append(reason)
+    # A video reference's frames, at the exponent the template declares (#1429)
+    ratio, reason = reference_scaling(
         bucket,
         bucket["variables"],
         definition,

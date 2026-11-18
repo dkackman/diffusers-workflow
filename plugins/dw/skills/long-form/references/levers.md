@@ -117,6 +117,9 @@ motion together at 86 s, and nothing is measured past 86 s.
   blurrier and, on one segment, older.
 - **Kandinsky S2V 1.0 Lite distilled** (86 s spike): failed on identity, the
   face drifting to a different, darker one by 85 s.
+- **Kandinsky S2V 1.0 Pro distilled at 4-bit** (20 s gate, outside dw):
+  failed on identity sooner (SFace 0.72 by 20 s), and is too slow on one 24 GB
+  card (it needs the transformer offloaded and ~48 GB host RAM). Not onboarded.
 - **Passages joined as cuts**: the released shape for a piece longer than one
   clean take: one narration for the whole script (`templates/narration-long`
   from one `templates/generate-speech` reference when the user has no voice

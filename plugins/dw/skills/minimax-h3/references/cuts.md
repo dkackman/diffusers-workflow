@@ -162,10 +162,12 @@ their colours.
   character in a purple dress, not the green coat; the 22-frame window (B2)
   kept the coat. That is the case for the window over the whole clip.
 - **Cost, per denoise pass against the same size's control:** a 22-frame
-  window 1.35x (wall 1.36x); the whole clip 4.4x (wall 2.3x to 3.2x), above
-  the ~3.4x quoted for a video reference in `SKILL.md`.
+  window 1.35x (wall 1.36x); the whole clip 4.4x (wall 2.3x to 3.2x). The
+  engine prices a video reference by its length (`video_reference_exponent`,
+  #1429: about 4x and 1.4x on these two), the figures `SKILL.md` quotes.
 - **The whole clip does not fit a 24 GB card at 1344x768** with this
-  offload: B1 ran out of CUDA memory. It ran at 960x544.
+  offload: B1 ran out of CUDA memory (validate now flags it, #1429). It ran
+  at 960x544.
 - **A window cut from the frames just before the cut replays them.** S2,
   given A′'s last 22 frames, opened on those frames for about 1.4 s, then cut
   inside the clip to its own reverse (all four markers held). A window from
@@ -176,10 +178,10 @@ their colours.
 - Take the window from the shot that shows the place best, usually the
   establishing wide, from its middle. Not from the frames next to the cut,
   unless you trim the replay.
-- **22 frames.** dw refuses a video reference under 13 frames at run time
-  ("it must run at least 13 frames at 24 fps"); `validate_workflow` doesn't
-  catch it yet. 22 is the next length on H3's `17n + 5` grid. Start on a
-  multiple of 17.
+- **22 frames.** dw refuses a video reference under 13 frames ("it must run
+  at least 13 frames at 24 fps"), and `validate_workflow` refuses it too, at
+  the reference's path. 22 is the next length on H3's `17n + 5` grid. Start
+  on a multiple of 17.
 - Drop the window's soundtrack (`audio: null`), so the reference carries the
   picture and not the earlier line.
 - It costs one of the 3 video slots (12 files in all).

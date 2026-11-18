@@ -488,9 +488,14 @@ def project_listing(
             if isinstance(slim.get("cost"), list):
                 # `scales_with` is how `plan.estimate` prices a run off the
                 # defaults; the quote carries the answer, so the compact
-                # listing spends no tokens on the rule (#1199)
+                # listing spends no tokens on the rule (#1199); the
+                # reference exponent (#1429) is a pricing rule alike
                 slim["cost"] = [
-                    {k: v for k, v in entry.items() if k != "scales_with"}
+                    {
+                        k: v
+                        for k, v in entry.items()
+                        if k not in ("scales_with", "video_reference_exponent")
+                    }
                     if isinstance(entry, dict)
                     else entry
                     for entry in slim["cost"]

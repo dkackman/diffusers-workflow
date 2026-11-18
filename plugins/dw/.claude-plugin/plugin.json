@@ -1,6 +1,6 @@
 {
     "name": "dw",
-    "description": "Compose MiniMax H3 video, MiniMax Music 3, LTX-2.5, Kandinsky 6.0 and FLUX 3 Klein workflows over a dw MCP server, cut a multi-episode series from them, direct camera and look in each family's caption format, storyboard a scene before it is filmed, and plan a piece longer than one clip from measured levers: which template fits which shape, the hard rules, cost, and how to judge the output. Prompt format comes from the vendors' own guides.",
+    "description": "Compose MiniMax H3 video, MiniMax Music 3, LTX-2.5, Kandinsky 6.0, FLUX 3 Klein and MiniMax-H3-Image workflows over a dw MCP server, cut a multi-episode series from them, direct camera and look in each family's caption format, storyboard a scene before it is filmed, and plan a piece longer than one clip from measured levers: which template fits which shape, the hard rules, cost, and how to judge the output. Prompt format comes from the vendors' own guides.",
     "version": "0.21.0-alpha.1",
     "author": {
         "name": "Don Kackman"
@@ -11,6 +11,7 @@
         "video",
         "music",
         "minimax-h3",
+        "minimax-h3-image",
         "minimax-music3",
         "ltx-2.5",
         "kandinsky-6",

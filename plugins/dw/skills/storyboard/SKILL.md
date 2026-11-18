@@ -1,6 +1,6 @@
 ---
 name: storyboard
-description: Use when a dw MCP server is connected and the user wants a storyboard - a set of boards (stills) for a scene drawn on FLUX 3 Klein from a character reference, a coverage set of one moment from six camera positions, boards used as the first frames of H3, LTX-2.5 or Kandinsky 6 shots, or a timed animatic of the boards with a scratch voice and music bed before any video is paid for.
+description: Use when a dw MCP server is connected and the user wants a storyboard - a set of boards (stills) for a scene drawn on FLUX 3 Klein from a character reference, a coverage set of one moment from six camera positions, boards used as the first frames of H3, LTX-2.5 or Kandinsky 6 shots (a cast still or keyframe for an H3 shot drawn on MiniMax-H3-Image when the host can run it), or a timed animatic of the boards with a scratch voice and music bed before any video is paid for.
 ---
 
 # Storyboards on a dw server
@@ -15,7 +15,8 @@ from `cinematography`; the shot list's fields from `script-to-video`.
 ## Before anything
 
 1. `get_server_info`: Klein needs a CUDA card (`flux3-klein`'s rules apply:
-   16 steps, no guidance, sides in multiples of 16, gated license).
+   16 steps, no guidance, sides in multiples of 16, gated license). Board
+   sheets, coverage sets and animatic boards stay on Klein.
 2. Boards must be on the server: `keep_output(name, asset_name="boards/<scene>-NN")`
    after each draw. Leave the extension off - the engine adds the file's own
    (Klein writes `.jpg`) - and cite `asset:boards/<scene>-NN.jpg` later.
@@ -55,6 +56,11 @@ the instruction pattern. The eight-board cap holds across the set.
 A board that passes review becomes a shot's first frame. The video family's
 skill picks the template and size; the board must match that size, so resize
 it first rather than letting the pipeline crop a face off.
+
+For an H3 shot, a cast still or keyframe that will be filmed can instead be
+drawn on the `minimax-h3-image` skill when `validate_workflow` passes its
+host-RAM check (CUDA, about 70 GB of host RAM): that skill sizes it for the
+H3 template. On a smaller host, or for a board sheet, it stays on Klein.
 
 | Family | Template | Board goes in |
 | --- | --- | --- |
