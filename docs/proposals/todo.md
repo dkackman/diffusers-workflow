@@ -76,6 +76,14 @@ remaining deferred fix is recorded in
   the source soundtrack. Each cut can carry its own `seed` and `prompt`, so one
   cut can be re-rolled alone. `mask_grow` stays 1, from the seam bench:
   `complete/performer-replacement-complete.md`.
+- **SAM 3 `track_people` backend** (#1397, stages #1404-#1405), shipped
+  2026-11-18. `track_people` takes `backend: "sam3"` (opt-in, gated, SAM
+  License), which detects on every frame of a cut, so a person who enters
+  mid-cut gets a mask. The transformers floor is now 5.21. The 12-cell bench on
+  mini-ai and lem: only SAM 3 caught ep65's late entrant, both backends agreed
+  elsewhere, and SAM 3 cost about 2.5-3x and found two near-floor false
+  entrants on ep49. Grounding-DINO stays the default:
+  `complete/sam3-track-people-complete.md`.
 - **Visual memory at a cut** (#1398, stages #1401-#1402), closed 2026-11-18
   as guidance. A 22-frame `trim_video` window from the middle of the
   establishing shot, passed as an H3 video reference, held all four place and
