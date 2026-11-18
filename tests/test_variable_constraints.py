@@ -855,6 +855,29 @@ class TestANonEmptyList:
         with pytest.raises(ValueError, match="'images' is \\[\\].*must not be empty"):
             apply_constraints(definition, {"images": []})
 
+    def test_a_null_for_a_list_variable_reads_as_a_list_s_rule(self):
+        # #1433: a null has no type, so the variable's stored list default says it
+        definition = workflow_with({"images": IMAGES}, {"images": ["asset:a.png"]})
+
+        (problem,) = constraint_errors(
+            definition, {"images": None}, supplied={"images"}
+        )
+
+        assert problem["path"] == "arguments.images"
+        assert "a non-empty list" in problem["message"]
+        assert "string" not in problem["message"]
+        with pytest.raises(ValueError, match="a non-empty list"):
+            apply_constraints(definition, {"images": None})
+
+    def test_a_null_for_a_string_variable_still_reads_as_a_string(self):
+        definition = workflow_with({"lyrics": LYRICS}, {"lyrics": "[verse]\nla"})
+
+        (problem,) = constraint_errors(
+            definition, {"lyrics": None}, supplied={"lyrics"}
+        )
+
+        assert "a non-empty string" in problem["message"]
+
     def test_the_run_time_pass_accepts_a_list_of_one(self):
         definition = workflow_with({"images": IMAGES}, {"images": ["asset:a.png"]})
 
