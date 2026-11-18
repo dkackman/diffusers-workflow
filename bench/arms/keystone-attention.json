@@ -1,0 +1,38 @@
+[
+  {
+    "name": "keystone-control-early",
+    "scene": "s6-narration",
+    "workflow": "keystone-attention-control-early.json",
+    "arguments": {
+      "seed": 1
+    },
+    "seed": 1
+  },
+  {
+    "name": "keystone-attention-early",
+    "scene": "s6-narration",
+    "workflow": "keystone-attention-early.json",
+    "arguments": {
+      "seed": 1
+    },
+    "seed": 1
+  },
+  {
+    "name": "keystone-control",
+    "scene": "s6-narration",
+    "workflow": "keystone-attention-control.json",
+    "arguments": {
+      "seed": 1
+    },
+    "seed": 1
+  },
+  {
+    "name": "keystone-attention",
+    "scene": "s6-narration",
+    "workflow": "keystone-attention.json",
+    "arguments": {
+      "seed": 1
+    },
+    "seed": 1
+  }
+]
