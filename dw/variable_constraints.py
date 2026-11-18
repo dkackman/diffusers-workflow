@@ -123,6 +123,13 @@ def density_notice(name, value, constraint, siblings):
     )
 
 
+def _declared_value(definition, name):
+    """The workflow's stored value for a variable: what a null is a stand-in
+    for when the refusal has to say which type was wanted."""
+    declared = definition.get("variables")
+    return declared.get(name) if isinstance(declared, dict) else None
+
+
 def declared_constraints(definition):
     """The workflow's constraint block, or {}."""
     constraints = definition.get(CONSTRAINTS_KEY)
@@ -333,13 +340,14 @@ def violations(value, constraint):
     return problems
 
 
-def _accepted(constraint, value=None):
+def _accepted(constraint, value=None, like=None):
     """The rule as a phrase a consumer can act on, which is the half of #96
     that stops the next caller picking 61: the range and the step, together.
-    A `min_length` reads as a list's rule when the value judged is a list."""
+    A `min_length` reads as a list's rule when the value judged is a list, or
+    a null whose declared default (`like`) is one (#1433)."""
     parts = []
     minimum = constraint.get(MIN_LENGTH)
-    if isinstance(value, list):
+    if isinstance(value, list) or (value is None and isinstance(like, list)):
         if minimum == 1:
             parts.append("a non-empty list")
         elif minimum is not None:
@@ -370,7 +378,7 @@ def required_refusal(name, value, constraint):
     return f"'{name}' is required and has no default{because}"
 
 
-def refusal(name, value, constraint):
+def refusal(name, value, constraint, like=None):
     """The one wording every layer uses for a value outside its constraint."""
     missing = required_refusal(name, value, constraint)
     if missing is not None:
@@ -385,19 +393,19 @@ def refusal(name, value, constraint):
     shown = repr(value) if value is None or isinstance(value, str) else value
     return (
         f"'{name}' is {shown}{rounding}, which this workflow does not "
-        f"accept: {'; '.join(problems)}. Accepted: {_accepted(constraint, value)}{because}. "
+        f"accept: {'; '.join(problems)}. Accepted: {_accepted(constraint, value, like)}{because}. "
         f"The rule is declared on the workflow, so it is checked before "
         f"anything loads rather than after the weights are in memory"
     )
 
 
-def checked_refusal(name, value, constraint, arguments):
+def checked_refusal(name, value, constraint, arguments, like=None):
     """`refusal`, except that checking the document (no `arguments`) does not
     judge a required variable's stored null: it has no default to judge
     (#1253)."""
     if arguments is None and required_refusal(name, value, constraint):
         return None
-    return refusal(name, value, constraint)
+    return refusal(name, value, constraint, like)
 
 
 def snap_notice(name, value, constraint):
@@ -441,7 +449,9 @@ def constraint_errors(definition, arguments=None, supplied=()):
             continue
         if name in from_bundle:
             continue
-        message = checked_refusal(name, values[name], constraint, arguments)
+        message = checked_refusal(
+            name, values[name], constraint, arguments, _declared_value(definition, name)
+        )
         if message is None:
             # Either legal, or legal once rounded - a value the workflow
             # rounds is a warning (constraint_warnings), never an error
@@ -596,7 +606,9 @@ def apply_constraints(definition, variables):
         constraint = constraints[name]
         if not isinstance(constraint, dict) or name not in variables:
             continue
-        message = refusal(name, variables[name], constraint)
+        message = refusal(
+            name, variables[name], constraint, _declared_value(definition, name)
+        )
         if message is not None:
             raise ValueError(message)
     # The same refusal for a value sitting in a list entry, where the rule
