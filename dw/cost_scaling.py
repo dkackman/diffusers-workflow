@@ -911,6 +911,19 @@ def reference_scaling(
     )
 
 
+def _conditioning_scaling(definition, defaults, effective, base_dir):
+    """(ratio, reasons) for the rows conditioning a run beside the target's:
+    a guide's (#1426) and a video reference's frames (#1429)."""
+    moved = (
+        guide_scaling(definition, defaults, definition, effective, definition),
+        reference_scaling(
+            definition, defaults, definition, effective, definition, base_dir
+        ),
+    )
+    reasons = [reason for _, reason in moved if reason]
+    return math.prod(ratio for ratio, _ in moved), reasons
+
+
 def _driver_scaling(definition, expanded, list_entries, baseline=None, base_dir=None):
     """How far the declared `cost_drivers` moved the run away from the
     defaults the curated `cost` was measured at, as (factor, axes, unscaled),
@@ -982,21 +995,10 @@ def _driver_scaling(definition, expanded, list_entries, baseline=None, base_dir=
         if reason:
             scaled_axes.append(reason)
         unscaled.extend(chain_unscaled)
-    # A guide's rows are denoised every pass beside the target's (#1426); not
-    # a declared driver, since a guide is usually an argument, not a variable
-    ratio, reason = guide_scaling(
-        definition, defaults, definition, effective, definition
-    )
+    # Not declared drivers: a guide is usually an argument, not a variable
+    ratio, reasons = _conditioning_scaling(definition, defaults, effective, base_dir)
     factor *= ratio
-    if reason:
-        scaled_axes.append(reason)
-    # A video reference's frames ride every pass beside the target's (#1429)
-    ratio, reason = reference_scaling(
-        definition, defaults, definition, effective, definition, base_dir
-    )
-    factor *= ratio
-    if reason:
-        scaled_axes.append(reason)
+    scaled_axes.extend(reasons)
     if baseline is not None:
         # A ratio between two runs: the re-rolls are in both
         return factor, scaled_axes, unscaled
