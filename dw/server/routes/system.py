@@ -507,7 +507,7 @@ def health(request: Request):
         # The longest-running job, as before the pool; `workers` names each
         "current_job": manager.running_job_id(),
         "workers": workers,
-        "queued": sum(1 for j in manager.list() if j["status"] == "queued"),
+        "queued": manager.queued_count(),
         # which machine answered - the thing a remote client cannot
         # otherwise tell apart from a stale tunnel pointed at nothing
         "hostname": socket.gethostname(),
