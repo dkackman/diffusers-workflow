@@ -1,7 +1,7 @@
 """Face table for the Kandinsky S2V Pro gate (#1339), in the 2026-11-12 format.
 
 usage: python -I bench/ks2v_gate.py <yunet.onnx> <sface.onnx> <narration.wav> <sheet.jpg>
-           <times> <label>=<video> ...
+           <times> <label>=<video> ... [--ref <still.jpg>]
 
 <times> is a comma list of seconds (the 2026-11-12 table used 0.5,15,30,45,60,75,85).
 For each video, at each time: SFace cosine to the 0.5 s face, mean HSV saturation of the
@@ -9,6 +9,8 @@ YuNet face crop, and the Laplacian variance of that crop in grey at native scale
 still-mouth bins up to the last sampled time, rounded up: the YuNet mouth box's grey diff per frame
 against the narration's RMS, in half-second bins, flagged when speech > 0.7x its median
 and mouth motion < 0.45x its median. The sheet is one row of face crops per video.
+With --ref, each video also gets an SFace row against that still's face (the input still,
+the reference `face-drift-check` uses).
 """
 
 import sys
@@ -84,34 +86,44 @@ def still_mouth_bins(det, path, wav, until):
 
 
 def main():
-    yunet, sface, wav, sheet = sys.argv[1:5]
-    times = [float(t) for t in sys.argv[5].split(",")]
+    argv = sys.argv[1:]
+    still = None
+    if "--ref" in argv:
+        i = argv.index("--ref")
+        still = argv[i + 1]
+        del argv[i : i + 2]
+    yunet, sface, wav, sheet = argv[0:4]
+    times = [float(t) for t in argv[4].split(",")]
     det = cv2.FaceDetectorYN.create(yunet, "", (320, 320), 0.6)
     rec = cv2.FaceRecognizerSF.create(sface, "")
+    still_feat = None
+    if still is not None:
+        img = cv2.imread(still)
+        still_feat = rec.feature(rec.alignCrop(img, largest(det, img)))
     rows = []
-    for arg in sys.argv[6:]:
+    for arg in argv[5:]:
         label, path = arg.split("=", 1)
         cap = cv2.VideoCapture(path)
         fps = cap.get(cv2.CAP_PROP_FPS)
         frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         f0 = read_at(cap, fps, times[0])
         ref = rec.feature(rec.alignCrop(f0, largest(det, f0)))
-        sim, sat, lap, tiles = [], [], [], []
+        sim, sim_still, sat, lap, tiles = [], [], [], [], []
         for t in times:
             fr = read_at(cap, fps, t)
             f = largest(det, fr) if fr is not None else None
             if f is None:
                 sim.append(np.nan), sat.append(np.nan), lap.append(np.nan)
+                sim_still.append(np.nan)
                 tiles.append(np.zeros((256, 256, 3), np.uint8))
                 continue
             c = crop(fr, f)
-            sim.append(
-                rec.match(
-                    ref,
-                    rec.feature(rec.alignCrop(fr, f)),
-                    cv2.FaceRecognizerSF_FR_COSINE,
+            feat = rec.feature(rec.alignCrop(fr, f))
+            sim.append(rec.match(ref, feat, cv2.FaceRecognizerSF_FR_COSINE))
+            if still_feat is not None:
+                sim_still.append(
+                    rec.match(still_feat, feat, cv2.FaceRecognizerSF_FR_COSINE)
                 )
-            )
             sat.append(cv2.cvtColor(c, cv2.COLOR_BGR2HSV)[..., 1].mean())
             lap.append(
                 cv2.Laplacian(cv2.cvtColor(c, cv2.COLOR_BGR2GRAY), cv2.CV_64F).var()
@@ -127,6 +139,8 @@ def main():
         rows.append(np.hstack(tiles))
         print(f"{label}: {frames} frames at {fps:g} fps ({frames / fps:.2f} s)")
         print("  SFace " + "/".join(f"{v:.2f}" for v in sim))
+        if still_feat is not None:
+            print("  SFace to --ref " + "/".join(f"{v:.2f}" for v in sim_still))
         print("  saturation " + "/".join(f"{v:.1f}" for v in sat))
         print("  Laplacian " + "/".join(f"{v:.0f}" for v in lap))
         print(f"  still-mouth bins {flagged} of {bins}")

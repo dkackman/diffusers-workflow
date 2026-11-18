@@ -987,12 +987,17 @@ This used the plan's fallback for the waveform case, outside the dw server. S2V'
 step takes `audio` as a 16 kHz mono waveform. dw's argument realization decodes only
 image and video media (`dw/argument_media.py`), so an `asset:` wav reaches the pipeline as
 a path. **Onboarding needs an `audio` media branch.** `bench/arms/ks2v-pro-4bit.json` (workflow `bench/workflows/ks2v-pro-4bit.json`) is
-the dw shape, and it validates. The probe that ran is `bench/ks2v_pro_probe.py`, from
-`lem:~/spikes/ks2v` on the dw venv's interpreter.
+the dw shape, and it validates. The probe that ran is `bench/ks2v_pro_probe.py`, run from
+`lem:~/spikes/ks2v` on **the spike venv's interpreter** (`~/spikes/ks2v/venv/bin/python`,
+the 2026-11-12 standalone venv), not the dw server's venv.
 
-- Inputs: `kandinskylab/Kandinsky-S2V-1.0-Pro-distill-Diffusers`, 16 steps, keyframes-v2
-  kf00 with the retimed narration, 768x512, 25 fps, seed 1, cuda:0.
-- diffusers 0.43.0, torch 2.14.1+cu130 (`RECORD` lines in the logs below).
+- Inputs: `kandinskylab/Kandinsky-S2V-1.0-Pro-distill-Diffusers`, 16 steps, 768x512,
+  25 fps, seed 1, cuda:0, with these files from workspace `constitution-walk-3`:
+  - the still: keyframes-v2 kf00, `asset:uploads/bench/keyframes-v2/kf00.jpg`;
+  - the narration: `asset:bench/constitution-narration-retimed.wav`.
+- diffusers 0.43.0, torch 2.14.1+cu130, in the spike venv (`RECORD` lines in the logs
+  below). The dw server on lem reports its own diffusers separately (0.44.0.dev0 at
+  e84bda1c on 2026-11-18). It didn't run this probe.
 - Backend that loaded: **SDNQ int4**, on the first try both times. bnb nf4 was never needed.
 
 ### Attempt 1: 4-bit, encoders on model CPU offload (2026-11-16)
@@ -1042,6 +1047,7 @@ the 2026-11-12 row to within 0.02. Re-run over 0.5/15/.../85 s, it gives keyston
 | at 0.5/5/10/15/19.5 s | moving keystone s1 | arc + latent s1 | S2V Lite distilled | **S2V Pro distilled, 4-bit** |
 |---|---|---|---|---|
 | SFace similarity to first frame | 1/.87/.93/.95/.95 | 1/.91/.85/.91/.92 | 1/.85/.77/.90/.85 | **1/.76/.69/.73/.72** |
+| SFace similarity to kf00 | .93/.86/.92/.95/.94 | .94/.92/.84/.88/.90 | .94/.81/.74/.87/.80 | **.91/.77/.68/.73/.69** |
 | saturation | 105.3/104.8/107.1/100.1/109.7 | 102.6/109.1/115.2/109.5/107.4 | 93.9/88.8/105.2/100.9/107.1 | **92.0/93.2/98.4/97.4/97.4** |
 | face-crop Laplacian variance | 312/208/210/308/305 | 327/285/206/257/375 | 159/66/33/49/51 | **114/96/61/71/94** |
 | still-mouth bins (0-20 s) | 0 of 40 | 0 of 40 | 0 of 41 | 0 of 41 |
@@ -1051,13 +1057,22 @@ Sources:
 - arc + latent s1: run `20261112-040003-f9eb4c89`;
 - Lite distilled: `lem:~/spikes/ks2v/lite-distill-86s-s1.mp4`.
 
-The first three are under `constitution-walk-3/outputs`.
+The two H3 runs are under `constitution-walk-3/outputs`; each uses its `take.1-0.0.mp4`.
+
+The kf00 row comes from the same script run with `--ref` set to kf00 (2026-11-18). That
+run reproduced every other row exactly. kf00 is the reference `face-drift-check` uses. The
+first-frame row's reference, the Pro take's frame 12 (0.5 s), is also on the server as
+`asset:bench/ks2v-pro/pro-gate-20s-ref-0.5s.png`.
+
+Pro files on the server, workspace `constitution-walk-3`:
+- the take: `asset:bench/ks2v-pro/pro-gate-20s-go-s1.mp4`;
+- the contact sheet: `asset:bench/ks2v-pro/pro-gate-20s-faces.jpg`.
 
 ### Gate decision
 
 | threshold | Pro at 20 s | |
 |---|---|---|
-| SFace ≥ 0.88 | 0.72 (19.5 s), never above 0.76 after 0.5 s | **fails** |
+| SFace ≥ 0.88 | 0.72 at 19.5 s, and never above 0.76 after 0.5 s (against kf00: 0.69, never above 0.77) | **fails** |
 | saturation rise ≤ 5 | 92.0 → 97.4, +5.4 | **fails** |
 | Laplacian within the H3 arms' range (206-375, both H3 arms over the same samples) | 61-114 | **fails** |
 
