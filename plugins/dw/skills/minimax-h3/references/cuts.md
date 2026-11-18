@@ -178,10 +178,10 @@ their colours.
 - Take the window from the shot that shows the place best, usually the
   establishing wide, from its middle. Not from the frames next to the cut,
   unless you trim the replay.
-- **22 frames.** dw refuses a video reference under 13 frames at run time
-  ("it must run at least 13 frames at 24 fps"); `validate_workflow` doesn't
-  catch it yet. 22 is the next length on H3's `17n + 5` grid. Start on a
-  multiple of 17.
+- **22 frames.** dw refuses a video reference under 13 frames ("it must run
+  at least 13 frames at 24 fps"), and `validate_workflow` refuses it too, at
+  the reference's path. 22 is the next length on H3's `17n + 5` grid. Start
+  on a multiple of 17.
 - Drop the window's soundtrack (`audio: null`), so the reference carries the
   picture and not the earlier line.
 - It costs one of the 3 video slots (12 files in all).
