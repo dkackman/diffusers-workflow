@@ -162,10 +162,12 @@ their colours.
   character in a purple dress, not the green coat; the 22-frame window (B2)
   kept the coat. That is the case for the window over the whole clip.
 - **Cost, per denoise pass against the same size's control:** a 22-frame
-  window 1.35x (wall 1.36x); the whole clip 4.4x (wall 2.3x to 3.2x), above
-  the ~3.4x quoted for a video reference in `SKILL.md`.
+  window 1.35x (wall 1.36x); the whole clip 4.4x (wall 2.3x to 3.2x). The
+  engine prices a video reference by its length (`video_reference_exponent`,
+  #1429: about 4x and 1.4x on these two), the figures `SKILL.md` quotes.
 - **The whole clip does not fit a 24 GB card at 1344x768** with this
-  offload: B1 ran out of CUDA memory. It ran at 960x544.
+  offload: B1 ran out of CUDA memory (validate now flags it, #1429). It ran
+  at 960x544.
 - **A window cut from the frames just before the cut replays them.** S2,
   given A′'s last 22 frames, opened on those frames for about 1.4 s, then cut
   inside the clip to its own reverse (all four markers held). A window from
