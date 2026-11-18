@@ -431,11 +431,12 @@ def _duration_bounds(module_name):
 
 
 def _slice_seconds(entry, steps, base_dir, probe):
-    """Seconds of an audio reference entry, or None when it cannot be told
+    """(seconds, snapped) of an audio reference entry, or None when it cannot be told
     before the run: a `from_previous_result` naming a `slice_audio` whose
     length is literal (or that runs to a probed source's end), or a
     `from_file` that resolves to a probed audio file."""
     from .probe_paths import resolve_probe_path
+    from .task_domains import slice_kept_length
     from .slice_preflight import _as_number, _requested_region, _source
 
     def probed(value):
@@ -469,11 +470,11 @@ def _slice_seconds(entry, steps, base_dir, probe):
             if args.get("past_end") == "stop":
                 if source is None:
                     return None
-                length = max(min(length, source[0] - start), 0)
-            return length / float(rate)
+                length = slice_kept_length(source[0], start, length)
+            return length / float(rate), bool(args.get("end_snap_seconds"))
         return None
     source = probed(entry.get("from_file"))
-    return source[0] / float(source[1]) if source else None
+    return (source[0] / float(source[1]), False) if source else None
 
 
 def reference_duration_errors(
@@ -505,9 +506,14 @@ def reference_duration_errors(
             if bounds is None:
                 continue
             model_name, low, high = bounds
-            seconds = _slice_seconds(entry, steps, base_dir, probe)
-            if seconds is None:
+            measured = _slice_seconds(entry, steps, base_dir, probe)
+            if measured is None:
                 continue
+            seconds, snapped = measured
+            # An end snap only shortens a slice: a slice already under the
+            # minimum stays under it, one over the maximum may not
+            if snapped:
+                high = float("inf")
             if low - DURATION_SLACK_SECONDS <= seconds <= high + DURATION_SLACK_SECONDS:
                 continue
             errors.append(

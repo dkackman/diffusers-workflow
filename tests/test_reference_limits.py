@@ -326,3 +326,27 @@ class TestAudioReferenceDuration:
     def test_minimax_audio_is_not_bounded(self, tmp_path):
         entry = {"reference_type": AUDIO, "from_file": "a.wav"}
         assert self.run(workflow_with([entry]), tmp_path, seconds=1.0) == []
+
+    def test_an_end_snap_leaves_a_long_slice_to_the_run(self, tmp_path):
+        entry = {"reference_type": self.AUDIO, "from_previous_result": "cut"}
+        snapped = self.definition(
+            entry, {"duration_seconds": 15.5, "end_snap_seconds": 1}
+        )
+        assert self.run(snapped, tmp_path, seconds=30) == []
+        plain = self.definition(entry, {"duration_seconds": 15.5})
+        assert len(self.run(plain, tmp_path, seconds=30)) == 1
+
+    def test_an_end_snap_still_refuses_a_short_slice(self, tmp_path):
+        entry = {"reference_type": self.AUDIO, "from_previous_result": "cut"}
+        short = self.definition(entry, {"duration_seconds": 1.0, "end_snap_seconds": 1})
+        assert len(self.run(short, tmp_path, seconds=30)) == 1
+
+    def test_stop_at_the_end_uses_the_runs_length_rule(self, tmp_path):
+        entry = {"reference_type": self.AUDIO, "from_previous_result": "cut"}
+        stop = self.definition(
+            entry, {"start_seconds": 9, "duration_seconds": 5, "past_end": "stop"}
+        )
+        assert len(self.run(stop, tmp_path, seconds=10)) == 1
+        from dw.task_domains import slice_kept_length
+
+        assert slice_kept_length(100, 90, 50) == 10
