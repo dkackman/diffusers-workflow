@@ -37,6 +37,14 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **Kandinsky S2V 1.0 Pro at 4-bit probe** (#1314, stage #1339), closed
+  2026-11-18 as a negative bench record. The probe ran in the spike venv,
+  because S2V takes a waveform and dw's `fetch_media` has no `audio` branch.
+  Without offload it ran out of GPU memory (21.0 GiB). With the transformer
+  group-offloaded, SDNQ int4 loads, but it needs ~48 GB host RAM and ~36 min a
+  chunk. At 20 s it fails the gate: SFace 0.72, saturation +5.4, Laplacian
+  61-114. So there was no 86 s take and no onboarding:
+  `complete/ks2v-pro-probe-complete.md`.
 - **Pika H3 Flex** (#1316, stages #1342-#1344), shipped 2026-11-17.
   `workflows/templates/pika-h3/` holds six-step t2va, fl2va and ref2va single
   clips. Their weight components come from `MiniMaxAI/MiniMax-H3` through
