@@ -62,7 +62,8 @@ SNAP_FIELDS = ("modulus", "remainder", "min_frames", "max_frames")
 # A string value's rule: its length once surrounding whitespace is dropped.
 # A Music 3 `lyrics: ""` passed validation and failed at run time - the
 # pipeline refuses empty lyrics, and an instrumental is a tag-only body, which
-# the template's own `reason` says (#1199)
+# the template's own `reason` says (#1199). A list value is held to the same
+# rule by its entry count: an edit's `images: []` has nothing to edit (#1424)
 MIN_LENGTH = "min_length"
 # A variable with no default: it is declared `null` and this marks the null as
 # "nothing given", so an omitted value is refused by name rather than by
@@ -280,14 +281,25 @@ def snapped(value, constraint):
 
 
 def _length_violations(value, constraint):
-    """Why a string value breaks a `min_length` rule, as phrases.
+    """Why a string or list value breaks a `min_length` rule, as phrases.
 
-    A null counts as empty: a pipeline handed None for its lyric fails the
-    same way as one handed "". Anything else that is not a string (a list, a
-    number) is not this rule's to judge.
+    A string is measured in characters once surrounding whitespace is
+    dropped, a list in entries. A null counts as empty: a pipeline handed
+    None for its lyric fails the same way as one handed "", and an edit
+    handed no reference images has nothing to edit (#1424: a MiniMax-H3-Image
+    multi-reference `images: []` validated clean). Anything else (a number)
+    is not this rule's to judge.
     """
     minimum = constraint.get(MIN_LENGTH)
-    if minimum is None or not (value is None or isinstance(value, str)):
+    if minimum is None:
+        return []
+    if isinstance(value, list):
+        if len(value) >= minimum:
+            return []
+        if minimum == 1:
+            return ["must not be empty"]
+        return [f"must have at least {minimum} entries"]
+    if not (value is None or isinstance(value, str)):
         return []
     if len((value or "").strip()) >= minimum:
         return []
@@ -321,12 +333,18 @@ def violations(value, constraint):
     return problems
 
 
-def _accepted(constraint):
+def _accepted(constraint, value=None):
     """The rule as a phrase a consumer can act on, which is the half of #96
-    that stops the next caller picking 61: the range and the step, together."""
+    that stops the next caller picking 61: the range and the step, together.
+    A `min_length` reads as a list's rule when the value judged is a list."""
     parts = []
     minimum = constraint.get(MIN_LENGTH)
-    if minimum == 1:
+    if isinstance(value, list):
+        if minimum == 1:
+            parts.append("a non-empty list")
+        elif minimum is not None:
+            parts.append(f"a list of at least {minimum} entries")
+    elif minimum == 1:
         parts.append("a non-empty string")
     elif minimum is not None:
         parts.append(f"a string of at least {minimum} characters")
@@ -367,7 +385,7 @@ def refusal(name, value, constraint):
     shown = repr(value) if value is None or isinstance(value, str) else value
     return (
         f"'{name}' is {shown}{rounding}, which this workflow does not "
-        f"accept: {'; '.join(problems)}. Accepted: {_accepted(constraint)}{because}. "
+        f"accept: {'; '.join(problems)}. Accepted: {_accepted(constraint, value)}{because}. "
         f"The rule is declared on the workflow, so it is checked before "
         f"anything loads rather than after the weights are in memory"
     )

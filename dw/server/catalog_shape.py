@@ -414,11 +414,13 @@ def terse_constraint(rule):
     parts = []
     if rule.get("required"):
         parts.append("required")
+    # `min_length` counts a string's characters or a list's entries (#1424);
+    # the rule alone does not say which, so the phrase names both
     minimum = rule.get("min_length")
     if minimum == 1:
         parts.append("non-empty")
     elif minimum is not None:
-        parts.append(f"{minimum}+ chars")
+        parts.append(f"{minimum}+ chars or entries")
     if rule.get("modulus"):
         parts.append(f"{rule['modulus']}*n+{rule.get('remainder', 0)}")
     low, high = rule.get("min_frames"), rule.get("max_frames")

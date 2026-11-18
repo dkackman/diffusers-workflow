@@ -132,3 +132,24 @@ def test_the_templates_do_not_reach_for_the_prompt_enhancer(path):
     assert "trust_remote_code" not in text
     assert "-PE" not in text
     assert " PE" not in text
+
+
+def _edit_errors(arguments):
+    from dw.workflow import Workflow
+
+    return Workflow(load(EDIT), None, EDIT).validation_errors(arguments)
+
+
+def test_an_empty_images_list_is_refused_at_validate_with_the_reason():
+    # M-F407 step 4: `images: []` validated clean; an edit with no reference
+    # has nothing to edit, and the pipeline would only say so after loading
+    rule = load(EDIT)["variable_constraints"]["images"]
+    errors = [e for e in _edit_errors({"images": []}) if e["path"] == "arguments.images"]
+    assert len(errors) == 1, errors
+    assert "must not be empty" in errors[0]["message"]
+    assert rule["reason"] in errors[0]["message"]
+
+
+def test_one_reference_still_validates():
+    errors = _edit_errors({"images": [{"location": "asset:cast/estela.jpg"}]})
+    assert [e for e in errors if e["path"].startswith("arguments.images")] == []
