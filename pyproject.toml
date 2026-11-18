@@ -45,7 +45,9 @@ dependencies = [
     # BatchEncoding.to(dtype=...) and broke every generate_speech call (#169,
     # #232); later releases only cast a BatchFeature, so the exclusion that
     # release needed is gone with it.
-    "transformers>=5.19.0",
+    # 5.21 is the first release with SAM 3's video classes, which
+    # track_people(backend="sam3") needs (#1405, Don's ruling 2026-11-17).
+    "transformers>=5.21",
     "accelerate>=1.15.0",
     "peft>=0.21.2",
     "safetensors>=0.8.0",
