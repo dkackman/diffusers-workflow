@@ -108,17 +108,34 @@ A still becomes an H3 clip in two jobs, not one chained template:
    are multiples of 32. A different aspect has its subject cropped.
 2. Judge it with `get_output_image` before any video is paid for.
 3. Pass it as `output:<path from get_job>` to the H3 template's `image`
-   (and `last_image` for first-and-last-frame), or `keep_output` it as a
-   cast asset and cite `asset:`. The `minimax-h3` skill picks the H3
-   template and its rules.
+   (and `last_image` for first-and-last-frame). Cite `output:` for this
+   clip even if you also `keep_output` the still as a cast asset for later
+   shots: `asset:` is for a still reused in another job. The `minimax-h3`
+   skill picks the H3 template and its rules.
+
+Quote both jobs before either runs (*Quote, then wait*): one go-ahead
+covers the still and the clip it feeds.
 
 The cast stays one person when every keyframe of a character is a
 multi-reference edit of the same cast still, with the face named as kept.
 
+## Quote, then wait
+
+`validate_workflow` is free; `run_workflow` is not. Before the first
+`run_workflow`, tell the user in a message:
+- `plan.estimate` minutes for each job (the still, and the H3 clip when one
+  follows);
+- the host-RAM floor: about 64 GB held warm, and about 120 GB with a much
+  longer first run when the host has never run it;
+- `plan.host_memory`'s projected peak.
+
+Then end the turn and wait for the user's go-ahead. Never fill in
+`acknowledged_cost` yourself before the user has said yes.
+
 ## Run and judge
 
-`validate_workflow` (free) and quote `plan.estimate`. Then `run_workflow`
-with `acknowledged_cost`, `wait_for_job` and `get_job`. Each template saves
+After the go-ahead, `run_workflow` with `acknowledged_cost`, `wait_for_job`
+and `get_job`. Each template saves
 its still with `subfolder` `final`. In a workflow you compose around it,
 keep that, and mark any scratch step `intermediate`, so
 `list_gallery(subfolder="final")` lists only deliverables. Look at the still
