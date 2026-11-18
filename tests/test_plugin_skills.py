@@ -973,6 +973,26 @@ class TestMiniMaxH3ImageSkill:
         for template in ("image-to-video", "first-and-last-frame"):
             assert f"`templates/minimax/{template}`" in text
 
+    def test_the_clip_cites_output_not_a_kept_asset(self):
+        # The #1425 drill kept the still and cited `asset:`; the plan's
+        # route is `output:` for the clip the still feeds.
+        flat = " ".join(h3_image_text().split())
+        assert "Cite `output:` for this clip" in flat
+        assert "or `keep_output` it as a cast asset and cite `asset:`" not in flat
+
+    def test_the_cost_and_host_floor_are_quoted_before_any_run(self):
+        # The #1425 drill ran both jobs in its first turn with an
+        # `acknowledged_cost` it filled in itself.
+        text = h3_image_text()
+        quote = text[text.index("## Quote, then wait") : text.index("## Run and judge")]
+        for phrase in ("`plan.estimate`", "64 GB", "120 GB", "`plan.host_memory`"):
+            assert phrase in quote, phrase
+        assert "wait for the user's go-ahead" in quote
+        assert "Never fill in `acknowledged_cost` yourself" in " ".join(quote.split())
+        assert text.index("## Quote, then wait") < text.index(
+            "After the go-ahead, `run_workflow`"
+        )
+
     def test_the_h3_skill_routes_its_picture_here_or_to_klein(self):
         flat = " ".join(skill_text(H3_SKILL).split())
         assert "`minimax-h3-image` skill (CUDA, ~70 GB RAM), else `flux3-klein`" in flat
