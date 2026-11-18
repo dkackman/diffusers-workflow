@@ -409,3 +409,75 @@ cannot carry it past two measured failures. The head-swap LoRA's catalog entry s
   (-0.094 face, -8.0 dB), so the verdict does not depend on which picture is used. It is
   kept for the comparison only. The gate rows above are the plan's arm, the scene
   reference.
+
+## track_people: Grounding-DINO against SAM 3 (#1397 stage B, #1405)
+
+The mini-ai arms were run 2026-11-18 on mps (Apple M5 Pro), develop @ c10048cd, in
+workspace `bench`, one after another on one worker. The lem column waits for the lem loop:
+lem's hold on the transformers 5.21 upgrade has not been lifted. Written by
+claude-opus-5-5 (anthropic).
+
+### Setup
+
+- **Workflow.** `bench/workflows/track-people-backend-ab.json`: one `track_people` step
+  with prompt `person`, `max_people` 4, and the backend and threshold set per arm.
+- **Arms.** `bench/arms/track-people-backend-ab.json`. Each arm uses its backend's own
+  default threshold (`DEFAULT_THRESHOLDS`): DINO 0.3, SAM 3 0.5. The scales differ, so
+  equal numbers would not mean an equal bar.
+- **Fixtures.**
+  - **ep65 dissolve.** `asset:qa-cast/ep65-shot-kf-priya-hal.mp4`: 121 frames, one shot.
+    The first man is alone at frame 0. The grey-jacket man enters at the left edge around
+    frame 10 and has taken the frame by about 2.9 s, when the first man is gone.
+  - **ep62 pair.** `asset:qa-cast/ep62-episode.mp4`: 248 frames, 2 cuts. A two-shot,
+    then a push-in on one man.
+  - **ep49.** `asset:qa-cast/ep49-episode.mp4`: 372 frames, 3 cuts, one figure per cut.
+- **Measures.**
+  - *Coverage* is read from the contact sheet and an 8-frame sheet of every `person-N`
+    mask.
+  - *Late entrant* asks whether someone who appears after a cut's first frame gets a
+    mask.
+  - *Holds* asks whether each `person-N` stays one figure through ep65's transition.
+  - *Wall* is the job's finish time minus its start time.
+  - *Peak reserved* is the highest `gpu_memory_reserved_mb` in the job's memory events.
+    The worker keeps models cached, so from the first sam3 job on, each reading includes
+    both backends' resident weights (about 5.3 GB allocated). Read the numbers as
+    host-level, not per-backend.
+
+### The 12 cells
+
+| Fixture | Arm | Host | Job | Threshold | People (per cut) | Coverage | Late entrant | Holds | Wall | Peak reserved |
+|---|---|---|---|---|---|---|---|---|---|---|
+| ep65 dissolve | dino | mini-ai | `7be915401780` | 0.3 | 1 | Full body of the first man until he leaves (about 2.9 s). Nothing after that. | **missed**: the grey-jacket man has no mask | yes, person-1 is only the first man | 94 s | 9.1 GB |
+| ep65 dissolve | sam3 | mini-ai | `fc4db3d061db` | 0.5 | 2 | person-1 matches DINO's. person-2 runs from the edge sliver at frame 10 to the full figure at 5.0 s. | **caught**: person-2, first_frame 10, score 0.626 | yes, one figure per mask through the transition | 320 s | 10.7 GB |
+| ep62 pair | dino | mini-ai | `d27f080d8433` | 0.3 | 2 / 1 | Both men in the two-shot, and the push-in's man. Tight edges. | none in the clip | yes | 222 s | 13.9 GB |
+| ep62 pair | sam3 | mini-ai | `9b71cf7e89de` | 0.5 | 2 / 1 | The same figures and boxes within 3 px. The contact sheet is indistinguishable from DINO's. | none in the clip | yes | 608 s | 12.1 GB |
+| ep49 | dino | mini-ai | `8b26b9a32774` | 0.3 | 2 / 1 / 1 | Each cut's figure, plus a small left-edge detection in shot 1 (score 0.40, 0.8% of the frame). | none in the clip | yes | 315 s | 13.9 GB |
+| ep49 | sam3 | mini-ai | `184d68f81c12` | 0.5 | 2 / 1 / 3 | DINO's figures plus the same shot-1 edge detection (0.70). Shot 3 adds two **false entrants**: person-2 at frame 20 (cabinet edge, score 0.501) and person-3 at frame 46 (a photo on the fridge, 0.545). | the two false entrants above | yes | 917 s | 12.4 GB |
+| ep65 dissolve | dino | lem | pending (lem loop) | 0.3 | | | | | | |
+| ep65 dissolve | sam3 | lem | pending (lem loop) | 0.5 | | | | | | |
+| ep62 pair | dino | lem | pending (lem loop) | 0.3 | | | | | | |
+| ep62 pair | sam3 | lem | pending (lem loop) | 0.5 | | | | | | |
+| ep49 | dino | lem | pending (lem loop) | 0.3 | | | | | | |
+| ep49 | sam3 | lem | pending (lem loop) | 0.5 | | | | | | |
+
+### Reading
+
+- **Late entrants.** SAM 3 is the only backend that sees someone who arrives mid-cut.
+  DINO detects on each cut's first frame and then propagates, so the ep65 entrant gets no
+  mask. A performer replacement on that clip could not target him.
+- **Where nobody arrives, the two agree.** On ep62 and ep49 the backends find the same
+  people with boxes within a few pixels. SAM 3's scores sit near 0.98, DINO's at
+  0.80-0.88.
+- **SAM 3's re-detection catches false entrants as well as real ones.** Both ep49 extras
+  are background, scored just above the 0.5 floor (0.501 and 0.545). A floor of 0.55
+  would have dropped both and kept ep65's real entrant (0.626). That margin rests on
+  three scores from one run each, which is too thin to move the default.
+- **Cost on mps.** SAM 3 takes 2.7x (ep62) to 3.4x (ep65) DINO's wall time. Peak
+  reserved memory is close: within about 2 GB either way once both are cached.
+- **The extra threshold run was not used.** The plan allows one more sam3 threshold if
+  the first misses the late entrant. 0.5 caught him, so it was not needed.
+
+**Recommendation (mini-ai, pending lem's column): keep SAM 3 as an option (`backend:
+"sam3"`) for clips where someone enters mid-cut, and keep Grounding-DINO as the default.
+SAM 3 matches DINO on every other cut, but costs about 3x the time on mps and adds
+near-floor false entrants that need checking on the contact sheet.**
