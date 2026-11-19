@@ -3293,3 +3293,53 @@ class TestReplacePerformerPricesRenderFrames:
         many = plan(template, arguments={"cuts": self._cuts(32, 11)})["estimate"]
         few = plan(template, arguments={"cuts": self._cuts(3, 124)})["estimate"]
         assert many["minutes"] > few["minutes"]
+
+
+class TestACachedComponentFolderIsNotListed:
+    """#1488: a component folder the snapshot holds whole is cached even when
+    the hub's file list names small files a load never fetches."""
+
+    def _snapshot(self, tmp_path):
+        snap = tmp_path / "snap"
+        (snap / "vae").mkdir(parents=True)
+        (snap / "vae" / "config.json").write_text("{}")
+        (snap / "vae" / "model.safetensors").write_bytes(b"x")
+        (snap / "scheduler").mkdir()
+        (snap / "scheduler" / "scheduler_config.json").write_text("{}")
+        (snap / "modular_model_index.json").write_text("{}")
+        return snap
+
+    def test_held_folders_drop_out_despite_unfetched_siblings(
+        self, tmp_path, monkeypatch
+    ):
+        import dw.plan_downloads as pd
+
+        snap = self._snapshot(tmp_path)
+        monkeypatch.setattr(
+            pd,
+            "_cached_file",
+            lambda repo, name, *a, **k: (
+                str(snap / name) if name == "modular_model_index.json" else None
+            ),
+        )
+        extra = [_Sibling("vae/generation_config.json", 1000)]
+        monkeypatch.setattr(pd, "model_info", lambda *a, **k: _Info(extra))
+        assert (
+            pd._components_entry(BASE, None, ["scheduler", "vae"], None, True) is None
+        )
+
+    def test_a_missing_folder_is_still_listed(self, tmp_path, monkeypatch):
+        import dw.plan_downloads as pd
+
+        snap = self._snapshot(tmp_path)
+        monkeypatch.setattr(
+            pd,
+            "_cached_file",
+            lambda repo, name, *a, **k: (
+                str(snap / name) if name == "modular_model_index.json" else None
+            ),
+        )
+        siblings = [_Sibling("tokenizer/vocab.json", GIB)]
+        monkeypatch.setattr(pd, "model_info", lambda *a, **k: _Info(siblings))
+        entry = pd._components_entry(BASE, None, ["vae", "tokenizer"], None, True)
+        assert entry["components"] == ["tokenizer"] and entry["gb"] == 1.0
