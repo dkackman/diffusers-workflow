@@ -37,6 +37,13 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **When a job last used each Hub model** (#1445, stages #1461 and #1462),
+  closed 2026-11-19. dw records the start time of the latest job that named
+  each Hub repo in `model-use.json` under the settings dir. `GET /api/models`
+  and `list_models` rows carry it as `last_job_use`, and the Models page shows
+  it, with the files' atime as a muted "(disk)" fallback. The `get_server_info`
+  summary, local-path loads and redirect following were cut:
+  `complete/model-last-job-use-complete.md`.
 - **Per-shot audio drift figures** (#1442, stage #1464), closed 2026-11-19.
   `analyze_shots` gains report-only `high_share` (energy above 4 kHz) and
   `noise_floor_dbfs` (10th percentile of 50 ms windows) per shot. On the bench

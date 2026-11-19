@@ -203,6 +203,13 @@
   .catalog {
     width: 100%;
   }
+  /* Own ink, not inherited: .panel transitions colour (app.css), so text
+     inheriting it lags a theme switch while the muted lines jump (#1480) */
+  .catalog h4,
+  .name,
+  .description {
+    color: var(--ink);
+  }
   .catalog h4 {
     margin: 0 0 0.25rem;
     font-size: 0.85rem;
