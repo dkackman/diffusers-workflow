@@ -935,6 +935,9 @@ def enhance(
 # carries `query_token_ok`: nothing a browser loads without headers reads
 # the ledger. A default workspace with no root folder reads as holding no
 # requests, and a write is refused with 409 `no_workspace_root`.
+# `{request_id:path}`: the router decodes a percent-encoded '/', so an id
+# like `a/b` (or an empty one) must still match here and meet the ledger's
+# id rule (`validate_ledger_key`), not fall through to a bare 404/405.
 
 
 class RequestWrite(BaseModel):
@@ -984,7 +987,7 @@ def list_requests(request: Request, name: str):
 
 
 @router.get(
-    "/api/workspaces/{name}/requests/{request_id}",
+    "/api/workspaces/{name}/requests/{request_id:path}",
     response_model=LedgerRequest,
     response_model_exclude_unset=True,
 )
@@ -1004,7 +1007,7 @@ def get_request(request: Request, name: str, request_id: str):
 
 
 @router.put(
-    "/api/workspaces/{name}/requests/{request_id}",
+    "/api/workspaces/{name}/requests/{request_id:path}",
     response_model=LedgerRequest,
     response_model_exclude_unset=True,
 )
