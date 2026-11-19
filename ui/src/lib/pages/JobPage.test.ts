@@ -516,6 +516,26 @@ it('shows no card for a job without a device', async () => {
   expect(screen.queryByText(/Card:/)).toBeNull()
 })
 
+it('names what a rerun changed beside "rerun of", value per override in its title', async () => {
+  detail.job = {
+    ...job([]),
+    rerun_of: 'orig1',
+    overrides: { size: 'large', steps: 30 },
+  }
+  render(JobPage, { jobId: 'j1' })
+  await waitFor(() => expect(screen.getByText('orig1')).toBeTruthy())
+  const chip = screen.getByText('changed: size, steps')
+  expect(chip.tagName).toBe('CODE')
+  expect(chip.getAttribute('title')).toBe('size = large\nsteps = 30')
+})
+
+it('shows no changed chip on a rerun without overrides', async () => {
+  detail.job = { ...job([]), rerun_of: 'orig1' }
+  render(JobPage, { jobId: 'j1' })
+  await waitFor(() => expect(screen.getByText('orig1')).toBeTruthy())
+  expect(screen.queryByText(/changed:/)).toBeNull()
+})
+
 const roleJob = (): JobDetail => ({
   ...job([
     { step: 'draft', files: ['draft.png'], role: 'intermediate' },

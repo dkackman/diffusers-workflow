@@ -194,7 +194,11 @@ icon, a finish-alert toggle, the theme toggle, and links to these docs and
   between them (loading, decoding, saving; a model download shows its bytes and rate), its log, and its results as they
   land - finals first, intermediates folded, and a section per
   `result.subfolder` when a step chose one. **Cancel**, **Run again**,
-  **New seed**, and **Export** (gathers the run into the workspace's `exports/` with
+  **New seed**, **Run again with changes…** (a form over every declared
+  variable with this run's values as placeholders; only the fields that differ
+  are sent as the rerun's `arguments`), one button per other value of each
+  `presets` selector the run declares (read from the workflow file as it is now;
+  an inline workflow has none), and **Export** (gathers the run into the workspace's `exports/` with
   `POST /api/jobs/{id}/export` and downloads the zip - the same bundle as
   MCP's `export_job`; replacing an existing export asks first). An `.otioz`
   among the results is drawn as a timeline strip (clips sized by duration, gaps

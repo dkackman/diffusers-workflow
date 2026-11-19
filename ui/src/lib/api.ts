@@ -182,12 +182,25 @@ export const api = {
     request<JobWorkflow>(`/api/jobs/${id}/workflow`),
   /** Queue the job again. `newSeed` draws a fresh seed into the workflow's
    * seed variable; without it the arguments repeat exactly, which the step
-   * cache serves from the earlier run rather than generating anything. */
-  rerunJob: (id: string, newSeed = false) =>
+   * cache serves from the earlier run rather than generating anything.
+   * `arguments` override the run's own, and are sent only when there are
+   * some - the server stores them as the rerun's `overrides` exactly as
+   * sent, so they must be only what changed. */
+  rerunJob: (
+    id: string,
+    {
+      newSeed = false,
+      arguments: overrides,
+    }: { newSeed?: boolean; arguments?: Record<string, unknown> } = {},
+  ) =>
     request<JobDetail>(`/api/jobs/${id}/rerun`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ new_seed: newSeed }),
+      body: JSON.stringify(
+        overrides && Object.keys(overrides).length
+          ? { new_seed: newSeed, arguments: overrides }
+          : { new_seed: newSeed },
+      ),
     }),
   listTasks: () => request<TaskList>('/api/tasks'),
   listBuiltinWorkflows: () =>
