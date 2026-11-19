@@ -254,6 +254,7 @@
   {running}
   {cancelPending}
   {seedVariable}
+  declared={definition?.variables ?? null}
 />
 
 {#if error}<p class="error">{error}</p>{/if}

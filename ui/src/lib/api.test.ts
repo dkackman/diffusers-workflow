@@ -241,6 +241,39 @@ describe('output URLs', () => {
   })
 })
 
+describe('rerunJob', () => {
+  const body = (calls: Array<[string, RequestInit | undefined]>) =>
+    JSON.parse(String(calls[0][1]?.body))
+
+  it('sends new_seed alone for a plain Run again', async () => {
+    const calls = stubFetch({ ok: true, body: { id: 'j2' } })
+    await api.rerunJob('j1')
+    expect(calls[0][0]).toContain('/api/jobs/j1/rerun')
+    expect(body(calls)).toEqual({ new_seed: false })
+  })
+
+  it('sends new_seed true for New seed', async () => {
+    const calls = stubFetch({ ok: true, body: { id: 'j2' } })
+    await api.rerunJob('j1', { newSeed: true })
+    expect(body(calls)).toEqual({ new_seed: true })
+  })
+
+  it('leaves arguments out when there are none', async () => {
+    const calls = stubFetch({ ok: true, body: { id: 'j2' } })
+    await api.rerunJob('j1', { arguments: {} })
+    expect(body(calls)).toEqual({ new_seed: false })
+  })
+
+  it('sends the changed arguments beside new_seed', async () => {
+    const calls = stubFetch({ ok: true, body: { id: 'j2' } })
+    await api.rerunJob('j1', { arguments: { tier: 'standard' } })
+    expect(body(calls)).toEqual({
+      new_seed: false,
+      arguments: { tier: 'standard' },
+    })
+  })
+})
+
 describe('job export', () => {
   it("posts to the job's own workspace, not the selected one", async () => {
     const calls = stubFetch({

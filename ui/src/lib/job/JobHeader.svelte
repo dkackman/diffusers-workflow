@@ -6,6 +6,8 @@
   import { wsHref } from '../routes'
   import { workspace } from '../workspace.svelte'
   import CopyButton from '../CopyButton.svelte'
+  import RerunWithChanges from './RerunWithChanges.svelte'
+  import { displayValue } from '../editor'
   import { formatDuration, formatExact, formatMtime, gbFromMb } from '../format'
   import { notify } from '../toast'
   import { holdKind } from '../progress'
@@ -22,6 +24,7 @@
     running,
     cancelPending,
     seedVariable,
+    declared = null,
   }: {
     job: JobDetail | null
     jobId: string
@@ -30,7 +33,13 @@
     running: boolean
     cancelPending: boolean
     seedVariable: string | null
+    /** The run's definition's declared variables, for Run again with
+     * changes; null while it loads or when it is not on file */
+    declared?: Record<string, unknown> | null
   } = $props()
+
+  // What a rerun changed, as the server stored it: absent on a plain rerun
+  const overrideKeys = $derived(Object.keys(job?.overrides ?? {}))
 
   // Start to finish off the job record's own clocks. A running job's
   // figure counts up on a one-second tick; the record only changes when the
@@ -52,7 +61,12 @@
 
   async function rerun(newSeed: boolean) {
     try {
-      go('ws', job!.workspace, 'jobs', (await api.rerunJob(jobId, newSeed)).id)
+      go(
+        'ws',
+        job!.workspace,
+        'jobs',
+        (await api.rerunJob(jobId, { newSeed })).id,
+      )
     } catch (e) {
       // Without this the button silently does nothing - the failure mode
       // that made a cache-served rerun so hard to read in the first place
@@ -131,6 +145,16 @@
           ><code>{job.rerun_of}</code></a
         ></span
       >
+      {#if overrideKeys.length}
+        <!-- Its own element beside "rerun of", so a sibling can be added
+             without editing it -->
+        <code
+          class="muted seed overrides"
+          title={Object.entries(job.overrides ?? {})
+            .map(([name, value]) => `${name} = ${displayValue(value)}`)
+            .join('\n')}>changed: {overrideKeys.join(', ')}</code
+        >
+      {/if}
     {/if}
     {#if cancelPending}
       <span
@@ -240,6 +264,7 @@
           <Dices size={14} />New seed
         </button>
       {/if}
+      <RerunWithChanges {job} {declared} />
       <button
         class="quiet withicon"
         onclick={exportJob}

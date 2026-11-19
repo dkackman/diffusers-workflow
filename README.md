@@ -167,7 +167,9 @@ LoRA scale and press **Run**.
 graph of how data flows between steps. Click a step to see what it produced. The
 run's warnings sit above the graph, so a problem the agent missed, such as an
 audible level jump at a cut, is in front of you with the argument that fixes it.
-**Run again** repeats the job, and **New seed** gives you another take. Progress
+**Run again** repeats the job, **New seed** gives you another take, and **Run
+again with changes…** or a preset button (`tier: standard`) queues it with only
+the variables you change - the rerun page says `changed: …`. Progress
 streams live for each denoising step, and a cancel stops the job cleanly at the
 next step.
 
