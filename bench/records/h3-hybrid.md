@@ -55,9 +55,34 @@ shape mismatch. The 60 grafted tensors are 30 blocks (20, 21, …, 49) × 2
 
 ### Disk
 
-**The pre-graft `df` was not taken.** The plan's first step was missed, and this
-run's record has no reading from before the graft. The figures below were read
-afterwards (2026-11-19 11:22 UTC), with the graft already deleted:
+**The first graft (07:51 UTC) ran without the pre-graft `df`.** The plan's first
+step was missed then. So the graft was re-run at 11:51 UTC with the check taken
+first, before anything was written (lem's `~/bench-scratch/regraft.log`):
+
+| 2026-11-19 11:51:56 UTC, pre-graft | Filesystem | Size | Avail |
+|---|---|---|---|
+| model disk (`/mnt/cache`, the HF cache) | `/dev/nvme0n1p1` | 1,006,979,411,968 | 137,564,278,784 (137.6 GB) |
+| scratch (`/home/don/bench-scratch`, on `/`) | `/dev/nvme1n1p2` | 982,240,026,624 | 671,846,551,552 (671.8 GB) |
+
+- Parents, measured at the same time (`du -sb --apparent-size`): fl2va 66,280,569,250 B,
+  ref2va 66,280,504,216 B. The bar (2× one parent) is 132,561,138,500 B. The scratch
+  disk the graft is written to had 671.8 GB free, so the check passed and the graft ran.
+  The model disk (137.6 GB) is also above the bar, and the graft doesn't write to it.
+- The rerun graft took 62 s (11:51:56 to 11:52:58). Its folder was 66,280,569,250 B
+  on disk, which includes `config.json` and the shard index, and the scratch disk
+  dropped to 605.6 GB free.
+- **The rerun is the same graft as the rendered one.** It used the same script
+  (sha256 `9be0bb22…`, identical to `bench/h3_hybrid_graft.py`) and the same snapshot.
+  Its tensor report equals the first graft's `graft-report.json` in every field except
+  `out`. A tensor-by-tensor `torch.equal` check of the rerun against its sources found
+  all 638 tensors equal: 60 against ref2va (`transformer_blocks.{20..49}.adaln_proj.*`)
+  and 578 against fl2va, with 0 mismatches. `config.json` is `cmp`-identical to ref2va's.
+  So the hybrid render (`d5a6c03f9ee3`) was not repeated.
+- The rerun folder was deleted at 11:53:32 UTC, and the scratch disk went back to
+  671.8 GB free.
+
+The earlier after-the-fact reading (2026-11-19 11:22 UTC, graft already deleted)
+agrees:
 
 | | Filesystem | Size | Avail |
 |---|---|---|---|
@@ -68,9 +93,8 @@ afterwards (2026-11-19 11:22 UTC), with the graft already deleted:
   66,280,569,250 B; ref2va `transformer_ref` 66,280,504,216 B (66.3 GB each).
   The plan's estimate of ~40 GB was low.
 - Graft: 66,280,430,080 B (66.3 GB) written to the scratch disk, not the model disk.
-- 2× one parent is 132.6 GB. The scratch disk, where the graft was written, has
-  671.8 GB free now, and the model disk has 137.6 GB. Both are above the bar
-  after the fact, but that is a reconstruction, not the check the plan asked for.
+- 2× one parent is 132.6 GB. Both disks were above the bar at 11:22, as they
+  were at the pre-graft reading above.
 
 ## Results
 
