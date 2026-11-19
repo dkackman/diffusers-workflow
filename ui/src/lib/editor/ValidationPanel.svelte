@@ -3,8 +3,8 @@
   import { describePlan } from '../plan'
   import type { ValidationResult } from '../types'
 
-  // The verdict on the definition as it stands, and under a valid one what
-  // a run will do
+  // The verdict on the definition as it stands, and under it, whenever the
+  // server sent a plan, what a run will do
   let {
     validation,
     ondismiss,
@@ -40,10 +40,12 @@
   {:else}
     <div class="error">{validation.error}</div>
   {/if}
-  {#if validation.valid && validation.plan}
+  {#if validation.plan}
     <!-- What a run of this definition, with these defaults, will do -
          the figure to expect before pressing Run, and the weights it
-         would pull first, which the cost block never counts -->
+         would pull first, which the cost block never counts. Shown whenever
+         the server sent one: a repo that isn't there makes the answer
+         invalid but keeps its plan, under the error that names it -->
     <ul
       class="plan"
       aria-label="what a run will do"
