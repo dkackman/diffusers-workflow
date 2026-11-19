@@ -34,6 +34,14 @@ outputs = os.path.join(scratch, "outputs")
 os.makedirs(outputs)
 os.makedirs(os.path.join(scratch, "assets"))
 
+# The server's writable LoRA library is <root>/loras. Two entries for one
+# made-up base - a trial and a rejected one - so the editor's catalog
+# suggestions have a deterministic list, with the rejected entry to hide.
+shutil.copytree(
+    os.path.join(root, "ui", "e2e", "fixtures", "loras"),
+    os.path.join(scratch, "loras"),
+)
+
 # Two throwaway PNGs so the gallery specs have something to select. A 1x1
 # image written by hand rather than by PIL - the fixture runs before the
 # server and has no reason to import the imaging stack.

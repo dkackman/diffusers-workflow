@@ -43,6 +43,11 @@ from .api_models_library import (
     Deleted,
     EnhancerPreset,
     EnhancerPresets,
+    LoraScale,
+    LoraEvidence,
+    LoraRow,
+    ResolvedBase,
+    LoraList,
 )
 
 # The library's models live in api_models_library, and the base in
@@ -75,6 +80,11 @@ __all__ = [
     "Deleted",
     "EnhancerPreset",
     "EnhancerPresets",
+    "LoraScale",
+    "LoraEvidence",
+    "LoraRow",
+    "ResolvedBase",
+    "LoraList",
 ]
 
 

@@ -2736,6 +2736,62 @@
         "title": "LibraryRoot",
         "type": "object"
       },
+      "LoraEvidence": {
+        "additionalProperties": false,
+        "properties": {
+          "issue": {
+            "title": "Issue",
+            "type": "integer"
+          },
+          "job": {
+            "title": "Job",
+            "type": "string"
+          },
+          "note": {
+            "title": "Note",
+            "type": "string"
+          }
+        },
+        "required": [
+          "note"
+        ],
+        "title": "LoraEvidence",
+        "type": "object"
+      },
+      "LoraList": {
+        "additionalProperties": false,
+        "properties": {
+          "libraries": {
+            "items": {
+              "$ref": "#/components/schemas/LibraryRoot"
+            },
+            "title": "Libraries",
+            "type": "array"
+          },
+          "loras": {
+            "description": "Matching entries, rejected ones included, sorted by name.",
+            "items": {
+              "$ref": "#/components/schemas/LoraRow"
+            },
+            "title": "Loras",
+            "type": "array"
+          },
+          "resolved": {
+            "description": "The bases `model` resolved to; only when `model` was given.",
+            "items": {
+              "$ref": "#/components/schemas/ResolvedBase"
+            },
+            "title": "Resolved",
+            "type": "array"
+          }
+        },
+        "required": [
+          "libraries",
+          "loras"
+        ],
+        "title": "LoraList",
+        "type": "object"
+      },
       "LoraRequest": {
         "properties": {
           "entry": {
@@ -2749,6 +2805,171 @@
           "entry"
         ],
         "title": "LoraRequest",
+        "type": "object"
+      },
+      "LoraRow": {
+        "additionalProperties": false,
+        "properties": {
+          "base_models": {
+            "description": "The base repos it was made for.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Base Models",
+            "type": "array"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "evidence": {
+            "items": {
+              "$ref": "#/components/schemas/LoraEvidence"
+            },
+            "title": "Evidence",
+            "type": "array"
+          },
+          "license": {
+            "title": "License",
+            "type": "string"
+          },
+          "model_name": {
+            "description": "The LoRA's Hub repo (owner/name).",
+            "title": "Model Name",
+            "type": "string"
+          },
+          "name": {
+            "description": "The entry's catalog name: its path under loras/.",
+            "title": "Name",
+            "type": "string"
+          },
+          "origin": {
+            "description": "Which library root the entry came from.",
+            "enum": [
+              "workspace",
+              "common",
+              "examples",
+              "builtin"
+            ],
+            "title": "Origin",
+            "type": "string"
+          },
+          "revision": {
+            "description": "The commit or branch the entry pins.",
+            "title": "Revision",
+            "type": "string"
+          },
+          "scale": {
+            "$ref": "#/components/schemas/LoraScale",
+            "description": "The scale the entry states; absent on some entries."
+          },
+          "stacks_with": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Stacks With",
+            "type": "array"
+          },
+          "status": {
+            "enum": [
+              "proven",
+              "trial",
+              "rejected"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "trigger": {
+            "description": "Words the prompt needs for the LoRA to act.",
+            "title": "Trigger",
+            "type": "string"
+          },
+          "use_when": {
+            "title": "Use When",
+            "type": "string"
+          },
+          "weight_name": {
+            "description": "The .safetensors file in the repo, when it has several.",
+            "title": "Weight Name",
+            "type": "string"
+          },
+          "workflow": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The base's workflow partition(s) the LoRA fits; null or absent for any.",
+            "title": "Workflow"
+          },
+          "writable": {
+            "title": "Writable",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "origin",
+          "writable",
+          "model_name",
+          "base_models",
+          "description",
+          "use_when",
+          "status"
+        ],
+        "title": "LoraRow",
+        "type": "object"
+      },
+      "LoraScale": {
+        "additionalProperties": false,
+        "properties": {
+          "default": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "title": "Default"
+          },
+          "range": {
+            "description": "`[low, high]`, when the entry states one.",
+            "items": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                }
+              ]
+            },
+            "title": "Range",
+            "type": "array"
+          }
+        },
+        "required": [
+          "default"
+        ],
+        "title": "LoraScale",
         "type": "object"
       },
       "ManifestEntry": {
@@ -4099,6 +4320,32 @@
           }
         },
         "title": "RerunRequest",
+        "type": "object"
+      },
+      "ResolvedBase": {
+        "additionalProperties": false,
+        "properties": {
+          "repo": {
+            "title": "Repo",
+            "type": "string"
+          },
+          "workflow": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workflow"
+          }
+        },
+        "required": [
+          "repo",
+          "workflow"
+        ],
+        "title": "ResolvedBase",
         "type": "object"
       },
       "RestartBatchCandidate": {
@@ -8228,7 +8475,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/LoraList"
+                }
               }
             },
             "description": "Successful Response"

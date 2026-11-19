@@ -23,6 +23,7 @@ import type {
   JobMoved,
   JobWorkflow,
   Kept,
+  LoraList,
   MemoryInfo,
   ModelCache,
   ModelDeleted,
@@ -490,6 +491,15 @@ export const api = {
       body: JSON.stringify({ workflow }),
     }),
   listPrompts: () => request<PromptList>('/api/prompts'),
+  /** Catalog LoRA entries for one base: `model` a Hub repo id (or a saved
+   * workflow's name), `workflow` an optional partition. Catalog-only - the
+   * Hub is searched by /api/loras/recommend, which the UI never calls.
+   * Rejected entries are included; the caller drops them. */
+  listLoras: ({ model, workflow }: { model: string; workflow?: string }) => {
+    const query = new URLSearchParams({ model })
+    if (workflow) query.set('workflow', workflow)
+    return request<LoraList>(`/api/loras?${query}`)
+  },
   /** The prompt plus which library it came from, read off the response
    * headers rather than a separate `listPrompts` lookup. */
   getPrompt: (name: string) =>
