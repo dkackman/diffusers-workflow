@@ -1095,8 +1095,9 @@ isolated: an unquantized Pro (21B) needs about 42 GB for its transformer alone.
 
 ## Keystone attention: step 1, the block-numbering check (#1391 stage B, #1394)
 
-Status: **step 1 only.** Don ruled on 2026-11-18 that step 2, the gate and the arms wait
-for his next ruling. This section grows as they run.
+Status: **step 1 and the early gate.** Don ruled on 2026-11-18 that step 2 doesn't
+run, the gate does, and the full arms wait for his ruling on the gate (see *Keystone
+attention: early gate* below).
 
 The method is roycho87's brightened-keystone test (#1391 issuecomment-6922271175), after
 NerdNotes test 19 (CC BY-SA 4.0, concepts only). See `docs/ATTRIBUTIONS.md`.
@@ -1157,3 +1158,116 @@ Every take is `bench/keystone-probe{,-noarg}/<run>/segments/*-seg02.2-0.0.mp4`: 
   (90-93 s against 99 s), so the difference between cards outweighs the op here. The
   arms' cost comparison has to pin both arms to one card or compare like-for-like
   cards.
+
+## Keystone attention: early gate (#1391 stage B, #1394)
+
+Don's ruling (2026-11-18): no step 2. The numbering check passed, so the arms use
+roycho87's 13 blocks, `31-33,36-44,47`, at `balance` 20, the plan's fallback when no
+group is picked. The gate ran as #1325's did: seg01-02 of both arms, one H3 job at a
+time, with `free -g` and `get_health` checked before each. lem stayed up through both.
+
+### Setup
+
+- Build: diffusers `0.44.0.dev0` @ `e84bda1c` (`get_diffusers_state`), workspace `bench`.
+- Control: `bench/workflows/keystone-attention-control-early.json`. Every segment's
+  image is seg01's frame 0 (key01), the 22-frame tail is the guide, and attention is dense.
+- Attention arm: `bench/workflows/keystone-attention-early.json` is the control plus
+  `experimental_keystone_attention` (`blocks` `31-33,36-44,47`, `balance` 20) on seg02.
+  Nothing else differs: seeds, prompts, audio slices, size and schedule are the same.
+  The validate warning confirmed the argument: "runs balance 20 on blocks
+  31-33,36-44,47".
+- **The two seg01s match.** seg01 carries no argument in either arm. Across the two
+  cards its frames 0-169 differ by a mean |diff| of 0.024 (0-255). Most frames are
+  bit-identical, and the mean PSNR is 335 dB. So seg01 is a fair yardstick for the cards.
+
+### Jobs
+
+| Job | Arm | Card | Wall | Host peak |
+|---|---|---|---|---|
+| `2817a04202ae` | control | cuda:0 | 3232 s | 67 923 MB |
+| `29923da18475` | attention | cuda:1 | ~3758 s | 67 906 MB |
+
+Step timing (`get_job`). seg02 reused the pipeline seg01 had loaded.
+
+| Arm | Step | Load | Encode | Denoise | Per pass | Decode |
+|---|---|---|---|---|---|---|
+| control | seg01 | 43.0 s | 38.1 s | 1347.1 s | 70.9 s | 57.8 s |
+| control | seg02 | cached | 44.0 s | 1632.1 s | 85.9 s | 54.7 s |
+| attention | seg01 | 46.3 s | 22.7 s | 1546.2 s | 81.5 s | 58.3 s |
+| attention | seg02 | cached | 34.4 s | 1975.9 s | 103.8 s | 57.1 s |
+
+**The LSE op's cost** is about +5% per pass. It is an estimate: the dispatcher put the
+arms on different cards (`run_workflow` has no device pin), so the jobs couldn't share
+one. Per pass, the identical seg01 ran 81.5 s on cuda:1 against 70.9 s on cuda:0, so
+cuda:1 is 1.149x slower. seg02's raw ratio is 103.8 / 85.9 = 1.208, and correcting for
+the card leaves 1.208 / 1.149 = 1.05.
+
+Takes, in workspace `bench`:
+- control: `keystone-attention-control-early/20261119-033059-82643275/final/KeystoneAttentionControlEarly-take.6-0.0.mp4`
+- attention: `keystone-attention-early/20261119-042526-08aab8e0/final/KeystoneAttentionEarly-take.6-0.0.mp4`
+
+The segments are under `segments/` in the same runs (`*-seg01.1-0.0.mp4`,
+`*-seg02.5-0.0.mp4`).
+
+### Measures
+
+How they were measured:
+- Every frame of each 362-frame take. YuNet 2023mar's largest face was found on all 362.
+- Face sharpness is the Laplacian variance of the gray face crop. Saturation is the HSV
+  mean. Luma is BT.601 gray.
+- seg01 is frames 0-191 and seg02 is frames 192-361, matching `analyze_seams`'
+  `between_frames`.
+- The split uses 1 s (24-frame) endpoint means, the `bench/driver.py` `_split` rule.
+- The seg02 rise is the seam step (seg02's first 1 s minus seg01's last 1 s) plus
+  seg02's in-segment slope.
+
+| Measure | Control: total / seams / in-segment | Attention: total / seams / in-segment |
+|---|---|---|
+| luma | +1.58 / +2.50 / -0.92 | +1.43 / +1.54 / -0.11 |
+| saturation | +1.79 / +1.09 / +0.70 | +2.44 / +2.30 / +0.14 |
+| face saturation | -2.23 / -0.51 / -1.71 | -2.75 / -1.01 / -1.74 |
+| face sharpness | -63.6 / -5.2 / -58.4 | -54.2 / +18.1 / -72.4 |
+
+**Gate:**
+
+| Measure | Control | Attention |
+|---|---|---|
+| seg02 face-sharpness rise (seam + in-segment) | **-16.9** (-5.2 - 11.7) | **-7.7** (+18.1 - 25.8) |
+| seg02 face-sharpness, first 1 s → last 1 s | 103.6 → 92.0 | 127.1 → 101.3 |
+| seg02 face-saturation rise | -3.5 (-0.5 - 3.0) | -3.5 (-1.0 - 2.5) |
+| seam-1 score (`analyze_seams` `jump_ratio`) | 1.09 | 1.19 (**1.09x** the control) |
+| seam-1 `look_ratio` (contrast) | 2.50 | 2.91 |
+| SFace to the 0.5 s face: seg02 first 1 s / last 1 s | .908 / .907 | .916 / .894 |
+
+Face-sharpness medians per 1 s window, frames 0-359. seg01 is windows 0-7 (frames
+0-191) and seg02 starts at window 8 (frame 192).
+
+- control: 160 113 111 89 96 92 144 103 100 106 102 99 108 131 82
+- attention: 160 113 111 89 96 92 143 102 108 98 103 99 108 120 98
+
+### Verdict
+
+**The gate fails on its letter.** The seam score passes (1.09x, under 1.5x). But the
+attention arm's seg02 face-sharpness rise, -7.7, is higher than the control's, -16.9,
+and the gate asks for no worse. Following Don's ruling, the full arms did not run.
+
+How to read it:
+- **Neither arm creeps sharper here.** Face sharpness falls through both seg02s. The
+  "rise" is a smaller fall in the attention arm, not over-sharpening. The gate's
+  direction comes from #1325, where the control rose +4.6, and doesn't separate
+  "creeps sharper" from "keeps more of the keystone's detail".
+- **The op clearly does something.** seg02's new frames differ from the control's by a
+  mean |diff| of 17.8 (PSNR 17.7 dB): pose and framing change, not just grain. seg02
+  opens at face sharpness 127, closer to the keystone's 156 (seg01's first 1 s), than
+  the control's 104. That is the +18 seam step. It then decays faster (-25.8 against
+  -11.7) and ends a little sharper, 101 against 92.
+- **The luma seam step is smaller** (+1.5 against +2.5). Identity drifts a little more
+  by seg02's end (SFace .894 against .907).
+- **The frames don't show a clear win.** Face crops at 0.5, 8.5, 11.0 and 14.9 s
+  (`get_output_frames`, crop `[372, 0, 600, 768]`) look alike in texture and identity,
+  with neither crusted. They differ in pose and framing: at 11.0 s the attention arm's
+  speaker is nearer the centre, closer to the keystone's framing.
+- Ruling point 4 applies: the gate fails, but the op visibly acts. That is the case for
+  going back to step 2 with a narrower set of groups, which is Don's call.
+- A positive result here would still be a dense-attention result, while the shipped
+  templates run sparse (Q5).

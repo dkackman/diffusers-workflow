@@ -1,7 +1,7 @@
 {
   "id": "KeystoneAttention",
   "summary": "#1391 keystone bench, attention: control plus the argument on seg02-06",
-  "description": "Stage #1394 of #1391 (plan v4). keystone-attention-control.json plus experimental_keystone_attention {\"balance\": 20, \"blocks\": \"31-33,36-44,47\"} on segments 2-6 (segment 1 has no guide, so nothing to re-split). The blocks are the ones step 2's group sweep picked (bench/records/narrated.md). Needs DW_EXPERIMENTAL_REFINE_WINDOWS=1 on the server.",
+  "description": "Stage #1394 of #1391 (plan v4). keystone-attention-control.json plus experimental_keystone_attention {\"balance\": 20, \"blocks\": \"31-33,36-44,47\"} on segments 2-6 (segment 1 has no guide, so nothing to re-split). The blocks are roycho87's 13 (the plan's default): Don ruled no step 2 sweep after step 1's numbering check matched (bench/records/narrated.md). Needs DW_EXPERIMENTAL_REFINE_WINDOWS=1 on the server.",
   "shape": "sequence",
   "variables": {
     "seed": 1
