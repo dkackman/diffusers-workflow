@@ -226,6 +226,25 @@ icon, a finish-alert toggle, the theme toggle, and links to these docs and
   among the results is drawn as a timeline strip (clips sized by duration, gaps
   hatched, a copy button for each clip's `output:` reference).
 
+  A chained step (one whose shots carry `planned_segments`) gets a
+  **Segments** table below Results, one row per segment its take holds, read
+  off the step's manifest entry and headed "k of N planned" (a `stop_after`
+  take shows fewer rows than planned). Each row has a thumbnail (the
+  segment's own clip under `keep_segments`, else the take seeked to the
+  segment's start frame, loaded only as it scrolls into view), its frame
+  range, its attempts against the budget (`2 of 3`, 1 + the chain's `retries`
+  as the run's definition resolved it) with the kept seed when a re-roll was
+  kept, and one cell per recorded measure - the value against its ceiling
+  (`0.41 ≤ 0.6`; `≥` for a floor like `audio_dbfs`) marked **pass**, **warn**
+  (a warn-only measure that failed) or **fail**, taken from the record's
+  `failed`, never recomputed. A measure the UI does not know shows under its
+  own name. A segment 1 the check had nothing to compare says "nothing
+  measured"; a resumed segment, a `(repaired)` one, and a checked chain
+  recorded before measures were kept say "not recorded"; a chain run with
+  `check` off has no measure cells. The table is read-only
+  (`ui/src/lib/job/ChainSegments.svelte`, its rows from
+  `ui/src/lib/chainRows.ts`).
+
   Every job page, live or from history, ends with an **Event log** section,
   collapsed until clicked; nothing is fetched before then. Opening it reads
   `GET /api/jobs/{id}/event-log` in pages of 500, following `truncated`, and
