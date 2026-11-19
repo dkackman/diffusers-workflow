@@ -22,6 +22,7 @@ class JobTools:
         workspace: str | None = None,
         wait_seconds: int = 0,
         note: str | None = None,
+        request: str | None = None,
     ) -> dict:
         """Queue a workflow for generation. This costs GPU time: a run
         occupies a GPU for minutes and the engine runs one job per GPU.
@@ -53,7 +54,9 @@ class JobTools:
         that was null.
 
         `note`: what this run is for, shown on every file it writes
-        ('testing video_shift 5 against 3'). Give each variation its own."""
+        ('testing video_shift 5 against 3'). Give each variation its own.
+
+        `request`: "<request-id>/<item-key>" links the job to a ledger item."""
         return diagnose.run_workflow(
             self.client,
             workflow_path=workflow_path,
@@ -65,6 +68,7 @@ class JobTools:
             workspace=workspace,
             wait_seconds=wait_seconds,
             note=note,
+            request=request,
         )
 
     # The cap is a number a caller paces against, so the description
