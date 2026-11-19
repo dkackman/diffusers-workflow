@@ -1,0 +1,29 @@
+{
+  "id": "BenchProbe1439RefPrep",
+  "summary": "templates/minimax/reference-to-video at its defaults, with the reference picture (the arm) and seed as arguments.",
+  "description": "#1439 stage A (#1460): does preparing a reference picture stop its backdrop and framing bleeding into an H3 ref2va clip? The catalog template templates/minimax/reference-to-video is composed by name, at its own defaults (960x544, 124 frames, 9 steps, int4, turbo LoRA, the template's voice), with 'subject' (the arm: the picture as it is, a square recenter_crop on the person, or that crop with its backdrop blurred by bench/blur_outside_mask.py) and 'seed' as arguments. The prompt moves the subject somewhere visibly different - an empty beach at dusk - so a frame showing the reference's shop shelves or its chest-up framing is bleed. Masking (segment, prompt 'person') and scoring (analyze_face_drift against the unprepared picture, as bench/workflows/t26-face-check.json) are separate runs; bench/records/ref-prep-blur.md has the arms and the results.",
+  "variables": {
+    "prompt": "subject_definitions:\n<Subject 1> is the man in <Picture 1>: forties, short dark curly hair, a trimmed beard, a mustard-yellow canvas jacket over a blue shirt.\n<Audio 1> is the voice timbre reference for <Subject 1> (S1): a recorded male voiceover, mid-range in pitch, measured and formal in delivery.\n\nsummary:\n[reference generation + audio reference] The target video shows <Subject 1> walking alone along an empty beach at dusk, then stopping to speak to camera. The voice timbre references <Audio 1>.\n\nretention_analysis:\n<Subject 1> (appears in [Shot 1]): partially_preserved - only his face, hair, beard and clothing are kept from <Picture 1>; the setting, the framing and the background of <Picture 1> are not used.\n<Audio 1>: reference - only the timbre, pitch and measured delivery of the recorded male voice are referenced for <Subject 1>'s speech; none of its content is reused.\n\ndetailed_description:\nThe target video is in realistic photographic style. [Shot 1] A wide shot of an empty sandy beach at dusk: low surf rolling in on the left, wet sand reflecting an orange and violet sky, no buildings, no people, nothing else on the shore. <Subject 1> walks slowly along the waterline toward camera, small in the frame, his full figure visible from head to feet. He stops a few metres from the lens and turns to face camera. <Subject 1> (S1) speaks in a measured, formal male voice, <d>[English] Nobody comes down here this late. That is why I do.</d> As he finishes he looks back out toward the water. The camera holds wide and static on a tripod at waist height throughout.\n\noverall_soundscape:\nSoft surf breaking and drawing back over sand, a light steady sea wind, distant gulls, the crunch of his steps in damp sand.\n\nnon_diegetic_music:\nNone.",
+    "subject": "asset:bench/1439/grocer.jpg",
+    "seed": 14391
+  },
+  "seed": "variable:seed",
+  "steps": [
+    {
+      "name": "clip",
+      "workflow": {
+        "path": "templates/minimax/reference-to-video",
+        "arguments": {
+          "prompt": "variable:prompt",
+          "subject": "variable:subject",
+          "seed": "variable:seed"
+        }
+      },
+      "result": {
+        "content_type": "video/mp4",
+        "fps": 24,
+        "subfolder": "final"
+      }
+    }
+  ]
+}
