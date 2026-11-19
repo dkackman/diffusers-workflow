@@ -37,6 +37,15 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **H3 fl2va/ref2va hybrid probe** (#1441, stage #1463), closed 2026-11-19
+  as a bench record. The smhfacct-style graft (fl2va weights, ref2va's
+  `adaln_proj` for blocks 20-49) was built locally from lem's cached
+  transformers, with no Hub download. Rendered against stock ref2va at seed
+  1441, it misses the SFace floor: median 0.788 vs 0.855, a gap of 0.067
+  with 0.02 allowed. The quality verdict is Don's look. The catalog entry,
+  the turbo LoRA on a hybrid, references in a guide chain and the Hub
+  files were cut, each with a trigger:
+  `complete/h3-hybrid-ref-probe-complete.md`.
 - **H3 stochastic sampling probe** (#1438, stage #1459), closed 2026-11-19
   as a bench record, no gain. `MiniMaxH3Scheduler(stochastic_sampling=True)`
   (EasyFix's every-step re-noise) renders clean H3 turbo video, but its
