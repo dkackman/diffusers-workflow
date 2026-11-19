@@ -15,6 +15,7 @@
   import { notify } from '../toast'
   import { confirmDialog } from '../confirm.svelte'
   import CopyButton from '../CopyButton.svelte'
+  import LastUsedCell, { LAST_USED_TIP } from '../LastUsedCell.svelte'
   import type {
     DiffusersStatus,
     ModelCache,
@@ -295,7 +296,7 @@
           <th>repo</th>
           <th class="num">size</th>
           <th class="num">files</th>
-          <th>last used</th>
+          <th title={LAST_USED_TIP}>last used</th>
           <th></th>
         </tr>
       </thead>
@@ -345,7 +346,10 @@
               <span class="sizenum">{formatBytes(repo.size_on_disk)}</span>
             </td>
             <td class="num muted">{repo.nb_files}</td>
-            <td class="muted lastused">{day(repo.last_accessed)}</td>
+            <LastUsedCell
+              lastJobUse={repo.last_job_use}
+              lastAccessed={repo.last_accessed}
+            />
             <td>
               <button
                 class="quiet icon danger"
