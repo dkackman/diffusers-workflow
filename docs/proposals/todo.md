@@ -37,6 +37,14 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **The run form shows preset bundles and declared variable rules** (#1447,
+  stages #1469 and #1470), closed 2026-11-19. Each declared
+  `variable_constraints` rule and its reason shows under its field on the run
+  page and in the editor, with list-entry rules under their list. A preset
+  selector is a dropdown of its bundles, with "sets …" under it, and the chosen
+  bundle's values are the placeholders of the variables it sets; only the
+  selector is sent. Client-side violation marks were cut in favour of #1446's
+  server check: `complete/run-form-presets-constraints-complete.md`.
 - **The run page checks a run before Run** (#1446, stages #1467 and #1468),
   closed 2026-11-19. The workflow page validates on load and 600 ms after each
   change, and shows the plan, a verdict and the findings beside Run, with a
