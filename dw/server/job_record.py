@@ -123,7 +123,7 @@ def rerun_arguments(arguments, overrides, new_seed, variable, realized):
     arguments = {**arguments, **overrides}
     warnings = []
     draws_fresh = variable is not None and overrides.get(variable, 1) is None
-    if overrides and not new_seed and not draws_fresh:
+    if not new_seed and not draws_fresh:
         arguments, warnings = keep_drawn_seed(arguments, variable, realized())
     if new_seed:
         if variable in overrides:
