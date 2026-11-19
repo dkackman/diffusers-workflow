@@ -302,6 +302,45 @@ larger). Rows recorded before the column
 existed have no key and count as no data. Validate reports it as
 `plan.host_memory`.
 
+## Requests
+
+A workspace keeps a ledger of what was asked of it: `requests.json` at the
+workspace root, holding `{"requests": {<id>: <request>}}`. A request is the
+user's `prompt` (set when the request is created, never changed after: a
+change is refused with 422 `prompt_is_write_once`), a `title`, a `goal`
+saying what done looks like, a `state` (`open`, `done`, `abandoned`), and an
+ordered plan of `items`. Only the server writes the file.
+
+Read it with `get_request(request=None)` (MCP) or `GET
+/api/workspaces/{name}/requests[/{id}]`; write one request's whole plan with
+`set_request` or `PUT /api/workspaces/{name}/requests/{id}`:
+
+- **Revisions.** Every write names the `revision` it was read at, or 0 to
+  create. A write against any other revision is refused with 409
+  `stale_revision`, carrying `current_revision`: read again, merge, write.
+  Each write adds a history entry with `by` (`agent` over MCP, `user` from
+  the UI), its `why` (one line, at most 200 characters) and the time.
+- **Items** are `{key, title, depends_on, estimate_minutes, workflow,
+  arguments, accepted, comment}`, matched across writes by `key`. An item
+  left out of a write is deleted, or kept as `dropped` (moved to the end)
+  when jobs link to it; writing a dropped key again un-drops it. Each item
+  reads back with a derived `status`: `planned` or `dropped` until jobs
+  link to items. A field not listed is refused.
+- **`depends_on`** names other keys of the same request, at most 16, never
+  the item itself, and never in a cycle.
+- **`accepted`** names a job linked to the item that succeeded.
+- **`comment`** is the user's: an agent's write that omits it keeps it.
+- **Keys** (request ids and item keys) match `^[a-z0-9][a-z0-9-]{0,63}$`.
+- **Caps.** Titles 200 characters, prompt and goal 20000, comment 4000;
+  200 items per request, 100 requests per workspace, about 2 MB for the
+  file; `estimate_minutes` 0 to 10000; `arguments` at most 64, scalar
+  values only, names as variable names, strings at most 20000. No text
+  carries control characters.
+
+A server started from loose directories has a default workspace with no
+root folder: its ledger reads as empty and a write is refused with 409
+`no_workspace_root`.
+
 ## Several workspaces on one server
 
 Everything above describes one workspace. `dw.serve` goes one step

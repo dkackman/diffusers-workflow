@@ -685,6 +685,32 @@ def validate_workspace_name(name: str, *, reserved) -> str:
     return name
 
 
+# A request id or item key in the requests ledger (dw/ledger.py): lowercase
+# letters, digits and dash, starting with a letter or digit, at most 64 - so
+# no separator, dot or traversal can reach a path or a URL segment
+LEDGER_KEY_PATTERN = r"^[a-z0-9][a-z0-9-]{0,63}\Z"
+MAX_LEDGER_KEY_LENGTH = 64
+
+
+def validate_ledger_key(key: str, what: str = "Ledger key") -> str:
+    """
+    Validate a requests-ledger id or item key.
+
+    Raises:
+        InvalidInputError: If the key is not 1-64 of a-z, 0-9 and dash,
+            starting with a letter or digit
+    """
+    if not isinstance(key, str):
+        raise InvalidInputError(f"{what} must be a string")
+    return _validate_name(
+        key,
+        LEDGER_KEY_PATTERN,
+        MAX_LEDGER_KEY_LENGTH,
+        what,
+        "use 1-64 lowercase letters, digits or dashes, starting with a letter or digit",
+    )
+
+
 # A dotted python name: identifiers separated by dots, and nothing else
 CONSTANT_NAME_PATTERN = r"^[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*)*\Z"
 

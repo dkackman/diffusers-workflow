@@ -1071,6 +1071,67 @@ class NoteSet(ApiModel):
     )
 
 
+class LedgerAccepted(ApiModel):
+    job: str
+    run_id: str | None
+
+
+class LedgerComment(ApiModel):
+    text: str
+    at: str
+
+
+class LedgerItem(ApiModel):
+    key: str
+    title: str
+    depends_on: list[str]
+    estimate_minutes: int | float | None
+    workflow: str | None
+    arguments: dict[str, Any]
+    dropped: bool
+    accepted: LedgerAccepted | None
+    comment: LedgerComment | None = Field(
+        description="The user's; an agent never writes it."
+    )
+    status: Literal["planned", "dropped"] = Field(
+        description="Derived from the item's jobs; none link yet, so planned or dropped."
+    )
+
+
+class LedgerHistoryEntry(ApiModel):
+    revision: int
+    at: str
+    by: Literal["agent", "user"]
+    why: str
+    goal: str | None = sometimes("The goal, when this revision changed it.")
+
+
+class LedgerRequest(ApiModel):
+    id: str
+    title: str
+    state: Literal["open", "done", "abandoned"]
+    revision: int
+    prompt: str | None = Field(description="The ask that started it; write-once.")
+    goal: str
+    items: list[LedgerItem]
+    history: list[LedgerHistoryEntry]
+
+
+class LedgerSummary(ApiModel):
+    id: str
+    title: str
+    state: Literal["open", "done", "abandoned"]
+    revision: int
+    items: int
+    status_counts: dict[str, int]
+    updated_at: str | None
+
+
+class LedgerList(ApiModel):
+    workspace: str
+    requests: list[LedgerSummary]
+
+
 class AssetDeleted(ApiModel):
     name: str
     workspace: str
