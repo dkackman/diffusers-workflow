@@ -37,6 +37,13 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **The curated cost figure says its basis and the settings it was measured
+  at** (#1454, stage #1479), closed 2026-11-19. A catalog card's tooltip reads
+  "a maintainer's figure, measured on <where> at <drivers>" from the card's
+  `cost_drivers`, and the run page shows that figure above the observed one,
+  with a hint that the plan re-prices other values. The per-field "moves the
+  cost" mark was cut (it would need a server driver classification):
+  `complete/cost-basis-drivers-complete.md`.
 - **Findings and Assess in the gallery, and a job's event log** (#1452, stages
   #1477 and #1478), closed 2026-11-19. The gallery detail lists an output's
   findings by severity, and its Assess button shows the assess route's findings
