@@ -1092,3 +1092,68 @@ Pro over the same 20 s. The earrings, scarf and background hold in every row.
 Pro at 4-bit is softer than Lite distilled at the start (114 against 159 at 0.5 s) and
 loses identity faster. Whether 4-bit SDNQ caused this or Pro does it anyway isn't
 isolated: an unquantized Pro (21B) needs about 42 GB for its transformer alone.
+
+## Keystone attention: step 1, the block-numbering check (#1391 stage B, #1394)
+
+Status: **step 1 only.** Don ruled on 2026-11-18 that step 2, the gate and the arms wait
+for his next ruling. This section grows as they run.
+
+The method is roycho87's brightened-keystone test (#1391 issuecomment-6922271175), after
+NerdNotes test 19 (CC BY-SA 4.0, concepts only). See `docs/ATTRIBUTIONS.md`.
+
+### Setup
+
+- Build: diffusers `0.44.0.dev0` @ `e84bda1c` (`get_diffusers_state`), not the control's
+  `43e30028` (Don's ruling, 2026-11-18).
+  Workspace `bench`, one H3 job at a time.
+- Shared segment 1 and the test keystones: `f835a2292345`
+  (`bench/workflows/keystone-probe-seg01.json`, 1524 s, dense). Its files are under
+  `KeystoneProbeSeg01/20261118-124246-9b6fdb6d/`: the segment is
+  `segments/KeystoneProbeSeg01-seg01.1-0.0.mp4` and the keystones are
+  `keystones/KeystoneProbeSeg01-{normal.2,bright.3,sharp.4}-0.0.png`. Mean luma: normal
+  101.99, bright 132.44 (×1.299), sharp 101.99 (Laplacian variance 116 → 198).
+- Every run renders segment 2 only, with dense attention, seed 2, and segment 1's
+  22-frame tail as the guide. `keystone-probe-noarg.json` is `keystone-probe.json`
+  without the argument. The argument runs differ only in `blocks`, at `balance` 20.
+- Measure: `bench/keystone_luma.py`, mean BT.601 luma (0-255) of the new frames 22-191,
+  plus their HSV saturation.
+
+### Results
+
+| Job | Keystone | `blocks` | Card | Wall | s/pass | frame 0 | new frames | vs normal | new sat |
+|---|---|---|---|---|---|---|---|---|---|
+| `53e01c397101` | normal | (no argument) | cuda:1 | 2045 s (cold) | 98.8 | 103.63 | **101.049** | - | 70.98 |
+| `4444aa27a7dc` | bright | (no argument) | cuda:1 | 1977 s | 99.1 | 104.00 | 101.182 | **+0.13%** | 70.87 |
+| `b686b8a0a40b` | bright | `0-29` | cuda:0 | 1930 s (cold) | 92.6 | 132.62 | 101.627 | **+0.57%** | 70.58 |
+| `ad1e332586f1` | bright | `30-39` | cuda:0 | 1808 s | 90.4 | 109.48 | 109.526 | **+8.39%** | 72.13 |
+
+`53e01c397101` re-runs `43045ca7c88a`, which lem's crash cancelled ("server restart").
+Every take is `bench/keystone-probe{,-noarg}/<run>/segments/*-seg02.2-0.0.mp4`: runs
+`20261119-003654-fca9788e`, `20261119-011109-be51bfbc`, `20261119-014436-ed1d2859` and
+`20261119-021658-05c9b3fa`.
+
+24-frame window means:
+
+- normal, no argument: 101.56 102.72 100.41 100.82 100.06 101.55 101.03 100.62
+- bright, no argument: 101.69 102.86 100.45 101.02 100.48 101.73 101.07 100.55
+- bright, `0-29`: 104.62 102.30 101.12 103.16 100.99 99.91 101.90 101.92
+- bright, `30-39`: 103.26 109.30 109.06 110.29 109.80 107.93 110.29 110.46
+
+### Reading
+
+- **The numbering matches.** `0-29` lands near no argument (+0.57% against +0.13%), and
+  `30-39` lifts clearly (+8.39%). That is the shape roycho87 reported (+4.4% / +4.1% /
+  +13.8%). diffusers' indices 0-49 behave as ComfyUI's `diffusion_model.blocks[i]`,
+  so the arms may go ahead on this numbering.
+- **Our plain keystone carries less on its own.** With no argument, the bright keystone
+  moves the new frames by +0.13% where roycho87 saw +4.4%. This chain's 22-frame
+  carried guide may dominate the single keyframe row more than his setup's did. The
+  absolute lifts are smaller than his, but the ratio between the groups matches.
+- **The early blocks copy the keystone into frame 0 only.** With `0-29`, frame 0 reaches
+  132.6, the bright keystone's own level, and the new frames barely move. With `30-39`,
+  the lift spreads over the whole segment: windows 2-8 hold at about 108-110.
+- **The LSE op's cost isn't separable from these runs.** The argument runs landed on
+  cuda:0 and the no-argument runs on cuda:1. The argument runs were faster per pass
+  (90-93 s against 99 s), so the difference between cards outweighs the op here. The
+  arms' cost comparison has to pin both arms to one card or compare like-for-like
+  cards.
