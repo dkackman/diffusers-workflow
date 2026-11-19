@@ -324,11 +324,11 @@ Read it with `get_request(request=None)` (MCP) or `GET
   arguments, accepted, comment}`, matched across writes by `key`. An item
   left out of a write is deleted, or kept as `dropped` (moved to the end)
   when jobs link to it; writing a dropped key again un-drops it. Each item
-  reads back with a derived `status`: `planned` or `dropped` until jobs
-  link to items. A field not listed is refused.
+  reads back with derived fields (below). A field not listed is refused
+  on write, apart from the derived ones, which are ignored.
 - **`depends_on`** names other keys of the same request, at most 16, never
   the item itself, and never in a cycle.
-- **`accepted`** names a job linked to the item that succeeded.
+- **`accepted`** names a succeeded job linked to that request and item: `{"job": "<id>"}` or the bare job id, stored as `{job, run_id}`.
 - **`comment`** is the user's: an agent's write that omits it keeps it.
 - **Keys** (request ids and item keys) match `^[a-z0-9][a-z0-9-]{0,63}$`.
 - **Caps.** Titles 200 characters, prompt and goal 20000, comment 4000;
@@ -336,6 +336,26 @@ Read it with `get_request(request=None)` (MCP) or `GET
   file; `estimate_minutes` 0 to 10000; `arguments` at most 64, scalar
   values only, names as variable names, strings at most 20000. No text
   carries control characters.
+
+**Linking jobs.** `run_workflow(request="<request-id>/<item-key>")` (or
+`request` and `item` in the `POST /api/jobs` body) links the job to that
+item. The client refuses anything but one `/` between two valid keys before
+any call; the server refuses 422 with `unknown_request`, `request_closed`,
+`unknown_item` or `item_dropped`. A rerun inherits the link; if it no longer
+admits, the rerun still queues, unlinked, with a `rerun_ledger_link_<code>`
+warning. `get_job` and `list_jobs` show `request`/`item` on a linked job.
+
+**Derived, never stored.** Each read works the item out from its linked
+jobs. `status` is the first that applies: `dropped`, `done` (a linked job
+succeeded), `running`, `queued`, `failed` (every linked job failed or was
+cancelled), `planned` (none). `attempts` lists the jobs oldest first as
+`{job, status, note?, minutes}`; `result` is the accepted job's `{job,
+run_id}`, else the latest succeeded job whose run still exists, else null;
+`accepted_missing: true` appears when the accepted job's run is gone.
+`spent_minutes` sums the attempts' minutes, per item and per request, and the
+request's `remaining_minutes` sums the estimates of items neither done nor
+dropped. To keep a take, read `get_request`, then write the plan back with
+`set_request` and that item's `accepted: {"job": "<id>"}`.
 
 A server started from loose directories has a default workspace with no
 root folder: its ledger reads as empty and a write is refused with 409
