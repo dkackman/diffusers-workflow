@@ -91,6 +91,23 @@ the optional `.withicon` cleanup needed no change.
 C-F1119, SE-F077 and SE-F078 pass; C-F1118 (b) and (c) pass; C-F1120 passes in the
 light theme. No LoRA was downloaded and no job ran.
 
+### Fix-forward #1501: a failed catalog fetch shows its line (C-F1119 c/d)
+
+The feature's final check (at `058736f9`) failed C-F1119 (c) and (d). With
+`/api/loras` stubbed to a 500 or aborted, the panel showed only its heading. The
+`'loading'` state rendered nothing under the heading, so a fetch that never settled in
+the browser looked the same as a failed one. Commit `e9a82b67` was merged to `develop`
+as `5d245a10` (branch `feat/1456-A-catalog-fetch-error`):
+- the loading state now shows "Loading catalog suggestions…";
+- a fetch still unsettled after 8 s counts as failed and shows "Catalog suggestions are
+  unavailable right now.";
+- Playwright routes `/api/loras?*` to a 500, an abort and a request that is never
+  answered, and asserts the line each time; vitest covers the loading line and the
+  timeout.
+
+It was verified on mini-ai at `4dc724fe`: C-F1119 (a)–(e) pass, and C-F1120 passes in
+both themes. A late answer after the timeout replaces the error line.
+
 ## Bounces
 
 Stage A: one.
@@ -100,18 +117,20 @@ Stage A: one.
   `color: var(--ink)`, with a Playwright check that reads them with no wait after each
   toggle.
 
+Feature final check: one (C-F1119 c/d), fixed forward in #1501, which then passed
+with no bounce.
+
 ## Cost
 
 Not recorded: no stage comment names a `usage:` figure. The plan estimated $3–5.
 
 ## Open points
 
-- **C-F1118 (a) keeps `pending: #1480`.** The case asserts `turbo-reference` first for
-  an unpartitioned H3 step; the build follows the plan's "proven first, then by name",
-  which puts it 4th of 4 proven. The tester filed the case amendment as
-  dkackman/harnest#255 / #256.
-- **C-F1120's dark theme was not re-run** after the fix: the ui-check runner has no
-  colour-scheme emulation. The fix is pinned by the Playwright check instead.
+- **C-F1118 passed in the final check.** It was checked against the plan's order
+  (proven first, then by name), which is the subject of dkackman/harnest#255 / #256. The
+  tester removed its `pending: #1480` line.
+- **C-F1120's dark theme** was re-run in #1501's verify, by toggling the theme and
+  reloading. It passes.
 - **The rest of the step editor lags the theme switch** the same way (any text
   inheriting from `.panel`). It predates this feature; fixing it means changing the
   global `.panel` transition in `ui/src/app.css`.
