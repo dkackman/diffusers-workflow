@@ -143,7 +143,7 @@ function archiveFrom(path: string) {
     })
 }
 
-/** What `/api/validate` is asked: exactly one of an inline `workflow` or a
+/** What the validate route is asked: exactly one of an inline `workflow` or a
  * `workflow_path` (a catalog name), the `arguments` a run would carry, and
  * `sizes: false` to skip asking the hub how large a missing model is. */
 export type ValidateRequest = {
@@ -424,10 +424,9 @@ export const api = {
       ? input
       : { workflow: input }
     const { sizes, ...body } = asked
-    const path =
-      sizes === false
-        ? appendQuery('/api/validate', 'sizes', 'false')
-        : '/api/validate'
+    // one literal, so tests/test_ui_twins.py reads the route with its POST
+    const route = '/api/validate'
+    const path = sizes === false ? appendQuery(route, 'sizes', 'false') : route
     return request<ValidationResult>(path, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
