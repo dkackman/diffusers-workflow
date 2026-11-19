@@ -337,7 +337,6 @@ class JobManager(Dispatcher):
 
         `note` is the run's note, already cleaned (`admitted_note`): kept on
         the job and written into the run directory when the run opens.
-
         `request` and `item` link the job to a requests-ledger item (#1458).
 
         `rerun_of` is the job this one reruns, recorded so the list can say so;
@@ -386,20 +385,13 @@ class JobManager(Dispatcher):
         if acknowledged_cost is not None:
             spec["acknowledged_cost"] = acknowledged_cost
         spec["output_dir"] = job_output_dir
-        if asset_dir:
-            spec["asset_dir"] = asset_dir
         spec["warnings"] = list(warnings or [])
-        if note:
-            spec["note"] = note
-        if rerun_of:
-            spec["rerun_of"] = rerun_of
-        if overrides:
-            spec["overrides"] = overrides
-        # The requests-ledger link, already checked by admission (a rerun's
-        # inherited one is not - `rerun` warns instead)
-        if request and item:
-            spec["request"] = request
-            spec["item"] = item
+        # Each recorded only when given
+        optional = dict(asset_dir=asset_dir, note=note, rerun_of=rerun_of)
+        optional["overrides"] = overrides
+        if request and item:  # admission checked it; a rerun's, `rerun` warns on
+            optional.update(request=request, item=item)
+        spec.update({key: value for key, value in optional.items() if value})
 
         job = Job(spec)
         job.host_ram_need = host_ram_need
