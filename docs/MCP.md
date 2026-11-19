@@ -191,7 +191,7 @@ carries `rerun_of`.
 | `get_class(name, target="init")` | A class's argument schema at the entry point a workflow reaches it by: `init` the constructor (quantization configs, schedulers), `call` a pipeline's `__call__`, `load` `from_pretrained` plus the curated loading knobs |
 | `list_tasks()` | Every task command a task step can name |
 | `get_task(command)` | A task command's argument schema |
-| `list_models()` | What the Hugging Face cache holds, largest first |
+| `list_models()` | What the Hugging Face cache holds, largest first. Each row's `last_job_use` is when a dw job that named the repo last started (epoch seconds, `null` if none has); `last_accessed` is the files' atime, the fallback when it is `null` |
 | `get_memory(device=None)` | VRAM and RAM per card in `workers` (the top level repeats the first card; `device`, e.g. `cuda:1`, asks for one). `gpu_*` is the card. `host_memory_rss_mb` / `host_memory_peak_rss_mb` are the worker's resident and peak host memory, beside the machine's `host_memory_total_mb` / `host_memory_available_mb`; on Linux `host_memory_rss_anon_mb` / `host_memory_rss_file_mb` split resident memory into owned pages and mapped checkpoint pages the kernel can drop (#709). `host_pinned_reserved_mb` / `host_pinned_allocated_mb` are torch's pinned-host cache, part of RSS and invisible to `gpu_*` (#98). A host field the platform cannot measure is absent. `live: true` is a reading taken now; `live: false` with `info: null` means nothing is resident; `live: false` with `info` is a cached reading with `reason` (`job_running`, `worker_stopped`, `worker_busy`, `worker_unreachable`) and `age_seconds`. Compare only live readings |
 | `get_health()` | Liveness and which machine answered: `version`, `device`, `worker_alive`, queue depth, and `workers` (per card: `device`, `name`, `vram_gb`, `alive`, `current_job`, `host_memory_rss_mb`). The top-level `current_job` is the longest-running job. `worker_alive: false` is the normal idle state before the first job (#206); a memory clear frees models but keeps a live worker process (same pid) (#1240) |
 | `get_server_info(cache_entries=False)` | `device`, `version`, this session's `workspace` and its `directories`, the bind address and port, `auth_required`, `trust_workflows`, the MCP mount, and `runtime` (#222: Python, torch, CUDA build, NVIDIA driver, and the diffusers, transformers, accelerate, bitsandbytes, peft, safetensors and sentencepiece versions, `null` when not installed). Check `device` before authoring: CUDA-only choices (bitsandbytes, `torch.compile`, flash attention) fail on `mps` or `cpu`. `caches` sizes dw's disk caches (`inductor`, `triton`, `quantized`); `cache_entries=true` lists the quantized cache's entries. No tool clears a cache; that is `DELETE /api/caches/{name}` ([SERVER.md](SERVER.md)) |
@@ -282,7 +282,7 @@ enhancers and the LoRA catalog.
 
 ### Models
 
-`list_models` (above, under Catalog) reports the cache.
+`list_models` (above, under Catalog) reports the cache. Read a repo's last use from `last_job_use`, and from `last_accessed` (file atime, unreliable) only when that is `null`.
 
 | Tool | Purpose |
 | --- | --- |

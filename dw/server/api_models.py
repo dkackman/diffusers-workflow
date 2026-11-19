@@ -244,9 +244,18 @@ class ModelRepo(ApiModel):
     repo_type: str
     size_on_disk: int
     nb_files: int
-    last_accessed: int | float | None
+    last_accessed: int | float | None = Field(
+        description="The newest access time (atime) of the repo's files - a "
+        "fallback for last_job_use: copies and backups bump it, and a "
+        "noatime or relatime disk may never move it."
+    )
     last_modified: int | float | None
     revisions: list[ModelRevision]
+    last_job_use: int | float | None = Field(
+        description="Epoch seconds a dw job that named this repo last "
+        "started (dw/model_use.py); null when no dw job has used it since "
+        "tracking began - then last_accessed is the only date there is.",
+    )
 
 
 class ModelCache(ApiModel):

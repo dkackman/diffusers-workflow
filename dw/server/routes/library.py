@@ -915,6 +915,7 @@ def enhance(
             warnings=admission.warnings,
             vram_need=admission.vram_need,
             host_ram_need=admission.host_ram_need,
+            repos_named=admission.repos_named,
         )
         return manager.describe(job)
     except Exception:

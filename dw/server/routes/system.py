@@ -33,7 +33,7 @@ from ..api_models import (
     ModelDownloads,
     ServerInfo,
 )
-from ... import disk_caches
+from ... import disk_caches, model_use
 from ...hub_cache import delete_model, scan_models
 from ...introspection import (
     describe_class,
@@ -182,8 +182,15 @@ def get_guide(name: str, section: Optional[str] = None):
 
 @router.get("/api/models", response_model=ModelCache, response_model_exclude_unset=True)
 def get_models():
-    """What the Hugging Face hub cache holds, largest repo first."""
-    return scan_models()
+    """What the Hugging Face hub cache holds, largest repo first. Each row
+    carries `last_job_use`, when a dw job that named the repo last started
+    (dw/model_use.py, #1445), null when none has - always set, so the field
+    is never dropped as unset. `last_accessed` stays the files' atime."""
+    cache = scan_models()
+    used = model_use.read()
+    for repo in cache.get("repos") or []:
+        repo["last_job_use"] = used.get(repo.get("repo_id"))
+    return cache
 
 
 class DownloadRequest(BaseModel):
@@ -256,6 +263,8 @@ def delete_cached_model(request: Request, repo: str):
         freed = delete_model(repo)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    # A later re-download must not inherit the deleted copy's date (#1445)
+    model_use.forget(repo)
     logger.info(f"Deleted {repo} from the hub cache ({freed} bytes)")
     return {"repo_id": repo, "deleted": True, "freed": freed}
 
