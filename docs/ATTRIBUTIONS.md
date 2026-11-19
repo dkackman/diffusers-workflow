@@ -196,6 +196,15 @@ informed `experimental_keystone_attention`
 re-split of the attention a query pays to the keyframe against the guide rows, and
 the default block subset 31-33,36-44,47. No text or data was copied.
 
+The way the #1391 bench finds which blocks to use comes from roycho87's comment on
+[#1391](https://github.com/dkackman/diffusers-workflow/issues/1391#issuecomment-6922271175)
+and from NerdNotes test 19 (CC BY-SA 4.0, so concepts only)
+([bench/workflows/keystone-probe.json](../bench/workflows/keystone-probe.json);
+[#1394](https://github.com/dkackman/diffusers-workflow/issues/1394)). A copy of the scene
+with one trait changed (brightened, or sharpened) serves as the keystone. One block group
+gets the re-split per run, and the groups whose run carries that trait into the new
+frames are the ones the bench keeps. No text or data was copied.
+
 ### [roycho87/geiru_context_suite](https://github.com/roycho87/geiru_context_suite)
 
 A set of ComfyUI nodes for long MiniMax H3 videos, under GPL-3.0, so only the
