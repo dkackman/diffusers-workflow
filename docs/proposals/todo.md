@@ -37,6 +37,13 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **Per-shot audio drift figures** (#1442, stage #1464), closed 2026-11-19.
+  `analyze_shots` gains report-only `high_share` (energy above 4 kHz) and
+  `noise_floor_dbfs` (10th percentile of 50 ms windows) per shot. On the bench
+  S3 dialogue chain `high_share` rose unevenly and the floor didn't follow,
+  so no dulling-voice defect was found. The audio anchor (idea B), a drift
+  rule, a centroid field and a bench measure were cut, each with a trigger:
+  `complete/shot-audio-drift-complete.md`.
 - **H3 keystone attention probe** (#1391, stages #1393 and #1394), closed
   2026-11-19. `experimental_keystone_attention`, an fl2va call argument behind
   `DW_EXPERIMENTAL_REFINE_WINDOWS`, re-splits the keystone/carried-guide
