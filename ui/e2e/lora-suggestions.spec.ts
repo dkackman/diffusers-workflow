@@ -1,5 +1,5 @@
 // ui/e2e/lora-suggestions.spec.ts
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page, type Route } from '@playwright/test'
 
 // A pipeline step on a made-up base; the fixture server's LoRA library
 // (ui/e2e/fixtures/loras) holds a trial and a rejected entry for it
@@ -18,12 +18,8 @@ const WORKFLOW = JSON.stringify({
   ],
 })
 
-test('catalog LoRA suggestions hide rejected entries and add a row', async ({
-  page,
-}) => {
-  const requested: string[] = []
-  page.on('request', (request) => requested.push(request.url()))
-
+/** Load WORKFLOW in the form editor and open its step's LoRAs section */
+async function openLoras(page: Page) {
   await page.goto('/#/edit')
   await page.getByRole('button', { name: /JSON/ }).click()
   await expect(page.locator('.monaco-editor').first()).toBeVisible({
@@ -39,7 +35,16 @@ test('catalog LoRA suggestions hide rejected entries and add a row', async ({
   const step = page.locator('.panel.step').first()
   await step.getByRole('button', { name: 'full' }).click()
   await step.locator('summary', { hasText: 'LoRAs' }).click()
+  return step
+}
 
+test('catalog LoRA suggestions hide rejected entries and add a row', async ({
+  page,
+}) => {
+  const requested: string[] = []
+  page.on('request', (request) => requested.push(request.url()))
+
+  const step = await openLoras(page)
   const catalog = step.getByRole('region', { name: 'From the catalog' })
   await expect(catalog.locator('li.suggestion')).toHaveCount(1)
   await expect(catalog).not.toContainText('broken')
@@ -84,4 +89,60 @@ test('catalog LoRA suggestions hide rejected entries and add a row', async ({
     requested.filter((url) => url.includes('/api/loras/recommend')),
   ).toEqual([])
   expect(requested.filter((url) => url.includes('huggingface.co'))).toEqual([])
+})
+
+// A failed catalog fetch shows one muted line and leaves the editor usable,
+// for an HTTP error and for a request that never gets a response (C-F1119)
+for (const [label, fail] of [
+  [
+    'a 500',
+    (route: Route) =>
+      route.fulfill({
+        status: 500,
+        contentType: 'application/json',
+        body: JSON.stringify({ detail: 'boom' }),
+      }),
+  ],
+  ['a network error', (route: Route) => route.abort()],
+] as const) {
+  test(`a catalog fetch that fails with ${label} shows the muted line`, async ({
+    page,
+  }) => {
+    let calls = 0
+    await page.route('**/api/loras?**', (route) => {
+      calls++
+      return fail(route)
+    })
+    const step = await openLoras(page)
+    const catalog = step.getByRole('region', { name: 'From the catalog' })
+    await expect(catalog).toContainText(
+      'Catalog suggestions are unavailable right now.',
+    )
+    expect(calls).toBeGreaterThan(0)
+    await expect(catalog.locator('li.suggestion')).toHaveCount(0)
+
+    // The editor stays usable: a row can still be added by hand
+    await step.getByRole('button', { name: 'add LoRA' }).click()
+    await expect(step.locator('.loras .row')).toHaveCount(1)
+    await expect(catalog).toContainText(
+      'Catalog suggestions are unavailable right now.',
+    )
+  })
+}
+
+// A request that never gets an answer must not leave the panel on a bare
+// heading: it reads "Loading" first, then gives up with the failure line
+test('a catalog fetch that never settles ends on the muted line', async ({
+  page,
+}) => {
+  await page.route('**/api/loras?**', () => {
+    /* never answered */
+  })
+  const step = await openLoras(page)
+  const catalog = step.getByRole('region', { name: 'From the catalog' })
+  await expect(catalog).toContainText('Loading catalog suggestions…')
+  await expect(catalog).toContainText(
+    'Catalog suggestions are unavailable right now.',
+    { timeout: 15_000 },
+  )
 })

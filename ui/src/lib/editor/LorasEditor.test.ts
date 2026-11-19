@@ -155,6 +155,29 @@ it('shows a muted line when the catalog fails and keeps add LoRA working', async
   expect(latest.value.loras).toEqual([{ model_name: '', scale: 1 }])
 })
 
+it('shows a loading line while the catalog fetch is pending', async () => {
+  reply.next = () => new Promise(() => {})
+  mount(pipe())
+  expect(await screen.findByText('Loading catalog suggestions…')).toBeTruthy()
+})
+
+it('treats a fetch that never settles as unavailable (#1501)', async () => {
+  vi.useFakeTimers()
+  try {
+    reply.next = () => new Promise(() => {})
+    mount(pipe())
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(listLoras).toHaveBeenCalledTimes(1)
+    expect(screen.getByText('Loading catalog suggestions…')).toBeTruthy()
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(
+      screen.getByText('Catalog suggestions are unavailable right now.'),
+    ).toBeTruthy()
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
 it('shows an entry partition only when the step has none', async () => {
   respond(
     row({ workflow: 't2va' }),
