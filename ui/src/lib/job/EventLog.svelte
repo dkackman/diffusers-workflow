@@ -4,6 +4,7 @@
   // Progress list, the flow view and its chips read - never sees these rows.
   // Collapsed by default, and nothing is fetched until it is first opened.
   import { ChevronDown, ChevronRight, RefreshCw } from '@lucide/svelte'
+  import { tick } from 'svelte'
   import { ApiError } from '../api'
   import { formatDuration } from '../format'
   import type { JobEvent } from '../types'
@@ -26,6 +27,7 @@
   let missing = $state(false)
   let error = $state('')
   let kind = $state('')
+  let body = $state<HTMLDivElement | null>(null)
 
   // Another job is another log: drop this one's and close
   $effect(() => {
@@ -54,6 +56,13 @@
       note = page.note ?? note
       capped = page.capped
       loaded = true
+      // A live log is read from its tail: the rows a load or Refresh just
+      // brought in are the newest, so bring them into view rather than
+      // leaving them below the box's fold (#1499)
+      if (live && page.events.length) {
+        await tick()
+        if (id === jobId && body) body.scrollTop = body.scrollHeight
+      }
     } catch (e) {
       if (id !== jobId) return
       if (e instanceof ApiError && e.status === 404) missing = true
@@ -72,6 +81,14 @@
   const kinds = $derived([...new Set(rows.map(eventKind))].sort())
   const shown = $derived(
     kind ? rows.filter((event) => eventKind(event) === kind) : rows,
+  )
+  // Says how many rows the box holds, so rows past its fold are not
+  // mistaken for rows that never came
+  const count = $derived(
+    rows.length
+      ? (kind ? `${shown.length} of ` : '') +
+          `${rows.length.toLocaleString('en-US')} events, seq ${rows[0].seq}–${rows[rows.length - 1].seq}`
+      : '',
   )
 </script>
 
@@ -104,7 +121,7 @@
         class="quiet icon"
         onclick={() => load(lastSeq)}
         disabled={loading}
-        aria-label="Refresh"
+        aria-label="Refresh event log"
         title="fetch the events since the last one shown"
       >
         <RefreshCw size={14} />
@@ -113,7 +130,7 @@
   </div>
 
   {#if open}
-    <div id="event-log-body">
+    <div id="event-log-body" bind:this={body}>
       {#if loading && !loaded}
         <p class="muted">Loading…</p>
       {:else if missing}
@@ -121,6 +138,7 @@
       {:else}
         {#if error}<p class="error">{error}</p>{/if}
         {#if note}<p class="muted note">{note}</p>{/if}
+        {#if count}<p class="muted count">{count}</p>{/if}
         {#if loaded && !rows.length && !error}
           <p class="muted">no events</p>
         {:else if shown.length}
@@ -138,7 +156,9 @@
                       : ''}</td
                   >
                   <td class="kind">{eventKind(event)}</td>
-                  <td class="body">{eventSummary(event)}</td>
+                  <td class="body" title={eventSummary(event)}
+                    >{eventSummary(event)}</td
+                  >
                 </tr>
               {/each}
             </tbody>
@@ -214,8 +234,17 @@
   .kind {
     white-space: nowrap;
   }
+  /* One line a row, so a long payload (a memory reading) does not push
+     the rows after it out of the box; the whole of it is in the title */
   .body {
-    word-break: break-word;
+    width: 100%;
+    max-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .count {
+    margin: var(--space-2) 0;
   }
   .error {
     color: var(--bad);

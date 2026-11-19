@@ -58,6 +58,19 @@ describe('ValidationPanel', () => {
     ).toBeTruthy()
   })
 
+  it('an invalid answer lists its warnings beside its errors, literally', () => {
+    render(ValidationPanel, {
+      validation: result({
+        valid: false,
+        errors: [{ path: 'a', message: 'bad' }],
+        warnings: ['WARN-PLAIN <b>x</b>'],
+      }),
+      ondismiss: () => {},
+    })
+    expect(screen.getByText('a: bad')).toBeTruthy()
+    expect(screen.getByText(/WARN-PLAIN <b>x<\/b>/)).toBeTruthy()
+  })
+
   it('a valid answer still shows its plan', () => {
     render(ValidationPanel, {
       validation: result({ plan: { ...plan, downloads_required: [] } }),

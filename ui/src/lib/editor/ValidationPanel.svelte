@@ -29,16 +29,19 @@
     <span class="ok"
       ><CircleCheck size={14} /> schema-valid, no argument warnings</span
     >
-  {:else if validation.valid}
-    {#each validation.warnings as warning, i (i)}
+  {:else}
+    {#if !validation.valid}
+      {#if validation.errors && validation.errors.length}
+        {#each validation.errors as e, i (i)}
+          <div class="error">{e.path ?? 'root'}: {e.message}</div>
+        {/each}
+      {:else}
+        <div class="error">{validation.error}</div>
+      {/if}
+    {/if}
+    {#each validation.warnings ?? [] as warning, i (i)}
       <div class="warn"><TriangleAlert size={14} /> {warning}</div>
     {/each}
-  {:else if validation.errors && validation.errors.length}
-    {#each validation.errors as e, i (i)}
-      <div class="error">{e.path ?? 'root'}: {e.message}</div>
-    {/each}
-  {:else}
-    <div class="error">{validation.error}</div>
   {/if}
   {#if validation.plan}
     <!-- What a run of this definition, with these defaults, will do -
