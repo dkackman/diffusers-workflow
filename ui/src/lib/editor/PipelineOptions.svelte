@@ -228,7 +228,17 @@
         checked={!!configuration.cache}
         onchange={(e) => toggleCache(e.currentTarget.checked)}
       />
-      {#if configuration.cache}
+      {#if typeof configuration.cache === 'string'}
+        <input
+          placeholder="variable:name"
+          value={configuration.cache}
+          onchange={(e) => {
+            const v = e.currentTarget.value.trim()
+            if (v) configuration.cache = v
+            else delete configuration.cache
+          }}
+        />
+      {:else if configuration.cache}
         <select bind:value={configuration.cache.type}>
           {#each CACHE_TYPES as cacheType (cacheType)}<option
               >{cacheType}</option

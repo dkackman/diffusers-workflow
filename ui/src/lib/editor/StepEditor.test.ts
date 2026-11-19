@@ -63,3 +63,22 @@ it('opens full on a step whose schedulers set only a shift', () => {
       .value,
   ).toBe('3')
 })
+
+// templates give the cache as a reference string (`variable:cache`); the
+// full view used to set `.type` on it and throw
+it('opens full on a step whose cache is a variable reference', () => {
+  const s = step()
+  Object.assign(s.pipeline.configuration, { cache: 'variable:cache' })
+  render(StepEditor, {
+    step: s,
+    index: 0,
+    count: 1,
+    mode: 'full',
+    onremove: () => {},
+    onmove: () => {},
+  })
+  expect(
+    (screen.getByPlaceholderText('variable:name') as HTMLInputElement).value,
+  ).toBe('variable:cache')
+  expect(s.pipeline.configuration.cache).toBe('variable:cache')
+})
