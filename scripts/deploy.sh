@@ -247,6 +247,12 @@ say "started; log: $LOG"
 fi
 
 # 5. wait for health
+# A restart has a window where the old process is gone and the new one is not
+# yet found (the old one can take ~5 s to stop), so a missing process counts
+# only after it stays missing for GONE_GRACE seconds, or at once if systemd
+# reports the unit failed.
+GONE_GRACE=30
+gone=0
 for i in $(seq 1 120); do
   h="$(health || true)"
   if echo "$h" | grep -q '"status":"ok"'; then
@@ -254,7 +260,14 @@ for i in $(seq 1 120); do
     say "deployed $branch @ $(git rev-parse --short HEAD)"
     exit 0
   fi
-  server_running || { say "dw.serve exited during startup; last log lines ($LOG_HINT):"; tail_log; exit 1; }
+  if server_running; then
+    gone=0
+  else
+    gone=$((gone + 1))
+    if [ "$gone" -ge "$GONE_GRACE" ] || systemctl --user is-failed --quiet dw-serve 2>/dev/null; then
+      say "dw.serve exited during startup; last log lines ($LOG_HINT):"; tail_log; exit 1
+    fi
+  fi
   sleep 1
 done
 say "no healthy answer within 120 s; last log lines ($LOG_HINT):"; tail_log; exit 1
