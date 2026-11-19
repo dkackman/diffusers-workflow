@@ -235,6 +235,16 @@ icon, a finish-alert toggle, the theme toggle, and links to these docs and
   zip, is deleted in bulk (anything that fails to delete stays selected), or,
   for two to four files, opens in Compare.
 
+  The panel's **Findings** list the level findings the metadata reply
+  carries (warn first, each with the server's words and, for a timed one,
+  its place as m:ss.s). On a video or audio file, **Assess** runs every
+  assessment probe through `GET /api/gallery/{name}/assess` - read-only,
+  nothing queued or stored - and replaces the list with its reply, under a
+  muted line naming the rules applied and each probe that did not apply, in
+  the server's reason. The result is held for the page's life, by workspace
+  and file; a refusal shows beneath the list it leaves in place. On a still
+  the button is disabled and its title says why.
+
   ![A gallery file's detail panel: the poster, its run and settings, a note, Keep as asset and open as workflow](img/ui-gallery-detail.jpg)
 
 - **Compare** - two to four outputs side by side, with the arguments that

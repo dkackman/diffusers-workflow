@@ -13,6 +13,8 @@
  * - `--select` (a cool blue) is the user's place: the open workspace, the
  *   active nav section and the focus ring. It stays in the chrome - the
  *   sidebar and focus - never in a surface behind an image.
+ * - `--finding-warn` / `--finding-info` mark an assessment finding's
+ *   severity in the gallery detail: a place to look, not machine state.
  * - a workspace's own dot (`wsColor()` in src/lib/wsColor.ts) identifies
  *   it in the sidebar and breadcrumb. It is identity, not state.
  *
@@ -46,6 +48,8 @@
   --good: #2f6b3f;
   --bad: #a33224;
   --warn: #a85b00;
+  --finding-warn: #a04400;
+  --finding-info: #3d6470;
   color-scheme: light;
 }
 
@@ -65,6 +69,8 @@
     --good: #6fbf87;
     --bad: #e3796a;
     --warn: #e8a33d;
+    --finding-warn: #f0a05a;
+    --finding-info: #8fb8c4;
     color-scheme: dark;
   }
 }
@@ -83,6 +89,8 @@
   --good: #6fbf87;
   --bad: #e3796a;
   --warn: #e8a33d;
+  --finding-warn: #f0a05a;
+  --finding-info: #8fb8c4;
   color-scheme: dark;
 }
 
@@ -100,6 +108,8 @@
   --good: #2f6b3f;
   --bad: #a33224;
   --warn: #a85b00;
+  --finding-warn: #a04400;
+  --finding-info: #3d6470;
   color-scheme: light;
 }
 
