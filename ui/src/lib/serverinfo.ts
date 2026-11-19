@@ -63,3 +63,34 @@ export function addressLabel(entry: ServerAddress): string {
     ? `${entry.address} (${entry.interface})`
     : entry.address
 }
+
+/** The rows of the Runtime panel, in display order. A null value is a
+ * component that is not there: `none` for torch/CUDA/driver, `not installed`
+ * for a package. */
+export function runtimeRows(
+  runtime: ServerInfo['runtime'],
+): { name: string; value: string | null; absent: string }[] {
+  return [
+    { name: 'Python', value: runtime.python_version, absent: 'none' },
+    { name: 'torch', value: runtime.torch_version, absent: 'none' },
+    { name: 'CUDA', value: runtime.cuda_version, absent: 'none' },
+    { name: 'driver', value: runtime.driver_version, absent: 'none' },
+    ...Object.keys(runtime.packages)
+      .sort()
+      .map((name) => ({
+        name,
+        value: runtime.packages[name],
+        absent: 'not installed',
+      })),
+  ]
+}
+
+/** Plain text for the Runtime panel's copy button: the hostname and dw
+ * version first, then one `name: value` line per row. */
+export function runtimeText(info: ServerInfo): string {
+  return [
+    `host: ${info.hostname}`,
+    `dw: ${info.version}`,
+    ...runtimeRows(info.runtime).map((r) => `${r.name}: ${r.value ?? r.absent}`),
+  ].join('\n')
+}

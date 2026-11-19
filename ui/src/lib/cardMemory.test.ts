@@ -49,3 +49,25 @@ it('a card without a reading is listed but not metered', () => {
   expect(cards[1].available).toBe(false)
   expect(meterText(cards)).toBe('1.0/24.0 GB')
 })
+
+it('shows free only when the card reported a total, and reserved when available', () => {
+  const a = card('cuda:0', 1024)
+  const withFree = {
+    ...a,
+    info: { ...a.info, gpu_memory_free_mb: 20480, gpu_memory_reserved_mb: 2048 },
+  }
+  const unmeasured = {
+    ...card('cuda:1', 1024),
+    info: {
+      gpu_available: true,
+      gpu_memory_allocated_mb: 1024,
+      gpu_memory_free_mb: 0,
+      gpu_memory_reserved_mb: 0,
+    },
+  }
+  const cards = cardReadings({ ...withFree, workers: [withFree, unmeasured] })
+  expect(cards[0].freeMb).toBe(20480)
+  expect(cards[0].reservedMb).toBe(2048)
+  expect(cards[1].freeMb).toBeNull()
+  expect(cards[1].reservedMb).toBe(0)
+})

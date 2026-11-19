@@ -18,6 +18,9 @@
     <li>
       <span class="card" title={w.name ?? w.device}>{w.name ?? w.device}</span>
       <span class:muted={!w.current_job}>{state(w)}</span>
+      {#if w.pid != null}
+        <span class="muted" title="the worker process id">pid {w.pid}</span>
+      {/if}
       {#if w.vram_gb != null}
         <span class="muted">{w.vram_gb} GB</span>
       {/if}

@@ -20,6 +20,12 @@
           <span class="num"
             >{gb(c.allocatedMb)}{#if c.totalMb}&nbsp;/ {gb(c.totalMb)}{/if} GB</span
           >
+          {#if c.freeMb != null}
+            <span class="muted">{gb(c.freeMb)} GB free</span>
+          {/if}
+          {#if c.reservedMb != null}
+            <span class="muted">{gb(c.reservedMb)} GB reserved</span>
+          {/if}
           {#if !c.totalMb}
             <span class="muted">(this backend reports allocated only)</span>
           {/if}

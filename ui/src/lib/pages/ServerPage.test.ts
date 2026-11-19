@@ -270,6 +270,58 @@ it('shows memory for every card, not just the first', async () => {
   expect(text).toContain('cuda:1 18.2 / 24.0 GB 12s ago')
 })
 
+it('shows the runtime versions, with null as none / not installed', async () => {
+  const text = await show({
+    runtime: {
+      python_version: '3.12.0',
+      torch_version: '2.9.0',
+      cuda_version: null,
+      driver_version: null,
+      packages: { diffusers: '0.36.0', xformers: null },
+    },
+  })
+  expect(text).toContain('Runtime')
+  expect(text).toContain('Python 3.12.0')
+  expect(text).toContain('torch 2.9.0')
+  expect(text).toContain('CUDA none')
+  expect(text).toContain('driver none')
+  expect(text).toContain('diffusers 0.36.0')
+  expect(text).toContain('xformers not installed')
+})
+
+it('shows each worker pid and per-card free and reserved memory', async () => {
+  health.mockResolvedValueOnce({
+    status: 'ok',
+    worker_alive: true,
+    current_job: null,
+    queued: 0,
+    workers: [
+      { device: 'cuda:0', name: 'cuda:0', alive: true, pid: 4242 },
+      { device: 'cuda:1', name: 'cuda:1', alive: false },
+    ],
+  })
+  const entry = {
+    device: 'cuda:0',
+    live: true,
+    stale: false,
+    reason: null,
+    age_seconds: 0,
+    info: {
+      gpu_available: true,
+      gpu_memory_allocated_mb: 1024,
+      gpu_memory_total_mb: 24576,
+      gpu_memory_free_mb: 20480,
+      gpu_memory_reserved_mb: 2048,
+    },
+  }
+  memory.mockResolvedValueOnce({ ...entry, workers: [entry] })
+  const text = await show()
+  expect(text).toContain('pid 4242')
+  expect(text.match(/pid /g)).toHaveLength(1)
+  expect(text).toContain('20.0 GB free')
+  expect(text).toContain('2.0 GB reserved')
+})
+
 /** Render with the cache list given, returning the container. */
 async function showCaches(list = cacheList()) {
   listCaches.mockResolvedValue(list)

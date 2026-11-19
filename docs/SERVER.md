@@ -250,7 +250,9 @@ icon, a finish-alert toggle, the theme toggle, and links to these docs and
   required markers, defaults, enums and descriptions. `$ref` labels jump to
   their definition; a filter narrows the list.
 - **Status** (Server) - what this server is and how to reach it: workers per
-  card, bind address and LAN addresses, whether a token is required, whether
+  card (with its pid), per-card memory (free and reserved where the backend
+  reports them), a **Runtime** panel (Python, torch, CUDA, driver and package
+  versions, with a copy button), bind address and LAN addresses, whether a token is required, whether
   `/mcp` is mounted, a **Connect from another machine** panel with the
   browser URL and the `claude mcp add` line for a chosen address, the
   resolved directories, and the Caches panel (below) - then the queue and
