@@ -484,6 +484,88 @@ export function constraintHints(definition: unknown): Record<string, string[]> {
   return hints
 }
 
+/** One preset selector as the form shows it: its bundle names, exactly the
+ * keys of `presets.<selector>`, and the variables its bundles set (their
+ * union, the selector itself left out, as `dw/presets.py` skips it). */
+export type PresetSelector = { bundles: string[]; sets: string[] }
+
+type Bundles = Record<string, Record<string, unknown>>
+
+/** The definition's `presets` ({selector: {bundle: {variable: value}}}),
+ * keeping only the selectors and bundles that are objects - what
+ * `apply_presets` would read. */
+function presetBundles(definition: unknown): Record<string, Bundles> {
+  const raw = (definition as { presets?: unknown } | null)?.presets
+  const found: Record<string, Bundles> = {}
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+    return found
+  }
+  for (const [selector, bundles] of Object.entries(raw)) {
+    if (bundles === null || typeof bundles !== 'object') continue
+    if (Array.isArray(bundles)) continue
+    const kept: Bundles = {}
+    for (const [name, bundle] of Object.entries(bundles)) {
+      if (
+        bundle !== null &&
+        typeof bundle === 'object' &&
+        !Array.isArray(bundle)
+      ) {
+        kept[name] = bundle as Record<string, unknown>
+      }
+    }
+    found[selector] = kept
+  }
+  return found
+}
+
+/** Each preset selector the definition declares: {selector: its bundle
+ * names and the variables they set}. */
+export function presetView(
+  definition: unknown,
+): Record<string, PresetSelector> {
+  const view: Record<string, PresetSelector> = {}
+  for (const [selector, bundles] of Object.entries(presetBundles(definition))) {
+    const sets = new Set<string>()
+    for (const bundle of Object.values(bundles)) {
+      for (const name of Object.keys(bundle)) {
+        if (name !== selector) sets.add(name)
+      }
+    }
+    view[selector] = { bundles: Object.keys(bundles), sets: [...sets] }
+  }
+  return view
+}
+
+/** The value the chosen bundle gives `name`, as the placeholder of an empty
+ * field; undefined when no chosen bundle sets it, or the field holds a value
+ * of its own (an explicit value wins, `dw/presets.py`'s `apply_presets`).
+ * The chosen bundle is the selector's override, else its declared default -
+ * the engine's `effective_variables` order: declared default, then bundle,
+ * then explicit value. Display only: the bundle's values are never sent. */
+export function presetPlaceholder(
+  definition: unknown,
+  overrides: Record<string, string>,
+  name: string,
+): string | undefined {
+  if (overrides[name]) return undefined
+  const declared =
+    (definition as { variables?: Record<string, unknown> } | null)?.variables ??
+    {}
+  let found: string | undefined
+  // In declaration order, a later selector's bundle over an earlier one's,
+  // as apply_presets sets them
+  for (const [selector, bundles] of Object.entries(presetBundles(definition))) {
+    if (selector === name) continue
+    const chosen = overrides[selector] || declared[selector]
+    if (typeof chosen !== 'string') continue
+    const bundle = Object.hasOwn(bundles, chosen) ? bundles[chosen] : undefined
+    if (bundle && Object.hasOwn(bundle, name)) {
+      found = displayValue(bundle[name])
+    }
+  }
+  return found
+}
+
 export const ATTENTION_BACKENDS = [
   'native',
   'flash',

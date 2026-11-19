@@ -458,6 +458,7 @@
           idPrefix="wfvar-"
           backendVariables={attentionBackendVariables(ed.doc)}
           constraints={constraintHints(ed.doc)}
+          presets={ed.doc.presets}
         />
       </div>
 

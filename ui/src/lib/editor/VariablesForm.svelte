@@ -2,7 +2,14 @@
   import { PROMPT, reference } from '../references'
   import { Plus, Trash2 } from '@lucide/svelte'
   import ExpandingText from './ExpandingText.svelte'
-  import { coerce, displayValue, isReference, widgetFor } from '../editor'
+  import {
+    coerce,
+    displayValue,
+    isReference,
+    presetPlaceholder,
+    presetView,
+    widgetFor,
+  } from '../editor'
   import { promptLibrary } from '../promptlib.svelte'
   import { promptTooltip } from '../prompts'
   import { referenceCompletions } from '../refcomplete.svelte'
@@ -17,6 +24,7 @@
     backendVariables = new Set<string>(),
     requiredVariables = new Set<string>(),
     constraints = {},
+    presets = undefined,
   }: {
     /** define: edit the workflow's own defaults (add/remove/coerce).
      * override: fill per-run values over read-only defaults. */
@@ -33,9 +41,40 @@
     /** Each variable's declared rules in words (`constraintHints`), shown
      * muted under its field. They state the rule; the server judges it. */
     constraints?: Record<string, string[]>
+    /** The definition's `presets` ({selector: {bundle: {variable: value}}}).
+     * In override mode a selector is a dropdown of its bundles and the
+     * chosen bundle's values are the placeholders of the fields it sets;
+     * they are never copied into the overrides. */
+    presets?: unknown
   } = $props()
 
   const keys = $derived(Object.keys(variables ?? {}))
+
+  const presetDefinition = $derived({ variables, presets })
+  const selectors = $derived(presetView(presetDefinition))
+
+  /** A selector is a dropdown in override mode when its declared default
+   * and its override are both plain names - a reference or a non-string
+   * stays the text field. */
+  function isPresetSelect(key: string): boolean {
+    if (mode !== 'override' || !Object.hasOwn(selectors, key)) return false
+    const declared = variables[key]
+    const plainDefault =
+      declared === undefined ||
+      declared === null ||
+      (typeof declared === 'string' && !isReference(declared))
+    const current = overrides[key] ?? ''
+    return plainDefault && typeof current === 'string' && !isReference(current)
+  }
+
+  function placeholderFor(key: string): string {
+    if (mode !== 'override') return ''
+    if (requiredVariables.has(key)) return 'required'
+    return (
+      presetPlaceholder(presetDefinition, overrides, key) ??
+      displayValue(variables[key])
+    )
+  }
 
   let newVariable = $state('')
 
@@ -107,7 +146,24 @@
         <span class="required">required</span>{/if}</label
     >
     <div class="field">
-      {#if isBackendSelect(key)}
+      {#if isPresetSelect(key)}
+        {@const current = shown(key)}
+        <select
+          id={idPrefix + key}
+          value={current}
+          onchange={(e) => commit(key, e.currentTarget.value)}
+        >
+          <option value="">
+            default ({displayValue(variables[key]) || 'none'})
+          </option>
+          {#if current && !selectors[key].bundles.includes(current)}
+            <option value={current}>{current} (not a preset)</option>
+          {/if}
+          {#each selectors[key].bundles as bundle (bundle)}
+            <option value={bundle}>{bundle}</option>
+          {/each}
+        </select>
+      {:else if isBackendSelect(key)}
         {@const current = shown(key)}
         <select
           id={idPrefix + key}
@@ -132,11 +188,7 @@
         <ExpandingText
           id={idPrefix + key}
           value={shown(key)}
-          placeholder={mode === 'override'
-            ? requiredVariables.has(key)
-              ? 'required'
-              : displayValue(variables[key])
-            : ''}
+          placeholder={placeholderFor(key)}
           refStyle={isReference(effective(key))}
           complete={(text) => referenceCompletions(text)}
           title={promptTooltip(effective(key), promptLibrary.texts)}
@@ -159,6 +211,16 @@
       >
         <Trash2 size={14} />
       </button>
+    {/if}
+    {#if Object.hasOwn(selectors, key)}
+      <ul class="hints" data-presets-for={key}>
+        {#if selectors[key].sets.length}
+          <li>sets {selectors[key].sets.join(', ')}</li>
+        {/if}
+        {#if mode === 'define' && selectors[key].bundles.length}
+          <li>bundles: {selectors[key].bundles.join(', ')}</li>
+        {/if}
+      </ul>
     {/if}
     {#if constraints[key]?.length}
       <ul class="hints" data-hints-for={key}>
