@@ -28,6 +28,7 @@ from ..assets import (
 from .. import get_device_type, references, validation
 from ..notes import MAX_NOTE_LENGTH, NoteTooLong, clean_note
 from ..plan import list_entries
+from ..plan_downloads import repos_named
 from ..prompts import resolve_prompt_reference
 from ..runs import (
     activate_output_root,
@@ -93,6 +94,10 @@ class Admission:
     # None for no figure (dw/server/host_ram_need.py, #869). Set by
     # admit_for, which has the server's history; nothing dispatches on it yet
     host_ram_need: Optional[tuple] = None
+    # The Hub repos the run names (dw.plan_downloads.repos_named) - a
+    # submit hands them to the job, which stamps them in dw/model_use.py
+    # when its run starts (#1445). Empty for a refused request
+    repos_named: list = field(default_factory=list)
 
     @property
     def ok(self):
@@ -237,6 +242,8 @@ def admit(
         admission.warnings = to_warnings(
             run_checks(context, validation.WARNING_CHECKS, WARNING, loud=admission.ok)
         )
+        if admission.ok:
+            admission.repos_named = _repos_named(candidate, context)
         if plan_for is not None and admission.ok:
             admission.plan = plan_for(candidate, admission.vram_need)
         return admission
@@ -245,6 +252,18 @@ def admit(
             deactivate_output_root(output_token)
         if token is not None:
             deactivate_asset_dir(token)
+
+
+def _repos_named(candidate, context):
+    """The Hub repos the run names, read off the expansion the plan reads
+    (dw.plan_downloads.repos_named) - what the job stamps in dw/model_use.py
+    when its run starts (#1445). Best-effort: a walk that fails names none,
+    and costs the stamp, never the request."""
+    try:
+        return repos_named(context.expanded, context.base_dir, candidate.workflow_dir)
+    except Exception as e:
+        logger.debug("repos_named failed: %s", e)
+        return []
 
 
 def _vram_need(candidate, context, arguments):

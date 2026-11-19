@@ -169,6 +169,10 @@ class Job:
         # The host RAM it was projected to hold at its peak when admitted,
         # (mb, basis, runs) or None (dw/server/host_ram_need.py, #869)
         self.host_ram_need = None
+        # The Hub repos admission found the job names (Admission.repos_named),
+        # stamped into dw/model_use.py when its run starts (#1445). Not
+        # persisted: a restored job never starts again
+        self.repos_named = []
         # Why dispatch is holding it while it is queued - "waiting for host
         # RAM: ..." - or None; a live state, never a warning (#869)
         self.waiting_for = None

@@ -52,7 +52,7 @@ from ..security import (
     validate_path,
     validate_workflow_path,
 )
-from .. import references
+from .. import model_use, references
 from ..runs import REALIZED_FILE_NAME
 from ..settings import resolve_path
 from ..workspace import DEFAULT_WORKSPACE_NAME
@@ -195,6 +195,16 @@ class JobManager(Dispatcher):
         except Exception as e:
             logger.warning(f"Could not record job {job.id} in history: {e}")
 
+    def _on_run_start(self, job):
+        """The worker's `run_start`: the row goes to running, and every Hub
+        repo admission found the job names is stamped as used now
+        (dw/model_use.py, #1445) - the run has started, so a job cancelled
+        while it queued, or refused at dispatch, never stamps. The stamp is
+        best-effort (`model_use.record` swallows its own failures)."""
+        self._record_open(job)
+        if job.repos_named:
+            model_use.record(job.repos_named, time.time())
+
     # ------------------------------------------------------------- affinity
 
     @staticmethod
@@ -266,6 +276,7 @@ class JobManager(Dispatcher):
         warnings=None,
         vram_need=None,
         host_ram_need=None,
+        repos_named=None,
         preferred_device=None,
         note=None,
         rerun_of=None,
@@ -310,6 +321,10 @@ class JobManager(Dispatcher):
         host RAM the run is projected to hold at its peak, kept on the job
         as `job.host_ram_need` (#869). The job waits to start while the
         host cannot hold it beside the running jobs (`_host_ram_wait`).
+
+        `repos_named` is the admission's (`Admission.repos_named`): the Hub
+        repos the run names, stamped in dw/model_use.py when its run starts
+        (`_run_on`, #1445). A job cancelled while queued stamps none.
 
         `preferred_device` is the card ('cuda:1') the job goes to when that
         card is free and fits it - a rerun's original card (`rerun`).
@@ -375,6 +390,7 @@ class JobManager(Dispatcher):
 
         job = Job(spec)
         job.host_ram_need = host_ram_need
+        job.repos_named = list(repos_named or [])
         job.server_instance = self.instance
         # Its row before anyone can see it: no outcome is written first (#1220)
         self._record_open(job)
@@ -565,6 +581,7 @@ class JobManager(Dispatcher):
         arguments=None,
         vram_need=None,
         host_ram_need=None,
+        repos_named=None,
         overrides=None,
     ):
         """Queue a fresh job from a previous job's spec.
@@ -623,6 +640,7 @@ class JobManager(Dispatcher):
             warnings=[*(warnings or []), *([] if new_seed else spec["rerun_warnings"])],
             vram_need=vram_need,
             host_ram_need=host_ram_need,
+            repos_named=repos_named,
             preferred_device=self._original_device(job_id),
             note=spec.get("note"),
             rerun_of=job_id,
@@ -699,6 +717,7 @@ class JobManager(Dispatcher):
                         arguments=arguments,
                         vram_need=admission.vram_need,
                         host_ram_need=admission.host_ram_need,
+                        repos_named=admission.repos_named,
                     )
                 except Exception as e:
                     logger.warning(f"Batch rerun of {member_id} failed: {e}")
@@ -1079,7 +1098,7 @@ class JobManager(Dispatcher):
                         slot,
                         job.spec.get("output_dir") or self.output_dir,
                         worker_memory.record_memory,
-                        on_run_start=lambda: self._record_open(job),
+                        on_run_start=lambda: self._on_run_start(job),
                     )
             except Exception as e:
                 logger.error(f"Job {job.id} failed: {e}", exc_info=True)

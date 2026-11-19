@@ -1163,7 +1163,10 @@ export interface paths {
         };
         /**
          * Get Models
-         * @description What the Hugging Face hub cache holds, largest repo first.
+         * @description What the Hugging Face hub cache holds, largest repo first. Each row
+         *     carries `last_job_use`, when a dw job that named the repo last started
+         *     (dw/model_use.py, #1445), null when none has - always set, so the field
+         *     is never dropped as unset. `last_accessed` stays the files' atime.
          */
         get: operations["get_models_api_models_get"];
         put?: never;
@@ -3203,8 +3206,16 @@ export interface components {
         };
         /** ModelRepo */
         ModelRepo: {
-            /** Last Accessed */
+            /**
+             * Last Accessed
+             * @description The newest access time (atime) of the repo's files - a fallback for last_job_use: copies and backups bump it, and a noatime or relatime disk may never move it.
+             */
             last_accessed: number | null;
+            /**
+             * Last Job Use
+             * @description Epoch seconds a dw job that named this repo last started (dw/model_use.py); null when no dw job has used it since tracking began - then last_accessed is the only date there is.
+             */
+            last_job_use: number | null;
             /** Last Modified */
             last_modified: number | null;
             /** Nb Files */

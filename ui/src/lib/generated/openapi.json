@@ -3182,7 +3182,23 @@
                 "type": "null"
               }
             ],
+            "description": "The newest access time (atime) of the repo's files - a fallback for last_job_use: copies and backups bump it, and a noatime or relatime disk may never move it.",
             "title": "Last Accessed"
+          },
+          "last_job_use": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Epoch seconds a dw job that named this repo last started (dw/model_use.py); null when no dw job has used it since tracking began - then last_accessed is the only date there is.",
+            "title": "Last Job Use"
           },
           "last_modified": {
             "anyOf": [
@@ -3229,7 +3245,8 @@
           "nb_files",
           "last_accessed",
           "last_modified",
-          "revisions"
+          "revisions",
+          "last_job_use"
         ],
         "title": "ModelRepo",
         "type": "object"
@@ -8380,7 +8397,7 @@
         "summary": "Delete Cached Model"
       },
       "get": {
-        "description": "What the Hugging Face hub cache holds, largest repo first.",
+        "description": "What the Hugging Face hub cache holds, largest repo first. Each row\ncarries `last_job_use`, when a dw job that named the repo last started\n(dw/model_use.py, #1445), null when none has - always set, so the field\nis never dropped as unset. `last_accessed` stays the files' atime.",
         "operationId": "get_models_api_models_get",
         "responses": {
           "200": {
