@@ -344,3 +344,73 @@ test('an unknown job renders an error rather than a blank page', async ({
   await page.goto('/#/jobs/does-not-exist')
   await expect(page.getByText('Unknown job')).toBeVisible()
 })
+
+test('the workflow page checks a run as you edit, and places each finding', async ({
+  page,
+}) => {
+  test.setTimeout(90_000)
+  const asked: { url: string; body: Record<string, unknown> }[] = []
+  await page.route('**/api/validate**', async (route) => {
+    const body = route.request().postDataJSON() as Record<string, unknown>
+    asked.push({ url: route.request().url(), body })
+    const args = (body.arguments ?? {}) as Record<string, unknown>
+    const refused = args.num_inference_steps === '0'
+    await route.fulfill({
+      json: {
+        valid: !refused,
+        error: refused ? 'refused' : null,
+        errors: refused
+          ? [
+              {
+                path: 'arguments.num_inference_steps',
+                message: 'must be at least 1',
+              },
+            ]
+          : [],
+        warnings: ['<img src=x onerror="window.__pwned=1"> a general note'],
+        plan: refused
+          ? undefined
+          : {
+              fingerprint: 'sha256:e2e',
+              steps: 1,
+              list_entries: {},
+              cached_steps: 0,
+              downloads_required: [],
+              estimate: {
+                minutes: 3,
+                basis: 'catalog',
+                device: 'mps',
+                measured_on: 'card',
+                partial: false,
+              },
+            },
+      },
+    })
+  })
+  await page.goto('/#/workflows/models/z-image')
+  const check = page.getByRole('region', { name: 'run check' })
+  await expect(
+    check.getByText('a run would be admitted, with warnings'),
+  ).toBeVisible()
+  await expect(check.getByLabel('what a run will do')).toContainText('~3 min')
+  expect(asked[0].body.workflow_path).toBe('models/z-image')
+  expect(asked[0].url).toContain('sizes=false')
+  // a hostile warning prints as text
+  await expect(
+    check.getByLabel('findings').getByText(/<img src=x onerror=/),
+  ).toBeVisible()
+  expect(
+    await page.evaluate(() => (window as { __pwned?: number }).__pwned),
+  ).toBeUndefined()
+
+  await page.getByLabel('num_inference_steps').fill('0')
+  await expect(check.getByText('a run would be refused')).toBeVisible()
+  await expect(
+    page.locator('[data-findings-for="num_inference_steps"]'),
+  ).toContainText('must be at least 1')
+  await expect(check.getByLabel('findings')).not.toContainText(
+    'must be at least 1',
+  )
+  // the check never gates Run
+  await expect(page.getByRole('button', { name: /Run/ })).toBeEnabled()
+})

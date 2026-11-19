@@ -143,6 +143,26 @@ function archiveFrom(path: string) {
     })
 }
 
+/** What `/api/validate` is asked: exactly one of an inline `workflow` or a
+ * `workflow_path` (a catalog name), the `arguments` a run would carry, and
+ * `sizes: false` to skip asking the hub how large a missing model is. */
+export type ValidateRequest = {
+  workflow?: WorkflowDefinition
+  workflow_path?: string
+  arguments?: Record<string, unknown>
+  sizes?: boolean
+}
+
+/** A definition never carries `workflow` or `workflow_path` at its root -
+ * the schema refuses unknown root keys - so either names a request. */
+function isValidateRequest(
+  input: WorkflowDefinition | ValidateRequest,
+): input is ValidateRequest {
+  return (
+    Object.hasOwn(input, 'workflow') || Object.hasOwn(input, 'workflow_path')
+  )
+}
+
 export const api = {
   listWorkflows: () => request<WorkflowList>('/api/workflows'),
   /** The workflow plus where it came from, read off the response headers
@@ -392,12 +412,29 @@ export const api = {
       `/api/classes/${encodeURIComponent(name)}?target=${target}`,
     ),
   getSchema: () => request<Record<string, unknown>>('/api/schema'),
-  validate: (workflow: WorkflowDefinition) =>
-    request<ValidationResult>('/api/validate', {
+  /** Check a workflow without queuing it. The editor hands over the inline
+   * definition it holds; the run page asks by name with the arguments a
+   * Run would send, and `sizes: false` to skip the hub for a faster answer.
+   * `signal` lets a caller drop a check it no longer needs. */
+  validate: (
+    input: WorkflowDefinition | ValidateRequest,
+    signal?: AbortSignal,
+  ) => {
+    const asked: ValidateRequest = isValidateRequest(input)
+      ? input
+      : { workflow: input }
+    const { sizes, ...body } = asked
+    const path =
+      sizes === false
+        ? appendQuery('/api/validate', 'sizes', 'false')
+        : '/api/validate'
+    return request<ValidationResult>(path, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ workflow }),
-    }),
+      body: JSON.stringify(body),
+      signal,
+    })
+  },
   deleteWorkflow: (name: string) =>
     request<WorkflowDeleted>(`/api/workflows/${encodePath(name)}`, {
       method: 'DELETE',
