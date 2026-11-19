@@ -37,6 +37,14 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **The run page checks a run before Run** (#1446, stages #1467 and #1468),
+  closed 2026-11-19. The workflow page validates on load and 600 ms after each
+  change, and shows the plan, a verdict and the findings beside Run, with a
+  finding placed under the variable its path names. `describePlan` now reads
+  host RAM, low-confidence, tempered, withheld, inherited and unpriced figures,
+  the card a run is priced for, and gated or missing repos. The editor shows a
+  plan whenever one is present. Run stays ungated. Comparing against free host
+  RAM was cut (no API field): `complete/run-page-plan-complete.md`.
 - **When a job last used each Hub model** (#1445, stages #1461 and #1462),
   closed 2026-11-19. dw records the start time of the latest job that named
   each Hub repo in `model-use.json` under the settings dir. `GET /api/models`
