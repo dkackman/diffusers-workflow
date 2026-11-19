@@ -491,14 +491,80 @@ class StepTiming(ApiModel):
     cache: dict[str, Any] = sometimes("Skip counts, on a step that set a `cache`.")
 
 
+class ShotMeasure(ApiModel):
+    """One measure a chain's check computed for a segment's kept attempt
+    (#1474), against the ceiling in force."""
+
+    value: float = Field(
+        description="The measure; for `words`, the heard words' similarity to the line."
+    )
+    ceiling: float | None = Field(
+        description="The bound the check held it to - the workflow's own when it "
+        "set one - or null where the check sets none (measured, never failed)."
+    )
+    bound: Literal["max", "min"] = Field(
+        description="`max`: the value must stay at or under the ceiling; `min`: "
+        "at or over it. `texture_ratio` is bounded both ways, so `failed`, not "
+        "value against ceiling, is the verdict."
+    )
+    warn_only: bool = Field(
+        description="A failure is warned and recorded but never re-rolled."
+    )
+    failed: bool = Field(description="The check failed this measure.")
+
+
+class ShotRecord(ApiModel):
+    """One shot of a joined video: where an input landed in it, and for a
+    chain's segment what its check recorded (`dw/shots.py` lists every key).
+    Open even in strict mode: a join may add detail of its own."""
+
+    model_config = ConfigDict(extra="allow")
+
+    name: str
+    start_frame: int
+    num_frames: int
+    start_sample: int | None = Field(
+        default=None, description="Null when the video has no track the join built."
+    )
+    num_samples: int | None = Field(
+        default=None, description="Null when the video has no track the join built."
+    )
+    planned_segments: int = sometimes(
+        "On a chain's shot: the segment count its plan asked for."
+    )
+    segment_file: str = sometimes(
+        "On a chain's shot under save_segments and keep_segments: its segment's file."
+    )
+    resumed: bool = sometimes(
+        "On a chain's shot: the segment was copied from an earlier run (resume_from)."
+    )
+    attempts: int = sometimes("On a chain's shot: renders its check tried.")
+    check_failed: list[str] = sometimes(
+        "On a checked chain shot whose every attempt failed: the measures the "
+        "kept one failed."
+    )
+    audio_dbfs: float = sometimes(
+        "On a chain's shot with generated audio: its kept audio's level."
+    )
+    measures: dict[str, ShotMeasure] = sometimes(
+        "On a chain's shot with the check on: every measure the kept attempt "
+        "computed, by name. Absent with the check off, on a resumed segment, "
+        "and on a job recorded before the field existed."
+    )
+
+
 class ManifestEntry(ApiModel):
     """One step's saved files. Open even in strict mode: the worker adds
-    per-step detail (`selected`, `shots`, ...) the UI does not read."""
+    per-step detail (`selected`, ...) beyond the keys typed here."""
 
     model_config = ConfigDict(extra="allow")
 
     step: str
     files: list[str]
+    shots: list[ShotRecord] | None = sometimes(
+        "Where each input landed in the step's joined video (dw/shots.py); "
+        "null or absent on a step that joined none."
+    )
     subfolder: str = sometimes(
         "The in-run subfolder the step's `result.subfolder` chose - "
         "`final`, `intermediate`, any relative path - `''` when it chose none. "

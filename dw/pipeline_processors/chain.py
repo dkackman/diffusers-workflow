@@ -65,6 +65,7 @@ from .chain_check import (
     face_record,
     failures_text as _failures,
     measure_frames,
+    measures_record,
     reroll_seed,
     shown_value as _shown_value,
     texture_base,
@@ -640,6 +641,8 @@ def _record_check(shot, segment, config, checked):
     to) has one attempt."""
     if checked is None:
         shot["attempts"] = 1
+        # The check is on but measured nothing here (#1474)
+        shot["measures"] = {}
         return
     shot["attempts"] = checked["attempts"]
     result, kept = checked["result"], checked["kept"]
@@ -650,6 +653,9 @@ def _record_check(shot, segment, config, checked):
     if "words" in result.measures:
         # The kept attempt's words, null for a segment with no line (#1262)
         shot["words"] = result.measures["words"]
+    # Every measure the kept attempt computed, against the ceiling in force,
+    # passing or not, so a caller can read how close it came (#1474)
+    shot["measures"] = measures_record(result, config.check)
     if result.passed:
         return
     # Texture alone ends the loop on attempt 1 without trying the budget
