@@ -46,6 +46,32 @@ floor, Don's look decides quality.
 | config | ref2va |
 | total bytes | 66,280,430,080 (bf16, 14 shards) |
 
+Shape check: the script's assertion passed. All 638 tensor names and shapes
+match between the parents: no fl2va-only tensor, no ref2va-only tensor, no
+shape mismatch. The 60 grafted tensors are 30 blocks (20, 21, …, 49) × 2
+(`adaln_proj.linear.weight` and `.bias`), as listed in lem's
+`~/bench-scratch/graft-report.json` `grafted` field. `config.json` is ref2va's
+(`transformer_ref/config.json`); `cmp` shows it is byte-identical to fl2va's.
+
+### Disk
+
+**The pre-graft `df` was not taken.** The plan's first step was missed, and this
+run's record has no reading from before the graft. The figures below were read
+afterwards (2026-11-19 11:22 UTC), with the graft already deleted:
+
+| | Filesystem | Size | Avail |
+|---|---|---|---|
+| model disk (`/mnt/cache`, the HF cache) | `/dev/nvme0n1p1` | 1,006,979,411,968 | 137,564,278,784 (137.6 GB) |
+| scratch (`/home/don/bench-scratch`, on `/`) | `/dev/nvme1n1p2` | 982,240,026,624 | 671,848,017,920 (671.8 GB) |
+
+- Parents (measured with `du -sb --apparent-size`): fl2va `transformer`
+  66,280,569,250 B; ref2va `transformer_ref` 66,280,504,216 B (66.3 GB each).
+  The plan's estimate of ~40 GB was low.
+- Graft: 66,280,430,080 B (66.3 GB) written to the scratch disk, not the model disk.
+- 2× one parent is 132.6 GB. The scratch disk, where the graft was written, has
+  671.8 GB free now, and the model disk has 137.6 GB. Both are above the bar
+  after the fact, but that is a reconstruction, not the check the plan asked for.
+
 ## Results
 
 | Arm | Job | Wall (waited) | Load | Denoise (8 passes) | Decode | Host peak | SFace median | SFace min | Faces |
@@ -53,7 +79,11 @@ floor, Don's look decides quality.
 | stock | `7cd603a1922f` | 247.7 s | 5.3 s (cached) | 185.0 s (22.6 s/pass) | 19.8 s | 23.8 GB | **0.855** | 0.759 | 16/16 |
 | hybrid b20-49 | `d5a6c03f9ee3` | 308.8 s | 48.8 s (uncached, fresh quantize) | 205.4 s (25.7 s/pass) | 22.0 s | 40.2 GB | **0.788** | 0.561 | 16/16 |
 
-SFace jobs: stock `d7589d81e015`, hybrid `3a77473b74fa` (reference `cast/estela.jpg`).
+SFace jobs: stock `d7589d81e015`, hybrid `3a77473b74fa` (reference `cast/estela.jpg`,
+`samples_per_shot` 16, `threshold` the task default 0.363, OpenCV's SFace match
+threshold). Wall is the time `wait_for_job` waited. `get_job` reports 247.0 s
+(stock) and 308.6 s (hybrid). The hybrid's wall time includes the uncached
+load and the fresh SDNQ int4 quantize of the local `transformer_ref`.
 
 Outputs (workspace `bench`):
 - stock: `BenchProbe1441StockRef/20261119-075335-e5a85485/final/BenchProbe1441StockRef-reference_to_video_audio.0-0.0.mp4`
@@ -94,7 +124,7 @@ run the hybrid probe again with the path changed.
   `MiniMaxAI/MiniMax-H3` (0.01 GB) in `downloads_required`, for the other
   components. The run's own cost ack had `downloads: []`, and nothing was
   fetched.
-- The scratch graft (`/home/don/bench-scratch/h3-hybrid-b20-49`, 62 GB) was
+- The scratch graft (`/home/don/bench-scratch/h3-hybrid-b20-49`, 66.3 GB / 61.7 GiB) was
   deleted after this record, as plan v1 says. The script rebuilds it in
   about a minute.
 
