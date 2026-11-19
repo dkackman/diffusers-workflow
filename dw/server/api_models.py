@@ -433,6 +433,12 @@ class JobSummary(ApiModel):
     rerun_of: str = sometimes(
         "The job this one reran; absent for a job submitted fresh."
     )
+    request: str = sometimes(
+        "The requests-ledger request this job serves; absent when unlinked."
+    )
+    item: str = sometimes(
+        "The item of `request` this job serves; absent when unlinked."
+    )
     overrides: dict = sometimes(
         "The variables a rerun changed from the job it reran; absent when none were."
     )
@@ -1081,6 +1087,20 @@ class LedgerComment(ApiModel):
     at: str
 
 
+class LedgerAttempt(ApiModel):
+    job: str
+    status: JobStatus
+    note: str = sometimes("The job's note.")
+    minutes: int | float | None = Field(
+        description="Run time; null until the job has started."
+    )
+
+
+class LedgerResult(ApiModel):
+    job: str
+    run_id: str | None
+
+
 class LedgerItem(ApiModel):
     key: str
     title: str
@@ -1093,8 +1113,26 @@ class LedgerItem(ApiModel):
     comment: LedgerComment | None = Field(
         description="The user's; an agent never writes it."
     )
-    status: Literal["planned", "dropped"] = Field(
-        description="Derived from the item's jobs; none link yet, so planned or dropped."
+    status: Literal["dropped", "done", "running", "queued", "failed", "planned"] = (
+        Field(
+            description="Derived from the item's linked jobs, first that holds: "
+            "dropped, done (a result exists), running, queued, failed (every "
+            "linked job failed or was cancelled), planned."
+        )
+    )
+    attempts: list["LedgerAttempt"] = Field(
+        description="Every linked job, oldest first."
+    )
+    result: "LedgerResult | None" = Field(
+        description="The accepted job's run, else the latest succeeded job's "
+        "run whose directory still exists; null when neither."
+    )
+    accepted_missing: bool = sometimes(
+        "True when an accepted job's run directory is gone; `result` then "
+        "falls back to the latest succeeded attempt."
+    )
+    spent_minutes: int | float = Field(
+        description="Minutes the item's linked jobs ran, summed."
     )
 
 
@@ -1115,6 +1153,10 @@ class LedgerRequest(ApiModel):
     goal: str
     items: list[LedgerItem]
     history: list[LedgerHistoryEntry]
+    spent_minutes: int | float = Field(description="Minutes every linked job ran.")
+    remaining_minutes: int | float = Field(
+        description="Estimates of the items not done and not dropped."
+    )
 
 
 class LedgerSummary(ApiModel):
@@ -1124,6 +1166,8 @@ class LedgerSummary(ApiModel):
     revision: int
     items: int
     status_counts: dict[str, int]
+    spent_minutes: int | float
+    remaining_minutes: int | float
     updated_at: str | None
 
 

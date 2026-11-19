@@ -2678,6 +2678,11 @@ export interface components {
             /** Id */
             id: string;
             /**
+             * Item
+             * @description The item of `request` this job serves; absent when unlinked.
+             */
+            item?: string;
+            /**
              * Manifest
              * @description Null on a history row recorded before manifests, or by a run that wrote none.
              */
@@ -2713,6 +2718,11 @@ export interface components {
              * @description Why the job ended: the first line of its `error`, clipped to 160 characters with a trailing '…'. Only on a failed or cancelled job that has an error - a plain user cancel has none. The full error, traceback and all, is on the job's detail.
              */
             reason?: string;
+            /**
+             * Request
+             * @description The requests-ledger request this job serves; absent when unlinked.
+             */
+            request?: string;
             /**
              * Rerun Of
              * @description The job this one reran; absent for a job submitted fresh.
@@ -2879,10 +2889,20 @@ export interface components {
              */
             base_dir?: string | null;
             /**
+             * Item
+             * @description The item key of `request` this job serves; both or neither
+             */
+            item?: string | null;
+            /**
              * Note
              * @description A note on the run, at most 4000 characters: kept with the job and written as the run note when the run opens
              */
             note?: string | null;
+            /**
+             * Request
+             * @description The requests-ledger request this job serves (with `item`): an open request in the job's workspace. Refused with 422 and a `{code, message}` detail - unknown_request, request_closed, unknown_item or item_dropped - before anything queues
+             */
+            request?: string | null;
             /**
              * Workflow
              * @description Inline workflow definition
@@ -2931,6 +2951,11 @@ export interface components {
             /** Id */
             id: string;
             /**
+             * Item
+             * @description The item of `request` this job serves; absent when unlinked.
+             */
+            item?: string;
+            /**
              * Note
              * @description The note it was submitted with; also its run's note.
              */
@@ -2952,6 +2977,11 @@ export interface components {
              * @description Why the job ended: the first line of its `error`, clipped to 160 characters with a trailing '…'. Only on a failed or cancelled job that has an error - a plain user cancel has none. The full error, traceback and all, is on the job's detail.
              */
             reason?: string;
+            /**
+             * Request
+             * @description The requests-ledger request this job serves; absent when unlinked.
+             */
+            request?: string;
             /**
              * Rerun Of
              * @description The job this one reran; absent for a job submitted fresh.
@@ -3074,6 +3104,26 @@ export interface components {
             /** Run Id */
             run_id: string | null;
         };
+        /** LedgerAttempt */
+        LedgerAttempt: {
+            /** Job */
+            job: string;
+            /**
+             * Minutes
+             * @description Run time; null until the job has started.
+             */
+            minutes: number | null;
+            /**
+             * Note
+             * @description The job's note.
+             */
+            note?: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "queued" | "running" | "succeeded" | "failed" | "cancelled";
+        };
         /** LedgerComment */
         LedgerComment: {
             /** At */
@@ -3103,10 +3153,20 @@ export interface components {
         /** LedgerItem */
         LedgerItem: {
             accepted: components["schemas"]["LedgerAccepted"] | null;
+            /**
+             * Accepted Missing
+             * @description True when an accepted job's run directory is gone; `result` then falls back to the latest succeeded attempt.
+             */
+            accepted_missing?: boolean;
             /** Arguments */
             arguments: {
                 [key: string]: unknown;
             };
+            /**
+             * Attempts
+             * @description Every linked job, oldest first.
+             */
+            attempts: components["schemas"]["LedgerAttempt"][];
             /** @description The user's; an agent never writes it. */
             comment: components["schemas"]["LedgerComment"] | null;
             /** Depends On */
@@ -3117,12 +3177,19 @@ export interface components {
             estimate_minutes: number | null;
             /** Key */
             key: string;
+            /** @description The accepted job's run, else the latest succeeded job's run whose directory still exists; null when neither. */
+            result: components["schemas"]["LedgerResult"] | null;
+            /**
+             * Spent Minutes
+             * @description Minutes the item's linked jobs ran, summed.
+             */
+            spent_minutes: number;
             /**
              * Status
-             * @description Derived from the item's jobs; none link yet, so planned or dropped.
+             * @description Derived from the item's linked jobs, first that holds: dropped, done (a result exists), running, queued, failed (every linked job failed or was cancelled), planned.
              * @enum {string}
              */
-            status: "planned" | "dropped";
+            status: "dropped" | "done" | "running" | "queued" | "failed" | "planned";
             /** Title */
             title: string;
             /** Workflow */
@@ -3150,8 +3217,18 @@ export interface components {
              * @description The ask that started it; write-once.
              */
             prompt: string | null;
+            /**
+             * Remaining Minutes
+             * @description Estimates of the items not done and not dropped.
+             */
+            remaining_minutes: number;
             /** Revision */
             revision: number;
+            /**
+             * Spent Minutes
+             * @description Minutes every linked job ran.
+             */
+            spent_minutes: number;
             /**
              * State
              * @enum {string}
@@ -3160,14 +3237,25 @@ export interface components {
             /** Title */
             title: string;
         };
+        /** LedgerResult */
+        LedgerResult: {
+            /** Job */
+            job: string;
+            /** Run Id */
+            run_id: string | null;
+        };
         /** LedgerSummary */
         LedgerSummary: {
             /** Id */
             id: string;
             /** Items */
             items: number;
+            /** Remaining Minutes */
+            remaining_minutes: number;
             /** Revision */
             revision: number;
+            /** Spent Minutes */
+            spent_minutes: number;
             /**
              * State
              * @enum {string}
@@ -5063,6 +5151,8 @@ export interface operations {
                 version?: number | null;
                 media?: boolean;
                 role?: string[] | null;
+                /** @description Only the files of runs whose job is linked to this requests-ledger request in this workspace */
+                request?: string | null;
                 workspace?: string | null;
             };
             header?: never;
@@ -5523,6 +5613,10 @@ export interface operations {
                 workspace?: string | null;
                 status?: string | null;
                 limit?: number | null;
+                /** @description Only the jobs linked to this requests-ledger request */
+                request?: string | null;
+                /** @description With `request`: only the jobs linked to this item of it */
+                item?: string | null;
             };
             header?: never;
             path?: never;

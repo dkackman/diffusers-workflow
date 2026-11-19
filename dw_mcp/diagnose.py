@@ -10,6 +10,7 @@ progress is polled from the event log.
 import logging
 import math
 import os
+import re
 import time
 
 from dw_mcp.client import DwApiError, api_path, clip_note, workflow_source
@@ -86,6 +87,27 @@ def _acknowledgement_body(acknowledged_cost):
     return {"acknowledged_cost": bool(acknowledged_cost)}
 
 
+# The ledger's key rule, copied because dw_mcp imports no dw module
+# (dw.security.validate_ledger_key)
+LEDGER_KEY = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}\Z")
+
+
+def _ledger_link(request):
+    """`"<request-id>/<item-key>"` as the POST body's `request` and `item`,
+    or None for no link. Refused here, before any HTTP call, when it is not
+    that form."""
+    if request is None or request == "":
+        return None
+    parts = request.split("/") if isinstance(request, str) else []
+    if len(parts) != 2 or not all(LEDGER_KEY.match(part) for part in parts):
+        raise DwApiError(
+            f'`request` must be "<request-id>/<item-key>": exactly one '
+            f"'/', each half 1-64 of a-z, 0-9 and dash, starting with a "
+            f"letter or digit (got {request!r})."
+        )
+    return {"request": parts[0], "item": parts[1]}
+
+
 def run_workflow(
     client,
     workflow_path=None,
@@ -97,6 +119,7 @@ def run_workflow(
     workspace=None,
     wait_seconds=0,
     note=None,
+    request=None,
 ):
     """Queue a workflow. `workflow_path` (or `name` - the same thing
     `validate_workflow` calls it) is either a catalog name from
@@ -121,7 +144,12 @@ def run_workflow(
     `acknowledged_cost` is true or, better, the plan it was quoted from:
     {fingerprint, minutes, downloads} from `validate_workflow` - see
     COST_REFUSAL. A bound one the server checks; a 409 means the run's
-    shape changed since the quote and the message carries the new plan."""
+    shape changed since the quote and the message carries the new plan.
+
+    `request` is "<request-id>/<item-key>": the job is linked to that ledger
+    item (both keys meet the ledger's key rule). The server refuses a link
+    it cannot admit with a 422 naming the code."""
+    ledger_link = _ledger_link(request)
     path, inline = workflow_source(name, workflow_path, workflow, inline_workflow)
     if not acknowledged_cost:
         raise DwApiError(COST_REFUSAL)
@@ -135,6 +163,8 @@ def run_workflow(
     payload.update(_acknowledgement_body(acknowledged_cost))
     if note:
         payload["note"] = note
+    if ledger_link:
+        payload.update(ledger_link)
     if path is not None:
         payload["workflow_path"] = path
     else:

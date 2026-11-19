@@ -1707,3 +1707,84 @@ async def test_the_tool_surface_fits_the_budget():
         f"(descriptions {descriptions / 4:.0f}, schemas {schemas / 4:.0f}, "
         f"instructions {instructions / 4:.0f})"
     )
+
+
+@pytest.mark.asyncio
+async def test_run_workflow_request_is_an_optional_nullable_string():
+    tools = await tools_of(server_over(ok({})))
+    run = tools["run_workflow"].input_schema
+
+    assert "request" not in run.get("required", [])
+    assert run["properties"]["request"]["default"] is None
+    assert {"type": "string"} in run["properties"]["request"]["anyOf"]
+    assert {"type": "null"} in run["properties"]["request"]["anyOf"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bad", ["demo", "a/b/c", "Demo/cat", "demo/", "/cat"])
+async def test_run_workflow_refuses_a_malformed_request_before_any_call(bad):
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        return httpx.Response(200, json={"id": "job-1"})
+
+    server = server_over(handler)
+    with pytest.raises(Exception) as caught:
+        await server.call_tool(
+            "run_workflow",
+            {"workflow_path": "w.json", "acknowledged_cost": True, "request": bad},
+        )
+
+    assert "<request-id>/<item-key>" in str(caught.value)
+    assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_run_workflow_sends_the_request_and_item_split():
+    sent = []
+
+    def handler(request):
+        sent.append(json.loads(request.content))
+        return httpx.Response(200, json={"id": "job-1", "status": "queued"})
+
+    await server_over(handler).call_tool(
+        "run_workflow",
+        {
+            "workflow_path": "w.json",
+            "acknowledged_cost": True,
+            "request": "demo-1/cat",
+        },
+    )
+    await server_over(handler).call_tool(
+        "run_workflow", {"workflow_path": "w.json", "acknowledged_cost": True}
+    )
+
+    assert sent[0]["request"] == "demo-1" and sent[0]["item"] == "cat"
+    assert "request" not in sent[1] and "item" not in sent[1]
+
+
+@pytest.mark.asyncio
+async def test_run_workflow_shows_the_servers_ledger_refusal():
+    def handler(request):
+        return httpx.Response(
+            422,
+            json={
+                "detail": {
+                    "code": "request_closed",
+                    "message": "request 'demo' is done",
+                }
+            },
+        )
+
+    with pytest.raises(Exception) as caught:
+        await server_over(handler).call_tool(
+            "run_workflow",
+            {
+                "workflow_path": "w.json",
+                "acknowledged_cost": True,
+                "request": "demo/cat",
+            },
+        )
+
+    assert "request 'demo' is done" in str(caught.value)

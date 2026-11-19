@@ -118,6 +118,11 @@ _ADDED_COLUMNS = (
     # The job a rerun reran. NULL for a fresh submit and for every row
     # before the column
     ("rerun_of", "TEXT"),
+    # The requests-ledger request and item the job was submitted for (#1458).
+    # NULL for a job with no link and for every row before the columns. A
+    # workspace forget renames only `workspace`, so both survive it
+    ("request", "TEXT"),
+    ("item", "TEXT"),
     # The variables a rerun changed, as JSON. NULL for a job without any
     # and for every row before the column
     ("overrides", "TEXT"),
@@ -185,6 +190,8 @@ _RECORDED = (
     ("note", lambda job: getattr(job, "note", None)),
     ("memory_key", _memory_key_of),
     ("rerun_of", lambda job: getattr(job, "rerun_of", None)),
+    ("request", lambda job: getattr(job, "request", None)),
+    ("item", lambda job: getattr(job, "item", None)),
     (
         "overrides",
         lambda job: _json(job.spec["overrides"]) if job.spec.get("overrides") else None,
@@ -300,6 +307,10 @@ class JobHistory:
             # What `rerun_ids` looks up: has any job rerun this one (#1266)
             connection.execute(
                 "CREATE INDEX IF NOT EXISTS jobs_rerun_of ON jobs (rerun_of)"
+            )
+            # What a request's linked-jobs query and the list filter read
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS jobs_request ON jobs (workspace, request)"
             )
 
     @contextlib.contextmanager
@@ -454,7 +465,7 @@ class JobHistory:
         committed = [row["committed"] for row in rows if row["committed"] is not None]
         return (committed or [row["peak"] for row in rows]), bool(committed)
 
-    def _history_where(self, workspace, statuses):
+    def _history_where(self, workspace, statuses, request=None, item=None):
         """The WHERE clauses and params shared by the summary list and its
         count, or None when the filter can match no closed row."""
         params = []
@@ -476,12 +487,20 @@ class JobHistory:
             params.extend(statuses)
         clauses.append(f"status NOT IN ({_OPEN_PLACEHOLDERS})")
         params.extend(_OPEN_STATES)
+        if request:
+            clauses.append("request = ?")
+            params.append(request)
+            if item:
+                clauses.append("item = ?")
+                params.append(item)
         return clauses, params
 
-    def count_summaries(self, workspace=None, statuses=None, exclude_ids=()):
+    def count_summaries(
+        self, workspace=None, statuses=None, exclude_ids=(), request=None, item=None
+    ):
         """How many rows `recent_summaries` would match with no limit, not
         counting `exclude_ids` (#1466)."""
-        where = self._history_where(workspace, statuses)
+        where = self._history_where(workspace, statuses, request, item)
         if where is None:
             return 0
         clauses, params = where
@@ -495,7 +514,9 @@ class JobHistory:
             ).fetchone()
         return row[0]
 
-    def recent_summaries(self, limit=200, workspace=None, statuses=None):
+    def recent_summaries(
+        self, limit=200, workspace=None, statuses=None, request=None, item=None
+    ):
         """Summary rows only - the jobs list is polled, and parsing four JSON
         blobs per row just to show six scalars was pure waste.
 
@@ -511,10 +532,10 @@ class JobHistory:
             " device, note, run_dir,"
             " CASE WHEN json_valid(spec) THEN json_extract(spec, '$.output_dir') END"
             " AS output_dir,"
-            " rerun_of, error, server_instance"
+            " rerun_of, request, item, error, server_instance"
             " FROM jobs"
         )
-        where = self._history_where(workspace, statuses)
+        where = self._history_where(workspace, statuses, request, item)
         if where is None:
             return []
         clauses, params = where
@@ -546,6 +567,8 @@ class JobHistory:
                 "_run_dir": row["run_dir"],
                 "_output_dir": row["output_dir"],
                 **({"rerun_of": row["rerun_of"]} if row["rerun_of"] else {}),
+                **({"request": row["request"]} if row["request"] else {}),
+                **({"item": row["item"]} if row["item"] else {}),
                 # `reason` and, on a restart tombstone, `restart_batch` - so
                 # a caller triages the list without a get_job per row (#1449)
                 **row_reason_fields(
@@ -561,12 +584,38 @@ class JobHistory:
                 "SELECT id, workflow, status, created_at, started_at, finished_at,"
                 " arguments, spec, manifest, warnings, error, workspace,"
                 " workflow_name, run_id, run_dir, acknowledged, events,"
-                " run_version, device, note, rerun_of, overrides, server_instance,"
+                " run_version, device, note, rerun_of, request, item, overrides,"
+                " server_instance,"
                 " host_memory_job_peak_committed_mb FROM jobs WHERE id = ?"
                 f" AND status NOT IN ({_OPEN_PLACEHOLDERS})",
                 (job_id, *_OPEN_STATES),
             ).fetchone()
         return self._to_detail(row) if row else None
+
+    def request_jobs(self, workspace, request):
+        """Every closed job linked to `request` in `workspace`, oldest first:
+        one indexed query (`jobs_request`). Open jobs are the live queue's."""
+        with self._lock, self._connect() as connection:
+            rows = connection.execute(
+                "SELECT id, item, status, run_id, run_dir, note, created_at,"
+                " started_at, finished_at,"
+                " CASE WHEN json_valid(spec) THEN json_extract(spec, '$.output_dir') END"
+                " AS output_dir FROM jobs WHERE workspace = ? AND request = ?"
+                f" AND status NOT IN ({_OPEN_PLACEHOLDERS}) ORDER BY created_at",
+                (workspace, request, *_OPEN_STATES),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def run_ids_for_request(self, workspace, request):
+        """The run ids of `workspace`'s jobs linked to `request` - what the
+        run-based gallery filters by."""
+        with self._lock, self._connect() as connection:
+            rows = connection.execute(
+                "SELECT run_id FROM jobs WHERE workspace = ? AND request = ?"
+                " AND run_id IS NOT NULL",
+                (workspace, request),
+            ).fetchall()
+        return {row["run_id"] for row in rows}
 
     def device_ordinal(self, job_id):
         """The ordinal of the card a finished job ran on ('cuda:1'), or None
@@ -826,6 +875,8 @@ class JobHistory:
             "historical": True,
             **({"note": row["note"]} if row["note"] else {}),
             **({"rerun_of": row["rerun_of"]} if row["rerun_of"] else {}),
+            **({"request": row["request"]} if row["request"] else {}),
+            **({"item": row["item"]} if row["item"] else {}),
             **({"overrides": parse(row["overrides"], {})} if row["overrides"] else {}),
             # A detail is a summary plus more, so it carries the row fields
             # too (#1449) - beside the full `error` they summarise

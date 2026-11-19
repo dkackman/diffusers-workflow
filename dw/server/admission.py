@@ -26,6 +26,7 @@ from ..assets import (
     resolve_asset_reference,
 )
 from .. import get_device_type, references, validation
+from ..security import InvalidInputError, validate_ledger_key
 from ..notes import MAX_NOTE_LENGTH, NoteTooLong, clean_note
 from ..plan import list_entries
 from ..plan_downloads import repos_named
@@ -475,6 +476,29 @@ class JobRequest(BaseModel):
         description=f"A note on the run, at most {MAX_NOTE_LENGTH} characters: "
         "kept with the job and written as the run note when the run opens",
     )
+    request: Optional[str] = Field(
+        default=None,
+        description="The requests-ledger request this job serves (with `item`): "
+        "an open request in the job's workspace. Refused with 422 and a "
+        "`{code, message}` detail - unknown_request, request_closed, "
+        "unknown_item or item_dropped - before anything queues",
+    )
+    item: Optional[str] = Field(
+        default=None,
+        description="The item key of `request` this job serves; both or neither",
+    )
+
+    @model_validator(mode="after")
+    def _ledger_link(self):
+        if (self.request is None) != (self.item is None):
+            raise ValueError("request and item go together: give both or neither")
+        for value, what in ((self.request, "Request"), (self.item, "Item")):
+            if value is not None:
+                try:
+                    validate_ledger_key(value, what)
+                except InvalidInputError as e:
+                    raise ValueError(str(e)) from e
+        return self
 
 
 def admitted_note(note):

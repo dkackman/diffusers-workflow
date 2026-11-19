@@ -960,6 +960,27 @@ class RequestWrite(BaseModel):
     )
 
 
+def _jobs_for(request, name):
+    """`rid -> the jobs linked to that request`, for the derived item state."""
+    manager = request.app.state.job_manager
+    return lambda rid: manager.request_jobs(name, rid)
+
+
+def _linked_jobs_for(request, name):
+    """`(rid, item key) -> [{job, status, run_id}]`: what `accepted` is
+    checked against."""
+    jobs_for = _jobs_for(request, name)
+
+    def linked(rid, key):
+        return [
+            {"job": j["job"], "status": j["status"], "run_id": j["run_id"]}
+            for j in jobs_for(rid)
+            if j["item"] == key
+        ]
+
+    return linked
+
+
 def _ledger_root(state, name):
     """The workspace root whose requests.json a request names, or None for
     a default workspace with no root folder. Raises 400/404/409 as
@@ -983,7 +1004,10 @@ def _ledger_root(state, name):
 def list_requests(request: Request, name: str):
     """A workspace's requests, newest change first, without their items."""
     root = _ledger_root(request.app.state, name)
-    return {"workspace": name, "requests": ledger.list_requests(root)}
+    return {
+        "workspace": name,
+        "requests": ledger.list_requests(root, _jobs_for(request, name)),
+    }
 
 
 @router.get(
@@ -996,7 +1020,7 @@ def get_request(request: Request, name: str, request_id: str):
     history."""
     root = _ledger_root(request.app.state, name)
     try:
-        found = ledger.get_request(root, request_id)
+        found = ledger.get_request(root, request_id, _jobs_for(request, name))
     except SecurityError as e:
         raise HTTPException(status_code=400, detail=str(e))
     if found is None:
@@ -1020,7 +1044,14 @@ def put_request(request: Request, name: str, request_id: str, body: RequestWrite
     root = _ledger_root(request.app.state, name)
     payload = body.model_dump(exclude={"by"})
     try:
-        return ledger.put_request(root, request_id, payload, by=body.by)
+        return ledger.put_request(
+            root,
+            request_id,
+            payload,
+            by=body.by,
+            linked_jobs=_linked_jobs_for(request, name),
+            jobs_for=_jobs_for(request, name),
+        )
     except ledger.LedgerError as e:
         raise HTTPException(status_code=e.status, detail=e.detail())
     except OSError:

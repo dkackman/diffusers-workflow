@@ -1780,6 +1780,11 @@
             "title": "Id",
             "type": "string"
           },
+          "item": {
+            "description": "The item of `request` this job serves; absent when unlinked.",
+            "title": "Item",
+            "type": "string"
+          },
           "manifest": {
             "anyOf": [
               {
@@ -1846,6 +1851,11 @@
           "reason": {
             "description": "Why the job ended: the first line of its `error`, clipped to 160 characters with a trailing '\u2026'. Only on a failed or cancelled job that has an error - a plain user cancel has none. The full error, traceback and all, is on the job's detail.",
             "title": "Reason",
+            "type": "string"
+          },
+          "request": {
+            "description": "The requests-ledger request this job serves; absent when unlinked.",
+            "title": "Request",
             "type": "string"
           },
           "rerun_of": {
@@ -2290,6 +2300,18 @@
             "description": "Directory relative paths in an inline workflow resolve against",
             "title": "Base Dir"
           },
+          "item": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The item key of `request` this job serves; both or neither",
+            "title": "Item"
+          },
           "note": {
             "anyOf": [
               {
@@ -2301,6 +2323,18 @@
             ],
             "description": "A note on the run, at most 4000 characters: kept with the job and written as the run note when the run opens",
             "title": "Note"
+          },
+          "request": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The requests-ledger request this job serves (with `item`): an open request in the job's workspace. Refused with 422 and a `{code, message}` detail - unknown_request, request_closed, unknown_item or item_dropped - before anything queues",
+            "title": "Request"
           },
           "workflow": {
             "anyOf": [
@@ -2410,6 +2444,11 @@
             "title": "Id",
             "type": "string"
           },
+          "item": {
+            "description": "The item of `request` this job serves; absent when unlinked.",
+            "title": "Item",
+            "type": "string"
+          },
           "note": {
             "description": "The note it was submitted with; also its run's note.",
             "title": "Note",
@@ -2429,6 +2468,11 @@
           "reason": {
             "description": "Why the job ended: the first line of its `error`, clipped to 160 characters with a trailing '\u2026'. Only on a failed or cancelled job that has an error - a plain user cancel has none. The full error, traceback and all, is on the job's detail.",
             "title": "Reason",
+            "type": "string"
+          },
+          "request": {
+            "description": "The requests-ledger request this job serves; absent when unlinked.",
+            "title": "Request",
             "type": "string"
           },
           "rerun_of": {
@@ -2695,6 +2739,53 @@
         "title": "LedgerAccepted",
         "type": "object"
       },
+      "LedgerAttempt": {
+        "additionalProperties": false,
+        "properties": {
+          "job": {
+            "title": "Job",
+            "type": "string"
+          },
+          "minutes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Run time; null until the job has started.",
+            "title": "Minutes"
+          },
+          "note": {
+            "description": "The job's note.",
+            "title": "Note",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "queued",
+              "running",
+              "succeeded",
+              "failed",
+              "cancelled"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job",
+          "status",
+          "minutes"
+        ],
+        "title": "LedgerAttempt",
+        "type": "object"
+      },
       "LedgerComment": {
         "additionalProperties": false,
         "properties": {
@@ -2772,10 +2863,23 @@
               }
             ]
           },
+          "accepted_missing": {
+            "description": "True when an accepted job's run directory is gone; `result` then falls back to the latest succeeded attempt.",
+            "title": "Accepted Missing",
+            "type": "boolean"
+          },
           "arguments": {
             "additionalProperties": true,
             "title": "Arguments",
             "type": "object"
+          },
+          "attempts": {
+            "description": "Every linked job, oldest first.",
+            "items": {
+              "$ref": "#/components/schemas/LedgerAttempt"
+            },
+            "title": "Attempts",
+            "type": "array"
           },
           "comment": {
             "anyOf": [
@@ -2817,11 +2921,38 @@
             "title": "Key",
             "type": "string"
           },
+          "result": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LedgerResult"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The accepted job's run, else the latest succeeded job's run whose directory still exists; null when neither."
+          },
+          "spent_minutes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "description": "Minutes the item's linked jobs ran, summed.",
+            "title": "Spent Minutes"
+          },
           "status": {
-            "description": "Derived from the item's jobs; none link yet, so planned or dropped.",
+            "description": "Derived from the item's linked jobs, first that holds: dropped, done (a result exists), running, queued, failed (every linked job failed or was cancelled), planned.",
             "enum": [
-              "planned",
-              "dropped"
+              "dropped",
+              "done",
+              "running",
+              "queued",
+              "failed",
+              "planned"
             ],
             "title": "Status",
             "type": "string"
@@ -2852,7 +2983,10 @@
           "dropped",
           "accepted",
           "comment",
-          "status"
+          "status",
+          "attempts",
+          "result",
+          "spent_minutes"
         ],
         "title": "LedgerItem",
         "type": "object"
@@ -2916,9 +3050,33 @@
             "description": "The ask that started it; write-once.",
             "title": "Prompt"
           },
+          "remaining_minutes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "description": "Estimates of the items not done and not dropped.",
+            "title": "Remaining Minutes"
+          },
           "revision": {
             "title": "Revision",
             "type": "integer"
+          },
+          "spent_minutes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "description": "Minutes every linked job ran.",
+            "title": "Spent Minutes"
           },
           "state": {
             "enum": [
@@ -2942,9 +3100,37 @@
           "prompt",
           "goal",
           "items",
-          "history"
+          "history",
+          "spent_minutes",
+          "remaining_minutes"
         ],
         "title": "LedgerRequest",
+        "type": "object"
+      },
+      "LedgerResult": {
+        "additionalProperties": false,
+        "properties": {
+          "job": {
+            "title": "Job",
+            "type": "string"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id"
+          }
+        },
+        "required": [
+          "job",
+          "run_id"
+        ],
+        "title": "LedgerResult",
         "type": "object"
       },
       "LedgerSummary": {
@@ -2958,9 +3144,31 @@
             "title": "Items",
             "type": "integer"
           },
+          "remaining_minutes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "title": "Remaining Minutes"
+          },
           "revision": {
             "title": "Revision",
             "type": "integer"
+          },
+          "spent_minutes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "title": "Spent Minutes"
           },
           "state": {
             "enum": [
@@ -3001,6 +3209,8 @@
           "revision",
           "items",
           "status_counts",
+          "spent_minutes",
+          "remaining_minutes",
           "updated_at"
         ],
         "title": "LedgerSummary",
@@ -7210,6 +7420,24 @@
             }
           },
           {
+            "description": "Only the files of runs whose job is linked to this requests-ledger request in this workspace",
+            "in": "query",
+            "name": "request",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only the files of runs whose job is linked to this requests-ledger request in this workspace",
+              "title": "Request"
+            }
+          },
+          {
             "in": "query",
             "name": "workspace",
             "required": false,
@@ -8204,6 +8432,42 @@
                 }
               ],
               "title": "Limit"
+            }
+          },
+          {
+            "description": "Only the jobs linked to this requests-ledger request",
+            "in": "query",
+            "name": "request",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only the jobs linked to this requests-ledger request",
+              "title": "Request"
+            }
+          },
+          {
+            "description": "With `request`: only the jobs linked to this item of it",
+            "in": "query",
+            "name": "item",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "With `request`: only the jobs linked to this item of it",
+              "title": "Item"
             }
           }
         ],
