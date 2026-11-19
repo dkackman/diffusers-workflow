@@ -1,0 +1,134 @@
+/** What the chain segment table offers on a row and above it (#1476).
+ *
+ * **Repair this segment** opens `repair-segment` on the row's segment. Only
+ * one family has that template, and the UI never names the family: the
+ * chain step's `pipeline.from_pretrained_arguments.model_name` (a literal or
+ * a `variable:` the run resolved) has to be a model a pipeline step of the
+ * repair template loads. Rows 2..N of a take whose segments were kept can be
+ * repaired; every other row says, in one sentence, why not.
+ *
+ * **Continue the chain** reruns a take that stopped short of its plan from
+ * its last kept segment: the workflow has to declare the variables its
+ * chain's `stop_after` and `resume_from` name, and every row has to have its
+ * segment file. Pure, so the rules are tested without a DOM. */
+
+import type { ChainRow, ChainTable } from './chainRows'
+import { definitionStep, resolved } from './chainRows'
+import { OUTPUT, VARIABLE, reference, referenceName } from './references'
+
+/** The only repair template the catalog holds */
+export const REPAIR_TEMPLATE = 'templates/minimax/repair-segment'
+
+/** The sessionStorage key the workflow page reads its pre-filled values from,
+ * once: `{workflow, arguments}` */
+export const WORKFLOW_PREFILL_KEY = 'dw-workflow-prefill'
+
+export const NO_REPAIR_TEMPLATE =
+  'no repair-segment template for this model family'
+export const FIRST_SEGMENT =
+  'segment 1 cannot be repaired - re-render with a new seed'
+export const REPAIRED_TAKE = 'a repaired take has no segment files'
+export const NO_SEGMENTS = 'this run did not keep its segments'
+
+type Definition = Record<string, any> | null | undefined
+
+export type RepairAction =
+  | { enabled: true; workflow: string; arguments: Record<string, string> }
+  | { enabled: false; reason: string }
+
+export interface ContinueAction {
+  arguments: Record<string, string | null>
+}
+
+const modelOf = (
+  step: any,
+  definition: Definition,
+  args?: Record<string, unknown> | null,
+): string | null => {
+  const pipeline = step?.pipeline
+  const name = resolved(
+    pipeline?.from_pretrained_arguments?.model_name,
+    definition,
+    args,
+  )
+  return typeof name === 'string' && name ? name : null
+}
+
+/** The model the chained step loads, as the run resolved it; null for a
+ * step the definition does not hold at its top level, or names no model of */
+export function chainModel(
+  definition: Definition,
+  step: string,
+  args?: Record<string, unknown> | null,
+): string | null {
+  return modelOf(definitionStep(definition, step), definition, args)
+}
+
+/** Every model a pipeline step of the repair template loads */
+export function repairModels(repair: Definition): string[] {
+  const steps = Array.isArray(repair?.steps) ? repair.steps : []
+  return steps
+    .map((step: any) => modelOf(step, repair, null))
+    .filter((name: string | null): name is string => name !== null)
+}
+
+/** Whether, and how, one row can be repaired. `model` is the chain step's
+ * (`chainModel`), `models` the repair template's (`repairModels`; empty
+ * when it could not be read) */
+export function repairAction(
+  table: ChainTable,
+  row: ChainRow,
+  model: string | null,
+  models: readonly string[],
+): RepairAction {
+  if (model === null || !models.includes(model))
+    return { enabled: false, reason: NO_REPAIR_TEMPLATE }
+  if (row.index === 1) return { enabled: false, reason: FIRST_SEGMENT }
+  if (table.rows.some((r) => r.repaired))
+    return { enabled: false, reason: REPAIRED_TAKE }
+  if (!row.segmentFile || !table.take)
+    return { enabled: false, reason: NO_SEGMENTS }
+  return {
+    enabled: true,
+    workflow: REPAIR_TEMPLATE,
+    arguments: {
+      chain_take: reference(OUTPUT, table.take),
+      segment: String(row.index),
+    },
+  }
+}
+
+/** The variable a chain setting names, when the workflow declares it */
+function declaredVariable(value: unknown, definition: Definition) {
+  const name = referenceName(value, VARIABLE)
+  const variables = definition?.variables
+  return name !== null &&
+    variables &&
+    typeof variables === 'object' &&
+    name in variables
+    ? name
+    : null
+}
+
+/** The rerun arguments that continue a stopped take from its last segment,
+ * or null when it is not offered */
+export function continueAction(
+  table: ChainTable,
+  definition: Definition,
+): ContinueAction | null {
+  const { rows, planned } = table
+  if (!rows.length || planned === null || rows.length >= planned) return null
+  if (rows.some((row) => !row.segmentFile)) return null
+  const chain = definitionStep(definition, table.step)?.pipeline?.chain
+  if (!chain || typeof chain !== 'object') return null
+  const stopAfter = declaredVariable(chain.stop_after, definition)
+  const resumeFrom = declaredVariable(chain.resume_from, definition)
+  if (!stopAfter || !resumeFrom) return null
+  const last = rows[rows.length - 1].segmentFile as string
+  return {
+    arguments: {
+      [resumeFrom]: reference(OUTPUT, last),
+      [stopAfter]: null,
+    },
+  }
+}

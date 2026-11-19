@@ -241,9 +241,25 @@ icon, a finish-alert toggle, the theme toggle, and links to these docs and
   own name. A segment 1 the check had nothing to compare says "nothing
   measured"; a resumed segment, a `(repaired)` one, and a checked chain
   recorded before measures were kept say "not recorded"; a chain run with
-  `check` off has no measure cells. The table is read-only
-  (`ui/src/lib/job/ChainSegments.svelte`, its rows from
-  `ui/src/lib/chainRows.ts`).
+  `check` off has no measure cells (`ui/src/lib/job/ChainSegments.svelte`,
+  its rows from `ui/src/lib/chainRows.ts`).
+
+  Each row ends with **Repair this segment**. It is live only when the
+  chain step loads a model that a pipeline step of
+  `templates/minimax/repair-segment` loads (today H3; the rule is read off
+  both definitions, not a family name), on rows 2..N whose segment file the
+  run kept, in a take with no `(repaired)` segment. Pressing it opens that
+  template's workflow page with `chain_take` set to the take's `output:`
+  reference and `segment` to the row's number; nothing runs until **Run**.
+  A disabled button says why, in one sentence: no repair-segment template
+  for this model family, segment 1 cannot be repaired (re-render with a new
+  seed), a repaired take has no segment files, or the run did not keep its
+  segments. A take that stopped short of its plan, kept every segment's
+  file, and whose chain's `stop_after` and `resume_from` are both declared
+  variables offers **Continue the chain** above the table: after a confirm,
+  it reruns the job with `resume_from` set to the last segment's `output:`
+  reference and `stop_after` cleared, and opens the new job. What each
+  action offers and sends is `ui/src/lib/chainActions.ts`.
 
   Every job page, live or from history, ends with an **Event log** section,
   collapsed until clicked; nothing is fetched before then. Opening it reads
