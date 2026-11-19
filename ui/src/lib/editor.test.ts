@@ -3,6 +3,8 @@ import {
   CONTENT_TYPES,
   attentionBackendVariables,
   requiredVariables,
+  constraintHints,
+  CONSTRAINT_LABELLED_KEYS,
   coerce,
   contentTypeOptions,
   optionsWith,
@@ -17,6 +19,7 @@ import {
   QUANT_PRESETS,
 } from './editor'
 import type { PipelineParameter } from './types'
+import schema from '../../../dw/workflow_schema.json'
 
 const param = (overrides: Partial<PipelineParameter>): PipelineParameter => ({
   name: 'x',
@@ -419,5 +422,96 @@ describe('requiredVariables', () => {
     }
     expect(requiredVariables(def)).toEqual(new Set(['reference_audio']))
     expect(requiredVariables({ variables: {} })).toEqual(new Set())
+  })
+})
+
+describe('constraintHints', () => {
+  const hints = (
+    rule: Record<string, unknown>,
+    value: unknown = 1,
+  ): string[] | undefined =>
+    constraintHints({
+      variables: { v: value },
+      variable_constraints: { v: rule },
+    }).v
+
+  it('states min_frames and max_frames', () => {
+    expect(hints({ min_frames: 9, max_frames: 97 })).toEqual(['9 to 97'])
+    expect(hints({ min_frames: 9 })).toEqual(['9 or more'])
+    expect(hints({ max_frames: 97 })).toEqual(['97 or less'])
+  })
+
+  it('states modulus and remainder in the engine form, with the reason', () => {
+    expect(hints({ modulus: 32, remainder: 0, reason: 'the VAE' })).toEqual([
+      '32 * n + 0 - the VAE',
+    ])
+  })
+
+  it('states snap up after the grid', () => {
+    expect(
+      hints({ modulus: 8, remainder: 1, min_frames: 9, snap: 'up' }),
+    ).toEqual(['9 or more, 8 * n + 1, an off-grid value rounds up'])
+  })
+
+  it('states min_length for a string or a list by the default type', () => {
+    expect(hints({ min_length: 1 }, '')).toEqual(['a non-empty string'])
+    expect(hints({ min_length: 3 }, 'abc')).toEqual(['at least 3 characters'])
+    expect(hints({ min_length: 1 }, [])).toEqual(['a non-empty list'])
+    expect(hints({ min_length: 2 }, ['a'])).toEqual(['at least 2 entries'])
+    expect(hints({ min_length: 1 }, null)).toEqual(['a non-empty string'])
+  })
+
+  it('states max_words_per_second with seconds_from as a warning', () => {
+    expect(
+      hints({ max_words_per_second: 2.5, seconds_from: 'seconds' }, ''),
+    ).toEqual(['about 2.5 words a second of seconds (a warning)'])
+  })
+
+  it('leaves required to the field mark, and a bare reason gives no line', () => {
+    expect(hints({ required: true, reason: 'a voice' }, null)).toBeUndefined()
+  })
+
+  it('keeps the reason as text', () => {
+    expect(hints({ min_frames: 1, reason: '<img src=x onerror=1>' })).toEqual([
+      '1 or more - <img src=x onerror=1>',
+    ])
+  })
+
+  it('falls back to key: value for a key it has no label for', () => {
+    expect(hints({ min_frames: 1, new_rule: 7 })).toEqual([
+      '1 or more, new_rule: 7',
+    ])
+  })
+
+  it('shows a list-entry rule under the list it reaches', () => {
+    const def = {
+      variables: { shots: [{ name: 'a', num_frames: 124 }] },
+      variable_constraints: {
+        num_frames: { modulus: 17, remainder: 5, min_frames: 124 },
+      },
+      steps: [
+        {
+          name: 'shot',
+          for_each: 'variable:shots',
+          pipeline: { arguments: { num_frames: 'item:num_frames' } },
+        },
+      ],
+    }
+    expect(constraintHints(def)).toEqual({
+      shots: ["each entry's num_frames: 124 or more, 17 * n + 5"],
+    })
+  })
+
+  it('gives nothing for a workflow without constraints', () => {
+    expect(constraintHints({ variables: { prompt: 'x' } })).toEqual({})
+    expect(constraintHints(null)).toEqual({})
+  })
+
+  it('has a label for every key the schema declares', () => {
+    const declared = Object.keys(schema.$defs.variable_constraint.properties)
+    expect(declared.length).toBeGreaterThan(0)
+    expect(
+      declared.filter((k) => !CONSTRAINT_LABELLED_KEYS.includes(k)),
+    ).toEqual([])
   })
 })
