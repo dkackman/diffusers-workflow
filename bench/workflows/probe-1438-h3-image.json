@@ -1,0 +1,195 @@
+{
+    "id": "Probe1438H3Image",
+    "description": "#1438 stage A bench: templates/minimax-h3-image/text-to-image with one change, a 'scheduler' block (the template has none): MiniMaxH3Scheduler rebuilt from the checkpoint's own config with from_config_args {stochastic_sampling, euler_update_form} (variables; defaults false and 'velocity', the form MiniMax-H3-Image's scheduler_config.json declares), no shift. The as-is arm is the rebuild at those defaults; the blend arm sets euler_update_form 'blend'; the flag arm sets both, since the scheduler refuses the flag with 'velocity'.",
+    "summary": "MiniMax-H3-Image text to image at 2048x2048 on a 24 GB card, with about 64 GB of host RAM.",
+    "cost": [
+        {
+            "device": "cuda",
+            "name": "RTX 3090",
+            "vram_gb": 24,
+            "minutes": 2.3
+        }
+    ],
+    "cost_drivers": [
+        "width",
+        "height"
+    ],
+    "host_ram_gb": 64,
+    "variables": {
+        "prompt": "A weathered lighthouse keeper in a wool coat stands on the gallery of a white lighthouse at dusk, a storm rolling in over a grey sea behind him, wind pulling at his coat. Photographic, natural skin texture, 50 mm, eye level.",
+        "size": "2048",
+        "width": 2048,
+        "height": 2048,
+        "weights_dtype": "{int8}",
+        "seed": 1317,
+        "stochastic_sampling": false,
+        "euler_update_form": "velocity"
+    },
+    "variable_constraints": {
+        "width": {
+            "modulus": 32,
+            "remainder": 0,
+            "reason": "MiniMax-H3-Image's canvas is a multiple of 32 (the VAE's 16x compression times the transformer's 2x2 patch), and its pipeline refuses one that is not only after the weights have loaded; refused here instead, with no 'snap', since rounding would be a silent change to the size asked for"
+        },
+        "height": {
+            "modulus": 32,
+            "remainder": 0,
+            "reason": "MiniMax-H3-Image's canvas is a multiple of 32 (the VAE's 16x compression times the transformer's 2x2 patch), and its pipeline refuses one that is not only after the weights have loaded; refused here instead, with no 'snap', since rounding would be a silent change to the size asked for"
+        }
+    },
+    "presets": {
+        "size": {
+            "2048": {
+                "width": 2048,
+                "height": 2048
+            },
+            "1:1": {
+                "width": 4096,
+                "height": 4096
+            },
+            "4:3": {
+                "width": 4736,
+                "height": 3552
+            },
+            "3:4": {
+                "width": 3552,
+                "height": 4736
+            },
+            "3:2": {
+                "width": 5024,
+                "height": 3360
+            },
+            "2:3": {
+                "width": 3360,
+                "height": 5024
+            },
+            "16:9": {
+                "width": 5472,
+                "height": 3072
+            },
+            "9:16": {
+                "width": 3072,
+                "height": 5472
+            },
+            "21:9": {
+                "width": 6272,
+                "height": 2688
+            },
+            "9:21": {
+                "width": 2688,
+                "height": 6272
+            }
+        }
+    },
+    "seed": "variable:seed",
+    "steps": [
+        {
+            "name": "text_to_image",
+            "pipeline": {
+                "configuration": {
+                    "component_type": "ModularPipeline",
+                    "pre_load_modules": [
+                        "sdnq"
+                    ],
+                    "load_components": {
+                        "dtype": "torch.bfloat16",
+                        "pretrained_model_name_or_path": {
+                            "text_encoder": "MiniMaxAI/MiniMax-H3"
+                        },
+                        "revision": {
+                            "text_encoder": "0919fb684102ef115126612f3fbb84d1027e7317"
+                        },
+                        "quantization_config": {
+                            "transformer": {
+                                "configuration": {
+                                    "config_type": "sdnq.SDNQConfig"
+                                },
+                                "arguments": {
+                                    "weights_dtype": "variable:weights_dtype",
+                                    "quantization_device": "cuda",
+                                    "return_device": "cpu",
+                                    "use_quantized_matmul": true,
+                                    "dequantize_fp32": false,
+                                    "modules_to_not_convert": [
+                                        "proj_in",
+                                        "context_embedder",
+                                        "time_embedder",
+                                        "time_proj",
+                                        "token_refiner",
+                                        "norm_out",
+                                        "pdd_proj_out"
+                                    ]
+                                }
+                            },
+                            "text_encoder": {
+                                "configuration": {
+                                    "config_type": "sdnq.SDNQConfig"
+                                },
+                                "arguments": {
+                                    "weights_dtype": "variable:weights_dtype",
+                                    "quantization_device": "cuda",
+                                    "return_device": "cpu",
+                                    "dequantize_fp32": false,
+                                    "modules_to_not_convert": [
+                                        ".model.visual",
+                                        "lm_head"
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "components": {
+                        "transformer": {
+                            "group_offload": {
+                                "offload_type": "block_level",
+                                "num_blocks_per_group": 2,
+                                "use_stream": true,
+                                "record_stream": true,
+                                "low_cpu_mem_usage": true
+                            }
+                        },
+                        "text_encoder": {
+                            "remove_modules": [
+                                "lm_head"
+                            ]
+                        },
+                        "text_encoder.model": {
+                            "truncate_layers": {
+                                "language_model.layers": 51
+                            },
+                            "group_offload": {
+                                "offload_type": "leaf_level"
+                            }
+                        },
+                        "vae": {
+                            "device": "cuda",
+                            "residency": "on_demand"
+                        }
+                    }
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "MiniMaxAI/MiniMax-H3-Image"
+                },
+                "scheduler": {
+                    "configuration": {
+                        "scheduler_type": "MiniMaxH3Scheduler"
+                    },
+                    "from_config_args": {
+                        "stochastic_sampling": "variable:stochastic_sampling",
+                        "euler_update_form": "variable:euler_update_form"
+                    }
+                },
+                "arguments": {
+                    "prompt": "variable:prompt",
+                    "width": "variable:width",
+                    "height": "variable:height",
+                    "output": "images"
+                }
+            },
+            "result": {
+                "content_type": "image/png",
+                "subfolder": "final"
+            }
+        }
+    ]
+}
