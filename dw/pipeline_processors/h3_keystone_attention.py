@@ -2,8 +2,9 @@
 
 A spike, not a public surface. `experimental_keystone_attention: {"balance":
 20, "blocks": "31-33,36-44,47"}` on an H3 fl2va call that passes `image` and
-`guides` re-splits, on the named transformer blocks, the attention every query
-pays to the call's condition rows between the keyframe rows K (laid out from
+`guides` re-splits, on the named transformer blocks, the attention every query after
+the guide rows (the target; the held condition rows' own queries are left
+alone, #1494) pays to the call's condition rows between the keyframe rows K (laid out from
 `image`) and the guide rows C (from `guides`). Off unless
 `DW_EXPERIMENTAL_REFINE_WINDOWS=1` is set where the step runs; without it the
 argument is refused at validate time (`keystone_attention_errors`) and at the
@@ -473,22 +474,46 @@ def pick_lse_op(q, k, v, scale):
     )
 
 
-def resplit_attention(q, k, v, rows_k, rows_c, balance, op, scale=None):
+def resplit_attention(q, k, v, rows_k, rows_c, balance, op, scale=None, first_query=0):
     """The re-split attention output, [B, N, S, D].
 
     `q`, `k`, `v`: [B, N, S, D]; `rows_k`, `rows_c`: (start, count) key row
-    ranges; `op(q, k, v, scale) -> (out, lse)`."""
+    ranges; `op(q, k, v, scale) -> (out, lse)`. Only queries from
+    `first_query` on are re-split; the earlier ones keep the main pass's
+    output (#1494: re-splitting the held keyframe and guide rows' own
+    queries moved the condition rows themselves, and the take opened on an
+    unrelated frame)."""
     if scale is None:
         scale = q.shape[-1] ** -0.5
     out, lse = op(q, k, v, scale)
+    if first_query >= q.shape[2]:
+        return out
+    qt = q[:, :, first_query:].contiguous()
     (k0, kn), (c0, cn) = rows_k, rows_c
     out_k, lse_k = op(
-        q, k[:, :, k0 : k0 + kn].contiguous(), v[:, :, k0 : k0 + kn].contiguous(), scale
+        qt,
+        k[:, :, k0 : k0 + kn].contiguous(),
+        v[:, :, k0 : k0 + kn].contiguous(),
+        scale,
     )
     out_c, lse_c = op(
-        q, k[:, :, c0 : c0 + cn].contiguous(), v[:, :, c0 : c0 + cn].contiguous(), scale
+        qt,
+        k[:, :, c0 : c0 + cn].contiguous(),
+        v[:, :, c0 : c0 + cn].contiguous(),
+        scale,
     )
-    return resplit(out, lse, out_k, lse_k, out_c, lse_c, balance)
+    tail = resplit(
+        out[:, :, first_query:],
+        lse[..., first_query:],
+        out_k,
+        lse_k,
+        out_c,
+        lse_c,
+        balance,
+    )
+    if first_query == 0:
+        return tail
+    return torch.cat([out[:, :, :first_query], tail], dim=2)
 
 
 # 3. The state, the rows check and the processor
@@ -639,7 +664,15 @@ class KeystoneAttentionH3Processor:
             state.op = pick_lse_op(q, k, v, scale)
         rows_k, rows_c = state.rows
         out = resplit_attention(
-            q, k, v, rows_k, rows_c, state.settings.balance, state.op[1], scale
+            q,
+            k,
+            v,
+            rows_k,
+            rows_c,
+            state.settings.balance,
+            state.op[1],
+            scale,
+            first_query=rows_c[0] + rows_c[1],
         )
         hidden_states = out.transpose(1, 2).flatten(2, 3).type_as(query)
         hidden_states = attn.to_out[0](hidden_states)

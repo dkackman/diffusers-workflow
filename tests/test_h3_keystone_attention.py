@@ -119,6 +119,20 @@ def test_balance_twenty_matches_the_dense_expected_weights():
     assert not torch.allclose(out, w @ v, atol=1e-3)
 
 
+def test_condition_row_queries_are_left_untouched():
+    # #1494: queries at or before the guide rows keep the main pass's output
+    q, k, v = _qkv(seed=3)
+    first = ROWS_C[0] + ROWS_C[1]
+    plain = resplit_attention(q, k, v, ROWS_K, ROWS_C, 1.0, _cpu_flash)
+    out = resplit_attention(
+        q, k, v, ROWS_K, ROWS_C, 20.0, _cpu_flash, first_query=first
+    )
+    full = resplit_attention(q, k, v, ROWS_K, ROWS_C, 20.0, _cpu_flash)
+    assert torch.equal(out[:, :, :first], plain[:, :, :first])
+    torch.testing.assert_close(out[:, :, first:], full[:, :, first:])
+    assert not torch.allclose(out[:, :, first:], plain[:, :, first:], atol=1e-4)
+
+
 def test_resplit_shares_and_the_no_attention_query():
     q, k, v = _qkv(seed=2)
     scale = q.shape[-1] ** -0.5
