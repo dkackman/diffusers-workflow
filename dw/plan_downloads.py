@@ -236,8 +236,8 @@ def _collect_sources(
                     variant = source.get(VARIANT_KEY)
                     if isinstance(variant, str):
                         variants[name] = variant
-                overrides = isinstance(load_components, dict) and load_components.get(
-                    OVERRIDE_KEY
+                overrides = isinstance(load_components, dict) and _moves_to_a_repo(
+                    load_components.get(OVERRIDE_KEY)
                 )
                 if partials is not None and overrides:
                     revision = source.get(REVISION_KEY)
@@ -259,6 +259,15 @@ def _collect_sources(
     elif isinstance(tree, list):
         for value in tree:
             _collect_sources(value, names, variants, urls, files, partials, whole)
+
+
+def _moves_to_a_repo(value):
+    """Whether a `pretrained_model_name_or_path` override sends a component to
+    a hub repo. A local path (not shaped like a hub id) moves it off the base
+    without fetching anything, so the base is planned whole, exactly as with
+    no override: its other components still load from it (#1490)."""
+    values = value.values() if isinstance(value, dict) else [value]
+    return any(isinstance(v, str) and _is_repo_id(v) for v in values)
 
 
 def _step_load_components(tree):
