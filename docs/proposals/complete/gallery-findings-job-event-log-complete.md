@@ -124,6 +124,34 @@ C-F1097 to C-F1099, C-F1101 and SE-F075, with two arms short:
   static mocks can't make `seq` follow each request's `after`. Filed as
   dkackman/harnest#254. The cap is covered by `eventLog.test.ts`.
 
+### Fix-forward (#1499): a live job's log rows past the fold
+
+The feature's final check (develop @ `058736f9`) failed **C-F1097**. On a running job, the
+table seemed to end at seq 11, but Refresh sent `after=13`. Rows 12 and 13 never
+appeared, and nothing appended after a Refresh. Fix-forward stage #1499 was filed against
+stage B's behaviour, with C-F1097 as its acceptance.
+
+- **Diagnosis:** no row was lost, and the server was right. The log body is a 512px
+  scroll box. Each `memory` row's JSON payload wrapped to about 132px, so seq 12 onward
+  sat below the fold, and macOS overlay scrollbars hid that there was more. The cursor
+  `after=13` was the last row in the DOM.
+- **Fix** (`7ec42ae5`, merged `59c05925`, UI only, `EventLog.svelte`):
+  - each row is one line, with the event column ellipsized and the full summary in its
+    text and `title`;
+  - a count line above the rows, such as `25 events, seq 0–24`, or `2 of 25 …` with a
+    filter on;
+  - a live log scrolls to its newest row after the first load and after each Refresh
+    that brings rows;
+  - the Refresh button's accessible name is "Refresh event log".
+- **Tests:** a new live-job case in `ui/e2e/job-event-log.spec.ts`, built from a real
+  mini-ai answer with its `memory` payloads. It fails on the old component.
+- **Verified** on mini-ai (develop @ `59c05925`): C-F1097 passed on a fresh live job.
+
+**Bounces at the final check: 1** (C-F1097, a layout miss in stage B), fixed forward by
+#1499. Also from that check: #1498, the job page's "Unknown job" error persisting after
+navigating to a valid job (filed separately and closed, not part of this feature's
+acceptance).
+
 Stage costs aren't recorded, because the stage comments name no `usage:` figures. The
 plan estimated about $6. Neither stage used GPU time; the fixtures were CPU tasks and
 one small text-to-image job.
