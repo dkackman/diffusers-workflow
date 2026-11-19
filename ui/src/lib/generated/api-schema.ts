@@ -1849,6 +1849,55 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/workspaces/{name}/requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Requests
+         * @description A workspace's requests, newest change first, without their items.
+         */
+        get: operations["list_requests_api_workspaces__name__requests_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workspaces/{name}/requests/{request_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Request
+         * @description One request: its plan, every item with its derived status, and its
+         *     history.
+         */
+        get: operations["get_request_api_workspaces__name__requests__request_id__get"];
+        /**
+         * Put Request
+         * @description Write one request's whole plan. `revision` is the revision it was
+         *     read at, or 0 to create it; a write against any other revision is 409
+         *     `stale_revision`, with `current_revision` in the detail. `prompt` is
+         *     set on create only (a later change is 422 `prompt_is_write_once`). An
+         *     item left out is deleted, or kept as dropped when jobs link to it.
+         */
+        put: operations["put_request_api_workspaces__name__requests__request_id__put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/exports/{job_id}.zip": {
         parameters: {
             query?: never;
@@ -3018,6 +3067,121 @@ export interface components {
             /** Workspace */
             workspace: string;
         };
+        /** LedgerAccepted */
+        LedgerAccepted: {
+            /** Job */
+            job: string;
+            /** Run Id */
+            run_id: string | null;
+        };
+        /** LedgerComment */
+        LedgerComment: {
+            /** At */
+            at: string;
+            /** Text */
+            text: string;
+        };
+        /** LedgerHistoryEntry */
+        LedgerHistoryEntry: {
+            /** At */
+            at: string;
+            /**
+             * By
+             * @enum {string}
+             */
+            by: "agent" | "user";
+            /**
+             * Goal
+             * @description The goal, when this revision changed it.
+             */
+            goal?: string | null;
+            /** Revision */
+            revision: number;
+            /** Why */
+            why: string;
+        };
+        /** LedgerItem */
+        LedgerItem: {
+            accepted: components["schemas"]["LedgerAccepted"] | null;
+            /** Arguments */
+            arguments: {
+                [key: string]: unknown;
+            };
+            /** @description The user's; an agent never writes it. */
+            comment: components["schemas"]["LedgerComment"] | null;
+            /** Depends On */
+            depends_on: string[];
+            /** Dropped */
+            dropped: boolean;
+            /** Estimate Minutes */
+            estimate_minutes: number | null;
+            /** Key */
+            key: string;
+            /**
+             * Status
+             * @description Derived from the item's jobs; none link yet, so planned or dropped.
+             * @enum {string}
+             */
+            status: "planned" | "dropped";
+            /** Title */
+            title: string;
+            /** Workflow */
+            workflow: string | null;
+        };
+        /** LedgerList */
+        LedgerList: {
+            /** Requests */
+            requests: components["schemas"]["LedgerSummary"][];
+            /** Workspace */
+            workspace: string;
+        };
+        /** LedgerRequest */
+        LedgerRequest: {
+            /** Goal */
+            goal: string;
+            /** History */
+            history: components["schemas"]["LedgerHistoryEntry"][];
+            /** Id */
+            id: string;
+            /** Items */
+            items: components["schemas"]["LedgerItem"][];
+            /**
+             * Prompt
+             * @description The ask that started it; write-once.
+             */
+            prompt: string | null;
+            /** Revision */
+            revision: number;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "open" | "done" | "abandoned";
+            /** Title */
+            title: string;
+        };
+        /** LedgerSummary */
+        LedgerSummary: {
+            /** Id */
+            id: string;
+            /** Items */
+            items: number;
+            /** Revision */
+            revision: number;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "open" | "done" | "abandoned";
+            /** Status Counts */
+            status_counts: {
+                [key: string]: number;
+            };
+            /** Title */
+            title: string;
+            /** Updated At */
+            updated_at: string | null;
+        };
         /**
          * LevelFinding
          * @description A probe threshold crossing (dw/assessment_rules.finding).
@@ -3643,6 +3807,53 @@ export interface components {
         PromptSaved: {
             /** Name */
             name: string;
+        };
+        /**
+         * RequestWrite
+         * @description One request's whole plan.
+         */
+        RequestWrite: {
+            /**
+             * By
+             * @description Who wrote this revision; the UI is the user
+             * @default user
+             * @enum {string}
+             */
+            by: "agent" | "user";
+            /**
+             * Goal
+             * @description What done looks like
+             */
+            goal: string;
+            /**
+             * Items
+             * @description The ordered plan; each item is key, title, depends_on, estimate_minutes, workflow, arguments, accepted, comment
+             */
+            items: {
+                [key: string]: unknown;
+            }[];
+            /**
+             * Prompt
+             * @description Create only
+             */
+            prompt?: string | null;
+            /**
+             * Revision
+             * @description The revision read, or 0 to create
+             */
+            revision: number;
+            /** State */
+            state?: ("open" | "done" | "abandoned") | null;
+            /**
+             * Title
+             * @description One line, at most 200
+             */
+            title: string;
+            /**
+             * Why
+             * @description One line, at most 200
+             */
+            why: string;
         };
         /** RequiredDownload */
         RequiredDownload: {
@@ -6984,6 +7195,105 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WorkspaceDeleted"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_requests_api_workspaces__name__requests_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LedgerList"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_request_api_workspaces__name__requests__request_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+                request_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LedgerRequest"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    put_request_api_workspaces__name__requests__request_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+                request_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RequestWrite"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LedgerRequest"];
                 };
             };
             /** @description Validation Error */

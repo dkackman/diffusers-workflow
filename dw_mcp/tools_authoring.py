@@ -2,7 +2,7 @@
 
 from typing import Optional
 
-from dw_mcp import authoring, loras, prompts, workspaces
+from dw_mcp import authoring, ledger, loras, prompts, workspaces
 
 
 class WorkspaceTools:
@@ -65,6 +65,44 @@ class WorkspaceTools:
         reports what it would remove instead."""
         return workspaces.delete_workspace(
             self.client, name, acknowledged_cost=acknowledged_cost
+        )
+
+    def get_request(
+        self, request: str | None = None, workspace: str | None = None
+    ) -> dict:
+        """Read a request's plan from the workspace's ledger: items with
+        derived status, revision and history. Omit request to list them."""
+        return ledger.get_request(self.client, request, workspace)
+
+    def set_request(
+        self,
+        request: str,
+        title: str,
+        goal: str,
+        items: list[dict],
+        revision: int,
+        why: str,
+        prompt: str | None = None,
+        state: str | None = None,
+        workspace: str | None = None,
+    ) -> dict:
+        """Write the whole plan for what the user asked, so it outlives this
+        session. revision: the one you read, 0 to create; stale is refused.
+        prompt: the user's ask, on create only. items: ordered {key, title,
+        depends_on, estimate_minutes, workflow, arguments}; one left out is
+        removed. why: one line. state: open, done or abandoned.
+        get_guide("workspaces", section="Requests")."""
+        return ledger.set_request(
+            self.client,
+            request,
+            title,
+            goal,
+            items,
+            revision,
+            why,
+            prompt,
+            state,
+            workspace,
         )
 
 

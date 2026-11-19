@@ -81,9 +81,12 @@ EXPECTED_TOOLS = {
     "copy_to_workspace",
     "create_workspace",
     "delete_workspace",
+    "get_request",
+    "set_request",
 }
 
 READ_ONLY_TOOLS = EXPECTED_TOOLS - {
+    "set_request",
     "clear_memory",
     "save_workflow",
     "delete_workflow",
@@ -758,6 +761,26 @@ TOOL_WIRING = [
         {"name": "shots", "acknowledged_cost": True},
         "DELETE",
         "/api/workspaces/shots",
+    ),
+    ("get_request", {}, "GET", "/api/workspaces/default/requests"),
+    (
+        "get_request",
+        {"request": "cats", "workspace": "shots"},
+        "GET",
+        "/api/workspaces/shots/requests/cats",
+    ),
+    (
+        "set_request",
+        {
+            "request": "cats",
+            "title": "Cats",
+            "goal": "three cats",
+            "items": [{"key": "a", "title": "one cat"}],
+            "revision": 0,
+            "why": "first plan",
+        },
+        "PUT",
+        "/api/workspaces/default/requests/cats",
     ),
     (
         "upload_asset",
@@ -1649,7 +1672,8 @@ def test_the_stated_tool_count_is_the_registered_one():
 # for itself by trimming another tool's sentences - about twenty rounds of it
 # (this file's history has each one) - and at least once the trim took the
 # pointer an agent needed (#574 re-broke #282). Measured 2026-10-19 at
-# 15_051.75 (65 tools); the ceiling is set at 16_000, about one large tool's
+# 15_051.75 (65 tools), and the ledger's two tools (#1481) fit
+# under it unraised; the ceiling is set at 16_000, about one large tool's
 # worth of room.
 #
 # What a description holds: what the tool does, when to use it, the pinned
