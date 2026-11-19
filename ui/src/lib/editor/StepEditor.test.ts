@@ -1,5 +1,6 @@
 import { afterEach, expect, it } from 'vitest'
 import { cleanup, render, screen } from '@testing-library/svelte'
+import { VARIABLE } from '../references'
 import StepEditor from './StepEditor.svelte'
 
 afterEach(() => cleanup())
@@ -67,8 +68,9 @@ it('opens full on a step whose schedulers set only a shift', () => {
 // templates give the cache as a reference string (`variable:cache`); the
 // full view used to set `.type` on it and throw
 it('opens full on a step whose cache is a variable reference', () => {
+  const ref = VARIABLE + 'cache'
   const s = step()
-  Object.assign(s.pipeline.configuration, { cache: 'variable:cache' })
+  Object.assign(s.pipeline.configuration, { cache: ref })
   render(StepEditor, {
     step: s,
     index: 0,
@@ -78,7 +80,9 @@ it('opens full on a step whose cache is a variable reference', () => {
     onmove: () => {},
   })
   expect(
-    (screen.getByPlaceholderText('variable:name') as HTMLInputElement).value,
-  ).toBe('variable:cache')
-  expect(s.pipeline.configuration.cache).toBe('variable:cache')
+    (screen.getByPlaceholderText(/a reference/) as HTMLInputElement).value,
+  ).toBe(ref)
+  expect((s.pipeline.configuration as { cache?: string }).cache).toBe(
+    ref,
+  )
 })

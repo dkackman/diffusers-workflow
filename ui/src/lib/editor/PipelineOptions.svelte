@@ -230,7 +230,7 @@
       />
       {#if typeof configuration.cache === 'string'}
         <input
-          placeholder="variable:name"
+          placeholder="a reference, e.g. variable:cache"
           value={configuration.cache}
           onchange={(e) => {
             const v = e.currentTarget.value.trim()
