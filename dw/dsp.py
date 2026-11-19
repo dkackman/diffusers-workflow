@@ -110,6 +110,35 @@ def rms(window):
     return math.sqrt(float(numpy.mean(numpy.square(window, dtype=numpy.float64))))
 
 
+def window_rms(waveform, start, end, window_samples):
+    """The rms of each whole `window_samples`-long window of `waveform`
+    from sample `start`, in order; a partial window before `end` is left out."""
+    return [
+        rms(waveform[:, offset : offset + window_samples])
+        for offset in range(start, end - window_samples + 1, window_samples)
+    ]
+
+
+def nearest_rank(values, percentile):
+    """The `percentile`th of `values` by nearest rank, rounding down, with a
+    None ranked lowest: always one of the values itself, never interpolated."""
+    ordered = sorted(values, key=lambda value: -math.inf if value is None else value)
+    return ordered[int((len(ordered) - 1) * percentile / 100)]
+
+
+def band_shares(bands):
+    """Each band's share of the energy in a `spectral_balance` answer, 0-1,
+    or None when no band holds any."""
+    energies = {
+        key: (10.0 ** (value / 10.0) if value is not None else 0.0)
+        for key, value in bands.items()
+    }
+    total = sum(energies.values())
+    if total <= 0.0:
+        return None
+    return {key: value / total for key, value in energies.items()}
+
+
 def loudest_window_dbfs(mono, sample_rate, start, end, window_seconds):
     """The loudest `window_seconds` window's rms over [start, end] seconds, in
     dBFS, or None for silence. A span shorter than one window (a zero-length

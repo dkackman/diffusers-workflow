@@ -39,7 +39,7 @@ from ..assessment_rules import (
 from .. import dsp
 from ..media import read_thumbnails_and_track
 from ..events import emit_warning
-from .image_ops import luma
+from .image_ops import look_stats, thumbs_and_looks
 
 logger = logging.getLogger("dw")
 
@@ -168,88 +168,12 @@ def read_media(path):
     )
 
 
-def look_stats(rgb):
-    """A frame's look as four float32 scalars on the 0-255 scale, in
-    LOOK_MEASURES order: lightness (mean Rec. 709 luma), contrast (luma
-    standard deviation), saturation (mean per-pixel max(RGB) - min(RGB)) and
-    detail (mean |luma - its 3x3 box blur|, edges extended). The one
-    reduction both the file reader and the in-memory path use."""
-    import scipy.ndimage
-
-    rgb = numpy.asarray(rgb, dtype=numpy.float32)
-    plane = luma(rgb)
-    blurred = scipy.ndimage.uniform_filter(plane, size=3, mode="nearest")
-    return numpy.array(
-        [
-            plane.mean(),
-            plane.std(),
-            (rgb.max(axis=-1) - rgb.min(axis=-1)).mean(),
-            numpy.abs(plane - blurred).mean(),
-        ],
-        dtype=numpy.float32,
-    )
-
-
-def _image(frame):
-    """One in-memory frame (PIL image, or an HxWxC array or tensor, uint8 or
-    float in [0, 1]) as a PIL image."""
-    from PIL import Image
-
-    if not isinstance(frame, Image.Image):
-        array = frame
-        if hasattr(array, "detach"):
-            array = array.detach().cpu().numpy()
-        array = numpy.asarray(array)
-        if array.dtype.kind == "f":
-            array = numpy.clip(array * 255.0, 0, 255)
-        array = array.astype(numpy.uint8)
-        if array.ndim == 3 and array.shape[-1] == 1:
-            array = array[..., 0]
-        frame = Image.fromarray(array)
-    return frame
-
-
-def _thumb(frame):
-    """One in-memory frame as (its grey thumbnail, its look_stats)."""
-    from PIL import Image
-
-    image = _image(frame)
-    thumb = numpy.asarray(
-        image.convert("L").resize((THUMB_WIDTH, THUMB_HEIGHT), Image.BILINEAR),
-        dtype=numpy.uint8,
-    )
-    look = look_stats(
-        numpy.asarray(
-            image.convert("RGB").resize((LOOK_WIDTH, LOOK_HEIGHT), Image.BILINEAR)
-        )
-    )
-    return thumb, look
-
-
 def _in_memory_thumbs(frames):
-    """(thumbnails, looks) of an AudioVideo's frames, one frame at a time: a
-    list, an (N, H, W, C) array, or a SegmentedFrames replaying (N, H, W, 3)
-    chunks. Both None for no frames."""
-    from ..pipeline_processors.chain_spill import SegmentedFrames
-
-    thumbs = []
-    looks = []
-
-    def add(frame):
-        thumb, look = _thumb(frame)
-        thumbs.append(thumb)
-        looks.append(look)
-
-    if isinstance(frames, SegmentedFrames):
-        for chunk in frames:
-            for frame in chunk:
-                add(frame)
-    else:
-        for frame in frames:
-            add(frame)
-    if not thumbs:
-        return None, None
-    return numpy.stack(thumbs), numpy.stack(looks)
+    """(thumbnails, looks) of an AudioVideo's frames at THUMB_ and LOOK_
+    size; `image_ops.thumbs_and_looks` is the reduction."""
+    return thumbs_and_looks(
+        frames, (THUMB_WIDTH, THUMB_HEIGHT), (LOOK_WIDTH, LOOK_HEIGHT)
+    )
 
 
 def frame_measures(frames):
@@ -293,51 +217,34 @@ def media_from(video):
     if isinstance(video, numpy.ndarray) and video.ndim == 4:
         # video_frames / fit_to_model hand on the frames as one array (a
         # FittedVideo carries its rate): frames only, no soundtrack
-        thumbs, looks = _in_memory_thumbs(video)
-        fps = getattr(video, "fps", None)
-        return Media(
-            thumbs,
-            None,
-            None,
-            fps,
-            video_seconds=(thumbs.shape[0] / fps)
-            if thumbs is not None and fps
-            else None,
-            audio_seconds=None,
-            shots=None,
-            looks=looks,
-        )
-    if hasattr(video, "frames") or hasattr(video, "audio"):
+        frames, audio, sample_rate, shots = video, None, None, None
+    elif hasattr(video, "frames") or hasattr(video, "audio"):
+        frames = getattr(video, "frames", None)
         audio = getattr(video, "audio", None)
-        waveform = None if audio is None else dsp.as_channels_samples(audio)
-        thumbs, looks = (
-            _in_memory_thumbs(video.frames)
-            if getattr(video, "frames", None) is not None
-            else (None, None)
-        )
         sample_rate = getattr(video, "sample_rate", None)
-        fps = getattr(video, "fps", None)
-        media = Media(
-            thumbs,
-            waveform,
-            sample_rate,
-            fps,
-            video_seconds=(thumbs.shape[0] / fps)
-            if thumbs is not None and fps
-            else None,
-            audio_seconds=(
-                waveform.shape[1] / sample_rate
-                if waveform is not None and sample_rate
-                else None
-            ),
-            shots=getattr(video, "shots", None),
-            looks=looks,
+        shots = getattr(video, "shots", None)
+    else:
+        raise ValueError(
+            "a probe takes a stored video (asset:, output: or a path) or the "
+            "video an earlier step returned (a video, or the frames video_frames "
+            f"or fit_to_model returned), not {type(video).__name__}"
         )
-        return media
-    raise ValueError(
-        "a probe takes a stored video (asset:, output: or a path) or the "
-        "video an earlier step returned (a video, or the frames video_frames "
-        f"or fit_to_model returned), not {type(video).__name__}"
+    waveform = None if audio is None else dsp.as_channels_samples(audio)
+    thumbs, looks = (None, None) if frames is None else _in_memory_thumbs(frames)
+    fps = getattr(video, "fps", None)
+    return Media(
+        thumbs,
+        waveform,
+        sample_rate,
+        fps,
+        video_seconds=thumbs.shape[0] / fps if thumbs is not None and fps else None,
+        audio_seconds=(
+            waveform.shape[1] / sample_rate
+            if waveform is not None and sample_rate
+            else None
+        ),
+        shots=shots,
+        looks=looks,
     )
 
 
@@ -412,11 +319,8 @@ def _window_levels(media, start, count):
         return [], None
     window_samples = max(1, int(round(DEAD_AIR_WINDOW * rate)))
     end = min(media.audio.shape[1], start + count)
-    levels = [
-        _db(dsp.rms(media.audio[:, offset : offset + window_samples]))
-        for offset in range(start, end - window_samples + 1, window_samples)
-    ]
-    return levels, window_samples
+    rms = dsp.window_rms(media.audio, start, end, window_samples)
+    return [_db(level) for level in rms], window_samples
 
 
 def _noise_floor(media, start, count, rms_dbfs):
@@ -433,8 +337,7 @@ def _noise_floor(media, start, count, rms_dbfs):
     levels, _window_samples = _window_levels(media, start, count)
     if len(levels) < NOISE_FLOOR_MIN_WINDOWS:
         return None
-    ordered = sorted(levels, key=lambda level: -math.inf if level is None else level)
-    floor = ordered[int((len(ordered) - 1) * NOISE_FLOOR_PERCENTILE / 100)]
+    floor = dsp.nearest_rank(levels, NOISE_FLOOR_PERCENTILE)
     if floor is None or rms_dbfs is None:
         return None
     return min(floor, rms_dbfs)
@@ -613,8 +516,9 @@ def analyze_shots(video, shots=None):
 
     Returns:
         {shots: [{name, start_frame, num_frames, peak_dbfs, rms_dbfs, crest_db, low_dbfs, mid_dbfs,
-        high_dbfs, dead_air_seconds, dead_air_at, dead_air_floor_dbfs, samples}], rms_range_db,
-        findings, rules_applied, rules_skipped, shots_source}
+        high_dbfs, high_share, noise_floor_dbfs, dead_air_seconds, dead_air_at,
+        dead_air_floor_dbfs, samples}], rms_range_db, findings, rules_applied, rules_skipped,
+        shots_source}
     """
     media = media_from(video)
     return shots_answer(media, *resolve_shots(video, media, shots))
@@ -644,7 +548,7 @@ def shots_answer(media, records, source):
             if window is not None and window.size
             else {"low_dbfs": None, "mid_dbfs": None, "high_dbfs": None}
         )
-        shares = _shares_from_bands(balance)
+        shares = dsp.band_shares(balance)
         dead_air_seconds, dead_air_at, dead_air_floor_dbfs = (
             _dead_air(media, start, count) if start is not None else (None, None, None)
         )
@@ -720,20 +624,7 @@ def shots_answer(media, records, source):
 def _band_shares(window, sample_rate):
     if window is None or window.size == 0:
         return None
-    return _shares_from_bands(dsp.spectral_balance(window, sample_rate))
-
-
-def _shares_from_bands(bands):
-    """Each band's share of the energy in `dsp.spectral_balance`'s answer,
-    0-1, or None when no band holds any."""
-    energies = {
-        key: (10.0 ** (value / 10.0) if value is not None else 0.0)
-        for key, value in bands.items()
-    }
-    total = sum(energies.values())
-    if total <= 0.0:
-        return None
-    return {key: value / total for key, value in energies.items()}
+    return dsp.band_shares(dsp.spectral_balance(window, sample_rate))
 
 
 def _shot_rms(media, shot):
