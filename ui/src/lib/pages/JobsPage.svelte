@@ -12,6 +12,11 @@
   import { wsHref } from '../routes'
   import { hashQuery, setHashQuery } from '../router.svelte'
   import { loadWorkspaces, workspace } from '../workspace.svelte'
+  import {
+    rerunRestartBatchWithConfirm,
+    restartBanners,
+    type RestartBanner,
+  } from '../restartBatches'
 
   let { scope = 'workspace' }: { scope?: 'workspace' | 'all' } = $props()
 
@@ -85,6 +90,32 @@
     }, 3000)
   })
 
+  // Batches a preview found nothing left to rerun in: their banner stays
+  // hidden for the rest of the session, in memory only - the client's
+  // count is an estimate and the preview corrected it
+  let dismissedBatches = $state(new Set<string>())
+  let previewing = $state('')
+  // All of a scope's rows, not the name-filtered ones: a batch spans
+  // workflows. A status filter that hides cancelled rows hides it too
+  const banners = $derived(
+    statusFilter && statusFilter !== 'cancelled'
+      ? []
+      : restartBanners(jobs, dismissedBatches),
+  )
+
+  // Only a click previews: the preview prices every member of the batch,
+  // which the 3 s poll must never pay for
+  async function rerunBatch(banner: RestartBanner) {
+    previewing = banner.batch
+    try {
+      const outcome = await rerunRestartBatchWithConfirm(banner.id)
+      if (outcome === 'empty')
+        dismissedBatches = new Set([...dismissedBatches, banner.batch])
+    } finally {
+      previewing = ''
+    }
+  }
+
   const queuedCount = $derived(
     jobs.filter((job) => job.queue_position !== undefined).length,
   )
@@ -157,6 +188,20 @@
 
 {#if error}<p class="muted">Could not reach the server: {error}</p>{/if}
 
+{#each banners as banner (banner.batch)}
+  <div class="panel restart" role="status" data-batch={banner.batch}>
+    <span
+      >{`${banner.count} ${banner.count === 1 ? 'job was' : 'jobs were'} cancelled by a server restart`}</span
+    >
+    <button
+      onclick={() => rerunBatch(banner)}
+      disabled={previewing === banner.batch}
+      title="preview what a rerun would queue, with its cost, before anything is queued"
+      >Rerun…</button
+    >
+  </div>
+{/each}
+
 {#if jobs.length === 0 && !filtered}
   <Empty>
     {#snippet icon()}<Inbox size={36} strokeWidth={1.5} />{/snippet}
@@ -180,71 +225,77 @@
           : ''}
       >
         <span class="chip {job.status}">{job.status}</span>
-        <span class="name">
-          {job.workflow}
-          {#if job.run_version}
-            <span
-              class="wschip muted"
-              title="version {job.run_version} of this workflow - the gallery labels its files the same way"
-              >v{job.run_version}</span
-            >
-          {/if}
-          {#if job.rerun_of}
-            <span class="wschip muted" title="a rerun of {job.rerun_of}"
-              >rerun</span
-            >
-          {/if}
-          {#if scope === 'all' && (workspace.names?.length ?? 0) > 1}
-            <span class="wschip muted" title="workspace">{job.workspace}</span>
-          {/if}
-          {#if job.device}
-            <span class="wschip muted" title="the card this job ran on"
-              >{job.device}</span
-            >
-          {/if}
-          {#if job.acknowledged === 'bound'}
-            <span
-              class="wschip muted"
-              title="queued with a cost acknowledgement bound to the validated plan"
-              >acknowledged</span
-            >
-          {/if}
-          {#if job.queue_position !== undefined}
-            <span class="qpos" title="position in the waiting queue"
-              >#{job.queue_position + 1}</span
-            >
-            {#if queuedCount > 1}
-              <span class="qmove">
-                {#if job.queue_position > 0}
-                  <button
-                    class="quiet icon"
-                    onclick={(e) => move(e, job.id, 'front')}
-                    title="run this job next"
-                    aria-label="move {job.id} to the front of the queue"
-                  >
-                    <ChevronsUp size={13} />
-                  </button>
-                  <button
-                    class="quiet icon"
-                    onclick={(e) => move(e, job.id, 'up')}
-                    title="move up one place"
-                    aria-label="move {job.id} up one place"
-                  >
-                    <ChevronUp size={13} />
-                  </button>
-                {/if}
-                {#if job.queue_position < queuedCount - 1}
-                  <button
-                    class="quiet icon"
-                    onclick={(e) => move(e, job.id, 'down')}
-                    title="move down one place"
-                    aria-label="move {job.id} down one place"
-                  >
-                    <ChevronDown size={13} />
-                  </button>
-                {/if}
-              </span>
+        <span class="namecol">
+          <span class="name">
+            {job.workflow}
+            {#if job.run_version}
+              <span
+                class="wschip muted"
+                title="version {job.run_version} of this workflow - the gallery labels its files the same way"
+                >v{job.run_version}</span
+              >
             {/if}
+            {#if job.rerun_of}
+              <span class="wschip muted" title="a rerun of {job.rerun_of}"
+                >rerun</span
+              >
+            {/if}
+            {#if scope === 'all' && (workspace.names?.length ?? 0) > 1}
+              <span class="wschip muted" title="workspace">{job.workspace}</span
+              >
+            {/if}
+            {#if job.device}
+              <span class="wschip muted" title="the card this job ran on"
+                >{job.device}</span
+              >
+            {/if}
+            {#if job.acknowledged === 'bound'}
+              <span
+                class="wschip muted"
+                title="queued with a cost acknowledgement bound to the validated plan"
+                >acknowledged</span
+              >
+            {/if}
+            {#if job.queue_position !== undefined}
+              <span class="qpos" title="position in the waiting queue"
+                >#{job.queue_position + 1}</span
+              >
+              {#if queuedCount > 1}
+                <span class="qmove">
+                  {#if job.queue_position > 0}
+                    <button
+                      class="quiet icon"
+                      onclick={(e) => move(e, job.id, 'front')}
+                      title="run this job next"
+                      aria-label="move {job.id} to the front of the queue"
+                    >
+                      <ChevronsUp size={13} />
+                    </button>
+                    <button
+                      class="quiet icon"
+                      onclick={(e) => move(e, job.id, 'up')}
+                      title="move up one place"
+                      aria-label="move {job.id} up one place"
+                    >
+                      <ChevronUp size={13} />
+                    </button>
+                  {/if}
+                  {#if job.queue_position < queuedCount - 1}
+                    <button
+                      class="quiet icon"
+                      onclick={(e) => move(e, job.id, 'down')}
+                      title="move down one place"
+                      aria-label="move {job.id} down one place"
+                    >
+                      <ChevronDown size={13} />
+                    </button>
+                  {/if}
+                </span>
+              {/if}
+            {/if}
+          </span>
+          {#if job.reason}
+            <span class="reason muted" title={job.reason}>{job.reason}</span>
           {/if}
         </span>
         {#if job.status === 'queued'}
@@ -332,6 +383,29 @@
   }
   .row.historical {
     opacity: 0.72;
+  }
+  /* The name and, under it, why a failed or cancelled job ended - each its
+     own element, so a later line beside the reason is a sibling */
+  .namecol {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    min-width: 0;
+  }
+  .reason {
+    font-size: var(--t-xs);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .restart {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.55rem 0.8rem;
+    margin-bottom: 0.6rem;
+    box-shadow: inset 3px 0 0 var(--warn);
   }
   /* A workflow name is what the engine resolved to run this job */
   .name {

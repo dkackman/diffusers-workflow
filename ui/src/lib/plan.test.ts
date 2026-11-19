@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { describePlan } from './plan'
+import { describeEstimate, describeEstimateTotal, describePlan } from './plan'
 import type { Plan } from './types'
 
 const base: Plan = {
@@ -347,7 +347,11 @@ describe('describePlan', () => {
     })
     const [, reason] = describePlan({
       ...base,
-      estimate: { ...unknown, inherited_from: undefined, unpriced_reason: 'no run here' },
+      estimate: {
+        ...unknown,
+        inherited_from: undefined,
+        unpriced_reason: 'no run here',
+      },
     })
     expect(reason.text).toBe(`no figure - no run here - for ${card}`)
     const [, bare] = describePlan({
@@ -398,5 +402,58 @@ describe('describePlan', () => {
       text: "needs download: org/gated (12.5 GB, gated: this box's token can't reach it), org/missing (not found)",
       tone: 'warn',
     })
+  })
+})
+
+describe('describeEstimate', () => {
+  it('reads one estimate as the plan figure does', () => {
+    expect(describeEstimate(base.estimate)).toEqual({
+      text: '~42 min on cuda - measured on RTX 3090',
+      tone: 'plain',
+    })
+  })
+
+  it('says an absent estimate is not a free one', () => {
+    expect(describeEstimate(null)).toEqual({
+      text: 'no estimate',
+      tone: 'warn',
+    })
+  })
+
+  it('an unpriced estimate keeps its reason', () => {
+    expect(
+      describeEstimate({
+        ...base.estimate,
+        minutes: null,
+        basis: 'unknown',
+        unpriced_reason: 'no runs yet',
+      }).text,
+    ).toBe('no figure - no runs yet')
+  })
+})
+
+describe('describeEstimateTotal', () => {
+  it('sums the priced minutes', () => {
+    expect(
+      describeEstimateTotal([
+        base.estimate,
+        { ...base.estimate, minutes: 0.25 },
+      ]),
+    ).toEqual({ text: 'total ~42.3 min', tone: 'plain' })
+  })
+
+  it('says how many had no figure, so the total does not read as complete', () => {
+    expect(
+      describeEstimateTotal([
+        base.estimate,
+        null,
+        { ...base.estimate, minutes: null, basis: 'unknown' },
+      ]),
+    ).toEqual({ text: 'total ~42 min, plus 2 with no figure', tone: 'warn' })
+  })
+
+  it('with nothing priced has no figure', () => {
+    expect(describeEstimateTotal([null]).text).toBe('total: no figure')
+    expect(describeEstimateTotal([]).text).toBe('total: nothing to run')
   })
 })

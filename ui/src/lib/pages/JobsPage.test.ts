@@ -10,9 +10,14 @@ import JobsPage from './JobsPage.svelte'
 import { formatExact } from '../format'
 import type { JobSummary } from '../types'
 
-const data = vi.hoisted(() => ({ jobs: [] as unknown[] }))
+const data = vi.hoisted(() => ({
+  jobs: [] as unknown[],
+  rerunRestartBatch: vi.fn(),
+  confirm: vi.fn(),
+}))
 vi.mock('../api', () => ({
   api: {
+    rerunRestartBatch: data.rerunRestartBatch,
     listJobs: () =>
       Promise.resolve({ jobs: [...data.jobs], total: data.jobs.length }),
     // The listing names the default workspace, as the server's always does:
@@ -24,9 +29,14 @@ vi.mock('../api', () => ({
       }),
   },
 }))
+vi.mock('../confirm.svelte', () => ({ confirmDialog: data.confirm }))
 vi.mock('../toast', () => ({ notify: { error: vi.fn(), success: vi.fn() } }))
 
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  data.rerunRestartBatch.mockReset()
+  data.confirm.mockReset()
+})
 
 const summary = (over: Partial<JobSummary>): JobSummary => ({
   id: 'j',
@@ -185,4 +195,202 @@ it('adds the hold reason to a queued row that has waiting_for', async () => {
     'queued behind 1 running job(s) on every card',
   )
   expect(container.textContent?.match(/·/g)).toHaveLength(2)
+})
+
+it("puts a row's reason on its own line, with the full text in its title", async () => {
+  const reason = 'server restart: queued, never started (a long tail of text)'
+  data.jobs = [
+    summary({ id: 'c1', workflow: 'gone', status: 'cancelled', reason }),
+    summary({ id: 'ok', workflow: 'fine' }),
+  ]
+  const { container } = render(JobsPage)
+  await waitFor(() => expect(screen.getByText('gone')).toBeTruthy())
+  const line = container.querySelector('.reason') as HTMLElement
+  expect(line.textContent).toBe(reason)
+  expect(line.title).toBe(reason)
+  // its own element, a sibling of the name, not text inside it
+  expect(line.closest('.name')).toBeNull()
+  expect(container.querySelectorAll('.reason')).toHaveLength(1)
+})
+
+const tombstone = (id: string, batch: string, created = 1) =>
+  summary({
+    id,
+    workflow: 'w-' + id,
+    status: 'cancelled',
+    reason: 'server restart: queued, never started',
+    restart_batch: batch,
+    created_at: created,
+  })
+
+const banners = (container: HTMLElement) =>
+  [...container.querySelectorAll('.restart')] as HTMLElement[]
+
+it('shows a restart banner for tombstones nothing has rerun', async () => {
+  data.jobs = [tombstone('t1', 'dead-a'), tombstone('t2', 'dead-a')]
+  const { container } = render(JobsPage)
+  await waitFor(() => expect(banners(container)).toHaveLength(1))
+  expect(banners(container)[0].textContent).toContain(
+    '2 jobs were cancelled by a server restart',
+  )
+  expect(screen.getByText('Rerun…')).toBeTruthy()
+})
+
+it('hides the banner once every tombstone has a rerun row', async () => {
+  data.jobs = [
+    tombstone('t1', 'dead-a'),
+    tombstone('t2', 'dead-a'),
+    summary({ id: 'n1', workflow: 'again-1', rerun_of: 't1' }),
+    summary({ id: 'n2', workflow: 'again-2', rerun_of: 't2' }),
+  ]
+  const { container } = render(JobsPage)
+  await waitFor(() => expect(screen.getByText('again-2')).toBeTruthy())
+  expect(banners(container)).toHaveLength(0)
+})
+
+it('shows no banner with no tombstones', async () => {
+  data.jobs = [
+    summary({ id: 'c1', workflow: 'user-cancel', status: 'cancelled' }),
+    summary({ id: 'ok', workflow: 'fine' }),
+  ]
+  const { container } = render(JobsPage)
+  await waitFor(() => expect(screen.getByText('fine')).toBeTruthy())
+  expect(banners(container)).toHaveLength(0)
+})
+
+it('shows one banner per batch, newest first', async () => {
+  data.jobs = [
+    tombstone('old1', 'dead-old', 1),
+    tombstone('new1', 'dead-new', 10),
+    tombstone('new2', 'dead-new', 11),
+  ]
+  const { container } = render(JobsPage)
+  await waitFor(() => expect(banners(container)).toHaveLength(2))
+  expect(banners(container).map((b) => b.dataset.batch)).toEqual([
+    'dead-new',
+    'dead-old',
+  ])
+  expect(banners(container)[0].textContent).toContain('2 jobs were')
+  expect(banners(container)[1].textContent).toContain('1 job was')
+})
+
+it('hides the banner under a status filter that hides cancelled rows', async () => {
+  location.hash = '#/ws/default/jobs?status=failed'
+  data.jobs = [
+    tombstone('t1', 'dead-a'),
+    summary({ id: 'f1', workflow: 'broke', status: 'failed' }),
+  ]
+  const { container } = render(JobsPage)
+  await waitFor(() => expect(screen.getByText('broke')).toBeTruthy())
+  expect(banners(container)).toHaveLength(0)
+  location.hash = ''
+})
+
+const preview = {
+  server_instance: 'dead-a',
+  queued: [],
+  would_queue: [
+    {
+      id: 't1',
+      workflow: 'w-t1',
+      workspace: 'default',
+      estimate: {
+        basis: 'observed',
+        minutes: 2,
+        device: 'mps',
+        measured_on: 'Apple M2',
+      },
+    },
+    { id: 't2', workflow: 'w-t2', workspace: 'default', estimate: null },
+  ],
+  skipped: [{ id: 't3', reason: 'its workspace is gone' }],
+}
+
+it('previews on click with {} once, and the poll never calls the route', async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true })
+  try {
+    data.jobs = [tombstone('t1', 'dead-a'), tombstone('t2', 'dead-a')]
+    data.rerunRestartBatch.mockResolvedValue(preview)
+    data.confirm.mockResolvedValue(false)
+    const { container } = render(JobsPage)
+    await waitFor(() => expect(banners(container)).toHaveLength(1))
+    // several poll ticks with the banner up: no preview
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(data.rerunRestartBatch).not.toHaveBeenCalled()
+    await fireEvent.click(screen.getByText('Rerun…'))
+    await waitFor(() => expect(data.confirm).toHaveBeenCalledTimes(1))
+    expect(data.rerunRestartBatch).toHaveBeenCalledTimes(1)
+    // any member names its batch; the call carries no acknowledgement
+    const [member, ...rest] = data.rerunRestartBatch.mock.calls[0]
+    expect(['t1', 't2']).toContain(member)
+    expect(rest).toEqual([])
+    const message = data.confirm.mock.calls[0][0] as string
+    expect(message).toContain('w-t1 (t1, default) - ~2 min on mps')
+    expect(message).toContain('w-t2 (t2, default) - no estimate')
+    expect(message).toContain('total ~2 min, plus 1 with no figure')
+    expect(message).toContain('t3: its workspace is gone')
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(data.rerunRestartBatch).toHaveBeenCalledTimes(1)
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+it('confirming sends acknowledged_cost: true; cancelling sends nothing more', async () => {
+  data.jobs = [tombstone('t1', 'dead-a'), tombstone('t2', 'dead-a')]
+  data.rerunRestartBatch.mockResolvedValue(preview)
+  data.confirm.mockResolvedValue(false)
+  const { container } = render(JobsPage)
+  await waitFor(() => expect(banners(container)).toHaveLength(1))
+  await fireEvent.click(screen.getByText('Rerun…'))
+  await waitFor(() => expect(data.confirm).toHaveBeenCalledTimes(1))
+  // cancel: only the preview went out
+  expect(data.rerunRestartBatch).toHaveBeenCalledTimes(1)
+  const member = data.rerunRestartBatch.mock.calls[0][0]
+  expect(data.rerunRestartBatch.mock.calls).toEqual([[member]])
+
+  data.rerunRestartBatch.mockReset()
+  data.rerunRestartBatch.mockResolvedValueOnce(preview).mockResolvedValueOnce({
+    ...preview,
+    would_queue: [],
+    queued: [
+      { id: 'n1', rerun_of: 't1', workflow: 'w-t1', workspace: 'default' },
+      { id: 'n2', rerun_of: 't2', workflow: 'w-t2', workspace: 'default' },
+    ],
+  })
+  data.confirm.mockResolvedValue(true)
+  await waitFor(() =>
+    expect((screen.getByText('Rerun…') as HTMLButtonElement).disabled).toBe(
+      false,
+    ),
+  )
+  await fireEvent.click(screen.getByText('Rerun…'))
+  await waitFor(() => expect(data.rerunRestartBatch).toHaveBeenCalledTimes(2))
+  expect(data.rerunRestartBatch.mock.calls).toEqual([[member], [member, true]])
+  const { notify } = await import('../toast')
+  await waitFor(() =>
+    expect(notify.success).toHaveBeenCalledWith(
+      'Queued 2; skipped 1: t3 (its workspace is gone)',
+    ),
+  )
+})
+
+it('an empty preview says so, with Close only, and hides the banner', async () => {
+  data.jobs = [tombstone('t1', 'dead-a')]
+  data.rerunRestartBatch.mockResolvedValue({
+    server_instance: 'dead-a',
+    queued: [],
+    would_queue: [],
+    skipped: [{ id: 't1', reason: 'already rerun as n9' }],
+  })
+  data.confirm.mockResolvedValue(true)
+  const { container } = render(JobsPage)
+  await waitFor(() => expect(banners(container)).toHaveLength(1))
+  await fireEvent.click(screen.getByText('Rerun…'))
+  await waitFor(() => expect(banners(container)).toHaveLength(0))
+  const [message, options] = data.confirm.mock.calls[0]
+  expect(message).toContain('Nothing is left to rerun')
+  expect(options).toMatchObject({ confirmLabel: 'Close', alert: true })
+  // only the preview: nothing was queued
+  expect(data.rerunRestartBatch.mock.calls).toEqual([['t1']])
 })
