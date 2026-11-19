@@ -37,6 +37,15 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **A per-segment view of a chain** (#1451, stages #1474-#1476), closed
+  2026-11-19. Every checked chain shot carries `measures` (`{value, ceiling,
+  bound, warn_only, failed}` per measure, from the kept attempt), typed as
+  `ShotRecord` in the REST schema. The job page shows a segment table: a
+  thumbnail, attempts, each measure against its ceiling, and resumed/repaired
+  marks. Repair (H3 family only, matched by the template's `model_name`) opens
+  `minimax/repair-segment` pre-filled, and Continue the chain prices and reruns
+  a `stop_after` take from its last segment. Live rows, died-chain resume and
+  per-row resume were cut: `complete/chain-segments-view-complete.md`.
 - **Catalog LoRA suggestions in the LoRA editor** (#1456, stage #1480), closed
   2026-11-19. For a literal `owner/name` base, the editor lists the catalog's
   non-rejected entries for that base (and literal partition), proven first, with
