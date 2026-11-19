@@ -37,6 +37,15 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **H3 keystone attention probe** (#1391, stages #1393 and #1394), closed
+  2026-11-19. `experimental_keystone_attention`, an fl2va call argument behind
+  `DW_EXPERIMENTAL_REFINE_WINDOWS`, re-splits the keystone/carried-guide
+  attention slice on chosen blocks. A brightened-keystone check showed that
+  diffusers' block numbering matches ComfyUI's. The early gate on the narrated
+  chain, which ran dense, failed on its letter. The op visibly acts, but Don
+  saw no clear win and stopped the bench. The sharpness sweep, the full arms,
+  the chain key, the sparse re-split and the moving-shot arm were cut, each
+  with a trigger: `complete/h3-keystone-attention-complete.md`.
 - **H3 fl2va/ref2va hybrid probe** (#1441, stage #1463), closed 2026-11-19
   as a bench record. The smhfacct-style graft (fl2va weights, ref2va's
   `adaln_proj` for blocks 20-49) was built locally from lem's cached
