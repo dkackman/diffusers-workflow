@@ -811,7 +811,7 @@ The editor's forms come from these; they are just as usable from scripts:
 - `GET /api/loras?model=&workflow=&status=&tag=`, `GET/PUT/DELETE /api/loras/{name}` —
   the LoRA catalog (see [LORAS.md](LORAS.md#lora-catalog)): one JSON file per
   tried LoRA, in the root's writable `loras/` ahead of the shipped read-only
-  ones. The listing carries `libraries` and an `origin`/`writable` per entry;
+  ones. The listing (declared as `LoraList`) carries `libraries` and an `origin`/`writable` per entry;
   `model` is a Hub repo id or a workflow name and matches exactly. `GET` of an
   entry that cannot be parsed is a 404 naming it unreadable; deleting a
   read-only entry is a 403; saves are validated against the entry schema,

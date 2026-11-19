@@ -178,6 +178,16 @@ Promotion: a trial that worked is saved with `save_lora` (or
 `PUT /api/loras/{name}`) as `proven`, its job id in `evidence`. Promoting
 it is also what makes its `workflow` refuse a mismatched step.
 
+In the web UI: a pipeline step's LoRA editor lists the catalog's entries
+for the step's base under *From the catalog* (`GET /api/loras?model=`, plus
+`workflow=` when the step names a literal partition). It lists proven
+entries first, then trial ones, and hides rejected ones. Each entry shows
+its scale, trigger and, when the step names no partition, the entry's
+`workflow`. *add* appends `model_name`, `weight_name`, `revision` and the
+entry's default scale (1.0 when it has none) to the step's `loras`. The
+panel reads the catalog only, never the Hub, and a `variable:` base gets
+no suggestions: it resolves only for a saved workflow.
+
 ## Finding LoRAs on the Hub
 
 `recommend_loras(model, query)` (`GET /api/loras/recommend`) is the only

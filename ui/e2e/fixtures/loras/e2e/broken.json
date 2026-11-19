@@ -1,0 +1,10 @@
+{
+  "model_name": "e2e-org/e2e-broken-lora",
+  "weight_name": "e2e_broken.safetensors",
+  "base_models": ["e2e-org/e2e-base"],
+  "workflow": null,
+  "description": "Fixture rejected LoRA",
+  "use_when": "never; the e2e suite expects it hidden",
+  "status": "rejected",
+  "evidence": [{ "note": "fixture: renders garbage" }]
+}
