@@ -308,6 +308,60 @@ describe('describePlan', () => {
     })
   })
 
+  it('an inherited or unpriced figure names the card last when it differs from the device', () => {
+    const card = 'mps Apple M5 Pro (MPS)'
+    const inherited = {
+      ...base.estimate,
+      device: 'mps',
+      basis: 'inherited' as const,
+      inherited_from: 'templates/text-to-image',
+      priced_for: card,
+    }
+    const [, firm] = describePlan({ ...base, estimate: inherited })
+    expect(firm).toEqual({
+      text: `~42 min, inherited from templates/text-to-image - for ${card}`,
+      tone: 'plain',
+    })
+    const [, thin] = describePlan({
+      ...base,
+      estimate: { ...inherited, low_confidence: true },
+    })
+    expect(thin).toEqual({
+      text: `~42 min, inherited from templates/text-to-image, low confidence - for ${card}`,
+      tone: 'warn',
+    })
+    const unknown = {
+      ...inherited,
+      minutes: null,
+      basis: 'unknown' as const,
+      measured_on: null,
+      cached_minutes: null,
+    }
+    const [, withheld] = describePlan({
+      ...base,
+      estimate: { ...unknown, withheld: 'frames differ' },
+    })
+    expect(withheld).toEqual({
+      text: `no figure - withheld (not priced from templates/text-to-image) - for ${card}`,
+      tone: 'warn',
+    })
+    const [, reason] = describePlan({
+      ...base,
+      estimate: { ...unknown, inherited_from: undefined, unpriced_reason: 'no run here' },
+    })
+    expect(reason.text).toBe(`no figure - no run here - for ${card}`)
+    const [, bare] = describePlan({
+      ...base,
+      estimate: { ...unknown, inherited_from: undefined },
+    })
+    expect(bare.text).toBe(`no measured cost - for ${card}`)
+    const [, same] = describePlan({
+      ...base,
+      estimate: { ...inherited, priced_for: 'mps' },
+    })
+    expect(same.text).toBe('~42 min, inherited from templates/text-to-image')
+  })
+
   it('an unpriced reason replaces the bare no measured cost', () => {
     const [, figure] = describePlan({
       ...base,
