@@ -63,6 +63,9 @@ export type GalleryFile = Schemas['GalleryFile']
 export type GalleryList = Schemas['GalleryList']
 export type GalleryMetadata = Schemas['GalleryMetadata']
 export type GalleryInput = Schemas['GalleryInput']
+// One finding, as GET /api/gallery/{name}/metadata (`findings`) and
+// /assess send it (dw/assessment_rules.py `finding()`)
+export type LevelFinding = Schemas['LevelFinding']
 /** A file's role in its run, as the server states it. */
 export type OutputRole = NonNullable<GalleryFile['role']>
 export type OutputDeleted = Schemas['OutputDeleted']
@@ -165,3 +168,19 @@ export interface StoredPrompt {
 /** An asset a nearer library hides: same shape as `AssetFile` except there
  * is no `url` - that URL would serve the shadowing file, not this one - and
  * `shadowed_by` names the origin that won. */
+
+/** GET /api/gallery/{name}/assess, the default (no `probe`) answer
+ * (dw/server/assess.py). The route has no response model, so this is a
+ * local narrowing; a later `response_model` replaces it. `at` is seconds
+ * into the file, or null for a whole-file finding. */
+export interface AssessReply {
+  name: string
+  source: 'output' | 'asset'
+  kind: string | null
+  shots_source?: string
+  findings: Array<LevelFinding & { at: number | null }>
+  rules_applied: string[]
+  rules_skipped?: Array<{ probe: string; [key: string]: unknown }>
+  /** Each probe the file cannot feed, with why: {probe: reason} */
+  not_applicable: Record<string, string>
+}

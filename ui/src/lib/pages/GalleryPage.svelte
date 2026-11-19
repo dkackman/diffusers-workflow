@@ -11,10 +11,16 @@
   import { overlayOpen } from '../ui/layers.svelte'
   import { notify } from '../toast'
   import { confirmDialog } from '../confirm.svelte'
-  import type { GalleryFile, GalleryInput, OutputRole } from '../types'
+  import type {
+    GalleryFile,
+    GalleryInput,
+    LevelFinding,
+    OutputRole,
+  } from '../types'
   import { workspace } from '../workspace.svelte'
   import { go } from '../router.svelte'
   import GalleryDetail from '../gallery/GalleryDetail.svelte'
+  import { AssessCache } from '../gallery/assess.svelte'
   import RoleTag from '../gallery/RoleTag.svelte'
 
   let files = $state<GalleryFile[]>([])
@@ -38,6 +44,9 @@
   }>({ note: null, runNote: null, source: null })
   let sourceJob = $state<{ id: string; status: string } | null>(null)
   let role = $state<OutputRole | null>(null)
+  // The selected file's level findings, and every Assess this page has run
+  let findings = $state<LevelFinding[]>([])
+  const assessCache = new AssessCache()
   let inputs = $state<GalleryInput[]>([])
 
   function loadListing() {
@@ -166,6 +175,7 @@
     sourceJob = null
     role = null
     inputs = []
+    findings = []
     noteInfo = { note: null, runNote: null, source: null }
     api
       .galleryMetadata(file.name)
@@ -175,6 +185,7 @@
           sourceJob = r.job
           role = r.role ?? file.role ?? null
           inputs = r.inputs ?? []
+          findings = r.findings ?? []
           noteInfo = {
             note: r.note ?? null,
             runNote: r.run_note ?? null,
@@ -425,6 +436,8 @@
     {sourceJob}
     {role}
     {inputs}
+    {findings}
+    {assessCache}
     note={noteInfo.note}
     runNote={noteInfo.runNote}
     noteSource={noteInfo.source}

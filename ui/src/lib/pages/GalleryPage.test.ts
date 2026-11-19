@@ -69,6 +69,7 @@ vi.mock('../api', () => ({
     setStarred: (name: string, starred: boolean) => setStarred(name, starred),
     archiveOutputs: (names: string[]) => archiveOutputs(names),
     galleryMetadata: (name: string) => galleryMetadata(name),
+    assess: () => new Promise(() => {}),
   },
 }))
 
@@ -604,4 +605,27 @@ it('unstarring the open file under Starred steps on from its place', async () =>
   await waitFor(() => expect(screen.queryByTitle('a.png')).toBeNull())
   await fireEvent.keyDown(window, { key: 'ArrowRight' })
   expect(galleryMetadata).toHaveBeenLastCalledWith('b.png')
+})
+
+it("shows the open file's level findings from its metadata", async () => {
+  galleryMetadata.mockResolvedValue({
+    metadata: {},
+    job: null,
+    inputs: [],
+    role: null,
+    findings: [
+      {
+        rule: 'near_silent',
+        severity: 'warn',
+        at: null,
+        value: -62,
+        threshold: -50,
+        says: 'near-silent for a track meant to be heard',
+      },
+    ],
+  })
+  await renderGallery()
+  await openFile('a.png')
+  const region = await screen.findByRole('region', { name: 'Findings' })
+  await waitFor(() => expect(region.textContent).toContain('near-silent'))
 })

@@ -255,6 +255,10 @@ NOT_IN_CONTRACT = {
     "/api/assets/archive",
     "/api/workflows/{}/download",
     "/api/prompts/{}/download",
+    # The assess reply varies with `probe`/`detail` and MCP reads keys a model
+    # would filter (`probes`), so it has no response_model; the UI's narrowed
+    # `AssessReply` in ui/src/lib/types.ts names this route (#1452 plan, Q1)
+    "/api/gallery/{}/assess",
 }
 # The raw workflow/prompt GETs serve the file verbatim; their PUT and DELETE
 # on the same path are in the contract

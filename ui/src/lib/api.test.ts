@@ -126,6 +126,23 @@ describe('name encoding', () => {
     )
     expect(calls[1][0]).toBe('/api/gallery/ltx/wf-gen.0-0.0%20copy.png')
   })
+
+  it("GETs a file's assess route, scoped to the picker's workspace", async () => {
+    const { workspace, DEFAULT_WORKSPACE } = await import('./workspace.svelte')
+    const calls = stubFetch({ ok: true, body: {} })
+    await api.assess('ltx/run-1/final/clip one.mp4')
+    expect(calls[0][0]).toBe(
+      '/api/gallery/ltx/run-1/final/clip%20one.mp4/assess',
+    )
+    expect(calls[0][1]?.method ?? 'GET').toBe('GET')
+    workspace.current = 'studio'
+    try {
+      await api.assess('a.mp4')
+      expect(calls[1][0]).toBe('/api/gallery/a.mp4/assess?workspace=studio')
+    } finally {
+      workspace.current = DEFAULT_WORKSPACE
+    }
+  })
 })
 
 describe('job listing', () => {

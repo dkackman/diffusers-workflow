@@ -12,6 +12,7 @@ import type {
   EnhancerPresets,
   GalleryList,
   GalleryMetadata,
+  AssessReply,
   HealthInfo,
   JobCancelled,
   JobDetail,
@@ -346,6 +347,11 @@ export const api = {
       undefined,
       { scope: workspace === undefined },
     ),
+  /** Run every assessment probe that applies to one output, in the
+   * server's threadpool: a GET, scoped to the picker's workspace. It decodes
+   * the whole file, so only a click calls it, never a poll. */
+  assess: (name: string) =>
+    request<AssessReply>(`/api/gallery/${encodePath(name)}/assess`),
   galleryThumbnailUrl,
   deleteOutput: (name: string) =>
     request<OutputDeleted>(`/api/gallery/${encodePath(name)}`, {
