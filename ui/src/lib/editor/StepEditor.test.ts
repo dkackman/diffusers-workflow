@@ -106,7 +106,7 @@ it('leaves a step with no torch_dtype unchanged on opening full', async () => {
   s.pipeline.from_pretrained_arguments = {
     model_name: 'MiniMaxAI/MiniMax-H3',
     workflow: 'ref2va',
-  } as typeof s.pipeline.from_pretrained_arguments
+  } as unknown as typeof s.pipeline.from_pretrained_arguments
   const before = JSON.stringify(s)
   render(StepEditor, {
     step: s,
