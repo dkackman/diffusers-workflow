@@ -154,6 +154,8 @@ export type ValidateRequest = {
   workflow?: WorkflowDefinition
   workflow_path?: string
   arguments?: Record<string, unknown>
+  /** The workspace it resolves in, when not the open one (body first) */
+  workspace?: string
   sizes?: boolean
 }
 

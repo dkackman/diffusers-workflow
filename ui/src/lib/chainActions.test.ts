@@ -7,6 +7,8 @@ import {
   REPAIR_TEMPLATE,
   chainModel,
   continueAction,
+  continueConfirmText,
+  continueValidation,
   repairAction,
   repairModels,
 } from './chainActions'
@@ -206,5 +208,57 @@ describe('continueAction', () => {
     // Continue is not H3-only: an LTX chain with both variables offers it
     const t = table([kept(1), kept(2)])
     expect(continueAction(t, definition(LTX, both))).not.toBeNull()
+  })
+})
+
+describe('continueValidation and continueConfirmText', () => {
+  const action = {
+    arguments: {
+      resume_from: 'output:run/take.segment-002.mp4',
+      stop_after: null,
+    },
+  }
+  const ran = { workspace: 'ws1', arguments: { stop_after: 2, seed: 7 } }
+
+  it('prices the rerun by the catalog name, with the merged arguments', () => {
+    expect(
+      continueValidation(
+        { ...ran, workflow_name: 'chain-1451' },
+        action,
+        definition(LTX),
+      ),
+    ).toEqual({
+      workflow_path: 'chain-1451',
+      workspace: 'ws1',
+      arguments: {
+        seed: 7,
+        stop_after: null,
+        resume_from: 'output:run/take.segment-002.mp4',
+      },
+      sizes: false,
+    })
+  })
+
+  it('falls back to the definition the job ran, inline', () => {
+    const d = definition(LTX)
+    expect(
+      continueValidation({ ...ran, workflow_name: null }, action, d),
+    ).toMatchObject({ workflow: d, workspace: 'ws1' })
+  })
+
+  it('has nothing to price with neither', () => {
+    expect(
+      continueValidation({ ...ran, workflow_name: null }, action, null),
+    ).toBeNull()
+  })
+
+  it('states the rerun, then the estimate', () => {
+    const text = continueConfirmText(
+      table([kept(1), kept(2)]),
+      '~3.2 min on mps',
+    )
+    expect(text).toContain('(2 of 4)')
+    expect(text).toContain('remaining 2 segments of take')
+    expect(text).toMatch(/\n\nEstimate: ~3\.2 min on mps$/)
   })
 })

@@ -15,6 +15,8 @@
 import type { ChainRow, ChainTable } from './chainRows'
 import { definitionStep, resolved } from './chainRows'
 import { OUTPUT, VARIABLE, reference, referenceName } from './references'
+import type { ValidateRequest } from './api'
+import type { WorkflowDefinition } from './types'
 
 /** The only repair template the catalog holds */
 export const REPAIR_TEMPLATE = 'templates/minimax/repair-segment'
@@ -131,4 +133,46 @@ export function continueAction(
       [stopAfter]: null,
     },
   }
+}
+
+/** What `/api/validate` is asked to price a Continue: the rerun's merged
+ * arguments (the job's own, then the action's), in the job's workspace, by
+ * the catalog name it ran as when it has one (so the plan quotes that
+ * workflow's observed figures), otherwise the definition it ran inline. Null
+ * when there is neither, and the confirm says it has no estimate. */
+export function continueValidation(
+  job: {
+    workflow_name?: string | null
+    workspace: string
+    arguments?: Record<string, unknown> | null
+  },
+  action: ContinueAction,
+  definition: Definition,
+): ValidateRequest | null {
+  const source = job.workflow_name
+    ? { workflow_path: job.workflow_name }
+    : definition
+      ? { workflow: definition as WorkflowDefinition }
+      : null
+  if (!source) return null
+  return {
+    ...source,
+    workspace: job.workspace,
+    arguments: { ...(job.arguments ?? {}), ...action.arguments },
+    sizes: false,
+  }
+}
+
+/** The Continue confirm's words: what it reruns, then the estimate line. */
+export function continueConfirmText(
+  table: ChainTable,
+  estimate: string,
+): string {
+  const kept = table.rows.length
+  const remaining = (table.planned ?? 0) - kept
+  return (
+    `Queue this job again from its last kept segment (${kept} of ${table.planned})? ` +
+    `It renders the remaining ${remaining} segment${remaining === 1 ? '' : 's'} of ${table.step}.` +
+    `\n\nEstimate: ${estimate}`
+  )
 }

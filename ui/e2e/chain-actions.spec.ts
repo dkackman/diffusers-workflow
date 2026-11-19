@@ -159,14 +159,54 @@ test('Continue the chain posts the rerun that resumes from the last segment', as
       return route.fulfill({ json: job(NEXT) })
     },
   )
+  // The confirm prices the rerun with validate, as a run would be priced
+  let priced: any = null
+  await page.route('**/api/validate**', (route) => {
+    priced = route.request().postDataJSON()
+    return route.fulfill({
+      json: {
+        valid: true,
+        errors: [],
+        warnings: [],
+        plan: {
+          fingerprint: 'sha256:abc',
+          steps: 1,
+          list_entries: {},
+          cached_steps: 0,
+          elided_steps: [],
+          downloads_required: [],
+          estimate: {
+            minutes: 12,
+            basis: 'catalog',
+            device: 'mps',
+            measured_on: 'M4 Max',
+            partial: false,
+            unpriced: [],
+            runs: null,
+            cached_minutes: 12,
+          },
+          workspace: 'default',
+        },
+      },
+    })
+  })
   await page.goto(`/#/ws/default/jobs/${ID}`)
 
   const table = page.getByRole('region', { name: 'Chain segments: take' })
   await table.getByRole('button', { name: 'Continue the chain' }).click()
-  await page
-    .getByRole('alertdialog')
-    .getByRole('button', { name: 'Continue' })
-    .click()
+  const dialog = page.getByRole('alertdialog')
+  await expect(dialog).toContainText('Estimate: ~12 min on mps')
+  expect(priced).toMatchObject({
+    workflow_path: 'narrated-take',
+    workspace: 'default',
+    arguments: {
+      resume_from: 'output:run/take.segment-002.mp4',
+      stop_after: null,
+    },
+  })
+  // Pricing it queued nothing
+  expect(body).toBeNull()
+  await dialog.getByRole('button', { name: 'Continue' }).click()
 
   await expect(page).toHaveURL(new RegExp(`#/ws/default/jobs/${NEXT}$`))
   expect(body).toEqual({
