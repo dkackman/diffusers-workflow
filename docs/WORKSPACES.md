@@ -339,11 +339,11 @@ Read it with `get_request(request=None)` (MCP) or `GET
 
 **Linking jobs.** `run_workflow(request="<request-id>/<item-key>")` (or
 `request` and `item` in the `POST /api/jobs` body) links the job to that
-item. The client refuses anything but one `/` between two valid keys before
-any call; the server refuses 422 with `unknown_request`, `request_closed`,
-`unknown_item` or `item_dropped`. A rerun inherits the link; if it no longer
-admits, the rerun still queues, unlinked, with a `rerun_ledger_link_<code>`
-warning. `get_job` and `list_jobs` show `request`/`item` on a linked job.
+item. The client refuses anything but exactly one `/` before any call; the
+server refuses 422, before anything queues, a half that isn't a valid key, or
+a link with `unknown_request`, `request_closed`, `unknown_item` or
+`item_dropped`. A rerun inherits the link; if it no longer admits, the rerun
+still queues and keeps the link, with a `rerun_ledger_link_<code>` warning. `get_job` and `list_jobs` show `request`/`item` on a linked job.
 
 **Derived, never stored.** Each read works the item out from its linked
 jobs. `status` is the first that applies: `dropped`, `done` (a linked job

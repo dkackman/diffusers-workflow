@@ -1721,7 +1721,7 @@ async def test_run_workflow_request_is_an_optional_nullable_string():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("bad", ["demo", "a/b/c", "Demo/cat", "demo/", "/cat"])
+@pytest.mark.parametrize("bad", ["demo", "a/b/c", "demo//cat"])
 async def test_run_workflow_refuses_a_malformed_request_before_any_call(bad):
     calls = []
 
@@ -1738,6 +1738,29 @@ async def test_run_workflow_refuses_a_malformed_request_before_any_call(bad):
 
     assert "<request-id>/<item-key>" in str(caught.value)
     assert calls == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("key", ["Demo/cat", "demo/", "/cat"])
+async def test_run_workflow_leaves_the_key_rule_to_the_server(key):
+    # one owner of the key rule (dw.security.validate_ledger_key): the
+    # client splits on the one '/', and the server's 422 refuses the key
+    sent = []
+
+    def handler(request):
+        sent.append(json.loads(request.content))
+        return httpx.Response(
+            422, json={"detail": [{"msg": "Request must be a ledger key"}]}
+        )
+
+    with pytest.raises(Exception):
+        await server_over(handler).call_tool(
+            "run_workflow",
+            {"workflow_path": "w.json", "acknowledged_cost": True, "request": key},
+        )
+
+    request_id, item = key.split("/")
+    assert [(body["request"], body["item"]) for body in sent] == [(request_id, item)]
 
 
 @pytest.mark.asyncio

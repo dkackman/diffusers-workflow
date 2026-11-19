@@ -718,9 +718,7 @@ class JobManager(Dispatcher):
         if run_dir:
             try:
                 root = validate_output_path(output_dir or self.output_dir, None)
-                exists = os.path.isdir(
-                    validate_path(os.path.join(root, run_dir), root, allow_create=True)
-                )
+                exists = job_run_directory(root, run_dir) is not None
             except SecurityError:
                 exists = False
         return {
