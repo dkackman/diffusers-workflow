@@ -16,7 +16,7 @@ import numpy
 import torch
 
 from ..dsp import as_channels_samples
-from ..media_types import AudioVideo
+from ..media_types import AudioVideo, fit_codec_padding
 from ..task_domains import frames_to_samples
 from ..tasks.video_utils import extract_frame, frames_as_pil_list
 from .chain_pick import sharpest_index
@@ -140,6 +140,9 @@ class GuideContinuity:
                 "Holding a guide chain's audio needs the frame rate - set 'fps' "
                 "on the chain or a 'frame_rate' pipeline argument"
             )
+        # Fit to the picture first, as the resume path does: H3 audio
+        # overhangs its frames, and the held window must end where they do
+        audio = fit_codec_padding(audio, len(all_frames), self.config.fps, sample_rate)
         samples = frames_to_samples(count, self.config.fps, sample_rate)
         stop = audio.shape[1] - frames_to_samples(back, self.config.fps, sample_rate)
         return _SegmentCarry(

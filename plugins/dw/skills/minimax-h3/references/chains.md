@@ -42,3 +42,5 @@ Everything else about drift on a long take is the `long-form` skill's: the
 `shot` preset per shot type (`static_long` past 30 s), the per-segment check,
 how to measure drift, and the community reports with the bench's verdict on
 each (`long-form/references/levers.md`).
+
+Leave `cache` null on a guide chain. The held guide rows count toward the skip test (`first_block`) or its calibration (`mag`), and this is unmeasured.

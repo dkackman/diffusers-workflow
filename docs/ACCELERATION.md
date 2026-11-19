@@ -13,6 +13,8 @@ A `cache` block in the pipeline `configuration` attaches one of diffusers' cache
 - **`taylorseer_state_unestimated`**: said whenever `taylorseer` is set - see [TaylorSeerCache](#taylorseercache).
 - **`compile_fullgraph_with_cache`**: see [torch.compile](#torchcompile).
 
+Leave `cache` null on a guide chain. The held guide rows count toward the skip test (`first_block`) or its calibration (`mag`), and this is unmeasured.
+
 ### Models diffusers has not registered
 
 `first_block` and `mag` look the transformer's block class up in diffusers' block registry and raise when it is absent, so a model that supports `enable_cache()` can still have no usable cache. [cache_blocks.json](../dw/cache_blocks.json) registers the missing block metadata on demand (`dw/cache_blocks.py`); an entry becomes redundant, not wrong, once diffusers registers the class itself. It lists MiniMax-H3, LTX-2 and Qwen-Image-2.1.
