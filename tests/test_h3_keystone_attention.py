@@ -563,3 +563,25 @@ def test_the_processor_refuses_without_rows_or_with_a_mask():
         KeystoneAttentionH3Processor(original, _state(20.0, ((2, 3), (5, 4))), 0)(
             attn, hidden, rotary, attention_mask=torch.ones(1)
         )
+
+
+def test_the_target_first_latent_frame_is_held_out_of_the_re_split():
+    # #1494: the frame under the keyframe/guide keeps the main pass
+    from dw.pipeline_processors.h3_keystone_attention import (
+        KeystoneAttentionH3Processor,
+    )
+
+    fake = FakeTransformer()
+    state = install(fake, KeystoneAttentionSettings(20.0, "1"))
+    publish_rows(fake, 3, 2, 4, frame_rows=2)
+    assert state.frame_rows == 2
+    rows_c = state.rows[1]
+    first = KeystoneAttentionH3Processor._first_query
+    assert first(state, rows_c) == 9  # target unknown: after the guide rows
+    state.target = 11  # audio rows sit between guide and target
+    assert first(state, rows_c) == 13
+    state.target = 9
+    assert first(state, rows_c) == 11
+    state.frame_rows = 0
+    assert first(state, rows_c) == 9
+    uninstall(fake)

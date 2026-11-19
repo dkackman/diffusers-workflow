@@ -500,6 +500,7 @@ class DwH3GuideLayoutStep(ModularPipelineBlocks):
                 num_text,
                 laid["num_condition_video_rows"],
                 sum(rows.shape[0] for rows in positions),
+                frame_rows=frame_grid.shape[0],
             )
         for name, value in zip(_PACKED, layout):
             state.set(name, value.to(device))

@@ -4,7 +4,7 @@ A spike, not a public surface. `experimental_keystone_attention: {"balance":
 20, "blocks": "31-33,36-44,47"}` on an H3 fl2va call that passes `image` and
 `guides` re-splits, on the named transformer blocks, the attention every query after
 the guide rows (the target; the held condition rows' own queries are left
-alone, #1494) pays to the call's condition rows between the keyframe rows K (laid out from
+alone, nor the target's first latent frame under them, #1494) pays to the call's condition rows between the keyframe rows K (laid out from
 `image`) and the guide rows C (from `guides`). Off unless
 `DW_EXPERIMENTAL_REFINE_WINDOWS=1` is set where the step runs; without it the
 argument is refused at validate time (`keystone_attention_errors`) and at the
@@ -525,13 +525,15 @@ class _KeystoneAttentionState:
     blocks: tuple = ()
     rows: tuple | None = None  # ((k start, k count), (c start, c count))
     checked: tuple | None = None
+    frame_rows: int = 0  # rows of one latent frame; the target's first is held out
+    target: int | None = None  # row the target video starts at, per forward
     op: tuple | None = None  # (name, op), picked on the first selected block
     forwards: int = 0
     originals: list = field(default_factory=list)
     handles: list = field(default_factory=list)
 
 
-def publish_rows(transformer, num_text, keyframe_rows, guide_rows):
+def publish_rows(transformer, num_text, keyframe_rows, guide_rows, frame_rows=0):
     """Hand the call's K and C row ranges to an installed re-split, if any;
     returns them, or None when no re-split is installed on `transformer`."""
     state = getattr(transformer, _STATE, None)
@@ -542,6 +544,7 @@ def publish_rows(transformer, num_text, keyframe_rows, guide_rows):
         (int(num_text + keyframe_rows), int(guide_rows)),
     )
     state.rows = rows
+    state.frame_rows = int(frame_rows)
     state.checked = None
     return rows
 
@@ -596,6 +599,8 @@ def _pre_hook(component, args, kwargs):
     key = (state.rows, id(tags), id(indices))
     if state.checked != key:
         check_rows(state.rows, tags, indices)
+        non_video = (tags.reshape(-1).cpu() != 0).nonzero()
+        state.target = int(non_video[-1]) + 1 if len(non_video) else 0
         state.checked = key
     state.forwards += 1
     return None
@@ -627,6 +632,18 @@ class KeystoneAttentionH3Processor:
     @_parallel_config.setter
     def _parallel_config(self, value):
         self._original._parallel_config = value
+
+    @staticmethod
+    def _first_query(state, rows_c):
+        """The first query row that is re-split: the target video's second
+        latent frame. The first one sits at the keyframe's and the guide's
+        first position and is held to them (#1494), so it keeps the main
+        pass; with no frame size or target known it is the row after the guide
+        rows."""
+        after_guides = rows_c[0] + rows_c[1]
+        if state.target is None or state.frame_rows <= 0:
+            return after_guides
+        return max(after_guides, state.target + state.frame_rows)
 
     def __call__(self, attn, hidden_states, rotary_emb=None, attention_mask=None):
         from diffusers.models.transformers.transformer_minimax_h3 import (
@@ -672,7 +689,7 @@ class KeystoneAttentionH3Processor:
             state.settings.balance,
             state.op[1],
             scale,
-            first_query=rows_c[0] + rows_c[1],
+            first_query=self._first_query(state, rows_c),
         )
         hidden_states = out.transpose(1, 2).flatten(2, 3).type_as(query)
         hidden_states = attn.to_out[0](hidden_states)
