@@ -575,3 +575,24 @@ def test_mcp_rerun_job_refuses_a_non_tombstone_with_or_without_consent(tmp_path)
                 )
             assert "not a restart tombstone" in str(caught.value)
         assert reruns(manager) == []
+
+
+def test_list_rows_of_a_swept_batch_carry_restart_batch_and_reason(tmp_path):
+    """The list says which rows are tombstones and of which batch (#1449):
+    `restart_batch` is the `server_instance` the batch route reports."""
+    ids = a_dead_server_with_three_jobs(tmp_path)
+    with restarted_client(tmp_path) as (client, manager):
+        preview = client.post(f"/api/jobs/{ids[1]}/rerun-restart-batch", json={})
+        assert preview.status_code == 200, preview.text
+        instance = preview.json()["server_instance"]
+
+        listed = client.get("/api/jobs", params={"status": "cancelled"})
+        assert listed.status_code == 200, listed.text
+        rows = {row["id"]: row for row in listed.json()["jobs"]}
+        for job_id in ids:
+            assert rows[job_id]["restart_batch"] == instance
+            assert rows[job_id]["reason"].startswith("server restart:")
+            assert "\n" not in rows[job_id]["reason"]
+        # The detail keeps the full error the reason summarises
+        detail = client.get(f"/api/jobs/{ids[0]}").json()
+        assert detail["error"].startswith(detail["reason"].rstrip("…"))

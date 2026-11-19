@@ -23,6 +23,39 @@ FAILED = "failed"
 CANCELLED = "cancelled"
 TERMINAL_STATES = (SUCCEEDED, FAILED, CANCELLED)
 
+# The prefix every restart tombstone's error starts with (#1220) - what a
+# batch is matched on. job_history re-exports it with the texts it writes
+RESTART_PREFIX = "server restart:"
+# A list row's `reason` is the error's first line, clipped to this (#1449)
+REASON_MAX = 160
+
+
+def row_reason_fields(status, error, server_instance=None):
+    """The list-row fields a job's end leaves (#1449), shared by the live
+    summary and history's: `reason`, the error's first line clipped to
+    REASON_MAX with a trailing `…`, on a failed or cancelled job that has
+    an error; `restart_batch`, its `server_instance`, on a restart tombstone
+    only (cancelled, a `server restart:` error, an instance recorded). Each
+    is absent, never null, when it does not apply - the full error and its
+    traceback stay on the job's detail."""
+    if status not in (FAILED, CANCELLED) or not error:
+        return {}
+    lines = str(error).strip().splitlines()
+    first = lines[0].strip() if lines else ""
+    if not first:
+        return {}
+    if len(first) > REASON_MAX:
+        first = first[:REASON_MAX].rstrip() + "…"
+    fields = {"reason": first}
+    if (
+        status == CANCELLED
+        and server_instance
+        and str(error).startswith(RESTART_PREFIX)
+    ):
+        fields["restart_batch"] = server_instance
+    return fields
+
+
 # Which form of cost acknowledgement a job was queued with (#85): none (the
 # web UI and every HTTP caller that sends nothing), a bare boolean, or one
 # bound to the plan that was validated
@@ -392,6 +425,9 @@ class Job:
             ),
             **({"note": self.note} if self.note else {}),
             **({"rerun_of": self.rerun_of} if self.rerun_of else {}),
+            # A live job is never a tombstone (the sweep writes those into a
+            # dead server's rows), so only `reason` can apply here
+            **row_reason_fields(self.status, self.error),
         }
 
     def detail(self):

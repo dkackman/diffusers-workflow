@@ -70,3 +70,22 @@ def test_a_reopened_history_still_reports_the_overrides(tmp_path):
     reopened = JobHistory(path)
 
     assert reopened.get(job.id)["overrides"] == {"steps": 4}
+
+
+def test_a_failed_job_lists_the_same_reason_live_and_from_history(tmp_path):
+    """`reason` is filled on both sides by one helper (#1449): a field on
+    one side only would fail the key-set parity above and this."""
+    job = _job()
+    job.status = "failed"
+    job.error = "CUDA out of memory\nTraceback (most recent call last):\n  ..."
+    history = JobHistory(tmp_path / "jobs.sqlite")
+    history.record(job)
+
+    (summary,) = history.recent_summaries()
+    detail = history.get(job.id)
+
+    assert job.summary()["reason"] == "CUDA out of memory"
+    assert set(summary) - HISTORY_ONLY_SUMMARY == set(job.summary()) - LIVE_ONLY
+    assert set(detail) - HISTORY_ONLY_DETAIL == set(job.detail()) - LIVE_ONLY
+    assert summary["reason"] == detail["reason"] == job.summary()["reason"]
+    assert "restart_batch" not in summary

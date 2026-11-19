@@ -253,7 +253,9 @@ class CatalogTools:
         the server. Each job carries `device`, the card it ran or runs on
         (e.g. `cuda:1 NVIDIA GeForce RTX 3090`, null before multi-GPU), and
         `acknowledged` (`none`, `boolean` or `bound`), the form of cost
-        acknowledgement that queued it."""
+        acknowledgement that queued it. Failed/cancelled rows carry
+        `reason`, the first line of the error; a restart tombstone carries
+        `restart_batch`, for `rerun_job(restart_batch=true)`."""
         return catalog.list_jobs(
             self.client, limit=limit, status=status, workspace=workspace
         )
