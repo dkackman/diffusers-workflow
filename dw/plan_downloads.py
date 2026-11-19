@@ -561,6 +561,15 @@ def _components_entry(base, revision, subfolders, cache_dir, lookup_sizes):
         "gated": None,
         "access_blocked": None,
     }
+    # A component folder the snapshot already holds whole is cached, the way
+    # the whole-repo check reads a modular repo: the hub's file list also
+    # names files a load never fetches (#1488)
+    subfolders = [
+        s for s in subfolders if not _component_held(base, revision, s, cache_dir)
+    ]
+    if not subfolders:
+        return None
+    entry["components"] = subfolders
     prefixes = tuple(f"{subfolder}/" for subfolder in subfolders)
     if lookup_sizes:
         try:
@@ -610,6 +619,25 @@ def _components_entry(base, revision, subfolders, cache_dir, lookup_sizes):
         if set(subfolders) <= held:
             return None
     return entry
+
+
+def _component_held(base, revision, subfolder, cache_dir):
+    """Whether `subfolder` of `base`'s snapshot at `revision` is on disk and
+    complete by the #894 component rule. The snapshot is found through the
+    cached modular index, never by probing a name from the request."""
+    from .hub_cache import _component_incomplete
+
+    index_path = _cached_file(base, MODULAR_INDEX, revision or "main", cache_dir)
+    if index_path is None:
+        return False
+    snapshot = Path(index_path).parent
+    try:
+        held = {child.name for child in snapshot.iterdir() if child.is_dir()}
+        return subfolder in held and not _component_incomplete(
+            str(snapshot / subfolder), None
+        )
+    except OSError:
+        return False
 
 
 def _read_modular_index(base, revision, cache_dir, lookup_sizes):
