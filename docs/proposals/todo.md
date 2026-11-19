@@ -145,6 +145,12 @@ remaining deferred fix is recorded in
   chunk. At 20 s it fails the gate: SFace 0.72, saturation +5.4, Laplacian
   61-114. So there was no 86 s take and no onboarding:
   `complete/ks2v-pro-probe-complete.md`.
+- **LongCat-Video-Avatar 1.6 at INT8 probe** (#1443, stage #1465), closed
+  2026-11-19 as a negative bench record. It ran in a spike venv outside dw.
+  It fits the 3090 only with DiT block streaming (10.25 GB VRAM, 80 GB host
+  RSS, ~256 s a window, 832x480 at 25 fps). At 30 s it fails the gate: SFace
+  .80 at 15 s, 256 px Laplacian 254 against 410. So there was no 86 s take and
+  no onboarding: `complete/longcat-avatar-probe-complete.md`.
 - **Pika H3 Flex** (#1316, stages #1342-#1344), shipped 2026-11-17.
   `workflows/templates/pika-h3/` holds six-step t2va, fl2va and ref2va single
   clips. Their weight components come from `MiniMaxAI/MiniMax-H3` through
