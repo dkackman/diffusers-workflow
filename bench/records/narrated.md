@@ -1095,9 +1095,9 @@ isolated: an unquantized Pro (21B) needs about 42 GB for its transformer alone.
 
 ## Keystone attention: step 1, the block-numbering check (#1391 stage B, #1394)
 
-Status: **step 1 and the early gate.** Don ruled on 2026-11-18 that step 2 doesn't
-run, the gate does, and the full arms wait for his ruling on the gate (see *Keystone
-attention: early gate* below).
+Status: **closed, gate failed.** Don ruled on 2026-11-18 that step 2 doesn't run and
+the gate does. The gate failed, and on 2026-11-19, after viewing both takes, he stopped
+the bench there: no full arms (see *Keystone attention: early gate* below).
 
 The method is roycho87's brightened-keystone test (#1391 issuecomment-6922271175), after
 NerdNotes test 19 (CC BY-SA 4.0, concepts only). See `docs/ATTRIBUTIONS.md`.
@@ -1271,3 +1271,10 @@ How to read it:
   going back to step 2 with a narrower set of groups, which is Don's call.
 - A positive result here would still be a dense-attention result, while the shipped
   templates run sparse (Q5).
+
+### Don's verdict (2026-11-19)
+
+**Gate failed. Stop here.** Don watched both takes and saw no clear win. Neither step 2
+with narrower groups nor the full arms runs, and no more lem time goes to this. Stage A's
+`experimental_keystone_attention` stays experimental and behind the flag. The chain key
+and the moving-shot arm stay cut (plan v4's non-goals): nothing here brings them back.
