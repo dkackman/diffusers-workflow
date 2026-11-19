@@ -3034,7 +3034,14 @@ frames and audio are the ones stitched, and the seam is crossfaded against them.
 
 Each shot of a checked chain records `attempts`; a re-rolled one records the `seed` its
 kept attempt ran at, and one that failed every attempt records `check_failed` (the
-measures its kept attempt failed). The job gets one `warning` (`kind:
+measures its kept attempt failed). Every checked shot also records `measures`, one
+entry per measure its kept attempt took, passing or not: `{"value", "ceiling", "bound",
+"warn_only", "failed"}`. `ceiling` is the one in force (the workflow's override, else the
+default; `null` when the measure has none, as `face_drop` by default), `bound` is `"max"`
+for a ceiling and `"min"` for a floor (`audio_dbfs`, which also stays a top-level key, and
+`words`, whose value is its similarity against `words_similarity_min`), and `failed` is the
+check's verdict - read it, not value against ceiling, since `texture_ratio` fails both
+ways. Segment 1 records only what it measured, and check off records no `measures`. The job gets one `warning` (`kind:
 "chain_check_failed"`) per such segment, naming the measures, their values and the kept
 attempt, and the job log names each re-roll. When `words` failed, the warning also carries
 `heard`, `similarity` and `findings` (`values.words` is the similarity); when every

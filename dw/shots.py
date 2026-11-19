@@ -47,6 +47,12 @@ A shot is a dict:
   included), beside the take - how `chain_repair_cut` finds them (#1169)
 - `planned_segments` - every shot of a chain's take carries its plan's segment
   count, which a probe's take (`stop_after`) falls short of
+- `measures` - every checked segment's shot of a chain with `check` on carries
+  its kept attempt's measures, `{name: {value, ceiling, bound, warn_only,
+  failed}}`: the ceiling in force (null when none), `bound` "max" or "min"
+  (`audio_dbfs`, mirrored from its top-level key, and `words`, its similarity
+  against `words_similarity_min`), and `failed` the check's verdict. Segment 1
+  carries only what it measured; check off, or a resumed shot, has no key (#1474)
 
 Every other `AudioVideo` constructor either carries the list (same frames),
 rescales it (`interpolate_frames`), re-measures the sample side for a new

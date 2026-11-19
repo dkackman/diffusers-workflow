@@ -3061,7 +3061,7 @@ export interface components {
         /**
          * ManifestEntry
          * @description One step's saved files. Open even in strict mode: the worker adds
-         *     per-step detail (`selected`, `shots`, ...) the UI does not read.
+         *     per-step detail (`selected`, ...) beyond the keys typed here.
          */
         ManifestEntry: {
             /** Files */
@@ -3082,6 +3082,11 @@ export interface components {
              * @enum {string}
              */
             role?: "final" | "intermediate";
+            /**
+             * Shots
+             * @description Where each input landed in the step's joined video (dw/shots.py); null or absent on a step that joined none.
+             */
+            shots?: components["schemas"]["ShotRecord"][] | null;
             /** Step */
             step: string;
             /**
@@ -3792,6 +3797,102 @@ export interface components {
              * @enum {string}
              */
             shadowed_by: "workspace" | "common" | "examples" | "builtin";
+        };
+        /**
+         * ShotMeasure
+         * @description One measure a chain's check computed for a segment's kept attempt
+         *     (#1474), against the ceiling in force.
+         */
+        ShotMeasure: {
+            /**
+             * Bound
+             * @description `max`: the value must stay at or under the ceiling; `min`: at or over it. `texture_ratio` is bounded both ways, so `failed`, not value against ceiling, is the verdict.
+             * @enum {string}
+             */
+            bound: "max" | "min";
+            /**
+             * Ceiling
+             * @description The bound the check held it to - the workflow's own when it set one - or null where the check sets none (measured, never failed).
+             */
+            ceiling: number | null;
+            /**
+             * Failed
+             * @description The check failed this measure.
+             */
+            failed: boolean;
+            /**
+             * Value
+             * @description The measure; for `words`, the heard words' similarity to the line.
+             */
+            value: number;
+            /**
+             * Warn Only
+             * @description A failure is warned and recorded but never re-rolled.
+             */
+            warn_only: boolean;
+        };
+        /**
+         * ShotRecord
+         * @description One shot of a joined video: where an input landed in it, and for a
+         *     chain's segment what its check recorded (`dw/shots.py` lists every key).
+         *     Open even in strict mode: a join may add detail of its own.
+         */
+        ShotRecord: {
+            /**
+             * Attempts
+             * @description On a chain's shot: renders its check tried.
+             */
+            attempts?: number;
+            /**
+             * Audio Dbfs
+             * @description On a chain's shot with generated audio: its kept audio's level.
+             */
+            audio_dbfs?: number;
+            /**
+             * Check Failed
+             * @description On a checked chain shot whose every attempt failed: the measures the kept one failed.
+             */
+            check_failed?: string[];
+            /**
+             * Measures
+             * @description On a chain's shot with the check on: every measure the kept attempt computed, by name. Absent with the check off, on a resumed segment, and on a job recorded before the field existed.
+             */
+            measures?: {
+                [key: string]: components["schemas"]["ShotMeasure"];
+            };
+            /** Name */
+            name: string;
+            /** Num Frames */
+            num_frames: number;
+            /**
+             * Num Samples
+             * @description Null when the video has no track the join built.
+             */
+            num_samples?: number | null;
+            /**
+             * Planned Segments
+             * @description On a chain's shot: the segment count its plan asked for.
+             */
+            planned_segments?: number;
+            /**
+             * Resumed
+             * @description On a chain's shot: the segment was copied from an earlier run (resume_from).
+             */
+            resumed?: boolean;
+            /**
+             * Segment File
+             * @description On a chain's shot under save_segments and keep_segments: its segment's file.
+             */
+            segment_file?: string;
+            /** Start Frame */
+            start_frame: number;
+            /**
+             * Start Sample
+             * @description Null when the video has no track the join built.
+             */
+            start_sample?: number | null;
+        } & {
+            [key: string]: unknown;
         };
         /** StarRequest */
         StarRequest: {

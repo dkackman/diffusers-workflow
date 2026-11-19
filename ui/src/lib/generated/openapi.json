@@ -2753,7 +2753,7 @@
       },
       "ManifestEntry": {
         "additionalProperties": true,
-        "description": "One step's saved files. Open even in strict mode: the worker adds\nper-step detail (`selected`, `shots`, ...) the UI does not read.",
+        "description": "One step's saved files. Open even in strict mode: the worker adds\nper-step detail (`selected`, ...) beyond the keys typed here.",
         "properties": {
           "files": {
             "items": {
@@ -2780,6 +2780,21 @@
             ],
             "title": "Role",
             "type": "string"
+          },
+          "shots": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ShotRecord"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Where each input landed in the step's joined video (dw/shots.py); null or absent on a step that joined none.",
+            "title": "Shots"
           },
           "step": {
             "title": "Step",
@@ -4614,6 +4629,147 @@
           "shadowed_by"
         ],
         "title": "ShadowedEntry",
+        "type": "object"
+      },
+      "ShotMeasure": {
+        "additionalProperties": false,
+        "description": "One measure a chain's check computed for a segment's kept attempt\n(#1474), against the ceiling in force.",
+        "properties": {
+          "bound": {
+            "description": "`max`: the value must stay at or under the ceiling; `min`: at or over it. `texture_ratio` is bounded both ways, so `failed`, not value against ceiling, is the verdict.",
+            "enum": [
+              "max",
+              "min"
+            ],
+            "title": "Bound",
+            "type": "string"
+          },
+          "ceiling": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The bound the check held it to - the workflow's own when it set one - or null where the check sets none (measured, never failed).",
+            "title": "Ceiling"
+          },
+          "failed": {
+            "description": "The check failed this measure.",
+            "title": "Failed",
+            "type": "boolean"
+          },
+          "value": {
+            "description": "The measure; for `words`, the heard words' similarity to the line.",
+            "title": "Value",
+            "type": "number"
+          },
+          "warn_only": {
+            "description": "A failure is warned and recorded but never re-rolled.",
+            "title": "Warn Only",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "value",
+          "ceiling",
+          "bound",
+          "warn_only",
+          "failed"
+        ],
+        "title": "ShotMeasure",
+        "type": "object"
+      },
+      "ShotRecord": {
+        "additionalProperties": true,
+        "description": "One shot of a joined video: where an input landed in it, and for a\nchain's segment what its check recorded (`dw/shots.py` lists every key).\nOpen even in strict mode: a join may add detail of its own.",
+        "properties": {
+          "attempts": {
+            "description": "On a chain's shot: renders its check tried.",
+            "title": "Attempts",
+            "type": "integer"
+          },
+          "audio_dbfs": {
+            "description": "On a chain's shot with generated audio: its kept audio's level.",
+            "title": "Audio Dbfs",
+            "type": "number"
+          },
+          "check_failed": {
+            "description": "On a checked chain shot whose every attempt failed: the measures the kept one failed.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Check Failed",
+            "type": "array"
+          },
+          "measures": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/ShotMeasure"
+            },
+            "description": "On a chain's shot with the check on: every measure the kept attempt computed, by name. Absent with the check off, on a resumed segment, and on a job recorded before the field existed.",
+            "title": "Measures",
+            "type": "object"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "num_frames": {
+            "title": "Num Frames",
+            "type": "integer"
+          },
+          "num_samples": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null when the video has no track the join built.",
+            "title": "Num Samples"
+          },
+          "planned_segments": {
+            "description": "On a chain's shot: the segment count its plan asked for.",
+            "title": "Planned Segments",
+            "type": "integer"
+          },
+          "resumed": {
+            "description": "On a chain's shot: the segment was copied from an earlier run (resume_from).",
+            "title": "Resumed",
+            "type": "boolean"
+          },
+          "segment_file": {
+            "description": "On a chain's shot under save_segments and keep_segments: its segment's file.",
+            "title": "Segment File",
+            "type": "string"
+          },
+          "start_frame": {
+            "title": "Start Frame",
+            "type": "integer"
+          },
+          "start_sample": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null when the video has no track the join built.",
+            "title": "Start Sample"
+          }
+        },
+        "required": [
+          "name",
+          "start_frame",
+          "num_frames"
+        ],
+        "title": "ShotRecord",
         "type": "object"
       },
       "StarRequest": {
