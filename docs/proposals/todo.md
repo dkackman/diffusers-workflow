@@ -37,6 +37,13 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **Findings and Assess in the gallery, and a job's event log** (#1452, stages
+  #1477 and #1478), closed 2026-11-19. The gallery detail lists an output's
+  findings by severity, and its Assess button shows the assess route's findings
+  with the probes that didn't apply. The job page has a collapsed Event log
+  that pages `GET /api/jobs/{id}/event-log` with the server's trimming note.
+  The compare-page crop and texture bands were cut:
+  `complete/gallery-findings-job-event-log-complete.md`.
 - **Job-list rows say why a job ended, and a banner reruns a restart's
   casualties** (#1449, stages #1472 and #1473), closed 2026-11-19. `GET
   /api/jobs` and MCP `list_jobs` rows carry `reason` (the error's first line,
