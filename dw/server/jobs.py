@@ -52,7 +52,7 @@ from ..security import (
     validate_path,
     validate_workflow_path,
 )
-from .. import model_use, references
+from .. import ledger, model_use, references
 from ..runs import REALIZED_FILE_NAME
 from ..settings import resolve_path
 from ..workspace import DEFAULT_WORKSPACE_NAME
@@ -141,6 +141,10 @@ class JobManager(Dispatcher):
         # Held across a restart-batch rerun, admission included, so two
         # concurrent batches cannot both pass its already-rerun check (#1266)
         self._batch_lock = threading.Lock()
+        # workspace name -> the folder holding its requests.json, or None;
+        # set by the app, which knows the workspaces. Unset, a rerun does
+        # not check the link it inherits
+        self.ledger_root_for = None
         # Pending job ids in run order - a list, not a Queue, so the queue
         # can be reordered while jobs wait
         self._pending = []
@@ -281,6 +285,8 @@ class JobManager(Dispatcher):
         note=None,
         rerun_of=None,
         overrides=None,
+        request=None,
+        item=None,
     ):
         """Record a job request and queue it.
 
@@ -331,6 +337,8 @@ class JobManager(Dispatcher):
 
         `note` is the run's note, already cleaned (`admitted_note`): kept on
         the job and written into the run directory when the run opens.
+
+        `request` and `item` link the job to a requests-ledger item (#1458).
 
         `rerun_of` is the job this one reruns, recorded so the list can say so;
         `overrides` the variables the rerun changed, recorded beside it.
@@ -387,6 +395,11 @@ class JobManager(Dispatcher):
             spec["rerun_of"] = rerun_of
         if overrides:
             spec["overrides"] = overrides
+        # The requests-ledger link, already checked by admission (a rerun's
+        # inherited one is not - `rerun` warns instead)
+        if request and item:
+            spec["request"] = request
+            spec["item"] = item
 
         job = Job(spec)
         job.host_ram_need = host_ram_need
@@ -619,6 +632,7 @@ class JobManager(Dispatcher):
         if prepared is None:
             return None
         spec, recorded = prepared
+        link_warnings = self._link_warnings(spec)
         return self.submit(
             workflow_path=spec.get("workflow_path"),
             workflow=spec.get("workflow"),
@@ -637,7 +651,11 @@ class JobManager(Dispatcher):
                 else spec.get("acknowledged_cost")
             ),
             # keep_drawn_seed's, unless a new_seed replaced the drawn seed
-            warnings=[*(warnings or []), *([] if new_seed else spec["rerun_warnings"])],
+            warnings=[
+                *(warnings or []),
+                *([] if new_seed else spec["rerun_warnings"]),
+                *link_warnings,
+            ],
             vram_need=vram_need,
             host_ram_need=host_ram_need,
             repos_named=repos_named,
@@ -645,7 +663,86 @@ class JobManager(Dispatcher):
             note=spec.get("note"),
             rerun_of=job_id,
             overrides=overrides,
+            # The original's requests-ledger link, kept whatever the ledger
+            # says now (a warning, never a refusal)
+            request=spec.get("request"),
+            item=spec.get("item"),
         )
+
+    def _link_warnings(self, spec):
+        """The warning a rerun carries when the ledger link it inherits no
+        longer admits a job: the request closed or gone, the item dropped
+        or gone. The rerun runs and keeps the link regardless."""
+        request, item = spec.get("request"), spec.get("item")
+        if not (request and item) or self.ledger_root_for is None:
+            return []
+        try:
+            root = self.ledger_root_for(spec.get("workspace") or DEFAULT_WORKSPACE_NAME)
+            problem = ledger.link_problem(root, request, item)
+        except Exception:
+            return []
+        if problem is None:
+            return []
+        return [f"rerun_ledger_link_{problem.code}: {problem}"]
+
+    def request_jobs(self, workspace, request_id):
+        """Every job linked to `request_id` in `workspace`, live queue and
+        history, oldest first, as `{job, item, status, run_id, run_dir,
+        run_exists, started_at, finished_at, created_at, note}`.
+
+        `run_exists` is whether the job's run directory is still on disk -
+        the directory `delete_job_run` removes. One indexed history query."""
+        found = {}
+        for row in self.history.request_jobs(workspace, request_id):
+            found[row["id"]] = self._linked(
+                row["id"], row, row["run_dir"], row["output_dir"]
+            )
+        with self._lock:
+            live = [
+                job
+                for job in self.jobs.values()
+                if job.request == request_id
+                and (job.spec.get("workspace") or DEFAULT_WORKSPACE_NAME) == workspace
+            ]
+        for job in live:
+            found[job.id] = self._linked(
+                job.id,
+                {
+                    "item": job.item,
+                    "status": job.status,
+                    "run_id": job.run_id,
+                    "note": job.note,
+                    "created_at": job.created_at,
+                    "started_at": job.started_at,
+                    "finished_at": job.finished_at,
+                },
+                job.run_dir,
+                job.spec.get("output_dir"),
+            )
+        return sorted(found.values(), key=lambda entry: entry["created_at"] or 0)
+
+    def _linked(self, job_id, row, run_dir, output_dir):
+        exists = False
+        if run_dir:
+            try:
+                root = validate_output_path(output_dir or self.output_dir, None)
+                exists = os.path.isdir(
+                    validate_path(os.path.join(root, run_dir), root, allow_create=True)
+                )
+            except SecurityError:
+                exists = False
+        return {
+            "job": job_id,
+            "item": row["item"],
+            "status": row["status"],
+            "run_id": row["run_id"],
+            "run_dir": run_dir,
+            "run_exists": exists,
+            "started_at": row["started_at"],
+            "finished_at": row["finished_at"],
+            "created_at": row["created_at"],
+            "note": row["note"],
+        }
 
     def rerun_restart_batch(self, job_id, admit, *, queue):
         """Rerun every tombstone the dead server that left `job_id` left
@@ -752,15 +849,17 @@ class JobManager(Dispatcher):
             detail["queue_position"] = position
         return detail
 
-    def list(self, workspace=None, statuses=None):
+    def list(self, workspace=None, statuses=None, request=None, item=None):
         """All jobs, live and historical, sorted by creation. `workspace` filters to one workspace; omitted, the list
         spans every workspace the server holds, unchanged from before
         workspaces existed. `statuses` filters to a set of job states
         ('queued', 'running', 'succeeded', 'failed', 'cancelled'); omitted,
         every state is listed."""
-        return self.list_page(workspace, statuses)[0]
+        return self.list_page(workspace, statuses, request=request, item=item)[0]
 
-    def list_page(self, workspace=None, statuses=None, limit=None):
+    def list_page(
+        self, workspace=None, statuses=None, limit=None, request=None, item=None
+    ):
         """`list`'s jobs cut to the newest `limit` (every one when None),
         and how many matched before the cut. Each run's current note is
         read after the cut, so a small page does not read the notes of
@@ -777,6 +876,11 @@ class JobManager(Dispatcher):
                 continue
             if statuses and summary["status"] not in statuses:
                 continue
+            # `request`/`item` filter in SQL for history, here for the live
+            if request and summary.get("request") != request:
+                continue
+            if item and summary.get("item") != item:
+                continue
             if job.id in positions:
                 summary["queue_position"] = positions[job.id]
             output_dir = job.spec.get("output_dir")
@@ -787,12 +891,18 @@ class JobManager(Dispatcher):
         live_count = len(summaries)
         history_limit = None if limit is None else limit + len(live_ids)
         history_total = self.history.count_summaries(
-            workspace=workspace, statuses=statuses, exclude_ids=live_ids
+            workspace=workspace,
+            statuses=statuses,
+            exclude_ids=live_ids,
+            request=request,
+            item=item,
         )
         for historical in self.history.recent_summaries(
             limit=history_limit if history_limit is not None else -1,
             workspace=workspace,
             statuses=statuses,
+            request=request,
+            item=item,
         ):
             run_dir = historical.pop("_run_dir", None)
             output_dir = historical.pop("_output_dir", None)

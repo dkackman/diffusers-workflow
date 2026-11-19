@@ -44,8 +44,9 @@ def _job(**extra):
         {},
         {"note": "a test", "rerun_of": "abc123def456"},
         {"rerun_of": "abc123def456", "overrides": {"steps": 4}},
+        {"request": "cats", "item": "shot-1"},
     ],
-    ids=["optional-unset", "optional-set", "overrides-set"],
+    ids=["optional-unset", "optional-set", "overrides-set", "ledger-link-set"],
 )
 def test_history_serves_the_keys_a_live_job_does(tmp_path, extra):
     job = _job(**extra)

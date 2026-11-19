@@ -30,12 +30,18 @@ from ..api_models import (
     RunDeleted,
     ValidationResult,
 )
+from ... import ledger
 from ...events import select_kinds
 from ...host_memory_projection import CEILING_FRACTION, host_memory_warnings
 from ...plan import build_plan, gate_warnings, missing_repo_errors
 from ...presets import apply_presets
 from ...schema import format_validation_errors
-from ...security import SecurityError, validate_path
+from ...security import (
+    InvalidInputError,
+    SecurityError,
+    validate_ledger_key,
+    validate_path,
+)
 from ...variables import set_variables
 from ...library import SubWorkflowNotFound, resolve_sub_workflow_reference
 from ...workspace import Workspace
@@ -129,6 +135,15 @@ def submit_job(
     note = admitted_note(request.note)
     try:
         workspace = workspace_for(state, request.workspace or ws.name)
+        if request.request:
+            # Before anything queues: a job links only to an open request's
+            # live item in its own workspace. A rerun's inherited link is
+            # not held to this (JobManager.rerun warns instead)
+            problem = ledger.link_problem(
+                workspace.root or None, request.request, request.item
+            )
+            if problem is not None:
+                raise HTTPException(status_code=problem.status, detail=problem.detail())
         resolved, source = resolve_workflow_reference(
             request.workflow_path, sources_for(state, workspace)
         )
@@ -215,6 +230,8 @@ def submit_job(
             host_ram_need=admission.host_ram_need,
             repos_named=admission.repos_named,
             note=note,
+            request=request.request,
+            item=request.item,
         )
         return manager.describe(job)
     except HTTPException:
@@ -229,6 +246,15 @@ def list_jobs(
     workspace: Optional[str] = None,
     status: Optional[str] = None,
     limit: Optional[int] = None,
+    request_id: Optional[str] = Query(
+        default=None,
+        alias="request",
+        description="Only the jobs linked to this requests-ledger request",
+    ),
+    item: Optional[str] = Query(
+        default=None,
+        description="With `request`: only the jobs linked to this item of it",
+    ),
 ):
     """All jobs by default - a plain filter, not `selected_workspace`,
     since the jobs list spans every workspace the server holds unless a
@@ -240,6 +266,14 @@ def list_jobs(
     complete one. The default is still every matching job, oldest first -
     what the web UI polls."""
     manager = request.app.state.job_manager
+    if item and not request_id:
+        raise HTTPException(status_code=422, detail="item needs request")
+    for value, what in ((request_id, "request"), (item, "item")):
+        if value:
+            try:
+                validate_ledger_key(value, what)
+            except InvalidInputError as e:
+                raise HTTPException(status_code=422, detail=str(e))
     if workspace:
         # A name that was never a workspace is a typo, not "no jobs here"
         workspace_for(request.app.state, workspace)
@@ -259,7 +293,13 @@ def list_jobs(
             )
     if limit is not None and limit < 0:
         raise HTTPException(status_code=400, detail="limit must not be negative")
-    jobs, total = manager.list_page(workspace=workspace, statuses=statuses, limit=limit)
+    jobs, total = manager.list_page(
+        workspace=workspace,
+        statuses=statuses,
+        limit=limit,
+        request=request_id,
+        item=item,
+    )
     return {"jobs": jobs, "total": total}
 
 

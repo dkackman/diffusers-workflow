@@ -81,6 +81,9 @@ RERUN_SPEC_KEYS = (
     "acknowledged_cost",
     # the note it was submitted with, carried to the rerun's own run
     "note",
+    # the requests-ledger link (#1458): a rerun serves the same item
+    "request",
+    "item",
 )
 
 RERUN_SEED_UNKNOWN = "rerun_seed_unknown"
@@ -186,6 +189,8 @@ class Job:
         # The note it was submitted with; written as the run note at run_start
         self.note = spec.get("note")
         self.rerun_of = spec.get("rerun_of")
+        self.request = spec.get("request")
+        self.item = spec.get("item")
         # The worker's own high-water mark for this run, from its final
         # memory_info message - None for a run that never got that far (#243)
         self.host_memory_peak_rss_mb = None
@@ -425,6 +430,8 @@ class Job:
             ),
             **({"note": self.note} if self.note else {}),
             **({"rerun_of": self.rerun_of} if self.rerun_of else {}),
+            **({"request": self.request} if self.request else {}),
+            **({"item": self.item} if self.item else {}),
             # A live job is never a tombstone (the sweep writes those into a
             # dead server's rows), so only `reason` can apply here
             **row_reason_fields(self.status, self.error),

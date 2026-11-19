@@ -32,7 +32,12 @@ from ...runs import (
     record_run_versions,
     split_run_path,
 )
-from ...security import SecurityError, validate_path
+from ...security import (
+    InvalidInputError,
+    SecurityError,
+    validate_ledger_key,
+    validate_path,
+)
 from ...workspace import Workspace, forget_workspace_usage
 from ..deps import selected_workspace
 from ..outputs import (
@@ -186,6 +191,12 @@ def gallery(
     version: Optional[int] = None,
     media: bool = False,
     role: Optional[list[str]] = Query(None),
+    request_id: Optional[str] = Query(
+        default=None,
+        alias="request",
+        description="Only the files of runs whose job is linked to this "
+        "requests-ledger request in this workspace",
+    ),
     ws: Workspace = Depends(selected_workspace),
 ):
     """A page of media files in the output directory, newest first.
@@ -235,6 +246,11 @@ def gallery(
                 status_code=400,
                 detail=f"unknown role {unknown}; roles are {list(ROLES)}",
             )
+    if request_id:
+        try:
+            validate_ledger_key(request_id, "request")
+        except InvalidInputError as e:
+            raise HTTPException(status_code=422, detail=str(e))
     if only_orphans:
         entries = _orphan_entries(ws.outputs)
         offset = max(0, offset)
@@ -264,6 +280,13 @@ def gallery(
     if role:
         wanted = set(role)
         entries = [e for e in entries if (e.get("role") or "final") in wanted]
+    if request_id:
+        # A run belongs to the request its job was linked to; the history's
+        # run_id column is the map from one to the other
+        runs = request.app.state.job_manager.history.run_ids_for_request(
+            ws.name, request_id
+        )
+        entries = [e for e in entries if e["run_id"] in runs]
     offset = max(0, offset)
     limit = max(0, limit)
     page = entries[offset : offset + limit]

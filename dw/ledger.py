@@ -9,10 +9,15 @@ the workflow and arguments meant to make it. Every write is a whole plan,
 revisioned: the caller names the revision it read, and a write against a
 newer one is refused rather than merged.
 
-An item's status is derived, never stored. Until jobs are linked to items
-(a later stage) every item reads `planned`, or `dropped` when it was removed
-from the plan after jobs were linked to it - an item with no linked jobs is
-deleted when a write leaves it out.
+An item's status is derived, never stored, from the jobs linked to it (a
+job is submitted with a `request` and an `item`; the callers pass the linked
+jobs into the views): `dropped` when it was removed from the plan after jobs
+were linked to it (an item with no linked jobs is deleted when a write
+leaves it out); else `done` when any linked job succeeded, `running`,
+`queued`, `failed` (every linked job failed or was cancelled) or `planned`
+(none). Each item also derives `attempts`, `result` and `spent_minutes`, and
+the request `spent_minutes` and `remaining_minutes`; this module reads only
+the job dicts it is handed, never the job store.
 
 Written with `write_json_atomic` under a per-directory lock (the notes.py
 pattern), read without one: a rename is atomic, so a reader sees the old
@@ -58,8 +63,9 @@ AUTHORS = ("agent", "user")
 # here - but held to name characters so a later stage can.
 _WORKFLOW_NAME_PATTERN = r"^[\w][\w.:-]*(/[\w][\w.:-]*)*\Z"
 
-# What an item may carry on a write. `status` is derived and ignored, so a
-# plan read with GET can be written back as it came.
+# What an item may carry on a write. `status`, `attempts`, `result`,
+# `accepted_missing` and `spent_minutes` are derived and ignored, so a plan
+# read with GET can be written back as it came.
 _ITEM_FIELDS = frozenset(
     (
         "key",
@@ -72,6 +78,10 @@ _ITEM_FIELDS = frozenset(
         "accepted",
         "comment",
         "status",
+        "attempts",
+        "result",
+        "accepted_missing",
+        "spent_minutes",
     )
 )
 
@@ -144,25 +154,130 @@ def read_requests(root):
 # --- views ---------------------------------------------------------------
 
 
-def _item_status(item):
-    # No job links an item yet, so nothing is running, done or failed
-    return "dropped" if item.get("dropped") else "planned"
+def _no_jobs(_request_id):
+    return []
 
 
-def request_view(request):
-    """A stored request as read: every item with its derived `status`."""
+def _minutes(job):
+    """How long a linked job ran, in minutes to two places, or None when it
+    has not both started and finished."""
+    started, finished = job.get("started_at"), job.get("finished_at")
+    if started is None or finished is None:
+        return None
+    return round(max(finished - started, 0) / 60, 2)
+
+
+def _item_status(item, jobs):
+    """An item's status, derived from the jobs linked to it: dropped; done
+    (any succeeded); running; queued; failed (every linked job failed or was
+    cancelled); planned (none)."""
+    if item.get("dropped"):
+        return "dropped"
+    statuses = {job.get("status") for job in jobs}
+    if "succeeded" in statuses:
+        return "done"
+    if "running" in statuses:
+        return "running"
+    if "queued" in statuses:
+        return "queued"
+    if statuses:
+        return "failed"
+    return "planned"
+
+
+def _result(item, jobs):
+    """`(result, accepted_missing)`: the accepted job's run when it is set
+    and its run still exists, else the latest-finished succeeded job whose
+    run exists, else None."""
+    accepted = item.get("accepted")
+    missing = False
+    if accepted:
+        for job in jobs:
+            if job.get("job") == accepted.get("job") and job.get("run_exists"):
+                return {"job": job["job"], "run_id": job.get("run_id")}, False
+        missing = True
+    kept = [
+        job
+        for job in jobs
+        if job.get("status") == "succeeded" and job.get("run_exists")
+    ]
+    if not kept:
+        return None, missing
+    latest = max(kept, key=lambda job: job.get("finished_at") or 0)
+    return {"job": latest["job"], "run_id": latest.get("run_id")}, missing
+
+
+def _jobs_by_item(jobs):
+    grouped = {}
+    for job in jobs:
+        grouped.setdefault(job.get("item"), []).append(job)
+    for group in grouped.values():
+        group.sort(key=lambda job: job.get("created_at") or 0)
+    return grouped
+
+
+def item_view(item, jobs):
+    """One item as read, with what its linked `jobs` derive: `status`,
+    `attempts` (every linked job, oldest first, as `{job, status, note,
+    minutes}` - `note` only when set, `minutes` null until it has run),
+    `result`, `accepted_missing` (only when true) and `spent_minutes`."""
+    attempts = [
+        {
+            "job": job.get("job"),
+            "status": job.get("status"),
+            **({"note": job["note"]} if job.get("note") else {}),
+            "minutes": _minutes(job),
+        }
+        for job in jobs
+    ]
+    result, missing = _result(item, jobs)
+    return {
+        **item,
+        "status": _item_status(item, jobs),
+        "attempts": attempts,
+        "result": result,
+        **({"accepted_missing": True} if missing else {}),
+        "spent_minutes": _spent(jobs),
+    }
+
+
+def _spent(jobs):
+    return round(sum(_minutes(job) or 0 for job in jobs), 2)
+
+
+def _remaining(request, grouped):
+    """What is left to do: the estimates of the items not done and not
+    dropped."""
+    total = 0
+    for item in request.get("items", []):
+        if _item_status(item, grouped.get(item.get("key"), [])) in ("done", "dropped"):
+            continue
+        total += item.get("estimate_minutes") or 0
+    return round(total, 2)
+
+
+def request_view(request, jobs=()):
+    """A stored request as read: every item with its derived fields
+    (`item_view`) and the request's `spent_minutes` and `remaining_minutes`.
+    `jobs` are the linked jobs (`{job, item, status, run_id, run_exists,
+    note, created_at, started_at, finished_at}`)."""
+    grouped = _jobs_by_item(jobs)
     view = dict(request)
     view["items"] = [
-        {**item, "status": _item_status(item)} for item in request.get("items", [])
+        item_view(item, grouped.get(item.get("key"), []))
+        for item in request.get("items", [])
     ]
+    view["spent_minutes"] = _spent(jobs)
+    view["remaining_minutes"] = _remaining(request, grouped)
     return view
 
 
-def summary_view(request):
+def summary_view(request, jobs=()):
     """One row of the list: what a request is, without its items."""
+    grouped = _jobs_by_item(jobs)
     counts = {}
     for item in request.get("items", []):
-        status = _item_status(item)
+        status = _item_status(item, grouped.get(item.get("key"), []))
         counts[status] = counts.get(status, 0) + 1
     history = request.get("history") or []
     return {
@@ -172,22 +287,66 @@ def summary_view(request):
         "revision": request.get("revision"),
         "items": len(request.get("items", [])),
         "status_counts": counts,
+        "spent_minutes": _spent(jobs),
+        "remaining_minutes": _remaining(request, grouped),
         "updated_at": history[-1].get("at") if history else None,
     }
 
 
-def list_requests(root):
-    """The list view, newest change first."""
-    rows = [summary_view(r) for r in read_requests(root).values()]
+def list_requests(root, jobs_for=_no_jobs):
+    """The list view, newest change first. `jobs_for(request_id)` lists the
+    jobs linked to a request."""
+    rows = [
+        summary_view(r, jobs_for(r.get("id"))) for r in read_requests(root).values()
+    ]
     rows.sort(key=lambda row: row.get("updated_at") or "", reverse=True)
     return rows
 
 
-def get_request(root, request_id):
+def get_request(root, request_id, jobs_for=_no_jobs):
     """One request's view, or None."""
     validate_ledger_key(request_id, "Request id")
     request = read_requests(root).get(request_id)
-    return request_view(request) if request is not None else None
+    if request is None:
+        return None
+    return request_view(request, jobs_for(request_id))
+
+
+def link_problem(root, request_id, item_key):
+    """The LedgerError that says why a job cannot be linked to
+    `request_id`/`item_key` in the workspace at `root`, or None when it can:
+    `unknown_request` (no such request, or no root), `request_closed`,
+    `unknown_item`, `item_dropped`. Both keys are checked as keys first
+    (InvalidInputError otherwise). Takes no lock."""
+    validate_ledger_key(request_id, "Request")
+    validate_ledger_key(item_key, "Item")
+    request = read_requests(root).get(request_id)
+    if request is None:
+        return LedgerError(
+            f"no request {request_id!r} in this workspace",
+            status=422,
+            code="unknown_request",
+        )
+    if request.get("state") != "open":
+        return LedgerError(
+            f"request {request_id!r} is {request.get('state')}, not open",
+            status=422,
+            code="request_closed",
+        )
+    for item in request.get("items", []):
+        if item.get("key") == item_key:
+            if item.get("dropped"):
+                return LedgerError(
+                    f"item {item_key!r} of request {request_id!r} was dropped",
+                    status=422,
+                    code="item_dropped",
+                )
+            return None
+    return LedgerError(
+        f"request {request_id!r} has no item {item_key!r}",
+        status=422,
+        code="unknown_item",
+    )
 
 
 # --- validation ----------------------------------------------------------
@@ -318,8 +477,12 @@ def _comment(value, key, existing, by, at):
 def _accepted(value, key, existing, linked):
     if value is None:
         return None
+    if isinstance(value, str):
+        value = {"job": value}
     if not isinstance(value, dict) or set(value) - {"job", "run_id"}:
-        raise LedgerError(f"item {key!r}: accepted must be {{job, run_id}} or null")
+        raise LedgerError(
+            f"item {key!r}: accepted must be {{job}} (or a job id) or null"
+        )
     if existing and value.get("job") == existing.get("job"):
         return existing
     job = value.get("job")
@@ -536,12 +699,16 @@ def _history(current, write, revision, by, at):
     return history
 
 
-def put_request(root, request_id, body, *, by, linked_jobs=_no_links):
+def put_request(
+    root, request_id, body, *, by, linked_jobs=_no_links, jobs_for=_no_jobs
+):
     """Write one request's whole plan and return its view.
 
     `body` holds title, goal, items, revision and why, and optionally
     prompt and state. `linked_jobs(request_id, key)` lists the jobs linked
-    to an item as `{job, status, run_id}`; none link yet.
+    to an item as `{job, status, run_id}`; `accepted` must name one of them
+    that succeeded. `jobs_for(request_id)` lists every job linked to the request, for
+    the returned view's derived fields.
 
     Raises LedgerError, or OSError when the file cannot be written.
     """
@@ -585,4 +752,4 @@ def put_request(root, request_id, body, *, by, linked_jobs=_no_links):
                 code="ledger_too_large",
             )
         write_json_atomic(ledger_path(root), document)
-    return request_view(request)
+    return request_view(request, jobs_for(request_id))
