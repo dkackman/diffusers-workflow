@@ -37,6 +37,15 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **H3 stochastic sampling probe** (#1438, stage #1459), closed 2026-11-19
+  as a bench record, no gain. `MiniMaxH3Scheduler(stochastic_sampling=True)`
+  (EasyFix's every-step re-noise) renders clean H3 turbo video, but its
+  re-noise is unseeded: two flagged runs at seed 42 differ as much as flag on
+  from flag off. On a 3-segment chain it creeps no less than the control
+  (x2.15 vs x1.82). H3-Image shows no speckle at 2048² or 16 MP. Every arm is
+  dropped; adoption would need a seeded path first. The flag only reaches the
+  scheduler through `from_config_args`:
+  `complete/h3-stochastic-sampling-complete.md`.
 - **MiniMax-H3-Image as the stills family for H3 video** (#1317, stages
   #1345, #1424 and #1425), shipped 2026-11-18. It adds
   `workflows/templates/minimax-h3-image/` (text-to-image and multi-reference,
