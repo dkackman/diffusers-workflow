@@ -13,6 +13,7 @@ from dw.security import InvalidInputError, validate_ledger_key
 from dw.server.app import create_app
 from dw.server.jobs import JobManager
 from dw.workspace import REQUESTS_FILE_NAME, Workspace
+from dw_mcp.client import api_path
 
 from .test_server import ScriptedWorkerManager, success_script
 
@@ -488,6 +489,20 @@ class TestRoutes:
             assert cycle.status_code == 400
             assert client.get(f"{URL}/A").status_code == 400
             assert client.put(f"{URL}/A", json=plan()).status_code == 400
+
+    @pytest.mark.parametrize(
+        "request_id", ["", "../x", "a/b", "/etc/hosts", "../../etc/hosts"]
+    )
+    def test_an_id_with_a_slash_or_none_meets_the_id_rule(self, server, request_id):
+        # The MCP client percent-encodes the id (api_path), and the router
+        # decodes it back: an id with a '/' (or an empty one) must still reach
+        # the ledger's id rule, not fall through to a bare 404/405.
+        path = api_path("api", "workspaces", "default", "requests", request_id)
+        with server() as client:
+            for reply in (client.get(path), client.put(path, json=plan())):
+                assert reply.status_code == 400, (request_id, reply.text)
+                assert "request id" in reply.text.lower(), reply.text
+            assert client.get(URL).json()["requests"] == []
 
     def test_a_named_workspace_has_its_own_ledger(self, server, workspace_root):
         with server() as client:
