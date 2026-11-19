@@ -2669,6 +2669,343 @@
         "title": "Kept",
         "type": "object"
       },
+      "LedgerAccepted": {
+        "additionalProperties": false,
+        "properties": {
+          "job": {
+            "title": "Job",
+            "type": "string"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id"
+          }
+        },
+        "required": [
+          "job",
+          "run_id"
+        ],
+        "title": "LedgerAccepted",
+        "type": "object"
+      },
+      "LedgerComment": {
+        "additionalProperties": false,
+        "properties": {
+          "at": {
+            "title": "At",
+            "type": "string"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text",
+          "at"
+        ],
+        "title": "LedgerComment",
+        "type": "object"
+      },
+      "LedgerHistoryEntry": {
+        "additionalProperties": false,
+        "properties": {
+          "at": {
+            "title": "At",
+            "type": "string"
+          },
+          "by": {
+            "enum": [
+              "agent",
+              "user"
+            ],
+            "title": "By",
+            "type": "string"
+          },
+          "goal": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The goal, when this revision changed it.",
+            "title": "Goal"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
+          "why": {
+            "title": "Why",
+            "type": "string"
+          }
+        },
+        "required": [
+          "revision",
+          "at",
+          "by",
+          "why"
+        ],
+        "title": "LedgerHistoryEntry",
+        "type": "object"
+      },
+      "LedgerItem": {
+        "additionalProperties": false,
+        "properties": {
+          "accepted": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LedgerAccepted"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "arguments": {
+            "additionalProperties": true,
+            "title": "Arguments",
+            "type": "object"
+          },
+          "comment": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LedgerComment"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The user's; an agent never writes it."
+          },
+          "depends_on": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Depends On",
+            "type": "array"
+          },
+          "dropped": {
+            "title": "Dropped",
+            "type": "boolean"
+          },
+          "estimate_minutes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimate Minutes"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "status": {
+            "description": "Derived from the item's jobs; none link yet, so planned or dropped.",
+            "enum": [
+              "planned",
+              "dropped"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "workflow": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workflow"
+          }
+        },
+        "required": [
+          "key",
+          "title",
+          "depends_on",
+          "estimate_minutes",
+          "workflow",
+          "arguments",
+          "dropped",
+          "accepted",
+          "comment",
+          "status"
+        ],
+        "title": "LedgerItem",
+        "type": "object"
+      },
+      "LedgerList": {
+        "additionalProperties": false,
+        "properties": {
+          "requests": {
+            "items": {
+              "$ref": "#/components/schemas/LedgerSummary"
+            },
+            "title": "Requests",
+            "type": "array"
+          },
+          "workspace": {
+            "title": "Workspace",
+            "type": "string"
+          }
+        },
+        "required": [
+          "workspace",
+          "requests"
+        ],
+        "title": "LedgerList",
+        "type": "object"
+      },
+      "LedgerRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "goal": {
+            "title": "Goal",
+            "type": "string"
+          },
+          "history": {
+            "items": {
+              "$ref": "#/components/schemas/LedgerHistoryEntry"
+            },
+            "title": "History",
+            "type": "array"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/LedgerItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "prompt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The ask that started it; write-once.",
+            "title": "Prompt"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
+          "state": {
+            "enum": [
+              "open",
+              "done",
+              "abandoned"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "state",
+          "revision",
+          "prompt",
+          "goal",
+          "items",
+          "history"
+        ],
+        "title": "LedgerRequest",
+        "type": "object"
+      },
+      "LedgerSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "items": {
+            "title": "Items",
+            "type": "integer"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
+          "state": {
+            "enum": [
+              "open",
+              "done",
+              "abandoned"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "status_counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Status Counts",
+            "type": "object"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "state",
+          "revision",
+          "items",
+          "status_counts",
+          "updated_at"
+        ],
+        "title": "LedgerSummary",
+        "type": "object"
+      },
       "LevelFinding": {
         "additionalProperties": false,
         "description": "A probe threshold crossing (dw/assessment_rules.finding).",
@@ -4185,6 +4522,88 @@
           "name"
         ],
         "title": "PromptSaved",
+        "type": "object"
+      },
+      "RequestWrite": {
+        "additionalProperties": false,
+        "description": "One request's whole plan.",
+        "properties": {
+          "by": {
+            "default": "user",
+            "description": "Who wrote this revision; the UI is the user",
+            "enum": [
+              "agent",
+              "user"
+            ],
+            "title": "By",
+            "type": "string"
+          },
+          "goal": {
+            "description": "What done looks like",
+            "title": "Goal",
+            "type": "string"
+          },
+          "items": {
+            "description": "The ordered plan; each item is key, title, depends_on, estimate_minutes, workflow, arguments, accepted, comment",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "prompt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Create only",
+            "title": "Prompt"
+          },
+          "revision": {
+            "description": "The revision read, or 0 to create",
+            "title": "Revision",
+            "type": "integer"
+          },
+          "state": {
+            "anyOf": [
+              {
+                "enum": [
+                  "open",
+                  "done",
+                  "abandoned"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "State"
+          },
+          "title": {
+            "description": "One line, at most 200",
+            "title": "Title",
+            "type": "string"
+          },
+          "why": {
+            "description": "One line, at most 200",
+            "title": "Why",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "goal",
+          "items",
+          "revision",
+          "why"
+        ],
+        "title": "RequestWrite",
         "type": "object"
       },
       "RequiredDownload": {
@@ -10379,6 +10798,152 @@
           }
         },
         "summary": "Remove Workspace"
+      }
+    },
+    "/api/workspaces/{name}/requests": {
+      "get": {
+        "description": "A workspace's requests, newest change first, without their items.",
+        "operationId": "list_requests_api_workspaces__name__requests_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LedgerList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Requests"
+      }
+    },
+    "/api/workspaces/{name}/requests/{request_id}": {
+      "get": {
+        "description": "One request: its plan, every item with its derived status, and its\nhistory.",
+        "operationId": "get_request_api_workspaces__name__requests__request_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "title": "Request Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LedgerRequest"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Request"
+      },
+      "put": {
+        "description": "Write one request's whole plan. `revision` is the revision it was\nread at, or 0 to create it; a write against any other revision is 409\n`stale_revision`, with `current_revision` in the detail. `prompt` is\nset on create only (a later change is 422 `prompt_is_write_once`). An\nitem left out is deleted, or kept as dropped when jobs link to it.",
+        "operationId": "put_request_api_workspaces__name__requests__request_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "title": "Request Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RequestWrite"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LedgerRequest"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Request"
       }
     },
     "/exports/{job_id}.zip": {
