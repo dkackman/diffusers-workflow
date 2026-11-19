@@ -2596,6 +2596,27 @@ class TestAComponentOverrideIsNotTheWholeBaseRepo:
             (BASE, "ref2va/adapter.safetensors"),
         ]
 
+    def test_a_local_path_override_plans_the_base_as_without_one(
+        self, plan, hub, monkeypatch
+    ):
+        """#1490: a component moved to a local folder fetches nothing, so the
+        base repo is judged whole (cached -> no entry), not by component."""
+        import dw.plan_downloads
+
+        monkeypatch.setattr(
+            dw.plan_downloads,
+            "scan_models",
+            lambda cache_dir: {"repos": [{"repo_id": BASE}]},
+        )
+        monkeypatch.setattr(
+            dw.plan_downloads, "repo_download_incomplete", lambda *a, **k: False
+        )
+        step = _flex_step(
+            {"pretrained_model_name_or_path": {"transformer_ref": "/scratch/graft"}}
+        )
+        repos = plan(_flex_spec(step), lookup_sizes=True)["downloads_required"]
+        assert not [d for d in repos if d["repo"] == BASE and not d.get("filename")]
+
     def test_the_same_base_loaded_with_no_override_elsewhere_is_listed_whole(
         self, plan, hub
     ):
