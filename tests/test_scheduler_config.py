@@ -143,3 +143,98 @@ class TestSchedulerReplacement:
         load_and_configure_scheduler(None, pipeline)
 
         assert pipeline.scheduler.shift == 12.0
+
+
+class TestSchedulerLoadLog:
+    """The scheduler-load line reaches job events, not just the server log (#1487)"""
+
+    @staticmethod
+    def _capture(monkeypatch):
+        events = []
+        monkeypatch.setattr(
+            "dw.pipeline_processors.components.emit_log",
+            lambda message, **fields: events.append((message, fields)),
+        )
+        return events
+
+    @staticmethod
+    def _type():
+        class FlowMatchEulerDiscreteScheduler:
+            @staticmethod
+            def from_config(config, **kwargs):
+                return FakeScheduler()
+
+        return FlowMatchEulerDiscreteScheduler
+
+    def test_a_scheduler_type_emits_one_log_event(self, monkeypatch):
+        events = self._capture(monkeypatch)
+        pipeline = FakePipeline(scheduler=FakeScheduler())
+
+        load_and_configure_scheduler(
+            {"configuration": {"scheduler_type": self._type()}}, pipeline
+        )
+
+        assert len(events) == 1
+        message, fields = events[0]
+        assert message == "Loading scheduler: FlowMatchEulerDiscreteScheduler"
+        assert fields["component"] == "scheduler"
+        assert fields["scheduler_type"] == "FlowMatchEulerDiscreteScheduler"
+        assert "from_config_args" not in fields
+
+    def test_from_config_args_keys_are_named_not_values(self, monkeypatch):
+        events = self._capture(monkeypatch)
+        pipeline = FakePipeline(scheduler=FakeScheduler())
+
+        load_and_configure_scheduler(
+            {
+                "configuration": {"scheduler_type": self._type()},
+                "from_config_args": {"use_karras_sigmas": "secret-value"},
+            },
+            pipeline,
+        )
+
+        message, fields = events[0]
+        assert fields["from_config_args"] == ["use_karras_sigmas"]
+        assert "use_karras_sigmas" in message
+        assert "secret-value" not in message
+
+    def test_the_audio_scheduler_names_its_component(self, monkeypatch):
+        events = self._capture(monkeypatch)
+        pipeline = FakePipeline(
+            scheduler=FakeScheduler(), audio_scheduler=FakeScheduler()
+        )
+
+        load_and_configure_scheduler(
+            {"configuration": {"scheduler_type": self._type()}},
+            pipeline,
+            "audio_scheduler",
+        )
+
+        assert events[0][1]["component"] == "audio_scheduler"
+        assert events[0][0].startswith("Loading audio_scheduler:")
+
+    def test_a_type_without_a_name_falls_back_to_str(self, monkeypatch):
+        events = self._capture(monkeypatch)
+
+        class Nameless:
+            def from_config(self, config, **kwargs):
+                return FakeScheduler()
+
+            def __str__(self):
+                return "nameless-type"
+
+        pipeline = FakePipeline(scheduler=FakeScheduler())
+        load_and_configure_scheduler(
+            {"configuration": {"scheduler_type": Nameless()}}, pipeline
+        )
+
+        assert events[0][1]["scheduler_type"] == "nameless-type"
+
+    def test_shift_only_and_none_emit_nothing(self, monkeypatch):
+        events = self._capture(monkeypatch)
+        pipeline = FakePipeline(scheduler=FakeScheduler())
+
+        load_and_configure_scheduler({"shift": 6}, pipeline)
+        load_and_configure_scheduler(None, pipeline)
+
+        assert events == []

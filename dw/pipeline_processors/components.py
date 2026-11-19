@@ -508,7 +508,20 @@ def load_and_configure_scheduler(
     scheduler_type = scheduler_configuration.get("scheduler_type", None)
     if scheduler_type is not None:
         from_config_args = scheduler_definition.get("from_config_args", {})
-        logger.info(f"Loading {component_name}: {scheduler_type}")
+        scheduler_name = getattr(scheduler_type, "__name__", None) or str(
+            scheduler_type
+        )
+        message = f"Loading {component_name}: {scheduler_name}"
+        fields = {"component": component_name, "scheduler_type": scheduler_name}
+        if from_config_args:
+            # Keys only: a dropped key is the silent failure this line exposes
+            keys = sorted(str(key) for key in from_config_args)
+            fields["from_config_args"] = keys
+            message += f" (from_config_args: {', '.join(keys)})"
+        logger.info(message)
+        # Emitted in the cold-load path only (Pipeline load), so the line
+        # appears on a job that loads the pipeline, not on a warm-cache hit
+        emit_log(message, **fields)
         setattr(
             pipeline,
             component_name,
