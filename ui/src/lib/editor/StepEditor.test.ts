@@ -1,7 +1,19 @@
-import { afterEach, expect, it } from 'vitest'
+import { afterEach, expect, it, vi } from 'vitest'
 import { cleanup, render, screen } from '@testing-library/svelte'
 import { VARIABLE } from '../references'
 import StepEditor from './StepEditor.svelte'
+
+// The LoRA editor asks the catalog about a literal base repo; keep it offline
+vi.mock('../api', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../api')>()
+  return {
+    ...actual,
+    api: {
+      ...actual.api,
+      listLoras: () => Promise.resolve({ libraries: [], loras: [] }),
+    },
+  }
+})
 
 afterEach(() => cleanup())
 

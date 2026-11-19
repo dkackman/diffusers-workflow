@@ -1,0 +1,10 @@
+{
+  "model_name": "e2e-org/e2e-style-lora",
+  "weight_name": "e2e_style.safetensors",
+  "base_models": ["e2e-org/e2e-base"],
+  "workflow": null,
+  "description": "Fixture style LoRA",
+  "use_when": "the e2e suite wants a trial suggestion",
+  "scale": { "default": 0.8 },
+  "status": "trial"
+}

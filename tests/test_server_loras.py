@@ -480,3 +480,78 @@ def test_a_workspace_named_loras_is_warned_about(tmp_path, monkeypatch, caplog):
         )
     messages = [r.getMessage() for r in caplog.records]
     assert any(str(old) in m and "reserved" in m for m in messages)
+
+
+class TestDeclaredResponse:
+    """GET /api/loras declares LoraList (#1480). Under strict responses an
+    entry key the model does not know is a 500, and response_model filtering
+    could drop one silently: each row must come back exactly as stored."""
+
+    FULL = entry(
+        model_name="fal/Full",
+        weight_name="sub/full.safetensors",
+        revision="abc123",
+        workflow=["t2va", "ref2va"],
+        trigger="fullstyle",
+        scale={"default": 1, "range": [0.5, 1.25]},
+        stacks_with=["qwen-image/voxel"],
+        status="proven",
+        evidence=[{"note": "kept", "job": "j1", "issue": 42}],
+        license="apache-2.0",
+        tags=["style"],
+    )
+
+    def test_a_row_with_every_optional_field_is_unchanged(self, server):
+        write(str(server.checkout / "loras"), "qwen-image/full", self.FULL)
+        response = server.get("/api/loras", params={"model": QWEN})
+        assert response.status_code == 200
+        row = next(
+            r for r in response.json()["loras"] if r["name"] == "qwen-image/full"
+        )
+        assert row == {
+            "name": "qwen-image/full",
+            "origin": "examples",
+            "writable": False,
+            **self.FULL,
+        }
+        # a stored int stays an int
+        assert isinstance(row["scale"]["default"], int)
+
+    def test_a_row_with_no_scale_and_a_null_workflow_is_unchanged(self, server):
+        bare = entry(model_name="fal/Bare", workflow=None)
+        write(str(server.checkout / "loras"), "qwen-image/bare", bare)
+        rows = server.get("/api/loras", params={"model": QWEN}).json()["loras"]
+        row = next(r for r in rows if r["name"] == "qwen-image/bare")
+        assert row == {
+            "name": "qwen-image/bare",
+            "origin": "examples",
+            "writable": False,
+            **bare,
+        }
+        assert "scale" not in row
+
+    def test_resolved_is_absent_without_a_model(self, server):
+        assert "resolved" not in server.get("/api/loras").json()
+
+
+def test_every_shipped_entry_loads_through_the_row_model():
+    """Every entry under the repo's loras/ survives LoraRow unchanged in
+    strict mode - the guard against a shipped field the model lacks."""
+    from dw.server.api_models import STRICT, LoraRow
+
+    assert STRICT
+    root = os.path.join(os.path.dirname(os.path.dirname(__file__)), "loras")
+    paths = sorted(
+        os.path.join(folder, name)
+        for folder, _dirs, names in os.walk(root)
+        for name in names
+        if name.endswith(".json")
+    )
+    assert paths, "no shipped LoRA entries found"
+    for path in paths:
+        with open(path) as file:
+            stored = json.load(file)
+        name = os.path.relpath(path, root).removesuffix(".json")
+        row = {"name": name, "origin": "examples", "writable": False, **stored}
+        dumped = LoraRow.model_validate(row).model_dump(mode="json", exclude_unset=True)
+        assert dumped == row, name
