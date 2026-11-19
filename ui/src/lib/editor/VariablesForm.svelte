@@ -15,6 +15,7 @@
   import { referenceCompletions } from '../refcomplete.svelte'
   import BrowseButton from '../assets/BrowseButton.svelte'
   import { attentionBackends } from '../attentionBackends.svelte'
+  import type { Finding } from '../findings'
 
   let {
     mode,
@@ -25,6 +26,7 @@
     requiredVariables = new Set<string>(),
     constraints = {},
     presets = undefined,
+    findings = {},
   }: {
     /** define: edit the workflow's own defaults (add/remove/coerce).
      * override: fill per-run values over read-only defaults. */
@@ -46,6 +48,10 @@
      * chosen bundle's values are the placeholders of the fields it sets;
      * they are never copied into the overrides. */
     presets?: unknown
+    /** What a validate answer said about each variable, placed by its
+     * `arguments.<name>` / `variables.<name>` path (`placeFindings`) and
+     * shown under the field as text. */
+    findings?: Record<string, Finding[]>
   } = $props()
 
   const keys = $derived(Object.keys(variables ?? {}))
@@ -229,6 +235,13 @@
         {/each}
       </ul>
     {/if}
+    {#if findings[key]?.length}
+      <ul class="hints findings" data-findings-for={key}>
+        {#each findings[key] as finding, i (i)}
+          <li class={finding.tone}>{finding.text}</li>
+        {/each}
+      </ul>
+    {/if}
   {/each}
   {#if mode === 'define'}
     <input placeholder="new variable name…" bind:value={newVariable} />
@@ -301,6 +314,12 @@
     .hints {
       grid-column: 1 / -1;
     }
+  }
+  .findings .bad {
+    color: var(--bad);
+  }
+  .findings .warn {
+    color: var(--warn);
   }
   .addvar {
     justify-self: start;

@@ -146,7 +146,17 @@ icon, a finish-alert toggle, the theme toggle, and links to these docs and
   naming the variables they set, and the fields a bundle sets show the
   chosen bundle's values as placeholders - only the selector is sent, so
   the server applies the bundle itself; in the editor the selector stays
-  a text field with that line and its bundle names), the raw JSON on request, **Edit**, **Duplicate**, **Run** and delete. Opening an example in
+  a text field with that line and its bundle names), the raw JSON on request, **Edit**, **Duplicate**, **Run** and delete.
+  The page checks a run as you edit: on load and 600 ms after the last
+  change it posts `POST /api/validate?sizes=false` by name with exactly the
+  arguments Run would send (blank fields dropped), and once more with sizes
+  after 3 s idle; an answer to anything but the latest values is dropped.
+  A box beside Run shows the plan (`describePlan`, as the editor's), a
+  verdict, and the findings: one whose path is `arguments.<name>` or
+  `variables.<name>` for a field the form shows prints under that field,
+  every other error and warning in the general list, all as plain text.
+  The check informs only - Run is never disabled by it, and a Run the
+  server refuses still says why in a toast. Opening an example in
   the editor saves a copy into the current workspace.
 
   ![Shared → Examples: workflow cards with their last image, shape and trait filters, and each card's summary and observed run time](img/ui-examples.jpg)
