@@ -28,6 +28,12 @@ const ran = vi.hoisted(() => ({
   definition: null as Record<string, any> | null,
   realized: true,
 }))
+// What the event-log route answers: one page, or a status to fail with
+const eventLog = vi.hoisted(() => ({
+  events: [] as JobEvent[],
+  note: null as string | null,
+  status: 0,
+}))
 
 // Monaco cannot boot in jsdom; the page's JSON view is tested through this
 // stub, which renders the value it was handed as plain text
@@ -36,7 +42,14 @@ vi.mock('../editor/JsonEditor.svelte', async () => ({
 }))
 
 vi.mock('../api', () => ({
-  ApiError: class ApiError extends Error {},
+  ApiError: class ApiError extends Error {
+    status: number
+    constructor(message: string, status = 500) {
+      super(message)
+      this.name = 'ApiError'
+      this.status = status
+    }
+  },
   TERMINAL_STATUSES: ['succeeded', 'failed', 'cancelled'],
   api: {
     getJob: vi.fn(() => Promise.resolve(detail.job)),
@@ -56,6 +69,22 @@ vi.mock('../api', () => ({
       }),
     ),
     outputDownloadUrl: (name: string) => `/api/gallery/${name}/download`,
+    eventLog: vi.fn(async (id: string, query: { after?: number } = {}) => {
+      if (eventLog.status) {
+        const { ApiError } = await import('../api')
+        throw new ApiError('Unknown job', eventLog.status)
+      }
+      const after = query.after ?? -1
+      const page = eventLog.events.filter((e) => e.seq > after)
+      return {
+        id,
+        status: detail.job?.status ?? null,
+        events: page,
+        last_seq: page.length ? page[page.length - 1].seq : after,
+        truncated: false,
+        note: eventLog.note,
+      }
+    }),
   },
   outputUrl: (path: string) => `/outputs/${path}`,
   setNote: vi.fn((target: string, note: string | null) =>
@@ -109,7 +138,11 @@ afterEach(() => {
   metadata.inputs = []
   ran.definition = null
   ran.realized = true
+  eventLog.events = []
+  eventLog.note = null
+  eventLog.status = 0
   vi.mocked(api.galleryMetadata).mockClear()
+  vi.mocked(api.eventLog).mockClear()
 })
 
 /** The flow view's box for one step of the definition. */
@@ -758,5 +791,116 @@ describe('step timing bar and peak host RAM (#1453)', () => {
     render(JobPage, { jobId: 'j1' })
     await waitFor(() => expect(screen.getByText('j1')).toBeTruthy())
     expect(screen.queryByText(/peak host RAM/)).toBeNull()
+  })
+})
+
+describe('event log (#1478)', () => {
+  const logToggle = () => screen.getByRole('button', { name: /Event log/ })
+  const logRows = (c: HTMLElement) =>
+    [...c.querySelectorAll('.eventlog tbody tr')].map((tr) =>
+      [...tr.querySelectorAll('td')].map((td) => td.textContent?.trim()),
+    )
+
+  it('is collapsed on a historical job and asks for nothing until opened', async () => {
+    detail.job = { ...job([]), historical: true } as JobDetail
+    eventLog.note =
+      'Only the last 200 events of this job were retained; everything before seq 41 was dropped when the job was recorded.'
+    eventLog.events = [
+      { seq: 41, event: 'step_start', at: 1.5, step: 'gen' },
+      { seq: 42, event: 'log', at: 2, message: 'loading model' },
+    ]
+    const { container } = render(JobPage, { jobId: 'j1' })
+    await waitFor(() => expect(logToggle()).toBeTruthy())
+    expect(logToggle().getAttribute('aria-expanded')).toBe('false')
+    expect(vi.mocked(api.eventLog)).not.toHaveBeenCalled()
+
+    await fireEvent.click(logToggle())
+    await waitFor(() => expect(logRows(container).length).toBe(2))
+    expect(
+      screen.getByText(/everything before seq 41 was dropped/),
+    ).toBeTruthy()
+    expect(logRows(container)).toEqual([
+      ['41', '+1.5s', 'step_start', '{"step":"gen"}'],
+      ['42', '+2.0s', 'log', 'loading model'],
+    ])
+    expect(vi.mocked(api.eventLog).mock.calls).toEqual([
+      ['j1', { after: -1, limit: 500 }],
+    ])
+    // A finished job's log does not grow, so nothing offers to refresh it
+    expect(screen.queryByRole('button', { name: 'Refresh' })).toBeNull()
+  })
+
+  it('says there is no log for an unknown or pruned job', async () => {
+    detail.job = { ...job([]), historical: true } as JobDetail
+    eventLog.status = 404
+    render(JobPage, { jobId: 'j1' })
+    await waitFor(() => expect(logToggle()).toBeTruthy())
+    await fireEvent.click(logToggle())
+    await waitFor(() =>
+      expect(screen.getByText('no event log for this job')).toBeTruthy(),
+    )
+  })
+
+  it('filters the rows to one kind', async () => {
+    detail.job = job([])
+    eventLog.events = [
+      { seq: 0, event: 'log', message: 'one' },
+      { seq: 1, event: 'warning', kind: 'audio_clipped', message: 'clip' },
+      { seq: 2, event: 'log', message: 'two' },
+    ]
+    const { container } = render(JobPage, { jobId: 'j1' })
+    await waitFor(() => expect(logToggle()).toBeTruthy())
+    await fireEvent.click(logToggle())
+    await waitFor(() => expect(logRows(container).length).toBe(3))
+    const select = screen.getByRole('combobox', { name: 'filter by kind' })
+    await fireEvent.change(select, { target: { value: 'log' } })
+    expect(logRows(container).map((r) => r[0])).toEqual(['0', '2'])
+    await fireEvent.change(select, {
+      target: { value: 'warning · audio_clipped' },
+    })
+    expect(logRows(container).map((r) => r[3])).toEqual(['clip'])
+  })
+
+  it("leaves a live job's flow view alone, and grows on Refresh", async () => {
+    ran.definition = {
+      steps: [
+        {
+          name: 'gen',
+          pipeline: { configuration: { component_type: 'Fake' } },
+        },
+        { name: 'mux', task: { command: 'mux' } },
+      ],
+    }
+    detail.job = { ...job([]), status: 'running', finished_at: null }
+    const { container } = render(JobPage, { jobId: 'j1' })
+    await waitFor(() => expect(stream.onEvent).not.toBeNull())
+    stream.onEvent!({ seq: 0, event: 'workflow_start', steps: ['gen', 'mux'] })
+    stream.onEvent!({ seq: 1, event: 'step_start', step: 'gen' })
+    await waitFor(() =>
+      expect(nodeFor(container, 'gen').classList.contains('active')).toBe(true),
+    )
+
+    // The log names a later step than the stream has reached; none of it
+    // may reach the page's own events
+    eventLog.events = [
+      { seq: 0, event: 'workflow_start', steps: ['gen', 'mux'] },
+      { seq: 1, event: 'step_start', step: 'gen' },
+      { seq: 2, event: 'step_end', step: 'gen', files: [] },
+      { seq: 3, event: 'step_start', step: 'mux' },
+    ]
+    await fireEvent.click(logToggle())
+    await waitFor(() => expect(logRows(container).length).toBe(4))
+    expect(nodeFor(container, 'gen').classList.contains('active')).toBe(true)
+    expect(nodeFor(container, 'gen').classList.contains('done')).toBe(false)
+    expect(nodeFor(container, 'mux').classList.contains('active')).toBe(false)
+
+    eventLog.events.push({ seq: 4, event: 'log', message: 'muxing' })
+    await fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+    await waitFor(() => expect(logRows(container).length).toBe(5))
+    expect(vi.mocked(api.eventLog).mock.calls.at(-1)).toEqual([
+      'j1',
+      { after: 3, limit: 500 },
+    ])
+    expect(nodeFor(container, 'mux').classList.contains('active')).toBe(false)
   })
 })

@@ -89,6 +89,19 @@ export interface JobEvent {
   [key: string]: unknown
 }
 
+/** GET /api/jobs/{id}/event-log (dw/server/routes/jobs.py, job_event_log).
+ * The route has no response model, so this is a local narrowing; a later
+ * `response_model` replaces it. `truncated` means this page was cut at
+ * `limit`; `note` says what a finished job's history dropped, or null. */
+export interface EventLogReply {
+  id: string
+  status: string | null
+  events: JobEvent[]
+  last_seq: number
+  truncated: boolean
+  note: string | null
+}
+
 /** The `step_end` event, as the job page reads it: what the step saved and
  * where, before the manifest confirms it. */
 export interface StepEndEvent extends JobEvent {

@@ -226,6 +226,20 @@ icon, a finish-alert toggle, the theme toggle, and links to these docs and
   among the results is drawn as a timeline strip (clips sized by duration, gaps
   hatched, a copy button for each clip's `output:` reference).
 
+  Every job page, live or from history, ends with an **Event log** section,
+  collapsed until clicked; nothing is fetched before then. Opening it reads
+  `GET /api/jobs/{id}/event-log` in pages of 500, following `truncated`, and
+  stops at 5,000 events ("showing the first 5,000; more on the server"). Each
+  row is the event's seq, its time since the job started, its kind (a
+  warning's own `kind` beside it, e.g. `warning · phase_stall`), and its
+  message or the rest of its payload as compact JSON; a **kind** select filters
+  the rows to one kind. The route's `note` - what a finished job's history
+  dropped, or that it kept no log - shows above the rows, and an unknown or
+  pruned job says "no event log for this job". While the job is live a
+  **Refresh** button fetches the events after the last one shown. The section
+  keeps its own rows: the Progress list, the flow view and its chips still
+  read the live stream alone (`ui/src/lib/job/EventLog.svelte`).
+
   ![A finished job: a warning about a level jump at a cut, then the workflow as a data-flow graph from the edit and soundtrack through mixing and normalizing to the film](img/ui-job.png)
 
 - **Gallery** - everything in the workspace's output directory
