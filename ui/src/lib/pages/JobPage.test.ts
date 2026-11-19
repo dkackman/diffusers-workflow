@@ -904,3 +904,14 @@ describe('event log (#1478)', () => {
     expect(nodeFor(container, 'mux').classList.contains('active')).toBe(false)
   })
 })
+
+it('clears a previous job id\'s error when the id changes to a valid job', async () => {
+  const good = job([])
+  detail.job = good
+  vi.mocked(api.getJob).mockRejectedValueOnce(new Error('Unknown job'))
+  const { rerender } = render(JobPage, { jobId: 'dead' })
+  await waitFor(() => expect(screen.getByText('Unknown job')).toBeTruthy())
+  await rerender({ jobId: 'j1' })
+  await waitFor(() => expect(screen.getByText('Event log')).toBeTruthy())
+  expect(screen.queryByText('Unknown job')).toBeNull()
+})

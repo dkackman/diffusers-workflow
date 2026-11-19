@@ -59,6 +59,7 @@
     seedVariable = null
     realized = false
     showJson = false
+    error = ''
     // stopped guards the async gap: navigating away mid-fetch must not let
     // a late-resolving getJob open a stream nothing will ever stop
     let stopped = false
