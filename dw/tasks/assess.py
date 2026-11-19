@@ -83,6 +83,12 @@ TYPICAL_DELTA_FLOOR = 2.0
 DEAD_AIR_WINDOW = 0.05
 TYPICAL_DELTA_PERCENTILE = 90
 
+# A shot's noise floor is this percentile of its DEAD_AIR_WINDOW levels, and
+# is reported only over at least this many windows (0.5 s): fewer leave the
+# percentile resting on one or two windows (#1442)
+NOISE_FLOOR_PERCENTILE = 10
+NOISE_FLOOR_MIN_WINDOWS = 10
+
 # A ratio against a zero neighbour has no size; report it capped
 CLICK_CAP_DB = 120.0
 
@@ -395,6 +401,45 @@ def _round(value, places=2):
     return None if value is None else round(float(value), places)
 
 
+def _window_levels(media, start, count):
+    """The RMS level of each whole `DEAD_AIR_WINDOW`-second window inside a
+    shot's audio span, in dBFS, None for a window of digital silence; and the
+    window's length in samples. `_dead_air` and `_noise_floor` both read these,
+    so the two can't disagree about what a window measured. ([], None) when
+    the span can't be placed."""
+    rate = media.sample_rate
+    if start is None or count is None or not rate:
+        return [], None
+    window_samples = max(1, int(round(DEAD_AIR_WINDOW * rate)))
+    end = min(media.audio.shape[1], start + count)
+    levels = [
+        _db(dsp.rms(media.audio[:, offset : offset + window_samples]))
+        for offset in range(start, end - window_samples + 1, window_samples)
+    ]
+    return levels, window_samples
+
+
+def _noise_floor(media, start, count, rms_dbfs):
+    """The `NOISE_FLOOR_PERCENTILE`th percentile of a shot's window levels, in
+    dBFS: the room tone plus any hiss under its quiet moments (#1442).
+
+    Nearest rank, counting a silent window as the quietest, so the answer is
+    always one window's own level and never NaN. None under
+    `NOISE_FLOOR_MIN_WINDOWS` windows, and None when that window is digital
+    silence - the value `rms_dbfs` gives for silence. Never above the shot's
+    own `rms_dbfs`: the partial window past the last whole one and a level
+    that is flat throughout could otherwise round the floor a hair above it.
+    """
+    levels, _window_samples = _window_levels(media, start, count)
+    if len(levels) < NOISE_FLOOR_MIN_WINDOWS:
+        return None
+    ordered = sorted(levels, key=lambda level: -math.inf if level is None else level)
+    floor = ordered[int((len(ordered) - 1) * NOISE_FLOOR_PERCENTILE / 100)]
+    if floor is None or rms_dbfs is None:
+        return None
+    return min(floor, rms_dbfs)
+
+
 def _dead_air(media, start, count):
     """The longest run of consecutive `DEAD_AIR_WINDOW`-second windows inside
     a shot's audio span that sit at or below `DEAD_AIR_FLOOR_DBFS` - a gap in
@@ -408,18 +453,10 @@ def _dead_air(media, start, count):
     have to add the shot's own start back on. All three are None when the
     span holds fewer than two windows; `seconds` is 0.0 with no run found.
     """
+    levels, window_samples = _window_levels(media, start, count)
+    if len(levels) < 2:
+        return None, None, None
     rate = media.sample_rate
-    if start is None or not rate:
-        return None, None, None
-    window_samples = max(1, int(round(DEAD_AIR_WINDOW * rate)))
-    total = media.audio.shape[1]
-    end = min(total, start + count)
-    if end - start < window_samples * 2:
-        return None, None, None
-    levels = [
-        _db(dsp.rms(media.audio[:, offset : offset + window_samples]))
-        for offset in range(start, end - window_samples + 1, window_samples)
-    ]
     best_len, best_start, best_levels = 0, None, []
     run_start, run_levels = None, []
     for index, level in enumerate(levels):
@@ -607,6 +644,7 @@ def shots_answer(media, records, source):
             if window is not None and window.size
             else {"low_dbfs": None, "mid_dbfs": None, "high_dbfs": None}
         )
+        shares = _shares_from_bands(balance)
         dead_air_seconds, dead_air_at, dead_air_floor_dbfs = (
             _dead_air(media, start, count) if start is not None else (None, None, None)
         )
@@ -619,6 +657,10 @@ def shots_answer(media, records, source):
                 "rms_dbfs": _round(rms),
                 "crest_db": _round(None if peak is None or rms is None else peak - rms),
                 **{key: _round(value) for key, value in balance.items()},
+                "high_share": _round(
+                    shares["high_dbfs"] if shares is not None else None, 4
+                ),
+                "noise_floor_dbfs": _round(_noise_floor(media, start, count, rms)),
                 "dead_air_seconds": dead_air_seconds,
                 "dead_air_at": dead_air_at,
                 "dead_air_floor_dbfs": dead_air_floor_dbfs,
@@ -678,7 +720,12 @@ def shots_answer(media, records, source):
 def _band_shares(window, sample_rate):
     if window is None or window.size == 0:
         return None
-    bands = dsp.spectral_balance(window, sample_rate)
+    return _shares_from_bands(dsp.spectral_balance(window, sample_rate))
+
+
+def _shares_from_bands(bands):
+    """Each band's share of the energy in `dsp.spectral_balance`'s answer,
+    0-1, or None when no band holds any."""
     energies = {
         key: (10.0 ** (value / 10.0) if value is not None else 0.0)
         for key, value in bands.items()

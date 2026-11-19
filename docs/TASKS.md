@@ -2473,6 +2473,8 @@ Each shot's level and spectral balance, and how far apart the shots sit:
 | `shots[].rms_dbfs` | RMS level within the shot |
 | `shots[].crest_db` | `peak_dbfs` minus `rms_dbfs` |
 | `shots[].low_dbfs` / `mid_dbfs` / `high_dbfs` | Spectral balance (20-250 Hz / 250-4000 Hz / 4000-20000 Hz), on the same scale as `rms_dbfs` |
+| `shots[].high_share` | The share of the shot's energy above 4 kHz (the `high_dbfs` band against all three), 0-1. Null where the balance is null |
+| `shots[].noise_floor_dbfs` | The 10th percentile of the shot's 50ms window levels: the room tone plus any hiss under its quiet moments, never above `rms_dbfs`. Null under 10 windows (0.5 s), and null when that window is digital silence. In dense dialogue it may track speech tails rather than hiss. Read across a chain's segments, `high_share` and this rising together is the signature of a voice dulling and hissing; neither alone is |
 | `shots[].samples` | Whether the shot's sample span was `recorded` (carried by the shot record) or `derived` (scaled from its frames) |
 | `shots[].dead_air_seconds` | The longest run of 50ms windows inside the shot at or below the `DEAD_AIR_FLOOR_DBFS` threshold (-65 dBFS) |
 | `shots[].dead_air_at` | Where that run starts, in seconds into the file |

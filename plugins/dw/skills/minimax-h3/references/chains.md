@@ -23,6 +23,11 @@ Drift compounds per seam. On the reference chains, reference the subject
 picture in each segment, prefer `last_segment`, and use the longest segments
 memory allows.
 
+Sound drifts too where H3 invents the voice. `assess_output`'s
+`analyze_shots` reports each segment's `high_share` and `noise_floor_dbfs`:
+the two rising together down a chain's segments is the dulling-voice
+signature, and neither alone is. Judge it by ear with `get_output_audio`.
+
 ## Probed and not a rule
 
 Tested on our server (Ref2VA turbo, 960x544, two seeds, November 2026; the
