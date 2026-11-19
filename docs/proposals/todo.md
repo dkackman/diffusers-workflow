@@ -37,6 +37,57 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **Catalog LoRA suggestions in the LoRA editor** (#1456, stage #1480), closed
+  2026-11-19. For a literal `owner/name` base, the editor lists the catalog's
+  non-rejected entries for that base (and literal partition), proven first, with
+  each entry's scale, notes and trigger, and adds one in a click. `GET /api/loras`
+  now declares its response (`LoraList`). Hub search (`/recommend`), `lora-schema`
+  and `variable:` bases were cut: `complete/lora-editor-suggestions-complete.md`.
+
+- **The curated cost figure says its basis and the settings it was measured
+  at** (#1454, stage #1479), closed 2026-11-19. A catalog card's tooltip reads
+  "a maintainer's figure, measured on <where> at <drivers>" from the card's
+  `cost_drivers`, and the run page shows that figure above the observed one,
+  with a hint that the plan re-prices other values. The per-field "moves the
+  cost" mark was cut (it would need a server driver classification):
+  `complete/cost-basis-drivers-complete.md`.
+- **Findings and Assess in the gallery, and a job's event log** (#1452, stages
+  #1477 and #1478), closed 2026-11-19. The gallery detail lists an output's
+  findings by severity, and its Assess button shows the assess route's findings
+  with the probes that didn't apply. The job page has a collapsed Event log
+  that pages `GET /api/jobs/{id}/event-log` with the server's trimming note.
+  The compare-page crop and texture bands were cut:
+  `complete/gallery-findings-job-event-log-complete.md`.
+- **Job-list rows say why a job ended, and a banner reruns a restart's
+  casualties** (#1449, stages #1472 and #1473), closed 2026-11-19. `GET
+  /api/jobs` and MCP `list_jobs` rows carry `reason` (the error's first line,
+  clipped at 160) and, on a restart tombstone, `restart_batch`. The jobs page
+  shows the reason under the workflow name, and a "N jobs were cancelled by a
+  server restart" banner previews and then confirms
+  `rerun-restart-batch`: `complete/job-row-reason-restart-banner-complete.md`.
+- **Run again with changes, and what a rerun changed** (#1448, stage #1471),
+  closed 2026-11-19. The job page's "Run again with changes…" opens the run's
+  variables with its values as placeholders and sends only what changed as rerun
+  `arguments`. Buttons offer the other values of each preset selector as
+  one-click promotions, and a `changed: …` chip beside "rerun of" names a
+  rerun's overrides. The jobs-list overrides were cut (they need a server
+  change): `complete/rerun-with-changes-complete.md`.
+- **The run form shows preset bundles and declared variable rules** (#1447,
+  stages #1469 and #1470), closed 2026-11-19. Each declared
+  `variable_constraints` rule and its reason shows under its field on the run
+  page and in the editor, with list-entry rules under their list. A preset
+  selector is a dropdown of its bundles, with "sets …" under it, and the chosen
+  bundle's values are the placeholders of the variables it sets; only the
+  selector is sent. Client-side violation marks were cut in favour of #1446's
+  server check: `complete/run-form-presets-constraints-complete.md`.
+- **The run page checks a run before Run** (#1446, stages #1467 and #1468),
+  closed 2026-11-19. The workflow page validates on load and 600 ms after each
+  change, and shows the plan, a verdict and the findings beside Run, with a
+  finding placed under the variable its path names. `describePlan` now reads
+  host RAM, low-confidence, tempered, withheld, inherited and unpriced figures,
+  the card a run is priced for, and gated or missing repos. The editor shows a
+  plan whenever one is present. Run stays ungated. Comparing against free host
+  RAM was cut (no API field): `complete/run-page-plan-complete.md`.
 - **When a job last used each Hub model** (#1445, stages #1461 and #1462),
   closed 2026-11-19. dw records the start time of the latest job that named
   each Hub repo in `model-use.json` under the settings dir. `GET /api/models`
