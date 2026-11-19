@@ -149,6 +149,19 @@
 
   const gb = gbFromBytes
   const day = (stamp: number | null) => (stamp ? formatDay(stamp) : '—')
+
+  // "last used" is when a dw job that named the repo last started
+  // (last_job_use, #1445). A repo no job has used since tracking began falls
+  // back to the files' atime, labelled "(disk)" because copies and backups
+  // bump it too
+  const LAST_USED_TIP =
+    'When a dw job that named this repo last started. A muted "(disk)" date ' +
+    "means no dw job has used it since tracking began, and is the files' " +
+    'last access time instead'
+  const DW_USE_TIP = 'the last time a dw job that named this repo started'
+  const DISK_FALLBACK_TIP =
+    'No dw job has used this repo since tracking began. ' +
+    "Date is the files' last access time, which copies and backups also bump."
   const hubUrl = (repo: ModelRepo) =>
     'https://huggingface.co/' +
     (repo.repo_type === 'model' ? '' : repo.repo_type + 's/') +
@@ -295,7 +308,7 @@
           <th>repo</th>
           <th class="num">size</th>
           <th class="num">files</th>
-          <th>last used</th>
+          <th title={LAST_USED_TIP}>last used</th>
           <th></th>
         </tr>
       </thead>
@@ -345,7 +358,17 @@
               <span class="sizenum">{formatBytes(repo.size_on_disk)}</span>
             </td>
             <td class="num muted">{repo.nb_files}</td>
-            <td class="muted lastused">{day(repo.last_accessed)}</td>
+            {#if repo.last_job_use != null}
+              <td class="lastused" title={DW_USE_TIP}>
+                {day(repo.last_job_use)}
+              </td>
+            {:else if repo.last_accessed != null}
+              <td class="muted lastused fallback" title={DISK_FALLBACK_TIP}>
+                {day(repo.last_accessed)} (disk)
+              </td>
+            {:else}
+              <td class="muted lastused">—</td>
+            {/if}
             <td>
               <button
                 class="quiet icon danger"
