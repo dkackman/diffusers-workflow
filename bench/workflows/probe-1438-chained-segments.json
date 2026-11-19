@@ -1,0 +1,322 @@
+{
+    "id": "Probe1438ChainedSegments",
+    "description": "#1438 stage A bench: templates/minimax/chained-segments with the same video scheduler rebuild as probe-1438-video-with-audio (MiniMaxH3Scheduler + from_config_args {stochastic_sampling, euler_update_form}, then video_shift), 3 segments and seed 42 pinned in place of null. audio_scheduler is unchanged (shift only).",
+    "summary": "A long H3 clip from a still, chained with guide continuity by default and shot-type presets.",
+    "cost": [
+        {
+            "device": "cuda",
+            "name": "RTX 3090",
+            "vram_gb": 24,
+            "minutes": 13.5,
+            "fixed_minutes": 10
+        }
+    ],
+    "vram_estimate": {
+        "base_gb": 16.3,
+        "bytes_per_voxel": 28.71,
+        "bytes_per_guide_voxel": 28.71,
+        "voxel_variables": [
+            "width",
+            "height",
+            "num_frames"
+        ],
+        "reason": "each segment is one H3 run, so the ceiling is a segment's: the t2va calibration (#324) - peak activation memory scales with width * height * num_frames - plus, under 'guide' continuity, the guide each segment after the first is given, which is encoded on the target canvas and costs about as much per voxel as the clip itself (docs/proposals/h3-guide-vram.md, #694)"
+    },
+    "host_ram_gb": "variable:host_ram_gb",
+    "cost_drivers": [
+        "tier",
+        "continuity",
+        "shot",
+        "anchor",
+        "keystone_slot",
+        "segments",
+        "duration_seconds",
+        "num_frames",
+        "num_inference_steps",
+        "width",
+        "height",
+        "weights_dtype",
+        "lora_model_name",
+        "attention_backend",
+        "cache",
+        "check",
+        "retries"
+    ],
+    "variables": {
+        "tier": "standard",
+        "host_ram_gb": 51,
+        "keep_segments": false,
+        "resume_from": null,
+        "check": null,
+        "retries": 0,
+        "shot": "moving",
+        "prompts": null,
+        "lines": null,
+        "prompt": "For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced.\n\nintegrated_multimodal_description: [Shot 1] Cinematic, live-action macro photography with a shallow depth of field, one continuous shot. The shot opens exactly on <Picture 1>: a translucent blown glass figure fills the frame against a dark, softly graded background, its surface catching cool rim light along every curve and throwing small caustics onto the surface beneath it. Its tentacles writhe without pause, curling and uncurling in slow deliberate coils, the glass flexing as though molten while staying perfectly clear. The figure (S1), a deep cavernous male voice with a long tail of reverb, unhurried and very low in pitch, speaks steadily throughout, <d>[English] Rise now. The old ones are listening.</d> Its central mass swells and contracts with the cadence of the words, and the caustics on the surface below ripple in time. The camera holds a static shot, letting the tentacles move through the frame edges.\n\noverall_soundscape: A dark, near-silent room tone under a faint low-frequency hum. The tentacle movement carries a fine, dry glass-on-glass squeak and an occasional soft chime as two limbs touch, continuous and unhurried from the first frame to the last.\n\nnon_diegetic_music: A sustained low drone of bowed double bass and detuned synthesiser, almost subsonic, holding an even intensity with no discernible melody or pulse.",
+        "image": {
+            "location": "https://pbs.twimg.com/profile_images/1961215773080211456/nILQt5Fv_400x400.jpg"
+        },
+        "num_frames": 124,
+        "segments": 3,
+        "duration_seconds": null,
+        "continuity": "guide",
+        "guide_frames": 22,
+        "anchor": "none",
+        "anchor_strength": null,
+        "keystone": "none",
+        "keystone_slot": null,
+        "width": 960,
+        "height": 544,
+        "num_inference_steps": 5,
+        "video_shift": 6.0,
+        "audio_shift": 3.0,
+        "weights_dtype": "{int4}",
+        "lora_scale": 1.0,
+        "lora_alpha": null,
+        "lora_model_name": "lightx2v/Minimax-h3-Turbo",
+        "lora_weight_name": "minimax_h3_fl2v_turbo_4step_v1.2_768p_bf16.safetensors",
+        "lora_adapter_name": "turbo",
+        "seed": 42,
+        "attention_backend": "sparse",
+        "sparse_tau": 0.5,
+        "sparse_topk": 0.15,
+        "cache": null,
+        "stochastic_sampling": false,
+        "euler_update_form": "blend"
+    },
+    "presets": {
+        "shot": {
+            "static": {
+                "continuity": "guide",
+                "anchor": "segment_1",
+                "anchor_strength": 0.25
+            },
+            "static_long": {
+                "continuity": "guide",
+                "keystone": "segment_1",
+                "keystone_slot": "last"
+            },
+            "moving": {
+                "continuity": "guide"
+            },
+            "dialogue": {
+                "continuity": "guide"
+            }
+        },
+        "tier": {
+            "draft": {
+                "width": 960,
+                "height": 544,
+                "num_inference_steps": 4,
+                "weights_dtype": "{int4}",
+                "host_ram_gb": 51
+            },
+            "standard": {
+                "width": 960,
+                "height": 544,
+                "num_inference_steps": 5,
+                "weights_dtype": "{int4}",
+                "host_ram_gb": 51
+            },
+            "best": {
+                "width": 1344,
+                "height": 768,
+                "num_inference_steps": 5,
+                "weights_dtype": "{int8}",
+                "host_ram_gb": 69
+            }
+        }
+    },
+    "variable_constraints": {
+        "num_frames": {
+            "modulus": 17,
+            "remainder": 5,
+            "min_frames": 124,
+            "max_frames": 345,
+            "snap": "up",
+            "reason": "the video VAE encodes 17 * n + 5 frames, and MiniMax-H3 generates between 5 and 15 seconds at 24 fps"
+        },
+        "width": {
+            "modulus": 32,
+            "remainder": 0,
+            "reason": "MiniMax-H3's pipeline refuses a `width` or `height` that is not a multiple of 32, and only after the weights have loaded; refused here instead, with no 'snap', since rounding would be a silent change to the size asked for"
+        },
+        "height": {
+            "modulus": 32,
+            "remainder": 0,
+            "reason": "MiniMax-H3's pipeline refuses a `width` or `height` that is not a multiple of 32, and only after the weights have loaded; refused here instead, with no 'snap', since rounding would be a silent change to the size asked for"
+        }
+    },
+    "seed": "variable:seed",
+    "steps": [
+        {
+            "name": "chained_keyframe_to_video_audio",
+            "pipeline": {
+                "configuration": {
+                    "component_type": "ModularPipeline",
+                    "pre_load_modules": [
+                        "sdnq"
+                    ],
+                    "load_components": {
+                        "dtype": "torch.bfloat16",
+                        "quantization_config": {
+                            "transformer": {
+                                "configuration": {
+                                    "config_type": "sdnq.SDNQConfig"
+                                },
+                                "arguments": {
+                                    "weights_dtype": "variable:weights_dtype",
+                                    "quantization_device": "cuda",
+                                    "return_device": "cpu",
+                                    "use_quantized_matmul": true,
+                                    "dequantize_fp32": false,
+                                    "modules_to_not_convert": [
+                                        "proj_in",
+                                        "audio_proj_in",
+                                        "context_embedder",
+                                        "time_embedder",
+                                        "time_proj",
+                                        "token_refiner",
+                                        "norm_out",
+                                        "proj_out",
+                                        "audio_proj_out"
+                                    ]
+                                }
+                            },
+                            "text_encoder": {
+                                "configuration": {
+                                    "config_type": "sdnq.SDNQConfig"
+                                },
+                                "arguments": {
+                                    "weights_dtype": "variable:weights_dtype",
+                                    "quantization_device": "cuda",
+                                    "return_device": "cpu",
+                                    "dequantize_fp32": false,
+                                    "modules_to_not_convert": [
+                                        ".model.visual",
+                                        "lm_head"
+                                    ]
+                                }
+                            },
+                            "vae": {
+                                "configuration": {
+                                    "config_type": "sdnq.SDNQConfig"
+                                },
+                                "arguments": {
+                                    "weights_dtype": "{int8}",
+                                    "quant_conv": true,
+                                    "use_quantized_matmul_conv": true,
+                                    "quantization_device": "cuda",
+                                    "return_device": "cpu",
+                                    "dequantize_fp32": false
+                                }
+                            }
+                        }
+                    },
+                    "components": {
+                        "transformer": {
+                            "attention_backend": "variable:attention_backend",
+                            "sparse_tau": "variable:sparse_tau",
+                            "sparse_topk": "variable:sparse_topk",
+                            "group_offload": {
+                                "offload_type": "block_level",
+                                "num_blocks_per_group": 2,
+                                "use_stream": true,
+                                "record_stream": true,
+                                "low_cpu_mem_usage": true
+                            }
+                        },
+                        "text_encoder": {
+                            "remove_modules": [
+                                "lm_head"
+                            ]
+                        },
+                        "text_encoder.model": {
+                            "truncate_layers": {
+                                "language_model.layers": 51
+                            },
+                            "group_offload": {
+                                "offload_type": "leaf_level"
+                            }
+                        },
+                        "vae": {
+                            "device": "cuda",
+                            "residency": "on_demand"
+                        },
+                        "audio_vae": {
+                            "device": "cuda",
+                            "residency": "on_demand"
+                        }
+                    },
+                    "cache": "variable:cache"
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "MiniMaxAI/MiniMax-H3",
+                    "workflow": "fl2va"
+                },
+                "loras": [
+                    {
+                        "model_name": "variable:lora_model_name",
+                        "weight_name": "variable:lora_weight_name",
+                        "adapter_name": "variable:lora_adapter_name",
+                        "scale": "variable:lora_scale",
+                        "alpha": "variable:lora_alpha"
+                    }
+                ],
+                "chain": {
+                    "prompts": "variable:prompts",
+                    "lines": "variable:lines",
+                    "segments": "variable:segments",
+                    "duration_seconds": "variable:duration_seconds",
+                    "continuity": "variable:continuity",
+                    "guide_frames": "variable:guide_frames",
+                    "anchor": "variable:anchor",
+                    "anchor_strength": "variable:anchor_strength",
+                    "keystone": "variable:keystone",
+                    "keystone_slot": "variable:keystone_slot",
+                    "check": "variable:check",
+                    "retries": "variable:retries",
+                    "segment_argument": "image",
+                    "trim_frames": 2,
+                    "crossfade_ms": 80,
+                    "fps": 24,
+                    "frame_snap": "constraint:num_frames",
+                    "save_segments": true,
+                    "keep_segments": "variable:keep_segments",
+                    "resume_from": "variable:resume_from"
+                },
+                "scheduler": {
+                    "configuration": {
+                        "scheduler_type": "MiniMaxH3Scheduler"
+                    },
+                    "from_config_args": {
+                        "stochastic_sampling": "variable:stochastic_sampling",
+                        "euler_update_form": "variable:euler_update_form"
+                    },
+                    "shift": "variable:video_shift"
+                },
+                "audio_scheduler": {
+                    "shift": "variable:audio_shift"
+                },
+                "arguments": {
+                    "prompt": "variable:prompt",
+                    "image": "variable:image",
+                    "num_frames": "variable:num_frames",
+                    "width": "variable:width",
+                    "height": "variable:height",
+                    "num_inference_steps": "variable:num_inference_steps",
+                    "output": [
+                        "videos",
+                        "audio",
+                        "sampling_rate"
+                    ]
+                }
+            },
+            "result": {
+                "content_type": "video/mp4",
+                "fps": 24,
+                "subfolder": "final"
+            }
+        }
+    ]
+}

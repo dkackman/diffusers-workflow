@@ -1,0 +1,119 @@
+[
+  {
+    "name": "1438-V0-flag-off",
+    "scene": "s1-static",
+    "workflow": "probe-1438-video-with-audio.json",
+    "arguments": {
+      "stochastic_sampling": false
+    },
+    "seed": 42,
+    "moments": [
+      "frame:0",
+      "frame:62",
+      "frame:123"
+    ]
+  },
+  {
+    "name": "1438-V1-flag-on",
+    "scene": "s1-static",
+    "workflow": "probe-1438-video-with-audio.json",
+    "arguments": {
+      "stochastic_sampling": true
+    },
+    "seed": 42,
+    "moments": [
+      "frame:0",
+      "frame:62",
+      "frame:123"
+    ]
+  },
+  {
+    "name": "1438-V1b-flag-on-again",
+    "scene": "s1-static",
+    "workflow": "probe-1438-video-with-audio.json",
+    "arguments": {
+      "stochastic_sampling": true
+    },
+    "seed": 42,
+    "workflow_id_suffix": "-b",
+    "moments": [
+      "frame:0",
+      "frame:62",
+      "frame:123"
+    ]
+  },
+  {
+    "name": "1438-FF-flag-with-velocity",
+    "scene": "s1-static",
+    "workflow": "probe-1438-video-with-audio.json",
+    "arguments": {
+      "stochastic_sampling": true,
+      "euler_update_form": "velocity"
+    },
+    "seed": 42
+  },
+  {
+    "name": "1438-C0-chain-flag-off",
+    "scene": "s1-static",
+    "workflow": "probe-1438-chained-segments.json",
+    "arguments": {
+      "stochastic_sampling": false
+    },
+    "seed": 42
+  },
+  {
+    "name": "1438-C1-chain-flag-on",
+    "scene": "s1-static",
+    "workflow": "probe-1438-chained-segments.json",
+    "arguments": {
+      "stochastic_sampling": true
+    },
+    "seed": 42
+  },
+  {
+    "name": "1438-I0-as-is",
+    "scene": "s1-static",
+    "workflow": "probe-1438-h3-image.json",
+    "arguments": {},
+    "seed": 1317
+  },
+  {
+    "name": "1438-I0-16-as-is-16mp",
+    "scene": "s1-static",
+    "workflow": "probe-1438-h3-image.json",
+    "arguments": {
+      "size": "1:1"
+    },
+    "seed": 1317
+  },
+  {
+    "name": "1438-I1-blend",
+    "scene": "s1-static",
+    "workflow": "probe-1438-h3-image.json",
+    "arguments": {
+      "euler_update_form": "blend"
+    },
+    "seed": 1317
+  },
+  {
+    "name": "1438-I2-blend-flag",
+    "scene": "s1-static",
+    "workflow": "probe-1438-h3-image.json",
+    "arguments": {
+      "euler_update_form": "blend",
+      "stochastic_sampling": true
+    },
+    "seed": 1317
+  },
+  {
+    "name": "1438-I2b-blend-flag-again",
+    "scene": "s1-static",
+    "workflow": "probe-1438-h3-image.json",
+    "arguments": {
+      "euler_update_form": "blend",
+      "stochastic_sampling": true
+    },
+    "seed": 1317,
+    "workflow_id_suffix": "-b"
+  }
+]
