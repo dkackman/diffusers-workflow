@@ -536,8 +536,11 @@ class TestRoutes:
                 assert client.get(f"{path}?token={TOKEN}").status_code == 401
                 assert client.get(path, headers=auth).status_code == 200
 
-    def test_no_ledger_route_is_marked_query_token_ok(self):
-        from dw.server.routes import ledger as routes
-
-        for route in routes.router.routes:
+    def test_no_ledger_route_is_marked_query_token_ok(self, server):
+        with server() as client:
+            routes = [
+                r for r in client.app.routes if "/requests" in getattr(r, "path", "")
+            ]
+        assert len(routes) == 3
+        for route in routes:
             assert not getattr(route.endpoint, "query_token_ok", False), route.path

@@ -385,6 +385,157 @@ def _no_links(_request_id, _key):
 # --- the write -----------------------------------------------------------
 
 
+_BODY_FIELDS = frozenset(
+    ("title", "goal", "items", "revision", "why", "prompt", "state")
+)
+
+
+def _check_body(body):
+    """The write's own fields, checked before the file is read: revision,
+    title, goal, why, prompt, state and the raw items."""
+    if not isinstance(body, dict):
+        raise LedgerError("the request body must be an object")
+    unknown = set(body) - _BODY_FIELDS
+    if unknown:
+        raise LedgerError(f"unknown fields {sorted(unknown)}")
+    revision = body.get("revision")
+    if isinstance(revision, bool) or not isinstance(revision, int) or revision < 0:
+        raise LedgerError(
+            "revision must be the revision you read, or 0 to create the request"
+        )
+    prompt = body.get("prompt")
+    if prompt is not None:
+        _text(prompt, "prompt", MAX_TEXT_LENGTH, allow_empty=True)
+    state = body.get("state")
+    if state is not None and state not in STATES:
+        raise LedgerError(f"state must be one of {', '.join(STATES)}")
+    raw_items = body.get("items")
+    if not isinstance(raw_items, list):
+        raise LedgerError("items must be a list")
+    if len(raw_items) > MAX_ITEMS:
+        raise LedgerError(f"at most {MAX_ITEMS} items, got {len(raw_items)}")
+    return {
+        "revision": revision,
+        "title": _text(body.get("title"), "title", MAX_TITLE_LENGTH, one_line=True),
+        "goal": _text(body.get("goal"), "goal", MAX_TEXT_LENGTH, allow_empty=True),
+        "why": _text(body.get("why"), "why", MAX_WHY_LENGTH, one_line=True),
+        "prompt": prompt,
+        "state": state,
+        "items": raw_items,
+    }
+
+
+def _check_against(requests, request_id, write):
+    """The stored request a write replaces (None to create), refusing a
+    stale revision, a full ledger and a changed prompt."""
+    current = requests.get(request_id)
+    current_revision = current.get("revision", 0) if current else 0
+    if write["revision"] != current_revision:
+        raise LedgerError(
+            f"request {request_id!r} is at revision {current_revision}, not "
+            f"{write['revision']} - read it again and rewrite the plan against "
+            f"revision {current_revision}",
+            status=409,
+            code="stale_revision",
+            current_revision=current_revision,
+        )
+    if current is None:
+        if len(requests) >= MAX_REQUESTS:
+            raise LedgerError(
+                f"a workspace holds at most {MAX_REQUESTS} requests",
+                status=409,
+                code="ledger_full",
+            )
+    elif write["prompt"] is not None and write["prompt"] != current.get("prompt"):
+        raise LedgerError(
+            "prompt is write-once: it is the ask that started the request "
+            "and was set when it was created",
+            status=422,
+            code="prompt_is_write_once",
+        )
+    return current
+
+
+def _depends_on(raw, key):
+    depends_on = raw.get("depends_on") or []
+    if not isinstance(depends_on, list):
+        raise LedgerError(f"item {key!r}: depends_on must be a list of keys")
+    if len(depends_on) > MAX_DEPENDS_ON:
+        raise LedgerError(
+            f"item {key!r}: depends on at most {MAX_DEPENDS_ON} items, "
+            f"got {len(depends_on)}"
+        )
+    keys = [_key(dep, f"item {key!r} depends_on key") for dep in depends_on]
+    return list(dict.fromkeys(keys))
+
+
+def _item(raw, key, previous, linked, by, at):
+    """One live item as stored."""
+    return {
+        "key": key,
+        "title": _text(
+            raw.get("title"), f"item {key!r} title", MAX_TITLE_LENGTH, one_line=True
+        ),
+        "depends_on": _depends_on(raw, key),
+        "estimate_minutes": _estimate(raw.get("estimate_minutes"), key),
+        "workflow": _workflow(raw.get("workflow"), key),
+        "arguments": _arguments(raw.get("arguments"), key),
+        "dropped": False,
+        "accepted": _accepted(
+            raw.get("accepted"), key, previous.get("accepted"), linked
+        ),
+        "comment": _comment(
+            raw.get("comment", _MISSING), key, previous.get("comment"), by, at
+        ),
+    }
+
+
+def _merge_items(raw_items, current, request_id, linked_jobs, by, at):
+    """The plan's items in its order, then every stored item it no longer
+    lists that jobs link to, as dropped; one no job links to is deleted."""
+    stored = {item.get("key"): item for item in (current or {}).get("items", [])}
+    live, seen = [], set()
+    for raw in raw_items:
+        if not isinstance(raw, dict):
+            raise LedgerError("each item must be an object")
+        key = _key(raw.get("key"), "Item key")
+        unknown = set(raw) - _ITEM_FIELDS
+        if unknown:
+            raise LedgerError(f"item {key!r}: unknown fields {sorted(unknown)}")
+        if key in seen:
+            raise LedgerError(f"item {key!r} appears twice")
+        seen.add(key)
+        if raw.get("dropped") is True:
+            continue  # sent back as dropped: removed from the plan, like an omission
+        if raw.get("dropped") not in (None, False):
+            raise LedgerError(f"item {key!r}: dropped must be true or false")
+        previous = stored.get(key) or {}
+        live.append(_item(raw, key, previous, linked_jobs(request_id, key), by, at))
+    listed = {item["key"] for item in live}
+    dropped = [
+        {**item, "dropped": True}
+        for key, item in stored.items()
+        if key not in listed and linked_jobs(request_id, key)
+    ]
+    items = live + dropped
+    if len(items) > MAX_ITEMS:
+        raise LedgerError(
+            f"at most {MAX_ITEMS} items, counting dropped ones; got {len(items)}"
+        )
+    _check_dependencies(items)
+    return items
+
+
+def _history(current, write, revision, by, at):
+    entry = {"revision": revision, "at": at, "by": by, "why": write["why"]}
+    if current is None or write["goal"] != current.get("goal"):
+        entry["goal"] = write["goal"]
+    history = list((current or {}).get("history", [])) + [entry]
+    if len(history) > MAX_HISTORY:
+        history = history[:1] + history[-(MAX_HISTORY - 1) :]
+    return history
+
+
 def put_request(root, request_id, body, *, by, linked_jobs=_no_links):
     """Write one request's whole plan and return its view.
 
@@ -403,161 +554,24 @@ def put_request(root, request_id, body, *, by, linked_jobs=_no_links):
     _key(request_id, "Request id")
     if by not in AUTHORS:
         raise LedgerError(f"by must be one of {', '.join(AUTHORS)}")
-    if not isinstance(body, dict):
-        raise LedgerError("the request body must be an object")
-    unknown = set(body) - {
-        "title",
-        "goal",
-        "items",
-        "revision",
-        "why",
-        "prompt",
-        "state",
-    }
-    if unknown:
-        raise LedgerError(f"unknown fields {sorted(unknown)}")
-
-    revision = body.get("revision")
-    if isinstance(revision, bool) or not isinstance(revision, int) or revision < 0:
-        raise LedgerError(
-            "revision must be the revision you read, or 0 to create the request"
-        )
-    title = _text(body.get("title"), "title", MAX_TITLE_LENGTH, one_line=True)
-    goal = _text(body.get("goal"), "goal", MAX_TEXT_LENGTH, allow_empty=True)
-    why = _text(body.get("why"), "why", MAX_WHY_LENGTH, one_line=True)
-    prompt = body.get("prompt")
-    if prompt is not None:
-        _text(prompt, "prompt", MAX_TEXT_LENGTH, allow_empty=True)
-    state = body.get("state")
-    if state is not None and state not in STATES:
-        raise LedgerError(f"state must be one of {', '.join(STATES)}")
-    raw_items = body.get("items")
-    if not isinstance(raw_items, list):
-        raise LedgerError("items must be a list")
-    if len(raw_items) > MAX_ITEMS:
-        raise LedgerError(f"at most {MAX_ITEMS} items, got {len(raw_items)}")
+    write = _check_body(body)
 
     with _lock(root):
         requests = _load(root)
-        current = requests.get(request_id)
-        current_revision = current.get("revision", 0) if current else 0
-        if revision != current_revision:
-            raise LedgerError(
-                f"request {request_id!r} is at revision {current_revision}, not "
-                f"{revision} - read it again and rewrite the plan against "
-                f"revision {current_revision}",
-                status=409,
-                code="stale_revision",
-                current_revision=current_revision,
-            )
-        if current is None:
-            if len(requests) >= MAX_REQUESTS:
-                raise LedgerError(
-                    f"a workspace holds at most {MAX_REQUESTS} requests",
-                    status=409,
-                    code="ledger_full",
-                )
-        elif prompt is not None and prompt != current.get("prompt"):
-            raise LedgerError(
-                "prompt is write-once: it is the ask that started the request "
-                "and was set when it was created",
-                status=422,
-                code="prompt_is_write_once",
-            )
-
+        current = _check_against(requests, request_id, write)
         at = _now()
-        stored = {item.get("key"): item for item in (current or {}).get("items", [])}
-        live, removed_keys, seen = [], [], set()
-        for raw in raw_items:
-            if not isinstance(raw, dict):
-                raise LedgerError("each item must be an object")
-            key = _key(raw.get("key"), "Item key")
-            unknown = set(raw) - _ITEM_FIELDS
-            if unknown:
-                raise LedgerError(f"item {key!r}: unknown fields {sorted(unknown)}")
-            if key in seen:
-                raise LedgerError(f"item {key!r} appears twice")
-            seen.add(key)
-            if raw.get("dropped") is True:
-                # Sent back as dropped: removed from the plan, like an omission
-                removed_keys.append(key)
-                continue
-            if raw.get("dropped") not in (None, False):
-                raise LedgerError(f"item {key!r}: dropped must be true or false")
-            previous = stored.get(key) or {}
-            depends_on = raw.get("depends_on") or []
-            if not isinstance(depends_on, list):
-                raise LedgerError(f"item {key!r}: depends_on must be a list of keys")
-            if len(depends_on) > MAX_DEPENDS_ON:
-                raise LedgerError(
-                    f"item {key!r}: depends on at most {MAX_DEPENDS_ON} items, "
-                    f"got {len(depends_on)}"
-                )
-            depends_on = [
-                _key(dep, f"item {key!r} depends_on key") for dep in depends_on
-            ]
-            live.append(
-                {
-                    "key": key,
-                    "title": _text(
-                        raw.get("title"),
-                        f"item {key!r} title",
-                        MAX_TITLE_LENGTH,
-                        one_line=True,
-                    ),
-                    "depends_on": list(dict.fromkeys(depends_on)),
-                    "estimate_minutes": _estimate(raw.get("estimate_minutes"), key),
-                    "workflow": _workflow(raw.get("workflow"), key),
-                    "arguments": _arguments(raw.get("arguments"), key),
-                    "dropped": False,
-                    "accepted": _accepted(
-                        raw.get("accepted"),
-                        key,
-                        previous.get("accepted"),
-                        linked_jobs(request_id, key),
-                    ),
-                    "comment": _comment(
-                        raw.get("comment", _MISSING),
-                        key,
-                        previous.get("comment"),
-                        by,
-                        at,
-                    ),
-                }
-            )
-
-        # An item the plan no longer lists: dropped (to the end) if jobs are
-        # linked to it, else deleted
-        dropped = []
-        for key, item in stored.items():
-            if key in seen and key not in removed_keys:
-                continue
-            if linked_jobs(request_id, key):
-                dropped.append({**item, "dropped": True})
-        items = live + dropped
-        if len(items) > MAX_ITEMS:
-            raise LedgerError(
-                f"at most {MAX_ITEMS} items, counting dropped ones; got {len(items)}"
-            )
-        _check_dependencies(items)
-
-        new_revision = current_revision + 1
-        entry = {"revision": new_revision, "at": at, "by": by, "why": why}
-        if current is None or goal != current.get("goal"):
-            entry["goal"] = goal
-        history = list((current or {}).get("history", [])) + [entry]
-        if len(history) > MAX_HISTORY:
-            history = history[:1] + history[-(MAX_HISTORY - 1) :]
-
+        revision = write["revision"] + 1
         request = {
             "id": request_id,
-            "title": title,
-            "state": state or (current or {}).get("state") or "open",
-            "revision": new_revision,
-            "prompt": current.get("prompt") if current else prompt,
-            "goal": goal,
-            "items": items,
-            "history": history,
+            "title": write["title"],
+            "state": write["state"] or (current or {}).get("state") or "open",
+            "revision": revision,
+            "prompt": current.get("prompt") if current else write["prompt"],
+            "goal": write["goal"],
+            "items": _merge_items(
+                write["items"], current, request_id, linked_jobs, by, at
+            ),
+            "history": _history(current, write, revision, by, at),
         }
         requests[request_id] = request
         document = {"requests": requests}

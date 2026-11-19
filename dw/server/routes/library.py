@@ -11,17 +11,19 @@ import json
 import logging
 import os
 import threading
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Literal, Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from ..api_models import (
     BuiltinWorkflows,
     Deleted,
     EnhancerPresets,
     JobDetail,
+    LedgerList,
+    LedgerRequest,
     PromptList,
     PromptSaved,
     WorkflowDeleted,
@@ -34,8 +36,13 @@ from ..api_models import (
 )
 from ...argument_warnings import workflow_argument_warnings
 from ...schema import format_validation_errors, load_schema, validate_data
-from ... import references, validation
-from ...security import InvalidInputError, SecurityError, validate_prompt_reference
+from ... import ledger, references, validation
+from ...security import (
+    InvalidInputError,
+    SecurityError,
+    validate_path,
+    validate_prompt_reference,
+)
 from ...workflow import Workflow
 from ...workspace_copy import CopyRefused, copy_between
 from ...notes import read_workspace_note
@@ -77,6 +84,7 @@ from ..deps import (
     writable_prompt_directory,
     selected_workspace,
     sources_for,
+    workspace_for,
     workspace_root,
 )
 from ..enhancers import build_enhance_workflow, preset_descriptions
@@ -920,3 +928,97 @@ def enhance(
         return manager.describe(job)
     except Exception:
         raise internal_error("Enhance job submission failed after admission")
+
+
+# --- the requests ledger (dw/ledger.py owns the model and its rules) ---
+# Every route is behind the bearer token like the rest of /api/*, and none
+# carries `query_token_ok`: nothing a browser loads without headers reads
+# the ledger. A default workspace with no root folder reads as holding no
+# requests, and a write is refused with 409 `no_workspace_root`.
+
+
+class RequestWrite(BaseModel):
+    """One request's whole plan."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    title: str = Field(description=f"One line, at most {ledger.MAX_TITLE_LENGTH}")
+    goal: str = Field(description="What done looks like")
+    items: list[dict[str, Any]] = Field(
+        description="The ordered plan; each item is key, title, depends_on, "
+        "estimate_minutes, workflow, arguments, accepted, comment"
+    )
+    revision: int = Field(description="The revision read, or 0 to create")
+    why: str = Field(description=f"One line, at most {ledger.MAX_WHY_LENGTH}")
+    prompt: str | None = Field(default=None, description="Create only")
+    state: Literal["open", "done", "abandoned"] | None = None
+    by: Literal["agent", "user"] = Field(
+        default="user", description="Who wrote this revision; the UI is the user"
+    )
+
+
+def _ledger_root(state, name):
+    """The workspace root whose requests.json a request names, or None for
+    a default workspace with no root folder. Raises 400/404/409 as
+    `workspace_for` does."""
+    if name == DEFAULT_WORKSPACE_NAME:
+        return state.default_workspace.root or None
+    selected = workspace_for(state, name)
+    try:
+        return validate_path(
+            selected.root, workspace_root(state).root, allow_create=False
+        )
+    except SecurityError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get(
+    "/api/workspaces/{name}/requests",
+    response_model=LedgerList,
+    response_model_exclude_unset=True,
+)
+def list_requests(request: Request, name: str):
+    """A workspace's requests, newest change first, without their items."""
+    root = _ledger_root(request.app.state, name)
+    return {"workspace": name, "requests": ledger.list_requests(root)}
+
+
+@router.get(
+    "/api/workspaces/{name}/requests/{request_id}",
+    response_model=LedgerRequest,
+    response_model_exclude_unset=True,
+)
+def get_request(request: Request, name: str, request_id: str):
+    """One request: its plan, every item with its derived status, and its
+    history."""
+    root = _ledger_root(request.app.state, name)
+    try:
+        found = ledger.get_request(root, request_id)
+    except SecurityError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if found is None:
+        raise HTTPException(
+            status_code=404, detail=f"No request {request_id!r} in workspace {name!r}"
+        )
+    return found
+
+
+@router.put(
+    "/api/workspaces/{name}/requests/{request_id}",
+    response_model=LedgerRequest,
+    response_model_exclude_unset=True,
+)
+def put_request(request: Request, name: str, request_id: str, body: RequestWrite):
+    """Write one request's whole plan. `revision` is the revision it was
+    read at, or 0 to create it; a write against any other revision is 409
+    `stale_revision`, with `current_revision` in the detail. `prompt` is
+    set on create only (a later change is 422 `prompt_is_write_once`). An
+    item left out is deleted, or kept as dropped when jobs link to it."""
+    root = _ledger_root(request.app.state, name)
+    payload = body.model_dump(exclude={"by"})
+    try:
+        return ledger.put_request(root, request_id, payload, by=body.by)
+    except ledger.LedgerError as e:
+        raise HTTPException(status_code=e.status, detail=e.detail())
+    except OSError:
+        raise internal_error(f"Could not write request {request_id!r}")
