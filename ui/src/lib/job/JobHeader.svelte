@@ -6,7 +6,7 @@
   import { wsHref } from '../routes'
   import { workspace } from '../workspace.svelte'
   import CopyButton from '../CopyButton.svelte'
-  import { formatDuration, formatExact, formatMtime } from '../format'
+  import { formatDuration, formatExact, formatMtime, gbFromMb } from '../format'
   import { notify } from '../toast'
   import { holdKind } from '../progress'
   import type { JobDetail } from '../types'
@@ -41,6 +41,9 @@
     const tick = setInterval(() => (now = Date.now() / 1000), 1000)
     return () => clearInterval(tick)
   })
+  const peakRam = (mb: number) =>
+    mb >= 1024 ? `${gbFromMb(mb)} GB` : `${Math.round(mb)} MB`
+
   const took = $derived.by(() => {
     if (!job?.started_at) return null
     const end = job.finished_at ?? (running ? now : null)
@@ -182,6 +185,13 @@
     {#if job.device}
       <code class="muted seed" title="the card this job ran on"
         >Card: {job.device}</code
+      >
+    {/if}
+    {#if job.host_memory_job_peak_committed_mb != null}
+      <code
+        class="muted seed"
+        title="the whole server process's committed memory at its peak during this job - what the host-RAM gate projects from, not growth caused by this job alone"
+        >peak host RAM {peakRam(job.host_memory_job_peak_committed_mb)}</code
       >
     {/if}
     {#if job.acknowledged === 'bound'}

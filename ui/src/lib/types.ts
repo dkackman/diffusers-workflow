@@ -5,6 +5,7 @@ type Schemas = components['schemas']
 // Server responses: generated from the server's response models
 // (dw/server/api_models.py), so a field the server stops sending fails the
 // type check rather than reading undefined at runtime
+export type StepTiming = Schemas['StepTiming']
 export type HealthInfo = Schemas['HealthInfo']
 export type WorkerInfo = Schemas['WorkerInfo']
 export type ServerAddress = Schemas['ServerAddress']

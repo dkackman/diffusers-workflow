@@ -1233,6 +1233,7 @@ and function back under the architecture ratchet.
 
 - Per-card VRAM bars in the header, status popover and server page.
 - Step and job durations on the job page, the log and the jobs list.
+- The job page shows where each step's time went (load, encode, denoise, decode, save; "cached" when the pipeline came from the worker cache) and the job's peak host RAM where the server reports it.
 - The sidebar marks the open workspace; each workspace has its own hue.
 
 **Maintenance**

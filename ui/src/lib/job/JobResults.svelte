@@ -15,6 +15,7 @@
   import { wsHref } from '../routes'
   import { isTimeline } from '../timeline'
   import TimelineStrip from './TimelineStrip.svelte'
+  import TimingBar from './TimingBar.svelte'
 
   // The Results panel's body: each output beside what made it, sectioned by
   // subfolder and grouped by step, then the steps that wrote nothing. The
@@ -32,6 +33,13 @@
     kinds: Record<string, string | null>
     seedVariable: string | null
   } = $props()
+
+  // A step's timing is the manifest's: a job opened from history has no
+  // events. A reused step, a task or a composed step carries none
+  const timingOf = (step: string) => {
+    const entry = job.manifest?.find((e) => e.step === step)
+    return entry && !entry.reused ? (entry.timing ?? null) : null
+  }
 
   const kindOf = (path: string) => kinds[path] ?? null
 
@@ -187,6 +195,9 @@
                  earlier run's files, nothing generated for this step"
             >· reused</span
           >
+        {:else}
+          {@const timing = timingOf(group.step)}
+          {#if timing}<TimingBar {timing} />{/if}
         {/if}
       </svelte:element>
     {/if}

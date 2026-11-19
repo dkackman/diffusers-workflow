@@ -5,7 +5,7 @@ import {
   screen,
   waitFor,
 } from '@testing-library/svelte'
-import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import JobPage from './JobPage.svelte'
 import '../router.svelte'
 import { api, setNote } from '../api'
@@ -659,4 +659,84 @@ it('shows a stall line while a phase_stall is the latest event', async () => {
   await waitFor(() =>
     expect(container.textContent).not.toContain('no event for'),
   )
+})
+
+describe('step timing bar and peak host RAM (#1453)', () => {
+  const timing = (extra: Record<string, unknown> = {}) => ({
+    load_s: 4,
+    encode_s: null,
+    denoise_s: 10,
+    decode_s: null,
+    save_s: 1,
+    first_pass_s: 3,
+    pass_s: 0.9,
+    passes: 12,
+    load_cached: false,
+    compiled: null,
+    segments: 1,
+    ...extra,
+  })
+  const timed = (a: object, b: object) => {
+    detail.job = {
+      ...job([
+        { step: 'a', files: ['a.png'], ...a },
+        { step: 'b', files: ['b.png'], ...b },
+      ]),
+      output_kinds: { 'a.png': 'image', 'b.png': 'image' },
+    } as JobDetail
+  }
+  const bars = (c: HTMLElement) => [
+    ...c.querySelectorAll<HTMLElement>('[data-testid="timing-bar"]'),
+  ]
+
+  it('draws a bar from manifest timing, skipping null parts', async () => {
+    timed({ timing: timing() }, {})
+    const { container } = render(JobPage, { jobId: 'j1' })
+    await waitFor(() => expect(bars(container).length).toBe(1))
+    const bar = bars(container)[0]
+    expect(
+      [...bar.querySelectorAll('[data-part]')].map((e) =>
+        e.getAttribute('data-part'),
+      ),
+    ).toEqual(['load', 'denoise', 'save'])
+    // inner first/pass figures are in the title only, never stacked
+    expect(bar.getAttribute('title')).toContain('first pass 3.0s')
+    expect(bar.getAttribute('title')).toContain('pass 0.9s')
+    expect(bar.getAttribute('title')).toContain('12 passes')
+    expect(bar.getAttribute('title')).not.toContain('segments')
+    expect(bar.textContent).not.toContain('cached')
+  })
+
+  it('says cached only on true, and segments when more than one', async () => {
+    timed(
+      { timing: timing({ load_cached: true, segments: 3 }) },
+      { timing: timing({ load_cached: null, load_s: null }) },
+    )
+    const { container } = render(JobPage, { jobId: 'j1' })
+    await waitFor(() => expect(bars(container).length).toBe(2))
+    const [first, second] = bars(container)
+    expect(first.textContent).toContain('cached')
+    expect(first.getAttribute('title')).toContain('3 segments')
+    expect(second.textContent).not.toContain('cached')
+  })
+
+  it('draws no bar for a reused entry or one without timing', async () => {
+    timed({ reused: true, timing: timing() }, {})
+    const { container } = render(JobPage, { jobId: 'j1' })
+    await waitFor(() => expect(screen.getByText('· reused')).toBeTruthy())
+    expect(bars(container).length).toBe(0)
+  })
+
+  it('shows peak host RAM when set and nothing when null', async () => {
+    detail.job = { ...job([]), host_memory_job_peak_committed_mb: 20480 }
+    const first = render(JobPage, { jobId: 'j1' })
+    await waitFor(() =>
+      expect(screen.getByText('peak host RAM 20.0 GB')).toBeTruthy(),
+    )
+    first.unmount()
+    detail.job = { ...job([]), host_memory_job_peak_committed_mb: null }
+    render(JobPage, { jobId: 'j1' })
+    await waitFor(() => expect(screen.getByText('j1')).toBeTruthy())
+    expect(screen.queryByText(/peak host RAM/)).toBeNull()
+  })
 })
