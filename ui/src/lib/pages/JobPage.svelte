@@ -27,6 +27,7 @@
   import NoteEditor from '../ui/NoteEditor.svelte'
   import JobResults from '../job/JobResults.svelte'
   import EventLog from '../job/EventLog.svelte'
+  import ChainSegments from '../job/ChainSegments.svelte'
   import type { JobDetail, JobEvent } from '../types'
 
   let { jobId }: { jobId: string } = $props()
@@ -355,6 +356,8 @@
       {/key}
     </div>
   {/if}
+
+  <ChainSegments {job} {definition} />
 
   {#if job.error}
     <div class="panel error-edge">
