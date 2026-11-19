@@ -82,11 +82,15 @@ export interface ChainRow {
   measures: Record<string, MeasureCell>
   resumed: boolean
   repaired: boolean
+  /** The output path of the segment's own clip, when the run kept it */
+  segmentFile: string | null
 }
 
 export interface ChainTable {
   step: string
   rows: ChainRow[]
+  /** The output path of the take the chain wrote, when the entry lists it */
+  take: string | null
   /** The plan's segment count, which a `stop_after` take falls short of */
   planned: number | null
   /** Every measure name any row carries, known names first in the engine's
@@ -180,15 +184,15 @@ interface RowContext {
 
 const orZero = (value: unknown) => (isNumber(value) ? value : 0)
 
+function shotSegmentFile(shot: Shot, ctx: RowContext): string | null {
+  return typeof shot.segment_file === 'string' && shot.segment_file
+    ? segmentPath(ctx.entry, ctx.take, shot.segment_file)
+    : null
+}
+
 function shotThumb(shot: Shot, ctx: RowContext): Thumb | null {
-  const segmentFile =
-    typeof shot.segment_file === 'string' && shot.segment_file
-      ? shot.segment_file
-      : null
-  if (segmentFile) {
-    const file = segmentPath(ctx.entry, ctx.take, segmentFile)
-    return { file, seconds: 0, fraction: 0 }
-  }
+  const file = shotSegmentFile(shot, ctx)
+  if (file) return { file, seconds: 0, fraction: 0 }
   if (!ctx.take) return null
   const start = orZero(shot.start_frame)
   return {
@@ -230,6 +234,7 @@ function shotRow(shot: Shot, i: number, ctx: RowContext): ChainRow {
     ...shotMeasures(shot, ctx),
     resumed: shot.resumed === true,
     repaired: String(shot.name ?? '').includes('(repaired)'),
+    segmentFile: shotSegmentFile(shot, ctx),
   }
 }
 
@@ -256,6 +261,7 @@ export function chainRows(
   return {
     step: entry.step,
     rows,
+    take: ctx.take,
     planned: planned.length ? Math.max(...planned) : null,
     measureNames: orderNames(rows.flatMap((row) => Object.keys(row.measures))),
   }
@@ -299,7 +305,7 @@ type Definition = Record<string, any> | null | undefined
 /** A value as the run resolved it: a literal, or a `variable:` the job's
  * arguments (or the definition's own default) supplied. Anything else -
  * a reference the UI cannot follow - is unknown */
-function resolved(
+export function resolved(
   value: unknown,
   definition: Definition,
   args: Record<string, unknown> | null | undefined,
@@ -310,7 +316,7 @@ function resolved(
   return definition?.variables?.[name]
 }
 
-function definitionStep(definition: Definition, step: string) {
+export function definitionStep(definition: Definition, step: string) {
   const at = step.indexOf(MEMBER_SEPARATOR)
   const name = at === -1 ? step : step.slice(0, at)
   const steps = Array.isArray(definition?.steps) ? definition.steps : []

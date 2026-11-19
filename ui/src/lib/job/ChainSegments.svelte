@@ -3,8 +3,26 @@
    * segment's frame, how many renders its check tried, each measure its
    * kept attempt computed against the ceiling, and whether it was resumed or
    * repaired. One panel per chained step in the job's manifest; a job with
-   * no chained step renders nothing. The rows are `chainRows`'s. */
-  import { outputUrl } from '../api'
+   * no chained step renders nothing. The rows are `chainRows`'s.
+   *
+   * Each row offers Repair this segment, and a take that stopped short of
+   * its plan offers Continue the chain (#1476): when each is offered, and
+   * what it sends, is `chainActions`'s. Repair opens the repair template's
+   * workflow page with its fields filled; nothing runs until Run there.
+   * Continue reruns this job, behind a confirm. */
+  import { api, outputUrl } from '../api'
+  import {
+    REPAIR_TEMPLATE,
+    WORKFLOW_PREFILL_KEY,
+    chainModel,
+    continueAction,
+    repairAction,
+    repairModels,
+    type ContinueAction,
+  } from '../chainActions'
+  import { confirmDialog } from '../confirm.svelte'
+  import { go } from '../router.svelte'
+  import { notify } from '../toast'
   import {
     attemptsText,
     chainContext,
@@ -35,6 +53,67 @@
       )
       .filter((table): table is ChainTable => table !== null),
   )
+
+  // The models the repair template loads: read once there is a chain to
+  // offer it on. Unreadable, it repairs nothing
+  let models = $state<string[]>([])
+  const hasChain = $derived(tables.length > 0)
+  $effect(() => {
+    if (!hasChain) return
+    let stopped = false
+    try {
+      api
+        .getWorkflow(REPAIR_TEMPLATE)
+        .then(({ definition: repair }) => {
+          if (!stopped) models = repairModels(repair as Record<string, any>)
+        })
+        .catch(() => {
+          /* no repair template on this server */
+        })
+    } catch {
+      /* no repair template on this server */
+    }
+    return () => {
+      stopped = true
+    }
+  })
+
+  const args = $derived(job.arguments as Record<string, unknown>)
+  const repairFor = (table: ChainTable, row: ChainRow) =>
+    repairAction(table, row, chainModel(definition, table.step, args), models)
+
+  function repair(table: ChainTable, row: ChainRow) {
+    const action = repairFor(table, row)
+    if (!action.enabled) return
+    sessionStorage.setItem(
+      WORKFLOW_PREFILL_KEY,
+      JSON.stringify({
+        workflow: action.workflow,
+        arguments: action.arguments,
+      }),
+    )
+    go('ws', job.workspace, 'workflows', ...action.workflow.split('/'))
+  }
+
+  let continuing = $state(false)
+  async function continueChain(table: ChainTable, action: ContinueAction) {
+    const remaining = (table.planned ?? 0) - table.rows.length
+    const ok = await confirmDialog(
+      `Queue this job again from its last kept segment (${table.rows.length} of ${table.planned})? ` +
+        `It renders the remaining ${remaining} segment${remaining === 1 ? '' : 's'} of ${table.step}.`,
+      { confirmLabel: 'Continue' },
+    )
+    if (!ok) return
+    continuing = true
+    try {
+      const next = await api.rerunJob(job.id, { arguments: action.arguments })
+      go('ws', job.workspace, 'jobs', next.id)
+    } catch (e) {
+      notify.error(e instanceof Error ? e.message : String(e))
+    } finally {
+      continuing = false
+    }
+  }
 
   const fileUrl = (path: string) => outputUrl(path, job.id, job.workspace)
 
@@ -96,6 +175,7 @@
 </script>
 
 {#each tables as table (table.step)}
+  {@const more = continueAction(table, definition)}
   <section
     class="panel chain-segments"
     aria-label="Chain segments: {table.step}"
@@ -104,6 +184,18 @@
       Segments <span class="step mono">{table.step}</span>
       <span class="planned">{plannedText(table)}</span>
     </h2>
+    {#if more}
+      <div class="continue">
+        <button
+          class="quiet"
+          disabled={continuing}
+          onclick={() => continueChain(table, more)}
+          title="queue this job again, resuming from segment {table.rows
+            .length} and rendering the rest of the plan"
+          >{continuing ? 'Queueing…' : 'Continue the chain'}</button
+        >
+      </div>
+    {/if}
     <div class="scroll">
       <table>
         <thead>
@@ -119,10 +211,12 @@
             {:else if anyChecked(table)}
               <th scope="col">Measures</th>
             {/if}
+            <th scope="col"><span class="sr-only">Actions</span></th>
           </tr>
         </thead>
         <tbody>
           {#each table.rows as row (row.index)}
+            {@const action = repairFor(table, row)}
             <tr data-segment={row.index}>
               <td class="index mono">{row.index}</td>
               <td class="thumb">
@@ -178,6 +272,19 @@
               {:else if columns(table).length || anyChecked(table)}
                 <td colspan={Math.max(columns(table).length, 1)}></td>
               {/if}
+              <td class="repair">
+                <button
+                  class="quiet"
+                  disabled={!action.enabled}
+                  title={action.enabled
+                    ? `open ${action.workflow} with this segment filled in - nothing runs until you press Run`
+                    : action.reason}
+                  onclick={() => repair(table, row)}>Repair this segment</button
+                >
+                {#if !action.enabled}<span class="reason muted"
+                    >{action.reason}</span
+                  >{/if}
+              </td>
             </tr>
           {/each}
         </tbody>
@@ -277,5 +384,25 @@
   }
   .muted {
     color: var(--muted);
+  }
+  .continue {
+    margin-bottom: 0.5rem;
+  }
+  .repair button {
+    white-space: nowrap;
+    font-size: 0.8rem;
+  }
+  .repair .reason {
+    display: block;
+    max-width: 16rem;
+    font-size: 0.75rem;
+  }
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
   }
 </style>

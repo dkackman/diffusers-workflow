@@ -27,6 +27,7 @@
   import { onDestroy } from 'svelte'
   import { describePlan } from '../plan'
   import { placeFindings } from '../findings'
+  import { WORKFLOW_PREFILL_KEY } from '../chainActions'
 
   let { name }: { name: string } = $props()
 
@@ -56,8 +57,28 @@
    * steps=30". Null when the card has no cost - never "unknown cost". */
   let curated = $state<string | null>(null)
 
+  /** Values another page asked this one to open with (Repair this
+   * segment, #1476): read once, and only when they name this workflow.
+   * Filled in, never submitted - Run is still the user's */
+  function takePrefill(): Record<string, string> {
+    const raw = sessionStorage.getItem(WORKFLOW_PREFILL_KEY)
+    if (raw === null) return {}
+    sessionStorage.removeItem(WORKFLOW_PREFILL_KEY)
+    try {
+      const parsed = JSON.parse(raw)
+      if (parsed?.workflow !== name) return {}
+      const args = parsed.arguments
+      if (!args || typeof args !== 'object') return {}
+      return Object.fromEntries(
+        Object.entries(args).map(([key, value]) => [key, String(value)]),
+      )
+    } catch {
+      return {}
+    }
+  }
+
   $effect(() => {
-    overrides = {}
+    overrides = takePrefill()
     workflow = null
     origin = ''
     writable = true
