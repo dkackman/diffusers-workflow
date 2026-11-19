@@ -138,8 +138,11 @@ icon, a finish-alert toggle, the theme toggle, and links to these docs and
   `GET /api/workflows`); folders become collapsible groups. **Shared →
   Examples** is the same page over the `--examples-dir` trees. A card opens
   the workflow's page: its recent outputs, a run form generated from its
-  variables (with `asset:`/`prompt:`/`output:` pickers), the raw JSON on
-  request, **Edit**, **Duplicate**, **Run** and delete. Opening an example in
+  variables (with `asset:`/`prompt:`/`output:` pickers; each rule the
+  workflow declares in `variable_constraints` - its range, grid, minimum
+  length - and the author's reason show under the field they govern, a
+  list-entry rule under its list; the editor shows the same lines,
+  read-only), the raw JSON on request, **Edit**, **Duplicate**, **Run** and delete. Opening an example in
   the editor saves a copy into the current workspace.
 
   ![Shared → Examples: workflow cards with their last image, shape and trait filters, and each card's summary and observed run time](img/ui-examples.jpg)
