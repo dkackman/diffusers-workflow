@@ -610,3 +610,53 @@ it("saves the run note in the job's own workspace", async () => {
     'studio',
   )
 })
+
+it('refetches the detail on queue_wait and on a live warning, not on a stall', async () => {
+  detail.job = { ...job([]), status: 'running', finished_at: null }
+  render(JobPage, { jobId: 'j1' })
+  await waitFor(() => expect(stream.onEvent).not.toBeNull())
+  const calls = () => vi.mocked(api.getJob).mock.calls.length
+  const before = calls()
+  stream.onEvent!({ seq: 1, event: 'queue_wait', reason: 'gpu_busy' })
+  await waitFor(() => expect(calls()).toBe(before + 1))
+  stream.onEvent!({
+    seq: 2,
+    event: 'warning',
+    kind: 'phase_stall',
+    phase: 'loading',
+    seconds_since_last_progress: 90,
+  })
+  expect(calls()).toBe(before + 1)
+  detail.job = { ...detail.job!, warnings: ['gen: audio clipped'] }
+  stream.onEvent!({
+    seq: 3,
+    event: 'warning',
+    kind: 'audio_clipped',
+    message: 'x',
+  })
+  await waitFor(() =>
+    expect(screen.getByText('gen: audio clipped')).toBeTruthy(),
+  )
+})
+
+it('shows a stall line while a phase_stall is the latest event', async () => {
+  detail.job = { ...job([]), status: 'running', finished_at: null }
+  const { container } = render(JobPage, { jobId: 'j1' })
+  await waitFor(() => expect(stream.onEvent).not.toBeNull())
+  stream.onEvent!({ seq: 1, event: 'workflow_start', steps: ['gen'] })
+  stream.onEvent!({ seq: 2, event: 'step_start', step: 'gen' })
+  stream.onEvent!({
+    seq: 3,
+    event: 'warning',
+    kind: 'phase_stall',
+    phase: 'loading',
+    seconds_since_last_progress: 240,
+  })
+  await waitFor(() =>
+    expect(container.textContent).toContain('no event for 4m'),
+  )
+  stream.onEvent!({ seq: 4, event: 'phase', phase: 'generating' })
+  await waitFor(() =>
+    expect(container.textContent).not.toContain('no event for'),
+  )
+})

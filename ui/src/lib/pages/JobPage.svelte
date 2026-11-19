@@ -14,7 +14,12 @@
     stepDurations,
   } from '../runstate'
   import { formatDuration } from '../format'
-  import { estimateEta, nextStepTimes, stepProgress } from '../progress'
+  import {
+    estimateEta,
+    nextStepTimes,
+    stepProgress,
+    activeStall,
+  } from '../progress'
   import FlowView from '../editor/FlowView.svelte'
   import JsonEditor from '../editor/JsonEditor.svelte'
   import JobHeader from '../job/JobHeader.svelte'
@@ -84,7 +89,12 @@
           (event) => {
             events.push(event)
             stepTimes = nextStepTimes(stepTimes, event, performance.now())
-            if (event.event === 'job_status') refresh()
+            if (
+              event.event === 'job_status' ||
+              event.event === 'queue_wait' ||
+              (event.event === 'warning' && event.kind !== 'phase_stall')
+            )
+              refresh()
           },
           () => refresh(),
         )
@@ -135,6 +145,7 @@
   // Scoped to the step now running: its phase, and its own denoise counter
   const progress = $derived(stepProgress(events as JobEvent[]))
   const denoise = $derived(progress.denoise)
+  const stall = $derived(activeStall(events as JobEvent[]))
   // each line led by its clock - seconds since the job started, which every
   // event carries - so the log says where the time went
   const logs = $derived(
@@ -266,6 +277,7 @@
         {running}
         {progress}
         {etaSeconds}
+        {stall}
       />
     </div>
   {/if}

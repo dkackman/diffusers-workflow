@@ -1,5 +1,6 @@
 <script lang="ts">
   import { formatDuration, formatExact, formatMtime } from '../format'
+  import { holdKind } from '../progress'
   import { queueWait } from '../jobTimes'
   import { poll } from '../poll'
   import { onMount } from 'svelte'
@@ -255,6 +256,16 @@
               : 'time spent waiting for a card'}
             >waiting {wait === null ? '' : formatDuration(wait)}</span
           >
+          {#if job.waiting_for}
+            {@const kind = holdKind(job.waiting_for)}
+            <span class="muted" title={job.waiting_for}
+              >· {kind === 'host_ram'
+                ? 'host RAM'
+                : kind === 'cards_busy'
+                  ? 'cards busy'
+                  : 'held'}</span
+            >
+          {/if}
         {:else}
           <span class="muted started" title={timesOf(job)}
             >{when(job.started_at)}</span

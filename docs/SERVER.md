@@ -180,7 +180,7 @@ icon, a finish-alert toggle, the theme toggle, and links to these docs and
   lock under `servers/` beside the database for its life, so a second server
   sharing the database leaves a live sibling's jobs alone), filterable by status; a waiting job
   shows its place in line, can be moved, and shows `waiting_for` while held
-  for host RAM. A job's page streams step progress, denoise ticks, the phase
+  (for host RAM, or because every card is busy): the jobs list adds a short reason (`· host RAM` / `· cards busy`) to the queued row with the full text on hover, and the job page's hover matches the hold. The job page also refetches on `queue_wait` and on a live `warning`, and shows a warn-tone stall line (`no event for 4m in loading`) from the latest `phase_stall` until another event arrives. A job's page streams step progress, denoise ticks, the phase
   between them (loading, decoding, saving; a model download shows its bytes and rate), its log, and its results as they
   land - finals first, intermediates folded, and a section per
   `result.subfolder` when a step chose one. **Cancel**, **Run again**,
@@ -297,7 +297,7 @@ server's refusal when a job is running:
 | `GET /api/jobs/{id}/event-log?after=-1&limit=200&kinds=` | The same events as the SSE stream, as one JSON page: `{id, status, events, last_seq, truncated, note}`. `after` is exclusive; page by passing back the previous `last_seq`. `limit` is capped at 1000. `kinds` (repeatable) keeps events whose `event` or `kind` is one of those named (`log`, `warning`, `phase_stall`, ...). A job restored from history serves the bounded event tail persisted with it; a job that finished before events were retained returns an empty list and a `note` saying so. |
 | `POST /api/jobs/{id}/cancel` | Cooperative cancel: takes effect at the next step boundary or denoise step. During a model load or a task step, which cannot be interrupted, a `cancel_pending` event says it waits for that to finish |
 | `POST /api/jobs/{id}/rerun` | Re-queue a finished job's spec. Body `{"new_seed": true}` draws a fresh seed into the workflow's seed variable instead of repeating the original arguments; 400 when the workflow pins its seed to a literal or names none. Body `{"arguments": {...}}` merges variable overrides over the stored arguments before admission (shallow, by name; the one-call promotion of a draft is `{"arguments": {"tier": "standard"}}`, which keeps the draft's staging at the same seed - `best` re-stages, so it is a render of its own). A rerun with `arguments` keeps the original's seed unless `new_seed`: a seed the template drew at run time (a null seed variable) is read from the original's realized workflow, and when that is gone the job carries a `rerun_seed_unknown` warning and draws a fresh one. A variable the workflow does not declare is a 400, the seed variable together with `new_seed` is a 400, and a bound `acknowledged_cost` is checked against the plan of the merged arguments. The new job's detail carries `overrides` when any were given. A plain rerun of a seeded workflow is served whole from the step cache — the earlier run's files, republished with `reused: true`, generating nothing. The new job's summary and detail carry `rerun_of`: the id of the job it reran (absent on a fresh submit) |
-| `POST /api/jobs/{id}/move` | Reorder a queued job: `{"direction": "up"\|"down"\|"front"\|"back"}`. Job listings carry each waiting job's `queue_position`, and `waiting_for` while one is held for host RAM. |
+| `POST /api/jobs/{id}/move` | Reorder a queued job: `{"direction": "up"\|"down"\|"front"\|"back"}`. Job listings carry each waiting job's `queue_position`, and `waiting_for` while one is held (host RAM, or every card busy). |
 
 ### Dispatch
 
@@ -358,7 +358,7 @@ this server's own gate does. A job is never held when no other job is running on
 or another, nor when it has no figure, nor where host RAM cannot be read
 (macOS without psutil). A held job is re-checked every 10 s. The hold emits one `queue_wait` event (message
 `waiting for host RAM: needs ~N GB with its margin, ~M GB free`; not a `warning`), and job
-detail and summaries carry `waiting_for` - that message - only while held.
+detail and summaries carry `waiting_for` - that message - only while held. `waiting_for` also appears (`queued behind N running job(s) on every card`) while every card is busy.
 An observed or fitted figure never refuses a submit; it only delays a start,
 and the OOM ranking is the backstop for a wrong projection. A workflow's
 declared `host_ram_gb` (a number or a `variable:` a `presets.tier` bundle
@@ -428,7 +428,7 @@ Every event in the stream carries a `seq` and an `event` name:
 | `warning` | a step finds something wrong with what it is about to write | `message`, plus a `kind` and the figures behind it (`level_spread`: `spread_db`, `measure`, `command`; `fps_mismatch`: `declared_fps`, `source_fps`; `audio_no_headroom`: `file`, `peak_dbfs` - a deliverable at or above -0.5 dBFS, which an mp3 or AAC encode decodes over full scale; `step_elided`: `step`, `overridden_by` when a supplied argument is what made it unreferenced; `cache_stats_unavailable`: `cache_type` - the installed diffusers moved the private hook state dw reads, so the step's cache counts are null; the run is unaffected). Also appended to the job's `warnings`, prefixed with the step it fired in - the event keeps the moment, `warnings` keeps it where a caller polling the finished job will look, since a warning about the artifact outlives the run that noticed it |
 | `cache_stats` | a pipeline call that set a `cache` finishes its denoise, once per call | `step`, `segment` (only on a chain segment, e.g. `segment 1/3`), and the fields of `timing.cache`: `type`, `threshold`, `forwards`, `computed`, `skipped`, `hit_rate`. Counts are null for a cache diffusers keeps no per-forward decision for. For watching live (`get_job_events(kinds=["cache_stats"])`); the manifest entry's `timing.cache` is the record |
 | `workflow_end` | the run finishes | `manifest` |
-| `queue_wait` | a queued job is held for host RAM (below) | `reason: "host_ram"`, `message` |
+| `queue_wait` | a queued job is held for host RAM (below) | `reason: "host_ram"` or `"gpu_busy"`, `message` |
 | `cancel_pending` | a cancel arrives during a phase that cannot be interrupted | `phase` |
 
 A `warning` with `kind: "phase_stall"` is emitted when a phase has gone 30 s

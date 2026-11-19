@@ -8,6 +8,7 @@
   import CopyButton from '../CopyButton.svelte'
   import { formatDuration, formatExact, formatMtime } from '../format'
   import { notify } from '../toast'
+  import { holdKind } from '../progress'
   import type { JobDetail } from '../types'
 
   // The job page's title row: what ran, its state and identity, and the
@@ -98,6 +99,16 @@
       exporting = false
     }
   }
+
+  /** Hover text for the hold, matched to whichever hold it is. */
+  function holdTitle(waitingFor: string | null | undefined): string {
+    const kind = holdKind(waitingFor)
+    if (kind === 'host_ram')
+      return "a card is free, but the host can't hold this job beside the running ones yet - it starts when one finishes"
+    if (kind === 'cards_busy')
+      return 'every card is running a job - this one starts when a card frees up'
+    return "why this job hasn't started"
+  }
 </script>
 
 <div class="head">
@@ -131,9 +142,7 @@
       >
     {/if}
     {#if job.waiting_for}
-      <span
-        class="muted"
-        title="a card is free, but the host can't hold this job beside the running ones yet - it starts when one finishes"
+      <span class="muted" title={holdTitle(job.waiting_for)}
         >{job.waiting_for}</span
       >
     {/if}

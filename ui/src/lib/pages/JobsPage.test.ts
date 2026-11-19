@@ -152,3 +152,37 @@ it('navigating to the bare jobs route clears the filters', async () => {
   expect(location.hash).toBe('#/ws/default/jobs')
   location.hash = ''
 })
+
+it('adds the hold reason to a queued row that has waiting_for', async () => {
+  data.jobs = [
+    summary({
+      id: 'q0',
+      workflow: 'plain',
+      status: 'queued',
+      started_at: null,
+    }),
+    summary({
+      id: 'q1',
+      workflow: 'ram',
+      status: 'queued',
+      started_at: null,
+      waiting_for: 'waiting for host RAM: needs ~9 GB, ~2 GB free',
+    }),
+    summary({
+      id: 'q2',
+      workflow: 'busy',
+      status: 'queued',
+      started_at: null,
+      waiting_for: 'queued behind 1 running job(s) on every card',
+    }),
+  ]
+  const { container } = render(JobsPage)
+  await waitFor(() => expect(screen.getByText('· host RAM')).toBeTruthy())
+  expect(screen.getByText('· host RAM').getAttribute('title')).toBe(
+    'waiting for host RAM: needs ~9 GB, ~2 GB free',
+  )
+  expect(screen.getByText('· cards busy').getAttribute('title')).toBe(
+    'queued behind 1 running job(s) on every card',
+  )
+  expect(container.textContent?.match(/·/g)).toHaveLength(2)
+})
