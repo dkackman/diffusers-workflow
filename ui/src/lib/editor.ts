@@ -331,6 +331,159 @@ export function requiredVariables(definition: unknown): Set<string> {
   return found
 }
 
+/** The keys of a `variable_constraint` (`dw/workflow_schema.json`) that
+ * `constraintHints` states in words. Every key the schema declares is here,
+ * pinned by `editor.test.ts`: a key with no label would fall back to
+ * `key: value`. `required` is the field's existing "required" mark and
+ * `reason` follows the rule, so neither is a line of its own. */
+export const CONSTRAINT_LABELLED_KEYS = [
+  'min_frames',
+  'max_frames',
+  'modulus',
+  'remainder',
+  'snap',
+  'min_length',
+  'max_words_per_second',
+  'seconds_from',
+  'required',
+  'reason',
+]
+
+/** The rule one constraint declares, as phrases - the engine's own
+ * `_accepted` wording (`dw/variable_constraints.py`) - with every number
+ * read from the declaration. `like` is the declared default, which decides
+ * whether a `min_length` reads as a string's rule or a list's. */
+function constraintPhrases(rule: Record<string, unknown>, like: unknown) {
+  const parts: string[] = []
+  const minimum = rule.min_length
+  if (minimum !== undefined && minimum !== null) {
+    if (Array.isArray(like)) {
+      parts.push(
+        minimum === 1 ? 'a non-empty list' : `at least ${minimum} entries`,
+      )
+    } else {
+      parts.push(
+        minimum === 1 ? 'a non-empty string' : `at least ${minimum} characters`,
+      )
+    }
+  }
+  const low = rule.min_frames
+  const high = rule.max_frames
+  if (low !== undefined && high !== undefined) parts.push(`${low} to ${high}`)
+  else if (low !== undefined) parts.push(`${low} or more`)
+  else if (high !== undefined) parts.push(`${high} or less`)
+  if (rule.modulus !== undefined) {
+    parts.push(`${rule.modulus} * n + ${rule.remainder ?? 0}`)
+  }
+  if (rule.snap === 'up') parts.push('an off-grid value rounds up')
+  if (rule.max_words_per_second !== undefined) {
+    const of = rule.seconds_from !== undefined ? ` of ${rule.seconds_from}` : ''
+    parts.push(
+      `about ${rule.max_words_per_second} words a second${of} (a warning)`,
+    )
+  }
+  for (const [key, value] of Object.entries(rule)) {
+    if (!CONSTRAINT_LABELLED_KEYS.includes(key)) {
+      parts.push(`${key}: ${displayValue(value)}`)
+    }
+  }
+  return parts
+}
+
+/** Which list-driven variables carry an entry field, read the way the
+ * engine's `list_fields` reads it (`dw/for_each.py`): every step whose
+ * `for_each` is `variable:<list>`, and the `item:<field>` references in it. */
+function entryFields(definition: unknown): Map<string, Set<string>> {
+  const found = new Map<string, Set<string>>()
+  const steps = (definition as { steps?: unknown } | null)?.steps
+  if (!Array.isArray(steps)) return found
+  const walk = (node: unknown, into: Set<string>): void => {
+    if (typeof node === 'string') {
+      if (node.startsWith('item:') && node.length > 'item:'.length) {
+        into.add(node.slice('item:'.length))
+      }
+    } else if (Array.isArray(node)) {
+      node.forEach((n) => walk(n, into))
+    } else if (node !== null && typeof node === 'object') {
+      const obj = node as Record<string, unknown>
+      const keys = Object.keys(obj)
+      // The optional item form {"item": "<field>", "default": ...}
+      if (
+        typeof obj.item === 'string' &&
+        obj.item !== '' &&
+        keys.every((k) => k === 'item' || k === 'default')
+      ) {
+        into.add(obj.item)
+        walk(obj.default, into)
+        return
+      }
+      for (const [key, value] of Object.entries(obj)) {
+        if (key !== 'for_each') walk(value, into)
+      }
+    }
+  }
+  for (const step of steps) {
+    const target = (step as { for_each?: unknown } | null)?.for_each
+    if (typeof target !== 'string' || !target.startsWith(VARIABLE)) continue
+    const list = target.slice(VARIABLE.length)
+    const fields = found.get(list) ?? new Set<string>()
+    walk(step, fields)
+    found.set(list, fields)
+  }
+  return found
+}
+
+/** Each declared `variable_constraints` rule stated in words, as
+ * {variable: lines}, for the form to show under the field. A rule on a
+ * list entry's field (dialogue-short's `num_frames` in `shots`) shows under
+ * the list, prefixed "each entry's <field>:". It states the rule only:
+ * every verdict on a value stays the server's. */
+export function constraintHints(definition: unknown): Record<string, string[]> {
+  const def = definition as {
+    variables?: Record<string, unknown>
+    variable_constraints?: unknown
+  } | null
+  const rules = def?.variable_constraints
+  const hints: Record<string, string[]> = {}
+  if (rules === null || typeof rules !== 'object' || Array.isArray(rules)) {
+    return hints
+  }
+  const variables = def?.variables ?? {}
+  const add = (name: string, line: string) => {
+    ;(hints[name] ??= []).push(line)
+  }
+  const line = (rule: Record<string, unknown>, like: unknown) => {
+    const parts = constraintPhrases(rule, like)
+    if (!parts.length) return null
+    const reason =
+      typeof rule.reason === 'string' && rule.reason ? ` - ${rule.reason}` : ''
+    return parts.join(', ') + reason
+  }
+  const lists = entryFields(definition)
+  for (const [name, raw] of Object.entries(rules)) {
+    if (raw === null || typeof raw !== 'object') continue
+    const rule = raw as Record<string, unknown>
+    if (name in variables) {
+      const text = line(rule, variables[name])
+      if (text) add(name, text)
+    }
+    for (const [list, fields] of lists) {
+      if (!fields.has(name) || !(list in variables)) continue
+      const entries = variables[list]
+      const like = Array.isArray(entries)
+        ? (
+            entries.find(
+              (e) => e !== null && typeof e === 'object' && name in e,
+            ) as Record<string, unknown> | undefined
+          )?.[name]
+        : undefined
+      const text = line(rule, like)
+      if (text) add(list, `each entry's ${name}: ${text}`)
+    }
+  }
+  return hints
+}
+
 export const ATTENTION_BACKENDS = [
   'native',
   'flash',

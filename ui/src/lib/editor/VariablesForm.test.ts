@@ -104,3 +104,32 @@ describe('VariablesForm attention backend variables', () => {
     expect(select.selectedOptions[0].textContent).toBe('default (none)')
   })
 })
+
+describe('VariablesForm constraint hints', () => {
+  const hint = '32 * n + 0 - <b>the VAE</b>'
+  for (const mode of ['override', 'define'] as const) {
+    it(`renders the hint under its field in ${mode} mode, as text`, () => {
+      render(VariablesForm, {
+        mode,
+        variables: { width: 1024, prompt: 'x' },
+        idPrefix: 'v-',
+        constraints: { width: [hint] },
+      })
+      const list = document.querySelector('[data-hints-for="width"]')
+      expect(list?.textContent?.trim()).toBe(hint)
+      expect(list?.querySelector('b')).toBeNull()
+      // Under the field: after the width input, before the next label
+      const field = document.getElementById('v-width')!
+      expect(
+        field.compareDocumentPosition(list!) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy()
+      const next = document.querySelector('label[for="v-prompt"]')!
+      expect(
+        list!.compareDocumentPosition(next) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy()
+      expect(document.querySelector('[data-hints-for="prompt"]')).toBeNull()
+      // Read-only: the hint is not a form control
+      expect(list!.querySelector('input, textarea, select')).toBeNull()
+    })
+  }
+})

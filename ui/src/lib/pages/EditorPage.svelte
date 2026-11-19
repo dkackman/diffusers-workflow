@@ -25,6 +25,7 @@
   import { loadWorkspaces, workspace } from '../workspace.svelte'
   import {
     attentionBackendVariables,
+    constraintHints,
     emptyWorkflow,
     referenceSuggestions,
   } from '../editor'
@@ -456,6 +457,7 @@
           bind:variables={ed.doc.variables}
           idPrefix="wfvar-"
           backendVariables={attentionBackendVariables(ed.doc)}
+          constraints={constraintHints(ed.doc)}
         />
       </div>
 

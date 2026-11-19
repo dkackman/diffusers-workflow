@@ -16,6 +16,7 @@
     idPrefix,
     backendVariables = new Set<string>(),
     requiredVariables = new Set<string>(),
+    constraints = {},
   }: {
     /** define: edit the workflow's own defaults (add/remove/coerce).
      * override: fill per-run values over read-only defaults. */
@@ -29,6 +30,9 @@
     /** Variables with no default: marked required, and the field says so
      * where a default would otherwise show. */
     requiredVariables?: Set<string>
+    /** Each variable's declared rules in words (`constraintHints`), shown
+     * muted under its field. They state the rule; the server judges it. */
+    constraints?: Record<string, string[]>
   } = $props()
 
   const keys = $derived(Object.keys(variables ?? {}))
@@ -156,6 +160,13 @@
         <Trash2 size={14} />
       </button>
     {/if}
+    {#if constraints[key]?.length}
+      <ul class="hints" data-hints-for={key}>
+        {#each constraints[key] as hint, i (i)}
+          <li>{hint}</li>
+        {/each}
+      </ul>
+    {/if}
   {/each}
   {#if mode === 'define'}
     <input placeholder="new variable name…" bind:value={newVariable} />
@@ -213,6 +224,21 @@
     font-weight: 400;
     font-size: 0.8em;
     color: var(--danger, var(--muted));
+  }
+  /* Under the field, in the field's column; spans the row when narrow */
+  .hints {
+    grid-column: 2 / -1;
+    margin: calc(-1 * var(--space-1)) 0 0;
+    padding: 0;
+    list-style: none;
+    font-size: 0.85em;
+    color: var(--muted);
+    overflow-wrap: anywhere;
+  }
+  @container (max-width: 400px) {
+    .hints {
+      grid-column: 1 / -1;
+    }
   }
   .addvar {
     justify-self: start;
