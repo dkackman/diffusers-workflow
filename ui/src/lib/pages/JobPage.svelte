@@ -26,6 +26,7 @@
   import JobProgress from '../job/JobProgress.svelte'
   import NoteEditor from '../ui/NoteEditor.svelte'
   import JobResults from '../job/JobResults.svelte'
+  import EventLog from '../job/EventLog.svelte'
   import type { JobDetail, JobEvent } from '../types'
 
   let { jobId }: { jobId: string } = $props()
@@ -368,6 +369,8 @@
       <pre>{logs.join('\n')}</pre>
     </div>
   {/if}
+
+  <EventLog {jobId} live={running} />
 {/if}
 
 <style>
