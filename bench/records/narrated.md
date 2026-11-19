@@ -1092,3 +1092,9 @@ Pro over the same 20 s. The earrings, scarf and background hold in every row.
 Pro at 4-bit is softer than Lite distilled at the start (114 against 159 at 0.5 s) and
 loses identity faster. Whether 4-bit SDNQ caused this or Pro does it anyway isn't
 isolated: an unquantized Pro (21B) needs about 42 GB for its transformer alone.
+
+## LongCat-Video-Avatar 1.6 INT8 (2026-11-19, #1465)
+
+It fits a 3090 only with block streaming, at 255 s per extra window. It fails the 30 s
+gate on SFace to kf00 (0.80 at 15 s) and on 256 px sharpness (254 against 410 at
+20-30 s). See `bench/records/longcat-avatar.md`.
