@@ -10,7 +10,6 @@ progress is polled from the event log.
 import logging
 import math
 import os
-import re
 import time
 
 from dw_mcp.client import DwApiError, api_path, clip_note, workflow_source
@@ -87,23 +86,19 @@ def _acknowledgement_body(acknowledged_cost):
     return {"acknowledged_cost": bool(acknowledged_cost)}
 
 
-# The ledger's key rule, copied because dw_mcp imports no dw module
-# (dw.security.validate_ledger_key)
-LEDGER_KEY = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}\Z")
-
-
 def _ledger_link(request):
     """`"<request-id>/<item-key>"` as the POST body's `request` and `item`,
-    or None for no link. Refused here, before any HTTP call, when it is not
-    that form."""
+    or None for no link. Refused here, before any HTTP call, when it has
+    not exactly one '/'. Each half's key rule is the server's alone
+    (dw.security.validate_ledger_key): a bad key is its 422, before
+    anything queues."""
     if request is None or request == "":
         return None
     parts = request.split("/") if isinstance(request, str) else []
-    if len(parts) != 2 or not all(LEDGER_KEY.match(part) for part in parts):
+    if len(parts) != 2:
         raise DwApiError(
             f'`request` must be "<request-id>/<item-key>": exactly one '
-            f"'/', each half 1-64 of a-z, 0-9 and dash, starting with a "
-            f"letter or digit (got {request!r})."
+            f"'/' (got {request!r})."
         )
     return {"request": parts[0], "item": parts[1]}
 
