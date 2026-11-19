@@ -16,11 +16,14 @@
     WORKFLOW_PREFILL_KEY,
     chainModel,
     continueAction,
+    continueConfirmText,
+    continueValidation,
     repairAction,
     repairModels,
     type ContinueAction,
   } from '../chainActions'
   import { confirmDialog } from '../confirm.svelte'
+  import { describeEstimate } from '../plan'
   import { go } from '../router.svelte'
   import { notify } from '../toast'
   import {
@@ -96,13 +99,34 @@
   }
 
   let continuing = $state(false)
-  async function continueChain(table: ChainTable, action: ContinueAction) {
-    const remaining = (table.planned ?? 0) - table.rows.length
-    const ok = await confirmDialog(
-      `Queue this job again from its last kept segment (${table.rows.length} of ${table.planned})? ` +
-        `It renders the remaining ${remaining} segment${remaining === 1 ? '' : 's'} of ${table.step}.`,
-      { confirmLabel: 'Continue' },
+  let pricing = $state(false)
+  // The estimate the confirm quotes: the validate route's plan for the
+  // rerun's merged arguments, the figure line every plan shows. One that
+  // cannot be priced says so rather than reading as free
+  async function continueEstimate(action: ContinueAction): Promise<string> {
+    const asked = continueValidation(
+      { ...job, arguments: job.arguments as Record<string, unknown> },
+      action,
+      definition,
     )
+    if (!asked) return describeEstimate(null).text
+    try {
+      const answer = await api.validate(asked)
+      if (!answer.valid) return 'none - a run would be refused'
+      return describeEstimate(answer.plan?.estimate ?? null).text
+    } catch (e) {
+      return `none - could not price it (${e instanceof Error ? e.message : String(e)})`
+    }
+  }
+
+  async function continueChain(table: ChainTable, action: ContinueAction) {
+    pricing = true
+    const estimate = await continueEstimate(action).finally(
+      () => (pricing = false),
+    )
+    const ok = await confirmDialog(continueConfirmText(table, estimate), {
+      confirmLabel: 'Continue',
+    })
     if (!ok) return
     continuing = true
     try {
@@ -188,11 +212,15 @@
       <div class="continue">
         <button
           class="quiet"
-          disabled={continuing}
+          disabled={continuing || pricing}
           onclick={() => continueChain(table, more)}
           title="queue this job again, resuming from segment {table.rows
             .length} and rendering the rest of the plan"
-          >{continuing ? 'Queueing…' : 'Continue the chain'}</button
+          >{continuing
+            ? 'Queueing…'
+            : pricing
+              ? 'Pricing…'
+              : 'Continue the chain'}</button
         >
       </div>
     {/if}

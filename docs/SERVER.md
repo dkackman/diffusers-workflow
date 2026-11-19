@@ -256,8 +256,10 @@ icon, a finish-alert toggle, the theme toggle, and links to these docs and
   seed), a repaired take has no segment files, or the run did not keep its
   segments. A take that stopped short of its plan, kept every segment's
   file, and whose chain's `stop_after` and `resume_from` are both declared
-  variables offers **Continue the chain** above the table: after a confirm,
-  it reruns the job with `resume_from` set to the last segment's `output:`
+  variables offers **Continue the chain** above the table. Its confirm
+  quotes an estimate: `POST /api/validate` with the job's workflow and the
+  rerun's merged arguments, read as the plan's figure line (one that cannot
+  be priced says so). Confirmed, it reruns the job with `resume_from` set to the last segment's `output:`
   reference and `stop_after` cleared, and opens the new job. What each
   action offers and sends is `ui/src/lib/chainActions.ts`.
 
