@@ -43,6 +43,30 @@ test('catalog LoRA suggestions hide rejected entries and add a row', async ({
   const catalog = step.getByRole('region', { name: 'From the catalog' })
   await expect(catalog.locator('li.suggestion')).toHaveCount(1)
   await expect(catalog).not.toContainText('broken')
+
+  // The entry's ink follows a theme switch at once, in both themes: it must
+  // not lag behind the panel's colour transition (#1480, C-F1120)
+  const theme = page.getByRole('button', { name: /^theme:/ })
+  for (let i = 0; i < 3; i++) {
+    await theme.click()
+    const [ink, name, description] = await page.evaluate(() => {
+      const probe = document.createElement('span')
+      probe.style.color = 'var(--ink)'
+      document.body.append(probe)
+      const ink = getComputedStyle(probe).color
+      probe.remove()
+      const color = (selector: string) =>
+        getComputedStyle(document.querySelector(selector)!).color
+      return [
+        ink,
+        color('li.suggestion .name'),
+        color('li.suggestion .description'),
+      ]
+    })
+    expect(name).toBe(ink)
+    expect(description).toBe(ink)
+  }
+
   const add = catalog.getByRole('button', { name: 'add e2e/style' })
   await add.click()
 
