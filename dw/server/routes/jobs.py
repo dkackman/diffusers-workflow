@@ -213,6 +213,7 @@ def submit_job(
             # What a card must hold to run it: the pool dispatches on it
             vram_need=admission.vram_need,
             host_ram_need=admission.host_ram_need,
+            repos_named=admission.repos_named,
             note=note,
         )
         return manager.describe(job)
@@ -519,6 +520,7 @@ def rerun_job(request: Request, job_id: str, body: RerunRequest = RerunRequest()
             admitted=admission.workflow,
             vram_need=admission.vram_need,
             host_ram_need=admission.host_ram_need,
+            repos_named=admission.repos_named,
         )
         if job is None:
             raise HTTPException(status_code=404, detail="Unknown job")

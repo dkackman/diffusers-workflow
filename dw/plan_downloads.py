@@ -82,24 +82,9 @@ def downloads_required(expanded, base_dir, workflow_dir, cache_dir, lookup_sizes
     offline box is a state, not an error, so nothing here raises or logs
     above debug.
     """
-    names = []
-    variants = {}
-    urls = []
-    files = []
-    partials = {}
-    whole = set()
-    _collect_sources(expanded, names, variants, urls, files, partials, whole)
-    _collect_task_weights(expanded, names, files, urls, whole)
-    for path, _arguments in _sub_workflow_paths(expanded):
-        raw = read_sub_workflow(path, base_dir, workflow_dir)
-        if raw is None:
-            continue
-        try:
-            child = json.loads(raw)
-        except ValueError:
-            continue
-        _collect_sources(child, names, variants, urls, files, partials, whole)
-        _collect_task_weights(child, names, files, urls, whole)
+    names, variants, urls, files, partials, whole = _walk(
+        expanded, base_dir, workflow_dir
+    )
     present = {repo.get("repo_id") for repo in scan_models(cache_dir).get("repos", [])}
     required = []
     listed_whole = set()
@@ -160,6 +145,52 @@ def downloads_required(expanded, base_dir, workflow_dir, cache_dir, lookup_sizes
             }
         )
     return required
+
+
+def repos_named(expanded, base_dir, workflow_dir):
+    """Every Hub repo the run names, deduplicated in first-seen order: the
+    walk `downloads_required` makes - step and component `model_name`s,
+    `loras`, `load_components` overrides, task weights (a file-level weight
+    counts as its repo) and composed children - with no cache or hub I/O.
+
+    `expanded` is the definition after its arguments are substituted, so a
+    `variable:`-supplied `model_name` is its resolved repo. A name not shaped
+    like a hub id - a local path, a URL, a reference left unresolved - is
+    dropped by shape, as the plan drops it. What dw/model_use.py stamps when
+    the run starts (#1445)."""
+    names, _variants, _urls, files, _partials, _whole = _walk(
+        expanded, base_dir, workflow_dir
+    )
+    named = []
+    for name in [*names, *(repo for repo, _filename, _revision in files)]:
+        if isinstance(name, str) and name not in named and _is_repo_id(name):
+            named.append(name)
+    return named
+
+
+def _walk(expanded, base_dir, workflow_dir):
+    """The sources the expanded definition and each composed child name, as
+    `(names, variants, urls, files, partials, whole)` - see `_collect_sources`
+    and `_collect_task_weights`."""
+    names = []
+    variants = {}
+    urls = []
+    files = []
+    partials = {}
+    whole = set()
+    _collect_sources(expanded, names, variants, urls, files, partials, whole)
+    _collect_task_weights(expanded, names, files, urls, whole)
+    for path, _arguments in _sub_workflow_paths(expanded):
+        raw = read_sub_workflow(path, base_dir, workflow_dir)
+        if raw is None:
+            continue
+        try:
+            child = json.loads(raw)
+        except ValueError:
+            continue
+        _collect_sources(child, names, variants, urls, files, partials, whole)
+        _collect_task_weights(child, names, files, urls, whole)
+    return names, variants, urls, files, partials, whole
 
 
 def _collect_sources(
