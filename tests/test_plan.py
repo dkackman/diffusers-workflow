@@ -3346,7 +3346,15 @@ class TestACachedComponentFolderIsNotListed:
         extra = [_Sibling("vae/generation_config.json", 1000)]
         monkeypatch.setattr(pd, "model_info", lambda *a, **k: _Info(extra))
         assert (
-            pd._components_entry(BASE, None, ["scheduler", "vae"], None, True) is None
+            pd._components_entry(
+                BASE,
+                None,
+                ["scheduler", "vae"],
+                None,
+                True,
+                classes={"scheduler": "FlowScheduler", "vae": "AutoencoderKL"},
+            )
+            is None
         )
 
     def test_a_missing_folder_is_still_listed(self, tmp_path, monkeypatch):
@@ -3362,5 +3370,33 @@ class TestACachedComponentFolderIsNotListed:
         )
         siblings = [_Sibling("tokenizer/vocab.json", GIB)]
         monkeypatch.setattr(pd, "model_info", lambda *a, **k: _Info(siblings))
-        entry = pd._components_entry(BASE, None, ["vae", "tokenizer"], None, True)
+        entry = pd._components_entry(
+            BASE,
+            None,
+            ["vae", "tokenizer"],
+            None,
+            True,
+            classes={"vae": "AutoencoderKL", "tokenizer": "T5Tokenizer"},
+        )
         assert entry["components"] == ["tokenizer"] and entry["gb"] == 1.0
+
+    def test_a_weight_bearing_folder_of_only_configs_is_still_listed(
+        self, tmp_path, monkeypatch
+    ):
+        import dw.plan_downloads as pd
+
+        snap = self._snapshot(tmp_path)
+        (snap / "vae" / "model.safetensors").unlink()
+        monkeypatch.setattr(
+            pd,
+            "_cached_file",
+            lambda repo, name, *a, **k: (
+                str(snap / name) if name == "modular_model_index.json" else None
+            ),
+        )
+        siblings = [_Sibling("vae/model.safetensors", GIB)]
+        monkeypatch.setattr(pd, "model_info", lambda *a, **k: _Info(siblings))
+        entry = pd._components_entry(
+            BASE, None, ["vae"], None, True, classes={"vae": "AutoencoderKL"}
+        )
+        assert entry["components"] == ["vae"] and entry["gb"] == 1.0

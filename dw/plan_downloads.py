@@ -95,7 +95,13 @@ def downloads_required(expanded, base_dir, workflow_dir, cache_dir, lookup_sizes
         if not _is_repo_id(name):
             continue
         if name in partials and name not in whole:
-            planned = _component_plan(name, *partials[name], cache_dir, lookup_sizes)
+            planned = _component_plan(
+                name,
+                *partials[name],
+                cache_dir,
+                lookup_sizes,
+                variant=variants.get(name),
+            )
             if planned is not None:
                 entries, elsewhere = planned
                 required.extend(entries)
@@ -509,7 +515,9 @@ def _is_url(value):
         return False
 
 
-def _component_plan(base, load_components, base_revision, cache_dir, lookup_sizes):
+def _component_plan(
+    base, load_components, base_revision, cache_dir, lookup_sizes, variant=None
+):
     """What a modular step fetches from `base` when its `load_components`
     sends some components elsewhere (#1343): an `(entries, elsewhere)` pair,
     or `None` when the repo's `modular_model_index.json` can't be read, which
@@ -528,6 +536,7 @@ def _component_plan(base, load_components, base_revision, cache_dir, lookup_size
     if not isinstance(index, dict):
         return None
     by_revision = {}
+    classes = {}
     elsewhere = []
     for component, value in index.items():
         if not (isinstance(value, (list, tuple)) and len(value) == 3):
@@ -547,17 +556,27 @@ def _component_plan(base, load_components, base_revision, cache_dir, lookup_size
         subfolder = overlay.get(SUBFOLDER_KEY) or spec.get(SUBFOLDER_KEY) or component
         revision = overlay.get(REVISION_KEY) or spec.get(REVISION_KEY) or base_revision
         by_revision.setdefault(revision, set()).add(subfolder)
+        if isinstance(value[1], str):
+            classes[(revision, subfolder)] = value[1]
     entries = []
     for revision, subfolders in by_revision.items():
         entry = _components_entry(
-            base, revision, sorted(subfolders), cache_dir, lookup_sizes
+            base,
+            revision,
+            sorted(subfolders),
+            cache_dir,
+            lookup_sizes,
+            classes={s: classes.get((revision, s)) for s in subfolders},
+            variant=variant,
         )
         if entry is not None:
             entries.append(entry)
     return entries, elsewhere
 
 
-def _components_entry(base, revision, subfolders, cache_dir, lookup_sizes):
+def _components_entry(
+    base, revision, subfolders, cache_dir, lookup_sizes, classes=None, variant=None
+):
     """The entry for `subfolders` of `base` at `revision`, or `None` when
     every file of them is cached. Sized from the hub's file list at that
     revision, counting only the files not cached; offline, a subfolder whose
@@ -573,8 +592,11 @@ def _components_entry(base, revision, subfolders, cache_dir, lookup_sizes):
     # A component folder the snapshot already holds whole is cached, the way
     # the whole-repo check reads a modular repo: the hub's file list also
     # names files a load never fetches (#1488)
+    classes = classes or {}
     subfolders = [
-        s for s in subfolders if not _component_held(base, revision, s, cache_dir)
+        s
+        for s in subfolders
+        if not _component_held(base, revision, s, cache_dir, classes.get(s), variant)
     ]
     if not subfolders:
         return None
@@ -630,10 +652,17 @@ def _components_entry(base, revision, subfolders, cache_dir, lookup_sizes):
     return entry
 
 
-def _component_held(base, revision, subfolder, cache_dir):
+def _component_held(
+    base, revision, subfolder, cache_dir, class_name=None, variant=None
+):
     """Whether `subfolder` of `base`'s snapshot at `revision` is on disk and
     complete by the #894 component rule. The snapshot is found through the
-    cached modular index, never by probing a name from the request."""
+    cached modular index, never by probing a name from the request. The
+    component's `class_name` (from the index) and the step's `variant` go to
+    the rule, so a weight-bearing folder holding only configs is not held.
+    A component with no known class is not held: the list overstates."""
+    if not isinstance(class_name, str):
+        return False
     from .hub_cache import _component_incomplete
 
     index_path = _cached_file(base, MODULAR_INDEX, revision or "main", cache_dir)
@@ -643,7 +672,7 @@ def _component_held(base, revision, subfolder, cache_dir):
     try:
         held = {child.name for child in snapshot.iterdir() if child.is_dir()}
         return subfolder in held and not _component_incomplete(
-            str(snapshot / subfolder), None
+            str(snapshot / subfolder), variant, class_name
         )
     except OSError:
         return False
