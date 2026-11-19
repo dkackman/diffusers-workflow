@@ -259,6 +259,9 @@ NOT_IN_CONTRACT = {
     # would filter (`probes`), so it has no response_model; the UI's narrowed
     # `AssessReply` in ui/src/lib/types.ts names this route (#1452 plan, Q1)
     "/api/gallery/{}/assess",
+    # The event-log route has no response_model either; the UI's narrowed
+    # `EventLogReply` in ui/src/lib/types.ts names it (#1452 plan, stage B)
+    "/api/jobs/{}/event-log",
 }
 # The raw workflow/prompt GETs serve the file verbatim; their PUT and DELETE
 # on the same path are in the contract

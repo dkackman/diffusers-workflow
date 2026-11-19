@@ -145,6 +145,35 @@ describe('name encoding', () => {
   })
 })
 
+describe('job event log', () => {
+  it('sends after, limit and each kind as a repeated parameter', async () => {
+    const calls = stubFetch({ ok: true, body: { events: [] } })
+    await api.eventLog('j1', {
+      after: 41,
+      limit: 500,
+      kinds: ['log', 'warning'],
+    })
+    expect(calls[0][0]).toBe(
+      '/api/jobs/j1/event-log?after=41&limit=500&kinds=log&kinds=warning',
+    )
+    expect(calls[0][1]?.method ?? 'GET').toBe('GET')
+  })
+
+  it('sends no query when nothing narrows it, and keeps after=-1', async () => {
+    const calls = stubFetch({ ok: true, body: { events: [] } })
+    await api.eventLog('j1')
+    await api.eventLog('j1', { after: -1 })
+    expect(calls[0][0]).toBe('/api/jobs/j1/event-log')
+    expect(calls[1][0]).toBe('/api/jobs/j1/event-log?after=-1')
+  })
+
+  it('fails with the 404 status for an unknown job', async () => {
+    stubFetch({ ok: false, status: 404, body: { detail: 'Unknown job' } })
+    const failure = await api.eventLog('gone').catch((e) => e)
+    expect(failure.status).toBe(404)
+  })
+})
+
 describe('job listing', () => {
   it('passes workspace, status set and limit as query parameters', async () => {
     const calls = stubFetch({ ok: true, body: { jobs: [], total: 0 } })

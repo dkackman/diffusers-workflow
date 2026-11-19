@@ -10,6 +10,7 @@ import type {
   DiskCacheEntryDeleted,
   DiskCacheList,
   EnhancerPresets,
+  EventLogReply,
   GalleryList,
   GalleryMetadata,
   AssessReply,
@@ -202,6 +203,26 @@ export const api = {
    * readable. */
   getJobWorkflow: (id: string) =>
     request<JobWorkflow>(`/api/jobs/${id}/workflow`),
+  /** One JSON page of a job's events, after `after` (exclusive). `kinds`
+   * goes as repeated parameters and keeps events whose `event` or `kind`
+   * is one of them. A finished job answers from the tail history kept,
+   * with a `note` on what was dropped; an unknown job is a 404. */
+  eventLog: (
+    id: string,
+    {
+      after,
+      limit,
+      kinds,
+    }: { after?: number; limit?: number; kinds?: string[] } = {},
+  ) => {
+    const query = new URLSearchParams()
+    if (after !== undefined) query.set('after', String(after))
+    if (limit !== undefined) query.set('limit', String(limit))
+    for (const kind of kinds ?? []) query.append('kinds', kind)
+    const qs = query.toString()
+    const path = `/api/jobs/${id}/event-log`
+    return request<EventLogReply>(qs ? `${path}?${qs}` : path)
+  },
   /** Queue the job again. `newSeed` draws a fresh seed into the workflow's
    * seed variable; without it the arguments repeat exactly, which the step
    * cache serves from the earlier run rather than generating anything.
