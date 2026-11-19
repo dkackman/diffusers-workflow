@@ -142,7 +142,11 @@ icon, a finish-alert toggle, the theme toggle, and links to these docs and
   workflow declares in `variable_constraints` - its range, grid, minimum
   length - and the author's reason show under the field they govern, a
   list-entry rule under its list; the editor shows the same lines,
-  read-only), the raw JSON on request, **Edit**, **Duplicate**, **Run** and delete. Opening an example in
+  read-only; a preset selector is a dropdown of its bundles, with a line
+  naming the variables they set, and the fields a bundle sets show the
+  chosen bundle's values as placeholders - only the selector is sent, so
+  the server applies the bundle itself; in the editor the selector stays
+  a text field with that line and its bundle names), the raw JSON on request, **Edit**, **Duplicate**, **Run** and delete. Opening an example in
   the editor saves a copy into the current workspace.
 
   ![Shared → Examples: workflow cards with their last image, shape and trait filters, and each card's summary and observed run time](img/ui-examples.jpg)

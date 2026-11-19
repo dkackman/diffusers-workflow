@@ -17,9 +17,12 @@ import {
   widgetFor,
   withMediaLocation,
   QUANT_PRESETS,
+  presetPlaceholder,
+  presetView,
 } from './editor'
 import type { PipelineParameter } from './types'
 import schema from '../../../dw/workflow_schema.json'
+import pikaTextToVideo from '../../../workflows/templates/pika-h3/text-to-video.json'
 
 const param = (overrides: Partial<PipelineParameter>): PipelineParameter => ({
   name: 'x',
@@ -513,5 +516,103 @@ describe('constraintHints', () => {
     expect(
       declared.filter((k) => !CONSTRAINT_LABELLED_KEYS.includes(k)),
     ).toEqual([])
+  })
+})
+
+describe('presetView and presetPlaceholder', () => {
+  const definition = {
+    variables: {
+      resolution: '480p',
+      width: 832,
+      height: 480,
+      steps: 30,
+      fps: 24,
+    },
+    presets: {
+      resolution: {
+        '480p': { width: 832, height: 480 },
+        '768p': { width: 1344, height: 768, steps: 40 },
+      },
+    },
+  }
+
+  it("lists each selector's bundles and the union of what they set", () => {
+    expect(presetView(definition)).toEqual({
+      resolution: {
+        bundles: ['480p', '768p'],
+        sets: ['width', 'height', 'steps'],
+      },
+    })
+    expect(presetView({ variables: {} })).toEqual({})
+  })
+
+  it("the default bundle is the selector's declared value", () => {
+    const shifted = {
+      ...definition,
+      variables: { ...definition.variables, resolution: '768p' },
+    }
+    expect(presetPlaceholder(shifted, {}, 'width')).toBe('1344')
+    expect(presetPlaceholder(definition, {}, 'width')).toBe('832')
+  })
+
+  it('a picked bundle moves the placeholders', () => {
+    const picked = { resolution: '768p' }
+    expect(presetPlaceholder(definition, picked, 'width')).toBe('1344')
+    expect(presetPlaceholder(definition, picked, 'height')).toBe('768')
+    expect(presetPlaceholder(definition, picked, 'steps')).toBe('40')
+  })
+
+  it('an explicit value suppresses the placeholder', () => {
+    expect(
+      presetPlaceholder(
+        definition,
+        { resolution: '768p', width: '1000' },
+        'width',
+      ),
+    ).toBeUndefined()
+    // an empty field is no value: the bundle still shows
+    expect(
+      presetPlaceholder(definition, { resolution: '768p', width: '' }, 'width'),
+    ).toBe('1344')
+  })
+
+  it('a variable the chosen bundle does not set keeps its declared default', () => {
+    // fps: no bundle sets it; steps: only the unchosen bundle does
+    expect(presetPlaceholder(definition, {}, 'fps')).toBeUndefined()
+    expect(presetPlaceholder(definition, {}, 'steps')).toBeUndefined()
+    expect(
+      presetPlaceholder(definition, { resolution: 'nope' }, 'width'),
+    ).toBeUndefined()
+  })
+
+  it('a reference in the selector names no bundle', () => {
+    const referenced = {
+      ...definition,
+      variables: { ...definition.variables, resolution: 'variable:other' },
+    }
+    expect(presetPlaceholder(referenced, {}, 'width')).toBeUndefined()
+  })
+
+  it('reads the real pika-h3 template: picking the other bundle moves width and height', () => {
+    const view = presetView(pikaTextToVideo)
+    const [selector] = Object.keys(view)
+    const bundles = (
+      pikaTextToVideo as {
+        presets: Record<string, Record<string, Record<string, unknown>>>
+      }
+    ).presets[selector]
+    expect(view[selector].bundles).toEqual(Object.keys(bundles))
+    const declared = (pikaTextToVideo.variables as Record<string, unknown>)[
+      selector
+    ] as string
+    const other = view[selector].bundles.find((b) => b !== declared)!
+    for (const name of ['width', 'height']) {
+      expect(presetPlaceholder(pikaTextToVideo, {}, name)).toBe(
+        String(bundles[declared][name]),
+      )
+      expect(
+        presetPlaceholder(pikaTextToVideo, { [selector]: other }, name),
+      ).toBe(String(bundles[other][name]))
+    }
   })
 })

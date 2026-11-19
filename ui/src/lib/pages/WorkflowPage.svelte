@@ -252,6 +252,7 @@
         backendVariables={attentionBackendVariables(workflow)}
         requiredVariables={requiredVariables(workflow)}
         constraints={constraintHints(workflow)}
+        presets={workflow.presets}
       />
     </div>
   {:else}
