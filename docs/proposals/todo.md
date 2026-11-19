@@ -37,6 +37,13 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **Catalog LoRA suggestions in the LoRA editor** (#1456, stage #1480), closed
+  2026-11-19. For a literal `owner/name` base, the editor lists the catalog's
+  non-rejected entries for that base (and literal partition), proven first, with
+  each entry's scale, notes and trigger, and adds one in a click. `GET /api/loras`
+  now declares its response (`LoraList`). Hub search (`/recommend`), `lora-schema`
+  and `variable:` bases were cut: `complete/lora-editor-suggestions-complete.md`.
+
 - **The curated cost figure says its basis and the settings it was measured
   at** (#1454, stage #1479), closed 2026-11-19. A catalog card's tooltip reads
   "a maintainer's figure, measured on <where> at <drivers>" from the card's
