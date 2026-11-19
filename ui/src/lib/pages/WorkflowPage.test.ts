@@ -284,3 +284,47 @@ describe('WorkflowPage run check', () => {
     )
   })
 })
+
+describe('WorkflowPage curated cost', () => {
+  const card = (cost: unknown, observed: unknown = null) => ({
+    workflows: ['templates/text-to-image'],
+    cost_basis: 'curated',
+    details: {
+      'templates/text-to-image': {
+        cost,
+        // the card's preset-applied value, not the definition's 1
+        cost_drivers: { num_images_per_prompt: 4 },
+        observed,
+      },
+    },
+    libraries: [],
+    shadowed: [],
+  })
+
+  it("shows the maintainer's figure and its settings above the observed text", async () => {
+    vi.mocked(api.listWorkflows).mockResolvedValueOnce(
+      card([{ device: 'mps', name: 'M4 Max', vram_gb: 6.5, minutes: 2 }], {
+        warm_minutes: 1.5,
+        warm_runs: 2,
+        runs: 2,
+      }) as never,
+    )
+    await openPage()
+    const line = screen.getByLabelText('curated cost')
+    expect(line.textContent).toContain(
+      "a maintainer's figure: ~2 min · 6.5 GB VRAM, measured on M4 Max at num_images_per_prompt=4",
+    )
+    expect(line.textContent).toContain('other values re-price it in the plan')
+    const seen = screen.getByText('~1.5 min here')
+    expect(
+      line.compareDocumentPosition(seen) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+  })
+
+  it('prints no curated line for a null cost', async () => {
+    vi.mocked(api.listWorkflows).mockResolvedValueOnce(card(null) as never)
+    await openPage()
+    expect(screen.queryByLabelText('curated cost')).toBeNull()
+    expect(document.body.textContent).not.toContain("maintainer's figure")
+  })
+})

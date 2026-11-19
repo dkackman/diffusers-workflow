@@ -16,6 +16,7 @@
   import { loadPromptLibrary } from '../promptlib.svelte'
   import { notify } from '../toast'
   import { observedText, observedTitle } from '../observed'
+  import { costBasisWords, costFigure, costMeasuredOn } from '../cost'
   import { confirmDialog } from '../confirm.svelte'
   import type {
     GalleryFile,
@@ -50,6 +51,10 @@
   let proofs = $state<GalleryFile[]>([])
   /** This server's own measured run time for the workflow, if it has one. */
   let observed = $state<Record<string, unknown> | null>(null)
+  /** The maintainer's figure for this workflow, from the same catalog card:
+   * "a maintainer's figure: ~3 min · 22 GB VRAM, measured on <card> at
+   * steps=30". Null when the card has no cost - never "unknown cost". */
+  let curated = $state<string | null>(null)
 
   $effect(() => {
     overrides = {}
@@ -66,13 +71,20 @@
       })
       .catch((e) => (error = e.message))
     observed = null
+    curated = null
     const wanted = name
     api
       .listWorkflows()
       .then((r) => {
         if (wanted !== name) return
-        observed =
-          (r.details?.[name]?.observed as Record<string, unknown>) ?? null
+        const card = r.details?.[name]
+        observed = (card?.observed as Record<string, unknown>) ?? null
+        const measured = card?.cost?.[0]
+        if (measured) {
+          const basis = costBasisWords(r.cost_basis)
+          const figure = `${costFigure(measured)}, ${costMeasuredOn(card.cost, card.cost_drivers)}`
+          curated = basis ? `${basis}: ${figure}` : figure
+        }
       })
       .catch(() => {})
   })
@@ -305,11 +317,6 @@
   >
     <Copy size={14} />Duplicate
   </button>
-  {#if observedText(observed)}
-    <span class="num muted" title={observedTitle(observed) ?? ''}
-      >{observedText(observed)}</span
-    >
-  {/if}
   <button
     class="withicon run"
     onclick={run}
@@ -319,6 +326,25 @@
     <Play size={14} />{submitting ? 'Submitting…' : 'Run'}
   </button>
 </div>
+
+<!-- The template's own figure, then what this server measured: two claims,
+     each saying whose it is. The per-run figure for the values below is the
+     plan in the run check -->
+{#if curated || observedText(observed)}
+  <div class="costs">
+    {#if curated}
+      <p class="curated num" aria-label="curated cost">
+        {curated}
+        <span class="muted">· other values re-price it in the plan</span>
+      </p>
+    {/if}
+    {#if observedText(observed)}
+      <p class="num muted" title={observedTitle(observed) ?? ''}>
+        {observedText(observed)}
+      </p>
+    {/if}
+  </div>
+{/if}
 
 {#if error}<p class="error">{error}</p>{/if}
 
@@ -519,6 +545,12 @@
   }
   .json {
     margin-top: var(--space-3);
+  }
+  .costs {
+    margin: 0 0 var(--space-3);
+  }
+  .costs p {
+    margin: var(--space-1) 0;
   }
   .error {
     color: var(--bad);
