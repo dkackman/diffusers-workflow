@@ -51,6 +51,12 @@ GitHub generates notes from commits at tag time. The sections below are the hand
 
 ### Unreleased
 
+- **Job list rows say why a job ended (#1449).** `GET /api/jobs` and MCP
+  `list_jobs` rows of failed and cancelled jobs carry `reason`, the first
+  line of the error (clipped to 160 characters), so a list can be triaged
+  without a `get_job` per row. A restart tombstone also carries
+  `restart_batch`, the key its batch groups by, for
+  `rerun_job(restart_batch=true)`. Both are optional and additive.
 - **diffusers floor raised to 0.43.0 (#1315).** `pyproject.toml` now
   requires `diffusers>=0.43.0` (was `>=0.42.0`), the release develop's code
   needs. The Models page / REST "revert to a known-good release" now

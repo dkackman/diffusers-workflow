@@ -33,8 +33,10 @@ from .job_record import (
     MAX_PERSISTED_EVENTS,
     QUEUED,
     RERUN_SPEC_KEYS,
+    RESTART_PREFIX,
     RUNNING,
     SUCCEEDED,
+    row_reason_fields,
 )
 
 logger = logging.getLogger("dw")
@@ -197,8 +199,8 @@ RESTART_RUNNING = (
     "server restart: running when the server stopped; "
     "partial outputs may be in {run_dir}"
 )
-# The prefix every tombstone's error starts with - what a batch is matched on
-RESTART_PREFIX = "server restart:"
+# The prefix every tombstone's error starts with - what a batch is matched
+# on - is RESTART_PREFIX, defined in job_record beside the row-reason helper
 # A row that was dispatched but had not reported its run directory yet
 RESTART_RUNNING_NO_RUN = (
     "server restart: running when the server stopped, before it opened a run"
@@ -509,7 +511,7 @@ class JobHistory:
             " device, note, run_dir,"
             " CASE WHEN json_valid(spec) THEN json_extract(spec, '$.output_dir') END"
             " AS output_dir,"
-            " rerun_of"
+            " rerun_of, error, server_instance"
             " FROM jobs"
         )
         where = self._history_where(workspace, statuses)
@@ -544,6 +546,11 @@ class JobHistory:
                 "_run_dir": row["run_dir"],
                 "_output_dir": row["output_dir"],
                 **({"rerun_of": row["rerun_of"]} if row["rerun_of"] else {}),
+                # `reason` and, on a restart tombstone, `restart_batch` - so
+                # a caller triages the list without a get_job per row (#1449)
+                **row_reason_fields(
+                    row["status"], row["error"], row["server_instance"]
+                ),
             }
             for row in rows
         ]
@@ -554,7 +561,7 @@ class JobHistory:
                 "SELECT id, workflow, status, created_at, started_at, finished_at,"
                 " arguments, spec, manifest, warnings, error, workspace,"
                 " workflow_name, run_id, run_dir, acknowledged, events,"
-                " run_version, device, note, rerun_of, overrides,"
+                " run_version, device, note, rerun_of, overrides, server_instance,"
                 " host_memory_job_peak_committed_mb FROM jobs WHERE id = ?"
                 f" AND status NOT IN ({_OPEN_PLACEHOLDERS})",
                 (job_id, *_OPEN_STATES),
@@ -820,6 +827,9 @@ class JobHistory:
             **({"note": row["note"]} if row["note"] else {}),
             **({"rerun_of": row["rerun_of"]} if row["rerun_of"] else {}),
             **({"overrides": parse(row["overrides"], {})} if row["overrides"] else {}),
+            # A detail is a summary plus more, so it carries the row fields
+            # too (#1449) - beside the full `error` they summarise
+            **row_reason_fields(row["status"], row["error"], row["server_instance"]),
         }
 
 

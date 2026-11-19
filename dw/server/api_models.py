@@ -426,6 +426,22 @@ class JobSummary(ApiModel):
     overrides: dict = sometimes(
         "The variables a rerun changed from the job it reran; absent when none were."
     )
+    cancel_requested: bool = sometimes(
+        "True when a cancel was asked of this running job and it has not stopped "
+        "yet - a model load or a task has no checkpoint; only while running."
+    )
+    reason: str = sometimes(
+        "Why the job ended: the first line of its `error`, clipped to 160 "
+        "characters with a trailing '…'. Only on a failed or cancelled job that "
+        "has an error - a plain user cancel has none. The full error, traceback "
+        "and all, is on the job's detail."
+    )
+    restart_batch: str = sometimes(
+        "The `server_instance` of the server whose restart cancelled this job - "
+        "the key a restart batch is grouped by. Only on a restart tombstone (a "
+        "cancelled job whose error starts 'server restart:'); any row of the "
+        "batch is a valid id for POST /api/jobs/{id}/rerun-restart-batch."
+    )
 
 
 class StepTiming(ApiModel):

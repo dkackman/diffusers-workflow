@@ -2598,6 +2598,11 @@ export interface components {
             arguments: {
                 [key: string]: unknown;
             };
+            /**
+             * Cancel Requested
+             * @description True when a cancel was asked of this running job and it has not stopped yet - a model load or a task has no checkpoint; only while running.
+             */
+            cancel_requested?: boolean;
             /** Created At */
             created_at: number | null;
             /**
@@ -2655,10 +2660,20 @@ export interface components {
              */
             queue_position?: number;
             /**
+             * Reason
+             * @description Why the job ended: the first line of its `error`, clipped to 160 characters with a trailing '…'. Only on a failed or cancelled job that has an error - a plain user cancel has none. The full error, traceback and all, is on the job's detail.
+             */
+            reason?: string;
+            /**
              * Rerun Of
              * @description The job this one reran; absent for a job submitted fresh.
              */
             rerun_of?: string;
+            /**
+             * Restart Batch
+             * @description The `server_instance` of the server whose restart cancelled this job - the key a restart batch is grouped by. Only on a restart tombstone (a cancelled job whose error starts 'server restart:'); any row of the batch is a valid id for POST /api/jobs/{id}/rerun-restart-batch.
+             */
+            restart_batch?: string;
             /** Run Dir */
             run_dir: string | null;
             /**
@@ -2845,6 +2860,11 @@ export interface components {
              * @enum {string}
              */
             acknowledged: "none" | "boolean" | "bound";
+            /**
+             * Cancel Requested
+             * @description True when a cancel was asked of this running job and it has not stopped yet - a model load or a task has no checkpoint; only while running.
+             */
+            cancel_requested?: boolean;
             /** Created At */
             created_at: number | null;
             /**
@@ -2879,10 +2899,20 @@ export interface components {
              */
             queue_position?: number;
             /**
+             * Reason
+             * @description Why the job ended: the first line of its `error`, clipped to 160 characters with a trailing '…'. Only on a failed or cancelled job that has an error - a plain user cancel has none. The full error, traceback and all, is on the job's detail.
+             */
+            reason?: string;
+            /**
              * Rerun Of
              * @description The job this one reran; absent for a job submitted fresh.
              */
             rerun_of?: string;
+            /**
+             * Restart Batch
+             * @description The `server_instance` of the server whose restart cancelled this job - the key a restart batch is grouped by. Only on a restart tombstone (a cancelled job whose error starts 'server restart:'); any row of the batch is a valid id for POST /api/jobs/{id}/rerun-restart-batch.
+             */
+            restart_batch?: string;
             /**
              * Run Id
              * @description The run this job opened - null until it opens one, and for a job recorded before runs were tracked.

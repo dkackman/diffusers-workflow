@@ -1696,6 +1696,11 @@
             "title": "Arguments",
             "type": "object"
           },
+          "cancel_requested": {
+            "description": "True when a cancel was asked of this running job and it has not stopped yet - a model load or a task has no checkpoint; only while running.",
+            "title": "Cancel Requested",
+            "type": "boolean"
+          },
           "created_at": {
             "anyOf": [
               {
@@ -1838,9 +1843,19 @@
             "title": "Queue Position",
             "type": "integer"
           },
+          "reason": {
+            "description": "Why the job ended: the first line of its `error`, clipped to 160 characters with a trailing '\u2026'. Only on a failed or cancelled job that has an error - a plain user cancel has none. The full error, traceback and all, is on the job's detail.",
+            "title": "Reason",
+            "type": "string"
+          },
           "rerun_of": {
             "description": "The job this one reran; absent for a job submitted fresh.",
             "title": "Rerun Of",
+            "type": "string"
+          },
+          "restart_batch": {
+            "description": "The `server_instance` of the server whose restart cancelled this job - the key a restart batch is grouped by. Only on a restart tombstone (a cancelled job whose error starts 'server restart:'); any row of the batch is a valid id for POST /api/jobs/{id}/rerun-restart-batch.",
+            "title": "Restart Batch",
             "type": "string"
           },
           "run_dir": {
@@ -2341,6 +2356,11 @@
             "title": "Acknowledged",
             "type": "string"
           },
+          "cancel_requested": {
+            "description": "True when a cancel was asked of this running job and it has not stopped yet - a model load or a task has no checkpoint; only while running.",
+            "title": "Cancel Requested",
+            "type": "boolean"
+          },
           "created_at": {
             "anyOf": [
               {
@@ -2406,9 +2426,19 @@
             "title": "Queue Position",
             "type": "integer"
           },
+          "reason": {
+            "description": "Why the job ended: the first line of its `error`, clipped to 160 characters with a trailing '\u2026'. Only on a failed or cancelled job that has an error - a plain user cancel has none. The full error, traceback and all, is on the job's detail.",
+            "title": "Reason",
+            "type": "string"
+          },
           "rerun_of": {
             "description": "The job this one reran; absent for a job submitted fresh.",
             "title": "Rerun Of",
+            "type": "string"
+          },
+          "restart_batch": {
+            "description": "The `server_instance` of the server whose restart cancelled this job - the key a restart batch is grouped by. Only on a restart tombstone (a cancelled job whose error starts 'server restart:'); any row of the batch is a valid id for POST /api/jobs/{id}/rerun-restart-batch.",
+            "title": "Restart Batch",
             "type": "string"
           },
           "run_id": {
