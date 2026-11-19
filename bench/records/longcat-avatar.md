@@ -38,6 +38,33 @@ All of this ran outside dw, in `lem:~/spikes/longcat-avatar/`, on cuda:0 alone
   | | `tokenizer` | 21M |
 
   The plan estimated about 36 GB. The difference is the fp32 UMT5.
+
+  The `--include` patterns (`dl.sh`), one `hf download` per repo at the revision above:
+  - Avatar-1.6: `base_model_int8/*`, `loraA/*`, `loraB/*`, `scheduler/*`,
+    `vocal_separator/*`, `whisper-large-v3/*.json`, `whisper-large-v3/*.txt`,
+    `whisper-large-v3/model.safetensors`, `config.json`, `model_index.json`;
+  - LongCat-Video: `text_encoder/*`, `tokenizer/*`, `vae/*`, `config.json`,
+    `model_index.json`.
+
+  File formats: every weight is safetensors. That covers `base_model_int8` (4 shards of
+  `quantized_model-*.safetensors`), `loraA/lora.safetensors`, `loraB/lora.safetensors`,
+  `whisper-large-v3/model.safetensors`, `text_encoder` (5 shards) and
+  `vae/diffusion_pytorch_model.safetensors`. The one exception is `vocal_separator/Kim_Vocal_2.onnx`
+  (64M), the vendor's ONNX audio separator, run by onnxruntime. There is no pickle (`.bin`,
+  `.pt`, `.pth`, `.ckpt`) in the download.
+- **Disk:** the spike dir, `HF_HOME` (`hf-home/`), `weights/` and `venv/` all sit on
+  `/dev/nvme1n1p2`, mounted at `/` (under `/home/don`). So the 626G preflight figure is
+  both the HF cache disk and the venv disk. `/mnt/cache` (129G free) was not used.
+- **dw-serve idle:** in `list_jobs`, no dw job ran between 11:56:23 UTC (job 8f28aa195c8a
+  finished) and 14:27:42 UTC (job ebd613b6e6c1 started). That window covers the whole
+  probe, from the 12:00:46 preflight to the uploads before 14:00.
+- **INT8 path:** neither native INT8 kernels nor dequantization at load. The vendor's
+  `QuantizedLinear` (`longcat_video/modules/quantization.py`, per-channel symmetric) keeps
+  `weight_int8` as int8 with an fp32 per-channel scale, in memory and on the GPU. In each
+  forward it dequantizes the weight to the activation dtype (bf16) and calls `F.linear`.
+  So the matmuls run in bf16 on the 3090, and the INT8 saving is in storage and
+  transfer only. The vendor's optional `enable_fp8_ffn` was not called (the 3090 has no
+  FP8).
 - **Driver:** `bench/longcat_avatar_probe.py`, run as `probe.sh <log> <args>`, which
   calls `venv/bin/python -I` under `/usr/bin/time -v` with
   `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`.
