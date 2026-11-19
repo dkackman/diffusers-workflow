@@ -164,7 +164,8 @@ icon, a finish-alert toggle, the theme toggle, and links to these docs and
   the answer carries a plan it is shown under the verdict - under the error
   list too when the answer is invalid, as one naming a repo that isn't there
   is. The plan reads: step and list counts; the estimate with its basis, the
-  card it is priced for, whether it is low confidence, blended toward the
+  card it is priced for when that says more than the backend (`on <card>`,
+  or `- for <card>` closing an inherited or no-figure line), whether it is low confidence, blended toward the
   curated figure, inherited from a template, or withheld (with the template
   it was not priced from) or unpriced for a stated reason; the host RAM the
   run is projected to hold (`host RAM ~N GB (observed | fit to N runs |

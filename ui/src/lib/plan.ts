@@ -101,13 +101,27 @@ function qualifiers(estimate: Plan['estimate']) {
 
 function figure(plan: Plan): PlanLine {
   const line = rawFigure(plan)
-  if (plan.estimate.basis === 'unknown' || plan.estimate.minutes === null) {
-    return line
+  const { basis, minutes } = plan.estimate
+  // the lines that say no "on X" name the card the run dispatches to last,
+  // so their own wording reads as it does without one
+  const forCard =
+    basis === 'unknown' || minutes === null || basis === 'inherited'
+      ? dispatchCard(plan.estimate)
+      : ''
+  if (basis === 'unknown' || minutes === null) {
+    return { text: `${line.text}${forCard}`, tone: line.tone }
   }
   const text = `${line.text}${tempered(plan.estimate)}`
   return plan.estimate.low_confidence
-    ? { text: `${text}, low confidence`, tone: 'warn' }
-    : { text, tone: line.tone }
+    ? { text: `${text}, low confidence${forCard}`, tone: 'warn' }
+    : { text: `${text}${forCard}`, tone: line.tone }
+}
+
+/** ` - for <card>` when the card the run dispatches to says more than the
+ * backend, else nothing. */
+function dispatchCard(estimate: Plan['estimate']): string {
+  const { priced_for, device } = estimate
+  return priced_for && priced_for !== device ? ` - for ${priced_for}` : ''
 }
 
 function rawFigure(plan: Plan): PlanLine {
