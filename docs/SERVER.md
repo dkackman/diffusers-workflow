@@ -234,8 +234,13 @@ icon, a finish-alert toggle, the theme toggle, and links to these docs and
   ![The prompt editor: a stored H3 shot prompt with its description and tags, and the Enhance with AI panel](img/ui-prompt-editor.png)
 
 - **Models** (Server) - the Hugging Face hub cache: each cached repo with
-  sizes, revisions and last-used dates, plus free disk. Download a repo by id
-  with live progress (cancellable; partial files resume on retry), and delete
+  sizes, revisions and two dates, plus free disk. `last_job_use` is when a dw
+  job that named the repo last started (epoch seconds, kept in
+  `model-use.json` beside the settings, `null` if none has since tracking
+  began); `last_accessed` is the files' atime, the labelled fallback when
+  `last_job_use` is `null` - a copy or backup bumps it and a noatime or
+  relatime disk may never move it. Deleting a repo forgets its
+  `last_job_use`. Download a repo by id with live progress (cancellable; partial files resume on retry), and delete
   one to free disk (refused while a job runs). It also shows the installed
   diffusers version (with its commit for a git install) and **Update from
   GitHub** installs HEAD - new pipelines usually land there before a PyPI
