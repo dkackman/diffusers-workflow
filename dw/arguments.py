@@ -40,6 +40,11 @@ from .locations import validate_media_path
 
 logger = logging.getLogger("dw")
 
+# A scheduler's constructor options. Its values are literal config (a string
+# option such as algorithm_type: "dpmsolver++"), so the '*_type' key convention
+# does not apply inside it (#1491)
+FROM_CONFIG_ARGS_KEY = "from_config_args"
+
 
 class EscapedString(str):
     """A string whose {} escape has already been consumed.
@@ -133,6 +138,9 @@ def realize_args(arg, base_dir=None, apply_key_conventions=True):
             arg[k] = v
             if handled:
                 continue
+            if k == FROM_CONFIG_ARGS_KEY and isinstance(v, dict):
+                _realize_literal_options(v, base_dir)
+                continue
             # Handle image loading for keys ending in '_image' or exactly 'image'
             if apply_key_conventions and (k.endswith("_image") or k == "image"):
                 logger.debug(f"Loading image for key: {k}")
@@ -167,6 +175,16 @@ def realize_args(arg, base_dir=None, apply_key_conventions=True):
     # Recursively process lists
     elif isinstance(arg, list):
         _realize_list(arg, base_dir, apply_key_conventions)
+
+
+def _realize_literal_options(options, base_dir):
+    """Realize a from_config_args dict: explicit references resolve, but no key
+    is read by its name, so a string stays a string. A {} escape is still
+    consumed, as it is under any '*_type' key."""
+    realize_args(options, base_dir, apply_key_conventions=False)
+    for key, value in options.items():
+        if is_escaped(value) and not isinstance(value, EscapedString):
+            options[key] = EscapedString(value.strip("{}"))
 
 
 def _realize_explicit_reference(value, base_dir, containers=True):

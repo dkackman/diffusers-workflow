@@ -3179,6 +3179,11 @@ Override the default scheduler:
 }
 ```
 
+`from_config_args` values are literal scheduler options: a string such as
+`"algorithm_type": "dpmsolver++"` or `"solver_type": "midpoint"` is passed as
+written, even though the key ends in `_type` (elsewhere a `*_type` string loads
+as a diffusers type).
+
 A scheduler block may also carry `shift`, the exponential sigma shift for
 schedulers that take one (MiniMax H3's released checkpoint: 12.0 for video,
 3.0 for audio). A pipeline that carries a second scheduler takes an

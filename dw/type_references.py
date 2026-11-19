@@ -12,7 +12,12 @@ import re
 
 from . import references
 from .argument_media import is_media_reference
-from .arguments import fetch_constant, is_constant_reference, is_escaped
+from .arguments import (
+    FROM_CONFIG_ARGS_KEY,
+    fetch_constant,
+    is_constant_reference,
+    is_escaped,
+)
 from .for_each import render_path
 from .introspection import (
     CLASS_NAME_PATTERN,
@@ -215,8 +220,13 @@ def _walk_type_references(node, path, errors, warnings=None):
     # A {media_type, location} dict is loaded as media, and its media_type
     # names a kind rather than a type - realize_args never reads it as one
     if isinstance(node, dict) and not is_media_reference(node):
+        # A scheduler's from_config_args are literal config values: a
+        # '*_type' key there ('algorithm_type') is a string option, never a type
+        literal_values = bool(path) and path[-1] == FROM_CONFIG_ARGS_KEY
         for k, v in node.items():
-            if k in _TYPE_REFERENCE_KEYS:
+            if literal_values:
+                error = _constant_reference_error(v, path + (k,))
+            elif k in _TYPE_REFERENCE_KEYS:
                 error = _type_reference_error(k, v, path + (k,))
             elif _is_type_key(k):
                 error = _loose_type_reference_error(k, v, path + (k,), warnings)
