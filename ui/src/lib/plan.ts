@@ -1,4 +1,9 @@
-import type { Plan, PlanHostMemory, RequiredDownload } from './types'
+import type {
+  Plan,
+  PlanEstimate,
+  PlanHostMemory,
+  RequiredDownload,
+} from './types'
 
 /** One line of a plan, read for a person: what it says and how loudly.
  * `warn` marks a figure that is not a quote (no cost block, a figure from
@@ -27,7 +32,7 @@ export function describePlan(plan: Plan): PlanLine[] {
     tone: 'plain',
   })
 
-  lines.push(figure(plan))
+  lines.push(figure(plan.estimate, plan.list_entries))
 
   if (plan.host_memory) lines.push(hostMemory(plan.host_memory))
 
@@ -99,20 +104,23 @@ function qualifiers(estimate: Plan['estimate']) {
   }
 }
 
-function figure(plan: Plan): PlanLine {
-  const line = rawFigure(plan)
-  const { basis, minutes } = plan.estimate
+function figure(
+  estimate: PlanEstimate,
+  listEntries: Plan['list_entries'],
+): PlanLine {
+  const line = rawFigure(estimate, listEntries)
+  const { basis, minutes } = estimate
   // the lines that say no "on X" name the card the run dispatches to last,
   // so their own wording reads as it does without one
   const forCard =
     basis === 'unknown' || minutes === null || basis === 'inherited'
-      ? dispatchCard(plan.estimate)
+      ? dispatchCard(estimate)
       : ''
   if (basis === 'unknown' || minutes === null) {
     return { text: `${line.text}${forCard}`, tone: line.tone }
   }
-  const text = `${line.text}${tempered(plan.estimate)}`
-  return plan.estimate.low_confidence
+  const text = `${line.text}${tempered(estimate)}`
+  return estimate.low_confidence
     ? { text: `${text}, low confidence${forCard}`, tone: 'warn' }
     : { text: `${text}${forCard}`, tone: line.tone }
 }
@@ -124,12 +132,15 @@ function dispatchCard(estimate: Plan['estimate']): string {
   return priced_for && priced_for !== device ? ` - for ${priced_for}` : ''
 }
 
-function rawFigure(plan: Plan): PlanLine {
-  const { minutes, basis, device, priced_for } = plan.estimate
-  if (basis === 'unknown' || minutes === null) return unpriced(plan.estimate)
+function rawFigure(
+  estimate: PlanEstimate,
+  listEntries: Plan['list_entries'],
+): PlanLine {
+  const { minutes, basis, device, priced_for } = estimate
+  if (basis === 'unknown' || minutes === null) return unpriced(estimate)
   // the card the run dispatches to, when it says more than the backend
   const on = priced_for && priced_for !== device ? priced_for : device
-  const { card, along, missing } = qualifiers(plan.estimate)
+  const { card, along, missing } = qualifiers(estimate)
   if (basis === 'other_device') {
     return {
       text: `no figure for ${on} - ${minutes} min was ${card}${along}${missing}`,
@@ -139,11 +150,11 @@ function rawFigure(plan: Plan): PlanLine {
   // another workflow's runs of the same pipeline priced this one (#797)
   if (basis === 'inherited') {
     return {
-      text: `~${minutes} min, inherited from ${plan.estimate.inherited_from ?? 'a template'}${along}${missing}`,
+      text: `~${minutes} min, inherited from ${estimate.inherited_from ?? 'a template'}${along}${missing}`,
       tone: 'plain',
     }
   }
-  const forList = Object.entries(plan.list_entries)
+  const forList = Object.entries(listEntries)
     .map(([name, count]) => `${count} ${name}`)
     .join(', ')
   // `derived` is the stored total stretched over a list the caller
@@ -187,4 +198,41 @@ function unpriced(estimate: Plan['estimate']): PlanLine {
     return { text: `no figure - ${estimate.unpriced_reason}`, tone: 'warn' }
   }
   return { text: 'no measured cost', tone: 'warn' }
+}
+
+/** One estimate on its own, read for a person - the figure line a plan
+ * shows, for a caller that holds only the `PlanEstimate` (a restart batch's
+ * preview prices each member this way, #1473). Null - no plan was built -
+ * says so rather than reading as free. */
+export function describeEstimate(estimate: PlanEstimate | null): PlanLine {
+  if (!estimate) return { text: 'no estimate', tone: 'warn' }
+  return figure(estimate, {})
+}
+
+/** The sum of several estimates' minutes, with how many had no figure, so a
+ * total over a batch never reads as complete when part of it is unpriced. */
+export function describeEstimateTotal(
+  estimates: (PlanEstimate | null)[],
+): PlanLine {
+  let minutes = 0
+  let priced = 0
+  for (const estimate of estimates) {
+    if (estimate && estimate.basis !== 'unknown' && estimate.minutes !== null) {
+      minutes += estimate.minutes
+      priced += 1
+    }
+  }
+  const missing = estimates.length - priced
+  const unpricedNote = missing ? `, plus ${missing} with no figure` : ''
+  if (!priced) {
+    return {
+      text: estimates.length ? 'total: no figure' : 'total: nothing to run',
+      tone: estimates.length ? 'warn' : 'plain',
+    }
+  }
+  const total = Math.round(minutes * 10) / 10
+  return {
+    text: `total ~${total} min${unpricedNote}`,
+    tone: missing ? 'warn' : 'plain',
+  }
 }

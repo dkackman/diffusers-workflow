@@ -20,7 +20,9 @@ itself with the server so Playwright's shutdown signal reaches it directly.
 
 import os
 import base64
+import json
 import shutil
+import sqlite3
 import sys
 import tempfile
 
@@ -52,7 +54,38 @@ for run_id in ("20260906-101500-a1b2c3d4", "20260906-101612-ffffffff"):
     with open(os.path.join(run_dir, "still.png"), "wb") as handle:
         handle.write(ONE_PIXEL_PNG)
 
-os.environ["DIFFUSERS_HELPER_ROOT"] = os.path.join(scratch, "helper")
+helper = os.path.join(scratch, "helper")
+os.environ["DIFFUSERS_HELPER_ROOT"] = helper
+
+# Two jobs a dead server's restart cancelled before they started: the
+# tombstones the jobs page offers to rerun as one batch (#1473). They share
+# the dead server's instance id, which is what groups them. The schema is the
+# server's own, created through JobHistory, so the rows carry every column a
+# real tombstone has.
+sys.path.insert(0, root)
+from dw.server.job_history import JobHistory  # noqa: E402
+from dw.server.job_record import RESTART_PREFIX  # noqa: E402
+
+os.makedirs(helper, exist_ok=True)
+history_db = os.path.join(helper, "jobs.sqlite")
+JobHistory(history_db)
+template = os.path.join(scratch, "workflows", "templates", "text-to-image.json")
+with sqlite3.connect(history_db) as connection:
+    for index, job_id in enumerate(("e2erestart01", "e2erestart02")):
+        connection.execute(
+            "INSERT INTO jobs (id, workflow, status, created_at, finished_at,"
+            " arguments, spec, error, events, workspace, server_instance)"
+            " VALUES (?, ?, 'cancelled', ?, ?, '{}', ?, ?, '[]', 'default', ?)",
+            (
+                job_id,
+                "text-to-image",
+                1767225600.0 + index,
+                1767225660.0,
+                json.dumps({"workflow_path": template, "workspace": "default"}),
+                f"{RESTART_PREFIX} queued, never started",
+                "e2e-dead-server",
+            ),
+        )
 
 os.chdir(root)
 os.execv(

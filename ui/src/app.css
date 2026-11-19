@@ -581,6 +581,10 @@ button.frame:hover {
 .ui-message {
   margin: 0 0 var(--space-4);
   white-space: pre-line;
+  /* a long message - a batch's every member - scrolls inside the sheet
+     rather than pushing its buttons off the screen */
+  max-height: 60vh;
+  overflow-y: auto;
 }
 .ui-actions {
   display: flex;

@@ -9,6 +9,8 @@ type ConfirmState = {
   message: string
   confirmLabel: string
   cancelLabel: string
+  // A notice with one button: nothing to choose between, so no Cancel
+  alert: boolean
 }
 
 export const confirmState = $state<ConfirmState>({
@@ -16,6 +18,7 @@ export const confirmState = $state<ConfirmState>({
   message: '',
   confirmLabel: 'OK',
   cancelLabel: 'Cancel',
+  alert: false,
 })
 
 // At most one confirm is ever in flight - a second call while one is open
@@ -24,12 +27,13 @@ let resolver: ((value: boolean) => void) | null = null
 
 export function confirmDialog(
   message: string,
-  options?: { confirmLabel?: string; cancelLabel?: string },
+  options?: { confirmLabel?: string; cancelLabel?: string; alert?: boolean },
 ): Promise<boolean> {
   confirmState.open = true
   confirmState.message = message
   confirmState.confirmLabel = options?.confirmLabel ?? 'OK'
   confirmState.cancelLabel = options?.cancelLabel ?? 'Cancel'
+  confirmState.alert = options?.alert ?? false
   return new Promise((resolve) => {
     resolver = resolve
   })

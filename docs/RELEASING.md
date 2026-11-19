@@ -57,6 +57,12 @@ GitHub generates notes from commits at tag time. The sections below are the hand
   without a `get_job` per row. A restart tombstone also carries
   `restart_batch`, the key its batch groups by, for
   `rerun_job(restart_batch=true)`. Both are optional and additive.
+- **The jobs page shows the reason, and offers a restart's jobs back
+  (#1449).** Each failed or cancelled row shows its reason under the
+  workflow name. Jobs a server restart cancelled raise a banner per restart,
+  "N jobs were cancelled by a server restart", whose **Rerun…** previews what
+  would be queued, with each estimate and a total, and queues only on
+  confirm.
 - **diffusers floor raised to 0.43.0 (#1315).** `pyproject.toml` now
   requires `diffusers>=0.43.0` (was `>=0.42.0`), the release develop's code
   needs. The Models page / REST "revert to a known-good release" now

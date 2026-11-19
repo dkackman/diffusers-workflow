@@ -32,6 +32,7 @@ import type {
   PromptDefinition,
   PromptList,
   PromptSaved,
+  RestartBatchRerun,
   ServerInfo,
   StoredPrompt,
   TaskList,
@@ -222,6 +223,21 @@ export const api = {
           : { new_seed: newSeed },
       ),
     }),
+  /** Rerun every job one dead server's restart cancelled, naming any one of
+   * them. Without `acknowledged` it is a priced preview - `would_queue` and
+   * `skipped` - and queues nothing; with it the batch is queued. Every
+   * member is priced, so only a click calls this, never a poll. Unscoped:
+   * a batch can span workspaces and the route needs no workspace. */
+  rerunRestartBatch: (id: string, acknowledged = false) =>
+    request<RestartBatchRerun>(
+      `/api/jobs/${id}/rerun-restart-batch`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(acknowledged ? { acknowledged_cost: true } : {}),
+      },
+      { scope: false },
+    ),
   listTasks: () => request<TaskList>('/api/tasks'),
   listBuiltinWorkflows: () =>
     request<BuiltinWorkflows>('/api/builtin-workflows'),
