@@ -13,6 +13,10 @@
   // for a saved workflow, never for the draft being edited
   const REPO_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._-]*$/
   const STATUS_ORDER: Record<string, number> = { proven: 0, trial: 1 }
+  // A catalog read is a local file scan; one still unsettled after this long
+  // has hung (a stalled connection, a stub that never answers) and counts as
+  // a failure, so the panel never sits on a bare heading (#1501)
+  const CATALOG_TIMEOUT_MS = 8000
 
   const base = $derived(pipeline.from_pretrained_arguments?.model_name)
   const repo = $derived(
@@ -41,7 +45,11 @@
     }
     catalogState = 'loading'
     let stale = false
+    let giveUp: ReturnType<typeof setTimeout> | undefined
     const timer = setTimeout(() => {
+      giveUp = setTimeout(() => {
+        if (!stale && catalogState === 'loading') catalogState = 'error'
+      }, CATALOG_TIMEOUT_MS)
       api
         .listLoras(workflow ? { model, workflow } : { model })
         .then((body) => {
@@ -58,10 +66,12 @@
         .catch(() => {
           if (!stale) catalogState = 'error'
         })
+        .finally(() => clearTimeout(giveUp))
     }, 300)
     return () => {
       stale = true
       clearTimeout(timer)
+      clearTimeout(giveUp)
     }
   })
 
@@ -112,6 +122,8 @@
       <p class="note">Catalog suggestions need a literal model repo.</p>
     {:else if catalogState === 'error'}
       <p class="note">Catalog suggestions are unavailable right now.</p>
+    {:else if catalogState !== 'ready'}
+      <p class="note">Loading catalog suggestions…</p>
     {:else if catalogState === 'ready' && catalog.length === 0}
       <p class="note">No catalog LoRAs for {repo}.</p>
     {:else if catalogState === 'ready'}
