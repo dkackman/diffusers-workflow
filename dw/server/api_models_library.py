@@ -8,6 +8,7 @@ from typing import Any, Literal
 from pydantic import ConfigDict, Field
 
 from .api_models_base import ApiModel, sometimes
+from ..lora_catalog import STATUS_ORDER
 from .catalog_shape import SHAPES, TRAITS
 
 Origin = Literal["workspace", "common", "examples", "builtin"]
@@ -212,3 +213,60 @@ class EnhancerPreset(ApiModel):
 
 class EnhancerPresets(ApiModel):
     presets: list[EnhancerPreset]
+
+
+# The LoRA catalog listing (GET /api/loras). A row is a catalog entry
+# (dw/lora_catalog_schema.json) as stored, plus where it came from. Every
+# field the schema allows is declared, so the strict suite fails on an entry
+# key the model does not know rather than the route dropping it; numbers are
+# `int | float` so a stored `1` goes out as `1`, not `1.0`.
+
+
+class LoraScale(ApiModel):
+    default: int | float
+    range: list[int | float] = sometimes("`[low, high]`, when the entry states one.")
+
+
+class LoraEvidence(ApiModel):
+    note: str
+    job: str = sometimes()
+    issue: int = sometimes()
+
+
+class LoraRow(ApiModel):
+    name: str = Field(description="The entry's catalog name: its path under loras/.")
+    origin: Origin = Field(description="Which library root the entry came from.")
+    writable: bool
+    model_name: str = Field(description="The LoRA's Hub repo (owner/name).")
+    base_models: list[str] = Field(description="The base repos it was made for.")
+    description: str
+    use_when: str
+    status: Literal[tuple(STATUS_ORDER)]
+    weight_name: str = sometimes(
+        "The .safetensors file in the repo, when it has several."
+    )
+    revision: str = sometimes("The commit or branch the entry pins.")
+    workflow: str | list[str] | None = sometimes(
+        "The base's workflow partition(s) the LoRA fits; null or absent for any."
+    )
+    trigger: str = sometimes("Words the prompt needs for the LoRA to act.")
+    scale: LoraScale = sometimes("The scale the entry states; absent on some entries.")
+    stacks_with: list[str] = sometimes()
+    evidence: list[LoraEvidence] = sometimes()
+    license: str = sometimes()
+    tags: list[str] = sometimes()
+
+
+class ResolvedBase(ApiModel):
+    repo: str
+    workflow: str | None
+
+
+class LoraList(ApiModel):
+    libraries: list[LibraryRoot]
+    resolved: list[ResolvedBase] = sometimes(
+        "The bases `model` resolved to; only when `model` was given."
+    )
+    loras: list[LoraRow] = Field(
+        description="Matching entries, rejected ones included, sorted by name."
+    )

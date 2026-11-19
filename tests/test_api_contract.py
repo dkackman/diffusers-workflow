@@ -197,6 +197,7 @@ UI_READ_ROUTES = [
     ("get", "/api/tasks/{command}"),
     ("get", "/api/classes"),
     ("get", "/api/classes/{name}"),
+    ("get", "/api/loras"),
 ]
 
 

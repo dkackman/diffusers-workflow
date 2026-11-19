@@ -3048,6 +3048,30 @@ export interface components {
             /** Writable */
             writable: boolean;
         };
+        /** LoraEvidence */
+        LoraEvidence: {
+            /** Issue */
+            issue?: number;
+            /** Job */
+            job?: string;
+            /** Note */
+            note: string;
+        };
+        /** LoraList */
+        LoraList: {
+            /** Libraries */
+            libraries: components["schemas"]["LibraryRoot"][];
+            /**
+             * Loras
+             * @description Matching entries, rejected ones included, sorted by name.
+             */
+            loras: components["schemas"]["LoraRow"][];
+            /**
+             * Resolved
+             * @description The bases `model` resolved to; only when `model` was given.
+             */
+            resolved?: components["schemas"]["ResolvedBase"][];
+        };
         /** LoraRequest */
         LoraRequest: {
             /**
@@ -3057,6 +3081,81 @@ export interface components {
             entry: {
                 [key: string]: unknown;
             };
+        };
+        /** LoraRow */
+        LoraRow: {
+            /**
+             * Base Models
+             * @description The base repos it was made for.
+             */
+            base_models: string[];
+            /** Description */
+            description: string;
+            /** Evidence */
+            evidence?: components["schemas"]["LoraEvidence"][];
+            /** License */
+            license?: string;
+            /**
+             * Model Name
+             * @description The LoRA's Hub repo (owner/name).
+             */
+            model_name: string;
+            /**
+             * Name
+             * @description The entry's catalog name: its path under loras/.
+             */
+            name: string;
+            /**
+             * Origin
+             * @description Which library root the entry came from.
+             * @enum {string}
+             */
+            origin: "workspace" | "common" | "examples" | "builtin";
+            /**
+             * Revision
+             * @description The commit or branch the entry pins.
+             */
+            revision?: string;
+            /** @description The scale the entry states; absent on some entries. */
+            scale?: components["schemas"]["LoraScale"];
+            /** Stacks With */
+            stacks_with?: string[];
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "proven" | "trial" | "rejected";
+            /** Tags */
+            tags?: string[];
+            /**
+             * Trigger
+             * @description Words the prompt needs for the LoRA to act.
+             */
+            trigger?: string;
+            /** Use When */
+            use_when: string;
+            /**
+             * Weight Name
+             * @description The .safetensors file in the repo, when it has several.
+             */
+            weight_name?: string;
+            /**
+             * Workflow
+             * @description The base's workflow partition(s) the LoRA fits; null or absent for any.
+             */
+            workflow?: string | string[] | null;
+            /** Writable */
+            writable: boolean;
+        };
+        /** LoraScale */
+        LoraScale: {
+            /** Default */
+            default: number;
+            /**
+             * Range
+             * @description `[low, high]`, when the entry states one.
+             */
+            range?: (number)[];
         };
         /**
          * ManifestEntry
@@ -3599,6 +3698,13 @@ export interface components {
              * @default false
              */
             new_seed: boolean;
+        };
+        /** ResolvedBase */
+        ResolvedBase: {
+            /** Repo */
+            repo: string;
+            /** Workflow */
+            workflow: string | null;
         };
         /** RestartBatchCandidate */
         RestartBatchCandidate: {
@@ -5640,7 +5746,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["LoraList"];
                 };
             };
             /** @description Validation Error */
