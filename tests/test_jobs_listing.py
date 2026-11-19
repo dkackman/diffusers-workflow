@@ -251,3 +251,30 @@ def test_list_page_reads_notes_only_for_the_page(tmp_path):
     assert total == 6
     assert [j["id"] for j in jobs] == ["j4", "j5"]
     assert sorted(seen) == ["j4", "j5"]
+
+
+def test_list_page_total_counts_past_the_history_read_cap(tmp_path):
+    """#1466: total is the real match count, not capped at 200 rows."""
+    import threading
+
+    from dw.server.jobs import JobManager
+
+    manager = JobManager.__new__(JobManager)
+    manager._lock = threading.RLock()
+    manager.jobs = {}
+    manager._pending = []
+    manager.history = JobHistory(str(tmp_path / "jobs.sqlite"))
+    for index in range(230):
+        stored_job(manager.history, f"j{index}", "succeeded", index)
+    for index in range(5):
+        stored_job(manager.history, f"f{index}", "failed", 1000 + index)
+    manager._current_note = lambda summary, out, run: summary
+
+    jobs, total = manager.list_page(limit=3)
+    assert total == 235
+    assert [j["id"] for j in jobs] == ["f2", "f3", "f4"]
+
+    jobs, total = manager.list_page(statuses=["succeeded"])
+    assert total == 230 and len(jobs) == 230
+
+    assert manager.list_page(statuses=["failed"], limit=0) == ([], 5)

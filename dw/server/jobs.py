@@ -762,20 +762,30 @@ class JobManager(Dispatcher):
                 summary["queue_position"] = positions[job.id]
             output_dir = job.spec.get("output_dir")
             summaries.append((summary, output_dir, job.run_dir))
+        # only the newest `limit` rows can reach the page; the live ids are
+        # dropped below, so fetch that many extra. The total is counted in
+        # SQL, not from the capped list (#1466)
+        live_count = len(summaries)
+        history_limit = None if limit is None else limit + len(live_ids)
+        history_total = self.history.count_summaries(
+            workspace=workspace, statuses=statuses, exclude_ids=live_ids
+        )
         for historical in self.history.recent_summaries(
-            workspace=workspace, statuses=statuses
+            limit=history_limit if history_limit is not None else -1,
+            workspace=workspace,
+            statuses=statuses,
         ):
             run_dir = historical.pop("_run_dir", None)
             output_dir = historical.pop("_output_dir", None)
             if historical["id"] not in live_ids:
                 summaries.append((historical, output_dir, run_dir))
         summaries.sort(key=lambda entry: entry[0]["created_at"] or 0)
-        total = len(summaries)
+        total = live_count + history_total
         if limit is not None:
             # the newest are the interesting ones and the list is oldest
             # first, so the cut comes off the front; max(0, ...) because a
             # bare negative start would be read from the end instead
-            summaries = summaries[max(0, total - limit) :] if limit else []
+            summaries = summaries[max(0, len(summaries) - limit) :] if limit else []
         return [self._current_note(*entry) for entry in summaries], total
 
     def _current_note(self, summary, output_dir, run_dir):

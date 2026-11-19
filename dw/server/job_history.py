@@ -452,6 +452,47 @@ class JobHistory:
         committed = [row["committed"] for row in rows if row["committed"] is not None]
         return (committed or [row["peak"] for row in rows]), bool(committed)
 
+    def _history_where(self, workspace, statuses):
+        """The WHERE clauses and params shared by the summary list and its
+        count, or None when the filter can match no closed row."""
+        params = []
+        clauses = []
+        if workspace:
+            clauses.append("workspace = ?")
+            params.append(workspace)
+        else:
+            clauses.append("workspace NOT LIKE ?")
+            params.append(f"%{DELETED_SUFFIX}")
+        # Closed rows only (the class docstring): asked for open states
+        # alone, history has nothing to add
+        if statuses:
+            statuses = [s for s in statuses if s not in _OPEN_STATES]
+            if not statuses:
+                return None
+            placeholders = ", ".join("?" for _ in statuses)
+            clauses.append(f"status IN ({placeholders})")
+            params.extend(statuses)
+        clauses.append(f"status NOT IN ({_OPEN_PLACEHOLDERS})")
+        params.extend(_OPEN_STATES)
+        return clauses, params
+
+    def count_summaries(self, workspace=None, statuses=None, exclude_ids=()):
+        """How many rows `recent_summaries` would match with no limit, not
+        counting `exclude_ids` (#1466)."""
+        where = self._history_where(workspace, statuses)
+        if where is None:
+            return 0
+        clauses, params = where
+        exclude_ids = list(exclude_ids)
+        if exclude_ids:
+            clauses.append(f"id NOT IN ({', '.join('?' for _ in exclude_ids)})")
+            params.extend(exclude_ids)
+        with self._lock, self._connect() as connection:
+            row = connection.execute(
+                "SELECT COUNT(*) FROM jobs WHERE " + " AND ".join(clauses), params
+            ).fetchone()
+        return row[0]
+
     def recent_summaries(self, limit=200, workspace=None, statuses=None):
         """Summary rows only - the jobs list is polled, and parsing four JSON
         blobs per row just to show six scalars was pure waste.
@@ -471,25 +512,10 @@ class JobHistory:
             " rerun_of"
             " FROM jobs"
         )
-        params = []
-        clauses = []
-        if workspace:
-            clauses.append("workspace = ?")
-            params.append(workspace)
-        else:
-            clauses.append("workspace NOT LIKE ?")
-            params.append(f"%{DELETED_SUFFIX}")
-        # Closed rows only (the class docstring): asked for open states
-        # alone, history has nothing to add
-        if statuses:
-            statuses = [s for s in statuses if s not in _OPEN_STATES]
-            if not statuses:
-                return []
-            placeholders = ", ".join("?" for _ in statuses)
-            clauses.append(f"status IN ({placeholders})")
-            params.extend(statuses)
-        clauses.append(f"status NOT IN ({_OPEN_PLACEHOLDERS})")
-        params.extend(_OPEN_STATES)
+        where = self._history_where(workspace, statuses)
+        if where is None:
+            return []
+        clauses, params = where
         if clauses:
             query += " WHERE " + " AND ".join(clauses)
         query += " ORDER BY created_at DESC LIMIT ?"
