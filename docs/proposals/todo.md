@@ -37,6 +37,13 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **Job-list rows say why a job ended, and a banner reruns a restart's
+  casualties** (#1449, stages #1472 and #1473), closed 2026-11-19. `GET
+  /api/jobs` and MCP `list_jobs` rows carry `reason` (the error's first line,
+  clipped at 160) and, on a restart tombstone, `restart_batch`. The jobs page
+  shows the reason under the workflow name, and a "N jobs were cancelled by a
+  server restart" banner previews and then confirms
+  `rerun-restart-batch`: `complete/job-row-reason-restart-banner-complete.md`.
 - **Run again with changes, and what a rerun changed** (#1448, stage #1471),
   closed 2026-11-19. The job page's "Run again with changes…" opens the run's
   variables with its values as placeholders and sends only what changed as rerun
