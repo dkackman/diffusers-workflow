@@ -37,6 +37,13 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **Run again with changes, and what a rerun changed** (#1448, stage #1471),
+  closed 2026-11-19. The job page's "Run again with changes…" opens the run's
+  variables with its values as placeholders and sends only what changed as rerun
+  `arguments`. Buttons offer the other values of each preset selector as
+  one-click promotions, and a `changed: …` chip beside "rerun of" names a
+  rerun's overrides. The jobs-list overrides were cut (they need a server
+  change): `complete/rerun-with-changes-complete.md`.
 - **The run form shows preset bundles and declared variable rules** (#1447,
   stages #1469 and #1470), closed 2026-11-19. Each declared
   `variable_constraints` rule and its reason shows under its field on the run
