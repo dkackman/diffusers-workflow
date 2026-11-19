@@ -112,6 +112,15 @@ def catalog_index(entries):
         ) <= STATUS_STRENGTH.get(status, weakest):
             continue
         index[key] = (name, tuple(workflows), status)
+    # An adapter that omits `weight_name` loads the repo's one default file, so
+    # a repo the catalog holds a single file of is keyed `(model_name, None)`.
+    # A repo with several files is ambiguous and is left out (#1489)
+    by_repo = {}
+    for (model_name, weight_name), value in index.items():
+        by_repo.setdefault(model_name, []).append(value)
+    for model_name, values in by_repo.items():
+        if len(values) == 1:
+            index[(model_name, None)] = values[0]
     return index
 
 
@@ -159,9 +168,16 @@ def _problems(workflow, weight_name, model_name=None, catalog=None):
     """Every (severity, message) for one adapter on one step; empty when
     the pairing is right. The catalog first, the file name second (the
     module docstring)."""
+    if weight_name is None:
+        # No file named: only the catalog's entry for the repo can say
+        found = (catalog or {}).get((model_name, None))
+        if found is None or found[2] != "proven":
+            return []
+        weight_name = model_name
+    else:
+        found = (catalog or {}).get((model_name, weight_name))
     trained = _trained_for(weight_name)
     wants = "reference" if workflow in REFERENCE_WORKFLOWS else "keyframe"
-    found = (catalog or {}).get((model_name, weight_name))
     decided = _catalog_partition(found[1]) if found else None
     if decided is None:
         problem = _filename_problem(workflow, weight_name, trained, wants)
@@ -252,13 +268,18 @@ def _lora_problems(steps, source_indices, written=None, supplied=(), catalog=Non
             weight_name = lora.get(WEIGHT_NAME_KEY)
             # Values another pass resolves; one still spelled out here is not
             # this pass's complaint
-            if not isinstance(weight_name, str) or references.is_ref(
+            if weight_name is None and isinstance(lora.get(MODEL_NAME_KEY), str):
+                path = render_path(("steps", source, "pipeline", LORAS_KEY, position))
+            elif not isinstance(weight_name, str) or references.is_ref(
                 references.UNRESOLVED, weight_name
             ):
                 continue
-            path = _path_for(written_steps, source, position, supplied) or render_path(
-                ("steps", source, "pipeline", LORAS_KEY, position, WEIGHT_NAME_KEY)
-            )
+            else:
+                path = _path_for(
+                    written_steps, source, position, supplied
+                ) or render_path(
+                    ("steps", source, "pipeline", LORAS_KEY, position, WEIGHT_NAME_KEY)
+                )
             for severity, message in _problems(
                 workflow, weight_name, lora.get(MODEL_NAME_KEY), catalog
             ):
