@@ -157,11 +157,18 @@ icon, a finish-alert toggle, the theme toggle, and links to these docs and
   segments inside its box, one chip per segment with what each seam carries.
   A variable declared `required: true` is marked required in the form.
   Clicking a step in the flow jumps
-  to it in the form. Validate, save and run from the same screen; a valid
-  verdict shows the run's plan - step and list counts, the estimate with its
-  basis, how many steps the step cache would serve, and the weights to
-  download first (`POST /api/validate`'s `plan`, rendered by
-  `ui/src/lib/plan.ts`).
+  to it in the form. Validate, save and run from the same screen; whenever
+  the answer carries a plan it is shown under the verdict - under the error
+  list too when the answer is invalid, as one naming a repo that isn't there
+  is. The plan reads: step and list counts; the estimate with its basis, the
+  card it is priced for, whether it is low confidence, blended toward the
+  curated figure, inherited from a template, or withheld (with the template
+  it was not priced from) or unpriced for a stated reason; the host RAM the
+  run is projected to hold (`host RAM ~N GB (observed | fit to N runs |
+  declared | inherited from the template)`); how many steps the step cache
+  would serve; and the weights to download first, a gated repo this box's
+  token can't reach or one that isn't found named as such (`POST
+  /api/validate`'s `plan`, rendered by `ui/src/lib/plan.ts`).
 
   ![The editor in split view: the variables as a form beside the workflow JSON](img/ui-editor.png)
 
