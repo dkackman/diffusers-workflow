@@ -35,7 +35,8 @@ from .. import get_device_type, references, validation
 from ..library import SubWorkflowNotFound, resolve_sub_workflow_reference
 from ..security import InvalidInputError, SecurityError, validate_ledger_key
 from ..notes import MAX_NOTE_LENGTH, NoteTooLong, clean_note
-from ..plan import build_plan, list_entries
+from ..plan import build_plan
+from ..plan_pricing import list_entries
 from ..plan_downloads import repos_named
 from ..prompts import resolve_prompt_reference
 from ..runs import (

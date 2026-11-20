@@ -14,7 +14,7 @@ import pytest
 import dw.media
 import dw.probe_paths
 from dw.cost_scaling import declared_reference_exponent, reference_scaling
-from dw.plan import _own_price
+from dw.plan_pricing import _own_price
 from dw.reference_limits import video_reference_frames
 from dw.vram_estimate import required_vram_gb, vram_estimate_errors
 

@@ -7,9 +7,13 @@ Queue order, except that a job too big for every free card keeps its place
 while a smaller one behind it takes the card (backfill), and a job that fits
 a free card is also held while the host's RAM can't hold it beside the
 running jobs (#869; the figure is `dw/server/host_ram_need.py`'s, the
-comparison `pool.host_ram_wait`).
+comparison `pool.host_ram_wait`). What a dispatch does to the other workers
+is here as well: the warm idle ones a held job asked released
+(`_release_idle_workers`, #1407) and the OOM-killer ranking set as a job
+starts (`_rank_for_oom`, #881).
 """
 
+import logging
 import time
 
 from ..host_memory import (
@@ -18,8 +22,10 @@ from ..host_memory import (
     device_term_mb,
     host_memory_stats,
 )
-from . import pool
+from . import pool, worker_memory
 from .job_record import QUEUED
+
+logger = logging.getLogger("dw")
 
 # How often a job held for host RAM is looked at again while nothing else
 # wakes the dispatcher - memory can be freed outside dw (#869)
@@ -119,6 +125,42 @@ class Dispatcher:
             claims = self._host_claims()
             with claims.lock():
                 claims.publish(self._running_claims())
+
+    def _rank_for_oom(self, slot, job=None):
+        """Score the dispatching worker 1000 for the kernel's OOM killer and
+        put every other live worker back to its spawn-time floor, on every
+        dispatch, so a host-RAM squeeze kills the newest job whatever the
+        workers' sizes (#881). The floor rather than 0: an unprivileged write
+        below it is refused (WorkerManager.reset_oom_score_adj). Nothing is
+        written while it is the only worker, so one card runs exactly as
+        before. A write the kernel refuses is a warning on the job, since a
+        tie at 1000 is the failure this exists to prevent."""
+        manager = slot.manager
+        if not hasattr(manager, "set_oom_score_adj"):
+            return
+        others = [
+            other.manager for other in self.slots if other is not slot and other.alive()
+        ]
+        if not others:
+            return
+        refused = []
+        if manager.set_oom_score_adj(1000) is False:
+            refused.append((manager, 1000))
+        for other in others:
+            if (
+                hasattr(other, "reset_oom_score_adj")
+                and other.reset_oom_score_adj() is False
+            ):
+                refused.append((other, other.oom_score_floor or 0))
+        for worker, value in refused:
+            message = (
+                f"Could not set oom_score_adj to {value} on the {worker.device} "
+                f"worker (pid {worker.pid()}): a host-RAM squeeze may not kill "
+                "the newest job first"
+            )
+            logger.warning(message)
+            if job is not None:
+                job.add_event({"event": "warning", "message": message})
 
     def _next_dispatch(self):
         """(slot, job) for the next job to start, or None - `_pick` under the
@@ -227,6 +269,37 @@ class Dispatcher:
         if job is not None:
             job.waiting_for = None
             job.wait_kind = None
+
+    def _release_idle_workers(self):
+        """Clear the warm idle workers held jobs asked released for host RAM
+        (#1407), say so on each job, and let the next pass re-check. Called
+        holding _wake; drops it while a worker clears (seconds)."""
+        asked, self._release_idle = self._release_idle, {}
+        self._wake.release()
+        try:
+            for job_id, cards in asked.items():
+                job = self.jobs.get(job_id)
+                for card in cards:
+                    self._released_at[id(card)] = time.time()
+                    try:
+                        worker_memory.clear_slot(card, self._lock, 30)
+                    except Exception as exc:
+                        logger.warning(
+                            "releasing %s for host RAM failed: %s", card.device, exc
+                        )
+                        continue
+                    if job is not None:
+                        job.add_event(
+                            {
+                                "event": "queue_wait",
+                                "reason": "host_ram",
+                                "message": f"released the warm models on {card.device} "
+                                "to free host RAM for this job; its next job there "
+                                "loads cold",
+                            }
+                        )
+        finally:
+            self._wake.acquire()
 
     def _held_for_host_ram(self):
         """The queued jobs held for host RAM now. Called holding _lock."""
