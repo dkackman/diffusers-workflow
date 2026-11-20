@@ -491,7 +491,7 @@ class TestRoutes:
             assert client.put(f"{URL}/A", json=plan()).status_code == 400
 
     @pytest.mark.parametrize(
-        "request_id", ["", "../x", "a/b", "/etc/hosts", "../../etc/hosts"]
+        "request_id", ["", "../x", "a/b", "/etc/hosts", "../../etc/hosts", "..", "."]
     )
     def test_an_id_with_a_slash_or_none_meets_the_id_rule(self, server, request_id):
         # The MCP client percent-encodes the id (api_path), and the router
