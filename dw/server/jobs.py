@@ -42,6 +42,7 @@ import time
 import uuid
 import logging
 import threading
+from collections import OrderedDict
 from contextlib import contextmanager
 
 from ..events import NON_INTERRUPTIBLE_PHASES
@@ -63,7 +64,7 @@ from .dispatch import Dispatcher
 from .job_history import JobHistory, close_dead_servers
 from .job_history import hold_server_lock
 from .job_history import release_server_lock
-from .outputs import job_run_directory, with_run_note, with_run_state
+from .outputs import job_run_directory, proof_output, with_run_note, with_run_state
 from .job_record import (
     ACK_NONE,
     CANCELLED,
@@ -84,6 +85,10 @@ logger = logging.getLogger("dw")
 # Finished jobs kept in memory for SSE replay grace; older ones live in
 # history only, so a long-running server's memory stays bounded
 TERMINAL_JOBS_KEPT = 20
+# Closed jobs whose proof output (`JobManager._proof`) is kept in memory: a
+# polled requests list then reads each manifest from history once, not once
+# per poll. About 150 bytes each.
+PROOFS_KEPT = 4096
 
 # How long a cancel waits for a worker in a phase with no checkpoint (a model
 # load, a task) before the worker is terminated (#892)
@@ -135,6 +140,7 @@ class JobManager(Dispatcher, Reruns):
         # Before the runner starts and before the app takes a request
         close_dead_servers(self.history, self.instance)
         self.jobs = {}
+        self._proofs = OrderedDict()
         # Reentrant: cancel() finishes a queued job while holding it, and
         # _finish's terminal-job trim needs it again on the same thread
         self._lock = threading.RLock()  # guards job state transitions
@@ -516,10 +522,12 @@ class JobManager(Dispatcher, Reruns):
     def request_jobs(self, workspace, request_id):
         """Every job linked to `request_id` in `workspace`, live queue and
         history, oldest first, as `{job, item, status, run_id, run_dir,
-        run_exists, started_at, finished_at, created_at, note}`.
+        run_exists, started_at, finished_at, created_at, note, output}`.
 
         `run_exists` is whether the job's run directory is still on disk -
-        the directory `delete_job_run` removes. One indexed history query."""
+        the directory `delete_job_run` removes. `output` is a callable
+        answering the job's `proof_output`, so no manifest is read for a
+        job nobody shows. One indexed history query."""
         found = {}
         for row in self.history.request_jobs(workspace, request_id):
             found[row["id"]] = self._linked(
@@ -568,7 +576,26 @@ class JobManager(Dispatcher, Reruns):
             "finished_at": row["finished_at"],
             "created_at": row["created_at"],
             "note": row["note"],
+            "output": lambda: self._proof(job_id),
         }
+
+    def _proof(self, job_id):
+        """A linked job's `proof_output`: a live job's from the manifest it
+        holds, a closed one's from its history row - read once and kept
+        (`PROOFS_KEPT` of them), since that row never changes."""
+        with self._lock:
+            job = self.jobs.get(job_id)
+            if job is None and job_id in self._proofs:
+                self._proofs.move_to_end(job_id)
+                return self._proofs[job_id]
+        if job is not None:
+            return proof_output(job.manifest)
+        proof = proof_output(self.history.manifest_of(job_id))
+        with self._lock:
+            self._proofs[job_id] = proof
+            while len(self._proofs) > PROOFS_KEPT:
+                self._proofs.popitem(last=False)
+        return proof
 
     def queue_position(self, job_id):
         """Index in the waiting queue, or None when the job is not queued."""

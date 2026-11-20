@@ -25,7 +25,7 @@ class JobTools:
         request: str | None = None,
     ) -> dict:
         """Queue a workflow for generation. This costs GPU time: a run
-        occupies a GPU for minutes and the engine runs one job per GPU.
+        occupies a GPU for minutes.
         Tell the user what will run and get their go-ahead, then pass
         acknowledged_cost as below. Returns as soon as the job is queued;
         follow it with `wait_for_job`, then `get_job` for the manifest - or
@@ -33,8 +33,7 @@ class JobTools:
         the job exactly as `wait_for_job(job_id,
         timeout_seconds=wait_seconds)` would ({cap}s cap per call) and adds
         its fields to the result (`still_running`, `waited_seconds`,
-        `timeout_*`, the slim `job`). If the cap covers the job's
-        runtime one call is enough; on `still_running: true` call
+        `timeout_*`, the slim `job`). On `still_running: true` call
         `wait_for_job` again. Give exactly one of `workflow_path` - a
         catalog name from `list_workflows`, with or without .json, or a
         path on the server - or `inline_workflow`, a full definition
@@ -146,8 +145,7 @@ class JobTools:
         One call blocks for at most {cap} seconds, whatever timeout_seconds
         asks for - this deployment's cap, set for the tool-call budget the
         client holds open; a larger value is clamped, not honoured, so
-        budget one call per {cap}s of the job, and one call is enough when
-        {cap} covers its runtime. Every reply says which happened:
+        budget one call per {cap}s of the job. Every reply says which happened:
         waited_seconds, timeout_requested_seconds, timeout_applied_seconds
         and timeout_capped. If the call dies client-side ("timed out"), call again
         with timeout_seconds ~60 and loop; progress survives, get_job loses it.
@@ -229,12 +227,11 @@ class JobTools:
     def export_job(self, job_id: str, overwrite: bool = False) -> dict:
         """Gather one finished job into a directory on the server: the
         realized workflow, the run's manifest, the job row, a README, and
-        copies of every asset it used, every earlier run's file it read and
+        every asset it used, every earlier run's file it read and
         every file it made. The export copies every output and input file
         rather than linking them, so a video job's export costs its size
-        again on the server's disk; `total_bytes` in the result reports
-        what was copied. Returns the directory, a zip URL, the file list
-        with sizes and the total. The three JSON files are in the zip, not
+        again on the server's disk (`total_bytes`). Returns the directory,
+        a zip URL, the file list with sizes and the total. The three JSON files are in the zip, not
         repeated here - get_job_workflow and get_job serve them individually.
         THE DIRECTORY IS ON THE MACHINE RUNNING THE SERVER, not on yours.
 

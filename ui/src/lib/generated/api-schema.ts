@@ -1859,6 +1859,7 @@ export interface paths {
         /**
          * List Requests
          * @description A workspace's requests, newest change first, without their items.
+         *     `unreadable` says why when requests.json is there but is not a ledger.
          */
         get: operations["list_requests_api_workspaces__name__requests_get"];
         put?: never;
@@ -1879,7 +1880,7 @@ export interface paths {
         /**
          * Get Request
          * @description One request: its plan, every item with its derived status, and its
-         *     history.
+         *     history. 409 `ledger_unreadable` when requests.json is not a ledger.
          */
         get: operations["get_request_api_workspaces__name__requests__request_id__get"];
         /**
@@ -1892,7 +1893,14 @@ export interface paths {
          */
         put: operations["put_request_api_workspaces__name__requests__request_id__put"];
         post?: never;
-        delete?: never;
+        /**
+         * Delete Request
+         * @description Remove one request from the ledger. Its linked jobs keep their
+         *     history rows, their `request`/`item` and their files. 409
+         *     `stale_revision` at another revision, 409 `request_has_active_jobs`
+         *     while a linked job is queued or running, 404 `unknown_request`.
+         */
+        delete: operations["delete_request_api_workspaces__name__requests__request_id__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -3118,6 +3126,8 @@ export interface components {
              * @description The job's note.
              */
             note?: string;
+            /** @description The job's first final image or video, else its first sound or text; null when it wrote none or its run is gone. */
+            output: components["schemas"]["LedgerOutput"] | null;
             /**
              * Status
              * @enum {string}
@@ -3130,6 +3140,25 @@ export interface components {
             at: string;
             /** Text */
             text: string;
+        };
+        /** LedgerDeleted */
+        LedgerDeleted: {
+            /** Deleted */
+            deleted: boolean;
+            /** Id */
+            id: string;
+            /**
+             * Linked Jobs
+             * @description Jobs linked to it; each keeps its row, link and files.
+             */
+            linked_jobs: number;
+            /**
+             * Revision
+             * @description The revision that was deleted.
+             */
+            revision: number;
+            /** Workspace */
+            workspace: string;
         };
         /** LedgerHistoryEntry */
         LedgerHistoryEntry: {
@@ -3147,6 +3176,12 @@ export interface components {
             goal?: string | null;
             /** Revision */
             revision: number;
+            /**
+             * State
+             * @description The state, when this revision set or changed it: who closed or reopened the request, when and why.
+             * @enum {string}
+             */
+            state?: "open" | "done" | "abandoned";
             /** Why */
             why: string;
         };
@@ -3177,6 +3212,11 @@ export interface components {
             estimate_minutes: number | null;
             /** Key */
             key: string;
+            /**
+             * Ready
+             * @description A job could be queued for it now: planned, with a stored workflow and every dependency done, in an open request.
+             */
+            ready: boolean;
             /** @description The accepted job's run, else the latest succeeded job's run whose directory still exists; null when neither. */
             result: components["schemas"]["LedgerResult"] | null;
             /**
@@ -3199,11 +3239,35 @@ export interface components {
         LedgerList: {
             /** Requests */
             requests: components["schemas"]["LedgerSummary"][];
+            /**
+             * Unreadable
+             * @description Why requests.json could not be read, when it is there but is not a ledger; `requests` is then empty and every write is 409 `ledger_unreadable` until the file is fixed or removed.
+             */
+            unreadable?: string;
             /** Workspace */
             workspace: string;
         };
+        /**
+         * LedgerOutput
+         * @description The one file that stands for a job: what a list shows as its proof.
+         */
+        LedgerOutput: {
+            /**
+             * Kind
+             * @description A thumbnail exists for image and video.
+             * @enum {string}
+             */
+            kind: "image" | "video" | "audio" | "text";
+            /**
+             * Name
+             * @description The file as the job's manifest and the gallery name it, relative to the workspace's outputs: `/api/gallery/{name}/thumbnail`.
+             */
+            name: string;
+        };
         /** LedgerRequest */
         LedgerRequest: {
+            /** @description The user's note on the whole request; an agent never writes it, and reads it on its next write. */
+            comment: components["schemas"]["LedgerComment"] | null;
             /** Goal */
             goal: string;
             /** History */
@@ -3241,15 +3305,26 @@ export interface components {
         LedgerResult: {
             /** Job */
             job: string;
+            output: components["schemas"]["LedgerOutput"] | null;
             /** Run Id */
             run_id: string | null;
         };
         /** LedgerSummary */
         LedgerSummary: {
+            /**
+             * Cover
+             * @description Up to three outputs of the latest results, newest first.
+             */
+            cover: components["schemas"]["LedgerOutput"][];
             /** Id */
             id: string;
             /** Items */
             items: number;
+            /**
+             * Ready
+             * @description Items a job could be queued for now.
+             */
+            ready: number;
             /** Remaining Minutes */
             remaining_minutes: number;
             /** Revision */
@@ -3909,6 +3984,13 @@ export interface components {
              */
             by: "agent" | "user";
             /**
+             * Comment
+             * @description The user's note on the whole request, at most 4,000 characters: text, or `{text}` as read. Left out, it is kept; null or blank clears it. An agent's write omits it
+             */
+            comment?: string | {
+                [key: string]: unknown;
+            } | null;
+            /**
              * Goal
              * @description What done looks like
              */
@@ -3925,6 +4007,11 @@ export interface components {
              * @description Create only
              */
             prompt?: string | null;
+            /**
+             * Purge
+             * @description Keys of stored items this plan leaves out, removed for good instead of kept as dropped; their jobs keep their link and files
+             */
+            purge?: string[] | null;
             /**
              * Revision
              * @description The revision read, or 0 to create
@@ -7390,6 +7477,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LedgerRequest"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_request_api_workspaces__name__requests__request_id__delete: {
+        parameters: {
+            query: {
+                /** @description The revision the request was read at */
+                revision: number;
+            };
+            header?: never;
+            path: {
+                name: string;
+                request_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LedgerDeleted"];
                 };
             };
             /** @description Validation Error */

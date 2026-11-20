@@ -308,34 +308,66 @@ A workspace keeps a ledger of what was asked of it: `requests.json` at the
 workspace root, holding `{"requests": {<id>: <request>}}`. A request is the
 user's `prompt` (set when the request is created, never changed after: a
 change is refused with 422 `prompt_is_write_once`), a `title`, a `goal`
-saying what done looks like, a `state` (`open`, `done`, `abandoned`), and an
-ordered plan of `items`. Only the server writes the file.
+saying what done looks like, a `state` (`open`, `done`, `abandoned`), the
+user's `comment` on the whole of it, and an ordered plan of `items`. Only
+the server writes the file.
 
 Read it with `get_request(request=None)` (MCP) or `GET
 /api/workspaces/{name}/requests[/{id}]`; write one request's whole plan with
-`set_request` or `PUT /api/workspaces/{name}/requests/{id}`:
+`set_request` or `PUT /api/workspaces/{name}/requests/{id}`; remove one with
+`delete_request` or `DELETE /api/workspaces/{name}/requests/{id}?revision=N`:
 
 - **Revisions.** Every write names the `revision` it was read at, or 0 to
   create. A write against any other revision is refused with 409
   `stale_revision`, carrying `current_revision`: read again, merge, write.
   Each write adds a history entry with `by` (`agent` over MCP, `user` from
-  the UI), its `why` (one line, at most 200 characters) and the time.
+  the UI), its `why` (one line, at most 200 characters) and the time, plus
+  the `goal` and the `state` when that write set or changed them.
+- **State.** Any write may set `state`, the user's as well as the agent's:
+  `open` to `done` or `abandoned`, one closed state to the other, and back
+  to `open`. Closing changes nothing else. A closed request takes no new
+  job (422 `request_closed`) until it is reopened, and stays writable.
 - **Items** are `{key, title, depends_on, estimate_minutes, workflow,
-  arguments, accepted, comment}`, matched across writes by `key`. An item
-  left out of a write is deleted, or kept as `dropped` (moved to the end)
-  when jobs link to it; writing a dropped key again un-drops it. Each item
-  reads back with derived fields (below). A field not listed is refused
-  on write, apart from the derived ones, which are ignored.
+  arguments, accepted, comment}`, matched across writes by `key`; the order
+  written is the order kept. An item left out of a write is deleted, or kept
+  as `dropped` (moved to the end) when jobs link to it; writing a dropped
+  key again, not dropped, brings it back with everything it held. Each item
+  reads back with derived fields (below). A field not listed is refused on
+  write, apart from the derived ones, which are ignored - so a plan can be
+  written back as it was read.
+- **`purge`** on a write lists keys of stored items the plan leaves out
+  that are to be removed for good instead of kept as dropped. Their jobs
+  keep their history rows, their link and their files; a key written again
+  later reads those jobs as its own. Naming an item the plan still lists,
+  or one that is not stored, is refused.
 - **`depends_on`** names other keys of the same request, at most 16, never
-  the item itself, and never in a cycle.
-- **`accepted`** names a succeeded job linked to that request and item: `{"job": "<id>"}` or the bare job id, stored as `{job, run_id}`.
-- **`comment`** is the user's: an agent's write that omits it keeps it.
+  the item itself, and never in a cycle. An item others still depend on
+  cannot be dropped.
+- **`accepted`** names a succeeded job linked to that request and item: `{"job": "<id>"}` or the bare job id, stored as `{job, run_id}`. It can be moved to another such job, or cleared with null.
+- **`comment`**, on an item and on the request, is the user's: `{text,
+  at}` on a read, plain text (or `{text}`) on a write, at most 4000
+  characters. Left out of a write it is kept, null or blank clears it, and
+  unchanged text keeps its time. An agent's write omits it or sends it back
+  as read - changing it is refused - and the agent reads both on its next
+  `get_request`, before it writes again.
 - **Keys** (request ids and item keys) match `^[a-z0-9][a-z0-9-]{0,63}$`.
 - **Caps.** Titles 200 characters, prompt and goal 20000, comment 4000;
-  200 items per request, 100 requests per workspace, about 2 MB for the
-  file; `estimate_minutes` 0 to 10000; `arguments` at most 64, scalar
-  values only, names as variable names, strings at most 20000. No text
-  carries control characters.
+  `estimate_minutes` 0 to 10000; `arguments` at most 64, scalar values
+  only, names as variable names, strings at most 20000. No text carries
+  control characters. A workspace holds 100 **open** requests and a request
+  200 **live** items: what is finished does not count against either.
+  Closed requests have their own cap of 1000 and a request's dropped items
+  theirs of 200 (409 `too_many_dropped_items`), and the whole file about
+  2 MB (413 `ledger_too_large`). Each refusal says what frees room: close
+  or delete a request (409 `ledger_full`), `purge` dropped items. A request
+  already open, or already closed, stays writable at its cap.
+- **Deleting** removes only the ledger entry, at the `revision` read (409
+  `stale_revision` otherwise; 404 `unknown_request`). Every linked job keeps
+  its history row, its `request`/`item` and its files, so the job and
+  gallery filters still find them, and a request written again under the
+  same id reads those jobs as its own. Refused with 409
+  `request_has_active_jobs` (naming them in `jobs`) while a linked job is
+  queued or running.
 
 **Linking jobs.** `run_workflow(request="<request-id>/<item-key>")` (or
 `request` and `item` in the `POST /api/jobs` body) links the job to that
@@ -343,19 +375,47 @@ item. The client refuses anything but exactly one `/` before any call; the
 server refuses 422, before anything queues, a half that isn't a valid key, or
 a link with `unknown_request`, `request_closed`, `unknown_item` or
 `item_dropped`. A rerun inherits the link; if it no longer admits, the rerun
-still queues and keeps the link, with a `rerun_ledger_link_<code>` warning. `get_job` and `list_jobs` show `request`/`item` on a linked job.
+still queues and keeps the link, with a `rerun_ledger_link_<code>` warning. `get_job` and `list_jobs` show `request`/`item` on a linked job, and
+`list_jobs(request=...)` and `list_gallery(request=...)` (`?request=&item=`
+over REST) keep one request's, or one item's, jobs and files.
+
+An item's `workflow` and `arguments` are stored, not run: nothing in the
+ledger queues a job. Running an item is an ordinary submit of those two
+values with the link, through the same admission as any other job - the
+arguments are checked against the workflow then, and a bound cost
+acknowledgement is checked against the plan `validate` answered.
 
 **Derived, never stored.** Each read works the item out from its linked
 jobs. `status` is the first that applies: `dropped`, `done` (a linked job
 succeeded), `running`, `queued`, `failed` (every linked job failed or was
-cancelled), `planned` (none). `attempts` lists the jobs oldest first as
-`{job, status, note?, minutes}`; `result` is the accepted job's `{job,
-run_id}`, else the latest succeeded job whose run still exists, else null;
-`accepted_missing: true` appears when the accepted job's run is gone.
-`spent_minutes` sums the attempts' minutes, per item and per request, and the
-request's `remaining_minutes` sums the estimates of items neither done nor
-dropped. To keep a take, read `get_request`, then write the plan back with
-`set_request` and that item's `accepted: {"job": "<id>"}`.
+cancelled), `planned` (none). `ready` is true when a job could be queued
+for the item now: it is `planned`, stores a `workflow`, every item it
+depends on is `done`, and the request is open. `attempts` lists the jobs
+oldest first as `{job, status, note?, minutes, output}`; `result` is the
+accepted job's `{job, run_id, output}`, else the latest succeeded job whose
+run still exists, else null; `accepted_missing: true` appears when the
+accepted job's run is gone. `output` is the one file that stands for the
+job, `{name, kind}` or null: the first image or video of its `final`
+entries, else their first sound or text, falling back on its other entries;
+`name` is the file as the job's manifest and the gallery name it (relative
+to the workspace's outputs, the name `GET /api/gallery/{name}/thumbnail`
+takes) and `kind` is `image`, `video`, `audio` or `text`. It is null for a
+job that wrote nothing the gallery shows, or whose run directory is gone.
+`spent_minutes` sums the attempts' minutes, per item and per request, and
+the request's `remaining_minutes` sums the estimates of items neither done
+nor dropped. A list row carries the counts by status, `ready` (how many
+items are), and `cover`: up to three `output`s of the latest results,
+newest first. To keep a take, read `get_request`, then write the plan back
+with `set_request` and that item's `accepted: {"job": "<id>"}`.
+
+**The file.** Every write holds a file lock beside the ledger
+(`.requests.json.lock`), so two servers on one workspace cannot lose each
+other's write; one that waits more than 10 seconds for it is refused with
+503 `ledger_busy`. The file is replaced atomically. A `requests.json` that
+is there but is not a ledger - unreadable, not JSON, or JSON of another
+shape - is never replaced: the list answers with `unreadable` saying why,
+and every other read and write, and any new link, is 409
+`ledger_unreadable` until the file is fixed or removed.
 
 A server started from loose directories has a default workspace with no
 root folder: its ledger reads as empty and a write is refused with 409
@@ -387,9 +447,19 @@ a workflow was saved.
 
 Reserved names, which no workspace can take: `workflows`, `prompts`,
 `assets`, `outputs`, `exports` (where `POST /api/jobs/{id}/export` gathers a
-job, `<root>/exports/<job id>/`), `common` and `loras` (the LoRA catalog,
-shared like `prompts/`). A pre-existing workspace named `loras` stops being
-listed, and the server logs a warning at start naming its directory.
+job, `<root>/exports/<job id>/`), `common`, `loras` (the LoRA catalog,
+shared like `prompts/`), and `requests.json` and `workspace.json` (the
+default workspace keeps its ledger and its note as files of those names at
+the root, where a workspace would be a folder). They are reserved in any
+letter case - `Requests.json` is the ledger file on macOS and Windows - and
+a folder at the root under one of them in another case is never listed as a
+workspace. A pre-existing workspace named `loras` stops being listed, and
+the server logs a warning at start naming its directory.
+
+A new workspace cannot take a name the root already holds in any letter
+case, whether that entry is a workspace, a plain folder or a file
+(`409`): `Shots` beside `shots` would be one folder on a case-insensitive
+disk, and a folder that is not a workspace is never taken over.
 
 **The shared asset library.** `common/assets/` holds assets that belong to
 no single workspace, such as a recurring cast's portraits and voice clips.
