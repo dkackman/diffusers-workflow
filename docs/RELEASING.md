@@ -131,6 +131,15 @@ server's runtime (#1445-#1456).
 - Requests pages in the UI: where each request stands and what needs you,
   each item's result, takes and minutes spent, and a note for the agent
   that it reads on its next write.
+- The request page edits the plan: accept a take as an item's result, drop
+  and restore items, reorder them by drag or keyboard, with undo. An edit
+  made while the agent rewrites the plan is applied on top when its item is
+  unchanged, asked about when it changed, and never sent as a stale plan.
+- The request page runs items: what is ready, one item, or another take of
+  a done one, each priced first in a dialog that says what will not run and
+  what becomes ready next; every job is linked to its item and bound to the
+  quoted plan. A request is marked done, abandoned or reopened from its
+  header.
 - The `script-to-video`, `storyboard`, `series-episodes` and `long-form`
   skills open a request for an ask of three or more jobs.
 

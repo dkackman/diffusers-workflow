@@ -325,6 +325,28 @@ icon, a finish-alert toggle, the theme toggle, and links to these docs and
   says only what the ledger shows - that the agent has, or has not, written
   since.
 
+  The page queues jobs only when you ask, and only after pricing them.
+  **Run {n} ready…** in the header takes every ready item; a ready row has
+  **Run…**, a failed or cancelled one whose dependencies are done **Run
+  again…**, and a done row's menu **Run another take…**. Each opens a dialog
+  that validates every item first (the spend button stays disabled until
+  each has its quote) and shows, per item, its workflow, the quote with what
+  it rests on, what the step cache would serve and what must be downloaded,
+  the plan's own estimate when the quote is more than a quarter off it, and
+  a warning when every step is cached - such a run reproduces the last take
+  rather than making a new one. **Will not run** lists the other items with
+  the reason each is left out (waits on another, no stored workflow, already
+  queued, would be refused), and **Afterwards** says which items become
+  ready once these finish - the page never starts them for you. On **Run
+  {n}** each item is submitted in plan order, linked to its item and with
+  the quoted plan as its cost acknowledgement; a row reads *queued* only
+  once the server has queued it, a price that moved since the quote is
+  re-priced on its row with **Run at this price**, and a refusal (the
+  request was closed, the item dropped) is said on its row.
+
+  The header's **more actions** menu marks the request **done**, **abandons**
+  or **reopens** it; nothing can be run on a closed request.
+
   The agent may rewrite the plan while you edit it. The page never sends
   back a plan it read earlier: it reads the request again and makes your
   change over that. When the item you changed is as you saw it, the change
