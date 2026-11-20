@@ -203,6 +203,92 @@ ledger.put_request(
     linked_jobs=jobs_linked,
 )
 
+# A second request, for the specs that edit a plan and queue from it
+# (accept, drop, restore, reorder, the conflict with an agent's write, the
+# run dialog), so the first stays as the read-only specs expect: `board` is
+# done with two succeeded takes and neither accepted; `shot` failed once;
+# `cut` waits on `shot`; `title` has never run and waits on nothing, so it
+# is ready; `score` failed once and nothing depends on it.
+EDIT_ID = "e2e-board"
+edit_linked = {
+    "board": [
+        {
+            "job": "e2ebrdtake01",
+            "status": "succeeded",
+            "run_id": "20260908-090000-0badf00d",
+        },
+        {
+            "job": "e2ebrdtake02",
+            "status": "succeeded",
+            "run_id": "20260908-093000-0badf00d",
+        },
+    ],
+    "shot": [{"job": "e2ebrdshot01", "status": "failed", "run_id": None}],
+    "score": [{"job": "e2ebrdscore1", "status": "failed", "run_id": None}],
+}
+with sqlite3.connect(history_db) as connection:
+    for key, jobs in edit_linked.items():
+        for index, job in enumerate(jobs):
+            done = job["status"] == "succeeded"
+            run = os.path.join("e2e-board", job["run_id"]) if done else None
+            if done:
+                os.makedirs(os.path.join(outputs, run))
+                with open(os.path.join(outputs, run, "board.png"), "wb") as handle:
+                    handle.write(ONE_PIXEL_PNG)
+            started = 1767398410.0 + 1800 * index
+            connection.execute(
+                "INSERT INTO jobs (id, workflow, status, created_at, started_at,"
+                " finished_at, arguments, spec, manifest, error, events, workspace,"
+                " run_id, run_dir, request, item)"
+                " VALUES (?, 'text-to-image', ?, ?, ?, ?, '{}', ?, ?, ?, '[]',"
+                " 'default', ?, ?, ?, ?)",
+                (
+                    job["job"],
+                    job["status"],
+                    started - 10,
+                    started,
+                    started + 60,
+                    json.dumps({"workflow_path": template, "workspace": "default"}),
+                    json.dumps(
+                        [
+                            {
+                                "step": "image",
+                                "files": [f"{run}/board.png"],
+                                "role": "final",
+                            }
+                        ]
+                        if done
+                        else []
+                    ),
+                    None if done else "e2e: this attempt failed",
+                    job["run_id"],
+                    run,
+                    EDIT_ID,
+                    key,
+                ),
+            )
+
+ledger.put_request(
+    scratch,
+    EDIT_ID,
+    {
+        "title": "E2E storyboard",
+        "goal": "A board, a shot and a cut",
+        "prompt": "storyboard the opening",
+        "why": "opened",
+        "revision": 0,
+        "items": [
+            plan_item("board", "Board sheet"),
+            plan_item("shot", "Opening shot", depends_on=["board"]),
+            plan_item("cut", "Final cut", depends_on=["shot"]),
+            plan_item("title", "Title card", estimate_minutes=3),
+            plan_item("score", "Score"),
+        ],
+    },
+    by="agent",
+    linked_jobs=lambda _request, key: edit_linked.get(key, []),
+)
+
 os.chdir(root)
 os.execv(
     sys.executable,

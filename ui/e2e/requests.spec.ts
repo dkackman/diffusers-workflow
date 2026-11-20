@@ -1,4 +1,10 @@
-import { expect, test, type Locator, type Page } from '@playwright/test'
+import {
+  expect,
+  test,
+  type APIRequestContext,
+  type Locator,
+  type Page,
+} from '@playwright/test'
 
 // The fixture seeds one request in the default workspace's ledger
 // (e2e/serve_fixture.py): `hero` is done, with two succeeded jobs that each
@@ -171,8 +177,13 @@ test('a done item shows its takes as pictures, the latest marked as the result',
     'href',
     '#/ws/default/jobs/e2ereqdone01',
   )
-  // nothing here accepts a take yet
-  await expect(hero.getByRole('button', { name: /accept/i })).toHaveCount(0)
+  // each good take can be made the result; none is yet
+  await expect(hero.getByRole('button', { name: /^Accept take/ })).toHaveCount(
+    2,
+  )
+  await expect(
+    hero.getByRole('button', { name: 'Accept take 1 for Hero poster' }),
+  ).toHaveAttribute('aria-pressed', 'false')
 })
 
 test('a note for the agent says nothing is sent, and is in the ledger after a reload', async ({
@@ -296,4 +307,255 @@ test("an item's jobs link narrows the Jobs page to that item", async ({
   await expect(page.getByTestId('req-filter')).toContainText(`${ID} › hero`)
   await expect(page.locator('.chip.succeeded')).toHaveCount(2)
   await expect(page.locator('.chip.failed')).toHaveCount(0)
+})
+
+// The specs below edit a plan, so they have a request of their own
+// (e2e/serve_fixture.py): `board` is done with two takes and neither
+// accepted, `shot` failed once, `cut` waits on `shot`, `title` has never
+// run and is ready, `score` failed once and nothing depends on it. They run
+// in order and each leaves the plan as the next expects it.
+const BOARD_ID = 'e2e-board'
+const BOARD = `/#/ws/default/requests/${BOARD_ID}`
+const BOARD_API = `/api/workspaces/default/requests/${BOARD_ID}`
+const boardRow = (page: Page, key: string) =>
+  page.locator(`li.item[data-key="${key}"]`)
+const written = (page: Page) =>
+  page.waitForResponse(
+    (r) => r.request().method() === 'PUT' && r.url().endsWith(BOARD_API),
+  )
+const order = (page: Page) =>
+  page
+    .locator('ol.items > li')
+    .evaluateAll((rows) => rows.map((row) => (row as HTMLElement).dataset.key))
+const ledger = async (request: APIRequestContext) =>
+  (await request.get(BOARD_API)).json()
+type Stored = { key: string; title: string; dropped: boolean }
+/** Write the plan as the agent would, between the page's read and its
+ * next write: the real route, `by: "agent"`. Answers the new revision. */
+async function asAgent(
+  request: APIRequestContext,
+  why: string,
+  change: (items: Stored[]) => Stored[],
+): Promise<number> {
+  const read = await ledger(request)
+  const response = await request.put(BOARD_API, {
+    data: {
+      title: read.title,
+      goal: read.goal,
+      revision: read.revision,
+      why,
+      by: 'agent',
+      items: change(read.items.filter((item: Stored) => !item.dropped)),
+    },
+  })
+  expect(response.status()).toBe(200)
+  return (await response.json()).revision
+}
+async function choose(page: Page, row: Locator, entry: string) {
+  await row.getByRole('button', { name: /^More actions for/ }).click()
+  await page.getByRole('dialog').getByRole('button', { name: entry }).click()
+}
+
+test('accepting a take is shown at once, is in the ledger, and the toast takes it back', async ({
+  page,
+  request,
+}) => {
+  await page.goto(BOARD)
+  const board = boardRow(page, 'board')
+  const first = board.getByRole('button', {
+    name: 'Accept take 1 for Board sheet',
+  })
+  await expect(first).toHaveAttribute('aria-pressed', 'false')
+  let put = written(page)
+  await first.click()
+  await expect(first).toHaveAttribute('aria-pressed', 'true')
+  await expect(first).toHaveText('Accepted')
+  expect((await put).status()).toBe(200)
+  await expect(board.locator('.row')).toContainText('accepted')
+  await expect(
+    board.locator('.strip .tile').nth(0).locator('.mark'),
+  ).toHaveText('accepted')
+  // the row stays open under the button, and focus stays on it
+  await expect(first).toBeFocused()
+  let stored = await ledger(request)
+  expect(stored.items[0].accepted.job).toBe('e2ebrdtake01')
+  expect(stored.history.at(-1)).toMatchObject({
+    by: 'user',
+    why: 'accept e2ebrdtake01 for board',
+  })
+
+  put = written(page)
+  await page
+    .getByRole('listitem')
+    .filter({ hasText: 'Accepted take 1 for Board sheet' })
+    .getByRole('button', { name: 'Undo' })
+    .click()
+  expect((await put).status()).toBe(200)
+  await expect(first).toHaveAttribute('aria-pressed', 'false')
+  stored = await ledger(request)
+  expect(stored.items[0].accepted).toBeNull()
+  await page.reload()
+  await expect(boardRow(page, 'board').locator('.row')).toContainText(
+    'latest, none accepted',
+  )
+})
+
+test('dropping an item others wait on says what it does to them, and Restore puts it all back', async ({
+  page,
+  request,
+}) => {
+  await page.goto(BOARD)
+  const shot = boardRow(page, 'shot')
+  const cut = boardRow(page, 'cut')
+  await expect(cut.locator('.row .chip')).toHaveText('waiting')
+  await expect(cut.locator('.row')).toContainText(
+    'waits on Opening shot (failed)',
+  )
+  await choose(page, shot, 'Drop from plan')
+  const confirm = page.getByRole('alertdialog')
+  await expect(confirm).toContainText(
+    'Final cut waits on this item. Dropping it removes that dependency, so it no longer waits for it.',
+  )
+  let put = written(page)
+  await confirm.getByRole('button', { name: 'Drop' }).click()
+  expect((await put).status()).toBe(200)
+  expect(await order(page)).toEqual(['board', 'cut', 'title', 'score'])
+  // the dependent no longer waits: with nothing else to wait on, it is ready
+  await expect(cut.locator('.row .chip')).toHaveText('ready')
+  await expect(cut.locator('.row')).not.toContainText('waits on')
+  let stored = await ledger(request)
+  expect(stored.items.find((i: Stored) => i.key === 'cut').depends_on).toEqual(
+    [],
+  )
+  expect(stored.items.at(-1)).toMatchObject({ key: 'shot', dropped: true })
+
+  // out of the plan, in the dropped group, with the way back
+  const group = page.locator('details.droppedgroup')
+  await expect(group.locator('summary')).toHaveText('Dropped (1)')
+  await group.locator('summary').click()
+  put = written(page)
+  await shot.getByRole('button', { name: 'Restore' }).click()
+  expect((await put).status()).toBe(200)
+  await expect(group).toHaveCount(0)
+  // its place and what waited on it, as they were
+  expect(await order(page)).toEqual(['board', 'shot', 'cut', 'title', 'score'])
+  await expect(cut.locator('.row')).toContainText(
+    'waits on Opening shot (failed)',
+  )
+  stored = await ledger(request)
+  expect(stored.items.find((i: Stored) => i.key === 'cut').depends_on).toEqual([
+    'shot',
+  ])
+  await page.reload()
+  expect(await order(page)).toEqual(['board', 'shot', 'cut', 'title', 'score'])
+})
+
+test('the handle reorders with the keys, in one write that a reload still shows', async ({
+  page,
+}) => {
+  await page.goto(BOARD)
+  const handle = page.locator('#req-item-title-handle')
+  await expect(handle).toHaveAccessibleName(
+    'Reorder Title card, position 4 of 5',
+  )
+  let puts = 0
+  page.on('request', (r) => {
+    if (r.method() === 'PUT' && r.url().endsWith(BOARD_API)) puts++
+  })
+  const put = written(page)
+  await handle.focus()
+  await page.keyboard.press('ArrowUp')
+  await page.keyboard.press('ArrowUp')
+  expect(await order(page)).toEqual(['board', 'title', 'shot', 'cut', 'score'])
+  // focus stays on the handle, which now says where the item is
+  await expect(handle).toBeFocused()
+  await expect(handle).toHaveAccessibleName(
+    'Reorder Title card, position 2 of 5',
+  )
+  await expect(page.getByTestId('request-live')).toHaveText(
+    'Title card moved to position 2 of 5.',
+  )
+  expect((await put).status()).toBe(200)
+  expect(puts).toBe(1)
+  await page.reload()
+  expect(await order(page)).toEqual(['board', 'title', 'shot', 'cut', 'score'])
+})
+
+test("an edit made over the agent's write goes on top of it, and the page says so", async ({
+  page,
+  request,
+}) => {
+  await page.goto(BOARD)
+  await expect(boardRow(page, 'cut').locator('.name')).toHaveText('Final cut')
+  // the agent rewrites the plan under the open page
+  const theirs = await asAgent(request, 'tightened the cut', (items) =>
+    items.map((item) =>
+      item.key === 'cut' ? { ...item, title: 'Final cut, tighter' } : item,
+    ),
+  )
+  const answers: number[] = []
+  page.on('response', (r) => {
+    if (r.request().method() === 'PUT' && r.url().endsWith(BOARD_API))
+      answers.push(r.status())
+  })
+  await choose(page, boardRow(page, 'score'), 'Move to top')
+  const notice = page.getByRole('status').filter({ hasText: 'applied on top' })
+  await expect(notice).toContainText(
+    `The agent changed the plan while you were editing (r${theirs}: 'tightened the cut'). Your change was applied on top.`,
+  )
+  // refused once as stale, then made over the plan as the agent left it
+  expect(answers).toEqual([409, 200])
+  expect(await order(page)).toEqual(['score', 'board', 'title', 'shot', 'cut'])
+  await expect(boardRow(page, 'cut').locator('.name')).toHaveText(
+    'Final cut, tighter',
+  )
+  const stored = await ledger(request)
+  expect(stored.items.map((i: Stored) => i.key).slice(0, 2)).toEqual([
+    'score',
+    'board',
+  ])
+  expect(stored.items.find((i: Stored) => i.key === 'cut').title).toBe(
+    'Final cut, tighter',
+  )
+  await notice.getByRole('button', { name: 'See changes' }).click()
+  await expect(page.locator(`#plan-change-r${theirs}`)).toBeFocused()
+  await notice.getByRole('button', { name: 'Dismiss' }).click()
+  await expect(notice).toHaveCount(0)
+})
+
+test('a drop of an item the agent changed is held back until the user answers', async ({
+  page,
+  request,
+}) => {
+  await page.goto(BOARD)
+  const score = boardRow(page, 'score')
+  await expect(score.locator('.name')).toHaveText('Score')
+  const theirs = await asAgent(request, 'strings only', (items) =>
+    items.map((item) =>
+      item.key === 'score' ? { ...item, title: 'Score, strings only' } : item,
+    ),
+  )
+  // a job is linked to it, nothing waits on it, nothing is running: no
+  // confirm - the drop goes straight out, and is refused as stale
+  await choose(page, score, 'Drop from plan')
+  const card = score.getByRole('alert')
+  await expect(card).toContainText(
+    `While you were dropping this, the agent changed it (r${theirs}: 'strings only'): it is now called Score, strings only.`,
+  )
+  // not dropped, and nothing written
+  await expect(score.locator('.name')).toHaveText('Score, strings only')
+  expect(await order(page)).toContain('score')
+  expect((await ledger(request)).revision).toBe(theirs)
+
+  const put = written(page)
+  await card.getByRole('button', { name: 'Drop anyway' }).click()
+  expect((await put).status()).toBe(200)
+  await expect(card).toHaveCount(0)
+  expect(await order(page)).toEqual(['board', 'title', 'shot', 'cut'])
+  const stored = await ledger(request)
+  expect(stored.items.at(-1)).toMatchObject({
+    key: 'score',
+    title: 'Score, strings only',
+    dropped: true,
+  })
 })
