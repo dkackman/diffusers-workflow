@@ -14,7 +14,7 @@ from dw.server.app import create_app
 from dw.server.jobs import JobManager
 from dw.workspace import REQUESTS_FILE_NAME, Workspace
 
-from .test_ledger import URL, plan, refused, write
+from .test_ledger import URL, item, plan, refused, write
 from .test_server import ScriptedWorkerManager, success_script
 
 
@@ -300,3 +300,166 @@ class TestDelete:
             ledger.delete_request(str(tmp_path), "cats", 1)
         assert e.value.code == "ledger_unreadable"
         assert (tmp_path / REQUESTS_FILE_NAME).read_text() == "[]"
+
+
+# --- caps that do not wedge a workspace ------------------------------------
+
+
+def _linked(*keys):
+    return lambda rid, key: (
+        [{"job": f"job-{key}", "status": "succeeded", "run_id": "r"}]
+        if key in keys
+        else []
+    )
+
+
+class TestCaps:
+    def test_closed_requests_do_not_count_toward_the_open_cap(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.setattr(ledger, "MAX_REQUESTS", 3)
+        for n in range(3):
+            write(tmp_path, plan(items=[]), request_id=f"r{n}")
+        error = refused(tmp_path, plan(items=[]), code="ledger_full")
+        assert error.status == 409 and "delete" in str(error)
+        write(tmp_path, plan(items=[], revision=1, state="done"), request_id="r0")
+        write(tmp_path, plan(items=[], revision=1, state="abandoned"), request_id="r1")
+        write(tmp_path, plan(items=[]))
+        write(tmp_path, plan(items=[]), request_id="more")
+        refused(tmp_path, plan(items=[]), code="ledger_full", request_id="again")
+        # reopening takes an open place too
+        refused(
+            tmp_path,
+            plan(items=[], revision=2, state="open"),
+            code="ledger_full",
+            request_id="r0",
+        )
+        # and an open request is still writable at the cap
+        assert write(tmp_path, plan(items=[], revision=1))["revision"] == 2
+
+    def test_closed_requests_have_their_own_higher_cap(self, tmp_path, monkeypatch):
+        assert ledger.MAX_CLOSED_REQUESTS >= 10 * ledger.MAX_REQUESTS
+        monkeypatch.setattr(ledger, "MAX_CLOSED_REQUESTS", 2)
+        for n in range(3):
+            write(tmp_path, plan(items=[]), request_id=f"r{n}")
+        for n in range(2):
+            write(
+                tmp_path, plan(items=[], revision=1, state="done"), request_id=f"r{n}"
+            )
+        error = refused(
+            tmp_path,
+            plan(items=[], revision=1, state="done"),
+            code="ledger_full",
+            request_id="r2",
+        )
+        assert "delete" in str(error)
+        refused(
+            tmp_path,
+            plan(items=[], state="abandoned"),
+            code="ledger_full",
+            request_id="new",
+        )
+        # deleting one makes room, and a closed request stays writable
+        ledger.delete_request(str(tmp_path), "r0", 2)
+        write(tmp_path, plan(items=[], revision=1, state="done"), request_id="r2")
+        write(tmp_path, plan(items=[], revision=2, state="abandoned"), request_id="r1")
+
+    def test_dropped_items_do_not_count_toward_the_item_cap(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.setattr(ledger, "MAX_ITEMS", 3)
+        linked = _linked("a", "b", "c")
+        write(tmp_path, plan(items=[item("a"), item("b"), item("c")]))
+        view = write(
+            tmp_path,
+            plan(revision=1, items=[item("d"), item("e"), item("f")]),
+            linked_jobs=linked,
+        )
+        assert [(i["key"], i["dropped"]) for i in view["items"]] == [
+            ("d", False),
+            ("e", False),
+            ("f", False),
+            ("a", True),
+            ("b", True),
+            ("c", True),
+        ]
+        # the plan as read - dropped items and all - writes back
+        again = write(
+            tmp_path, plan(revision=2, items=view["items"]), linked_jobs=linked
+        )
+        assert len(again["items"]) == 6
+        refused(
+            tmp_path,
+            plan(revision=3, items=[item(k) for k in "defg"]),
+            linked_jobs=linked,
+        )
+
+    def test_dropped_items_have_a_cap_that_purge_relieves(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(ledger, "MAX_DROPPED_ITEMS", 2)
+        linked = _linked("a", "b", "c")
+        write(tmp_path, plan(items=[item("a"), item("b"), item("c"), item("d")]))
+        error = refused(
+            tmp_path,
+            plan(revision=1, items=[item("d")]),
+            code="too_many_dropped_items",
+            linked_jobs=linked,
+        )
+        assert error.status == 409 and "purge" in str(error)
+        view = write(
+            tmp_path,
+            plan(revision=1, items=[item("d")], purge=["a"]),
+            linked_jobs=linked,
+        )
+        assert [(i["key"], i["dropped"]) for i in view["items"]] == [
+            ("d", False),
+            ("b", True),
+            ("c", True),
+        ]
+        # an item already dropped is purged the same way
+        view = write(
+            tmp_path,
+            plan(revision=2, items=[item("d")], purge=["b"]),
+            linked_jobs=linked,
+        )
+        assert [i["key"] for i in view["items"]] == ["d", "c"]
+
+    def test_purge_names_only_items_leaving_the_plan(self, tmp_path):
+        write(tmp_path, plan(items=[item("a"), item("b")]))
+        refused(tmp_path, plan(revision=1, items=[item("a")], purge=["a"]))
+        refused(tmp_path, plan(revision=1, items=[item("a")], purge=["nope"]))
+        refused(tmp_path, plan(revision=1, items=[item("a")], purge="b"))
+        refused(tmp_path, plan(revision=1, items=[item("a")], purge=["B!"]))
+        assert write(tmp_path, plan(revision=1, items=[item("a")], purge=["b"]))
+
+    def test_a_purged_key_written_again_reads_its_jobs(self, tmp_path):
+        linked = _linked("a")
+        jobs = [
+            {"job": "job-a", "item": "a", "status": "succeeded", "run_exists": True}
+        ]
+        write(tmp_path, plan(items=[item("a"), item("b")]))
+        write(
+            tmp_path,
+            plan(revision=1, items=[item("b")], purge=["a"]),
+            linked_jobs=linked,
+        )
+        view = write(
+            tmp_path,
+            plan(revision=2, items=[item("a"), item("b")]),
+            linked_jobs=linked,
+            jobs_for=lambda rid: jobs,
+        )
+        assert view["items"][0]["status"] == "done"
+
+    def test_the_file_cap_says_what_frees_room(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(ledger, "MAX_FILE_BYTES", 2000)
+        error = refused(tmp_path, plan(goal="x" * 4000), code="ledger_too_large")
+        assert "delete" in str(error) and "purge" in str(error)
+        assert ledger.MAX_FILE_BYTES == 2000  # the real one is pinned in test_ledger
+
+    def test_purge_over_http(self, client):
+        assert client.put(f"{URL}/cats", json=plan()).status_code == 200
+        r = client.put(f"{URL}/cats", json=plan(revision=1, items=[], purge=["a", "b"]))
+        assert r.status_code == 200, r.text
+        assert r.json()["items"] == []
+        bad = client.put(f"{URL}/cats", json=plan(revision=2, items=[], purge=["a"]))
+        assert bad.status_code == 400

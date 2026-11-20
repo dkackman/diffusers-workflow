@@ -52,8 +52,14 @@ from .workspace import REQUESTS_FILE_NAME, REQUESTS_LOCK_NAME
 MAX_TITLE_LENGTH = 200
 MAX_WHY_LENGTH = 200
 MAX_TEXT_LENGTH = MAX_VARIABLE_VALUE_LENGTH  # prompt, goal
-MAX_ITEMS = 200
-MAX_REQUESTS = 100
+# Caps that never wedge a workspace: only what is still in play counts
+# toward the working caps (live items, open requests), and what is finished
+# has a far higher cap of its own with a way out - a closed request is
+# deleted, a dropped item is purged. MAX_FILE_BYTES bounds the whole file.
+MAX_ITEMS = 200  # live items of one request
+MAX_DROPPED_ITEMS = 200  # dropped items of one request
+MAX_REQUESTS = 100  # open requests of one workspace
+MAX_CLOSED_REQUESTS = 1000  # done and abandoned ones
 MAX_DEPENDS_ON = 16
 MAX_ESTIMATE_MINUTES = 10_000
 MAX_ARGUMENTS = 64
@@ -644,7 +650,7 @@ def _no_links(_request_id, _key):
 
 
 _BODY_FIELDS = frozenset(
-    ("title", "goal", "items", "revision", "why", "prompt", "state")
+    ("title", "goal", "items", "revision", "why", "prompt", "state", "purge")
 )
 
 
@@ -670,9 +676,13 @@ def _check_body(body):
     raw_items = body.get("items")
     if not isinstance(raw_items, list):
         raise LedgerError("items must be a list")
-    if len(raw_items) > MAX_ITEMS:
+    if len(raw_items) > MAX_ITEMS + MAX_DROPPED_ITEMS:
         raise LedgerError(f"at most {MAX_ITEMS} items, got {len(raw_items)}")
+    purge = body.get("purge") or []
+    if not isinstance(purge, list) or len(purge) > MAX_ITEMS + MAX_DROPPED_ITEMS:
+        raise LedgerError("purge must be a list of item keys")
     return {
+        "purge": [_key(key, "purge key") for key in purge],
         "revision": revision,
         "title": _text(body.get("title"), "title", MAX_TITLE_LENGTH, one_line=True),
         "goal": _text(body.get("goal"), "goal", MAX_TEXT_LENGTH, allow_empty=True),
@@ -697,14 +707,12 @@ def _check_against(requests, request_id, write):
             code="stale_revision",
             current_revision=current_revision,
         )
-    if current is None:
-        if len(requests) >= MAX_REQUESTS:
-            raise LedgerError(
-                f"a workspace holds at most {MAX_REQUESTS} requests",
-                status=409,
-                code="ledger_full",
-            )
-    elif write["prompt"] is not None and write["prompt"] != current.get("prompt"):
+    _check_room(requests, current, write["state"])
+    if (
+        current is not None
+        and write["prompt"] is not None
+        and write["prompt"] != current.get("prompt")
+    ):
         raise LedgerError(
             "prompt is write-once: it is the ask that started the request "
             "and was set when it was created",
@@ -712,6 +720,33 @@ def _check_against(requests, request_id, write):
             code="prompt_is_write_once",
         )
     return current
+
+
+def _check_room(requests, current, state):
+    """Refuse (409 `ledger_full`) a write that would add an open request
+    past MAX_REQUESTS or a closed one past MAX_CLOSED_REQUESTS. Only a
+    request entering a side counts - creating, closing, reopening - so one
+    already there stays writable at the cap."""
+    was = current.get("state") if current else None
+    state = state or was or "open"
+    is_open = state == "open"
+    if was is not None and (was == "open") == is_open:
+        return
+    held = sum((r.get("state") == "open") == is_open for r in requests.values())
+    if is_open and held >= MAX_REQUESTS:
+        raise LedgerError(
+            f"a workspace holds at most {MAX_REQUESTS} open requests - close "
+            "one (state done or abandoned) or delete one to make room",
+            status=409,
+            code="ledger_full",
+        )
+    if not is_open and held >= MAX_CLOSED_REQUESTS:
+        raise LedgerError(
+            f"a workspace holds at most {MAX_CLOSED_REQUESTS} done or "
+            "abandoned requests - delete one to make room",
+            status=409,
+            code="ledger_full",
+        )
 
 
 def _depends_on(raw, key):
@@ -748,9 +783,21 @@ def _item(raw, key, previous, linked, by, at):
     }
 
 
-def _merge_items(raw_items, current, request_id, linked_jobs, by, at):
+def _check_purge(purge, stored, listed):
+    for key in purge:
+        if key in listed:
+            raise LedgerError(
+                f"purge names {key!r}, which this plan still lists - leave it "
+                "out of items to purge it"
+            )
+        if key not in stored:
+            raise LedgerError(f"purge names {key!r}, which is not an item")
+
+
+def _merge_items(raw_items, current, request_id, linked_jobs, by, at, purge=()):
     """The plan's items in its order, then every stored item it no longer
-    lists that jobs link to, as dropped; one no job links to is deleted."""
+    lists that jobs link to, as dropped; one no job links to, or named in
+    `purge`, is deleted. Live and dropped items are capped apart."""
     stored = {item.get("key"): item for item in (current or {}).get("items", [])}
     live, seen = [], set()
     for raw in raw_items:
@@ -770,21 +817,29 @@ def _merge_items(raw_items, current, request_id, linked_jobs, by, at):
         previous = stored.get(key) or {}
         live.append(_item(raw, key, previous, linked_jobs(request_id, key), by, at))
     listed = {item["key"] for item in live}
+    _check_purge(purge, stored, listed)
     dropped = [
         {**item, "dropped": True}
         for key, item in stored.items()
-        if key not in listed and linked_jobs(request_id, key)
+        if key not in listed and key not in purge and linked_jobs(request_id, key)
     ]
-    items = live + dropped
-    if len(items) > MAX_ITEMS:
+    if len(live) > MAX_ITEMS:
         raise LedgerError(
-            f"at most {MAX_ITEMS} items, counting dropped ones; got {len(items)}"
+            f"at most {MAX_ITEMS} items, not counting dropped ones; got {len(live)}"
+        )
+    if len(dropped) > MAX_DROPPED_ITEMS:
+        raise LedgerError(
+            f"at most {MAX_DROPPED_ITEMS} dropped items, got {len(dropped)} - "
+            "name the ones to remove for good in `purge` (their jobs keep "
+            "their history, link and files)",
+            status=409,
+            code="too_many_dropped_items",
         )
     # The live plan only: a dropped item keeps the depends_on it was stored
     # with and no write can edit it, so checking it would hold its
     # dependency in the plan for good
     _check_dependencies(live)
-    return items
+    return live + dropped
 
 
 def _history(current, write, revision, by, at):
@@ -803,7 +858,8 @@ def put_request(
     """Write one request's whole plan and return its view.
 
     `body` holds title, goal, items, revision and why, and optionally
-    prompt and state. `linked_jobs(request_id, key)` lists the jobs linked
+    prompt, state and `purge` (keys of items this plan leaves out, removed
+    for good even though jobs link to them). `linked_jobs(request_id, key)` lists the jobs linked
     to an item as `{job, status, run_id}`; `accepted` must name one of them
     that succeeded. `jobs_for(request_id)` lists every job linked to the request, for
     the returned view's derived fields.
@@ -834,7 +890,13 @@ def put_request(
             "prompt": current.get("prompt") if current else write["prompt"],
             "goal": write["goal"],
             "items": _merge_items(
-                write["items"], current, request_id, linked_jobs, by, at
+                write["items"],
+                current,
+                request_id,
+                linked_jobs,
+                by,
+                at,
+                write["purge"],
             ),
             "history": _history(current, write, revision, by, at),
         }
@@ -844,8 +906,8 @@ def put_request(
         if size > MAX_FILE_BYTES:
             raise LedgerError(
                 f"{REQUESTS_FILE_NAME} would be {size} bytes, past its "
-                f"{MAX_FILE_BYTES}-byte cap - shorten the plan's text "
-                "or arguments",
+                f"{MAX_FILE_BYTES}-byte cap - shorten the plan's text or "
+                "arguments, purge dropped items or delete a closed request",
                 status=413,
                 code="ledger_too_large",
             )

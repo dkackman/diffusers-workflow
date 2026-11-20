@@ -4815,6 +4815,21 @@
             "description": "Create only",
             "title": "Prompt"
           },
+          "purge": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Keys of stored items this plan leaves out, removed for good instead of kept as dropped; their jobs keep their link and files",
+            "title": "Purge"
+          },
           "revision": {
             "description": "The revision read, or 0 to create",
             "title": "Revision",

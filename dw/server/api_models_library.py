@@ -477,6 +477,11 @@ class RequestWrite(BaseModel):
     why: str = Field(description=f"One line, at most {MAX_WHY_LENGTH}")
     prompt: str | None = Field(default=None, description="Create only")
     state: Literal["open", "done", "abandoned"] | None = None
+    purge: list[str] | None = Field(
+        default=None,
+        description="Keys of stored items this plan leaves out, removed for "
+        "good instead of kept as dropped; their jobs keep their link and files",
+    )
     by: Literal["agent", "user"] = Field(
         default="user", description="Who wrote this revision; the UI is the user"
     )

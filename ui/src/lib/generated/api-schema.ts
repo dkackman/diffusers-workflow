@@ -3958,6 +3958,11 @@ export interface components {
              */
             prompt?: string | null;
             /**
+             * Purge
+             * @description Keys of stored items this plan leaves out, removed for good instead of kept as dropped; their jobs keep their link and files
+             */
+            purge?: string[] | null;
+            /**
              * Revision
              * @description The revision read, or 0 to create
              */
