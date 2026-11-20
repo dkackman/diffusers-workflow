@@ -3,7 +3,7 @@
 // the generated response types do not name.
 import type { LedgerItem, LedgerRequest, WorkflowDefinition } from './types'
 import { getApiToken } from './token'
-import { ApiError, errorDetail } from './apiErrors'
+import { ApiError, errorCode, errorDetail } from './apiErrors'
 import { scoped } from './apiUrls'
 
 /** A request with the bearer token, scoped to the picker's workspace
@@ -23,12 +23,15 @@ async function send(
   })
   if (!response.ok) {
     let detail = response.statusText
+    let code: string | undefined
     try {
-      detail = errorDetail(await response.json(), detail)
+      const payload = await response.json()
+      detail = errorDetail(payload, detail)
+      code = errorCode(payload)
     } catch {
       /* not json */
     }
-    throw new ApiError(detail, response.status)
+    throw new ApiError(detail, response.status, code)
   }
   return response
 }

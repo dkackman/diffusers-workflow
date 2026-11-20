@@ -8,6 +8,7 @@ import {
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import RequestPage from './RequestPage.svelte'
 import { workspace } from '../workspaceState.svelte'
+import { IDLE_MS } from '../request/refresh'
 import type { LedgerRequest } from '../types'
 
 const data = vi.hoisted(() => ({
@@ -16,15 +17,8 @@ const data = vi.hoisted(() => ({
   getJob: vi.fn(),
   putRequest: vi.fn(),
 }))
-vi.mock('../api', () => ({
-  ApiError: class ApiError extends Error {
-    status: number
-    constructor(message: string, status = 500) {
-      super(message)
-      this.name = 'ApiError'
-      this.status = status
-    }
-  },
+vi.mock('../api', async () => ({
+  ApiError: (await import('../apiErrors')).ApiError,
   outputUrl: (path: string) => `/outputs/${path}`,
   api: {
     getRequest: vi.fn(async () => {
@@ -107,7 +101,10 @@ beforeEach(() => {
   })
   data.putRequest.mockReset()
 })
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  vi.useRealTimers()
+})
 
 it('renders the ask, items in order with badges, attempts, totals and history', async () => {
   const { container } = render(RequestPage, { requestId: 'r1' })
@@ -192,6 +189,7 @@ it('a stale write shows the message and keeps the draft', async () => {
     new ApiError(
       'This request changed since you opened it (now revision 5) — reload to see it',
       409,
+      'stale_revision',
     ),
   )
   render(RequestPage, { requestId: 'r1' })
@@ -216,4 +214,150 @@ it('links to its jobs and outputs through the req filter', async () => {
   expect(screen.getByText('its outputs').getAttribute('href')).toBe(
     `#/ws/${workspace.current}/gallery?req=r1`,
   )
+})
+
+it('drops a request that lands after the page moved to another', async () => {
+  const { api } = await import('../api')
+  let land: (reply: unknown) => void = () => {}
+  vi.mocked(api.getRequest).mockImplementationOnce(
+    () => new Promise((resolve) => (land = resolve)) as never,
+  )
+  const view = render(RequestPage, { requestId: 'r1' })
+  data.request = { ...make(), id: 'r2', title: 'Second ask' }
+  await view.rerender({ requestId: 'r2' })
+  await screen.findByText('Second ask')
+  land(make())
+  await new Promise((r) => setTimeout(r, 10))
+  expect(screen.queryByText('Launch posters')).toBeNull()
+  expect(screen.getByText('Second ask')).toBeTruthy()
+})
+
+// Only the interval is faked, so findBy/waitFor keep their own real timers
+const fakeInterval = () =>
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+
+it('refreshes an idle open request, and a comment draft survives it', async () => {
+  fakeInterval()
+  const { api } = await import('../api')
+  render(RequestPage, { requestId: 'r1' })
+  await fireEvent.click(await openComment('Add comment'))
+  const box = screen.getByLabelText('Comment on b')
+  await fireEvent.input(box, { target: { value: 'half a thought' } })
+  // The agent rewrites the plan and queues the first job of item b
+  const next = make()
+  next.revision = 4
+  next.items[1].status = 'queued'
+  data.request = next
+  const calls = vi.mocked(api.getRequest).mock.calls.length
+  vi.advanceTimersByTime(IDLE_MS)
+  await screen.findByText('revision 4')
+  expect(vi.mocked(api.getRequest).mock.calls.length).toBe(calls + 1)
+  await waitFor(() =>
+    expect(
+      [...document.querySelectorAll('.item .status')].map((e) => e.textContent),
+    ).toEqual(['done', 'queued']),
+  )
+  expect(
+    (screen.getByLabelText('Comment on b') as HTMLTextAreaElement).value,
+  ).toBe('half a thought')
+  // and the save goes at the refreshed revision, not the one first read
+  data.putRequest.mockImplementation((_ws, _id, body) =>
+    Promise.resolve({ ...next, revision: body.revision + 1 }),
+  )
+  await fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+  await waitFor(() => expect(data.putRequest).toHaveBeenCalled())
+  expect(data.putRequest.mock.calls[0][2].revision).toBe(4)
+})
+
+it('does not refresh a closed request with nothing in flight', async () => {
+  fakeInterval()
+  const { api } = await import('../api')
+  data.request = { ...make(), state: 'done' }
+  render(RequestPage, { requestId: 'r1' })
+  await screen.findByText('Launch posters')
+  const calls = vi.mocked(api.getRequest).mock.calls.length
+  vi.advanceTimersByTime(IDLE_MS * 3)
+  expect(vi.mocked(api.getRequest).mock.calls.length).toBe(calls)
+})
+
+it('a refresh sent before a save and answered after it does not undo the save', async () => {
+  fakeInterval()
+  const { api } = await import('../api')
+  render(RequestPage, { requestId: 'r1' })
+  await fireEvent.click(await openComment('Add comment'))
+  // The refresh goes out and hangs
+  let land: (reply: unknown) => void = () => {}
+  vi.mocked(api.getRequest).mockImplementationOnce(
+    () => new Promise((resolve) => (land = resolve)) as never,
+  )
+  vi.advanceTimersByTime(IDLE_MS)
+  // The save lands first, at revision 4
+  const saved = make()
+  saved.revision = 4
+  saved.items[1].comment = { text: 'more red', at: '2026-01-04T00:00:00Z' }
+  data.putRequest.mockResolvedValue(saved)
+  await fireEvent.input(screen.getByLabelText('Comment on b'), {
+    target: { value: 'more red' },
+  })
+  await fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+  await screen.findByText('revision 4')
+  // then the refresh, still carrying revision 3 and no comment
+  land(make())
+  await new Promise((r) => setTimeout(r, 10))
+  expect(screen.getByText('revision 4')).toBeTruthy()
+  expect(screen.getByText('more red')).toBeTruthy()
+})
+
+it('a reload that fails keeps the request and the draft', async () => {
+  const { ApiError } = await import('../api')
+  const { notify } = await import('../toast')
+  data.putRequest.mockRejectedValue(
+    new ApiError('now revision 5', 409, 'stale_revision'),
+  )
+  render(RequestPage, { requestId: 'r1' })
+  await fireEvent.click(await openComment('Add comment'))
+  await fireEvent.input(screen.getByLabelText('Comment on b'), {
+    target: { value: 'my draft' },
+  })
+  await fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+  data.getError = { status: 503, message: 'busy' }
+  await fireEvent.click(await screen.findByRole('button', { name: 'Reload' }))
+  await waitFor(() =>
+    expect(notify.error).toHaveBeenCalledWith(
+      'Could not reload the request: busy',
+    ),
+  )
+  expect(
+    (screen.getByLabelText('Comment on b') as HTMLTextAreaElement).value,
+  ).toBe('my draft')
+  expect(screen.getByText('Launch posters')).toBeTruthy()
+})
+
+it('a reload answered after a save does not undo the save', async () => {
+  const { ApiError, api } = await import('../api')
+  data.putRequest.mockRejectedValueOnce(
+    new ApiError('now revision 3', 409, 'stale_revision'),
+  )
+  render(RequestPage, { requestId: 'r1' })
+  await fireEvent.click(await openComment('Add comment'))
+  await fireEvent.input(screen.getByLabelText('Comment on b'), {
+    target: { value: 'more red' },
+  })
+  await fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+  // The reload goes out and hangs; the second save lands first
+  let land: (reply: unknown) => void = () => {}
+  vi.mocked(api.getRequest).mockImplementationOnce(
+    () => new Promise((resolve) => (land = resolve)) as never,
+  )
+  await fireEvent.click(await screen.findByRole('button', { name: 'Reload' }))
+  const saved = make()
+  saved.revision = 4
+  saved.items[1].comment = { text: 'more red', at: '2026-01-04T00:00:00Z' }
+  data.putRequest.mockResolvedValue(saved)
+  await fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+  await screen.findByText('revision 4')
+  land(make())
+  await new Promise((r) => setTimeout(r, 10))
+  expect(screen.getByText('revision 4')).toBeTruthy()
+  expect(screen.getByText('more red')).toBeTruthy()
 })

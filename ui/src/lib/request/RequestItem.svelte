@@ -1,10 +1,12 @@
 <script lang="ts">
-  import { api, ApiError, outputUrl } from '../api'
+  import { api, outputUrl } from '../api'
+  import { confirmDialog } from '../confirm.svelte'
+  import { draftAtRisk, saveFailure } from './draft'
   import { notify } from '../toast'
   import { formatExact, formatMinutes } from '../format'
-  import { firstImage } from '../requestResult'
+  import { resultProof } from '../requestResult'
   import { wsHref } from '../routes'
-  import type { LedgerItem } from '../types'
+  import type { JobDetail, LedgerItem } from '../types'
 
   let {
     item,
@@ -16,54 +18,82 @@
     workspace: string
     /** Store the comment (null clears it); rejects with the server's error */
     onsave: (text: string | null) => Promise<void>
+    /** Read the request again, after a save found it had moved on */
     onreload: () => void
   } = $props()
 
-  // The thumbnail is the result job's first image, fetched once per job
-  let thumb = $state<{ src: string; job: string } | null>(null)
+  // The picture that stands for the result job (resultProof): looked up
+  // once per job id, and "this job has none" is remembered like a picture
+  // is - a refresh hands over a new, equal `item`, and must not ask again
+  let proof = $state<{ job: string; src: string | null } | null>(null)
+  const resultJob = $derived(item.result?.job)
   $effect(() => {
-    const job = item.result?.job
+    const job = resultJob
     if (!job) {
-      thumb = null
+      proof = null
       return
     }
-    if (thumb?.job === job) return
+    if (proof?.job === job) return
     let live = true
-    api
-      .getJob(job)
-      .then((detail) => {
-        if (!live) return
-        const file = firstImage(detail)
-        thumb = file
-          ? { job, src: outputUrl(file, detail.id, detail.workspace) }
-          : null
-      })
-      .catch(() => {
-        if (live) thumb = null
-      })
+    api.getJob(job).then(
+      (detail) => {
+        if (live) proof = { job, src: proofSrc(detail) }
+      },
+      () => {
+        if (live) proof = { job, src: null }
+      },
+    )
     return () => (live = false)
   })
+  // Until the new result job's own picture is found, the last one's is not
+  // shown under a link to this one
+  const picture = $derived(proof && proof.job === resultJob ? proof.src : null)
+  function proofSrc(detail: JobDetail): string | null {
+    const found = resultProof(detail)
+    if (!found) return null
+    return found.kind === 'image'
+      ? outputUrl(found.file, detail.id, detail.workspace)
+      : api.galleryThumbnailUrl(found.file, detail.workspace)
+  }
 
-  // A draft is the page's only local edit; a poll replacing `item` leaves it
+  // A draft is the page's only local edit; a refresh replacing `item`
+  // leaves it. `refused` is the server's answer to the last save, shown
+  // under the draft until the next one
   let editing = $state(false)
   let draft = $state('')
   let saving = $state(false)
-  let stale = $state<string | null>(null)
+  let refused = $state<{ message: string; reload: boolean } | null>(null)
 
   function edit() {
     draft = item.comment?.text ?? ''
-    stale = null
+    refused = null
     editing = true
+  }
+  async function cancel() {
+    if (
+      draftAtRisk(draft, item.comment?.text ?? null) &&
+      !(await confirmDialog('Discard this comment draft?', {
+        confirmLabel: 'Discard',
+        cancelLabel: 'Keep editing',
+      }))
+    )
+      return
+    editing = false
+  }
+  // The draft stays: it is saved again, against the request as it now is
+  function reload() {
+    refused = null
+    onreload()
   }
   async function save() {
     saving = true
     try {
       await onsave(draft.trim() ? draft : null)
       editing = false
-      stale = null
+      refused = null
     } catch (e) {
-      if (e instanceof ApiError && e.status === 409) stale = e.message
-      else notify.error(e instanceof Error ? e.message : String(e))
+      refused = saveFailure(e)
+      if (!refused) notify.error(e instanceof Error ? e.message : String(e))
     } finally {
       saving = false
     }
@@ -92,13 +122,13 @@
   </div>
 
   <div class="body">
-    {#if thumb && item.result}
+    {#if picture && item.result}
       <a
         class="plain frame result"
         href={wsHref(workspace, 'jobs', item.result.job)}
         title="open the job"
       >
-        <img src={thumb.src} alt="result of {item.title}" loading="lazy" />
+        <img src={picture} alt="result of {item.title}" loading="lazy" />
       </a>
     {/if}
     <div class="details">
@@ -146,16 +176,18 @@
             <button
               type="button"
               class="bare"
-              onclick={() => (editing = false)}
+              onclick={cancel}
               disabled={saving}>Cancel</button
             >
           </div>
-          {#if stale}
+          {#if refused}
             <p class="error" role="alert">
-              {stale}
-              <button type="button" class="quiet" onclick={onreload}
-                >Reload</button
-              >
+              {refused.message}
+              {#if refused.reload}
+                <button type="button" class="quiet" onclick={reload}
+                  >Reload</button
+                >
+              {/if}
             </p>
           {/if}
         {:else}

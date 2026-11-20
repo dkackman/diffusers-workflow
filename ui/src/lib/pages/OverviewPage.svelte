@@ -18,6 +18,7 @@
   import { WORKSPACE } from '../references'
   import { formatBytes } from '../format'
   import { hiddenWorkspaces, setHidden } from '../hiddenWorkspaces.svelte'
+  import { latestOnly } from '../latest'
   import { latestProofs } from '../proofs'
   import { wsHref } from '../routes'
   import type { GalleryFile, JobSummary, LedgerSummary } from '../types'
@@ -75,14 +76,19 @@
       })
   }
 
+  const beginRequests = latestOnly()
   function loadOpenRequests(ws: string) {
+    const current = beginRequests()
     openRequests = []
     api
       .listRequests(ws)
-      .then(
-        (r) => (openRequests = r.requests.filter((q) => q.state === 'open')),
-      )
-      .catch(() => (openRequests = []))
+      .then((r) => {
+        if (current())
+          openRequests = r.requests.filter((q) => q.state === 'open')
+      })
+      .catch(() => {
+        if (current()) openRequests = []
+      })
   }
 
   $effect(() => {

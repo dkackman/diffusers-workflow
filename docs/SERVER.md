@@ -211,7 +211,7 @@ icon, a finish-alert toggle, the theme toggle, and links to these docs and
   a 400, and a bound acknowledgement is refused; each server holds a
   lock under `servers/` beside the database for its life, so a second server
   sharing the database leaves a live sibling's jobs alone), filterable by status. A failed or cancelled row shows its `reason` on a muted line under the workflow name, cut to one line with the full text on hover. When loaded rows hold restart tombstones (`restart_batch`) that no loaded row's `rerun_of` names, a banner per batch, newest first, says "N jobs were cancelled by a server restart" with a **Rerun…** button (hidden under a status filter that hides cancelled rows). Only the click calls the batch route - the poll never does: its preview lists what would be queued with each estimate and a total, and what is skipped with why; confirming resends with `acknowledged_cost: true`, cancelling queues nothing, and a preview with nothing left to rerun says so and hides that banner for the session (`ui/src/lib/restartBatches.ts`). A waiting job
-  shows its place in line, can be moved, and shows `waiting_for` while held
+  shows its place in line, can be moved (the place is in the whole queue, so a list narrowed to a workspace or a request asks the server how many jobs are queued rather than counting its own rows), and shows `waiting_for` while held
   (for host RAM, or because every card is busy): the jobs list adds a short reason (`· host RAM` / `· cards busy`) to the queued row with the full text on hover, and the job page's hover matches the hold. The job page also refetches on `queue_wait` and on a live `warning`, and shows a warn-tone stall line (`no event for 4m in loading`) from the latest `phase_stall` until another event arrives. A job's page streams step progress, denoise ticks, the phase
   between them (loading, decoding, saving; a model download shows its bytes and rate), its log, and its results as they
   land - finals first, intermediates folded, and a section per
@@ -358,7 +358,12 @@ icon, a finish-alert toggle, the theme toggle, and links to these docs and
   `/mcp` is mounted, a **Connect from another machine** panel with the
   browser URL and the `claude mcp add` line for a chosen address, the
   resolved directories, and the Caches panel (below) - then the queue and
-  history across every workspace, with a workspace filter.
+  history across every workspace, with a workspace filter. A request filter
+  there (`req=`) is read in one workspace - the one picked, else the current
+  one, which the picker then shows - because a request id names a request
+  inside a workspace; picking every workspace drops the filter. On either
+  jobs list a filter the server refuses (a `req` that is not a request id)
+  shows the server's message over no rows.
 
   ![The Status page: host, version, a worker per RTX 3090 with its memory, the queue, and the bind address](img/ui-status-dark.png)
 

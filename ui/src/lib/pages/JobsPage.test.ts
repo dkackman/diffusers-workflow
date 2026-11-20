@@ -7,25 +7,37 @@ import {
 } from '@testing-library/svelte'
 import { afterEach, expect, it, vi } from 'vitest'
 import JobsPage from './JobsPage.svelte'
+import { ApiError } from '../apiErrors'
 import { formatExact } from '../format'
+import { workspace } from '../workspaceState.svelte'
 import type { JobSummary } from '../types'
 
 const data = vi.hoisted(() => ({
   jobs: [] as unknown[],
   rerunRestartBatch: vi.fn(),
   confirm: vi.fn(),
+  // Every listing asked for, as [workspace, limit, status, request, item]
+  listed: [] as unknown[][],
+  listError: null as Error | null,
+  // What the server answers for "how many jobs are queued, anywhere"
+  queued: 0,
 }))
-vi.mock('../api', () => ({
+vi.mock('../api', async () => ({
+  ApiError: (await import('../apiErrors')).ApiError,
   api: {
     rerunRestartBatch: data.rerunRestartBatch,
     // Filters by request/item the way the server does
     listJobs: (
-      _ws?: string,
-      _limit?: number,
-      _status?: string,
+      ws?: string,
+      limit?: number,
+      status?: string,
       request?: string,
       item?: string,
     ) => {
+      data.listed.push([ws, limit, status, request, item])
+      if (status === 'queued' && limit === 1)
+        return Promise.resolve({ jobs: [], total: data.queued })
+      if (data.listError) return Promise.reject(data.listError)
       const jobs = (data.jobs as JobSummary[]).filter(
         (j) =>
           (!request || j.request === request) && (!item || j.item === item),
@@ -46,6 +58,10 @@ vi.mock('../toast', () => ({ notify: { error: vi.fn(), success: vi.fn() } }))
 
 afterEach(() => {
   cleanup()
+  data.listed = []
+  data.listError = null
+  data.queued = 0
+  workspace.current = 'default'
   data.rerunRestartBatch.mockReset()
   data.confirm.mockReset()
 })
@@ -458,4 +474,82 @@ it('a req that arrives on the hash refetches at once, not on the next tick', asy
   })
   expect(screen.getByText('wf-b')).toBeTruthy()
   expect(screen.queryByText('wf-c')).toBeNull()
+})
+
+it('on the all-jobs view a request filter is read in one workspace, and the chip links there', async () => {
+  workspace.current = 'studio'
+  location.hash = '#/status?req=r1'
+  data.jobs = linked()
+  render(JobsPage, { scope: 'all' })
+  await waitFor(() => expect(screen.getByText('wf-a')).toBeTruthy())
+  expect(data.listed.every(([ws]) => ws === 'studio')).toBe(true)
+  expect(
+    screen.getByTestId('req-filter').querySelector('a')?.getAttribute('href'),
+  ).toBe('#/ws/studio/requests/r1')
+  // and the link says which workspace it was read in
+  await waitFor(() => expect(location.hash).toContain('ws=studio'))
+})
+
+it('on the all-jobs view a picked workspace scopes the request filter', async () => {
+  workspace.current = 'studio'
+  location.hash = '#/status?req=r1&ws=shots'
+  data.jobs = linked()
+  render(JobsPage, { scope: 'all' })
+  await waitFor(() => expect(screen.getByText('wf-a')).toBeTruthy())
+  expect(data.listed.every(([ws]) => ws === 'shots')).toBe(true)
+  expect(
+    screen.getByTestId('req-filter').querySelector('a')?.getAttribute('href'),
+  ).toBe('#/ws/shots/requests/r1')
+})
+
+it("shows a refused filter as the server's message, over no rows", async () => {
+  location.hash = '#/ws/default/jobs'
+  data.jobs = linked()
+  render(JobsPage)
+  await waitFor(() => expect(screen.getByText('wf-c')).toBeTruthy())
+  data.listError = new ApiError("Request 'R!' must match ^[a-z0-9]", 422)
+  location.hash = '#/ws/default/jobs?req=R!'
+  window.dispatchEvent(new HashChangeEvent('hashchange'))
+  await waitFor(() => expect(screen.getByText(/must match/)).toBeTruthy())
+  expect(screen.queryByText(/Could not reach the server/)).toBeNull()
+  expect(screen.queryByText('wf-c')).toBeNull()
+})
+
+const moves = (id: string) =>
+  ['front', 'up', 'down'].filter((way) =>
+    screen.queryByLabelText(
+      way === 'front'
+        ? `move ${id} to the front of the queue`
+        : `move ${id} ${way} one place`,
+    ),
+  )
+
+it("a request's queued job mid-queue can move both ways, though it is the only row", async () => {
+  location.hash = '#/ws/default/jobs?req=r1'
+  data.queued = 5
+  data.jobs = [
+    summary({ id: 'q3', status: 'queued', request: 'r1', queue_position: 2 }),
+    summary({ id: 'other', status: 'queued', queue_position: 4 }),
+  ]
+  render(JobsPage)
+  await waitFor(() => expect(screen.getByText('#3')).toBeTruthy())
+  await waitFor(() => expect(moves('q3')).toEqual(['front', 'up', 'down']))
+})
+
+it('the last job of the whole queue offers no down', async () => {
+  location.hash = '#/ws/default/jobs?req=r1'
+  data.queued = 5
+  data.jobs = [
+    summary({ id: 'q5', status: 'queued', request: 'r1', queue_position: 4 }),
+  ]
+  render(JobsPage)
+  await waitFor(() => expect(moves('q5')).toEqual(['front', 'up']))
+})
+
+it('asks for the queue length only while a queued job is on screen', async () => {
+  location.hash = '#/ws/default/jobs'
+  data.jobs = linked()
+  render(JobsPage)
+  await waitFor(() => expect(screen.getByText('wf-c')).toBeTruthy())
+  expect(data.listed.some(([, , status]) => status === 'queued')).toBe(false)
 })

@@ -56,14 +56,26 @@ export function errorDetail(payload: unknown, fallback: string): string {
   return fallback
 }
 
+/** The stable name a refusal carries beside its message - the requests
+ * ledger's `stale_revision`, `no_workspace_root` - when `detail` is an
+ * object that has one. */
+export function errorCode(payload: unknown): string | undefined {
+  const detail = (payload as { detail?: unknown } | null)?.detail
+  const code = (detail as { code?: unknown } | null)?.code
+  return typeof code === 'string' ? code : undefined
+}
+
 /** An error response, with the status a caller may need to branch on -
  * the export's 409 is "already exported, overwrite?" rather than a
- * failure, and the message alone cannot say which. */
+ * failure, and the message alone cannot say which - and the detail's
+ * `code` where the server names its refusals. */
 export class ApiError extends Error {
   status: number
-  constructor(message: string, status: number) {
+  code?: string
+  constructor(message: string, status: number, code?: string) {
     super(message)
     this.name = 'ApiError'
     this.status = status
+    this.code = code
   }
 }

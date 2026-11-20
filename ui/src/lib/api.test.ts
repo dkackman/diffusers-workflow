@@ -37,6 +37,26 @@ describe('request error handling', () => {
     await expect(api.listJobs()).rejects.toThrow('Unknown variable')
   })
 
+  it("carries the detail's code, for a caller that branches on it", async () => {
+    stubFetch({
+      ok: false,
+      status: 409,
+      body: {
+        detail: {
+          code: 'stale_revision',
+          message: 'request is at revision 5, not 3',
+          current_revision: 5,
+        },
+      },
+    })
+    const failure = await api.getRequest('default', 'r1').catch((e) => e)
+    expect(failure.message).toBe('request is at revision 5, not 3')
+    expect(failure.status).toBe(409)
+    expect(failure.code).toBe('stale_revision')
+    stubFetch({ ok: false, status: 400, body: { detail: 'Unknown variable' } })
+    expect((await api.listJobs().catch((e) => e)).code).toBeUndefined()
+  })
+
   it('reads the message and counts out of an object-shaped detail', async () => {
     stubFetch({
       ok: false,
@@ -226,6 +246,12 @@ describe('gallery listing and thumbnails', () => {
     await api.gallery(undefined, undefined, 'alpha')
     expect(calls[0][0]).toBe('/api/gallery?limit=100000&request=r1&item=alpha')
     expect(calls[1][0]).toBe('/api/gallery?limit=100000')
+  })
+
+  it("scopes a thumbnail URL to the file's own workspace when one is named", () => {
+    expect(api.galleryThumbnailUrl('run/clip.mp4', 'studio')).toBe(
+      '/api/gallery/run/clip.mp4/thumbnail?workspace=studio',
+    )
   })
 
   it('builds a thumbnail URL that keeps folder separators', () => {

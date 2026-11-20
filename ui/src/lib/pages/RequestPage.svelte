@@ -3,10 +3,13 @@
   import Skeleton from '../ui/Skeleton.svelte'
   import RequestItem from '../request/RequestItem.svelte'
   import { poll } from '../poll'
+  import { newerOf, refreshInterval } from '../request/refresh'
   import { formatExact, formatMinutes } from '../format'
+  import { latestOnly } from '../latest'
+  import { notify } from '../toast'
   import { wsHref } from '../routes'
   import type { LedgerRequest } from '../types'
-  import { workspace } from '../workspaceState.svelte'
+  import { workspace } from '../workspace.svelte'
 
   let { requestId }: { requestId: string } = $props()
 
@@ -15,15 +18,28 @@
   let error = $state<string | null>(null)
   const ws = $derived(workspace.current)
 
+  // A reply for a request the page has since left is dropped; one older
+  // than what is held (a reload answered after a save) does not replace it.
+  // A reload that fails over a request the page holds keeps it - and with
+  // it the comment drafts in its items - unless the request is gone
+  const beginLoad = latestOnly()
   async function load() {
+    const current = beginLoad()
     try {
-      request = await api.getRequest(ws, requestId)
+      const found = await api.getRequest(ws, requestId)
+      if (!current()) return
+      request = newerOf(request, found)
       missing = false
       error = null
     } catch (e) {
-      request = null
-      if (e instanceof ApiError && e.status === 404) missing = true
-      else error = e instanceof Error ? e.message : String(e)
+      if (!current()) return
+      const message = e instanceof Error ? e.message : String(e)
+      if (e instanceof ApiError && e.status === 404) {
+        request = null
+        missing = true
+      } else if (request)
+        notify.error(`Could not reload the request: ${message}`)
+      else error = message
     }
   }
 
@@ -36,22 +52,32 @@
     void load()
   })
 
-  // Machine state moves on its own: follow it while a job is in flight. A
-  // comment draft lives in its item component, so a refresh never touches it
-  const inFlight = $derived(
-    request?.items.some((i) => i.status === 'queued' || i.status === 'running'),
-  )
+  // The plan and its machine state move without this page: an agent rewrites
+  // the plan, a job is queued, runs, ends. Follow it for as long as it can
+  // change (refreshInterval), keeping the newer of what is held and what
+  // came back (newerOf). A comment draft lives in its item component, which
+  // the keyed list keeps, so a refresh never touches it
+  const interval = $derived(refreshInterval(request))
   $effect(() => {
-    if (!inFlight) return
-    return poll(
-      () =>
-        api
-          .getRequest(ws, requestId)
-          .then((r) => (request = r))
-          .catch(() => {}),
-      5000,
+    if (interval === null) return
+    const [from, id] = [ws, requestId]
+    let live = true
+    const stop = poll(
+      async () => {
+        try {
+          const found = await api.getRequest(from, id)
+          if (live) request = newerOf(request, found)
+        } catch {
+          /* the next refresh asks again */
+        }
+      },
+      interval,
       { immediate: false },
     )
+    return () => {
+      live = false
+      stop()
+    }
   })
 
   /** The one edit: the plan goes back as read, one comment replaced. A stale
@@ -59,7 +85,8 @@
   async function saveComment(key: string, text: string | null) {
     const read = request
     if (!read) return
-    request = await api.putRequest(ws, requestId, {
+    const [to, id] = [ws, requestId]
+    const saved = await api.putRequest(to, id, {
       title: read.title,
       goal: read.goal,
       state: read.state,
@@ -71,6 +98,8 @@
           : item,
       ) as LedgerRequest['items'],
     })
+    // Left for another request while the save was out: it is not this one's
+    if (to === ws && id === requestId) request = saved
   }
 
   const history = $derived(
