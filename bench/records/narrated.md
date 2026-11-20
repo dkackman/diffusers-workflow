@@ -1394,6 +1394,15 @@ Takes, in workspace `bench`:
 So the latent mask holds about 18 frames, not 22, and the join uses `held` 18 and
 `head_frames` 187.
 
+**Why `head_frames` is 187 and not 192 (seg01's frame count).** seg02's `source_video` is
+the keystone at frame 0, then seg01's tail (seg01 frames 170-191) at frames 1-22, so seg02
+frame *j* (1 ≤ *j* ≤ 22) is seg01 frame 169 + *j*. With 18 frames held, seg02's first kept
+frame, frame 18, is seg01 frame 187, so the head is seg01 frames 0-186 (`head_frames` =
+169 + 18 = 187). seg02 re-renders seg01 frames 187-191 (its frames 18-22), so the join
+drops them from seg01 so they don't show twice. The take is 187 + (192 − 18) = 361
+frames, which is what `get_gallery_metadata` reports for the MA take `9eedaee96617`
+(shots: head 187, seg02 174).
+
 ### Step 2 measures (normal keystone)
 
 How they were measured:
