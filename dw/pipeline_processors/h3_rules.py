@@ -228,6 +228,18 @@ def refine_windows_enabled():
     return os.environ.get(REFINE_WINDOWS_ENV_VAR) == "1"
 
 
+def lifts_duration_ceiling(arguments):
+    """Whether a call is the windowed refine whose take may run past H3's
+    `max_duration`: it carries both `refine_windows` and `refine_strength`.
+    Asked by the layout step at the call (h3_windows.py
+    `DwH3LongRefineLayoutStep`) and by validate before the load
+    (dw/pipeline_limits.py); every other call keeps the ceiling."""
+    return (
+        arguments.get(REFINE_WINDOWS_INPUT) is not None
+        and arguments.get(REFINE_STRENGTH_INPUT) is not None
+    )
+
+
 def renamed_windows_problem(arguments):
     """The refusal of the windowed refine's spike-era name, or None."""
     if not isinstance(arguments, dict) or OLD_REFINE_WINDOWS_INPUT not in arguments:

@@ -19,7 +19,7 @@ from dw.pipeline_limits import (
     pipeline_limit_errors,
 )
 from dw.pipeline_processors.h3_rules import RENDER_GRID
-from dw.workflow import Workflow
+from dw.workflow import Workflow, workflow_from_definition
 
 h3 = pytest.importorskip(
     "diffusers.modular_pipelines.minimax_h3.modular_pipeline",
@@ -115,6 +115,56 @@ class TestNumFrames:
 
     def test_no_num_frames_keeps_the_default(self):
         assert errors(h3_step()) == []
+
+
+class TestWindowedRefine:
+    """A `refine_windows` refine lays out a take of any length: the layout
+    step dw swaps in (h3_windows.DwH3LongRefineLayoutStep) lifts
+    `max_duration` for a call that carries both `refine_windows` and
+    `refine_strength`, so validate must not refuse the literal count that
+    call would run (0.21.0 review)."""
+
+    def windowed(self, workflow="t2va", **arguments):
+        arguments = {"refine_windows": {}, "refine_strength": 0.3, **arguments}
+        return h3_step(workflow, **arguments)
+
+    @pytest.mark.parametrize("frames", [362, 1450])
+    def test_a_long_take_passes(self, frames):
+        assert errors(self.windowed(num_frames=frames)) == []
+
+    def test_a_plain_long_literal_is_still_refused(self):
+        """No windows, no lifted ceiling: a generation over 15 s is another
+        model regime."""
+        assert paths(h3_step("t2va", num_frames=1450)) == [FRAMES_PATH]
+
+    @pytest.mark.parametrize(
+        "missing", [{"refine_windows": None}, {"refine_strength": None}]
+    )
+    def test_it_takes_both_arguments(self, missing):
+        """The layout step asks for both; either one alone, or as null, runs
+        the stock layout and its ceiling."""
+        found = paths(self.windowed(num_frames=1450, **missing))
+        assert found == [FRAMES_PATH]
+
+    def test_the_floor_is_kept(self):
+        """Only the ceiling is the take's own; the layout step still refuses
+        a take under `min_duration`."""
+        (error,) = errors(self.windowed(num_frames=22))
+        assert error["path"] == FRAMES_PATH
+        assert "use 124" in error["message"]
+
+    def test_the_canvas_is_still_checked(self):
+        found = paths(self.windowed(num_frames=1450, width=950))
+        assert found == ["steps[0].pipeline.arguments.width"]
+
+    def test_the_rule_is_the_layout_steps_own(self):
+        """One owner (h3_rules.lifts_duration_ceiling), which the layout step
+        asks at the call: both given, whatever their values."""
+        from dw.pipeline_processors.h3_rules import lifts_duration_ceiling
+
+        assert lifts_duration_ceiling({"refine_windows": {}, "refine_strength": 0.3})
+        assert not lifts_duration_ceiling({"refine_strength": 0.3})
+        assert not lifts_duration_ceiling({"refine_windows": {}})
 
 
 class TestCanvas:
@@ -248,3 +298,29 @@ class TestThroughValidation:
             if "num_frames" in e["path"]
         ]
         assert found == ["arguments.num_frames"]
+
+    def test_the_seam_pass_takes_a_literal_long_take(self, tmp_path):
+        """h3-seam-pass with the refine's `num_frames` written as a literal
+        60 s count, which `h3_windows._take_latent_frames` reads to plan the
+        windows: clean, as the stock `previous_result:` spelling is."""
+        from tests.test_h3_mask import write_video
+
+        path = "workflows/templates/minimax/h3-seam-pass.json"
+        with open(path, encoding="utf-8") as handle:
+            data = json.load(handle)
+        refine = next(s for s in data["steps"] if s["name"] == "refine")
+        refine["pipeline"]["arguments"]["num_frames"] = 1450
+        write_video(tmp_path / "take.mp4", frames=48, size=(960, 544), sample_rate=8000)
+        workflow = workflow_from_definition(data, str(tmp_path), base_dir=str(tmp_path))
+        found = workflow.validation_errors({"source": "take.mp4"})
+        assert [e for e in found if "num_frames" in e["path"]] == []
+
+    def test_ref2va_with_windows_is_refused_where_the_windows_are(self):
+        """ref2va keeps its own layout and ceiling, and the windows refuse
+        it at their own argument (guides.windows_errors), so the workflow
+        does not validate on the strength of a lifted ceiling."""
+        step = h3_step(
+            "ref2va", num_frames=1450, refine_windows={}, refine_strength=0.3
+        )
+        found = [e["path"] for e in self._validate(definition(step))]
+        assert "steps[0].pipeline.arguments.refine_windows" in found
