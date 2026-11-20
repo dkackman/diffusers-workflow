@@ -156,6 +156,14 @@ Requests page says where each request stands and what needs you, and shows each
 item's result, takes and minutes spent; a note you leave on an item, or on the
 request, is read by the agent before it writes the plan again. See [Requests](docs/WORKSPACES.md#requests).
 
+With the **notes channel**, a note reaches the agent as you save it. `dw-mcp
+--notes-channel` runs beside an open Claude Code session and tells it "the user
+left this note on Shot 3": the agent reads the plan, acts - a retake, then the cut
+again - and the page shows what it did. Review on the page, direct in notes, and
+the session does the rest. It rides on Claude Code's channels research preview, so
+it needs an interactive session started with the development-channels flag, and
+its contract may change. Setup: [the notes channel](docs/MCP.md#the-notes-channel).
+
 The tool reference, setup for other MCP hosts and the troubleshooting table are in
 [MCP Server](docs/MCP.md).
 

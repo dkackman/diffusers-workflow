@@ -62,6 +62,14 @@ edit it, shows a chain's segments with repair and continue, reruns a job
 with changes, and shows findings, the event log, step timing and the
 server's runtime (#1445-#1456).
 
+The Requests page is where a piece is now directed. It says where each ask
+stands and what needs you, and from it you accept a take, drop or reorder
+items, and run what is ready at a quoted price. A note left on an item is
+the instruction: with the new **notes channel** (`dw-mcp --notes-channel`,
+on Claude Code's channels research preview) an open session is told the
+moment you save one - "off lipsync, reroll this and recut" - and the plan
+change it writes back is the answer.
+
 **Breaking and behaviour changes**
 
 - **diffusers floor raised to 0.43.0 (#1315).** `pyproject.toml` now
@@ -105,6 +113,27 @@ server's runtime (#1445-#1456).
 - **A checked chain quotes at least the unchecked chain's worst case
   (#1334).**
 
+**The notes channel** (new; Claude Code research preview)
+
+- `dw-mcp --notes-channel` is a tool-less stdio process that watches a
+  workspace's open requests on a dw server and tells an open interactive
+  Claude Code session when the user saves a note for the agent, quoting it
+  and naming its request and item. When the session connects it lists the
+  notes already waiting, once, and asks before spending on those.
+- The agent reads the plan with `get_request`, acts through the normal
+  tools under the cost gate, and says what it did in the `why` of its next
+  `set_request`; the page's note line then reads "The agent has updated the
+  plan since". Nothing is typed back: the plan change is the reply.
+- Setup is an `.mcp.json` entry named `dw-notes` and a session started with
+  `claude --dangerously-load-development-channels server:dw-notes`
+  ([MCP.md](MCP.md#the-notes-channel)). It works in an interactive session
+  only, not `claude -p`; without one, a note is still read on the agent's
+  next write, as the page says.
+- It relays text written by whoever holds the dw server's token, into a
+  session that can spend GPU time: point it only at a server you control.
+- The channels contract is Anthropic's research preview and may change.
+  Not yet exercised against a live Claude Code session at release.
+
 **Requests** (#1458)
 
 - A workspace ledger of what was asked: a request holds a goal and a plan
@@ -131,13 +160,6 @@ server's runtime (#1445-#1456).
 - Requests pages in the UI: where each request stands and what needs you,
   each item's result, takes and minutes spent, and a note for the agent
   that it reads on its next write.
-- A notes channel for Claude Code: `dw-mcp --notes-channel` is a tool-less
-  stdio process that tells an open interactive session when the user saves
-  a note for the agent, quoting it and naming its request and item, and
-  lists the notes already waiting when the session connects. It uses Claude
-  Code's channels research preview (`--dangerously-load-development-channels
-  server:dw-notes`), so the contract may change
-  ([MCP.md](MCP.md#the-notes-channel)).
 - The request page edits the plan: accept a take as an item's result, drop
   and restore items, reorder them by drag or keyboard, with undo. An edit
   made while the agent rewrites the plan is applied on top when its item is
