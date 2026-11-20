@@ -4,7 +4,7 @@
   // Progress list, the flow view and its chips read - never sees these rows.
   // Collapsed by default, and nothing is fetched until it is first opened.
   import { ChevronDown, ChevronRight, RefreshCw } from '@lucide/svelte'
-  import { tick } from 'svelte'
+  import { tick, untrack } from 'svelte'
   import { ApiError } from '../api'
   import { formatDuration } from '../format'
   import type { JobEvent } from '../types'
@@ -82,6 +82,16 @@
       if (id === jobId) loading = false
     }
   }
+
+  // The job ended while its log was loaded: Refresh goes with `live`, so
+  // read the events that came after the last one shown, the failure among
+  // them, rather than leave the log short of its end
+  let wasLive = untrack(() => live)
+  $effect(() => {
+    const ended = wasLive && !live
+    wasLive = live
+    if (ended) untrack(() => loaded && !missing && !loading && load(lastSeq))
+  })
 
   function toggle() {
     open = !open
