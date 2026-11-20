@@ -1,5 +1,5 @@
-// The comment draft on a request item: when leaving it loses something,
-// and what a refused save says beside it.
+// The draft of a note for the agent, on a request or one of its items:
+// when leaving it loses something, and what a refused save says beside it.
 import { ApiError } from '../apiErrors'
 
 /** Whether closing the editor would lose words: the draft has text, and it
@@ -19,4 +19,16 @@ export function saveFailure(
 ): { message: string; reload: boolean } | null {
   if (!(error instanceof ApiError) || error.status >= 500) return null
   return { message: error.message, reload: error.code === 'stale_revision' }
+}
+
+/** The words beside a refused draft. A stale revision is said for the
+ * person writing the note - the server's own sentence tells an agent to
+ * rewrite its plan - and any other refusal is the server's message. */
+export function refusalText(failure: {
+  message: string
+  reload: boolean
+}): string {
+  return failure.reload
+    ? 'The plan changed while you were writing, so this is not saved yet. Reload the plan, then save again: your words stay here.'
+    : failure.message
 }
