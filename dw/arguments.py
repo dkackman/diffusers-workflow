@@ -990,7 +990,8 @@ def resolve_relative_path(path, base_dir):
 # (#601) - and trim_video, which cuts a soundtrack the same way (#627) - and
 # generate_sound_effects, which samples the file at its own rates (#1133) - and
 # detect_cuts, whose cuts report the file's fps and sample spans (#1373) - and
-# track_people, which reads the file's fps and shots itself (#1375) - see
+# track_people, which reads the file's fps and shots itself (#1375) - and
+# replace_cuts, whose result keeps the take's own soundtrack - see
 # _realize_lazy_frame_arguments
 _LAZY_FRAME_COMMANDS = frozenset(
     {
@@ -1007,6 +1008,7 @@ _LAZY_FRAME_COMMANDS = frozenset(
         "generate_sound_effects",
         "detect_cuts",
         "track_people",
+        "replace_cuts",
     }
 )
 

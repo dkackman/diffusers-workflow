@@ -975,13 +975,55 @@ the diffusers pipeline class), and `cuts`, a list of shot records named
   "content", "histogram_correlation", "frame_change"}`, what the detector saw;
 - `split: true` on each piece of a cut longer than `max_frames`;
 - `too_short: true` on a cut under `22` frames (the grid's first step), which
-  would pad to `124` from almost nothing: merge it into a neighbour.
+  would pad to `124` from almost nothing: merge it into a neighbour, or leave
+  it out of the cuts you re-render.
 
 Both flags are also reported as warnings on the job. Nothing is dropped: the
-list is a literal to edit. The detector is `crop_face_track`'s
+list is a literal to edit, and [`replace_cuts`](#replace_cuts) puts back
+whichever cuts were re-rendered, the rest of the take kept. The detector is `crop_face_track`'s
 (`content_cuts`, a colour-histogram drop or a frame-difference spike), so the
 two see the same cuts; it is tuned for hard cuts and misses dissolves and
 slow fades.
+
+### replace_cuts
+
+Put re-rendered cuts back into the take they were cut from, the rest of the
+take and its whole soundtrack kept
+([templates/minimax/replace-performer](../workflows/templates/minimax/replace-performer.json)):
+
+```json
+{
+    "task": {
+        "command": "replace_cuts",
+        "arguments": {
+            "video": "variable:source_video",
+            "clips": "gather:cut",
+            "cuts": "variable:cuts"
+        }
+    },
+    "result": {"content_type": "video/mp4", "fps": 24}
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `video` | Yes | The take. A path, `asset:` or `output:` reference is read with its audio; an earlier step's video is used as is |
+| `clips` | Yes | One re-rendered clip per entry of `cuts`, in the same order. A clip's first `num_frames` frames are used, so one rendered longer ([`trim_video`](#trim_video)'s `pad_to`) needs no trim first |
+| `cuts` | Yes | The cuts the clips were rendered from, as [`detect_cuts`](#detect_cuts) lists them: objects with `start_frame` and `num_frames` (other fields are ignored). Any subset of a take's cuts, in the take's order |
+
+Frames `[start_frame, start_frame + num_frames)` of each cut become its clip's;
+every other frame, the track, the frame rate and the shots are the take's. The
+result is the take's length whatever `cuts` holds, so a cut left out of the
+list stays as the take has it and no cut can slide against the sound: joining
+the rendered cuts with [`concat_videos`](#concat_videos) and pairing the take's
+track on with [`pair_audio`](#pair_audio) loses a cut left out of the middle
+and puts every later cut under the wrong sound. Refused, on literal values by
+`validate_workflow` and otherwise by the task: cuts out of the take's order
+(list them in order; a cut to leave alone is left out, not moved), two cuts
+covering the same frames (start the later one at or after the earlier one's
+end, or merge them), a `clips` list of another length, a cut past the take's
+end, a clip shorter than its cut's `num_frames`, and a clip of another size
+than the take.
 
 ### chain_repair_cut
 

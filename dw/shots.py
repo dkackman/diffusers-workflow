@@ -64,7 +64,8 @@ of a longer source, #601), or clips the list to a kept span
 cleared; a clip with no shots carries one spanning the kept frames, #627).
 `chain_repair_splice` builds its list from the take's: the repaired span
 becomes one `(repaired)` shot and the shot after it starts where the take
-resumes (#1169). `tests/test_shots.py` fails on a constructor site nobody decided for.
+resumes (#1169). `replace_cuts` carries the take's list: its frame count is
+the take's. `tests/test_shots.py` fails on a constructor site nobody decided for.
 
 `Result.save` keeps each file's shots as plain data in `saved_shots` (path ->
 shots), so a step cache hit's stripped copy still reports them. The manifest
