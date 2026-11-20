@@ -277,6 +277,47 @@ def require_trusted_from_pretrained_arguments(arguments, what: str) -> None:
             )
 
 
+# The keys of a `loras` entry an untrusted workflow may set. dw reads four
+# itself; every other key is a keyword argument to diffusers'
+# load_lora_weights (adapters.load_loras), and that loader takes the Hub
+# download's own: `use_safetensors` false reads a pickle, `cache_dir` writes
+# the download to any directory on the server, `proxies` routes the request.
+# So the keys are listed rather than the refusals (SE-F066)
+LORA_ENTRY_KEYS = frozenset(
+    {
+        "model_name",
+        "adapter_name",
+        "scale",
+        "alpha",
+        "weight_name",
+        "subfolder",
+        "revision",
+    }
+)
+
+
+def require_trusted_lora_entries(loras) -> None:
+    """Refuse a `loras` entry carrying a loader keyword outside
+    LORA_ENTRY_KEYS unless the workflow is trusted.
+
+    Raises:
+        UntrustedWorkflowError: If untrusted and an entry sets another key
+    """
+    if workflows_are_trusted() or not isinstance(loras, list):
+        return
+    for index, lora in enumerate(loras):
+        if not isinstance(lora, dict):
+            continue
+        for key in sorted(set(lora) - LORA_ENTRY_KEYS, key=str):
+            raise UntrustedWorkflowError(
+                f"Refusing loras[{index}]: it sets '{key}', which is passed "
+                f"to the LoRA loader as a keyword argument. An untrusted "
+                f"workflow may set only "
+                f"{', '.join(sorted(LORA_ENTRY_KEYS))} - see docs/SECURITY.md. "
+                f"Pass --trust-workflows if you trust this workflow's source."
+            )
+
+
 def require_trusted_block(block, what: str) -> None:
     """require_trusted_from_pretrained_arguments over a whole definition:
     every nested block's from_pretrained_arguments, so a gate that covers a
@@ -293,6 +334,8 @@ def require_trusted_block(block, what: str) -> None:
     for key, value in block.items():
         if key == "from_pretrained_arguments":
             continue
+        if key == "loras":
+            require_trusted_lora_entries(value)
         if isinstance(value, dict):
             require_trusted_block(value, key)
         elif isinstance(value, list):

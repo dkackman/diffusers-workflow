@@ -27,6 +27,7 @@ from ..security import SecurityError, validate_path
 from ..workspace import DEFAULT_WORKSPACE_NAME
 from .host_ram_need import memory_key
 from .observed_cost import EVENT_CAP, LOADING_MARKER
+from .job_results import stored_manifest
 from .job_record import (
     ACK_NONE,
     CANCELLED,
@@ -763,7 +764,7 @@ class JobHistory:
         if not row["events"]:
             return []
         try:
-            return json.loads(row["events"])
+            return stored_manifest(json.loads(row["events"]))
         except json.JSONDecodeError:
             return []
 
@@ -860,7 +861,7 @@ class JobHistory:
             "finished_at": row["finished_at"],
             "arguments": parse(row["arguments"], {}),
             "spec": spec,
-            "manifest": parse(row["manifest"], []),
+            "manifest": stored_manifest(parse(row["manifest"], [])),
             "warnings": parse(row["warnings"], []),
             "error": row["error"],
             "workspace": row["workspace"] or DEFAULT_WORKSPACE_NAME,

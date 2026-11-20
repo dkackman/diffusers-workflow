@@ -89,6 +89,42 @@ def relative_manifest(manifest, output_dir):
     return relative
 
 
+def _stored_entry(entry):
+    """One stored manifest entry or event with any absolute shot `file`
+    renamed to the entry's own `files` name for it, else its base name."""
+    if not isinstance(entry, dict):
+        return entry
+    entry = dict(entry)
+    shots = entry.get("shots")
+    if isinstance(shots, list):
+        names = {
+            os.path.basename(name): name
+            for name in entry.get("files") or []
+            if isinstance(name, str)
+        }
+        renamed = []
+        for shot in shots:
+            file = shot.get("file") if isinstance(shot, dict) else None
+            if isinstance(file, str) and (os.path.isabs(file) or "\\" in file):
+                base = os.path.basename(file.replace("\\", "/"))
+                shot = {**shot, "file": names.get(base, base)}
+            renamed.append(shot)
+        entry["shots"] = renamed
+    if isinstance(entry.get("manifest"), list):
+        entry["manifest"] = stored_manifest(entry["manifest"])
+    return entry
+
+
+def stored_manifest(entries):
+    """A manifest or event list read back from history, safe to serve. Rows
+    written before shots were relativised at record time hold the worker's
+    absolute path in each shot's `file`, and a restart serves them as stored
+    (GHSA-5m72-m9g5-q8vp, GHSA-g84m-9567-rvmm)."""
+    if not isinstance(entries, list):
+        return entries
+    return [_stored_entry(entry) for entry in entries]
+
+
 def record_manifest(job, manifest, output_dir):
     """What the run wrote, named the way clients address outputs.
 
