@@ -73,7 +73,9 @@ export function assetThumbnailUrl(name: string): string {
   )
 }
 
-/** A small JPEG of an image output, or of a video's first frame. */
-export function galleryThumbnailUrl(name: string): string {
-  return withToken(`/api/gallery/${encodePath(name)}/thumbnail`)
+/** A small JPEG of an image output, or of a video's first frame. In the
+ * picker's workspace unless `workspace` names the file's own, as
+ * `outputUrl` takes it. */
+export function galleryThumbnailUrl(name: string, workspace?: string): string {
+  return withToken(`/api/gallery/${encodePath(name)}/thumbnail`, workspace)
 }

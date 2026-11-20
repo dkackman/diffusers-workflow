@@ -2,9 +2,9 @@
   import { api, ApiError, outputUrl } from '../api'
   import { notify } from '../toast'
   import { formatExact, formatMinutes } from '../format'
-  import { firstImage } from '../requestResult'
+  import { resultProof } from '../requestResult'
   import { wsHref } from '../routes'
-  import type { LedgerItem } from '../types'
+  import type { JobDetail, LedgerItem } from '../types'
 
   let {
     item,
@@ -19,30 +19,36 @@
     onreload: () => void
   } = $props()
 
-  // The thumbnail is the result job's first image, fetched once per job
-  let thumb = $state<{ src: string; job: string } | null>(null)
+  // The picture that stands for the result job (resultProof): looked up
+  // once per job id, and "this job has none" is remembered like a picture
+  // is - a refresh hands over a new, equal `item`, and must not ask again
+  let proof = $state<{ job: string; src: string | null } | null>(null)
+  const resultJob = $derived(item.result?.job)
   $effect(() => {
-    const job = item.result?.job
+    const job = resultJob
     if (!job) {
-      thumb = null
+      proof = null
       return
     }
-    if (thumb?.job === job) return
+    if (proof?.job === job) return
     let live = true
-    api
-      .getJob(job)
-      .then((detail) => {
-        if (!live) return
-        const file = firstImage(detail)
-        thumb = file
-          ? { job, src: outputUrl(file, detail.id, detail.workspace) }
-          : null
-      })
-      .catch(() => {
-        if (live) thumb = null
-      })
+    api.getJob(job).then(
+      (detail) => {
+        if (live) proof = { job, src: proofSrc(detail) }
+      },
+      () => {
+        if (live) proof = { job, src: null }
+      },
+    )
     return () => (live = false)
   })
+  function proofSrc(detail: JobDetail): string | null {
+    const found = resultProof(detail)
+    if (!found) return null
+    return found.kind === 'image'
+      ? outputUrl(found.file, detail.id, detail.workspace)
+      : api.galleryThumbnailUrl(found.file, detail.workspace)
+  }
 
   // A draft is the page's only local edit; a poll replacing `item` leaves it
   let editing = $state(false)
@@ -92,13 +98,13 @@
   </div>
 
   <div class="body">
-    {#if thumb && item.result}
+    {#if proof?.src && item.result}
       <a
         class="plain frame result"
         href={wsHref(workspace, 'jobs', item.result.job)}
         title="open the job"
       >
-        <img src={thumb.src} alt="result of {item.title}" loading="lazy" />
+        <img src={proof.src} alt="result of {item.title}" loading="lazy" />
       </a>
     {/if}
     <div class="details">

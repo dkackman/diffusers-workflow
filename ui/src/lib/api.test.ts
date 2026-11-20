@@ -228,6 +228,12 @@ describe('gallery listing and thumbnails', () => {
     expect(calls[1][0]).toBe('/api/gallery?limit=100000')
   })
 
+  it("scopes a thumbnail URL to the file's own workspace when one is named", () => {
+    expect(api.galleryThumbnailUrl('run/clip.mp4', 'studio')).toBe(
+      '/api/gallery/run/clip.mp4/thumbnail?workspace=studio',
+    )
+  })
+
   it('builds a thumbnail URL that keeps folder separators', () => {
     expect(api.galleryThumbnailUrl('ltx/wf-gen.0-0.0.png')).toBe(
       '/api/gallery/ltx/wf-gen.0-0.0.png/thumbnail',
