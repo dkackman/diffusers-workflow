@@ -107,6 +107,7 @@ from .h3_rules import (
     RENDER_GRID,
     SOURCE_VIDEO_INPUT,
     guide_latent_frames,
+    lifts_duration_ceiling,
 )
 
 logger = logging.getLogger("dw")
@@ -530,9 +531,11 @@ class DwH3LongRefineLayoutStep(MiniMaxH3PrepareLayoutStep):
 
     def __call__(self, components, state):
         block_state = self.get_block_state(state)
-        windowed = (
-            getattr(block_state, REFINE_WINDOWS_INPUT, None) is not None
-            and getattr(block_state, REFINE_STRENGTH_INPUT, None) is not None
+        windowed = lifts_duration_ceiling(
+            {
+                name: getattr(block_state, name, None)
+                for name in (REFINE_WINDOWS_INPUT, REFINE_STRENGTH_INPUT)
+            }
         )
         if not windowed or block_state.num_frames is None:
             return super().__call__(components, state)

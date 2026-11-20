@@ -410,10 +410,7 @@ def _trimmed_source_problems(arguments, frames):
     source and is left to the run."""
     if is_audio_pass(arguments):
         return []
-    width, height, num_frames = (
-        _static(arguments.get(k)) for k in ("width", "height", "num_frames")
-    )
-    num_frames = frames if arguments.get("num_frames") is None else num_frames
+    width, height, num_frames = _trimmed_canvas(arguments, frames)
     width, height = width or 1, height or 1
     shape = (frames, height, width)
     return [
@@ -422,16 +419,68 @@ def _trimmed_source_problems(arguments, frames):
     ]
 
 
+def _trimmed_canvas(arguments, frames):
+    """(width, height, num_frames) of an edit whose `source_video` is a
+    `trim_video` result of `frames` frames: the step's literal size, each None
+    when it names none (the size is then the source's own, not known before
+    the trim runs), and its literal count, else the count the trim keeps."""
+    width, height, num_frames = (
+        _static(arguments.get(k)) for k in ("width", "height", "num_frames")
+    )
+    num_frames = frames if arguments.get("num_frames") is None else num_frames
+    return width, height, num_frames
+
+
+def _mask_file_problems(arguments, base_dir, probe, canvas):
+    """[(argument, problem)] for the mask file a regional edit names, when it
+    resolves now: a mask video that is no video, a mask with no white pixel,
+    and its size and frame count against `canvas` - (width, height,
+    num_frames), read only when the width and height are both known."""
+    name = next((n for n in MASK_INPUTS if arguments.get(n) is not None), None)
+    if name is None:
+        return []
+    problems = []
+    white = None
+    if name == MASK_IMAGE_INPUT:
+        path = resolve_probe_path(arguments[name], base_dir, name)
+        read = _mask_image_shape(path) if path is not None else None
+        mask_shape, white = read if read is not None else (None, None)
+    else:
+        problem, mask_shape, path, _ = _video_shape(
+            name, arguments[name], base_dir, probe
+        )
+        if problem:
+            problems.append((name, problem))
+        elif path is not None:
+            white = _mask_video_white(path)
+    if white is False:
+        problems.append(
+            (
+                name,
+                f"{name} is all black, so nothing would regenerate - white marks "
+                f"the region to regenerate",
+            )
+        )
+    if mask_shape is not None and None not in canvas[:2]:
+        problems += [(name, p) for p in media_problems(name, mask_shape, *canvas)]
+    return problems
+
+
 def _media_problems(arguments, base_dir, probe, frames_constraint=None, steps=None):
     """[(argument, problem)] for the regional edit's files that resolve now:
     the source's and the mask's size and frame count against the canvas - a
     canvas key the step leaves out is the source's, as at the call - and a
-    mask with no white pixel."""
+    mask with no white pixel. A source that is a `trim_video` result is known
+    by its frame count alone, and its mask file is still read, against the
+    canvas the step writes."""
     trimmed = _trimmed_frames(steps, arguments.get(SOURCE_VIDEO_INPUT))
     if trimmed is not None:
-        return _trimmed_source_problems(arguments, trimmed) + _trimmed_file_problems(
-            arguments, steps, base_dir, probe
-        )
+        problems = _trimmed_source_problems(arguments, trimmed)
+        problems += _trimmed_file_problems(arguments, steps, base_dir, probe)
+        if probe is not None:
+            canvas = _trimmed_canvas(arguments, trimmed)
+            problems += _mask_file_problems(arguments, base_dir, probe, canvas)
+        return problems
     if probe is None:
         return []
     problems = []
@@ -460,33 +509,7 @@ def _media_problems(arguments, base_dir, probe, frames_constraint=None, steps=No
                 SOURCE_VIDEO_INPUT, shape, *canvas, fps, frames_constraint
             )
         ]
-    name = next((n for n in MASK_INPUTS if arguments.get(n) is not None), None)
-    if name is None:
-        return problems
-    white = None
-    if name == MASK_IMAGE_INPUT:
-        path = resolve_probe_path(arguments[name], base_dir, name)
-        read = _mask_image_shape(path) if path is not None else None
-        mask_shape, white = read if read is not None else (None, None)
-    else:
-        problem, mask_shape, path, _ = _video_shape(
-            name, arguments[name], base_dir, probe
-        )
-        if problem:
-            problems.append((name, problem))
-        elif path is not None:
-            white = _mask_video_white(path)
-    if white is False:
-        problems.append(
-            (
-                name,
-                f"{name} is all black, so nothing would regenerate - white marks "
-                f"the region to regenerate",
-            )
-        )
-    if mask_shape is not None and None not in canvas[:2]:
-        problems += [(name, p) for p in media_problems(name, mask_shape, *canvas)]
-    return problems
+    return problems + _mask_file_problems(arguments, base_dir, probe, canvas)
 
 
 def mask_errors(workflow_definition, source_indices=None, base_dir=None, probe=None):
