@@ -19,6 +19,7 @@
   } from '../types'
   import { workspace } from '../workspace.svelte'
   import { go } from '../router.svelte'
+  import RequestFilter from '../gallery/RequestFilter.svelte'
   import GalleryDetail from '../gallery/GalleryDetail.svelte'
   import { AssessCache } from '../gallery/assess.svelte'
   import RoleTag from '../gallery/RoleTag.svelte'
@@ -49,9 +50,13 @@
   const assessCache = new AssessCache()
   let inputs = $state<GalleryInput[]>([])
 
+  // The requests-ledger request the gallery is narrowed to (RequestFilter
+  // keeps it in step with the hash); the listing asks the server for it
+  let reqId = $state('')
+
   function loadListing() {
     return api
-      .gallery()
+      .gallery(undefined, reqId || undefined)
       .then((result) => {
         files = result.files
         // The editors' output: completions read the same listing
@@ -67,6 +72,7 @@
   $effect(() => {
     // Read inside the effect so switching workspaces refetches the gallery
     void workspace.current
+    void reqId
     void loadListing()
   })
 
@@ -74,7 +80,7 @@
   const roleOf = (f: GalleryFile): OutputRole => f.role ?? 'final'
   let starredOnly = $state(false)
   const filterActive = $derived(
-    filter !== '' || roles.length < 2 || starredOnly,
+    filter !== '' || roles.length < 2 || starredOnly || reqId !== '',
   )
   // Finals lead inside a run only: the server's order (newest first) holds
   // between runs, so runs sit where their newest file put them. The sort is
@@ -321,6 +327,7 @@
       title="only the files you starred">Starred</button
     >
   </div>
+  <RequestFilter bind:request={reqId} />
 </div>
 
 {#if error}<p class="muted">Could not read the gallery: {error}</p>{/if}

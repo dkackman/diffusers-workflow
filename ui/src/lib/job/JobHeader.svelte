@@ -38,6 +38,34 @@
     declared?: Record<string, unknown> | null
   } = $props()
 
+  // The request this job was run for (requests ledger). `gone` once the
+  // server says 404 - the request or its whole workspace was deleted; while
+  // it loads, or on any other error, the link shows
+  let requestTitle = $state('')
+  let requestGone = $state(false)
+  // Derived primitives, so a poll that replaces `job` with an equal one
+  // does not fetch the request again
+  const requestWs = $derived(job?.workspace)
+  const requestId = $derived(job?.request)
+  $effect(() => {
+    const ws = requestWs
+    const id = requestId
+    requestTitle = ''
+    requestGone = false
+    if (!ws || !id) return
+    let live = true
+    api.getRequest(ws, id).then(
+      (found) => {
+        if (live) requestTitle = found.title
+      },
+      (e) => {
+        if (live && e instanceof ApiError && e.status === 404)
+          requestGone = true
+      },
+    )
+    return () => (live = false)
+  })
+
   // What a rerun changed, as the server stored it: absent on a plain rerun
   const overrideKeys = $derived(Object.keys(job?.overrides ?? {}))
 
@@ -155,6 +183,23 @@
             .join('\n')}>changed: {overrideKeys.join(', ')}</code
         >
       {/if}
+    {/if}
+    {#if job.request}
+      <span class="muted">
+        {#if requestGone}
+          <span title="request no longer exists"
+            >{job.request}{job.item ? ` › ${job.item}` : ''}</span
+          >
+          <span>request no longer exists</span>
+        {:else}
+          <a
+            class="plain"
+            href={wsHref(job.workspace, 'requests', job.request)}
+            title={requestTitle || `request ${job.request}`}
+            >{job.request}{job.item ? ` › ${job.item}` : ''}</a
+          >
+        {/if}
+      </span>
     {/if}
     {#if cancelPending}
       <span

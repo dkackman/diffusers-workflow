@@ -4,13 +4,14 @@
   import { queueWait } from '../jobTimes'
   import { poll } from '../poll'
   import { onMount } from 'svelte'
-  import { ChevronDown, ChevronUp, ChevronsUp, Inbox } from '@lucide/svelte'
+  import { ChevronDown, ChevronUp, ChevronsUp, Inbox, X } from '@lucide/svelte'
   import { api } from '../api'
   import Empty from '../Empty.svelte'
   import { notify } from '../toast'
   import type { JobSummary } from '../types'
   import { wsHref } from '../routes'
   import { hashQuery, setHashQuery } from '../router.svelte'
+  import { parseRequestFilter } from '../requestFilter'
   import { loadWorkspaces, workspace } from '../workspace.svelte'
   import {
     rerunRestartBatchWithConfirm,
@@ -33,12 +34,17 @@
   // point of that view; a workspace's own Jobs page filters by
   // `workspace.current` instead.
   let workspaceFilter = $state(initial.ws ?? '')
+  // Server-side too: `req=<id>` or `req=<id>/<item>` asks the server for
+  // the jobs linked to that requests-ledger request (or one item of it)
+  let reqFilter = $state(initial.req ?? '')
+  const requestScope = $derived(parseRequestFilter(reqFilter))
 
   $effect(() =>
     setHashQuery({
       status: statusFilter,
       q: nameFilter,
       ws: scope === 'all' ? workspaceFilter : '',
+      req: reqFilter,
     }),
   )
   // The route's view is unchanged when the Jobs nav link lands on the bare
@@ -50,18 +56,31 @@
       statusFilter = query.status ?? ''
       nameFilter = query.q ?? ''
       workspaceFilter = query.ws ?? ''
+      reqFilter = query.req ?? ''
     }
     window.addEventListener('hashchange', sync)
     return () => window.removeEventListener('hashchange', sync)
   })
   const filtered = $derived(
-    !!statusFilter || !!nameFilter || (scope === 'all' && !!workspaceFilter),
+    !!statusFilter ||
+      !!nameFilter ||
+      !!requestScope.request ||
+      (scope === 'all' && !!workspaceFilter),
   )
   function clearFilters() {
     statusFilter = ''
     nameFilter = ''
     workspaceFilter = ''
+    reqFilter = ''
   }
+  const listJobs = (filter: string) =>
+    api.listJobs(
+      filter || undefined,
+      undefined,
+      undefined,
+      requestScope.request || undefined,
+      requestScope.item || undefined,
+    )
 
   // Only worth a picker once there is a choice - a single-workspace server
   // has nothing to filter by
@@ -80,9 +99,10 @@
     // the filter (or the scope's own workspace) changes, rather than the
     // interval quietly polling stale
     const filter = scope === 'all' ? workspaceFilter : workspace.current
+    void requestScope
     return poll(async () => {
       try {
-        jobs = (await api.listJobs(filter || undefined)).jobs.reverse()
+        jobs = (await listJobs(filter)).jobs.reverse()
         error = ''
       } catch (e) {
         error = e instanceof Error ? e.message : String(e)
@@ -131,13 +151,15 @@
       // Same filter the poll uses - refreshing without it would flash every
       // workspace's jobs into a view the user had narrowed to one
       const filter = scope === 'all' ? workspaceFilter : workspace.current
-      jobs = (await api.listJobs(filter || undefined)).jobs.reverse()
+      jobs = (await listJobs(filter)).jobs.reverse()
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       notify.error(msg)
     }
   }
 
+  const requestLabel = (f: { request: string; item: string }) =>
+    f.item ? `${f.request} › ${f.item}` : f.request
   const when = (t: number | null) => (t ? formatMtime(t) : '—')
   const waitOf = (job: JobSummary) => queueWait(job, Date.now() / 1000)
   // The row shows the compact start; hovering gives it to the second, with
@@ -184,6 +206,27 @@
     placeholder="filter by workflow…"
     bind:value={nameFilter}
   />
+  {#if requestScope.request}
+    <span class="wschip active-filter" data-testid="req-filter">
+      <a
+        class="plain"
+        href={wsHref(
+          scope === 'all'
+            ? workspaceFilter || workspace.current
+            : workspace.current,
+          'requests',
+          requestScope.request,
+        )}
+        title="open this request">{requestLabel(requestScope)}</a
+      >
+      <button
+        class="quiet icon"
+        onclick={() => (reqFilter = '')}
+        title="remove the request filter"
+        aria-label="remove the request filter"><X size={12} /></button
+      >
+    </span>
+  {/if}
 </div>
 
 {#if error}<p class="muted">Could not reach the server: {error}</p>{/if}
@@ -238,6 +281,18 @@
             {#if job.rerun_of}
               <span class="wschip muted" title="a rerun of {job.rerun_of}"
                 >rerun</span
+              >
+            {/if}
+            {#if job.request}
+              <span
+                class="wschip muted"
+                title="request {job.request}{job.item
+                  ? `, item ${job.item}`
+                  : ''}"
+                >{requestLabel({
+                  request: job.request,
+                  item: job.item ?? '',
+                })}</span
               >
             {/if}
             {#if scope === 'all' && (workspace.names?.length ?? 0) > 1}
@@ -440,6 +495,11 @@
     border: 1px solid var(--line);
     border-radius: 4px;
     padding: 0 0.3rem;
+  }
+  .active-filter {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
   }
   .qmove {
     display: inline-flex;

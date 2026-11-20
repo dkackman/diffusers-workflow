@@ -7,6 +7,7 @@ export const WS_SECTIONS = [
   'overview',
   'workflows',
   'jobs',
+  'requests',
   'gallery',
   'compare',
   'assets',

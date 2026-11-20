@@ -16,6 +16,8 @@ const data = vi.hoisted(() => ({
   workflows: [] as string[],
   assets: [] as unknown[],
   galleryError: null as Error | null,
+  requests: [] as unknown[],
+  requestsError: null as Error | null,
 }))
 const deleteWorkspace = vi.hoisted(() => vi.fn())
 vi.mock('../api', () => ({
@@ -33,6 +35,10 @@ vi.mock('../api', () => ({
       if (limit) jobs = jobs.slice(Math.max(0, jobs.length - limit))
       return Promise.resolve({ jobs, total: jobs.length })
     },
+    listRequests: () =>
+      data.requestsError
+        ? Promise.reject(data.requestsError)
+        : Promise.resolve({ workspace: 'studio', requests: data.requests }),
     listWorkflows: () =>
       Promise.resolve({
         libraries: [
@@ -79,6 +85,8 @@ beforeEach(async () => {
   data.workflows = []
   data.assets = []
   data.galleryError = null
+  data.requests = []
+  data.requestsError = null
   deleteWorkspace.mockReset()
   localStorage.clear()
   location.hash = '#/ws/studio/overview'
@@ -246,4 +254,41 @@ it('the default workspace cannot be deleted', async () => {
       }) as HTMLButtonElement
     ).disabled,
   ).toBe(true)
+})
+
+const summary = (over: Record<string, unknown>) => ({
+  id: 'r1',
+  title: 'Launch posters',
+  state: 'open',
+  revision: 1,
+  items: 3,
+  status_counts: { done: 2, planned: 1 },
+  spent_minutes: 4,
+  remaining_minutes: 2,
+  updated_at: null,
+  ...over,
+})
+
+it('lists open requests with their counts, and links to them all', async () => {
+  data.requests = [
+    summary({}),
+    summary({ id: 'r2', title: 'Old ask', state: 'done' }),
+  ]
+  render(OverviewPage)
+  await waitFor(() => expect(screen.getByText('Launch posters')).toBeTruthy())
+  expect(
+    screen.getByRole('link', { name: 'Launch posters' }).getAttribute('href'),
+  ).toBe('#/ws/studio/requests/r1')
+  expect(screen.getByText('2 done · 1 planned')).toBeTruthy()
+  expect(screen.queryByText('Old ask')).toBeNull()
+  expect(
+    screen.getByRole('link', { name: 'all requests' }).getAttribute('href'),
+  ).toBe('#/ws/studio/requests')
+})
+
+it('hides the requests panel when there are none or the call fails', async () => {
+  data.requestsError = new Error('boom')
+  render(OverviewPage)
+  await waitFor(() => expect(screen.getByText(/no jobs yet/i)).toBeTruthy())
+  expect(screen.queryByText('all requests')).toBeNull()
 })

@@ -91,6 +91,8 @@ export function runtimeText(info: ServerInfo): string {
   return [
     `host: ${info.hostname}`,
     `dw: ${info.version}`,
-    ...runtimeRows(info.runtime).map((r) => `${r.name}: ${r.value ?? r.absent}`),
+    ...runtimeRows(info.runtime).map(
+      (r) => `${r.name}: ${r.value ?? r.absent}`,
+    ),
   ].join('\n')
 }
