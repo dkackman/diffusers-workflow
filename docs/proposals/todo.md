@@ -201,6 +201,13 @@ remaining deferred fix is recorded in
   the source soundtrack. Each cut can carry its own `seed` and `prompt`, so one
   cut can be re-rolled alone. `mask_grow` stays 1, from the seam bench:
   `complete/performer-replacement-complete.md`.
+- **Maskless whole-shot performer swap** (#1411, stages #1412-#1414; D #1415
+  not planned), closed 2026-11-20 as a negative result. ref2va now takes one
+  whole-render guide, and the regional-edit guidance has h3-recast's caption
+  rules. On seed 1194 the guide plus `head-swap` held the face at 0.543 against
+  `replace-performer`'s 0.747, and the untouched regions at 23.1 against 37.5 dB,
+  so no template shipped and `head-swap` stays `rejected`:
+  `complete/maskless-recast-complete.md`.
 - **SAM 3 `track_people` backend** (#1397, stages #1404-#1405), shipped
   2026-11-18. `track_people` takes `backend: "sam3"` (opt-in, gated, SAM
   License), which detects on every frame of a cut, so a person who enters
