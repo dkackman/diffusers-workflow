@@ -607,6 +607,18 @@ class JobHistory:
             ).fetchall()
         return [dict(row) for row in rows]
 
+    def manifest_of(self, job_id):
+        """One closed job's stored manifest, or None: a primary-key read of
+        the one column. A row is written once, when its job ends."""
+        with self._lock, self._connect() as connection:
+            row = connection.execute(
+                "SELECT manifest FROM jobs WHERE id = ?", (job_id,)
+            ).fetchone()
+        try:
+            return stored_manifest(json.loads(row["manifest"])) if row else None
+        except (TypeError, ValueError):
+            return None
+
     def run_ids_for_request(self, workspace, request, item=None):
         """The run ids of `workspace`'s jobs linked to `request` (and, with
         `item`, to that item of it) - what the run-based gallery filters by."""

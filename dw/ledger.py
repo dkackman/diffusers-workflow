@@ -66,6 +66,11 @@ MAX_ARGUMENTS = 64
 MAX_WORKFLOW_NAME_LENGTH = 200
 MAX_FILE_BYTES = 2 * 1024 * 1024
 MAX_HISTORY = 100
+# The list's `cover`: this many result outputs, found among at most
+# COVER_SCAN of a request's latest results - the bound on what one row of a
+# polled list may read
+COVER_SIZE = 3
+COVER_SCAN = 8
 # Seconds a write waits for another server's write to the same file
 LOCK_TIMEOUT = 10
 
@@ -77,9 +82,9 @@ AUTHORS = ("agent", "user")
 # here - but held to name characters so a later stage can.
 _WORKFLOW_NAME_PATTERN = r"^[\w][\w.:-]*(/[\w][\w.:-]*)*\Z"
 
-# What an item may carry on a write. `status`, `attempts`, `result`,
-# `accepted_missing` and `spent_minutes` are derived and ignored, so a plan
-# read with GET can be written back as it came.
+# What an item may carry on a write. `status`, `ready`, `attempts`,
+# `result`, `accepted_missing` and `spent_minutes` are derived and ignored,
+# so a plan read with GET can be written back as it came.
 _ITEM_FIELDS = frozenset(
     (
         "key",
@@ -92,6 +97,7 @@ _ITEM_FIELDS = frozenset(
         "accepted",
         "comment",
         "status",
+        "ready",
         "attempts",
         "result",
         "accepted_missing",
@@ -272,16 +278,25 @@ def _item_status(item, jobs):
     return "planned"
 
 
+def _output(job):
+    """A linked job's proof - `{name, kind}` of the one output that stands
+    for it, or None - while its run directory exists. The caller derives
+    it; one handed over as a callable is read only here, so a view pays
+    only for the proofs it shows."""
+    output = job.get("output") if job.get("run_exists") else None
+    return output() if callable(output) else output
+
+
 def _result(item, jobs):
-    """`(result, accepted_missing)`: the accepted job's run when it is set
-    and its run still exists, else the latest-finished succeeded job whose
-    run exists, else None."""
+    """`(job, accepted_missing)`: the accepted job when it is set and its
+    run still exists, else the latest-finished succeeded job whose run
+    exists, else None."""
     accepted = item.get("accepted")
     missing = False
     if accepted:
         for job in jobs:
             if job.get("job") == accepted.get("job") and job.get("run_exists"):
-                return {"job": job["job"], "run_id": job.get("run_id")}, False
+                return job, False
         missing = True
     kept = [
         job
@@ -290,8 +305,44 @@ def _result(item, jobs):
     ]
     if not kept:
         return None, missing
-    latest = max(kept, key=lambda job: job.get("finished_at") or 0)
-    return {"job": latest["job"], "run_id": latest.get("run_id")}, missing
+    return max(kept, key=lambda job: job.get("finished_at") or 0), missing
+
+
+def _ready(request, grouped):
+    """The keys of the items a job could be queued for now: planned, with a
+    stored workflow and every dependency done, in an open request."""
+    if request.get("state") != "open":
+        return set()
+    items = request.get("items", [])
+    status = {
+        i.get("key"): _item_status(i, grouped.get(i.get("key"), [])) for i in items
+    }
+    return {
+        i.get("key")
+        for i in items
+        if status[i.get("key")] == "planned"
+        and i.get("workflow")
+        and all(status.get(dep) == "done" for dep in i.get("depends_on") or [])
+    }
+
+
+def _cover(request, grouped):
+    """Up to COVER_SIZE outputs of the latest results, newest first, reading
+    at most COVER_SCAN proofs."""
+    results = []
+    for item in request.get("items", []):
+        job, _ = _result(item, grouped.get(item.get("key"), []))
+        if job is not None and not item.get("dropped"):
+            results.append(job)
+    results.sort(key=lambda job: job.get("finished_at") or 0, reverse=True)
+    cover = []
+    for job in results[:COVER_SCAN]:
+        output = _output(job)
+        if output and output not in cover:
+            cover.append(output)
+        if len(cover) == COVER_SIZE:
+            break
+    return cover
 
 
 def _jobs_by_item(jobs):
@@ -303,24 +354,32 @@ def _jobs_by_item(jobs):
     return grouped
 
 
-def item_view(item, jobs):
+def item_view(item, jobs, ready=False):
     """One item as read, with what its linked `jobs` derive: `status`,
-    `attempts` (every linked job, oldest first, as `{job, status, note,
-    minutes}` - `note` only when set, `minutes` null until it has run),
-    `result`, `accepted_missing` (only when true) and `spent_minutes`."""
+    `ready`, `attempts` (every linked job, oldest first, as `{job, status,
+    note, minutes, output}` - `note` only when set, `minutes` null until it
+    has run, `output` its proof or null), `result` (`{job, run_id,
+    output}`), `accepted_missing` (only when true) and `spent_minutes`."""
     attempts = [
         {
             "job": job.get("job"),
             "status": job.get("status"),
             **({"note": job["note"]} if job.get("note") else {}),
             "minutes": _minutes(job),
+            "output": _output(job),
         }
         for job in jobs
     ]
-    result, missing = _result(item, jobs)
+    chosen, missing = _result(item, jobs)
+    result = chosen and {
+        "job": chosen["job"],
+        "run_id": chosen.get("run_id"),
+        "output": attempts[jobs.index(chosen)]["output"],
+    }
     return {
         **item,
         "status": _item_status(item, jobs),
+        "ready": ready,
         "attempts": attempts,
         "result": result,
         **({"accepted_missing": True} if missing else {}),
@@ -347,11 +406,12 @@ def request_view(request, jobs=()):
     """A stored request as read: every item with its derived fields
     (`item_view`) and the request's `spent_minutes` and `remaining_minutes`.
     `jobs` are the linked jobs (`{job, item, status, run_id, run_exists,
-    note, created_at, started_at, finished_at}`)."""
+    note, created_at, started_at, finished_at, output}`)."""
     grouped = _jobs_by_item(jobs)
+    ready = _ready(request, grouped)
     view = dict(request)
     view["items"] = [
-        item_view(item, grouped.get(item.get("key"), []))
+        item_view(item, grouped.get(item.get("key"), []), item.get("key") in ready)
         for item in request.get("items", [])
     ]
     view["spent_minutes"] = _spent(jobs)
@@ -374,6 +434,8 @@ def summary_view(request, jobs=()):
         "revision": request.get("revision"),
         "items": len(request.get("items", [])),
         "status_counts": counts,
+        "ready": len(_ready(request, grouped)),
+        "cover": _cover(request, grouped),
         "spent_minutes": _spent(jobs),
         "remaining_minutes": _remaining(request, grouped),
         "updated_at": history[-1].get("at") if history else None,

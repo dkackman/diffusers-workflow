@@ -8,7 +8,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from .api_models_base import ApiModel, JobStatus, sometimes
+from .api_models_base import ApiModel, JobStatus, OutputKind, sometimes
 from ..ledger import MAX_TITLE_LENGTH, MAX_WHY_LENGTH
 from ..lora_catalog import STATUS_ORDER
 from .catalog_shape import SHAPES, TRAITS
@@ -358,6 +358,16 @@ class LedgerComment(ApiModel):
     at: str
 
 
+class LedgerOutput(ApiModel):
+    """The one file that stands for a job: what a list shows as its proof."""
+
+    name: str = Field(
+        description="The file as the job's manifest and the gallery name it, "
+        "relative to the workspace's outputs: `/api/gallery/{name}/thumbnail`."
+    )
+    kind: OutputKind = Field(description="A thumbnail exists for image and video.")
+
+
 class LedgerAttempt(ApiModel):
     job: str
     status: JobStatus
@@ -365,11 +375,16 @@ class LedgerAttempt(ApiModel):
     minutes: int | float | None = Field(
         description="Run time; null until the job has started."
     )
+    output: LedgerOutput | None = Field(
+        description="The job's first final image or video, else its first "
+        "sound or text; null when it wrote none or its run is gone."
+    )
 
 
 class LedgerResult(ApiModel):
     job: str
     run_id: str | None
+    output: LedgerOutput | None
 
 
 class LedgerItem(ApiModel):
@@ -390,6 +405,10 @@ class LedgerItem(ApiModel):
             "dropped, done (a result exists), running, queued, failed (every "
             "linked job failed or was cancelled), planned."
         )
+    )
+    ready: bool = Field(
+        description="A job could be queued for it now: planned, with a stored "
+        "workflow and every dependency done, in an open request."
     )
     attempts: list["LedgerAttempt"] = Field(
         description="Every linked job, oldest first."
@@ -437,6 +456,10 @@ class LedgerSummary(ApiModel):
     revision: int
     items: int
     status_counts: dict[str, int]
+    ready: int = Field(description="Items a job could be queued for now.")
+    cover: list[LedgerOutput] = Field(
+        description="Up to three outputs of the latest results, newest first."
+    )
     spent_minutes: int | float
     remaining_minutes: int | float
     updated_at: str | None

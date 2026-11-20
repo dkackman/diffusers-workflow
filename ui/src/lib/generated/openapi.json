@@ -2766,6 +2766,17 @@
             "title": "Note",
             "type": "string"
           },
+          "output": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LedgerOutput"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The job's first final image or video, else its first sound or text; null when it wrote none or its run is gone."
+          },
           "status": {
             "enum": [
               "queued",
@@ -2781,7 +2792,8 @@
         "required": [
           "job",
           "status",
-          "minutes"
+          "minutes",
+          "output"
         ],
         "title": "LedgerAttempt",
         "type": "object"
@@ -2957,6 +2969,11 @@
             "title": "Key",
             "type": "string"
           },
+          "ready": {
+            "description": "A job could be queued for it now: planned, with a stored workflow and every dependency done, in an open request.",
+            "title": "Ready",
+            "type": "boolean"
+          },
           "result": {
             "anyOf": [
               {
@@ -3020,6 +3037,7 @@
           "accepted",
           "comment",
           "status",
+          "ready",
           "attempts",
           "result",
           "spent_minutes"
@@ -3052,6 +3070,34 @@
           "requests"
         ],
         "title": "LedgerList",
+        "type": "object"
+      },
+      "LedgerOutput": {
+        "additionalProperties": false,
+        "description": "The one file that stands for a job: what a list shows as its proof.",
+        "properties": {
+          "kind": {
+            "description": "A thumbnail exists for image and video.",
+            "enum": [
+              "image",
+              "video",
+              "audio",
+              "text"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "description": "The file as the job's manifest and the gallery name it, relative to the workspace's outputs: `/api/gallery/{name}/thumbnail`.",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "kind"
+        ],
+        "title": "LedgerOutput",
         "type": "object"
       },
       "LedgerRequest": {
@@ -3155,6 +3201,16 @@
             "title": "Job",
             "type": "string"
           },
+          "output": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LedgerOutput"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "run_id": {
             "anyOf": [
               {
@@ -3169,7 +3225,8 @@
         },
         "required": [
           "job",
-          "run_id"
+          "run_id",
+          "output"
         ],
         "title": "LedgerResult",
         "type": "object"
@@ -3177,12 +3234,25 @@
       "LedgerSummary": {
         "additionalProperties": false,
         "properties": {
+          "cover": {
+            "description": "Up to three outputs of the latest results, newest first.",
+            "items": {
+              "$ref": "#/components/schemas/LedgerOutput"
+            },
+            "title": "Cover",
+            "type": "array"
+          },
           "id": {
             "title": "Id",
             "type": "string"
           },
           "items": {
             "title": "Items",
+            "type": "integer"
+          },
+          "ready": {
+            "description": "Items a job could be queued for now.",
+            "title": "Ready",
             "type": "integer"
           },
           "remaining_minutes": {
@@ -3250,6 +3320,8 @@
           "revision",
           "items",
           "status_counts",
+          "ready",
+          "cover",
           "spent_minutes",
           "remaining_minutes",
           "updated_at"

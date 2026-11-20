@@ -3126,6 +3126,8 @@ export interface components {
              * @description The job's note.
              */
             note?: string;
+            /** @description The job's first final image or video, else its first sound or text; null when it wrote none or its run is gone. */
+            output: components["schemas"]["LedgerOutput"] | null;
             /**
              * Status
              * @enum {string}
@@ -3204,6 +3206,11 @@ export interface components {
             estimate_minutes: number | null;
             /** Key */
             key: string;
+            /**
+             * Ready
+             * @description A job could be queued for it now: planned, with a stored workflow and every dependency done, in an open request.
+             */
+            ready: boolean;
             /** @description The accepted job's run, else the latest succeeded job's run whose directory still exists; null when neither. */
             result: components["schemas"]["LedgerResult"] | null;
             /**
@@ -3233,6 +3240,23 @@ export interface components {
             unreadable?: string;
             /** Workspace */
             workspace: string;
+        };
+        /**
+         * LedgerOutput
+         * @description The one file that stands for a job: what a list shows as its proof.
+         */
+        LedgerOutput: {
+            /**
+             * Kind
+             * @description A thumbnail exists for image and video.
+             * @enum {string}
+             */
+            kind: "image" | "video" | "audio" | "text";
+            /**
+             * Name
+             * @description The file as the job's manifest and the gallery name it, relative to the workspace's outputs: `/api/gallery/{name}/thumbnail`.
+             */
+            name: string;
         };
         /** LedgerRequest */
         LedgerRequest: {
@@ -3273,15 +3297,26 @@ export interface components {
         LedgerResult: {
             /** Job */
             job: string;
+            output: components["schemas"]["LedgerOutput"] | null;
             /** Run Id */
             run_id: string | null;
         };
         /** LedgerSummary */
         LedgerSummary: {
+            /**
+             * Cover
+             * @description Up to three outputs of the latest results, newest first.
+             */
+            cover: components["schemas"]["LedgerOutput"][];
             /** Id */
             id: string;
             /** Items */
             items: number;
+            /**
+             * Ready
+             * @description Items a job could be queued for now.
+             */
+            ready: number;
             /** Remaining Minutes */
             remaining_minutes: number;
             /** Revision */
