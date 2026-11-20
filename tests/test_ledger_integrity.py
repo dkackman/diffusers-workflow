@@ -184,3 +184,65 @@ class TestShape:
         (tmp_path / REQUESTS_FILE_NAME).write_text("[]")
         problem = ledger.link_problem(str(tmp_path), "cats", "a")
         assert (problem.status, problem.code) == (409, "ledger_unreadable")
+
+
+# --- two servers on one workspace -------------------------------------------
+
+_WRITER = """
+import sys
+from dw import ledger
+root, prefix, count = sys.argv[1], sys.argv[2], int(sys.argv[3])
+for n in range(count):
+    ledger.put_request(
+        root,
+        f"{prefix}{n}",
+        {"title": "t", "goal": "", "items": [], "revision": 0, "why": "w"},
+        by="agent",
+    )
+"""
+
+
+class TestCrossProcess:
+    def test_a_write_waits_for_another_process_holding_the_lock(
+        self, tmp_path, monkeypatch
+    ):
+        from filelock import FileLock
+
+        from dw.workspace import REQUESTS_LOCK_NAME
+
+        write(tmp_path, plan())
+        before = (tmp_path / REQUESTS_FILE_NAME).read_text()
+        monkeypatch.setattr(ledger, "LOCK_TIMEOUT", 0.2)
+        # another FileLock object on the same file is what a second server
+        # holds: it excludes this one exactly as another process does
+        with FileLock(str(tmp_path / REQUESTS_LOCK_NAME), thread_local=False):
+            error = refused(tmp_path, plan(revision=1), code="ledger_busy")
+            assert error.status == 503
+            assert str(tmp_path) not in str(error)
+            assert (tmp_path / REQUESTS_FILE_NAME).read_text() == before
+        assert write(tmp_path, plan(revision=1))["revision"] == 2
+
+    def test_two_processes_writing_different_requests_lose_none(self, tmp_path):
+        import subprocess
+        import sys
+
+        repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        env = {**os.environ, "PYTHONPATH": repo}
+        writers = [
+            subprocess.Popen(
+                [sys.executable, "-c", _WRITER, str(tmp_path), prefix, "15"], env=env
+            )
+            for prefix in ("a", "b", "c")
+        ]
+        assert [w.wait(timeout=120) for w in writers] == [0, 0, 0]
+        stored = ledger.read_requests(str(tmp_path))
+        assert len(stored) == 45
+
+    def test_the_lock_file_does_not_stop_a_workspace_being_deleted(self, client):
+        client.post("/api/workspaces", json={"name": "shots"})
+        assert (
+            client.put("/api/workspaces/shots/requests/cats", json=plan()).status_code
+            == 200
+        )
+        deleted = client.delete("/api/workspaces/shots?acknowledged=true")
+        assert deleted.status_code == 200, deleted.text

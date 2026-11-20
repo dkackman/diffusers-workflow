@@ -19,9 +19,12 @@ leaves it out); else `done` when any linked job succeeded, `running`,
 the request `spent_minutes` and `remaining_minutes`; this module reads only
 the job dicts it is handed, never the job store.
 
-Written with `write_json_atomic` under a per-directory lock (the notes.py
-pattern), read without one: a rename is atomic, so a reader sees the old
-file or the new one. Callers resolve and validate the workspace root; this
+Written with `write_json_atomic` under a file lock beside it
+(`.requests.json.lock`, the model_use.py pattern), so two servers on one
+workspace read, check the revision and replace the file one at a time; a
+per-directory thread lock in front keeps one process's threads from
+queueing on the file. Read without a lock: a rename is atomic, so a reader
+sees the old file or the new one. Callers resolve and validate the workspace root; this
 module joins only its own fixed file name onto it.
 """
 
@@ -30,7 +33,10 @@ import math
 import os
 import re
 import threading
+from contextlib import contextmanager
 from datetime import datetime, timezone
+
+from filelock import FileLock, Timeout
 
 from .notes import NoteTooLong, clean_note
 from .runs import write_json_atomic
@@ -41,7 +47,7 @@ from .security import (
     validate_string_input,
     validate_variable_name,
 )
-from .workspace import REQUESTS_FILE_NAME
+from .workspace import REQUESTS_FILE_NAME, REQUESTS_LOCK_NAME
 
 MAX_TITLE_LENGTH = 200
 MAX_WHY_LENGTH = 200
@@ -54,6 +60,8 @@ MAX_ARGUMENTS = 64
 MAX_WORKFLOW_NAME_LENGTH = 200
 MAX_FILE_BYTES = 2 * 1024 * 1024
 MAX_HISTORY = 100
+# Seconds a write waits for another server's write to the same file
+LOCK_TIMEOUT = 10
 
 STATES = ("open", "done", "abandoned")
 AUTHORS = ("agent", "user")
@@ -107,6 +115,32 @@ def _lock(directory):
     key = os.path.realpath(directory)
     with _locks_guard:
         return _locks.setdefault(key, threading.Lock())
+
+
+@contextmanager
+def _writing(root):
+    """Hold the ledger at `root` for one read-check-replace: this process's
+    threads first, then every other process on the file lock. Raises
+    LedgerError (503 `ledger_busy`) when another process keeps it past
+    `LOCK_TIMEOUT`."""
+    with _lock(root):
+        held = FileLock(
+            os.path.join(root, REQUESTS_LOCK_NAME),
+            timeout=LOCK_TIMEOUT,
+            thread_local=False,
+        )
+        try:
+            held.acquire()
+        except Timeout as e:
+            raise LedgerError(
+                f"{REQUESTS_FILE_NAME} is being written by another server; try again",
+                status=503,
+                code="ledger_busy",
+            ) from e
+        try:
+            yield
+        finally:
+            held.release()
 
 
 def _now():
@@ -787,7 +821,7 @@ def put_request(
         raise LedgerError(f"by must be one of {', '.join(AUTHORS)}")
     write = _check_body(body)
 
-    with _lock(root):
+    with _writing(root):
         requests = _load(root)
         current = _check_against(requests, request_id, write)
         at = _now()
