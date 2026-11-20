@@ -41,11 +41,9 @@ import torch
 
 from .. import empty_device_cache
 from ..media_types import AudioVideo, fit_codec_padding
-from ..output_extraction import get_artifact_list
 from ..events import emit_log, emit_warning
 from ..shots import shot_record, without_samples
 from ..task_domains import frames_to_samples
-from ..tasks.joins import equal_power_crossfade_join
 from ..tasks.video_utils import frames_as_pil_list
 from .chain_spill import (  # noqa: F401 - SegmentedFrames and SavedFrames re-exported
     ReadFrames,
@@ -74,7 +72,13 @@ from .chain_check import (
 )
 from . import chain_resume
 from .chain_config import ChainConfig, trimmed_take_shots
-from .chain_continuity import CONTINUITY_MODES, _generated_audio
+from .chain_continuity import (
+    CONTINUITY_MODES,
+    _generated_audio,
+    _joined_audio,
+    _on_timeline_audio,
+    _single_artifact,
+)
 from .chain_look import LookHold
 from .h3_anchor import anchor_refusal
 from .h3_guides import guides_refusal, latent_guide_tail, levelled_tail
@@ -1041,83 +1045,3 @@ def _check_guide_chain(pipeline, arguments, chain_definition, config):
             "Guide chain: crossfade_ms is ignored - the guide holds the audio "
             "across each seam (set carry_audio false to crossfade instead)"
         )
-
-
-def _single_artifact(output):
-    """The one video artifact a chain segment must produce.
-
-    Modular pipelines asked for extra outputs return them alongside the video -
-    those are dropped here. More than one video means batched generation, which
-    a chain cannot stitch.
-    """
-    artifacts = get_artifact_list(output)
-    videos = [artifact for artifact in artifacts if _is_video_artifact(artifact)]
-
-    if len(videos) != 1:
-        raise ValueError(
-            f"A chained pipeline must generate exactly one video per segment, "
-            f"got {len(videos)} - batched generation cannot be chained"
-        )
-    if len(artifacts) > 1:
-        logger.debug(f"Chain segment dropped {len(artifacts) - 1} non-video output(s)")
-    return videos[0]
-
-
-def _is_video_artifact(artifact):
-    if isinstance(artifact, AudioVideo):
-        return True
-    if isinstance(artifact, list) and artifact:
-        return not isinstance(artifact[0], str)
-    return hasattr(artifact, "ndim") and artifact.ndim >= 3
-
-
-def _on_timeline_audio(segment_audio, segment, config, segment_rate):
-    """The part of a segment's generated audio that survives the head trim.
-
-    Muxed into the segment's spill file so a crashed chain leaves fully
-    playable segments; the final soundtrack still comes from the accumulated
-    crossfaded track (or the original match_audio track).
-    """
-    if segment_audio is None:
-        return None
-    trim_samples = frames_to_samples(segment.head_trim, config.fps, segment_rate)
-    return segment_audio[:, trim_samples:]
-
-
-def _joined_audio(
-    audio, audio_rate, segment_audio, segment_rate, segment, config, applied=None
-):
-    """Fold one segment's generated audio into the accumulated track.
-
-    The samples matching the segment's trimmed head frames are cut off and
-    used as crossfade material against the tail of the accumulated audio, so
-    the audio timeline shortens by exactly as much as the video's.
-    """
-    if audio is None:
-        return segment_audio, segment_rate
-
-    if segment_rate != audio_rate:
-        raise ValueError(
-            f"Chain segments generated audio at different sample rates: "
-            f"{audio_rate} then {segment_rate}"
-        )
-
-    if segment.head_trim > 0 and config.fps is None:
-        raise ValueError(
-            "Joining generated audio needs the frame rate - set 'fps' on the "
-            "chain or a 'frame_rate' pipeline argument"
-        )
-
-    trim_samples = (
-        frames_to_samples(segment.head_trim, config.fps, audio_rate)
-        if segment.head_trim
-        else 0
-    )
-    head = segment_audio[:, :trim_samples]
-    body = segment_audio[:, trim_samples:]
-    return (
-        equal_power_crossfade_join(
-            audio, head, body, audio_rate, config.crossfade_ms, applied=applied
-        ),
-        audio_rate,
-    )

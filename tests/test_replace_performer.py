@@ -109,8 +109,8 @@ def test_cut_past_source_end_is_the_trim_rule(harness):
 
 
 def test_mask_size_is_the_regional_edit_rule(harness):
-    """The static refusal asks h3_rules.media_problems, as _with_mask does."""
-    from dw.pipeline_processors.h3_rules import media_problems
+    """The static refusal asks h3_mask_cells.media_problems, as _with_mask does."""
+    from dw.pipeline_processors.h3_mask_cells import media_problems
 
     expected = media_problems("mask_video", (124, 272, 480), 960, 544)
     assert expected and expected[0] in text(harness(GOOD, mask_video="mask_small.mp4"))

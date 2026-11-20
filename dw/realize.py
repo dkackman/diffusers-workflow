@@ -212,6 +212,19 @@ def pin_output_reference(reference, output_root):
     return _pin_output(reference, output_root)
 
 
+def pin_inputs(inputs, output_root):
+    """`inputs` with each output: reference pinned as the realized workflow
+    pins it, duplicates merged."""
+    pinned = []
+    for entry in inputs:
+        reference = entry["reference"]
+        if entry["kind"] == "output":
+            reference = pin_output_reference(reference, output_root)
+        if not any(p["reference"] == reference for p in pinned):
+            pinned.append({**entry, "reference": reference})
+    return pinned
+
+
 def _record_sub_workflows(steps, annotations, base_dir, workflow_dir):
     """Digest every sub-workflow a step names by local path.
 

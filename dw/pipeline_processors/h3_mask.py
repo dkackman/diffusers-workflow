@@ -27,7 +27,8 @@ arithmetic is dw/pipeline_processors/h3_mask_cells.py (re-exported here), and
 the blocks are dw/pipeline_processors/h3_mask_steps.py, imported in `blocks()`
 only, since it imports diffusers when it loads (#790).
 The argument rules shared with validation are
-dw/pipeline_processors/h3_rules.py (`mask_problems`, `media_problems`).
+dw/pipeline_processors/h3_rules.py (`mask_problems`) and h3_mask_cells.py
+(`media_problems`).
 
 The audio pass (#1192) is the same `source_video` with no mask and no
 `hold_audio` (`h3_rules.is_audio_pass`): the picture is finished and only the
@@ -50,13 +51,13 @@ still a VAE round trip of the kept rows, so the result plays the source's own
 frames instead (`HELD_VIDEO_OUTPUT`, swapped in by dw/output_extraction.py the
 way `dw_held_audio` is). `listen_scale` 0.5 or 0.25 encodes the kept rows from
 an area-resampled copy of the source on a smaller canvas (`listen_frames`,
-`h3_rules.listen_canvas`), which is cheaper per step; the audio's length
+`h3_mask_cells.listen_canvas`), which is cheaper per step; the audio's length
 follows `num_frames`, which the scale leaves alone, and the picture returned
 is still the full-size source.
 
 The result plays at the source's own rate (`HELD_VIDEO_RATE_OUTPUT`), never
 relabelled to H3's 24. A source at another rate is conditioned on a copy
-retimed to 24 fps over its own duration (`h3_rules.retimed_indices`), so the
+retimed to 24 fps over its own duration (`h3_mask_cells.retimed_indices`), so the
 track generated covers the source's real length, and the result trims it to
 that length under the source's own frames (R25).
 """

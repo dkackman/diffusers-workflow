@@ -22,7 +22,7 @@ from diffusers.modular_pipelines.modular_pipeline_utils import (
 from ..events import emit_log
 
 from .h3_hold_steps import row_timestep_plan
-from .h3_mask_cells import keep_rows
+from .h3_mask_cells import keep_rows, media_problems
 from .h3_rules import (
     AUDIO_PASS_ROWS,
     HELD_VIDEO_OUTPUT,
@@ -36,7 +36,6 @@ from .h3_rules import (
     REGENERATE_MASK,
     SOURCE_ROWS,
     SOURCE_VIDEO_INPUT,
-    media_problems,
 )
 
 

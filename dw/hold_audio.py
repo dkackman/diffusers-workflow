@@ -37,7 +37,7 @@ them as well (dw/pipeline_processors/h3_mask.py): its rules are
 `h3_rules.mask_problems`, called here and at the call alike. Where the files
 resolve now, they are read here too, the way the guide-frame check reads its
 videos (`dw/guides.py`): the source's and the mask's size and frame count
-against the canvas (`h3_rules.media_problems`, which `Pipeline._with_mask` asks
+against the canvas (`h3_mask_cells.media_problems`, which `Pipeline._with_mask` asks
 again at the call), and a mask with no white pixel in it. A `source_video` with
 no mask and no `hold_audio` is the audio pass (#1192), whose rules - no refine
 argument, a `listen_scale` of 1, 0.5 or 0.25 - `mask_problems` owns too; its
@@ -64,11 +64,10 @@ from .pipeline_processors.h3_rules import (
     is_audio_pass,
     is_h3_step,
     mask_problems,
-    media_problems,
     not_h3,
     refine_problems,
-    retimed_indices,
 )
+from .pipeline_processors.h3_mask_cells import media_problems, retimed_indices
 from .probe_paths import resolve_probe_path
 from .security import ALLOWED_AUDIO_EXTENSIONS, ALLOWED_VIDEO_EXTENSIONS
 from .tasks.trim import span_problem

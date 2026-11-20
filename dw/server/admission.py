@@ -9,11 +9,17 @@ all of it. JobManager.submit records and queues what was admitted - the
 admitted Workflow's definition and file_spec travel with the job - and it
 does not re-check. The worker builds that snapshot (workflow_from_snapshot)
 and runs it without re-reading the file or validating it again.
+
+The plan a valid answer carries is built here too (`validation_plan`), and
+the same plan is what a bound acknowledgement is checked against
+(`bound_plan_for`, `check_bound_acknowledgement`).
 """
 
 import copy
 import logging
+import os
 from dataclasses import dataclass, field
+from types import SimpleNamespace
 from typing import Any, Dict, List, Optional, Union
 
 from fastapi import HTTPException
@@ -26,9 +32,10 @@ from ..assets import (
     resolve_asset_reference,
 )
 from .. import get_device_type, references, validation
-from ..security import InvalidInputError, validate_ledger_key
+from ..library import SubWorkflowNotFound, resolve_sub_workflow_reference
+from ..security import InvalidInputError, SecurityError, validate_ledger_key
 from ..notes import MAX_NOTE_LENGTH, NoteTooLong, clean_note
-from ..plan import list_entries
+from ..plan import build_plan, list_entries
 from ..plan_downloads import repos_named
 from ..prompts import resolve_prompt_reference
 from ..runs import (
@@ -42,10 +49,13 @@ from ..vram_estimate import required_vram_gb
 from ..workflow import Workflow, workflow_from_definition, workflow_from_file
 from ..host_memory import host_memory_stats
 from .host_ram_need import host_too_small, projected_peak
+from .catalog import catalog_name_from_root
 from .deps import (
     ceiling_index,
     inherited_host_ram,
+    inherited_observed,
     lora_index,
+    observed_for_name,
     server_prompt_library,
 )
 from .job_record import ACK_BOOLEAN, ACK_BOUND, ACK_NONE
@@ -671,3 +681,149 @@ def check_bound_acknowledgement(current, acknowledged, workspace):
             "downloads",
             current,
         )
+
+
+def _probe_command_for(candidate, request, workspace, workflow_dir):
+    """The execute-shaped command a cache probe of this validate request
+    needs - the same fields _run_job sends, built from the candidate
+    admission checked, so the worker builds the workflow exactly as a
+    job would. Its keys must be ProbeCache's fields (dw/worker_protocol.py):
+    JobManager.probe_cache builds ProbeCache(**command), so a key that
+    is not one raises TypeError there and the plan comes back null."""
+    command = {
+        "definition": candidate.workflow_definition,
+        "file_spec": candidate.file_spec,
+        "source": "path" if request.workflow_path is not None else "inline",
+        "arguments": request.arguments,
+        "output_dir": workspace.outputs,
+        "workflow_dir": workflow_dir,
+    }
+    if workspace.assets:
+        command["asset_dir"] = workspace.assets
+    return command
+
+
+def validation_plan(
+    state, candidate, vram_need, request, workspace, source, catalog_name, sizes
+):
+    """The plan a valid /api/validate answer carries: what the run will
+    execute for these arguments, fingerprinted so an acknowledgement can
+    be bound to it (#85). Best effort - None when it cannot be built,
+    since the verdict is the schema's and the planner may not change it.
+    `vram_need` is admission's (`Admission.vram_need`), the need dispatch
+    routes the job by.
+    """
+    source_root = source.root if source else workspace.workflows
+    definition = candidate.workflow_definition
+    try:
+        from .. import get_device, get_device_type
+
+        command = _probe_command_for(candidate, request, workspace, source_root)
+        # The card this run would be dispatched to now: its step cache is
+        # the one probed, and its history the one the estimate quotes (#462)
+        manager = state.job_manager
+        card = manager.route(
+            manager.identity_of(command["source"], command["file_spec"], definition),
+            vram_need,
+        )
+
+        def observed_for_child(path, child_definition, arguments=None):
+            """A composed child's own observed figure, keyed by the
+            catalog name it resolves to - so a parent with no figure of
+            its own can quote what this box's runs of the *child* took
+            rather than falling back to unknown (#268).
+
+            `arguments` are the composing step's own overrides - the
+            same role `arguments` plays for the top-level `observed`
+            callback - so a child whose composing step shifted a
+            declared scalar `cost_driver` (#341) is bucketed against
+            *that* value rather than always the child's stored
+            defaults, which silently answered the default bucket's
+            history for every override."""
+            base_dir = (
+                os.path.dirname(os.path.abspath(candidate.file_spec))
+                if candidate.file_spec
+                else "."
+            )
+            try:
+                child_path, child_root = resolve_sub_workflow_reference(
+                    path, base_dir, candidate.workflow_dir
+                )
+            except (SecurityError, OSError, ValueError, SubWorkflowNotFound):
+                return None
+            child_name = catalog_name_from_root(child_path, child_root)
+            if not child_name:
+                return None
+            # The workspace's own workflows/ is the writable one (#274). The
+            # root's `writable` tag is not enough: the run's own confinement
+            # is tagged writable whatever directory it is, so equality with
+            # the workspace's workflows/ stays the test
+            child_workspace = (
+                workspace.name if child_root == workspace.workflows else None
+            )
+            return observed_for_name(
+                state,
+                child_name,
+                child_definition,
+                arguments,
+                workspace=child_workspace,
+                card=card.ordinal(),
+            )
+
+        plan = build_plan(
+            candidate,
+            request.arguments,
+            device=get_device_type(get_device()),
+            prompt_dir=workspace.prompts,
+            lookup_sizes=sizes,
+            cache_probe=lambda arguments: manager.probe_cache(
+                {**command, "arguments": arguments}, slot=card
+            ),
+            # What this box's own runs of this shape took, which is what
+            # the estimate quotes ahead of a curated figure (#154) - the
+            # same aggregate the listing reports, asked with the
+            # caller's arguments rather than the defaults
+            observed=(
+                (
+                    lambda arguments: observed_for_name(
+                        state,
+                        catalog_name,
+                        definition,
+                        arguments,
+                        workspace=workspace.name if source.writable else None,
+                        card=card.ordinal(),
+                    )
+                )
+                if catalog_name
+                # An inline workflow has no name to look history up by:
+                # price it by pipeline identity, the way the VRAM ceiling
+                # is inherited (#797)
+                else lambda arguments: inherited_observed(
+                    state, workspace, definition, arguments, card=card.ordinal()
+                )
+            ),
+            observed_for_child=observed_for_child,
+        )
+        # Which card the estimate is for - with several, the figure is
+        # that card's, and another card's may differ
+        priced_for = card.label() or card.ordinal()
+        if priced_for and isinstance(plan.get("estimate"), dict):
+            plan["estimate"]["priced_for"] = priced_for
+        return plan
+    except Exception:
+        logger.exception("Plan could not be built")
+        return None
+
+
+def bound_plan_for(state, workspace, workflow_path, arguments, source, catalog_name):
+    """The `plan_for` a bound acknowledgement is checked against: the plan
+    /api/validate builds for the same run, without the hub size lookup, so
+    a 409 quotes the observed estimate validate would (#1038)."""
+    request = SimpleNamespace(workflow_path=workflow_path, arguments=arguments)
+
+    def plan_for(candidate, vram_need=None):
+        return validation_plan(
+            state, candidate, vram_need, request, workspace, source, catalog_name, False
+        )
+
+    return plan_for

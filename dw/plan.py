@@ -55,7 +55,7 @@ from .presets import selectors as preset_selectors
 from .plan_downloads import gate_warnings as gate_warnings
 from .plan_downloads import missing_repo_errors as missing_repo_errors
 from .realize import read_sub_workflow, realize_workflow
-from .validation import _is_seeded
+from .step_cache import _is_seeded
 from .variables import same_number
 
 logger = logging.getLogger("dw")
