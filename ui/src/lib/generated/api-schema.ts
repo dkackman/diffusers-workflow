@@ -5153,6 +5153,8 @@ export interface operations {
                 role?: string[] | null;
                 /** @description Only the files of runs whose job is linked to this requests-ledger request in this workspace */
                 request?: string | null;
+                /** @description With `request`: only the files of runs whose job is linked to this item of it */
+                item?: string | null;
                 workspace?: string | null;
             };
             header?: never;

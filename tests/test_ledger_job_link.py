@@ -408,6 +408,26 @@ class TestFilters:
         assert done
         assert planned.get("/api/gallery?request=Demo").status_code == 422
 
+    def test_the_gallery_filters_by_item(self, planned):
+        a = submit(planned, item_key="a")
+        b = submit(planned, item_key="b")
+        for j in (a, b):
+            finish(planned, j)
+
+        def runs(query):
+            r = planned.get(f"/api/gallery?{query}")
+            assert r.status_code == 200, r.text
+            return {e["run_id"] for e in r.json()["files"]}
+
+        run_of = {
+            j["id"]: planned.manager.get(j["id"]).run_dir.split("/")[-1] for j in (a, b)
+        }
+        assert runs("request=cats") == {run_of[a["id"]], run_of[b["id"]]}
+        assert runs("request=cats&item=b") == {run_of[b["id"]]}
+        assert runs("request=cats&item=a") == {run_of[a["id"]]}
+        assert planned.get("/api/gallery?item=a").status_code == 422
+        assert planned.get("/api/gallery?request=cats&item=B").status_code == 422
+
 
 # --- derived state --------------------------------------------------------
 

@@ -606,15 +606,19 @@ class JobHistory:
             ).fetchall()
         return [dict(row) for row in rows]
 
-    def run_ids_for_request(self, workspace, request):
-        """The run ids of `workspace`'s jobs linked to `request` - what the
-        run-based gallery filters by."""
+    def run_ids_for_request(self, workspace, request, item=None):
+        """The run ids of `workspace`'s jobs linked to `request` (and, with
+        `item`, to that item of it) - what the run-based gallery filters by."""
+        sql = (
+            "SELECT run_id FROM jobs WHERE workspace = ? AND request = ?"
+            " AND run_id IS NOT NULL"
+        )
+        params = [workspace, request]
+        if item:
+            sql += " AND item = ?"
+            params.append(item)
         with self._lock, self._connect() as connection:
-            rows = connection.execute(
-                "SELECT run_id FROM jobs WHERE workspace = ? AND request = ?"
-                " AND run_id IS NOT NULL",
-                (workspace, request),
-            ).fetchall()
+            rows = connection.execute(sql, params).fetchall()
         return {row["run_id"] for row in rows}
 
     def device_ordinal(self, job_id):

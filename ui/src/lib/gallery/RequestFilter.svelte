@@ -1,25 +1,32 @@
 <script lang="ts">
   import { X } from '@lucide/svelte'
   import { api } from '../api'
-  import { parseRequestFilter } from '../requestFilter'
+  import { formatRequestFilter, parseRequestFilter } from '../requestFilter'
   import { hashQuery, setHashQuery } from '../router.svelte'
   import { wsHref } from '../routes'
   import type { LedgerSummary } from '../types'
   import { workspace } from '../workspace.svelte'
 
   // The gallery's request filter: `req=<id>` in the hash narrows it to that
-  // requests-ledger request's runs (the page asks the server, reading
-  // `request`). An `id/item` value from the Jobs page keeps its id. With no
-  // request chosen it offers a picker of the workspace's requests, hidden
-  // when there are none or the call fails.
-  let { request = $bindable('') }: { request: string } = $props()
+  // requests-ledger request's runs, `req=<id>/<item>` to one item's (the
+  // page asks the server, reading `request` and `item`). With no request
+  // chosen it offers a picker of the workspace's requests, hidden when
+  // there are none or the call fails; picking one clears any item.
+  let {
+    request = $bindable(''),
+    item = $bindable(''),
+  }: { request: string; item: string } = $props()
 
-  request = parseRequestFilter(hashQuery().req).request
-  $effect(() => setHashQuery({ req: request }))
+  const fromHash = () => {
+    const parsed = parseRequestFilter(hashQuery().req)
+    request = parsed.request
+    item = parsed.request ? parsed.item : ''
+  }
+  fromHash()
+  $effect(() => setHashQuery({ req: formatRequestFilter({ request, item }) }))
   $effect(() => {
-    const sync = () => (request = parseRequestFilter(hashQuery().req).request)
-    window.addEventListener('hashchange', sync)
-    return () => window.removeEventListener('hashchange', sync)
+    window.addEventListener('hashchange', fromHash)
+    return () => window.removeEventListener('hashchange', fromHash)
   })
 
   let requests = $state<LedgerSummary[]>([])
@@ -45,11 +52,16 @@
       class="plain"
       href={wsHref(workspace.current, 'requests', request)}
       title={title ? `${title} - open this request` : 'open this request'}
-      >request <code>{request}</code></a
+      >{#if item}<code>{request} › {item}</code>{:else}request <code
+          >{request}</code
+        >{/if}</a
     >
     <button
       class="quiet icon"
-      onclick={() => (request = '')}
+      onclick={() => {
+        request = ''
+        item = ''
+      }}
       title="remove the request filter"
       aria-label="remove the request filter"><X size={12} /></button
     >
