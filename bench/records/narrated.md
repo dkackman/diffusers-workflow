@@ -1155,8 +1155,9 @@ Every take is `bench/keystone-probe{,-noarg}/<run>/segments/*-seg02.2-0.0.mp4`: 
   CC BY-SA 4.0) corrects those figures: test 19 compared every block set with the normal
   keystone at balance 20 on all 50 blocks, with an extra LoRA on, and balance alone
   darkens a clip by up to 3%, so test 19 reads 3 to 4 points high. Test 21, with a
-  same-block control and no extra LoRA, gives none +0.9% (was +4.4%), `0-29` +1.4% (was
-  +4.1%; by row, 0-9 +1.1%, 10-19 +0.9%) and `30-39` +13.2% (was +13.8%). The conclusion
+  same-block control and no extra LoRA, gives none +0.9% (was +4.4%), `0-29`, which
+  test 21 splits by row: 0-9 +1.1%, 10-19 +0.9%, 20-29 +1.4% (test 19 had +4.1% for
+  `0-29`), and `30-39` +13.2% (was +13.8%). The conclusion
   stands, and test 21 cites our #1394 numbers as confirming the same numbering.
   diffusers' indices 0-49 behave as ComfyUI's `diffusion_model.blocks[i]`, so the arms
   may go ahead on this numbering.
