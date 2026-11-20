@@ -962,17 +962,38 @@ The editor's forms come from these; they are just as usable from scripts:
   or out-of-directory name 404s the whole request rather than yielding a
   partial archive
 - `GET /api/workspaces/{name}/requests[/{id}]`, `PUT
-  /api/workspaces/{name}/requests/{id}` — the requests ledger
-  ([WORKSPACES.md](WORKSPACES.md#requests)). Reads derive from the jobs linked
-  through `POST /api/jobs` `request`/`item`: each item carries `status`
-  (`dropped`, `done`, `running`, `queued`, `failed`, `planned`), `attempts`
-  (`[{job, status, note?, minutes}]`, oldest first), `result` (`{job, run_id}`
-  or null), `accepted_missing` (only when true) and `spent_minutes`; the
+  /api/workspaces/{name}/requests/{id}`, `DELETE
+  /api/workspaces/{name}/requests/{id}?revision=N` — the requests ledger
+  ([WORKSPACES.md](WORKSPACES.md#requests) has the rules). `PUT` takes one
+  request's whole plan: `title`, `goal`, `items`, `revision` (the one read,
+  0 to create) and `why`, and optionally `prompt` (create only), `state`
+  (`open`, `done`, `abandoned` - a user's write closes and reopens),
+  `comment` (the user's note on the request: left out it is kept, null
+  clears it), `purge` (keys of left-out items to remove for good) and `by`
+  (`user`, the default, or `agent`). `DELETE` removes the ledger entry at
+  that revision and answers `{id, workspace, deleted, revision,
+  linked_jobs}`; the linked jobs keep their rows, link and files. Reads
+  derive from the jobs linked through `POST /api/jobs` `request`/`item`:
+  each item carries `status` (`dropped`, `done`, `running`, `queued`,
+  `failed`, `planned`), `ready`, `attempts` (`[{job, status, note?,
+  minutes, output}]`, oldest first), `result` (`{job, run_id, output}` or
+  null), `accepted_missing` (only when true) and `spent_minutes`, where
+  `output` is `{name, kind}` - the gallery name of the one file that stands
+  for the job, and `image`, `video`, `audio` or `text` - or null. The
   request view and each list row carry `spent_minutes` and
-  `remaining_minutes`. An item's `accepted` on write takes `{"job": id}` or a
-  bare job id of a succeeded job linked to that request and item, stored as
-  `{job, run_id}`. `GET /api/gallery?request=<id>[&item=<key>]` lists only
-  files of runs whose jobs are linked to that request (or that item of it).
+  `remaining_minutes`; a list row also carries `status_counts`, `ready`
+  (items a job could be queued for now) and `cover` (up to three `output`s
+  of the latest results), and the list `unreadable` when the file is not a
+  ledger. An item's `accepted` on write takes `{"job": id}` or a bare job
+  id of a succeeded job linked to that request and item, stored as `{job,
+  run_id}`, or null to clear it. A refusal's `detail` is `{code, message}`:
+  400 `invalid_request`, 404 `unknown_request` (delete), 409
+  `stale_revision` (with `current_revision`), `ledger_full`,
+  `too_many_dropped_items`, `request_has_active_jobs` (with `jobs`),
+  `ledger_unreadable` and `no_workspace_root`, 413 `ledger_too_large`, 422
+  `prompt_is_write_once`, 503 `ledger_busy`. `GET
+  /api/gallery?request=<id>[&item=<key>]` lists only files of runs whose
+  jobs are linked to that request (or that item of it).
 - `GET /api/workspaces`, `POST /api/workspaces` (`{"name": ...}`),
   `DELETE /api/workspaces/{name}?acknowledged=true` — the workspaces on this
   server ([layout](WORKSPACES.md#several-workspaces-on-one-server)). Delete
