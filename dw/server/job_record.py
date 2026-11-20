@@ -24,8 +24,10 @@ CANCELLED = "cancelled"
 TERMINAL_STATES = (SUCCEEDED, FAILED, CANCELLED)
 
 # The prefix every restart tombstone's error starts with (#1220) - what a
-# batch is matched on. job_history re-exports it with the texts it writes
+# batch is matched on. job_history holds the texts written with it
 RESTART_PREFIX = "server restart:"
+# The same prefix as the SQL LIKE pattern history selects a batch with (#1266)
+RESTART_LIKE = RESTART_PREFIX + "%"
 # A list row's `reason` is the error's first line, clipped to this (#1449)
 REASON_MAX = 160
 

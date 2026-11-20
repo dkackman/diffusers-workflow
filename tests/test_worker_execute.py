@@ -775,7 +775,9 @@ class TestRefusalKeepsWarmCache:
             output_dir=str(tmp_path),
         )
         set_trust_workflows(False)
-        with patch("dw.worker.workflow_from_snapshot") as admit:
+        from dw import worker as worker_module
+
+        with patch.object(worker_module, "workflow_from_snapshot") as admit:
             from dw.workflow import Workflow
 
             admit.return_value = Workflow(
