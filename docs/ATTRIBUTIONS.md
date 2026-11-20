@@ -196,6 +196,11 @@ informed `experimental_keystone_attention`
 re-split of the attention a query pays to the keyframe against the guide rows, and
 the default block subset 31-33,36-44,47. No text or data was copied.
 
+Test 21 of the same collection (`20261119/block_map.md`, CC BY-SA 4.0, so concepts only)
+corrected test 19's figures (same-block control, no extra LoRA) and listed per-property
+block sets. The [narrated record](../bench/records/narrated.md) quotes its corrected
+lifts and names its block sets as candidates for a re-run. No text or data was copied.
+
 The way the #1391 bench finds which blocks to use comes from roycho87's comment on
 [#1391](https://github.com/dkackman/diffusers-workflow/issues/1391#issuecomment-6922271175)
 and from NerdNotes test 19 (CC BY-SA 4.0, so concepts only)

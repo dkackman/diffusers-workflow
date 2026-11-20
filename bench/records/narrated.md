@@ -1149,13 +1149,30 @@ Every take is `bench/keystone-probe{,-noarg}/<run>/segments/*-seg02.2-0.0.mp4`: 
 ### Reading
 
 - **The numbering matches.** `0-29` lands near no argument (+0.57% against +0.13%), and
-  `30-39` lifts clearly (+8.39%). That is the shape roycho87 reported (+4.4% / +4.1% /
-  +13.8%). diffusers' indices 0-49 behave as ComfyUI's `diffusion_model.blocks[i]`,
-  so the arms may go ahead on this numbering.
+  `30-39` lifts clearly (+8.39%). That is the shape roycho87 reported in test 19 (+4.4% /
+  +4.1% / +13.8%). His test 21
+  ([block_map.md](https://github.com/roycho87/NerdNotes/blob/main/20261119/block_map.md),
+  CC BY-SA 4.0) corrects those figures: test 19 compared every block set with the normal
+  keystone at balance 20 on all 50 blocks, with an extra LoRA on, and balance alone
+  darkens a clip by up to 3%, so test 19 reads 3 to 4 points high. Test 21, with a
+  same-block control and no extra LoRA, gives none +0.9% (was +4.4%), `0-29` +1.4% (was
+  +4.1%; by row, 0-9 +1.1%, 10-19 +0.9%) and `30-39` +13.2% (was +13.8%). The conclusion
+  stands, and test 21 cites our #1394 numbers as confirming the same numbering.
+  diffusers' indices 0-49 behave as ComfyUI's `diffusion_model.blocks[i]`, so the arms
+  may go ahead on this numbering.
 - **Our plain keystone carries less on its own.** With no argument, the bright keystone
-  moves the new frames by +0.13% where roycho87 saw +4.4%. This chain's 22-frame
-  carried guide may dominate the single keyframe row more than his setup's did. The
-  absolute lifts are smaller than his, but the ratio between the groups matches.
+  moves the new frames by +0.13% where roycho87's corrected figure is +0.9%: a gap of
+  about 7x, not the 34x the test 19 figure implied. Hypothesis, untested: this chain's
+  22-frame carried guide may dominate the single keyframe row more than his setup does
+  (his holds 39 frames from clip 1, with 17 freed). The absolute lifts are smaller than
+  his, but the ratio between the groups matches.
+- **Caveat on the baseline.** Our rows are measured against a no-argument normal keystone,
+  not against the normal keystone on the same blocks, so balance's own effect is inside
+  our `0-29` and `30-39` figures. That doesn't change the numbering result.
+- **Candidates for a re-run.** Test 21's per-property block sets (saturation
+  `30-32,34-37,39,42,44`; sharpness `32-35,37,39-40,42,44`; strongest sharpening
+  `30,32-37,39-47`) are the candidates if keystone attention is ever re-run for our
+  saturation and sharpness drift.
 - **The early blocks copy the keystone into frame 0 only.** With `0-29`, frame 0 reaches
   132.6, the bright keystone's own level, and the new frames barely move. With `30-39`,
   the lift spreads over the whole segment: windows 2-8 hold at about 108-110.
