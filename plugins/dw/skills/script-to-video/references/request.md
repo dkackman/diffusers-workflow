@@ -82,6 +82,18 @@ With nothing accepted, an item's result is its latest succeeded job.
 that item's next attempt, beside the beat review. A comment newer than the
 item's last attempt is not yet answered.
 
+## When a note arrives mid-session
+
+A `<channel source="dw-notes" ...>` event is a comment the user has just
+saved, delivered by dw's notes channel; its `request` and `item` attributes
+name the target. Do the revision pass above for that item now:
+`get_request` first (the note may have changed since), then the rerun or
+fix it asks for, under the usual cost gate. Finish with a `set_request`
+whose `why` says what you did - the user watches the request page, not this
+session, and that write is what marks the note answered. A
+`kind="notes_waiting"` event lists notes from before the session: say what
+is waiting and confirm before spending on them.
+
 ## Changing the plan
 
 A shot added, split or cut changes the shot document first, then the

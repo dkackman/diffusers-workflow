@@ -1,4 +1,5 @@
-"""`python -m dw_mcp` / `dw-mcp`: serve the tool surface over stdio."""
+"""`python -m dw_mcp` / `dw-mcp`: serve the tool surface over stdio, or,
+with `--notes-channel`, the tool-less channel that announces a user's notes."""
 
 import argparse
 import sys
@@ -12,7 +13,8 @@ from dw_mcp.client import (
     resolve_base_url,
     resolve_token,
 )
-from dw_mcp.server import build_server
+from dw_mcp.ledger import DEFAULT_POLL_SECONDS, MIN_POLL_SECONDS
+from dw_mcp.server import build_server, run_notes_channel
 
 
 def _refuse(message):
@@ -58,7 +60,28 @@ def main(argv=None, transport=None):
         help="Skip the startup GET /api/health that confirms the server is "
         "reachable and the token is accepted",
     )
+    parser.add_argument(
+        "--notes-channel",
+        action="store_true",
+        default=False,
+        help="Serve no tools: be a Claude Code channel that tells the open "
+        "session when the user saves a note for the agent on a request in "
+        "--workspace (docs/MCP.md, 'The notes channel')",
+    )
+    parser.add_argument(
+        "--interval",
+        type=float,
+        default=DEFAULT_POLL_SECONDS,
+        help="With --notes-channel: seconds between reads of the request "
+        f"list (default: {DEFAULT_POLL_SECONDS:g}, at least "
+        f"{MIN_POLL_SECONDS:g})",
+    )
     args = parser.parse_args(argv)
+    if not args.interval >= MIN_POLL_SECONDS:  # NaN is refused too
+        return _refuse(
+            f"--interval must be at least {MIN_POLL_SECONDS:g} seconds "
+            f"(got {args.interval:g})."
+        )
 
     base_url = resolve_base_url(args.url)
     token = resolve_token(args.token)
@@ -88,10 +111,17 @@ def main(argv=None, transport=None):
             # loopback it usually means "dw.serve is not up yet", which a
             # tool call reports for itself with the same message - warn and
             # serve anyway rather than making the agent restart us.
-            code = _probe(client, base_url, required=not is_loopback_url(base_url))
+            # The notes channel serves whatever the probe says: it retries
+            # for itself, and one that exits cannot be started again without
+            # restarting the Claude Code session it belongs to.
+            required = not is_loopback_url(base_url) and not args.notes_channel
+            code = _probe(client, base_url, required=required)
             if code:
                 return code
-        build_server(client).run(transport="stdio")
+        if args.notes_channel:
+            run_notes_channel(client, args.interval)
+        else:
+            build_server(client).run(transport="stdio")
     finally:
         client.close()
     return 0
