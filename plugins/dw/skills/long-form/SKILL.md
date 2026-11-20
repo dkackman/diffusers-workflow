@@ -36,7 +36,9 @@ Split the piece into scenes the way a storyboard would. A scene is one place
 and one continuous moment. Give each scene a target length from the story,
 not from the model; the model ceiling only decides how the scene is rendered.
 Record per scene `length_seconds` and `continuity` in the shot document's
-`<project>/scenes` (`script-to-video/references/shot-document.md`).
+`<project>/scenes` (`script-to-video/references/shot-document.md`). Three or
+more jobs: open a request from the shot list
+(`script-to-video/references/request.md`).
 
 ## 2. Per scene: the rendering shape
 
@@ -118,8 +120,8 @@ Each move's class is the `class` column of
 (or `static_long`), and every `moving` id, `push-in` and `handheld` included,
 is `shot: moving`.
 
-`references/levers.md` has every lever, the knobs that are not defaults, and
-the ideas that were measured and cut. Read it before proposing a counter.
+`references/levers.md` has every lever, the knobs that are not defaults and
+the ideas measured and cut: read it before proposing a counter.
 
 ## 4. Per seam: the check, then the repair
 
@@ -180,9 +182,8 @@ GPU-min per minute of it: `templates/minimax/h3-seam-pass`, not a burn fix.
 ## 6. Quality, speed and cost
 
 Defaults favour quality. `references/quality-and-speed.md` has the measured
-costs, what is still being measured, and the dial. In short, the chain's
-`cost` row is 13.5 min on an RTX 3090 for 3 segments of 124 frames.
-Quote `plan.estimate` from `validate_workflow`, never these.
+costs, what is still being measured, and the dial. Quote `plan.estimate`
+from `validate_workflow`, never these.
 
 ## Run and judge
 
