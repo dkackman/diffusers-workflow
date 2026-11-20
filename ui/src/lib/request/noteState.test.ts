@@ -2,6 +2,8 @@ import { expect, it } from 'vitest'
 import { formatMtime } from '../format'
 import { noteLine, noteWaiting, notesWaiting } from './noteState'
 import { entry, item, request } from './fixtures'
+import type { LedgerRequest } from '../types'
+import cases from '../../../../tests/fixtures/note_waiting_cases.json'
 
 const at = (minute: number) =>
   `2026-01-01T00:${String(minute).padStart(2, '0')}:00+00:00`
@@ -60,4 +62,18 @@ it("counts the request's own waiting note with its live items'", () => {
     { comment: note, history: [entry(3, 'agent', 'replanned')] },
   )
   expect(notesWaiting(req)).toBe(2)
+})
+
+// The notes channel (dw_mcp/ledger.py: note_waiting) announces a note by
+// this rule; tests/test_ui_twins.py runs the same cases against it
+it.each(cases)('shared case: $name', ({ request: stored, waiting }) => {
+  const req = stored as unknown as LedgerRequest
+  const keys = [
+    ...(noteWaiting(req.comment, req) ? [''] : []),
+    ...req.items
+      .filter((i) => !i.dropped && noteWaiting(i.comment, req))
+      .map((i) => i.key),
+  ]
+  expect(keys).toEqual(waiting)
+  expect(notesWaiting(req)).toBe(waiting.length)
 })

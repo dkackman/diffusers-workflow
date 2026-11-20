@@ -18,6 +18,7 @@ from dw.security import InvalidInputError, SecurityError, validate_workspace_nam
 from dw.server.job_record import TERMINAL_STATES
 from dw.workflow import workflow_from_definition
 from dw.workspace import DEFAULT_WORKSPACE_NAME, RESERVED_WORKSPACE_NAMES
+from dw_mcp.ledger import waiting_notes
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 UI_LIB = REPO / "ui" / "src" / "lib"
@@ -307,3 +308,20 @@ def test_every_json_route_the_ui_calls_declares_its_response():
     assert missing == [], (
         f"api.ts calls routes with no declared response model: {missing}"
     )
+
+
+NOTE_WAITING_CASES = json.loads(
+    (REPO / "tests" / "fixtures" / "note_waiting_cases.json").read_text()
+)
+
+
+@pytest.mark.parametrize("case", NOTE_WAITING_CASES, ids=lambda c: c["name"])
+def test_the_notes_channel_decides_each_shared_waiting_note_case(case):
+    """`noteWaiting` in ui/src/lib/request/noteState.ts runs the same cases
+    (noteState.test.ts): the page and the channel agree on which notes wait."""
+    assert [n["item"] for n in waiting_notes(case["request"])] == case["waiting"]
+
+
+def test_the_ui_test_reads_the_shared_waiting_note_cases():
+    source = (UI_LIB / "request" / "noteState.test.ts").read_text()
+    assert "tests/fixtures/note_waiting_cases.json" in source

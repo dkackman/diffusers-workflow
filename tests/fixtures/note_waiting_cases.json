@@ -1,0 +1,454 @@
+[
+  {
+    "name": "no notes",
+    "request": {
+      "id": "cats",
+      "title": "A cat short",
+      "state": "open",
+      "revision": 1,
+      "comment": null,
+      "items": [
+        {
+          "key": "a",
+          "title": "shot a",
+          "comment": null,
+          "dropped": false
+        }
+      ],
+      "history": [
+        {
+          "revision": 1,
+          "at": "2026-01-01T01:00:00+00:00",
+          "by": "agent",
+          "why": "r1"
+        }
+      ]
+    },
+    "waiting": []
+  },
+  {
+    "name": "a request note nobody has written after",
+    "request": {
+      "id": "cats",
+      "title": "A cat short",
+      "state": "open",
+      "revision": 2,
+      "comment": {
+        "text": "warmer, please",
+        "at": "2026-01-01T05:00:00+00:00"
+      },
+      "items": [
+        {
+          "key": "a",
+          "title": "shot a",
+          "comment": null,
+          "dropped": false
+        }
+      ],
+      "history": [
+        {
+          "revision": 1,
+          "at": "2026-01-01T01:00:00+00:00",
+          "by": "agent",
+          "why": "r1"
+        },
+        {
+          "revision": 2,
+          "at": "2026-01-01T05:00:00+00:00",
+          "by": "user",
+          "why": "r2"
+        }
+      ]
+    },
+    "waiting": [
+      ""
+    ]
+  },
+  {
+    "name": "an item note with only an earlier agent write",
+    "request": {
+      "id": "cats",
+      "title": "A cat short",
+      "state": "open",
+      "revision": 2,
+      "comment": null,
+      "items": [
+        {
+          "key": "a",
+          "title": "shot a",
+          "comment": {
+            "text": "warmer, please",
+            "at": "2026-01-01T05:00:00+00:00"
+          },
+          "dropped": false
+        }
+      ],
+      "history": [
+        {
+          "revision": 1,
+          "at": "2026-01-01T04:00:00+00:00",
+          "by": "agent",
+          "why": "r1"
+        },
+        {
+          "revision": 2,
+          "at": "2026-01-01T05:00:00+00:00",
+          "by": "user",
+          "why": "r2"
+        }
+      ]
+    },
+    "waiting": [
+      "a"
+    ]
+  },
+  {
+    "name": "an agent write after the note answers it",
+    "request": {
+      "id": "cats",
+      "title": "A cat short",
+      "state": "open",
+      "revision": 3,
+      "comment": null,
+      "items": [
+        {
+          "key": "a",
+          "title": "shot a",
+          "comment": {
+            "text": "warmer, please",
+            "at": "2026-01-01T05:00:00+00:00"
+          },
+          "dropped": false
+        }
+      ],
+      "history": [
+        {
+          "revision": 1,
+          "at": "2026-01-01T01:00:00+00:00",
+          "by": "agent",
+          "why": "r1"
+        },
+        {
+          "revision": 2,
+          "at": "2026-01-01T05:00:00+00:00",
+          "by": "user",
+          "why": "r2"
+        },
+        {
+          "revision": 3,
+          "at": "2026-01-01T06:00:00+00:00",
+          "by": "agent",
+          "why": "r3"
+        }
+      ]
+    },
+    "waiting": []
+  },
+  {
+    "name": "an agent write in the same second does not",
+    "request": {
+      "id": "cats",
+      "title": "A cat short",
+      "state": "open",
+      "revision": 1,
+      "comment": null,
+      "items": [
+        {
+          "key": "a",
+          "title": "shot a",
+          "comment": {
+            "text": "warmer, please",
+            "at": "2026-01-01T05:00:00+00:00"
+          },
+          "dropped": false
+        }
+      ],
+      "history": [
+        {
+          "revision": 1,
+          "at": "2026-01-01T05:00:00+00:00",
+          "by": "agent",
+          "why": "r1"
+        }
+      ]
+    },
+    "waiting": [
+      "a"
+    ]
+  },
+  {
+    "name": "a later user write does not answer it",
+    "request": {
+      "id": "cats",
+      "title": "A cat short",
+      "state": "open",
+      "revision": 3,
+      "comment": null,
+      "items": [
+        {
+          "key": "a",
+          "title": "shot a",
+          "comment": {
+            "text": "warmer, please",
+            "at": "2026-01-01T05:00:00+00:00"
+          },
+          "dropped": false
+        }
+      ],
+      "history": [
+        {
+          "revision": 1,
+          "at": "2026-01-01T01:00:00+00:00",
+          "by": "agent",
+          "why": "r1"
+        },
+        {
+          "revision": 2,
+          "at": "2026-01-01T05:00:00+00:00",
+          "by": "user",
+          "why": "r2"
+        },
+        {
+          "revision": 3,
+          "at": "2026-01-01T09:00:00+00:00",
+          "by": "user",
+          "why": "r3"
+        }
+      ]
+    },
+    "waiting": [
+      "a"
+    ]
+  },
+  {
+    "name": "a done request has no waiting notes",
+    "request": {
+      "id": "cats",
+      "title": "A cat short",
+      "state": "done",
+      "revision": 1,
+      "comment": {
+        "text": "warmer, please",
+        "at": "2026-01-01T05:00:00+00:00"
+      },
+      "items": [
+        {
+          "key": "a",
+          "title": "shot a",
+          "comment": {
+            "text": "warmer, please",
+            "at": "2026-01-01T05:00:00+00:00"
+          },
+          "dropped": false
+        }
+      ],
+      "history": [
+        {
+          "revision": 1,
+          "at": "2026-01-01T01:00:00+00:00",
+          "by": "agent",
+          "why": "r1"
+        }
+      ]
+    },
+    "waiting": []
+  },
+  {
+    "name": "an abandoned request has none either",
+    "request": {
+      "id": "cats",
+      "title": "A cat short",
+      "state": "abandoned",
+      "revision": 0,
+      "comment": {
+        "text": "warmer, please",
+        "at": "2026-01-01T05:00:00+00:00"
+      },
+      "items": [
+        {
+          "key": "a",
+          "title": "shot a",
+          "comment": {
+            "text": "warmer, please",
+            "at": "2026-01-01T05:00:00+00:00"
+          },
+          "dropped": false
+        }
+      ],
+      "history": []
+    },
+    "waiting": []
+  },
+  {
+    "name": "a dropped item's note does not wait",
+    "request": {
+      "id": "cats",
+      "title": "A cat short",
+      "state": "open",
+      "revision": 1,
+      "comment": {
+        "text": "warmer, please",
+        "at": "2026-01-01T05:00:00+00:00"
+      },
+      "items": [
+        {
+          "key": "a",
+          "title": "shot a",
+          "comment": {
+            "text": "warmer, please",
+            "at": "2026-01-01T05:00:00+00:00"
+          },
+          "dropped": true
+        },
+        {
+          "key": "b",
+          "title": "shot b",
+          "comment": null,
+          "dropped": false
+        }
+      ],
+      "history": [
+        {
+          "revision": 1,
+          "at": "2026-01-01T01:00:00+00:00",
+          "by": "agent",
+          "why": "r1"
+        }
+      ]
+    },
+    "waiting": [
+      ""
+    ]
+  },
+  {
+    "name": "a note edited after the agent's write waits again",
+    "request": {
+      "id": "cats",
+      "title": "A cat short",
+      "state": "open",
+      "revision": 4,
+      "comment": {
+        "text": "old too",
+        "at": "2026-01-01T03:00:00+00:00"
+      },
+      "items": [
+        {
+          "key": "a",
+          "title": "shot a",
+          "comment": {
+            "text": "old",
+            "at": "2026-01-01T02:00:00+00:00"
+          },
+          "dropped": false
+        },
+        {
+          "key": "b",
+          "title": "shot b",
+          "comment": {
+            "text": "new",
+            "at": "2026-01-01T08:00:00+00:00"
+          },
+          "dropped": false
+        }
+      ],
+      "history": [
+        {
+          "revision": 1,
+          "at": "2026-01-01T01:00:00+00:00",
+          "by": "agent",
+          "why": "r1"
+        },
+        {
+          "revision": 2,
+          "at": "2026-01-01T03:00:00+00:00",
+          "by": "user",
+          "why": "r2"
+        },
+        {
+          "revision": 3,
+          "at": "2026-01-01T06:00:00+00:00",
+          "by": "agent",
+          "why": "r3"
+        },
+        {
+          "revision": 4,
+          "at": "2026-01-01T08:00:00+00:00",
+          "by": "user",
+          "why": "r4"
+        }
+      ]
+    },
+    "waiting": [
+      "b"
+    ]
+  },
+  {
+    "name": "instants are compared, not their text",
+    "request": {
+      "id": "cats",
+      "title": "A cat short",
+      "state": "open",
+      "revision": 1,
+      "comment": null,
+      "items": [
+        {
+          "key": "a",
+          "title": "shot a",
+          "comment": {
+            "text": "x",
+            "at": "2026-01-01T10:00:00+02:00"
+          },
+          "dropped": false
+        }
+      ],
+      "history": [
+        {
+          "revision": 1,
+          "at": "2026-01-01T09:00:00+00:00",
+          "by": "agent",
+          "why": "r1"
+        }
+      ]
+    },
+    "waiting": []
+  },
+  {
+    "name": "an empty history leaves every note waiting",
+    "request": {
+      "id": "cats",
+      "title": "A cat short",
+      "state": "open",
+      "revision": 0,
+      "comment": {
+        "text": "warmer, please",
+        "at": "2026-01-01T05:00:00+00:00"
+      },
+      "items": [
+        {
+          "key": "a",
+          "title": "shot a",
+          "comment": {
+            "text": "warmer, please",
+            "at": "2026-01-01T05:00:00+00:00"
+          },
+          "dropped": false
+        },
+        {
+          "key": "b",
+          "title": "shot b",
+          "comment": {
+            "text": "warmer, please",
+            "at": "2026-01-01T05:00:00+00:00"
+          },
+          "dropped": false
+        }
+      ],
+      "history": []
+    },
+    "waiting": [
+      "",
+      "a",
+      "b"
+    ]
+  }
+]
