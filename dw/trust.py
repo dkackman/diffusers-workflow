@@ -247,33 +247,60 @@ def require_trusted_pre_load_modules(module_names) -> None:
 
 REMOTE_CODE_ARGUMENTS = ("trust_remote_code", "custom_pipeline")
 
+# Loader keywords that say where a download is written or how the Hub is
+# reached: `cache_dir` and `local_dir` put a repo's files in any directory
+# the server can write, `proxies` and `mirror` route the request through a
+# host the workflow names. Refused untrusted wherever a block's keys become
+# a loader's keyword arguments
+LOADER_REDIRECT_ARGUMENTS = ("cache_dir", "local_dir", "proxies", "mirror")
 
-def require_trusted_from_pretrained_arguments(arguments, what: str) -> None:
-    """Refuse from_pretrained arguments that make diffusers/transformers
-    download and execute Python from the Hub unless the workflow is trusted.
+# The blocks of a pipeline definition whose keys are passed to a loader as
+# keyword arguments: from_pretrained's, and a modular pipeline's
+# load_components', which hands each to every component's from_pretrained
+LOADER_ARGUMENT_BLOCKS = ("from_pretrained_arguments", "load_components")
+
+
+def require_trusted_from_pretrained_arguments(
+    arguments, what: str, block: str = "from_pretrained_arguments"
+) -> None:
+    """Refuse loader arguments that make diffusers/transformers download and
+    execute Python from the Hub, or that redirect the download, unless the
+    workflow is trusted.
 
     `trust_remote_code: true` runs a repo's own modeling code; `custom_pipeline`
     fetches a pipeline module from the Hub (or a local path) and imports it.
     Both are arbitrary code chosen by the workflow file, reached without any
     importlib call of ours - so the importlib gate alone would leave them open.
+    A modular pipeline's `load_components` block passes its keys to every
+    component's from_pretrained, so it is gated as `from_pretrained_arguments`
+    is. LOADER_REDIRECT_ARGUMENTS are refused in either.
 
     Args:
-        arguments: The from_pretrained_arguments block
+        arguments: The from_pretrained_arguments or load_components block
         what: The component being loaded, for the error message
+        block: The block's own name, for the error message
 
     Raises:
-        UntrustedWorkflowError: If untrusted and either argument is set
+        UntrustedWorkflowError: If untrusted and any such argument is set
     """
-    if workflows_are_trusted() or not arguments:
+    if workflows_are_trusted() or not isinstance(arguments, dict) or not arguments:
         return
     for key in REMOTE_CODE_ARGUMENTS:
         if arguments.get(key):
             raise UntrustedWorkflowError(
-                f"Refusing to load {what}: its from_pretrained_arguments set "
+                f"Refusing to load {what}: its {block} set "
                 f"'{key}', which downloads and executes Python from the model "
                 f"repository. Loading a workflow JSON file can execute arbitrary "
                 f"Python - see docs/SECURITY.md. Pass --trust-workflows if you "
                 f"trust this workflow's source."
+            )
+    for key in LOADER_REDIRECT_ARGUMENTS:
+        if arguments.get(key) is not None:
+            raise UntrustedWorkflowError(
+                f"Refusing to load {what}: its {block} set '{key}', which "
+                f"says where on the server a download is written or which "
+                f"host it is fetched through - see docs/SECURITY.md. Pass "
+                f"--trust-workflows if you trust this workflow's source."
             )
 
 
@@ -352,11 +379,10 @@ def require_trusted_block(block, what: str) -> None:
     """
     if not isinstance(block, dict):
         return
-    require_trusted_from_pretrained_arguments(
-        block.get("from_pretrained_arguments"), what
-    )
+    for name in LOADER_ARGUMENT_BLOCKS:
+        require_trusted_from_pretrained_arguments(block.get(name), what, name)
     for key, value in block.items():
-        if key == "from_pretrained_arguments":
+        if key in LOADER_ARGUMENT_BLOCKS:
             continue
         if key == "loras":
             require_trusted_lora_entries(value)
