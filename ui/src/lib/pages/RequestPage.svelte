@@ -1,12 +1,16 @@
 <script lang="ts">
   import { api, ApiError } from '../api'
   import Skeleton from '../ui/Skeleton.svelte'
+  import ClampedText from '../ui/ClampedText.svelte'
+  import PlanChanges from '../request/PlanChanges.svelte'
+  import RequestHeader from '../request/RequestHeader.svelte'
   import RequestItem from '../request/RequestItem.svelte'
+  import { announce } from '../request/announce'
+  import { planState, titleId } from '../request/itemState'
   import { poll } from '../poll'
   import { newerOf, refreshInterval } from '../request/refresh'
-  import { formatExact, formatMinutes } from '../format'
+  import { formatMtime } from '../format'
   import { latestOnly } from '../latest'
-  import { notify } from '../toast'
   import { wsHref } from '../routes'
   import type { LedgerRequest } from '../types'
   import { workspace } from '../workspace.svelte'
@@ -16,30 +20,47 @@
   let request = $state<LedgerRequest | null>(null)
   let missing = $state(false)
   let error = $state<string | null>(null)
+  // When the request held was read, and why the read after it failed: a
+  // failed refresh keeps what is on the page and says how old it is
+  let readAt = $state(0)
+  let stale = $state<string | null>(null)
+  // What the one live region says: a refresh's changes in a sentence
+  let said = $state('')
   const ws = $derived(workspace.current)
+  const plan = $derived(request ? planState(request) : null)
 
-  // A reply for a request the page has since left is dropped; one older
-  // than what is held (a reload answered after a save) does not replace it.
-  // A reload that fails over a request the page holds keeps it - and with
-  // it the comment drafts in its items - unless the request is gone
+  function hold(next: LedgerRequest) {
+    const news = announce(request, next)
+    if (news) said = news
+    request = next
+    readAt = Date.now() / 1000
+    missing = false
+    error = null
+    stale = null
+  }
+  // A reply older than what is held (a read sent before a save and
+  // answered after it) does not replace it
+  const take = (found: LedgerRequest) => hold(newerOf(request, found))
+  // A read that fails over a request the page holds keeps it - and with it
+  // the note drafts in its rows - unless the request is gone
+  function failed(e: unknown) {
+    const message = e instanceof Error ? e.message : String(e)
+    if (e instanceof ApiError && e.status === 404) {
+      request = null
+      missing = true
+    } else if (request) stale = message
+    else error = message
+  }
+
+  // A reply for a request the page has since left is dropped
   const beginLoad = latestOnly()
   async function load() {
     const current = beginLoad()
     try {
       const found = await api.getRequest(ws, requestId)
-      if (!current()) return
-      request = newerOf(request, found)
-      missing = false
-      error = null
+      if (current()) take(found)
     } catch (e) {
-      if (!current()) return
-      const message = e instanceof Error ? e.message : String(e)
-      if (e instanceof ApiError && e.status === 404) {
-        request = null
-        missing = true
-      } else if (request)
-        notify.error(`Could not reload the request: ${message}`)
-      else error = message
+      if (current()) failed(e)
     }
   }
 
@@ -49,14 +70,16 @@
     request = null
     missing = false
     error = null
+    stale = null
+    said = ''
     void load()
   })
 
   // The plan and its machine state move without this page: an agent rewrites
   // the plan, a job is queued, runs, ends. Follow it for as long as it can
   // change (refreshInterval), keeping the newer of what is held and what
-  // came back (newerOf). A comment draft lives in its item component, which
-  // the keyed list keeps, so a refresh never touches it
+  // came back (newerOf). A note's draft lives in its row, which the keyed
+  // list keeps, so a refresh never touches it - and never moves focus
   const interval = $derived(refreshInterval(request))
   $effect(() => {
     if (interval === null) return
@@ -66,9 +89,9 @@
       async () => {
         try {
           const found = await api.getRequest(from, id)
-          if (live) request = newerOf(request, found)
-        } catch {
-          /* the next refresh asks again */
+          if (live) take(found)
+        } catch (e) {
+          if (live) failed(e)
         }
       },
       interval,
@@ -80,150 +103,252 @@
     }
   })
 
-  /** The one edit: the plan goes back as read, one comment replaced. A stale
-   * revision rejects with the server's 409 and the item shows it. */
-  async function saveComment(key: string, text: string | null) {
+  /** The one edit: the plan goes back as read, one note replaced - an
+   * item's by its key, the request's own with null. A stale revision
+   * rejects with the server's 409 and the note shows it. */
+  async function saveComment(key: string | null, text: string | null) {
     const read = request
     if (!read) return
     const [to, id] = [ws, requestId]
+    const comment = text === null ? null : { text }
     const saved = await api.putRequest(to, id, {
       title: read.title,
       goal: read.goal,
       state: read.state,
       revision: read.revision,
-      why: `comment on ${key}`,
+      why: key === null ? 'comment on the request' : `comment on ${key}`,
+      ...(key === null ? { comment } : {}),
       items: read.items.map((item) =>
-        item.key === key
-          ? { ...item, comment: text === null ? null : { text } }
-          : item,
+        item.key === key ? { ...item, comment } : item,
       ) as LedgerRequest['items'],
     })
     // Left for another request while the save was out: it is not this one's
-    if (to === ws && id === requestId) request = saved
+    if (to === ws && id === requestId) hold(saved)
   }
 
-  const history = $derived(
-    request ? [...request.history].sort((a, b) => b.revision - a.revision) : [],
-  )
-  const when = (at: string) => formatExact(Date.parse(at) / 1000)
+  /** Go to an item's row: a progress segment or a dependency's name */
+  function goTo(key: string) {
+    const title = document.getElementById(titleId(key))
+    if (!title) return
+    const still = window.matchMedia?.('(prefers-reduced-motion: reduce)')
+    title.scrollIntoView?.({
+      behavior: still?.matches ? 'auto' : 'smooth',
+      block: 'center',
+    })
+    title.focus({ preventScroll: true })
+  }
+
+  // Under 640px the rail's sections fold: what the page is for comes first.
+  // The page's own width, not the viewport's - the sidebar takes its share
+  let page = $state<HTMLElement>()
+  let width = $state(0)
+  $effect(() => {
+    // jsdom has no ResizeObserver; the page then stays unfolded
+    if (!page || typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(() => (width = page?.clientWidth ?? 0))
+    observer.observe(page)
+    return () => observer.disconnect()
+  })
+  const narrow = $derived(width > 0 && width < 640)
 </script>
 
-<p class="muted back"><a href={wsHref(ws, 'requests')}>all requests</a></p>
-
-{#if missing}
-  <p>This request no longer exists.</p>
-{:else if error}
-  <p class="muted">Could not load the request: {error}</p>
-{:else if request === null}
-  <Skeleton lines={4} label="loading request" />
-{:else}
-  <div class="head">
-    <h1>{request.title}</h1>
-    <span class="state">{request.state}</span>
-    <span class="muted num">revision {request.revision}</span>
-  </div>
-  <p class="muted">
-    <code>{request.id}</code> ·
-    <a href={`${wsHref(ws, 'jobs')}?req=${encodeURIComponent(request.id)}`}
-      >its jobs</a
-    >
-    ·
-    <a href={`${wsHref(ws, 'gallery')}?req=${encodeURIComponent(request.id)}`}
-      >its outputs</a
-    >
-  </p>
-
-  {#if request.prompt}
-    <section class="panel">
-      <h2>Asked</h2>
-      <p class="verbatim">{request.prompt}</p>
+{#snippet ask(req: LedgerRequest)}
+  {#if req.prompt}
+    <section>
+      <h2>What you asked</h2>
+      <ClampedText text={req.prompt} lines={6} />
     </section>
   {/if}
-  <section class="panel">
+  <section>
     <h2>Goal</h2>
-    <p class="verbatim">{request.goal}</p>
-    <p class="muted num">
-      {formatMinutes(request.spent_minutes)} spent · {formatMinutes(
-        request.remaining_minutes,
-      )} remaining
-    </p>
+    <ClampedText text={req.goal} lines={6} />
   </section>
+{/snippet}
 
-  <h2>Items</h2>
-  <ol class="items">
-    {#each request.items as item (item.key)}
-      <RequestItem
-        {item}
-        workspace={ws}
-        onsave={(text) => saveComment(item.key, text)}
-        onreload={load}
-      />
-    {/each}
-  </ol>
+<p class="sr-only" aria-live="polite" data-testid="request-live">{said}</p>
 
-  <h2>History</h2>
-  <ul class="history">
-    {#each history as entry (entry.revision)}
-      <li>
-        <span class="num">r{entry.revision}</span>
-        <span class="muted">{when(entry.at)}</span>
-        <span class="by">{entry.by}</span>
-        <span>{entry.why}</span>
-        {#if entry.goal}<p class="muted verbatim goal">
-            goal: {entry.goal}
-          </p>{/if}
-      </li>
-    {/each}
-  </ul>
-{/if}
+<div class="reqpage" bind:this={page}>
+  <p class="muted back"><a href={wsHref(ws, 'requests')}>all requests</a></p>
+
+  {#if missing}
+    <p>
+      This request no longer exists. The agent may have removed it.
+      <a href={wsHref(ws, 'requests')}>See all requests</a>
+    </p>
+  {:else if error}
+    <p role="alert">
+      Could not load this request: {error}
+      <button type="button" class="quiet" onclick={load}>Retry</button>
+    </p>
+  {:else if request === null || plan === null}
+    <Skeleton lines={4} label="loading request" />
+  {:else}
+    {#if stale}
+      <div class="panel warn-edge stale" role="status">
+        <span
+          >Showing the plan as of {formatMtime(readAt)}. Could not refresh: {stale}</span
+        >
+        <button type="button" class="quiet" onclick={load}>Retry</button>
+      </div>
+    {/if}
+    <div class="layout">
+      <div class="maincol">
+        <RequestHeader
+          {request}
+          {plan}
+          workspace={ws}
+          onselect={goTo}
+          onsavenote={(text) => saveComment(null, text)}
+          onreload={load}
+        />
+        {#if plan.items.length === 0}
+          <p class="muted">
+            The agent has not planned any items for this request yet.
+          </p>
+        {:else}
+          <div class="panel list">
+            <ol class="items" aria-label="The plan">
+              {#each plan.live as row (row.item.key)}
+                <RequestItem
+                  {row}
+                  {request}
+                  workspace={ws}
+                  onsave={(text) => saveComment(row.item.key, text)}
+                  onreload={load}
+                  ongo={goTo}
+                />
+              {/each}
+            </ol>
+            {#if plan.dropped.length}
+              <details class="droppedgroup">
+                <summary>Dropped ({plan.dropped.length})</summary>
+                <ul class="items">
+                  {#each plan.dropped as row (row.item.key)}
+                    <RequestItem
+                      {row}
+                      {request}
+                      workspace={ws}
+                      onsave={(text) => saveComment(row.item.key, text)}
+                      onreload={load}
+                      ongo={goTo}
+                    />
+                  {/each}
+                </ul>
+              </details>
+            {/if}
+          </div>
+        {/if}
+      </div>
+
+      <aside class="rail" aria-label="The ask, the goal and the plan's changes">
+        {#if narrow}
+          <details>
+            <summary>What you asked, and the goal</summary>
+            {@render ask(request)}
+          </details>
+          <details>
+            <summary>Plan changes ({request.history.length})</summary>
+            <PlanChanges
+              history={request.history}
+              revision={request.revision}
+              heading={false}
+            />
+          </details>
+        {:else}
+          {@render ask(request)}
+          <PlanChanges history={request.history} revision={request.revision} />
+        {/if}
+      </aside>
+    </div>
+  {/if}
+</div>
 
 <style>
+  .reqpage {
+    container-type: inline-size;
+  }
   .back {
     font-size: var(--t-sm);
+    margin: 0 0 var(--space-3);
   }
-  .head {
+  .stale {
     display: flex;
-    align-items: baseline;
-    gap: var(--space-3);
-  }
-  .state {
-    font-family: var(--font-mono);
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2) var(--space-4);
+    padding: 0.55rem 0.8rem;
+    margin-bottom: var(--space-4);
     font-size: var(--t-sm);
   }
-  .verbatim {
-    white-space: pre-wrap;
-    margin: 0 0 var(--space-2);
+  .layout {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-5);
   }
-  section {
-    margin: var(--space-3) 0;
+  .maincol {
+    min-width: 0;
+  }
+  .list {
+    padding: 0.3rem;
   }
   .items {
     list-style: none;
     margin: 0;
     padding: 0;
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-3);
   }
-  .history {
-    list-style: none;
-    margin: 0;
-    padding: 0;
+  .items > :global(li + li) {
+    border-top: 1px solid var(--line);
+  }
+  .droppedgroup {
+    border-top: 1px solid var(--line);
+  }
+  summary {
+    cursor: pointer;
+    padding: 0.55rem 0.8rem;
+    font-size: var(--t-sm);
+    font-weight: 600;
+  }
+  .droppedgroup summary {
+    color: var(--muted);
+  }
+  .rail {
     display: flex;
     flex-direction: column;
-    gap: var(--space-2);
+    gap: var(--space-5);
+    min-width: 0;
+  }
+  .rail details {
+    border-top: 1px solid var(--line);
+  }
+  .rail details summary {
+    padding-left: 0;
+  }
+  .rail details section + section {
+    margin-top: var(--space-4);
+  }
+  /* What was asked and the goal are written for a person: sans, at the
+     rail's size, not the mono of a heading that names an engine thing */
+  .rail h2 {
+    font-family: var(--font-sans);
+    font-size: var(--t-base);
+    margin: 0 0 var(--space-1);
+  }
+  .rail section {
     font-size: var(--t-sm);
   }
-  .history li {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-1) var(--space-3);
-  }
-  .by {
-    font-family: var(--font-mono);
-  }
-  .goal {
-    flex-basis: 100%;
-    margin: 0;
+  @container (min-width: 880px) {
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 300px;
+      align-items: start;
+    }
+    /* Under the app's own sticky header, as the editor's bar is */
+    .rail {
+      position: sticky;
+      top: 76px;
+      max-height: calc(100vh - 76px - var(--space-4));
+      overflow-y: auto;
+    }
   }
 </style>

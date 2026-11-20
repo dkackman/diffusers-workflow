@@ -169,12 +169,15 @@ export function planState(request: LedgerRequest): PlanState {
 }
 
 /** Whether a row starts expanded: something is happening to it, it went
- * wrong, a take wants choosing, or it holds a note the agent has not had
- * the chance to read. The user's own toggle wins over this (RequestItem). */
+ * wrong, its takes want the user (none chosen, or the chosen one's files
+ * gone), or it holds a note the agent has not had the chance to read. The
+ * user's own toggle wins over this (RequestItem). */
 export function opensByDefault(state: ItemState, noteWaiting: boolean) {
   if (state.item.dropped) return false
   if (state.display === 'running' || state.display === 'failed') return true
-  return state.needs.includes('choose') || noteWaiting
+  const takes =
+    state.needs.includes('choose') || state.needs.includes('accepted_missing')
+  return takes || noteWaiting
 }
 
 /** A linked job as the takes strip shows it. `accepted` is the take the

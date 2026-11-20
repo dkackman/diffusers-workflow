@@ -3,232 +3,393 @@ import {
   fireEvent,
   render,
   screen,
-  waitFor,
+  within,
 } from '@testing-library/svelte'
-import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { afterEach, expect, it, vi } from 'vitest'
 import RequestItem from './RequestItem.svelte'
-import { ApiError, api } from '../api'
-import type { LedgerItem } from '../types'
+import { planState } from './itemState'
+import { attempt, doneItem, entry, item, request } from './fixtures'
+import type { LedgerItem, LedgerRequest } from '../types'
 
-vi.mock('../api', async (original) => {
-  const real = await original<typeof import('../api')>()
-  return {
-    ApiError: real.ApiError,
-    outputUrl: (path: string, version?: string, ws?: string) =>
-      `/outputs/${path}?v=${version}&ws=${ws}`,
-    api: {
-      getJob: vi.fn(),
-      galleryThumbnailUrl: (name: string, ws?: string) =>
-        `/thumb/${name}?ws=${ws}`,
-    },
-  }
-})
-const confirmDialog = vi.hoisted(() => vi.fn())
-vi.mock('../confirm.svelte', () => ({ confirmDialog }))
+vi.mock('../api', () => ({
+  api: {
+    galleryThumbnailUrl: (name: string, ws?: string) =>
+      `/thumb/${name}?ws=${ws}`,
+  },
+}))
+vi.mock('../confirm.svelte', () => ({ confirmDialog: vi.fn() }))
 vi.mock('../toast', () => ({ notify: { error: vi.fn(), success: vi.fn() } }))
 
-const item = (over: Partial<LedgerItem> = {}): LedgerItem =>
-  ({
-    key: 'a',
-    title: 'Opening shot',
-    depends_on: [],
-    estimate_minutes: 2,
-    workflow: 'shot',
-    arguments: {},
-    dropped: false,
-    accepted: null,
-    comment: null,
-    status: 'done',
-    attempts: [{ job: 'job-a', status: 'succeeded', minutes: 1 }],
-    result: { job: 'job-a', run_id: 'run-a' },
-    spent_minutes: 1,
-    ...over,
-  }) as unknown as LedgerItem
-
-const props = (it: LedgerItem) => ({
-  item: it,
-  workspace: 'studio',
-  onsave: vi.fn(),
-  onreload: vi.fn(),
-})
-
-beforeEach(() => {
-  vi.mocked(api.getJob).mockReset()
-  vi.mocked(api.getJob).mockResolvedValue({
-    id: 'job-a',
-    manifest: [],
-  } as never)
-  confirmDialog.mockReset()
-})
 afterEach(cleanup)
 
-const settle = () => new Promise((r) => setTimeout(r, 10))
-
-it("shows a video result as the gallery's first-frame thumbnail", async () => {
-  vi.mocked(api.getJob).mockResolvedValue({
-    id: 'job-a',
+/** The props for the row of `key` in a request of `items` */
+function props(
+  items: LedgerItem[],
+  key = items[items.length - 1].key,
+  over: Partial<LedgerRequest> = {},
+) {
+  const req = request(items, over)
+  const row = planState(req).items.find((s) => s.item.key === key)
+  if (!row) throw new Error(`no item ${key}`)
+  return {
+    row,
+    request: req,
     workspace: 'studio',
-    manifest: [{ step: 's', files: ['shot/clip.mp4'], role: 'final' }],
-    output_kinds: { 'shot/clip.mp4': 'video' },
-  } as never)
-  const { container } = render(RequestItem, props(item()))
-  await waitFor(() =>
-    expect(container.querySelector('.result img')?.getAttribute('src')).toBe(
-      '/thumb/shot/clip.mp4?ws=studio',
-    ),
-  )
-  expect(container.querySelector('a.result')?.getAttribute('href')).toBe(
+    onsave: vi.fn(),
+    onreload: vi.fn(),
+    ongo: vi.fn(),
+  }
+}
+const chip = (container: HTMLElement) => container.querySelector('.row .chip')
+const title = (name: string) => screen.getByRole('button', { name })
+const image = { name: 'shot/a.png', kind: 'image' as const }
+const withOutput = (key: string, output: typeof image | null) =>
+  doneItem(key, {
+    title: 'Opening shot',
+    attempts: [attempt(`job-${key}`, 'succeeded', { output })],
+    result: { job: `job-${key}`, run_id: `run-${key}`, output },
+    spent_minutes: 6.25,
+  })
+
+it('a done item shows its result as the proof, linked to the job', () => {
+  const { container } = render(RequestItem, props([withOutput('a', image)]))
+  const proof = screen.getByRole('img', { name: 'result of Opening shot' })
+  expect(proof.getAttribute('src')).toBe('/thumb/shot/a.png?ws=studio')
+  expect(proof.closest('a')?.getAttribute('href')).toBe(
     '#/ws/studio/jobs/job-a',
   )
+  expect(proof.closest('a')?.classList.contains('frame')).toBe(true)
+  expect(chip(container)?.textContent).toBe('done')
+  expect(chip(container)?.classList.contains('succeeded')).toBe(true)
+  // measured minutes, so no tilde
+  expect(container.querySelector('.figure')?.textContent).toBe('6.3 min')
+  expect(title('Opening shot').getAttribute('aria-expanded')).toBe('false')
 })
 
-it('shows an image result as the image itself', async () => {
-  vi.mocked(api.getJob).mockResolvedValue({
-    id: 'job-a',
-    workspace: 'studio',
-    manifest: [{ step: 's', files: ['a.png'], role: 'final' }],
-    output_kinds: { 'a.png': 'image' },
-  } as never)
-  const { container } = render(RequestItem, props(item()))
-  await waitFor(() =>
-    expect(container.querySelector('.result img')?.getAttribute('src')).toBe(
-      '/outputs/a.png?v=job-a&ws=studio',
-    ),
+it('marks a video proof as one, and stands a sound by a glyph', () => {
+  const video = { name: 'shot/clip.mp4', kind: 'video' as const }
+  const view = render(RequestItem, props([withOutput('a', video as never)]))
+  expect(view.container.querySelector('.proofcell .videobadge')).toBeTruthy()
+  cleanup()
+  const sound = { name: 'shot/a.wav', kind: 'audio' as const }
+  const { container } = render(
+    RequestItem,
+    props([withOutput('a', sound as never)]),
   )
+  expect(container.querySelector('.proofcell img')).toBeNull()
+  expect(container.querySelector('.proofcell .glyph')?.textContent).toBe('♪')
 })
 
-it('asks for a job once, however often the item is refreshed', async () => {
-  vi.mocked(api.getJob).mockResolvedValue({
-    id: 'job-a',
-    workspace: 'studio',
-    manifest: [{ step: 's', files: ['a.wav'], role: 'final' }],
-    output_kinds: { 'a.wav': 'audio' },
-  } as never)
-  const view = render(RequestItem, props(item()))
-  await settle()
-  for (let i = 0; i < 3; i++) {
-    // A poll hands the component a new, equal item
-    await view.rerender(props(item()))
-    await settle()
-  }
-  expect(api.getJob).toHaveBeenCalledTimes(1)
-  expect(view.container.querySelector('.result')).toBeNull()
-})
-
-it("does not show the last result's picture under a new result job", async () => {
-  vi.mocked(api.getJob).mockResolvedValueOnce({
-    id: 'job-a',
-    workspace: 'studio',
-    manifest: [{ step: 's', files: ['a.png'], role: 'final' }],
-    output_kinds: { 'a.png': 'image' },
-  } as never)
-  const view = render(RequestItem, props(item()))
-  await screen.findByRole('img')
-  vi.mocked(api.getJob).mockReturnValueOnce(new Promise(() => {}) as never)
-  await view.rerender(
-    props(item({ result: { job: 'job-b', run_id: 'run-b' } } as never)),
+it('a ready item says ready, with its estimate and an empty slot', () => {
+  const { container } = render(
+    RequestItem,
+    props([item('a', { ready: true, estimate_minutes: 6 })]),
   )
-  await settle()
-  expect(screen.queryByRole('img')).toBeNull()
+  expect(chip(container)?.textContent).toBe('ready')
+  expect(chip(container)?.classList.contains('ready')).toBe(true)
+  expect(container.querySelector('.figure')?.textContent).toBe('est. ~6 min')
+  expect(container.querySelector('.proofcell .slot')).toBeTruthy()
+  // the slot is never a frame: the frame is only ever the picture
+  expect(container.querySelector('.proofcell .frame')).toBeNull()
+  // no control is drawn that this increment cannot act on
+  expect(screen.queryByRole('button', { name: /run/i })).toBeNull()
 })
 
-it('asks again when the item gets a different result job', async () => {
-  vi.mocked(api.getJob).mockResolvedValue({
-    id: 'job-a',
-    workspace: 'studio',
-    manifest: [],
-  } as never)
-  const view = render(RequestItem, props(item()))
-  await settle()
-  await view.rerender(
-    props(item({ result: { job: 'job-b', run_id: 'run-b' } } as never)),
-  )
-  await settle()
-  expect(vi.mocked(api.getJob).mock.calls.map((c) => c[0])).toEqual([
-    'job-a',
-    'job-b',
-  ])
-})
-
-const planned = (over: Partial<LedgerItem> = {}) =>
-  item({ status: 'planned', attempts: [], result: null, ...over } as never)
-const box = () => screen.getByLabelText('Comment on a') as HTMLTextAreaElement
-
-async function draft(text: string, saved: string | null = null) {
-  const given = props(
-    planned({
-      comment: saved ? { text: saved, at: '2026-01-02T03:04:05Z' } : null,
-    } as never),
-  )
-  render(RequestItem, given)
-  await fireEvent.click(
-    screen.getByRole('button', {
-      name: saved ? 'Edit comment' : 'Add comment',
+it('a waiting item names what it waits on, each a way to that row', async () => {
+  const given = props([
+    item('shot', {
+      title: 'Shot 3',
+      status: 'failed',
+      attempts: [attempt('j', 'failed')],
     }),
+    item('score', { title: 'Score', workflow: null }),
+    item('cut', { title: 'The cut', depends_on: ['shot', 'score'] }),
+  ])
+  const { container } = render(RequestItem, given)
+  expect(chip(container)?.textContent).toBe('waiting')
+  const line = container.querySelector('.main .sub') as HTMLElement
+  expect(line.textContent?.replace(/\s+/g, ' ')).toContain(
+    'waits on Shot 3 (failed), Score (planned)',
   )
-  await fireEvent.input(box(), { target: { value: text } })
-  return given
-}
-
-it('Cancel asks before discarding a draft, and keeps it when declined', async () => {
-  await draft('needs more red')
-  confirmDialog.mockResolvedValue(false)
-  await fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
-  await waitFor(() => expect(confirmDialog).toHaveBeenCalledTimes(1))
-  expect(box().value).toBe('needs more red')
-  confirmDialog.mockResolvedValue(true)
-  await fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
-  await waitFor(() =>
-    expect(screen.queryByLabelText('Comment on a')).toBeNull(),
-  )
+  expect(line.querySelector('.bad')?.textContent?.trim()).toBe('(failed)')
+  await fireEvent.click(within(line).getByRole('button', { name: 'Shot 3' }))
+  expect(given.ongo).toHaveBeenCalledWith('shot')
 })
 
-it('Cancel does not ask over an empty or unchanged draft', async () => {
-  await draft('as saved', 'as saved')
-  await fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
-  await waitFor(() =>
-    expect(screen.queryByLabelText('Comment on a')).toBeNull(),
+it('says only the agent can run an item with no stored workflow', () => {
+  const { container } = render(
+    RequestItem,
+    props([item('a', { workflow: null })]),
   )
-  expect(confirmDialog).not.toHaveBeenCalled()
-  expect(screen.getByText('as saved')).toBeTruthy()
+  expect(chip(container)?.textContent).toBe('planned')
+  expect(
+    screen.getByText('No stored workflow. Only the agent can run this.'),
+  ).toBeTruthy()
 })
 
-it('offers Reload for a stale revision, keeping the draft', async () => {
-  const given = await draft('my draft')
-  given.onsave.mockRejectedValue(
-    new ApiError('at revision 5, not 3', 409, 'stale_revision'),
+it('a running item is the live row, open, with a way to its job', () => {
+  const { container } = render(
+    RequestItem,
+    props([
+      item('a', {
+        title: 'Shot 3',
+        status: 'running',
+        attempts: [attempt('job-now', 'running', { minutes: 2 })],
+      }),
+    ]),
   )
-  await fireEvent.click(screen.getByRole('button', { name: 'Save' }))
-  expect((await screen.findByRole('alert')).textContent).toContain(
-    'at revision 5, not 3',
+  expect(container.querySelector('li')?.classList.contains('row-live')).toBe(
+    true,
   )
-  await fireEvent.click(screen.getByRole('button', { name: 'Reload' }))
-  expect(given.onreload).toHaveBeenCalledTimes(1)
-  await waitFor(() => expect(screen.queryByRole('alert')).toBeNull())
-  expect(box().value).toBe('my draft')
+  expect(chip(container)?.textContent).toBe('running')
+  expect(container.querySelector('.figure')?.textContent).toBe('2 min so far')
+  expect(
+    screen.getByRole('link', { name: 'Open job' }).getAttribute('href'),
+  ).toBe('#/ws/studio/jobs/job-now')
+  expect(title('Shot 3').getAttribute('aria-expanded')).toBe('true')
+  expect(container.querySelector('.proofcell .pulse-dot')).toBeTruthy()
 })
 
-it("shows another refusal as the server's message, with no Reload", async () => {
-  const given = await draft('my draft')
-  given.onsave.mockRejectedValue(
-    new ApiError(
-      'this workspace has no root folder, so it cannot hold requests',
-      409,
-      'no_workspace_root',
-    ),
+const twoTakes = (over: Partial<LedgerItem> = {}) =>
+  doneItem('a', {
+    title: 'Cast sheet',
+    attempts: [
+      attempt('j1', 'succeeded', { output: image, note: 'first pass' }),
+      attempt('j2', 'failed'),
+      attempt('j3', 'succeeded', {
+        output: { name: 'shot/c.png', kind: 'image' },
+      }),
+    ],
+    result: {
+      job: 'j3',
+      run_id: 'r3',
+      output: { name: 'shot/c.png', kind: 'image' },
+    },
+    ...over,
+  })
+
+it('with several takes and none accepted, opens and marks the latest as the result', () => {
+  const { container } = render(RequestItem, props([twoTakes()]))
+  expect(title('Cast sheet').getAttribute('aria-expanded')).toBe('true')
+  expect(
+    container.querySelector('.main')?.textContent?.replace(/\s+/g, ' '),
+  ).toContain('3 takes latest, none accepted')
+  const takes = [...container.querySelectorAll('.strip .tile')]
+  expect(takes.map((t) => t.querySelector('.n')?.textContent)).toEqual([
+    'take 1',
+    'take 2',
+    'take 3',
+  ])
+  expect(takes[2].querySelector('.mark')?.textContent?.trim()).toBe(
+    'shown as the result (latest)',
   )
-  await fireEvent.click(screen.getByRole('button', { name: 'Save' }))
-  expect((await screen.findByRole('alert')).textContent).toContain(
-    'no root folder',
+  expect(takes[0].querySelector('.mark')).toBeNull()
+  // a take that made nothing is a slot with its status in words
+  expect(takes[1].querySelector('.slot')).toBeTruthy()
+  expect(takes[1].querySelector('.chip')?.textContent).toBe('failed')
+  expect(takes[0].querySelector('.note')?.textContent).toBe('first pass')
+  expect(takes[0].querySelector('a')?.getAttribute('href')).toBe(
+    '#/ws/studio/jobs/j1',
   )
-  expect(screen.queryByRole('button', { name: 'Reload' })).toBeNull()
-  expect(box().value).toBe('my draft')
+  // read-only: there is nothing to accept with yet
+  expect(screen.queryByRole('button', { name: /accept/i })).toBeNull()
+  expect(
+    screen
+      .getByRole('link', { name: 'open these in the gallery' })
+      .getAttribute('href'),
+  ).toBe('#/ws/studio/gallery?req=r1%2Fa')
 })
 
-it('offers no comment box on a dropped item', () => {
+it('marks the accepted take, and stays closed', async () => {
+  const { container } = render(
+    RequestItem,
+    props([
+      twoTakes({
+        accepted: { job: 'j1', run_id: 'r1' },
+        result: { job: 'j1', run_id: 'r1', output: image },
+      }),
+    ]),
+  )
+  expect(title('Cast sheet').getAttribute('aria-expanded')).toBe('false')
+  expect(container.querySelector('.main .mark')?.textContent?.trim()).toBe(
+    'accepted',
+  )
+  await fireEvent.click(title('Cast sheet'))
+  const takes = [...container.querySelectorAll('.strip .tile')]
+  expect(takes[0].querySelector('.mark')?.textContent?.trim()).toBe('accepted')
+  expect(takes[0].querySelector('.picked')).toBeTruthy()
+  expect(takes[2].querySelector('.mark')).toBeNull()
+})
+
+it("says when the accepted take's files are gone", () => {
   render(
     RequestItem,
-    props(planned({ dropped: true, status: 'dropped' } as never)),
+    props([
+      twoTakes({
+        accepted: { job: 'j1', run_id: 'r1' },
+        accepted_missing: true,
+      }),
+    ]),
   )
-  expect(screen.queryByRole('button', { name: /comment/i })).toBeNull()
+  expect(screen.getByText(/The accepted take's files are gone/)).toBeTruthy()
+})
+
+it('a failed item says none of its attempts succeeded; a cancelled one is not failed', () => {
+  const failed = render(
+    RequestItem,
+    props([
+      item('a', {
+        status: 'failed',
+        attempts: [attempt('j1', 'failed'), attempt('j2', 'cancelled')],
+      }),
+    ]),
+  )
+  expect(chip(failed.container)?.classList.contains('failed')).toBe(true)
+  expect(screen.getByText('2 attempts, none succeeded')).toBeTruthy()
+  cleanup()
+  const { container } = render(
+    RequestItem,
+    props([
+      item('a', { status: 'failed', attempts: [attempt('j1', 'cancelled')] }),
+    ]),
+  )
+  expect(chip(container)?.textContent).toBe('cancelled')
+  expect(chip(container)?.classList.contains('failed')).toBe(false)
+})
+
+it('a dropped item is struck, keeps its note, and offers no way to edit one', async () => {
+  const { container } = render(
+    RequestItem,
+    props([
+      item('a', {
+        title: 'Cut scene',
+        dropped: true,
+        status: 'dropped',
+        comment: { text: 'too long', at: '2026-01-01T00:00:00+00:00' },
+      }),
+    ]),
+  )
+  expect(container.querySelector('li')?.classList.contains('dropped')).toBe(
+    true,
+  )
+  expect(chip(container)?.textContent).toBe('dropped')
+  await fireEvent.click(title('Cut scene'))
+  expect(
+    within(container.querySelector('.more') as HTMLElement).getByText(
+      'too long',
+    ),
+  ).toBeTruthy()
+  expect(screen.queryByRole('button', { name: /note/i })).toBeNull()
+  expect(screen.queryByRole('textbox')).toBeNull()
+})
+
+it('opened, says what it follows, what needs it and what it would run', async () => {
+  const given = props(
+    [
+      doneItem('cast', { title: 'Cast sheet' }),
+      item('shot', {
+        title: 'Shot 3',
+        depends_on: ['cast'],
+        ready: true,
+        workflow: 'h3-shot',
+        arguments: { prompt: 'a lighthouse', seed: 7 },
+      }),
+      item('cut', { title: 'The cut', depends_on: ['shot'] }),
+    ],
+    'shot',
+  )
+  const { container } = render(RequestItem, given)
+  const more = container.querySelector('.more') as HTMLElement
+  expect(more.hidden).toBe(true)
+  await fireEvent.click(title('Shot 3'))
+  expect(more.hidden).toBe(false)
+  expect(more.id).toBe(title('Shot 3').getAttribute('aria-controls'))
+  const text = more.textContent?.replace(/\s+/g, ' ') ?? ''
+  expect(text).toContain('after: Cast sheet (done)')
+  expect(text).toContain('needed by: The cut (waiting)')
+  expect(text).toContain('Runs h3-shot with 2 arguments')
+  expect(
+    [...more.querySelectorAll('.args li')].map((li) => li.textContent),
+  ).toEqual(['prompt = a lighthouse', 'seed = 7'])
+  await fireEvent.click(within(more).getByRole('button', { name: 'The cut' }))
+  expect(given.ongo).toHaveBeenCalledWith('cut')
+})
+
+it("links an item's jobs through the req filter", async () => {
+  const { container } = render(RequestItem, props([withOutput('a', image)]))
+  await fireEvent.click(title('Opening shot'))
+  expect(
+    within(container.querySelector('.more') as HTMLElement)
+      .getByRole('link', { name: 'its jobs' })
+      .getAttribute('href'),
+  ).toBe('#/ws/studio/jobs?req=r1%2Fa')
+})
+
+const noted = (at: string) =>
+  item('a', { title: 'Shot 3', comment: { text: 'warmer\nand slower', at } })
+
+it('a closed row with a note shows its first line', () => {
+  const { container } = render(
+    RequestItem,
+    props([noted('2026-01-01T00:05:00+00:00')], 'a', {
+      history: [entry(9, 'agent', 'replanned')],
+    }),
+  )
+  expect(title('Shot 3').getAttribute('aria-expanded')).toBe('false')
+  expect(container.querySelector('.peek')?.textContent?.trim()).toBe('warmer')
+})
+
+it('opens a row whose note the agent has had no chance to read', () => {
+  const { container } = render(
+    RequestItem,
+    props([noted('2026-01-01T00:05:00+00:00')]),
+  )
+  expect(title('Shot 3').getAttribute('aria-expanded')).toBe('true')
+  expect(container.querySelector('.peek')).toBeNull()
+  expect(screen.getByText(/Nothing is sent to the agent/)).toBeTruthy()
+})
+
+it("the user's toggle outlives a refresh, and closing a row keeps its draft", async () => {
+  const running = (minutes: number) =>
+    props([
+      item('a', {
+        title: 'Shot 3',
+        status: 'running',
+        attempts: [attempt('j', 'running', { minutes })],
+      }),
+    ])
+  const view = render(RequestItem, running(1))
+  await fireEvent.click(
+    screen.getByRole('button', { name: 'Leave a note for the agent' }),
+  )
+  const box = () =>
+    view.container.querySelector('textarea') as HTMLTextAreaElement
+  await fireEvent.input(box(), { target: { value: 'half a thought' } })
+  await fireEvent.click(title('Shot 3'))
+  expect(title('Shot 3').getAttribute('aria-expanded')).toBe('false')
+  // a poll hands the row a new, equal item: it would open by default
+  await view.rerender(running(2))
+  expect(title('Shot 3').getAttribute('aria-expanded')).toBe('false')
+  expect(view.container.querySelector('.figure')?.textContent).toBe(
+    '2 min so far',
+  )
+  await fireEvent.click(title('Shot 3'))
+  expect(box().value).toBe('half a thought')
+})
+
+it('draws what a later increment hands it: a handle, an action, a menu', async () => {
+  const { createRawSnippet } = await import('svelte')
+  const slot = (label: string) =>
+    createRawSnippet(() => ({
+      render: () => `<button type="button">${label}</button>`,
+    }))
+  const { container } = render(RequestItem, {
+    ...props([item('a', { ready: true })]),
+    handle: slot('grip'),
+    action: slot('Run…'),
+    menu: slot('more'),
+  })
+  expect(container.querySelector('.handle button')?.textContent).toBe('grip')
+  expect(container.querySelector('.action button')?.textContent).toBe('Run…')
+  expect(container.querySelector('.menu button')?.textContent).toBe('more')
 })

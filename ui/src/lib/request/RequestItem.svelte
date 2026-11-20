@@ -1,212 +1,220 @@
 <script lang="ts">
-  import { api, outputUrl } from '../api'
-  import { confirmDialog } from '../confirm.svelte'
-  import { draftAtRisk, saveFailure } from './draft'
-  import { notify } from '../toast'
-  import { formatExact, formatMinutes } from '../format'
-  import { resultProof } from '../requestResult'
+  import type { Snippet } from 'svelte'
+  import {
+    Check,
+    ChevronDown,
+    ChevronRight,
+    MessageSquare,
+  } from '@lucide/svelte'
+  import AttemptStrip from './AttemptStrip.svelte'
+  import ItemNote from './ItemNote.svelte'
+  import ItemProof from './ItemProof.svelte'
+  import {
+    activeJob,
+    CHIP,
+    figureOf,
+    opensByDefault,
+    resultMark,
+    takesLine,
+    titleId,
+    type ItemRef,
+    type ItemState,
+    type Take,
+  } from './itemState'
+  import { noteLine, noteWaiting } from './noteState'
+  import { displayValue } from '../editor'
+  import { requestQuery } from '../requestFilter'
   import { wsHref } from '../routes'
-  import type { JobDetail, LedgerItem } from '../types'
+  import type { LedgerRequest } from '../types'
 
+  // One item of the plan as a row: what stands for it, what it is called,
+  // its state as a word, one figure - and, opened, its takes, what it waits
+  // on and what waits on it, what it would run, and the note for the agent.
+  // The four snippets are where a row's controls go; none is drawn here
   let {
-    item,
+    row,
+    request,
     workspace,
     onsave,
     onreload,
+    ongo,
+    handle,
+    action,
+    menu,
+    takeAction,
   }: {
-    item: LedgerItem
+    row: ItemState
+    request: LedgerRequest
     workspace: string
-    /** Store the comment (null clears it); rejects with the server's error */
+    /** Store the item's note (null clears it); rejects with the server's error */
     onsave: (text: string | null) => Promise<void>
     /** Read the request again, after a save found it had moved on */
     onreload: () => void
+    /** Go to another item's row: a dependency's name was pressed */
+    ongo: (key: string) => void
+    /** The first cell: the reorder grip */
+    handle?: Snippet<[ItemState]>
+    /** Beside "Open job": the row's own action */
+    action?: Snippet<[ItemState]>
+    /** The last cell: the row's menu */
+    menu?: Snippet<[ItemState]>
+    /** Under each succeeded take in the strip */
+    takeAction?: Snippet<[Take]>
   } = $props()
 
-  // The picture that stands for the result job (resultProof): looked up
-  // once per job id, and "this job has none" is remembered like a picture
-  // is - a refresh hands over a new, equal `item`, and must not ask again
-  let proof = $state<{ job: string; src: string | null } | null>(null)
-  const resultJob = $derived(item.result?.job)
-  $effect(() => {
-    const job = resultJob
-    if (!job) {
-      proof = null
-      return
-    }
-    if (proof?.job === job) return
-    let live = true
-    api.getJob(job).then(
-      (detail) => {
-        if (live) proof = { job, src: proofSrc(detail) }
-      },
-      () => {
-        if (live) proof = { job, src: null }
-      },
-    )
-    return () => (live = false)
-  })
-  // Until the new result job's own picture is found, the last one's is not
-  // shown under a link to this one
-  const picture = $derived(proof && proof.job === resultJob ? proof.src : null)
-  function proofSrc(detail: JobDetail): string | null {
-    const found = resultProof(detail)
-    if (!found) return null
-    return found.kind === 'image'
-      ? outputUrl(found.file, detail.id, detail.workspace)
-      : api.galleryThumbnailUrl(found.file, detail.workspace)
-  }
+  const item = $derived(row.item)
+  const chip = $derived(CHIP[row.display])
+  const waitingNote = $derived(noteWaiting(item.comment, request))
+  // The user's own toggle wins for as long as the page holds this row
+  let chosen = $state<boolean | null>(null)
+  const open = $derived(chosen ?? opensByDefault(row, waitingNote))
 
-  // A draft is the page's only local edit; a refresh replacing `item`
-  // leaves it. `refused` is the server's answer to the last save, shown
-  // under the draft until the next one
-  let editing = $state(false)
-  let draft = $state('')
-  let saving = $state(false)
-  let refused = $state<{ message: string; reload: boolean } | null>(null)
-
-  function edit() {
-    draft = item.comment?.text ?? ''
-    refused = null
-    editing = true
-  }
-  async function cancel() {
-    if (
-      draftAtRisk(draft, item.comment?.text ?? null) &&
-      !(await confirmDialog('Discard this comment draft?', {
-        confirmLabel: 'Discard',
-        cancelLabel: 'Keep editing',
-      }))
-    )
-      return
-    editing = false
-  }
-  // The draft stays: it is saved again, against the request as it now is
-  function reload() {
-    refused = null
-    onreload()
-  }
-  async function save() {
-    saving = true
-    try {
-      await onsave(draft.trim() ? draft : null)
-      editing = false
-      refused = null
-    } catch (e) {
-      refused = saveFailure(e)
-      if (!refused) notify.error(e instanceof Error ? e.message : String(e))
-    } finally {
-      saving = false
-    }
-  }
+  const figure = $derived(figureOf(row))
+  const takes = $derived(takesLine(row))
+  const mark = $derived(row.display === 'done' ? resultMark(item) : null)
+  const job = $derived(activeJob(item))
+  const args = $derived(Object.entries(item.arguments ?? {}))
+  const moreId = $derived(`req-item-${item.key}-more`)
+  const firstLine = (text: string) => text.trim().split('\n')[0]
 </script>
 
-<li class="item panel" class:dropped={item.dropped}>
-  <div class="head">
-    <span
-      class="chip status"
-      class:running={item.status === 'running'}
-      class:queued={item.status === 'queued'}
-      class:succeeded={item.status === 'done'}
-      class:failed={item.status === 'failed'}
-      class:planned={item.status === 'planned'}
-      class:gone={item.status === 'dropped'}>{item.status}</span
+{#snippet refs(list: ItemRef[])}
+  {#each list as dep, i (dep.key)}
+    {i ? ', ' : ''}<button
+      type="button"
+      class="bare ref"
+      onclick={() => ongo(dep.key)}>{dep.title}</button
+    ><span class:bad={dep.display === 'failed'}
+      >{` (${CHIP[dep.display].word})`}</span
     >
-    <strong class="title">{item.title}</strong>
-    <code class="muted">{item.key}</code>
-    <span class="flex"></span>
-    <span class="muted num" title="estimate"
-      >est. {item.estimate_minutes == null
-        ? '—'
-        : formatMinutes(item.estimate_minutes)}</span
+  {/each}
+{/snippet}
+
+<li
+  class="item"
+  class:row-live={row.display === 'running'}
+  class:dropped={item.dropped}
+  data-key={item.key}
+>
+  <div class="row">
+    <span class="handle">{@render handle?.(row)}</span>
+    <div class="main">
+      <div class="titleline">
+        <button
+          type="button"
+          class="bare title"
+          id={titleId(item.key)}
+          aria-expanded={open}
+          aria-controls={moreId}
+          onclick={() => (chosen = !open)}
+        >
+          {#if open}<ChevronDown size={14} aria-hidden="true" />{:else}
+            <ChevronRight size={14} aria-hidden="true" />{/if}
+          <span class="name">{item.title}</span>
+        </button>
+        <code class="muted key">{item.key}</code>
+      </div>
+      {#if row.display === 'waiting'}
+        <p class="sub">waits on {@render refs(row.blockers)}</p>
+      {:else if row.noWorkflow && !item.dropped}
+        <p class="sub muted">
+          No stored workflow. Only the agent can run this.
+        </p>
+      {/if}
+      {#if takes}
+        <p class="sub">
+          <span class="muted">{takes}</span>
+          {#if item.attempts.length > 1 && mark === 'accepted'}
+            <span class="mark"
+              ><Check size={12} aria-hidden="true" /> accepted</span
+            >
+          {:else if item.attempts.length > 1 && mark === 'latest'}
+            <span class="mark">latest, none accepted</span>
+          {/if}
+        </p>
+      {/if}
+      {#if item.comment && !open}
+        <p class="sub peek" title="your note for the agent">
+          <MessageSquare size={12} aria-hidden="true" />
+          <span>{firstLine(item.comment.text)}</span>
+        </p>
+      {/if}
+    </div>
+    <span class="proofcell">
+      <ItemProof
+        output={item.result?.output ?? null}
+        state={row.display}
+        {workspace}
+        href={item.result ? wsHref(workspace, 'jobs', item.result.job) : null}
+        alt="result of {item.title}"
+      />
+    </span>
+    <span class="chipcell"
+      ><span class="chip {chip.tone}">{chip.word}</span></span
     >
+    <span class="figure num muted">{figure}</span>
+    <span class="tail">
+      {#if job || action}
+        <span class="action">
+          {#if job}
+            <a class="plain quiet openjob" href={wsHref(workspace, 'jobs', job)}
+              >Open job</a
+            >
+          {/if}
+          {@render action?.(row)}
+        </span>
+      {/if}
+      {#if menu}<span class="menu">{@render menu(row)}</span>{/if}
+    </span>
   </div>
 
-  <div class="body">
-    {#if picture && item.result}
-      <a
-        class="plain frame result"
-        href={wsHref(workspace, 'jobs', item.result.job)}
-        title="open the job"
-      >
-        <img src={picture} alt="result of {item.title}" loading="lazy" />
-      </a>
+  <!-- Hidden, not removed: the note's draft is in here, and closing the
+       row must not lose it -->
+  <div class="more" id={moreId} hidden={!open}>
+    {#if open && item.attempts.length}
+      <AttemptStrip
+        {item}
+        {workspace}
+        requestId={request.id}
+        action={takeAction}
+      />
     {/if}
-    <div class="details">
-      {#if item.depends_on?.length}
-        <p class="muted small">
-          depends on {#each item.depends_on as dep, i (dep)}{#if i},
-            {/if}<code>{dep}</code>{/each}
-        </p>
-      {/if}
-      {#if item.accepted_missing}
-        <p class="warn small">
-          accepted run missing — showing the latest succeeded run instead
-        </p>
-      {/if}
-      {#if item.attempts.length}
-        <ul class="attempts">
-          {#each item.attempts as attempt (attempt.job)}
-            <li>
-              <a class="plain" href={wsHref(workspace, 'jobs', attempt.job)}
-                >{attempt.job}</a
-              >
-              <span class="chip {attempt.status}">{attempt.status}</span>
-              <span class="muted num"
-                >{attempt.minutes == null
-                  ? '—'
-                  : formatMinutes(attempt.minutes)}</span
-              >
-              {#if attempt.note}<span class="muted">{attempt.note}</span>{/if}
-            </li>
+    {#if row.after.length}
+      <p class="sub">after: {@render refs(row.after)}</p>
+    {/if}
+    {#if row.neededBy.length}
+      <p class="sub">needed by: {@render refs(row.neededBy)}</p>
+    {/if}
+    {#if item.workflow && args.length}
+      <details class="runs">
+        <summary
+          >Runs <code>{item.workflow}</code> with {args.length}
+          {args.length === 1 ? 'argument' : 'arguments'}</summary
+        >
+        <ul class="args">
+          {#each args as [name, value] (name)}
+            <li title={displayValue(value)}>{name} = {displayValue(value)}</li>
           {/each}
         </ul>
-      {/if}
-
-      <div class="comment">
-        {#if editing}
-          <textarea
-            bind:value={draft}
-            rows="3"
-            aria-label="Comment on {item.key}"
-            placeholder="Add a comment"></textarea>
-          <div class="actions">
-            <button type="button" class="quiet" onclick={save} disabled={saving}
-              >Save</button
-            >
-            <button
-              type="button"
-              class="bare"
-              onclick={cancel}
-              disabled={saving}>Cancel</button
-            >
-          </div>
-          {#if refused}
-            <p class="error" role="alert">
-              {refused.message}
-              {#if refused.reload}
-                <button type="button" class="quiet" onclick={reload}
-                  >Reload</button
-                >
-              {/if}
-            </p>
-          {/if}
-        {:else}
-          {#if item.comment}
-            <p class="text">{item.comment.text}</p>
-            <p class="muted small">
-              {formatExact(Date.parse(item.comment.at) / 1000)}
-            </p>
-          {/if}
-          <!-- The ledger keeps a dropped item as stored: a comment
-               written on one is not saved, so none is offered -->
-          {#if !item.dropped}
-            <button type="button" class="quiet" onclick={edit}
-              >{item.comment ? 'Edit comment' : 'Add comment'}</button
-            >
-          {/if}
-        {/if}
-      </div>
-    </div>
+      </details>
+    {:else if item.workflow}
+      <p class="sub">Runs <code>{item.workflow}</code> with no arguments</p>
+    {/if}
+    <ItemNote
+      comment={item.comment}
+      about={item.title}
+      line={item.comment ? noteLine(item.comment, request) : null}
+      editable={!item.dropped}
+      {onsave}
+      {onreload}
+    />
+    {#if item.attempts.length}
+      <p class="sub">
+        <a href={wsHref(workspace, 'jobs') + requestQuery(request.id, item.key)}
+          >its jobs</a
+        >
+      </p>
+    {/if}
   </div>
 </li>
 
@@ -214,81 +222,190 @@
   .item {
     list-style: none;
   }
-  .item.dropped .title {
-    color: var(--muted);
-    text-decoration: line-through;
-  }
-  .head {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    gap: var(--space-2) var(--space-3);
-  }
-  .status.planned,
-  .status.gone {
-    background: var(--panel-2);
-    color: var(--muted);
-  }
-  .body {
-    display: flex;
+  /* handle, proof, main, chip, figure, actions. The chip's column is
+     fixed, so a change of status never moves what is beside it */
+  .row {
+    display: grid;
+    grid-template-columns: 24px 96px minmax(0, 1fr) 90px 7.5rem minmax(
+        5.5rem,
+        auto
+      );
+    grid-template-areas: 'handle proof main chip figure tail';
     gap: var(--space-3);
-    margin-top: var(--space-2);
+    align-items: center;
+    padding: 0.55rem 0.8rem 0.55rem 0.2rem;
   }
-  .result {
-    flex: none;
-    width: 140px;
-    aspect-ratio: 4 / 3;
+  .handle {
+    grid-area: handle;
   }
-  .result img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    display: block;
+  .proofcell {
+    grid-area: proof;
+    display: flex;
   }
-  .details {
-    flex: 1;
+  .main {
+    grid-area: main;
     min-width: 0;
-  }
-  .small {
-    font-size: var(--t-sm);
-    margin: 0 0 var(--space-1);
-  }
-  .warn {
-    color: var(--warn);
-  }
-  .attempts {
-    list-style: none;
-    margin: 0 0 var(--space-2);
-    padding: 0;
     display: flex;
     flex-direction: column;
-    gap: var(--space-1);
-    font-family: var(--font-mono);
-    font-size: var(--t-sm);
+    gap: 0.15rem;
   }
-  .attempts li {
+  .chipcell {
+    grid-area: chip;
+  }
+  .figure {
+    grid-area: figure;
+    font-size: var(--t-xs);
+    text-align: right;
+  }
+  .tail {
+    grid-area: tail;
     display: flex;
-    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--space-2);
+  }
+  .action,
+  .menu {
+    display: flex;
     align-items: center;
     gap: var(--space-2);
   }
-  .text {
-    white-space: pre-wrap;
-    margin: 0;
+  .openjob {
+    padding: 0.25rem 0.6rem;
+    font-size: var(--t-sm);
+    white-space: nowrap;
   }
-  textarea {
-    width: 100%;
-    font: inherit;
-    background: var(--panel-2);
-    color: var(--ink);
-  }
-  .actions {
+  .titleline {
     display: flex;
-    gap: var(--space-2);
-    margin-top: var(--space-1);
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0 var(--space-2);
   }
-  .error {
+  .title {
+    display: inline-flex;
+    align-items: baseline;
+    gap: var(--space-1);
+    padding: 0;
+    color: var(--ink);
+    font-size: var(--t-base);
+    font-weight: 600;
+    text-align: left;
+    min-width: 0;
+  }
+  .title:hover {
+    background: transparent;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .title :global(svg) {
+    flex: none;
+    align-self: center;
+    color: var(--muted);
+  }
+  .name {
+    overflow-wrap: anywhere;
+  }
+  .key {
+    font-size: var(--t-xs);
+  }
+  .dropped {
+    opacity: 0.72;
+  }
+  .dropped .name {
+    text-decoration: line-through;
+  }
+  .sub {
+    margin: 0;
+    font-size: var(--t-sm);
+  }
+  .mark {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.2rem;
+    font-weight: 600;
+    margin-left: var(--space-2);
+  }
+  .peek {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    color: var(--muted);
+    min-width: 0;
+  }
+  .peek span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .ref {
+    padding: 0;
+    color: var(--ink);
+    font-size: inherit;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .bad {
     color: var(--bad);
+  }
+  .more {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    /* under the main column: past the handle and the proof */
+    padding: 0 0.8rem var(--space-4)
+      calc(0.2rem + 24px + 96px + 2 * var(--space-3));
+  }
+  .more[hidden] {
+    display: none;
+  }
+  .runs summary {
+    font-size: var(--t-sm);
+    cursor: pointer;
+  }
+  .args {
+    list-style: none;
     margin: var(--space-1) 0 0;
+    padding: 0;
+    font-family: var(--font-mono);
+    font-size: var(--t-xs);
+  }
+  .args li {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* Narrow: the chip and the title, then the proof and the figure, then
+     the row's action across the width */
+  @container (max-width: 640px) {
+    .row {
+      grid-template-columns: 24px auto minmax(0, 1fr) auto;
+      grid-template-areas:
+        'handle chip main menu'
+        '. proof figure figure'
+        '. action action action';
+      gap: var(--space-2);
+      align-items: start;
+    }
+    .tail {
+      display: contents;
+    }
+    .action {
+      grid-area: action;
+    }
+    .menu {
+      grid-area: menu;
+    }
+    .openjob {
+      flex: 1;
+      text-align: center;
+    }
+    .figure {
+      text-align: left;
+      align-self: center;
+    }
+    .more {
+      padding-left: calc(0.2rem + 24px + var(--space-2));
+    }
   }
 </style>

@@ -14,3 +14,8 @@ export function formatRequestFilter(filter: RequestFilter): string {
   if (!filter.request) return ''
   return filter.item ? `${filter.request}/${filter.item}` : filter.request
 }
+
+/** The hash query that narrows Jobs or the Gallery to a request, or to one
+ * item of it: what a request page's "its jobs" and "its outputs" append. */
+export const requestQuery = (request: string, item = ''): string =>
+  `?req=${encodeURIComponent(formatRequestFilter({ request, item }))}`

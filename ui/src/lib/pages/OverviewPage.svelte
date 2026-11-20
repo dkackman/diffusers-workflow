@@ -11,7 +11,7 @@
     Trash2,
   } from '@lucide/svelte'
   import { api } from '../api'
-  import { statusCounts } from '../requestResult'
+  import { attention, doneFigure } from '../request/attention'
   import Empty from '../Empty.svelte'
   import NoteEditor from '../ui/NoteEditor.svelte'
   import Skeleton from '../ui/Skeleton.svelte'
@@ -236,7 +236,10 @@
           <a class="plain wf" href={wsHref(name, 'requests', req.id)}
             >{req.title}</a
           >
-          <span class="muted">{statusCounts(req.status_counts)}</span>
+          <span class="muted">{attention(req).text}</span>
+          <span class="muted num" title="items done, of those in the plan"
+            >{doneFigure(req)}</span
+          >
         </li>
       {/each}
     </ul>

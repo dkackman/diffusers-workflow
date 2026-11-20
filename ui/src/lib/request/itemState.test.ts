@@ -145,6 +145,15 @@ it('opens a row by default when it is running, failed, unchosen or holds a waiti
     false,
   ])
   expect(opensByDefault(plan.items[3], true)).toBe(true)
+  const gone = planState(
+    request([
+      doneItem('a', {
+        accepted: { job: 'job-a', run_id: null },
+        accepted_missing: true,
+      }),
+    ]),
+  )
+  expect(opensByDefault(gone.items[0], false)).toBe(true)
   expect(opensByDefault(plan.items[4], true)).toBe(false)
 })
 

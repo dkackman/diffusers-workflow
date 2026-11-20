@@ -121,4 +121,7 @@ export type RequestWriteBody = {
   revision: number
   why: string
   state?: LedgerRequest['state']
+  /** The user's note on the whole request: left out it is kept, null
+   * clears it */
+  comment?: { text: string } | null
 }

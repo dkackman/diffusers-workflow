@@ -12,8 +12,8 @@ const UI = join(dirname(fileURLToPath(import.meta.url)), '..')
 // The places --live may appear: the header's running link and VRAM
 // pressure, a running row and status chip (app.css: `.row-live`,
 // `.chip.running`), the job page's progress bar and current step, the flow
-// view's active step and segment and its legend's key to them, and a
-// model download in flight
+// view's active step and segment and its legend's key to them, a model
+// download in flight, and a request's progress bar
 const LIVE_FILES = [
   'src/App.svelte',
   'src/app.css',
@@ -23,6 +23,7 @@ const LIVE_FILES = [
   'src/lib/job/JobProgress.svelte',
   'src/lib/pages/ModelsPage.svelte',
   'src/lib/pages/OverviewPage.svelte',
+  'src/lib/request/RequestProgress.svelte',
 ]
 
 it('uses --live only where machine state is shown', () => {

@@ -283,7 +283,8 @@ it('lists open requests with their counts, and links to them all', async () => {
   expect(
     screen.getByRole('link', { name: 'Launch posters' }).getAttribute('href'),
   ).toBe('#/ws/studio/requests/r1')
-  expect(screen.getByText('2 done · 1 planned')).toBeTruthy()
+  expect(screen.getByText('idle: 1 planned, nothing running')).toBeTruthy()
+  expect(screen.getByText('2/3')).toBeTruthy()
   expect(screen.queryByText('Old ask')).toBeNull()
   expect(
     screen.getByRole('link', { name: 'all requests' }).getAttribute('href'),
