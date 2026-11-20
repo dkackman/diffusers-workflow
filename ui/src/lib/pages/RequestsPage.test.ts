@@ -3,16 +3,22 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import RequestsPage from './RequestsPage.svelte'
 import { workspace } from '../workspaceState.svelte'
 
-const data = vi.hoisted(() => ({ requests: [] as unknown[] }))
+const data = vi.hoisted(() => ({
+  requests: [] as unknown[],
+  requestsFor: null as ((ws: string) => Promise<unknown>) | null,
+}))
 vi.mock('../api', () => ({
   api: {
-    listRequests: () =>
-      Promise.resolve({ workspace: 'studio', requests: data.requests }),
+    listRequests: (ws: string) =>
+      data.requestsFor
+        ? data.requestsFor(ws)
+        : Promise.resolve({ workspace: 'studio', requests: data.requests }),
   },
 }))
 
 beforeEach(() => {
   workspace.current = 'studio'
+  data.requestsFor = null
 })
 afterEach(cleanup)
 
@@ -45,4 +51,30 @@ it('says how requests get opened when there are none', async () => {
   data.requests = []
   render(RequestsPage)
   await waitFor(() => expect(screen.getByText(/set_request/)).toBeTruthy())
+})
+
+it("drops another workspace's list that lands after a switch", async () => {
+  const row = (id: string, title: string) => ({
+    id,
+    title,
+    state: 'open',
+    revision: 1,
+    items: 0,
+    status_counts: {},
+    spent_minutes: 0,
+    remaining_minutes: 0,
+    updated_at: null,
+  })
+  let land: (reply: unknown) => void = () => {}
+  data.requestsFor = (ws) =>
+    ws === 'studio'
+      ? new Promise((resolve) => (land = resolve))
+      : Promise.resolve({ workspace: ws, requests: [row('o1', 'Other ask')] })
+  render(RequestsPage)
+  workspace.current = 'other'
+  await screen.findByRole('link', { name: 'Other ask' })
+  land({ workspace: 'studio', requests: [row('s1', 'Studio ask')] })
+  await new Promise((r) => setTimeout(r, 10))
+  expect(screen.queryByText('Studio ask')).toBeNull()
+  expect(screen.getByRole('link', { name: 'Other ask' })).toBeTruthy()
 })

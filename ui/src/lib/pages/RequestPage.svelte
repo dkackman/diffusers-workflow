@@ -4,9 +4,10 @@
   import RequestItem from '../request/RequestItem.svelte'
   import { poll } from '../poll'
   import { formatExact, formatMinutes } from '../format'
+  import { latestOnly } from '../latest'
   import { wsHref } from '../routes'
   import type { LedgerRequest } from '../types'
-  import { workspace } from '../workspaceState.svelte'
+  import { workspace } from '../workspace.svelte'
 
   let { requestId }: { requestId: string } = $props()
 
@@ -15,12 +16,18 @@
   let error = $state<string | null>(null)
   const ws = $derived(workspace.current)
 
+  // A reply for a request the page has since left is dropped
+  const beginLoad = latestOnly()
   async function load() {
+    const current = beginLoad()
     try {
-      request = await api.getRequest(ws, requestId)
+      const found = await api.getRequest(ws, requestId)
+      if (!current()) return
+      request = found
       missing = false
       error = null
     } catch (e) {
+      if (!current()) return
       request = null
       if (e instanceof ApiError && e.status === 404) missing = true
       else error = e instanceof Error ? e.message : String(e)

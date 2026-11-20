@@ -217,3 +217,19 @@ it('links to its jobs and outputs through the req filter', async () => {
     `#/ws/${workspace.current}/gallery?req=r1`,
   )
 })
+
+it('drops a request that lands after the page moved to another', async () => {
+  const { api } = await import('../api')
+  let land: (reply: unknown) => void = () => {}
+  vi.mocked(api.getRequest).mockImplementationOnce(
+    () => new Promise((resolve) => (land = resolve)) as never,
+  )
+  const view = render(RequestPage, { requestId: 'r1' })
+  data.request = { ...make(), id: 'r2', title: 'Second ask' }
+  await view.rerender({ requestId: 'r2' })
+  await screen.findByText('Second ask')
+  land(make())
+  await new Promise((r) => setTimeout(r, 10))
+  expect(screen.queryByText('Launch posters')).toBeNull()
+  expect(screen.getByText('Second ask')).toBeTruthy()
+})

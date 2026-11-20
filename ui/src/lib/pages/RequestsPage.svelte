@@ -4,23 +4,29 @@
   import Empty from '../Empty.svelte'
   import Skeleton from '../ui/Skeleton.svelte'
   import { formatMinutes } from '../format'
+  import { latestOnly } from '../latest'
   import { statusCounts } from '../requestResult'
   import { wsHref } from '../routes'
   import type { LedgerSummary } from '../types'
-  import { workspace } from '../workspaceState.svelte'
+  import { workspace } from '../workspace.svelte'
 
   let requests = $state<LedgerSummary[] | null>(null)
   let error = $state<string | null>(null)
   const name = $derived(workspace.current)
 
+  const beginList = latestOnly()
   $effect(() => {
     const ws = workspace.current
+    const current = beginList()
     requests = null
     error = null
     api
       .listRequests(ws)
-      .then((r) => (requests = r.requests))
+      .then((r) => {
+        if (current()) requests = r.requests
+      })
       .catch((e) => {
+        if (!current()) return
         requests = []
         error = e instanceof Error ? e.message : String(e)
       })
