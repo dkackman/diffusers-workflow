@@ -75,7 +75,7 @@
 
 {#if href}
   <a
-    class="plain proof {size}"
+    class="plain proof as-{size}"
     class:frame={!!output}
     class:slot={!output}
     class:picked
@@ -84,7 +84,7 @@
   >
 {:else}
   <span
-    class="proof {size}"
+    class="proof as-{size}"
     class:frame={!!output}
     class:slot={!output}
     class:picked>{@render inside()}</span
@@ -97,13 +97,13 @@
     width: 96px;
     aspect-ratio: 4 / 3;
   }
-  .take {
+  .as-take {
     width: 120px;
   }
-  .cover {
+  .as-cover {
     width: 48px;
   }
-  .cover .videobadge {
+  .as-cover .videobadge {
     top: 2px;
     left: 2px;
     width: 14px;
@@ -130,7 +130,7 @@
     font-size: var(--t-md);
     color: var(--muted);
   }
-  .cover .glyph {
+  .as-cover .glyph {
     font-size: var(--t-sm);
   }
   /* The take the user chose: an ink edge, as a ticked tile has */

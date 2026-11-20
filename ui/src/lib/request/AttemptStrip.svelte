@@ -98,6 +98,9 @@
   <a href={wsHref(workspace, 'gallery') + requestQuery(requestId, item.key)}
     >open these in the gallery</a
   >
+  <a href={wsHref(workspace, 'jobs') + requestQuery(requestId, item.key)}
+    >its jobs</a
+  >
 </p>
 
 <style>
@@ -145,6 +148,9 @@
     font-size: var(--t-sm);
   }
   .links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 var(--space-4);
     margin: var(--space-1) 0 0;
     font-size: var(--t-sm);
   }

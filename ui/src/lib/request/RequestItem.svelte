@@ -23,7 +23,6 @@
   } from './itemState'
   import { noteLine, noteWaiting } from './noteState'
   import { displayValue } from '../editor'
-  import { requestQuery } from '../requestFilter'
   import { wsHref } from '../routes'
   import type { LedgerRequest } from '../types'
 
@@ -90,13 +89,9 @@
   {/each}
 {/snippet}
 
-<li
-  class="item"
-  class:row-live={row.display === 'running'}
-  class:dropped={item.dropped}
-  data-key={item.key}
->
-  <div class="row">
+<li class="item" class:dropped={item.dropped} data-key={item.key}>
+  <!-- The row alone is the live one: opened, its region is not machine state -->
+  <div class="row" class:row-live={row.display === 'running'}>
     <span class="handle">{@render handle?.(row)}</span>
     <div class="main">
       <div class="titleline">
@@ -140,7 +135,7 @@
         </p>
       {/if}
     </div>
-    <span class="proofcell">
+    <span class="proofcell" class:bare={!item.result?.output}>
       <ItemProof
         output={item.result?.output ?? null}
         state={row.display}
@@ -208,13 +203,6 @@
       {onsave}
       {onreload}
     />
-    {#if item.attempts.length}
-      <p class="sub">
-        <a href={wsHref(workspace, 'jobs') + requestQuery(request.id, item.key)}
-          >its jobs</a
-        >
-      </p>
-    {/if}
   </div>
 </li>
 
@@ -338,6 +326,9 @@
     white-space: nowrap;
   }
   .ref {
+    /* in the line, as a link in a sentence is: a long title wraps with it */
+    display: inline;
+    text-align: left;
     padding: 0;
     color: var(--ink);
     font-size: inherit;
@@ -379,7 +370,7 @@
      the row's action across the width */
   @container (max-width: 640px) {
     .row {
-      grid-template-columns: 24px auto minmax(0, 1fr) auto;
+      grid-template-columns: 24px 96px minmax(0, 1fr) auto;
       grid-template-areas:
         'handle chip main menu'
         '. proof figure figure'
@@ -389,6 +380,10 @@
     }
     .tail {
       display: contents;
+    }
+    /* With no picture to show, the chip has said it: no empty slot */
+    .proofcell.bare {
+      display: none;
     }
     .action {
       grid-area: action;

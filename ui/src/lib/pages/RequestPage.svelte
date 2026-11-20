@@ -240,7 +240,12 @@
         {/if}
       </div>
 
-      <aside class="rail" aria-label="The ask, the goal and the plan's changes">
+      <!-- Not an <aside>: the app's drawer styles reach every one below 900px -->
+      <div
+        class="rail"
+        role="complementary"
+        aria-label="The ask, the goal and the plan's changes"
+      >
         {#if narrow}
           <details>
             <summary>What you asked, and the goal</summary>
@@ -258,7 +263,7 @@
           {@render ask(request)}
           <PlanChanges history={request.history} revision={request.revision} />
         {/if}
-      </aside>
+      </div>
     </div>
   {/if}
 </div>

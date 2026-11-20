@@ -138,7 +138,7 @@ it('a running item is the live row, open, with a way to its job', () => {
       }),
     ]),
   )
-  expect(container.querySelector('li')?.classList.contains('row-live')).toBe(
+  expect(container.querySelector('.row')?.classList.contains('row-live')).toBe(
     true,
   )
   expect(chip(container)?.textContent).toBe('running')

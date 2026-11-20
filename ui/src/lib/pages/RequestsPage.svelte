@@ -105,7 +105,7 @@
         href={wsHref(name, 'requests', req.id)}
       >
         <span class="cover">
-          {#each req.cover as output (output.name)}
+          {#each req.cover as output, i (i)}
             <ItemProof
               {output}
               state="done"
