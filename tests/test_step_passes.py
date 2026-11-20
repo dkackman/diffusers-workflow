@@ -316,6 +316,7 @@ class _CachingStepListPipeline(StepListPipeline):
 def _load(component, cache):
     from unittest.mock import MagicMock, patch
 
+    from dw.pipeline_processors import pipeline as pipeline_module
     from dw.pipeline_processors.pipeline import Pipeline
 
     definition = {
@@ -331,9 +332,7 @@ def _load(component, cache):
     context = events.RunContext(on_event=seen.append)
     token = events.activate_context(context)
     try:
-        with patch(
-            "dw.pipeline_processors.pipeline.load_component", return_value=component
-        ):
+        with patch.object(pipeline_module, "load_component", return_value=component):
             Pipeline(definition, 42, "cpu").load({})
     finally:
         events.deactivate_context(token)

@@ -19,6 +19,7 @@ from dw.pipeline_processors.h3_mask_cells import (
     _pool,
     binarized,
     keep_rows,
+    media_problems,
     regenerate_cells,
 )
 from dw.pipeline_processors.h3_rules import (
@@ -31,7 +32,6 @@ from dw.pipeline_processors.h3_rules import (
     edits_region,
     is_h3_step,
     mask_problems,
-    media_problems,
     refine_problems,
 )
 from dw.workflow import workflow_from_definition

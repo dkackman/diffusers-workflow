@@ -12,7 +12,7 @@ import torch
 from peft.tuners.lora import Linear as LoraLinear
 from peft.tuners.lora import LoraConfig
 
-from dw.pipeline_processors import chain
+from dw.pipeline_processors import chain, h3_lead_in
 from dw.pipeline_processors.h3_lead_in import (
     LEAD_IN_INPUT,
     lead_in_call,
@@ -169,7 +169,7 @@ def test_no_h3_transformer_raises():
 
 
 def test_one_event_per_call(h3):
-    with patch("dw.pipeline_processors.h3_lead_in.emit_log") as emit:
+    with patch.object(h3_lead_in, "emit_log") as emit:
         with lead_in_call(pipeline_of(h3), 2, 4, "clip"):
             run_loop(h3)
     emit.assert_called_once()

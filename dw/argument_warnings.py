@@ -2,12 +2,18 @@
 
 An argument a pipeline's `__call__` does not accept, a variable no
 declaration names, and the task arguments that modify a behavior their
-neighbours switched off (`crossfade_ms` with nothing trimmed, and the like).
+neighbours switched off (`crossfade_ms` with nothing trimmed, and the like);
+an argument a sub-workflow step passes that its child declares no variable
+for, and a required task argument whose variable is still null.
 Best effort and advisory: nothing here refuses a workflow.
 """
 
 from . import references
-from .introspection import CLASS_NAME_PATTERN, unknown_call_arguments
+from .introspection import (
+    CLASS_NAME_PATTERN,
+    task_signature_errors,
+    unknown_call_arguments,
+)
 from .presets import effective_variables
 from .variables import undeclared_variable_references
 
@@ -255,3 +261,48 @@ def workflow_argument_warnings(workflow_definition, arguments=None):
                 f"argument '{argument_name}'"
             )
     return warnings
+
+
+def sub_workflow_argument_warnings(workflow, expanded, source_indices=None):
+    """sub_workflow_warnings over an expansion already made - what the
+    registry check calls with the request's own."""
+    warnings = []
+    for index, step in enumerate(expanded.get("steps", []) or []):
+        reference = step.get("workflow")
+        if not isinstance(reference, dict):
+            continue
+        passed = reference.get("arguments")
+        if not isinstance(passed, dict) or not isinstance(reference.get("path"), str):
+            continue
+        try:
+            child, _ = workflow.open_sub_workflow(reference["path"])
+        except Exception:
+            # An unresolvable path is an error, reported by
+            # sub_workflow_errors - not a second complaint here
+            continue
+        declared = child.workflow_definition.get("variables") or {}
+        source = references.author_index(source_indices, index)
+        for name in sorted(set(passed) - set(declared)):
+            warnings.append(
+                f"steps[{source}].workflow.arguments.{name}: "
+                f"'{reference['path']}' declares no variable '{name}' - the "
+                "value is dropped. Declared: "
+                + (", ".join(sorted(declared)) or "<none>")
+            )
+    return warnings
+
+
+def null_variable_argument_warnings(context):
+    """A required task argument fed by `variable:name` whose value is null.
+    validation_errors drops that case when the document is checked with no
+    arguments (#364); here it is said, since a run left as-is would fail.
+    Empty once arguments are given - it is a hard error then."""
+    if context.arguments is not None:
+        return []
+    return [
+        f"{entry['path']}: {entry['message']}"
+        for entry in task_signature_errors(
+            context.expanded, context.source_indices, context.definition
+        )
+        if "variable" in entry
+    ]

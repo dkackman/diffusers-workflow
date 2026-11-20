@@ -15,7 +15,7 @@ from dw.plan import (
     missing_repo_errors,
 )
 from dw.cost_scaling import scale_curated
-from dw.validation import unseeded_cache_warnings
+from dw.step_cache import unseeded_cache_warnings
 from dw.runs import new_run_id
 from dw.workflow import workflow_from_definition
 

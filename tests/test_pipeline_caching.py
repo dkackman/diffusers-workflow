@@ -1142,7 +1142,7 @@ def test_release_pipeline_on_a_workflow_step_pops_the_childs_pipelines(tmp_path)
     import json
     from types import SimpleNamespace
 
-    from dw.workflow_run import release_step_pipeline
+    from dw.pipeline_ownership import release_step_pipeline
 
     child_path = tmp_path / "child.json"
     task = {"command": "text_generation", "arguments": {"prompt": "hi"}}

@@ -408,26 +408,7 @@ class Pipeline(H3Arguments):
             if sdnq_optimize:
                 apply_sdnq_optimizations(self.pipeline, sdnq_optimize)
 
-            # Enable diffusers built-in cache acceleration on transformer. A
-            # mag cache on a fixed step-list sampler is dropped with a warning:
-            # it is keyed on num_inference_steps, which such a sampler does
-            # not take (#1430)
-            cache_config = (
-                None
-                if drops_step_list_mag_cache(
-                    self.configuration.get("cache"),
-                    self.pipeline,
-                    self.pipeline_definition,
-                )
-                else get_cache_configuration(self.configuration)
-            )
-            if cache_config is not None:
-                enable_cache_on_transformer(
-                    self.pipeline,
-                    cache_config,
-                    distilled_explicit="is_guidance_distilled"
-                    in self.configuration["cache"],
-                )
+            self._enable_transformer_cache()
 
             # Configure the schedulers if specified - a pipeline that denoises two
             # modalities against two schedules configures each of them separately
@@ -493,6 +474,28 @@ class Pipeline(H3Arguments):
             raise
 
         logger.debug("Pipeline loaded successfully")
+
+    def _enable_transformer_cache(self):
+        """Enable diffusers built-in cache acceleration on the transformer. A
+        mag cache on a fixed step-list sampler is dropped with a warning: it
+        is keyed on num_inference_steps, which such a sampler does not take
+        (#1430)."""
+        cache_config = (
+            None
+            if drops_step_list_mag_cache(
+                self.configuration.get("cache"),
+                self.pipeline,
+                self.pipeline_definition,
+            )
+            else get_cache_configuration(self.configuration)
+        )
+        if cache_config is not None:
+            enable_cache_on_transformer(
+                self.pipeline,
+                cache_config,
+                distilled_explicit="is_guidance_distilled"
+                in self.configuration["cache"],
+            )
 
     def _discard_failed_load(self, shared_components):
         """Drop everything a load that raised had built, and reclaim it.
