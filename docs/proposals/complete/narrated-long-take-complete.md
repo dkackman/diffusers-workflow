@@ -570,8 +570,9 @@ agent (#1311, done 2026-11-14: `narrated-passages-complete.md`); the over-sharpe
 `bench/records/narrated.md`); split unsample on
 the copied overlap as a burn lever (#1313); Kandinsky S2V Pro at 4-bit (#1314, done
 2026-11-18: failed its 20 s gate, not onboarded, `ks2v-pro-probe-complete.md`); LongCat-Video-Avatar 1.6 (#1443, done 2026-11-19:
-failed its 30 s gate, not onboarded, `longcat-avatar-probe-complete.md`); H3
-context windows (#1188). #1308's verification on lem is still owed.
+failed its 30 s gate, not onboarded, `longcat-avatar-probe-complete.md`); the
+masked handoff + keystone (#1505, done 2026-11-20: failed its seg01-02 gate on
+saturation and luma, `h3-masked-keystone-complete.md`); H3 context windows (#1188). #1308's verification on lem is still owed.
 
 **Second close (2026-11-13).** Two handoffs taken from ComfyUI-Continuity were tested on
 the plain `dialogue` take after the close: the masked handoff (built from unchained
