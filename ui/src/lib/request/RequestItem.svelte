@@ -45,6 +45,9 @@
     )
     return () => (live = false)
   })
+  // Until the new result job's own picture is found, the last one's is not
+  // shown under a link to this one
+  const picture = $derived(proof && proof.job === resultJob ? proof.src : null)
   function proofSrc(detail: JobDetail): string | null {
     const found = resultProof(detail)
     if (!found) return null
@@ -119,13 +122,13 @@
   </div>
 
   <div class="body">
-    {#if proof?.src && item.result}
+    {#if picture && item.result}
       <a
         class="plain frame result"
         href={wsHref(workspace, 'jobs', item.result.job)}
         title="open the job"
       >
-        <img src={proof.src} alt="result of {item.title}" loading="lazy" />
+        <img src={picture} alt="result of {item.title}" loading="lazy" />
       </a>
     {/if}
     <div class="details">

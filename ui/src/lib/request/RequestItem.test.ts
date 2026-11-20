@@ -115,6 +115,23 @@ it('asks for a job once, however often the item is refreshed', async () => {
   expect(view.container.querySelector('.result')).toBeNull()
 })
 
+it("does not show the last result's picture under a new result job", async () => {
+  vi.mocked(api.getJob).mockResolvedValueOnce({
+    id: 'job-a',
+    workspace: 'studio',
+    manifest: [{ step: 's', files: ['a.png'], role: 'final' }],
+    output_kinds: { 'a.png': 'image' },
+  } as never)
+  const view = render(RequestItem, props(item()))
+  await screen.findByRole('img')
+  vi.mocked(api.getJob).mockReturnValueOnce(new Promise(() => {}) as never)
+  await view.rerender(
+    props(item({ result: { job: 'job-b', run_id: 'run-b' } } as never)),
+  )
+  await settle()
+  expect(screen.queryByRole('img')).toBeNull()
+})
+
 it('asks again when the item gets a different result job', async () => {
   vi.mocked(api.getJob).mockResolvedValue({
     id: 'job-a',

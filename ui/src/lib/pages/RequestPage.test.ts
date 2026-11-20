@@ -307,3 +307,57 @@ it('a refresh sent before a save and answered after it does not undo the save', 
   expect(screen.getByText('revision 4')).toBeTruthy()
   expect(screen.getByText('more red')).toBeTruthy()
 })
+
+it('a reload that fails keeps the request and the draft', async () => {
+  const { ApiError } = await import('../api')
+  const { notify } = await import('../toast')
+  data.putRequest.mockRejectedValue(
+    new ApiError('now revision 5', 409, 'stale_revision'),
+  )
+  render(RequestPage, { requestId: 'r1' })
+  await fireEvent.click(await openComment('Add comment'))
+  await fireEvent.input(screen.getByLabelText('Comment on b'), {
+    target: { value: 'my draft' },
+  })
+  await fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+  data.getError = { status: 503, message: 'busy' }
+  await fireEvent.click(await screen.findByRole('button', { name: 'Reload' }))
+  await waitFor(() =>
+    expect(notify.error).toHaveBeenCalledWith(
+      'Could not reload the request: busy',
+    ),
+  )
+  expect(
+    (screen.getByLabelText('Comment on b') as HTMLTextAreaElement).value,
+  ).toBe('my draft')
+  expect(screen.getByText('Launch posters')).toBeTruthy()
+})
+
+it('a reload answered after a save does not undo the save', async () => {
+  const { ApiError, api } = await import('../api')
+  data.putRequest.mockRejectedValueOnce(
+    new ApiError('now revision 3', 409, 'stale_revision'),
+  )
+  render(RequestPage, { requestId: 'r1' })
+  await fireEvent.click(await openComment('Add comment'))
+  await fireEvent.input(screen.getByLabelText('Comment on b'), {
+    target: { value: 'more red' },
+  })
+  await fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+  // The reload goes out and hangs; the second save lands first
+  let land: (reply: unknown) => void = () => {}
+  vi.mocked(api.getRequest).mockImplementationOnce(
+    () => new Promise((resolve) => (land = resolve)) as never,
+  )
+  await fireEvent.click(await screen.findByRole('button', { name: 'Reload' }))
+  const saved = make()
+  saved.revision = 4
+  saved.items[1].comment = { text: 'more red', at: '2026-01-04T00:00:00Z' }
+  data.putRequest.mockResolvedValue(saved)
+  await fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+  await screen.findByText('revision 4')
+  land(make())
+  await new Promise((r) => setTimeout(r, 10))
+  expect(screen.getByText('revision 4')).toBeTruthy()
+  expect(screen.getByText('more red')).toBeTruthy()
+})
