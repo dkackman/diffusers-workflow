@@ -358,7 +358,12 @@ icon, a finish-alert toggle, the theme toggle, and links to these docs and
   `/mcp` is mounted, a **Connect from another machine** panel with the
   browser URL and the `claude mcp add` line for a chosen address, the
   resolved directories, and the Caches panel (below) - then the queue and
-  history across every workspace, with a workspace filter.
+  history across every workspace, with a workspace filter. A request filter
+  there (`req=`) is read in one workspace - the one picked, else the current
+  one, which the picker then shows - because a request id names a request
+  inside a workspace; picking every workspace drops the filter. On either
+  jobs list a filter the server refuses (a `req` that is not a request id)
+  shows the server's message over no rows.
 
   ![The Status page: host, version, a worker per RTX 3090 with its memory, the queue, and the bind address](img/ui-status-dark.png)
 
