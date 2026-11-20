@@ -37,6 +37,17 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **Requests: a ledger that joins the jobs made for one ask** (#1458, stages
+  #1481-#1484), closed 2026-11-19. A request is a revisioned plan of items in
+  `<workspace>/requests.json`, with the initiating prompt verbatim and the
+  settled goal. Jobs link with `run_workflow(request="<id>/<item>")`, reruns
+  inherit the link, and item state, the accepted result and spent/remaining
+  minutes are derived from the jobs. MCP `set_request`/`get_request`; a
+  Requests section, request page with a per-item comment box, and request
+  filters on the jobs list and gallery; storyboard, long-form, script-to-video
+  and series-episodes open one for three or more jobs. Page edits (#1485) and
+  runnable items (#1486) were cut to parked ideas:
+  `complete/requests-ledger-complete.md`.
 - **A per-segment view of a chain** (#1451, stages #1474-#1476), closed
   2026-11-19. Every checked chain shot carries `measures` (`{value, ceiling,
   bound, warn_only, failed}` per measure, from the kept attempt), typed as
