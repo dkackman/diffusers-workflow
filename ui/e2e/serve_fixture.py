@@ -96,60 +96,72 @@ with sqlite3.connect(history_db) as connection:
         )
 
 # One request in the default workspace's ledger (requests.json at the
-# workspace root), for the Requests pages: a planned item, a done item whose
-# succeeded job left a run with an image, and an item dropped from the plan
-# after a job was linked to it. The ledger writes the file itself, so it has
-# the shape the server reads; the two jobs are history rows carrying the
+# workspace root), for the Requests pages: a done item with two succeeded
+# jobs, each leaving a run with an image, and neither accepted; a planned
+# item whose one dependency is done, so a job could be queued for it; a
+# planned item waiting on that one; and an item dropped from the plan after
+# a job that failed was linked to it. The ledger writes the file itself, so
+# it has the shape the server reads; the jobs are history rows carrying the
 # `request` and `item` a linked submit records.
 from dw import ledger  # noqa: E402
 
 REQUEST_ID = "e2e-launch"
-request_run = os.path.join("e2e-request", "20260907-090000-0badf00d")
-os.makedirs(os.path.join(outputs, request_run))
-with open(os.path.join(outputs, request_run, "hero.png"), "wb") as handle:
-    handle.write(ONE_PIXEL_PNG)
 linked = {
-    "hero": {
-        "job": "e2ereqdone01",
-        "status": "succeeded",
-        "run_id": "20260907-090000-0badf00d",
-    },
-    "cut": {"job": "e2ereqcut001", "status": "failed", "run_id": None},
+    "hero": [
+        {
+            "job": "e2ereqdone01",
+            "status": "succeeded",
+            "run_id": "20260907-090000-0badf00d",
+        },
+        {
+            "job": "e2ereqdone02",
+            "status": "succeeded",
+            "run_id": "20260907-093000-0badf00d",
+        },
+    ],
+    "cut": [{"job": "e2ereqcut001", "status": "failed", "run_id": None}],
 }
 with sqlite3.connect(history_db) as connection:
-    for key, job in linked.items():
-        done = job["status"] == "succeeded"
-        connection.execute(
-            "INSERT INTO jobs (id, workflow, status, created_at, started_at,"
-            " finished_at, arguments, spec, manifest, error, events, workspace,"
-            " run_id, run_dir, request, item)"
-            " VALUES (?, 'text-to-image', ?, ?, ?, ?, '{}', ?, ?, ?, '[]',"
-            " 'default', ?, ?, ?, ?)",
-            (
-                job["job"],
-                job["status"],
-                1767312000.0,
-                1767312010.0,
-                1767312100.0,
-                json.dumps({"workflow_path": template, "workspace": "default"}),
-                json.dumps(
-                    [
-                        {
-                            "step": "image",
-                            "files": [f"{request_run}/hero.png"],
-                            "role": "final",
-                        }
-                    ]
-                    if done
-                    else []
+    for key, jobs in linked.items():
+        for index, job in enumerate(jobs):
+            done = job["status"] == "succeeded"
+            run = os.path.join("e2e-request", job["run_id"]) if done else None
+            if done:
+                os.makedirs(os.path.join(outputs, run))
+                with open(os.path.join(outputs, run, "hero.png"), "wb") as handle:
+                    handle.write(ONE_PIXEL_PNG)
+            started = 1767312010.0 + 1800 * index
+            connection.execute(
+                "INSERT INTO jobs (id, workflow, status, created_at, started_at,"
+                " finished_at, arguments, spec, manifest, error, events, workspace,"
+                " run_id, run_dir, request, item)"
+                " VALUES (?, 'text-to-image', ?, ?, ?, ?, '{}', ?, ?, ?, '[]',"
+                " 'default', ?, ?, ?, ?)",
+                (
+                    job["job"],
+                    job["status"],
+                    started - 10,
+                    started,
+                    started + 90,
+                    json.dumps({"workflow_path": template, "workspace": "default"}),
+                    json.dumps(
+                        [
+                            {
+                                "step": "image",
+                                "files": [f"{run}/hero.png"],
+                                "role": "final",
+                            }
+                        ]
+                        if done
+                        else []
+                    ),
+                    None if done else "e2e: this attempt failed",
+                    job["run_id"],
+                    run,
+                    REQUEST_ID,
+                    key,
                 ),
-                None if done else "e2e: this attempt failed",
-                job["run_id"],
-                request_run if done else None,
-                REQUEST_ID,
-                key,
-            ),
-        )
+            )
 
 
 def plan_item(key, title, **extra):
@@ -165,13 +177,14 @@ plan = {
     "items": [
         plan_item("hero", "Hero poster", estimate_minutes=2),
         plan_item("alt", "Alternate poster", depends_on=["hero"]),
+        plan_item("sheet", "Contact sheet", depends_on=["alt"]),
         plan_item("cut", "Cut scene"),
     ],
 }
 
 
 def jobs_linked(_request, key):
-    return [linked[key]] if key in linked else []
+    return linked.get(key, [])
 
 
 ledger.put_request(scratch, REQUEST_ID, plan, by="agent", linked_jobs=jobs_linked)
@@ -184,7 +197,7 @@ ledger.put_request(
         "prompt": None,
         "why": "dropped the cut scene",
         "revision": 1,
-        "items": plan["items"][:2],
+        "items": plan["items"][:3],
     },
     by="agent",
     linked_jobs=jobs_linked,
