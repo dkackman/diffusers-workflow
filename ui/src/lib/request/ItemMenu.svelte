@@ -91,6 +91,8 @@
     font-size: var(--t-sm);
     font-weight: 500;
     text-align: left;
+    white-space: nowrap;
+    border: 1px solid transparent;
   }
   .entries a:hover {
     background: var(--panel-2);

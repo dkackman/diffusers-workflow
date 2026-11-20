@@ -69,6 +69,27 @@
   }
   const quietly = (write: Promise<Outcome>) => void write.catch(failed)
 
+  let toasts = 0
+  /** An edit shown at once, with the toast that takes it back. The toast
+   * goes if the edit was not written after all: held back to ask, no
+   * longer applying, or refused */
+  function undoable(
+    write: Promise<Outcome>,
+    message: string,
+    back: () => void,
+  ) {
+    const id = `request-undo-${++toasts}`
+    notify.undo(message, back, id)
+    write
+      .then((outcome) => {
+        if (outcome.status !== 'saved') notify.dismiss(id)
+      })
+      .catch((error) => {
+        notify.dismiss(id)
+        failed(error)
+      })
+  }
+
   function moved(row: ItemState, move: Move) {
     quietly(
       store.stage({ kind: 'move', key: row.item.key, before: move.before }),
@@ -92,8 +113,8 @@
   function accept(row: ItemState, take: Take, job: string | null) {
     const { key, title } = row.item
     const previous = row.item.accepted?.job ?? null
-    quietly(store.push({ kind: 'accept', key, job }))
-    notify.undo(
+    undoable(
+      store.push({ kind: 'accept', key, job }),
       job === null
         ? `Cleared the accepted take of ${title}`
         : `Accepted take ${take.n} for ${title}`,
@@ -111,8 +132,9 @@
       return
     const at = keys.indexOf(key)
     const next = keys[at + 1] ?? keys[at - 1]
-    quietly(store.drop(key))
-    notify.undo(`Dropped ${title}`, () => quietly(store.restore(key)))
+    undoable(store.drop(key), `Dropped ${title}`, () =>
+      quietly(store.restore(key)),
+    )
     await tick()
     if (next) document.getElementById(titleId(next))?.focus()
   }

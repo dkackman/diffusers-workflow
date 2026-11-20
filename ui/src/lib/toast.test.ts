@@ -12,11 +12,12 @@ beforeEach(() => vi.clearAllMocks())
 
 it('an undo toast carries the way back for eight seconds', () => {
   const back = vi.fn()
-  notify.undo('Dropped Shot 3', back)
+  notify.undo('Dropped Shot 3', back, 'undo-1')
   expect(sonner.success).toHaveBeenCalledOnce()
   const [message, options] = sonner.success.mock.calls[0]
   expect(message).toBe('Dropped Shot 3')
   expect(options.duration).toBe(UNDO_MS)
+  expect(options.id).toBe('undo-1')
   expect(UNDO_MS).toBe(8000)
   expect(options.action.label).toBe('Undo')
   options.action.onClick()

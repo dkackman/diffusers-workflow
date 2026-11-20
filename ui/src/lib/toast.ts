@@ -16,9 +16,12 @@ export const notify = {
   error(message: string, id?: string) {
     toast.error(message, { duration: Number.POSITIVE_INFINITY, id })
   },
-  undo(message: string, onUndo: () => void) {
+  /** `id` lets the caller take the toast away (`dismiss`) when the thing
+   * it offers to undo turned out not to have happened */
+  undo(message: string, onUndo: () => void, id?: string) {
     toast.success(message, {
       duration: UNDO_MS,
+      id,
       action: { label: 'Undo', onClick: onUndo },
     })
   },

@@ -267,6 +267,8 @@
   }
   .who input {
     align-self: center;
+    flex: none;
+    width: auto;
     margin: 0;
   }
   .name {

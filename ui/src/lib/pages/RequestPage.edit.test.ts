@@ -20,7 +20,7 @@ const world = vi.hoisted(() => ({
   confirm: vi.fn(),
   validate: vi.fn(),
   submitJob: vi.fn(),
-  notify: { error: vi.fn(), success: vi.fn(), undo: vi.fn() },
+  notify: { error: vi.fn(), success: vi.fn(), undo: vi.fn(), dismiss: vi.fn() },
 }))
 vi.mock('../api', async () => ({
   ApiError: (await import('../apiErrors')).ApiError,
@@ -106,6 +106,7 @@ it('accepts a take at once, and the toast takes it back', async () => {
   expect(world.notify.undo).toHaveBeenCalledWith(
     'Accepted take 1 for Cast sheet',
     expect.any(Function),
+    expect.any(String),
   )
   await saved(4)
   expect(world.ledger.current.items[0].accepted?.job).toBe('j1')
@@ -139,6 +140,7 @@ it('a drop of an item others wait on asks first, saying what it does to them', a
   expect(world.notify.undo).toHaveBeenCalledWith(
     'Dropped Shot 3',
     expect.any(Function),
+    expect.any(String),
   )
   // undo: the item, its place and the edges come back
   undo()
@@ -301,6 +303,11 @@ it('a drop of an item the agent has changed is held back, and the row asks', asy
   )
   // not dropped: the row is back in the plan, and nothing was written
   expect(order()).toEqual(['cast', 's3', 's4', 'cut'])
+  // and the toast offering to undo a drop that did not happen is gone
+  const [, , toastId] = world.notify.undo.mock.calls[0]
+  await waitFor(() =>
+    expect(world.notify.dismiss).toHaveBeenCalledWith(toastId),
+  )
   expect(world.ledger.current.revision).toBe(4)
   await fireEvent.click(
     within(card).getByRole('button', { name: 'Drop anyway' }),
