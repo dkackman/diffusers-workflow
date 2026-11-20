@@ -5,15 +5,29 @@ tools are methods of the classes there, each body a one-line call into a
 handler, so the handlers stay testable without a session; this file holds
 the server's instructions, the annotation constants and the registration
 order, which is the order of the tool listing an agent reads.
+
+It also serves the notes channel (`serve_notes_channel`): a second, tool-less
+stdio server that tells an open Claude Code session about the notes a user
+saves on a request. What it announces is decided in `dw_mcp/ledger.py`.
 """
 
 import functools
 import inspect
+import sys
+
+import anyio
+import httpx
+from mcp.server.connection import Connection
+from mcp.server.lowlevel import Server
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
+from mcp.server.runner import serve_connection
+from mcp.server.stdio import stdio_server
+from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
 from mcp.types import ToolAnnotations
 
 from dw_mcp.client import DwApiError
+from dw_mcp.ledger import NoteWatch, retry_delay
 from dw_mcp.tools_authoring import (
     AuthoringTools,
     LoraTools,
@@ -223,3 +237,112 @@ def build_server(client):
     tool(mod.delete_model, DELETES)
 
     return server
+
+
+# --- the notes channel ------------------------------------------------------
+#
+# A Claude Code channel (code.claude.com/docs/en/channels-reference, a
+# research preview): a stdio MCP server that declares the experimental
+# capability below and sends the notification below; Claude Code shows each
+# one to the model as <channel source="dw-notes" ...>content</channel>.
+
+NOTES_CHANNEL_NAME = "dw-notes"
+CHANNEL_CAPABILITY = "claude/channel"
+CHANNEL_NOTIFICATION = "notifications/claude/channel"
+
+NOTES_INSTRUCTIONS = (
+    'Events from this channel (<channel source="dw-notes" ...>) are notes '
+    "the user saved on a dw request, or on one of its items, in the dw web "
+    "UI. A note is the user's own instruction for that request or item. "
+    '`kind="note"` is one saved just now: act on it. '
+    '`kind="notes_waiting"` lists notes saved before this session '
+    "connected: say what is waiting and confirm before spending GPU time on "
+    "them.\n"
+    "\n"
+    "Before acting, read the current plan with the dw tools' "
+    "`get_request(request, workspace)` - the note may have been edited or "
+    "cleared since. Act through the normal dw tools under their usual cost "
+    "gate, then record what you did in the `why` of `set_request`. That "
+    "write is the answer: the user is watching the request page and sees "
+    "nothing typed in this session, so do not reply here instead of updating "
+    "the plan. This channel is one-way and has no tools of its own."
+)
+
+
+def build_notes_channel():
+    """The channel's server and what it answers `initialize` with: no
+    tools, the channel capability, and its own instructions."""
+    server = Server(NOTES_CHANNEL_NAME, instructions=NOTES_INSTRUCTIONS)
+    options = server.create_initialization_options(
+        experimental_capabilities={CHANNEL_CAPABILITY: {}}
+    )
+    return server, options
+
+
+def _say(message):
+    # stdout is the MCP transport: everything a person reads goes to stderr
+    print(f"dw-mcp: notes channel: {message}", file=sys.stderr, flush=True)
+
+
+async def _announce(connection, client, watch, interval, sleep, say):
+    """Poll and send until cancelled. A poll that fails is reported once per
+    distinct reason and retried on a growing delay; it never ends the loop."""
+    await connection.initialized.wait()
+    failures, reported = 0, None
+    while True:
+        try:
+            events = await anyio.to_thread.run_sync(
+                watch.poll, client, abandon_on_cancel=True
+            )
+            fault = watch.fault
+        except (DwApiError, httpx.HTTPError) as e:
+            events, fault = [], str(e)
+        for event in events:
+            await connection.notify(CHANNEL_NOTIFICATION, event)
+        if fault is None and reported is not None:
+            say("reading the ledger again")
+        elif fault is not None and fault != reported:
+            say(f"could not read the ledger, will keep trying: {fault}")
+        failures, reported = (failures + 1 if fault else 0), fault
+        await sleep(retry_delay(interval, failures))
+
+
+async def serve_notes_channel(client, interval, workspace=None, sleep=anyio.sleep):
+    """Serve the notes channel over stdio until the client closes stdin.
+
+    The connection is served handshake-only (`serve_connection` over a loop
+    `Connection`), not through `Server.run`: Claude Code does not register a
+    server that negotiates protocol revision 2026-07-28 as a channel, and
+    `Server.run` would accept that revision's `server/discover` probe. Here
+    the probe is answered "method not found" and the client falls back to
+    `initialize`. It also hands this function the `Connection`, which is
+    what a notification outside any request is sent on.
+    """
+    server, options = build_notes_channel()
+    watch = NoteWatch(workspace)
+    async with stdio_server() as (read_stream, write_stream):
+        dispatcher = JSONRPCDispatcher(
+            read_stream, write_stream, inline_methods=frozenset({"initialize"})
+        )
+        connection = Connection.for_loop(dispatcher)
+        async with server.lifespan(server) as state, anyio.create_task_group() as tg:
+            tg.start_soon(_announce, connection, client, watch, interval, sleep, _say)
+            await serve_connection(
+                server,
+                dispatcher,
+                connection=connection,
+                lifespan_state=state,
+                init_options=options,
+            )
+            tg.cancel_scope.cancel()
+
+
+def run_notes_channel(client, interval, workspace=None):
+    """`serve_notes_channel`, blocking. A client that went away without
+    closing stdin (a write to a closed pipe) ends it as quietly as one that
+    did."""
+    gone = (BrokenPipeError, anyio.BrokenResourceError, anyio.ClosedResourceError)
+    try:
+        anyio.run(serve_notes_channel, client, interval, workspace)
+    except* gone:
+        _say("the client went away")
