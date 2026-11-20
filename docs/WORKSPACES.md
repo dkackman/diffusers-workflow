@@ -387,9 +387,12 @@ a workflow was saved.
 
 Reserved names, which no workspace can take: `workflows`, `prompts`,
 `assets`, `outputs`, `exports` (where `POST /api/jobs/{id}/export` gathers a
-job, `<root>/exports/<job id>/`), `common` and `loras` (the LoRA catalog,
-shared like `prompts/`). A pre-existing workspace named `loras` stops being
-listed, and the server logs a warning at start naming its directory.
+job, `<root>/exports/<job id>/`), `common`, `loras` (the LoRA catalog,
+shared like `prompts/`), and `requests.json` and `workspace.json` (the
+default workspace keeps its ledger and its note as files of those names at
+the root, where a workspace would be a folder). A pre-existing workspace
+named `loras` stops being listed, and the server logs a warning at start
+naming its directory.
 
 **The shared asset library.** `common/assets/` holds assets that belong to
 no single workspace, such as a recurring cast's portraits and voice clips.

@@ -22,6 +22,8 @@ export const RESERVED_WORKSPACE_NAMES = [
   'exports',
   'common',
   'loras',
+  'requests.json',
+  'workspace.json',
 ] as const
 
 export const MAX_WORKSPACE_NAME_LENGTH = MAX_NAME_LENGTH

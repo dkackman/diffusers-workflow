@@ -47,3 +47,29 @@ class TestAtomicWrite:
         with pytest.raises(OSError):
             write_json_atomic(str(tmp_path / "x.json"), {"a": 1})
         assert os.listdir(tmp_path) == []
+
+
+class TestReservedNames:
+    """A workspace is a folder at the root, and the default workspace keeps
+    its ledger and its note as files there: a workspace of either name would
+    be a directory where the file goes."""
+
+    @pytest.mark.parametrize("name", ["requests.json", "workspace.json"])
+    def test_a_workspace_cannot_take_a_root_file_name(self, tmp_path, name):
+        from dw.security import InvalidInputError
+        from dw.workspace import Workspace, create_workspace
+
+        root = Workspace(tmp_path / "studio", "flag").ensure()
+        with pytest.raises(InvalidInputError):
+            create_workspace(root, name)
+        assert not os.path.exists(os.path.join(root.root, name))
+
+    def test_the_reserved_names_include_both_files(self):
+        from dw.workspace import (
+            REQUESTS_FILE_NAME,
+            RESERVED_WORKSPACE_NAMES,
+            WORKSPACE_FILE_NAME,
+        )
+
+        assert REQUESTS_FILE_NAME in RESERVED_WORKSPACE_NAMES
+        assert WORKSPACE_FILE_NAME in RESERVED_WORKSPACE_NAMES
