@@ -1,5 +1,6 @@
 // What a row's "more actions" menu offers, by the item's state: the same
 // list whatever draws it, so it can be tested without a popover.
+import type { LedgerRequest } from '../types'
 import type { ItemState } from './itemState'
 import type { Direction } from './reorderMath'
 
@@ -91,4 +92,12 @@ export function itemMenu(row: ItemState, context: MenuContext): MenuEntry[] {
     .flatMap((group, i) =>
       i ? [{ kind: 'rule' } as MenuEntry, ...group] : group,
     )
+}
+
+/** The request's own menu, in its header: an open request can be closed
+ * either way, a closed one reopened. */
+export function requestMenu(state: LedgerRequest['state']): MenuEntry[] {
+  if (state === 'open')
+    return [action('done', 'Mark done'), action('abandoned', 'Abandon')]
+  return [action('open', 'Reopen')]
 }

@@ -65,17 +65,37 @@ export function errorCode(payload: unknown): string | undefined {
   return typeof code === 'string' ? code : undefined
 }
 
+/** The `detail` object of a refusal, for a caller that needs more than its
+ * message: the plan and the acknowledgement to resend that a 409 on a
+ * bound cost acknowledgement carries, the `jobs` holding a delete back. */
+export function errorPayload(
+  payload: unknown,
+): Record<string, unknown> | undefined {
+  const detail = (payload as { detail?: unknown } | null)?.detail
+  return detail && typeof detail === 'object' && !Array.isArray(detail)
+    ? (detail as Record<string, unknown>)
+    : undefined
+}
+
 /** An error response, with the status a caller may need to branch on -
  * the export's 409 is "already exported, overwrite?" rather than a
- * failure, and the message alone cannot say which - and the detail's
- * `code` where the server names its refusals. */
+ * failure, and the message alone cannot say which - the detail's `code`
+ * where the server names its refusals, and the detail itself when it is an
+ * object. */
 export class ApiError extends Error {
   status: number
   code?: string
-  constructor(message: string, status: number, code?: string) {
+  detail?: Record<string, unknown>
+  constructor(
+    message: string,
+    status: number,
+    code?: string,
+    detail?: Record<string, unknown>,
+  ) {
     super(message)
     this.name = 'ApiError'
     this.status = status
     this.code = code
+    this.detail = detail
   }
 }

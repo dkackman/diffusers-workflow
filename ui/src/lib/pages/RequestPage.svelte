@@ -6,6 +6,9 @@
   import PlanChanges from '../request/PlanChanges.svelte'
   import PlanItems from '../request/PlanItems.svelte'
   import RequestHeader from '../request/RequestHeader.svelte'
+  import RequestMenu from '../request/RequestMenu.svelte'
+  import RunDialog from '../request/RunDialog.svelte'
+  import { itemPlan, readyPlan, type RunPlan } from '../request/runPlan'
   import { announce } from '../request/announce'
   import { planState, titleId } from '../request/itemState'
   import { PlanStore } from '../request/planStore.svelte'
@@ -119,6 +122,16 @@
   const saveNote = (text: string | null) =>
     store.push({ kind: 'note', key: null, text }).then(() => {})
 
+  // The priced run dialog, for what is ready or for one item. The page
+  // never starts anything itself: a newly ready item waits to be asked for
+  let running = $state<RunPlan | null>(null)
+  const ready = $derived(request?.state === 'open' ? plan?.counts.ready : 0)
+  /** Jobs were queued: show them at once, not at the next refresh */
+  function ran(queued: number) {
+    running = null
+    if (queued) void load()
+  }
+
   /** Show one write among the plan's changes: the notice's "See changes" */
   function seeChanges(revision: number) {
     const entry = document.getElementById(`plan-change-r${revision}`)
@@ -173,6 +186,16 @@
 
 <p class="sr-only" aria-live="polite" data-testid="request-live">{said}</p>
 
+{#if running && plan && request}
+  <RunDialog
+    run={running}
+    {plan}
+    workspace={ws}
+    requestId={request.id}
+    onclose={ran}
+  />
+{/if}
+
 <div class="reqpage" bind:this={page}>
   <p class="muted back"><a href={wsHref(ws, 'requests')}>all requests</a></p>
 
@@ -206,7 +229,18 @@
           onselect={goTo}
           onsavenote={saveNote}
           onreload={load}
-        />
+        >
+          {#snippet actions()}
+            {#if ready}
+              <button type="button" onclick={() => (running = readyPlan(plan))}
+                >Run {ready} ready…</button
+              >
+            {/if}
+          {/snippet}
+          {#snippet menu()}
+            <RequestMenu {request} {store} />
+          {/snippet}
+        </RequestHeader>
         <PlanItems
           {store}
           {request}
@@ -216,6 +250,7 @@
           onreload={load}
           onsay={(text) => (said = text)}
           onsee={seeChanges}
+          onrun={(key) => (running = itemPlan(plan, key))}
         />
       </div>
 

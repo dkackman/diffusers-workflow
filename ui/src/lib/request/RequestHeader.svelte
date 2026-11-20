@@ -4,6 +4,7 @@
   import RequestProgress from './RequestProgress.svelte'
   import StateTag from './StateTag.svelte'
   import { CHIP, type PlanState } from './itemState'
+  import { draftKey } from './draft'
   import { noteLine, notesWaiting } from './noteState'
   import { standing } from './standing'
   import { formatMinutes, formatSpent } from '../format'
@@ -22,6 +23,7 @@
     onsavenote,
     onreload,
     actions,
+    menu,
   }: {
     request: LedgerRequest
     plan: PlanState
@@ -32,6 +34,8 @@
     onsavenote: (text: string | null) => Promise<void>
     onreload: () => void
     actions?: Snippet
+    /** Beside the state: the request's own menu */
+    menu?: Snippet
   } = $props()
 
   const stand = $derived(standing(request, plan))
@@ -51,6 +55,7 @@
   <div class="titleline">
     <h1>{request.title}</h1>
     <StateTag value={request.state} />
+    {#if menu}<span class="menu">{@render menu()}</span>{/if}
   </div>
   <p class="id"><code class="muted">{request.id}</code></p>
 
@@ -85,6 +90,7 @@
   <ItemNote
     comment={request.comment}
     about="this request"
+    draftKey={draftKey(workspace, request.id)}
     line={request.comment ? noteLine(request.comment, request) : null}
     onsave={onsavenote}
     {onreload}
@@ -112,6 +118,10 @@
     line-height: 1.2;
     min-width: 0;
     overflow-wrap: anywhere;
+  }
+  .menu {
+    margin-left: auto;
+    align-self: center;
   }
   p {
     margin: 0;

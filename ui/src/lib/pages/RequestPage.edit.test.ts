@@ -18,6 +18,8 @@ import type { LedgerRequest } from '../types'
 const world = vi.hoisted(() => ({
   ledger: null as unknown as import('../request/fakeLedger').FakeLedger,
   confirm: vi.fn(),
+  validate: vi.fn(),
+  submitJob: vi.fn(),
   notify: { error: vi.fn(), success: vi.fn(), undo: vi.fn() },
 }))
 vi.mock('../api', async () => ({
@@ -27,6 +29,8 @@ vi.mock('../api', async () => ({
     putRequest: (_ws: string, _id: string, body: never) =>
       world.ledger.put(body),
     galleryThumbnailUrl: (name: string) => `/thumb/${name}`,
+    validate: (...args: unknown[]) => world.validate(...args),
+    submitJob: (...args: unknown[]) => world.submitJob(...args),
   },
 }))
 vi.mock('../toast', () => ({ notify: world.notify }))
@@ -393,4 +397,142 @@ it('a write that fails says so, and the edit is taken back', async () => {
     ),
   )
   expect(first.getAttribute('aria-pressed')).toBe('false')
+})
+
+// For the specs that spend: a ready item, one that waits on it, and a done
+// one that could take another run
+const runnable = (): LedgerRequest =>
+  request(
+    [
+      doneItem('cast', { title: 'Cast sheet', workflow: 'sheet' }),
+      item('s4', {
+        title: 'Shot 4',
+        ready: true,
+        workflow: 'shot',
+        arguments: { seed: 4 },
+      }),
+      item('cut', { title: 'The cut', depends_on: ['s4'] }),
+    ],
+    { history: [entry(3, 'agent', 'opened')] },
+  )
+const priced = () => {
+  world.validate.mockResolvedValue({
+    valid: true,
+    error: null,
+    errors: [],
+    warnings: [],
+    plan: {
+      fingerprint: 'fp',
+      steps: 1,
+      list_entries: {},
+      cached_steps: 0,
+      elided_steps: [],
+      downloads_required: [],
+      estimate: {
+        minutes: 6,
+        basis: 'observed',
+        device: 'cuda',
+        measured_on: 'cuda',
+        partial: false,
+      },
+    },
+  })
+  world.submitJob.mockResolvedValue({ id: 'job-new' })
+}
+
+it('the one filled button runs what is ready, through the priced dialog', async () => {
+  world.ledger = fakeLedger(runnable())
+  priced()
+  await start()
+  const run = screen.getByRole('button', { name: 'Run 1 ready…' })
+  // the page's only filled button
+  expect(run.className).toBe('')
+  await fireEvent.click(run)
+  const dialog = await screen.findByRole('dialog', {
+    name: 'Run what is ready',
+  })
+  await within(dialog).findByText(/~6 min on cuda/)
+  // opening it spent nothing
+  expect(world.submitJob).not.toHaveBeenCalled()
+  expect(dialog.querySelector('.wont li')?.textContent).toBe(
+    'The cut: waits on Shot 4 (ready)',
+  )
+  const reads = world.ledger.gets
+  await fireEvent.click(within(dialog).getByRole('button', { name: 'Run 1' }))
+  await waitFor(() =>
+    expect(world.notify.success).toHaveBeenCalledWith('Queued 1 job'),
+  )
+  expect(world.submitJob).toHaveBeenCalledWith(
+    expect.objectContaining({
+      workflow_path: 'shot',
+      arguments: { seed: 4 },
+      request: 'r1',
+      item: 's4',
+      acknowledged_cost: expect.objectContaining({ fingerprint: 'fp' }),
+    }),
+  )
+  // and the page reads the request again at once, not at the next refresh
+  await waitFor(() => expect(world.ledger.gets).toBe(reads + 1))
+  // nothing on the page said queued before the server did
+  expect(row('s4').querySelector('.chip')?.textContent).toBe('ready')
+})
+
+it('a ready row has Run…, a done one another take in its menu; a waiting one neither', async () => {
+  world.ledger = fakeLedger(runnable())
+  priced()
+  await start()
+  expect(within(row('cut')).queryByRole('button', { name: /^Run/ })).toBeNull()
+  await fireEvent.click(within(row('s4')).getByRole('button', { name: 'Run…' }))
+  const single = await screen.findByRole('dialog', { name: 'Run Shot 4' })
+  expect(within(single).queryByRole('checkbox')).toBeNull()
+  await fireEvent.click(within(single).getByRole('button', { name: 'Cancel' }))
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+  await choose('cast', 'Run another take…')
+  const again = await screen.findByRole('dialog', {
+    name: 'Run another take of Cast sheet',
+  })
+  expect(
+    within(again).getByText(
+      'Nothing is accepted, so the new take becomes the result when it finishes.',
+    ),
+  ).toBeTruthy()
+  expect(world.submitJob).not.toHaveBeenCalled()
+})
+
+it('a closed request offers no run at all', async () => {
+  const closed = runnable()
+  closed.state = 'done'
+  closed.items[1].ready = false
+  world.ledger = fakeLedger(closed)
+  await start()
+  expect(screen.queryByRole('button', { name: /ready…$/ })).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Run…' })).toBeNull()
+})
+
+const headerMenu = async (entryName: string) => {
+  await fireEvent.click(
+    screen.getByRole('button', { name: 'More actions for this request' }),
+  )
+  const list = await screen.findByRole('dialog')
+  await fireEvent.click(within(list).getByRole('button', { name: entryName }))
+}
+
+it('Mark done and Reopen write the state, with why', async () => {
+  await start()
+  await headerMenu('Mark done')
+  await saved(4)
+  expect(world.ledger.puts[0]).toMatchObject({
+    state: 'done',
+    why: 'marked done',
+    revision: 3,
+  })
+  await waitFor(() =>
+    expect(document.querySelector('.reqhead .tag')?.textContent).toBe('done'),
+  )
+  await headerMenu('Reopen')
+  await saved(5)
+  expect(world.ledger.puts[1]).toMatchObject({ state: 'open', why: 'reopened' })
+  await headerMenu('Abandon')
+  await saved(6)
+  expect(world.ledger.current.state).toBe('abandoned')
 })

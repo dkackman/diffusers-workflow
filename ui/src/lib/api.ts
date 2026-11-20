@@ -59,6 +59,7 @@ import {
   fetchJson,
   isValidateRequest,
   request,
+  type JobSubmitBody,
   type RequestWriteBody,
   type ValidateRequest,
 } from './apiRequest'
@@ -75,7 +76,7 @@ import {
 // Pages and their test mocks import these from here
 export { ApiError, errorDetail, outputUrl }
 
-export type { RequestWriteBody, ValidateRequest }
+export type { JobSubmitBody, RequestWriteBody, ValidateRequest }
 
 export const api = {
   listWorkflows: () => request<WorkflowList>('/api/workflows'),
@@ -217,12 +218,12 @@ export const api = {
     request<JobCancelled>(`/api/jobs/${id}/cancel`, {
       method: 'POST',
     }),
-  submitJob: (body: {
-    workflow_path?: string
-    workflow?: WorkflowDefinition
-    arguments?: Record<string, unknown>
-    base_dir?: string
-  }) =>
+  /** Queue a run. With `request` and `item` it is linked to that item of
+   * the requests ledger (422 `request_closed`, `item_dropped`,
+   * `unknown_request`, `unknown_item` before anything queues); with
+   * `acknowledged_cost` bound to a validate plan, a run whose plan has
+   * moved is a 409 carrying the current plan and what to resend. */
+  submitJob: (body: JobSubmitBody) =>
     request<JobDetail>('/api/jobs', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

@@ -10,7 +10,7 @@
   import ConflictNotice from './ConflictNotice.svelte'
   import { dropWarnings, restoredText } from './dropConfirm'
   import ItemMenu from './ItemMenu.svelte'
-  import { itemMenu } from './itemMenu'
+  import { itemMenu } from './menuEntries'
   import {
     titleId,
     type ItemState,

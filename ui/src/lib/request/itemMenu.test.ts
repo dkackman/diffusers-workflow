@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/svelte'
 import { afterEach, expect, it, vi } from 'vitest'
 import ItemMenu from './ItemMenu.svelte'
-import type { MenuEntry } from './itemMenu'
+import type { MenuEntry } from './menuEntries'
 
 afterEach(() => {
   cleanup()

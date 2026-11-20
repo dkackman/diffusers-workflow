@@ -1,10 +1,10 @@
 <script lang="ts">
   import { Ellipsis } from '@lucide/svelte'
   import Popover from '../ui/Popover.svelte'
-  import type { MenuEntry } from './itemMenu'
+  import type { MenuEntry } from './menuEntries'
 
   // The "more actions" button of a row, or of the request's header, and
-  // the list it opens. What the list holds is the caller's (itemMenu.ts)
+  // the list it opens. What the list holds is the caller's (menuEntries.ts)
   let {
     label,
     entries,
