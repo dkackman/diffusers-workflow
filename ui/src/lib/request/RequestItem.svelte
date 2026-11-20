@@ -1,5 +1,7 @@
 <script lang="ts">
-  import { api, ApiError, outputUrl } from '../api'
+  import { api, outputUrl } from '../api'
+  import { confirmDialog } from '../confirm.svelte'
+  import { draftAtRisk, saveFailure } from './draft'
   import { notify } from '../toast'
   import { formatExact, formatMinutes } from '../format'
   import { resultProof } from '../requestResult'
@@ -16,6 +18,7 @@
     workspace: string
     /** Store the comment (null clears it); rejects with the server's error */
     onsave: (text: string | null) => Promise<void>
+    /** Read the request again, after a save found it had moved on */
     onreload: () => void
   } = $props()
 
@@ -50,26 +53,44 @@
       : api.galleryThumbnailUrl(found.file, detail.workspace)
   }
 
-  // A draft is the page's only local edit; a poll replacing `item` leaves it
+  // A draft is the page's only local edit; a refresh replacing `item`
+  // leaves it. `refused` is the server's answer to the last save, shown
+  // under the draft until the next one
   let editing = $state(false)
   let draft = $state('')
   let saving = $state(false)
-  let stale = $state<string | null>(null)
+  let refused = $state<{ message: string; reload: boolean } | null>(null)
 
   function edit() {
     draft = item.comment?.text ?? ''
-    stale = null
+    refused = null
     editing = true
+  }
+  async function cancel() {
+    if (
+      draftAtRisk(draft, item.comment?.text ?? null) &&
+      !(await confirmDialog('Discard this comment draft?', {
+        confirmLabel: 'Discard',
+        cancelLabel: 'Keep editing',
+      }))
+    )
+      return
+    editing = false
+  }
+  // The draft stays: it is saved again, against the request as it now is
+  function reload() {
+    refused = null
+    onreload()
   }
   async function save() {
     saving = true
     try {
       await onsave(draft.trim() ? draft : null)
       editing = false
-      stale = null
+      refused = null
     } catch (e) {
-      if (e instanceof ApiError && e.status === 409) stale = e.message
-      else notify.error(e instanceof Error ? e.message : String(e))
+      refused = saveFailure(e)
+      if (!refused) notify.error(e instanceof Error ? e.message : String(e))
     } finally {
       saving = false
     }
@@ -152,16 +173,18 @@
             <button
               type="button"
               class="bare"
-              onclick={() => (editing = false)}
+              onclick={cancel}
               disabled={saving}>Cancel</button
             >
           </div>
-          {#if stale}
+          {#if refused}
             <p class="error" role="alert">
-              {stale}
-              <button type="button" class="quiet" onclick={onreload}
-                >Reload</button
-              >
+              {refused.message}
+              {#if refused.reload}
+                <button type="button" class="quiet" onclick={reload}
+                  >Reload</button
+                >
+              {/if}
             </p>
           {/if}
         {:else}

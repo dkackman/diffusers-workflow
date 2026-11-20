@@ -17,15 +17,8 @@ const data = vi.hoisted(() => ({
   getJob: vi.fn(),
   putRequest: vi.fn(),
 }))
-vi.mock('../api', () => ({
-  ApiError: class ApiError extends Error {
-    status: number
-    constructor(message: string, status = 500) {
-      super(message)
-      this.name = 'ApiError'
-      this.status = status
-    }
-  },
+vi.mock('../api', async () => ({
+  ApiError: (await import('../apiErrors')).ApiError,
   outputUrl: (path: string) => `/outputs/${path}`,
   api: {
     getRequest: vi.fn(async () => {
@@ -196,6 +189,7 @@ it('a stale write shows the message and keeps the draft', async () => {
     new ApiError(
       'This request changed since you opened it (now revision 5) — reload to see it',
       409,
+      'stale_revision',
     ),
   )
   render(RequestPage, { requestId: 'r1' })

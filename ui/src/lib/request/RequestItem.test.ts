@@ -1,7 +1,13 @@
-import { cleanup, render, waitFor } from '@testing-library/svelte'
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/svelte'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import RequestItem from './RequestItem.svelte'
-import { api } from '../api'
+import { ApiError, api } from '../api'
 import type { LedgerItem } from '../types'
 
 vi.mock('../api', async (original) => {
@@ -17,6 +23,8 @@ vi.mock('../api', async (original) => {
     },
   }
 })
+const confirmDialog = vi.hoisted(() => vi.fn())
+vi.mock('../confirm.svelte', () => ({ confirmDialog }))
 vi.mock('../toast', () => ({ notify: { error: vi.fn(), success: vi.fn() } }))
 
 const item = (over: Partial<LedgerItem> = {}): LedgerItem =>
@@ -44,7 +52,14 @@ const props = (it: LedgerItem) => ({
   onreload: vi.fn(),
 })
 
-beforeEach(() => vi.mocked(api.getJob).mockReset())
+beforeEach(() => {
+  vi.mocked(api.getJob).mockReset()
+  vi.mocked(api.getJob).mockResolvedValue({
+    id: 'job-a',
+    manifest: [],
+  } as never)
+  confirmDialog.mockReset()
+})
 afterEach(cleanup)
 
 const settle = () => new Promise((r) => setTimeout(r, 10))
@@ -116,4 +131,87 @@ it('asks again when the item gets a different result job', async () => {
     'job-a',
     'job-b',
   ])
+})
+
+const planned = (over: Partial<LedgerItem> = {}) =>
+  item({ status: 'planned', attempts: [], result: null, ...over } as never)
+const box = () => screen.getByLabelText('Comment on a') as HTMLTextAreaElement
+
+async function draft(text: string, saved: string | null = null) {
+  const given = props(
+    planned({
+      comment: saved ? { text: saved, at: '2026-01-02T03:04:05Z' } : null,
+    } as never),
+  )
+  render(RequestItem, given)
+  await fireEvent.click(
+    screen.getByRole('button', {
+      name: saved ? 'Edit comment' : 'Add comment',
+    }),
+  )
+  await fireEvent.input(box(), { target: { value: text } })
+  return given
+}
+
+it('Cancel asks before discarding a draft, and keeps it when declined', async () => {
+  await draft('needs more red')
+  confirmDialog.mockResolvedValue(false)
+  await fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+  await waitFor(() => expect(confirmDialog).toHaveBeenCalledTimes(1))
+  expect(box().value).toBe('needs more red')
+  confirmDialog.mockResolvedValue(true)
+  await fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+  await waitFor(() =>
+    expect(screen.queryByLabelText('Comment on a')).toBeNull(),
+  )
+})
+
+it('Cancel does not ask over an empty or unchanged draft', async () => {
+  await draft('as saved', 'as saved')
+  await fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+  await waitFor(() =>
+    expect(screen.queryByLabelText('Comment on a')).toBeNull(),
+  )
+  expect(confirmDialog).not.toHaveBeenCalled()
+  expect(screen.getByText('as saved')).toBeTruthy()
+})
+
+it('offers Reload for a stale revision, keeping the draft', async () => {
+  const given = await draft('my draft')
+  given.onsave.mockRejectedValue(
+    new ApiError('at revision 5, not 3', 409, 'stale_revision'),
+  )
+  await fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+  expect((await screen.findByRole('alert')).textContent).toContain(
+    'at revision 5, not 3',
+  )
+  await fireEvent.click(screen.getByRole('button', { name: 'Reload' }))
+  expect(given.onreload).toHaveBeenCalledTimes(1)
+  await waitFor(() => expect(screen.queryByRole('alert')).toBeNull())
+  expect(box().value).toBe('my draft')
+})
+
+it("shows another refusal as the server's message, with no Reload", async () => {
+  const given = await draft('my draft')
+  given.onsave.mockRejectedValue(
+    new ApiError(
+      'this workspace has no root folder, so it cannot hold requests',
+      409,
+      'no_workspace_root',
+    ),
+  )
+  await fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+  expect((await screen.findByRole('alert')).textContent).toContain(
+    'no root folder',
+  )
+  expect(screen.queryByRole('button', { name: 'Reload' })).toBeNull()
+  expect(box().value).toBe('my draft')
+})
+
+it('offers no comment box on a dropped item', () => {
+  render(
+    RequestItem,
+    props(planned({ dropped: true, status: 'dropped' } as never)),
+  )
+  expect(screen.queryByRole('button', { name: /comment/i })).toBeNull()
 })
