@@ -1,5 +1,12 @@
 import { expect, it } from 'vitest'
-import { draftAtRisk, refusalText, saveFailure } from './draft'
+import {
+  draftAtRisk,
+  draftKey,
+  keepDraft,
+  readDraft,
+  refusalText,
+  saveFailure,
+} from './draft'
 import { ApiError } from '../apiErrors'
 
 it('a draft with text that differs from the saved comment is at risk', () => {
@@ -50,4 +57,19 @@ it("says a stale revision in the writer's words, not the agent's", () => {
   expect(refusalText({ message: 'comment too long', reload: false })).toBe(
     'comment too long',
   )
+})
+
+it('keeps a draft for the tab under workspace, request and item, and forgets it', () => {
+  const key = draftKey('studio', 'r1', 'shot-3')
+  expect(key).toBe('dw-request-note:studio/r1/shot-3')
+  expect(draftKey('studio', 'r1')).toBe('dw-request-note:studio/r1/')
+  expect(readDraft(key)).toBeNull()
+  keepDraft(key, 'half a thought')
+  expect(readDraft(key)).toBe('half a thought')
+  expect(readDraft(draftKey('studio', 'r1', 'other'))).toBeNull()
+  keepDraft(key, null)
+  expect(readDraft(key)).toBeNull()
+  // no key: nothing is kept, nothing read
+  keepDraft(null, 'x')
+  expect(readDraft(null)).toBeNull()
 })

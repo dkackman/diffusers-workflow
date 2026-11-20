@@ -8,6 +8,7 @@
     label,
     anchor,
     align = 'start',
+    menu = false,
     children,
   }: {
     open?: boolean
@@ -16,6 +17,8 @@
      * on it to the trigger's own toggle rather than treating it as outside */
     anchor: HTMLElement | null
     align?: 'start' | 'center' | 'end'
+    /** A short list of actions: as wide as its words, not a panel's width */
+    menu?: boolean
     children: Snippet
   } = $props()
 
@@ -31,7 +34,7 @@
 <Popover.Root bind:open>
   <Popover.Portal>
     <Popover.Content
-      class="ui-popover panel"
+      class={menu ? 'ui-popover ui-popover-menu panel' : 'ui-popover panel'}
       role="dialog"
       aria-label={label}
       customAnchor={anchor}

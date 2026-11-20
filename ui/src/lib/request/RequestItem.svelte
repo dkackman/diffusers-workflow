@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Snippet } from 'svelte'
+  import { tick, type Snippet } from 'svelte'
   import {
     Check,
     ChevronDown,
@@ -21,6 +21,7 @@
     type ItemState,
     type Take,
   } from './itemState'
+  import { draftKey } from './draft'
   import { noteLine, noteWaiting } from './noteState'
   import { displayValue } from '../editor'
   import { wsHref } from '../routes'
@@ -29,7 +30,7 @@
   // One item of the plan as a row: what stands for it, what it is called,
   // its state as a word, one figure - and, opened, its takes, what it waits
   // on and what waits on it, what it would run, and the note for the agent.
-  // The four snippets are where a row's controls go; none is drawn here
+  // The snippets are where a row's controls go; none is drawn here
   let {
     row,
     request,
@@ -40,7 +41,8 @@
     handle,
     action,
     menu,
-    takeAction,
+    notice,
+    onaccept,
   }: {
     row: ItemState
     request: LedgerRequest
@@ -55,11 +57,16 @@
     handle?: Snippet<[ItemState]>
     /** Beside "Open job": the row's own action */
     action?: Snippet<[ItemState]>
-    /** The last cell: the row's menu */
-    menu?: Snippet<[ItemState]>
-    /** Under each succeeded take in the strip */
-    takeAction?: Snippet<[Take]>
+    /** The last cell: the row's menu, with what it can ask of the row */
+    menu?: Snippet<[ItemState, RowApi]>
+    /** Under the row: what the page has to say about an edit to it */
+    notice?: Snippet<[ItemState]>
+    /** Accept a take as the result (null clears the choice) */
+    onaccept?: (take: Take, job: string | null) => void
   } = $props()
+
+  /** What a row's menu can ask of it */
+  type RowApi = { note: () => void }
 
   const item = $derived(row.item)
   const chip = $derived(CHIP[row.display])
@@ -75,6 +82,21 @@
   const args = $derived(Object.entries(item.arguments ?? {}))
   const moreId = $derived(`req-item-${item.key}-more`)
   const firstLine = (text: string) => text.trim().split('\n')[0]
+
+  /** The row stays open under the button just pressed: with a take
+   * chosen it would no longer open by default */
+  function accept(take: Take, job: string | null) {
+    chosen = true
+    onaccept?.(take, job)
+  }
+
+  let note = $state<ReturnType<typeof ItemNote>>()
+  /** Open the row and its note box: "Leave a note" in the menu */
+  async function openNote() {
+    chosen = true
+    await tick()
+    void note?.edit()
+  }
 </script>
 
 {#snippet refs(list: ItemRef[])}
@@ -159,9 +181,11 @@
           {@render action?.(row)}
         </span>
       {/if}
-      {#if menu}<span class="menu">{@render menu(row)}</span>{/if}
+      {#if menu}<span class="menu">{@render menu(row, { note: openNote })}</span
+        >{/if}
     </span>
   </div>
+  {#if notice}{@render notice(row)}{/if}
 
   <!-- Hidden, not removed: the note's draft is in here, and closing the
        row must not lose it -->
@@ -171,7 +195,7 @@
         {item}
         {workspace}
         requestId={request.id}
-        action={takeAction}
+        onaccept={item.dropped || !onaccept ? undefined : accept}
       />
     {/if}
     {#if row.after.length}
@@ -196,6 +220,8 @@
       <p class="sub">Runs <code>{item.workflow}</code> with no arguments</p>
     {/if}
     <ItemNote
+      bind:this={note}
+      draftKey={draftKey(workspace, request.id, item.key)}
       comment={item.comment}
       about={item.title}
       line={item.comment ? noteLine(item.comment, request) : null}
@@ -209,12 +235,33 @@
 <style>
   .item {
     list-style: none;
+    --handle: 24px;
+  }
+  /* A finger needs 44px of handle */
+  @media (pointer: coarse) {
+    .item {
+      --handle: 44px;
+    }
+  }
+  /* Where a dragged row would land (reorder.svelte.ts): ink, the
+     pointer's place, as a drop target is */
+  .item:global(.insert-before) {
+    box-shadow: inset 0 2px 0 var(--ink);
+  }
+  .item:global(.insert-after) {
+    box-shadow: inset 0 -2px 0 var(--ink);
+  }
+  .item:global(.dragging) {
+    position: relative;
+    z-index: 1;
+    opacity: 0.85;
+    background: var(--panel);
   }
   /* handle, proof, main, chip, figure, actions. The chip's column is
      fixed, so a change of status never moves what is beside it */
   .row {
     display: grid;
-    grid-template-columns: 24px 96px minmax(0, 1fr) 90px 7.5rem minmax(
+    grid-template-columns: var(--handle) 96px minmax(0, 1fr) 90px 7.5rem minmax(
         5.5rem,
         auto
       );
@@ -344,7 +391,7 @@
     gap: var(--space-3);
     /* under the main column: past the handle and the proof */
     padding: 0 0.8rem var(--space-4)
-      calc(0.2rem + 24px + 96px + 2 * var(--space-3));
+      calc(0.2rem + var(--handle) + 96px + 2 * var(--space-3));
   }
   .more[hidden] {
     display: none;
@@ -370,7 +417,7 @@
      the row's action across the width */
   @container (max-width: 640px) {
     .row {
-      grid-template-columns: 24px 96px minmax(0, 1fr) auto;
+      grid-template-columns: var(--handle) 96px minmax(0, 1fr) auto;
       grid-template-areas:
         'handle chip main menu'
         '. proof figure figure'
@@ -400,7 +447,7 @@
       align-self: center;
     }
     .more {
-      padding-left: calc(0.2rem + 24px + var(--space-2));
+      padding-left: calc(0.2rem + var(--handle) + var(--space-2));
     }
   }
 </style>

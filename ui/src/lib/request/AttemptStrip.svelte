@@ -1,5 +1,4 @@
 <script lang="ts">
-  import type { Snippet } from 'svelte'
   import { Check, TriangleAlert } from '@lucide/svelte'
   import ItemProof from './ItemProof.svelte'
   import { takesOf, type Take } from './itemState'
@@ -10,19 +9,21 @@
 
   // An item's takes - every job linked to it - oldest to newest, as
   // pictures: which one is the result, and whether the user chose it or it
-  // is only the latest. Read-only; `action` is where a control under each
-  // take goes
+  // is only the latest. With `onaccept`, each good take has the button
+  // that makes it the result - or, pressed again on the chosen one, clears
+  // the choice
   let {
     item,
     workspace,
     requestId,
-    action,
+    onaccept,
   }: {
     item: LedgerItem
     workspace: string
     requestId: string
-    /** Rendered under each succeeded take */
-    action?: Snippet<[Take]>
+    /** Accept this take, or with null clear the one accepted. Left out
+     * where the plan would not keep it: a dropped item */
+    onaccept?: (take: Take, job: string | null) => void
   } = $props()
 
   const takes = $derived(takesOf(item))
@@ -33,6 +34,8 @@
     cancelled: 'idle',
     succeeded: 'succeeded',
   }
+  const chosen = (take: Take) =>
+    take.mark === 'accepted' || take.mark === 'accepted-gone'
   const MARK = {
     accepted: 'accepted',
     'accepted-gone': 'accepted, files gone',
@@ -51,6 +54,7 @@
   <p class="gone">
     <TriangleAlert size={14} aria-hidden="true" />
     The accepted take's files are gone. Showing the latest take instead.
+    {#if onaccept}Accept another to settle it.{/if}
   </p>
 {/if}
 <ul class="strip" bind:this={strip} aria-label="Takes of {item.title}">
@@ -90,7 +94,19 @@
       {#if attempt.note}
         <span class="note muted" title={attempt.note}>{attempt.note}</span>
       {/if}
-      {#if action && attempt.status === 'succeeded'}{@render action(take)}{/if}
+      {#if onaccept && attempt.status === 'succeeded'}
+        <button
+          type="button"
+          class="quiet accept"
+          aria-pressed={chosen(take)}
+          aria-label="Accept take {take.n} for {item.title}"
+          title={chosen(take)
+            ? 'Accepted as the result. Press to clear the choice'
+            : 'Make this take the result'}
+          onclick={() => onaccept(take, chosen(take) ? null : attempt.job)}
+          >{chosen(take) ? 'Accepted' : 'Accept'}</button
+        >
+      {/if}
     </li>
   {/each}
 </ul>
@@ -139,6 +155,21 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  .accept {
+    margin-top: 0.15rem;
+    padding: 0.2rem 0.5rem;
+    font-size: var(--t-xs);
+  }
+  .accept[aria-pressed='true'] {
+    color: var(--ink);
+    border-color: var(--ink);
+    font-weight: 600;
+  }
+  @media (pointer: coarse) {
+    .accept {
+      min-height: 44px;
+    }
   }
   .gone {
     display: flex;

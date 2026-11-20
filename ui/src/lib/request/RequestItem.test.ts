@@ -377,7 +377,7 @@ it("the user's toggle outlives a refresh, and closing a row keeps its draft", as
   expect(box().value).toBe('half a thought')
 })
 
-it('draws what a later increment hands it: a handle, an action, a menu', async () => {
+it('draws the controls a page hands it: a handle, an action, a menu, a notice', async () => {
   const { createRawSnippet } = await import('svelte')
   const slot = (label: string) =>
     createRawSnippet(() => ({
@@ -388,8 +388,93 @@ it('draws what a later increment hands it: a handle, an action, a menu', async (
     handle: slot('grip'),
     action: slot('Run…'),
     menu: slot('more'),
+    notice: slot('asked'),
   })
+  expect(container.querySelector('li > button')?.textContent).toBe('asked')
   expect(container.querySelector('.handle button')?.textContent).toBe('grip')
   expect(container.querySelector('.action button')?.textContent).toBe('Run…')
   expect(container.querySelector('.menu button')?.textContent).toBe('more')
+})
+
+const goodTakes = (over: Partial<LedgerItem> = {}) =>
+  doneItem('a', {
+    title: 'Shot 3',
+    attempts: [attempt('j1'), attempt('j2'), attempt('j3', 'failed')],
+    result: { job: 'j2', run_id: 'r2', output: null },
+    ...over,
+  })
+
+it('each good take can be accepted, and says which one is', async () => {
+  const onaccept = vi.fn()
+  render(RequestItem, { ...props([goodTakes()]), onaccept })
+  const buttons = screen.getAllByRole('button', { name: /^Accept take/ })
+  // the failed take has no button
+  expect(buttons.map((b) => b.getAttribute('aria-label'))).toEqual([
+    'Accept take 1 for Shot 3',
+    'Accept take 2 for Shot 3',
+  ])
+  expect(buttons.map((b) => b.getAttribute('aria-pressed'))).toEqual([
+    'false',
+    'false',
+  ])
+  expect(buttons.map((b) => b.textContent)).toEqual(['Accept', 'Accept'])
+  await fireEvent.click(buttons[0])
+  expect(onaccept).toHaveBeenCalledWith(expect.objectContaining({ n: 1 }), 'j1')
+})
+
+it('pressing the accepted take clears the choice', async () => {
+  const onaccept = vi.fn()
+  render(RequestItem, {
+    ...props([goodTakes({ accepted: { job: 'j1', run_id: 'r1' } })]),
+    onaccept,
+  })
+  await fireEvent.click(title('Shot 3'))
+  const accepted = screen.getByRole('button', {
+    name: 'Accept take 1 for Shot 3',
+  })
+  expect(accepted.getAttribute('aria-pressed')).toBe('true')
+  expect(accepted.textContent).toBe('Accepted')
+  await fireEvent.click(accepted)
+  expect(onaccept).toHaveBeenCalledWith(expect.objectContaining({ n: 1 }), null)
+})
+
+it("with the accepted take's files gone, says to accept another", () => {
+  const { container } = render(RequestItem, {
+    ...props([
+      goodTakes({
+        accepted: { job: 'j1', run_id: 'r1' },
+        accepted_missing: true,
+      }),
+    ]),
+    onaccept: vi.fn(),
+  })
+  expect(container.querySelector('.gone')?.textContent).toContain(
+    "The accepted take's files are gone. Showing the latest take instead. Accept another to settle it.",
+  )
+})
+
+it('a dropped item offers no accept', async () => {
+  render(RequestItem, {
+    ...props([goodTakes({ dropped: true, status: 'dropped' })]),
+    onaccept: vi.fn(),
+  })
+  await fireEvent.click(title('Shot 3'))
+  expect(screen.queryByRole('button', { name: /^Accept take/ })).toBeNull()
+})
+
+it('the menu can ask the row to open its note box', async () => {
+  const { createRawSnippet } = await import('svelte')
+  let api: { note: () => void } | undefined
+  render(RequestItem, {
+    ...props([item('a', { title: 'Shot 4', ready: true })]),
+    menu: createRawSnippet<[unknown, { note: () => void }]>((_row, given) => {
+      api = given()
+      return { render: () => '<span></span>' }
+    }),
+  })
+  expect(title('Shot 4').getAttribute('aria-expanded')).toBe('false')
+  api?.note()
+  const box = await screen.findByLabelText('Note for the agent on Shot 4')
+  expect(title('Shot 4').getAttribute('aria-expanded')).toBe('true')
+  await vi.waitFor(() => expect(document.activeElement).toBe(box))
 })

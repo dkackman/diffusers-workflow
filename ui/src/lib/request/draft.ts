@@ -32,3 +32,30 @@ export function refusalText(failure: {
     ? 'The plan changed while you were writing, so this is not saved yet. Reload the plan, then save again: your words stay here.'
     : failure.message
 }
+
+/** Where a note's unsaved draft is kept for the life of the tab, so a
+ * reload does not lose it: by workspace, request and item (no item for the
+ * request's own note). */
+export const draftKey = (workspace: string, request: string, item?: string) =>
+  `dw-request-note:${workspace}/${request}/${item ?? ''}`
+
+export function readDraft(key: string | null): string | null {
+  if (!key) return null
+  try {
+    return sessionStorage.getItem(key)
+  } catch {
+    return null
+  }
+}
+
+/** Keep `text` under `key`; null forgets it. Storage that is missing or
+ * full only means the draft does not outlive the page. */
+export function keepDraft(key: string | null, text: string | null): void {
+  if (!key) return
+  try {
+    if (text === null) sessionStorage.removeItem(key)
+    else sessionStorage.setItem(key, text)
+  } catch {
+    /* session only */
+  }
+}

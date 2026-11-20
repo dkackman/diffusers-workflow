@@ -33,7 +33,9 @@ vi.mock('../api', async () => ({
     putRequest: (...args: unknown[]) => data.putRequest(...args),
   },
 }))
-vi.mock('../toast', () => ({ notify: { error: vi.fn(), success: vi.fn() } }))
+vi.mock('../toast', () => ({
+  notify: { error: vi.fn(), success: vi.fn(), undo: vi.fn() },
+}))
 
 const proof = { name: 'run/a.png', kind: 'image' as const }
 const make = (): LedgerRequest =>
@@ -68,6 +70,7 @@ const make = (): LedgerRequest =>
   )
 
 beforeEach(() => {
+  sessionStorage.clear()
   workspace.current = 'studio'
   data.request = make()
   data.getError = null
@@ -274,7 +277,7 @@ it("saves the request's own note, every item as it was read", async () => {
   expect(within(head).getByText(/Nothing is sent to the agent/)).toBeTruthy()
 })
 
-it('a stale write says so in plain words and keeps the draft', async () => {
+it('a write refused as stale over and over says so in plain words and keeps the draft', async () => {
   const { ApiError } = await import('../api')
   data.putRequest.mockRejectedValue(
     new ApiError(
@@ -292,6 +295,8 @@ it('a stale write says so in plain words and keeps the draft', async () => {
   )
   expect(screen.getByRole('button', { name: 'Reload the plan' })).toBeTruthy()
   expect(box.value).toBe('my draft')
+  // tried over a fresh read three more times, then left to the user
+  expect(data.putRequest).toHaveBeenCalledTimes(4)
 })
 
 it('links to its jobs and outputs through the req filter', async () => {
@@ -444,51 +449,61 @@ it('a refresh that fails keeps the plan and the draft, and says how old it is', 
   expect(box.value).toBe('my draft')
 })
 
-it('a reload after a stale save that fails keeps the request and the draft', async () => {
+it('a save over a plan the agent changed is made again on top, and says so', async () => {
+  const { ApiError, api } = await import('../api')
+  data.putRequest.mockRejectedValueOnce(
+    new ApiError('now revision 4', 409, 'stale_revision'),
+  )
+  render(RequestPage, { requestId: 'r1' })
+  const box = await openNote('Second poster')
+  await fireEvent.input(box, { target: { value: 'more red' } })
+  // the agent has written since the page read the plan
+  const theirs = make()
+  theirs.revision = 4
+  theirs.history.push(entry(4, 'agent', 'added shot 7'))
+  data.request = theirs
+  const saved = structuredClone(theirs)
+  saved.revision = 5
+  saved.history.push(entry(5, 'user', 'comment on b'))
+  saved.items[1].comment = { text: 'more red', at: '2026-01-04T00:00:00Z' }
+  data.putRequest.mockResolvedValue(saved)
+  const reads = vi.mocked(api.getRequest).mock.calls.length
+  await saveNote('Second poster')
+  await atRevision(5)
+  // read again once, and the write made over that read: never the stale plan
+  expect(vi.mocked(api.getRequest).mock.calls.length).toBe(reads + 1)
+  expect(data.putRequest.mock.calls.map((c) => c[2].revision)).toEqual([3, 4])
+  await within(row('Second poster')).findByText('more red')
+  const notice = screen.getByRole('status')
+  expect(notice.textContent).toContain(
+    "The agent changed the plan while you were editing (r4: 'added shot 7'). Your change was applied on top.",
+  )
+  // the saved note's box has closed and handed focus back
+  await waitFor(() =>
+    expect(document.activeElement?.textContent).toBe('Edit note'),
+  )
+  await fireEvent.click(
+    within(notice).getByRole('button', { name: 'See changes' }),
+  )
+  expect(document.activeElement?.id).toBe('plan-change-r4')
+  await fireEvent.click(within(notice).getByRole('button', { name: 'Dismiss' }))
+  expect(screen.queryByRole('status')).toBeNull()
+})
+
+it('a read that fails after a stale save keeps the request and the draft', async () => {
   const { ApiError } = await import('../api')
+  const { notify } = await import('../toast')
   data.putRequest.mockRejectedValue(
     new ApiError('now revision 5', 409, 'stale_revision'),
   )
   render(RequestPage, { requestId: 'r1' })
   const box = await openNote('Second poster')
   await fireEvent.input(box, { target: { value: 'my draft' } })
-  await saveNote('Second poster')
   data.getError = { status: 503, message: 'busy' }
-  await fireEvent.click(
-    await screen.findByRole('button', { name: 'Reload the plan' }),
-  )
-  expect((await screen.findByRole('status')).textContent).toContain(
-    'Could not refresh: busy',
-  )
+  await saveNote('Second poster')
+  await waitFor(() => expect(notify.error).toHaveBeenCalledWith('busy'))
+  expect(data.putRequest).toHaveBeenCalledTimes(1)
   expect(box.value).toBe('my draft')
+  expect(document.body.contains(box)).toBe(true)
   expect(screen.getByRole('heading', { name: 'Launch posters' })).toBeTruthy()
-})
-
-it('a reload answered after a save does not undo the save', async () => {
-  const { ApiError, api } = await import('../api')
-  data.putRequest.mockRejectedValueOnce(
-    new ApiError('now revision 3', 409, 'stale_revision'),
-  )
-  render(RequestPage, { requestId: 'r1' })
-  const box = await openNote('Second poster')
-  await fireEvent.input(box, { target: { value: 'more red' } })
-  await saveNote('Second poster')
-  // The reload goes out and hangs; the second save lands first
-  let land: (reply: unknown) => void = () => {}
-  vi.mocked(api.getRequest).mockImplementationOnce(
-    () => new Promise((resolve) => (land = resolve)) as never,
-  )
-  await fireEvent.click(
-    await screen.findByRole('button', { name: 'Reload the plan' }),
-  )
-  const saved = make()
-  saved.revision = 4
-  saved.items[1].comment = { text: 'more red', at: '2026-01-04T00:00:00Z' }
-  data.putRequest.mockResolvedValue(saved)
-  await saveNote('Second poster')
-  await atRevision(4)
-  land(make())
-  await new Promise((r) => setTimeout(r, 10))
-  expect(revision()).toBe('now at r4')
-  expect(within(row('Second poster')).getByText('more red')).toBeTruthy()
 })

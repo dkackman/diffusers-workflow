@@ -1,14 +1,16 @@
 <script lang="ts">
+  import { untrack } from 'svelte'
   import { api, ApiError } from '../api'
   import Skeleton from '../ui/Skeleton.svelte'
   import ClampedText from '../ui/ClampedText.svelte'
   import PlanChanges from '../request/PlanChanges.svelte'
+  import PlanItems from '../request/PlanItems.svelte'
   import RequestHeader from '../request/RequestHeader.svelte'
-  import RequestItem from '../request/RequestItem.svelte'
   import { announce } from '../request/announce'
   import { planState, titleId } from '../request/itemState'
+  import { PlanStore } from '../request/planStore.svelte'
   import { poll } from '../poll'
-  import { newerOf, refreshInterval } from '../request/refresh'
+  import { refreshInterval } from '../request/refresh'
   import { formatMtime } from '../format'
   import { latestOnly } from '../latest'
   import { wsHref } from '../routes'
@@ -17,38 +19,48 @@
 
   let { requestId }: { requestId: string } = $props()
 
-  let request = $state<LedgerRequest | null>(null)
   let missing = $state(false)
   let error = $state<string | null>(null)
   // When the request held was read, and why the read after it failed: a
   // failed refresh keeps what is on the page and says how old it is
   let readAt = $state(0)
   let stale = $state<string | null>(null)
-  // What the one live region says: a refresh's changes in a sentence
+  // What the one live region says: a refresh's changes in a sentence, or
+  // what an edit of the user's own did
   let said = $state('')
   const ws = $derived(workspace.current)
+
+  // What the server last said, and the edits not yet written over it
+  // (planStore.svelte.ts). The page draws the store's view; every edit is
+  // an intent handed to it, applied to the read only when it is sent
+  const store = new PlanStore({
+    get: () => api.getRequest(ws, requestId),
+    put: (body) => api.putRequest(ws, requestId, body),
+    onread(previous, next) {
+      const news = announce(previous, next)
+      if (news) said = news
+      readAt = Date.now() / 1000
+    },
+  })
+  const request = $derived(store.view)
   const plan = $derived(request ? planState(request) : null)
 
-  function hold(next: LedgerRequest) {
-    const news = announce(request, next)
-    if (news) said = news
-    request = next
-    readAt = Date.now() / 1000
+  // A reply older than what is held (a read sent before a save and
+  // answered after it) does not replace it: the store keeps the newer
+  function take(found: LedgerRequest) {
+    store.take(found)
     missing = false
     error = null
     stale = null
   }
-  // A reply older than what is held (a read sent before a save and
-  // answered after it) does not replace it
-  const take = (found: LedgerRequest) => hold(newerOf(request, found))
   // A read that fails over a request the page holds keeps it - and with it
   // the note drafts in its rows - unless the request is gone
   function failed(e: unknown) {
     const message = e instanceof Error ? e.message : String(e)
     if (e instanceof ApiError && e.status === 404) {
-      request = null
+      store.reset()
       missing = true
-    } else if (request) stale = message
+    } else if (store.read) stale = message
     else error = message
   }
 
@@ -67,7 +79,7 @@
   $effect(() => {
     void ws
     void requestId
-    request = null
+    untrack(() => store.reset())
     missing = false
     error = null
     stale = null
@@ -77,10 +89,10 @@
 
   // The plan and its machine state move without this page: an agent rewrites
   // the plan, a job is queued, runs, ends. Follow it for as long as it can
-  // change (refreshInterval), keeping the newer of what is held and what
-  // came back (newerOf). A note's draft lives in its row, which the keyed
-  // list keeps, so a refresh never touches it - and never moves focus
-  const interval = $derived(refreshInterval(request))
+  // change (refreshInterval). A refresh replaces the store's read and
+  // leaves its queue, so it never undoes an edit; a note's draft lives in
+  // its row, which the keyed list keeps - and a refresh never moves focus
+  const interval = $derived(refreshInterval(store.read))
   $effect(() => {
     if (interval === null) return
     const [from, id] = [ws, requestId]
@@ -103,28 +115,22 @@
     }
   })
 
-  /** The one edit: the plan goes back as read, one note replaced - an
-   * item's by its key, the request's own with null. A stale revision
-   * rejects with the server's 409 and the note shows it. */
-  async function saveComment(key: string | null, text: string | null) {
-    const read = request
-    if (!read) return
-    const [to, id] = [ws, requestId]
-    const comment = text === null ? null : { text }
-    const saved = await api.putRequest(to, id, {
-      title: read.title,
-      goal: read.goal,
-      state: read.state,
-      revision: read.revision,
-      why: key === null ? 'comment on the request' : `comment on ${key}`,
-      ...(key === null ? { comment } : {}),
-      items: read.items.map((item) =>
-        item.key === key ? { ...item, comment } : item,
-      ) as LedgerRequest['items'],
-    })
-    // Left for another request while the save was out: it is not this one's
-    if (to === ws && id === requestId) hold(saved)
+  /** The note on the whole request: an intent like any other edit */
+  const saveNote = (text: string | null) =>
+    store.push({ kind: 'note', key: null, text }).then(() => {})
+
+  /** Show one write among the plan's changes: the notice's "See changes" */
+  function seeChanges(revision: number) {
+    const entry = document.getElementById(`plan-change-r${revision}`)
+    const target = entry ?? rail
+    if (!target) return
+    const fold = target.closest('details')
+    if (fold) fold.open = true
+    target.tabIndex = -1
+    target.scrollIntoView?.({ block: 'center' })
+    target.focus({ preventScroll: true })
   }
+  let rail = $state<HTMLElement>()
 
   /** Go to an item's row: a progress segment or a dependency's name */
   function goTo(key: string) {
@@ -198,51 +204,25 @@
           {plan}
           workspace={ws}
           onselect={goTo}
-          onsavenote={(text) => saveComment(null, text)}
+          onsavenote={saveNote}
           onreload={load}
         />
-        {#if plan.items.length === 0}
-          <p class="muted">
-            The agent has not planned any items for this request yet.
-          </p>
-        {:else}
-          <div class="panel list">
-            <ol class="items" aria-label="The plan">
-              {#each plan.live as row (row.item.key)}
-                <RequestItem
-                  {row}
-                  {request}
-                  workspace={ws}
-                  onsave={(text) => saveComment(row.item.key, text)}
-                  onreload={load}
-                  ongo={goTo}
-                />
-              {/each}
-            </ol>
-            {#if plan.dropped.length}
-              <details class="droppedgroup">
-                <summary>Dropped ({plan.dropped.length})</summary>
-                <ul class="items">
-                  {#each plan.dropped as row (row.item.key)}
-                    <RequestItem
-                      {row}
-                      {request}
-                      workspace={ws}
-                      onsave={(text) => saveComment(row.item.key, text)}
-                      onreload={load}
-                      ongo={goTo}
-                    />
-                  {/each}
-                </ul>
-              </details>
-            {/if}
-          </div>
-        {/if}
+        <PlanItems
+          {store}
+          {request}
+          {plan}
+          workspace={ws}
+          ongo={goTo}
+          onreload={load}
+          onsay={(text) => (said = text)}
+          onsee={seeChanges}
+        />
       </div>
 
       <!-- Not an <aside>: the app's drawer styles reach every one below 900px -->
       <div
         class="rail"
+        bind:this={rail}
         role="complementary"
         aria-label="The ask, the goal and the plan's changes"
       >
@@ -294,28 +274,11 @@
   .maincol {
     min-width: 0;
   }
-  .list {
-    padding: 0.3rem;
-  }
-  .items {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-  }
-  .items > :global(li + li) {
-    border-top: 1px solid var(--line);
-  }
-  .droppedgroup {
-    border-top: 1px solid var(--line);
-  }
   summary {
     cursor: pointer;
     padding: 0.55rem 0.8rem;
     font-size: var(--t-sm);
     font-weight: 600;
-  }
-  .droppedgroup summary {
-    color: var(--muted);
   }
   .rail {
     display: flex;

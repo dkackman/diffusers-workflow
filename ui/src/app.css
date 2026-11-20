@@ -561,3 +561,7 @@ a.row-live.row-live.row-live:hover {
   box-shadow: 0 6px 24px color-mix(in srgb, var(--bg) 60%, transparent);
   font-size: 0.85rem;
 }
+.ui-popover-menu {
+  min-width: 11rem;
+  padding: 0.3rem;
+}

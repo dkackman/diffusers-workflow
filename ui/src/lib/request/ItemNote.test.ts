@@ -13,7 +13,10 @@ const confirmDialog = vi.hoisted(() => vi.fn())
 vi.mock('../confirm.svelte', () => ({ confirmDialog }))
 vi.mock('../toast', () => ({ notify: { error: vi.fn(), success: vi.fn() } }))
 
-beforeEach(() => confirmDialog.mockReset())
+beforeEach(() => {
+  confirmDialog.mockReset()
+  sessionStorage.clear()
+})
 afterEach(cleanup)
 
 const AT = '2026-01-02T03:04:05+00:00'
@@ -199,4 +202,37 @@ it('shows a note it cannot edit, and nothing where there is none to show', () =>
   cleanup()
   const { container } = render(ItemNote, props(null, { editable: false }))
   expect(container.textContent?.trim()).toBe('')
+})
+
+it('keeps an unsaved draft for the tab, so a reload does not lose it', async () => {
+  const draftKey = 'dw-request-note:studio/r1/s3'
+  const given = props(null, { draftKey })
+  const first = render(ItemNote, given)
+  await fireEvent.click(
+    screen.getByRole('button', { name: 'Leave a note for the agent' }),
+  )
+  await fireEvent.input(box(), { target: { value: 'half a thought' } })
+  await waitFor(() =>
+    expect(sessionStorage.getItem(draftKey)).toBe('half a thought'),
+  )
+  // the page goes and comes back
+  first.unmount()
+  render(ItemNote, given)
+  expect(screen.getByText('You have an unsaved draft.')).toBeTruthy()
+  await fireEvent.click(
+    screen.getByRole('button', { name: 'Continue the draft' }),
+  )
+  expect(box().value).toBe('half a thought')
+  // saved: nothing left behind
+  given.onsave.mockResolvedValue(undefined)
+  await fireEvent.click(screen.getByRole('button', { name: 'Save note' }))
+  await noBox()
+  await waitFor(() => expect(sessionStorage.getItem(draftKey)).toBeNull())
+})
+
+it('a kept draft that is already what was saved is not offered again', () => {
+  const draftKey = 'dw-request-note:studio/r1/s3'
+  sessionStorage.setItem(draftKey, 'the same')
+  render(ItemNote, props('the same', { draftKey }))
+  expect(screen.queryByText('You have an unsaved draft.')).toBeNull()
 })

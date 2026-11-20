@@ -1,9 +1,15 @@
 <script lang="ts">
-  import { tick } from 'svelte'
+  import { tick, untrack } from 'svelte'
   import { MessageSquare } from '@lucide/svelte'
   import { confirmDialog } from '../confirm.svelte'
   import { notify } from '../toast'
-  import { draftAtRisk, refusalText, saveFailure } from './draft'
+  import {
+    draftAtRisk,
+    keepDraft,
+    readDraft,
+    refusalText,
+    saveFailure,
+  } from './draft'
   import type { NoteLine } from './noteState'
   import type { LedgerComment } from '../types'
 
@@ -11,12 +17,14 @@
   // items. Nothing is sent anywhere: the agent finds it the next time it
   // writes the plan, and the line under a saved note (noteState.ts) says
   // only what the ledger can show. The draft lives here, so a refresh that
-  // hands down a new `comment` never touches it
+  // hands down a new `comment` never touches it - and, with a `draftKey`,
+  // in the tab's sessionStorage too, so a reload does not lose it
   let {
     comment,
     about,
     line,
     editable = true,
+    draftKey = null,
     onsave,
     onreload,
   }: {
@@ -28,6 +36,8 @@
     line: NoteLine | null
     /** False where the ledger would not keep an edit: a dropped item */
     editable?: boolean
+    /** Where the unsaved draft is kept across a reload (draft.ts) */
+    draftKey?: string | null
     /** Store the note (null clears it); rejects with the server's error */
     onsave: (text: string | null) => Promise<void>
     /** Read the request again, after a save found it had moved on */
@@ -37,10 +47,17 @@
   const MAX = 4000
   const COUNT_FROM = 3600
 
+  // A draft a reload left behind comes back as one set aside
+  const left = untrack(() => {
+    const text = readDraft(draftKey)
+    return text !== null && draftAtRisk(text, comment?.text ?? null)
+      ? text
+      : null
+  })
   let editing = $state(false)
-  let draft = $state('')
+  let draft = $state(left ?? '')
   // Esc closed the box over words that are not saved: they are still here
-  let kept = $state(false)
+  let kept = $state(left !== null)
   let saving = $state(false)
   // The server's answer to the last save, shown until the next one
   let refused = $state<{ message: string; reload: boolean } | null>(null)
@@ -49,7 +66,14 @@
 
   const saved = $derived(comment?.text ?? null)
 
-  async function edit() {
+  // Words not yet saved are kept for the tab; saved or discarded, forgotten
+  $effect(() => {
+    const atRisk = (editing || kept) && draftAtRisk(draft, saved)
+    keepDraft(draftKey, atRisk ? draft : null)
+  })
+
+  /** Open the box: the row's menu asks for it too */
+  export async function edit() {
     if (!kept) draft = saved ?? ''
     kept = false
     refused = null
