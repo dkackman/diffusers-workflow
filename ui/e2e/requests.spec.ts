@@ -559,3 +559,192 @@ test('a drop of an item the agent changed is held back until the user answers', 
     dropped: true,
   })
 })
+
+test('the run dialog prices what is ready, says what will not run, and spends nothing until asked', async ({
+  page,
+}) => {
+  let submitted = 0
+  page.on('request', (r) => {
+    if (r.method() === 'POST' && new URL(r.url()).pathname === '/api/jobs')
+      submitted++
+  })
+  await page.goto(BOARD)
+  const run = page.getByRole('button', { name: 'Run 1 ready…' })
+  const priced = page.waitForResponse(
+    (r) => new URL(r.url()).pathname === '/api/validate',
+  )
+  await run.click()
+  const dialog = page.getByRole('dialog', { name: 'Run what is ready' })
+  // a dialog that spends starts on Cancel
+  await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeFocused()
+  expect((await priced).status()).toBe(200)
+  const row = dialog.locator('.runrow[data-key="title"]')
+  await expect(row).toContainText('Title card')
+  await expect(row.locator('.flow')).toHaveText('e2e-card')
+  // the server's own quote: a task-only workflow has no figure, and says so
+  await expect(row.locator('.quote')).toContainText('no figure')
+  await expect(dialog.locator('.total')).toHaveText('total: no figure')
+  await expect(dialog.getByRole('button', { name: 'Run 1' })).toBeEnabled()
+  await expect(dialog.locator('.wont li')).toHaveText([
+    'Opening shot: failed: run it again from its row',
+    'Final cut, tighter: waits on Opening shot (failed)',
+  ])
+  // Cancel: nothing queued, and focus is back on what opened it
+  await dialog.getByRole('button', { name: 'Cancel' }).click()
+  await expect(dialog).toHaveCount(0)
+  await expect(run).toBeFocused()
+  expect(submitted).toBe(0)
+
+  // one item, whose stored workflow the server cannot reach: it would be
+  // refused, so there is nothing to run
+  await boardRow(page, 'shot')
+    .getByRole('button', { name: 'Run again…' })
+    .click()
+  const single = page.getByRole('dialog', { name: 'Run Opening shot' })
+  await expect(single.locator('.wont li')).toContainText(
+    'Opening shot: would be refused: workflow_path must name a workflow the server can reach',
+  )
+  await expect(single.getByRole('checkbox')).toHaveCount(0)
+  await expect(single.getByRole('button', { name: 'Run 0' })).toBeDisabled()
+  await single.getByRole('button', { name: 'Cancel' }).click()
+  expect(submitted).toBe(0)
+})
+
+test('running a ready item queues a job bound to its quote, and the job appears on the item', async ({
+  page,
+  request,
+}) => {
+  await page.goto(BOARD)
+  const title = boardRow(page, 'title')
+  await expect(title.locator('.row .chip')).toHaveText('ready')
+  await page.getByRole('button', { name: 'Run 1 ready…' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Run what is ready' })
+  const submit = page.waitForResponse(
+    (r) =>
+      r.request().method() === 'POST' &&
+      new URL(r.url()).pathname === '/api/jobs',
+  )
+  await dialog.getByRole('button', { name: 'Run 1' }).click()
+  const answer = await submit
+  expect(answer.status()).toBe(201)
+  const sent = answer.request().postDataJSON()
+  expect(sent).toMatchObject({
+    workflow_path: 'e2e-card',
+    arguments: { line: 'The opening' },
+    request: BOARD_ID,
+    item: 'title',
+  })
+  // the validate plan itself is the acknowledgement
+  expect(sent.acknowledged_cost.fingerprint).toMatch(/^sha256:/)
+  const job = await answer.json()
+  expect(job).toMatchObject({
+    acknowledged: 'bound',
+    request: BOARD_ID,
+    item: 'title',
+  })
+  await expect(page.getByText('Queued 1 job')).toBeVisible()
+  await expect(dialog).toHaveCount(0)
+  // read again at once: the item carries the job, in whatever state it
+  // has reached, and is no longer something to run
+  await expect(title.locator('.row .chip')).toHaveText(/queued|running|done/)
+  await expect(page.getByRole('button', { name: /ready…$/ })).toHaveCount(0)
+  const stored = await ledger(request)
+  const item = stored.items.find((i: Stored) => i.key === 'title')
+  expect(item.attempts.map((a: { job: string }) => a.job)).toEqual([job.id])
+  // a text task with no model: it finishes, and the page follows it there
+  await expect(title.locator('.row .chip')).toHaveText('done', {
+    timeout: 25_000,
+  })
+  await expect(title.locator('.proofcell a')).toHaveAttribute(
+    'href',
+    `#/ws/default/jobs/${job.id}`,
+  )
+  // a done item can take another run, from its menu
+  await title.getByRole('button', { name: /^More actions for/ }).click()
+  await expect(
+    page.getByRole('dialog').getByRole('button', { name: 'Run another take…' }),
+  ).toBeVisible()
+})
+
+test('dragging the handle moves an item, in one write', async ({ page }) => {
+  await page.goto(BOARD)
+  expect(await order(page)).toEqual(['board', 'title', 'shot', 'cut'])
+  const handle = page.locator('#req-item-board-handle')
+  const target = boardRow(page, 'title')
+  const from = await handle.boundingBox()
+  const to = await target.boundingBox()
+  if (!from || !to) throw new Error('no boxes')
+  const put = written(page)
+  await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2)
+  await page.mouse.down()
+  // past the middle of the row below
+  await page.mouse.move(from.x + from.width / 2, to.y + to.height * 0.8, {
+    steps: 8,
+  })
+  await expect(target).toHaveClass(/insert-after/)
+  await page.mouse.up()
+  expect(await order(page)).toEqual(['title', 'board', 'shot', 'cut'])
+  const body = (await put).request().postDataJSON()
+  expect(body.why).toBe('reorder board')
+  await page.reload()
+  expect(await order(page)).toEqual(['title', 'board', 'shot', 'cut'])
+})
+
+test('the request can be marked done, abandoned and reopened from its menu', async ({
+  page,
+  request,
+}) => {
+  await page.goto(BOARD)
+  const head = page.locator('.reqhead')
+  const menu = head.getByRole('button', {
+    name: 'More actions for this request',
+  })
+  await expect(head.locator('.tag')).toHaveText('open')
+  let put = written(page)
+  await menu.click()
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: 'Mark done' })
+    .click()
+  expect((await put).status()).toBe(200)
+  await expect(head.locator('.tag')).toHaveText('done')
+  let stored = await ledger(request)
+  expect(stored.state).toBe('done')
+  expect(stored.history.at(-1)).toMatchObject({
+    by: 'user',
+    why: 'marked done',
+    state: 'done',
+  })
+  // closed: nothing here runs
+  await expect(page.getByRole('button', { name: /^Run/ })).toHaveCount(0)
+
+  put = written(page)
+  await menu.click()
+  await page.getByRole('dialog').getByRole('button', { name: 'Reopen' }).click()
+  expect((await put).status()).toBe(200)
+  await expect(head.locator('.tag')).toHaveText('open')
+  stored = await ledger(request)
+  expect(stored.history.at(-1)).toMatchObject({
+    why: 'reopened',
+    state: 'open',
+  })
+  await expect(
+    boardRow(page, 'shot').getByRole('button', { name: 'Run again…' }),
+  ).toBeVisible()
+
+  // abandoned is the other way to close it, and it can be reopened too
+  put = written(page)
+  await menu.click()
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: 'Abandon' })
+    .click()
+  expect((await put).status()).toBe(200)
+  await expect(head.locator('.tag')).toHaveText('abandoned')
+  put = written(page)
+  await menu.click()
+  await page.getByRole('dialog').getByRole('button', { name: 'Reopen' }).click()
+  expect((await put).status()).toBe(200)
+  await expect(head.locator('.tag')).toHaveText('open')
+  expect((await ledger(request)).state).toBe('open')
+})

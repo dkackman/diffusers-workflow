@@ -208,8 +208,29 @@ ledger.put_request(
 # run dialog), so the first stays as the read-only specs expect: `board` is
 # done with two succeeded takes and neither accepted; `shot` failed once;
 # `cut` waits on `shot`; `title` has never run and waits on nothing, so it
-# is ready; `score` failed once and nothing depends on it.
+# is ready; `score` failed once and nothing depends on it. `title` runs
+# `e2e-card`, a workflow of one text task - no model, nothing to download,
+# done in a second or two - so the run dialog's job can really be queued.
 EDIT_ID = "e2e-board"
+with open(os.path.join(scratch, "workflows", "e2e-card.json"), "w") as handle:
+    json.dump(
+        {
+            "id": "E2ECard",
+            "description": "A title card as one line of text.",
+            "variables": {"line": "Title card"},
+            "steps": [
+                {
+                    "name": "card",
+                    "task": {
+                        "command": "compose_text",
+                        "arguments": {"parts": ["variable:line"]},
+                    },
+                    "result": {"content_type": "text/plain"},
+                }
+            ],
+        },
+        handle,
+    )
 edit_linked = {
     "board": [
         {
@@ -281,7 +302,11 @@ ledger.put_request(
             plan_item("board", "Board sheet"),
             plan_item("shot", "Opening shot", depends_on=["board"]),
             plan_item("cut", "Final cut", depends_on=["shot"]),
-            plan_item("title", "Title card", estimate_minutes=3),
+            {
+                **plan_item("title", "Title card", estimate_minutes=3),
+                "workflow": "e2e-card",
+                "arguments": {"line": "The opening"},
+            },
             plan_item("score", "Score"),
         ],
     },
