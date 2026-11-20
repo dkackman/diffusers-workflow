@@ -283,6 +283,82 @@ class TestVideoReferenceLength:
             assert refused == (counted < self.minimum()), frames
 
 
+class TestVideoReferenceLengthThroughValidation:
+    """#1509: the shapes regression case S-F147 validates, through the whole
+    of `validation_errors` rather than the one check - a window whose length
+    is a variable the caller's arguments set, behind an image reference."""
+
+    def definition(self, video, num_frames=None, **trim):
+        shot = workflow_with([{"reference_type": IMAGE, "from_file": "a.png"}, video])
+        shot["steps"][0]["pipeline"]["arguments"].update(
+            num_frames=124, width=960, height=544, num_inference_steps=9
+        )
+        if num_frames is not None:
+            shot["variables"] = {"num_window": 13}
+            arguments = {
+                "video": "clip.mp4",
+                "start_frame": 100,
+                "num_frames": num_frames,
+                **trim,
+            }
+            window = {
+                "name": "window",
+                "task": {"command": "trim_video", "arguments": arguments},
+                "result": {"content_type": "video/mp4"},
+            }
+            shot["steps"].insert(0, window)
+        return shot
+
+    def errors(self, definition, tmp_path, monkeypatch, arguments=None, frames=121):
+        import dw.validation
+
+        for name in ("clip.mp4", "a.png"):
+            (tmp_path / name).write_bytes(b"")
+
+        def probe(path):
+            if str(path).endswith(".png"):
+                return {"kind": "image", "width": 960, "height": 544}
+            return {
+                "kind": "video",
+                "fps": 24.0,
+                "frame_count": frames,
+                "width": 960,
+                "height": 544,
+            }
+
+        monkeypatch.setattr(dw.validation, "probe_metadata", probe)
+        workflow = Workflow(definition, "outputs", str(tmp_path / "x.json"))
+        return workflow.validation_errors(arguments=arguments)
+
+    WINDOW = {"reference_type": VIDEO, "from_previous_result": "window", "audio": None}
+
+    @pytest.mark.parametrize("short", [5, 12])
+    def test_a_short_window_set_by_an_argument_is_refused(
+        self, tmp_path, monkeypatch, short
+    ):
+        definition = self.definition(self.WINDOW, "variable:num_window")
+        found = self.errors(definition, tmp_path, monkeypatch, {"num_window": short})
+        assert [e["path"] for e in found] == [
+            "steps[1].pipeline.arguments.references[1]"
+        ]
+        assert f"got {short} frames at 24 fps" in found[0]["message"]
+
+    def test_the_minimum_and_a_padded_window_pass(self, tmp_path, monkeypatch):
+        definition = self.definition(self.WINDOW, "variable:num_window")
+        assert self.errors(definition, tmp_path, monkeypatch, {"num_window": 13}) == []
+        padded = self.definition(self.WINDOW, 5, pad_to=13)
+        assert self.errors(padded, tmp_path, monkeypatch) == []
+
+    def test_a_short_file_is_refused_at_its_index(self, tmp_path, monkeypatch):
+        definition = self.definition({"reference_type": VIDEO, "from_file": "clip.mp4"})
+        found = self.errors(definition, tmp_path, monkeypatch, frames=5)
+        assert [e["path"] for e in found] == [
+            "steps[0].pipeline.arguments.references[1]"
+        ]
+        assert "got 5 frames" in found[0]["message"]
+        assert self.errors(definition, tmp_path, monkeypatch, frames=121) == []
+
+
 class TestAudioReferenceDuration:
     """A Pika audio reference outside the setup block's bound (#1427). The
     bound is read off diffusers, so the tests ask the module for it."""
