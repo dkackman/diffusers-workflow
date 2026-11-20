@@ -1,7 +1,7 @@
 {
   "id": "MaskedKeystoneProbe",
   "summary": "#1505 masked keystone, step 1: segment 2 as a masked regional edit, no argument",
-  "description": "Stage #1506 of #1505 (plan v1). The keystone control's segment 2 alone (dense attention, seed 2, the shared segment 1's 22-frame tail as its guide), made an unchained fl2va regional edit: source_video is variable:keystone as one frame, then the tail (seg01 frames 170-191); mask_video holds its first 22 frames black (kept) and the rest white (regenerated), the #1322 mask-22 construction, which pools to whole latent cells with mask_grow 0; refine_strength 1.0, image variable:keystone, hold_audio aud02. The mask's stills are the keystone flattened to one grey by grade (contrast 0), then pushed below (blacks -1, luma 112) or above (whites 1, luma 143) the 128 binarize threshold. Step 1 runs it with the bright keystone and no attention argument.",
+  "description": "Stage #1506 of #1505 (plan v1). The keystone control's segment 2 alone (dense attention, seed 2, the shared segment 1's 22-frame tail as its guide), made an unchained fl2va regional edit: source_video is variable:keystone as one frame, then the tail (seg01 frames 170-191), then the tail's last frame held for the 169 frames left, since a masked source must be num_frames long (those frames are all regenerated); mask_video holds its first 22 frames black (kept) and the rest white (regenerated), the #1322 mask-22 construction, which pools to whole latent cells with mask_grow 0; refine_strength 1.0, image variable:keystone, hold_audio aud02. The mask's stills are the keystone flattened to one grey by grade (contrast 0), then pushed below (blacks -1, luma 112) or above (whites 1, luma 143) the 128 binarize threshold. Step 1 runs it with the bright keystone and no attention argument.",
   "shape": "shot",
   "variables": {
     "seed": 2,
@@ -61,13 +61,46 @@
       }
     },
     {
+      "name": "last01",
+      "task": {
+        "command": "get_frame",
+        "arguments": {
+          "video": "variable:seg01",
+          "frame_index": 191
+        }
+      },
+      "result": {
+        "content_type": "image/png",
+        "save": false
+      }
+    },
+    {
+      "name": "pad02",
+      "task": {
+        "command": "stills_to_video",
+        "arguments": {
+          "images": [
+            "previous_result:last01"
+          ],
+          "durations": 7.041667,
+          "fps": 24
+        }
+      },
+      "result": {
+        "content_type": "video/mp4",
+        "save": false,
+        "fps": 24
+      }
+    },
+    {
       "name": "src02",
       "task": {
         "command": "concat_videos",
         "arguments": {
           "videos": [
             "previous_result:key02",
-            "previous_result:tail01"
+            "previous_result:tail01",
+            "previous_result:pad02"
           ],
           "trim_frames": 0,
           "fps": 24

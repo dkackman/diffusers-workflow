@@ -1,7 +1,8 @@
 """#1506 (stage A of #1505): the masked-keystone bench's workflows.
 
 Segment 2 of the keystone control, made an unchained fl2va regional edit: the
-source is the keystone as one frame, then segment 1's 22-frame tail, and the
+source is the keystone as one frame, then segment 1's 22-frame tail (its last
+frame held out to the render's length), and the
 mask holds the source's first frames black (kept) on whole latent cells. These
 tests rebuild that claim from the files, so the record's description stays true
 of what ran.
@@ -103,13 +104,26 @@ def test_the_source_is_the_keystone_frame_then_the_tail(name):
     assert key["command"] == "stills_to_video"
     assert key["arguments"]["images"] == ["variable:keystone"]
     assert _frames(key["arguments"]["durations"]) == 1
+    # a masked source must be num_frames long: the tail's last frame fills the
+    # rest, the frames fit_source_frames would have repeated, all regenerated
+    last = steps["last01"]["task"]
+    assert last == {
+        "command": "get_frame",
+        "arguments": {"video": "variable:seg01", "frame_index": 191},
+    }
+    pad = steps["pad02"]["task"]
+    assert pad["command"] == "stills_to_video"
+    assert pad["arguments"]["images"] == ["previous_result:last01"]
+    padding = _frames(pad["arguments"]["durations"])
     src = steps["src02"]["task"]
     assert src["command"] == "concat_videos"
     assert src["arguments"]["videos"] == [
         "previous_result:key02",
         "previous_result:tail01",
+        "previous_result:pad02",
     ]
-    assert src["arguments"]["trim_frames"] == 0  # no frame dropped at the join
+    assert src["arguments"]["trim_frames"] == 0  # no frame dropped at the joins
+    assert 1 + 22 + padding == NUM_FRAMES
 
 
 @pytest.mark.parametrize("name", FILES)
