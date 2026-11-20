@@ -92,13 +92,16 @@ class WorkspaceTools:
         prompt: str | None = None,
         state: str | None = None,
         workspace: str | None = None,
+        purge: list[str] | None = None,
     ) -> dict:
         """Write the whole plan for what the user asked, so it outlives this
         session. revision: the one you read, 0 to create; stale is refused.
         prompt: the user's ask, on create only. items: ordered {key, title,
-        depends_on, estimate_minutes, workflow, arguments}; one left out is
-        removed. why: one line. state: open, done or abandoned.
-        get_guide("workspaces", section="Requests")."""
+        depends_on, estimate_minutes, workflow, arguments, accepted}; one
+        left out is dropped. accepted: {job}, the keeper. Act on the user's
+        `comment`s (request and items) in what you read; never write them.
+        why: one line. state: open, done or abandoned. purge: dropped keys
+        to remove for good. get_guide("workspaces", section="Requests")."""
         return ledger.set_request(
             self.client,
             request,
@@ -110,6 +113,7 @@ class WorkspaceTools:
             prompt,
             state,
             workspace,
+            purge,
         )
 
 

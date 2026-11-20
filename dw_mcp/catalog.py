@@ -4,6 +4,7 @@ web UI consumes, and reshaping them here would only add a second thing to
 keep in sync."""
 
 from dw_mcp.client import DwApiError, api_path, clip_note, project
+from dw_mcp.ledger import request_filter
 
 
 def list_workflows(
@@ -190,7 +191,7 @@ def get_server_info(client):
     return client.get_json("/api/server")
 
 
-def list_jobs(client, limit=20, status=None, workspace=None):
+def list_jobs(client, limit=20, status=None, workspace=None, request=None):
     """The live queue plus recent history, newest first and bounded.
 
     Bounded because the unbounded answer was a dead tool: a server with a
@@ -202,7 +203,7 @@ def list_jobs(client, limit=20, status=None, workspace=None):
     `total` is what matched before the cut, so a caller can tell a bounded
     answer from a complete one; raise `limit` or narrow with `status` /
     `workspace` to see the rest."""
-    params = {}
+    params = request_filter(request)
     if limit is not None:
         params["limit"] = limit
     if status:
@@ -236,6 +237,7 @@ def list_gallery(
     version=None,
     media=False,
     role=None,
+    request=None,
 ):
     """Generated media in the output directory, newest first. `subfolder`
     narrows to one in-run subfolder ('final', 'intermediate', '' for files
@@ -272,7 +274,7 @@ def list_gallery(
 
     Each file carries `role` (`final`, `intermediate`, or null when nothing
     says); `role=[...]` keeps only those, null counting as final."""
-    params = {"limit": limit}
+    params = {"limit": limit, **request_filter(request)}
     if role:
         params["role"] = list(role)
     if subfolder is not None:

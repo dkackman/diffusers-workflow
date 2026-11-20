@@ -7,11 +7,26 @@ read at, so two writers cannot silently overwrite each other; the server's
 refusal says which revision is current.
 """
 
-from dw_mcp.client import api_path
+from dw_mcp.client import DwApiError, api_path
 
 
 def _workspace(client, workspace):
     return workspace or client.workspace
+
+
+def request_filter(request):
+    """A listing's `request` filter as query params: `"<request-id>"`, or
+    `"<request-id>/<item-key>"` for one item - the way `run_workflow` names
+    a link. {} for none. The server owns the key rule."""
+    if request is None or request == "":
+        return {}
+    parts = request.split("/") if isinstance(request, str) else []
+    if len(parts) not in (1, 2):
+        raise DwApiError(
+            '`request` must be "<request-id>" or "<request-id>/<item-key>" '
+            f"(got {request!r})."
+        )
+    return dict(zip(("request", "item"), parts))
 
 
 def get_request(client, request=None, workspace=None):
@@ -33,8 +48,10 @@ def set_request(
     prompt=None,
     state=None,
     workspace=None,
+    purge=None,
 ):
-    """Write a request's whole plan, as the agent."""
+    """Write a request's whole plan, as the agent. The user's `comment` is
+    never sent: the server keeps what is there."""
     payload = {
         "title": title,
         "goal": goal,
@@ -47,6 +64,8 @@ def set_request(
         payload["prompt"] = prompt
     if state is not None:
         payload["state"] = state
+    if purge:
+        payload["purge"] = purge
     return client.put_json(
         api_path(
             "api", "workspaces", _workspace(client, workspace), "requests", request

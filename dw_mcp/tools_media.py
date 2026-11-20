@@ -358,9 +358,7 @@ class AssetTools:
         own machine cannot be named this way.
 
         `content` is for that case: the file's bytes, base64-encoded, sent
-        inline rather than read off disk. Use it for a file that lives
-        only on the machine you're running on, against a remote
-        `dw.serve --mcp` endpoint with no filesystem in common with you.
+        inline rather than read off disk.
         Capped at 4MB, well under `file_path`'s 200MB. `asset_name` is
         required with `content`, since there is no file to name it from.
 
