@@ -7,6 +7,7 @@
   import { workspace } from '../workspace.svelte'
   import CopyButton from '../CopyButton.svelte'
   import RerunWithChanges from './RerunWithChanges.svelte'
+  import { exportMessage } from './exportMessage'
   import { displayValue } from '../editor'
   import { formatDuration, formatExact, formatMtime, gbFromMb } from '../format'
   import { notify } from '../toast'
@@ -108,36 +109,34 @@
   // gathering it twice while the first is still copying media.
   let exporting = $state(false)
 
+  /** The export, or null when one exists and the user kept it. The server
+   * keeps one export per job. An existing one is not a failure but a
+   * question, and only a 409 asks it - anything else is reported as the
+   * error it is. */
+  async function exportOrReplace(workspace: string) {
+    try {
+      return await api.exportJob(jobId, workspace)
+    } catch (e) {
+      if (!(e instanceof ApiError) || e.status !== 409) throw e
+    }
+    const replace = await confirmDialog(
+      'This job has already been exported on the server. Replace that export with a fresh one?',
+      { confirmLabel: 'Replace' },
+    )
+    return replace ? api.exportJob(jobId, workspace, true) : null
+  }
+
   async function exportJob() {
     if (!job || exporting) return
     exporting = true
     try {
-      let result
-      try {
-        result = await api.exportJob(jobId, job.workspace)
-      } catch (e) {
-        // The server keeps one export per job. An existing one is not a
-        // failure but a question, and only a 409 asks it - anything else
-        // is reported as the error it is.
-        if (!(e instanceof ApiError) || e.status !== 409) throw e
-        const replace = await confirmDialog(
-          'This job has already been exported on the server. Replace that export with a fresh one?',
-          { confirmLabel: 'Replace' },
-        )
-        if (!replace) return
-        result = await api.exportJob(jobId, job.workspace, true)
-      }
+      const result = await exportOrReplace(job.workspace)
+      if (!result) return
       const anchor = document.createElement('a')
       anchor.href = api.exportZipUrl(result.zip_url)
       anchor.download = `${jobId}.zip`
       anchor.click()
-      const mb = (result.total_bytes / (1024 * 1024)).toFixed(1)
-      notify.success(
-        `Exported ${result.files.length} file${result.files.length === 1 ? '' : 's'} (${mb} MB) to ${result.directory}` +
-          (result.missing.length
-            ? ` - ${result.missing.length} referenced file${result.missing.length === 1 ? '' : 's'} no longer on disk`
-            : ''),
-      )
+      notify.success(exportMessage(result))
     } catch (e) {
       notify.error(e instanceof Error ? e.message : String(e))
     } finally {

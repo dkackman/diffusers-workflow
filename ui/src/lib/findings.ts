@@ -20,6 +20,14 @@ const VARIABLE_PATH = /^(?:arguments|variables)\.([A-Za-z_][A-Za-z0-9_-]*)(.*)$/
 const VARIABLE_WARNING =
   /^((?:arguments|variables)\.[A-Za-z_][A-Za-z0-9_-]*\S*): ([\s\S]*)$/
 
+/** A refusal with no finding list still says why, in `error` */
+function bareRefusal(result: ValidationResult): Finding[] {
+  const listed = (result.errors ?? []).length > 0
+  return !result.valid && !listed && result.error
+    ? [{ tone: 'bad', text: result.error }]
+    : []
+}
+
 /** Split a validate answer into what goes under a field the form shows and
  * what goes in the general list. A finding is placed only by its
  * `arguments.<name>` / `variables.<name>` path prefix; the UI derives
@@ -55,10 +63,7 @@ export function placeFindings(
     const path = error.path ?? null
     place('bad', path, error.message, `${path ?? 'root'}: ${error.message}`)
   }
-  // A refusal with no finding list still says why, in `error`
-  if (!result.valid && !errors.length && result.error) {
-    placed.general.push({ tone: 'bad', text: result.error })
-  }
+  placed.general.push(...bareRefusal(result))
   for (const warning of result.warnings ?? []) {
     const match = VARIABLE_WARNING.exec(warning)
     if (match) place('warn', match[1], match[2], warning)

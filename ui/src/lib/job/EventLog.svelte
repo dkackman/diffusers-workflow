@@ -13,6 +13,7 @@
     eventKind,
     eventSummary,
     fetchEventLog,
+    type EventLogFetch,
   } from './eventLog'
 
   let { jobId, live }: { jobId: string; live: boolean } = $props()
@@ -44,6 +45,28 @@
     kind = ''
   })
 
+  function take(page: EventLogFetch, after: number) {
+    rows = after < 0 ? page.events : [...rows, ...page.events]
+    lastSeq = page.lastSeq
+    note = page.note ?? note
+    capped = page.capped
+    loaded = true
+  }
+
+  // A live log is read from its tail: the rows a load or Refresh just
+  // brought in are the newest, so bring them into view rather than
+  // leaving them below the box's fold (#1499)
+  async function showTail(id: string) {
+    await tick()
+    if (id === jobId && body) body.scrollTop = body.scrollHeight
+  }
+
+  function failed(e: unknown) {
+    if (e instanceof ApiError && e.status === 404) missing = true
+    else error = e instanceof Error ? e.message : String(e)
+    loaded = true
+  }
+
   async function load(after: number) {
     const id = jobId
     loading = true
@@ -51,23 +74,10 @@
     try {
       const page = await fetchEventLog(id, after, EVENT_LOG_CAP)
       if (id !== jobId) return
-      rows = after < 0 ? page.events : [...rows, ...page.events]
-      lastSeq = page.lastSeq
-      note = page.note ?? note
-      capped = page.capped
-      loaded = true
-      // A live log is read from its tail: the rows a load or Refresh just
-      // brought in are the newest, so bring them into view rather than
-      // leaving them below the box's fold (#1499)
-      if (live && page.events.length) {
-        await tick()
-        if (id === jobId && body) body.scrollTop = body.scrollHeight
-      }
+      take(page, after)
+      if (live && page.events.length) await showTail(id)
     } catch (e) {
-      if (id !== jobId) return
-      if (e instanceof ApiError && e.status === 404) missing = true
-      else error = e instanceof Error ? e.message : String(e)
-      loaded = true
+      if (id === jobId) failed(e)
     } finally {
       if (id === jobId) loading = false
     }
