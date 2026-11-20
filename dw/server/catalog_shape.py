@@ -70,7 +70,15 @@ _MEDIA_ARGUMENTS = frozenset(
         "reference_audio",
     }
 )
-_CUT_TASKS = frozenset({"concat_videos", "dissolve_videos", "join_windows"})
+# A task that cuts shots together, and the argument holding the shots.
+# replace_cuts puts re-rendered cuts back into a take: as much an edit of
+# several shots as a concat of them
+_CUT_TASKS = {
+    "concat_videos": "videos",
+    "dissolve_videos": "videos",
+    "join_windows": "videos",
+    "replace_cuts": "clips",
+}
 # Components that exist only to synthesise a waveform. A video pipeline
 # carrying one emits an audio track whether or not it says so in `output`.
 _AUDIO_COMPONENTS = frozenset({"vocoder", "audio_vae"})
@@ -185,14 +193,15 @@ def _needs_input_media(steps, variables=None):
 
 
 def _cuts_together(steps):
-    """A concat or dissolve fed by two or more distinct steps, or by a list
-    of shots handed in whole - one `variable:` reference is a supplied list
-    whose length only the caller knows, one `gather:` reference is every
-    member of a for_each group, and a cut over either is still an edit."""
+    """A concat, dissolve or cut replacement fed by two or more distinct
+    steps, or by a list of shots handed in whole - one `variable:` reference
+    is a supplied list whose length only the caller knows, one `gather:`
+    reference is every member of a for_each group, and a cut over either is
+    still an edit."""
     for step in steps:
         key, body = _block(step)
         if key == "task" and body.get("command") in _CUT_TASKS:
-            videos = _arguments(step).get("videos")
+            videos = _arguments(step).get(_CUT_TASKS[body["command"]])
             if references.is_ref((references.VARIABLE, references.GATHER), videos):
                 return True
             sources = _fed_by(videos)

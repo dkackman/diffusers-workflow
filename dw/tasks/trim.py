@@ -10,6 +10,15 @@ tile the track with no sample lost or repeated.
 frame is held up to `pad_to` frames and the track runs on in silence to the
 same end, so a cut `detect_cuts` laid out can be handed to a model whose frame
 grid it falls short of, and trimmed back to its own length after.
+
+`replace_cuts` is the way back: each re-rendered cut's frames go over the
+take's own frames at the cut's `start_frame`, and everything else - the cuts
+nobody listed, and the whole soundtrack - stays the take's. The result is the
+take's length whatever the list holds, so picture and sound cannot part: the
+join it replaced (`concat_videos` of the rendered cuts, the take's track paired
+on) lost a cut left out of the middle and slid every later cut under the wrong
+sound. `cut_list_problem` owns the list's one rule - in the take's order, no
+two overlapping - for the task and for validation.
 """
 
 import logging
@@ -19,7 +28,7 @@ import numpy as np
 
 from ..dsp import as_channels_samples
 from ..media_types import AudioVideo
-from ..shots import shot_record, trimmed_shots
+from ..shots import carried_shots, shot_record, trimmed_shots
 from ..task_domains import (
     NON_NEGATIVE,
     POSITIVE,
@@ -35,6 +44,7 @@ from .video_utils import VideoFileReference, frames_as_pil_list, load_audio_vide
 logger = logging.getLogger("dw")
 
 COMMAND = "trim_video"
+REPLACE = "replace_cuts"
 
 
 def trim_video(video, start_frame, num_frames, fps=None, pad_to=None):
@@ -195,6 +205,181 @@ def _span_of_audio(audio, sample_rate, fps, start_frame, end, held=0):
         return span
     padded = frames_to_samples(end + held, fps, sample_rate) - first
     return np.pad(span, ((0, 0), (0, max(0, padded - span.shape[1]))))
+
+
+# ------------------------------------------------------------ replace_cuts
+
+
+def _whole(value):
+    return isinstance(value, numbers.Integral) and not isinstance(value, bool)
+
+
+def _cut_label(cuts, index):
+    name = cuts[index].get("name")
+    return f"cuts[{index}] ('{name}')" if isinstance(name, str) else f"cuts[{index}]"
+
+
+def cut_list_problem(cuts):
+    """Why a list of cuts ({start_frame, num_frames, ...}) cannot be put back
+    into one take, or None: each must start at or after the end of the one
+    before it. Entries whose span is not a literal whole number are not judged
+    (a reference resolves later, and the task refuses a bad one itself)."""
+    if not isinstance(cuts, list):
+        return None
+    previous = None  # (index, start, end) of the last entry with a known span
+    for index, cut in enumerate(cuts):
+        if not isinstance(cut, dict):
+            continue
+        start, count = cut.get("start_frame"), cut.get("num_frames")
+        if not (_whole(start) and _whole(count)) or start < 0 or count < 1:
+            continue
+        if previous is not None and start < previous[2]:
+            return _order_problem(cuts, index, start, previous)
+        previous = (index, start, start + count)
+    return None
+
+
+def _order_problem(cuts, index, start, previous):
+    before, before_start, before_end = previous
+    here, there = _cut_label(cuts, index), _cut_label(cuts, before)
+    if start < before_start:
+        return (
+            f"{here} starts at frame {start}, before {there} at frame "
+            f"{before_start}: list the cuts in the take's order, each starting "
+            "at or after the end of the one before. A cut to leave as it is "
+            "is left out of the list - its frames stay the take's"
+        )
+    return (
+        f"{here} starts at frame {start}, inside {there}, which runs to frame "
+        f"{before_end - 1}: two cuts cannot cover the same frames. Start it at "
+        f"frame {before_end} or later, shorten {there}, or merge the two into "
+        "one cut"
+    )
+
+
+def replace_cuts_errors(arguments):
+    """[(argument, message)] for a literal cut list out of the take's order or
+    overlapping, and a literal clip list of another length."""
+    cuts, clips = arguments.get("cuts"), arguments.get("clips")
+    errors = []
+    problem = cut_list_problem(cuts)
+    if problem:
+        errors.append(("cuts", f"{REPLACE}: {problem}"))
+    if isinstance(cuts, list) and isinstance(clips, list) and len(cuts) != len(clips):
+        errors.append(("clips", _count_problem(len(clips), len(cuts))))
+    return errors
+
+
+def _count_problem(clips, cuts):
+    return (
+        f"{REPLACE}: {clips} clip(s) for {cuts} cut(s) - 'clips' holds one "
+        "re-rendered clip per entry of 'cuts', in the same order"
+    )
+
+
+def _cut_span(cuts, index, total):
+    """(start_frame, num_frames) of one cut, inside a take of `total` frames."""
+    cut = cuts[index]
+    label = _cut_label(cuts, index) if isinstance(cut, dict) else f"cuts[{index}]"
+    if not isinstance(cut, dict):
+        raise ValueError(
+            f"{REPLACE}: {label} must be an object with start_frame and num_frames"
+        )
+    start = whole_number(cut.get("start_frame"), "start_frame", REPLACE)
+    count = whole_number(cut.get("num_frames"), "num_frames", REPLACE)
+    if not (_whole(start) and _whole(count)) or start < 0 or count < 1:
+        raise ValueError(
+            f"{REPLACE}: {label} needs a whole start_frame of 0 or more and a "
+            f"whole num_frames of 1 or more, got {cut.get('start_frame')!r} "
+            f"and {cut.get('num_frames')!r}"
+        )
+    problem = span_problem(int(start), int(count), total)
+    if problem:
+        raise ValueError(f"{REPLACE}: {label}: {problem}")
+    return int(start), int(count)
+
+
+def _read_clip(video):
+    if isinstance(video, VideoFileReference):
+        return load_audio_video(video.path)
+    if isinstance(video, str):
+        return load_audio_video(video)
+    return video
+
+
+def replace_cuts(video, clips, cuts):
+    """Task command: put re-rendered cuts back into the take they came from.
+
+    Args:
+        video: The take - a path, an asset:/output: reference (read with its
+            audio), or an earlier step's video
+        clips: One re-rendered clip per entry of 'cuts', in the same order.
+            A clip's first num_frames frames are used, so a clip rendered
+            longer (trim_video's pad_to) needs no trim first
+        cuts: The cuts the clips were rendered from, as detect_cuts lists
+            them: objects with start_frame and num_frames (other fields are
+            ignored), in the take's order and not overlapping. Any subset of
+            a take's cuts: one left out stays as the take has it
+
+    Returns:
+        The take as one AudioVideo, the same length: frames [start_frame,
+        start_frame + num_frames) of each cut are the clip's, every other
+        frame, the whole track, the fps and the shots are the take's
+    """
+    if video is None:
+        raise ValueError(f"{REPLACE} needs 'video' - the take the cuts came from")
+    if not isinstance(cuts, list) or not cuts:
+        raise ValueError(f"{REPLACE} needs 'cuts' - a list of the cuts to put back")
+    clips = list(clips) if isinstance(clips, (list, tuple)) else [clips]
+    if len(clips) != len(cuts):
+        raise ValueError(_count_problem(len(clips), len(cuts)))
+    problem = cut_list_problem(cuts)
+    if problem:
+        raise ValueError(f"{REPLACE}: {problem}")
+
+    take = _read_clip(video)
+    frames = list(frames_as_pil_list(take))
+    if not frames:
+        raise ValueError(f"{REPLACE}: the take has no frames")
+    size = frames[0].size
+    for index, clip in enumerate(clips):
+        start, count = _cut_span(cuts, index, len(frames))
+        rendered = frames_as_pil_list(_read_clip(clip))
+        label = _cut_label(cuts, index)
+        if len(rendered) < count:
+            raise ValueError(
+                f"{REPLACE}: the clip for {label} has {len(rendered)} frames, "
+                f"fewer than the cut's num_frames {count}"
+            )
+        if rendered[0].size != size:
+            raise ValueError(
+                f"{REPLACE}: the clip for {label} is "
+                f"{rendered[0].size[0]}x{rendered[0].size[1]} and the take is "
+                f"{size[0]}x{size[1]} - render the cuts at the take's size"
+            )
+        frames[start : start + count] = rendered[:count]
+    logger.info(f"Put {len(clips)} cut(s) back into a take of {len(frames)} frames")
+
+    clip = take if isinstance(take, AudioVideo) else None
+    fps = (clip.fps if clip else None) or getattr(clips[0], "fps", None)
+    return AudioVideo(
+        frames,
+        clip.audio if clip else None,
+        clip.sample_rate if clip else None,
+        fps=fps,
+        shots=carried_shots(take),
+    )
+
+
+@register_command(
+    REPLACE,
+    implementation="dw.tasks.trim.replace_cuts",
+    static_check=replace_cuts_errors,
+)
+def _handle_replace_cuts(task, arguments, previous_pipelines):
+    """Put re-rendered cuts back into the take, its other frames and audio kept"""
+    logger.debug("Replacing cuts in a take")
+    return replace_cuts(**arguments)
 
 
 @register_command(

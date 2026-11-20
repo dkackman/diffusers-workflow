@@ -63,6 +63,31 @@ def test_cut_with_its_own_prompt_validates_clean(harness):
     assert harness([dict(GOOD[0], prompt="a close-up"), GOOD[1]]) == []
 
 
+def test_a_cut_left_out_of_the_middle_validates_clean(harness):
+    """A take's untouched cut is left out of `cuts`: replace_cuts keeps its
+    frames, so a gap is not an error (0.21.0 review)."""
+    first = cut(name="a", num_frames=60)
+    last = cut(name="c", start_frame=150, num_frames=60)
+    assert harness([first, last]) == []
+
+
+def test_cuts_out_of_the_takes_order_refused(harness):
+    errors = harness([GOOD[1], GOOD[0]])
+    assert [e["path"] for e in errors] == ["steps[4].task.arguments.cuts"]
+    out = text(errors)
+    assert "cuts[1] ('cut-1') starts at frame 0, before cuts[0] ('cut-2')" in out
+    assert "list the cuts in the take's order" in out
+    assert "left out of the list" in out
+
+
+def test_overlapping_cuts_refused(harness):
+    errors = harness([GOOD[0], dict(GOOD[1], start_frame=100)])
+    assert [e["path"] for e in errors] == ["steps[4].task.arguments.cuts"]
+    out = text(errors)
+    assert "cuts[1] ('cut-2') starts at frame 100, inside cuts[0] ('cut-1')" in out
+    assert "Start it at frame 120 or later" in out
+
+
 def test_swap_prompt_falls_back_to_the_workflow_prompt():
     """A cut's own prompt wins, else the workflow prompt (#1374, ep62)."""
     tpl = json.loads((TEMPLATES / "replace-performer.json").read_text())

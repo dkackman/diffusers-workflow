@@ -18,7 +18,8 @@ window and grid are not written here: they are read off the diffusers class
 marked `split`; a cut shorter than the grid's first step past its remainder
 (22 frames) is marked `too_short`, since it would pad to the window's floor
 from almost nothing. Neither is dropped: the cut list is a literal the agent
-edits.
+edits, and `replace_cuts` (`dw/tasks/trim.py`) puts back whichever of them
+were re-rendered, the rest of the take kept.
 
 The detector is tuned for hard cuts: a dissolve or a slow fade is not found.
 """
@@ -283,7 +284,9 @@ def detect_cuts(video, max_frames=345):
         emit_warning(
             f"{COMMAND}: under {too_short_below(window)} frames, so padded to "
             f"{window['min_frames']} from almost nothing: {', '.join(short)} - "
-            "merge each into a neighbour"
+            "merge each into a neighbour, or leave it out of the cuts you "
+            "re-render (replace_cuts keeps the take's frames for a cut not "
+            "listed)"
         )
     return JsonRecord(
         {
