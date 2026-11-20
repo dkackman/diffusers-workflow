@@ -74,6 +74,13 @@ class WorkspaceTools:
         derived status, revision and history. Omit request to list them."""
         return ledger.get_request(self.client, request, workspace)
 
+    def delete_request(
+        self, request: str, revision: int, workspace: str | None = None
+    ) -> dict:
+        """Delete a request from the ledger at the `revision` read. Its jobs
+        keep their link and files; refused while one is queued or running."""
+        return ledger.delete_request(self.client, request, revision, workspace)
+
     def set_request(
         self,
         request: str,

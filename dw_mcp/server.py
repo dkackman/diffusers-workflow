@@ -178,6 +178,7 @@ def build_server(client):
     tool(wks.delete_workspace, DELETES)
     tool(wks.get_request, READ_ONLY)
     tool(wks.set_request, WRITES)
+    tool(wks.delete_request, DELETES)
 
     tool(aut.validate_workflow, READ_ONLY)
     tool(aut.save_workflow, OVERWRITES)

@@ -278,36 +278,27 @@ class MediaTools:
         overwrite: bool = False,
         workspace: str | None = None,
     ) -> dict:
-        """Save one output file to disk on the
-        machine running the MCP server - for the stdio `dw-mcp` that is
-        your own machine; for a
-        `dw.serve --mcp` endpoint it is the GPU box, and this tool is not
-        the way to get a file to where you are (use get_output_image /
-        get_output_text for inline content, or the `url` that
-        `list_gallery` reports for each entry, which already carries the
-        workspace selector - do not build an /outputs URL by hand). This is
-        also not how a generated file becomes an input for a later
-        workflow: use `keep_output`, which links it inside the workspace
-        under an `asset:` name, rather than writing into the server's asset
-        directory behind the API's back. Unlike the inline tools, this works
-        for any file type, streams the body straight to disk rather than
-        buffering it, and returns no content to the conversation - only
-        where it was saved. `destination` may be a
-        full path or a directory; a '..' path segment in it is refused. An
-        existing file at the resolved path is left alone unless
-        `overwrite=True`. On the stdio `dw-mcp`, omitting `destination`
+        """Save one output file to disk on the machine running the MCP
+        server: your own for the stdio `dw-mcp`, the GPU box for a
+        `dw.serve --mcp` endpoint - where this is not the way to get a file
+        to you: use get_output_image / get_output_text /
+        get_output_audio / get_output_frames for inline content, or the
+        `url` `list_gallery` reports for each entry, which already carries
+        the workspace selector (do not build an /outputs URL by hand). Nor
+        is it how an output becomes a later workflow's input: `keep_output`
+        links it inside the workspace under an `asset:` name. Works for any
+        file type, streams to disk without buffering, and returns only
+        where it was saved. `destination` may be a full path or a
+        directory; a '..' segment is refused. An existing file is left
+        alone unless `overwrite=True`. On stdio, omitting `destination`
         saves into the current working directory under the output's own
-        name. On a `dw.serve --mcp` endpoint the save happens on the server, and destination is required there -
+        name; on a `dw.serve --mcp` endpoint destination is required there -
         an omitted one is refused rather than dropped loose in the
-        workspace root, where nothing can find or delete it later; use
-        the `url` list_gallery reports, get_output_image/get_output_audio/
-        get_output_frames for inline content, or keep_output to make it a
-        named asset instead.
+        workspace root, where nothing can find or delete it later.
 
         `workspace` names the workspace for this one call without
-        switching the session to it - the same pin `run_workflow`
-        takes, so a job run into another workspace is reachable from
-        here without leaving this one."""
+        switching the session - the pin `run_workflow` takes, so a job run
+        into another workspace is reachable from here."""
         return media.download_output(
             self.client,
             name,

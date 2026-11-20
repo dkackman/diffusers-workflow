@@ -111,7 +111,7 @@ model cache and workspace with a native install on the same box. See
 
 ## Ask the agent
 
-Describe what you want. The agent has 67 tools covering the workflow catalog, the
+Describe what you want. The agent has 68 tools covering the workflow catalog, the
 real diffusers pipeline signatures, the job queue, the gallery and the model cache,
 and it stays with a long render until it finishes:
 

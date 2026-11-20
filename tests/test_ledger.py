@@ -556,7 +556,7 @@ class TestRoutes:
             routes = [
                 r for r in client.app.routes if "/requests" in getattr(r, "path", "")
             ]
-        assert len(routes) == 3
+        assert len(routes) == 4
         for route in routes:
             assert not getattr(route.endpoint, "query_token_ok", False), route.path
 

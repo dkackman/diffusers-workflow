@@ -40,9 +40,12 @@ class Scripts:
     def __init__(self):
         self.count = 0
         self.fail_next = False
+        self.gate = None  # a threading.Event: the run waits for it
 
     def __call__(self, command):
         self.count += 1
+        if self.gate is not None:
+            self.gate.wait(10)
         if self.fail_next:
             self.fail_next = False
             yield {"type": "error", "message": "boom"}
@@ -600,3 +603,107 @@ def test_submit_then_history_then_request_view(planned):
     assert a["attempts"][0]["note"] == "the first take"
     assert a["result"]["job"] == job["id"]
     assert items_of(planned)["b"]["status"] == "planned"
+
+
+# --- deleting a request ----------------------------------------------------
+
+
+def delete(client, request_id="cats", revision=1, expect=200):
+    r = client.delete(
+        f"/api/workspaces/{WS}/requests/{request_id}", params={"revision": revision}
+    )
+    assert r.status_code == expect, r.text
+    return r.json()
+
+
+class TestDelete:
+    def test_a_request_is_deleted_at_the_revision_read(self, planned):
+        write_plan(planned, request_id="dogs")
+        stale = delete(planned, revision=7, expect=409)["detail"]
+        assert stale["code"] == "stale_revision" and stale["current_revision"] == 1
+        assert delete(planned) == {
+            "id": "cats",
+            "workspace": WS,
+            "deleted": True,
+            "revision": 1,
+            "linked_jobs": 0,
+        }
+        assert planned.get(f"/api/workspaces/{WS}/requests/cats").status_code == 404
+        listed = planned.get(f"/api/workspaces/{WS}/requests").json()["requests"]
+        assert [r["id"] for r in listed] == ["dogs"]
+        assert delete(planned, expect=404)["detail"]["code"] == "unknown_request"
+
+    def test_the_revision_is_required_and_the_id_is_checked(self, planned):
+        url = f"/api/workspaces/{WS}/requests"
+        assert planned.delete(f"{url}/cats").status_code == 422
+        assert planned.delete(f"{url}/Cats?revision=1").status_code == 400
+        assert planned.delete(f"{url}/a%2Fb?revision=1").status_code == 400
+        assert view(planned)["revision"] == 1
+
+    def test_the_jobs_keep_their_rows_their_link_and_their_files(self, planned):
+        job = finish(planned, submit(planned))
+        files = planned.get("/api/gallery?request=cats").json()["files"]
+        assert len(files) == 1
+        assert delete(planned)["linked_jobs"] == 1
+        after = planned.get(f"/api/jobs/{job['id']}").json()
+        assert after["status"] == "succeeded"
+        assert after["request"] == "cats" and after["item"] == "a"
+        # the filters read the jobs, not the ledger, so they still answer
+        listed = planned.get("/api/jobs?request=cats&item=a").json()["jobs"]
+        assert [j["id"] for j in listed] == [job["id"]]
+        assert planned.get("/api/gallery?request=cats").json()["files"] == files
+        run_dir = os.path.join(
+            planned.root.outputs, planned.manager.get(job["id"]).run_dir
+        )
+        assert os.path.isfile(os.path.join(run_dir, "still.png"))
+
+    def test_a_request_with_a_queued_or_running_job_is_not_deleted(self, planned):
+        import threading
+
+        planned.script.gate = threading.Event()
+        try:
+            running = submit(planned)
+            queued = submit(planned, item_key="b")
+            refusal = delete(planned, expect=409)["detail"]
+            assert refusal["code"] == "request_has_active_jobs"
+            assert sorted(refusal["jobs"]) == sorted([running["id"], queued["id"]])
+            assert view(planned)["revision"] == 1
+        finally:
+            planned.script.gate.set()
+        for job in (running, queued):
+            finish(planned, job)
+        assert delete(planned)["linked_jobs"] == 2
+
+    def test_nothing_new_links_to_a_deleted_request_and_a_rerun_warns(self, planned):
+        job = finish(planned, submit(planned))
+        delete(planned)
+        refusal = submit(planned, expect=422)["detail"]
+        assert refusal["code"] == "unknown_request"
+        r = planned.post(f"/api/jobs/{job['id']}/rerun", json={})
+        assert r.status_code == 201, r.text
+        assert any(
+            w.startswith("rerun_ledger_link_unknown_request")
+            for w in r.json()["warnings"]
+        )
+
+    def test_a_request_made_again_under_the_id_takes_the_jobs_back(self, planned):
+        job = finish(planned, submit(planned))
+        delete(planned)
+        again = write_plan(planned, items=[item("a")])
+        assert again["revision"] == 1 and len(again["history"]) == 1
+        (a,) = again["items"]
+        assert a["status"] == "done"
+        assert [attempt["job"] for attempt in a["attempts"]] == [job["id"]]
+
+    def test_a_named_workspace_deletes_its_own(self, planned):
+        assert (
+            planned.post("/api/workspaces", json={"name": "shots"}).status_code == 201
+        )
+        url = "/api/workspaces/shots/requests/cats"
+        assert planned.put(url, json=plan()).status_code == 200
+        assert planned.delete(f"{url}?revision=1").json()["workspace"] == "shots"
+        assert view(planned)["id"] == "cats"
+        assert (
+            planned.delete("/api/workspaces/nope/requests/cats?revision=1").status_code
+            == 404
+        )

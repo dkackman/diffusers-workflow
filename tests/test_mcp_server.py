@@ -83,10 +83,12 @@ EXPECTED_TOOLS = {
     "delete_workspace",
     "get_request",
     "set_request",
+    "delete_request",
 }
 
 READ_ONLY_TOOLS = EXPECTED_TOOLS - {
     "set_request",
+    "delete_request",
     "clear_memory",
     "save_workflow",
     "delete_workflow",
@@ -124,6 +126,7 @@ DESTRUCTIVE_TOOLS = {
     "download_output",
     "delete_output",
     "delete_asset",
+    "delete_request",
 }
 
 # Tools that refuse until the caller passes acknowledged_cost=true. The
@@ -781,6 +784,12 @@ TOOL_WIRING = [
         },
         "PUT",
         "/api/workspaces/default/requests/cats",
+    ),
+    (
+        "delete_request",
+        {"request": "cats", "revision": 3, "workspace": "shots"},
+        "DELETE",
+        "/api/workspaces/shots/requests/cats",
     ),
     (
         "upload_asset",

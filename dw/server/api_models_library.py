@@ -6,9 +6,10 @@ re-exports every name here.
 
 from typing import Any, Literal
 
-from pydantic import ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from .api_models_base import ApiModel, JobStatus, sometimes
+from ..ledger import MAX_TITLE_LENGTH, MAX_WHY_LENGTH
 from ..lora_catalog import STATUS_ORDER
 from .catalog_shape import SHAPES, TRAITS
 
@@ -448,6 +449,36 @@ class LedgerList(ApiModel):
         "Why requests.json could not be read, when it is there but is not a "
         "ledger; `requests` is then empty and every write is 409 "
         "`ledger_unreadable` until the file is fixed or removed."
+    )
+
+
+class LedgerDeleted(ApiModel):
+    id: str
+    workspace: str
+    deleted: bool
+    revision: int = Field(description="The revision that was deleted.")
+    linked_jobs: int = Field(
+        description="Jobs linked to it; each keeps its row, link and files."
+    )
+
+
+class RequestWrite(BaseModel):
+    """One request's whole plan."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    title: str = Field(description=f"One line, at most {MAX_TITLE_LENGTH}")
+    goal: str = Field(description="What done looks like")
+    items: list[dict[str, Any]] = Field(
+        description="The ordered plan; each item is key, title, depends_on, "
+        "estimate_minutes, workflow, arguments, accepted, comment"
+    )
+    revision: int = Field(description="The revision read, or 0 to create")
+    why: str = Field(description=f"One line, at most {MAX_WHY_LENGTH}")
+    prompt: str | None = Field(default=None, description="Create only")
+    state: Literal["open", "done", "abandoned"] | None = None
+    by: Literal["agent", "user"] = Field(
+        default="user", description="Who wrote this revision; the UI is the user"
     )
 
 

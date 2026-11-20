@@ -11,11 +11,11 @@ import json
 import logging
 import os
 import threading
-from typing import Any, Dict, Literal, Optional
+from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, Field
 
 from ..api_models import (
     BuiltinWorkflows,
@@ -34,6 +34,9 @@ from ..api_models import (
     WorkspaceInfo,
     WorkspaceList,
 )
+
+# The ledger's models added after api_models neared its line ceiling
+from ..api_models_library import LedgerDeleted, RequestWrite
 from ...argument_warnings import workflow_argument_warnings
 from ...schema import format_validation_errors, load_schema, validate_data
 from ... import ledger, references, validation
@@ -940,26 +943,6 @@ def enhance(
 # id rule (`validate_ledger_key`), not fall through to a bare 404/405.
 
 
-class RequestWrite(BaseModel):
-    """One request's whole plan."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    title: str = Field(description=f"One line, at most {ledger.MAX_TITLE_LENGTH}")
-    goal: str = Field(description="What done looks like")
-    items: list[dict[str, Any]] = Field(
-        description="The ordered plan; each item is key, title, depends_on, "
-        "estimate_minutes, workflow, arguments, accepted, comment"
-    )
-    revision: int = Field(description="The revision read, or 0 to create")
-    why: str = Field(description=f"One line, at most {ledger.MAX_WHY_LENGTH}")
-    prompt: str | None = Field(default=None, description="Create only")
-    state: Literal["open", "done", "abandoned"] | None = None
-    by: Literal["agent", "user"] = Field(
-        default="user", description="Who wrote this revision; the UI is the user"
-    )
-
-
 def _jobs_for(request, name):
     """`rid -> the jobs linked to that request`, for the derived item state."""
     manager = request.app.state.job_manager
@@ -1056,3 +1039,30 @@ def put_request(request: Request, name: str, request_id: str, body: RequestWrite
         raise HTTPException(status_code=e.status, detail=e.detail())
     except OSError:
         raise internal_error(f"Could not write request {request_id!r}")
+
+
+@router.delete(
+    "/api/workspaces/{name}/requests/{request_id:path}",
+    response_model=LedgerDeleted,
+    response_model_exclude_unset=True,
+)
+def delete_request(
+    request: Request,
+    name: str,
+    request_id: str,
+    revision: int = Query(description="The revision the request was read at"),
+):
+    """Remove one request from the ledger. Its linked jobs keep their
+    history rows, their `request`/`item` and their files. 409
+    `stale_revision` at another revision, 409 `request_has_active_jobs`
+    while a linked job is queued or running, 404 `unknown_request`."""
+    root = _ledger_root(request.app.state, name)
+    try:
+        deleted = ledger.delete_request(
+            root, request_id, revision, jobs_for=_jobs_for(request, name)
+        )
+    except ledger.LedgerError as e:
+        raise HTTPException(status_code=e.status, detail=e.detail())
+    except OSError:
+        raise internal_error(f"Could not delete request {request_id!r}")
+    return {"workspace": name, **deleted}

@@ -53,3 +53,14 @@ def set_request(
         ),
         payload,
     )
+
+
+def delete_request(client, request, revision, workspace=None):
+    """Remove one request from the ledger at the revision read; its linked
+    jobs keep their rows, their link and their files."""
+    return client.delete_json(
+        api_path(
+            "api", "workspaces", _workspace(client, workspace), "requests", request
+        ),
+        params={"revision": revision},
+    )

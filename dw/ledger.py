@@ -851,3 +851,61 @@ def put_request(
             )
         write_json_atomic(ledger_path(root), document)
     return request_view(request, jobs_for(request_id))
+
+
+def delete_request(root, request_id, revision, *, jobs_for=_no_jobs):
+    """Remove one request from the ledger, at the revision it was read at,
+    and answer `{id, deleted, revision, linked_jobs}`.
+
+    Only the ledger entry goes. Every job linked to it keeps its history
+    row, its `request` and `item`, and its files, so the job and gallery
+    filters still find them; a request written again under the same id
+    reads those jobs as its own. Refused (409 `request_has_active_jobs`,
+    with their ids as `jobs`) while a linked job is queued or running:
+    cancel them or let them finish.
+
+    Raises LedgerError, or OSError when the file cannot be written."""
+    if root is None:
+        raise LedgerError(
+            "this workspace has no root folder, so it holds no requests",
+            status=409,
+            code="no_workspace_root",
+        )
+    _key(request_id, "Request id")
+    if isinstance(revision, bool) or not isinstance(revision, int):
+        raise LedgerError("revision must be the revision you read")
+    with _writing(root):
+        requests = _load(root)
+        current = requests.get(request_id)
+        if current is None:
+            raise LedgerError(
+                f"no request {request_id!r} in this workspace",
+                status=404,
+                code="unknown_request",
+            )
+        if revision != current["revision"]:
+            raise LedgerError(
+                f"request {request_id!r} is at revision {current['revision']}, "
+                f"not {revision} - read it again before deleting it",
+                status=409,
+                code="stale_revision",
+                current_revision=current["revision"],
+            )
+        jobs = jobs_for(request_id)
+        active = [j["job"] for j in jobs if j.get("status") in ("queued", "running")]
+        if active:
+            raise LedgerError(
+                f"request {request_id!r} has {len(active)} queued or running "
+                "job(s) linked to it - cancel them or let them finish first",
+                status=409,
+                code="request_has_active_jobs",
+                jobs=active,
+            )
+        del requests[request_id]
+        write_json_atomic(ledger_path(root), {"requests": requests})
+    return {
+        "id": request_id,
+        "deleted": True,
+        "revision": revision,
+        "linked_jobs": len(jobs),
+    }

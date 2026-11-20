@@ -2805,6 +2805,42 @@
         "title": "LedgerComment",
         "type": "object"
       },
+      "LedgerDeleted": {
+        "additionalProperties": false,
+        "properties": {
+          "deleted": {
+            "title": "Deleted",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "linked_jobs": {
+            "description": "Jobs linked to it; each keeps its row, link and files.",
+            "title": "Linked Jobs",
+            "type": "integer"
+          },
+          "revision": {
+            "description": "The revision that was deleted.",
+            "title": "Revision",
+            "type": "integer"
+          },
+          "workspace": {
+            "title": "Workspace",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "workspace",
+          "deleted",
+          "revision",
+          "linked_jobs"
+        ],
+        "title": "LedgerDeleted",
+        "type": "object"
+      },
       "LedgerHistoryEntry": {
         "additionalProperties": false,
         "properties": {
@@ -11128,6 +11164,64 @@
       }
     },
     "/api/workspaces/{name}/requests/{request_id}": {
+      "delete": {
+        "description": "Remove one request from the ledger. Its linked jobs keep their\nhistory rows, their `request`/`item` and their files. 409\n`stale_revision` at another revision, 409 `request_has_active_jobs`\nwhile a linked job is queued or running, 404 `unknown_request`.",
+        "operationId": "delete_request_api_workspaces__name__requests__request_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "title": "Request Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "The revision the request was read at",
+            "in": "query",
+            "name": "revision",
+            "required": true,
+            "schema": {
+              "description": "The revision the request was read at",
+              "title": "Revision",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LedgerDeleted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Request"
+      },
       "get": {
         "description": "One request: its plan, every item with its derived status, and its\nhistory. 409 `ledger_unreadable` when requests.json is not a ledger.",
         "operationId": "get_request_api_workspaces__name__requests__request_id__get",

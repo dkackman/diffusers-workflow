@@ -1893,7 +1893,14 @@ export interface paths {
          */
         put: operations["put_request_api_workspaces__name__requests__request_id__put"];
         post?: never;
-        delete?: never;
+        /**
+         * Delete Request
+         * @description Remove one request from the ledger. Its linked jobs keep their
+         *     history rows, their `request`/`item` and their files. 409
+         *     `stale_revision` at another revision, 409 `request_has_active_jobs`
+         *     while a linked job is queued or running, 404 `unknown_request`.
+         */
+        delete: operations["delete_request_api_workspaces__name__requests__request_id__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -3131,6 +3138,25 @@ export interface components {
             at: string;
             /** Text */
             text: string;
+        };
+        /** LedgerDeleted */
+        LedgerDeleted: {
+            /** Deleted */
+            deleted: boolean;
+            /** Id */
+            id: string;
+            /**
+             * Linked Jobs
+             * @description Jobs linked to it; each keeps its row, link and files.
+             */
+            linked_jobs: number;
+            /**
+             * Revision
+             * @description The revision that was deleted.
+             */
+            revision: number;
+            /** Workspace */
+            workspace: string;
         };
         /** LedgerHistoryEntry */
         LedgerHistoryEntry: {
@@ -7396,6 +7422,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LedgerRequest"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_request_api_workspaces__name__requests__request_id__delete: {
+        parameters: {
+            query: {
+                /** @description The revision the request was read at */
+                revision: number;
+            };
+            header?: never;
+            path: {
+                name: string;
+                request_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LedgerDeleted"];
                 };
             };
             /** @description Validation Error */

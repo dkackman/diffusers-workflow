@@ -246,3 +246,57 @@ class TestCrossProcess:
         )
         deleted = client.delete("/api/workspaces/shots?acknowledged=true")
         assert deleted.status_code == 200, deleted.text
+
+
+# --- deleting a request ------------------------------------------------------
+
+
+class TestDelete:
+    def test_only_the_ledger_entry_goes(self, tmp_path):
+        write(tmp_path, plan())
+        write(tmp_path, plan(), request_id="dogs")
+        answer = ledger.delete_request(str(tmp_path), "cats", 1)
+        assert answer == {
+            "id": "cats",
+            "deleted": True,
+            "revision": 1,
+            "linked_jobs": 0,
+        }
+        assert list(ledger.read_requests(str(tmp_path))) == ["dogs"]
+
+    def test_refusals(self, tmp_path):
+        def refuses(code, status, *args, **kw):
+            with pytest.raises(ledger.LedgerError) as e:
+                ledger.delete_request(*args, **kw)
+            assert (e.value.code, e.value.status) == (code, status), str(e.value)
+            return e.value
+
+        refuses("no_workspace_root", 409, None, "cats", 1)
+        refuses("unknown_request", 404, str(tmp_path), "cats", 1)
+        write(tmp_path, plan())
+        refuses("invalid_request", 400, str(tmp_path), "Cats", 1)
+        refuses("invalid_request", 400, str(tmp_path), "cats", True)
+        stale = refuses("stale_revision", 409, str(tmp_path), "cats", 2)
+        assert stale.detail()["current_revision"] == 1
+        jobs = [
+            {"job": "j1", "item": "a", "status": "succeeded"},
+            {"job": "j2", "item": "a", "status": "queued"},
+            {"job": "j3", "item": "b", "status": "running"},
+        ]
+        active = refuses(
+            "request_has_active_jobs",
+            409,
+            str(tmp_path),
+            "cats",
+            1,
+            jobs_for=lambda rid: jobs,
+        )
+        assert active.detail()["jobs"] == ["j2", "j3"]
+        assert "cats" in ledger.read_requests(str(tmp_path))
+
+    def test_an_unreadable_ledger_is_not_touched(self, tmp_path):
+        (tmp_path / REQUESTS_FILE_NAME).write_text("[]")
+        with pytest.raises(ledger.LedgerError) as e:
+            ledger.delete_request(str(tmp_path), "cats", 1)
+        assert e.value.code == "ledger_unreadable"
+        assert (tmp_path / REQUESTS_FILE_NAME).read_text() == "[]"
