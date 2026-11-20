@@ -7,6 +7,7 @@
   import Modal from '../ui/Modal.svelte'
   import VariablesForm from '../editor/VariablesForm.svelte'
   import type { JobDetail } from '../types'
+  import { promotionTitle, promotionsOf, type Promotion } from './promotions'
 
   // A finished job queued again with some of its arguments changed: a form
   // over every variable the run declared, and one button per other value of
@@ -96,41 +97,9 @@
     }
   })
 
-  type Promotion = {
-    selector: string
-    value: string
-    kept: string[]
-  }
-
-  const promotions = $derived.by((): Promotion[] => {
-    if (!presets || !declared) return []
-    const args = job.arguments ?? {}
-    const found: Promotion[] = []
-    for (const [selector, bundles] of Object.entries(presets)) {
-      if (!(selector in declared)) continue
-      if (!bundles || typeof bundles !== 'object') continue
-      const current = displayValue(values[selector])
-      for (const [value, bundle] of Object.entries(bundles)) {
-        if (value === current) continue
-        // An explicit argument beats the bundle (dw/presets.py), so a key
-        // the original set itself stays as it set it
-        const kept = Object.keys(
-          bundle && typeof bundle === 'object' ? bundle : {},
-        )
-          .filter((name) => name !== selector && name in args)
-          .map((name) => `${name}=${displayValue(args[name])}`)
-        found.push({ selector, value, kept })
-      }
-    }
-    return found
-  })
-
-  function promotionTitle(p: Promotion): string {
-    return (
-      `queue this job again with ${p.selector} = ${p.value} - the bundle's values come from the workflow file as it is now, not as it was when this ran` +
-      (p.kept.length ? `; keeps ${p.kept.join(', ')} set explicitly` : '')
-    )
-  }
+  const promotions = $derived(
+    promotionsOf(presets, declared, job.arguments ?? {}, values),
+  )
 
   async function promote(p: Promotion) {
     try {

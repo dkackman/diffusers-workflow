@@ -6,10 +6,11 @@
   import FolderGroups from '../FolderGroups.svelte'
   import { leafOf } from '../grouping'
   import HintBar from '../HintBar.svelte'
-  import { costBasisWords, costFigure, costMeasuredOn } from '../cost'
-  import { observedText, observedTitle } from '../observed'
+  import { costFigure } from '../cost'
+  import { observedText } from '../observed'
   import { latestProofs } from '../proofs'
   import { sharedHref, wsHref } from '../routes'
+  import { cardTitle } from '../workflowCard'
   import { workspace } from '../workspace.svelte'
   import {
     WORKFLOW_SHAPES,
@@ -142,24 +143,6 @@
     return measured ? costFigure(measured) : ''
   }
 
-  /** Everything the card does not have room to print, so hovering it still
-   * answers "what is this and what does it need". */
-  const cardTitle = (name: string, detail?: Detail) => {
-    const lines = [name]
-    if (detail?.description) lines.push(detail.description)
-    if (detail?.traits?.length) lines.push(detail.traits.join(', '))
-    // Who made the figure and the settings it holds for: the card's own
-    // preset-applied driver values, never the raw definition's defaults
-    const measuredOn = costMeasuredOn(detail?.cost, detail?.cost_drivers)
-    const basis = costBasisWords(costBasis)
-    if (measuredOn) lines.push(basis ? `${basis}, ${measuredOn}` : measuredOn)
-    const seen = observedTitle(detail?.observed)
-    if (seen) lines.push(seen)
-    if (detail?.writable === false)
-      lines.push(`read-only, from the ${detail.origin} directory`)
-    return lines.join('\n')
-  }
-
   const href = (name: string) =>
     examples
       ? sharedHref('examples', ...name.split('/'))
@@ -247,7 +230,11 @@
   {#snippet card(name)}
     {@const detail = details[name]}
     {@const proof = proofs[name]}
-    <a class="card" href={href(name)} title={cardTitle(name, detail)}>
+    <a
+      class="card"
+      href={href(name)}
+      title={cardTitle(name, detail, costBasis)}
+    >
       <!-- The proof: what this workflow actually made last time. In a tool
            whose entire output is pictures, the picture is the description.
            A workflow that has never run gets no frame at all rather than a
