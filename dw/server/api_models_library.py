@@ -441,6 +441,10 @@ class LedgerRequest(ApiModel):
     revision: int
     prompt: str | None = Field(description="The ask that started it; write-once.")
     goal: str
+    comment: LedgerComment | None = Field(
+        description="The user's note on the whole request; an agent never "
+        "writes it, and reads it on its next write."
+    )
     items: list[LedgerItem]
     history: list[LedgerHistoryEntry]
     spent_minutes: int | float = Field(description="Minutes every linked job ran.")
@@ -500,6 +504,12 @@ class RequestWrite(BaseModel):
     why: str = Field(description=f"One line, at most {MAX_WHY_LENGTH}")
     prompt: str | None = Field(default=None, description="Create only")
     state: Literal["open", "done", "abandoned"] | None = None
+    comment: str | dict[str, Any] | None = Field(
+        default=None,
+        description="The user's note on the whole request, at most 4,000 "
+        "characters: text, or `{text}` as read. Left out, it is kept; null or "
+        "blank clears it. An agent's write omits it",
+    )
     purge: list[str] | None = Field(
         default=None,
         description="Keys of stored items this plan leaves out, removed for "

@@ -3260,6 +3260,8 @@ export interface components {
         };
         /** LedgerRequest */
         LedgerRequest: {
+            /** @description The user's note on the whole request; an agent never writes it, and reads it on its next write. */
+            comment: components["schemas"]["LedgerComment"] | null;
             /** Goal */
             goal: string;
             /** History */
@@ -3975,6 +3977,13 @@ export interface components {
              * @enum {string}
              */
             by: "agent" | "user";
+            /**
+             * Comment
+             * @description The user's note on the whole request, at most 4,000 characters: text, or `{text}` as read. Left out, it is kept; null or blank clears it. An agent's write omits it
+             */
+            comment?: string | {
+                [key: string]: unknown;
+            } | null;
             /**
              * Goal
              * @description What done looks like

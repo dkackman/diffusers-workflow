@@ -1025,7 +1025,8 @@ def put_request(request: Request, name: str, request_id: str, body: RequestWrite
     set on create only (a later change is 422 `prompt_is_write_once`). An
     item left out is deleted, or kept as dropped when jobs link to it."""
     root = _ledger_root(request.app.state, name)
-    payload = body.model_dump(exclude={"by"})
+    # Unset is not null: a `comment` left out is kept, a null one cleared
+    payload = body.model_dump(exclude={"by"}, exclude_unset=True)
     try:
         return ledger.put_request(
             root,

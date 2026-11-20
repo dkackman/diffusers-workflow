@@ -3103,6 +3103,17 @@
       "LedgerRequest": {
         "additionalProperties": false,
         "properties": {
+          "comment": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LedgerComment"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The user's note on the whole request; an agent never writes it, and reads it on its next write."
+          },
           "goal": {
             "title": "Goal",
             "type": "string"
@@ -3186,6 +3197,7 @@
           "revision",
           "prompt",
           "goal",
+          "comment",
           "items",
           "history",
           "spent_minutes",
@@ -4860,6 +4872,22 @@
             ],
             "title": "By",
             "type": "string"
+          },
+          "comment": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The user's note on the whole request, at most 4,000 characters: text, or `{text}` as read. Left out, it is kept; null or blank clears it. An agent's write omits it",
+            "title": "Comment"
           },
           "goal": {
             "description": "What done looks like",

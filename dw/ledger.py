@@ -409,7 +409,7 @@ def request_view(request, jobs=()):
     note, created_at, started_at, finished_at, output}`)."""
     grouped = _jobs_by_item(jobs)
     ready = _ready(request, grouped)
-    view = dict(request)
+    view = {**request, "comment": request.get("comment")}
     view["items"] = [
         item_view(item, grouped.get(item.get("key"), []), item.get("key") in ready)
         for item in request.get("items", [])
@@ -601,9 +601,10 @@ def _arguments(value, key):
     return out
 
 
-def _comment(value, key, existing, by, at):
-    """The comment to store. A user writes it; an agent's write keeps what
-    is there (omitting it, or sending it back unchanged)."""
+def _comment(value, what, existing, by, at):
+    """The comment to store, an item's or the request's own (`what` names
+    which). A user writes it; an agent's write keeps what is there
+    (omitting it, or sending it back unchanged)."""
     if by != "user":
         if value is _MISSING or value == existing:
             return existing
@@ -614,7 +615,7 @@ def _comment(value, key, existing, by, at):
         ):
             return existing
         raise LedgerError(
-            f"item {key!r}: the comment is the user's - an agent's write omits it"
+            f"{what}: the comment is the user's - an agent's write omits it"
         )
     if value is _MISSING:
         return existing
@@ -622,16 +623,16 @@ def _comment(value, key, existing, by, at):
         unknown = set(value) - {"text", "at"}
         if unknown:
             raise LedgerError(
-                f"item {key!r}: comment carries unknown fields {sorted(unknown)}"
+                f"{what}: comment carries unknown fields {sorted(unknown)}"
             )
         value = value.get("text")
     try:
         text = clean_note(value)
     except (NoteTooLong, TypeError) as e:
-        raise LedgerError(f"item {key!r} comment: {e}") from e
+        raise LedgerError(f"{what} comment: {e}") from e
     if text is None:
         return None
-    _text(text, f"item {key!r} comment", len(text) or 1)
+    _text(text, f"{what} comment", len(text) or 1)
     if existing and existing.get("text") == text:
         return existing
     return {"text": text, "at": at}
@@ -712,7 +713,7 @@ def _no_links(_request_id, _key):
 
 
 _BODY_FIELDS = frozenset(
-    ("title", "goal", "items", "revision", "why", "prompt", "state", "purge")
+    ("title", "goal", "items", "revision", "why", "prompt", "state", "purge", "comment")
 )
 
 
@@ -745,6 +746,7 @@ def _check_body(body):
         raise LedgerError("purge must be a list of item keys")
     return {
         "purge": [_key(key, "purge key") for key in purge],
+        "comment": body.get("comment", _MISSING),
         "revision": revision,
         "title": _text(body.get("title"), "title", MAX_TITLE_LENGTH, one_line=True),
         "goal": _text(body.get("goal"), "goal", MAX_TEXT_LENGTH, allow_empty=True),
@@ -840,7 +842,11 @@ def _item(raw, key, previous, linked, by, at):
             raw.get("accepted"), key, previous.get("accepted"), linked
         ),
         "comment": _comment(
-            raw.get("comment", _MISSING), key, previous.get("comment"), by, at
+            raw.get("comment", _MISSING),
+            f"item {key!r}",
+            previous.get("comment"),
+            by,
+            at,
         ),
     }
 
@@ -920,8 +926,9 @@ def put_request(
     """Write one request's whole plan and return its view.
 
     `body` holds title, goal, items, revision and why, and optionally
-    prompt, state and `purge` (keys of items this plan leaves out, removed
-    for good even though jobs link to them). `linked_jobs(request_id, key)` lists the jobs linked
+    prompt, state, `comment` (the user's note on the whole request, by the
+    item comment's rules) and `purge` (keys of items this plan leaves out,
+    removed for good even though jobs link to them). `linked_jobs(request_id, key)` lists the jobs linked
     to an item as `{job, status, run_id}`; `accepted` must name one of them
     that succeeded. `jobs_for(request_id)` lists every job linked to the request, for
     the returned view's derived fields.
@@ -951,6 +958,9 @@ def put_request(
             "revision": revision,
             "prompt": current.get("prompt") if current else write["prompt"],
             "goal": write["goal"],
+            "comment": _comment(
+                write["comment"], "request", (current or {}).get("comment"), by, at
+            ),
             "items": _merge_items(
                 write["items"],
                 current,
