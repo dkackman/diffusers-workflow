@@ -643,7 +643,8 @@ def match_levels(
         measured=any(waveform is not None for waveform in waveforms),
     )
     matched = []
-    resulting = []  # (level after gain, unit) per measured shot
+    # (level after gain, target, shortfall, unit) per measured shot
+    resulting = []
     any_held = False
     for index, waveform in enumerate(waveforms):
         label = names[index] if names else f"video {index + 1}"
@@ -729,6 +730,11 @@ def match_levels(
         )
         resulting.append((level + gain_db, target_dbfs, target_gain_db - gain_db, unit))
         matched.append((waveform * (10 ** (gain_db / 20.0))).astype(numpy.float32))
+    # Only the shots measured as the mode measures: under "lufs" a shot too
+    # short for it is matched by rms to its own dBFS target, and its level is
+    # no figure to set beside the others' LUFS
+    unit = "LUFS" if measure == "lufs" else "dBFS"
+    resulting = [r for r in resulting if r[3] == unit]
     if any_held and len(resulting) > 1:
         levels = [r[0] for r in resulting]
         spread = max(levels) - min(levels)
@@ -736,13 +742,13 @@ def match_levels(
             # The held shots could not reach the target, so the others sit
             # above them: the join is not matched, and the remedy is a lower
             # target that every shot can reach (#1368)
-            unit = resulting[0][3]
             suggested = min(r[1] - r[2] for r in resulting)
+            argument = "match_levels_lufs" if measure == "lufs" else "match_levels_dbfs"
             emit_warning(
                 f"{command}: match_levels left the shots {spread:.1f} dB apart "
                 f"({min(levels):.1f} to {max(levels):.1f} {unit}) because a "
                 "clip-held shot could not reach the target - the level step at "
-                "the cut remains. Pass a lower match_levels_dbfs (about "
+                f"the cut remains. Pass a lower {argument} (about "
                 f"{suggested:.0f} {unit} reaches every shot without clipping)"
                 + (
                     ""

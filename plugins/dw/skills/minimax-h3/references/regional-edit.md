@@ -79,8 +79,11 @@ threshold 0.363); outside the mask the source holds (37.5 dB past 96 px).
    first) and `people-0.0-contact_sheet.png`. Read the sheet to choose the number
    for the one to replace, and pass that mask as `mask_video`; check each cut,
    as numbering restarts at every cut. `track` 0 (default) tracks nobody.
-2. **Choose cuts.** Drop the cuts that need no swap and merge fragments from the
-   returned list. `render_frames` is what H3 renders for the cut: on the 17n+5
+2. **Choose cuts.** Merge fragments from the returned list, and keep the list
+   contiguous: the template joins only the cuts it is given and pairs the take's
+   whole soundtrack back on, so a cut dropped from the middle is missing from the
+   result and every later cut plays against the wrong sound. To leave a cut
+   untouched, run the stretches either side of it as separate jobs. `render_frames` is what H3 renders for the cut: on the 17n+5
    grid, 124 to 345, and at least its `num_frames`. The cut is padded to it and
    cut back to `num_frames`.
 
