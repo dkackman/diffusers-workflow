@@ -95,9 +95,13 @@ export function itemMenu(row: ItemState, context: MenuContext): MenuEntry[] {
 }
 
 /** The request's own menu, in its header: an open request can be closed
- * either way, a closed one reopened. */
+ * either way; a closed one reopened, or deleted from the ledger. */
 export function requestMenu(state: LedgerRequest['state']): MenuEntry[] {
   if (state === 'open')
     return [action('done', 'Mark done'), action('abandoned', 'Abandon')]
-  return [action('open', 'Reopen')]
+  return [
+    action('open', 'Reopen'),
+    { kind: 'rule' },
+    action('delete', 'Delete…', { danger: true }),
+  ]
 }

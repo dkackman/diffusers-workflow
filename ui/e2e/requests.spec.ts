@@ -690,7 +690,7 @@ test('dragging the handle moves an item, in one write', async ({ page }) => {
   expect(await order(page)).toEqual(['title', 'board', 'shot', 'cut'])
 })
 
-test('the request can be marked done, abandoned and reopened from its menu', async ({
+test('the request can be marked done and reopened from its menu, and deleted once closed', async ({
   page,
   request,
 }) => {
@@ -702,6 +702,10 @@ test('the request can be marked done, abandoned and reopened from its menu', asy
   await expect(head.locator('.tag')).toHaveText('open')
   let put = written(page)
   await menu.click()
+  // an open request has no Delete
+  await expect(
+    page.getByRole('dialog').getByRole('button', { name: 'Delete…' }),
+  ).toHaveCount(0)
   await page
     .getByRole('dialog')
     .getByRole('button', { name: 'Mark done' })
@@ -732,7 +736,7 @@ test('the request can be marked done, abandoned and reopened from its menu', asy
     boardRow(page, 'shot').getByRole('button', { name: 'Run again…' }),
   ).toBeVisible()
 
-  // abandoned is the other way to close it, and it can be reopened too
+  // abandoned, then deleted: its jobs stay, the ledger's record goes
   put = written(page)
   await menu.click()
   await page
@@ -741,10 +745,23 @@ test('the request can be marked done, abandoned and reopened from its menu', asy
     .click()
   expect((await put).status()).toBe(200)
   await expect(head.locator('.tag')).toHaveText('abandoned')
-  put = written(page)
   await menu.click()
-  await page.getByRole('dialog').getByRole('button', { name: 'Reopen' }).click()
-  expect((await put).status()).toBe(200)
-  await expect(head.locator('.tag')).toHaveText('open')
-  expect((await ledger(request)).state).toBe('open')
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: 'Delete…' })
+    .click()
+  const confirm = page.getByRole('alertdialog')
+  await expect(confirm).toContainText('Delete "E2E storyboard"?')
+  await expect(confirm).toContainText('Its jobs and their outputs are kept.')
+  const removed = page.waitForResponse(
+    (r) => r.request().method() === 'DELETE' && r.url().includes(BOARD_API),
+  )
+  await confirm.getByRole('button', { name: 'Delete' }).click()
+  expect((await removed).status()).toBe(200)
+  await expect(page).toHaveURL(/#\/ws\/default\/requests$/)
+  await expect(page.getByText('Deleted E2E storyboard')).toBeVisible()
+  await page.getByRole('combobox', { name: 'show' }).selectOption('all')
+  await expect(page.locator('a.row', { hasText: ID })).toBeVisible()
+  await expect(page.locator('a.row', { hasText: BOARD_ID })).toHaveCount(0)
+  expect((await request.get(BOARD_API)).status()).toBe(404)
 })

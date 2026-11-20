@@ -20,6 +20,7 @@ const world = vi.hoisted(() => ({
   confirm: vi.fn(),
   validate: vi.fn(),
   submitJob: vi.fn(),
+  deleteRequest: vi.fn(),
   notify: { error: vi.fn(), success: vi.fn(), undo: vi.fn(), dismiss: vi.fn() },
 }))
 vi.mock('../api', async () => ({
@@ -31,6 +32,7 @@ vi.mock('../api', async () => ({
     galleryThumbnailUrl: (name: string) => `/thumb/${name}`,
     validate: (...args: unknown[]) => world.validate(...args),
     submitJob: (...args: unknown[]) => world.submitJob(...args),
+    deleteRequest: (...args: unknown[]) => world.deleteRequest(...args),
   },
 }))
 vi.mock('../toast', () => ({ notify: world.notify }))
@@ -542,4 +544,60 @@ it('Mark done and Reopen write the state, with why', async () => {
   await headerMenu('Abandon')
   await saved(6)
   expect(world.ledger.current.state).toBe('abandoned')
+})
+
+it('a closed request can be deleted, after a confirm, and the page goes to the list', async () => {
+  const closed = make()
+  closed.state = 'done'
+  world.ledger = fakeLedger(closed)
+  world.deleteRequest.mockResolvedValue({ deleted: true })
+  await start()
+  await headerMenu('Delete…')
+  await waitFor(() => expect(world.deleteRequest).toHaveBeenCalled())
+  expect(world.confirm.mock.calls[0][0]).toContain('Delete "Launch posters"?')
+  expect(world.confirm.mock.calls[0][0]).toContain(
+    'Its jobs and their outputs are kept.',
+  )
+  expect(world.confirm.mock.calls[0][1]).toEqual({ confirmLabel: 'Delete' })
+  expect(world.deleteRequest).toHaveBeenCalledWith('studio', 'r1', 3)
+  await waitFor(() => expect(location.hash).toBe('#/ws/studio/requests'))
+  expect(world.notify.success).toHaveBeenCalledWith('Deleted Launch posters')
+})
+
+it('an open request has no Delete, and a declined confirm deletes nothing', async () => {
+  await start()
+  await fireEvent.click(
+    screen.getByRole('button', { name: 'More actions for this request' }),
+  )
+  const list = await screen.findByRole('dialog')
+  expect(within(list).queryByRole('button', { name: 'Delete…' })).toBeNull()
+  cleanup()
+  document.body.innerHTML = ''
+  const closed = make()
+  closed.state = 'abandoned'
+  world.ledger = fakeLedger(closed)
+  world.confirm.mockResolvedValue(false)
+  await start()
+  await headerMenu('Delete…')
+  await waitFor(() => expect(world.confirm).toHaveBeenCalled())
+  expect(world.deleteRequest).not.toHaveBeenCalled()
+})
+
+it('a delete refused while a job is in flight says so and stays', async () => {
+  const { ApiError } = await import('../api')
+  const closed = make()
+  closed.state = 'done'
+  world.ledger = fakeLedger(closed)
+  world.deleteRequest.mockRejectedValue(
+    new ApiError('1 linked job is active', 409, 'request_has_active_jobs'),
+  )
+  location.hash = '#/ws/studio/requests/r1'
+  await start()
+  await headerMenu('Delete…')
+  await waitFor(() =>
+    expect(world.notify.error).toHaveBeenCalledWith(
+      'Not deleted: One of its jobs is queued or running. Cancel it or let it finish, then delete.',
+    ),
+  )
+  expect(location.hash).toBe('#/ws/studio/requests/r1')
 })

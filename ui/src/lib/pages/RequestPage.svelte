@@ -9,6 +9,7 @@
   import RequestMenu from '../request/RequestMenu.svelte'
   import RunDialog from '../request/RunDialog.svelte'
   import { itemPlan, readyPlan, type RunPlan } from '../request/runPlan'
+  import { goWs } from '../router.svelte'
   import { announce } from '../request/announce'
   import { planState, titleId } from '../request/itemState'
   import { PlanStore } from '../request/planStore.svelte'
@@ -238,7 +239,13 @@
             {/if}
           {/snippet}
           {#snippet menu()}
-            <RequestMenu {request} {store} />
+            <RequestMenu
+              {request}
+              {store}
+              workspace={ws}
+              onreload={load}
+              ondeleted={() => goWs('requests')}
+            />
           {/snippet}
         </RequestHeader>
         <PlanItems

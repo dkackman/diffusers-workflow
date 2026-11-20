@@ -176,6 +176,7 @@ UI_READ_ROUTES = [
     ("get", "/api/workspaces/{name}/requests"),
     ("get", "/api/workspaces/{name}/requests/{request_id}"),
     ("put", "/api/workspaces/{name}/requests/{request_id}"),
+    ("delete", "/api/workspaces/{name}/requests/{request_id}"),
     ("get", "/api/workflows"),
     ("put", "/api/workflows/{name}"),
     ("patch", "/api/workflows/{name}"),

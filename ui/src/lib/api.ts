@@ -23,6 +23,7 @@ import type {
   JobMoved,
   JobWorkflow,
   Kept,
+  LedgerDeleted,
   LedgerList,
   LedgerRequest,
   LoraList,
@@ -367,6 +368,15 @@ export const api = {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ by: 'user', ...body }),
       },
+      { scope: false },
+    ),
+  /** Remove a request from the ledger, at the revision it was read at. Its
+   * jobs and their files stay. 409 `stale_revision`, or
+   * `request_has_active_jobs` while one of its jobs is queued or running. */
+  deleteRequest: (workspace: string, id: string, revision: number) =>
+    request<LedgerDeleted>(
+      `/api/workspaces/${encodeURIComponent(workspace)}/requests/${encodeURIComponent(id)}?revision=${revision}`,
+      { method: 'DELETE' },
       { scope: false },
     ),
   listWorkspaces: () => request<WorkspaceList>('/api/workspaces'),

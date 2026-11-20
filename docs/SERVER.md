@@ -345,7 +345,8 @@ icon, a finish-alert toggle, the theme toggle, and links to these docs and
   request was closed, the item dropped) is said on its row.
 
   The header's **more actions** menu marks the request **done**, **abandons**
-  or **reopens** it; nothing can be run on a closed request.
+  or **reopens** it - nothing can be run on a closed request - and deletes a
+  closed one from the ledger after a confirm (its jobs and outputs stay).
 
   The agent may rewrite the plan while you edit it. The page never sends
   back a plan it read earlier: it reads the request again and makes your

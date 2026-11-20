@@ -138,8 +138,8 @@ server's runtime (#1445-#1456).
 - The request page runs items: what is ready, one item, or another take of
   a done one, each priced first in a dialog that says what will not run and
   what becomes ready next; every job is linked to its item and bound to the
-  quoted plan. A request is marked done, abandoned or reopened from its
-  header.
+  quoted plan. A request is marked done, abandoned, reopened or deleted
+  from its header.
 - The `script-to-video`, `storyboard`, `series-episodes` and `long-form`
   skills open a request for an ask of three or more jobs.
 

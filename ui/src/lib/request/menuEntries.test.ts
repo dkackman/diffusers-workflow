@@ -84,8 +84,13 @@ it('a dropped item keeps only its links, and one with none has no menu', () => {
   expect(menu('y')).toEqual([])
 })
 
-it('an open request can be closed either way, and a closed one reopened', () => {
+it('an open request can be closed either way; a closed one reopened or deleted', () => {
   expect(labels(requestMenu('open'))).toEqual(['Mark done', 'Abandon'])
-  expect(labels(requestMenu('done'))).toEqual(['Reopen'])
-  expect(labels(requestMenu('abandoned'))).toEqual(['Reopen'])
+  for (const state of ['done', 'abandoned'] as const) {
+    expect(labels(requestMenu(state))).toEqual(['Reopen', '-', 'Delete…'])
+    expect(requestMenu(state).at(-1)).toMatchObject({
+      id: 'delete',
+      danger: true,
+    })
+  }
 })
