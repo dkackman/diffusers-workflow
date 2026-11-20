@@ -390,9 +390,16 @@ Reserved names, which no workspace can take: `workflows`, `prompts`,
 job, `<root>/exports/<job id>/`), `common`, `loras` (the LoRA catalog,
 shared like `prompts/`), and `requests.json` and `workspace.json` (the
 default workspace keeps its ledger and its note as files of those names at
-the root, where a workspace would be a folder). A pre-existing workspace
-named `loras` stops being listed, and the server logs a warning at start
-naming its directory.
+the root, where a workspace would be a folder). They are reserved in any
+letter case - `Requests.json` is the ledger file on macOS and Windows - and
+a folder at the root under one of them in another case is never listed as a
+workspace. A pre-existing workspace named `loras` stops being listed, and
+the server logs a warning at start naming its directory.
+
+A new workspace cannot take a name the root already holds in any letter
+case, whether that entry is a workspace, a plain folder or a file
+(`409`): `Shots` beside `shots` would be one folder on a case-insensitive
+disk, and a folder that is not a workspace is never taken over.
 
 **The shared asset library.** `common/assets/` holds assets that belong to
 no single workspace, such as a recurring cast's portraits and voice clips.

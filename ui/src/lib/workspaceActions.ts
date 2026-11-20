@@ -11,9 +11,10 @@ import {
 } from './workspace.svelte'
 import { MAX_NAME_LENGTH, isNameSegment } from './names'
 
-/** The names a workspace cannot take: the folders the root itself holds
- * (dw/workspace.py's RESERVED). Checked here so the sidebar can say why
- * before a round trip, but the server has the last word. */
+/** The names a workspace cannot take, in any letter case: the folders and
+ * files the root itself holds (dw/workspace.py's RESERVED). Checked here so
+ * the sidebar can say why before a round trip, but the server has the last
+ * word. */
 export const RESERVED_WORKSPACE_NAMES = [
   'workflows',
   'prompts',
@@ -28,10 +29,21 @@ export const RESERVED_WORKSPACE_NAMES = [
 
 export const MAX_WORKSPACE_NAME_LENGTH = MAX_NAME_LENGTH
 
+/** What two workspace names are compared by, as dw/security.py's
+ * workspace_name_key does: a case-insensitive filesystem holds `Outputs`
+ * and `outputs` as one entry. Upper then lower stands in for Python's
+ * casefold (ß becomes ss). */
+export function workspaceNameKey(name: string): string {
+  return name.normalize('NFKC').toUpperCase().toLowerCase()
+}
+
 export function workspaceNameError(name: string): string | null {
   if (!name) return 'A workspace needs a name'
-  if ((RESERVED_WORKSPACE_NAMES as readonly string[]).includes(name))
-    return `${name} is reserved`
+  const key = workspaceNameKey(name)
+  const reserved = RESERVED_WORKSPACE_NAMES.some(
+    (taken) => workspaceNameKey(taken) === key,
+  )
+  if (reserved) return `${name} is reserved`
   if ([...name].length > MAX_WORKSPACE_NAME_LENGTH)
     return `Use at most ${MAX_WORKSPACE_NAME_LENGTH} characters`
   if (!isNameSegment(name))
