@@ -1859,6 +1859,7 @@ export interface paths {
         /**
          * List Requests
          * @description A workspace's requests, newest change first, without their items.
+         *     `unreadable` says why when requests.json is there but is not a ledger.
          */
         get: operations["list_requests_api_workspaces__name__requests_get"];
         put?: never;
@@ -1879,7 +1880,7 @@ export interface paths {
         /**
          * Get Request
          * @description One request: its plan, every item with its derived status, and its
-         *     history.
+         *     history. 409 `ledger_unreadable` when requests.json is not a ledger.
          */
         get: operations["get_request_api_workspaces__name__requests__request_id__get"];
         /**
@@ -3199,6 +3200,11 @@ export interface components {
         LedgerList: {
             /** Requests */
             requests: components["schemas"]["LedgerSummary"][];
+            /**
+             * Unreadable
+             * @description Why requests.json could not be read, when it is there but is not a ledger; `requests` is then empty and every write is 409 `ledger_unreadable` until the file is fixed or removed.
+             */
+            unreadable?: string;
             /** Workspace */
             workspace: string;
         };

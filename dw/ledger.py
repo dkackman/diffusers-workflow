@@ -117,10 +117,43 @@ def ledger_path(root):
     return os.path.join(root, REQUESTS_FILE_NAME)
 
 
+def _unreadable(why):
+    return LedgerError(
+        f"{REQUESTS_FILE_NAME} could not be read ({why}); fix or remove it "
+        "before writing",
+        status=409,
+        code="ledger_unreadable",
+    )
+
+
+def _request_fault(request_id, request):
+    """What is wrong with one stored request's shape, or None: the fields
+    the views read without checking."""
+    if not isinstance(request, dict):
+        return "is not an object"
+    if request.get("id") != request_id:
+        return "is stored under another id"
+    if request.get("state") not in STATES:
+        return "has no known state"
+    revision = request.get("revision")
+    if isinstance(revision, bool) or not isinstance(revision, int):
+        return "has no revision"
+    items = request.get("items")
+    if not isinstance(items, list) or not all(
+        isinstance(item, dict) and isinstance(item.get("key"), str) for item in items
+    ):
+        return "has items that are not a list of keyed objects"
+    history = request.get("history", [])
+    if not isinstance(history, list) or not all(isinstance(h, dict) for h in history):
+        return "has a history that is not a list of objects"
+    return None
+
+
 def _load(root):
     """The stored ledger, `{}` when there is no file. Raises LedgerError
-    when the file is there but unreadable, so a write never replaces a
-    ledger it could not read."""
+    (`ledger_unreadable`) when the file is there but is not a ledger - not
+    readable, not JSON, or JSON of another shape - so a write never
+    replaces a file it could not read. The message never names the folder."""
     path = ledger_path(root)
     try:
         with open(path) as handle:
@@ -131,16 +164,15 @@ def _load(root):
         # An OSError's text carries the file's absolute path; its strerror
         # does not
         why = (e.strerror or type(e).__name__) if isinstance(e, OSError) else e
-        raise LedgerError(
-            f"{REQUESTS_FILE_NAME} could not be read ({why}); fix or remove it "
-            "before writing",
-            status=409,
-            code="ledger_unreadable",
-        ) from e
+        raise _unreadable(why) from e
     requests = data.get("requests") if isinstance(data, dict) else None
     if not isinstance(requests, dict):
-        return {}
-    return {k: v for k, v in requests.items() if isinstance(v, dict)}
+        raise _unreadable('it is not {"requests": {...}}')
+    for request_id, request in requests.items():
+        fault = _request_fault(request_id, request)
+        if fault:
+            raise _unreadable(f"request {str(request_id)[:64]!r} {fault}")
+    return requests
 
 
 def read_requests(root):
@@ -152,6 +184,18 @@ def read_requests(root):
         return _load(root)
     except LedgerError:
         return {}
+
+
+def unreadable(root):
+    """The `ledger_unreadable` LedgerError for a file that is there but is
+    not a ledger, or None."""
+    if root is None:
+        return None
+    try:
+        _load(root)
+    except LedgerError as e:
+        return e
+    return None
 
 
 # --- views ---------------------------------------------------------------
@@ -306,10 +350,20 @@ def list_requests(root, jobs_for=_no_jobs):
     return rows
 
 
+def listing(root, jobs_for=_no_jobs):
+    """What the list route answers: `requests` (`list_requests`), and
+    `unreadable` - why - when the file is there but is not a ledger."""
+    problem = unreadable(root)
+    if problem is not None:
+        return {"requests": [], "unreadable": str(problem)}
+    return {"requests": list_requests(root, jobs_for)}
+
+
 def get_request(root, request_id, jobs_for=_no_jobs):
-    """One request's view, or None."""
+    """One request's view, or None. Raises LedgerError when the file is
+    there but is not a ledger."""
     validate_ledger_key(request_id, "Request id")
-    request = read_requests(root).get(request_id)
+    request = (_load(root) if root is not None else {}).get(request_id)
     if request is None:
         return None
     return request_view(request, jobs_for(request_id))
@@ -319,10 +373,13 @@ def link_problem(root, request_id, item_key):
     """The LedgerError that says why a job cannot be linked to
     `request_id`/`item_key` in the workspace at `root`, or None when it can:
     `unknown_request` (no such request, or no root), `request_closed`,
-    `unknown_item`, `item_dropped`. Both keys are checked as keys first
+    `unknown_item`, `item_dropped`, or `ledger_unreadable` (409). Both keys are checked as keys first
     (InvalidInputError otherwise). Takes no lock."""
     validate_ledger_key(request_id, "Request")
     validate_ledger_key(item_key, "Item")
+    problem = unreadable(root)
+    if problem is not None:
+        return problem
     request = read_requests(root).get(request_id)
     if request is None:
         return LedgerError(

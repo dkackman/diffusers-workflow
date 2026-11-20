@@ -444,6 +444,11 @@ class LedgerSummary(ApiModel):
 class LedgerList(ApiModel):
     workspace: str
     requests: list[LedgerSummary]
+    unreadable: str = sometimes(
+        "Why requests.json could not be read, when it is there but is not a "
+        "ledger; `requests` is then empty and every write is 409 "
+        "`ledger_unreadable` until the file is fixed or removed."
+    )
 
 
 class AssetDeleted(ApiModel):

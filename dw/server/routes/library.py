@@ -1002,12 +1002,10 @@ def _ledger_root(state, name):
     response_model_exclude_unset=True,
 )
 def list_requests(request: Request, name: str):
-    """A workspace's requests, newest change first, without their items."""
+    """A workspace's requests, newest change first, without their items.
+    `unreadable` says why when requests.json is there but is not a ledger."""
     root = _ledger_root(request.app.state, name)
-    return {
-        "workspace": name,
-        "requests": ledger.list_requests(root, _jobs_for(request, name)),
-    }
+    return {"workspace": name, **ledger.listing(root, _jobs_for(request, name))}
 
 
 @router.get(
@@ -1017,12 +1015,14 @@ def list_requests(request: Request, name: str):
 )
 def get_request(request: Request, name: str, request_id: str):
     """One request: its plan, every item with its derived status, and its
-    history."""
+    history. 409 `ledger_unreadable` when requests.json is not a ledger."""
     root = _ledger_root(request.app.state, name)
     try:
         found = ledger.get_request(root, request_id, _jobs_for(request, name))
     except SecurityError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except ledger.LedgerError as e:
+        raise HTTPException(status_code=e.status, detail=e.detail())
     if found is None:
         raise HTTPException(
             status_code=404, detail=f"No request {request_id!r} in workspace {name!r}"

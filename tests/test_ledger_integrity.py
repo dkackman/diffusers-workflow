@@ -6,9 +6,42 @@ import json
 import os
 
 import pytest
+from fastapi.testclient import TestClient
 
-from dw import runs
+from dw import ledger, runs
 from dw.runs import write_json_atomic
+from dw.server.app import create_app
+from dw.server.jobs import JobManager
+from dw.workspace import REQUESTS_FILE_NAME, Workspace
+
+from .test_ledger import URL, plan, refused, write
+from .test_server import ScriptedWorkerManager, success_script
+
+
+@pytest.fixture
+def workspace_root(tmp_path):
+    return Workspace(tmp_path / "studio", "flag").ensure()
+
+
+@pytest.fixture
+def client(workspace_root, tmp_path):
+    manager = JobManager(
+        workspace_root.outputs,
+        worker_manager=ScriptedWorkerManager(success_script),
+        history_path=str(tmp_path / "jobs.sqlite"),
+        workflow_dir=workspace_root.workflows,
+    )
+    app = create_app(
+        workflow_dir=workspace_root.workflows,
+        output_dir=workspace_root.outputs,
+        job_manager=manager,
+        prompt_dir=workspace_root.prompts,
+        asset_dir=workspace_root.assets,
+        workspace=workspace_root.root,
+    )
+    with TestClient(app, base_url="http://localhost") as c:
+        c.manager = manager
+        yield c
 
 
 class TestAtomicWrite:
@@ -57,7 +90,7 @@ class TestReservedNames:
     @pytest.mark.parametrize("name", ["requests.json", "workspace.json"])
     def test_a_workspace_cannot_take_a_root_file_name(self, tmp_path, name):
         from dw.security import InvalidInputError
-        from dw.workspace import Workspace, create_workspace
+        from dw.workspace import create_workspace
 
         root = Workspace(tmp_path / "studio", "flag").ensure()
         with pytest.raises(InvalidInputError):
@@ -73,3 +106,81 @@ class TestReservedNames:
 
         assert REQUESTS_FILE_NAME in RESERVED_WORKSPACE_NAMES
         assert WORKSPACE_FILE_NAME in RESERVED_WORKSPACE_NAMES
+
+
+# --- the file's shape -----------------------------------------------------
+
+GOOD = {
+    "id": "cats",
+    "title": "t",
+    "state": "open",
+    "revision": 1,
+    "prompt": None,
+    "goal": "",
+    "items": [],
+    "history": [],
+}
+
+WRONG_SHAPES = [
+    [],
+    "text",
+    5,
+    None,
+    {},
+    {"requests": []},
+    {"requests": {"cats": 3}},
+    {"requests": {"cats": {**GOOD, "items": 5}}},
+    {"requests": {"cats": {**GOOD, "items": ["a"]}}},
+    {"requests": {"cats": {**GOOD, "items": [{"title": "no key"}]}}},
+    {"requests": {"cats": {**GOOD, "history": "x"}}},
+    {"requests": {"cats": {**GOOD, "state": "paused"}}},
+    {"requests": {"cats": {**GOOD, "revision": "1"}}},
+    {"requests": {"cats": {**GOOD, "id": "dogs"}}},
+]
+
+
+class TestShape:
+    @pytest.mark.parametrize("document", WRONG_SHAPES, ids=repr)
+    def test_valid_json_of_the_wrong_shape_is_never_replaced(self, tmp_path, document):
+        path = tmp_path / REQUESTS_FILE_NAME
+        text = json.dumps(document)
+        path.write_text(text)
+        assert ledger.list_requests(str(tmp_path)) == []
+        error = refused(tmp_path, plan(), code="ledger_unreadable")
+        assert error.status == 409
+        assert str(tmp_path) not in str(error)
+        refused(tmp_path, plan(), code="ledger_unreadable", request_id="other")
+        assert path.read_text() == text
+
+    def test_a_well_shaped_file_reads(self, tmp_path):
+        (tmp_path / REQUESTS_FILE_NAME).write_text(json.dumps({"requests": {}}))
+        assert write(tmp_path, plan())["revision"] == 1
+
+    @pytest.mark.parametrize("document", WRONG_SHAPES, ids=repr)
+    def test_over_http_a_read_says_so_and_never_500s(
+        self, client, workspace_root, document
+    ):
+        path = os.path.join(workspace_root.root, REQUESTS_FILE_NAME)
+        with open(path, "w") as file:
+            json.dump(document, file)
+        listing = client.get(URL)
+        assert listing.status_code == 200, listing.text
+        body = listing.json()
+        assert body["requests"] == []
+        assert REQUESTS_FILE_NAME in body["unreadable"]
+        assert workspace_root.root not in listing.text
+        for reply in (
+            client.get(f"{URL}/cats"),
+            client.put(f"{URL}/cats", json=plan()),
+        ):
+            assert reply.status_code == 409, reply.text
+            assert reply.json()["detail"]["code"] == "ledger_unreadable"
+            assert workspace_root.root not in reply.text
+
+    def test_a_readable_ledger_lists_without_the_key(self, client):
+        assert "unreadable" not in client.get(URL).json()
+
+    def test_a_job_cannot_link_into_an_unreadable_ledger(self, tmp_path):
+        (tmp_path / REQUESTS_FILE_NAME).write_text("[]")
+        problem = ledger.link_problem(str(tmp_path), "cats", "a")
+        assert (problem.status, problem.code) == (409, "ledger_unreadable")

@@ -3001,6 +3001,11 @@
             "title": "Requests",
             "type": "array"
           },
+          "unreadable": {
+            "description": "Why requests.json could not be read, when it is there but is not a ledger; `requests` is then empty and every write is 409 `ledger_unreadable` until the file is fixed or removed.",
+            "title": "Unreadable",
+            "type": "string"
+          },
           "workspace": {
             "title": "Workspace",
             "type": "string"
@@ -11084,7 +11089,7 @@
     },
     "/api/workspaces/{name}/requests": {
       "get": {
-        "description": "A workspace's requests, newest change first, without their items.",
+        "description": "A workspace's requests, newest change first, without their items.\n`unreadable` says why when requests.json is there but is not a ledger.",
         "operationId": "list_requests_api_workspaces__name__requests_get",
         "parameters": [
           {
@@ -11124,7 +11129,7 @@
     },
     "/api/workspaces/{name}/requests/{request_id}": {
       "get": {
-        "description": "One request: its plan, every item with its derived status, and its\nhistory.",
+        "description": "One request: its plan, every item with its derived status, and its\nhistory. 409 `ledger_unreadable` when requests.json is not a ledger.",
         "operationId": "get_request_api_workspaces__name__requests__request_id__get",
         "parameters": [
           {
