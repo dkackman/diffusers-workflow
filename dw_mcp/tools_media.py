@@ -278,8 +278,8 @@ class MediaTools:
         overwrite: bool = False,
         workspace: str | None = None,
     ) -> dict:
-        """Save one output file to disk on the machine running the MCP
-        server: your own for the stdio `dw-mcp`, the GPU box for a
+        """Save one output file to disk on the
+        machine running the MCP server: your own for the stdio `dw-mcp`, the GPU box for a
         `dw.serve --mcp` endpoint - where this is not the way to get a file
         to you: use get_output_image / get_output_text /
         get_output_audio / get_output_frames for inline content, or the
