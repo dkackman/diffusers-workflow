@@ -37,8 +37,18 @@ const listing = vi.hoisted(() => ({ files: [] as GalleryFile[] }))
 
 // Resolves on a macrotask so that a re-triggering effect cannot starve the
 // timers this test waits on - the failure then shows as a call count
+const listRequests = vi.hoisted(() =>
+  vi.fn(() =>
+    Promise.resolve({
+      workspace: 'default',
+      requests: [{ id: 'r1', title: 'Spring campaign' }] as unknown[],
+    }),
+  ),
+)
 const gallery = vi.hoisted(() =>
-  vi.fn(
+  vi.fn<
+    (roles?: string[], request?: string) => Promise<{ files: GalleryFile[] }>
+  >(
     () =>
       new Promise<{ files: GalleryFile[] }>((resolve) =>
         setTimeout(() => resolve({ files: listing.files }), 0),
@@ -61,7 +71,8 @@ const galleryMetadata = vi.hoisted(() =>
 vi.mock('../api', () => ({
   setNote: (t: string, n: string | null) => setNote(t, n),
   api: {
-    gallery: () => gallery(),
+    gallery: (roles?: string[], request?: string) => gallery(roles, request),
+    listRequests: () => listRequests(),
     galleryThumbnailUrl: (name: string) => `/thumb/${name}`,
     galleryUrl: (name: string) => `/outputs/${name}`,
     outputDownloadUrl: (name: string) => `/download/${name}`,
@@ -84,6 +95,7 @@ afterEach(() => {
   // queries find two of everything
   cleanup()
   gallery.mockClear()
+  location.hash = '#/ws/default/gallery'
   deleteOutput.mockClear()
   setStarred.mockClear()
   archiveOutputs.mockClear()
@@ -628,4 +640,34 @@ it("shows the open file's level findings from its metadata", async () => {
   await openFile('a.png')
   const region = await screen.findByRole('region', { name: 'Findings' })
   await waitFor(() => expect(region.textContent).toContain('near-silent'))
+})
+
+it('with req in the hash, asks for that request and shows a removable chip', async () => {
+  location.hash = '#/ws/default/gallery?req=r1'
+  await renderGallery()
+  expect(gallery).toHaveBeenLastCalledWith(undefined, 'r1')
+  const chip = screen.getByTestId('req-filter')
+  expect(chip.querySelector('a')?.getAttribute('href')).toBe(
+    '#/ws/default/requests/r1',
+  )
+  await fireEvent.click(screen.getByLabelText('remove the request filter'))
+  await waitFor(() =>
+    expect(gallery).toHaveBeenLastCalledWith(undefined, undefined),
+  )
+  expect(screen.queryByTestId('req-filter')).toBeNull()
+})
+
+it('offers a request picker, and picking one reloads narrowed', async () => {
+  await renderGallery()
+  const picker = await screen.findByLabelText('filter by request')
+  await fireEvent.change(picker, { target: { value: 'r1' } })
+  await waitFor(() => expect(gallery).toHaveBeenLastCalledWith(undefined, 'r1'))
+  expect(screen.getByTestId('req-filter')).toBeTruthy()
+})
+
+it('hides the picker when the workspace has no requests', async () => {
+  listRequests.mockResolvedValueOnce({ workspace: 'default', requests: [] })
+  await renderGallery()
+  await Promise.resolve()
+  expect(screen.queryByLabelText('filter by request')).toBeNull()
 })

@@ -54,7 +54,11 @@ it('shows free only when the card reported a total, and reserved when available'
   const a = card('cuda:0', 1024)
   const withFree = {
     ...a,
-    info: { ...a.info, gpu_memory_free_mb: 20480, gpu_memory_reserved_mb: 2048 },
+    info: {
+      ...a.info,
+      gpu_memory_free_mb: 20480,
+      gpu_memory_reserved_mb: 2048,
+    },
   }
   const unmeasured = {
     ...card('cuda:1', 1024),

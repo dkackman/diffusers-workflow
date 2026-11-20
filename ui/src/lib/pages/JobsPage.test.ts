@@ -18,8 +18,20 @@ const data = vi.hoisted(() => ({
 vi.mock('../api', () => ({
   api: {
     rerunRestartBatch: data.rerunRestartBatch,
-    listJobs: () =>
-      Promise.resolve({ jobs: [...data.jobs], total: data.jobs.length }),
+    // Filters by request/item the way the server does
+    listJobs: (
+      _ws?: string,
+      _limit?: number,
+      _status?: string,
+      request?: string,
+      item?: string,
+    ) => {
+      const jobs = (data.jobs as JobSummary[]).filter(
+        (j) =>
+          (!request || j.request === request) && (!item || j.item === item),
+      )
+      return Promise.resolve({ jobs, total: jobs.length })
+    },
     // The listing names the default workspace, as the server's always does:
     // a route parse that found it missing would redirect to overview
     listWorkspaces: () =>
@@ -393,4 +405,57 @@ it('an empty preview says so, with Close only, and hides the banner', async () =
   expect(options).toMatchObject({ confirmLabel: 'Close', alert: true })
   // only the preview: nothing was queued
   expect(data.rerunRestartBatch.mock.calls).toEqual([['t1']])
+})
+
+const linked = () => [
+  summary({ id: 'a', workflow: 'wf-a', request: 'r1', item: 'hero' }),
+  summary({ id: 'b', workflow: 'wf-b', request: 'r1', item: 'alt' }),
+  summary({ id: 'c', workflow: 'wf-c' }),
+]
+
+it('chips a linked job with request › item and leaves an unlinked one bare', async () => {
+  location.hash = '#/ws/default/jobs'
+  data.jobs = linked()
+  render(JobsPage)
+  await waitFor(() => expect(screen.getByText('wf-c')).toBeTruthy())
+  expect(screen.getByText('r1 › hero')).toBeTruthy()
+  expect(screen.getAllByText(/r1 ›/)).toHaveLength(2)
+})
+
+it('narrows to a request, then to one item, and clearing restores the list', async () => {
+  location.hash = '#/ws/default/jobs?req=r1'
+  data.jobs = linked()
+  render(JobsPage)
+  await waitFor(() => expect(screen.getByText('wf-a')).toBeTruthy())
+  expect(screen.queryByText('wf-c')).toBeNull()
+  expect(screen.getByText('wf-b')).toBeTruthy()
+  const chip = screen.getByTestId('req-filter')
+  expect(chip.querySelector('a')?.getAttribute('href')).toBe(
+    '#/ws/default/requests/r1',
+  )
+  cleanup()
+
+  location.hash = '#/ws/default/jobs?req=r1%2Fhero'
+  render(JobsPage)
+  await waitFor(() => expect(screen.getByText('wf-a')).toBeTruthy())
+  expect(screen.queryByText('wf-b')).toBeNull()
+
+  await fireEvent.click(screen.getByLabelText('remove the request filter'))
+  await waitFor(() => expect(screen.getByText('wf-c')).toBeTruthy())
+  expect(screen.getByText('wf-b')).toBeTruthy()
+  expect(screen.queryByTestId('req-filter')).toBeNull()
+})
+
+it('a req that arrives on the hash refetches at once, not on the next tick', async () => {
+  location.hash = '#/ws/default/jobs'
+  data.jobs = linked()
+  render(JobsPage)
+  await waitFor(() => expect(screen.getByText('wf-c')).toBeTruthy())
+  location.hash = '#/ws/default/jobs?req=r1%2Falt'
+  window.dispatchEvent(new HashChangeEvent('hashchange'))
+  await waitFor(() => expect(screen.queryByText('wf-a')).toBeNull(), {
+    timeout: 1000,
+  })
+  expect(screen.getByText('wf-b')).toBeTruthy()
+  expect(screen.queryByText('wf-c')).toBeNull()
 })

@@ -23,6 +23,9 @@ import type {
   JobMoved,
   JobWorkflow,
   Kept,
+  LedgerItem,
+  LedgerList,
+  LedgerRequest,
   LoraList,
   MemoryInfo,
   ModelCache,
@@ -169,6 +172,18 @@ function isValidateRequest(
   )
 }
 
+/** A request's plan as PUT sends it: the read view's items go back as they
+ * came (the server ignores their derived fields), `prompt` is left out
+ * because it is write-once. */
+export type RequestWriteBody = {
+  title: string
+  goal: string
+  items: LedgerItem[]
+  revision: number
+  why: string
+  state?: LedgerRequest['state']
+}
+
 export const api = {
   listWorkflows: () => request<WorkflowList>('/api/workflows'),
   /** The workflow plus where it came from, read off the response headers
@@ -188,10 +203,20 @@ export const api = {
   // workspace and a workspace's Jobs page can name its own. `status` is one
   // state or a comma-separated set ('succeeded,failed,cancelled'); `limit`
   // keeps the newest N of what matched.
-  listJobs: (workspace?: string, limit?: number, status?: string) => {
+  // `requestId` (with `item`) narrows to the jobs linked to a requests-ledger
+  // request, or one item of it
+  listJobs: (
+    workspace?: string,
+    limit?: number,
+    status?: string,
+    requestId?: string,
+    item?: string,
+  ) => {
     const query = new URLSearchParams()
     if (workspace) query.set('workspace', workspace)
     if (status) query.set('status', status)
+    if (requestId) query.set('request', requestId)
+    if (requestId && item) query.set('item', item)
     if (limit) query.set('limit', String(limit))
     const qs = query.toString()
     return request<JobList>(qs ? `/api/jobs?${qs}` : '/api/jobs', undefined, {
@@ -355,9 +380,12 @@ export const api = {
   // `roles` narrows to those roles server-side (repeated `role` parameters;
   // a null role counts as final there). The page filters on the client, so
   // it asks for none
-  gallery: (roles?: string[]) => {
+  // `requestId` narrows to the runs whose job is linked to that
+  // requests-ledger request (in the selected workspace)
+  gallery: (roles?: string[], requestId?: string) => {
     const params = new URLSearchParams({ limit: '100000' })
     for (const role of roles ?? []) params.append('role', role)
+    if (requestId) params.set('request', requestId)
     return request<GalleryList>(`/api/gallery?${params}`)
   },
   // `workspace`, when given, names the file's own workspace and wins over
@@ -420,6 +448,31 @@ export const api = {
     request<AssetDeleted>(`/api/assets/${encodePath(name)}`, {
       method: 'DELETE',
     }),
+  // The requests ledger. Unscoped: the workspace is in the path
+  listRequests: (workspace: string) =>
+    request<LedgerList>(
+      `/api/workspaces/${encodeURIComponent(workspace)}/requests`,
+      undefined,
+      { scope: false },
+    ),
+  getRequest: (workspace: string, id: string) =>
+    request<LedgerRequest>(
+      `/api/workspaces/${encodeURIComponent(workspace)}/requests/${encodeURIComponent(id)}`,
+      undefined,
+      { scope: false },
+    ),
+  /** Write the whole plan back as read, at the revision it was read at,
+   * by the user. A stale revision is a 409 ApiError. */
+  putRequest: (workspace: string, id: string, body: RequestWriteBody) =>
+    request<LedgerRequest>(
+      `/api/workspaces/${encodeURIComponent(workspace)}/requests/${encodeURIComponent(id)}`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ by: 'user', ...body }),
+      },
+      { scope: false },
+    ),
   listWorkspaces: () => request<WorkspaceList>('/api/workspaces'),
   createWorkspace: (name: string) =>
     request<WorkspaceInfo>('/api/workspaces', {

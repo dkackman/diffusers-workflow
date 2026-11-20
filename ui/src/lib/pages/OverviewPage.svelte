@@ -1,5 +1,6 @@
 <script lang="ts">
   import {
+    ClipboardList,
     Eye,
     EyeOff,
     Images,
@@ -10,6 +11,7 @@
     Trash2,
   } from '@lucide/svelte'
   import { api } from '../api'
+  import { statusCounts } from '../requestResult'
   import Empty from '../Empty.svelte'
   import NoteEditor from '../ui/NoteEditor.svelte'
   import Skeleton from '../ui/Skeleton.svelte'
@@ -18,7 +20,7 @@
   import { hiddenWorkspaces, setHidden } from '../hiddenWorkspaces.svelte'
   import { latestProofs } from '../proofs'
   import { wsHref } from '../routes'
-  import type { GalleryFile, JobSummary } from '../types'
+  import type { GalleryFile, JobSummary, LedgerSummary } from '../types'
   import {
     DEFAULT_WORKSPACE,
     invalidateWorkspaces,
@@ -39,6 +41,9 @@
   let workflows = $state<string[] | null>(null)
   let proofs = $state<Record<string, GalleryFile>>({})
   let assetCount = $state<number | null>(null)
+  // Open requests only, and nothing at all when there are none or the call
+  // fails: the panel is a pointer, not a place for an error
+  let openRequests = $state<LedgerSummary[]>([])
   // A failed fetch is not the same thing as a workspace that genuinely has
   // nothing - each panel gets its own error, shown in place of its content,
   // so a 500 reads as a 500 rather than as an empty workspace
@@ -54,6 +59,31 @@
 
   const errorMessage = (e: unknown) =>
     e instanceof Error ? e.message : String(e)
+
+  function loadAssetCount() {
+    api
+      .listAssets()
+      .then(
+        (r) =>
+          (assetCount = r.assets.filter(
+            (a) => a.origin === 'workspace',
+          ).length),
+      )
+      .catch((e) => {
+        assetCount = 0
+        assetsError = errorMessage(e)
+      })
+  }
+
+  function loadOpenRequests(ws: string) {
+    openRequests = []
+    api
+      .listRequests(ws)
+      .then(
+        (r) => (openRequests = r.requests.filter((q) => q.state === 'open')),
+      )
+      .catch(() => (openRequests = []))
+  }
 
   $effect(() => {
     void workspace.current
@@ -104,18 +134,8 @@
         workflows = []
         workflowsError = errorMessage(e)
       })
-    api
-      .listAssets()
-      .then(
-        (r) =>
-          (assetCount = r.assets.filter(
-            (a) => a.origin === 'workspace',
-          ).length),
-      )
-      .catch((e) => {
-        assetCount = 0
-        assetsError = errorMessage(e)
-      })
+    loadOpenRequests(workspace.current)
+    loadAssetCount()
   })
 
   // The ones that have produced something first - the same order the catalog
@@ -194,6 +214,28 @@
     </div>
   {/if}
 </section>
+
+{#if openRequests.length}
+  <section class="panel">
+    <h2>
+      <a class="plain" href={wsHref(name, 'requests')}
+        ><ClipboardList size={15} /> Requests</a
+      >
+      <span class="flex"></span>
+      <a class="plain more" href={wsHref(name, 'requests')}>all requests</a>
+    </h2>
+    <ul class="jobs">
+      {#each openRequests as req (req.id)}
+        <li>
+          <a class="plain wf" href={wsHref(name, 'requests', req.id)}
+            >{req.title}</a
+          >
+          <span class="muted">{statusCounts(req.status_counts)}</span>
+        </li>
+      {/each}
+    </ul>
+  </section>
+{/if}
 
 <div class="two">
   <section class="panel">
@@ -354,6 +396,10 @@
     display: inline-flex;
     align-items: center;
     gap: 0.35rem;
+  }
+  .more {
+    font-size: var(--t-sm);
+    font-weight: normal;
   }
   .two {
     display: grid;
