@@ -128,8 +128,11 @@ def _load(root):
     except FileNotFoundError:
         return {}
     except (OSError, ValueError) as e:
+        # An OSError's text carries the file's absolute path; its strerror
+        # does not
+        why = (e.strerror or type(e).__name__) if isinstance(e, OSError) else e
         raise LedgerError(
-            f"{REQUESTS_FILE_NAME} could not be read ({e}); fix or remove it "
+            f"{REQUESTS_FILE_NAME} could not be read ({why}); fix or remove it "
             "before writing",
             status=409,
             code="ledger_unreadable",
@@ -378,7 +381,8 @@ def _estimate(value, key):
         return None
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise LedgerError(f"item {key!r}: estimate_minutes must be a number or null")
-    if not math.isfinite(value) or not 0 <= value <= MAX_ESTIMATE_MINUTES:
+    # The range first: isfinite raises on an integer too large for a float
+    if not 0 <= value <= MAX_ESTIMATE_MINUTES or not math.isfinite(value):
         raise LedgerError(
             f"item {key!r}: estimate_minutes must be between 0 and "
             f"{MAX_ESTIMATE_MINUTES}, got {value}"
@@ -685,7 +689,10 @@ def _merge_items(raw_items, current, request_id, linked_jobs, by, at):
         raise LedgerError(
             f"at most {MAX_ITEMS} items, counting dropped ones; got {len(items)}"
         )
-    _check_dependencies(items)
+    # The live plan only: a dropped item keeps the depends_on it was stored
+    # with and no write can edit it, so checking it would hold its
+    # dependency in the plan for good
+    _check_dependencies(live)
     return items
 
 

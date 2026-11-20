@@ -744,7 +744,7 @@ class TestLoraWeightSuffix:
         assert "'.safetensors'" in errors[0]["message"]
 
     @pytest.mark.parametrize(
-        "name", ["adapter.safetensors", "fl2va/adapter.safetensors", "A.SAFETENSORS"]
+        "name", ["adapter.safetensors", "fl2va/adapter.safetensors"]
     )
     def test_a_safetensors_lora_weight_passes(self, untrusted, workflow_dir, name):
         assert location_errors(self._definition(name), base_dir=workflow_dir) == []

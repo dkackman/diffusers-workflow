@@ -49,20 +49,21 @@ A PyPI install gets released `diffusers`, which may lag the newest pipelines; in
 
 GitHub generates notes from commits at tag time. The sections below are the hand-written notes: the newest is drafted at release prep and pasted into the GitHub release body once the tag has published (`gh release edit v<version> --notes-file ...`). Items a branch's author wants the next note to name go in a new section at the top.
 
-### Unreleased
+### 0.21.0
 
-- **Job list rows say why a job ended (#1449).** `GET /api/jobs` and MCP
-  `list_jobs` rows of failed and cancelled jobs carry `reason`, the first
-  line of the error (clipped to 160 characters), so a list can be triaged
-  without a `get_job` per row. A restart tombstone also carries
-  `restart_batch`, the key its batch groups by, for
-  `rerun_job(restart_batch=true)`. Both are optional and additive.
-- **The jobs page shows the reason, and offers a restart's jobs back
-  (#1449).** Each failed or cancelled row shows its reason under the
-  workflow name. Jobs a server restart cancelled raise a banner per restart,
-  "N jobs were cancelled by a server restart", whose **Rerun…** previews what
-  would be queued, with each estimate and a total, and queues only on
-  confirm.
+<!-- Drafted from v0.20.0..develop at release prep (2026-11-20). Paste into the GitHub release body once the tag has published: gh release edit v0.21.0 --notes-file ... -->
+
+This release gives an ask a record and the web UI most of what an agent
+could already see. A workspace now keeps a ledger of requests: what was
+asked, the plan of items, and the jobs made for each (#1458). A performer
+can be replaced across a cut take (#1194). Two model families arrive, Pika
+H3 Flex (#1316) and MiniMax-H3-Image (#1317). The UI validates a run as you
+edit it, shows a chain's segments with repair and continue, reruns a job
+with changes, and shows findings, the event log, step timing and the
+server's runtime (#1445-#1456).
+
+**Breaking and behaviour changes**
+
 - **diffusers floor raised to 0.43.0 (#1315).** `pyproject.toml` now
   requires `diffusers>=0.43.0` (was `>=0.42.0`), the release develop's code
   needs. The Models page / REST "revert to a known-good release" now
@@ -70,11 +71,80 @@ GitHub generates notes from commits at tag time. The sections below are the hand
   latent upsampler at `diffusers.models.latent_upscaler`, its 0.43 home; the
   old `diffusers.pipelines.ltx2.latent_upsampler` path still loads until
   diffusers 1.0.
+- **transformers floor raised to 5.21** (was 5.19.0), the first release with
+  SAM 3's video classes, which `track_people(backend="sam3")` needs (#1405).
 - **macOS: torch pinned below 2.15 (#1395).** torch 2.15 with the
   fp4-fp8-for-torch-mps autoload fails `scalar ** mps_tensor`, which breaks
   every Grounding-DINO run (`segment`, `track_people`,
   `replace-performer-cuts`). The pin is lifted when fp4-fp8-for-torch-mps or
   torch fixes the `_to_copy`/`copy_` override interaction.
+- **A plain rerun repeats the original's drawn seed (#1492).** `rerun_job` /
+  **Run again** on a workflow whose seed is null now reproduces the job;
+  pass `new_seed=true` / **New seed** for a different take. In 0.20.0 a
+  plain rerun drew a new seed.
+- **A boolean is refused for a float variable (#1354).**
+- **`experimental_refine_windows` is now `refine_windows` (#1376)**, on by
+  argument with no environment flag. The old name is refused, and the
+  refusal names the new one.
+- **More is refused at validate rather than after the load:** an H3
+  `num_frames`, `width` or `height` the pipeline would refuse (#1364); an H3
+  refine whose `trim_video` source is off the 17n+5 grid (#1372); an H3
+  video reference shorter than the conditioner's minimum (#1422); a Pika
+  audio reference outside 2 to 15 s (#1427); an empty list for a variable
+  with a `min_length`, such as `images: []` (#1424).
+- **A mag cache on a fixed step-list sampler warns at validate and is
+  dropped at load (#1430).**
+- **A scheduler's `from_config_args` string options are literals, not type
+  references (#1491).**
+- **Host-RAM admission.** A workflow with no run of its own and no
+  declaration inherits its catalog template's host-RAM peak
+  (`plan.host_memory.basis: "inherited"`, #1436), and a warm idle worker on
+  another card is released when the gate needs its memory (#1407).
+- **`narration-long` and `narration-retime` are catalog shape `audio`
+  (#1338).**
+- **A checked chain quotes at least the unchecked chain's worst case
+  (#1334).**
+
+**Requests** (#1458)
+
+- A workspace ledger of what was asked: a request holds a goal and a plan
+  of items, and each item links the jobs made for it. MCP `get_request` and
+  `set_request`; `run_workflow(request="<id>/<item>")` links a job; REST
+  `GET`/`PUT /api/workspaces/{name}/requests[/{id}]`; `?request=` filters
+  on the jobs and gallery lists.
+- A Requests page in the UI: each item's status, attempts, minutes spent
+  and remaining, and a comment box the agent reads on its next write.
+- The `script-to-video`, `storyboard`, `series-episodes` and `long-form`
+  skills open a request for an ask of three or more jobs.
+
+**Performer replacement** (#1194)
+
+- `templates/minimax/replace-performer-cuts` prepares a take: `detect_cuts`
+  lists its shots on H3's grid and `track_people` writes one mask video per
+  person. `templates/minimax/replace-performer` re-renders the masked
+  performer cut by cut from references and joins the result under the
+  take's own sound. Pass it a contiguous run of cuts: a cut left out of the
+  middle puts every later cut against the wrong sound.
+- `track_people` takes `backend: "sam3"` (opt-in; gated weights under the
+  SAM License). `trim_video` takes `pad_to`.
+
+**New model families**
+
+- **Pika H3 Flex (#1316).** `templates/pika-h3/` text-to-video,
+  first-and-last-frame and reference-to-video: six fixed passes over
+  MiniMax-H3's weights, single clips only.
+- **MiniMax-H3-Image (#1317).** `templates/minimax-h3-image/` text-to-image
+  and multi-reference, a `models/` entry and the `minimax-h3-image` skill.
+  CUDA only, with about 70 GB of host RAM.
+
+**H3**
+
+- `templates/minimax/h3-seam-pass` and `refine_windows` refine a long take
+  in time windows (#1376, #1378), and a refine skips the decodes its output
+  does not ask for (#1377).
+- One whole-render guide on ref2va (#1413). `turbo_lead_in` (#1352) and
+  keystone attention (#1393, behind `DW_EXPERIMENTAL_REFINE_WINDOWS`) are
+  in the engine with no clear win measured; no template uses either.
 - **H3 camera moves, measured on two seeds (#1379).** All 13 move ids in the
   `cinematography` vocabulary now carry an H3 verdict on seeds 42 and 7 in
   `compile-h3.md`, where seven read "not measured" before. The axial and
@@ -92,6 +162,69 @@ GitHub generates notes from commits at tag time. The sections below are the hand
   `truck-right`, `crane-down` and `tracking` vary by seed. `handheld` was
   ignored on both seeds and on a reworded rerun, so its row reads "hint
   only, rarely honoured". Same record.
+
+**Jobs**
+
+- **Job list rows say why a job ended (#1449).** `GET /api/jobs` and MCP
+  `list_jobs` rows of failed and cancelled jobs carry `reason`, the first
+  line of the error (clipped to 160 characters), so a list can be triaged
+  without a `get_job` per row. A restart tombstone also carries
+  `restart_batch`, the key its batch groups by, for
+  `rerun_job(restart_batch=true)`. Both are optional and additive.
+- **The jobs page shows the reason, and offers a restart's jobs back
+  (#1449).** Each failed or cancelled row shows its reason under the
+  workflow name. Jobs a server restart cancelled raise a banner per restart,
+  "N jobs were cancelled by a server restart", whose **Rerun…** previews what
+  would be queued, with each estimate and a total, and queues only on
+  confirm.
+- `rerun_job(restart_batch=true)` and its REST form queue a restart's jobs
+  again (#1370, #1371). A queued job says what it is waiting for
+  (`queue_wait: gpu_busy`, `waiting_for`, #1355). `list_jobs` `total` is
+  exact (#1466).
+
+**Measures**
+
+- `crop_face_track` `select` (#1348); `scored_from` on `analyze_face_drift`
+  (#1421); `high_share` and `noise_floor_dbfs` per shot (#1464);
+  `segment_looks` on `analyze_seams` (#1349); chain shot records carry
+  their measures (#1474); `boundary_slack_seconds` (#1336).
+- `match_levels` warns when a clip-held shot leaves the others above it
+  (#1368), in the measure's own unit and naming `match_levels_lufs` for a
+  LUFS match.
+
+**Web UI** (#1445-#1456)
+
+- The run page validates as you edit and shows the plan (#1446); a
+  variable's declared rules sit under its field, and presets are a dropdown
+  (#1447).
+- Run again with changes (#1448); a chain's segment table with repair and
+  continue (#1451).
+- Findings and Assess in the gallery, and a job's event log (#1452); a
+  per-step timing bar and peak host RAM (#1453); curated cost states its
+  basis (#1454).
+- A Runtime panel on the server page (#1455); catalog LoRA suggestions
+  (#1456); a model's last job use (#1445); queue holds, phase stalls and
+  live warnings (#1450).
+
+**Security**
+
+- A modular pipeline's `load_components` block is gated as
+  `from_pretrained_arguments` is: `trust_remote_code` and `custom_pipeline`
+  are refused there for an untrusted workflow, at validate and at run.
+- `cache_dir`, `local_dir`, `proxies` and `mirror` are refused in both
+  blocks for an untrusted workflow.
+- A `loras` entry may set only `model_name`, `adapter_name`, `scale`,
+  `alpha`, `weight_name`, `subfolder` and `revision` when untrusted; its
+  weight file is `.safetensors` in every shape and the load is safetensors
+  only, so a repo holding just a `.bin` no longer loads
+  (GHSA-jmhv-58g4-fw8c).
+- A second model a step names (`track_people`'s `sam_model_name` and
+  `sam3_model_name`, a `load_components` repo override) is checked as
+  `model_name` is.
+- A job recorded before 0.20.0 no longer serves a shot's `file` by the
+  server's absolute path from history (GHSA-5m72-m9g5-q8vp,
+  GHSA-g84m-9567-rvmm), and an unreadable `requests.json` is reported
+  without its folder.
 
 ### 0.20.0
 

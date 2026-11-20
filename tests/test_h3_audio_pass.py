@@ -13,6 +13,7 @@ import pytest
 from dw.hold_audio import mask_errors
 from dw.pipeline_processors import h3_mask
 from dw.pipeline_processors.h3_hold import core_denoise_sequences
+from dw.pipeline_processors.h3_mask_cells import listen_canvas
 from dw.pipeline_processors.h3_rules import (
     AUDIO_PASS_BLOCK,
     AUDIO_PASS_ROWS,
@@ -25,7 +26,6 @@ from dw.pipeline_processors.h3_rules import (
     SOURCE_ROWS,
     edits_region,
     is_audio_pass,
-    listen_canvas,
     mask_problems,
     refine_problems,
 )
@@ -748,7 +748,8 @@ class TestSourceFrameRate:
         [(124, 30), (100, 30), (60, 25), (240, 60), (50, 12), (124, 23.976)],
     )
     def test_the_retimed_conditioning_lands_on_the_h3_grid(self, frames, fps):
-        from dw.pipeline_processors.h3_rules import RENDER_GRID, retimed_indices
+        from dw.pipeline_processors.h3_mask_cells import retimed_indices
+        from dw.pipeline_processors.h3_rules import RENDER_GRID
         from dw.variable_constraints import aligned
 
         indices = retimed_indices(frames, fps)

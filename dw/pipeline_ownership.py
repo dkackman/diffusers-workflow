@@ -12,7 +12,10 @@ release a step asks for, the eviction of a superseded variant, and the
 cleanup between steps. They live in one module so `empty_device_cache` and
 `release_host_caches` are each looked up in exactly one place. Beside them,
 the two ways a pipeline step comes to own a pipeline: `wrap_resident` around
-a model already loaded, and `load_fresh`.
+a model already loaded, and `load_fresh`. `release_step_pipeline` is the pop a
+`release_pipeline` step makes, and `released_reference_warnings` what
+validation says ahead of the run about a `pipeline_reference` to a pipeline
+such a release dropped.
 
 This module does not import `dw.workflow`.
 """
@@ -23,7 +26,7 @@ from dataclasses import dataclass
 
 import torch
 
-from . import device_memory_stats, empty_device_cache
+from . import device_memory_stats, empty_device_cache, references
 from .events import emit_phase, get_context
 from .host_memory import release_host_caches
 from .pipeline_processors.pipeline import Pipeline
@@ -368,3 +371,91 @@ def load_fresh(
     mark("load_cached", False)
     pipeline.load(shared_components)
     return pipeline
+
+
+def release_step_pipeline(workflow, loop, step_name, step_action=None):
+    """Pop a release_pipeline step's pipeline and mark it released. Returns
+    the popped pipeline, or None - the caller drops its own references to
+    it and to the step's action before the release is finished.
+
+    A `workflow:` step has no pipeline of its own: its composed child loaded
+    into this same pipelines dict under the child's keys, so those are what
+    the release pops (#1408). The first popped pipeline is returned."""
+    released = loop.pipelines.pop(workflow.pipeline_ownership.key_for(step_name), None)
+    workflow.pipeline_ownership.mark_released(step_name)
+    if isinstance(step_action, type(workflow)):
+        for key in set(step_action.pipeline_ownership.keys_by_step.values()):
+            popped = loop.pipelines.pop(key, None)
+            if released is None:
+                released = popped
+    return released
+
+
+def _loaded_keys(workflow, expanded, depth=0):
+    """Every pipeline cache key the steps of `expanded` load: its pipeline
+    steps' own, and those of each composed child (a `workflow:` step loads
+    into the same pipelines dict under the child's keys). A child that
+    cannot be opened or expanded contributes none - the error pass owns it."""
+    keys = set(step_pipeline_keys(expanded.get("steps") or []).values())
+    if depth >= 8:
+        return keys
+    for step in expanded.get("steps") or []:
+        keys |= _child_keys(workflow, step, depth)
+    return keys
+
+
+def _child_keys(workflow, step, depth):
+    reference = step.get("workflow")
+    if not isinstance(reference, dict) or not isinstance(reference.get("path"), str):
+        return set()
+    try:
+        child, _ = workflow.open_sub_workflow(reference["path"])
+        passed = reference.get("arguments")
+        child_expanded = child.expanded_definition(
+            passed if isinstance(passed, dict) else None
+        )
+        return _loaded_keys(child, child_expanded, depth + 1)
+    except Exception:
+        return set()
+
+
+def released_reference_warnings(workflow, expanded, source_indices=None):
+    """A `pipeline_reference` naming a pipeline an earlier step's
+    `release_pipeline` dropped before the reference runs (#1409).
+
+    A release pops the step's own cache key - and, on a `workflow:` step,
+    every key its composed child loaded - so a step sharing that key (the
+    same model loaded twice under different names) is released with it. The
+    run fails at the reference, after the GPU time of every step before it;
+    a pipeline step loading the key again in between puts it back. A warning,
+    not an error: a cached step can leave the run without ever loading."""
+    steps = expanded.get("steps") or []
+    keys = step_pipeline_keys(steps)
+    released = {}
+    warnings = []
+    for index, step in enumerate(steps):
+        name = step.get("name")
+        reference = step.get("pipeline_reference")
+        if isinstance(reference, dict):
+            target = reference.get("reference_name")
+            dropper = released.get(keys.get(target))
+            if dropper is not None:
+                source = references.author_index(source_indices, index)
+                warnings.append(
+                    f"steps[{source}].pipeline_reference.reference_name: "
+                    f"'{target}' was dropped by release_pipeline on step "
+                    f"'{dropper}' (a shared model cache key), so this "
+                    "reference fails at run time with the pipeline released. "
+                    "Drop the release, or reload the model with a pipeline "
+                    "step before the reference"
+                )
+        if "pipeline" in step and name in keys:
+            released.pop(keys[name], None)
+        if step.get("release_pipeline"):
+            if name in keys:
+                dropped = {keys[name]}
+            else:
+                dropped = _child_keys(workflow, step, 0)
+            for key in dropped:
+                released[key] = name
+    return warnings

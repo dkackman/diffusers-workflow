@@ -975,7 +975,7 @@ the diffusers pipeline class), and `cuts`, a list of shot records named
   "content", "histogram_correlation", "frame_change"}`, what the detector saw;
 - `split: true` on each piece of a cut longer than `max_frames`;
 - `too_short: true` on a cut under `22` frames (the grid's first step), which
-  would pad to `124` from almost nothing: merge it into a neighbour or skip it.
+  would pad to `124` from almost nothing: merge it into a neighbour.
 
 Both flags are also reported as warnings on the job. Nothing is dropped: the
 list is a literal to edit. The detector is `crop_face_track`'s

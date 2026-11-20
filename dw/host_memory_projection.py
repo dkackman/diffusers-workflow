@@ -20,7 +20,7 @@ import logging
 
 from .for_each import FOR_EACH_KEY
 from .presets import effective_variables
-from .validation import _has_seedable_step
+from .step_cache import _has_seedable_step
 
 logger = logging.getLogger("dw")
 

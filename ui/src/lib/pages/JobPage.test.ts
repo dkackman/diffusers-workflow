@@ -827,7 +827,9 @@ describe('event log (#1478)', () => {
       ['j1', { after: -1, limit: 500 }],
     ])
     // A finished job's log does not grow, so nothing offers to refresh it
-    expect(screen.queryByRole('button', { name: 'Refresh event log' })).toBeNull()
+    expect(
+      screen.queryByRole('button', { name: 'Refresh event log' }),
+    ).toBeNull()
   })
 
   it('says there is no log for an unknown or pruned job', async () => {
@@ -899,7 +901,9 @@ describe('event log (#1478)', () => {
     expect(nodeFor(container, 'mux').classList.contains('active')).toBe(false)
 
     eventLog.events.push({ seq: 4, event: 'log', message: 'muxing' })
-    await fireEvent.click(screen.getByRole('button', { name: 'Refresh event log' }))
+    await fireEvent.click(
+      screen.getByRole('button', { name: 'Refresh event log' }),
+    )
     await waitFor(() => expect(logRows(container).length).toBe(5))
     expect(screen.getByText('5 events, seq 0–4')).toBeTruthy()
     expect(vi.mocked(api.eventLog).mock.calls.at(-1)).toEqual([
@@ -910,7 +914,7 @@ describe('event log (#1478)', () => {
   })
 })
 
-it('clears a previous job id\'s error when the id changes to a valid job', async () => {
+it("clears a previous job id's error when the id changes to a valid job", async () => {
   const good = job([])
   detail.job = good
   vi.mocked(api.getJob).mockRejectedValueOnce(new Error('Unknown job'))

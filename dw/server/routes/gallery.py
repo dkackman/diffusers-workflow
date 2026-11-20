@@ -178,6 +178,26 @@ def _orphan_entries(root):
     return entries
 
 
+def _check_gallery_filters(role, request_id, item):
+    """Refuse a gallery query's bad filters: an unknown role is a 400; an
+    `item` without a `request`, or either as a malformed ledger key, a 422."""
+    if role:
+        unknown = sorted(set(role) - set(ROLES))
+        if unknown:
+            raise HTTPException(
+                status_code=400,
+                detail=f"unknown role {unknown}; roles are {list(ROLES)}",
+            )
+    if item and not request_id:
+        raise HTTPException(status_code=422, detail="item needs request")
+    for value, what in ((request_id, "request"), (item, "item")):
+        if value:
+            try:
+                validate_ledger_key(value, what)
+            except InvalidInputError as e:
+                raise HTTPException(status_code=422, detail=str(e))
+
+
 @router.get(
     "/api/gallery", response_model=GalleryList, response_model_exclude_unset=True
 )
@@ -244,21 +264,7 @@ def gallery(
     (dw/roles.py rule 4). A run that recorded no role takes the role its
     file's subfolder names, then rule 4; with neither it is null. `role`
     is a repeatable filter; a null role counts as final. Omitted, every file is listed."""
-    if role:
-        unknown = sorted(set(role) - set(ROLES))
-        if unknown:
-            raise HTTPException(
-                status_code=400,
-                detail=f"unknown role {unknown}; roles are {list(ROLES)}",
-            )
-    if item and not request_id:
-        raise HTTPException(status_code=422, detail="item needs request")
-    for value, what in ((request_id, "request"), (item, "item")):
-        if value:
-            try:
-                validate_ledger_key(value, what)
-            except InvalidInputError as e:
-                raise HTTPException(status_code=422, detail=str(e))
+    _check_gallery_filters(role, request_id, item)
     if only_orphans:
         entries = _orphan_entries(ws.outputs)
         offset = max(0, offset)

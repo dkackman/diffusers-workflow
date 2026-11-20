@@ -47,7 +47,11 @@ const listRequests = vi.hoisted(() =>
 )
 const gallery = vi.hoisted(() =>
   vi.fn<
-    (roles?: string[], request?: string, item?: string) => Promise<{ files: GalleryFile[] }>
+    (
+      roles?: string[],
+      request?: string,
+      item?: string,
+    ) => Promise<{ files: GalleryFile[] }>
   >(
     () =>
       new Promise<{ files: GalleryFile[] }>((resolve) =>
@@ -677,7 +681,9 @@ it('says the filter matched nothing, not that nothing was generated', async () =
   location.hash = '#/ws/default/gallery?req=r1/alpha'
   listing.files = []
   render(GalleryPage)
-  expect(await screen.findByText(/No outputs for this request item yet/)).toBeTruthy()
+  expect(
+    await screen.findByText(/No outputs for this request item yet/),
+  ).toBeTruthy()
   expect(screen.queryByText(/Nothing generated yet/)).toBeNull()
 })
 
@@ -685,7 +691,9 @@ it('offers a request picker, and picking one reloads narrowed', async () => {
   await renderGallery()
   const picker = await screen.findByLabelText('filter by request')
   await fireEvent.change(picker, { target: { value: 'r1' } })
-  await waitFor(() => expect(gallery).toHaveBeenLastCalledWith(undefined, 'r1', undefined))
+  await waitFor(() =>
+    expect(gallery).toHaveBeenLastCalledWith(undefined, 'r1', undefined),
+  )
   expect(screen.getByTestId('req-filter')).toBeTruthy()
 })
 

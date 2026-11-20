@@ -12,6 +12,7 @@ import wave
 import pytest
 
 from dw import validation
+from dw.pipeline_ownership import released_reference_warnings
 from dw.validation import (
     Check,
     Finding,
@@ -1241,9 +1242,7 @@ def test_a_reference_to_a_model_a_composed_childs_release_drops_is_warned(tmp_pa
     }
     workflow = Workflow(parent, str(tmp_path), str(tmp_path / "parent.json"))
 
-    warnings = validation.released_reference_warnings(
-        workflow, workflow.expanded_definition()
-    )
+    warnings = released_reference_warnings(workflow, workflow.expanded_definition())
 
     assert len(warnings) == 1
     assert "steps[2]" in warnings[0] and "'kid'" in warnings[0]
@@ -1266,8 +1265,5 @@ def test_a_release_of_an_unrelated_model_or_a_reload_is_not_warned(tmp_path):
     ):
         workflow = Workflow({"id": "p", "steps": steps}, str(tmp_path), "")
         assert (
-            validation.released_reference_warnings(
-                workflow, workflow.expanded_definition()
-            )
-            == []
+            released_reference_warnings(workflow, workflow.expanded_definition()) == []
         )

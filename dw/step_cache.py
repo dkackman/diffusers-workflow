@@ -60,6 +60,10 @@ the run finished, so a handful of members held several GB resident
 indefinitely (#368). The byte cap does not know which entries a future run
 would most want back; it just keeps the newest-used bytes under budget the
 same way the entry cap keeps the newest-used count under one, oldest first.
+
+Whether a run gets the cache at all is here too: an unseeded workflow does
+not (`_is_seeded`), and `unseeded_cache_warnings` is the warning source that
+says so where a caller is looking (validation's registry runs it).
 """
 
 import copy
@@ -789,3 +793,53 @@ class StepCache:
 
 
 step_cache = StepCache()
+
+
+def unseeded_cache_warnings(definition, arguments=None):
+    """Say once, where a caller is already looking, that an unseeded workflow
+    gets no step cache at all.
+
+    `cached_steps: 0` is indistinguishable from 'probed, nothing hit' out
+    there, and the difference is the one that matters: without a `seed` the
+    cache is off, so nothing is ever reused however many times the same
+    workflow runs (#107).
+
+    Silent for a workflow with no `pipeline`/`pipeline_reference`/`workflow`
+    step: a task-only utility has no generative randomness a `seed` would
+    pin down in the first place, and each of its steps is a pure function of
+    its inputs - a repeat run is already free without one (#247)
+    """
+    if _is_seeded(definition, arguments) or not _has_seedable_step(definition):
+        return []
+    return [
+        "This workflow sets no 'seed', so the step cache is disabled and "
+        "'cached_steps' is 0 without being probed - every step regenerates "
+        "on every run. Set a top-level 'seed': 'variable:seed' with a "
+        "declared default in 'variables' to make a repeat run reuse what it "
+        "already produced"
+    ]
+
+
+def _has_seedable_step(definition):
+    """Whether any step could consume a seed: a pipeline (inline or
+    referenced) or a sub-workflow, which may hold one in turn. A workflow
+    built entirely of `task` steps has nothing a seed would affect."""
+    for step in definition.get("steps") or []:
+        if not isinstance(step, dict):
+            continue
+        if "pipeline" in step or "pipeline_reference" in step or "workflow" in step:
+            return True
+    return False
+
+
+def _is_seeded(definition, arguments):
+    """Whether a run of this workflow has a seed before it draws one - read
+    from the definition as written and the caller's arguments, since
+    realization pins a seed of its own into the copy."""
+    seed = definition.get("seed")
+    if references.is_ref(references.VARIABLE, seed):
+        name = references.ref_name(references.VARIABLE, seed)
+        if name in (arguments or {}):
+            return arguments[name] is not None
+        return (definition.get("variables") or {}).get(name) is not None
+    return seed is not None

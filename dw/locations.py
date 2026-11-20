@@ -756,6 +756,15 @@ def _walk(node, path, base_dir, errors, weight_rules=(None, True, False)):
             _walk(item, f"{path}[{index}]", base_dir, errors, weight_rules)
 
 
+MODEL_OVERRIDE_KEY = "pretrained_model_name_or_path"
+
+
+def _names_a_model(key):
+    return isinstance(key, str) and (
+        key == MODEL_OVERRIDE_KEY or key.endswith("_model_name")
+    )
+
+
 def _named_value_errors(key, value, here, base_dir, errors, weight_rules):
     """Check a key whose value is one name - a model, a weight file, a remote
     encoder's URL or a glob - and say whether it was one, which ends the walk
@@ -764,6 +773,21 @@ def _named_value_errors(key, value, here, base_dir, errors, weight_rules):
         message = _model_name_message(value, base_dir, weight_rules[2])
         if message:
             errors.append({"path": here, "message": message})
+        return True
+    if _names_a_model(key):
+        # A second model a step names under its own key - track_people's
+        # sam_model_name, a modular load_components' repo override (one name,
+        # or one per component) - is a model name like the first
+        named = (
+            [(f"{here}.{k}", v) for k, v in value.items()]
+            if isinstance(value, dict)
+            else _each(value, here)
+        )
+        for sub_path, name in named:
+            if isinstance(name, str):
+                message = _model_name_message(name, base_dir, weight_rules[2])
+                if message:
+                    errors.append({"path": sub_path, "message": message})
         return True
     if key == WEIGHT_NAME_KEY and isinstance(value, str):
         if not _deferred(value):

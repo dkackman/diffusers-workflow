@@ -42,7 +42,7 @@ Each item carries `key`, `title`, `workflow` (the template it runs, such as
 `templates/minimax/dialogue-short`), `arguments` (what the run passes, each
 text as a `prompt:` reference, never the prompt text itself), `depends_on`
 (other keys: a shot on its cast, the cut on the shots) and
-`estimate_minutes` (the template's `plan.estimate`, or null). `NN` is the
+`estimate_minutes` (the template's `plan.estimate.minutes`, or null). `NN` is the
 shot document's `id`, so item `shot-03` is shot object `03`. The shot
 document stays the creative source: a changed shot is edited there and
 recompiled, and the item is not touched.

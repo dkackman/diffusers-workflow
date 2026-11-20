@@ -153,10 +153,22 @@ triggered it and pointing at `--trust-workflows`:
   `fetch_constant` refuses anything callable. Reading a field off a value
   declared in an allowed module works. A bare `constant:SOME_NAME` reads from
   `diffusers`.
-- **Remote code in `from_pretrained_arguments`**: `trust_remote_code` and
-  `custom_pipeline`, for every component and pipeline
-  (`require_trusted_from_pretrained_arguments`). Neither goes through an
-  import of ours, so the dotted-name gate alone would leave them open.
+- **Remote code in `from_pretrained_arguments` or a modular pipeline's
+  `load_components`**: `trust_remote_code` and `custom_pipeline`, for every
+  component and pipeline (`require_trusted_from_pretrained_arguments`).
+  Neither goes through an import of ours, so the dotted-name gate alone would
+  leave them open. `load_components` hands its keys to every component's
+  `from_pretrained`, so it is gated as `from_pretrained_arguments` is.
+- **A loader keyword that redirects the download**, in the same two blocks:
+  `cache_dir` and `local_dir` (where on the server a repo's files are
+  written), `proxies` and `mirror` (which host the request goes through).
+- **A `loras` entry key outside `model_name`, `adapter_name`, `scale`,
+  `alpha`, `weight_name`, `subfolder` and `revision`**
+  (`require_trusted_lora_entries`). Every other key is a keyword argument to
+  diffusers' `load_lora_weights`. Its `weight_name` ends in `.safetensors`
+  exactly, it and `subfolder` are relative names inside the repo, and the
+  load itself is safetensors only, so a repo holding just a `.bin` is refused
+  rather than unpickled (SE-F066).
 - **Remote code in a model's `generate()`**: `custom_generate` (a Hub repo
   whose `custom_generate/generate.py` transformers downloads and runs) and
   `trust_remote_code`, in `text_generation`'s `generate_kwargs` and in
@@ -253,7 +265,10 @@ to fetch, which directory a glob expands over. Untrusted:
   redirect that leaves the host, or drops to http, is followed without the
   token.
 - **`model_name`** must be a Hub repo id or a contained path; a URL is refused
-  (#117).
+  (#117). So must any other key that names a model: one ending in
+  `_model_name` (`track_people`'s `sam_model_name`), and a modular
+  `load_components`' `pretrained_model_name_or_path`, as one name or one per
+  component.
 
 `location_errors` runs inside `validation_errors`, so `validate_workflow`
 refuses before a model load is spent, and the loaders call the same functions

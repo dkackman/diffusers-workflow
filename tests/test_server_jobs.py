@@ -842,3 +842,67 @@ class TestShotFilesAreNamedAsFilesAre:
         from dw.server.job_results import relative_shots
 
         assert relative_shots(None, str(tmp_path)) is None
+
+
+class TestStoredShotFilesAreRenamedOnRead:
+    """A history row written before shots were relativised at record time
+    holds the worker's absolute path, and is served as stored after a
+    restart - so the read renames it (GHSA-5m72-m9g5-q8vp,
+    GHSA-g84m-9567-rvmm)."""
+
+    ROOT = "/home/someone/diffusers-workspace/outputs"
+    NAME = "flow/run/final/take.1-0.0.mp4"
+
+    def _history(self, tmp_path, entry):
+        import sqlite3
+
+        history = JobHistory(str(tmp_path / "jobs.sqlite"))
+        with sqlite3.connect(str(tmp_path / "jobs.sqlite")) as connection:
+            connection.execute(
+                "INSERT INTO jobs (id, status, manifest, events) VALUES"
+                " ('old', 'succeeded', ?, ?)",
+                (
+                    json.dumps([entry]),
+                    json.dumps(
+                        [
+                            {"seq": 0, "event": "step_end", **entry},
+                            {"seq": 1, "event": "workflow_end", "manifest": [entry]},
+                        ]
+                    ),
+                ),
+            )
+        return history
+
+    def _entry(self, files):
+        return {
+            "step": "take",
+            "files": files,
+            "shots": [
+                {"name": "s1", "file": f"{self.ROOT}/{self.NAME}"},
+                {"name": "s2"},
+            ],
+        }
+
+    def test_get_and_events_name_the_shot_as_files_do(self, tmp_path):
+        history = self._history(tmp_path, self._entry([self.NAME]))
+        detail = history.get("old")
+        assert detail["manifest"][0]["shots"] == [
+            {"name": "s1", "file": self.NAME},
+            {"name": "s2"},
+        ]
+        events = history.events_for("old")
+        assert events[0]["shots"][0]["file"] == self.NAME
+        assert events[1]["manifest"][0]["shots"][0]["file"] == self.NAME
+        assert "/home/someone" not in json.dumps([detail, events])
+
+    def test_a_shot_no_file_entry_names_keeps_its_base_name(self, tmp_path):
+        history = self._history(tmp_path, self._entry([]))
+        (shot, _) = history.get("old")["manifest"][0]["shots"]
+        assert shot["file"] == "take.1-0.0.mp4"
+
+    def test_a_relative_shot_file_is_left_alone(self, tmp_path):
+        from dw.server.job_results import stored_manifest
+
+        entry = {"files": [self.NAME], "shots": [{"file": self.NAME}]}
+        assert stored_manifest([entry]) == [entry]
+        assert stored_manifest(None) is None

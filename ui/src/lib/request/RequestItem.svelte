@@ -165,9 +165,13 @@
               {formatExact(Date.parse(item.comment.at) / 1000)}
             </p>
           {/if}
-          <button type="button" class="quiet" onclick={edit}
-            >{item.comment ? 'Edit comment' : 'Add comment'}</button
-          >
+          <!-- The ledger keeps a dropped item as stored: a comment
+               written on one is not saved, so none is offered -->
+          {#if !item.dropped}
+            <button type="button" class="quiet" onclick={edit}
+              >{item.comment ? 'Edit comment' : 'Add comment'}</button
+            >
+          {/if}
         {/if}
       </div>
     </div>

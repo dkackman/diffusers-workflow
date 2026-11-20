@@ -283,7 +283,7 @@ def detect_cuts(video, max_frames=345):
         emit_warning(
             f"{COMMAND}: under {too_short_below(window)} frames, so padded to "
             f"{window['min_frames']} from almost nothing: {', '.join(short)} - "
-            "merge each into a neighbour or skip it"
+            "merge each into a neighbour"
         )
     return JsonRecord(
         {

@@ -27,13 +27,14 @@ from ..security import SecurityError, validate_path
 from ..workspace import DEFAULT_WORKSPACE_NAME
 from .host_ram_need import memory_key
 from .observed_cost import EVENT_CAP, LOADING_MARKER
+from .job_results import stored_manifest
 from .job_record import (
     ACK_NONE,
     CANCELLED,
     MAX_PERSISTED_EVENTS,
     QUEUED,
     RERUN_SPEC_KEYS,
-    RESTART_PREFIX,
+    RESTART_LIKE,
     RUNNING,
     SUCCEEDED,
     row_reason_fields,
@@ -207,7 +208,7 @@ RESTART_RUNNING = (
     "partial outputs may be in {run_dir}"
 )
 # The prefix every tombstone's error starts with - what a batch is matched
-# on - is RESTART_PREFIX, defined in job_record beside the row-reason helper
+# on - is job_record's RESTART_PREFIX, beside the row-reason helper
 # A row that was dispatched but had not reported its run directory yet
 RESTART_RUNNING_NO_RUN = (
     "server restart: running when the server stopped, before it opened a run"
@@ -389,7 +390,7 @@ class JobHistory:
         before #1245). Its own SQL with no row cap, not the 200-row listing.
         A retired workspace's rows are members too, `workspace` still
         carrying DELETED_SUFFIX, so the caller can say why it skips one."""
-        pattern = RESTART_PREFIX + "%"
+        pattern = RESTART_LIKE
         with self._lock, self._connect() as connection:
             row = connection.execute(
                 "SELECT server_instance FROM jobs WHERE id = ? AND status = ?"
@@ -763,7 +764,7 @@ class JobHistory:
         if not row["events"]:
             return []
         try:
-            return json.loads(row["events"])
+            return stored_manifest(json.loads(row["events"]))
         except json.JSONDecodeError:
             return []
 
@@ -860,7 +861,7 @@ class JobHistory:
             "finished_at": row["finished_at"],
             "arguments": parse(row["arguments"], {}),
             "spec": spec,
-            "manifest": parse(row["manifest"], []),
+            "manifest": stored_manifest(parse(row["manifest"], [])),
             "warnings": parse(row["warnings"], []),
             "error": row["error"],
             "workspace": row["workspace"] or DEFAULT_WORKSPACE_NAME,

@@ -7,7 +7,7 @@ from dw import validation
 from dw.workflow import Workflow, workflow_from_file
 from dw.library import workflow_output_subfolder
 from dw.step_cache import referenced_result_names
-from dw.workflow_run import release_unreferenced_results
+from dw.previous_results import release_unreferenced_results
 from dw.pipeline_processors.pipeline import Pipeline
 from dw.step_cache import pipeline_cache_key
 import os

@@ -18,6 +18,7 @@ from .h3_guides import (
 )
 from .h3_hold import hold_audio_reference, holds_audio, refines
 from .h3_mask import binarized, edits_regions, listen_frames, passes_audio
+from .h3_mask_cells import listen_canvas, media_problems, retimed_indices
 from .h3_rules import (
     REFINE_WINDOWS_INPUT,
     renamed_windows_problem,
@@ -42,12 +43,9 @@ from .h3_rules import (
     SOURCE_VIDEO_INPUT,
     edits_region,
     is_audio_pass,
-    listen_canvas,
-    retimed_indices,
     anchor_strength_problem,
     guide_noise_problem,
     mask_problems,
-    media_problems,
     refine_problems,
     ref2va_guide_problem,
     ref2va_guides_count_problem,

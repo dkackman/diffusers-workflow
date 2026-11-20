@@ -36,7 +36,7 @@ has the rules). One or two boards need none.
    user's ask, verbatim>, revision=0, why="boards for <scene>", items=[...])`,
    one item per board, in order: `{"key": "board-NN", "title": ...,
    "workflow": <the board's template>, "arguments": {<its text argument>:
-   "prompt:<project>/board-NN"}, "estimate_minutes": <plan.estimate>}`.
+   "prompt:<project>/board-NN"}, "estimate_minutes": <plan.estimate.minutes>}`.
    The request id and keys are lower-case letters, digits and `-`.
 3. Draw each board with `run_workflow(..., request="<project>/board-NN",
    note=...)`.

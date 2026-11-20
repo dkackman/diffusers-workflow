@@ -1300,3 +1300,37 @@ class TestContinuousJoins:
             concat_videos(
                 [audio_video(4, 0.1), audio_video(4, 0.2)], continuous_joins="yes"
             )
+
+
+def test_a_lufs_spread_warning_leaves_out_a_shot_matched_by_rms():
+    """A shot too short for LUFS is matched by rms to a dBFS target: its
+    level is not set beside the others' LUFS, and the remedy names the
+    argument the lufs mode takes (0.21.0 review)."""
+    from dw.events import RunContext, activate_context, deactivate_context
+    from dw.tasks.joins import match_levels
+
+    rate = 32000
+
+    def tone(seconds, amplitude=0.1):
+        t = numpy.arange(int(rate * seconds)) / rate
+        wave = (amplitude * numpy.sin(2 * numpy.pi * 440 * t)).astype(numpy.float32)
+        return numpy.stack([wave, wave])
+
+    peaky = tone(3.0)
+    peaky[:, ::8000] = 0.99
+
+    def spreads(shots):
+        events = []
+        token = activate_context(RunContext(on_event=events.append))
+        try:
+            match_levels(shots, "lufs", sample_rate=rate, target_lufs=-16)
+        finally:
+            deactivate_context(token)
+        return [e for e in events if e.get("kind") == "match_levels_spread"]
+
+    (event,) = spreads([tone(3.0), tone(0.3), peaky])
+    assert "match_levels_lufs" in event["message"]
+    assert "match_levels_dbfs" not in event["message"]
+    assert event["unit"] == "LUFS"
+    # the short shot's -20 dBFS alone makes no spread among LUFS shots
+    assert spreads([tone(3.0), tone(0.3), tone(3.0)]) == []

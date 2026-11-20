@@ -9,11 +9,13 @@
     coerce,
     displayValue,
     isReference,
+    widgetFor,
+  } from '../editor'
+  import {
     mediaKindFor,
     mediaLocation,
-    widgetFor,
     withMediaLocation,
-  } from '../editor'
+  } from '../mediaArguments'
   import { promptLibrary } from '../promptlib.svelte'
   import { promptTooltip } from '../prompts'
   import { referenceCompletions } from '../refcomplete.svelte'

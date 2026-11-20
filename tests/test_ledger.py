@@ -559,3 +559,29 @@ class TestRoutes:
         assert len(routes) == 3
         for route in routes:
             assert not getattr(route.endpoint, "query_token_ok", False), route.path
+
+
+class TestReviewFixes:
+    """0.21.0 review."""
+
+    def test_a_dropped_items_dependency_can_leave_the_plan(self, tmp_path):
+        write(tmp_path, plan(items=[item("a"), item("b", ["a"])]))
+        write(tmp_path, plan(revision=1, items=[item("a")]), linked_jobs=links("b"))
+        view = write(
+            tmp_path, plan(revision=2, items=[item("c")]), linked_jobs=links("b")
+        )
+        assert [(i["key"], i["status"]) for i in view["items"]] == [
+            ("c", "planned"),
+            ("b", "dropped"),
+        ]
+
+    def test_a_live_item_still_needs_its_dependency(self, tmp_path):
+        refused(tmp_path, plan(items=[item("b", ["a"])]))
+
+    def test_an_estimate_too_large_for_a_float_is_refused(self, tmp_path):
+        refused(tmp_path, plan(items=[item("a", estimate_minutes=10**400)]))
+
+    def test_an_unreadable_ledger_does_not_name_its_folder(self, tmp_path):
+        (tmp_path / REQUESTS_FILE_NAME).mkdir()
+        error = refused(tmp_path, plan(), code="ledger_unreadable")
+        assert str(tmp_path) not in str(error)

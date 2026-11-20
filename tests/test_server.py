@@ -5667,12 +5667,12 @@ class TestValidatePlan:
         assert "plan" not in result
 
     def test_a_planner_failure_is_a_null_plan_not_a_verdict(self, server, monkeypatch):
-        import dw.server.routes.jobs as jobs_routes
+        from dw.server import admission
 
         def boom(*a, **k):
             raise RuntimeError("planner broke")
 
-        monkeypatch.setattr(jobs_routes, "build_plan", boom)
+        monkeypatch.setattr(admission, "build_plan", boom)
         with server(success_script) as client:
             result = client.post(
                 "/api/validate", json={"workflow": valid_workflow("v")}
@@ -5681,7 +5681,7 @@ class TestValidatePlan:
         assert result["plan"] is None
 
     def test_sizes_reaches_the_planner(self, server, monkeypatch):
-        import dw.server.routes.jobs as jobs_routes
+        from dw.server import admission
 
         seen = []
 
@@ -5689,7 +5689,7 @@ class TestValidatePlan:
             seen.append(kwargs["lookup_sizes"])
             return dict(EMPTY_PLAN)
 
-        monkeypatch.setattr(jobs_routes, "build_plan", spy)
+        monkeypatch.setattr(admission, "build_plan", spy)
         with server(success_script) as client:
             client.post("/api/validate", json={"workflow": valid_workflow("v")})
             client.post(
@@ -6093,7 +6093,7 @@ class TestBoundAcknowledgement:
     def test_an_unplannable_run_is_refused_not_passed(
         self, server, no_hub, monkeypatch
     ):
-        import dw.server.routes.jobs as jobs_module
+        from dw.server import admission
 
         with server(success_script) as client:
             plan = plan_for(client, list_workflow())
@@ -6101,7 +6101,7 @@ class TestBoundAcknowledgement:
             def boom(*a, **k):
                 raise RuntimeError("no plan")
 
-            monkeypatch.setattr(jobs_module, "build_plan", boom)
+            monkeypatch.setattr(admission, "build_plan", boom)
             response = client.post(
                 "/api/jobs",
                 json={"workflow": list_workflow(), "acknowledged_cost": bound(plan)},
@@ -6158,12 +6158,12 @@ class TestBoundAcknowledgement:
         assert detail["acknowledge"] == bound(validated["plan"])
 
     def test_true_and_absent_queue_without_planning(self, server, no_hub, monkeypatch):
-        import dw.server.routes.jobs as jobs_module
+        from dw.server import admission
 
         def boom(*a, **k):
             raise AssertionError("the boolean path must not plan")
 
-        monkeypatch.setattr(jobs_module, "build_plan", boom)
+        monkeypatch.setattr(admission, "build_plan", boom)
         with server(success_script) as client:
             plain = client.post("/api/jobs", json={"workflow": valid_workflow("p")})
             flagged = client.post(
