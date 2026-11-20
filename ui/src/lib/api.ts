@@ -381,11 +381,13 @@ export const api = {
   // a null role counts as final there). The page filters on the client, so
   // it asks for none
   // `requestId` narrows to the runs whose job is linked to that
-  // requests-ledger request (in the selected workspace)
-  gallery: (roles?: string[], requestId?: string) => {
+  // requests-ledger request (in the selected workspace), and `item` to one
+  // item of it
+  gallery: (roles?: string[], requestId?: string, item?: string) => {
     const params = new URLSearchParams({ limit: '100000' })
     for (const role of roles ?? []) params.append('role', role)
     if (requestId) params.set('request', requestId)
+    if (requestId && item) params.set('item', item)
     return request<GalleryList>(`/api/gallery?${params}`)
   },
   // `workspace`, when given, names the file's own workspace and wins over

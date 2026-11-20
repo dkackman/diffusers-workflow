@@ -197,6 +197,11 @@ def gallery(
         description="Only the files of runs whose job is linked to this "
         "requests-ledger request in this workspace",
     ),
+    item: Optional[str] = Query(
+        default=None,
+        description="With `request`: only the files of runs whose job is "
+        "linked to this item of it",
+    ),
     ws: Workspace = Depends(selected_workspace),
 ):
     """A page of media files in the output directory, newest first.
@@ -246,11 +251,14 @@ def gallery(
                 status_code=400,
                 detail=f"unknown role {unknown}; roles are {list(ROLES)}",
             )
-    if request_id:
-        try:
-            validate_ledger_key(request_id, "request")
-        except InvalidInputError as e:
-            raise HTTPException(status_code=422, detail=str(e))
+    if item and not request_id:
+        raise HTTPException(status_code=422, detail="item needs request")
+    for value, what in ((request_id, "request"), (item, "item")):
+        if value:
+            try:
+                validate_ledger_key(value, what)
+            except InvalidInputError as e:
+                raise HTTPException(status_code=422, detail=str(e))
     if only_orphans:
         entries = _orphan_entries(ws.outputs)
         offset = max(0, offset)
@@ -284,7 +292,7 @@ def gallery(
         # A run belongs to the request its job was linked to; the history's
         # run_id column is the map from one to the other
         runs = request.app.state.job_manager.history.run_ids_for_request(
-            ws.name, request_id
+            ws.name, request_id, item
         )
         entries = [e for e in entries if e["run_id"] in runs]
     offset = max(0, offset)

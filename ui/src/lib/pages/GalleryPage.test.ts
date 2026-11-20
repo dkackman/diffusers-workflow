@@ -47,7 +47,7 @@ const listRequests = vi.hoisted(() =>
 )
 const gallery = vi.hoisted(() =>
   vi.fn<
-    (roles?: string[], request?: string) => Promise<{ files: GalleryFile[] }>
+    (roles?: string[], request?: string, item?: string) => Promise<{ files: GalleryFile[] }>
   >(
     () =>
       new Promise<{ files: GalleryFile[] }>((resolve) =>
@@ -71,7 +71,8 @@ const galleryMetadata = vi.hoisted(() =>
 vi.mock('../api', () => ({
   setNote: (t: string, n: string | null) => setNote(t, n),
   api: {
-    gallery: (roles?: string[], request?: string) => gallery(roles, request),
+    gallery: (roles?: string[], request?: string, item?: string) =>
+      gallery(roles, request, item),
     listRequests: () => listRequests(),
     galleryThumbnailUrl: (name: string) => `/thumb/${name}`,
     galleryUrl: (name: string) => `/outputs/${name}`,
@@ -645,23 +646,46 @@ it("shows the open file's level findings from its metadata", async () => {
 it('with req in the hash, asks for that request and shows a removable chip', async () => {
   location.hash = '#/ws/default/gallery?req=r1'
   await renderGallery()
-  expect(gallery).toHaveBeenLastCalledWith(undefined, 'r1')
+  expect(gallery).toHaveBeenLastCalledWith(undefined, 'r1', undefined)
   const chip = screen.getByTestId('req-filter')
   expect(chip.querySelector('a')?.getAttribute('href')).toBe(
     '#/ws/default/requests/r1',
   )
   await fireEvent.click(screen.getByLabelText('remove the request filter'))
   await waitFor(() =>
-    expect(gallery).toHaveBeenLastCalledWith(undefined, undefined),
+    expect(gallery).toHaveBeenLastCalledWith(undefined, undefined, undefined),
   )
   expect(screen.queryByTestId('req-filter')).toBeNull()
+})
+
+it('with req=<id>/<item> in the hash, keeps the item and asks for it', async () => {
+  location.hash = '#/ws/default/gallery?req=r1/alpha'
+  await renderGallery()
+  expect(gallery).toHaveBeenLastCalledWith(undefined, 'r1', 'alpha')
+  const chip = screen.getByTestId('req-filter')
+  expect(chip.textContent).toContain('r1 › alpha')
+  await Promise.resolve()
+  expect(location.hash).toBe('#/ws/default/gallery?req=r1%2Falpha')
+  await fireEvent.click(screen.getByLabelText('remove the request filter'))
+  await waitFor(() =>
+    expect(gallery).toHaveBeenLastCalledWith(undefined, undefined, undefined),
+  )
+  expect(screen.queryByTestId('req-filter')).toBeNull()
+})
+
+it('says the filter matched nothing, not that nothing was generated', async () => {
+  location.hash = '#/ws/default/gallery?req=r1/alpha'
+  listing.files = []
+  render(GalleryPage)
+  expect(await screen.findByText(/No outputs for this request item yet/)).toBeTruthy()
+  expect(screen.queryByText(/Nothing generated yet/)).toBeNull()
 })
 
 it('offers a request picker, and picking one reloads narrowed', async () => {
   await renderGallery()
   const picker = await screen.findByLabelText('filter by request')
   await fireEvent.change(picker, { target: { value: 'r1' } })
-  await waitFor(() => expect(gallery).toHaveBeenLastCalledWith(undefined, 'r1'))
+  await waitFor(() => expect(gallery).toHaveBeenLastCalledWith(undefined, 'r1', undefined))
   expect(screen.getByTestId('req-filter')).toBeTruthy()
 })
 

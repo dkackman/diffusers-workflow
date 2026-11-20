@@ -7438,6 +7438,24 @@
             }
           },
           {
+            "description": "With `request`: only the files of runs whose job is linked to this item of it",
+            "in": "query",
+            "name": "item",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "With `request`: only the files of runs whose job is linked to this item of it",
+              "title": "Item"
+            }
+          },
+          {
             "in": "query",
             "name": "workspace",
             "required": false,

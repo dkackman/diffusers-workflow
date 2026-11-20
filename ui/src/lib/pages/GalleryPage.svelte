@@ -53,10 +53,11 @@
   // The requests-ledger request the gallery is narrowed to (RequestFilter
   // keeps it in step with the hash); the listing asks the server for it
   let reqId = $state('')
+  let reqItem = $state('')
 
   function loadListing() {
     return api
-      .gallery(undefined, reqId || undefined)
+      .gallery(undefined, reqId || undefined, reqItem || undefined)
       .then((result) => {
         files = result.files
         // The editors' output: completions read the same listing
@@ -73,6 +74,7 @@
     // Read inside the effect so switching workspaces refetches the gallery
     void workspace.current
     void reqId
+    void reqItem
     void loadListing()
   })
 
@@ -327,14 +329,19 @@
       title="only the files you starred">Starred</button
     >
   </div>
-  <RequestFilter bind:request={reqId} />
+  <RequestFilter bind:request={reqId} bind:item={reqItem} />
 </div>
 
 {#if error}<p class="muted">Could not read the gallery: {error}</p>{/if}
 {#if loaded && !error && files.length === 0}
   <Empty>
     {#snippet icon()}<ImageOff size={36} strokeWidth={1.5} />{/snippet}
-    Nothing generated yet — outputs land here as workflows run.
+    {#if reqId}
+      No outputs for this request{reqItem ? ' item' : ''} yet — remove the
+      request filter to see everything.
+    {:else}
+      Nothing generated yet — outputs land here as workflows run.
+    {/if}
   </Empty>
 {/if}
 

@@ -220,6 +220,14 @@ describe('gallery listing and thumbnails', () => {
     expect(calls[0][0]).toBe('/api/gallery?limit=100000')
   })
 
+  it('narrows to a request item, and sends no item without a request', async () => {
+    const calls = stubFetch({ ok: true, body: {} })
+    await api.gallery(undefined, 'r1', 'alpha')
+    await api.gallery(undefined, undefined, 'alpha')
+    expect(calls[0][0]).toBe('/api/gallery?limit=100000&request=r1&item=alpha')
+    expect(calls[1][0]).toBe('/api/gallery?limit=100000')
+  })
+
   it('builds a thumbnail URL that keeps folder separators', () => {
     expect(api.galleryThumbnailUrl('ltx/wf-gen.0-0.0.png')).toBe(
       '/api/gallery/ltx/wf-gen.0-0.0.png/thumbnail',

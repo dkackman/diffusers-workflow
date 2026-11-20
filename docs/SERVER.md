@@ -971,8 +971,8 @@ The editor's forms come from these; they are just as usable from scripts:
   request view and each list row carry `spent_minutes` and
   `remaining_minutes`. An item's `accepted` on write takes `{"job": id}` or a
   bare job id of a succeeded job linked to that request and item, stored as
-  `{job, run_id}`. `GET /api/gallery?request=<id>` lists only files of runs
-  whose jobs are linked to that request.
+  `{job, run_id}`. `GET /api/gallery?request=<id>[&item=<key>]` lists only
+  files of runs whose jobs are linked to that request (or that item of it).
 - `GET /api/workspaces`, `POST /api/workspaces` (`{"name": ...}`),
   `DELETE /api/workspaces/{name}?acknowledged=true` — the workspaces on this
   server ([layout](WORKSPACES.md#several-workspaces-on-one-server)). Delete
