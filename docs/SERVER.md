@@ -305,15 +305,37 @@ icon, a finish-alert toggle, the theme toggle, and links to these docs and
   changes - newest first, your own writes folded into one line - sit beside
   the plan on a wide window and fold under it on a narrow one.
 
-  The page's one edit is a **note for the agent**, on the request or on an
-  item (up to 4000 characters; Ctrl+Enter saves, Esc sets the draft aside).
-  Nothing is sent: the agent reads a note the next time it writes the plan,
-  and the line under a saved note says only what the ledger shows - that
-  the agent has, or has not, written since. A save made against a plan the
-  agent has since rewritten is refused with the draft kept; **Reload the
-  plan** and save again. The page refreshes itself while the request is
-  open, announces what changed to a screen reader, and keeps the plan it
-  has, with its age and a **Retry**, when a refresh fails.
+  You edit the plan from its rows. Under each good take, **Accept** makes it
+  the item's result (**Accepted** pressed again clears the choice). The grip
+  at the start of a row reorders it - drag it, or focus it and press
+  ArrowUp/ArrowDown, Home or End; the order is written once, shortly after
+  the last move. A row's **more actions** menu has the same four moves, a
+  note, the item's jobs and outputs, and **Drop from plan**; a dropped row
+  has **Restore**. Accept and drop show at once and can be undone from the
+  toast for eight seconds. A drop asks first only when it does more than
+  the row shows: other items wait on it (the drop takes that dependency away
+  from them), nothing was run for it (the ledger deletes it outright, and
+  the page can restore it only until you leave), or its job is queued or
+  running (the drop does not cancel it).
+
+  A **note for the agent** goes on the request or on an item (up to 4000
+  characters; Ctrl+Enter saves, Esc sets the draft aside, and an unsaved
+  draft survives a reload of the tab). Nothing is sent: the agent reads a
+  note the next time it writes the plan, and the line under a saved note
+  says only what the ledger shows - that the agent has, or has not, written
+  since.
+
+  The agent may rewrite the plan while you edit it. The page never sends
+  back a plan it read earlier: it reads the request again and makes your
+  change over that. When the item you changed is as you saw it, the change
+  goes on top and a line above the plan says so, naming the agent's write
+  (**See changes** goes to it). When you were dropping an item or accepting
+  a take and the agent has changed that item, nothing is written and the
+  row asks - **Drop anyway** or **Keep it**. When the change no longer
+  applies (the item is gone), the page says so and keeps a note's words for
+  you to copy. The page refreshes itself while the request is open,
+  announces what changed to a screen reader, and keeps the plan it has, with
+  its age and a **Retry**, when a refresh fails.
 
 - **Gallery** - everything in the workspace's output directory
   (`<workflow>/<run id>/`, see [WORKSPACES.md](WORKSPACES.md#runs)), grouped

@@ -6,7 +6,7 @@ Checks, from `ui/`: `npm run check`, `npm run lint`, `npm test`, and `npx playwr
 
 ## Rules for new UI
 
-- A workspace's views are `#/ws/<name>/<section>`, listed in `WS_SECTIONS` (`src/lib/routes.ts`), routed in `src/App.svelte` and named in `src/lib/Sidebar.svelte`: overview, workflows, jobs, requests, gallery, compare, assets and edit. A new section goes in all three. **requests** is the workspace's requests ledger: `requests/<id>` is one request, whose only edit is a note for the agent, the request's or an item's; what a row shows is derived in `src/lib/request/itemState.ts`, not in a component (`docs/ARCHITECTURE.md`, *Requests in the UI*).
+- A workspace's views are `#/ws/<name>/<section>`, listed in `WS_SECTIONS` (`src/lib/routes.ts`), routed in `src/App.svelte` and named in `src/lib/Sidebar.svelte`: overview, workflows, jobs, requests, gallery, compare, assets and edit. A new section goes in all three. **requests** is the workspace's requests ledger: `requests/<id>` is one request, edited only through intents (`src/lib/request/intents.ts`) that `planStore.svelte.ts` applies to the plan as last read when it writes - a plan read earlier is never sent again; what a row shows is derived in `src/lib/request/itemState.ts`, not in a component (`docs/ARCHITECTURE.md`, *Requests in the UI*).
 - Show the proof: a list of things that produce images shows the images.
 - Every token pair should pass WCAG AA in both themes.
 - `--live` marks machine state and `--select` the user's place (focus, the open workspace, the active section), each nothing else; where they may appear is held by `scripts/design-rules.test.ts`.
