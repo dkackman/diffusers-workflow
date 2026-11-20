@@ -23,6 +23,30 @@ from `cinematography`; the shot list's fields from `script-to-video`.
 3. All boards of one animatic share one size: keep the same first reference,
    whose aspect ratio sets the board's, for every board of the scene.
 
+## The request (three boards or more)
+
+Three or more boards are a request: one ledger in the workspace that says
+which draw is each board's keeper and what is left. Open it once the shot
+list is saved, before the first draw (`script-to-video/references/request.md`
+has the rules). One or two boards need none.
+
+1. `save_prompt` each board's text as `<project>/board-NN` (`NN` the shot's
+   `id`).
+2. `set_request(request="<project>", title=..., goal=..., prompt=<the
+   user's ask, verbatim>, revision=0, why="boards for <scene>", items=[...])`,
+   one item per board, in order: `{"key": "board-NN", "title": ...,
+   "workflow": <the board's template>, "arguments": {<its text argument>:
+   "prompt:<project>/board-NN"}, "estimate_minutes": <plan.estimate>}`.
+   The request id and keys are lower-case letters, digits and `-`.
+3. Draw each board with `run_workflow(..., request="<project>/board-NN",
+   note=...)`.
+4. `get_request("<project>")` shows each board's `status`, `result` and
+   attempts, and the request's `spent_minutes`. To keep a board, write the
+   plan back with `set_request` at the `revision` it read, every item as
+   read, and that board's `accepted: {"job": "<job id>"}`: not `set_note`.
+5. Before redrawing any board, `get_request` and read its `comment`: the
+   user's note from the request page.
+
 ## 1. Draw the boards (Popcorn shape)
 
 Higgsfield's Popcorn (the concept only; no code is borrowed) draws a whole

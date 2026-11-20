@@ -51,7 +51,8 @@ Fill in this shape before writing any prompt:
 
 Save the list as `<project>/shots`, a compiled `<project>/shot-NN` per
 shot, and a scene longer than one clip in `<project>/scenes`
-(`long-form`): `references/shot-document.md`.
+(`long-form`): `references/shot-document.md`. Three or more jobs: open a
+request from the list now (`references/request.md`).
 
 A speaking subject held to a narration longer than one clip is not a shot list: use long-form's narrated take (templates/narration-retime, then
 templates/minimax/narrated-take).
@@ -76,10 +77,8 @@ on dw: `docs/proposals/audits/2026-11-story-forge-lessons.md`): a face
 small in a wide shot drifts most, so frame a recurring character large,
 and if the piece needs wides, keep a wide master too.
 
-Large `run_workflow` arguments: `save_prompt(name, {"text": ...})` each shot prompt under a
-script-prefixed name (the library is shared across workspaces) and pass
-`prompt:<script>/<shot>` references in the list; they resolve in nested
-arguments.
+Pass shot prompts as `prompt:<project>/shot-NN` references, not text;
+they resolve in nested arguments.
 
 ## 4. Per shot: pick the shape, write the prompt
 
@@ -116,7 +115,8 @@ Render in source order, not story order: a `lead_in`'s target first, and a
 re-roll quotes every shot taken off it (`references/joins.md`).
 
 Pass `note` on each `run_workflow` naming the shot and what the run tests,
-and `set_note` the take you keep: the note shows on every file it made.
+and its item's `request`. Accept the take you keep in the request with
+`set_request` (`set_note` it only when there is no request).
 
 ## Run and judge
 
@@ -147,13 +147,13 @@ in with `concat_videos`: that join is recorded `hard_cut`, so
 `seam_frame_jump` stops checking it. A seam re-roll counts against the
 shot's budget below.
 Before the keep, run the beat review in `references/beat-review.md` on
-the shot's `get_output_frames` frames.
+the shot's `get_output_frames` frames. Before a revision pass,
+`get_request` for the user's comments.
 Fix a shot in the order and within the caps of `references/fix-ladder.md`: three failed attempts, then ask.
 Face drift (`templates/face-drift-check`): see `references/fix-ladder.md`.
 For H3, lint the prompt first: `minimax-h3/references/prompt-lint.md`.
-Each shot's files are organized by `subfolder` - typically `final`
-for the deliverable video or `intermediate` for test frames; read the
-manifest to determine what was written where.
+Each shot's files are sorted by `subfolder`: `final` for the deliverable,
+`intermediate` for test frames (the manifest says which).
 
 ## 6. Cut, score, deliver
 

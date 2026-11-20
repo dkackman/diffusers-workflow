@@ -2433,3 +2433,78 @@ class TestLongFormPointers:
     def test_every_touched_skill_holds_its_budget(self, path):
         size = len(skill_body(path).encode("utf-8"))
         assert size <= SKILL_SIZE_LIMIT, f"{path} is {size} bytes"
+
+
+SCRIPT_REQUEST = os.path.join(os.path.dirname(SCRIPT_SKILL), "references", "request.md")
+REQUEST_SKILLS = [SCRIPT_SKILL, LONG_FORM_SKILL, STORYBOARD_SKILL, SERIES_SKILL]
+
+
+class TestSkillRequests:
+    """The multi-job skills keep a request (#1484, #1458 stage 4): opened at
+    the shot list for three or more jobs, items pointing at saved prompts,
+    the keeper accepted in the ledger, comments read before a revision."""
+
+    @pytest.mark.parametrize(
+        "path", REQUEST_SKILLS, ids=lambda p: os.path.basename(os.path.dirname(p))
+    )
+    def test_each_skill_opens_a_request_from_its_shot_list(self, path):
+        body = _flat(skill_body(path))
+        assert "request.md`" in body
+        # An episode is always several jobs, so series-episodes opens one
+        # per episode; the others gate it on three or more.
+        assert "shot list" in body
+        if path != SERIES_SKILL:
+            assert "three or more" in body.lower()
+
+    @pytest.mark.parametrize(
+        "path",
+        [SCRIPT_SKILL, STORYBOARD_SKILL, SERIES_SKILL],
+        ids=lambda p: os.path.basename(os.path.dirname(p)),
+    )
+    def test_run_accept_and_read_go_through_the_request(self, path):
+        body = _flat(skill_body(path))
+        assert "`request`" in body or 'request="' in body
+        assert "`set_request`" in body
+        assert "`get_request`" in body or "`get_request(" in body
+
+    def test_the_reference_holds_the_procedure(self):
+        text = _flat(_read(SCRIPT_REQUEST))
+        for claim in (
+            "three or more jobs",
+            'save_prompt("<project>/shots"',
+            "revision=0",
+            "verbatim",
+            "`prompt:<project>/shot-NN`",
+            'request="<request>/<key>"',
+            "not with `set_note`",
+            'accepted: {"job": "<job id>"}',
+            "`stale_revision`",
+            "`comment`",
+            "creative source",
+            "`dropped`",
+        ):
+            assert claim in text, claim
+
+    def test_storyboard_request_is_self_contained(self):
+        body = _flat(skill_body(STORYBOARD_SKILL))
+        for claim in (
+            "revision=0",
+            '"board-NN"',
+            '"prompt:<project>/board-NN"',
+            'request="<project>/board-NN"',
+            "`spent_minutes`",
+            'accepted: {"job": "<job id>"}',
+            "not `set_note`",
+        ):
+            assert claim in body, claim
+
+    def test_the_shot_document_stays_the_source(self):
+        script = _flat(skill_body(SCRIPT_SKILL))
+        assert "`prompt:<project>/shot-NN` references, not text" in script
+
+    @pytest.mark.parametrize(
+        "path", REQUEST_SKILLS, ids=lambda p: os.path.basename(os.path.dirname(p))
+    )
+    def test_each_skill_holds_its_budget(self, path):
+        size = len(skill_body(path).encode("utf-8"))
+        assert size <= SKILL_SIZE_LIMIT, f"{path} is {size} bytes"
