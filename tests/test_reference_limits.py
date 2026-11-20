@@ -242,6 +242,46 @@ class TestVideoReferenceLength:
         definition = workflow_with([{"reference_type": IMAGE, "from_file": "a.png"}])
         assert self.run(definition, tmp_path, frames=1) == []
 
+    def test_the_trims_own_fps_outranks_the_sources(self, tmp_path):
+        """0.21.0 review: `trim_video` writes its result at its own `fps`
+        when it names one, so that is the rate the window is measured at."""
+        n = self.minimum() - 1
+        found = self.run(self.chain(n, fps=48), tmp_path, fps=12.0)
+        assert len(found) == 1 and f"got {n} frames at 48 fps" in found[0]["message"]
+        assert self.run(self.chain(n // 2 + 1, fps=12), tmp_path, fps=48.0) == []
+
+    def test_an_fps_on_the_reference_outranks_the_container(self, tmp_path):
+        """0.21.0 review: H3 resamples from the reference's own `fps`, which
+        an entry may override (docs/WORKFLOW_GUIDE.md)."""
+        n = self.minimum()
+        entry = {"reference_type": VIDEO, "from_file": "short.mp4"}
+        fast = workflow_with([{**entry, "fps": 48.0}])
+        assert len(self.run(fast, tmp_path, frames=n)) == 1
+        slow = workflow_with([{**entry, "fps": 12.0}])
+        assert self.run(slow, tmp_path, frames=n // 2 + 1) == []
+        held = workflow_with([{**entry, "fps": "variable:rate"}])
+        assert self.run(held, tmp_path, frames=1) == []
+
+    def test_the_minimum_is_judged_on_the_count_the_charge_uses(self, tmp_path):
+        """0.21.0 review: one conversion - a 60 fps clip is short exactly
+        when the frames it is charged for are under the minimum."""
+        from dw.reference_limits import video_reference_frames
+
+        definition = workflow_with(
+            [{"reference_type": VIDEO, "from_file": "short.mp4"}]
+        )
+        pipeline = definition["steps"][0]["pipeline"]
+        for frames in range(25, 36):
+
+            def probe(path, frames=frames):
+                return {"kind": "video", "fps": 60.0, "frame_count": frames}
+
+            refused = bool(self.run(definition, tmp_path, fps=60.0, frames=frames))
+            (counted,) = video_reference_frames(
+                pipeline, definition["steps"], str(tmp_path), probe
+            )
+            assert refused == (counted < self.minimum()), frames
+
 
 class TestAudioReferenceDuration:
     """A Pika audio reference outside the setup block's bound (#1427). The

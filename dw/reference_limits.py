@@ -359,10 +359,26 @@ def _minimum_reference_frames():
     return sample_fps, fps, round((group - 1) * fps / sample_fps) + 1, group
 
 
+def _known_rate(*rates):
+    """The first rate that is written at all, when it is a positive number -
+    else None: one written but not readable now (a `variable:`) is unknown,
+    never passed over for a lower-ranked source the run would not read."""
+    for rate in rates:
+        if rate is not None:
+            numeric = isinstance(rate, (int, float)) and not isinstance(rate, bool)
+            return rate if numeric and rate > 0 else None
+    return None
+
+
 def _reference_clip(entry, steps, base_dir, probe):
     """(frames, fps) of a video reference entry, each None when it cannot be
     told before the run: a `from_previous_result` naming a `trim_video` with a
-    literal `num_frames`, or a `from_file` that resolves to a probed file."""
+    literal `num_frames`, or a `from_file` that resolves to a probed file.
+
+    The rate is the one the reference object will carry, in the run's own
+    order: an `fps` the entry sets on it (`arguments.object_from_result`,
+    `apply_field_overrides`), else the `fps` a `trim_video` names for its
+    result, else the rate the file carries."""
     from .hold_audio import _trim_arguments, _trimmed_frames
     from .probe_paths import resolve_probe_path
 
@@ -371,40 +387,51 @@ def _reference_clip(entry, steps, base_dir, probe):
         spelled = references.make_ref(references.PREVIOUS_RESULT, previous)
         frames = _trimmed_frames(steps, spelled)
         trim = _trim_arguments(steps, spelled) or {}
-        fps = trim.get("fps")
-        source = trim.get("video")
         info = None
-        if probe is not None and (path := resolve_probe_path(source, base_dir)):
+        if probe is not None and (
+            path := resolve_probe_path(trim.get("video"), base_dir)
+        ):
             info = probe(path)
-        rate = info.get("fps") if isinstance(info, dict) else None
-        rate = rate if isinstance(rate, (int, float)) and rate > 0 else fps
-        return frames, rate if isinstance(rate, (int, float)) and rate > 0 else None
+        carried = info.get("fps") if isinstance(info, dict) else None
+        return frames, _known_rate(entry.get("fps"), trim.get("fps"), carried)
     if probe is None:
         return None, None
     path = resolve_probe_path(entry.get("from_file"), base_dir)
     info = probe(path) if path else None
     if not isinstance(info, dict) or info.get("kind") != "video":
         return None, None
-    frames, rate = info.get("frame_count"), info.get("fps")
+    frames = info.get("frame_count")
     frames = frames if isinstance(frames, int) and frames > 0 else None
-    return frames, rate if isinstance(rate, (int, float)) and rate > 0 else None
+    return frames, _known_rate(entry.get("fps"), info.get("fps"))
+
+
+def _at_pipeline_rate(frames, rate, fps):
+    """`frames` at `rate` as a frame count on the pipeline's `fps` grid, the
+    one conversion the minimum, the VRAM projection and the price share.
+    Rounded up, so a clip is never called short on a rounding borderline; H3
+    itself rounds to the nearest slot, at most one frame fewer."""
+    return int(-(-frames * fps // rate))
 
 
 def video_reference_frames(pipeline, steps, base_dir=None, probe=None):
     """The frame count of every video reference an H3 pipeline step receives
     (#1429), None for one whose length cannot be told before the run: the
     list `_reference_clip` reads each entry by, so the 13-frame minimum, the
-    VRAM projection and the price all count one clip alike. An entry whose
+    VRAM projection and the price all count one clip alike. A clip is
+    counted as H3 conditions on it, resampled onto the pipeline's own rate
+    (`_at_pipeline_rate`): 310 frames at 60 fps are 124. One whose rate is
+    not known is counted as its file's frames. An entry whose
     source is null is dropped from the list before the pipeline sees it
     (`vram_estimate.reference_count`), so it is not counted here. Image and
     audio references are not video references and are not listed."""
+    from .pipeline_limits import _limits as pipeline_limits
     from .pipeline_processors.h3_rules import is_h3_step
 
     arguments = pipeline.get("arguments") if isinstance(pipeline, dict) else None
     entries = arguments.get("references") if isinstance(arguments, dict) else None
     if not (isinstance(entries, list) and is_h3_step(pipeline)):
         return []
-    frames = []
+    counts, fps = [], None
     for entry in entries:
         if not isinstance(entry, dict) or not any(
             entry.get(key) is not None
@@ -413,8 +440,12 @@ def video_reference_frames(pipeline, steps, base_dir=None, probe=None):
             continue
         if getattr(_reference_class(entry), "kind", None) != VIDEO_KIND:
             continue
-        frames.append(_reference_clip(entry, steps, base_dir, probe)[0])
-    return frames
+        frames, rate = _reference_clip(entry, steps, base_dir, probe)
+        if frames and rate:
+            fps = fps or (pipeline_limits() or {}).get("fps")
+            frames = _at_pipeline_rate(frames, rate, fps) if fps else frames
+        counts.append(frames)
+    return counts
 
 
 def reference_length_errors(
@@ -454,9 +485,7 @@ def reference_length_errors(
             frames, rate = _reference_clip(entry, steps, base_dir, probe)
             if not frames or not rate:
                 continue
-            # Rounded up: a count that might just make the minimum is left
-            at_pipeline_rate = -(-frames * fps // rate)
-            if at_pipeline_rate >= needed:
+            if _at_pipeline_rate(frames, rate, fps) >= needed:
                 continue
             errors.append(
                 {
