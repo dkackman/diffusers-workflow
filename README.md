@@ -152,9 +152,9 @@ saving over each other's work.
 An ask of more than a couple of jobs gets a **request**: the agent writes its plan
 into the workspace's ledger - the goal and the items it will make - links each job
 to its item, and records which take it kept. The plan outlives the session. The
-Requests page shows each item's status, attempts and minutes spent, and a comment
-you leave on an item, or on the request, is read by the agent before it writes the
-plan again. See [Requests](docs/WORKSPACES.md#requests).
+Requests page says where each request stands and what needs you, and shows each
+item's result, takes and minutes spent; a note you leave on an item, or on the
+request, is read by the agent before it writes the plan again. See [Requests](docs/WORKSPACES.md#requests).
 
 The tool reference, setup for other MCP hosts and the troubleshooting table are in
 [MCP Server](docs/MCP.md).

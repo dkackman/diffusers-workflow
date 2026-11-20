@@ -115,7 +115,7 @@ box's default card.
 
 The sidebar lists every workspace on the server (`+ new` creates one; names
 sharing a prefix fold into one group). The selected workspace opens into
-**Overview, Workflows, Jobs, Gallery, Assets, Editor**, and the hash names
+**Overview, Workflows, Jobs, Requests, Gallery, Assets, Editor**, and the hash names
 it (`#/ws/studio/gallery`), so a link and a reload land where they say; a
 pre-workspace bookmark (`#/gallery`) redirects to the last workspace used.
 Below the workspaces, **Shared** holds what every workspace sees - Prompts,
@@ -278,6 +278,42 @@ icon, a finish-alert toggle, the theme toggle, and links to these docs and
   read the live stream alone (`ui/src/lib/job/EventLog.svelte`).
 
   ![A finished job: a warning about a level jump at a cut, then the workflow as a data-flow graph from the edit and soundtrack through mixing and normalizing to the film](img/ui-job.png)
+
+- **Requests** - the workspace's requests ledger
+  ([WORKSPACES.md](WORKSPACES.md#requests)): what was asked of an agent, as
+  the plan it wrote. The list is one row a request - up to three thumbnails
+  of its latest results, the title, one line that is the first of *failed*,
+  *running*, *queued*, *idle* and *all done, still open*, a bar of its items
+  with done of those in the plan, minutes spent (measured, so no `~`) and
+  left (estimated), and when it was last written. Requests with something
+  for you to do come first, then those with a job in flight; closed ones
+  are hidden until the filter is set to **all** (`?show=all`).
+
+  A request's page leads with where it stands in a sentence ("Rendering
+  Shot 3. 4 of 9 done."), then what needs you (items ready to run, failed,
+  with two good takes and none accepted, or whose accepted take's files are
+  gone), a bar with one segment an item - each goes to its row - and the
+  minutes. Each item is a row: its result as a picture linked to the job
+  that made it (a dashed slot until there is one), its title, its state as
+  a word, and one figure. **ready** is a planned item a job could be queued
+  for now and **waiting** one whose dependency is not done, named with its
+  own state; **cancelled** is a failure whose every attempt was cancelled.
+  Opening a row shows its takes oldest to newest, with the accepted one or
+  the latest standing as the result marked, what it follows and what needs
+  it, the workflow and arguments it would run, and its note. Dropped items
+  fold into a group under the plan. What you asked, the goal and the plan's
+  changes - newest first, your own writes folded into one line - sit beside
+  the plan on a wide window and fold under it on a narrow one.
+
+  The page's one edit is a **note for the agent**, on the request or on an
+  item (up to 4000 characters; Ctrl+Enter saves, Esc sets the draft aside).
+  Nothing is sent: the agent reads a note the next time it writes the plan,
+  and the line under a saved note says only what the ledger shows - that
+  the agent has, or has not, written since. A save made against a plan the
+  agent has since rewritten is refused with the draft kept; **Reload the
+  plan** and save again. The page refreshes itself while the request is
+  open, announces what changed to a screen reader, and keeps the plan it
+  has, with its age and a **Retry**, when a refresh fails.
 
 - **Gallery** - everything in the workspace's output directory
   (`<workflow>/<run id>/`, see [WORKSPACES.md](WORKSPACES.md#runs)), grouped
