@@ -431,9 +431,19 @@ a.danger:hover {
 .panel.good-edge {
   border-left: 3px solid var(--good);
 }
-.chip.queued {
+/* .idle is an item of a request that nothing is happening to: planned,
+   waiting on another, cancelled, dropped. The chip's word says which */
+.chip.queued,
+.chip.idle {
   background: var(--panel-2);
   color: var(--muted);
+}
+/* A request item a job could be queued for now. It waits on the user, and
+   no colour means that: ink on the surface, outlined */
+.chip.ready {
+  background: transparent;
+  color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--ink);
 }
 .chip.running {
   background: var(--live);
@@ -453,6 +463,30 @@ a.danger:hover {
 }
 .muted {
   color: var(--muted);
+}
+
+/* The row of a list that the machine is on right now - a running job, a
+   request item being rendered, a request with a job running - marked the
+   way it is marked in the header: the one row you came to find. Here, so
+   a page's own file needs no --live. The tripled class outranks a page's
+   scoped `.row:hover`, which sits at (0,3,0) */
+.row-live {
+  background: color-mix(in srgb, var(--live) 10%, transparent);
+  box-shadow: inset 2px 0 0 var(--live);
+}
+a.row-live.row-live.row-live:hover {
+  background: color-mix(in srgb, var(--live) 16%, transparent);
+}
+
+/* Words for a screen reader only: a live region's announcement, the name
+   of a column of icons */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
 }
 
 /* Prose stays inside a comfortable measure wherever it runs long. */

@@ -294,7 +294,7 @@
       <a
         class="row plain"
         class:historical={job.historical}
-        class:runningnow={job.status === 'running'}
+        class:row-live={job.status === 'running'}
         href={wsHref(job.workspace, 'jobs', job.id)}
         title={job.historical
           ? 'finished before this server started - loaded from history'
@@ -421,15 +421,6 @@
   .pagehead h1 {
     margin: 0;
     flex: 1;
-  }
-  /* The job the worker is on right now, marked the way it is marked in the
-     header: the one row you came to the page to find */
-  .row.runningnow {
-    background: color-mix(in srgb, var(--live) 10%, transparent);
-    box-shadow: inset 2px 0 0 var(--live);
-  }
-  .row.runningnow:hover {
-    background: color-mix(in srgb, var(--live) 16%, transparent);
   }
   .pagehead select {
     max-width: 150px;
