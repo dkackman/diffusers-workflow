@@ -337,8 +337,8 @@
   <Empty>
     {#snippet icon()}<ImageOff size={36} strokeWidth={1.5} />{/snippet}
     {#if reqId}
-      No outputs for this request{reqItem ? ' item' : ''} yet — remove the
-      request filter to see everything.
+      No outputs for this request{reqItem ? ' item' : ''} yet — remove the request
+      filter to see everything.
     {:else}
       Nothing generated yet — outputs land here as workflows run.
     {/if}
