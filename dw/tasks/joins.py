@@ -608,6 +608,42 @@ def _lufs_or_rms(waveform, sample_rate, target_lufs, command, index, label):
     return "lufs", target_lufs
 
 
+def _warn_on_residual_spread(resulting, measure, command):
+    """Say when a clip-held shot left the others above it (#1368).
+    `resulting` is (level after gain, target, shortfall, unit) per shot."""
+    # Only the shots measured as the mode measures: under "lufs" a shot too
+    # short for it is matched by rms to its own dBFS target, and its level is
+    # no figure to set beside the others' LUFS
+    unit = "LUFS" if measure == "lufs" else "dBFS"
+    resulting = [r for r in resulting if r[3] == unit]
+    if len(resulting) > 1:
+        levels = [r[0] for r in resulting]
+        spread = max(levels) - min(levels)
+        if spread > INNER_LEVEL_STEP_WARN_DB:
+            # The held shots could not reach the target, so the others sit
+            # above them: the join is not matched, and the remedy is a lower
+            # target that every shot can reach (#1368)
+            suggested = min(r[1] - r[2] for r in resulting)
+            argument = "match_levels_lufs" if measure == "lufs" else "match_levels_dbfs"
+            emit_warning(
+                f"{command}: match_levels left the shots {spread:.1f} dB apart "
+                f"({min(levels):.1f} to {max(levels):.1f} {unit}) because a "
+                "clip-held shot could not reach the target - the level step at "
+                f"the cut remains. Pass a lower {argument} (about "
+                f"{suggested:.0f} {unit} reaches every shot without clipping)"
+                + (
+                    ""
+                    if measure == "lufs"
+                    else ', or match_levels: "lufs" with a limiter'
+                ),
+                kind="match_levels_spread",
+                command=command,
+                spread_db=round(spread, 1),
+                suggested_target_dbfs=round(suggested, 1),
+                unit=unit,
+            )
+
+
 def match_levels(
     waveforms,
     measure,
@@ -730,37 +766,8 @@ def match_levels(
         )
         resulting.append((level + gain_db, target_dbfs, target_gain_db - gain_db, unit))
         matched.append((waveform * (10 ** (gain_db / 20.0))).astype(numpy.float32))
-    # Only the shots measured as the mode measures: under "lufs" a shot too
-    # short for it is matched by rms to its own dBFS target, and its level is
-    # no figure to set beside the others' LUFS
-    unit = "LUFS" if measure == "lufs" else "dBFS"
-    resulting = [r for r in resulting if r[3] == unit]
-    if any_held and len(resulting) > 1:
-        levels = [r[0] for r in resulting]
-        spread = max(levels) - min(levels)
-        if spread > INNER_LEVEL_STEP_WARN_DB:
-            # The held shots could not reach the target, so the others sit
-            # above them: the join is not matched, and the remedy is a lower
-            # target that every shot can reach (#1368)
-            suggested = min(r[1] - r[2] for r in resulting)
-            argument = "match_levels_lufs" if measure == "lufs" else "match_levels_dbfs"
-            emit_warning(
-                f"{command}: match_levels left the shots {spread:.1f} dB apart "
-                f"({min(levels):.1f} to {max(levels):.1f} {unit}) because a "
-                "clip-held shot could not reach the target - the level step at "
-                f"the cut remains. Pass a lower {argument} (about "
-                f"{suggested:.0f} {unit} reaches every shot without clipping)"
-                + (
-                    ""
-                    if measure == "lufs"
-                    else ', or match_levels: "lufs" with a limiter'
-                ),
-                kind="match_levels_spread",
-                command=command,
-                spread_db=round(spread, 1),
-                suggested_target_dbfs=round(suggested, 1),
-                unit=unit,
-            )
+    if any_held:
+        _warn_on_residual_spread(resulting, measure, command)
     return matched
 
 
