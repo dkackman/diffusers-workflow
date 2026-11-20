@@ -156,6 +156,27 @@ class _RecordingPipeline:
         self.loads.append((model_name, keywords))
 
 
+@pytest.mark.parametrize(
+    "entry",
+    [
+        {"weight_name": "a/b.pt"},
+        {"weight_name": "A.SAFETENSORS"},
+        {"weight_name": "../b.safetensors"},
+        {"weight_name": "/etc/b.safetensors"},
+        {"weight_name": ["b.pt"]},
+        {"subfolder": "../.."},
+        {"subfolder": "/etc"},
+    ],
+)
+def test_the_run_gate_checks_a_lora_file_itself(monkeypatch, entry):
+    """Not only at validate: the worker's gate refuses the value, and matches
+    the ending as diffusers does, where '.SAFETENSORS' is read as a pickle."""
+    monkeypatch.setenv("DW_TRUST_WORKFLOWS", "0")
+    workflow = _lora_workflow(**entry)
+    with pytest.raises(UntrustedWorkflowError, match=r"loras\[0\]"):
+        require_trusted_block(workflow["steps"][0]["pipeline"], "pipeline")
+
+
 @pytest.mark.parametrize("trusted, expected", [("0", True), ("1", None)])
 def test_an_untrusted_lora_load_is_safetensors_only(monkeypatch, trusted, expected):
     """With no weight_name diffusers falls back to a repo's .bin pickle

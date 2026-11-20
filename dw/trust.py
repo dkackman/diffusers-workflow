@@ -296,6 +296,29 @@ LORA_ENTRY_KEYS = frozenset(
 )
 
 
+def _require_lora_weight_file(index, lora) -> None:
+    """A loras entry's `weight_name` and `subfolder` name a safetensors file
+    inside the repo. The ending is matched as diffusers matches it, exactly:
+    any other spelling ('.SAFETENSORS') is read there as a pickle."""
+    from .security import SecurityError, validate_weight_name
+
+    for key in ("weight_name", "subfolder"):
+        value = lora.get(key)
+        if value is None:
+            continue
+        try:
+            validate_weight_name(value, None, key)
+        except (SecurityError, ValueError) as e:
+            raise UntrustedWorkflowError(f"Refusing loras[{index}]: {e}") from e
+    name = lora.get("weight_name")
+    if name is not None and not name.endswith(".safetensors"):
+        raise UntrustedWorkflowError(
+            f"Refusing loras[{index}]: its weight_name '{name}' does not end "
+            f"in '.safetensors', and any other file is read as a pickle. Pass "
+            f"--trust-workflows if you trust this workflow's source."
+        )
+
+
 def require_trusted_lora_entries(loras) -> None:
     """Refuse a `loras` entry carrying a loader keyword outside
     LORA_ENTRY_KEYS unless the workflow is trusted.
@@ -308,6 +331,7 @@ def require_trusted_lora_entries(loras) -> None:
     for index, lora in enumerate(loras):
         if not isinstance(lora, dict):
             continue
+        _require_lora_weight_file(index, lora)
         for key in sorted(set(lora) - LORA_ENTRY_KEYS, key=str):
             raise UntrustedWorkflowError(
                 f"Refusing loras[{index}]: it sets '{key}', which is passed "
