@@ -173,6 +173,9 @@ lem time: about 0.4 h for segment 1, 2.2 h for step 1, and 1.9 h for the gate.
   positive result.
 - **The moving-shot arm.** Comes back only if arm 1 helps. The keystone's pull-back
   to segment 1's view is the risk there.
+- **Keystone attention under a masked carried latent.** Tried in #1505 (2026-11-20):
+  failed its seg01-02 gate on saturation and luma,
+  `complete/h3-masked-keystone-complete.md`.
 
 ## What stays
 

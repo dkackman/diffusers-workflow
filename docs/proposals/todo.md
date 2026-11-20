@@ -131,6 +131,13 @@ remaining deferred fix is recorded in
   saw no clear win and stopped the bench. The sharpness sweep, the full arms,
   the chain key, the sparse re-split and the moving-shot arm were cut, each
   with a trigger: `complete/h3-keystone-attention-complete.md`.
+- **H3 masked handoff + keystone probe** (#1505, stage #1506), closed
+  2026-11-20 as a bench record. #1322's reopen trigger: the masked carried
+  latent with a keystone, with and without keystone attention on NerdNotes
+  test 21's saturation blocks. The keystone pull passed weakly (+1.10%,
+  confounded with the seam lift), but both arms failed the seg01-02 gate on
+  saturation and luma while keeping #1322's seam win. No full run; the
+  narrated drift stays open: `complete/h3-masked-keystone-complete.md`.
 - **H3 fl2va/ref2va hybrid probe** (#1441, stage #1463), closed 2026-11-19
   as a bench record. The smhfacct-style graft (fl2va weights, ref2va's
   `adaln_proj` for blocks 20-49) was built locally from lem's cached
