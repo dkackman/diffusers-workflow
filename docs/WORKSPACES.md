@@ -350,6 +350,9 @@ Read it with `get_request(request=None)` (MCP) or `GET
   unchanged text keeps its time. An agent's write omits it or sends it back
   as read - changing it is refused - and the agent reads both on its next
   `get_request`, before it writes again.
+  Nothing is sent when one is saved, unless a Claude Code session is open
+  with [the notes channel](MCP.md#the-notes-channel), which tells that
+  session about each note as it is saved.
 - **Keys** (request ids and item keys) match `^[a-z0-9][a-z0-9-]{0,63}$`.
 - **Caps.** Titles 200 characters, prompt and goal 20000, comment 4000;
   `estimate_minutes` 0 to 10000; `arguments` at most 64, scalar values

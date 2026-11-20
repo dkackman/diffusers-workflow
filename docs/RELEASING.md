@@ -131,6 +131,13 @@ server's runtime (#1445-#1456).
 - Requests pages in the UI: where each request stands and what needs you,
   each item's result, takes and minutes spent, and a note for the agent
   that it reads on its next write.
+- A notes channel for Claude Code: `dw-mcp --notes-channel` is a tool-less
+  stdio process that tells an open interactive session when the user saves
+  a note for the agent, quoting it and naming its request and item, and
+  lists the notes already waiting when the session connects. It uses Claude
+  Code's channels research preview (`--dangerously-load-development-channels
+  server:dw-notes`), so the contract may change
+  ([MCP.md](MCP.md#the-notes-channel)).
 - The request page edits the plan: accept a take as an item's result, drop
   and restore items, reorder them by drag or keyboard, with undo. An edit
   made while the agent rewrites the plan is applied on top when its item is

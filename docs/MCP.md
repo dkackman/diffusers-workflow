@@ -28,6 +28,8 @@ the client needs a command it can find (see below). `dw-mcp` (or
 | `--workspace` | `$DW_MCP_WORKSPACE`, else the server's default | Which of the server's workspaces the session works in. A *name* on the server, not a local directory (`DW_WORKSPACE` means something else to the engine). `use_workspace` switches it mid-session |
 | `--timeout` | `30` | Seconds to wait on any one API request |
 | `--no-probe` | off | Skip the startup `GET /api/health` that confirms the server is reachable and the token is accepted |
+| `--notes-channel` | off | Serve no tools: be [the notes channel](#the-notes-channel), which tells an open Claude Code session when the user saves a note for the agent |
+| `--interval` | `10` | With `--notes-channel`: seconds between reads of the request list, at least 2 |
 
 A non-loopback `--url` with no token makes `dw-mcp` exit 2. The startup probe
 reports a wrong URL or token once, instead of as a 401 on every tool call; it
@@ -154,6 +156,137 @@ reachable.
 free, such as "list my diffusers workflows" (`list_workflows`) or "check the
 diffusers-workflow server health" (`get_health`). "Cannot reach
 diffusers-workflow at ..." means the engine is not running.
+
+## The notes channel
+
+When the user saves a **Note for the agent** on a request or one of its
+items in the web UI ([WORKSPACES.md](WORKSPACES.md#requests)), nothing is
+sent anywhere: the agent reads the note the next time it reads the plan. The
+notes channel closes that gap for an open Claude Code session. It is a
+second, small stdio process, `dw-mcp --notes-channel`, that watches one
+workspace's requests and tells the session about each note as it is saved:
+
+    <channel source="dw-notes" kind="note" workspace="default" request="lighthouse-short" item="shot3" revision="12">
+    Note from the user on request "lighthouse-short", item "shot3" (Shot 3: lamp room), saved 2026-11-20 14:02 UTC:
+
+    this one has off lipsync - reroll it and recreate the final piece
+
+    Read the request with get_request("lighthouse-short", workspace="default") and act on the note; say what you did in the "why" of your next set_request.
+    </channel>
+
+It uses Claude Code [channels](https://code.claude.com/docs/en/channels-reference),
+a **research preview**: the flag, the capability and the notification below
+are Claude Code's and may change. It works only in an interactive session
+that is left open. `claude -p` and the Agent SDK ignore channels, and a note
+saved while no session is open waits as it always did.
+
+### What it does
+
+- **No tools.** The process declares the `claude/channel` capability and
+  nothing else, so it adds nothing to the tool listing. The agent acts
+  through the dw tools it already has (the `dw` registration above, or
+  `dw.serve --mcp`); run the channel beside that connection, not instead of
+  it.
+- **One workspace.** It watches `--workspace` (`DW_MCP_WORKSPACE`, else the
+  server's default) and does not follow `use_workspace`. Run one channel per
+  workspace to watch several.
+- **Polling.** Every `--interval` seconds (default 10, at least 2) it reads
+  the request list, and then only the open requests whose revision moved: an
+  idle ledger costs one request a tick.
+- **Which notes.** A note *waits* while its request is open, its item is not
+  dropped, and the agent has not written the request since the note was
+  saved - the rule behind the page's "Nothing is sent to the agent" line. A
+  waiting note is announced once; edit it and it is announced again. Once
+  the agent has written (`set_request`) it is not announced again.
+- **At connect.** Notes already waiting are announced as one
+  `kind="notes_waiting"` event that lists them (each clipped to 300
+  characters). Those predate the session, so the agent is told to say what
+  is waiting and to confirm before spending GPU time on them. A note saved
+  after that is a `kind="note"` event, quoted whole (the ledger's 4000
+  characters), which the agent acts on.
+- **What the agent does.** The channel's instructions tell it to read the
+  plan with `get_request` first (the note may have been edited or cleared),
+  act through the normal tools under [the cost gate](#the-cost-gate), and
+  record what it did in `set_request`'s `why`. That write is the answer:
+  the page then says the agent has updated the plan since the note. Nothing
+  is sent back through the channel.
+- **When the server is away.** An unreachable server, a rejected token, a
+  timeout or an unreadable `requests.json` is written to stderr once and
+  retried, the delay doubling up to five minutes; the process stays up.
+  Events are not queued across a restart: a note is either still waiting
+  (and in the next session's digest) or answered.
+
+### Set it up
+
+Channels are stdio only, so this needs a local install of `dw-mcp` even when
+the tools themselves come from a remote `dw.serve --mcp`. Add the process to
+the project's `.mcp.json` under the name `dw-notes`:
+
+```json
+{
+  "mcpServers": {
+    "dw-notes": {
+      "command": "/absolute/path/to/venv/bin/dw-mcp",
+      "args": ["--notes-channel", "--url", "http://127.0.0.1:8765"],
+      "env": { "DW_API_TOKEN": "${DW_API_TOKEN}" }
+    }
+  }
+}
+```
+
+`--url`, `--token`, `--workspace` and their environment variables
+(`DW_MCP_URL`, `DW_API_TOKEN`, `DW_MCP_WORKSPACE`) mean what they do for the
+tool server; drop the `env` line for a loopback server with no token. Then
+start the session with the preview's development flag, naming that server:
+
+```bash
+claude --dangerously-load-development-channels server:dw-notes
+```
+
+Claude Code asks you to confirm the development channel (and, the first
+time, the new `.mcp.json` server), then prints `Channels (experimental)
+messages from server:dw-notes inject directly in this session`. `/mcp` lists
+`dw-notes` as connected with no tools. Save a note on a request page: within
+the interval the terminal shows a one-line `← dw-notes: Note from the user
+on request ...` and the agent starts on it.
+
+If nothing arrives:
+
+- `/mcp` shows `dw-notes` failed: run the `command` and `args` by hand; it
+  prints why (`dw-mcp: ...`) on stderr. `claude --debug` keeps that stderr
+  in `~/.claude/debug/<session-id>.txt`.
+- It is connected but no event comes: the session was started without the
+  flag (Claude Code then drops the events silently), or an organization
+  policy blocks channels.
+- **Protocol revision.** Claude Code does not register a server that
+  negotiates MCP protocol revision 2026-07-28 as a channel. This process
+  declines that revision by itself: it answers the `server/discover` probe
+  with "method not found" and completes the earlier `initialize` handshake,
+  so nothing needs setting. Should a Claude Code version still report it as
+  connected and not a channel, force the earlier handshake from the client
+  side by starting Claude Code with `MCP_PROTOCOL_NEGOTIATION=legacy` in
+  **its own** environment: `MCP_PROTOCOL_NEGOTIATION=legacy claude
+  --dangerously-load-development-channels server:dw-notes`. Claude Code
+  reads the variable, not the server, so the server's `env` block in
+  `.mcp.json` is the wrong place for it.
+
+The `dw` plugin does not declare this server. A plugin's MCP server starts
+in every session the plugin is enabled in, so declaring it there would run
+a poller - and report a failed server wherever `dw-mcp` is not installed -
+for everyone who installed the plugin for its skills.
+
+### Whose text it is
+
+A channel puts text in front of the model as an instruction, so what matters
+is who can write it. A note is written through `PUT
+/api/workspaces/{name}/requests/{id}`, and the ledger refuses a comment
+change from an agent's write: the text is from whoever holds that server's
+token - or anyone who can reach it, when it runs without one. **Point the
+channel only at a dw server you control.** Like the tool server it refuses
+to start against a non-loopback `--url` without a token. An event carries
+the workspace's name, the request's id and titles and the note; never a
+path on the server. The channel declares no permission relay: it cannot
+approve a tool call.
 
 ## Tool reference
 

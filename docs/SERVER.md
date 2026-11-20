@@ -324,6 +324,9 @@ icon, a finish-alert toggle, the theme toggle, and links to these docs and
   note the next time it writes the plan, and the line under a saved note
   says only what the ledger shows - that the agent has, or has not, written
   since.
+  An open Claude Code session can be told as each note is saved, through
+  [the notes channel](MCP.md#the-notes-channel); the page does not know
+  whether one is listening.
 
   The page queues jobs only when you ask, and only after pricing them.
   **Run {n} ready…** in the header takes every ready item; a ready row has
