@@ -198,9 +198,10 @@ saved while no session is open waits as it always did.
   saved - the rule behind the page's "Nothing is sent to the agent" line. A
   waiting note is announced once; edit it and it is announced again. Once
   the agent has written (`set_request`) it is not announced again.
-- **At connect.** Notes already waiting are announced as one
-  `kind="notes_waiting"` event that lists them (each clipped to 300
-  characters). Those predate the session, so the agent is told to say what
+- **At connect.** A few seconds after the handshake (one interval, at most
+  5 seconds, so Claude Code is listening), notes already waiting are
+  announced as one `kind="notes_waiting"` event that lists them (each
+  clipped to 300 characters). Those predate the session, so the agent is told to say what
   is waiting and to confirm before spending GPU time on them. A note saved
   after that is a `kind="note"` event, quoted whole (the ledger's 4000
   characters), which the agent acts on.

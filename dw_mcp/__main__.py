@@ -77,7 +77,7 @@ def main(argv=None, transport=None):
         f"{MIN_POLL_SECONDS:g})",
     )
     args = parser.parse_args(argv)
-    if args.interval != args.interval or args.interval < MIN_POLL_SECONDS:
+    if not args.interval >= MIN_POLL_SECONDS:  # NaN is refused too
         return _refuse(
             f"--interval must be at least {MIN_POLL_SECONDS:g} seconds "
             f"(got {args.interval:g})."

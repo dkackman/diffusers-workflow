@@ -103,6 +103,10 @@ DIGEST_MAX_NOTES = 20
 DEFAULT_POLL_SECONDS = 10.0
 MIN_POLL_SECONDS = 2.0
 MAX_BACKOFF_SECONDS = 300.0
+# After the handshake, before the first event: a client attaches its listener
+# for channel notifications once `initialize` has answered, and drops what
+# arrives before that
+CONNECT_GRACE_SECONDS = 5.0
 
 
 def _instant(at):

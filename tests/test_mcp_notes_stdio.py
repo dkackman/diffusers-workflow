@@ -397,8 +397,9 @@ def test_the_channel_instructions_are_short_and_say_what_to_do():
         assert needed in NOTES_INSTRUCTIONS
 
 
-class Stop(Exception):
-    pass
+class Stop(BaseException):
+    """Ends the announce loop from its sleep once the script has run; not
+    an Exception, which the loop survives."""
 
 
 def announce(polls):
@@ -414,7 +415,7 @@ def announce(polls):
         fault = None
 
         def poll(self, client):
-            step = next(script, Stop())
+            step = next(script)
             if isinstance(step, Exception):
                 raise step
             self.fault = step.get("fault")
@@ -430,6 +431,8 @@ def announce(polls):
 
     async def sleep(seconds):
         delays.append(seconds)
+        if len(delays) == len(polls) + 1:  # the wait after the handshake
+            raise Stop
 
     async def run():
         await mcp_server._announce(
@@ -448,7 +451,7 @@ def test_events_are_sent_in_order_as_channel_notifications():
         ("notifications/claude/channel", first),
         ("notifications/claude/channel", second),
     ]
-    assert delays == [10.0, 10.0]
+    assert delays == [5.0, 10.0, 10.0]  # the first is the wait to be listened to
     assert said == []
 
 
@@ -462,16 +465,19 @@ def test_a_failing_server_is_logged_once_backed_off_and_recovered_from():
             down,
             DwApiError("bad token", status_code=401),
             httpx.ReadError("reset"),
+            AttributeError("'list' object has no attribute 'get'"),
             {"events": [event]},
             {"events": [], "fault": "one request timed out"},
             {"events": []},
         ]
     )
-    assert delays == [10.0, 20.0, 40.0, 80.0, 160.0, 10.0, 20.0, 10.0]
+    assert delays[1:] == [10.0, 20.0, 40.0, 80.0, 160.0, 300.0, 10.0, 20.0, 10.0]
     assert said == [
         f"could not read the ledger, will keep trying: {down}",
         "could not read the ledger, will keep trying: bad token",
         "could not read the ledger, will keep trying: reset",
+        "could not read the ledger, will keep trying: AttributeError: "
+        "'list' object has no attribute 'get'",
         "reading the ledger again",
         "could not read the ledger, will keep trying: one request timed out",
         "reading the ledger again",

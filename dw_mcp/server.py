@@ -27,7 +27,7 @@ from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
 from mcp.types import ToolAnnotations
 
 from dw_mcp.client import DwApiError
-from dw_mcp.ledger import NoteWatch, retry_delay
+from dw_mcp.ledger import CONNECT_GRACE_SECONDS, NoteWatch, retry_delay
 from dw_mcp.tools_authoring import (
     AuthoringTools,
     LoraTools,
@@ -285,9 +285,11 @@ def _say(message):
 
 
 async def _announce(connection, client, watch, interval, sleep, say):
-    """Poll and send until cancelled. A poll that fails is reported once per
-    distinct reason and retried on a growing delay; it never ends the loop."""
+    """Poll and send until cancelled, from a moment after the handshake (see
+    CONNECT_GRACE_SECONDS). A poll that fails is reported once per distinct
+    reason and retried on a growing delay; it never ends the loop."""
     await connection.initialized.wait()
+    await sleep(min(interval, CONNECT_GRACE_SECONDS))
     failures, reported = 0, None
     while True:
         try:
@@ -297,6 +299,10 @@ async def _announce(connection, client, watch, interval, sleep, say):
             fault = watch.fault
         except (DwApiError, httpx.HTTPError) as e:
             events, fault = [], str(e)
+        except Exception as e:
+            # Whatever answers at that URL, one reply this code did not
+            # expect must not end a channel the session cannot restart
+            events, fault = [], f"{type(e).__name__}: {e}"
         for event in events:
             await connection.notify(CHANNEL_NOTIFICATION, event)
         if fault is None and reported is not None:
