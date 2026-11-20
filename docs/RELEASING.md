@@ -128,8 +128,9 @@ server's runtime (#1445-#1456).
   reported and never replaced.
 - A workspace cannot be named `requests.json` or `workspace.json`, and a
   reserved name is refused in any letter case.
-- A Requests page in the UI: each item's status, attempts, minutes spent
-  and remaining, and a comment box the agent reads on its next write.
+- Requests pages in the UI: where each request stands and what needs you,
+  each item's result, takes and minutes spent, and a note for the agent
+  that it reads on its next write.
 - The `script-to-video`, `storyboard`, `series-episodes` and `long-form`
   skills open a request for an ask of three or more jobs.
 

@@ -63,7 +63,12 @@
       <span class="videobadge" aria-hidden="true"><Play size={11} /></span>
     {/if}
   {:else if output}
-    <span class="glyph" role="img" aria-label={alt}
+    <!-- Named where it stands alone; a proof inside a named link is not -->
+    <span
+      class="glyph"
+      role={alt ? 'img' : undefined}
+      aria-label={alt || undefined}
+      aria-hidden={alt ? undefined : 'true'}
       >{output.kind === 'text' ? '¶' : '♪'}</span
     >
   {:else if shown === 'running'}

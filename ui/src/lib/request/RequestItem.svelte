@@ -78,7 +78,7 @@
 </script>
 
 {#snippet refs(list: ItemRef[])}
-  {#each list as dep, i (dep.key)}
+  {#each list as dep, i (i)}
     {i ? ', ' : ''}<button
       type="button"
       class="bare ref"
