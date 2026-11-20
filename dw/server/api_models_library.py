@@ -432,6 +432,10 @@ class LedgerHistoryEntry(ApiModel):
     by: Literal["agent", "user"]
     why: str
     goal: str | None = sometimes("The goal, when this revision changed it.")
+    state: Literal["open", "done", "abandoned"] = sometimes(
+        "The state, when this revision set or changed it: who closed or "
+        "reopened the request, when and why."
+    )
 
 
 class LedgerRequest(ApiModel):

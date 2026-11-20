@@ -3176,6 +3176,12 @@ export interface components {
             goal?: string | null;
             /** Revision */
             revision: number;
+            /**
+             * State
+             * @description The state, when this revision set or changed it: who closed or reopened the request, when and why.
+             * @enum {string}
+             */
+            state?: "open" | "done" | "abandoned";
             /** Why */
             why: string;
         };

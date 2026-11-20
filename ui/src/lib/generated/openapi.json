@@ -2884,6 +2884,16 @@
             "title": "Revision",
             "type": "integer"
           },
+          "state": {
+            "description": "The state, when this revision set or changed it: who closed or reopened the request, when and why.",
+            "enum": [
+              "open",
+              "done",
+              "abandoned"
+            ],
+            "title": "State",
+            "type": "string"
+          },
           "why": {
             "title": "Why",
             "type": "string"

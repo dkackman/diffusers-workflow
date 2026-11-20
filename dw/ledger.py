@@ -910,10 +910,14 @@ def _merge_items(raw_items, current, request_id, linked_jobs, by, at, purge=()):
     return live + dropped
 
 
-def _history(current, write, revision, by, at):
+def _history(current, write, state, revision, by, at):
+    """The history with this write's entry: who, when and why, with the
+    goal and the state when it set or changed them."""
     entry = {"revision": revision, "at": at, "by": by, "why": write["why"]}
     if current is None or write["goal"] != current.get("goal"):
         entry["goal"] = write["goal"]
+    if current is None or state != current.get("state"):
+        entry["state"] = state
     history = list((current or {}).get("history", [])) + [entry]
     if len(history) > MAX_HISTORY:
         history = history[:1] + history[-(MAX_HISTORY - 1) :]
@@ -951,10 +955,11 @@ def put_request(
         current = _check_against(requests, request_id, write)
         at = _now()
         revision = write["revision"] + 1
+        state = write["state"] or (current or {}).get("state") or "open"
         request = {
             "id": request_id,
             "title": write["title"],
-            "state": write["state"] or (current or {}).get("state") or "open",
+            "state": state,
             "revision": revision,
             "prompt": current.get("prompt") if current else write["prompt"],
             "goal": write["goal"],
@@ -970,7 +975,7 @@ def put_request(
                 at,
                 write["purge"],
             ),
-            "history": _history(current, write, revision, by, at),
+            "history": _history(current, write, state, revision, by, at),
         }
         requests[request_id] = request
         document = {"requests": requests}
