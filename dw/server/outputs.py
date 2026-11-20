@@ -86,6 +86,40 @@ def output_kinds(manifest):
     return kinds
 
 
+def _shown(entries):
+    """`(name, kind)` for each file of these manifest entries the gallery
+    shows, in order. A name that is not a plain relative one is skipped."""
+    for entry in entries:
+        for name in entry.get("files") or []:
+            if not isinstance(name, str) or os.path.isabs(name):
+                continue
+            if ".." in name.replace("\\", "/").split("/"):
+                continue
+            kind = MEDIA_KINDS.get(os.path.splitext(name)[1].lower())
+            if kind:
+                yield name, kind
+
+
+def proof_output(manifest):
+    """The one file that stands for a job in a list, as `{name, kind}`, or
+    None: the first image or video of its `final` entries, else their first
+    sound or text; when they show nothing (or no entry has that role), the
+    same over the other entries. `name` is the manifest's own - relative to
+    the output root, the name the gallery routes take - and `kind` its
+    MEDIA_KINDS entry."""
+    if not isinstance(manifest, list):
+        return None
+    entries = [e for e in manifest if isinstance(e, dict)]
+    final = [e for e in entries if entry_role(e) == "final"]
+    rest = [e for e in entries if entry_role(e) != "final"]
+    for tier in (final, rest):
+        shown = list(_shown(tier))
+        visual = [f for f in shown if f[1] in ("image", "video")]
+        for name, kind in (visual or shown)[:1]:
+            return {"name": name, "kind": kind}
+    return None
+
+
 # The allowlist members that are not already-compressed containers -
 # everything else in MEDIA_KINDS deflates for about nothing, so it is
 # stored instead (see zip_download)

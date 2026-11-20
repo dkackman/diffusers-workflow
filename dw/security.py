@@ -5,6 +5,7 @@ Security utilities for input validation and safe file operations.
 import os
 import re
 import logging
+import unicodedata
 from pathlib import Path
 from urllib.parse import urlparse
 from typing import Union, List, Optional
@@ -650,14 +651,24 @@ WORKSPACE_NAME_PATTERN = r"^[\w][\w.-]*\Z"
 MAX_WORKSPACE_NAME_LENGTH = 100
 
 
+def workspace_name_key(name: str) -> str:
+    """What two workspace names are compared by: equal keys are one entry on
+    a case-insensitive, normalising filesystem (macOS, Windows), so
+    `Requests.json` is `requests.json` there. Compatibility forms fold too
+    (a full-width letter), which is stricter than any filesystem and keeps
+    look-alikes of the root's own names out."""
+    return unicodedata.normalize("NFKC", name).casefold()
+
+
 def validate_workspace_name(name: str, *, reserved) -> str:
     """
     Validate a workspace name.
 
     Args:
         name: Workspace name to validate
-        reserved: The workspace root's own folder names, which no workspace
-            may take (workspace.RESERVED_WORKSPACE_NAMES). Required, with no
+        reserved: The workspace root's own folder and file names, which no
+            workspace may take in any letter case (`workspace_name_key`;
+            workspace.RESERVED_WORKSPACE_NAMES). Required, with no
             default - a validator must not quietly do less when a caller
             forgets it - and passed in because security sits below workspace
 
@@ -676,10 +687,12 @@ def validate_workspace_name(name: str, *, reserved) -> str:
         "letters, numbers, dot, dash or underscore",
     )
 
-    if name in reserved:
+    key = workspace_name_key(name)
+    if any(key == workspace_name_key(taken) for taken in reserved):
         raise InvalidInputError(
-            f"'{name}' is one of the workspace root's own folders "
-            f"({', '.join(reserved)}) and cannot name a workspace"
+            f"'{name}' is one of the workspace root's own names "
+            f"({', '.join(reserved)}, in any letter case) and cannot name a "
+            "workspace"
         )
 
     return name

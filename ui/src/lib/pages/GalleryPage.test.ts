@@ -703,3 +703,21 @@ it('hides the picker when the workspace has no requests', async () => {
   await Promise.resolve()
   expect(screen.queryByLabelText('filter by request')).toBeNull()
 })
+
+it('drops an unfiltered listing that lands after the filtered one', async () => {
+  let land: (reply: { files: GalleryFile[] }) => void = () => {}
+  gallery.mockImplementationOnce(
+    () => new Promise<{ files: GalleryFile[] }>((resolve) => (land = resolve)),
+  )
+  render(GalleryPage)
+  const everything = listing.files
+  listing.files = [file('only.png')]
+  const picker = await screen.findByLabelText('filter by request')
+  await fireEvent.change(picker, { target: { value: 'r1' } })
+  await waitFor(() => expect(screen.getByLabelText('select only.png')))
+  land({ files: everything })
+  await new Promise((r) => setTimeout(r, 10))
+  expect(screen.getByTestId('req-filter')).toBeTruthy()
+  expect(screen.queryByLabelText('select a.png')).toBeNull()
+  expect(screen.getByLabelText('select only.png')).toBeTruthy()
+})

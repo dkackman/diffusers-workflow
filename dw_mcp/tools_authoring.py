@@ -33,7 +33,7 @@ class WorkspaceTools:
         """Create a workspace on the server. It gets its own workflows,
         assets and outputs and shares the one prompt library. The name is a
         single path segment and cannot be one of the reserved folder names
-        (workflows, prompts, assets, outputs, exports, common, loras). Pass use=true to switch this
+        (workflows, prompts, assets, outputs, exports, common, loras, requests.json, workspace.json). Pass use=true to switch this
         session to it as well; otherwise the session stays where it was and
         the result says so."""
         return workspaces.create_workspace(self.client, name, use=use)
@@ -74,6 +74,13 @@ class WorkspaceTools:
         derived status, revision and history. Omit request to list them."""
         return ledger.get_request(self.client, request, workspace)
 
+    def delete_request(
+        self, request: str, revision: int, workspace: str | None = None
+    ) -> dict:
+        """Delete a request from the ledger at the `revision` read. Its jobs
+        keep their link and files; refused while one is queued or running."""
+        return ledger.delete_request(self.client, request, revision, workspace)
+
     def set_request(
         self,
         request: str,
@@ -85,13 +92,16 @@ class WorkspaceTools:
         prompt: str | None = None,
         state: str | None = None,
         workspace: str | None = None,
+        purge: list[str] | None = None,
     ) -> dict:
         """Write the whole plan for what the user asked, so it outlives this
         session. revision: the one you read, 0 to create; stale is refused.
         prompt: the user's ask, on create only. items: ordered {key, title,
-        depends_on, estimate_minutes, workflow, arguments}; one left out is
-        removed. why: one line. state: open, done or abandoned.
-        get_guide("workspaces", section="Requests")."""
+        depends_on, estimate_minutes, workflow, arguments, accepted}; one
+        left out is dropped. accepted: {job}, the keeper. Act on the user's
+        `comment`s (request and items) in what you read; never write them.
+        why: one line. state: open, done or abandoned. purge: dropped keys
+        to remove for good. get_guide("workspaces", section="Requests")."""
         return ledger.set_request(
             self.client,
             request,
@@ -103,6 +113,7 @@ class WorkspaceTools:
             prompt,
             state,
             workspace,
+            purge,
         )
 
 

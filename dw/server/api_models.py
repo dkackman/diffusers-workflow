@@ -22,6 +22,7 @@ from .api_models_base import (
     STRICT,
     ApiModel,
     JobStatus,
+    OutputKind,
     send_rejected_responses,
     sometimes,
 )
@@ -426,8 +427,6 @@ class DiffusersStatus(ApiModel):
 
 
 # ------------------------------------------------------------------- jobs
-
-OutputKind = Literal["image", "video", "audio", "text"]
 
 
 class JobSummary(ApiModel):

@@ -108,12 +108,38 @@ server's runtime (#1445-#1456).
 **Requests** (#1458)
 
 - A workspace ledger of what was asked: a request holds a goal and a plan
-  of items, and each item links the jobs made for it. MCP `get_request` and
-  `set_request`; `run_workflow(request="<id>/<item>")` links a job; REST
-  `GET`/`PUT /api/workspaces/{name}/requests[/{id}]`; `?request=` filters
-  on the jobs and gallery lists.
-- A Requests page in the UI: each item's status, attempts, minutes spent
-  and remaining, and a comment box the agent reads on its next write.
+  of items, and each item links the jobs made for it. MCP `get_request`,
+  `set_request` and `delete_request`; `run_workflow(request="<id>/<item>")`
+  links a job; REST `GET`/`PUT`/`DELETE
+  /api/workspaces/{name}/requests[/{id}]`; `?request=` and `&item=` filter
+  the jobs and gallery lists, and `list_jobs` and `list_gallery` take the
+  same filter as `request="<id>"` or `"<id>/<item>"`.
+- A read shows its proof: each attempt and each item's result names the one
+  output that stands for the job (`output: {name, kind}`), an item says
+  whether it is `ready` to run, and a list row carries `ready` and a
+  `cover` of up to three latest results - no job read per attempt.
+- The user closes and reopens a request and comments on the whole of it as
+  well as on an item; the agent reads both comments before its next write
+  and never changes them. The item's `accepted` names the keeper.
+- A ledger does not fill for good: only open requests (100) and live items
+  (200) count against the working caps, a request can be deleted, and
+  dropped items can be purged. Two servers on one workspace cannot lose
+  each other's write, and a `requests.json` that is not a ledger is
+  reported and never replaced.
+- A workspace cannot be named `requests.json` or `workspace.json`, and a
+  reserved name is refused in any letter case.
+- Requests pages in the UI: where each request stands and what needs you,
+  each item's result, takes and minutes spent, and a note for the agent
+  that it reads on its next write.
+- The request page edits the plan: accept a take as an item's result, drop
+  and restore items, reorder them by drag or keyboard, with undo. An edit
+  made while the agent rewrites the plan is applied on top when its item is
+  unchanged, asked about when it changed, and never sent as a stale plan.
+- The request page runs items: what is ready, one item, or another take of
+  a done one, each priced first in a dialog that says what will not run and
+  what becomes ready next; every job is linked to its item and bound to the
+  quoted plan. A request is marked done, abandoned, reopened or deleted
+  from its header.
 - The `script-to-video`, `storyboard`, `series-episodes` and `long-form`
   skills open a request for an ask of three or more jobs.
 

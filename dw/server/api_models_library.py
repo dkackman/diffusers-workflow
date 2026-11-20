@@ -6,9 +6,10 @@ re-exports every name here.
 
 from typing import Any, Literal
 
-from pydantic import ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field
 
-from .api_models_base import ApiModel, JobStatus, sometimes
+from .api_models_base import ApiModel, JobStatus, OutputKind, sometimes
+from ..ledger import MAX_TITLE_LENGTH, MAX_WHY_LENGTH
 from ..lora_catalog import STATUS_ORDER
 from .catalog_shape import SHAPES, TRAITS
 
@@ -357,6 +358,16 @@ class LedgerComment(ApiModel):
     at: str
 
 
+class LedgerOutput(ApiModel):
+    """The one file that stands for a job: what a list shows as its proof."""
+
+    name: str = Field(
+        description="The file as the job's manifest and the gallery name it, "
+        "relative to the workspace's outputs: `/api/gallery/{name}/thumbnail`."
+    )
+    kind: OutputKind = Field(description="A thumbnail exists for image and video.")
+
+
 class LedgerAttempt(ApiModel):
     job: str
     status: JobStatus
@@ -364,11 +375,16 @@ class LedgerAttempt(ApiModel):
     minutes: int | float | None = Field(
         description="Run time; null until the job has started."
     )
+    output: LedgerOutput | None = Field(
+        description="The job's first final image or video, else its first "
+        "sound or text; null when it wrote none or its run is gone."
+    )
 
 
 class LedgerResult(ApiModel):
     job: str
     run_id: str | None
+    output: LedgerOutput | None
 
 
 class LedgerItem(ApiModel):
@@ -389,6 +405,10 @@ class LedgerItem(ApiModel):
             "dropped, done (a result exists), running, queued, failed (every "
             "linked job failed or was cancelled), planned."
         )
+    )
+    ready: bool = Field(
+        description="A job could be queued for it now: planned, with a stored "
+        "workflow and every dependency done, in an open request."
     )
     attempts: list["LedgerAttempt"] = Field(
         description="Every linked job, oldest first."
@@ -412,6 +432,10 @@ class LedgerHistoryEntry(ApiModel):
     by: Literal["agent", "user"]
     why: str
     goal: str | None = sometimes("The goal, when this revision changed it.")
+    state: Literal["open", "done", "abandoned"] = sometimes(
+        "The state, when this revision set or changed it: who closed or "
+        "reopened the request, when and why."
+    )
 
 
 class LedgerRequest(ApiModel):
@@ -421,6 +445,10 @@ class LedgerRequest(ApiModel):
     revision: int
     prompt: str | None = Field(description="The ask that started it; write-once.")
     goal: str
+    comment: LedgerComment | None = Field(
+        description="The user's note on the whole request; an agent never "
+        "writes it, and reads it on its next write."
+    )
     items: list[LedgerItem]
     history: list[LedgerHistoryEntry]
     spent_minutes: int | float = Field(description="Minutes every linked job ran.")
@@ -436,6 +464,10 @@ class LedgerSummary(ApiModel):
     revision: int
     items: int
     status_counts: dict[str, int]
+    ready: int = Field(description="Items a job could be queued for now.")
+    cover: list[LedgerOutput] = Field(
+        description="Up to three outputs of the latest results, newest first."
+    )
     spent_minutes: int | float
     remaining_minutes: int | float
     updated_at: str | None
@@ -444,6 +476,52 @@ class LedgerSummary(ApiModel):
 class LedgerList(ApiModel):
     workspace: str
     requests: list[LedgerSummary]
+    unreadable: str = sometimes(
+        "Why requests.json could not be read, when it is there but is not a "
+        "ledger; `requests` is then empty and every write is 409 "
+        "`ledger_unreadable` until the file is fixed or removed."
+    )
+
+
+class LedgerDeleted(ApiModel):
+    id: str
+    workspace: str
+    deleted: bool
+    revision: int = Field(description="The revision that was deleted.")
+    linked_jobs: int = Field(
+        description="Jobs linked to it; each keeps its row, link and files."
+    )
+
+
+class RequestWrite(BaseModel):
+    """One request's whole plan."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    title: str = Field(description=f"One line, at most {MAX_TITLE_LENGTH}")
+    goal: str = Field(description="What done looks like")
+    items: list[dict[str, Any]] = Field(
+        description="The ordered plan; each item is key, title, depends_on, "
+        "estimate_minutes, workflow, arguments, accepted, comment"
+    )
+    revision: int = Field(description="The revision read, or 0 to create")
+    why: str = Field(description=f"One line, at most {MAX_WHY_LENGTH}")
+    prompt: str | None = Field(default=None, description="Create only")
+    state: Literal["open", "done", "abandoned"] | None = None
+    comment: str | dict[str, Any] | None = Field(
+        default=None,
+        description="The user's note on the whole request, at most 4,000 "
+        "characters: text, or `{text}` as read. Left out, it is kept; null or "
+        "blank clears it. An agent's write omits it",
+    )
+    purge: list[str] | None = Field(
+        default=None,
+        description="Keys of stored items this plan leaves out, removed for "
+        "good instead of kept as dropped; their jobs keep their link and files",
+    )
+    by: Literal["agent", "user"] = Field(
+        default="user", description="Who wrote this revision; the UI is the user"
+    )
 
 
 class AssetDeleted(ApiModel):

@@ -115,7 +115,7 @@ box's default card.
 
 The sidebar lists every workspace on the server (`+ new` creates one; names
 sharing a prefix fold into one group). The selected workspace opens into
-**Overview, Workflows, Jobs, Gallery, Assets, Editor**, and the hash names
+**Overview, Workflows, Jobs, Requests, Gallery, Assets, Editor**, and the hash names
 it (`#/ws/studio/gallery`), so a link and a reload land where they say; a
 pre-workspace bookmark (`#/gallery`) redirects to the last workspace used.
 Below the workspaces, **Shared** holds what every workspace sees - Prompts,
@@ -211,7 +211,7 @@ icon, a finish-alert toggle, the theme toggle, and links to these docs and
   a 400, and a bound acknowledgement is refused; each server holds a
   lock under `servers/` beside the database for its life, so a second server
   sharing the database leaves a live sibling's jobs alone), filterable by status. A failed or cancelled row shows its `reason` on a muted line under the workflow name, cut to one line with the full text on hover. When loaded rows hold restart tombstones (`restart_batch`) that no loaded row's `rerun_of` names, a banner per batch, newest first, says "N jobs were cancelled by a server restart" with a **Rerun…** button (hidden under a status filter that hides cancelled rows). Only the click calls the batch route - the poll never does: its preview lists what would be queued with each estimate and a total, and what is skipped with why; confirming resends with `acknowledged_cost: true`, cancelling queues nothing, and a preview with nothing left to rerun says so and hides that banner for the session (`ui/src/lib/restartBatches.ts`). A waiting job
-  shows its place in line, can be moved, and shows `waiting_for` while held
+  shows its place in line, can be moved (the place is in the whole queue, so a list narrowed to a workspace or a request asks the server how many jobs are queued rather than counting its own rows), and shows `waiting_for` while held
   (for host RAM, or because every card is busy): the jobs list adds a short reason (`· host RAM` / `· cards busy`) to the queued row with the full text on hover, and the job page's hover matches the hold. The job page also refetches on `queue_wait` and on a live `warning`, and shows a warn-tone stall line (`no event for 4m in loading`) from the latest `phase_stall` until another event arrives. A job's page streams step progress, denoise ticks, the phase
   between them (loading, decoding, saving; a model download shows its bytes and rate), its log, and its results as they
   land - finals first, intermediates folded, and a section per
@@ -278,6 +278,87 @@ icon, a finish-alert toggle, the theme toggle, and links to these docs and
   read the live stream alone (`ui/src/lib/job/EventLog.svelte`).
 
   ![A finished job: a warning about a level jump at a cut, then the workflow as a data-flow graph from the edit and soundtrack through mixing and normalizing to the film](img/ui-job.png)
+
+- **Requests** - the workspace's requests ledger
+  ([WORKSPACES.md](WORKSPACES.md#requests)): what was asked of an agent, as
+  the plan it wrote. The list is one row a request - up to three thumbnails
+  of its latest results, the title, one line that is the first of *failed*,
+  *running*, *queued*, *idle* and *all done, still open*, a bar of its items
+  with done of those in the plan, minutes spent (measured, so no `~`) and
+  left (estimated), and when it was last written. Requests with something
+  for you to do come first, then those with a job in flight; closed ones
+  are hidden until the filter is set to **all** (`?show=all`).
+
+  A request's page leads with where it stands in a sentence ("Rendering
+  Shot 3. 4 of 9 done."), then what needs you (items ready to run, failed,
+  with two good takes and none accepted, or whose accepted take's files are
+  gone), a bar with one segment an item - each goes to its row - and the
+  minutes. Each item is a row: its result as a picture linked to the job
+  that made it (a dashed slot until there is one), its title, its state as
+  a word, and one figure. **ready** is a planned item a job could be queued
+  for now and **waiting** one whose dependency is not done, named with its
+  own state; **cancelled** is a failure whose every attempt was cancelled.
+  Opening a row shows its takes oldest to newest, with the accepted one or
+  the latest standing as the result marked, what it follows and what needs
+  it, the workflow and arguments it would run, and its note. Dropped items
+  fold into a group under the plan. What you asked, the goal and the plan's
+  changes - newest first, your own writes folded into one line - sit beside
+  the plan on a wide window and fold under it on a narrow one.
+
+  You edit the plan from its rows. Under each good take, **Accept** makes it
+  the item's result (**Accepted** pressed again clears the choice). The grip
+  at the start of a row reorders it - drag it, or focus it and press
+  ArrowUp/ArrowDown, Home or End; the order is written once, shortly after
+  the last move. A row's **more actions** menu has the same four moves, a
+  note, the item's jobs and outputs, and **Drop from plan**; a dropped row
+  has **Restore**. Accept and drop show at once and can be undone from the
+  toast for eight seconds. A drop asks first only when it does more than
+  the row shows: other items wait on it (the drop takes that dependency away
+  from them), nothing was run for it (the ledger deletes it outright, and
+  the page can restore it only until you leave), or its job is queued or
+  running (the drop does not cancel it).
+
+  A **note for the agent** goes on the request or on an item (up to 4000
+  characters; Ctrl+Enter saves, Esc sets the draft aside, and an unsaved
+  draft survives a reload of the tab). Nothing is sent: the agent reads a
+  note the next time it writes the plan, and the line under a saved note
+  says only what the ledger shows - that the agent has, or has not, written
+  since.
+
+  The page queues jobs only when you ask, and only after pricing them.
+  **Run {n} ready…** in the header takes every ready item; a ready row has
+  **Run…**, a failed or cancelled one whose dependencies are done **Run
+  again…**, and a done row's menu **Run another take…**. Each opens a dialog
+  that validates every item first (the spend button stays disabled until
+  each has its quote) and shows, per item, its workflow, the quote with what
+  it rests on, what the step cache would serve and what must be downloaded,
+  the plan's own estimate when the quote is more than a quarter off it, and
+  a warning when every step is cached - such a run reproduces the last take
+  rather than making a new one. **Will not run** lists the other items with
+  the reason each is left out (waits on another, no stored workflow, already
+  queued, would be refused), and **Afterwards** says which items become
+  ready once these finish - the page never starts them for you. On **Run
+  {n}** each item is submitted in plan order, linked to its item and with
+  the quoted plan as its cost acknowledgement; a row reads *queued* only
+  once the server has queued it, a price that moved since the quote is
+  re-priced on its row with **Run at this price**, and a refusal (the
+  request was closed, the item dropped) is said on its row.
+
+  The header's **more actions** menu marks the request **done**, **abandons**
+  or **reopens** it - nothing can be run on a closed request - and deletes a
+  closed one from the ledger after a confirm (its jobs and outputs stay).
+
+  The agent may rewrite the plan while you edit it. The page never sends
+  back a plan it read earlier: it reads the request again and makes your
+  change over that. When the item you changed is as you saw it, the change
+  goes on top and a line above the plan says so, naming the agent's write
+  (**See changes** goes to it). When you were dropping an item or accepting
+  a take and the agent has changed that item, nothing is written and the
+  row asks - **Drop anyway** or **Keep it**. When the change no longer
+  applies (the item is gone), the page says so and keeps a note's words for
+  you to copy. The page refreshes itself while the request is open,
+  announces what changed to a screen reader, and keeps the plan it has, with
+  its age and a **Retry**, when a refresh fails.
 
 - **Gallery** - everything in the workspace's output directory
   (`<workflow>/<run id>/`, see [WORKSPACES.md](WORKSPACES.md#runs)), grouped
@@ -358,7 +439,12 @@ icon, a finish-alert toggle, the theme toggle, and links to these docs and
   `/mcp` is mounted, a **Connect from another machine** panel with the
   browser URL and the `claude mcp add` line for a chosen address, the
   resolved directories, and the Caches panel (below) - then the queue and
-  history across every workspace, with a workspace filter.
+  history across every workspace, with a workspace filter. A request filter
+  there (`req=`) is read in one workspace - the one picked, else the current
+  one, which the picker then shows - because a request id names a request
+  inside a workspace; picking every workspace drops the filter. On either
+  jobs list a filter the server refuses (a `req` that is not a request id)
+  shows the server's message over no rows.
 
   ![The Status page: host, version, a worker per RTX 3090 with its memory, the queue, and the bind address](img/ui-status-dark.png)
 
@@ -962,17 +1048,38 @@ The editor's forms come from these; they are just as usable from scripts:
   or out-of-directory name 404s the whole request rather than yielding a
   partial archive
 - `GET /api/workspaces/{name}/requests[/{id}]`, `PUT
-  /api/workspaces/{name}/requests/{id}` — the requests ledger
-  ([WORKSPACES.md](WORKSPACES.md#requests)). Reads derive from the jobs linked
-  through `POST /api/jobs` `request`/`item`: each item carries `status`
-  (`dropped`, `done`, `running`, `queued`, `failed`, `planned`), `attempts`
-  (`[{job, status, note?, minutes}]`, oldest first), `result` (`{job, run_id}`
-  or null), `accepted_missing` (only when true) and `spent_minutes`; the
+  /api/workspaces/{name}/requests/{id}`, `DELETE
+  /api/workspaces/{name}/requests/{id}?revision=N` — the requests ledger
+  ([WORKSPACES.md](WORKSPACES.md#requests) has the rules). `PUT` takes one
+  request's whole plan: `title`, `goal`, `items`, `revision` (the one read,
+  0 to create) and `why`, and optionally `prompt` (create only), `state`
+  (`open`, `done`, `abandoned` - a user's write closes and reopens),
+  `comment` (the user's note on the request: left out it is kept, null
+  clears it), `purge` (keys of left-out items to remove for good) and `by`
+  (`user`, the default, or `agent`). `DELETE` removes the ledger entry at
+  that revision and answers `{id, workspace, deleted, revision,
+  linked_jobs}`; the linked jobs keep their rows, link and files. Reads
+  derive from the jobs linked through `POST /api/jobs` `request`/`item`:
+  each item carries `status` (`dropped`, `done`, `running`, `queued`,
+  `failed`, `planned`), `ready`, `attempts` (`[{job, status, note?,
+  minutes, output}]`, oldest first), `result` (`{job, run_id, output}` or
+  null), `accepted_missing` (only when true) and `spent_minutes`, where
+  `output` is `{name, kind}` - the gallery name of the one file that stands
+  for the job, and `image`, `video`, `audio` or `text` - or null. The
   request view and each list row carry `spent_minutes` and
-  `remaining_minutes`. An item's `accepted` on write takes `{"job": id}` or a
-  bare job id of a succeeded job linked to that request and item, stored as
-  `{job, run_id}`. `GET /api/gallery?request=<id>[&item=<key>]` lists only
-  files of runs whose jobs are linked to that request (or that item of it).
+  `remaining_minutes`; a list row also carries `status_counts`, `ready`
+  (items a job could be queued for now) and `cover` (up to three `output`s
+  of the latest results), and the list `unreadable` when the file is not a
+  ledger. An item's `accepted` on write takes `{"job": id}` or a bare job
+  id of a succeeded job linked to that request and item, stored as `{job,
+  run_id}`, or null to clear it. A refusal's `detail` is `{code, message}`:
+  400 `invalid_request`, 404 `unknown_request` (delete), 409
+  `stale_revision` (with `current_revision`), `ledger_full`,
+  `too_many_dropped_items`, `request_has_active_jobs` (with `jobs`),
+  `ledger_unreadable` and `no_workspace_root`, 413 `ledger_too_large`, 422
+  `prompt_is_write_once`, 503 `ledger_busy`. `GET
+  /api/gallery?request=<id>[&item=<key>]` lists only files of runs whose
+  jobs are linked to that request (or that item of it).
 - `GET /api/workspaces`, `POST /api/workspaces` (`{"name": ...}`),
   `DELETE /api/workspaces/{name}?acknowledged=true` — the workspaces on this
   server ([layout](WORKSPACES.md#several-workspaces-on-one-server)). Delete

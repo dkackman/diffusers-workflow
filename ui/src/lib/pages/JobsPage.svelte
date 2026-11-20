@@ -11,7 +11,9 @@
   import type { JobSummary } from '../types'
   import { wsHref } from '../routes'
   import { hashQuery, setHashQuery } from '../router.svelte'
-  import { parseRequestFilter } from '../requestFilter'
+  import { parseRequestFilter, type RequestFilter } from '../requestFilter'
+  import { latestOnly } from '../latest'
+  import { listingFailure, listingWorkspace, queueLength } from '../jobsListing'
   import { loadWorkspaces, workspace } from '../workspace.svelte'
   import {
     rerunRestartBatchWithConfirm,
@@ -73,14 +75,20 @@
     workspaceFilter = ''
     reqFilter = ''
   }
-  const listJobs = (filter: string) =>
-    api.listJobs(
-      filter || undefined,
-      undefined,
-      undefined,
-      requestScope.request || undefined,
-      requestScope.item || undefined,
-    )
+  // A request lives in one workspace, so its filter is never read across
+  // them (listingWorkspace): on the all-jobs view it pins the picker to the
+  // workspace it is read in, and choosing every workspace lets go of it
+  const listed = $derived(
+    listingWorkspace(
+      scope,
+      workspaceFilter,
+      workspace.current,
+      requestScope.request,
+    ),
+  )
+  $effect(() => {
+    if (scope === 'all' && listed !== workspaceFilter) workspaceFilter = listed
+  })
 
   // Only worth a picker once there is a choice - a single-workspace server
   // has nothing to filter by
@@ -94,20 +102,50 @@
     ),
   )
 
+  // The waiting queue's length, for the move buttons (queueLength)
+  let queueSize = $state(0)
+  const beginListing = latestOnly()
+  /** Load the listing the filters name. A reply a later call superseded is
+   * dropped, so a narrowed view never shows another question's rows. */
+  async function refresh(ws: string, scoped: RequestFilter) {
+    const current = beginListing()
+    try {
+      const rows = (await listJobs(ws, scoped)).jobs.reverse()
+      const queued = await queuedEverywhere(rows, !!(ws || scoped.request))
+      if (!current()) return
+      jobs = rows
+      queueSize = queueLength(rows, queued)
+      error = ''
+    } catch (e) {
+      if (!current()) return
+      const failure = listingFailure(e)
+      error = failure.message
+      if (failure.refused) jobs = []
+    }
+  }
+  const listJobs = (ws: string, scoped: RequestFilter) =>
+    api.listJobs(
+      ws || undefined,
+      undefined,
+      undefined,
+      scoped.request || undefined,
+      scoped.item || undefined,
+    )
+  /** The server's count of every queued job, asked for only by a narrowed
+   * listing that shows a waiting one: an unnarrowed listing holds the whole
+   * queue, and 0 leaves the length to the rows. */
+  async function queuedEverywhere(rows: JobSummary[], narrowed: boolean) {
+    if (!narrowed || !rows.some((job) => job.queue_position !== undefined))
+      return 0
+    return (await api.listJobs(undefined, 1, 'queued')).total
+  }
+
   $effect(() => {
     // Read synchronously so the effect reruns (and restarts the poll) when
     // the filter (or the scope's own workspace) changes, rather than the
     // interval quietly polling stale
-    const filter = scope === 'all' ? workspaceFilter : workspace.current
-    void requestScope
-    return poll(async () => {
-      try {
-        jobs = (await listJobs(filter)).jobs.reverse()
-        error = ''
-      } catch (e) {
-        error = e instanceof Error ? e.message : String(e)
-      }
-    }, 3000)
+    const [ws, scoped] = [listed, requestScope]
+    return poll(() => refresh(ws, scoped), 3000)
   })
 
   // Batches a preview found nothing left to rerun in: their banner stays
@@ -136,10 +174,6 @@
     }
   }
 
-  const queuedCount = $derived(
-    jobs.filter((job) => job.queue_position !== undefined).length,
-  )
-
   async function move(
     event: MouseEvent,
     id: string,
@@ -148,14 +182,13 @@
     event.preventDefault()
     try {
       await api.moveJob(id, direction)
-      // Same filter the poll uses - refreshing without it would flash every
-      // workspace's jobs into a view the user had narrowed to one
-      const filter = scope === 'all' ? workspaceFilter : workspace.current
-      jobs = (await listJobs(filter)).jobs.reverse()
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e)
-      notify.error(msg)
+      notify.error(e instanceof Error ? e.message : String(e))
+      return
     }
+    // Same listing the poll asks for - refreshing without its filters would
+    // flash every workspace's jobs into a view the user had narrowed to one
+    await refresh(listed, requestScope)
   }
 
   const requestLabel = (f: { request: string; item: string }) =>
@@ -194,7 +227,13 @@
     <option value="cancelled">cancelled</option>
   </select>
   {#if scope === 'all' && (workspace.names?.length ?? 0) > 1}
-    <select bind:value={workspaceFilter} title="filter by workspace">
+    <select
+      bind:value={workspaceFilter}
+      onchange={() => {
+        if (!workspaceFilter) reqFilter = ''
+      }}
+      title="filter by workspace"
+    >
       <option value="">all workspaces</option>
       {#each workspace.names ?? [] as name (name)}
         <option value={name}>{name}</option>
@@ -210,13 +249,7 @@
     <span class="wschip active-filter" data-testid="req-filter">
       <a
         class="plain"
-        href={wsHref(
-          scope === 'all'
-            ? workspaceFilter || workspace.current
-            : workspace.current,
-          'requests',
-          requestScope.request,
-        )}
+        href={wsHref(listed, 'requests', requestScope.request)}
         title="open this request">{requestLabel(requestScope)}</a
       >
       <button
@@ -229,7 +262,7 @@
   {/if}
 </div>
 
-{#if error}<p class="muted">Could not reach the server: {error}</p>{/if}
+{#if error}<p class="muted" role="alert">{error}</p>{/if}
 
 {#each banners as banner (banner.batch)}
   <div class="panel restart" role="status" data-batch={banner.batch}>
@@ -261,7 +294,7 @@
       <a
         class="row plain"
         class:historical={job.historical}
-        class:runningnow={job.status === 'running'}
+        class:row-live={job.status === 'running'}
         href={wsHref(job.workspace, 'jobs', job.id)}
         title={job.historical
           ? 'finished before this server started - loaded from history'
@@ -315,7 +348,7 @@
               <span class="qpos" title="position in the waiting queue"
                 >#{job.queue_position + 1}</span
               >
-              {#if queuedCount > 1}
+              {#if queueSize > 1}
                 <span class="qmove">
                   {#if job.queue_position > 0}
                     <button
@@ -335,7 +368,7 @@
                       <ChevronUp size={13} />
                     </button>
                   {/if}
-                  {#if job.queue_position < queuedCount - 1}
+                  {#if job.queue_position < queueSize - 1}
                     <button
                       class="quiet icon"
                       onclick={(e) => move(e, job.id, 'down')}
@@ -388,15 +421,6 @@
   .pagehead h1 {
     margin: 0;
     flex: 1;
-  }
-  /* The job the worker is on right now, marked the way it is marked in the
-     header: the one row you came to the page to find */
-  .row.runningnow {
-    background: color-mix(in srgb, var(--live) 10%, transparent);
-    box-shadow: inset 2px 0 0 var(--live);
-  }
-  .row.runningnow:hover {
-    background: color-mix(in srgb, var(--live) 16%, transparent);
   }
   .pagehead select {
     max-width: 150px;

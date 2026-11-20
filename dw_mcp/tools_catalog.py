@@ -237,7 +237,11 @@ class CatalogTools:
         return workspaces.server_info(self.client, cache_entries)
 
     def list_jobs(
-        self, limit: int = 20, status: str | None = None, workspace: str | None = None
+        self,
+        limit: int = 20,
+        status: str | None = None,
+        workspace: str | None = None,
+        request: str | None = None,
     ) -> dict:
         """List queued, running and recent jobs, newest first, with their
         status and queue position. The ids here are what `get_job`,
@@ -245,19 +249,24 @@ class CatalogTools:
         `move_job` take - including jobs started before this session or in
         the browser.
 
-        `limit` is the newest N (20 by default); `total` reports how many
+        `limit` is the newest N; `total` reports how many
         matched, so truncation shows. `status` narrows to one state or a
         comma-separated set of them - queued, running, succeeded, failed,
         cancelled. `workspace` lists one workspace's jobs; without it, a
         named workspace lists its own and the default lists every job on
-        the server. Each job carries `device`, the card it ran or runs on
-        (e.g. `cuda:1 NVIDIA GeForce RTX 3090`, null before multi-GPU), and
+        the server. `request` ("<id>" or "<id>/<item>") keeps a ledger
+        request's jobs. Each job carries `device`, the card it ran or runs
+        on (as in `get_job`), and
         `acknowledged` (`none`, `boolean` or `bound`), the form of cost
         acknowledgement that queued it. Failed/cancelled rows carry
         `reason`, the first line of the error; a restart tombstone carries
         `restart_batch`, for `rerun_job(restart_batch=true)`."""
         return catalog.list_jobs(
-            self.client, limit=limit, status=status, workspace=workspace
+            self.client,
+            limit=limit,
+            status=status,
+            workspace=workspace,
+            request=request,
         )
 
     def list_gallery(
@@ -270,13 +279,14 @@ class CatalogTools:
         version: int | None = None,
         media: bool = False,
         role: list[Literal["final", "intermediate"]] | None = None,
+        request: str | None = None,
     ) -> dict:
         """List generated output files, newest first. A name is
-        <workflow>/<run id>/<file>, where <file> may itself sit in a
+        <workflow>/<run id>/<file>, where <file> may sit in a
         subfolder the step chose (`final/episode.mp4`) - the form
-        `get_output_image`, `get_output_text`, `download_output`,
-        `keep_output` and `delete_output` all take, and the form an
-        `output:` reference in a later workflow is built from. Each entry
+        the `get_output_*` tools, `download_output`,
+        `keep_output` and `delete_output` take, and an
+        `output:` reference is built from. Each entry
         carries `folder` (the workflow), `subfolder` (the step's chosen
         subfolder, '' for none; `subfolder=` filters on it) and `role`:
         `final` is a deliverable, `intermediate` a file a later step
@@ -290,10 +300,10 @@ class CatalogTools:
         only bookkeeping (manifest.json, workflow.json, job.json) as
         `runs`, each `{name, mtime}` - output deleted, or a run that failed
         before writing anything; `name` is what `delete_output` accepts.
-        A run that wrote a file is not listed. `subfolder` is
-        ignored. Whether an entry is junk is yours to decide.
+        `subfolder` is ignored. Whether an entry is junk is yours to decide.
 
-        `workspace` scopes one call without switching the session.
+        `workspace` scopes one call; `request` ("<id>" or "<id>/<item>")
+        keeps a ledger request's files.
 
         `media=True` adds `duration_seconds` to audio/video entries, to
         tell takes apart."""
@@ -307,6 +317,7 @@ class CatalogTools:
             version=version,
             media=media,
             role=role,
+            request=request,
         )
 
     def get_gallery_metadata(

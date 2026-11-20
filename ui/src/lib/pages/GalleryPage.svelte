@@ -8,6 +8,7 @@
   import { Picks, actOnEach } from '../picks.svelte'
   import { isEditable } from '../editable'
   import { neighbor } from '../neighbor'
+  import { latestOnly } from '../latest'
   import { overlayOpen } from '../ui/layers.svelte'
   import { notify } from '../toast'
   import { confirmDialog } from '../confirm.svelte'
@@ -55,19 +56,30 @@
   let reqId = $state('')
   let reqItem = $state('')
 
-  function loadListing() {
-    return api
-      .gallery(undefined, reqId || undefined, reqItem || undefined)
-      .then((result) => {
-        files = result.files
-        // The editors' output: completions read the same listing
-        outputLibrary.items = result.files
-        outputLibrary.workspace = workspace.current
-        error = ''
-        picks.keepOnly(result.files.map((f) => f.name))
-      })
-      .catch((e) => (error = e.message))
-      .finally(() => (loaded = true))
+  // A listing asked for before the filter or workspace changed must not
+  // land over the newer one: the chip would name a request the grid is not
+  // narrowed to, and the bulk actions act on what the grid shows
+  const beginListing = latestOnly()
+  async function loadListing() {
+    const current = beginListing()
+    try {
+      const result = await api.gallery(
+        undefined,
+        reqId || undefined,
+        reqItem || undefined,
+      )
+      if (!current()) return
+      files = result.files
+      // The editors' output: completions read the same listing
+      outputLibrary.items = result.files
+      outputLibrary.workspace = workspace.current
+      error = ''
+      picks.keepOnly(result.files.map((f) => f.name))
+    } catch (e) {
+      if (!current()) return
+      error = e instanceof Error ? e.message : String(e)
+    }
+    loaded = true
   }
 
   $effect(() => {

@@ -11,13 +11,14 @@
     Trash2,
   } from '@lucide/svelte'
   import { api } from '../api'
-  import { statusCounts } from '../requestResult'
+  import { attention, doneFigure } from '../request/attention'
   import Empty from '../Empty.svelte'
   import NoteEditor from '../ui/NoteEditor.svelte'
   import Skeleton from '../ui/Skeleton.svelte'
   import { WORKSPACE } from '../references'
   import { formatBytes } from '../format'
   import { hiddenWorkspaces, setHidden } from '../hiddenWorkspaces.svelte'
+  import { latestOnly } from '../latest'
   import { latestProofs } from '../proofs'
   import { wsHref } from '../routes'
   import type { GalleryFile, JobSummary, LedgerSummary } from '../types'
@@ -75,14 +76,19 @@
       })
   }
 
+  const beginRequests = latestOnly()
   function loadOpenRequests(ws: string) {
+    const current = beginRequests()
     openRequests = []
     api
       .listRequests(ws)
-      .then(
-        (r) => (openRequests = r.requests.filter((q) => q.state === 'open')),
-      )
-      .catch(() => (openRequests = []))
+      .then((r) => {
+        if (current())
+          openRequests = r.requests.filter((q) => q.state === 'open')
+      })
+      .catch(() => {
+        if (current()) openRequests = []
+      })
   }
 
   $effect(() => {
@@ -230,7 +236,10 @@
           <a class="plain wf" href={wsHref(name, 'requests', req.id)}
             >{req.title}</a
           >
-          <span class="muted">{statusCounts(req.status_counts)}</span>
+          <span class="muted">{attention(req).text}</span>
+          <span class="muted num" title="items done, of those in the plan"
+            >{doneFigure(req)}</span
+          >
         </li>
       {/each}
     </ul>

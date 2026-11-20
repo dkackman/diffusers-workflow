@@ -3,6 +3,7 @@ import {
   formatBytes,
   formatDuration,
   formatMinutes,
+  formatSpent,
   formatDay,
   formatMtime,
   gbFromBytes,
@@ -59,6 +60,14 @@ describe('formatDuration', () => {
     expect(formatDuration(243)).toBe('4m 03s')
     expect(formatDuration(3725)).toBe('1h 02m')
   })
+})
+
+it('gives measured minutes with no tilde', () => {
+  expect(formatSpent(38.27)).toBe('38 min')
+  expect(formatSpent(6.25)).toBe('6.3 min')
+  expect(formatSpent(2)).toBe('2 min')
+  expect(formatSpent(0.4)).toBe('<1 min')
+  expect(formatSpent(0)).toBe('0 min')
 })
 
 describe('formatMinutes', () => {

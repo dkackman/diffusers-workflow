@@ -1,9 +1,14 @@
 // What is under every call in api.ts: the request with its token, scope and
 // ApiError, the file-download variants, and the bodies a call sends that
 // the generated response types do not name.
-import type { LedgerItem, LedgerRequest, WorkflowDefinition } from './types'
+import type {
+  LedgerItem,
+  LedgerRequest,
+  Plan,
+  WorkflowDefinition,
+} from './types'
 import { getApiToken } from './token'
-import { ApiError, errorDetail } from './apiErrors'
+import { ApiError, errorCode, errorDetail, errorPayload } from './apiErrors'
 import { scoped } from './apiUrls'
 
 /** A request with the bearer token, scoped to the picker's workspace
@@ -23,12 +28,17 @@ async function send(
   })
   if (!response.ok) {
     let detail = response.statusText
+    let code: string | undefined
+    let held: Record<string, unknown> | undefined
     try {
-      detail = errorDetail(await response.json(), detail)
+      const payload = await response.json()
+      detail = errorDetail(payload, detail)
+      code = errorCode(payload)
+      held = errorPayload(payload)
     } catch {
       /* not json */
     }
-    throw new ApiError(detail, response.status)
+    throw new ApiError(detail, response.status, code, held)
   }
   return response
 }
@@ -118,4 +128,26 @@ export type RequestWriteBody = {
   revision: number
   why: string
   state?: LedgerRequest['state']
+  /** The user's note on the whole request: left out it is kept, null
+   * clears it */
+  comment?: { text: string } | null
+}
+
+/** A cost acknowledgement bound to a plan: the `{fingerprint, minutes,
+ * downloads}` a 409 hands back to resend, or the validate plan itself */
+export type BoundAcknowledgement =
+  Plan | { fingerprint: string; minutes?: number | null; downloads?: string[] }
+
+/** What a job submit sends. `request` and `item` (both or neither) link
+ * the job to an item of the workspace's requests ledger; with
+ * `acknowledged_cost` bound to a plan, the server refuses (409) a run
+ * whose plan is no longer that one. */
+export type JobSubmitBody = {
+  workflow_path?: string
+  workflow?: WorkflowDefinition
+  arguments?: Record<string, unknown>
+  base_dir?: string
+  request?: string
+  item?: string
+  acknowledged_cost?: true | BoundAcknowledgement
 }
