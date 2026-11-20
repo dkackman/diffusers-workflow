@@ -169,8 +169,9 @@ about 8.4 min per two-cut swap on lem.
   frames are trimmed off, but motion just before them may slow. No case failed on it.
 - **Follow-ups filed:**
   - #1397 / #1404: an opt-in SAM 3 `backend` on `track_people`, merged.
-  - #1411: NRDX's "BFS - Best Face Swap" LoRA, now sourced, as a maskless whole-shot
-    alternative arm. Its approach comes from Bambushu/h3-recast.
+  - #1411: a maskless whole-shot alternative, after Bambushu/h3-recast. The BFS LoRA
+    was dropped (Don), and the ref2va guide with `head-swap` lost to this route on face
+    hold and the untouched regions: `maskless-recast-complete.md`.
   - #1395: the darwin `torch<2.15` pin.
 - **Suite:** C-F914-C-F917 hold the v3 wording. Per harnest#215, the contradicting
   v2-wording bullets of C-F882-C-F891 were not counted at verify.
