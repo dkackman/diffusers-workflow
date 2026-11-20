@@ -79,16 +79,18 @@ threshold 0.363); outside the mask the source holds (37.5 dB past 96 px).
    first) and `people-0.0-contact_sheet.png`. Read the sheet to choose the number
    for the one to replace, and pass that mask as `mask_video`; check each cut,
    as numbering restarts at every cut. `track` 0 (default) tracks nobody.
-2. **Choose cuts.** Merge fragments from the returned list, and keep the list
-   contiguous: the template joins only the cuts it is given and pairs the take's
-   whole soundtrack back on, so a cut dropped from the middle is missing from the
-   result and every later cut plays against the wrong sound. To leave a cut
-   untouched, run the stretches either side of it as separate jobs. `render_frames` is what H3 renders for the cut: on the 17n+5
+2. **Choose cuts.** Merge fragments from the returned list, and pass only the
+   cuts to re-render, in the take's order. A cut with nobody to replace in it is
+   left out of `cuts`: the template puts each rendered cut back over the take's
+   own frames and returns the whole take, so a cut left out stays as the take has
+   it, is not rendered and is not priced, and the picture stays under its own
+   sound. `render_frames` is what H3 renders for the cut: on the 17n+5
    grid, 124 to 345, and at least its `num_frames`. The cut is padded to it and
    cut back to `num_frames`.
 
    **Limits**, each refused by `validate_workflow` before anything is queued:
-   - 1 to 32 cuts (`for_each`'s limit);
+   - 1 to 32 cuts (`for_each`'s limit), in the take's order, no two
+     overlapping;
    - each cut's `render_frames` on 17n+5 inside 124-345 and ≥ its `num_frames`;
    - `references` within the ref2va class's limits: at most 9 images and
      12 files in all;
@@ -128,10 +130,13 @@ threshold 0.363); outside the mask the source holds (37.5 dB past 96 px).
 4. **Run.** `replace-performer` takes `source_video`, `mask_video` (same size as
    the source, both 24 fps), `cuts` and the portrait. Each cut is trimmed from
    both, edited at `refine_strength` 1.0 with the cut's own audio held, cut back
-   and joined hard (`crossfade_ms` 0); the whole source track is paired back on.
+   and put back over the take's frames (`replace_cuts`, a hard cut each side).
+   The result is the whole take, full length, under its own soundtrack; for one
+   stretch alone, `trim_video` the result.
 5. **Re-roll one cut.** A cut's own `seed` overrides the workflow `seed`.
    `rerun_job` with `arguments` giving `cuts` where only the bad cut carries a new
-   `seed`; the others keep the workflow seed and render as before.
+   `seed`; the others keep the workflow seed and render as before. Keep the
+   other cuts in the list: one left out goes back to the take's own frames.
 
 The seam: the edit regenerates a band of about 64-80 px around the person (the
 patch cell plus `mask_grow`), and that band can redraw nearby set geometry so it

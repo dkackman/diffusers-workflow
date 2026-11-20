@@ -122,11 +122,12 @@ server's runtime (#1445-#1456).
 - `templates/minimax/replace-performer-cuts` prepares a take: `detect_cuts`
   lists its shots on H3's grid and `track_people` writes one mask video per
   person. `templates/minimax/replace-performer` re-renders the masked
-  performer cut by cut from references and joins the result under the
-  take's own sound. Pass it a contiguous run of cuts: a cut left out of the
-  middle puts every later cut against the wrong sound.
+  performer cut by cut from references and puts each cut back over the
+  take's own frames (`replace_cuts`), so the result is the whole take under
+  its own sound. Pass only the cuts to re-render, in the take's order: a
+  cut left out stays as the take has it, unrendered and unpriced.
 - `track_people` takes `backend: "sam3"` (opt-in; gated weights under the
-  SAM License). `trim_video` takes `pad_to`.
+  SAM License). `trim_video` takes `pad_to`. `replace_cuts` is new.
 
 **New model families**
 
