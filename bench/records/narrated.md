@@ -1315,6 +1315,14 @@ keystone, without the attention argument (M) and with it (MA). One H3 job ran at
 
 ### Setup
 
+- **Build:** diffusers `0.44.0.dev0` @ `e84bda1c` (`e84bda1c0005da3f48cc4c899635438cb0aa13c1`).
+  The build session checked it before the first job, but didn't quote the
+  `get_diffusers_state` output at the time. Re-quoted on 2026-11-20 after the jobs:
+  `"version": "0.44.0.dev0"`, `"commit": "e84bda1c0005da3f48cc4c899635438cb0aa13c1"`,
+  `"status": "idle"`, no update requested or in flight. That is the build #1394's gate ran
+  on (2026-11-18/19, above), and nothing on the record changed it in between.
+- **Baseline: reused, not re-run.** `2817a04202ae` (#1394's gate control) was reused under
+  Q4, because its build, `e84bda1c`, is the build these jobs ran on.
 - Workflows: `bench/workflows/masked-keystone-probe.json` (step 1),
   `masked-keystone-control-early.json` (M) and `masked-keystone-attention-early.json`
   (MA). `tests/test_bench_masked_keystone.py` pins how they are built.
@@ -1435,11 +1443,17 @@ change any criterion. The seg02 luma rise reads +3.48 (M) and +2.95 (MA), the sa
 rise +3.86 and +4.55, and the sharpness distance 28.5 and 19.7.
 
 **Face crops** (`get_output_frames`, crop `[372, 0, 600, 768]`, at 0.5, 8.5, 11.0 and
-14.9 s):
+14.9 s, `max_dimension` 256):
+
+![Face crops: rows baseline, M, MA; columns 0.5, 8.5, 11.0, 14.9 s](img/masked-keystone-early-face-crops.png)
+
+Rows, top to bottom: baseline `2817a04202ae`, M, MA. Columns: 0.5, 8.5, 11.0 and 14.9 s.
+
 - M and MA look almost the same. Identity holds, and no face is crusted or over-sharpened.
 - After the seam, both arms' speaker drifts left of centre (8.5 s) and comes back
   toward centre by 14.9 s.
 - By 14.9 s the skin reads warmer and more saturated than at 0.5 s in both, which matches the saturation rise.
+- The baseline's 14.9 s face reads nearer its 0.5 s tone than either masked arm's does.
 
 ### Gate (MA against the baseline)
 
