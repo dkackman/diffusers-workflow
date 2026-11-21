@@ -263,99 +263,6 @@ class TestDependencies:
         )
 
 
-class TestComments:
-    def test_a_user_comment_survives_an_agent_write_that_omits_it(self, tmp_path):
-        write(tmp_path, plan(items=[item("a")]))
-        view = write(
-            tmp_path, plan(revision=1, items=[item("a", comment="warmer")]), by="user"
-        )
-        assert view["items"][0]["comment"]["text"] == "warmer"
-        view = write(tmp_path, plan(revision=2, items=[item("a", title="new")]))
-        assert view["items"][0]["comment"]["text"] == "warmer"
-        # written back as read, it is unchanged
-        view = write(tmp_path, plan(revision=3, items=view["items"]))
-        assert view["items"][0]["comment"]["text"] == "warmer"
-
-    def test_an_agent_cannot_write_a_comment(self, tmp_path):
-        refused(tmp_path, plan(items=[item("a", comment="mine")]))
-
-    def test_a_comment_is_capped(self, tmp_path):
-        refused(tmp_path, plan(items=[item("a", comment="x" * 4001)]), by="user")
-        write(tmp_path, plan(items=[item("a", comment="x" * 4000)]), by="user")
-
-    def test_a_user_clears_a_comment(self, tmp_path):
-        write(tmp_path, plan(items=[item("a", comment="x")]), by="user")
-        view = write(
-            tmp_path, plan(revision=1, items=[item("a", comment=None)]), by="user"
-        )
-        assert view["items"][0]["comment"] is None
-
-
-class TestRequestComment:
-    """The request's own `comment`: the item field's rules, one level up."""
-
-    def test_a_user_writes_it_and_an_agent_write_keeps_it(self, tmp_path):
-        assert write(tmp_path, plan())["comment"] is None
-        view = write(tmp_path, plan(revision=1, comment="all warmer"), by="user")
-        assert view["comment"]["text"] == "all warmer"
-        stamped = view["comment"]["at"]
-        assert stamped == view["history"][-1]["at"]
-        # an agent's write omits it, or sends it back as read
-        view = write(tmp_path, plan(revision=2, why="replanned"))
-        assert view["comment"] == {"text": "all warmer", "at": stamped}
-        view = write(tmp_path, plan(revision=3, comment=view["comment"]))
-        assert view["comment"] == {"text": "all warmer", "at": stamped}
-        # and so does a user's write that leaves it out or does not change it
-        view = write(tmp_path, plan(revision=4), by="user")
-        view = write(tmp_path, plan(revision=5, comment="all warmer"), by="user")
-        assert view["comment"] == {"text": "all warmer", "at": stamped}
-        stored = json.loads((tmp_path / REQUESTS_FILE_NAME).read_text())
-        assert stored["requests"]["cats"]["comment"]["text"] == "all warmer"
-
-    def test_an_agent_cannot_write_or_change_it(self, tmp_path):
-        error = refused(tmp_path, plan(comment="mine"))
-        assert "user's" in str(error)
-        write(tmp_path, plan(comment="theirs"), by="user")
-        refused(tmp_path, plan(revision=1, comment="mine"))
-        refused(tmp_path, plan(revision=1, comment=None))
-
-    def test_it_is_capped_and_holds_no_control_characters(self, tmp_path):
-        refused(tmp_path, plan(comment="x" * 4001), by="user")
-        refused(tmp_path, plan(comment="a\x00b"), by="user")
-        refused(tmp_path, plan(comment=5), by="user")
-        refused(tmp_path, plan(comment={"text": "x", "by": "me"}), by="user")
-        write(tmp_path, plan(comment="x" * 4000), by="user")
-
-    @pytest.mark.parametrize("nothing", [None, "", "   "])
-    def test_a_user_clears_it(self, tmp_path, nothing):
-        write(tmp_path, plan(comment="x"), by="user")
-        view = write(tmp_path, plan(revision=1, comment=nothing), by="user")
-        assert view["comment"] is None
-
-    def test_the_writes_why_is_its_history(self, tmp_path):
-        write(tmp_path, plan())
-        view = write(
-            tmp_path,
-            plan(revision=1, comment="warmer", why="asked for warmer light"),
-            by="user",
-        )
-        assert view["history"][-1] == {
-            "revision": 2,
-            "at": view["comment"]["at"],
-            "by": "user",
-            "why": "asked for warmer light",
-        }
-
-    def test_a_ledger_from_before_the_field_reads_null(self, tmp_path):
-        write(tmp_path, plan())
-        path = tmp_path / REQUESTS_FILE_NAME
-        stored = json.loads(path.read_text())
-        del stored["requests"]["cats"]["comment"]
-        path.write_text(json.dumps(stored))
-        assert ledger.get_request(str(tmp_path), "cats")["comment"] is None
-        assert write(tmp_path, plan(revision=1))["comment"] is None
-
-
 # --- caps and values ---------------------------------------------------------
 
 
@@ -537,23 +444,6 @@ class TestRoutes:
             open(os.path.join(workspace_root.root, REQUESTS_FILE_NAME)).read()
         )
         assert list(stored["requests"]) == ["cats"]
-
-    def test_the_request_comment_over_http(self, server):
-        with server() as client:
-            made = client.put(f"{URL}/cats", json=plan(comment="warmer"))
-            assert made.status_code == 200, made.text
-            assert made.json()["comment"]["text"] == "warmer"
-            # left out, it is kept; null clears it
-            kept = client.put(f"{URL}/cats", json=plan(revision=1))
-            assert kept.json()["comment"]["text"] == "warmer"
-            agent = client.put(
-                f"{URL}/cats", json=plan(revision=2, comment="mine", by="agent")
-            )
-            assert agent.status_code == 400
-            cleared = client.put(f"{URL}/cats", json=plan(revision=2, comment=None))
-            assert cleared.status_code == 200, cleared.text
-            assert cleared.json()["comment"] is None
-            assert client.get(f"{URL}/cats").json()["comment"] is None
 
     def test_refusals_carry_their_code(self, server):
         with server() as client:

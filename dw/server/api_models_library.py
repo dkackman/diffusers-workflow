@@ -396,9 +396,8 @@ class LedgerItem(ApiModel):
     arguments: dict[str, Any]
     dropped: bool
     accepted: LedgerAccepted | None
-    comment: LedgerComment | None = Field(
-        description="The user's; an agent never writes it."
-    )
+    comment: LedgerComment | None = sometimes("Retired: read `notes`.")
+    notes: list[dict[str, Any]] = Field(description="The user's notes on the item.")
     status: Literal["dropped", "done", "running", "queued", "failed", "planned"] = (
         Field(
             description="Derived from the item's linked jobs, first that holds: "
@@ -445,9 +444,13 @@ class LedgerRequest(ApiModel):
     revision: int
     prompt: str | None = Field(description="The ask that started it; write-once.")
     goal: str
-    comment: LedgerComment | None = Field(
-        description="The user's note on the whole request; an agent never "
-        "writes it, and reads it on its next write."
+    comment: LedgerComment | None = sometimes("Retired: read `notes`.")
+    notes: list[dict[str, Any]] = Field(
+        description="The user's notes on the whole request."
+    )
+    next_note: int = Field(description="The number of the next note id.")
+    agent_wrote_at: str | None = Field(
+        description="When the agent last wrote the plan; null when it never has."
     )
     items: list[LedgerItem]
     history: list[LedgerHistoryEntry]

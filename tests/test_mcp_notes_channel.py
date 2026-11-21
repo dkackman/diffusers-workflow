@@ -12,6 +12,8 @@ from dw.notes import MAX_NOTE_LENGTH
 from dw_mcp import ledger
 from dw_mcp.client import DwApiError
 
+from .notes_helpers import save_note
+
 WORKSPACE = "studio"
 
 
@@ -89,15 +91,11 @@ def write(client, request_id="lighthouse", by="agent", why="w", **fields):
 
 
 def note(client, text, item=None, request_id="lighthouse"):
-    """The user saves `text` on an item, or on the request itself."""
-    current = store.get_request(client.root, request_id)
-    if item is None:
-        return write(client, request_id, by="user", why="note", comment=text)
-    plan = [
-        {**entry, "comment": text} if entry["key"] == item else entry
-        for entry in current["items"]
-    ]
-    return write(client, request_id, by="user", why=f"note on {item}", items=plan)
+    """The user saves `text` on an item, or on the request itself (None
+    clears it)."""
+    why = "note" if item is None else f"note on {item}"
+    write(client, request_id, by="user", why=why)
+    save_note(client.root, request_id, text, item)
 
 
 def started(client):

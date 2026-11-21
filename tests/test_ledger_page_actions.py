@@ -8,6 +8,8 @@ import os
 
 import pytest
 
+from dw.workspace import REQUESTS_FILE_NAME
+
 from . import test_ledger_job_link as link
 from .test_ledger import item
 from .test_ledger_job_link import WS, finish, items_of, submit, view
@@ -16,6 +18,7 @@ from .test_server import valid_workflow
 root, client, planned = link.root, link.client, link.planned
 
 URL = f"/api/workspaces/{WS}/requests"
+NOTED = "2026-01-01T00:00:00+00:00"
 
 
 def put(client, found, why, expect=200, **changes):
@@ -108,8 +111,17 @@ def three(client):
     jobs = {key: finish(client, submit(client, item_key=key)) for key in "abc"}
     found = view(client)
     found["items"][0]["accepted"] = {"job": jobs["a"]["id"]}
-    found["items"][2]["comment"] = "the best one"
-    return put(client, found, "kept a"), jobs
+    put(client, found, "kept a")
+    # a user's note is stored by the notes routes; seed one in the file
+    stored = os.path.join(client.root.root, REQUESTS_FILE_NAME)
+    doc = json.loads(open(stored).read())
+    doc["requests"]["cats"]["items"][2]["notes"] = [
+        {"id": "n1", "text": "the best one", "created": NOTED, "at": NOTED}
+    ]
+    doc["requests"]["cats"]["next_note"] = 2
+    with open(stored, "w") as f:
+        json.dump(doc, f)
+    return view(client), jobs
 
 
 class TestReorder:
@@ -135,7 +147,7 @@ class TestDropAndUndrop:
         c = dropped["items"][-1]
         assert (c["key"], c["dropped"], c["status"]) == ("c", True, "dropped")
         # what the item held is still there to bring back
-        assert c["comment"]["text"] == "the best one"
+        assert c["notes"][0]["text"] == "the best one"
         assert c["attempts"][0]["job"] == jobs["c"]["id"]
         assert submit(client, item_key="c", expect=422)["detail"]["code"] == (
             "item_dropped"

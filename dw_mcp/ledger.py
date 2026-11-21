@@ -52,7 +52,7 @@ def set_request(
     workspace=None,
     purge=None,
 ):
-    """Write a request's whole plan, as the agent. The user's `comment` is
+    """Write a request's whole plan, as the agent. The user's notes are
     never sent: the server keeps what is there."""
     payload = {
         "title": title,
@@ -89,7 +89,7 @@ def delete_request(client, request, revision, workspace=None):
 
 # --- notes waiting on the agent ---------------------------------------------
 #
-# A user's `comment` on a request or one of its items is a note for the
+# A user's notes on a request or one of its items are for the
 # agent. The rules here decide which notes still wait and what the notes
 # channel (`dw-mcp --notes-channel`, served by dw_mcp/server.py) says about
 # them. Nothing here imports the MCP SDK or sleeps.
@@ -140,11 +140,12 @@ def note_waiting(comment, request):
 
 def waiting_notes(request):
     """The notes of one request that wait on the agent: the request's own,
-    then each live item's in plan order, as `{request, revision, item,
-    title, text, at}`. `item` is "" for the request's own note."""
-    targets = [("", request.get("title"), request.get("comment"))]
+    then each live item's in plan order, as `{request, revision, item, note,
+    title, text, at}`. `item` is "" for the request's own notes; `note` is the
+    note's id."""
+    targets = [("", request.get("title"), request.get("notes"))]
     targets += [
-        (item.get("key"), item.get("title"), item.get("comment"))
+        (item.get("key"), item.get("title"), item.get("notes"))
         for item in request.get("items") or []
         if not item.get("dropped")
     ]
@@ -153,12 +154,14 @@ def waiting_notes(request):
             "request": request.get("id"),
             "revision": request.get("revision"),
             "item": key,
+            "note": note.get("id"),
             "title": title,
-            "text": comment.get("text") or "",
-            "at": comment.get("at"),
+            "text": note.get("text") or "",
+            "at": note.get("at"),
         }
-        for key, title, comment in targets
-        if note_waiting(comment, request)
+        for key, title, notes in targets
+        for note in notes or []
+        if note_waiting(note, request)
     ]
 
 
@@ -295,8 +298,10 @@ class NoteWatch:
                 continue
             waiting = waiting_notes(request)
             told = self._announced.get(request_id, ())
-            fresh += [n for n in waiting if (n["item"], n["at"]) not in told]
-            self._announced[request_id] = {(n["item"], n["at"]) for n in waiting}
+            fresh += [n for n in waiting if (n["item"], n["note"], n["at"]) not in told]
+            self._announced[request_id] = {
+                (n["item"], n["note"], n["at"]) for n in waiting
+            }
             self._stamps[request_id] = stamp
         for request_id in set(self._stamps) - open_ids:
             del self._stamps[request_id]
