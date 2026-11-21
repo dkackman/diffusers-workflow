@@ -72,8 +72,11 @@ from .step_cache import (
     step_pipeline_keys,
 )
 from .subfolders import step_subfolder
-from .trust import require_trusted_block
+from .security import UntrustedWorkflowError
+from .trust import require_trusted_block, workflows_are_trusted
+from .type_references import require_trusted_type_references
 from .variable_constraints import apply_constraints
+from .variables import ConstantError
 from .vram_estimate import apply_vram_estimate
 
 logger = logging.getLogger("dw")
@@ -493,25 +496,43 @@ def _prepared_steps(workflow, arguments):
 
 
 def require_trusted_pipelines(workflow, arguments):
-    """Refuse an untrusted workflow whose pipeline steps reach for remote
-    code, before the worker releases the previous workflow's models: the run
-    would be refused at load, and a refusal should leave the warm cache where
-    it was. Raises what the loader's own gate raises; a definition that
-    cannot be prepared is left for the run to report."""
+    """Refuse an untrusted workflow the run would refuse - a pipeline step
+    that reaches for remote code or names a pre_load_modules entry outside
+    the ecosystem, a dotted type or a 'constant:' outside it - before the
+    worker releases the previous workflow's models: a refusal should leave
+    the warm cache where it was (#1333, #1511). Raises what the run's own
+    gates raise; a definition that cannot be expanded is left for the run to
+    report.
+
+    Reads keys only, over validate's expansion (Workflow.expanded_definition):
+    no asset, clip or URL is loaded, since the run realizes them itself. A
+    trusted server has nothing to refuse, so it does no work at all (#1510).
+    """
+    if workflows_are_trusted():
+        return
     try:
-        steps = _prepared_steps(workflow, arguments)
+        steps = workflow.expanded_definition(arguments or {}).get("steps", [])
+    except ConstantError as e:
+        # A 'constant:' variable default the gate refused
+        if isinstance(e.__cause__, UntrustedWorkflowError):
+            raise e.__cause__
+        logger.debug(f"Could not expand the definition for the trust check: {e}")
+        return
     except Exception as e:
-        logger.debug(f"Could not prepare the definition for the trust check: {e}")
+        logger.debug(f"Could not expand the definition for the trust check: {e}")
         return
     require_trusted_steps(steps)
 
 
 def require_trusted_steps(steps):
-    """The gate over prepared steps - the one the worker runs before a load
-    and validate runs over its own expansion (#1410)."""
+    """The gate over expanded steps the worker runs before it releases the
+    warm models: each pipeline block as validate's pipeline_remote_code pass
+    reads it (#1410), and each step's type and 'constant:' references as its
+    component_types pass does."""
     for step in steps:
         if isinstance(step, dict):
             require_trusted_block(step.get("pipeline"), "pipeline")
+    require_trusted_type_references(steps)
 
 
 def pipeline_keys(workflow, arguments):

@@ -372,10 +372,14 @@ def require_trusted_lora_entries(loras) -> None:
 def require_trusted_block(block, what: str) -> None:
     """require_trusted_from_pretrained_arguments over a whole definition:
     every nested block's from_pretrained_arguments, so a gate that covers a
-    block added later without enumerating it.
+    block added later without enumerating it. A `pre_load_modules` list is
+    put to require_trusted_pre_load_modules wherever it sits, so validate,
+    submit and the worker's pre-release check refuse what the loader would
+    (#1511).
 
     Raises:
-        UntrustedWorkflowError: If untrusted and any block sets a remote-code key
+        UntrustedWorkflowError: If untrusted and any block sets a remote-code
+            key or names a pre_load_modules entry outside the ecosystem
     """
     if not isinstance(block, dict):
         return
@@ -384,6 +388,10 @@ def require_trusted_block(block, what: str) -> None:
     for key, value in block.items():
         if key in LOADER_ARGUMENT_BLOCKS:
             continue
+        if key == "pre_load_modules" and isinstance(value, list):
+            require_trusted_pre_load_modules(
+                [name for name in value if isinstance(name, str)]
+            )
         if key == "loras":
             require_trusted_lora_entries(value)
         if isinstance(value, dict):

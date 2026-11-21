@@ -186,7 +186,13 @@ triggered it and pointing at `--trust-workflows`:
   the task does not take.
 
 `validate_workflow` reports each refusal at the key's path (a variable's
-default at `variables.<name>`), so nothing is queued to find out. Every
+default at `variables.<name>`, a `pre_load_modules` entry or a loader key at
+the step's `pipeline`), so nothing is queued to find out, and a submit that
+fails it makes no job. The worker repeats the pipeline, `pre_load_modules`,
+dotted-type and `constant:` checks over the same expansion before it releases
+the previous workflow's models (`workflow_run.require_trusted_pipelines`), so
+a refused job leaves them loaded. That check reads keys only: it loads no
+asset, clip or URL, and with `--trust-workflows` it does nothing. Every
 bundled workflow loads untrusted: `tests/test_workflow_trust.py` sweeps the
 catalog, and `tests/test_catalog_structure.py` refuses a catalog entry that
 sets `trust_remote_code` or `custom_pipeline`. `--trust-workflows` lifts all
