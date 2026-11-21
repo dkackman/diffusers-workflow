@@ -129,6 +129,13 @@ change it writes back is the answer.
   ([MCP.md](MCP.md#the-notes-channel)). It works in an interactive session
   only, not `claude -p`; without one, a note is still read on the agent's
   next write, as the page says.
+- A note can reference what it is about: an item, a take (a job) and one of
+  its files, several at once on the request's own note. You write notes from
+  the request page, a job page or the gallery, an item holds a list of them,
+  and the event and `get_request` name each reference. The save button reads
+  "Send to agent" when the server has seen a channel poll in the last 30
+  seconds and "Save note" when not; "listening" cannot know a session
+  started without the development-channels flag drops the events.
 - It relays text written by whoever holds the dw server's token, into a
   session that can spend GPU time: point it only at a server you control.
 - The channels contract is Anthropic's research preview and may change.
@@ -147,9 +154,9 @@ change it writes back is the answer.
   output that stands for the job (`output: {name, kind}`), an item says
   whether it is `ready` to run, and a list row carries `ready` and a
   `cover` of up to three latest results - no job read per attempt.
-- The user closes and reopens a request and comments on the whole of it as
-  well as on an item; the agent reads both comments before its next write
-  and never changes them. The item's `accepted` names the keeper.
+- The user closes and reopens a request and leaves notes on the whole of it as
+  well as on an item; the agent reads them before its next write and never
+  changes them. The item's `accepted` names the keeper.
 - A ledger does not fill for good: only open requests (100) and live items
   (200) count against the working caps, a request can be deleted, and
   dropped items can be purged. Two servers on one workspace cannot lose

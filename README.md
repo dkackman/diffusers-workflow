@@ -153,12 +153,13 @@ An ask of more than a couple of jobs gets a **request**: the agent writes its pl
 into the workspace's ledger - the goal and the items it will make - links each job
 to its item, and records which take it kept. The plan outlives the session. The
 Requests page says where each request stands and what needs you, and shows each
-item's result, takes and minutes spent; a note you leave on an item, or on the
-request, is read by the agent before it writes the plan again. See [Requests](docs/WORKSPACES.md#requests).
+item's result, takes and minutes spent; the notes you leave on an item, or on the
+request, are read by the agent before it writes the plan again. A note can point at a
+take or a file, and you can write it from the request page, a job page or the gallery. See [Requests](docs/WORKSPACES.md#requests).
 
 With the **notes channel**, a note reaches the agent as you save it. `dw-mcp
 --notes-channel` runs beside an open Claude Code session and tells it "the user
-left this note on Shot 3": the agent reads the plan, acts - a retake, then the cut
+left this note on Shot 3, take 2, this file": the agent reads the plan, acts - a retake, then the cut
 again - and the page shows what it did. Review on the page, direct in notes, and
 the session does the rest. It rides on Claude Code's channels research preview, so
 it needs an interactive session started with the development-channels flag, and
