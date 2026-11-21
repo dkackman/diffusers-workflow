@@ -3,8 +3,9 @@
 // ready once those finish; and what a plan's quote adds to a row.
 import { formatMinutes } from '../format'
 import { describePlan, type PlanLine } from '../plan'
-import type { Plan } from '../types'
+import type { LedgerReview, Plan } from '../types'
 import { CHIP, takesOf, type ItemState, type PlanState } from './itemState'
+import { clockTime } from './reviewText'
 
 /** An item a job would be queued for, with what the job would run */
 export type Candidate = {
@@ -66,6 +67,39 @@ export function readyPlan(plan: PlanState): RunPlan {
     })),
     single: false,
     retake: null,
+  }
+}
+
+/** The banner's "Run now…": the held rows named that are ready, in plan
+ * order, ticked as a run of what is ready is */
+export function heldPlan(plan: PlanState, keys: readonly string[]): RunPlan {
+  const rows = plan.live.filter(
+    (row) => keys.includes(row.item.key) && row.display === 'ready',
+  )
+  return {
+    candidates: rows.map(candidate),
+    skipped: [],
+    single: false,
+    retake: null,
+  }
+}
+
+/** The line a held item's row carries in the dialog: running it is the
+ * user's go-ahead, or, with the review over and a session listening, the
+ * agent may be starting it already */
+export function heldLine(
+  review: LedgerReview | null,
+  listening: boolean,
+): PlanLine | null {
+  if (!review) return null
+  if (review.state === 'due' && listening)
+    return {
+      text: 'Review time is up and a session is listening: it may be starting this now.',
+      tone: 'warn',
+    }
+  return {
+    text: `Held for review until ${clockTime(review.until)}. Running it now is your go-ahead.`,
+    tone: 'plain',
   }
 }
 

@@ -6,6 +6,7 @@ moves; nothing sleeps."""
 import json
 import os
 import re
+from datetime import datetime
 
 import pytest
 
@@ -48,6 +49,7 @@ class LedgerClient:
         self.headers = []  # (path, headers) of every read
         self.fail = {}  # path suffix -> DwApiError to raise
         self.jobs = []  # the linked jobs every request read is given
+        self.now = None  # the aware time a read derives review holds at
 
     def get_json(self, path, params=None, workspace=None, headers=None):
         self.calls.append(path)
@@ -59,11 +61,14 @@ class LedgerClient:
         assert path.startswith(prefix), path
         request_id = path[len(prefix) :].lstrip("/")
         if not request_id:
-            return {"workspace": WORKSPACE, **store.listing(self.root)}
-        found = store.get_request(self.root, request_id, jobs_for=self.linked)
-        if found is None:
+            return {
+                "workspace": WORKSPACE,
+                **store.listing(self.root, jobs_for=self.linked),
+            }
+        stored = store._load(self.root).get(request_id)
+        if stored is None:
             raise DwApiError(f"No request {request_id!r}", status_code=404)
-        return found
+        return store.request_view(stored, self.linked(request_id), now=self.now)
 
     def linked(self, request_id):
         return self.jobs
@@ -604,6 +609,344 @@ def test_a_queued_jobs_reference_is_not_stale(client, clock):
     assert "no longer" not in event["content"]
 
 
+# --- review holds ----------------------------------------------------------
+
+
+class Mono:
+    """The monotonic clock a NoteWatch reads, moved by the test."""
+
+    def __init__(self):
+        self.t = 1000.0
+
+    def __call__(self):
+        return self.t
+
+
+@pytest.fixture
+def mono():
+    return Mono()
+
+
+def moment(minute):
+    return datetime.fromisoformat(f"2026-11-20T14:{minute:02d}:00+00:00")
+
+
+def held_plan(client, until_minute, request_id="lighthouse", **fields):
+    """The plan with shot1 held until 14:<until_minute>, shot2 after it, as
+    the agent wrote it at the clock's now. Both items have a workflow."""
+    stored = store._load(client.root).get(request_id)
+    keys = ("shot1", "shot2")
+    plan_items = [
+        {
+            "key": key,
+            "title": f"Shot {key}",
+            "depends_on": ["shot1"] if key == "shot2" else [],
+            "workflow": "txt2img",
+            **({"estimate_minutes": 2.5} if key == "shot1" else {}),
+            **(
+                {"review_until": f"2026-11-20T14:{until_minute:02d}:00+00:00"}
+                if key == "shot1"
+                else {}
+            ),
+        }
+        for key in keys
+    ]
+    return write(
+        client,
+        request_id,
+        by="agent",
+        items=plan_items,
+        revision=stored["revision"] if stored else 0,
+        **fields,
+    )
+
+
+def watching(client, mono):
+    watch = ledger.NoteWatch(clock=mono)
+    assert watch.poll(client) == []
+    client.calls.clear()
+    return watch
+
+
+def test_a_due_ready_hold_is_announced_once(client, clock, mono):
+    write(client)
+    client.now = moment(0)
+    watch = watching(client, mono)
+    held_plan(client, 10)
+    client.now = moment(11)
+    mono.t += 11 * 60
+
+    (event,) = watch.poll(client)
+
+    assert event["content"] == (
+        'Review time is up on request "lighthouse" with no note from the user. '
+        "Held items now due:\n\n"
+        "- shot1: Shot shot1 (about 2.5 min)\n\n"
+        'Read the request with get_request("lighthouse", workspace="studio"). '
+        "Run only the items still ready and without a new note, each with "
+        'run_workflow(request="lighthouse/<key>", acknowledged_cost=<the plan '
+        "you quoted>). If a run is refused for a changed plan, or "
+        "validate_workflow now quotes a figure well off what you told the user, "
+        "do not run it and do not hold again: clear its review_until and put "
+        "the new figure in the why."
+    )
+    assert event["meta"] == {
+        "kind": "review_due",
+        "workspace": WORKSPACE,
+        "request": "lighthouse",
+        "revision": "2",
+        "items": "shot1",
+        "until": "2026-11-20T14:10:00+00:00",
+    }
+    assert all(isinstance(v, str) for v in event["meta"].values())
+    mono.t += 60
+    assert watch.poll(client) == []
+    assert watch.poll(client) == []
+
+
+def test_a_line_without_an_estimate_has_no_bracket():
+    due = [
+        {
+            "request": "r",
+            "revision": 3,
+            "item": "a",
+            "title": "A",
+            "until": "2026-11-20T14:10:00+00:00",
+            "estimate_minutes": None,
+        }
+    ]
+    assert "- a: A\n\nRead" in ledger.review_event(due, "w")["content"]
+
+
+def test_nothing_is_announced_while_holding(client, clock, mono):
+    write(client)
+    client.now = moment(0)
+    watch = watching(client, mono)
+    held_plan(client, 10)
+    client.now = moment(5)
+    mono.t += 5 * 60
+    assert watch.poll(client) == []
+
+
+def test_a_redirected_hold_is_not_announced(client, clock, mono):
+    write(client)
+    client.now = moment(0)
+    watch = watching(client, mono)
+    held_plan(client, 10)
+    clock.tick(3)
+    note(client, "warmer first", "shot1")
+    client.now = moment(11)
+    mono.t += 11 * 60
+    (event,) = watch.poll(client)  # the note, and no review_due after it
+    assert event["meta"]["kind"] == "note"
+
+
+def test_a_deadline_passing_rereads_a_request_whose_stamp_did_not_move(
+    client, clock, mono
+):
+    write(client)
+    client.now = moment(0)
+    watch = watching(client, mono)
+    held_plan(client, 10)
+    assert watch.poll(client) == []  # reads the new hold, still counting down
+    client.calls.clear()
+    assert watch.poll(client) == []
+    assert client.reads() == []  # unchanged and not yet due: the list only
+    client.now = moment(10)
+    mono.t += 10 * 60 + 1
+    (event,) = watch.poll(client)
+    assert event["meta"]["kind"] == "review_due"
+    assert client.reads() == ["lighthouse"]
+
+
+def test_due_but_not_ready_says_nothing_until_it_is(client, clock, mono):
+    held_plan(client, 10)
+    client.jobs = [{"job": "j", "item": "shot1", "status": "running"}]
+    client.now = moment(0)
+    watch = watching(client, mono)
+    client.now = moment(11)
+    mono.t += 11 * 60
+    assert watch.poll(client) == []
+    client.jobs = []  # the running job went away: shot1 is ready again
+    (event,) = watch.poll(client)
+    assert event["meta"]["items"] == "shot1"
+
+
+def test_a_new_review_until_is_announced_again(client, clock, mono):
+    write(client)
+    client.now = moment(0)
+    watch = watching(client, mono)
+    held_plan(client, 10)
+    client.now = moment(11)
+    mono.t += 11 * 60
+    assert len(watch.poll(client)) == 1
+    clock.minute = 12
+    held_plan(client, 20)  # a later hold on the same item
+    client.now = moment(13)
+    assert watch.poll(client) == []
+    client.now = moment(21)
+    mono.t += 9 * 60
+    (event,) = watch.poll(client)
+    assert event["meta"]["until"] == "2026-11-20T14:20:00+00:00"
+
+
+def test_the_first_poll_sends_a_stale_event_after_the_digest(client, clock, mono):
+    held_plan(client, 10)
+    note(client, "from before", "shot2")
+    client.now = moment(20)
+    digest, event = ledger.NoteWatch(clock=mono).poll(client)
+    assert digest["meta"]["kind"] == "notes_waiting"
+    assert event["content"].startswith(
+        'Review time is up on request "lighthouse", on a hold set before this '
+        "session connected. Held items:\n\n- shot1: Shot shot1 (about 2.5 min)\n\n"
+    )
+    assert event["content"].endswith(
+        "These holds were set before this session, so the user's go-ahead may "
+        "be stale. Tell the user what is waiting and confirm before spending "
+        "GPU time."
+    )
+    assert event["meta"]["stale"] == "1"
+    assert event["meta"]["kind"] == "review_due"
+    assert (
+        "stale"
+        not in ledger.review_event(
+            [
+                {
+                    "request": "r",
+                    "revision": 1,
+                    "item": "a",
+                    "title": "A",
+                    "until": "u",
+                    "estimate_minutes": 1,
+                }
+            ],
+            "w",
+        )["meta"]
+    )
+
+
+def test_a_note_and_a_due_hold_in_one_poll_send_the_note_first(client, clock, mono):
+    held_plan(client, 10)
+    write(client, "other")
+    client.now = moment(0)
+    watch = watching(client, mono)
+    clock.tick(2)
+    note(client, "look at this", "shot3", request_id="other")
+    client.now = moment(11)
+    mono.t += 11 * 60
+    note_ev, review_ev = watch.poll(client)
+    assert note_ev["meta"]["kind"] == "note"
+    assert review_ev["meta"]["kind"] == "review_due"
+
+
+def test_a_closed_request_drops_its_hold_bookkeeping(client, clock, mono):
+    held_plan(client, 10)
+    client.now = moment(0)
+    watch = watching(client, mono)
+    stored = store._load(client.root)["lighthouse"]
+    write(client, state="done", revision=stored["revision"])
+    watch.poll(client)
+    assert "lighthouse" not in watch._due_at
+    assert "lighthouse" not in watch._due_told
+    assert "lighthouse" not in watch._stamps
+
+
+def test_a_hold_due_at_connect_but_blocked_is_stale_when_it_becomes_ready(
+    client, clock, mono
+):
+    held_plan(client, 10)
+    client.jobs = [{"job": "j", "item": "shot1", "status": "running"}]
+    client.now = moment(20)
+    watch = ledger.NoteWatch(clock=mono)
+    assert watch.poll(client) == []
+    client.jobs = []
+    (event,) = watch.poll(client)
+    assert event["meta"]["stale"] == "1"
+    assert event["content"].startswith(
+        'Review time is up on request "lighthouse", on a hold set before this '
+        "session connected. Held items:"
+    )
+
+
+def test_a_request_whose_first_read_failed_is_stale_when_it_later_reads(
+    client, clock, mono
+):
+    held_plan(client, 10)
+    client.now = moment(20)
+    client.fail["/requests/lighthouse"] = DwApiError("boom", status_code=500)
+    watch = ledger.NoteWatch(clock=mono)
+    assert watch.poll(client) == []
+    client.fail.clear()
+    (event,) = watch.poll(client)
+    assert event["meta"]["stale"] == "1"
+
+
+def test_a_hold_still_counting_down_at_connect_is_stale_when_due(client, clock, mono):
+    held_plan(client, 10)
+    client.now = moment(0)
+    watch = watching(client, mono)
+    client.now = moment(11)
+    mono.t += 11 * 60
+    (event,) = watch.poll(client)
+    assert event["meta"]["stale"] == "1"
+
+
+def test_a_hold_set_after_the_first_read_is_fresh_even_on_a_new_revision(
+    client, clock, mono
+):
+    held_plan(client, 10)
+    client.now = moment(0)
+    watch = watching(client, mono)
+    clock.minute = 1
+    held_plan(client, 30)  # same item, a new review_until
+    client.now = moment(31)
+    mono.t += 31 * 60
+    (event,) = watch.poll(client)
+    assert event["meta"]["until"] == "2026-11-20T14:30:00+00:00"
+    assert "stale" not in event["meta"]
+
+
+def test_one_request_splits_into_a_stale_and_a_fresh_event(client, clock, mono):
+    write(client)
+    stored = store._load(client.root)["lighthouse"]
+    plan = [
+        {
+            "key": key,
+            "title": f"Shot {key}",
+            "depends_on": [],
+            "workflow": "txt2img",
+            "review_until": "2026-11-20T14:10:00+00:00",
+        }
+        for key in ("shot1",)
+    ] + [
+        {"key": "shot2", "title": "Shot shot2", "depends_on": [], "workflow": "txt2img"}
+    ]
+    write(client, items=plan, revision=stored["revision"])
+    client.now = moment(0)
+    watch = watching(client, mono)
+    stored = store._load(client.root)["lighthouse"]
+    plan[1]["review_until"] = "2026-11-20T14:12:00+00:00"
+    write(client, items=plan, revision=stored["revision"])
+    client.now = moment(13)
+    mono.t += 13 * 60
+    stale, fresh = watch.poll(client)
+    assert stale["meta"]["items"] == "shot1" and stale["meta"]["stale"] == "1"
+    assert fresh["meta"]["items"] == "shot2" and "stale" not in fresh["meta"]
+
+
+def test_a_hold_set_in_the_write_that_creates_its_request_is_fresh(client, clock, mono):
+    client.now = moment(0)
+    watch = watching(client, mono)  # the first listing: no request yet
+    held_plan(client, 10, request_id="newer")
+    client.now = moment(11)
+    mono.t += 11 * 60
+    (event,) = watch.poll(client)
+    assert "stale" not in event["meta"]
+    assert event["content"].startswith(
+        'Review time is up on request "newer" with no note from the user.'
+    )
+
+
 # --- a channel that watches every workspace (#1529) -------------------------
 
 
@@ -676,7 +1019,7 @@ def note_in(server, name, text, item=None, request_id="turbine"):
     save_note(server.roots[name], request_id, text, item)
 
 
-def watching(server):
+def watching_all(server):
     watch = ledger.NoteWatch(everywhere=True)
     assert watch.poll(server) == []
     server.calls.clear()
@@ -685,7 +1028,7 @@ def watching(server):
 
 def test_a_note_in_any_workspace_reaches_a_whole_server_channel(server, clock):
     put_in(server, "notes")
-    watch = watching(server)
+    watch = watching_all(server)
     clock.tick()
     note_in(server, "notes", "lower the camera", item="b2")
     [event] = watch.poll(server)
@@ -697,7 +1040,7 @@ def test_a_note_in_any_workspace_reaches_a_whole_server_channel(server, clock):
 
 def test_an_idle_whole_server_channel_costs_one_marked_read_per_poll(server):
     put_in(server, "notes")
-    watch = watching(server)
+    watch = watching_all(server)
     assert watch.poll(server) == []
     assert server.calls == [("/api/requests", ledger.CHANNEL_HEADER)]
 
@@ -705,7 +1048,7 @@ def test_an_idle_whole_server_channel_costs_one_marked_read_per_poll(server):
 def test_the_same_request_id_in_two_workspaces_is_kept_apart(server, clock):
     put_in(server, "default")
     put_in(server, "notes")
-    watch = watching(server)
+    watch = watching_all(server)
     clock.tick()
     note_in(server, "notes", "from notes")
     [event] = watch.poll(server)
@@ -729,7 +1072,7 @@ def test_startup_digests_each_workspaces_waiting_notes_apart(server, clock):
 
 
 def test_a_request_made_after_startup_in_another_workspace_is_watched(server, clock):
-    watch = watching(server)
+    watch = watching_all(server)
     put_in(server, "notes", "fresh")
     assert watch.poll(server) == []
     clock.tick()
@@ -743,7 +1086,7 @@ def test_a_server_without_the_whole_server_list_falls_back_to_one_workspace(
 ):
     server.old = True
     put_in(server, "default")
-    watch = watching(server)
+    watch = watching_all(server)
     clock.tick()
     note_in(server, "default", "still heard")
     [event] = watch.poll(server)
@@ -759,7 +1102,7 @@ def test_one_unreadable_workspace_is_a_fault_and_the_others_still_announce(
     server, clock
 ):
     put_in(server, "default")
-    watch = watching(server)
+    watch = watching_all(server)
     server.broken.add("notes")
     clock.tick()
     note_in(server, "default", "heard anyway")
@@ -778,7 +1121,7 @@ def test_a_workspace_that_reads_again_after_a_break_does_not_repeat_its_notes(
     server, clock
 ):
     put_in(server, "notes")
-    watch = watching(server)
+    watch = watching_all(server)
     clock.tick()
     note_in(server, "notes", "lower the camera")
     assert len(watch.poll(server)) == 1
@@ -792,7 +1135,7 @@ def test_a_workspace_that_reads_again_after_a_break_does_not_repeat_its_notes(
 def test_an_old_server_is_asked_for_the_whole_server_list_again_later(server, clock):
     server.old = True
     put_in(server, "notes")
-    watch = watching(server)
+    watch = watching_all(server)
     assert "GET /api/requests" in watch.notice
     for _ in range(ledger.ROUTE_RETRY_POLLS - 1):
         watch.poll(server)

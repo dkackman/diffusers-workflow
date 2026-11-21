@@ -4,6 +4,7 @@ the file at a workspace root."""
 import json
 import os
 import threading
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi.testclient import TestClient
@@ -461,6 +462,24 @@ class TestRoutes:
             assert cycle.status_code == 400
             assert client.get(f"{URL}/A").status_code == 400
             assert client.put(f"{URL}/A", json=plan()).status_code == 400
+
+    def test_a_review_hold_round_trips_and_a_short_one_is_refused(self, server):
+        def until(seconds):
+            when = datetime.now(timezone.utc) + timedelta(seconds=seconds)
+            return when.isoformat(timespec="seconds")
+
+        with server() as client:
+            hold = until(3600)
+            body = plan(items=[item("a", review_until=hold)])
+            assert client.put(f"{URL}/cats", json=body).status_code == 200
+            got = client.get(f"{URL}/cats").json()["items"][0]
+            assert got["review_until"] == hold
+            assert got["review_set_at"] is not None
+            assert got["review"]["state"] == "holding"
+            short = plan(revision=1, items=[item("a", review_until=until(59))])
+            refusal = client.put(f"{URL}/cats", json=short)
+            assert refusal.status_code == 422
+            assert refusal.json()["detail"]["code"] == "review_too_soon"
 
     @pytest.mark.parametrize(
         "request_id", ["", "../x", "a/b", "/etc/hosts", "../../etc/hosts", "..", "."]

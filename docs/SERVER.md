@@ -344,6 +344,13 @@ icon, a finish-alert toggle, the theme toggle, and links to these docs and
   one started without the development-channels flag still counts, and Claude
   Code drops its events ([MCP.md](MCP.md#is-a-session-listening)).
 
+  When the agent holds items for your review, a banner says how many are
+  held, counts down to the deadline, and says whether an agent session is
+  listening ([the notes channel](MCP.md#the-notes-channel)); with none, it
+  says nothing will run at the deadline. A note you leave redirects the hold,
+  and the banner then says the agent will revise. **Run now…** opens the
+  priced dialog below; the page never starts a held item itself.
+
   The page queues jobs only when you ask, and only after pricing them.
   **Run {n} ready…** in the header takes every ready item; a ready row has
   **Run…**, a failed or cancelled one whose dependencies are done **Run
@@ -1081,8 +1088,17 @@ The editor's forms come from these; they are just as usable from scripts:
   whole-plan write keeps the stored ones. `DELETE` removes the ledger entry at
   that revision and answers `{id, workspace, deleted, revision,
   linked_jobs}`; the linked jobs keep their rows, link and files. Reads
-  derive from the jobs linked through `POST /api/jobs` `request`/`item`:
-  each item carries `status` (`dropped`, `done`, `running`, `queued`,
+  derive from the jobs linked through `POST /api/jobs` `request`/`item`.
+  An item also takes `review_until` on write, an ISO time with an offset 60
+  seconds to 24 hours ahead (422 `invalid_review_until`, `review_too_soon`
+  or `review_too_far` otherwise), and reads back `review_set_at` and a
+  derived `review` (`{until, state, seconds_left}`, `state` one of
+  `holding`, `redirected`, `due`; only while the item is `planned` on an
+  open request); the rules are under [WORKSPACES.md](WORKSPACES.md#requests).
+  `review_set_at` and `review` are ignored on write. The server never starts
+  a job at the deadline.
+
+  Each item carries `status` (`dropped`, `done`, `running`, `queued`,
   `failed`, `planned`), `ready`, `attempts` (`[{job, status, note?,
   minutes, output}]`, oldest first), `result` (`{job, run_id, output}` or
   null), `accepted_missing` (only when true) and `spent_minutes`, where

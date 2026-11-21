@@ -58,6 +58,46 @@ with its `note` as before. A rerun (`rerun_job`) keeps the link by itself.
 `spent_minutes` and `remaining_minutes`. Quote what is left from
 `remaining_minutes` when the user asks.
 
+## Hold items for the user's review
+
+Use this when the plan is written and priced and the user wants to look at it
+on the request page before it runs. A hold defers a run the user already
+approved; it never stands in for the approval.
+
+1. Quote the total in chat and get a yes to "these run at T unless you leave
+   a note". Silence on the page confirms that yes; it never replaces it.
+2. Hold only when the dw-notes channel is connected in this session (its
+   instructions are in your context). Without it nothing tells you the
+   deadline passed, so run on the user's word as before.
+3. Set the hold with `set_request`: each held item gets `review_until`, an
+   ISO time with an offset, 15 minutes ahead unless the user says otherwise
+   (the server refuses under 60 seconds or over 24 hours), and the `why`
+   says so. A `review_until` left out of an item, or null, clears its hold,
+   so a plan rewrite sends each held item's `review_until` back as read. Then
+   end the turn. Do not block in `wait_for_job` on something
+   else; the channel event is what wakes the session.
+
+What wakes you:
+
+- **A note.** Do the revision, write the plan, and hold the revised items
+  again only if the total is still what the user agreed to; otherwise clear
+  the hold and give the new figure in the `why`. A note redirects the hold;
+  nothing else does.
+- **A `review_due` event.** `get_request`, then run only the named items that
+  are still `ready` with no newer note, each with
+  `run_workflow(request=..., acknowledged_cost=...)` for the plan you quoted.
+  A refusal for a changed plan, or a quote well off what the user agreed to
+  (more than a quarter), means no run and no new hold: clear the hold
+  (`review_until: null`) and put the new figure in the `why`; the user runs
+  it from the request page's priced Run dialog, or says yes in chat.
+- **A dependency finishing.** An item held behind a dependency is announced
+  when the dependency finishes; you run it then. The server never starts a
+  job for you.
+- **A `review_due` event marked stale** is for a hold set before this session
+  connected, even one that was still counting down when you connected. If the
+  channel restarts or a new session picks up the request, the hold is
+  announced as stale: confirm with the user before spending.
+
 ## Accept the keeper
 
 The keeper is accepted in the request, **not with `set_note`**:
@@ -96,7 +136,8 @@ fix it asks for, under the usual cost gate. Finish with a `set_request`
 whose `why` says what you did - the user watches the request page, not this
 session, and that write is what marks the note answered. A
 `kind="notes_waiting"` event lists notes from before the session: say what
-is waiting and confirm before spending on them.
+is waiting and confirm before spending on them. A `kind="review_due"` event
+is the hold above running out.
 
 The channel watches every workspace on the server, so an event's
 `workspace` attribute may name one other than the session's: pass it to

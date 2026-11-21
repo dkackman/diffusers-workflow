@@ -21,6 +21,7 @@
   import { handleId, Reorder } from './reorder.svelte'
   import { moveTarget, type Direction, type Move } from './reorderMath'
   import RequestItem from './RequestItem.svelte'
+  import type { ReviewCountdown } from './review.svelte'
 
   // The plan as a list the user can edit: each row with its handle, its
   // menu and its one action, and - where an edit met the agent's - what
@@ -36,6 +37,7 @@
     onsay,
     onsee,
     onrun,
+    countdown,
   }: {
     store: PlanStore
     /** The request as the page shows it: the store's view */
@@ -53,6 +55,8 @@
     onsee: (revision: number) => void
     /** Open the priced run dialog for one item; none, and no row offers it */
     onrun?: (key: string) => void
+    /** The page's review countdowns, for a held row's chip */
+    countdown?: ReviewCountdown
   } = $props()
 
   let list = $state<HTMLElement>()
@@ -246,6 +250,7 @@
     {menu}
     {notice}
     onaccept={(take, job) => accept(row, take, job)}
+    {countdown}
   />
 {/snippet}
 

@@ -255,3 +255,26 @@ it('bands a plan by status, leaving dropped items out', () => {
     { tone: 'rest', count: 4, label: '4 not started' },
   ])
 })
+
+it("exposes each live row's review hold, and the held rows, as the server says", () => {
+  const hold = (state: 'holding' | 'redirected' | 'due') => ({
+    until: '2026-11-21T12:00:00+00:00',
+    state,
+    seconds_left: 30,
+  })
+  const plan = planState(
+    request([
+      item('a', { review: hold('holding') }),
+      item('b'),
+      item('c', { review: hold('due') }),
+      item('d', { dropped: true, status: 'dropped', review: hold('holding') }),
+    ]),
+  )
+  expect(plan.items.map((s) => s.review?.state ?? null)).toEqual([
+    'holding',
+    null,
+    'due',
+    null,
+  ])
+  expect(plan.held.map((s) => s.item.key)).toEqual(['a', 'c'])
+})

@@ -25,6 +25,7 @@ import shutil
 import sqlite3
 import sys
 import tempfile
+from datetime import datetime, timedelta, timezone
 
 root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 scratch = tempfile.mkdtemp(prefix="dw-e2e-")
@@ -306,6 +307,10 @@ ledger.put_request(
                 **plan_item("title", "Title card", estimate_minutes=3),
                 "workflow": "e2e-card",
                 "arguments": {"line": "The opening"},
+                # held for review for the next hour, for the hold's specs
+                "review_until": (
+                    datetime.now(timezone.utc) + timedelta(hours=1)
+                ).isoformat(timespec="seconds"),
             },
             plan_item("score", "Score"),
         ],

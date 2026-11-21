@@ -12,6 +12,8 @@ writes and their rules, and answers these views as `ledger.request_view`
 and `ledger.summary_view`.
 """
 
+from datetime import datetime, timezone
+
 # The list's `cover`: this many result outputs, found among at most
 # COVER_SCAN of a request's latest results - the bound on what one row of a
 # polled list may read
@@ -175,12 +177,47 @@ def _live_keys(items):
     return {item.get("key") for item in items if not item.get("dropped")}
 
 
-def item_view(item, jobs, ready=False):
+def _moment(text):
+    """A stored time as an aware datetime, or None when it is not one."""
+    try:
+        moment = datetime.fromisoformat(text)
+    except (TypeError, ValueError):
+        return None
+    return moment if moment.utcoffset() is not None else None
+
+
+def _review(item, notes, now):
+    """The hold on a planned item of an open request, `{until, state,
+    seconds_left}`: `redirected` when a note (the item's or the request's,
+    in `notes`) is at or after the moment the hold was set (any note, when
+    the stamp is missing or unreadable), else `due` once
+    `now` reaches the deadline, else `holding`. None when the item has no
+    readable hold. `seconds_left` is whole and never negative."""
+    until = _moment(item.get("review_until"))
+    if until is None:
+        return None
+    set_at = _moment(item.get("review_set_at"))
+    now = now or datetime.now(timezone.utc)
+    left = max(int((until - now).total_seconds()), 0)
+    if any(
+        set_at is None or ((at := _moment(note.get("at"))) is not None and at >= set_at)
+        for note in notes
+    ):
+        state = "redirected"
+    else:
+        state = "due" if now >= until else "holding"
+    return {"until": item["review_until"], "state": state, "seconds_left": left}
+
+
+def item_view(item, jobs, ready=False, request_notes=(), state="open", now=None):
     """One item as read, with what its linked `jobs` derive: `status`,
     `ready`, `attempts` (every linked job, oldest first, as `{job, status,
     note, minutes, output}` - `note` only when set, `minutes` null until it
     has run, `output` its proof or null), `result` (`{job, run_id,
-    output}`), `accepted_missing` (only when true) and `spent_minutes`."""
+    output}`), `accepted_missing` (only when true), `spent_minutes` and
+    `review` (only on a planned item of an open request with a hold: see
+    `_review`; `request_notes` are the request's own notes, `state` its
+    state, `now` the aware time to read it at)."""
     attempts = [
         {
             "job": job.get("job"),
@@ -197,15 +234,26 @@ def item_view(item, jobs, ready=False):
         "run_id": chosen.get("run_id"),
         "output": attempts[jobs.index(chosen)]["output"],
     }
+    status = _item_status(item, jobs)
+    review = (
+        _review(item, [*(item.get("notes") or []), *request_notes], now)
+        if status == "planned" and state == "open"
+        else None
+    )
     return {
         **item,
+        **{
+            field: item.get(field) if isinstance(item.get(field), str) else None
+            for field in ("review_until", "review_set_at")
+        },
         "notes": _noted(item.get("notes"), _positions(jobs), _live_keys([item])),
-        "status": _item_status(item, jobs),
+        "status": status,
         "ready": ready,
         "attempts": attempts,
         "result": result,
         **({"accepted_missing": True} if missing else {}),
         "spent_minutes": _spent(jobs),
+        **({"review": review} if review else {}),
     }
 
 
@@ -224,11 +272,13 @@ def _remaining(request, grouped):
     return round(total, 2)
 
 
-def request_view(request, jobs=()):
+def request_view(request, jobs=(), now=None):
     """A stored request as read: every item with its derived fields
     (`item_view`) and the request's `spent_minutes` and `remaining_minutes`.
     `jobs` are the linked jobs (`{job, item, status, run_id, run_dir,
-    run_exists, note, created_at, started_at, finished_at, output}`)."""
+    run_exists, note, created_at, started_at, finished_at, output}`). `now`
+    is an aware datetime to read the review holds at, the current time when
+    omitted."""
     grouped = _jobs_by_item(jobs)
     ready = _ready(request, grouped)
     positions = {}
@@ -242,8 +292,16 @@ def request_view(request, jobs=()):
         ),
         "agent_wrote_at": request.get("agent_wrote_at"),
     }
+    now = now or datetime.now(timezone.utc)
     view["items"] = [
-        item_view(item, grouped.get(item.get("key"), []), item.get("key") in ready)
+        item_view(
+            item,
+            grouped.get(item.get("key"), []),
+            item.get("key") in ready,
+            request.get("notes") or [],
+            request.get("state"),
+            now,
+        )
         for item in request.get("items", [])
     ]
     view["spent_minutes"] = _spent(jobs)

@@ -2,10 +2,13 @@ import { expect, it } from 'vitest'
 import type { Plan } from '../types'
 import { attempt, doneItem, item, request } from './fixtures'
 import { planState } from './itemState'
+import { clockTime } from './reviewText'
 import {
   afterwardsLine,
   ALL_CACHED,
   becomesReady,
+  heldLine,
+  heldPlan,
   itemPlan,
   planNotes,
   planSaid,
@@ -190,4 +193,40 @@ it('warns that a run with every step cached makes nothing new', () => {
   expect(planNotes(quote({ cached_steps: 3 }))).toEqual([
     { text: ALL_CACHED, tone: 'warn' },
   ])
+})
+
+const UNTIL = '2026-11-21T15:30:00+00:00'
+const hold = (state: 'holding' | 'redirected' | 'due') => ({
+  until: UNTIL,
+  state,
+  seconds_left: state === 'due' ? 0 : 600,
+})
+
+it('runs the held rows named that are ready, and none that is not', () => {
+  const held = planState(
+    request([
+      item('a', { title: 'A', ready: true, review: hold('holding') }),
+      item('b', { title: 'B', review: hold('holding') }),
+      item('c', { title: 'C', ready: true }),
+    ]),
+  )
+  const run = heldPlan(held, ['a', 'b'])
+  expect(run.candidates.map((c) => c.key)).toEqual(['a'])
+  expect(run.single).toBe(false)
+  expect(heldPlan(held, ['b']).candidates).toEqual([])
+})
+
+it("gives a held item's dialog row its line, warning when a session may be starting it", () => {
+  const go = {
+    text: `Held for review until ${clockTime(UNTIL)}. Running it now is your go-ahead.`,
+    tone: 'plain',
+  }
+  expect(heldLine(null, true)).toBeNull()
+  expect(heldLine(hold('holding'), true)).toEqual(go)
+  expect(heldLine(hold('redirected'), false)).toEqual(go)
+  expect(heldLine(hold('due'), false)).toEqual(go)
+  expect(heldLine(hold('due'), true)).toEqual({
+    text: 'Review time is up and a session is listening: it may be starting this now.',
+    tone: 'warn',
+  })
 })

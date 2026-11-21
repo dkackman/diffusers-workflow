@@ -51,7 +51,32 @@ GitHub generates notes from commits at tag time. The sections below are the hand
 
 ### 0.22.0
 
-<!-- Branch notes (fix/notes-1529-1530). Fold into the release-prep draft for 0.22.0 and paste into the GitHub release body once the tag has published: gh release edit v0.22.0 --notes-file ... -->
+<!-- Branch notes (feat/review-gate, with fix/notes-1529-1530 merged). Fold into the release-prep draft for 0.22.0 and paste into the GitHub release body once the tag has published: gh release edit v0.22.0 --notes-file ... -->
+
+**The review hold** (#1521)
+
+- An agent that has planned and priced a request can hold its items for you
+  to look at before they run. Each held item carries a deadline,
+  `review_until`; the request page shows how many items are held, counts
+  down to the deadline and says whether an agent session is listening. A
+  note you leave on the request or the item redirects the hold: the agent
+  revises instead of running. **Run now** opens the same priced dialog as
+  any other run, so a held item is never started for you.
+- A hold defers a run you already approved in chat; it does not replace
+  that approval. When the deadline passes with no note, the agent runs
+  exactly what it quoted, and a changed plan or a quote well off the one
+  you were given means no run and no new hold: the agent clears the hold and
+  gives the new figure, and you run it from the priced dialog or say yes. Nothing on the server starts
+  a job at the deadline: the notes channel tells the open session with a new
+  `review_due` event (`stale` when the hold was set before the session
+  connected). With no session listening, which needs Claude Code started
+  with the development-channels flag, nothing runs and the items wait for you.
+- The `script-to-video` skill's request reference says when to hold and how
+  the agent answers each event.
+- REST: a request item takes `review_until` (an ISO time with an offset,
+  60 seconds to 24 hours ahead) and reads back `review_set_at` and a derived
+  `review` (`{until, state, seconds_left}`). The same fields are on the MCP
+  `set_request` and `get_request` items.
 
 **Notes reach the session whichever workspace it is in** (#1529, #1530)
 
