@@ -1407,7 +1407,9 @@ export interface paths {
          *     first: the one read a notes channel makes when it watches the whole
          *     server. Marked `X-DW-Notes-Channel: 1`, it counts as a poll of every
          *     workspace. `unreadable` names a workspace whose requests.json is there
-         *     but is not a ledger; the others still list.
+         *     but is not a ledger, or that could not be resolved while it was listed;
+         *     the others still list, and a watcher keeps what it knew of the named
+         *     ones rather than taking them for closed.
          */
         get: operations["list_open_requests_api_requests_get"];
         put?: never;

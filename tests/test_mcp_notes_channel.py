@@ -772,3 +772,35 @@ def test_a_pinned_channel_reads_only_its_workspace(client):
     watch = ledger.NoteWatch(WORKSPACE)
     watch.poll(client)
     assert all(p.startswith(f"/api/workspaces/{WORKSPACE}/") for p in client.calls)
+
+
+def test_a_workspace_that_reads_again_after_a_break_does_not_repeat_its_notes(
+    server, clock
+):
+    put_in(server, "notes")
+    watch = watching(server)
+    clock.tick()
+    note_in(server, "notes", "lower the camera")
+    assert len(watch.poll(server)) == 1
+    server.broken.add("notes")
+    assert watch.poll(server) == []
+    server.broken.discard("notes")
+    assert watch.poll(server) == []
+    assert watch.fault is None
+
+
+def test_an_old_server_is_asked_for_the_whole_server_list_again_later(server, clock):
+    server.old = True
+    put_in(server, "notes")
+    watch = watching(server)
+    assert "GET /api/requests" in watch.notice
+    for _ in range(ledger.ROUTE_RETRY_POLLS - 1):
+        watch.poll(server)
+    assert ("/api/requests", ledger.CHANNEL_HEADER) not in server.calls
+    # the server was updated while the channel ran
+    server.old = False
+    clock.tick()
+    note_in(server, "notes", "heard after the upgrade")
+    [event] = watch.poll(server)
+    assert event["meta"]["workspace"] == "notes"
+    assert watch.notice is None

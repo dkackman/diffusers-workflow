@@ -1117,7 +1117,8 @@ The editor's forms come from these; they are just as usable from scripts:
 - `GET /api/requests` — every workspace's open requests, newest change
   first, as `{requests, unreadable?}`: each row is a request summary (the
   list route's) with its `workspace`, and `unreadable` maps a workspace
-  whose `requests.json` is not a ledger to why; the others still list. It
+  whose `requests.json` is not a ledger, or that could not be resolved
+  while it was listed, to why; the others still list. It
   is the one read a notes channel makes when it watches the whole server,
   and marked `X-DW-Notes-Channel: 1` it counts as a poll of every
   workspace, including one made after it.

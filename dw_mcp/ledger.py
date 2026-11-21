@@ -99,6 +99,11 @@ def delete_request(client, request, revision, workspace=None):
 # Marks the channel's request-list poll, so the server can tell a session
 # is listening. A hint for the page, never an authority.
 CHANNEL_HEADER = {"X-DW-Notes-Channel": "1"}
+
+# Polls between asks for GET /api/requests on a server that answered 404:
+# about five minutes at the default interval, so a server updated while a
+# channel runs is found again without restarting the session
+ROUTE_RETRY_POLLS = 30
 # The ledger's own cap on a note (dw/notes.py); a note is quoted whole
 # up to it
 NOTE_QUOTE_CAP = 4000
@@ -345,16 +350,21 @@ class NoteWatch:
     def __init__(self, workspace=None, everywhere=False):
         self.workspace = workspace
         self.everywhere = everywhere
-        self.fault = None  # why the last poll could not read a request
+        self.fault = None  # why the last poll could not read part of the ledger
+        self.notice = None  # what a person should know of how it is watching
+        self._skip_route = 0  # polls left before asking for the route again
         self._started = False
         self._stamps = {}  # (workspace, request id) -> (revision, updated_at)
         self._announced = {}  # (workspace, request id) -> {(note id, at)}
 
     def _rows(self, client):
-        """`(workspace, row)` for each open request the list names, and why
-        a workspace's ledger could not be read (None when every one could).
-        Raises DwApiError when no list can be read."""
-        if self.everywhere:
+        """`(workspace, row)` for each open request the list names, and the
+        workspaces it could not read (name -> why), whose requests are kept
+        as they were rather than taken for closed. Raises DwApiError when no
+        list can be read."""
+        if self.everywhere and self._skip_route > 0:
+            self._skip_route -= 1
+        elif self.everywhere:
             try:
                 listing = client.get_json(
                     api_path("api", "requests"), headers=CHANNEL_HEADER
@@ -362,18 +372,22 @@ class NoteWatch:
             except DwApiError as e:
                 if e.status_code != 404:
                     raise
-                self.everywhere = False  # a server older than the route
+                # a server older than the route: one workspace, asking again
+                # now and then in case it is updated under a running channel
+                self._skip_route = ROUTE_RETRY_POLLS - 1
+                self.notice = (
+                    "the server has no GET /api/requests, so only workspace "
+                    f'"{_workspace(client, self.workspace)}" is watched; '
+                    "update the server to hear every workspace"
+                )
             else:
-                broken = listing.get("unreadable") or {}
+                self.notice = None
                 rows = [
                     (row.get("workspace"), row)
                     for row in listing.get("requests") or []
                     if row.get("state") == "open"
                 ]
-                fault = None
-                if broken:
-                    fault = "; ".join(f"{n}: {why}" for n, why in broken.items())
-                return rows, fault
+                return rows, dict(listing.get("unreadable") or {})
         name = _workspace(client, self.workspace)
         listing = get_request(client, workspace=name, headers=CHANNEL_HEADER)
         if listing.get("unreadable"):
@@ -383,13 +397,14 @@ class NoteWatch:
             for row in listing.get("requests") or []
             if row.get("state") == "open"
         ]
-        return rows, None
+        return rows, {}
 
     def poll(self, client):
         """The events to send now. Raises DwApiError when the list cannot
         be read; a single request or workspace that cannot be is left for
         the next poll and named in `fault`."""
-        rows, self.fault = self._rows(client)
+        rows, broken = self._rows(client)
+        self.fault = "; ".join(f"{n}: {why}" for n, why in broken.items()) or None
         fresh, open_keys = [], set()
         for name, row in rows:
             key = (name, row.get("id"))
@@ -409,6 +424,8 @@ class NoteWatch:
             self._announced[key] = {(n["note"], n["at"]) for n in waiting}
             self._stamps[key] = stamp
         for key in set(self._stamps) - open_keys:
+            if key[0] in broken:  # not read this time, not closed
+                continue
             del self._stamps[key]
             del self._announced[key]
         started, self._started = self._started, True

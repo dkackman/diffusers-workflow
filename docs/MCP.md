@@ -218,8 +218,10 @@ saved while no session is open waits as it always did.
   and its `get_request` call passes it. `DW_MCP_WORKSPACE` does not narrow
   the channel: it picks where a session starts, not what it hears.
   `--workspace` pins the channel to one workspace. On a server older than
-  `GET /api/requests` it falls back to the default workspace (or
-  `DW_MCP_WORKSPACE`), as before.
+  `GET /api/requests` it watches the default workspace (or
+  `DW_MCP_WORKSPACE`), as before, says so once on stderr, and asks for the
+  route again about every five minutes, so a server updated under a running
+  channel is found without restarting the session.
 - **Two sessions on one server.** A channel that watches everything tells its
   session about notes on every workspace's requests. Two sessions open on
   one server both hear each note; the agent acts only on a request it is
@@ -251,9 +253,11 @@ saved while no session is open waits as it always did.
   is sent back through the channel.
 - **When the server is away.** An unreachable server, a rejected token, a
   timeout or an unreadable `requests.json` is written to stderr once and
-  retried, the delay doubling up to five minutes; the process stays up. One
-  workspace's unreadable `requests.json` is named on stderr while the other
-  workspaces are still announced.
+  retried, the delay doubling up to five minutes; the process stays up. A
+  fault in part of the ledger (one request, or one workspace's unreadable
+  `requests.json`) is named on stderr once but does not slow the poll: the
+  rest is still read every interval, and what the channel knew of the part
+  it could not read is kept, so its notes are not announced twice.
   Events are not queued across a restart: a note is either still waiting
   (and in the next session's digest) or answered.
 

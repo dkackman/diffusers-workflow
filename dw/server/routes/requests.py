@@ -97,7 +97,9 @@ def list_open_requests(request: Request):
     first: the one read a notes channel makes when it watches the whole
     server. Marked `X-DW-Notes-Channel: 1`, it counts as a poll of every
     workspace. `unreadable` names a workspace whose requests.json is there
-    but is not a ledger; the others still list."""
+    but is not a ledger, or that could not be resolved while it was listed;
+    the others still list, and a watcher keeps what it knew of the named
+    ones rather than taking them for closed."""
     state = request.app.state
     if request.headers.get("X-DW-Notes-Channel") == "1":
         state.listening.seen_all()
@@ -110,8 +112,9 @@ def list_open_requests(request: Request):
     for name in names:
         try:
             root = _ledger_root(state, name)
-        except HTTPException:
-            continue  # removed since the root was listed
+        except HTTPException as e:  # removed since the root was listed
+            broken[name] = str(e.detail)
+            continue
         problem = ledger.unreadable(root)
         if problem is not None:
             broken[name] = str(problem)

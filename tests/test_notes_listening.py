@@ -170,3 +170,24 @@ def test_a_workspace_poll_still_marks_only_its_own_after_a_server_wide_one(clock
     listening.seen("a")
     assert listening.state("a")["listening"] is True
     assert listening.state("b")["listening"] is False
+
+
+def test_a_workspace_that_cannot_be_resolved_is_named_not_skipped(client, monkeypatch):
+    from fastapi import HTTPException
+
+    from dw.server.routes import requests as routes
+
+    add_workspace(client, "notes")
+    put(client, "default", "first")
+    real = routes._ledger_root
+
+    def gone(state, name):
+        if name == "notes":
+            raise HTTPException(status_code=404, detail="no workspace 'notes'")
+        return real(state, name)
+
+    monkeypatch.setattr(routes, "_ledger_root", gone)
+    r = client.get("/api/requests")
+    assert r.status_code == 200, r.text
+    assert [row["id"] for row in r.json()["requests"]] == ["first"]
+    assert set(r.json()["unreadable"]) == {"notes"}

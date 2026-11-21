@@ -10621,7 +10621,7 @@
     },
     "/api/requests": {
       "get": {
-        "description": "Every workspace's open requests, without their items, newest change\nfirst: the one read a notes channel makes when it watches the whole\nserver. Marked `X-DW-Notes-Channel: 1`, it counts as a poll of every\nworkspace. `unreadable` names a workspace whose requests.json is there\nbut is not a ledger; the others still list.",
+        "description": "Every workspace's open requests, without their items, newest change\nfirst: the one read a notes channel makes when it watches the whole\nserver. Marked `X-DW-Notes-Channel: 1`, it counts as a poll of every\nworkspace. `unreadable` names a workspace whose requests.json is there\nbut is not a ledger, or that could not be resolved while it was listed;\nthe others still list, and a watcher keeps what it knew of the named\nones rather than taking them for closed.",
         "operationId": "list_open_requests_api_requests_get",
         "responses": {
           "200": {
