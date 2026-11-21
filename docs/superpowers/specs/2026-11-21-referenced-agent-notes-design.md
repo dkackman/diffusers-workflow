@@ -103,8 +103,12 @@ Each item and each request gets `notes: [Note]`, replacing `comment`:
 {
   "id": "n3",
   "text": "lipsync drifts after 2s - reroll this one",
+  "created": "2026-11-21T13:02:11Z",
   "at": "2026-11-21T13:02:11Z",
-  "ref": {"job": "j_8f2c", "output": "lighthouse/run_41/final/shot3.mp4"}
+  "refs": [
+    {"item": "shot3", "job": "j_8f2c", "output": "lighthouse/run_41/final/shot3.mp4", "kind": "video"},
+    {"item": "shot5"}
+  ]
 }
 ```
 
@@ -115,13 +119,24 @@ Each item and each request gets `notes: [Note]`, replacing `comment`:
   waiting rule reads. Upgrade on read sets `created = at`. The UI shows
   "Saved <created>", plus "· edited <at>" when they differ; the channel
   event carries both.
-- `ref`: optional. `job` is required when `ref` is present; `output` is
-  optional (a note about the take as a whole).
-- Validation on write: `ref.job` must be linked to this request (and, for an
-  item note, to this item); `ref.output` must be in that job's manifest.
-  A ref that fails is refused (`400`), not stored.
-- A ref can go stale later (job deleted, run purged). It is kept as written;
-  the views add `ref.gone: true` and the UI shows the reference greyed out.
+- `refs`: optional list (amended 2026-11-21 after the Dailies Gate review,
+  user's decision; replaces a single `ref`). Each reference is
+  `{item, job?, output?, kind?}`:
+  - `item` is required. A reference with only `item` points at a planned
+    shot that has no job yet, so a note can act **before a render** ("shots
+    3 and 5: warmer light").
+  - `job` is optional and must be linked to that item; `output` needs `job`
+    and must be in that job's manifest; `kind` is set by the server.
+  - An item note's references all name that item (a missing `item` defaults
+    to it). A request note's references may span items, so one note can
+    punch up several takes at once (the gate's `2, 4-5`).
+  - At most `MAX_NOTE_REFS = 16` references per note; duplicates (same item,
+    job and output) are collapsed.
+- Validation on write: every reference is checked; one failure refuses the
+  whole note (`422 invalid_note_ref`), nothing stored.
+- References are fixed once written. A reference can go stale later (item
+  dropped, job deleted, run purged). It is kept as written; the views add
+  `gone: true` to that reference and the UI greys it out.
 - Cap: a working cap of live notes per target (builder's call, around 20),
   inside the existing `MAX_FILE_BYTES`.
 
@@ -136,7 +151,7 @@ accepted.
 
 ### Writes
 
-- `POST .../notes` `{item?, text, ref?}` adds a note; returns the note and
+- `POST .../notes` `{item?, text, refs?}` adds a note; returns the note and
   the new revision. `item` absent means the request's own notes.
 - `PUT .../notes/{id}` `{text}` edits text only; a new text gets a new `at`
   (so it waits, and is announced, again). Ref is fixed once written.
@@ -156,9 +171,10 @@ accepted.
 ### Reads
 
 - `get_request` and `GET .../requests/{id}`: each item and the request carry
-  `notes`, each note's `ref` enriched with what the agent needs to act
-  without another call: `attempt` (1-based take number within the item),
-  `kind` of the output, and `gone` when stale.
+  `notes`, each reference in a note's `refs` enriched with what the agent
+  needs to act without another call: `attempt` (1-based take number within
+  its item, when it names a job), `kind` of the output, and `gone` when
+  stale.
 - MCP tool docs (`tools_authoring.py`) say `notes` replaces `comment`:
   read them, act on them, never write them.
 
@@ -182,17 +198,20 @@ and for a history with no agent entry left in it.
 ### Channel
 
 - `NoteWatch` dedupes by `(request, note id, at)`.
-- `note_event` text adds the reference when there is one:
+- `note_event` text names every reference, one per line, after the
+  note's target:
 
   ```
-  Note from the user on request "lighthouse-short", item "shot3" (Shot 3: lamp room),
-  about take 2 of 3 (job j_8f2c), file "lighthouse/run_41/final/shot3.mp4" (video),
-  saved 2026-11-21 13:02 UTC:
+  Note from the user on request "lighthouse-short", saved 2026-11-21 13:02 UTC, about:
+  - item "shot3" (Shot 3: lamp room), take 2 of 3 (job j_8f2c), file "lighthouse/run_41/final/shot3.mp4" (video)
+  - item "shot5" (Shot 5: the keeper), not rendered yet
   ```
 
-  and, when stale, "(that job's run no longer exists)".
-- `meta` adds `note`, `job` and `output` when present (identifier keys,
-  string values, as the channel contract needs).
+  A stale reference adds "(that job's run no longer exists)" or "(dropped
+  from the plan)".
+- `meta` adds `note`, and `items` (comma-separated item keys of the
+  references) when there are any; identifier keys, string values, as the
+  channel contract needs.
 - `waiting_event` lists each waiting note with its reference on its line.
 
 ### Is a session listening?
@@ -223,33 +242,45 @@ session will hear it now.
 - The page asks every 15 seconds while a note box is on screen, and once
   more just before a save, so the label is fresh at the moment it counts.
 
+### The agent answered
+
+User's addition, 2026-11-21 (after the Dailies Gate's chime): when the page
+sees that the agent has written since one of your waiting notes (the note
+goes from waiting to answered between two reads of the plan), it shows a
+toast: "The agent updated <request title> after your note: “<why>”", with a
+link to the note. Once per note per page load; no toast for notes already
+answered when the page opened. UI only: it reads what the plan already
+carries.
+
 ### UI
 
 - **Request page, item row** (`RequestItem.svelte`, `ItemNote.svelte`): the
   single note box becomes a list of the item's notes, each with its
-  waiting/answered line and, when it has a ref, a chip ("take 2 ·
-  shot3.mp4") linking to the job or file. An "Add a note for the agent"
-  box below. The attempt strip gets a per-take "Note this take" action
-  that opens the box with the ref prefilled (job + that take's proof
-  output); the chip shows it and can be removed before saving.
-- **Request header**: the request's own notes, same list, no ref picker.
+  waiting/answered line and a chip per reference ("take 2 · shot3.mp4",
+  or the item's title for a planned one) linking to the job or file. An
+  "Add a note for the agent" box below. The attempt strip gets a per-take
+  "Note this take" action that adds that take (job + its proof output) to
+  the box's references; chips can be removed before saving.
+- **Request header**: the request's own notes, same list. Its add box has an
+  item picker: choose any of the plan's live items (planned or rendered) as
+  references, so one note covers several shots before or after a render.
 - **Job page** (`JobPage.svelte`): when the job has `request`/`item`, a
   "Note for the agent" panel near the `request › item` link, showing that
-  item's notes about this job and an add box with `ref.job` set. Each
-  output in the manifest list gets "Note this file", which sets
-  `ref.output`. Not shown for unlinked jobs.
+  item's notes about this job and an add box with a reference to this job. Each
+  output in the manifest list gets "Note this file", which adds that
+  output as a reference. Not shown for unlinked jobs.
 - **Gallery detail** (`GalleryDetail.svelte`): a file can be published by
   more than one job. A step-cache hit republishes an earlier run's file, and
   `job_for_file` returns only the job that first wrote it. So the metadata
   gains `linked_jobs`: every job whose manifest lists this file, `reused`
   entries included, that is linked to a request item, as `{id, request,
   item, attempt}` (designer's call). With one entry, the add box sets
-  `ref = {job, output: <this file>}`; with several, it asks which take the
+  a reference `{item, job, output: <this file>}`; with several, it asks which take the
   note is about. It is hidden when no linked job published the file.
-- `ref.output` validation accepts any manifest entry of the job, `reused`
+- A reference's `output` validation accepts any manifest entry of the job, `reused`
   ones included, since a take's proof output can be one.
 - Drafts keep the existing per-tab sessionStorage behaviour; the draft key
-  includes the ref so two half-written notes on different files don't
+  includes the references so two half-written notes on different files don't
   collide.
 - Wording everywhere: "Note for the agent". The existing run/file note
   keeps its current label and place.

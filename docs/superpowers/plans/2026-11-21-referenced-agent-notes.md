@@ -18,13 +18,15 @@
 - Note id: `"n<k>"`, `k` from a per-request counter `next_note` (stored, starts at 1, never reused, even after a delete).
 - A note is `{id, text, created, at, ref?}`: `created` is set once at add; `at` changes with the text; the waiting rule reads `at`.
 - `LISTENING_WINDOW = 30` seconds; the UI asks every 15 seconds. Save labels: **Send to agent** when a session is listening, **Save note** when not; saving is never disabled.
-- `ref` is `{job, output?, kind?}`; `job` required when `ref` is present; `kind` is stored by the server, never taken from the caller. `ref` never changes after the note is written.
+- A note carries `refs: [{item, job?, output?, kind?}]` (amended 2026-11-21, replaces a single `ref`; Task 3b converts what Tasks 2-3 built). `item` required; `job` must be linked to that item; `output` needs `job`; `kind` stored by the server, never taken from the caller. An item note's refs all name its item (missing `item` defaults to it); a request note's refs may span items. `MAX_NOTE_REFS = 16`; duplicates collapsed. Refs never change after the note is written.
 - References name a job id and a manifest output name (relative, as `proof_output` returns it), never an absolute path.
 - Every surface labels the new note "Note for the agent". The existing run/file note (`set_note`, `notes.json`) is untouched.
 - No compatibility step: `_load` converts a stored `comment` to `notes` on read; `comment` is never written again.
 - Run `pytest tests/<file> -q` for Python, `cd ui && npx vitest run <path>` for UI, and `cd ui && npm run check && npm run lint` before each UI commit.
 
 ## Review Focus
+
+0. A request note whose refs name one rendered take and one planned item with no job: both stored, the planned one with `attempt: null` and no `gone`; dropping that item later marks its ref `gone`. Test in Task 3b.
 
 1. A note referencing a take whose run was later deleted: the view shows `ref.gone: true`, the page greys the chip, and the channel event says "(that job's run no longer exists)". Test in Task 2 and Task 5.
 2. A request-page tab with an old revision saves the plan after a note was added from the gallery: the note survives. Test in Task 1.
@@ -184,6 +186,28 @@ def test_gallery_metadata_lists_linked_jobs_including_reuse(client): ...  # seco
 
 ---
 
+### Task 3b: Multi-target refs (amends Tasks 2-3)
+
+**Files:**
+- Modify: `dw/ledger.py` (`add_note`, the `check_ref` contract, view enrichment), `dw/server/routes/library.py` (`_note_ref_check`), `dw/server/api_models_library.py` (`LedgerNote.refs`, `LedgerNoteRef.item`, `NoteAdd.refs`, `NoteRefWrite.item`), regenerated `openapi.json` / `ui/src/lib/generated/api-schema.ts`
+- Test: `tests/test_ledger_notes.py`, `tests/test_ledger_notes_api.py`, `tests/test_api_contract.py`
+
+**Interfaces:**
+- Produces: stored note `refs: list[{item, job?, output?, kind?}]` (no `ref` key; omitted or `[]` when none). `add_note(root, request_id, *, item, text, refs: list[dict] | None, check_ref)`; `check_ref(request_id, ref) -> dict` is called once per reference (after `item` defaulting) and returns the reference to store or raises `invalid_note_ref`.
+- Ledger-side rules (no job store): `MAX_NOTE_REFS = 16` (`too_many_refs` 422); an item note's ref naming another item → `invalid_note_ref`; a ref's item must exist in the plan and not be dropped at write time (`invalid_note_ref`); `output` without `job` → `invalid_note_ref`; duplicates collapsed keeping first order.
+- Route-side `check_ref`: when `job` is present it must be linked to `ref.item` (the Task 3 checks otherwise unchanged); item-only refs need no job lookup.
+- View: each ref gets `attempt` (when it names a job) and `gone: True` when its item is dropped, or its job is unlinked or its run gone.
+- `NoteAdd {request, item?, text, refs?: [{item?, job?, output?}]}`.
+- No stored-data conversion: nothing outside this branch has written `ref`.
+
+- [ ] **Step 1: Write failing tests** for: request note with refs across two items (one with job+output, one item-only); item note with a ref to another item refused; 17 refs refused; duplicate refs collapsed; output without job refused; item-only ref on a dropped item refused at write; ref's item dropped later → `gone`; the existing single-ref tests rewritten to `refs=[...]` (Review Focus 0).
+- [ ] **Step 2: Run** `pytest tests/test_ledger_notes.py tests/test_ledger_notes_api.py -q` — expect FAIL.
+- [ ] **Step 3: Implement**; regenerate the API contract the way Task 3 did (see its report).
+- [ ] **Step 4: Run** tests/test_ledger*.py, tests/test_api_contract.py, tests/test_ui_twins.py, tests/test_mcp_notes_channel.py, tests/test_mcp_notes_stdio.py, tests/test_mcp_server.py — expect PASS.
+- [ ] **Step 5: Commit** `feat(ledger): a note references several items, planned or rendered`
+
+---
+
 ### Task 4: Waiting rule per note (Python and TS twins)
 
 **Files:**
@@ -219,8 +243,7 @@ def test_gallery_metadata_lists_linked_jobs_including_reuse(client): ...  # seco
 
 **Interfaces:**
 - Consumes: Task 4's `waiting_notes` dicts.
-- Produces: `NoteWatch` dedupe key `(note id, at)`. `note_event` first line, with a ref:
-  `Note from the user on request "<id>", item "<key>" (<title>), about take <attempt> of <n> (job <job>), file "<output>" (<kind>), saved <UTC>:` — `file …` omitted without `output`; `take <attempt> of <n>` becomes `job <job>` alone when `attempt` is null; append ` (that job's run no longer exists)` after the job when `gone`. `saved <UTC>` is `created`; when `at` differs it reads `saved <created UTC>, edited <at UTC>`. `meta` adds `note`, `created`, and `job` / `output` when present.
+- Produces: `NoteWatch` dedupe key `(note id, at)`. `note_event` first line: `Note from the user on request "<id>"[, item "<key>" (<title>)], saved <created UTC>[, edited <at UTC>][, about:]` — `, about:` only when the note has refs, followed by one line per ref: `- item "<key>" (<title>), take <attempt> of <n> (job <job>), file "<output>" (<kind>)`; without `output` drop `, file …`; with `job` but null `attempt` write `job <job>`; an item-only ref reads `- item "<key>" (<title>), not rendered yet`; a gone ref appends ` (that job's run no longer exists)` for a job ref or ` (dropped from the plan)` for a dropped item. Then the note text, then the existing read/act instruction. `meta` adds `note`, `created`, and `items` (comma-separated ref item keys) when there are refs.
 - Produces: the `DwClient` used by the channel sends `X-DW-Notes-Channel: 1` on its request-list read (`get_request(client, workspace=name)` in `NoteWatch.poll`) and on no other call.
 - `waiting_event` lines carry the same reference phrase.
 
@@ -268,13 +291,14 @@ def test_gallery_metadata_lists_linked_jobs_including_reuse(client): ...  # seco
 **Interfaces:**
 - Consumes: Task 3 routes; Task 4 `noteLine`, `noteWaiting`.
 - Produces: `api.addNote(ws, {request, item?, text, ref?}) → Promise<{note, revision}>`, `api.editNote(ws, {request, note, text})`, `api.deleteNote(ws, request, note) → Promise<{revision}>`.
-- Produces: `<NoteList notes={LedgerNote[]} request item={string|null} workspace about filter?={(n)=>boolean} pendingRef?={LedgerNoteRef|null} onchanged />` — every note (or those `filter` keeps) with its `noteLine`, then an "Add a note for the agent" box; `pendingRef` prefills the box's ref chip. Calls the API itself and then `onchanged()` (the request page reloads the plan).
-- Produces: `<NoteRef ref workspace />` chip "take {attempt} · {basename(output)}" linking to the job page (no output) or the gallery file (with output); greyed with title "this run no longer exists" when `gone`.
-- `draftKey(workspace, request, item, refKey)` where `refKey` is `job` or `job/output` or `""`.
+- Produces: `<NoteList notes={LedgerNote[]} request item={string|null} workspace about filter?={(n)=>boolean} pendingRefs?={LedgerNoteRef[]} pickItems?={boolean} onchanged />` — every note (or those `filter` keeps) with its `noteLine` and one `NoteRef` chip per ref, then an "Add a note for the agent" box; `pendingRefs` prefill the box's chips (each removable); `pickItems` (request header only) adds an item picker over the plan's live items that appends item-only refs. Calls the API itself and then `onchanged()` (the request page reloads the plan).
+- Produces: `ui/src/lib/request/answered.ts` `answeredNow(before: LedgerRequest, after: LedgerRequest): LedgerNote[]` — notes waiting in `before` and answered in `after`; the request page calls it on every plan reload and shows one toast per note via the existing `notify` (`The agent updated <title> after your note: “<latest agent why>”`, linking to the note), never for notes already answered at page load.
+- Produces: `<NoteRef ref request workspace />` chip: "take {attempt} · {basename(output)}" linking to the gallery file when it has `output`, "take {attempt}" linking to the job page when it has `job` only, the item's title linking to the item row when item-only; greyed with title "no longer exists" when `gone`.
+- `draftKey(workspace, request, item, refKey)` where `refKey` joins each pending ref as `item/job/output` with `,` (or `""`).
 - Produces: `api.notesChannel(ws) → Promise<{listening, last_seen}>`; `ui/src/lib/request/listening.svelte.ts` exports `listening(workspace)`: a shared reactive `{listening: boolean}` per workspace, polled every 15 s while at least one `NoteList` using it is mounted, plus `refresh()` that `NoteList` awaits just before a save. A failed read counts as not listening.
 - `ItemNote`'s save button reads **Send to agent** / **Save note** from it; `noteLine(note, request, now, listening)` gains the listening argument and, for a waiting note on an open request, returns "An agent session is listening; it will see this within about 10 seconds." or "No agent session is listening. It reads this the next time it updates the plan." Each saved note shows `Saved <created>` and `· edited <at>` when they differ.
 
-- [ ] **Step 1: Write failing tests**: save button label follows `listening` and saving works in both states; the waiting line follows `listening`; an edited note shows both times; NoteList renders two notes with their lines and refs; adding calls `api.addNote` with `pendingRef`; removing the chip before save sends no `ref`; AttemptStrip "Note this take" opens the box with `{job, output: attempt.output.name}`; RequestPage plan save sends no notes; draft keys differ per ref; label text is "Note for the agent".
+- [ ] **Step 1: Write failing tests**: save button label follows `listening` and saving works in both states; the waiting line follows `listening`; an edited note shows both times; NoteList renders two notes with their lines and refs; adding calls `api.addNote` with `pendingRefs`; removing every chip before save sends no `refs`; AttemptStrip "Note this take" adds `{item, job, output: attempt.output.name}` to the box's refs; header item picker adds item-only refs; `answeredNow` returns exactly the notes that flipped and the page toasts once per note; RequestPage plan save sends no notes; draft keys differ per ref; label text is "Note for the agent".
 
 - [ ] **Step 2: Run** `cd ui && npx vitest run src/lib/request src/lib/pages` — expect FAIL.
 
@@ -295,8 +319,8 @@ def test_gallery_metadata_lists_linked_jobs_including_reuse(client): ...  # seco
 
 **Interfaces:**
 - Consumes: Task 6's `NoteList`, `NoteRef`, `api.getRequest`.
-- Job page: when the job has `request` and `item`, load the request (JobHeader already does; share that read) and render `NoteList` with `filter = note.ref?.job === job.id` and `pendingRef = {job: job.id}`; "Note this file" on an output sets `pendingRef = {job, output: name}`. Nothing renders for an unlinked job.
-- Gallery detail: with one `linked_jobs` entry, `NoteList` with `filter = ref.output === file.name` and `pendingRef = {job, output: file.name}`; with several, a take picker ("take {attempt} of item {item}") chooses the entry first; hidden when `linked_jobs` is empty.
+- Job page: when the job has `request` and `item`, load the request (JobHeader already does; share that read) and render `NoteList` with `filter = note.refs.some(r => r.job === job.id)` and `pendingRefs = [{item, job: job.id}]`; "Note this file" on an output replaces it with `[{item, job, output: name}]`. Nothing renders for an unlinked job.
+- Gallery detail: with one `linked_jobs` entry, `NoteList` with `filter = refs.some(r => r.output === file.name)` and `pendingRefs = [{item, job, output: file.name}]`; with several, a take picker ("take {attempt} of item {item}") chooses the entry first; hidden when `linked_jobs` is empty.
 
 - [ ] **Step 1: Write failing tests**: unlinked job shows no panel; linked job shows only its notes and adds with `{job}`; "Note this file" adds with `{job, output}`; gallery with no linked job shows nothing; with two linked jobs shows the picker and posts the chosen job.
 
