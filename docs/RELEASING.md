@@ -67,7 +67,7 @@ GitHub generates notes from commits at tag time. The sections below are the hand
   exactly what it quoted, and a changed plan or a quote well off the one
   you were given means a new hold, not a run. Nothing on the server starts
   a job at the deadline: the notes channel tells the open session with a new
-  `review_due` event (`stale` when the deadline passed before the session
+  `review_due` event (`stale` when the hold was set before the session
   connected). With no session listening, which needs Claude Code started
   with the development-channels flag, nothing runs and the items wait for you.
 - The `script-to-video` skill's request reference says when to hold and how
