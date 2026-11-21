@@ -192,7 +192,9 @@ fails it makes no job. The worker repeats the pipeline, `pre_load_modules`,
 dotted-type and `constant:` checks over the same expansion before it releases
 the previous workflow's models (`workflow_run.require_trusted_pipelines`), so
 a refused job leaves them loaded. That check reads keys only: it loads no
-asset, clip or URL, and with `--trust-workflows` it does nothing. Every
+asset, clip or URL, and with `--trust-workflows` it does nothing. It covers
+the top-level steps; a sub-workflow's steps are refused by validate at
+submit and by the loader when they load. Every
 bundled workflow loads untrusted: `tests/test_workflow_trust.py` sweeps the
 catalog, and `tests/test_catalog_structure.py` refuses a catalog entry that
 sets `trust_remote_code` or `custom_pipeline`. `--trust-workflows` lifts all
