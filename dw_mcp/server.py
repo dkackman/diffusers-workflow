@@ -252,20 +252,22 @@ CHANNEL_NOTIFICATION = "notifications/claude/channel"
 
 NOTES_INSTRUCTIONS = (
     'Events from this channel (<channel source="dw-notes" ...>) are notes '
-    "the user saved on a dw request, or on one of its items, in the dw web "
-    "UI. A note is the user's own instruction for that request or item. "
-    '`kind="note"` is one saved just now: act on it. '
+    "the user saved on a dw request or item in the web UI; a note is "
+    "their own instruction. "
+    '`kind="note"` was saved just now: act on it. '
     '`kind="notes_waiting"` lists notes saved before this session '
-    "connected: say what is waiting and confirm before spending GPU time on "
-    "them. `review_due`: run its items (stale: ask).\n"
+    "connected: say what is waiting and confirm before spending GPU time. "
+    '`kind="review_due"` means a hold on planned items reached its '
+    "deadline with no note from the user: run the named items under the "
+    'usual cost gate, but `stale="1"` means the hold was set before this '
+    "session, so confirm with them first.\n"
     "\n"
-    "Before acting, read the current plan with the dw tools' "
-    "`get_request(request, workspace)` - the note may have been edited or "
-    "cleared since. Act through the normal dw tools under their usual cost "
-    "gate, then record what you did in the `why` of `set_request`. That "
-    "write is the answer: the user is watching the request page and sees "
-    "nothing typed in this session, so do not reply here instead of updating "
-    "the plan. This channel is one-way and has no tools of its own."
+    "Before acting, read the plan with `get_request(request, workspace)`: "
+    "it may have been edited or cleared. Act through the dw tools "
+    "under their cost gate, then record what you did in the `why` of "
+    "`set_request`. That write is the answer: the user watches the request "
+    "page, not this chat. This channel is one-way, with no "
+    "tools."
 )
 
 

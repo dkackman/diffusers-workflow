@@ -669,9 +669,10 @@ def watching(client, mono):
 
 
 def test_a_due_ready_hold_is_announced_once(client, clock, mono):
-    held_plan(client, 10)
+    write(client)
     client.now = moment(0)
     watch = watching(client, mono)
+    held_plan(client, 10)
     client.now = moment(11)
     mono.t += 11 * 60
 
@@ -692,7 +693,7 @@ def test_a_due_ready_hold_is_announced_once(client, clock, mono):
         "kind": "review_due",
         "workspace": WORKSPACE,
         "request": "lighthouse",
-        "revision": "1",
+        "revision": "2",
         "items": "shot1",
         "until": "2026-11-20T14:10:00+00:00",
     }
@@ -717,18 +718,20 @@ def test_a_line_without_an_estimate_has_no_bracket():
 
 
 def test_nothing_is_announced_while_holding(client, clock, mono):
-    held_plan(client, 10)
+    write(client)
     client.now = moment(0)
     watch = watching(client, mono)
+    held_plan(client, 10)
     client.now = moment(5)
     mono.t += 5 * 60
     assert watch.poll(client) == []
 
 
 def test_a_redirected_hold_is_not_announced(client, clock, mono):
-    held_plan(client, 10)
+    write(client)
     client.now = moment(0)
     watch = watching(client, mono)
+    held_plan(client, 10)
     clock.tick(3)
     note(client, "warmer first", "shot1")
     client.now = moment(11)
@@ -740,9 +743,12 @@ def test_a_redirected_hold_is_not_announced(client, clock, mono):
 def test_a_deadline_passing_rereads_a_request_whose_stamp_did_not_move(
     client, clock, mono
 ):
-    held_plan(client, 10)
+    write(client)
     client.now = moment(0)
     watch = watching(client, mono)
+    held_plan(client, 10)
+    assert watch.poll(client) == []  # reads the new hold, still counting down
+    client.calls.clear()
     assert watch.poll(client) == []
     assert client.reads() == []  # unchanged and not yet due: the list only
     client.now = moment(10)
@@ -766,14 +772,15 @@ def test_due_but_not_ready_says_nothing_until_it_is(client, clock, mono):
 
 
 def test_a_new_review_until_is_announced_again(client, clock, mono):
-    held_plan(client, 10)
+    write(client)
     client.now = moment(0)
     watch = watching(client, mono)
+    held_plan(client, 10)
     client.now = moment(11)
     mono.t += 11 * 60
     assert len(watch.poll(client)) == 1
     clock.minute = 12
-    held_plan(client, 20)
+    held_plan(client, 20)  # a later hold on the same item
     client.now = moment(13)
     assert watch.poll(client) == []
     client.now = moment(21)
@@ -789,8 +796,8 @@ def test_the_first_poll_sends_a_stale_event_after_the_digest(client, clock, mono
     digest, event = ledger.NoteWatch(clock=mono).poll(client)
     assert digest["meta"]["kind"] == "notes_waiting"
     assert event["content"].startswith(
-        'Review time passed on request "lighthouse" before this session '
-        "connected. Held items:\n\n- shot1: Shot shot1 (about 2.5 min)\n\n"
+        'Review time is up on request "lighthouse", on a hold set before this '
+        "session connected. Held items:\n\n- shot1: Shot shot1 (about 2.5 min)\n\n"
     )
     assert event["content"].endswith(
         "These holds were set before this session, so the user's go-ahead may "
@@ -841,3 +848,86 @@ def test_a_closed_request_drops_its_hold_bookkeeping(client, clock, mono):
     assert "lighthouse" not in watch._due_at
     assert "lighthouse" not in watch._due_told
     assert "lighthouse" not in watch._stamps
+
+
+def test_a_hold_due_at_connect_but_blocked_is_stale_when_it_becomes_ready(
+    client, clock, mono
+):
+    held_plan(client, 10)
+    client.jobs = [{"job": "j", "item": "shot1", "status": "running"}]
+    client.now = moment(20)
+    watch = ledger.NoteWatch(clock=mono)
+    assert watch.poll(client) == []
+    client.jobs = []
+    (event,) = watch.poll(client)
+    assert event["meta"]["stale"] == "1"
+    assert event["content"].startswith(
+        'Review time is up on request "lighthouse", on a hold set before this '
+        "session connected. Held items:"
+    )
+
+
+def test_a_request_whose_first_read_failed_is_stale_when_it_later_reads(
+    client, clock, mono
+):
+    held_plan(client, 10)
+    client.now = moment(20)
+    client.fail["/requests/lighthouse"] = DwApiError("boom", status_code=500)
+    watch = ledger.NoteWatch(clock=mono)
+    assert watch.poll(client) == []
+    client.fail.clear()
+    (event,) = watch.poll(client)
+    assert event["meta"]["stale"] == "1"
+
+
+def test_a_hold_still_counting_down_at_connect_is_stale_when_due(client, clock, mono):
+    held_plan(client, 10)
+    client.now = moment(0)
+    watch = watching(client, mono)
+    client.now = moment(11)
+    mono.t += 11 * 60
+    (event,) = watch.poll(client)
+    assert event["meta"]["stale"] == "1"
+
+
+def test_a_hold_set_after_the_first_read_is_fresh_even_on_a_new_revision(
+    client, clock, mono
+):
+    held_plan(client, 10)
+    client.now = moment(0)
+    watch = watching(client, mono)
+    clock.minute = 1
+    held_plan(client, 30)  # same item, a new review_until
+    client.now = moment(31)
+    mono.t += 31 * 60
+    (event,) = watch.poll(client)
+    assert event["meta"]["until"] == "2026-11-20T14:30:00+00:00"
+    assert "stale" not in event["meta"]
+
+
+def test_one_request_splits_into_a_stale_and_a_fresh_event(client, clock, mono):
+    write(client)
+    stored = store._load(client.root)["lighthouse"]
+    plan = [
+        {
+            "key": key,
+            "title": f"Shot {key}",
+            "depends_on": [],
+            "workflow": "txt2img",
+            "review_until": "2026-11-20T14:10:00+00:00",
+        }
+        for key in ("shot1",)
+    ] + [
+        {"key": "shot2", "title": "Shot shot2", "depends_on": [], "workflow": "txt2img"}
+    ]
+    write(client, items=plan, revision=stored["revision"])
+    client.now = moment(0)
+    watch = watching(client, mono)
+    stored = store._load(client.root)["lighthouse"]
+    plan[1]["review_until"] = "2026-11-20T14:12:00+00:00"
+    write(client, items=plan, revision=stored["revision"])
+    client.now = moment(13)
+    mono.t += 13 * 60
+    stale, fresh = watch.poll(client)
+    assert stale["meta"]["items"] == "shot1" and stale["meta"]["stale"] == "1"
+    assert fresh["meta"]["items"] == "shot2" and "stale" not in fresh["meta"]

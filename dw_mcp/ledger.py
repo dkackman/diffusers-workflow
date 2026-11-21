@@ -342,13 +342,13 @@ def due_reviews(request):
 def review_event(due, workspace, stale=False):
     """The channel event for one request's due items (`due_reviews`). Fresh,
     it tells the agent to run what is still ready under the cost it quoted;
-    `stale` (the hold ran out before this session connected) tells it to
+    `stale` (the hold was set before this session connected) tells it to
     confirm with the user first. `meta` values are strings."""
     request = due[0]["request"]
     if stale:
         head = (
-            f'Review time passed on request "{request}" before this session '
-            "connected. Held items:"
+            f'Review time is up on request "{request}", on a hold set before '
+            "this session connected. Held items:"
         )
         tail = (
             "These holds were set before this session, so the user's go-ahead "
@@ -420,11 +420,12 @@ class NoteWatch:
     count of ready items) moved since it was last read, or whose earliest
     hold has run out on the monotonic `clock` since (a deadline passing
     changes nothing the list shows). The first poll that reaches the server
-    answers with one digest of every note waiting, then one stale review
-    event per request with due items; after it, each note is announced once,
+    answers with one digest of every note waiting; after it, each note is announced once,
     keyed by its note id and `at` (an edited note is announced again, one
     the agent has written after never is), and each due item once per
-    `(item, review_until)`, after the notes of the same poll.
+    `(item, review_until)`, after the notes of the same poll. A due hold is
+    stale when it was already on the item the first time this watch read that
+    request, fresh when it was set on a later read.
     """
 
     def __init__(self, workspace=None, clock=time.monotonic):
@@ -436,6 +437,7 @@ class NoteWatch:
         self._announced = {}  # request id -> {(note id, at)} still waiting
         self._due_at = {}  # request id -> clock moment its earliest hold runs out
         self._due_told = {}  # request id -> {(item, review_until)} announced
+        self._inherited = {}  # request id -> {(item, review_until)} held at first read
 
     def _read_due(self, request_id, stamp):
         """Whether `request_id` must be read again: its stamp moved, or its
@@ -473,12 +475,22 @@ class NoteWatch:
             told = self._announced.get(request_id, ())
             fresh += [n for n in waiting if (n["note"], n["at"]) not in told]
             self._announced[request_id] = {(n["note"], n["at"]) for n in waiting}
+            if request_id not in self._inherited:
+                self._inherited[request_id] = {
+                    (item.get("key"), item["review_until"])
+                    for item in request.get("items") or []
+                    if not item.get("dropped") and item.get("review_until")
+                }
+            inherited = self._inherited[request_id]
             due = due_reviews(request)
             seen = self._due_told.setdefault(request_id, set())
             new = [d for d in due if (d["item"], d["until"]) not in seen]
             seen.update((d["item"], d["until"]) for d in new)
-            if new:
-                reviews.append(new)
+            old = [d for d in new if (d["item"], d["until"]) in inherited]
+            if old:
+                reviews.append((old, True))
+            if len(old) < len(new):
+                reviews.append(([d for d in new if d not in old], False))
             left = _holding_left(request)
             if left is None:
                 self._due_at.pop(request_id, None)
@@ -490,10 +502,10 @@ class NoteWatch:
             del self._announced[request_id]
             self._due_at.pop(request_id, None)
             self._due_told.pop(request_id, None)
+            self._inherited.pop(request_id, None)
         started, self._started = self._started, True
         if not started:
             events = [waiting_event(fresh, name)] if fresh else []
-            return events + [review_event(d, name, stale=True) for d in reviews]
-        return [note_event(note, name) for note in fresh] + [
-            review_event(d, name) for d in reviews
-        ]
+        else:
+            events = [note_event(note, name) for note in fresh]
+        return events + [review_event(d, name, stale=s) for d, s in reviews]
