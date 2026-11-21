@@ -53,8 +53,9 @@
   })
 
   // The agent wrote after one of the user's waiting notes: said once per
-  // note while the page is open, never for one answered before it opened
-  const toldOf: Record<string, true> = {}
+  // note while the page is open, never for one answered before it opened.
+  // Note ids restart per request, so a switch forgets them (the effect below)
+  let toldOf: Record<string, true> = {}
   function told(next: LedgerRequest, id: string) {
     if (toldOf[id]) return
     toldOf[id] = true
@@ -101,7 +102,10 @@
   $effect(() => {
     void ws
     void requestId
-    untrack(() => store.reset())
+    untrack(() => {
+      store.reset()
+      toldOf = {}
+    })
     missing = false
     error = null
     stale = null

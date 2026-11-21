@@ -500,6 +500,41 @@ it('says once when the agent answers a waiting note, and the toast goes to it', 
   ).toBe('true')
 })
 
+it('tells again for the same note id on another request, and never on its first read', async () => {
+  fakeInterval()
+  const { notify } = await import('../toast')
+  const answerOf = (r: LedgerRequest, rev: number, what: string) => {
+    const a = structuredClone(r)
+    a.revision = rev
+    a.history.push(entry(rev, 'agent', what))
+    a.agent_wrote_at = '2026-01-05T00:00:00+00:00'
+    return a
+  }
+  const first = noted('b', 'more red', 3)
+  data.request = first
+  const view = render(RequestPage, { requestId: 'r1' })
+  await loaded()
+  data.request = answerOf(first, 4, 'retook b')
+  vi.advanceTimersByTime(IDLE_MS)
+  await atRevision(4)
+  await waitFor(() => expect(notify.news).toHaveBeenCalledTimes(1))
+  // another request, whose first note has the same id, already waiting
+  const second = {
+    ...noted('b', 'more blue', 3),
+    id: 'r2',
+    title: 'Second ask',
+  }
+  data.request = second
+  await view.rerender({ requestId: 'r2' })
+  await screen.findByText('Second ask')
+  expect(notify.news).toHaveBeenCalledTimes(1)
+  // the agent answers it: told, though n1 was told for r1
+  data.request = answerOf(second, 4, 'retook b in blue')
+  vi.advanceTimersByTime(IDLE_MS)
+  await atRevision(4)
+  await waitFor(() => expect(notify.news).toHaveBeenCalledTimes(2))
+})
+
 it('a save that fails for the network says so, and keeps the draft', async () => {
   const { notify } = await import('../toast')
   data.addNote.mockRejectedValue(new TypeError('Failed to fetch'))
