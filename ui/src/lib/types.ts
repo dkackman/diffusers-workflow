@@ -87,7 +87,10 @@ export type LedgerDeleted = Schemas['LedgerDeleted']
 export type LedgerItem = Schemas['LedgerItem']
 export type LedgerAttempt = Schemas['LedgerAttempt']
 export type LedgerOutput = Schemas['LedgerOutput']
-export type LedgerComment = Schemas['LedgerComment']
+export type LedgerNote = Schemas['LedgerNote']
+export type LedgerNoteRef = Schemas['LedgerNoteRef']
+/** Task 6 migrates the components still saying `comment` to `LedgerNote` */
+export type LedgerComment = LedgerNote
 export type LedgerHistoryEntry = Schemas['LedgerHistoryEntry']
 export type LedgerItemStatus = LedgerItem['status']
 export type PipelineParameter = Schemas['PipelineParameter']

@@ -119,30 +119,27 @@ def _instant(at):
     return when if when.tzinfo else when.replace(tzinfo=timezone.utc)
 
 
-def note_waiting(comment, request):
-    """Whether a note still waits on the agent: saved on an open request,
-    with no agent write after it. The UI's `noteWaiting`
-    (ui/src/lib/request/noteState.ts) is the same rule;
-    tests/fixtures/note_waiting_cases.json holds the two equal."""
-    if not comment or request.get("state") != "open":
+def note_waiting(note, request):
+    """Whether a note still waits on the agent: on an open request, saved
+    after the agent's last write (`agent_wrote_at`; none yet leaves it
+    waiting). The ledger stamps whole seconds, so a note saved in the same
+    second as the write still waits: better announced twice than missed. The UI's `noteWaiting` (ui/src/lib/request/noteState.ts) is
+    the same rule; tests/fixtures/note_waiting_cases.json holds the two
+    equal."""
+    if not note or request.get("state") != "open":
         return False
-    saved = _instant(comment.get("at"))
-    if saved is None:
+    saved = _instant(note.get("at"))
+    wrote = _instant(request.get("agent_wrote_at"))
+    if saved is None or wrote is None:
         return True
-    for entry in request.get("history") or []:
-        if entry.get("by") != "agent":
-            continue
-        written = _instant(entry.get("at"))
-        if written is not None and written > saved:
-            return False
-    return True
+    return saved >= wrote
 
 
 def waiting_notes(request):
     """The notes of one request that wait on the agent: the request's own,
-    then each live item's in plan order, as `{request, revision, item, note,
-    title, text, at}`. `item` is "" for the request's own notes; `note` is the
-    note's id."""
+    then each live item's in plan order (notes in stored order), as `{request,
+    revision, item, title, note, text, at, ref}`. `item` is "" for the
+    request's own notes; `note` is the note's id."""
     targets = [("", request.get("title"), request.get("notes"))]
     targets += [
         (item.get("key"), item.get("title"), item.get("notes"))
@@ -158,6 +155,7 @@ def waiting_notes(request):
             "title": title,
             "text": note.get("text") or "",
             "at": note.get("at"),
+            "ref": note.get("ref"),
         }
         for key, title, notes in targets
         for note in notes or []

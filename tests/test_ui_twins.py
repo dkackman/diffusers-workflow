@@ -316,35 +316,13 @@ NOTE_WAITING_CASES = json.loads(
 )
 
 
-def _as_notes(request):
-    """The fixture's `comment {text, at}` as the ledger now stores it: a
-    one-note `notes` list with an id and `created` (the UI twin still reads
-    the fixture's `comment`)."""
-    seen = 0
-    out = {**request}
-    for owner in (out, *out["items"]):
-        comment = owner.pop("comment", None)
-        owner["notes"] = []
-        if comment:
-            seen += 1
-            owner["notes"].append(
-                {
-                    "id": f"n{seen}",
-                    "text": comment["text"],
-                    "created": comment["at"],
-                    "at": comment["at"],
-                }
-            )
-    return out
-
-
 @pytest.mark.parametrize("case", NOTE_WAITING_CASES, ids=lambda c: c["name"])
 def test_the_notes_channel_decides_each_shared_waiting_note_case(case):
     """`noteWaiting` in ui/src/lib/request/noteState.ts runs the same cases
     (noteState.test.ts): the page and the channel agree on which notes wait."""
-    assert [
-        n["item"] for n in waiting_notes(_as_notes(copy.deepcopy(case["request"])))
-    ] == case["waiting"]
+    assert [n["note"] for n in waiting_notes(copy.deepcopy(case["request"]))] == case[
+        "waiting"
+    ]
 
 
 def test_the_ui_test_reads_the_shared_waiting_note_cases():
