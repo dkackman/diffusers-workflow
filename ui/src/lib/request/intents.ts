@@ -3,8 +3,8 @@
 // An intent is applied to whatever the server last said, so the same edit
 // can be made again over a plan the agent has rewritten since, or be
 // refused by name when it no longer means anything.
-import type { RequestWriteBody } from '../apiRequest'
-import type { LedgerComment, LedgerItem, LedgerRequest } from '../types'
+import type { RequestWriteBody, WrittenItem } from '../apiRequest'
+import type { LedgerItem, LedgerRequest } from '../types'
 import { placeBefore } from './reorderMath'
 
 /** What a drop remembers so that undoing it puts everything back */
@@ -25,8 +25,6 @@ export type Intent =
   | { kind: 'restore'; key: string; memory?: DropMemory }
   /** Put `key` before `before`, or last among the live items */
   | { kind: 'move'; key: string; before: string | null }
-  /** The note on an item, or with a null key on the request itself */
-  | { kind: 'note'; key: string | null; text: string | null }
   | { kind: 'state'; state: LedgerRequest['state'] }
 
 export type Refusal =
@@ -245,35 +243,6 @@ function move(
   }
 }
 
-const sameNote = (comment: LedgerComment | null, text: string | null) =>
-  (comment?.text ?? null) === text
-
-/** The body takes `{text}`; the server stamps the time */
-const noteOf = (text: string | null) =>
-  text === null ? null : ({ text } as LedgerComment)
-
-function note(
-  request: LedgerRequest,
-  { key, text }: { key: string | null; text: string | null },
-): Change | Refused {
-  if (key === null) {
-    if (sameNote(request.comment, text)) return no('no_change')
-    return {
-      request: { ...request, comment: noteOf(text) },
-      why: 'comment on the request',
-      stripped: [],
-    }
-  }
-  const item = liveItem(request, key)
-  if (isRefused(item)) return item
-  if (sameNote(item.comment, text)) return no('no_change')
-  return {
-    request: replace(request, { ...item, comment: noteOf(text) }),
-    why: why(`comment on ${key}`),
-    stripped: [],
-  }
-}
-
 const STATE_WHY: Record<LedgerRequest['state'], string> = {
   done: 'marked done',
   open: 'reopened',
@@ -307,17 +276,23 @@ export function project(
       return restore(request, intent)
     case 'move':
       return move(request, intent)
-    case 'note':
-      return note(request, intent)
     case 'state':
       return setState(request, intent.state)
   }
 }
 
+/** An item as a write sends it: notes are the request-notes routes' to
+ * write, and the server keeps the stored ones whatever a plan says */
+function written(item: LedgerItem): WrittenItem {
+  const copy: Partial<LedgerItem> = { ...item }
+  delete copy.notes
+  return copy as WrittenItem
+}
+
 /** The write that makes `intent` so over `request` as last read - the
  * whole plan back at the revision read, one thing changed - or the name of
- * the reason it cannot be made. Never `id`, `history` or a total: the
- * server refuses a field it does not know. */
+ * the reason it cannot be made. Never `id`, `history`, a total or a note:
+ * the server refuses a field it does not know. */
 export function apply(
   intent: Intent,
   request: LedgerRequest,
@@ -325,7 +300,6 @@ export function apply(
   const change = project(intent, request)
   if (isRefused(change)) return change
   const next = change.request
-  const own = intent.kind === 'note' && intent.key === null
   return {
     body: {
       title: next.title,
@@ -333,10 +307,7 @@ export function apply(
       state: next.state,
       revision: request.revision,
       why: change.why,
-      ...(own
-        ? { comment: intent.text === null ? null : { text: intent.text } }
-        : {}),
-      items: next.items,
+      items: next.items.map(written),
     },
     stripped: change.stripped,
   }
@@ -344,12 +315,12 @@ export function apply(
 
 /** What the page shows while writes are still out: the intents in order
  * over the last read. One that no longer applies is passed over - its own
- * write will say so. A note and a change of state are not shown before the
- * server has them. */
+ * write will say so. A change of state is not shown before the server has
+ * it. */
 export function fold(request: LedgerRequest, intents: Intent[]): LedgerRequest {
   let view = request
   for (const intent of intents) {
-    if (intent.kind === 'note' || intent.kind === 'state') continue
+    if (intent.kind === 'state') continue
     const change = project(intent, view)
     if (!isRefused(change)) view = change.request
   }

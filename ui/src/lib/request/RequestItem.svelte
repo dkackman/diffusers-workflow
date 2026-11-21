@@ -7,8 +7,8 @@
     MessageSquare,
   } from '@lucide/svelte'
   import AttemptStrip from './AttemptStrip.svelte'
-  import ItemNote from './ItemNote.svelte'
   import ItemProof from './ItemProof.svelte'
+  import NoteList from './NoteList.svelte'
   import {
     activeJob,
     CHIP,
@@ -21,21 +21,20 @@
     type ItemState,
     type Take,
   } from './itemState'
-  import { draftKey } from './draft'
-  import { noteLine, noteWaiting } from './noteState'
+  import { noteWaiting } from './noteState'
+  import { addRef } from './noteRefs'
   import { displayValue } from '../editor'
   import { wsHref } from '../routes'
-  import type { LedgerRequest } from '../types'
+  import type { LedgerNoteRef, LedgerRequest } from '../types'
 
   // One item of the plan as a row: what stands for it, what it is called,
   // its state as a word, one figure - and, opened, its takes, what it waits
-  // on and what waits on it, what it would run, and the note for the agent.
+  // on and what waits on it, what it would run, and the notes for the agent.
   // The snippets are where a row's controls go; none is drawn here
   let {
     row,
     request,
     workspace,
-    onsave,
     onreload,
     ongo,
     handle,
@@ -47,10 +46,9 @@
     row: ItemState
     request: LedgerRequest
     workspace: string
-    /** Store the item's note (null clears it); rejects with the server's error */
-    onsave: (text: string | null) => Promise<void>
-    /** Read the request again, after a save found it had moved on */
-    onreload: () => void
+    /** Read the request again: a note was written, or a save found the
+     * request had moved on */
+    onreload: () => void | Promise<void>
     /** Go to another item's row: a dependency's name was pressed */
     ongo: (key: string) => void
     /** The first cell: the reorder grip */
@@ -70,7 +68,10 @@
 
   const item = $derived(row.item)
   const chip = $derived(CHIP[row.display])
-  const waitingNote = $derived(noteWaiting(item.comment, request))
+  const waitingNote = $derived(
+    item.notes.some((note) => noteWaiting(note, request)),
+  )
+  const latestNote = $derived(item.notes.at(-1) ?? null)
   // The user's own toggle wins for as long as the page holds this row
   let chosen = $state<boolean | null>(null)
   const open = $derived(chosen ?? opensByDefault(row, waitingNote))
@@ -90,12 +91,24 @@
     onaccept?.(take, job)
   }
 
-  let note = $state<ReturnType<typeof ItemNote>>()
-  /** Open the row and its note box: "Leave a note" in the menu */
+  let notes = $state<ReturnType<typeof NoteList>>()
+  // What the new note is about so far: the takes "Note this take" added
+  let pending = $state<LedgerNoteRef[]>([])
+  /** Open the row and its new note's box: "Add a note" in the menu */
   async function openNote() {
     chosen = true
     await tick()
-    void note?.edit()
+    void notes?.add()
+  }
+  /** "Note this take": the take, and its proof file, join the new note */
+  function noteTake(take: Take) {
+    const { job, output } = take.attempt
+    pending = addRef(pending, {
+      item: item.key,
+      job,
+      ...(output ? { output: output.name } : {}),
+    })
+    void openNote()
   }
 </script>
 
@@ -150,10 +163,13 @@
           {/if}
         </p>
       {/if}
-      {#if item.comment && !open}
-        <p class="sub peek" title="your note for the agent">
+      {#if latestNote && !open}
+        <p class="sub peek" title="your latest note for the agent">
           <MessageSquare size={12} aria-hidden="true" />
-          <span>{firstLine(item.comment.text)}</span>
+          <span>{firstLine(latestNote.text)}</span>
+          {#if item.notes.length > 1}
+            <span class="more-notes">+{item.notes.length - 1}</span>
+          {/if}
         </p>
       {/if}
     </div>
@@ -187,8 +203,8 @@
   </div>
   {#if notice}{@render notice(row)}{/if}
 
-  <!-- Hidden, not removed: the note's draft is in here, and closing the
-       row must not lose it -->
+  <!-- Hidden, not removed: the notes' drafts are in here, and closing the
+       row must not lose them -->
   <div class="more" id={moreId} hidden={!open}>
     {#if open && item.attempts.length}
       <AttemptStrip
@@ -196,6 +212,7 @@
         {workspace}
         requestId={request.id}
         onaccept={item.dropped || !onaccept ? undefined : accept}
+        onnote={item.dropped ? undefined : noteTake}
       />
     {/if}
     {#if row.after.length}
@@ -219,15 +236,16 @@
     {:else if item.workflow}
       <p class="sub">Runs <code>{item.workflow}</code> with no arguments</p>
     {/if}
-    <ItemNote
-      bind:this={note}
-      draftKey={draftKey(workspace, request.id, item.key)}
-      comment={item.comment}
+    <NoteList
+      bind:this={notes}
+      bind:pendingRefs={pending}
+      notes={item.notes}
+      {request}
+      item={item.key}
+      {workspace}
       about={item.title}
-      line={item.comment ? noteLine(item.comment, request) : null}
-      editable={!item.dropped}
-      {onsave}
-      {onreload}
+      {ongo}
+      onchanged={onreload}
     />
   </div>
 </li>
@@ -366,6 +384,10 @@
     gap: var(--space-1);
     color: var(--muted);
     min-width: 0;
+  }
+  .peek .more-notes {
+    flex: none;
+    overflow: visible;
   }
   .peek span {
     overflow: hidden;

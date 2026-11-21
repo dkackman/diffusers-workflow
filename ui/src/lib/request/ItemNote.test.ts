@@ -21,47 +21,92 @@ afterEach(cleanup)
 
 const AT = '2026-01-02T03:04:05+00:00'
 const props = (saved: string | null = null, over = {}) => ({
-  comment: saved ? { text: saved, at: AT } : null,
+  note: saved ? { id: 'n1', text: saved, created: AT, at: AT } : null,
   about: 'Shot 3',
   line: saved ? { text: 'Saved then.', answered: false } : null,
   onsave: vi.fn(),
+  ondelete: vi.fn(),
   onreload: vi.fn(),
   ...over,
 })
-const box = () =>
-  screen.getByLabelText('Note for the agent on Shot 3') as HTMLTextAreaElement
+const LABEL = /^(Edit your note|Note) for the agent on Shot 3$/
+const box = () => screen.getByLabelText(LABEL) as HTMLTextAreaElement
 const noBox = () =>
-  waitFor(() =>
-    expect(screen.queryByLabelText('Note for the agent on Shot 3')).toBeNull(),
-  )
+  waitFor(() => expect(screen.queryByLabelText(LABEL)).toBeNull())
 
 async function draft(text: string, saved: string | null = null) {
   const given = props(saved)
   render(ItemNote, given)
   await fireEvent.click(
     screen.getByRole('button', {
-      name: saved ? 'Edit note' : 'Leave a note for the agent',
+      name: saved ? 'Edit note' : 'Add a note for the agent',
     }),
   )
   await fireEvent.input(box(), { target: { value: text } })
   return given
 }
 
-it('says before a word is written that nothing is sent to the agent', async () => {
+it('says before a word is written that no agent session is listening', async () => {
   await draft('')
-  expect(screen.getByText(/Nothing is sent to the agent/)).toBeTruthy()
+  expect(screen.getByText(/No agent session is listening/)).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'Save note' })).toBeTruthy()
   expect(box().maxLength).toBe(4000)
   await waitFor(() => expect(document.activeElement).toBe(box()))
+})
+
+it('says Send to agent while a session is listening, and saves either way', async () => {
+  const given = props(null, { listening: true })
+  given.onsave.mockResolvedValue(undefined)
+  const view = render(ItemNote, given)
+  await fireEvent.click(
+    screen.getByRole('button', { name: 'Add a note for the agent' }),
+  )
+  expect(
+    screen.getByText(
+      'An agent session is listening; it will see this within about 10 seconds.',
+    ),
+  ).toBeTruthy()
+  await fireEvent.input(box(), { target: { value: 'warmer' } })
+  await fireEvent.click(screen.getByRole('button', { name: 'Send to agent' }))
+  await noBox()
+  expect(given.onsave).toHaveBeenCalledWith('warmer')
+  // the session went away: the same box says so, and still saves
+  await view.rerender({ ...given, listening: false })
+  await fireEvent.click(
+    screen.getByRole('button', { name: 'Add a note for the agent' }),
+  )
+  await fireEvent.input(box(), { target: { value: 'cooler' } })
+  await fireEvent.click(screen.getByRole('button', { name: 'Save note' }))
+  await waitFor(() => expect(given.onsave).toHaveBeenCalledWith('cooler'))
+})
+
+it('a new note shows what it is about, and a reference comes off before it is saved', async () => {
+  const { createRawSnippet } = await import('svelte')
+  const onremoveref = vi.fn()
+  const take = { item: 's3', job: 'j2', output: 'run/s3.mp4' }
+  render(ItemNote, {
+    ...props(null, { refs: [take, { item: 's5' }], onremoveref }),
+    chip: createRawSnippet((ref: () => { item: string; job?: string }) => ({
+      render: () => `<span class="chip">${ref().job ?? ref().item}</span>`,
+    })),
+  })
+  expect(
+    [...document.querySelectorAll('.chip')].map((c) => c.textContent),
+  ).toEqual(['j2', 's5'])
+  await fireEvent.click(
+    screen.getByRole('button', { name: 'Remove run/s3.mp4' }),
+  )
+  expect(onremoveref).toHaveBeenCalledWith(take)
 })
 
 it('shows a saved note with the line about where it stands', () => {
   render(ItemNote, props('warmer, please'))
   expect(screen.getByText('warmer, please')).toBeTruthy()
   expect(screen.getByText('Saved then.')).toBeTruthy()
-  expect(screen.queryByRole('button', { name: 'Clear note' })).toBeNull()
+  expect(screen.getByRole('button', { name: 'Delete note' })).toBeTruthy()
 })
 
-it('saves the draft, and an empty one as no note', async () => {
+it('saves the draft; a saved note emptied is deleted, an empty new one not sent', async () => {
   const given = await draft('needs more red')
   given.onsave.mockResolvedValue(undefined)
   await fireEvent.click(screen.getByRole('button', { name: 'Save note' }))
@@ -69,9 +114,15 @@ it('saves the draft, and an empty one as no note', async () => {
   expect(given.onsave).toHaveBeenCalledWith('needs more red')
   cleanup()
   const cleared = await draft('   ', 'old words')
-  cleared.onsave.mockResolvedValue(undefined)
+  cleared.ondelete.mockResolvedValue(undefined)
   await fireEvent.click(screen.getByRole('button', { name: 'Save note' }))
-  await waitFor(() => expect(cleared.onsave).toHaveBeenCalledWith(null))
+  await waitFor(() => expect(cleared.ondelete).toHaveBeenCalledTimes(1))
+  expect(cleared.onsave).not.toHaveBeenCalled()
+  cleanup()
+  const empty = await draft('  ')
+  await fireEvent.click(screen.getByRole('button', { name: 'Save note' }))
+  await noBox()
+  expect(empty.onsave).not.toHaveBeenCalled()
 })
 
 it('Ctrl+Enter saves', async () => {
@@ -106,7 +157,7 @@ it('Cancel asks before discarding a draft, and keeps it when declined', async ()
   await noBox()
   // discarded: the next edit starts from what is saved
   await fireEvent.click(
-    screen.getByRole('button', { name: 'Leave a note for the agent' }),
+    screen.getByRole('button', { name: 'Add a note for the agent' }),
   )
   expect(box().value).toBe('')
 })
@@ -182,17 +233,28 @@ it('counts the characters only near the limit', async () => {
   expect(screen.getByText('3700 / 4000')).toBeTruthy()
 })
 
-it('offers to clear a note once the agent has written since', async () => {
+it('deletes an answered note at once, and asks before one still waiting', async () => {
   const given = props('warmer, please', {
     line: {
       text: 'The agent has updated the plan once since.',
       answered: true,
     },
   })
-  given.onsave.mockResolvedValue(undefined)
+  given.ondelete.mockResolvedValue(undefined)
   render(ItemNote, given)
-  await fireEvent.click(screen.getByRole('button', { name: 'Clear note' }))
-  await waitFor(() => expect(given.onsave).toHaveBeenCalledWith(null))
+  await fireEvent.click(screen.getByRole('button', { name: 'Delete note' }))
+  await waitFor(() => expect(given.ondelete).toHaveBeenCalledTimes(1))
+  expect(confirmDialog).not.toHaveBeenCalled()
+  cleanup()
+  const waiting = props('warmer, please')
+  render(ItemNote, waiting)
+  confirmDialog.mockResolvedValue(false)
+  await fireEvent.click(screen.getByRole('button', { name: 'Delete note' }))
+  await waitFor(() => expect(confirmDialog).toHaveBeenCalledTimes(1))
+  expect(waiting.ondelete).not.toHaveBeenCalled()
+  confirmDialog.mockResolvedValue(true)
+  await fireEvent.click(screen.getByRole('button', { name: 'Delete note' }))
+  await waitFor(() => expect(waiting.ondelete).toHaveBeenCalledTimes(1))
 })
 
 it('shows a note it cannot edit, and nothing where there is none to show', () => {
@@ -209,7 +271,7 @@ it('keeps an unsaved draft for the tab, so a reload does not lose it', async () 
   const given = props(null, { draftKey })
   const first = render(ItemNote, given)
   await fireEvent.click(
-    screen.getByRole('button', { name: 'Leave a note for the agent' }),
+    screen.getByRole('button', { name: 'Add a note for the agent' }),
   )
   await fireEvent.input(box(), { target: { value: 'half a thought' } })
   await waitFor(() =>
@@ -235,4 +297,26 @@ it('a kept draft that is already what was saved is not offered again', () => {
   sessionStorage.setItem(draftKey, 'the same')
   render(ItemNote, props('the same', { draftKey }))
   expect(screen.queryByText('You have an unsaved draft.')).toBeNull()
+})
+
+it('a draft moves with its key and leaves nothing under the old one', async () => {
+  const given = props(null, { draftKey: 'k-one' })
+  const view = render(ItemNote, given)
+  await fireEvent.click(
+    screen.getByRole('button', { name: 'Add a note for the agent' }),
+  )
+  await fireEvent.input(box(), { target: { value: 'half' } })
+  await waitFor(() => expect(sessionStorage.getItem('k-one')).toBe('half'))
+  await view.rerender({ ...given, draftKey: 'k-two' })
+  await waitFor(() => expect(sessionStorage.getItem('k-two')).toBe('half'))
+  expect(sessionStorage.getItem('k-one')).toBeNull()
+})
+
+it('asked to open again while open, keeps what is in the box', async () => {
+  const view = render(ItemNote, props())
+  const note = view.component as unknown as { edit: () => Promise<void> }
+  await note.edit()
+  await fireEvent.input(box(), { target: { value: 'half' } })
+  await note.edit()
+  expect(box().value).toBe('half')
 })

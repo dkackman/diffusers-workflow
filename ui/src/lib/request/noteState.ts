@@ -25,7 +25,7 @@ type StandingWithHistory = Standing & Pick<LedgerRequest, 'history'>
  * same second does not count: the ledger stamps whole seconds, so the note
  * still waits). An unparseable
  * time on either side leaves the note unanswered. */
-function answeredBy(note: LedgerNote, request: Standing): boolean {
+export function noteAnswered(note: LedgerNote, request: Standing): boolean {
   if (!request.agent_wrote_at) return false
   const saved = Date.parse(note.at)
   const wrote = Date.parse(request.agent_wrote_at)
@@ -41,7 +41,7 @@ export function noteWaiting(
   request: Standing,
 ): boolean {
   if (!note || request.state !== 'open') return false
-  return !answeredBy(note, request)
+  return !noteAnswered(note, request)
 }
 
 export type NoteLine = {
@@ -51,14 +51,32 @@ export type NoteLine = {
   answered: boolean
 }
 
-/** The line under a saved note. */
+/** What a waiting note, and the box a note is written in, say of when the
+ * agent sees it: whether an agent session's notes channel is polling the
+ * workspace (listening.svelte.ts) */
+export const LISTENING_LINE =
+  'An agent session is listening; it will see this within about 10 seconds.'
+export const NOT_LISTENING_LINE =
+  'No agent session is listening. It reads this the next time it updates the plan.'
+
+/** Where a note is on the request page, for a link to it */
+export const noteAnchor = (id: string) => `request-note-${id}`
+
+/** The line under a saved note: when it was saved (and edited), then
+ * where it stands. `listening` is whether an agent session will hear a
+ * waiting note now. */
 export function noteLine(
   note: LedgerNote,
   request: StandingWithHistory,
   now: Date = new Date(),
+  listening = false,
 ): NoteLine {
-  const answered = answeredBy(note, request)
-  const saved = `Saved ${formatMtime(seconds(note.at), now)}.`
+  const answered = noteAnswered(note, request)
+  const edited =
+    note.created !== note.at
+      ? ` · edited ${formatMtime(seconds(note.at), now)}`
+      : ''
+  const saved = `Saved ${formatMtime(seconds(note.created), now)}${edited}.`
   if (request.state !== 'open')
     return {
       text: `${saved} This request is closed. The agent may not return to it.`,
@@ -66,7 +84,7 @@ export function noteLine(
     }
   if (!answered)
     return {
-      text: `${saved} Nothing is sent to the agent. It reads this the next time it updates the plan.`,
+      text: `${saved} ${listening ? LISTENING_LINE : NOT_LISTENING_LINE}`,
       answered,
     }
   const since = agentWritesSince(note, request.history)

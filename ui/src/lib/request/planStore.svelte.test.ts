@@ -136,16 +136,27 @@ it('the agent writing between the read and the write: a move is made again on to
   expect(store.conflicts).toHaveLength(0)
 })
 
-it('a note is made again on top of an agent write, whatever happened to the item', async () => {
+it('a move is made again on top of an agent write, whatever happened to the item', async () => {
   const { ledger, store } = setup()
   ledger.agent('retitled', (items) =>
     items.map((i) => (i.key === 'b' ? { ...i, title: 'New name' } : i)),
   )
-  const outcome = await store.push({ kind: 'note', key: 'b', text: 'warmer' })
+  const outcome = await store.push({ kind: 'move', key: 'b', before: null })
   expect(outcome.status).toBe('saved')
-  const b = ledger.current.items.find((i) => i.key === 'b')
-  expect(b?.comment?.text).toBe('warmer')
-  expect(b?.title).toBe('New name')
+  expect(ledger.current.items.filter((i) => !i.dropped).at(-1)).toMatchObject({
+    key: 'b',
+    title: 'New name',
+  })
+})
+
+it('a plan write keeps the notes stored, whatever the page held', async () => {
+  const { ledger, store } = setup()
+  const note = { id: 'n1', text: 'warmer', created: 't', at: 't' }
+  await ledger.addNote({ request: 'r1', item: 'b', text: 'warmer' })
+  ledger.current.items[1].notes = [note]
+  await store.push({ kind: 'move', key: 'b', before: 'a' })
+  expect(ledger.puts.at(-1)?.items.some((i) => 'notes' in i)).toBe(false)
+  expect(ledger.current.items.find((i) => i.key === 'b')?.notes).toEqual([note])
 })
 
 it('a drop of an item the agent changed is not written: the page asks', async () => {
@@ -243,7 +254,7 @@ it('an edit that no longer applies is not written, and says which and why', asyn
   ledger.agent('merged into shot 2', (items) =>
     items.filter((i) => i.key !== 'd'),
   )
-  const outcome = await store.push({ kind: 'note', key: 'd', text: 'my words' })
+  const outcome = await store.push({ kind: 'move', key: 'd', before: 'a' })
   expect(outcome.status).toBe('gone')
   expect(ledger.puts).toHaveLength(1)
   expect(store.conflicts[0]).toMatchObject({
@@ -251,7 +262,7 @@ it('an edit that no longer applies is not written, and says which and why', asyn
     refusal: 'item_gone',
     key: 'd',
     title: 'Item d',
-    intent: { kind: 'note', text: 'my words' },
+    intent: { kind: 'move', key: 'd' },
     entry: { revision: 4, why: 'merged into shot 2' },
   })
   // an accept of a take the agent's rewrite no longer lists

@@ -107,24 +107,3 @@ it('an edit that no longer applies says what was not done and why', () => {
   expect(screen.queryByRole('button', { name: /anyway/ })).toBeNull()
   expect(screen.getByRole('button', { name: 'Dismiss' })).toBeTruthy()
 })
-
-it('keeps the words of a note that could not be saved, to copy', async () => {
-  const writeText = vi.fn().mockResolvedValue(undefined)
-  Object.assign(navigator, { clipboard: { writeText } })
-  render(ConflictNotice, {
-    conflict: conflict({
-      kind: 'gone',
-      refusal: 'item_gone',
-      intent: { kind: 'note', key: 's3', text: 'warmer light, please' },
-    }),
-    ondismiss: vi.fn(),
-  })
-  const kept = screen.getByLabelText(
-    'Your note, which was not saved',
-  ) as HTMLTextAreaElement
-  expect(kept.value).toBe('warmer light, please')
-  expect(kept.readOnly).toBe(true)
-  await fireEvent.click(screen.getByRole('button', { name: 'Copy text' }))
-  expect(writeText).toHaveBeenCalledWith('warmer light, please')
-  expect(await screen.findByRole('button', { name: 'Copied' })).toBeTruthy()
-})

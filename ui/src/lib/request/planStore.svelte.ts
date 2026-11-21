@@ -63,7 +63,7 @@ const isStale = (error: unknown) =>
   error.code === 'stale_revision'
 const keyOf = (intent: Intent) => ('key' in intent ? intent.key : null)
 /** A drop or an accept is a decision about the item as it looked: the
- * rest (a note, a move, a restore) mean the same whatever it now holds */
+ * rest (a move, a restore) mean the same whatever it now holds */
 const decides = (intent: Intent) =>
   intent.kind === 'drop' || intent.kind === 'accept'
 

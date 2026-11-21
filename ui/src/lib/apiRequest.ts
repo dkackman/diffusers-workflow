@@ -11,6 +11,13 @@ import { getApiToken } from './token'
 import { ApiError, errorCode, errorDetail, errorPayload } from './apiErrors'
 import { scoped } from './apiUrls'
 
+/** A JSON body sent with `method` */
+export const jsonInit = (method: string, body: unknown): RequestInit => ({
+  method,
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify(body),
+})
+
 /** A request with the bearer token, scoped to the picker's workspace
  * unless `scope` is false, failing with an ApiError that carries the
  * server's detail and status. Under every JSON call and file download. */
@@ -118,19 +125,20 @@ export function isValidateRequest(
   )
 }
 
+/** An item as a plan write sends it: as read, less its notes, which only
+ * the request-notes routes write */
+export type WrittenItem = Omit<LedgerItem, 'notes'>
+
 /** A request's plan as PUT sends it: the read view's items go back as they
- * came (the server ignores their derived fields), `prompt` is left out
- * because it is write-once. */
+ * came (the server ignores their derived fields) but for their notes,
+ * `prompt` is left out because it is write-once. */
 export type RequestWriteBody = {
   title: string
   goal: string
-  items: LedgerItem[]
+  items: WrittenItem[]
   revision: number
   why: string
   state?: LedgerRequest['state']
-  /** The user's note on the whole request: left out it is kept, null
-   * clears it */
-  comment?: { text: string } | null
 }
 
 /** A cost acknowledgement bound to a plan: the `{fingerprint, minutes,

@@ -17,6 +17,8 @@ const data = vi.hoisted(() => ({
   request: null as unknown,
   getError: null as { status: number; message: string } | null,
   putRequest: vi.fn(),
+  addNote: vi.fn(),
+  notesChannel: vi.fn(),
 }))
 vi.mock('../api', async () => ({
   ApiError: (await import('../apiErrors')).ApiError,
@@ -31,10 +33,12 @@ vi.mock('../api', async () => ({
     galleryThumbnailUrl: (name: string, ws?: string) =>
       `/thumb/${name}?ws=${ws}`,
     putRequest: (...args: unknown[]) => data.putRequest(...args),
+    addNote: (...args: unknown[]) => data.addNote(...args),
+    notesChannel: (...args: unknown[]) => data.notesChannel(...args),
   },
 }))
 vi.mock('../toast', () => ({
-  notify: { error: vi.fn(), success: vi.fn(), undo: vi.fn() },
+  notify: { error: vi.fn(), success: vi.fn(), undo: vi.fn(), news: vi.fn() },
 }))
 
 const proof = { name: 'run/a.png', kind: 'image' as const }
@@ -64,8 +68,9 @@ const make = (): LedgerRequest =>
       history: [
         entry(1, 'agent', 'opened', { goal: 'First goal', state: 'open' }),
         entry(2, 'agent', 'the ask grew', { goal: 'Three finished posters' }),
-        entry(3, 'user', 'comment on a'),
+        entry(3, 'user', 'note added'),
       ],
+      agent_wrote_at: entry(2, 'agent', '').at,
     },
   )
 
@@ -75,6 +80,10 @@ beforeEach(() => {
   data.request = make()
   data.getError = null
   data.putRequest.mockReset()
+  data.addNote.mockReset()
+  data.notesChannel.mockReset()
+  data.notesChannel.mockResolvedValue({ listening: false, last_seen: null })
+  vi.clearAllMocks()
 })
 afterEach(() => {
   cleanup()
@@ -100,7 +109,7 @@ async function openNote(title: string) {
   await fireEvent.click(screen.getByRole('button', { name: title }))
   await fireEvent.click(
     within(row(title)).getByRole('button', {
-      name: 'Leave a note for the agent',
+      name: 'Add a note for the agent',
     }),
   )
   return screen.getByLabelText(
@@ -214,89 +223,86 @@ it('a segment of the progress bar goes to its row', async () => {
   )
 })
 
-it('saves a note at the read revision, changing only that item', async () => {
-  data.putRequest.mockImplementation((_ws, _id, body) =>
-    Promise.resolve({ ...make(), revision: body.revision + 1 }),
-  )
+/** The plan as read after the user's note on `key` (null: the request) */
+function noted(key: string | null, text: string, revision = 4): LedgerRequest {
+  const next = make()
+  next.revision = revision
+  const note = { id: 'n1', text, created: AT, at: AT }
+  if (key === null) next.notes = [note]
+  else
+    next.items = next.items.map((i) =>
+      i.key === key ? { ...i, notes: [note] } : i,
+    )
+  return next
+}
+const AT = '2026-01-04T00:00:00+00:00'
+
+it('saves a note through the note route, never the plan, and reads the plan again', async () => {
+  const { api } = await import('../api')
+  data.addNote.mockImplementation(async () => {
+    data.request = noted('b', 'needs more red')
+    return { revision: 4 }
+  })
   render(RequestPage, { requestId: 'r1' })
   const box = await openNote('Second poster')
   await fireEvent.input(box, { target: { value: 'needs more red' } })
+  const reads = vi.mocked(api.getRequest).mock.calls.length
   await saveNote('Second poster')
-  await waitFor(() => expect(data.putRequest).toHaveBeenCalled())
-  const [ws, id, body] = data.putRequest.mock.calls[0]
-  expect(ws).toBe('studio')
-  expect(id).toBe('r1')
-  expect(body).not.toHaveProperty('prompt')
-  // the request's own note is left out, so the server keeps it
-  expect(body).not.toHaveProperty('comment')
-  expect(body).toMatchObject({
-    title: 'Launch posters',
-    goal: 'Three finished posters',
-    revision: 3,
-    why: 'comment on b',
-    state: 'open',
-  })
-  const expected = make().items
-  expect(body.items[0]).toEqual(expected[0])
-  expect(body.items[1]).toEqual({
-    ...expected[1],
-    comment: { text: 'needs more red' },
-  })
-  expect(body.items[2]).toEqual(expected[2])
   await atRevision(4)
+  expect(data.addNote).toHaveBeenCalledWith('studio', {
+    request: 'r1',
+    item: 'b',
+    text: 'needs more red',
+  })
+  expect(data.putRequest).not.toHaveBeenCalled()
+  expect(vi.mocked(api.getRequest).mock.calls.length).toBe(reads + 1)
+  await within(row('Second poster')).findByText('needs more red')
 })
 
-it("saves the request's own note, every item as it was read", async () => {
-  data.putRequest.mockImplementation((_ws, _id, body) =>
-    Promise.resolve({
-      ...make(),
-      revision: body.revision + 1,
-      comment: { text: body.comment.text, at: '2026-01-04T00:00:00+00:00' },
-    }),
-  )
+it("saves the request's own note with no item", async () => {
+  data.addNote.mockImplementation(async () => {
+    data.request = noted(null, 'make it all warmer')
+    return { revision: 4 }
+  })
   const { container } = render(RequestPage, { requestId: 'r1' })
   await loaded()
   const head = container.querySelector('.reqhead') as HTMLElement
   await fireEvent.click(
-    within(head).getByRole('button', { name: 'Leave a note for the agent' }),
+    within(head).getByRole('button', { name: 'Add a note for the agent' }),
   )
   await fireEvent.input(
     screen.getByLabelText('Note for the agent on this request'),
     { target: { value: 'make it all warmer' } },
   )
   await fireEvent.click(within(head).getByRole('button', { name: 'Save note' }))
-  await waitFor(() => expect(data.putRequest).toHaveBeenCalled())
-  const body = data.putRequest.mock.calls[0][2]
-  expect(body).toMatchObject({
-    revision: 3,
-    why: 'comment on the request',
-    comment: { text: 'make it all warmer' },
-  })
-  expect(body.items).toEqual(make().items)
   await within(head).findByText('make it all warmer')
-  expect(within(head).getByText(/Nothing is sent to the agent/)).toBeTruthy()
+  await waitFor(() =>
+    expect(
+      screen.queryByLabelText('Note for the agent on this request'),
+    ).toBeNull(),
+  )
+  expect(data.addNote.mock.calls[0][1]).toEqual({
+    request: 'r1',
+    text: 'make it all warmer',
+  })
+  expect(data.putRequest).not.toHaveBeenCalled()
+  expect(within(head).getByText(/No agent session is listening/)).toBeTruthy()
 })
 
-it('a write refused as stale over and over says so in plain words and keeps the draft', async () => {
+it('a note the server refuses says why beside the draft, with a reload', async () => {
   const { ApiError } = await import('../api')
-  data.putRequest.mockRejectedValue(
-    new ApiError(
-      'at revision 5, not 3 - read it again and rewrite the plan against revision 5',
-      409,
-      'stale_revision',
-    ),
+  data.addNote.mockRejectedValue(
+    new ApiError("item 'b' of request 'r1' was dropped", 422, 'item_dropped'),
   )
   render(RequestPage, { requestId: 'r1' })
   const box = await openNote('Second poster')
   await fireEvent.input(box, { target: { value: 'my draft' } })
   await saveNote('Second poster')
   expect((await screen.findByRole('alert')).textContent).toContain(
-    'The plan changed while you were writing',
+    'This item was dropped or removed from the plan, so the note is not saved.',
   )
   expect(screen.getByRole('button', { name: 'Reload the plan' })).toBeTruthy()
   expect(box.value).toBe('my draft')
-  // tried over a fresh read three more times, then left to the user
-  expect(data.putRequest).toHaveBeenCalledTimes(4)
 })
 
 it('links to its jobs and outputs through the req filter', async () => {
@@ -364,13 +370,6 @@ it('refreshes an idle open request, and a note draft survives it', async () => {
   ).toBe('#/ws/studio/jobs/job-b')
   expect(box.value).toBe('half a thought')
   expect(document.body.contains(box)).toBe(true)
-  // and the save goes at the refreshed revision, not the one first read
-  data.putRequest.mockImplementation((_ws, _id, body) =>
-    Promise.resolve({ ...next, revision: body.revision + 1 }),
-  )
-  await saveNote('Second poster')
-  await waitFor(() => expect(data.putRequest).toHaveBeenCalled())
-  expect(data.putRequest.mock.calls[0][2].revision).toBe(4)
 })
 
 it('tells a screen reader what a refresh changed, and nothing on first load', async () => {
@@ -412,11 +411,11 @@ it('a refresh sent before a save and answered after it does not undo the save', 
     () => new Promise((resolve) => (land = resolve)) as never,
   )
   vi.advanceTimersByTime(IDLE_MS)
-  // The save lands first, at revision 4
-  const saved = make()
-  saved.revision = 4
-  saved.items[1].comment = { text: 'more red', at: '2026-01-04T00:00:00Z' }
-  data.putRequest.mockResolvedValue(saved)
+  // The save lands first, and the read after it is at revision 4
+  data.addNote.mockImplementation(async () => {
+    data.request = noted('b', 'more red')
+    return { revision: 4 }
+  })
   await fireEvent.input(box, { target: { value: 'more red' } })
   await saveNote('Second poster')
   await atRevision(4)
@@ -449,60 +448,68 @@ it('a refresh that fails keeps the plan and the draft, and says how old it is', 
   expect(box.value).toBe('my draft')
 })
 
-it('a save over a plan the agent changed is made again on top, and says so', async () => {
-  const { ApiError, api } = await import('../api')
-  data.putRequest.mockRejectedValueOnce(
-    new ApiError('now revision 4', 409, 'stale_revision'),
-  )
+it('says once when the agent answers a waiting note, and the toast goes to it', async () => {
+  fakeInterval()
+  const { notify } = await import('../toast')
+  // b's note waits; a's was answered before the page opened
+  const waiting = noted('b', 'more red', 3)
+  waiting.items[0].notes = [
+    {
+      id: 'n0',
+      text: 'old',
+      created: '2026-01-01T00:00:00+00:00',
+      at: '2026-01-01T00:00:00+00:00',
+    },
+  ]
+  data.request = waiting
   render(RequestPage, { requestId: 'r1' })
-  const box = await openNote('Second poster')
-  await fireEvent.input(box, { target: { value: 'more red' } })
-  // the agent has written since the page read the plan
-  const theirs = make()
-  theirs.revision = 4
-  theirs.history.push(entry(4, 'agent', 'added shot 7'))
-  data.request = theirs
-  const saved = structuredClone(theirs)
-  saved.revision = 5
-  saved.history.push(entry(5, 'user', 'comment on b'))
-  saved.items[1].comment = { text: 'more red', at: '2026-01-04T00:00:00Z' }
-  data.putRequest.mockResolvedValue(saved)
-  const reads = vi.mocked(api.getRequest).mock.calls.length
-  await saveNote('Second poster')
+  await loaded()
+  expect(notify.news).not.toHaveBeenCalled()
+  // the agent writes after it
+  const answered = structuredClone(waiting)
+  answered.revision = 4
+  answered.history.push(entry(4, 'agent', 'retook b with more red'))
+  answered.agent_wrote_at = '2026-01-05T00:00:00+00:00'
+  data.request = answered
+  vi.advanceTimersByTime(IDLE_MS)
+  await atRevision(4)
+  await waitFor(() => expect(notify.news).toHaveBeenCalledTimes(1))
+  const [text, action] = vi.mocked(notify.news).mock.calls[0]
+  expect(text).toBe(
+    'The agent updated Launch posters after your note: “retook b with more red”',
+  )
+  // a later read says nothing more
+  data.request = { ...answered, revision: 5 }
+  vi.advanceTimersByTime(IDLE_MS)
   await atRevision(5)
-  // read again once, and the write made over that read: never the stale plan
-  expect(vi.mocked(api.getRequest).mock.calls.length).toBe(reads + 1)
-  expect(data.putRequest.mock.calls.map((c) => c[2].revision)).toEqual([3, 4])
-  await within(row('Second poster')).findByText('more red')
-  const notice = screen.getByRole('status')
-  expect(notice.textContent).toContain(
-    "The agent changed the plan while you were editing (r4: 'added shot 7'). Your change was applied on top.",
-  )
-  // the saved note's box has closed and handed focus back
-  await waitFor(() =>
-    expect(document.activeElement?.textContent).toBe('Edit note'),
-  )
-  await fireEvent.click(
-    within(notice).getByRole('button', { name: 'See changes' }),
-  )
-  expect(document.activeElement?.id).toBe('plan-change-r4')
-  await fireEvent.click(within(notice).getByRole('button', { name: 'Dismiss' }))
-  expect(screen.queryByRole('status')).toBeNull()
+  expect(notify.news).toHaveBeenCalledTimes(1)
+  // the toast opens the row and lands on the note
+  expect(
+    screen
+      .getByRole('button', { name: 'Second poster' })
+      .getAttribute('aria-expanded'),
+  ).toBe('false')
+  action.onClick()
+  // focus is no mutation for waitFor to see, and its interval is faked
+  await new Promise((r) => setTimeout(r, 20))
+  expect(document.activeElement?.id).toBe('request-note-n1')
+  expect(
+    screen
+      .getByRole('button', { name: 'Second poster' })
+      .getAttribute('aria-expanded'),
+  ).toBe('true')
 })
 
-it('a read that fails after a stale save keeps the request and the draft', async () => {
-  const { ApiError } = await import('../api')
+it('a save that fails for the network says so, and keeps the draft', async () => {
   const { notify } = await import('../toast')
-  data.putRequest.mockRejectedValue(
-    new ApiError('now revision 5', 409, 'stale_revision'),
-  )
+  data.addNote.mockRejectedValue(new TypeError('Failed to fetch'))
   render(RequestPage, { requestId: 'r1' })
   const box = await openNote('Second poster')
   await fireEvent.input(box, { target: { value: 'my draft' } })
-  data.getError = { status: 503, message: 'busy' }
   await saveNote('Second poster')
-  await waitFor(() => expect(notify.error).toHaveBeenCalledWith('busy'))
-  expect(data.putRequest).toHaveBeenCalledTimes(1)
+  await waitFor(() =>
+    expect(notify.error).toHaveBeenCalledWith('Failed to fetch'),
+  )
   expect(box.value).toBe('my draft')
   expect(document.body.contains(box)).toBe(true)
   expect(screen.getByRole('heading', { name: 'Launch posters' })).toBeTruthy()

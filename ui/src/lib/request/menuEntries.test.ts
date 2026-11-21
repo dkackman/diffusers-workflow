@@ -19,7 +19,7 @@ const menu = (key: string, over = {}) => {
       item('c', {
         status: 'failed',
         attempts: [attempt('jc', 'failed')],
-        comment: { text: 'n', at: 't' },
+        notes: [{ id: 'n1', text: 'n', created: 't', at: 't' }],
       }),
       item('x', {
         dropped: true,
@@ -41,7 +41,7 @@ it('a ready item can be moved, noted and dropped', () => {
     'Move to top',
     'Move to bottom',
     '-',
-    'Leave a note for the agent',
+    'Add a note for the agent',
     '-',
     'Drop from plan',
   ])
@@ -62,11 +62,11 @@ it('a done item leads with another take, then where its jobs and outputs are', (
   expect(labels(menu('a', { canRun: false }))[0]).toBe('Its jobs')
 })
 
-it('a failed item links its jobs but has no outputs, and says Edit for a note it holds', () => {
+it('a failed item links its jobs but has no outputs, and adds a note beside the ones it holds', () => {
   const entries = labels(menu('c'))
   expect(entries[0]).toBe('Its jobs')
   expect(entries).not.toContain('Its outputs')
-  expect(entries).toContain('Edit the note')
+  expect(entries).toContain('Add a note for the agent')
 })
 
 it('the moves that would go nowhere are disabled', () => {

@@ -89,8 +89,13 @@ export type LedgerAttempt = Schemas['LedgerAttempt']
 export type LedgerOutput = Schemas['LedgerOutput']
 export type LedgerNote = Schemas['LedgerNote']
 export type LedgerNoteRef = Schemas['LedgerNoteRef']
-/** Task 6 migrates the components still saying `comment` to `LedgerNote` */
-export type LedgerComment = LedgerNote
+// The request-notes routes: a new note, a new text, what they answer, and
+// whether a notes channel is polling the workspace
+export type NoteAdd = Schemas['NoteAdd']
+export type NoteEdit = Schemas['NoteEdit']
+export type NoteWritten = Schemas['NoteWritten']
+export type NoteDeleted = Schemas['NoteDeleted']
+export type NotesChannelState = Schemas['NotesChannelState']
 export type LedgerHistoryEntry = Schemas['LedgerHistoryEntry']
 export type LedgerItemStatus = LedgerItem['status']
 export type PipelineParameter = Schemas['PipelineParameter']

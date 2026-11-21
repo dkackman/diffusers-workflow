@@ -100,7 +100,3 @@ export function goneText(conflict: Conflict): string {
       return `Not applied: ${who(entry)} removed ${title}${inRevision(entry)}.`
   }
 }
-
-/** The words of a note that could not be saved, for the card to keep */
-export const lostDraft = (conflict: Conflict): string | null =>
-  conflict.intent.kind === 'note' ? conflict.intent.text : null
