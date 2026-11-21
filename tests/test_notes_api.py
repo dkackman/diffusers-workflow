@@ -294,7 +294,9 @@ def test_a_write_failure_is_a_500(client, output_root, make_run, monkeypatch):
     def refuse(*args, **kwargs):
         raise OSError("disk full")
 
-    monkeypatch.setattr("dw.server.routes.media.set_run_note", refuse)
+    from dw.server.routes import gallery
+
+    monkeypatch.setattr(gallery, "set_run_note", refuse)
     r = client.put("/api/notes", json={"target": run, "note": "x"})
     assert r.status_code == 500
 

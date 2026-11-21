@@ -77,6 +77,9 @@ from .api_models_library import (
     NoteWritten,
     NoteDeleted,
     NotesChannelState,
+    GalleryLinkedJob,
+    StarSet,
+    NoteSet,
 )
 
 # The library's models live in api_models_library, and the base in
@@ -137,6 +140,9 @@ __all__ = [
     "NoteWritten",
     "NoteDeleted",
     "NotesChannelState",
+    "GalleryLinkedJob",
+    "StarSet",
+    "NoteSet",
 ]
 
 
@@ -1014,19 +1020,6 @@ class GalleryInput(ApiModel):
     kind: Literal["asset", "output"]
 
 
-class GalleryLinkedJob(ApiModel):
-    """A job linked to a request item that published the file - wrote it or
-    republished it from the step cache."""
-
-    id: str
-    request: str
-    item: str | None
-    attempt: int | None = Field(
-        description="The job's 1-based place among the item's attempts; null "
-        "when the request no longer lists it."
-    )
-
-
 class GalleryMetadata(ApiModel):
     name: str
     source: Literal["output", "asset"]
@@ -1056,19 +1049,6 @@ class GalleryMetadata(ApiModel):
     linked_jobs: list[GalleryLinkedJob] = Field(
         description="Every job linked to a request whose manifest lists the "
         "file, a step-cache reuse included, newest first; empty for an asset."
-    )
-
-
-class StarSet(ApiModel):
-    name: str
-    starred: bool
-
-
-class NoteSet(ApiModel):
-    target: str
-    note: str | None = Field(description="The effective note after the write.")
-    note_source: Literal["file", "run"] | None = Field(
-        description="Whose note `note` is; null for a workspace or no note."
     )
 
 

@@ -1,5 +1,6 @@
 """Response models for the library routes - workspaces, workflows, prompts,
-enhancer presets, LoRAs, the asset library and the requests ledger. Part of
+enhancer presets, LoRAs, the asset library, the requests ledger, and the
+gallery's marks and request links on one file. Part of
 the UI's response contract that `dw/server/api_models.py` describes; it
 re-exports every name here.
 """
@@ -620,3 +621,32 @@ class AssetDeleted(ApiModel):
     reference: str
     deleted: bool
     origin: AssetOrigin
+
+
+# ------------------------------------- a gallery file's marks and links
+
+
+class GalleryLinkedJob(ApiModel):
+    """A job linked to a request item that published the file - wrote it or
+    republished it from the step cache."""
+
+    id: str
+    request: str
+    item: str | None
+    attempt: int | None = Field(
+        description="The job's 1-based place among the item's attempts; null "
+        "when the request no longer lists it."
+    )
+
+
+class StarSet(ApiModel):
+    name: str
+    starred: bool
+
+
+class NoteSet(ApiModel):
+    target: str
+    note: str | None = Field(description="The effective note after the write.")
+    note_source: Literal["file", "run"] | None = Field(
+        description="Whose note `note` is; null for a workspace or no note."
+    )
