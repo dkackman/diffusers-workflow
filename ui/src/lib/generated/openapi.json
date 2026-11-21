@@ -3133,9 +3133,13 @@
             "title": "Id",
             "type": "string"
           },
-          "ref": {
-            "$ref": "#/components/schemas/LedgerNoteRef",
-            "description": "The take or file the note is about."
+          "refs": {
+            "description": "The items, takes or files the note is about.",
+            "items": {
+              "$ref": "#/components/schemas/LedgerNoteRef"
+            },
+            "title": "Refs",
+            "type": "array"
           },
           "text": {
             "title": "Text",
@@ -3153,7 +3157,7 @@
       },
       "LedgerNoteRef": {
         "additionalProperties": false,
-        "description": "What a note is about: one linked job, and maybe one of its files.",
+        "description": "What a note is about: one item, planned or rendered, and maybe one of\nits linked jobs and one of that job's files.",
         "properties": {
           "attempt": {
             "anyOf": [
@@ -3164,16 +3168,21 @@
                 "type": "null"
               }
             ],
-            "description": "On a read: the job's 1-based place among the item's attempts; null when the job is no longer linked.",
+            "description": "On a read, when the ref names a job: the job's 1-based place among the item's attempts; null when the job is no longer linked to it.",
             "title": "Attempt"
           },
           "gone": {
-            "description": "On a read: true when the job is no longer linked or its run is gone.",
+            "description": "On a read: true when the item is dropped or out of the plan, or the job is no longer linked or its run is gone.",
             "title": "Gone",
             "type": "boolean"
           },
+          "item": {
+            "description": "The item key.",
+            "title": "Item",
+            "type": "string"
+          },
           "job": {
-            "description": "A job linked to the request (and to the item).",
+            "description": "A job linked to the item.",
             "title": "Job",
             "type": "string"
           },
@@ -3195,7 +3204,7 @@
           }
         },
         "required": [
-          "job"
+          "item"
         ],
         "title": "LedgerNoteRef",
         "type": "object"
@@ -4405,16 +4414,20 @@
             "description": "The item key; left out, the request's own notes",
             "title": "Item"
           },
-          "ref": {
+          "refs": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/NoteRefWrite"
+                "items": {
+                  "$ref": "#/components/schemas/NoteRefWrite"
+                },
+                "type": "array"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "The take or file the note is about"
+            "description": "The items, takes or files the note is about, at most 16; an item's note references only that item",
+            "title": "Refs"
           },
           "request": {
             "description": "The request id",
@@ -4451,7 +4464,7 @@
       },
       "NoteEdit": {
         "additionalProperties": false,
-        "description": "A note's new text. Its reference never changes.",
+        "description": "A note's new text. Its references never change.",
         "properties": {
           "note": {
             "description": "The note id",
@@ -4479,12 +4492,31 @@
       },
       "NoteRefWrite": {
         "additionalProperties": false,
-        "description": "A new note's reference. `kind` is the server's to set.",
+        "description": "One reference of a new note. `kind` is the server's to set.",
         "properties": {
+          "item": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The item key; left out on an item's note, that item. Alone, it names a planned shot that may have no job yet",
+            "title": "Item"
+          },
           "job": {
-            "description": "A job linked to the request (and to the item)",
-            "title": "Job",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A job linked to that item",
+            "title": "Job"
           },
           "output": {
             "anyOf": [
@@ -4499,9 +4531,6 @@
             "title": "Output"
           }
         },
-        "required": [
-          "job"
-        ],
         "title": "NoteRefWrite",
         "type": "object"
       },
@@ -11563,7 +11592,7 @@
         "summary": "Delete Request Note"
       },
       "post": {
-        "description": "Add one of the user's notes for the agent, on an item or (no `item`)\non the request itself; answers the note and the request's new revision.\n`ref` names a job linked to the item (any item, for a request note) and\noptionally one file of its manifest; the server adds the file's `kind`.\n422 `invalid_note_ref` for a ref that does not hold, `unknown_item`,\n`item_dropped` or `too_many_notes`; 404 `unknown_request`.",
+        "description": "Add one of the user's notes for the agent, on an item or (no `item`)\non the request itself; answers the note and the request's new revision.\nEach of `refs` names an item (the note's own, for an item note; any live\nitem, for a request note) and optionally a job linked to it and one file\nof that job's manifest; the server adds the file's `kind`. 422\n`invalid_note_ref` for a ref that does not hold, `too_many_refs`,\n`unknown_item`, `item_dropped` or `too_many_notes`; 404\n`unknown_request`.",
         "operationId": "add_request_note_api_workspaces__name__request_notes_post",
         "parameters": [
           {
@@ -11611,7 +11640,7 @@
         "summary": "Add Request Note"
       },
       "put": {
-        "description": "Change one note's text; its `ref` and `created` stay, `at` moves to\nnow. The same text writes nothing. 404 `unknown_request` or\n`unknown_note`.",
+        "description": "Change one note's text; its `refs` and `created` stay, `at` moves to\nnow. The same text writes nothing. 404 `unknown_request` or\n`unknown_note`.",
         "operationId": "edit_request_note_api_workspaces__name__request_notes_put",
         "parameters": [
           {

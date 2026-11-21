@@ -67,6 +67,7 @@ MAX_WORKFLOW_NAME_LENGTH = 200
 MAX_FILE_BYTES = 2 * 1024 * 1024
 MAX_HISTORY = 100
 MAX_NOTES = 20  # live notes of one target: an item, or the request itself
+MAX_NOTE_REFS = 16  # references in one note
 # The list's `cover`: this many result outputs, found among at most
 # COVER_SCAN of a request's latest results - the bound on what one row of a
 # polled list may read
@@ -387,32 +388,48 @@ def _jobs_by_item(jobs):
 
 
 def _positions(jobs):
-    """Each linked job's `(attempt, run_exists)`: its 1-based place among
-    `jobs`, the attempts of one item oldest first."""
+    """Each linked job's `(item, attempt, run_exists)`: its item, and its
+    1-based place among `jobs`, the attempts of one item oldest first."""
     return {
-        job.get("job"): (place, bool(job.get("run_exists")))
+        job.get("job"): (job.get("item"), place, bool(job.get("run_exists")))
         for place, job in enumerate(jobs, 1)
     }
 
 
-def _noted(notes, positions):
-    """The notes as read: a note's `ref` gains `attempt` (the 1-based
-    position of its job among the item's attempts, null when the job is not
-    linked) and `gone: True` when the job is not linked or its run is gone.
-    The stored notes are not changed."""
+def _read_ref(ref, positions, live):
+    """One stored reference as read: `attempt` when it names a job (the
+    job's 1-based place among its item's attempts, null when the job is no
+    longer linked to that item), and `gone: True` when its item is not in
+    `live` (dropped or out of the plan), or its job is unlinked or its run
+    gone."""
+    gone = ref.get("item") not in live
+    out = dict(ref)
+    if "job" in ref:
+        item, attempt, exists = positions.get(ref["job"], (None, None, False))
+        if item != ref.get("item"):
+            attempt, exists = None, False
+        out["attempt"] = attempt
+        gone = gone or not exists
+    if gone:
+        out["gone"] = True
+    return out
+
+
+def _noted(notes, positions, live):
+    """The notes as read, each reference in a note's `refs` enriched by
+    `_read_ref`. `live` is the keys of the items in the plan and not
+    dropped. The stored notes are not changed."""
     out = []
     for note in notes or []:
-        ref = note.get("ref")
-        if ref:
-            attempt, exists = positions.get(ref.get("job"), (None, False))
-            ref = {
-                **ref,
-                "attempt": attempt,
-                **({} if exists else {"gone": True}),
-            }
-            note = {**note, "ref": ref}
+        if note.get("refs"):
+            refs = [_read_ref(ref, positions, live) for ref in note["refs"]]
+            note = {**note, "refs": refs}
         out.append(note)
     return out
+
+
+def _live_keys(items):
+    return {item.get("key") for item in items if not item.get("dropped")}
 
 
 def item_view(item, jobs, ready=False):
@@ -439,7 +456,7 @@ def item_view(item, jobs, ready=False):
     }
     return {
         **item,
-        "notes": _noted(item.get("notes"), _positions(jobs)),
+        "notes": _noted(item.get("notes"), _positions(jobs), _live_keys([item])),
         "status": _item_status(item, jobs),
         "ready": ready,
         "attempts": attempts,
@@ -477,7 +494,9 @@ def request_view(request, jobs=()):
             positions.update(_positions(group))
     view = {
         **request,
-        "notes": _noted(request.get("notes"), positions),
+        "notes": _noted(
+            request.get("notes"), positions, _live_keys(request.get("items", []))
+        ),
         "agent_wrote_at": request.get("agent_wrote_at"),
     }
     view["items"] = [
@@ -1114,14 +1133,58 @@ def _need_root(root):
         )
 
 
-def add_note(root, request_id, *, item, text, ref, check_ref):
+def _note_refs(request, item, refs):
+    """A new note's references as `{item, job?, output?}`, checked against
+    the plan and with duplicates collapsed in first order. An item note's
+    references default to and must name its item; each item must be in the
+    plan and not dropped; `output` needs `job`. Raises LedgerError
+    (`too_many_refs`, `invalid_note_ref`)."""
+    refs = list(refs or [])
+    if len(refs) > MAX_NOTE_REFS:
+        raise LedgerError(
+            f"at most {MAX_NOTE_REFS} references fit in one note, not {len(refs)}",
+            status=422,
+            code="too_many_refs",
+        )
+    live = _live_keys(request["items"])
+    out = []
+    for ref in refs:
+        given = {k: ref[k] for k in ("item", "job", "output") if ref.get(k) is not None}
+        ref = {"item": item, **given}
+        where = ref["item"]
+        if not isinstance(where, str):
+            raise _bad_ref("a request note's reference names its item")
+        if item is not None and where != item:
+            raise _bad_ref(
+                f"a note on item {item!r} references only that item, not {where!r}"
+            )
+        if where not in live:
+            raise _bad_ref(
+                f"item {where!r} of request {request['id']!r} is not in the plan "
+                "or was dropped"
+            )
+        if "output" in ref and "job" not in ref:
+            raise _bad_ref("a reference names `output` only with its `job`")
+        if ref not in out:
+            out.append(ref)
+    return out
+
+
+def _bad_ref(why):
+    return LedgerError(why, status=422, code="invalid_note_ref")
+
+
+def add_note(root, request_id, *, item, text, refs, check_ref):
     """Add one user note to an item (or to the request when `item` is None)
-    and answer `{note, revision}`. `check_ref(request_id, item, ref)` is
-    called when `ref` is given and answers the ref to store or raises
-    LedgerError (`invalid_note_ref`); the ledger reads no jobs itself.
+    and answer `{note, revision}`. `refs` is a list of `{item?, job?,
+    output?}` (see `_note_refs`); `check_ref(request_id, ref)` is called
+    once per reference, after its item is filled in, and answers the
+    reference to store or raises LedgerError (`invalid_note_ref`); the
+    ledger reads no jobs itself. One refused reference refuses the note.
 
     Raises LedgerError (`unknown_request`, `unknown_item`, `item_dropped`,
-    `too_many_notes`), or OSError when the file cannot be written."""
+    `too_many_notes`, `too_many_refs`, `invalid_note_ref`), or OSError when
+    the file cannot be written."""
     _need_root(root)
     _key(request_id, "Request id")
     text = _note_text(text)
@@ -1135,14 +1198,14 @@ def add_note(root, request_id, *, item, text, ref, check_ref):
                 status=422,
                 code="too_many_notes",
             )
-        stored_ref = check_ref(request_id, item, ref) if ref else None
+        stored = [check_ref(request_id, ref) for ref in _note_refs(request, item, refs)]
         at = _now()
         note = {
             "id": f"n{request['next_note']}",
             "text": text,
             "created": at,
             "at": at,
-            **({"ref": stored_ref} if stored_ref else {}),
+            **({"refs": stored} if stored else {}),
         }
         request["next_note"] += 1
         notes.append(note)
@@ -1152,7 +1215,7 @@ def add_note(root, request_id, *, item, text, ref, check_ref):
 
 def edit_note(root, request_id, note_id, text):
     """Change one note's text and answer `{note, revision}`. `at` moves to
-    now, `created` and `ref` stay. The same text is a no-op: the note and the
+    now, `created` and `refs` stay. The same text is a no-op: the note and the
     current revision come back and nothing is written."""
     _need_root(root)
     _key(request_id, "Request id")

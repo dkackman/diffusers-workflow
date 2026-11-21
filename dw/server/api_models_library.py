@@ -354,19 +354,22 @@ class LedgerAccepted(ApiModel):
 
 
 class LedgerNoteRef(ApiModel):
-    """What a note is about: one linked job, and maybe one of its files."""
+    """What a note is about: one item, planned or rendered, and maybe one of
+    its linked jobs and one of that job's files."""
 
-    job: str = Field(description="A job linked to the request (and to the item).")
+    item: str = Field(description="The item key.")
+    job: str = sometimes("A job linked to the item.")
     output: str = sometimes(
         "One file of the job's manifest, relative to the workspace's outputs."
     )
     kind: OutputKind = sometimes("The file's kind, set by the server.")
     attempt: int | None = sometimes(
-        "On a read: the job's 1-based place among the item's attempts; null "
-        "when the job is no longer linked."
+        "On a read, when the ref names a job: the job's 1-based place among "
+        "the item's attempts; null when the job is no longer linked to it."
     )
     gone: bool = sometimes(
-        "On a read: true when the job is no longer linked or its run is gone."
+        "On a read: true when the item is dropped or out of the plan, or the "
+        "job is no longer linked or its run is gone."
     )
 
 
@@ -378,7 +381,9 @@ class LedgerNote(ApiModel):
     text: str
     created: str = Field(description="When the note was first saved.")
     at: str = Field(description="When its text last changed.")
-    ref: LedgerNoteRef = sometimes("The take or file the note is about.")
+    refs: list[LedgerNoteRef] = sometimes(
+        "The items, takes or files the note is about."
+    )
 
 
 class LedgerOutput(ApiModel):
@@ -544,11 +549,16 @@ class RequestWrite(BaseModel):
 
 
 class NoteRefWrite(BaseModel):
-    """A new note's reference. `kind` is the server's to set."""
+    """One reference of a new note. `kind` is the server's to set."""
 
     model_config = ConfigDict(extra="forbid")
 
-    job: str = Field(description="A job linked to the request (and to the item)")
+    item: str | None = Field(
+        default=None,
+        description="The item key; left out on an item's note, that item. "
+        "Alone, it names a planned shot that may have no job yet",
+    )
+    job: str | None = Field(default=None, description="A job linked to that item")
     output: str | None = Field(
         default=None,
         description="One file of that finished job's manifest, as the gallery "
@@ -567,13 +577,15 @@ class NoteAdd(BaseModel):
         default=None, description="The item key; left out, the request's own notes"
     )
     text: str = Field(description="The note, at most 4,000 characters")
-    ref: NoteRefWrite | None = Field(
-        default=None, description="The take or file the note is about"
+    refs: list[NoteRefWrite] | None = Field(
+        default=None,
+        description="The items, takes or files the note is about, at most 16; "
+        "an item's note references only that item",
     )
 
 
 class NoteEdit(BaseModel):
-    """A note's new text. Its reference never changes."""
+    """A note's new text. Its references never change."""
 
     model_config = ConfigDict(extra="forbid")
 

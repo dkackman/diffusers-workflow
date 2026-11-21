@@ -1058,34 +1058,37 @@ NOTES_URL = "/api/workspaces/{name}/request-notes"
 
 
 def _note_ref_check(request, name):
-    """`(request_id, item, ref) -> the ref to store`, or LedgerError
-    `invalid_note_ref`: `ref.job` must be linked to the request, and to
-    `item` when the note is an item's; `ref.output`, when given, must be a
-    file the gallery shows from that finished job's manifest, and its kind
-    is stored with it."""
+    """`(request_id, ref) -> the ref to store`, or LedgerError
+    `invalid_note_ref`. A ref naming only its item (a planned shot) needs no
+    job. Otherwise `ref.job` must be linked to the request's `ref.item`;
+    `ref.output`, when given, must be a file the gallery shows from that
+    finished job's manifest, and its kind is stored with it."""
     manager = request.app.state.job_manager
 
     def refused(why):
         return ledger.LedgerError(why, status=422, code="invalid_note_ref")
 
-    def check(request_id, item, ref):
-        job_id = ref["job"]
+    def check(request_id, ref):
+        item = ref["item"]
+        job_id = ref.get("job")
+        if job_id is None:
+            return {"item": item}
         linked = next(
             (
                 job
                 for job in manager.request_jobs(name, request_id)
-                if job["job"] == job_id and (item is None or job["item"] == item)
+                if job["job"] == job_id and job["item"] == item
             ),
             None,
         )
         if linked is None:
-            where = f"item {item!r} of " if item is not None else ""
             raise refused(
-                f"job {job_id!r} is not linked to {where}request {request_id!r}"
+                f"job {job_id!r} is not linked to item {item!r} of request "
+                f"{request_id!r}"
             )
         output = ref.get("output")
         if output is None:
-            return {"job": job_id}
+            return {"item": item, "job": job_id}
         if linked["status"] in ("queued", "running"):
             raise refused(
                 f"job {job_id!r} has not finished, so it names no file yet - "
@@ -1097,7 +1100,7 @@ def _note_ref_check(request, name):
                 f"{output!r} is not a file job {job_id!r} wrote - name one of "
                 "its manifest's outputs as the gallery names it"
             )
-        return {"job": job_id, "output": output, "kind": kind}
+        return {"item": item, "job": job_id, "output": output, "kind": kind}
 
     return check
 
@@ -1116,10 +1119,12 @@ def _note_write(write, what):
 def add_request_note(request: Request, name: str, body: NoteAdd):
     """Add one of the user's notes for the agent, on an item or (no `item`)
     on the request itself; answers the note and the request's new revision.
-    `ref` names a job linked to the item (any item, for a request note) and
-    optionally one file of its manifest; the server adds the file's `kind`.
-    422 `invalid_note_ref` for a ref that does not hold, `unknown_item`,
-    `item_dropped` or `too_many_notes`; 404 `unknown_request`."""
+    Each of `refs` names an item (the note's own, for an item note; any live
+    item, for a request note) and optionally a job linked to it and one file
+    of that job's manifest; the server adds the file's `kind`. 422
+    `invalid_note_ref` for a ref that does not hold, `too_many_refs`,
+    `unknown_item`, `item_dropped` or `too_many_notes`; 404
+    `unknown_request`."""
     root = _ledger_root(request.app.state, name)
     return _note_write(
         lambda: ledger.add_note(
@@ -1127,7 +1132,7 @@ def add_request_note(request: Request, name: str, body: NoteAdd):
             body.request,
             item=body.item,
             text=body.text,
-            ref=body.ref.model_dump(exclude_none=True) if body.ref else None,
+            refs=[ref.model_dump(exclude_none=True) for ref in body.refs or []],
             check_ref=_note_ref_check(request, name),
         ),
         f"add a note to request {body.request!r}",
@@ -1136,7 +1141,7 @@ def add_request_note(request: Request, name: str, body: NoteAdd):
 
 @router.put(NOTES_URL, response_model=NoteWritten, response_model_exclude_unset=True)
 def edit_request_note(request: Request, name: str, body: NoteEdit):
-    """Change one note's text; its `ref` and `created` stay, `at` moves to
+    """Change one note's text; its `refs` and `created` stay, `at` moves to
     now. The same text writes nothing. 404 `unknown_request` or
     `unknown_note`."""
     root = _ledger_root(request.app.state, name)

@@ -102,51 +102,85 @@ def notes_of(client, key=None):
 def test_post_a_note_with_a_ref_to_a_linked_job_output(client, take):
     job, name = take
     written = add(
-        client, item="a", text="reroll this", ref={"job": job, "output": name}
+        client, item="a", text="reroll this", refs=[{"job": job, "output": name}]
     )
     note = written["note"]
-    assert note["ref"] == {"job": job, "output": name, "kind": "image"}
+    assert note["refs"] == [{"item": "a", "job": job, "output": name, "kind": "image"}]
     assert note["text"] == "reroll this" and note["id"] == "n1"
     assert note["created"] == note["at"]
     read = view(client)
     assert written["revision"] == read["revision"]
     assert read["history"][-1]["by"] == "user"
     [stored] = notes_of(client, "a")
-    assert stored["ref"] == {"job": job, "output": name, "kind": "image", "attempt": 1}
+    assert stored["refs"] == [
+        {"item": "a", "job": job, "output": name, "kind": "image", "attempt": 1}
+    ]
 
 
 def test_post_a_ref_with_only_a_job(client, take):
     job, _ = take
-    note = add(client, item="a", text="the whole take", ref={"job": job})["note"]
-    assert note["ref"] == {"job": job}
+    note = add(client, item="a", text="the whole take", refs=[{"job": job}])["note"]
+    assert note["refs"] == [{"item": "a", "job": job}]
 
 
 def test_post_a_note_without_a_ref_on_the_request_itself(client):
     note = add(client, text="all of it, warmer")["note"]
-    assert "ref" not in note
+    assert "refs" not in note
     assert [n["text"] for n in notes_of(client)] == ["all of it, warmer"]
 
 
 def test_a_request_note_may_name_a_job_of_any_item(client, take):
     job, name = take
-    note = add(client, text="this one", ref={"job": job, "output": name})["note"]
-    assert note["ref"]["job"] == job
+    refs = [{"item": "a", "job": job, "output": name}, {"item": "b"}]
+    note = add(client, text="a and b: warmer", refs=refs)["note"]
+    assert note["refs"] == [
+        {"item": "a", "job": job, "output": name, "kind": "image"},
+        {"item": "b"},
+    ]
+    assert notes_of(client)[0]["refs"] == [
+        {"item": "a", "job": job, "output": name, "kind": "image", "attempt": 1},
+        {"item": "b"},
+    ]
+
+
+def test_a_request_note_ref_names_its_jobs_item(client, take):
+    job, _ = take
+    refused(client, "invalid_note_ref", text="x", refs=[{"job": job}])
+    refused(client, "invalid_note_ref", text="x", refs=[{"item": "b", "job": job}])
+    assert notes_of(client) == []
+
+
+def test_an_item_note_ref_to_another_item_is_422(client, take):
+    job, _ = take
+    refused(client, "invalid_note_ref", item="a", text="x", refs=[{"item": "b"}])
+    refs = [{"item": "b", "job": job}]
+    refused(client, "invalid_note_ref", item="a", text="x", refs=refs)
+
+
+def test_seventeen_refs_are_422(client):
+    refs = [{"item": "a"}] * 17
+    refused(client, "too_many_refs", item="a", text="x", refs=refs)
+
+
+def test_an_item_only_ref_to_a_dropped_item_is_422(client, take):
+    write_plan(client, revision=1, items=[item("b")])
+    refused(client, "invalid_note_ref", text="x", refs=[{"item": "a"}])
 
 
 def test_post_a_ref_to_a_job_not_linked_to_the_item_is_422(client, take):
     job, _ = take
-    refused(client, "invalid_note_ref", item="b", text="x", ref={"job": job})
+    refused(client, "invalid_note_ref", item="b", text="x", refs=[{"job": job}])
     loose = finish(client, submit(client, request=None, item_key=None))
-    refused(client, "invalid_note_ref", item="a", text="x", ref={"job": loose["id"]})
-    refused(client, "invalid_note_ref", text="x", ref={"job": loose["id"]})
-    refused(client, "invalid_note_ref", item="a", text="x", ref={"job": "nope"})
+    refused(client, "invalid_note_ref", item="a", text="x", refs=[{"job": loose["id"]}])
+    refused(client, "invalid_note_ref", text="x", refs=[{"job": loose["id"]}])
+    refused(client, "invalid_note_ref", item="a", text="x", refs=[{"job": "nope"}])
     assert notes_of(client, "a") == [] and notes_of(client, "b") == []
 
 
 def test_post_a_ref_to_another_requests_job_is_422(client):
     write_plan(client, request_id="dogs")
     other = finish(client, submit(client, request="dogs", item_key="a"))
-    refused(client, "invalid_note_ref", item="a", text="x", ref={"job": other["id"]})
+    refused(client, "invalid_note_ref", item="a", text="x", refs=[{"job": other["id"]}])
 
 
 def test_post_a_ref_output_not_in_the_manifest_is_422(client, take):
@@ -157,10 +191,14 @@ def test_post_a_ref_output_not_in_the_manifest_is_422(client, take):
         "invalid_note_ref",
         item="a",
         text="x",
-        ref={"job": job, "output": other},
+        refs=[{"job": job, "output": other}],
     )
     refused(
-        client, "invalid_note_ref", item="a", text="x", ref={"job": job, "output": ""}
+        client,
+        "invalid_note_ref",
+        item="a",
+        text="x",
+        refs=[{"job": job, "output": ""}],
     )
 
 
@@ -178,16 +216,16 @@ def test_post_a_ref_output_absolute_or_dotdot_is_422(client, take, root):
             "invalid_note_ref",
             item="a",
             text="x",
-            ref={"job": job, "output": output},
+            refs=[{"job": job, "output": output}],
         )
 
 
 def test_the_caller_cannot_set_the_kind_or_the_author(client, take):
     job, name = take
     for body in (
-        {"text": "x", "ref": {"job": job, "output": name, "kind": "video"}},
+        {"text": "x", "refs": [{"job": job, "output": name, "kind": "video"}]},
         {"text": "x", "by": "agent"},
-        {"text": "x", "ref": {"output": name}},
+        {"text": "x", "refs": [{"output": name}]},
     ):
         r = client.post(NOTES, json={"request": "cats", "item": "a", **body})
         assert r.status_code == 422, (body, r.text)
@@ -205,10 +243,10 @@ def test_a_live_job_takes_a_ref_without_an_output(client, take):
             "invalid_note_ref",
             item="a",
             text="x",
-            ref={"job": live["id"], "output": name},
+            refs=[{"job": live["id"], "output": name}],
         )
-        note = add(client, item="a", text="watching", ref={"job": live["id"]})
-        assert note["note"]["ref"] == {"job": live["id"]}
+        note = add(client, item="a", text="watching", refs=[{"job": live["id"]}])
+        assert note["note"]["refs"] == [{"item": "a", "job": live["id"]}]
     finally:
         client.script.gate.set()
     finish(client, live)
@@ -235,13 +273,13 @@ def test_a_note_on_a_dropped_item_is_refused(client, take):
 
 def test_put_and_delete_a_note(client, take):
     job, name = take
-    first = add(client, item="a", text="first", ref={"job": job, "output": name})
+    first = add(client, item="a", text="first", refs=[{"job": job, "output": name}])
     note_id = first["note"]["id"]
     r = client.put(NOTES, json={"request": "cats", "note": note_id, "text": "second"})
     assert r.status_code == 200, r.text
     edited = r.json()
     assert edited["note"]["text"] == "second"
-    assert edited["note"]["ref"] == first["note"]["ref"]
+    assert edited["note"]["refs"] == first["note"]["refs"]
     assert edited["note"]["created"] == first["note"]["created"]
     assert edited["revision"] == first["revision"] + 1
     assert [n["text"] for n in notes_of(client, "a")] == ["second"]
@@ -256,10 +294,10 @@ def test_put_and_delete_a_note(client, take):
 
 def test_a_note_edit_cannot_change_its_ref(client, take):
     job, _ = take
-    note_id = add(client, item="a", text="x", ref={"job": job})["note"]["id"]
+    note_id = add(client, item="a", text="x", refs=[{"job": job}])["note"]["id"]
     r = client.put(
         NOTES,
-        json={"request": "cats", "note": note_id, "text": "y", "ref": {"job": job}},
+        json={"request": "cats", "note": note_id, "text": "y", "refs": [{"job": job}]},
     )
     assert r.status_code == 422
 

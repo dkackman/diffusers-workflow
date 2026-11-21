@@ -1859,7 +1859,7 @@ export interface paths {
         get?: never;
         /**
          * Edit Request Note
-         * @description Change one note's text; its `ref` and `created` stay, `at` moves to
+         * @description Change one note's text; its `refs` and `created` stay, `at` moves to
          *     now. The same text writes nothing. 404 `unknown_request` or
          *     `unknown_note`.
          */
@@ -1868,10 +1868,12 @@ export interface paths {
          * Add Request Note
          * @description Add one of the user's notes for the agent, on an item or (no `item`)
          *     on the request itself; answers the note and the request's new revision.
-         *     `ref` names a job linked to the item (any item, for a request note) and
-         *     optionally one file of its manifest; the server adds the file's `kind`.
-         *     422 `invalid_note_ref` for a ref that does not hold, `unknown_item`,
-         *     `item_dropped` or `too_many_notes`; 404 `unknown_request`.
+         *     Each of `refs` names an item (the note's own, for an item note; any live
+         *     item, for a request note) and optionally a job linked to it and one file
+         *     of that job's manifest; the server adds the file's `kind`. 422
+         *     `invalid_note_ref` for a ref that does not hold, `too_many_refs`,
+         *     `unknown_item`, `item_dropped` or `too_many_notes`; 404
+         *     `unknown_request`.
          */
         post: operations["add_request_note_api_workspaces__name__request_notes_post"];
         /**
@@ -3323,31 +3325,40 @@ export interface components {
              * @description Unique within the request; never reused.
              */
             id: string;
-            /** @description The take or file the note is about. */
-            ref?: components["schemas"]["LedgerNoteRef"];
+            /**
+             * Refs
+             * @description The items, takes or files the note is about.
+             */
+            refs?: components["schemas"]["LedgerNoteRef"][];
             /** Text */
             text: string;
         };
         /**
          * LedgerNoteRef
-         * @description What a note is about: one linked job, and maybe one of its files.
+         * @description What a note is about: one item, planned or rendered, and maybe one of
+         *     its linked jobs and one of that job's files.
          */
         LedgerNoteRef: {
             /**
              * Attempt
-             * @description On a read: the job's 1-based place among the item's attempts; null when the job is no longer linked.
+             * @description On a read, when the ref names a job: the job's 1-based place among the item's attempts; null when the job is no longer linked to it.
              */
             attempt?: number | null;
             /**
              * Gone
-             * @description On a read: true when the job is no longer linked or its run is gone.
+             * @description On a read: true when the item is dropped or out of the plan, or the job is no longer linked or its run is gone.
              */
             gone?: boolean;
             /**
-             * Job
-             * @description A job linked to the request (and to the item).
+             * Item
+             * @description The item key.
              */
-            job: string;
+            item: string;
+            /**
+             * Job
+             * @description A job linked to the item.
+             */
+            job?: string;
             /**
              * Kind
              * @description The file's kind, set by the server.
@@ -3845,8 +3856,11 @@ export interface components {
              * @description The item key; left out, the request's own notes
              */
             item?: string | null;
-            /** @description The take or file the note is about */
-            ref?: components["schemas"]["NoteRefWrite"] | null;
+            /**
+             * Refs
+             * @description The items, takes or files the note is about, at most 16; an item's note references only that item
+             */
+            refs?: components["schemas"]["NoteRefWrite"][] | null;
             /**
              * Request
              * @description The request id
@@ -3868,7 +3882,7 @@ export interface components {
         };
         /**
          * NoteEdit
-         * @description A note's new text. Its reference never changes.
+         * @description A note's new text. Its references never change.
          */
         NoteEdit: {
             /**
@@ -3889,14 +3903,19 @@ export interface components {
         };
         /**
          * NoteRefWrite
-         * @description A new note's reference. `kind` is the server's to set.
+         * @description One reference of a new note. `kind` is the server's to set.
          */
         NoteRefWrite: {
             /**
-             * Job
-             * @description A job linked to the request (and to the item)
+             * Item
+             * @description The item key; left out on an item's note, that item. Alone, it names a planned shot that may have no job yet
              */
-            job: string;
+            item?: string | null;
+            /**
+             * Job
+             * @description A job linked to that item
+             */
+            job?: string | null;
             /**
              * Output
              * @description One file of that finished job's manifest, as the gallery names it (relative to the workspace's outputs); left out, the note is about the take as a whole

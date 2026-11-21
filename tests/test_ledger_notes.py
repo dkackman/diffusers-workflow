@@ -155,8 +155,8 @@ def test_a_stored_request_with_no_history_reads_with_no_agent_wrote_at(tmp_path)
 # --- add, edit and delete one note ---------------------------------------
 
 
-def _checked(rid, it, ref):
-    return {**ref, "kind": "video"}
+def _checked(rid, ref):
+    return {**ref, "kind": "video"} if "output" in ref else ref
 
 
 def planned(tmp_path):
@@ -164,19 +164,125 @@ def planned(tmp_path):
     return str(tmp_path)
 
 
-def add(root, text="warmer", item="a", ref=None, check=_checked):
-    return ledger.add_note(root, "cats", item=item, text=text, ref=ref, check_ref=check)
+def add(root, text="warmer", item="a", refs=None, check=_checked):
+    return ledger.add_note(
+        root, "cats", item=item, text=text, refs=refs, check_ref=check
+    )
 
 
 def test_add_note_on_an_item_with_a_ref(tmp_path):
     root = planned(tmp_path)
-    out = add(root, "lipsync off", ref={"job": "j1", "output": "w/r1/final/a.mp4"})
-    assert out["note"]["id"] == "n1" and out["note"]["ref"]["kind"] == "video"
+    out = add(root, "lipsync off", refs=[{"job": "j1", "output": "w/r1/final/a.mp4"}])
+    assert out["note"]["id"] == "n1"
+    assert out["note"]["refs"] == [
+        {"item": "a", "job": "j1", "output": "w/r1/final/a.mp4", "kind": "video"}
+    ]
     assert out["revision"] == 2
     got = ledger.get_request(root, "cats")
     assert got["history"][-1]["by"] == "user"
     assert got["history"][-1]["why"] == "note added"
-    assert got["items"][0]["notes"][0]["ref"]["job"] == "j1"
+    assert got["items"][0]["notes"][0]["refs"][0]["job"] == "j1"
+
+
+def test_a_request_note_refs_span_items_planned_or_rendered(tmp_path):
+    root = planned(tmp_path)
+    refs = [{"item": "a", "job": "j1", "output": "w/r1/final/a.mp4"}, {"item": "b"}]
+    note = add(root, "takes a and b: warmer", item=None, refs=refs)["note"]
+    assert note["refs"] == [
+        {"item": "a", "job": "j1", "output": "w/r1/final/a.mp4", "kind": "video"},
+        {"item": "b"},
+    ]
+    # a planned shot with no job: no attempt, not gone
+    assert ledger.get_request(root, "cats")["notes"][0]["refs"][1] == {"item": "b"}
+
+
+def test_an_empty_refs_list_stores_no_refs(tmp_path):
+    assert "refs" not in add(planned(tmp_path), refs=[])["note"]
+
+
+def test_an_item_note_ref_to_another_item_is_refused(tmp_path):
+    root = planned(tmp_path)
+    refused_note("invalid_note_ref", add, root, refs=[{"item": "b"}])
+    assert add(root, refs=[{"item": "a"}])["note"]["refs"] == [{"item": "a"}]
+
+
+def test_a_request_note_ref_needs_an_item(tmp_path):
+    refused_note("invalid_note_ref", add, planned(tmp_path), item=None, refs=[{}])
+
+
+def test_a_ref_to_an_item_not_in_the_plan_is_refused(tmp_path):
+    refused_note(
+        "invalid_note_ref", add, planned(tmp_path), item=None, refs=[{"item": "zz"}]
+    )
+
+
+def test_seventeen_refs_are_refused(tmp_path):
+    root = planned(tmp_path)
+    refs = [{"job": f"j{k}"} for k in range(ledger.MAX_NOTE_REFS + 1)]
+    e = refused_note("too_many_refs", add, root, refs=refs)
+    assert e.status == 422
+    assert ledger.get_request(root, "cats")["items"][0]["notes"] == []
+    add(root, refs=refs[: ledger.MAX_NOTE_REFS])
+
+
+def test_duplicate_refs_collapse_keeping_first_order(tmp_path):
+    root = planned(tmp_path)
+    refs = [
+        {"item": "b"},
+        {"item": "a", "job": "j1"},
+        {"item": "b"},
+        {"item": "a", "job": "j1"},
+        {"item": "a", "job": "j1", "output": "o.mp4"},
+    ]
+    note = add(root, item=None, refs=refs)["note"]
+    assert note["refs"] == [
+        {"item": "b"},
+        {"item": "a", "job": "j1"},
+        {"item": "a", "job": "j1", "output": "o.mp4", "kind": "video"},
+    ]
+
+
+def test_an_item_note_ref_defaults_its_item_before_dedupe(tmp_path):
+    seen = []
+
+    def spy(rid, ref):
+        seen.append(ref)
+        return ref
+
+    refs = [{"job": "j1"}, {"item": "a", "job": "j1"}]
+    note = add(planned(tmp_path), refs=refs, check=spy)["note"]
+    assert note["refs"] == [{"item": "a", "job": "j1"}]
+    assert seen == [{"item": "a", "job": "j1"}]
+
+
+def test_an_output_without_a_job_is_refused(tmp_path):
+    refused_note(
+        "invalid_note_ref", add, planned(tmp_path), refs=[{"output": "w/r1/a.mp4"}]
+    )
+
+
+def test_an_item_only_ref_to_a_dropped_item_is_refused(tmp_path):
+    root = planned(tmp_path)
+    write(
+        tmp_path,
+        plan(revision=1, items=[item("a")]),
+        linked_jobs=lambda rid, key: [{"job": "j1"}] if key == "b" else [],
+    )
+    refused_note("invalid_note_ref", add, root, item=None, refs=[{"item": "b"}])
+
+
+def test_a_ref_whose_item_is_dropped_later_is_gone(tmp_path):
+    root = planned(tmp_path)
+    add(root, "both", item=None, refs=[{"item": "a"}, {"item": "b"}])
+    before = ledger.get_request(root, "cats")["notes"][0]["refs"]
+    assert before == [{"item": "a"}, {"item": "b"}]
+    write(
+        tmp_path,
+        plan(revision=2, items=[item("a")]),
+        linked_jobs=lambda rid, key: [{"job": "j1"}] if key == "b" else [],
+    )
+    after = ledger.get_request(root, "cats")["notes"][0]["refs"]
+    assert after == [{"item": "a"}, {"item": "b", "gone": True}]
 
 
 def test_add_note_without_item_goes_on_the_request(tmp_path):
@@ -199,7 +305,7 @@ def test_note_ids_are_never_reused_after_delete(tmp_path):
 def test_add_note_sets_created_equal_to_at(tmp_path):
     note = add(planned(tmp_path))["note"]
     assert note["created"] == note["at"]
-    assert "ref" not in note
+    assert "refs" not in note
 
 
 def test_edit_note_with_same_text_keeps_at(tmp_path):
@@ -212,7 +318,7 @@ def test_edit_note_with_same_text_keeps_at(tmp_path):
 
 def test_edit_note_with_new_text_gets_new_at(tmp_path):
     root = planned(tmp_path)
-    note = add(root, ref={"job": "j1"})["note"]
+    note = add(root, refs=[{"job": "j1"}])["note"]
     path = tmp_path / REQUESTS_FILE_NAME
     stored = json.loads(path.read_text())
     stored["requests"]["cats"]["items"][0]["notes"][0]["at"] = T
@@ -222,7 +328,7 @@ def test_edit_note_with_new_text_gets_new_at(tmp_path):
     assert out["revision"] == 3
     assert out["note"]["text"] == "colder"
     assert out["note"]["created"] == T and out["note"]["at"] != T
-    assert out["note"]["ref"] == note["ref"]
+    assert out["note"]["refs"] == note["refs"]
     assert ledger.get_request(root, "cats")["history"][-1]["why"] == "note edited"
 
 
@@ -269,7 +375,7 @@ def test_unknown_request_item_and_note(tmp_path):
         "nope",
         item=None,
         text="x",
-        ref=None,
+        refs=None,
         check_ref=_checked,
     )
     assert e.status == 404
@@ -293,10 +399,13 @@ def test_blank_or_overlong_text_is_refused(tmp_path):
 def test_a_failed_check_ref_stores_nothing(tmp_path):
     root = planned(tmp_path)
 
-    def bad(rid, it, ref):
-        raise ledger.LedgerError("no such job", status=422, code="invalid_note_ref")
+    def bad(rid, ref):
+        if ref.get("job") == "j9":
+            raise ledger.LedgerError("no such job", status=422, code="invalid_note_ref")
+        return ref
 
-    refused_note("invalid_note_ref", add, root, ref={"job": "j9"}, check=bad)
+    refs = [{"job": "j1"}, {"job": "j9"}]
+    refused_note("invalid_note_ref", add, root, refs=refs, check=bad)
     got = ledger.get_request(root, "cats")
     assert got["revision"] == 1 and got["items"][0]["notes"] == []
     assert got["next_note"] == 1
@@ -308,24 +417,25 @@ def test_a_note_on_a_closed_request_is_allowed(tmp_path):
     assert add(root)["revision"] == 3
 
 
-def test_check_ref_gets_the_request_item_and_ref(tmp_path):
+def test_check_ref_gets_the_request_and_each_ref(tmp_path):
     root = planned(tmp_path)
     seen = []
 
-    def spy(rid, it, ref):
-        seen.append((rid, it, ref))
+    def spy(rid, ref):
+        seen.append((rid, ref))
         return ref
 
-    add(root, ref={"job": "j1"}, check=spy)
-    assert seen == [("cats", "a", {"job": "j1"})]
+    add(root, item=None, refs=[{"item": "a", "job": "j1"}, {"item": "b"}], check=spy)
+    assert seen == [("cats", {"item": "a", "job": "j1"}), ("cats", {"item": "b"})]
 
 
 def test_view_marks_ref_attempt_and_gone(tmp_path):
     root = planned(tmp_path)
     for job in ("j1", "j2", "j9"):
-        add(root, job, ref={"job": job})
-    add(root, "req-level", item=None, ref={"job": "j2"})
-    add(root, "req-gone", item=None, ref={"job": "j9"})
+        add(root, job, refs=[{"job": job}])
+    add(root, "req-level", item=None, refs=[{"item": "a", "job": "j2"}])
+    add(root, "req-gone", item=None, refs=[{"item": "a", "job": "j9"}])
+    add(root, "req-moved", item=None, refs=[{"item": "b", "job": "j2"}])
     jobs = [
         {
             "job": "j1",
@@ -343,12 +453,14 @@ def test_view_marks_ref_attempt_and_gone(tmp_path):
         },
     ]
     got = ledger.get_request(root, "cats", jobs_for=lambda rid: jobs)
-    refs = {n["text"]: n["ref"] for n in got["items"][0]["notes"]}
+    refs = {n["text"]: n["refs"][0] for n in got["items"][0]["notes"]}
     assert refs["j2"]["attempt"] == 2 and "gone" not in refs["j2"]
     assert refs["j1"]["attempt"] == 1 and refs["j1"]["gone"] is True
     assert refs["j9"]["attempt"] is None and refs["j9"]["gone"] is True
-    top = {n["text"]: n["ref"] for n in got["notes"]}
+    top = {n["text"]: n["refs"][0] for n in got["notes"]}
     assert top["req-level"]["attempt"] == 2 and "gone" not in top["req-level"]
     assert top["req-gone"]["attempt"] is None and top["req-gone"]["gone"] is True
+    # j2 is linked to a, so a ref naming it under b no longer holds
+    assert top["req-moved"]["gone"] is True
     stored = json.loads((tmp_path / REQUESTS_FILE_NAME).read_text())["requests"]["cats"]
-    assert "attempt" not in stored["items"][0]["notes"][0]["ref"]
+    assert "attempt" not in stored["items"][0]["notes"][0]["refs"][0]

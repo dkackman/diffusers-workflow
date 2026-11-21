@@ -138,7 +138,7 @@ def note_waiting(note, request):
 def waiting_notes(request):
     """The notes of one request that wait on the agent: the request's own,
     then each live item's in plan order (notes in stored order), as `{request,
-    revision, item, title, note, text, at, ref}`. `item` is "" for the
+    revision, item, title, note, text, at, refs}`. `item` is "" for the
     request's own notes; `note` is the note's id."""
     targets = [("", request.get("title"), request.get("notes"))]
     targets += [
@@ -155,7 +155,7 @@ def waiting_notes(request):
             "title": title,
             "text": note.get("text") or "",
             "at": note.get("at"),
-            "ref": note.get("ref"),
+            "refs": note.get("refs") or [],
         }
         for key, title, notes in targets
         for note in notes or []
