@@ -4623,6 +4623,34 @@
         "title": "NoteWritten",
         "type": "object"
       },
+      "NotesChannelState": {
+        "additionalProperties": false,
+        "properties": {
+          "last_seen": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "ISO UTC time of the last such poll, null if none since the server started.",
+            "title": "Last Seen"
+          },
+          "listening": {
+            "description": "True while a notes channel polled this workspace's request list in the last 30 seconds.",
+            "title": "Listening",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "listening",
+          "last_seen"
+        ],
+        "title": "NotesChannelState",
+        "type": "object"
+      },
       "OutputDeleted": {
         "additionalProperties": false,
         "properties": {
@@ -11528,6 +11556,46 @@
           }
         },
         "summary": "Remove Workspace"
+      }
+    },
+    "/api/workspaces/{name}/notes-channel": {
+      "get": {
+        "description": "Whether a notes channel has polled this workspace's request list in\nthe last 30 seconds, so the UI can say whether a session is listening.",
+        "operationId": "notes_channel_api_workspaces__name__notes_channel_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotesChannelState"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Notes Channel"
       }
     },
     "/api/workspaces/{name}/request-notes": {

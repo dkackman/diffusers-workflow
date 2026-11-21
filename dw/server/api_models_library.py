@@ -599,6 +599,17 @@ class NoteWritten(ApiModel):
     revision: int = Field(description="The request's revision after the write.")
 
 
+class NotesChannelState(ApiModel):
+    listening: bool = Field(
+        description="True while a notes channel polled this workspace's "
+        "request list in the last 30 seconds."
+    )
+    last_seen: str | None = Field(
+        description="ISO UTC time of the last such poll, null if none since "
+        "the server started."
+    )
+
+
 class NoteDeleted(ApiModel):
     revision: int = Field(description="The request's revision after the write.")
 

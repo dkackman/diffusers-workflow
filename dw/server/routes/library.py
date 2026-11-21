@@ -41,6 +41,7 @@ from ..api_models_library import (
     NoteAdd,
     NoteDeleted,
     NoteEdit,
+    NotesChannelState,
     NoteWritten,
     RequestWrite,
 )
@@ -996,7 +997,20 @@ def list_requests(request: Request, name: str):
     """A workspace's requests, newest change first, without their items.
     `unreadable` says why when requests.json is there but is not a ledger."""
     root = _ledger_root(request.app.state, name)
+    if request.headers.get("X-DW-Notes-Channel") == "1":
+        request.app.state.listening.seen(name)
     return {"workspace": name, **ledger.listing(root, _jobs_for(request, name))}
+
+
+@router.get(
+    "/api/workspaces/{name}/notes-channel",
+    response_model=NotesChannelState,
+)
+def notes_channel(request: Request, name: str):
+    """Whether a notes channel has polled this workspace's request list in
+    the last 30 seconds, so the UI can say whether a session is listening."""
+    _ledger_root(request.app.state, name)
+    return request.app.state.listening.state(name)
 
 
 @router.get(

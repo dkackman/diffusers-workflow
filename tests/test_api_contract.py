@@ -177,6 +177,7 @@ UI_READ_ROUTES = [
     ("get", "/api/workspaces/{name}/requests/{request_id}"),
     ("put", "/api/workspaces/{name}/requests/{request_id}"),
     ("delete", "/api/workspaces/{name}/requests/{request_id}"),
+    ("get", "/api/workspaces/{name}/notes-channel"),
     ("post", "/api/workspaces/{name}/request-notes"),
     ("put", "/api/workspaces/{name}/request-notes"),
     ("delete", "/api/workspaces/{name}/request-notes"),

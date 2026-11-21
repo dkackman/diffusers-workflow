@@ -1849,6 +1849,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/workspaces/{name}/notes-channel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Notes Channel
+         * @description Whether a notes channel has polled this workspace's request list in
+         *     the last 30 seconds, so the UI can say whether a session is listening.
+         */
+        get: operations["notes_channel_api_workspaces__name__notes_channel_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/workspaces/{name}/request-notes": {
         parameters: {
             query?: never;
@@ -3958,6 +3979,19 @@ export interface components {
              * @description The request's revision after the write.
              */
             revision: number;
+        };
+        /** NotesChannelState */
+        NotesChannelState: {
+            /**
+             * Last Seen
+             * @description ISO UTC time of the last such poll, null if none since the server started.
+             */
+            last_seen: string | null;
+            /**
+             * Listening
+             * @description True while a notes channel polled this workspace's request list in the last 30 seconds.
+             */
+            listening: boolean;
         };
         /** OutputDeleted */
         OutputDeleted: {
@@ -7593,6 +7627,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WorkspaceDeleted"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    notes_channel_api_workspaces__name__notes_channel_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotesChannelState"];
                 };
             };
             /** @description Validation Error */

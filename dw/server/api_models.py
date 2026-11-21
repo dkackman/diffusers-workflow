@@ -76,6 +76,7 @@ from .api_models_library import (
     LedgerList,
     NoteWritten,
     NoteDeleted,
+    NotesChannelState,
 )
 
 # The library's models live in api_models_library, and the base in
@@ -135,6 +136,7 @@ __all__ = [
     "LedgerList",
     "NoteWritten",
     "NoteDeleted",
+    "NotesChannelState",
 ]
 
 
