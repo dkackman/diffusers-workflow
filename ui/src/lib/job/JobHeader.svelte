@@ -138,22 +138,23 @@
 </script>
 
 <div class="head">
-  <a href={wsHref(job?.workspace ?? workspace.current, 'jobs')} class="muted"
-    >← jobs</a
-  >
+  <a href={wsHref(job?.workspace ?? workspace.current, 'jobs')} class="muted">
+    ← jobs
+  </a>
   {#if job}
     <h1>{job.workflow}</h1>
     <span class="chip {job.status}">{job.status}</span>
     <code class="muted seed" title="this job's id">{job.id}</code>
     <CopyButton text={job.id} title="copy job id" />
     {#if job?.rerun_of}
-      <span class="muted"
-        >rerun of <a
+      <span class="muted">
+        rerun of <a
           class="plain"
           href={wsHref(job.workspace, 'jobs', job.rerun_of)}
-          ><code>{job.rerun_of}</code></a
-        ></span
-      >
+        >
+          <code>{job.rerun_of}</code>
+        </a>
+      </span>
       {#if overrideKeys.length}
         <!-- Its own element beside "rerun of", so a sibling can be added
              without editing it -->
@@ -161,24 +162,27 @@
           class="muted seed overrides"
           title={Object.entries(job.overrides ?? {})
             .map(([name, value]) => `${name} = ${displayValue(value)}`)
-            .join('\n')}>changed: {overrideKeys.join(', ')}</code
+            .join('\n')}
         >
+          changed: {overrideKeys.join(', ')}
+        </code>
       {/if}
     {/if}
     {#if job.request}
       <span class="muted">
         {#if requestGone}
-          <span title="request no longer exists"
-            >{job.request}{job.item ? ` › ${job.item}` : ''}</span
-          >
+          <span title="request no longer exists">
+            {job.request}{job.item ? ` › ${job.item}` : ''}
+          </span>
           <span>request no longer exists</span>
         {:else}
           <a
             class="plain"
             href={wsHref(job.workspace, 'requests', job.request)}
             title={requestTitle || `request ${job.request}`}
-            >{job.request}{job.item ? ` › ${job.item}` : ''}</a
           >
+            {job.request}{job.item ? ` › ${job.item}` : ''}
+          </a>
         {/if}
       </span>
     {/if}
@@ -186,25 +190,27 @@
       <span
         class="muted"
         title="cancel requested - it takes effect once the current model load or task finishes, since neither can be interrupted mid-operation"
-        >cancelling after current phase…</span
       >
+        cancelling after current phase…
+      </span>
     {/if}
     {#if job.queue_position !== undefined}
-      <span class="muted" title="position in the waiting queue"
-        >#{job.queue_position + 1} in line</span
-      >
+      <span class="muted" title="position in the waiting queue">
+        #{job.queue_position + 1} in line
+      </span>
     {/if}
     {#if job.waiting_for}
-      <span class="muted" title={holdTitle(job.waiting_for)}
-        >{job.waiting_for}</span
-      >
+      <span class="muted" title={holdTitle(job.waiting_for)}>
+        {job.waiting_for}
+      </span>
     {/if}
     {#if seed !== undefined}
       <code
         class="muted seed"
         title="the seed this run used - embedded in saved images alongside the recipe"
-        >seed {seed}</code
       >
+        seed {seed}
+      </code>
     {/if}
     {#if runVersion}
       <!-- The gallery labels this run's files the same way, so "version 4"
@@ -212,16 +218,19 @@
       <code
         class="muted seed"
         title={`version ${runVersion} of this workflow${job.run_id ? ` - run ${job.run_id}` : ''}`}
-        >v{runVersion}</code
       >
+        v{runVersion}
+      </code>
     {/if}
     {#if job.started_at}
       <code
         class="muted seed"
         title={`started ${formatExact(job.started_at)}${
           job.finished_at ? `\nfinished ${formatExact(job.finished_at)}` : ''
-        }`}>{formatMtime(job.started_at)}</code
+        }`}
       >
+        {formatMtime(job.started_at)}
+      </code>
     {/if}
     {#if took !== null}
       <code
@@ -229,20 +238,23 @@
         title={job.finished_at
           ? 'start to finish - excludes time queued'
           : 'running for - excludes time queued'}
-        >{job.finished_at ? 'took' : 'running'} {formatDuration(took)}</code
       >
+        {job.finished_at ? 'took' : 'running'}
+        {formatDuration(took)}
+      </code>
     {/if}
     {#if job.device}
-      <code class="muted seed" title="the card this job ran on"
-        >Card: {job.device}</code
-      >
+      <code class="muted seed" title="the card this job ran on">
+        Card: {job.device}
+      </code>
     {/if}
     {#if job.host_memory_job_peak_committed_mb != null}
       <code
         class="muted seed"
         title="the whole server process's committed memory at its peak during this job - what the host-RAM gate projects from, not growth caused by this job alone"
-        >peak host RAM {peakRam(job.host_memory_job_peak_committed_mb)}</code
       >
+        peak host RAM {peakRam(job.host_memory_job_peak_committed_mb)}
+      </code>
     {/if}
     {#if job.acknowledged === 'bound'}
       <!-- Whoever queued this bound their go-ahead to a plan; the number
@@ -254,10 +266,11 @@
             ? ` (${job.acknowledged_cost.fingerprint.slice(0, 15)}…)`
             : ''
         }`}
-        >{job.acknowledged_cost?.minutes != null
-          ? `acknowledged at ${job.acknowledged_cost.minutes} min`
-          : 'acknowledged'}</code
       >
+        {job.acknowledged_cost?.minutes != null
+          ? `acknowledged at ${job.acknowledged_cost.minutes} min`
+          : 'acknowledged'}
+      </code>
     {/if}
     <span class="flex"></span>
     {#if running}

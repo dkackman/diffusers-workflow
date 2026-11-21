@@ -334,16 +334,19 @@
         title={which === 'final'
           ? 'what the runs were for'
           : "the steps' working files, kept along the way"}
-        >{which === 'final' ? 'Final' : 'Intermediate'}</button
       >
+        {which === 'final' ? 'Final' : 'Intermediate'}
+      </button>
     {/each}
     <button
       class="rolechip"
       class:on={starredOnly}
       aria-pressed={starredOnly}
       onclick={() => (starredOnly = !starredOnly)}
-      title="only the files you starred">Starred</button
+      title="only the files you starred"
     >
+      Starred
+    </button>
   </div>
   <RequestFilter bind:request={reqId} bind:item={reqItem} />
 </div>
@@ -416,13 +419,15 @@
               alt={file.name}
               loading="lazy"
             />
-            <span class="videobadge" aria-hidden="true"><Play size={11} /></span
-            >
+            <span class="videobadge" aria-hidden="true">
+              <Play size={11} />
+            </span>
           </span>
         {:else}
-          <span class="audio"
-            >{file.kind === 'text' ? '¶' : '♪'} {file.label}</span
-          >
+          <span class="audio">
+            {file.kind === 'text' ? '¶' : '♪'}
+            {file.label}
+          </span>
         {/if}
         <span class="caption" title={file.name}>
           {#if file.role}
@@ -434,8 +439,9 @@
             <span
               class="version"
               title="version {file.version} of this workflow"
-              >v{file.version}</span
             >
+              v{file.version}
+            </span>
             <!-- A real space rather than a margin, so a screen reader says
                  "v4 film.mp4" instead of running the two together. Explicit:
                  whitespace at the edge of an if block is trimmed -->
@@ -446,13 +452,15 @@
             {' '}<span
               class="note-mark"
               title={file.note.split('\n')[0]}
-              aria-label="Has a note"><Pencil size={11} /></span
-            >{/if}{#if file.starred}
+              aria-label="Has a note"
+            >
+              <Pencil size={11} />
+            </span>{/if}{#if file.starred}
             <!-- eslint-disable-next-line svelte/no-useless-mustaches -->
-            {' '}<span class="note-mark" aria-label="Starred"
-              ><Star size={11} fill="currentColor" /></span
-            >{/if}</span
-        >
+            {' '}<span class="note-mark" aria-label="Starred">
+              <Star size={11} fill="currentColor" />
+            </span>{/if}
+        </span>
       </button>
     </div>
   {/snippet}

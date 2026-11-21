@@ -34,9 +34,9 @@
 {#if ref.gone}
   <span class="ref gone" title="no longer exists">{label}</span>
 {:else if !ref.job && ongo}
-  <button type="button" class="bare ref" onclick={() => ongo(ref.item)}
-    >{label}</button
-  >
+  <button type="button" class="bare ref" onclick={() => ongo(ref.item)}>
+    {label}
+  </button>
 {:else if ref.output}
   <a class="plain ref" {href} target="_blank" rel="noopener">{label}</a>
 {:else}

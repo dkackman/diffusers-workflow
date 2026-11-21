@@ -237,10 +237,11 @@
              crosses it rather than the line striking the label through -->
         {#each layout.edgeLines ?? [] as edge, i (i)}
           {#if edge}
-            <text x={edge.labelX} y={edge.labelY} class="edgelabel"
-              >{#if edge.label !== edge.title}<title>{edge.title}</title
-                >{/if}{edge.label}</text
-            >
+            <text x={edge.labelX} y={edge.labelY} class="edgelabel">
+              {#if edge.label !== edge.title}<title>
+                  {edge.title}
+                </title>{/if}{edge.label}
+            </text>
           {/if}
         {/each}
 
@@ -269,28 +270,28 @@
                 <title>{overflowTitle(node)}</title>
               {/if}
               <rect width={BOX_W} height={boxH} rx="8" class="box" />
-              <text x="10" y="20" class="stepname"
-                >{fit(
+              <text x="10" y="20" class="stepname">
+                {fit(
                   node.name,
                   node.isEntryPoint ? NAME_CHARS_WITH_TAG : NAME_CHARS,
                   'head',
-                )}</text
-              >
+                )}
+              </text>
               <text x="10" y="37" class="stepkind">{kindLabel(node.kind)}</text>
               {#if stateOf(node.name) === 'done' && nodeTimes[node.name] !== undefined}
-                <text x={BOX_W - 8} y="37" class="steptime" text-anchor="end"
-                  >{formatDuration(nodeTimes[node.name])}</text
-                >
+                <text x={BOX_W - 8} y="37" class="steptime" text-anchor="end">
+                  {formatDuration(nodeTimes[node.name])}
+                </text>
               {/if}
               {#if node.detail}
-                <text x="10" y="52" class="stepdetail"
-                  >{fit(node.detail, DETAIL_CHARS, 'tail')}</text
-                >
+                <text x="10" y="52" class="stepdetail">
+                  {fit(node.detail, DETAIL_CHARS, 'tail')}
+                </text>
               {/if}
               {#if node.isEntryPoint}
-                <text x={BOX_W - 8} y="14" class="entrytag" text-anchor="end"
-                  >entry</text
-                >
+                <text x={BOX_W - 8} y="14" class="entrytag" text-anchor="end">
+                  entry
+                </text>
               {/if}
               {#if node.members?.length}
                 <!-- The run's entries, in the order the engine expands them:
@@ -321,26 +322,29 @@
                       x="15"
                       y={CHIP_TOP + i * CHIP_STEP + 11}
                       class="chiplabel"
-                      >{fit(
+                    >
+                      {fit(
                         key,
                         took === undefined ? CHIP_CHARS : CHIP_CHARS_TIMED,
                         'head',
-                      )}</text
-                    >
+                      )}
+                    </text>
                     {#if took !== undefined}
                       <text
                         x={BOX_W - 15}
                         y={CHIP_TOP + i * CHIP_STEP + 11}
                         class="steptime"
-                        text-anchor="end">{formatDuration(took)}</text
+                        text-anchor="end"
                       >
+                        {formatDuration(took)}
+                      </text>
                     {/if}
                   </g>
                 {/each}
               {:else if node.forEach}
-                <text x="11" y={CHIP_TOP + 12} class="membersunknown"
-                  >for_each</text
-                >
+                <text x="11" y={CHIP_TOP + 12} class="membersunknown">
+                  for_each
+                </text>
               {:else if node.chain}
                 <FlowSegments
                   {node}
@@ -354,8 +358,10 @@
                 x={pos.x + BOX_W / 2}
                 y={pos.y + boxH + 14}
                 class="fanlabel"
-                text-anchor="middle">× {fanIn.label}</text
+                text-anchor="middle"
               >
+                × {fanIn.label}
+              </text>
             {/if}
           {/if}
         {/each}

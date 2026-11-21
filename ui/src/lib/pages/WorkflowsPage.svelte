@@ -158,8 +158,9 @@
       class="exampleslink plain muted"
       href={sharedHref('examples')}
       title="the read-only templates every workspace can start from"
-      >examples <span class="num">{exampleCount}</span></a
     >
+      examples <span class="num">{exampleCount}</span>
+    </a>
   {/if}
   <input placeholder="filter…" bind:value={filter} class="filter" />
   {#if !examples}
@@ -167,8 +168,10 @@
       class="quiet icon plain"
       href={wsHref(workspace.current, 'edit')}
       title="new workflow"
-      aria-label="new workflow"><Plus size={15} /></a
+      aria-label="new workflow"
     >
+      <Plus size={15} />
+    </a>
   {/if}
 </div>
 
@@ -184,16 +187,20 @@
       class="shapebtn"
       class:on={shape === ''}
       aria-pressed={shape === ''}
-      onclick={() => (shape = '')}>all</button
+      onclick={() => (shape = '')}
     >
+      all
+    </button>
     {#each shapesPresent as value (value)}
       <button
         class="shapebtn"
         class:on={shape === value}
         aria-pressed={shape === value}
         onclick={() => (shape = shape === value ? '' : value)}
-        title="show only workflows that make {value}">{value}</button
+        title="show only workflows that make {value}"
       >
+        {value}
+      </button>
     {/each}
   </div>
 {/if}
@@ -258,8 +265,9 @@
               loading="lazy"
               decoding="async"
             />
-            <span class="videobadge" aria-hidden="true"><Play size={11} /></span
-            >
+            <span class="videobadge" aria-hidden="true">
+              <Play size={11} />
+            </span>
           {/if}
         </span>
       {/if}
@@ -287,9 +295,9 @@
           <span class="cost num muted">{observedText(detail?.observed)}</span>
         {/if}
         {#if detail?.summary || detail?.description}
-          <span class="carddesc muted"
-            >{detail.summary || detail.description}</span
-          >
+          <span class="carddesc muted">
+            {detail.summary || detail.description}
+          </span>
         {/if}
         {#if detail?.configures || detail?.writable === false}
           <span class="cardfoot muted">
@@ -312,9 +320,9 @@
       No example workflows — start the server with --examples-dir to list some.
     {:else}
       No workflows yet — the + above creates the first one{#if exampleCount}, or
-        start from one of the <a href={sharedHref('examples')}
-          >{exampleCount} examples</a
-        >{/if}.
+        start from one of the <a href={sharedHref('examples')}>
+          {exampleCount} examples
+        </a>{/if}.
     {/if}
   </Empty>
 {:else if loaded && visible.length === 0}

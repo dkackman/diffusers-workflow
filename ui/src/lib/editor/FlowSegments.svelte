@@ -68,22 +68,22 @@
     <text x="15" y={y + 11} class="chiplabel">segment {i + 1}</text>
     {#if i === 0 && node.chain?.anchor}
       <g>
-        <title
-          >segment 1's latents anchor every later segment's (chain anchor:
-          segment_1)</title
-        >
-        <text x={BOX_W - 15} y={y + 11} class="anchortag" text-anchor="end"
-          >anchor</text
-        >
+        <title>
+          segment 1's latents anchor every later segment's (chain anchor:
+          segment_1)
+        </title>
+        <text x={BOX_W - 15} y={y + 11} class="anchortag" text-anchor="end">
+          anchor
+        </text>
       </g>
     {/if}
   </g>
   {#if i < chips - 1 && node.chain}
-    <text x="15" y={y + CHIP_H + 10} class="seamlabel"
-      >{#if `↓ ${node.chain.seam}`.length > SEAM_CHARS}<title
-          >{node.chain.seam}</title
-        >{/if}{fit(`↓ ${node.chain.seam}`, SEAM_CHARS, 'head')}</text
-    >
+    <text x="15" y={y + CHIP_H + 10} class="seamlabel">
+      {#if `↓ ${node.chain.seam}`.length > SEAM_CHARS}<title>
+          {node.chain.seam}
+        </title>{/if}{fit(`↓ ${node.chain.seam}`, SEAM_CHARS, 'head')}
+    </text>
   {/if}
 {/each}
 

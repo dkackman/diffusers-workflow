@@ -107,10 +107,10 @@
 </script>
 
 <details open={activeSlots.length > 0 || openSection === 'components'}>
-  <summary
-    ><Boxes size={13} /> components
-    <span class="muted">({activeSlots.length})</span></summary
-  >
+  <summary>
+    <Boxes size={13} /> components
+    <span class="muted">({activeSlots.length})</span>
+  </summary>
   <div class="section">
     {#each activeSlots as slot (slot)}
       <ComponentEditor
@@ -131,17 +131,19 @@
         class="quiet"
         onclick={addComponent}
         disabled={!addSlot}
-        title="declare the selected component on this pipeline">add</button
+        title="declare the selected component on this pipeline"
       >
+        add
+      </button>
     </div>
   </div>
 </details>
 
 <details open={(pipeline.loras ?? []).length > 0 || openSection === 'loras'}>
-  <summary
-    ><Layers size={13} /> LoRAs
-    <span class="muted">({(pipeline.loras ?? []).length})</span></summary
-  >
+  <summary>
+    <Layers size={13} /> LoRAs
+    <span class="muted">({(pipeline.loras ?? []).length})</span>
+  </summary>
   <div class="section">
     <LorasEditor bind:pipeline />
   </div>
@@ -240,9 +242,9 @@
         />
       {:else if configuration.cache}
         <select bind:value={configuration.cache.type}>
-          {#each CACHE_TYPES as cacheType (cacheType)}<option
-              >{cacheType}</option
-            >{/each}
+          {#each CACHE_TYPES as cacheType (cacheType)}<option>
+              {cacheType}
+            </option>{/each}
         </select>
         <input
           class="num"
@@ -268,9 +270,9 @@
       >
         <option value="">pipeline default</option>
         {#if current && !attentionBackends.list.includes(current)}
-          <option value={current}
-            >{current} (not available on this server)</option
-          >
+          <option value={current}>
+            {current} (not available on this server)
+          </option>
         {/if}
         {#each attentionBackends.list as backend (backend)}
           <option value={backend}>{backend}</option>

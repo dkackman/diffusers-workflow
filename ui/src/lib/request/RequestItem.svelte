@@ -117,10 +117,12 @@
     {i ? ', ' : ''}<button
       type="button"
       class="bare ref"
-      onclick={() => ongo(dep.key)}>{dep.title}</button
-    ><span class:bad={dep.display === 'failed'}
-      >{` (${CHIP[dep.display].word})`}</span
+      onclick={() => ongo(dep.key)}
     >
+      {dep.title}
+    </button><span class:bad={dep.display === 'failed'}>
+      {` (${CHIP[dep.display].word})`}
+    </span>
   {/each}
 {/snippet}
 
@@ -155,9 +157,9 @@
         <p class="sub">
           <span class="muted">{takes}</span>
           {#if item.attempts.length > 1 && mark === 'accepted'}
-            <span class="mark"
-              ><Check size={12} aria-hidden="true" /> accepted</span
-            >
+            <span class="mark">
+              <Check size={12} aria-hidden="true" /> accepted
+            </span>
           {:else if item.attempts.length > 1 && mark === 'latest'}
             <span class="mark">latest, none accepted</span>
           {/if}
@@ -182,23 +184,27 @@
         alt="result of {item.title}"
       />
     </span>
-    <span class="chipcell"
-      ><span class="chip {chip.tone}">{chip.word}</span></span
-    >
+    <span class="chipcell">
+      <span class="chip {chip.tone}">{chip.word}</span>
+    </span>
     <span class="figure num muted">{figure}</span>
     <span class="tail">
       {#if job || action}
         <span class="action">
           {#if job}
-            <a class="plain quiet openjob" href={wsHref(workspace, 'jobs', job)}
-              >Open job</a
+            <a
+              class="plain quiet openjob"
+              href={wsHref(workspace, 'jobs', job)}
             >
+              Open job
+            </a>
           {/if}
           {@render action?.(row)}
         </span>
       {/if}
-      {#if menu}<span class="menu">{@render menu(row, { note: openNote })}</span
-        >{/if}
+      {#if menu}<span class="menu">
+          {@render menu(row, { note: openNote })}
+        </span>{/if}
     </span>
   </div>
   {#if notice}{@render notice(row)}{/if}
@@ -223,10 +229,10 @@
     {/if}
     {#if item.workflow && args.length}
       <details class="runs">
-        <summary
-          >Runs <code>{item.workflow}</code> with {args.length}
-          {args.length === 1 ? 'argument' : 'arguments'}</summary
-        >
+        <summary>
+          Runs <code>{item.workflow}</code> with {args.length}
+          {args.length === 1 ? 'argument' : 'arguments'}
+        </summary>
         <ul class="args">
           {#each args as [name, value] (name)}
             <li title={displayValue(value)}>{name} = {displayValue(value)}</li>

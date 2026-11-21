@@ -175,8 +175,9 @@
                   class="quiet"
                   disabled={queue.busy}
                   onclick={() => queue.accept(item.key)}
-                  >Run at this price</button
                 >
+                  Run at this price
+                </button>
               </p>
             {:else if row.state === 'failed'}
               <p class="outcome bad" role="alert">{row.error}</p>
@@ -210,14 +211,16 @@
       class="bare"
       bind:this={cancel}
       onclick={() => (open = false)}
-      >{queue.queued.length ? 'Close' : 'Cancel'}</button
     >
+      {queue.queued.length ? 'Close' : 'Cancel'}
+    </button>
     <button
       type="button"
       disabled={!queue.settled || queue.busy || n === 0}
       onclick={() => queue.submit()}
-      >{queue.busy ? 'Queuing…' : `Run ${n}`}</button
     >
+      {queue.busy ? 'Queuing…' : `Run ${n}`}
+    </button>
   </div>
 </Modal>
 

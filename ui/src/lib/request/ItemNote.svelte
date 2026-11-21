@@ -201,8 +201,9 @@
               aria-label="Remove {ref.output ?? ref.job ?? ref.item}"
               title="Remove from the note"
               onclick={() => onremoveref(ref)}
-              ><X size={12} aria-hidden="true" /></button
             >
+              <X size={12} aria-hidden="true" />
+            </button>
           {/if}
         </li>
       {/each}
@@ -238,15 +239,12 @@
           onclick={save}
           disabled={saving}
           title="Ctrl+Enter"
-          >{saving
-            ? 'Saving…'
-            : listening
-              ? 'Send to agent'
-              : 'Save note'}</button
         >
-        <button type="button" class="bare" onclick={cancel} disabled={saving}
-          >Cancel</button
-        >
+          {saving ? 'Saving…' : listening ? 'Send to agent' : 'Save note'}
+        </button>
+        <button type="button" class="bare" onclick={cancel} disabled={saving}>
+          Cancel
+        </button>
       </div>
     {:else}
       {#if note}
@@ -265,19 +263,22 @@
             bind:this={opener}
             onclick={edit}
             disabled={saving}
-            >{kept
+          >
+            {kept
               ? 'Continue the draft'
               : note
                 ? 'Edit note'
-                : 'Add a note for the agent'}</button
-          >
+                : 'Add a note for the agent'}
+          </button>
           {#if note && ondelete}
             <button
               type="button"
               class="bare"
               onclick={remove}
-              disabled={saving}>Delete note</button
+              disabled={saving}
             >
+              Delete note
+            </button>
           {/if}
         </div>
       {/if}
@@ -286,9 +287,9 @@
       <p class="refused" role="alert">
         {refusalText(refused)}
         {#if refused.reload}
-          <button type="button" class="quiet" onclick={reload}
-            >Reload the plan</button
-          >
+          <button type="button" class="quiet" onclick={reload}>
+            Reload the plan
+          </button>
         {/if}
       </p>
     {/if}

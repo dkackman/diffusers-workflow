@@ -52,8 +52,10 @@
     class="quiet icon plain"
     href={sharedHref('prompt-edit')}
     title="new prompt"
-    aria-label="new prompt"><Plus size={15} /></a
+    aria-label="new prompt"
   >
+    <Plus size={15} />
+  </a>
 </div>
 
 {#if error}

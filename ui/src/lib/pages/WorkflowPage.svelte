@@ -222,8 +222,10 @@
   href={route.view.kind === 'shared'
     ? sharedHref('examples')
     : wsHref(workspace.current, 'workflows')}
-  class="back muted">← workflows</a
+  class="back muted"
 >
+  ← workflows
+</a>
 
 <!-- One filled button: Run, the thing you came here to do. Everything else
      is outlined or bare, and Delete is pushed out of reach of Run rather
@@ -321,8 +323,9 @@
               alt={proof.label}
               loading="lazy"
             />
-            <span class="videobadge" aria-hidden="true"><Play size={11} /></span
-            >
+            <span class="videobadge" aria-hidden="true">
+              <Play size={11} />
+            </span>
           {/if}
         </a>
       {/each}

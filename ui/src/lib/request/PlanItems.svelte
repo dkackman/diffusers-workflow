@@ -201,13 +201,13 @@
 
 {#snippet action(row: ItemState)}
   {#if row.item.dropped}
-    <button type="button" class="quiet act" onclick={() => restore(row)}
-      >Restore</button
-    >
+    <button type="button" class="quiet act" onclick={() => restore(row)}>
+      Restore
+    </button>
   {:else if onrun && row.runnable}
-    <button type="button" class="quiet act" onclick={() => onrun(row.item.key)}
-      >{row.display === 'ready' ? 'Run…' : 'Run again…'}</button
-    >
+    <button type="button" class="quiet act" onclick={() => onrun(row.item.key)}>
+      {row.display === 'ready' ? 'Run…' : 'Run again…'}
+    </button>
   {/if}
 {/snippet}
 

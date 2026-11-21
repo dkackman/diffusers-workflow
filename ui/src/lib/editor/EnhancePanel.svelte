@@ -41,13 +41,13 @@
       />
       {#if enhancer.model}
         {#if enhancer.modelCached}
-          <span class="chip good" title="already in the local model cache"
-            >cached</span
-          >
+          <span class="chip good" title="already in the local model cache">
+            cached
+          </span>
         {:else if enhancer.downloading}
-          <span class="chip" title="downloading to the local model cache"
-            >downloading…</span
-          >
+          <span class="chip" title="downloading to the local model cache">
+            downloading…
+          </span>
         {:else}
           <button
             class="quiet withicon"
@@ -93,9 +93,9 @@
       <a class="muted joblink" href={'#/jobs/' + enhancer.jobId}>watch job</a>
     {/if}
     {#if enhancer.status}
-      <span class="muted enhancestatus"
-        ><span class="pulse-dot"></span>{enhancer.status}</span
-      >
+      <span class="muted enhancestatus">
+        <span class="pulse-dot"></span>{enhancer.status}
+      </span>
     {/if}
   </div>
   {#if enhancer.error}<p class="error">{enhancer.error}</p>{/if}

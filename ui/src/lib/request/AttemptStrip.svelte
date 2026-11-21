@@ -108,27 +108,30 @@
             ? 'Accepted as the result. Press to clear the choice'
             : 'Make this take the result'}
           onclick={() => onaccept(take, chosen(take) ? null : attempt.job)}
-          >{chosen(take) ? 'Accepted' : 'Accept'}</button
         >
+          {chosen(take) ? 'Accepted' : 'Accept'}
+        </button>
       {/if}
       {#if onnote}
         <button
           type="button"
           class="bare notetake"
           aria-label="Note take {take.n} of {item.title} for the agent"
-          onclick={() => onnote(take)}>Note this take</button
+          onclick={() => onnote(take)}
         >
+          Note this take
+        </button>
       {/if}
     </li>
   {/each}
 </ul>
 <p class="links">
-  <a href={wsHref(workspace, 'gallery') + requestQuery(requestId, item.key)}
-    >open these in the gallery</a
-  >
-  <a href={wsHref(workspace, 'jobs') + requestQuery(requestId, item.key)}
-    >its jobs</a
-  >
+  <a href={wsHref(workspace, 'gallery') + requestQuery(requestId, item.key)}>
+    open these in the gallery
+  </a>
+  <a href={wsHref(workspace, 'jobs') + requestQuery(requestId, item.key)}>
+    its jobs
+  </a>
 </p>
 
 <style>

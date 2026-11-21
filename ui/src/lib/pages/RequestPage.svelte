@@ -247,9 +247,9 @@
   {:else}
     {#if stale}
       <div class="panel warn-edge stale" role="status">
-        <span
-          >Showing the plan as of {formatMtime(readAt)}. Could not refresh: {stale}</span
-        >
+        <span>
+          Showing the plan as of {formatMtime(readAt)}. Could not refresh: {stale}
+        </span>
         <button type="button" class="quiet" onclick={load}>Retry</button>
       </div>
     {/if}
@@ -264,9 +264,9 @@
         >
           {#snippet actions()}
             {#if ready}
-              <button type="button" onclick={() => (running = readyPlan(plan))}
-                >Run {ready} ready…</button
-              >
+              <button type="button" onclick={() => (running = readyPlan(plan))}>
+                Run {ready} ready…
+              </button>
             {/if}
           {/snippet}
           {#snippet menu()}

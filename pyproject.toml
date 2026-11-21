@@ -83,7 +83,7 @@ dependencies = [
     "facexlib>=0.3.0",
     # Imaging and media
     "numpy>=2.5.4",
-    "Pillow>=12.3.0",
+    "Pillow>=13.0.0",
     "piexif>=1.1.3",
     "imageio>=2.38.1",
     "imageio-ffmpeg>=0.6.0",

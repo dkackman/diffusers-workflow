@@ -250,14 +250,18 @@
       <a
         class="plain"
         href={wsHref(listed, 'requests', requestScope.request)}
-        title="open this request">{requestLabel(requestScope)}</a
+        title="open this request"
       >
+        {requestLabel(requestScope)}
+      </a>
       <button
         class="quiet icon"
         onclick={() => (reqFilter = '')}
         title="remove the request filter"
-        aria-label="remove the request filter"><X size={12} /></button
+        aria-label="remove the request filter"
       >
+        <X size={12} />
+      </button>
     </span>
   {/if}
 </div>
@@ -266,15 +270,16 @@
 
 {#each banners as banner (banner.batch)}
   <div class="panel restart" role="status" data-batch={banner.batch}>
-    <span
-      >{`${banner.count} ${banner.count === 1 ? 'job was' : 'jobs were'} cancelled by a server restart`}</span
-    >
+    <span>
+      {`${banner.count} ${banner.count === 1 ? 'job was' : 'jobs were'} cancelled by a server restart`}
+    </span>
     <button
       onclick={() => rerunBatch(banner)}
       disabled={previewing === banner.batch}
       title="preview what a rerun would queue, with its cost, before anything is queued"
-      >Rerun…</button
     >
+      Rerun…
+    </button>
   </div>
 {/each}
 
@@ -308,13 +313,14 @@
               <span
                 class="wschip muted"
                 title="version {job.run_version} of this workflow - the gallery labels its files the same way"
-                >v{job.run_version}</span
               >
+                v{job.run_version}
+              </span>
             {/if}
             {#if job.rerun_of}
-              <span class="wschip muted" title="a rerun of {job.rerun_of}"
-                >rerun</span
-              >
+              <span class="wschip muted" title="a rerun of {job.rerun_of}">
+                rerun
+              </span>
             {/if}
             {#if job.request}
               <span
@@ -322,32 +328,35 @@
                 title="request {job.request}{job.item
                   ? `, item ${job.item}`
                   : ''}"
-                >{requestLabel({
+              >
+                {requestLabel({
                   request: job.request,
                   item: job.item ?? '',
-                })}</span
-              >
+                })}
+              </span>
             {/if}
             {#if scope === 'all' && (workspace.names?.length ?? 0) > 1}
-              <span class="wschip muted" title="workspace">{job.workspace}</span
-              >
+              <span class="wschip muted" title="workspace">
+                {job.workspace}
+              </span>
             {/if}
             {#if job.device}
-              <span class="wschip muted" title="the card this job ran on"
-                >{job.device}</span
-              >
+              <span class="wschip muted" title="the card this job ran on">
+                {job.device}
+              </span>
             {/if}
             {#if job.acknowledged === 'bound'}
               <span
                 class="wschip muted"
                 title="queued with a cost acknowledgement bound to the validated plan"
-                >acknowledged</span
               >
+                acknowledged
+              </span>
             {/if}
             {#if job.queue_position !== undefined}
-              <span class="qpos" title="position in the waiting queue"
-                >#{job.queue_position + 1}</span
-              >
+              <span class="qpos" title="position in the waiting queue">
+                #{job.queue_position + 1}
+              </span>
               {#if queueSize > 1}
                 <span class="qmove">
                   {#if job.queue_position > 0}
@@ -393,22 +402,23 @@
             title={job.created_at
               ? `queued ${formatExact(job.created_at)} - time spent waiting for a card`
               : 'time spent waiting for a card'}
-            >waiting {wait === null ? '' : formatDuration(wait)}</span
           >
+            waiting {wait === null ? '' : formatDuration(wait)}
+          </span>
           {#if job.waiting_for}
             {@const kind = holdKind(job.waiting_for)}
-            <span class="muted" title={job.waiting_for}
-              >· {kind === 'host_ram'
+            <span class="muted" title={job.waiting_for}>
+              · {kind === 'host_ram'
                 ? 'host RAM'
                 : kind === 'cards_busy'
                   ? 'cards busy'
-                  : 'held'}</span
-            >
+                  : 'held'}
+            </span>
           {/if}
         {:else}
-          <span class="muted started" title={timesOf(job)}
-            >{when(job.started_at)}</span
-          >
+          <span class="muted started" title={timesOf(job)}>
+            {when(job.started_at)}
+          </span>
         {/if}
         <span class="muted dur">{duration(job)}</span>
         <code class="muted jobid">{job.id}</code>

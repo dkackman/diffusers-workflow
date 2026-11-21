@@ -170,15 +170,15 @@
               {#each shown as event (event.seq)}
                 <tr>
                   <td class="num">{event.seq}</td>
-                  <td class="num"
-                    >{typeof event.at === 'number'
+                  <td class="num">
+                    {typeof event.at === 'number'
                       ? '+' + formatDuration(event.at)
-                      : ''}</td
-                  >
+                      : ''}
+                  </td>
                   <td class="kind">{eventKind(event)}</td>
-                  <td class="body" title={eventSummary(event)}
-                    >{eventSummary(event)}</td
-                  >
+                  <td class="body" title={eventSummary(event)}>
+                    {eventSummary(event)}
+                  </td>
                 </tr>
               {/each}
             </tbody>

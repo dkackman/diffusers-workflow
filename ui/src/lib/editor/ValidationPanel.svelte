@@ -26,9 +26,9 @@
     <X size={13} />
   </button>
   {#if validation.valid && !validation.warnings.length}
-    <span class="ok"
-      ><CircleCheck size={14} /> schema-valid, no argument warnings</span
-    >
+    <span class="ok">
+      <CircleCheck size={14} /> schema-valid, no argument warnings
+    </span>
   {:else}
     {#if !validation.valid}
       {#if validation.errors && validation.errors.length}

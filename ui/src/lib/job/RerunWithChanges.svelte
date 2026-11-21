@@ -127,8 +127,10 @@
     class="quiet promote"
     data-promotion={p.selector}
     onclick={() => promote(p)}
-    title={promotionTitle(p)}><code>{p.selector}</code>: {p.value}</button
+    title={promotionTitle(p)}
   >
+    <code>{p.selector}</code>: {p.value}
+  </button>
 {/each}
 
 <Modal bind:open label="Run again with changes" wide>
@@ -153,8 +155,9 @@
       title={changedCount
         ? `queue a rerun changing ${Object.keys(changed).join(', ')}`
         : 'nothing changed - type a value that differs from this run'}
-      >{submitting ? 'Queueing…' : 'Queue'}</button
     >
+      {submitting ? 'Queueing…' : 'Queue'}
+    </button>
   </div>
 </Modal>
 

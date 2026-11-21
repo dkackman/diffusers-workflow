@@ -69,8 +69,9 @@
       role={alt ? 'img' : undefined}
       aria-label={alt || undefined}
       aria-hidden={alt ? undefined : 'true'}
-      >{output.kind === 'text' ? '¶' : '♪'}</span
     >
+      {output.kind === 'text' ? '¶' : '♪'}
+    </span>
   {:else if shown === 'running'}
     <span class="pulse-dot" aria-hidden="true"></span>
   {:else}
@@ -85,15 +86,19 @@
     class:slot={!output}
     class:picked
     {href}
-    title="open the job">{@render inside()}</a
+    title="open the job"
   >
+    {@render inside()}
+  </a>
 {:else}
   <span
     class="proof as-{size}"
     class:frame={!!output}
     class:slot={!output}
-    class:picked>{@render inside()}</span
+    class:picked
   >
+    {@render inside()}
+  </span>
 {/if}
 
 <style>

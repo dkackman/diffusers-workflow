@@ -75,13 +75,16 @@
     {#if actions}<div class="primary">{@render actions()}</div>{/if}
     <a
       class="plain quiet"
-      href={wsHref(workspace, 'jobs') + requestQuery(request.id)}>its jobs</a
+      href={wsHref(workspace, 'jobs') + requestQuery(request.id)}
     >
+      its jobs
+    </a>
     <a
       class="plain quiet"
       href={wsHref(workspace, 'gallery') + requestQuery(request.id)}
-      >its outputs</a
     >
+      its outputs
+    </a>
   </div>
 
   <NoteList

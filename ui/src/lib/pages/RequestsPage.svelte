@@ -73,8 +73,9 @@
 {#if error}
   <p role="alert">
     Could not load requests: {error}
-    <button type="button" class="quiet" onclick={() => load(name)}>Retry</button
-    >
+    <button type="button" class="quiet" onclick={() => load(name)}>
+      Retry
+    </button>
   </p>
 {:else if requests === null}
   <Skeleton lines={4} label="loading requests" />
@@ -83,17 +84,17 @@
     This workspace's requests file could not be read: {unreadable}
   </p>
 {:else if ordered.length === 0}
-  <Empty
-    >{#snippet icon()}<ClipboardList size={36} strokeWidth={1.5} />{/snippet}No
+  <Empty>
+    {#snippet icon()}<ClipboardList size={36} strokeWidth={1.5} />{/snippet}No
     requests in this workspace yet. One appears when you ask your agent for
-    something and it writes its plan here.</Empty
-  >
+    something and it writes its plan here.
+  </Empty>
 {:else if visible.length === 0}
   <p class="muted">
     No open requests.
-    <button type="button" class="quiet" onclick={() => (show = 'all')}
-      >show closed ({closed})</button
-    >
+    <button type="button" class="quiet" onclick={() => (show = 'all')}>
+      show closed ({closed})
+    </button>
   </p>
 {:else}
   <div class="panel list">
@@ -130,9 +131,9 @@
         </span>
         <span class="progress">
           <RequestProgress bands={summaryBands(req)} mini />
-          <span class="num" title="items done, of those in the plan"
-            >{doneFigure(req)}</span
-          >
+          <span class="num" title="items done, of those in the plan">
+            {doneFigure(req)}
+          </span>
         </span>
         <span class="figures num muted">
           <span>{formatSpent(req.spent_minutes)} spent</span>
@@ -140,9 +141,9 @@
             <span>{formatMinutes(req.remaining_minutes)} left</span>
           {/if}
         </span>
-        <span class="updated num muted" title="last written"
-          >{req.updated_at ? written(req.updated_at) : ''}</span
-        >
+        <span class="updated num muted" title="last written">
+          {req.updated_at ? written(req.updated_at) : ''}
+        </span>
       </a>
     {/each}
   </div>

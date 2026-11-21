@@ -32,9 +32,9 @@
       class:done={finishedSteps.includes(step)}
       class:active={step === listStep && running}
     ></span>
-    <span class:muted={step !== listStep && !finishedSteps.includes(step)}
-      >{step}</span
-    >
+    <span class:muted={step !== listStep && !finishedSteps.includes(step)}>
+      {step}
+    </span>
     {#if step === listStep && running}
       {#if denoise}
         <div class="bar">
@@ -53,16 +53,17 @@
       <!-- The counter tells the generating story on its own; every
            other phase is time the bar cannot account for -->
       {#if progress.label && (!denoise || progress.phase !== 'generating')}
-        <span class="muted phase" title="what this step is doing now"
-          >{progress.label}</span
-        >
+        <span class="muted phase" title="what this step is doing now">
+          {progress.label}
+        </span>
       {/if}
       {#if stall}
         <span
           class="stall"
           title="the engine reports no progress event - long silences are normal for some models"
-          >no event for {formatDuration(stall.seconds)} in {stall.phase}</span
         >
+          no event for {formatDuration(stall.seconds)} in {stall.phase}
+        </span>
       {/if}
     {/if}
   </div>
