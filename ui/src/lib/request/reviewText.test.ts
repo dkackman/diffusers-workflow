@@ -71,18 +71,18 @@ it('says a hold with a session listening, plural and singular, with and without 
   // the soonest deadline is the one named
   expect(two.first.item.key).toBe('b')
   expect(bannerText(two, true, 125)).toBe(
-    `2 items held for your review (about 5 min by the agent's estimate). A session is listening: they run at ${at} (in 02:05) unless you leave a note.`,
+    `2 items held for your review (about 5 min by the agent's estimate). A session is listening: at ${at} (in 02:05) it is told to run them, unless you leave a note.`,
   )
   const one = group([item('a', { review: review('holding') })])
   expect(bannerText(one, true, 3725)).toBe(
-    `1 item held for your review. A session is listening: it runs at ${at} (in 1:02:05) unless you leave a note.`,
+    `1 item held for your review. A session is listening: at ${at} (in 1:02:05) it is told to run it, unless you leave a note.`,
   )
   const partly = group([
     item('a', { review: review('holding'), estimate_minutes: 2 }),
     item('b', { review: review('holding') }),
   ])
   expect(bannerText(partly, true, 60)).toBe(
-    `2 items held for your review (about 2 min by the agent's estimate). A session is listening: they run at ${at} (in 01:00) unless you leave a note.`,
+    `2 items held for your review (about 2 min by the agent's estimate). A session is listening: at ${at} (in 01:00) it is told to run them, unless you leave a note.`,
   )
 })
 

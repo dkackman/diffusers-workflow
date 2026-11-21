@@ -284,7 +284,7 @@ it('counts down while a session listens, and says a redirect without a button', 
   })
   await waitFor(() =>
     expect(banner(container)).toMatch(
-      /^1 item held for your review \(about 3 min by the agent's estimate\)\. A session is listening: it runs at .+ \(in 02:05\) unless you leave a note\.$/,
+      /^1 item held for your review \(about 3 min by the agent's estimate\)\. A session is listening: at .+ \(in 02:05\) it is told to run it, unless you leave a note\.$/,
     ),
   )
   expect(screen.getByRole('button', { name: 'Run now…' })).toBeTruthy()

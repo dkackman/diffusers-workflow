@@ -80,7 +80,7 @@ export function bannerText(
     group.minutes == null
       ? ''
       : ` (about ${Math.max(1, Math.round(group.minutes))} min by the agent's estimate)`
-  return `${lead}${estimate}. A session is listening: ${one ? 'it runs' : 'they run'} at ${at} (in ${countdown(left)}) unless you leave a note.`
+  return `${lead}${estimate}. A session is listening: at ${at} (in ${countdown(left)}) it is told to run ${one ? 'it' : 'them'}, unless you leave a note.`
 }
 
 /** The rows "Run now…" would open the run dialog for: the ready ones of a

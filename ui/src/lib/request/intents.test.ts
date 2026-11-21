@@ -258,3 +258,72 @@ it('shows an item the server deleted after a drop until the page forgets it', ()
   // still in the plan: nothing to add
   expect(withGhosts(before, memory)).toBe(before)
 })
+
+const HELD = '2030-01-01T00:00:00Z'
+const heldPlan = (): LedgerRequest =>
+  request([
+    item('a', { review_until: HELD, review_set_at: '2029-12-31T00:00:00Z' }),
+    item('b', { ready: true }),
+    item('c', { ready: true }),
+  ])
+
+it('an item restored from what the page remembers comes back unheld', () => {
+  const before = heldPlan()
+  const without = { ...before, items: before.items.slice(1) }
+  const sent = body(
+    {
+      kind: 'restore',
+      key: 'a',
+      memory: { item: before.items[0], before: null, dependents: [] },
+    },
+    without,
+  )
+  expect(sent.items.find((i) => i.key === 'a')?.review_until).toBeNull()
+})
+
+it('an item restored from the stored dropped copy keeps its hold as read', () => {
+  const before = heldPlan()
+  const stored = {
+    ...before,
+    items: before.items.map((i) =>
+      i.key === 'a' ? { ...i, dropped: true, status: 'dropped' as const } : i,
+    ),
+  }
+  const sent = body(
+    {
+      kind: 'restore',
+      key: 'a',
+      memory: { item: before.items[0], before: null, dependents: [] },
+    },
+    stored,
+  )
+  expect(sent.items.find((i) => i.key === 'a')?.review_until).toBe(HELD)
+})
+
+it('every page write sends a held item hold back exactly as read', () => {
+  const intents: Intent[] = [
+    { kind: 'move', key: 'c', before: 'a' },
+    { kind: 'drop', key: 'b' },
+    { kind: 'state', state: 'done' },
+    { kind: 'state', state: 'abandoned' },
+  ]
+  for (const intent of intents) {
+    const sent = body(intent, heldPlan())
+    const a = sent.items.find((i) => i.key === 'a')
+    expect(a?.review_until, intent.kind).toBe(HELD)
+    expect(a?.review_set_at, intent.kind).toBe('2029-12-31T00:00:00Z')
+  }
+  const done = heldPlan()
+  done.items[0] = {
+    ...done.items[0],
+    status: 'done',
+    attempts: [attempt('j1')],
+  }
+  const accepted = body({ kind: 'accept', key: 'a', job: 'j1' }, done)
+  expect(accepted.items[0].review_until).toBe(HELD)
+  const reopened = body(
+    { kind: 'state', state: 'open' },
+    { ...heldPlan(), state: 'done' },
+  )
+  expect(reopened.items[0].review_until).toBe(HELD)
+})

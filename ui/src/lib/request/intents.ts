@@ -186,8 +186,13 @@ function restore(
   if (find(request, key) && !stored.dropped) return no('no_change')
   const others = request.items.filter((item) => item.key !== key)
   const live = new Set(others.filter((i) => !i.dropped).map((i) => i.key))
+  // An item the server deleted comes back as a new one: a held deadline
+  // would be restamped (re-arming a hold a note redirected) or refused as
+  // too soon, so it returns unheld. The stored dropped copy rides as read.
+  const fromMemory = !find(request, key)
   const item: LedgerItem = {
     ...stored,
+    ...(fromMemory ? { review_until: null } : {}),
     dropped: false,
     status: statusOf(stored),
     depends_on: stored.depends_on.filter((dep) => live.has(dep)),
