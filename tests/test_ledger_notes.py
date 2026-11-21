@@ -3,6 +3,8 @@ writes keep them, and the request records when the agent last wrote."""
 
 import json
 
+import pytest
+
 from dw import ledger
 from dw.workspace import REQUESTS_FILE_NAME
 
@@ -148,3 +150,205 @@ def test_a_stored_request_with_no_history_reads_with_no_agent_wrote_at(tmp_path)
     (tmp_path / REQUESTS_FILE_NAME).write_text(json.dumps(data))
     assert ledger.get_request(str(tmp_path), "cats")["agent_wrote_at"] is None
     assert "cats" in ledger.read_requests(str(tmp_path))
+
+
+# --- add, edit and delete one note ---------------------------------------
+
+
+def _checked(rid, it, ref):
+    return {**ref, "kind": "video"}
+
+
+def planned(tmp_path):
+    write(tmp_path, plan())
+    return str(tmp_path)
+
+
+def add(root, text="warmer", item="a", ref=None, check=_checked):
+    return ledger.add_note(root, "cats", item=item, text=text, ref=ref, check_ref=check)
+
+
+def test_add_note_on_an_item_with_a_ref(tmp_path):
+    root = planned(tmp_path)
+    out = add(root, "lipsync off", ref={"job": "j1", "output": "w/r1/final/a.mp4"})
+    assert out["note"]["id"] == "n1" and out["note"]["ref"]["kind"] == "video"
+    assert out["revision"] == 2
+    got = ledger.get_request(root, "cats")
+    assert got["history"][-1]["by"] == "user"
+    assert got["history"][-1]["why"] == "note added"
+    assert got["items"][0]["notes"][0]["ref"]["job"] == "j1"
+
+
+def test_add_note_without_item_goes_on_the_request(tmp_path):
+    root = planned(tmp_path)
+    out = add(root, "all colder", item=None)
+    got = ledger.get_request(root, "cats")
+    assert got["notes"] == [out["note"]]
+    assert got["items"][0]["notes"] == []
+
+
+def test_note_ids_are_never_reused_after_delete(tmp_path):
+    root = planned(tmp_path)
+    assert add(root)["note"]["id"] == "n1"
+    out = ledger.delete_note(root, "cats", "n1")
+    assert out["revision"] == 3
+    assert ledger.get_request(root, "cats")["history"][-1]["why"] == "note removed"
+    assert add(root)["note"]["id"] == "n2"
+
+
+def test_add_note_sets_created_equal_to_at(tmp_path):
+    note = add(planned(tmp_path))["note"]
+    assert note["created"] == note["at"]
+    assert "ref" not in note
+
+
+def test_edit_note_with_same_text_keeps_at(tmp_path):
+    root = planned(tmp_path)
+    note = add(root)["note"]
+    out = ledger.edit_note(root, "cats", "n1", "warmer")
+    assert out == {"note": note, "revision": 2}
+    assert len(ledger.get_request(root, "cats")["history"]) == 2
+
+
+def test_edit_note_with_new_text_gets_new_at(tmp_path):
+    root = planned(tmp_path)
+    note = add(root, ref={"job": "j1"})["note"]
+    path = tmp_path / REQUESTS_FILE_NAME
+    stored = json.loads(path.read_text())
+    stored["requests"]["cats"]["items"][0]["notes"][0]["at"] = T
+    stored["requests"]["cats"]["items"][0]["notes"][0]["created"] = T
+    path.write_text(json.dumps(stored))
+    out = ledger.edit_note(root, "cats", "n1", "colder")
+    assert out["revision"] == 3
+    assert out["note"]["text"] == "colder"
+    assert out["note"]["created"] == T and out["note"]["at"] != T
+    assert out["note"]["ref"] == note["ref"]
+    assert ledger.get_request(root, "cats")["history"][-1]["why"] == "note edited"
+
+
+def test_edit_and_delete_find_a_request_note(tmp_path):
+    root = planned(tmp_path)
+    add(root, item=None)
+    assert ledger.edit_note(root, "cats", "n1", "x")["note"]["text"] == "x"
+    ledger.delete_note(root, "cats", "n1")
+    assert ledger.get_request(root, "cats")["notes"] == []
+
+
+def refused_note(code, call, *args, **kw):
+    with pytest.raises(ledger.LedgerError) as e:
+        call(*args, **kw)
+    assert e.value.code == code, str(e.value)
+    return e.value
+
+
+def test_the_21st_note_on_a_target_is_refused(tmp_path):
+    root = planned(tmp_path)
+    for k in range(ledger.MAX_NOTES):
+        add(root, f"n {k}")
+    refused_note("too_many_notes", add, root)
+    add(root, item="b")  # another target has its own room
+
+
+def test_a_note_on_a_dropped_item_is_refused(tmp_path):
+    root = planned(tmp_path)
+    # a job links to b, so leaving it out drops it rather than deleting it
+    write(
+        tmp_path,
+        plan(revision=1, items=[item("a")]),
+        linked_jobs=lambda rid, key: [{"job": "j1"}] if key == "b" else [],
+    )
+    refused_note("item_dropped", add, root, item="b")
+
+
+def test_unknown_request_item_and_note(tmp_path):
+    root = planned(tmp_path)
+    e = refused_note(
+        "unknown_request",
+        ledger.add_note,
+        root,
+        "nope",
+        item=None,
+        text="x",
+        ref=None,
+        check_ref=_checked,
+    )
+    assert e.status == 404
+    assert refused_note("unknown_item", add, root, item="zz").status == 422
+    assert (
+        refused_note("unknown_note", ledger.edit_note, root, "cats", "n9", "x").status
+        == 404
+    )
+    refused_note("unknown_note", ledger.delete_note, root, "cats", "n9")
+    refused_note("unknown_request", ledger.delete_note, root, "nope", "n1")
+
+
+def test_blank_or_overlong_text_is_refused(tmp_path):
+    root = planned(tmp_path)
+    refused_note("invalid_request", add, root, "   ")
+    refused_note("invalid_request", add, root, "x" * 4001)
+    add(root)
+    refused_note("invalid_request", ledger.edit_note, root, "cats", "n1", "")
+
+
+def test_a_failed_check_ref_stores_nothing(tmp_path):
+    root = planned(tmp_path)
+
+    def bad(rid, it, ref):
+        raise ledger.LedgerError("no such job", status=422, code="invalid_note_ref")
+
+    refused_note("invalid_note_ref", add, root, ref={"job": "j9"}, check=bad)
+    got = ledger.get_request(root, "cats")
+    assert got["revision"] == 1 and got["items"][0]["notes"] == []
+    assert got["next_note"] == 1
+
+
+def test_a_note_on_a_closed_request_is_allowed(tmp_path):
+    root = planned(tmp_path)
+    write(tmp_path, plan(revision=1, state="done"))
+    assert add(root)["revision"] == 3
+
+
+def test_check_ref_gets_the_request_item_and_ref(tmp_path):
+    root = planned(tmp_path)
+    seen = []
+
+    def spy(rid, it, ref):
+        seen.append((rid, it, ref))
+        return ref
+
+    add(root, ref={"job": "j1"}, check=spy)
+    assert seen == [("cats", "a", {"job": "j1"})]
+
+
+def test_view_marks_ref_attempt_and_gone(tmp_path):
+    root = planned(tmp_path)
+    for job in ("j1", "j2", "j9"):
+        add(root, job, ref={"job": job})
+    add(root, "req-level", item=None, ref={"job": "j2"})
+    add(root, "req-gone", item=None, ref={"job": "j9"})
+    jobs = [
+        {
+            "job": "j1",
+            "item": "a",
+            "status": "succeeded",
+            "run_exists": False,
+            "created_at": 1,
+        },
+        {
+            "job": "j2",
+            "item": "a",
+            "status": "succeeded",
+            "run_exists": True,
+            "created_at": 2,
+        },
+    ]
+    got = ledger.get_request(root, "cats", jobs_for=lambda rid: jobs)
+    refs = {n["text"]: n["ref"] for n in got["items"][0]["notes"]}
+    assert refs["j2"]["attempt"] == 2 and "gone" not in refs["j2"]
+    assert refs["j1"]["attempt"] == 1 and refs["j1"]["gone"] is True
+    assert refs["j9"]["attempt"] is None and refs["j9"]["gone"] is True
+    top = {n["text"]: n["ref"] for n in got["notes"]}
+    assert top["req-level"]["attempt"] == 2 and "gone" not in top["req-level"]
+    assert top["req-gone"]["attempt"] is None and top["req-gone"]["gone"] is True
+    stored = json.loads((tmp_path / REQUESTS_FILE_NAME).read_text())["requests"]["cats"]
+    assert "attempt" not in stored["items"][0]["notes"][0]["ref"]

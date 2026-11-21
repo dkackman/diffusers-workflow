@@ -38,6 +38,7 @@ from datetime import datetime, timezone
 
 from filelock import FileLock, Timeout
 
+from .notes import NoteTooLong, clean_note
 from .runs import write_json_atomic
 from .security import (
     MAX_VARIABLE_VALUE_LENGTH,
@@ -65,6 +66,7 @@ MAX_ARGUMENTS = 64
 MAX_WORKFLOW_NAME_LENGTH = 200
 MAX_FILE_BYTES = 2 * 1024 * 1024
 MAX_HISTORY = 100
+MAX_NOTES = 20  # live notes of one target: an item, or the request itself
 # The list's `cover`: this many result outputs, found among at most
 # COVER_SCAN of a request's latest results - the bound on what one row of a
 # polled list may read
@@ -384,6 +386,35 @@ def _jobs_by_item(jobs):
     return grouped
 
 
+def _positions(jobs):
+    """Each linked job's `(attempt, run_exists)`: its 1-based place among
+    `jobs`, the attempts of one item oldest first."""
+    return {
+        job.get("job"): (place, bool(job.get("run_exists")))
+        for place, job in enumerate(jobs, 1)
+    }
+
+
+def _noted(notes, positions):
+    """The notes as read: a note's `ref` gains `attempt` (the 1-based
+    position of its job among the item's attempts, null when the job is not
+    linked) and `gone: True` when the job is not linked or its run is gone.
+    The stored notes are not changed."""
+    out = []
+    for note in notes or []:
+        ref = note.get("ref")
+        if ref:
+            attempt, exists = positions.get(ref.get("job"), (None, False))
+            ref = {
+                **ref,
+                "attempt": attempt,
+                **({} if exists else {"gone": True}),
+            }
+            note = {**note, "ref": ref}
+        out.append(note)
+    return out
+
+
 def item_view(item, jobs, ready=False):
     """One item as read, with what its linked `jobs` derive: `status`,
     `ready`, `attempts` (every linked job, oldest first, as `{job, status,
@@ -408,7 +439,7 @@ def item_view(item, jobs, ready=False):
     }
     return {
         **item,
-        "notes": item.get("notes") or [],
+        "notes": _noted(item.get("notes"), _positions(jobs)),
         "status": _item_status(item, jobs),
         "ready": ready,
         "attempts": attempts,
@@ -440,9 +471,13 @@ def request_view(request, jobs=()):
     note, created_at, started_at, finished_at, output}`)."""
     grouped = _jobs_by_item(jobs)
     ready = _ready(request, grouped)
+    positions = {}
+    for key, group in grouped.items():
+        if key is not None:
+            positions.update(_positions(group))
     view = {
         **request,
-        "notes": request.get("notes") or [],
+        "notes": _noted(request.get("notes"), positions),
         "agent_wrote_at": request.get("agent_wrote_at"),
     }
     view["items"] = [
@@ -991,6 +1026,161 @@ def put_request(
             )
         write_json_atomic(ledger_path(root), document)
     return request_view(request, jobs_for(request_id))
+
+
+def _note_target(requests, request_id, item):
+    """The stored request and the note list a note belongs on: the item's
+    when `item` is given, else the request's."""
+    request = requests.get(request_id)
+    if request is None:
+        raise LedgerError(
+            f"no request {request_id!r} in this workspace",
+            status=404,
+            code="unknown_request",
+        )
+    if item is None:
+        return request, request["notes"]
+    for stored in request["items"]:
+        if stored.get("key") == item:
+            if stored.get("dropped"):
+                raise LedgerError(
+                    f"item {item!r} of request {request_id!r} was dropped",
+                    status=422,
+                    code="item_dropped",
+                )
+            return request, stored["notes"]
+    raise LedgerError(
+        f"request {request_id!r} has no item {item!r}",
+        status=422,
+        code="unknown_item",
+    )
+
+
+def _find_note(request, note_id):
+    """The note list holding `note_id` and the note, in the request or in
+    any of its items."""
+    for notes in (request["notes"], *(i["notes"] for i in request["items"])):
+        for note in notes:
+            if note.get("id") == note_id:
+                return notes, note
+    raise LedgerError(
+        f"request {request['id']!r} has no note {note_id!r}",
+        status=404,
+        code="unknown_note",
+    )
+
+
+def _note_text(text):
+    try:
+        cleaned = clean_note(text)
+    except (TypeError, NoteTooLong) as e:
+        raise LedgerError(str(e)) from e
+    if cleaned is None:
+        raise LedgerError("a note needs text - delete it to remove it")
+    return cleaned
+
+
+def _noted_write(root, requests, request, why):
+    """Record a note write by the user: bump the revision, add its history
+    entry, check the file's size and save. Returns the new revision."""
+    at = _now()
+    request["revision"] += 1
+    history = request["history"] + [
+        {"revision": request["revision"], "at": at, "by": "user", "why": why}
+    ]
+    if len(history) > MAX_HISTORY:
+        history = history[:1] + history[-(MAX_HISTORY - 1) :]
+    request["history"] = history
+    document = {"requests": requests}
+    size = len(json.dumps(document, indent=2).encode("utf-8"))
+    if size > MAX_FILE_BYTES:
+        raise LedgerError(
+            f"{REQUESTS_FILE_NAME} would be {size} bytes, past its "
+            f"{MAX_FILE_BYTES}-byte cap - shorten the note or delete a closed "
+            "request",
+            status=413,
+            code="ledger_too_large",
+        )
+    write_json_atomic(ledger_path(root), document)
+    return request["revision"]
+
+
+def _need_root(root):
+    if root is None:
+        raise LedgerError(
+            "this workspace has no root folder, so it cannot hold requests",
+            status=409,
+            code="no_workspace_root",
+        )
+
+
+def add_note(root, request_id, *, item, text, ref, check_ref):
+    """Add one user note to an item (or to the request when `item` is None)
+    and answer `{note, revision}`. `check_ref(request_id, item, ref)` is
+    called when `ref` is given and answers the ref to store or raises
+    LedgerError (`invalid_note_ref`); the ledger reads no jobs itself.
+
+    Raises LedgerError (`unknown_request`, `unknown_item`, `item_dropped`,
+    `too_many_notes`), or OSError when the file cannot be written."""
+    _need_root(root)
+    _key(request_id, "Request id")
+    text = _note_text(text)
+    with _writing(root):
+        requests = _load(root)
+        request, notes = _note_target(requests, request_id, item)
+        if len(notes) >= MAX_NOTES:
+            raise LedgerError(
+                f"at most {MAX_NOTES} notes fit on one request or item - "
+                "delete one first",
+                status=422,
+                code="too_many_notes",
+            )
+        stored_ref = check_ref(request_id, item, ref) if ref else None
+        at = _now()
+        note = {
+            "id": f"n{request['next_note']}",
+            "text": text,
+            "created": at,
+            "at": at,
+            **({"ref": stored_ref} if stored_ref else {}),
+        }
+        request["next_note"] += 1
+        notes.append(note)
+        revision = _noted_write(root, requests, request, "note added")
+    return {"note": note, "revision": revision}
+
+
+def edit_note(root, request_id, note_id, text):
+    """Change one note's text and answer `{note, revision}`. `at` moves to
+    now, `created` and `ref` stay. The same text is a no-op: the note and the
+    current revision come back and nothing is written."""
+    _need_root(root)
+    _key(request_id, "Request id")
+    text = _note_text(text)
+    with _writing(root):
+        requests = _load(root)
+        request, _ = _note_target(requests, request_id, None)
+        _, note = _find_note(request, note_id)
+        if note["text"] == text:
+            return {"note": note, "revision": request["revision"]}
+        note["text"] = text
+        note["at"] = _now()
+        revision = _noted_write(root, requests, request, "note edited")
+    return {"note": note, "revision": revision}
+
+
+def delete_note(root, request_id, note_id):
+    """Remove one note and answer `{revision}`. Its id is not handed out
+    again."""
+    _need_root(root)
+    _key(request_id, "Request id")
+    with _writing(root):
+        requests = _load(root)
+        request, _ = _note_target(requests, request_id, None)
+        notes, note = _find_note(request, note_id)
+        notes.remove(note)
+        revision = _noted_write(root, requests, request, "note removed")
+    return {"revision": revision}
 
 
 def delete_request(root, request_id, revision, *, jobs_for=_no_jobs):
