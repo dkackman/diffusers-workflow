@@ -150,19 +150,24 @@ it("the request's box picks any live item, once each, as a reference", async () 
   await fireEvent.click(
     screen.getByRole('button', { name: 'Add a note for the agent' }),
   )
-  const picker = screen.getByLabelText(
-    'Add an item to the note',
-  ) as HTMLSelectElement
-  expect([...picker.options].map((o) => o.textContent)).toEqual([
-    'About an item…',
-    'Shot 3',
-    'Shot 5',
+  const picker = () =>
+    screen.getByLabelText('Add an item this note is about') as HTMLSelectElement
+  // keyed, so an item reads as a reference and not as a suggested note
+  expect([...picker().options].map((o) => o.textContent)).toEqual([
+    '+ Add an item',
+    's3 · Shot 3',
+    's5 · Shot 5',
   ])
-  for (const key of ['s5', 's3', 's5']) {
-    picker.value = key
-    await fireEvent.change(picker)
-  }
-  expect(picker.value).toBe('')
+  picker().value = 's5'
+  await fireEvent.change(picker())
+  expect(picker().value).toBe('')
+  // a picked item is not offered again
+  expect([...picker().options].map((o) => o.value)).toEqual(['', 's3'])
+  picker().value = 's3'
+  await fireEvent.change(picker())
+  // every item picked: the control goes, the About line stays
+  expect(screen.queryByLabelText('Add an item this note is about')).toBeNull()
+  expect(screen.getByText('About')).toBeTruthy()
   const chips = screen
     .getByRole('list', { name: 'What the note is about' })
     .querySelectorAll('.ref')

@@ -58,6 +58,12 @@
     item === null || request.items.some((i) => i.key === item && !i.dropped),
   )
   const live = $derived(request.items.filter((i) => !i.dropped))
+  // The picker offers the items the new note is not yet about
+  const unpicked = $derived(
+    live.filter(
+      (i) => !pendingRefs.some((r) => r.item === i.key && !r.job && !r.output),
+    ),
+  )
 
   let fresh = $state<ReturnType<typeof ItemNote>>()
   /** Open the new note's box */
@@ -109,12 +115,18 @@
 {/snippet}
 
 {#snippet picker()}
-  <select class="picker" aria-label="Add an item to the note" onchange={pick}>
-    <option value="">About an item…</option>
-    {#each live as each (each.key)}
-      <option value={each.key}>{each.title}</option>
-    {/each}
-  </select>
+  {#if unpicked.length}
+    <select
+      class="picker"
+      aria-label="Add an item this note is about"
+      onchange={pick}
+    >
+      <option value="">+ Add an item</option>
+      {#each unpicked as each (each.key)}
+        <option value={each.key}>{each.key} · {each.title}</option>
+      {/each}
+    </select>
+  {/if}
 {/snippet}
 
 {#if shown.length || editable}
@@ -191,8 +203,10 @@
     outline-offset: 2px;
   }
   .picker {
-    max-width: 100%;
-    margin-bottom: var(--space-1);
-    font-size: var(--t-sm);
+    width: auto;
+    max-width: 32ch;
+    margin: 0;
+    padding: 0.05rem 0.4rem;
+    font-size: var(--t-xs);
   }
 </style>

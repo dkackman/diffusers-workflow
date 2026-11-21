@@ -59,6 +59,11 @@ export const LISTENING_LINE =
 export const NOT_LISTENING_LINE =
   'No agent session is listening. It reads this the next time it updates the plan.'
 
+/** A new note that has references but no words yet: the references say
+ * what it is about, never what to change */
+export const NEEDS_WORDS =
+  'Add a few words: the items under About say what the note is about, not what to change.'
+
 /** Where a note is on the request page, for a link to it */
 export const noteAnchor = (id: string) => `request-note-${id}`
 

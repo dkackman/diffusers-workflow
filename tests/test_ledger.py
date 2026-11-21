@@ -528,7 +528,9 @@ class TestRoutes:
             routes = [
                 r for r in client.app.routes if "/requests" in getattr(r, "path", "")
             ]
-        assert len(routes) == 4
+        # a workspace's list, a request's read, write and delete, and the
+        # server-wide list of open requests (#1529)
+        assert len(routes) == 5
         for route in routes:
             assert not getattr(route.endpoint, "query_token_ok", False), route.path
 
