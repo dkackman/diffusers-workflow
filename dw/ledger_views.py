@@ -240,6 +240,8 @@ def item_view(item, jobs, ready=False, request_notes=(), state="open", now=None)
     )
     return {
         **item,
+        "review_until": item.get("review_until"),
+        "review_set_at": item.get("review_set_at"),
         "notes": _noted(item.get("notes"), _positions(jobs), _live_keys([item])),
         "status": status,
         "ready": ready,

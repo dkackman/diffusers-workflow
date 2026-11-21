@@ -242,3 +242,18 @@ def test_a_hold_without_review_set_at_is_not_redirected(tmp_path, clock):
     del request["items"][0]["review_set_at"]
     got = ledger.request_view(request, now=T0 + timedelta(minutes=6))["items"][0]
     assert got["review"]["state"] == "holding"
+
+
+def test_a_request_stored_before_the_hold_still_reads(tmp_path, clock):
+    from dw.server.api_models_library import LedgerRequest
+
+    write(tmp_path, plan())
+    request = ledger._load(str(tmp_path))["cats"]
+    for stored_item in request["items"]:
+        stored_item.pop("review_until", None)
+        stored_item.pop("review_set_at", None)
+    view = ledger.request_view(request, now=T0)
+    got = LedgerRequest.model_validate(view)
+    assert got.items[0].review_until is None
+    assert got.items[0].review_set_at is None
+    assert "review" not in view["items"][0]
