@@ -136,6 +136,11 @@ change it writes back is the answer.
   "Send to agent" when the server has seen a channel poll in the last 30
   seconds and "Save note" when not; "listening" cannot know a session
   started without the development-channels flag drops the events.
+- REST: `POST`/`PUT`/`DELETE /api/workspaces/{name}/request-notes` writes
+  one note (the user's only; no MCP tool calls it),
+  `GET /api/workspaces/{name}/notes-channel` says whether a channel is
+  polling, and a gallery file's metadata lists the request-linked jobs that
+  made it (`linked_jobs`).
 - It relays text written by whoever holds the dw server's token, into a
   session that can spend GPU time: point it only at a server you control.
 - The channels contract is Anthropic's research preview and may change.
