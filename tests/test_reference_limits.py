@@ -89,6 +89,21 @@ class TestUnnamedReferenceClass:
     def test_a_dotted_entry_passes(self):
         assert self.found(reference(VIDEO)) == []
 
+    def test_a_variable_reference_type_is_left_to_its_value(self):
+        entry = {"reference_type": "variable:kind", "from_file": "asset:x.mp4"}
+        assert self.found(entry) == []
+
+    def test_a_string_entry_is_not_reported_twice(self):
+        found = self.found("asset:x.mp4")
+        assert not any("dotted path" in f["message"] for f in found)
+
+    def test_another_families_references_are_left_alone(self):
+        # H3 is known by its from_pretrained `workflow`; without one the
+        # step is another family's, and its references are its own
+        workflow = workflow_with([{"type": "Whatever"}])
+        del workflow["steps"][0]["pipeline"]["from_pretrained_arguments"]["workflow"]
+        assert reference_limit_errors(workflow) == []
+
     def test_workflow_validation_reports_it(self):
         entry = {"type": "MiniMaxH3VideoReference", "from_file": "x.mp4"}
         errors = Workflow(
