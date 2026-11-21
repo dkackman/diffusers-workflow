@@ -265,8 +265,8 @@ NOTES_INSTRUCTIONS = (
     "Before acting, read the plan with `get_request(request, workspace)`: "
     "it may have been edited or cleared. Act through the dw tools "
     "under their cost gate, then record what you did in the `why` of "
-    "`set_request`. That write is the answer: the user watches the request "
-    "page, not this chat. This channel is one-way, with no "
+    "`set_request`. That write is the answer: the user watches the page, "
+    "not this chat; don't reply here. This channel is one-way, with no "
     "tools."
 )
 

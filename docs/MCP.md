@@ -212,11 +212,10 @@ due item keys, comma separated) and `until` (the earliest deadline among
 them), all strings. A hold that was already on the item the first time
 the channel read its request, whatever its state then, is announced at its
 deadline as the same kind with `stale` set to `1`; only a hold set while the
-channel ran is announced fresh. The stale text says the hold was set before
-this session connected and tells the agent to confirm with the user before
-spending, so if the session that set a hold ends or the channel restarts, the
-deadline no longer runs the items by itself: the agent is told and asks the
-user. One poll can carry a stale event and a fresh one. An item held
+channel ran is announced fresh. A channel that connects, or restarts, after a
+hold was set announces it as stale: the agent asks the user before spending.
+If no session is listening at the deadline, nothing is announced and the items
+wait. One poll can carry a stale event and a fresh one. An item held
 behind a dependency is announced when the dependency finishes. A request
 whose revision does not move still produces the event once its deadline
 passes: the channel reads it again then.

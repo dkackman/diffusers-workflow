@@ -328,13 +328,13 @@ Read it with `get_request(request=None)` (MCP) or `GET
   to `open`. Closing changes nothing else. A closed request takes no new
   job (422 `request_closed`) until it is reopened, and stays writable.
 - **Items** are `{key, title, depends_on, estimate_minutes, workflow,
-  arguments, accepted, notes, review_until}`, matched across writes by `key`; the order
-  written is the order kept. An item left out of a write is deleted, or kept
-  as `dropped` (moved to the end) when jobs link to it; writing a dropped
-  key again, not dropped, brings it back with everything it held. Each item
-  reads back with derived fields (below). A field not listed is refused on
-  write, apart from the derived ones and `notes`, which are ignored - so a plan can be
-  written back as it was read.
+  arguments, accepted, notes, review_until}`, matched across writes by `key`;
+  the order written is the order kept. An item left out of a write is deleted,
+  or kept as `dropped` (moved to the end) when jobs link to it; writing a
+  dropped key again, not dropped, brings it back with everything it held. Each
+  item reads back with derived fields (below). A field not listed is refused on
+  write, apart from the derived ones and `notes`, which are ignored - so a plan
+  can be written back as it was read.
 - **`purge`** on a write lists keys of stored items the plan leaves out
   that are to be removed for good instead of kept as dropped. Their jobs
   keep their history rows, their link and their files; a key written again
@@ -391,11 +391,11 @@ Read it with `get_request(request=None)` (MCP) or `GET
   after `review_set_at`), `due` (the deadline has passed), else `holding`.
   `seconds_left` is a whole number, never below 0. Only a note redirects:
   rewriting the plan, even with the old `review_until` echoed back, does
-  not make a redirected item runnable. The server runs nothing at the
-  deadline: with [the notes channel](MCP.md#the-notes-channel) open, a
-  `review_due` event tells the agent session, and the agent runs what it
-  quoted. With no such session listening, a due item simply stays `ready`
-  until someone runs it.
+  not clear a redirect; only a new `review_until` starts the hold again. The
+  server runs nothing at the deadline: with
+  [the notes channel](MCP.md#the-notes-channel) open, a `review_due` event
+  tells the agent session, and the agent runs what it quoted. With no such
+  session listening, a due item simply stays `ready` until someone runs it.
 - **Keys** (request ids and item keys) match `^[a-z0-9][a-z0-9-]{0,63}$`.
 - **Caps.** Titles 200 characters, prompt and goal 20000, note 4000;
   `estimate_minutes` 0 to 10000; `arguments` at most 64, scalar values

@@ -90,9 +90,8 @@ What wakes you:
   job for you.
 - **A `review_due` event marked stale** is for a hold set before this session
   connected, even one that was still counting down when you connected. If the
-  session that set a hold ends or the channel restarts, the deadline no
-  longer runs the items by itself: you are told, and you confirm with the
-  user before spending.
+  channel restarts or a new session picks up the request, the hold is
+  announced as stale: confirm with the user before spending.
 
 ## Accept the keeper
 

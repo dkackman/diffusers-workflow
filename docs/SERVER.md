@@ -1095,9 +1095,10 @@ The editor's forms come from these; they are just as usable from scripts:
   derived `review` (`{until, state, seconds_left}`, `state` one of
   `holding`, `redirected`, `due`; only while the item is `planned` on an
   open request); the rules are under [WORKSPACES.md](WORKSPACES.md#requests).
-  `review_set_at` and `review` are ignored on write, and the server never
-  starts a job at the deadline:
-  each item carries `status` (`dropped`, `done`, `running`, `queued`,
+  `review_set_at` and `review` are ignored on write. The server never starts
+  a job at the deadline.
+
+  Each item carries `status` (`dropped`, `done`, `running`, `queued`,
   `failed`, `planned`), `ready`, `attempts` (`[{job, status, note?,
   minutes, output}]`, oldest first), `result` (`{job, run_id, output}` or
   null), `accepted_missing` (only when true) and `spent_minutes`, where
