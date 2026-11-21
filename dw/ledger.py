@@ -76,6 +76,8 @@ MAX_FILE_BYTES = 2 * 1024 * 1024
 MAX_HISTORY = 100
 MAX_NOTES = 20  # live notes of one target: an item, or the request itself
 MAX_NOTE_REFS = 16  # references in one note
+MIN_REVIEW_SECONDS = 60  # a review hold's shortest span
+MAX_REVIEW_HOURS = 24  # and its longest
 # Seconds a write waits for another server's write to the same file
 LOCK_TIMEOUT = 10
 
@@ -88,8 +90,8 @@ AUTHORS = ("agent", "user")
 _WORKFLOW_NAME_PATTERN = r"^[\w][\w.:-]*(/[\w][\w.:-]*)*\Z"
 
 # What an item may carry on a write. `status`, `ready`, `attempts`,
-# `result`, `accepted_missing` and `spent_minutes` are derived and ignored,
-# so a plan read with GET can be written back as it came.
+# `result`, `accepted_missing`, `spent_minutes`, `review_set_at` and `review`
+# are derived and ignored, so a plan read with GET can be written back.
 _ITEM_FIELDS = frozenset(
     (
         "key",
@@ -107,6 +109,9 @@ _ITEM_FIELDS = frozenset(
         "result",
         "accepted_missing",
         "spent_minutes",
+        "review_until",
+        "review_set_at",
+        "review",
     )
 )
 
@@ -642,8 +647,39 @@ def _depends_on(raw, key):
     return list(dict.fromkeys(keys))
 
 
+def _review_until(value, key, previous, at):
+    """`(review_until, review_set_at)` as stored, in UTC. A value equal to the
+    stored one keeps its stamp, so a plan written back unchanged does not
+    restart the hold; a new one falls MIN_REVIEW_SECONDS..MAX_REVIEW_HOURS out."""
+    if value is None:
+        return None, None
+    try:
+        when = datetime.fromisoformat(value)
+    except (TypeError, ValueError):
+        when = None
+    if when is None or when.utcoffset() is None:
+        raise _review_error(key, "invalid_review_until", "an ISO time with an offset")
+    when = when.astimezone(timezone.utc).replace(microsecond=0)
+    if when.isoformat() == previous.get("review_until"):
+        return previous["review_until"], previous.get("review_set_at")
+    ahead = (when - datetime.fromisoformat(at)).total_seconds()
+    if ahead < MIN_REVIEW_SECONDS:
+        bound = f"at least {MIN_REVIEW_SECONDS} seconds from now"
+        raise _review_error(key, "review_too_soon", bound)
+    if ahead > MAX_REVIEW_HOURS * 3600:
+        raise _review_error(key, "review_too_far", f"within {MAX_REVIEW_HOURS} hours")
+    return when.isoformat(), at
+
+
+def _review_error(key, code, must_be):
+    return LedgerError(
+        f"item {key!r} review_until must be {must_be}", status=422, code=code
+    )
+
+
 def _item(raw, key, previous, linked, by, at):
     """One live item as stored."""
+    until, set_at = _review_until(raw.get("review_until"), key, previous, at)
     return {
         "key": key,
         "title": _text(
@@ -658,6 +694,8 @@ def _item(raw, key, previous, linked, by, at):
             raw.get("accepted"), key, previous.get("accepted"), linked
         ),
         "notes": list(previous.get("notes") or []),
+        "review_until": until,
+        "review_set_at": set_at,
     }
 
 

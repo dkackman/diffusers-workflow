@@ -416,6 +416,17 @@ class LedgerResult(ApiModel):
     output: LedgerOutput | None
 
 
+class LedgerReview(ApiModel):
+    until: str = Field(description="The deadline of the hold, an ISO time in UTC.")
+    state: Literal["holding", "redirected", "due"] = Field(
+        description="redirected when a note was left after the hold was set, "
+        "else due once the deadline has passed, else holding."
+    )
+    seconds_left: int = Field(
+        description="Whole seconds to the deadline at read time, 0 once passed."
+    )
+
+
 class LedgerItem(ApiModel):
     key: str
     title: str
@@ -450,6 +461,18 @@ class LedgerItem(ApiModel):
     )
     spent_minutes: int | float = Field(
         description="Minutes the item's linked jobs ran, summed."
+    )
+    review_until: str | None = Field(
+        description="When the user's review of the item ends, an ISO time in "
+        "UTC; null when it is not held."
+    )
+    review_set_at: str | None = Field(
+        description="When the current deadline was set, stamped by the server; "
+        "null when it is not held."
+    )
+    review: LedgerReview = sometimes(
+        "The hold as read now; absent unless the item is planned, its request "
+        "open and a deadline set."
     )
 
 
@@ -532,7 +555,9 @@ class RequestWrite(BaseModel):
     goal: str = Field(description="What done looks like")
     items: list[dict[str, Any]] = Field(
         description="The ordered plan; each item is key, title, depends_on, "
-        "estimate_minutes, workflow, arguments, accepted; an item's `notes` "
+        "estimate_minutes, workflow, arguments, accepted, review_until (an ISO "
+        "time with a UTC offset, 60 seconds to 24 hours ahead, holding the item "
+        "for the user's review; null clears it); an item's `notes` "
         "are ignored (the request-notes routes write them)"
     )
     revision: int = Field(description="The revision read, or 0 to create")

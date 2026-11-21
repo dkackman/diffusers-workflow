@@ -32,6 +32,8 @@ export const item = (
   attempts: [],
   result: null,
   spent_minutes: 0,
+  review_until: null,
+  review_set_at: null,
   ...over,
 })
 
