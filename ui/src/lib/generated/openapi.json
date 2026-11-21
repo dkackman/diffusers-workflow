@@ -1356,6 +1356,51 @@
         "title": "GalleryInput",
         "type": "object"
       },
+      "GalleryLinkedJob": {
+        "additionalProperties": false,
+        "description": "A job linked to a request item that published the file - wrote it or\nrepublished it from the step cache.",
+        "properties": {
+          "attempt": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The job's 1-based place among the item's attempts; null when the request no longer lists it.",
+            "title": "Attempt"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "item": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item"
+          },
+          "request": {
+            "title": "Request",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "request",
+          "item",
+          "attempt"
+        ],
+        "title": "GalleryLinkedJob",
+        "type": "object"
+      },
       "GalleryList": {
         "additionalProperties": false,
         "properties": {
@@ -1444,6 +1489,14 @@
                 "type": "null"
               }
             ]
+          },
+          "linked_jobs": {
+            "description": "Every job linked to a request whose manifest lists the file, a step-cache reuse included, newest first; empty for an asset.",
+            "items": {
+              "$ref": "#/components/schemas/GalleryLinkedJob"
+            },
+            "title": "Linked Jobs",
+            "type": "array"
           },
           "media": {
             "anyOf": [
@@ -1547,7 +1600,8 @@
           "run_id",
           "version",
           "media",
-          "findings"
+          "findings",
+          "linked_jobs"
         ],
         "title": "GalleryMetadata",
         "type": "object"
@@ -2798,25 +2852,6 @@
         "title": "LedgerAttempt",
         "type": "object"
       },
-      "LedgerComment": {
-        "additionalProperties": false,
-        "properties": {
-          "at": {
-            "title": "At",
-            "type": "string"
-          },
-          "text": {
-            "title": "Text",
-            "type": "string"
-          }
-        },
-        "required": [
-          "text",
-          "at"
-        ],
-        "title": "LedgerComment",
-        "type": "object"
-      },
       "LedgerDeleted": {
         "additionalProperties": false,
         "properties": {
@@ -2939,17 +2974,6 @@
             "title": "Attempts",
             "type": "array"
           },
-          "comment": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/LedgerComment"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "The user's; an agent never writes it."
-          },
           "depends_on": {
             "items": {
               "type": "string"
@@ -2978,6 +3002,14 @@
           "key": {
             "title": "Key",
             "type": "string"
+          },
+          "notes": {
+            "description": "The user's notes on the item.",
+            "items": {
+              "$ref": "#/components/schemas/LedgerNote"
+            },
+            "title": "Notes",
+            "type": "array"
           },
           "ready": {
             "description": "A job could be queued for it now: planned, with a stored workflow and every dependency done, in an open request.",
@@ -3045,7 +3077,7 @@
           "arguments",
           "dropped",
           "accepted",
-          "comment",
+          "notes",
           "status",
           "ready",
           "attempts",
@@ -3082,6 +3114,92 @@
         "title": "LedgerList",
         "type": "object"
       },
+      "LedgerNote": {
+        "additionalProperties": false,
+        "description": "One note the user wrote for the agent. Only the request-notes routes\nwrite one.",
+        "properties": {
+          "at": {
+            "description": "When its text last changed.",
+            "title": "At",
+            "type": "string"
+          },
+          "created": {
+            "description": "When the note was first saved.",
+            "title": "Created",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique within the request; never reused.",
+            "title": "Id",
+            "type": "string"
+          },
+          "ref": {
+            "$ref": "#/components/schemas/LedgerNoteRef",
+            "description": "The take or file the note is about."
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "text",
+          "created",
+          "at"
+        ],
+        "title": "LedgerNote",
+        "type": "object"
+      },
+      "LedgerNoteRef": {
+        "additionalProperties": false,
+        "description": "What a note is about: one linked job, and maybe one of its files.",
+        "properties": {
+          "attempt": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "On a read: the job's 1-based place among the item's attempts; null when the job is no longer linked.",
+            "title": "Attempt"
+          },
+          "gone": {
+            "description": "On a read: true when the job is no longer linked or its run is gone.",
+            "title": "Gone",
+            "type": "boolean"
+          },
+          "job": {
+            "description": "A job linked to the request (and to the item).",
+            "title": "Job",
+            "type": "string"
+          },
+          "kind": {
+            "description": "The file's kind, set by the server.",
+            "enum": [
+              "image",
+              "video",
+              "audio",
+              "text"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "output": {
+            "description": "One file of the job's manifest, relative to the workspace's outputs.",
+            "title": "Output",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job"
+        ],
+        "title": "LedgerNoteRef",
+        "type": "object"
+      },
       "LedgerOutput": {
         "additionalProperties": false,
         "description": "The one file that stands for a job: what a list shows as its proof.",
@@ -3113,16 +3231,17 @@
       "LedgerRequest": {
         "additionalProperties": false,
         "properties": {
-          "comment": {
+          "agent_wrote_at": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/LedgerComment"
+                "type": "string"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "The user's note on the whole request; an agent never writes it, and reads it on its next write."
+            "description": "When the agent last wrote the plan; null when it never has.",
+            "title": "Agent Wrote At"
           },
           "goal": {
             "title": "Goal",
@@ -3144,6 +3263,19 @@
               "$ref": "#/components/schemas/LedgerItem"
             },
             "title": "Items",
+            "type": "array"
+          },
+          "next_note": {
+            "description": "The number of the next note id.",
+            "title": "Next Note",
+            "type": "integer"
+          },
+          "notes": {
+            "description": "The user's notes on the whole request.",
+            "items": {
+              "$ref": "#/components/schemas/LedgerNote"
+            },
+            "title": "Notes",
             "type": "array"
           },
           "prompt": {
@@ -3207,7 +3339,9 @@
           "revision",
           "prompt",
           "goal",
-          "comment",
+          "notes",
+          "next_note",
+          "agent_wrote_at",
           "items",
           "history",
           "spent_minutes",
@@ -4255,6 +4389,122 @@
         "title": "MoveRequest",
         "type": "object"
       },
+      "NoteAdd": {
+        "additionalProperties": false,
+        "description": "One new note for the agent, from the user.",
+        "properties": {
+          "item": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The item key; left out, the request's own notes",
+            "title": "Item"
+          },
+          "ref": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NoteRefWrite"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The take or file the note is about"
+          },
+          "request": {
+            "description": "The request id",
+            "title": "Request",
+            "type": "string"
+          },
+          "text": {
+            "description": "The note, at most 4,000 characters",
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request",
+          "text"
+        ],
+        "title": "NoteAdd",
+        "type": "object"
+      },
+      "NoteDeleted": {
+        "additionalProperties": false,
+        "properties": {
+          "revision": {
+            "description": "The request's revision after the write.",
+            "title": "Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "revision"
+        ],
+        "title": "NoteDeleted",
+        "type": "object"
+      },
+      "NoteEdit": {
+        "additionalProperties": false,
+        "description": "A note's new text. Its reference never changes.",
+        "properties": {
+          "note": {
+            "description": "The note id",
+            "title": "Note",
+            "type": "string"
+          },
+          "request": {
+            "description": "The request id",
+            "title": "Request",
+            "type": "string"
+          },
+          "text": {
+            "description": "The note, at most 4,000 characters",
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request",
+          "note",
+          "text"
+        ],
+        "title": "NoteEdit",
+        "type": "object"
+      },
+      "NoteRefWrite": {
+        "additionalProperties": false,
+        "description": "A new note's reference. `kind` is the server's to set.",
+        "properties": {
+          "job": {
+            "description": "A job linked to the request (and to the item)",
+            "title": "Job",
+            "type": "string"
+          },
+          "output": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "One file of that finished job's manifest, as the gallery names it (relative to the workspace's outputs); left out, the note is about the take as a whole",
+            "title": "Output"
+          }
+        },
+        "required": [
+          "job"
+        ],
+        "title": "NoteRefWrite",
+        "type": "object"
+      },
       "NoteRequest": {
         "properties": {
           "note": {
@@ -4323,6 +4573,25 @@
           "note_source"
         ],
         "title": "NoteSet",
+        "type": "object"
+      },
+      "NoteWritten": {
+        "additionalProperties": false,
+        "properties": {
+          "note": {
+            "$ref": "#/components/schemas/LedgerNote"
+          },
+          "revision": {
+            "description": "The request's revision after the write.",
+            "title": "Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "note",
+          "revision"
+        ],
+        "title": "NoteWritten",
         "type": "object"
       },
       "OutputDeleted": {
@@ -4883,29 +5152,13 @@
             "title": "By",
             "type": "string"
           },
-          "comment": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "additionalProperties": true,
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "The user's note on the whole request, at most 4,000 characters: text, or `{text}` as read. Left out, it is kept; null or blank clears it. An agent's write omits it",
-            "title": "Comment"
-          },
           "goal": {
             "description": "What done looks like",
             "title": "Goal",
             "type": "string"
           },
           "items": {
-            "description": "The ordered plan; each item is key, title, depends_on, estimate_minutes, workflow, arguments, accepted, comment",
+            "description": "The ordered plan; each item is key, title, depends_on, estimate_minutes, workflow, arguments, accepted; an item's `notes` are ignored (the request-notes routes write them)",
             "items": {
               "additionalProperties": true,
               "type": "object"
@@ -11246,6 +11499,164 @@
           }
         },
         "summary": "Remove Workspace"
+      }
+    },
+    "/api/workspaces/{name}/request-notes": {
+      "delete": {
+        "description": "Remove one note; its id is never handed out again. 404\n`unknown_request` or `unknown_note`.",
+        "operationId": "delete_request_note_api_workspaces__name__request_notes_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          {
+            "description": "The request id",
+            "in": "query",
+            "name": "request",
+            "required": true,
+            "schema": {
+              "description": "The request id",
+              "title": "Request",
+              "type": "string"
+            }
+          },
+          {
+            "description": "The note id",
+            "in": "query",
+            "name": "note",
+            "required": true,
+            "schema": {
+              "description": "The note id",
+              "title": "Note",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NoteDeleted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Request Note"
+      },
+      "post": {
+        "description": "Add one of the user's notes for the agent, on an item or (no `item`)\non the request itself; answers the note and the request's new revision.\n`ref` names a job linked to the item (any item, for a request note) and\noptionally one file of its manifest; the server adds the file's `kind`.\n422 `invalid_note_ref` for a ref that does not hold, `unknown_item`,\n`item_dropped` or `too_many_notes`; 404 `unknown_request`.",
+        "operationId": "add_request_note_api_workspaces__name__request_notes_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NoteAdd"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NoteWritten"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Add Request Note"
+      },
+      "put": {
+        "description": "Change one note's text; its `ref` and `created` stay, `at` moves to\nnow. The same text writes nothing. 404 `unknown_request` or\n`unknown_note`.",
+        "operationId": "edit_request_note_api_workspaces__name__request_notes_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NoteEdit"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NoteWritten"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Edit Request Note"
       }
     },
     "/api/workspaces/{name}/requests": {
