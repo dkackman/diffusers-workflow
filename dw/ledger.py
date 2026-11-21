@@ -388,28 +388,36 @@ def _jobs_by_item(jobs):
 
 
 def _positions(jobs):
-    """Each linked job's `(item, attempt, run_exists)`: its item, and its
-    1-based place among `jobs`, the attempts of one item oldest first."""
+    """Each linked job's `(item, attempt, held)`: its item, its 1-based
+    place among `jobs` (the attempts of one item, oldest first), and whether
+    what it made still stands - its run exists, or it is queued or running
+    and has opened no run yet."""
     return {
-        job.get("job"): (job.get("item"), place, bool(job.get("run_exists")))
+        job.get("job"): (job.get("item"), place, _held(job))
         for place, job in enumerate(jobs, 1)
     }
+
+
+def _held(job):
+    if job.get("run_exists"):
+        return True
+    return not job.get("run_dir") and job.get("status") in ("queued", "running")
 
 
 def _read_ref(ref, positions, live):
     """One stored reference as read: `attempt` when it names a job (the
     job's 1-based place among its item's attempts, null when the job is no
     longer linked to that item), and `gone: True` when its item is not in
-    `live` (dropped or out of the plan), or its job is unlinked or its run
-    gone."""
+    `live` (dropped or out of the plan), or its job is unlinked, or its run
+    is gone (a job that opened a run since removed, or ended with none)."""
     gone = ref.get("item") not in live
     out = dict(ref)
     if "job" in ref:
-        item, attempt, exists = positions.get(ref["job"], (None, None, False))
+        item, attempt, held = positions.get(ref["job"], (None, None, False))
         if item != ref.get("item"):
-            attempt, exists = None, False
+            attempt, held = None, False
         out["attempt"] = attempt
-        gone = gone or not exists
+        gone = gone or not held
     if gone:
         out["gone"] = True
     return out
@@ -484,8 +492,8 @@ def _remaining(request, grouped):
 def request_view(request, jobs=()):
     """A stored request as read: every item with its derived fields
     (`item_view`) and the request's `spent_minutes` and `remaining_minutes`.
-    `jobs` are the linked jobs (`{job, item, status, run_id, run_exists,
-    note, created_at, started_at, finished_at, output}`)."""
+    `jobs` are the linked jobs (`{job, item, status, run_id, run_dir,
+    run_exists, note, created_at, started_at, finished_at, output}`)."""
     grouped = _jobs_by_item(jobs)
     ready = _ready(request, grouped)
     positions = {}
@@ -1058,6 +1066,7 @@ def _note_target(requests, request_id, item):
             code="unknown_request",
         )
     if item is None:
+        request["notes"] = request.get("notes") or []
         return request, request["notes"]
     for stored in request["items"]:
         if stored.get("key") == item:
@@ -1067,6 +1076,7 @@ def _note_target(requests, request_id, item):
                     status=422,
                     code="item_dropped",
                 )
+            stored["notes"] = stored.get("notes") or []
             return request, stored["notes"]
     raise LedgerError(
         f"request {request_id!r} has no item {item!r}",
@@ -1078,8 +1088,8 @@ def _note_target(requests, request_id, item):
 def _find_note(request, note_id):
     """The note list holding `note_id` and the note, in the request or in
     any of its items."""
-    for notes in (request["notes"], *(i["notes"] for i in request["items"])):
-        for note in notes:
+    for notes in (request.get("notes"), *(i.get("notes") for i in request["items"])):
+        for note in notes or []:
             if note.get("id") == note_id:
                 return notes, note
     raise LedgerError(
@@ -1104,7 +1114,7 @@ def _noted_write(root, requests, request, why):
     entry, check the file's size and save. Returns the new revision."""
     at = _now()
     request["revision"] += 1
-    history = request["history"] + [
+    history = (request.get("history") or []) + [
         {"revision": request["revision"], "at": at, "by": "user", "why": why}
     ]
     if len(history) > MAX_HISTORY:

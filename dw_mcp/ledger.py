@@ -96,11 +96,11 @@ def delete_request(client, request, revision, workspace=None):
 # channel (`dw-mcp --notes-channel`, served by dw_mcp/server.py) says about
 # them. Nothing here imports the MCP SDK or sleeps.
 
-# The ledger's own cap on a comment (dw/notes.py); a note is quoted whole
-# up to it
 # Marks the channel's request-list poll, so the server can tell a session
 # is listening. A hint for the page, never an authority.
 CHANNEL_HEADER = {"X-DW-Notes-Channel": "1"}
+# The ledger's own cap on a note (dw/notes.py); a note is quoted whole
+# up to it
 NOTE_QUOTE_CAP = 4000
 # What one note gets in the digest of those waiting at connect
 DIGEST_QUOTE_CAP = 300
@@ -216,11 +216,15 @@ def _when(note):
 
 
 def _ref_line(ref):
-    """One reference as a line: the item, then the take and file it names."""
+    """One reference as a line: the item, then the take and file it names,
+    then why it no longer holds when it is `gone`: its item was dropped, its
+    job is no longer one of the item's takes (`attempt` null), or that job's
+    run is gone."""
     title = f" ({ref['title']})" if ref.get("title") else ""
     line = f'- item "{ref["item"]}"{title}'
     if "job" not in ref:
-        line += ", not rendered yet"
+        if not (ref.get("gone") and ref.get("dropped")):
+            line += ", not rendered yet"
     else:
         if ref.get("attempt") is not None:
             line += f", take {ref['attempt']} of {ref.get('takes', 0)}"
@@ -234,6 +238,8 @@ def _ref_line(ref):
     if ref.get("gone"):
         if ref.get("dropped"):
             line += " (dropped from the plan)"
+        elif "job" in ref and ref.get("attempt") is None:
+            line += " (no longer a take of this item)"
         elif "job" in ref:
             line += " (that job's run no longer exists)"
     return line

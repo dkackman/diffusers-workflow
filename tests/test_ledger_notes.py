@@ -464,3 +464,74 @@ def test_view_marks_ref_attempt_and_gone(tmp_path):
     assert top["req-moved"]["gone"] is True
     stored = json.loads((tmp_path / REQUESTS_FILE_NAME).read_text())["requests"]["cats"]
     assert "attempt" not in stored["items"][0]["notes"][0]["refs"][0]
+
+
+def test_a_ref_to_a_job_with_no_run_yet_is_not_gone(tmp_path):
+    root = planned(tmp_path)
+    for job in ("jq", "jr", "jx", "jf"):
+        add(root, job, refs=[{"job": job}])
+    jobs = [
+        # queued: no run directory yet
+        {"job": "jq", "item": "a", "status": "queued", "run_exists": False},
+        # running, before its run opened
+        {"job": "jr", "item": "a", "status": "running", "run_exists": False},
+        # running, its run opened and since removed
+        {
+            "job": "jx",
+            "item": "a",
+            "status": "running",
+            "run_dir": "a/run_3",
+            "run_exists": False,
+        },
+        # failed before it ever had a run
+        {"job": "jf", "item": "a", "status": "failed", "run_exists": False},
+    ]
+    for place, job in enumerate(jobs, 1):
+        job["created_at"] = place
+    got = ledger.get_request(root, "cats", jobs_for=lambda rid: jobs)
+    refs = {n["text"]: n["refs"][0] for n in got["items"][0]["notes"]}
+    assert refs["jq"]["attempt"] == 1 and "gone" not in refs["jq"]
+    assert refs["jr"]["attempt"] == 2 and "gone" not in refs["jr"]
+    assert refs["jx"]["attempt"] == 3 and refs["jx"]["gone"] is True
+    assert refs["jf"]["attempt"] == 4 and refs["jf"]["gone"] is True
+
+
+def test_a_note_write_on_a_request_with_no_history(tmp_path):
+    store(tmp_path, {})
+    data = json.loads((tmp_path / REQUESTS_FILE_NAME).read_text())
+    del data["requests"]["cats"]["history"]
+    (tmp_path / REQUESTS_FILE_NAME).write_text(json.dumps(data))
+    written = add(str(tmp_path), "warmer")
+    got = ledger.get_request(str(tmp_path), "cats")
+    assert got["history"] == [
+        {
+            "revision": written["revision"],
+            "at": got["history"][0]["at"],
+            "by": "user",
+            "why": "note added",
+        }
+    ]
+
+
+def test_a_note_write_where_the_notes_are_null(tmp_path):
+    store(tmp_path, {"notes": None, "items": [{"key": "a", "notes": None}]})
+    root = str(tmp_path)
+    add(root, "on the request", item=None)
+    add(root, "on the item")
+    got = ledger.get_request(root, "cats")
+    assert [n["text"] for n in got["notes"]] == ["on the request"]
+    assert [n["text"] for n in got["items"][0]["notes"]] == ["on the item"]
+
+
+def test_a_note_edit_finds_its_note_past_a_null_notes_list(tmp_path):
+    store(tmp_path, {"items": [{"key": "a", "notes": None}, {"key": "b"}]})
+    root = str(tmp_path)
+    data = json.loads((tmp_path / REQUESTS_FILE_NAME).read_text())
+    data["requests"]["cats"]["items"][1]["notes"] = [
+        {"id": "n1", "text": "x", "created": T, "at": T}
+    ]
+    data["requests"]["cats"]["notes"] = None
+    (tmp_path / REQUESTS_FILE_NAME).write_text(json.dumps(data))
+    assert ledger.edit_note(root, "cats", "n1", "y")["note"]["text"] == "y"
+    ledger.delete_note(root, "cats", "n1")
+    assert ledger.get_request(root, "cats")["items"][1]["notes"] == []

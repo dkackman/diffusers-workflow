@@ -10,6 +10,7 @@ up here, at call time.
 
 import base64
 import io
+import logging
 import mimetypes
 import os
 from typing import Literal, Optional, Union
@@ -95,6 +96,8 @@ from ..outputs import (
     validated_run_split,
     workspace_asset_library,
 )
+
+logger = logging.getLogger("dw")
 
 router = APIRouter()
 
@@ -231,6 +234,7 @@ def _linked_jobs(request, name, ws):
     try:
         found = manager.history.jobs_publishing_file(name, ws.name)
     except Exception:
+        logger.warning("Could not read the linked jobs of %s", name, exc_info=True)
         return []
     attempts = {}
     for request_id in {job["request"] for job in found}:

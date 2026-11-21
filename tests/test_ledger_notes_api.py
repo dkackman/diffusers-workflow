@@ -247,6 +247,8 @@ def test_a_live_job_takes_a_ref_without_an_output(client, take):
         )
         note = add(client, item="a", text="watching", refs=[{"job": live["id"]}])
         assert note["note"]["refs"] == [{"item": "a", "job": live["id"]}]
+        (read,) = [n for n in notes_of(client, "a") if n["text"] == "watching"]
+        assert read["refs"] == [{"item": "a", "job": live["id"], "attempt": 2}]
     finally:
         client.script.gate.set()
     finish(client, live)
@@ -362,6 +364,22 @@ def test_gallery_metadata_of_an_unlinked_file_lists_none(client):
     name = client.get("/api/gallery").json()["files"][0]["name"]
     meta = client.get(f"/api/gallery/{name}/metadata").json()
     assert meta["linked_jobs"] == []
+
+
+def test_a_failed_linked_jobs_lookup_is_logged_and_lists_none(
+    client, take, monkeypatch, caplog
+):
+    _, name = take
+
+    def broken(*_args):
+        raise RuntimeError("history is locked")
+
+    monkeypatch.setattr(client.manager.history, "jobs_publishing_file", broken)
+    with caplog.at_level("WARNING", logger="dw"):
+        meta = client.get(f"/api/gallery/{name}/metadata").json()
+    assert meta["linked_jobs"] == []
+    (record,) = [r for r in caplog.records if "linked jobs" in r.getMessage()]
+    assert record.exc_info and "history is locked" in str(record.exc_info[1])
 
 
 def test_no_notes_route_is_marked_query_token_ok(client):

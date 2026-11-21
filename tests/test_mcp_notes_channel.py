@@ -47,6 +47,7 @@ class LedgerClient:
         self.calls = []
         self.headers = []  # (path, headers) of every read
         self.fail = {}  # path suffix -> DwApiError to raise
+        self.jobs = []  # the linked jobs every request read is given
 
     def get_json(self, path, params=None, workspace=None, headers=None):
         self.calls.append(path)
@@ -59,10 +60,13 @@ class LedgerClient:
         request_id = path[len(prefix) :].lstrip("/")
         if not request_id:
             return {"workspace": WORKSPACE, **store.listing(self.root)}
-        found = store.get_request(self.root, request_id)
+        found = store.get_request(self.root, request_id, jobs_for=self.linked)
         if found is None:
             raise DwApiError(f"No request {request_id!r}", status_code=404)
         return found
+
+    def linked(self, request_id):
+        return self.jobs
 
     def reads(self):
         """The requests read one by one since the last ask."""
@@ -508,7 +512,10 @@ def test_reference_variants():
         "(video) (that job's run no longer exists)"
     )
     assert line({"item": "s", "title": "T", "gone": True, "dropped": True}) == (
-        '- item "s" (T), not rendered yet (dropped from the plan)'
+        '- item "s" (T) (dropped from the plan)'
+    )
+    assert line({**bare, "gone": True}) == (
+        '- item "shot3" (T), job j1 (no longer a take of this item)'
     )
 
 
@@ -582,3 +589,16 @@ def test_a_note_edited_to_new_text_is_announced_again_and_the_same_text_is_not(
     (again,) = watch.poll(client)
     assert ", edited 2026-11-20 14:03 UTC" in again["content"]
     assert "saved 2026-11-20 14:01 UTC" in again["content"]
+
+
+def test_a_queued_jobs_reference_is_not_stale(client, clock):
+    write(client)
+    watch = started(client)
+    client.jobs = [
+        {"job": "jq", "item": "shot1", "status": "queued", "run_exists": False}
+    ]
+    clock.tick()
+    note(client, "when it runs, warmer", "shot1", refs=[{"item": "shot1", "job": "jq"}])
+    (event,) = watch.poll(client)
+    assert '- item "shot1" (Shot shot1), take 1 of 1 (job jq)\n' in event["content"]
+    assert "no longer" not in event["content"]

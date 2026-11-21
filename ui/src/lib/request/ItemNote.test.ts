@@ -115,6 +115,7 @@ it('saves the draft; a saved note emptied is deleted, an empty new one not sent'
   cleanup()
   const cleared = await draft('   ', 'old words')
   cleared.ondelete.mockResolvedValue(undefined)
+  confirmDialog.mockResolvedValue(true)
   await fireEvent.click(screen.getByRole('button', { name: 'Save note' }))
   await waitFor(() => expect(cleared.ondelete).toHaveBeenCalledTimes(1))
   expect(cleared.onsave).not.toHaveBeenCalled()
@@ -255,6 +256,17 @@ it('deletes an answered note at once, and asks before one still waiting', async 
   confirmDialog.mockResolvedValue(true)
   await fireEvent.click(screen.getByRole('button', { name: 'Delete note' }))
   await waitFor(() => expect(waiting.ondelete).toHaveBeenCalledTimes(1))
+})
+
+it('a waiting note emptied and saved asks first, and stays when declined', async () => {
+  const given = await draft('', 'warmer, please')
+  confirmDialog.mockResolvedValue(false)
+  await fireEvent.click(screen.getByRole('button', { name: 'Save note' }))
+  await waitFor(() => expect(confirmDialog).toHaveBeenCalledTimes(1))
+  expect(confirmDialog.mock.calls[0][0]).toMatch(/^Delete this note\?/)
+  expect(given.ondelete).not.toHaveBeenCalled()
+  expect(given.onsave).not.toHaveBeenCalled()
+  expect(box()).toBeTruthy()
 })
 
 it('shows a note it cannot edit, and nothing where there is none to show', () => {

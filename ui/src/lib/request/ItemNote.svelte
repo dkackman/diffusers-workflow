@@ -158,10 +158,11 @@
       saving = false
     }
   }
-  /** A saved note emptied is deleted; an empty new one is not sent */
+  /** A saved note emptied is deleted, asking first as "Delete note" does;
+   * an empty new one is not sent */
   function save() {
     if (draft.trim()) return store(() => onsave(draft))
-    if (note && ondelete) return store(ondelete)
+    if (note && ondelete) return remove()
     kept = false
     return shut()
   }

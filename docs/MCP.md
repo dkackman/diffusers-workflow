@@ -188,7 +188,10 @@ rendered yet", or the take (its place among the item's jobs, oldest first)
 with its job id and, when it names one, the file as the gallery names it
 (relative to the workspace's outputs, never a path on the server) and its
 kind. A reference that has gone stale since the note was saved says so:
-"(dropped from the plan)" or "(that job's run no longer exists)".
+"(dropped from the plan)" (an item-only reference then drops "not rendered
+yet"), "(no longer a take of this item)" when its job is no longer linked to
+that item, or "(that job's run no longer exists)". A job still queued, or
+running before its run opens, is not stale.
 
 The tag's attributes are the event's `meta`: `kind` (`note`), `workspace`,
 `request`, `revision`, `note` (the note's id, unique within the request),
