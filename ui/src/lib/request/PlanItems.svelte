@@ -212,6 +212,17 @@
     <button type="button" class="quiet act" onclick={() => onrun(row.item.key)}>
       {row.display === 'ready' ? 'Run…' : 'Run again…'}
     </button>
+  {:else if onrun && row.canRetake}
+    <!-- In plain view, not only in the menu: after a note the next take is
+      the usual next step -->
+    <button
+      type="button"
+      class="quiet act"
+      aria-label="Run another take of {row.item.title}"
+      onclick={() => onrun(row.item.key)}
+    >
+      Another take…
+    </button>
   {/if}
 {/snippet}
 

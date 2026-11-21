@@ -299,3 +299,21 @@ it('counts down while a session listens, and says a redirect without a button', 
   redirected.unmount()
   api.notesChannel.mockResolvedValue({ listening: false, last_seen: null })
 })
+
+it("says the agent's latest word under what needs the user, and nothing of it once closed", () => {
+  const history = [
+    entry(1, 'agent', 'opened'),
+    entry(2, 'user', 'note added'),
+    entry(3, 'agent', 'board-01 now blue; awaiting go-ahead to draw'),
+  ]
+  const view = render(RequestHeader, props([item('a')], { history }))
+  const said = view.container.querySelector('.said') as HTMLElement
+  expect(said.textContent).toContain('The agent, r3')
+  expect(said.textContent).toContain('awaiting go-ahead to draw')
+  cleanup()
+  const closed = render(
+    RequestHeader,
+    props([item('a')], { history, state: 'done' }),
+  )
+  expect(closed.container.querySelector('.said')).toBeNull()
+})

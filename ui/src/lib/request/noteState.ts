@@ -98,12 +98,14 @@ export function noteLine(
       text: `${saved} The agent has updated the plan since (${formatMtime(seconds(request.agent_wrote_at as string), now)}).`,
       answered,
     }
+  // What it said is the header's and Plan changes' to show: here, only
+  // that it has answered, and where to look
   const latest = since[since.length - 1]
   const times = since.length === 1 ? 'once' : `${since.length} times`
   return {
     text:
       `${saved} The agent has updated the plan ${times} since ` +
-      `(latest r${latest.revision}, ${formatMtime(seconds(latest.at), now)}: “${latest.why}”).`,
+      `(latest r${latest.revision}, ${formatMtime(seconds(latest.at), now)}).`,
     answered,
   }
 }

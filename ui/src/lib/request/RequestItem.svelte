@@ -184,7 +184,13 @@
         </p>
       {/if}
     </div>
-    <span class="proofcell" class:bare={!item.result?.output}>
+    <!-- Open, the takes below show the same picture larger: the cell keeps
+      its width so the row does not move -->
+    <span
+      class="proofcell"
+      class:bare={!item.result?.output}
+      class:under={open && item.attempts.length > 0}
+    >
       <ItemProof
         output={item.result?.output ?? null}
         state={row.display}
@@ -225,7 +231,6 @@
       <AttemptStrip
         {item}
         {workspace}
-        requestId={request.id}
         onaccept={item.dropped || !onaccept ? undefined : accept}
         onnote={item.dropped ? undefined : noteTake}
       />
@@ -236,6 +241,19 @@
     {#if row.neededBy.length}
       <p class="sub">needed by: {@render refs(row.neededBy)}</p>
     {/if}
+    <NoteList
+      bind:this={notes}
+      bind:pendingRefs={pending}
+      notes={item.notes}
+      {request}
+      item={item.key}
+      {workspace}
+      about={item.title}
+      {ongo}
+      onchanged={onreload}
+    />
+    <!-- What it runs is detail: after the notes, not between the takes and
+      them -->
     {#if item.workflow && args.length}
       <details class="runs">
         <summary>
@@ -251,17 +269,6 @@
     {:else if item.workflow}
       <p class="sub">Runs <code>{item.workflow}</code> with no arguments</p>
     {/if}
-    <NoteList
-      bind:this={notes}
-      bind:pendingRefs={pending}
-      notes={item.notes}
-      {request}
-      item={item.key}
-      {workspace}
-      about={item.title}
-      {ongo}
-      onchanged={onreload}
-    />
   </div>
 </li>
 
@@ -305,6 +312,9 @@
   }
   .handle {
     grid-area: handle;
+  }
+  .proofcell.under {
+    visibility: hidden;
   }
   .proofcell {
     grid-area: proof;

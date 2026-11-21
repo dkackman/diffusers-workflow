@@ -101,3 +101,21 @@ export function standing(
     needs: needsLine(plan.needs),
   }
 }
+
+export type AgentSaid = { revision: number; why: string; at: string }
+
+/** What the agent last wrote on an open request: its newest history entry,
+ * whose `why` is how it answers - "ready for take 2, not run", "awaiting
+ * go-ahead". Null on a closed request, or one the agent never wrote */
+export function agentSaid(request: LedgerRequest): AgentSaid | null {
+  if (request.state !== 'open') return null
+  const latest = request.history
+    .filter((e) => e.by === 'agent')
+    .reduce<(typeof request.history)[number] | null>(
+      (best, e) => (!best || e.revision > best.revision ? e : best),
+      null,
+    )
+  return latest
+    ? { revision: latest.revision, why: latest.why, at: latest.at }
+    : null
+}

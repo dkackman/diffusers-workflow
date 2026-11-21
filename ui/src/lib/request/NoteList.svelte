@@ -7,7 +7,7 @@
   import { draftKey, refKey } from './draft'
   import { listening } from './listening.svelte'
   import { noteAnchor, noteLine } from './noteState'
-  import { addRef, writtenRefs } from './noteRefs'
+  import { addRef, collapseRefs, writtenRefs } from './noteRefs'
 
   // The user's notes for the agent on a request or one of its items: each
   // with where it stands and what it is about, then the box a new one is
@@ -145,7 +145,7 @@
               {editable}
               draftKey={draftKey(workspace, request.id, item, `@${note.id}`)}
               listening={channel.listening}
-              refs={note.refs ?? []}
+              refs={collapseRefs(note.refs ?? [])}
               {chip}
               onsave={(text) => edited(note, text)}
               ondelete={() => deleted(note)}
