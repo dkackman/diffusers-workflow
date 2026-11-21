@@ -7,9 +7,9 @@ import os
 from dw.workspace import REQUESTS_FILE_NAME
 
 
-def save_note(root, request_id, text, item=None, at=None):
+def save_note(root, request_id, text, item=None, at=None, refs=None):
     """Replace the notes on an item (or on the request itself when `item` is
-    None) with one note carrying `text`, or with none when `text` is None.
+    None) with one note carrying `text` (and `refs`, stored as given), or with none when `text` is None.
     The note is stamped `at`, else with the request's latest history entry, so
     call this right after the write that stands for the user saving it. Returns the
     note, or None when cleared."""
@@ -30,6 +30,7 @@ def save_note(root, request_id, text, item=None, at=None):
             "text": text,
             "created": at,
             "at": at,
+            **({"refs": refs} if refs else {}),
         }
         request["next_note"] += 1
     owner["notes"] = [saved] if saved else []

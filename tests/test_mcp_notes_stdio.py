@@ -289,6 +289,8 @@ def test_a_saved_note_reaches_the_client_as_a_channel_notification(dw_server, ch
         "request": "lighthouse",
         "item": "shot3",
         "revision": str(written["revision"]),
+        "note": "n2",
+        "created": saved,
     }
     minute = saved[:16].replace("T", " ")
     assert event["params"]["content"] == (

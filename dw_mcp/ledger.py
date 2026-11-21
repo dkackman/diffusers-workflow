@@ -31,11 +31,13 @@ def request_filter(request):
     return dict(zip(("request", "item"), parts))
 
 
-def get_request(client, request=None, workspace=None):
-    """One request's plan, or the workspace's list when `request` is None."""
+def get_request(client, request=None, workspace=None, headers=None):
+    """One request's plan, or the workspace's list when `request` is None.
+    `headers` go on the list read only."""
     name = _workspace(client, workspace)
     if request is None:
-        return client.get_json(api_path("api", "workspaces", name, "requests"))
+        extra = {"headers": headers} if headers else {}
+        return client.get_json(api_path("api", "workspaces", name, "requests"), **extra)
     return client.get_json(api_path("api", "workspaces", name, "requests", request))
 
 
@@ -96,6 +98,9 @@ def delete_request(client, request, revision, workspace=None):
 
 # The ledger's own cap on a comment (dw/notes.py); a note is quoted whole
 # up to it
+# Marks the channel's request-list poll, so the server can tell a session
+# is listening. A hint for the page, never an authority.
+CHANNEL_HEADER = {"X-DW-Notes-Channel": "1"}
 NOTE_QUOTE_CAP = 4000
 # What one note gets in the digest of those waiting at connect
 DIGEST_QUOTE_CAP = 300
@@ -135,11 +140,32 @@ def note_waiting(note, request):
     return saved >= wrote
 
 
+def _read_refs(note, request):
+    """A note's references with what the channel text needs from the plan:
+    the referenced item's `title`, its live-ness (`dropped`) and `takes`, the
+    count of its attempts. The item is looked up by `ref.item`, not by the
+    note's own target."""
+    items = {item.get("key"): item for item in request.get("items") or []}
+    out = []
+    for ref in note.get("refs") or []:
+        item = items.get(ref.get("item")) or {}
+        out.append(
+            {
+                **ref,
+                "title": item.get("title") or "",
+                "dropped": not item or bool(item.get("dropped")),
+                "takes": len(item.get("attempts") or []),
+            }
+        )
+    return out
+
+
 def waiting_notes(request):
     """The notes of one request that wait on the agent: the request's own,
     then each live item's in plan order (notes in stored order), as `{request,
-    revision, item, title, note, text, at, refs}`. `item` is "" for the
-    request's own notes; `note` is the note's id."""
+    revision, item, title, note, text, created, at, refs}`. `item` is "" for
+    the request's own notes; `note` is the note's id; each ref carries its
+    item's `title`, `dropped` and `takes` besides what the view gave."""
     targets = [("", request.get("title"), request.get("notes"))]
     targets += [
         (item.get("key"), item.get("title"), item.get("notes"))
@@ -154,8 +180,9 @@ def waiting_notes(request):
             "note": note.get("id"),
             "title": title,
             "text": note.get("text") or "",
+            "created": note.get("created") or note.get("at"),
             "at": note.get("at"),
-            "refs": note.get("refs") or [],
+            "refs": _read_refs(note, request),
         }
         for key, title, notes in targets
         for note in notes or []
@@ -173,10 +200,43 @@ def _saved(at):
 
 def _target(note):
     """Which plan a note is on: its request, and its item when it has one."""
-    title = f" ({note['title']})" if note.get("title") else ""
     if note["item"]:
+        title = f" ({note['title']})" if note.get("title") else ""
         return f'request "{note["request"]}", item "{note["item"]}"{title}'
-    return f'request "{note["request"]}"{title}'
+    return f'request "{note["request"]}"'
+
+
+def _when(note):
+    """`saved <created>`, then `, edited <at>` once `at` has moved."""
+    created = note.get("created") or note["at"]
+    text = f"saved {_saved(created)}"
+    if note["at"] != created:
+        text += f", edited {_saved(note['at'])}"
+    return text
+
+
+def _ref_line(ref):
+    """One reference as a line: the item, then the take and file it names."""
+    title = f" ({ref['title']})" if ref.get("title") else ""
+    line = f'- item "{ref["item"]}"{title}'
+    if "job" not in ref:
+        line += ", not rendered yet"
+    else:
+        if ref.get("attempt") is not None:
+            line += f", take {ref['attempt']} of {ref.get('takes', 0)}"
+            line += f" (job {ref['job']})"
+        else:
+            line += f", job {ref['job']}"
+        if ref.get("output"):
+            line += f', file "{ref["output"]}"'
+            if ref.get("kind"):
+                line += f" ({ref['kind']})"
+    if ref.get("gone"):
+        if ref.get("dropped"):
+            line += " (dropped from the plan)"
+        elif "job" in ref:
+            line += " (that job's run no longer exists)"
+    return line
 
 
 def _read_call(note, workspace):
@@ -190,10 +250,13 @@ def note_event(note, workspace):
     other key."""
     text = note["text"]
     clipped = len(text) > NOTE_QUOTE_CAP
-    lines = [
-        f"Note from the user on {_target(note)}, saved {_saved(note['at'])}:",
-        text[:NOTE_QUOTE_CAP],
-    ]
+    refs = note.get("refs") or []
+    head = f"Note from the user on {_target(note)}, {_when(note)}"
+    if refs:
+        head += ", about:\n" + "\n".join(_ref_line(ref) for ref in refs)
+    else:
+        head += ":"
+    lines = [head, text[:NOTE_QUOTE_CAP]]
     if clipped:
         lines.append(
             f"(Clipped at {NOTE_QUOTE_CAP} characters of {len(text)}; "
@@ -208,9 +271,13 @@ def note_event(note, workspace):
         "workspace": str(workspace),
         "request": str(note["request"]),
         "revision": str(note["revision"]),
+        "note": str(note["note"]),
+        "created": str(note.get("created") or note["at"]),
     }
     if note["item"]:
         meta["item"] = str(note["item"])
+    if refs:
+        meta["items"] = ",".join(dict.fromkeys(str(r["item"]) for r in refs))
     return {"content": "\n\n".join(lines), "meta": meta}
 
 
@@ -224,7 +291,8 @@ def waiting_event(notes, workspace):
         text = " ".join(note["text"].split())
         if len(text) > DIGEST_QUOTE_CAP:
             text = text[:DIGEST_QUOTE_CAP] + " ... (clipped)"
-        lines.append(f"- {_target(note)}, saved {_saved(note['at'])}: {text}")
+        lines.append(f"- {_target(note)}, {_when(note)}: {text}")
+        lines += [f"  {_ref_line(ref)}" for ref in note.get("refs") or []]
     if count > DIGEST_MAX_NOTES:
         lines.append(f"- and {count - DIGEST_MAX_NOTES} more")
     one = count == 1
@@ -259,7 +327,7 @@ class NoteWatch:
     changed - and each open request whose revision moved since it was last
     read. The first poll that reaches the server answers with one digest of
     everything waiting; after it, each note is announced once, keyed by its
-    request, item and `at`, so an edited note (a new `at`) is announced
+    note id and `at`, so an edited note (a new `at`) is announced
     again and one the agent has written after never is.
     """
 
@@ -268,7 +336,7 @@ class NoteWatch:
         self.fault = None  # why the last poll could not read a request
         self._started = False
         self._stamps = {}  # request id -> (revision, updated_at) last read
-        self._announced = {}  # request id -> {(item key, at)} still waiting
+        self._announced = {}  # request id -> {(note id, at)} still waiting
 
     def poll(self, client):
         """The events to send now. Raises DwApiError when the list cannot
@@ -276,7 +344,7 @@ class NoteWatch:
         and named in `fault`."""
         self.fault = None
         name = _workspace(client, self.workspace)
-        listing = get_request(client, workspace=name)
+        listing = get_request(client, workspace=name, headers=CHANNEL_HEADER)
         if listing.get("unreadable"):
             raise DwApiError(str(listing["unreadable"]))
         fresh, open_ids = [], set()
@@ -296,10 +364,8 @@ class NoteWatch:
                 continue
             waiting = waiting_notes(request)
             told = self._announced.get(request_id, ())
-            fresh += [n for n in waiting if (n["item"], n["note"], n["at"]) not in told]
-            self._announced[request_id] = {
-                (n["item"], n["note"], n["at"]) for n in waiting
-            }
+            fresh += [n for n in waiting if (n["note"], n["at"]) not in told]
+            self._announced[request_id] = {(n["note"], n["at"]) for n in waiting}
             self._stamps[request_id] = stamp
         for request_id in set(self._stamps) - open_ids:
             del self._stamps[request_id]
