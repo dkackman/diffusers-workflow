@@ -139,3 +139,12 @@ def test_a_plan_write_keeps_stored_notes_whatever_it_sends(tmp_path):
 def test_a_plan_write_carrying_comment_is_refused(tmp_path):
     refused(tmp_path, plan(comment="mine"), by="user")
     refused(tmp_path, plan(items=[item("a", comment="mine")]), by="user")
+
+
+def test_a_stored_request_with_no_history_reads_with_no_agent_wrote_at(tmp_path):
+    store(tmp_path, {})
+    data = json.loads((tmp_path / REQUESTS_FILE_NAME).read_text())
+    del data["requests"]["cats"]["history"]
+    (tmp_path / REQUESTS_FILE_NAME).write_text(json.dumps(data))
+    assert ledger.get_request(str(tmp_path), "cats")["agent_wrote_at"] is None
+    assert "cats" in ledger.read_requests(str(tmp_path))

@@ -244,7 +244,7 @@ def _upgrade(request):
             )
             request["next_note"] += 1
     if "agent_wrote_at" not in request:
-        agent = [h.get("at") for h in request["history"] if h.get("by") == "agent"]
+        agent = [h.get("at") for h in request.get("history") or [] if h.get("by") == "agent"]
         request["agent_wrote_at"] = agent[-1] if agent else None
     return request
 
