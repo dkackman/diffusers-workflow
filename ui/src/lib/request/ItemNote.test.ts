@@ -7,6 +7,7 @@ import {
 } from '@testing-library/svelte'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import ItemNote from './ItemNote.svelte'
+import { NEEDS_WORDS, NOT_SENT } from './noteState'
 import { ApiError } from '../apiErrors'
 
 const confirmDialog = vi.hoisted(() => vi.fn())
@@ -106,7 +107,7 @@ it('shows a saved note with the line about where it stands', () => {
   expect(screen.getByRole('button', { name: 'Delete note' })).toBeTruthy()
 })
 
-it('saves the draft; a saved note emptied is deleted, an empty new one not sent', async () => {
+it('saves the draft; a saved note emptied is deleted', async () => {
   const given = await draft('needs more red')
   given.onsave.mockResolvedValue(undefined)
   await fireEvent.click(screen.getByRole('button', { name: 'Save note' }))
@@ -119,11 +120,46 @@ it('saves the draft; a saved note emptied is deleted, an empty new one not sent'
   await fireEvent.click(screen.getByRole('button', { name: 'Save note' }))
   await waitFor(() => expect(cleared.ondelete).toHaveBeenCalledTimes(1))
   expect(cleared.onsave).not.toHaveBeenCalled()
-  cleanup()
+})
+
+it('a new note cannot be sent without words: the button waits, Ctrl+Enter does nothing, the box stays open', async () => {
   const empty = await draft('  ')
-  await fireEvent.click(screen.getByRole('button', { name: 'Save note' }))
-  await noBox()
+  const send = screen.getByRole('button', {
+    name: 'Save note',
+  }) as HTMLButtonElement
+  expect(send.disabled).toBe(true)
+  await fireEvent.keyDown(box(), { key: 'Enter', ctrlKey: true })
+  expect(box()).toBeTruthy()
   expect(empty.onsave).not.toHaveBeenCalled()
+  await fireEvent.input(box(), { target: { value: 'warmer' } })
+  expect(send.disabled).toBe(false)
+})
+
+it('a reference with no words says a note needs words, and says it is not sent once the box closes', async () => {
+  const given = props(null, { refs: [{ item: 's5' }] })
+  render(ItemNote, given)
+  // closed, with a reference waiting: not mistaken for a sent note
+  expect(screen.getByText(NOT_SENT)).toBeTruthy()
+  await fireEvent.click(
+    screen.getByRole('button', { name: 'Add a note for the agent' }),
+  )
+  expect(screen.queryByText(NOT_SENT)).toBeNull()
+  expect(screen.getByText(NEEDS_WORDS)).toBeTruthy()
+  await fireEvent.input(box(), { target: { value: 'lower the camera' } })
+  expect(screen.queryByText(NEEDS_WORDS)).toBeNull()
+  // the words discarded, the reference still waits: it says so again
+  confirmDialog.mockResolvedValue(true)
+  await fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+  await noBox()
+  expect(screen.getByText(NOT_SENT)).toBeTruthy()
+})
+
+it('a new note with no reference says nothing about one', async () => {
+  await draft('')
+  expect(screen.queryByText(NEEDS_WORDS)).toBeNull()
+  cleanup()
+  render(ItemNote, props(null))
+  expect(screen.queryByText(NOT_SENT)).toBeNull()
 })
 
 it('Ctrl+Enter saves', async () => {

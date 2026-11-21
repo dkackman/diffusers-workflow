@@ -59,6 +59,13 @@ export const LISTENING_LINE =
 export const NOT_LISTENING_LINE =
   'No agent session is listening. It reads this the next time it updates the plan.'
 
+/** A new note that has references but no words yet: open, it says a note
+ * needs words; closed, it says nothing was sent, so the waiting chips are
+ * not mistaken for a sent note */
+export const NEEDS_WORDS = 'Say what should change: a note is sent with words.'
+export const NOT_SENT =
+  'Not sent yet. Add a few words to send a note about this.'
+
 /** Where a note is on the request page, for a link to it */
 export const noteAnchor = (id: string) => `request-note-${id}`
 

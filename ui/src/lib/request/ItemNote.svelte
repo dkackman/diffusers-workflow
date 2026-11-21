@@ -13,7 +13,9 @@
   } from './draft'
   import {
     LISTENING_LINE,
+    NEEDS_WORDS,
     NOT_LISTENING_LINE,
+    NOT_SENT,
     type NoteLine,
   } from './noteState'
   import type { LedgerNote, LedgerNoteRef } from '../types'
@@ -158,13 +160,13 @@
       saving = false
     }
   }
+  // A new note goes out only with words: references alone are not a note
+  const wordless = $derived(note === null && !draft.trim())
   /** A saved note emptied is deleted, asking first as "Delete note" does;
-   * an empty new one is not sent */
+   * a new one with no words is not sent, and the box stays open */
   function save() {
     if (draft.trim()) return store(() => onsave(draft))
     if (note && ondelete) return remove()
-    kept = false
-    return shut()
   }
   async function remove() {
     if (
@@ -226,6 +228,9 @@
           : `Note for the agent on ${about}`}
         placeholder="What should change?"
         onkeydown={keys}></textarea>
+      {#if wordless && refs.length}
+        <p class="hint">{NEEDS_WORDS}</p>
+      {/if}
       <p class="hint muted">
         {listening ? LISTENING_LINE : NOT_LISTENING_LINE}
         {#if draft.length > COUNT_FROM}
@@ -237,7 +242,7 @@
           type="button"
           class="quiet"
           onclick={save}
-          disabled={saving}
+          disabled={saving || wordless}
           title="Ctrl+Enter"
         >
           {saving ? 'Saving…' : listening ? 'Send to agent' : 'Save note'}
@@ -253,6 +258,7 @@
         {#if line}<p class="hint muted">{line.text}</p>{/if}
       {:else}
         {@render chips()}
+        {#if refs.length && !kept}<p class="hint">{NOT_SENT}</p>{/if}
       {/if}
       {#if kept}<p class="hint">You have an unsaved draft.</p>{/if}
       {#if editable}
