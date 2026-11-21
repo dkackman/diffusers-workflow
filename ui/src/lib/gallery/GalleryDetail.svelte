@@ -9,10 +9,12 @@
   import type {
     GalleryFile,
     GalleryInput,
+    GalleryLinkedJob,
     LevelFinding,
     OutputRole,
   } from '../types'
   import GalleryFindings from './GalleryFindings.svelte'
+  import FileAgentNotes from './FileAgentNotes.svelte'
   import { AssessCache } from './assess.svelte'
   import RoleTag from './RoleTag.svelte'
   import NoteEditor from '../ui/NoteEditor.svelte'
@@ -33,6 +35,7 @@
     role = null,
     inputs = [],
     findings = [],
+    linkedJobs = [],
     assessCache = new AssessCache(),
     note = null,
     runNote = null,
@@ -53,6 +56,8 @@
     inputs?: GalleryInput[]
     /** The level findings the metadata reply carries, warn first */
     findings?: LevelFinding[]
+    /** The takes of request items that published the file */
+    linkedJobs?: GalleryLinkedJob[]
     /** Assess results by output for the page's life; the page passes its
      * own so one survives the panel closing */
     assessCache?: AssessCache
@@ -273,7 +278,7 @@
     {:else if file.kind === 'text'}
       <pre class="text">{textBody ?? 'loading…'}</pre>
     {/if}
-    {#if metadata || role || inputs.length || findings.length || assessed}
+    {#if metadata || role || inputs.length || findings.length || assessed || linkedJobs.length}
       <div class="meta">
         <div><RoleTag {role} /></div>
         {#if inherited}
@@ -295,6 +300,11 @@
           />
         {/if}
         <GalleryFindings {findings} {assessed} />
+        <FileAgentNotes
+          file={file.name}
+          {linkedJobs}
+          workspace={workspace.current}
+        />
         {#if metadata}
           <details class="settings">
             <summary>Settings</summary>

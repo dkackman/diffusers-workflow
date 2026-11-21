@@ -15,6 +15,7 @@
   import type {
     GalleryFile,
     GalleryInput,
+    GalleryLinkedJob,
     LevelFinding,
     OutputRole,
   } from '../types'
@@ -50,6 +51,7 @@
   let findings = $state<LevelFinding[]>([])
   const assessCache = new AssessCache()
   let inputs = $state<GalleryInput[]>([])
+  let linkedJobs = $state<GalleryLinkedJob[]>([])
 
   // The requests-ledger request the gallery is narrowed to (RequestFilter
   // keeps it in step with the hash); the listing asks the server for it
@@ -196,6 +198,7 @@
     role = null
     inputs = []
     findings = []
+    linkedJobs = []
     noteInfo = { note: null, runNote: null, source: null }
     api
       .galleryMetadata(file.name)
@@ -206,6 +209,7 @@
           role = r.role ?? file.role ?? null
           inputs = r.inputs ?? []
           findings = r.findings ?? []
+          linkedJobs = r.linked_jobs
           noteInfo = {
             note: r.note ?? null,
             runNote: r.run_note ?? null,
@@ -463,6 +467,7 @@
     {role}
     {inputs}
     {findings}
+    {linkedJobs}
     {assessCache}
     note={noteInfo.note}
     runNote={noteInfo.runNote}

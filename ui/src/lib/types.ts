@@ -65,6 +65,8 @@ export type GalleryFile = Schemas['GalleryFile']
 export type GalleryList = Schemas['GalleryList']
 export type GalleryMetadata = Schemas['GalleryMetadata']
 export type GalleryInput = Schemas['GalleryInput']
+// A take of a request item that published a gallery file
+export type GalleryLinkedJob = Schemas['GalleryLinkedJob']
 // One finding, as GET /api/gallery/{name}/metadata (`findings`) and
 // /assess send it (dw/assessment_rules.py `finding()`)
 export type LevelFinding = Schemas['LevelFinding']
