@@ -1114,9 +1114,17 @@ The editor's forms come from these; they are just as usable from scripts:
   linked to the item, an output not in its manifest, a job still running
   with an `output`), `too_many_refs`, `too_many_notes` (20 per item or
   request), `unknown_item`, `item_dropped`.
+- `GET /api/requests` — every workspace's open requests, newest change
+  first, as `{requests, unreadable?}`: each row is a request summary (the
+  list route's) with its `workspace`, and `unreadable` maps a workspace
+  whose `requests.json` is not a ledger to why; the others still list. It
+  is the one read a notes channel makes when it watches the whole server,
+  and marked `X-DW-Notes-Channel: 1` it counts as a poll of every
+  workspace, including one made after it.
 - `GET /api/workspaces/{name}/notes-channel` — `{listening, last_seen}`:
   whether a notes channel polled this workspace's request list in the last
-  30 seconds. The channel marks its polls with an `X-DW-Notes-Channel: 1`
+  30 seconds. A marked `GET /api/requests` counts
+  for every workspace. The channel marks its polls with an `X-DW-Notes-Channel: 1`
   header, and the server keeps the time in memory only. It means a session
   has the channel set up, not that Claude Code is passing its events on
   ([MCP.md](MCP.md#is-a-session-listening)).

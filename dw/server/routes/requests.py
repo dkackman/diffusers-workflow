@@ -16,11 +16,12 @@ from ..api_models_library import (
     NoteEdit,
     NotesChannelState,
     NoteWritten,
+    OpenRequestList,
     RequestWrite,
 )
 from ... import ledger
 from ...security import SecurityError, validate_path
-from ...workspace import DEFAULT_WORKSPACE_NAME
+from ...workspace import DEFAULT_WORKSPACE_NAME, workspace_names
 from ..deps import internal_error, workspace_for, workspace_root
 from ..outputs import shown_outputs
 
@@ -84,6 +85,45 @@ def list_requests(request: Request, name: str):
     if request.headers.get("X-DW-Notes-Channel") == "1":
         request.app.state.listening.seen(name)
     return {"workspace": name, **ledger.listing(root, _jobs_for(request, name))}
+
+
+@router.get(
+    "/api/requests",
+    response_model=OpenRequestList,
+    response_model_exclude_unset=True,
+)
+def list_open_requests(request: Request):
+    """Every workspace's open requests, without their items, newest change
+    first: the one read a notes channel makes when it watches the whole
+    server. Marked `X-DW-Notes-Channel: 1`, it counts as a poll of every
+    workspace. `unreadable` names a workspace whose requests.json is there
+    but is not a ledger; the others still list."""
+    state = request.app.state
+    if request.headers.get("X-DW-Notes-Channel") == "1":
+        state.listening.seen_all()
+    names = (
+        workspace_names(state.workspace_root)
+        if state.workspace_root
+        else [DEFAULT_WORKSPACE_NAME]
+    )
+    rows, broken = [], {}
+    for name in names:
+        try:
+            root = _ledger_root(state, name)
+        except HTTPException:
+            continue  # removed since the root was listed
+        problem = ledger.unreadable(root)
+        if problem is not None:
+            broken[name] = str(problem)
+            continue
+        jobs_for = _jobs_for(request, name)
+        rows += [
+            {"workspace": name, **ledger.summary_view(r, jobs_for(r.get("id")))}
+            for r in ledger.read_requests(root).values()
+            if r.get("state") == "open"
+        ]
+    rows.sort(key=lambda row: row.get("updated_at") or "", reverse=True)
+    return {"requests": rows, **({"unreadable": broken} if broken else {})}
 
 
 @router.get(

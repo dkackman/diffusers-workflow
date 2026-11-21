@@ -28,7 +28,7 @@ the client needs a command it can find (see below). `dw-mcp` (or
 | `--workspace` | `$DW_MCP_WORKSPACE`, else the server's default | Which of the server's workspaces the session works in. A *name* on the server, not a local directory (`DW_WORKSPACE` means something else to the engine). `use_workspace` switches it mid-session |
 | `--timeout` | `30` | Seconds to wait on any one API request |
 | `--no-probe` | off | Skip the startup `GET /api/health` that confirms the server is reachable and the token is accepted |
-| `--notes-channel` | off | Serve no tools: be [the notes channel](#the-notes-channel), which tells an open Claude Code session when the user saves a note for the agent |
+| `--notes-channel` | off | Serve no tools: be [the notes channel](#the-notes-channel), which tells an open Claude Code session when the user saves a note for the agent. It watches every workspace unless `--workspace` is given |
 | `--interval` | `10` | With `--notes-channel`: seconds between reads of the request list, at least 2 |
 
 A non-loopback `--url` with no token makes `dw-mcp` exit 2. The startup probe
@@ -163,8 +163,8 @@ When the user saves a **Note for the agent** on a request or one of its
 items in the web UI ([WORKSPACES.md](WORKSPACES.md#requests)), nothing is
 sent anywhere: the agent reads the note the next time it reads the plan. The
 notes channel closes that gap for an open Claude Code session. It is a
-second, small stdio process, `dw-mcp --notes-channel`, that watches one
-workspace's requests and tells the session about each note as it is saved.
+second, small stdio process, `dw-mcp --notes-channel`, that watches the
+server's requests and tells the session about each note as it is saved.
 
 A note can carry references to the items, takes and files it is about, so the
 event says which. This one was written from the request page and names two
@@ -212,12 +212,23 @@ saved while no session is open waits as it always did.
   through the dw tools it already has (the `dw` registration above, or
   `dw.serve --mcp`); run the channel beside that connection, not instead of
   it.
-- **One workspace.** It watches `--workspace` (`DW_MCP_WORKSPACE`, else the
-  server's default) and does not follow `use_workspace`. Run one channel per
-  workspace to watch several.
+- **Every workspace.** With no `--workspace` it watches the whole server, so
+  a session that moves with `use_workspace`, or works in a workspace other
+  than the default, still hears its notes. Each event names its workspace,
+  and its `get_request` call passes it. `DW_MCP_WORKSPACE` does not narrow
+  the channel: it picks where a session starts, not what it hears.
+  `--workspace` pins the channel to one workspace. On a server older than
+  `GET /api/requests` it falls back to the default workspace (or
+  `DW_MCP_WORKSPACE`), as before.
+- **Two sessions on one server.** A channel that watches everything tells its
+  session about notes on every workspace's requests. Two sessions open on
+  one server both hear each note; the agent acts only on a request it is
+  working on (the event names it). Pin each session's channel with
+  `--workspace` to keep them apart.
 - **Polling.** Every `--interval` seconds (default 10, at least 2) it reads
-  the request list, and then only the open requests whose revision moved: an
-  idle ledger costs one request a tick.
+  the server's open requests (`GET /api/requests`, one read for every
+  workspace; the workspace's list when pinned), and then only the open
+  requests whose revision moved: an idle server costs one request a tick.
 - **Which notes.** A note *waits* while its request is open, its item is not
   dropped, and the agent has not written the request since the note was
   saved - the rule behind the page's "Nothing is sent to the agent" line. A
@@ -227,7 +238,7 @@ saved while no session is open waits as it always did.
   has written (`set_request`) it is not announced again.
 - **At connect.** A few seconds after the handshake (one interval, at most
   5 seconds, so Claude Code is listening), notes already waiting are
-  announced as one `kind="notes_waiting"` event that lists them (each
+  announced as one `kind="notes_waiting"` event per workspace that lists them (each
   clipped to 300 characters, its references on the lines under it). Those predate the session, so the agent is told to say what
   is waiting and to confirm before spending GPU time on them. A note saved
   after that is a `kind="note"` event, quoted whole (the ledger's 4000
@@ -240,7 +251,9 @@ saved while no session is open waits as it always did.
   is sent back through the channel.
 - **When the server is away.** An unreachable server, a rejected token, a
   timeout or an unreadable `requests.json` is written to stderr once and
-  retried, the delay doubling up to five minutes; the process stays up.
+  retried, the delay doubling up to five minutes; the process stays up. One
+  workspace's unreadable `requests.json` is named on stderr while the other
+  workspaces are still announced.
   Events are not queued across a restart: a note is either still waiting
   (and in the next session's digest) or answered.
 
@@ -249,7 +262,8 @@ saved while no session is open waits as it always did.
 The web UI labels the note's save button by whether a channel is running. The
 channel marks each read of the request list with an `X-DW-Notes-Channel: 1`
 header, and the server remembers, in memory only, when a marked read last
-came for each workspace. `GET /api/workspaces/{name}/notes-channel` answers
+came for each workspace; a marked `GET /api/requests` counts for every
+workspace, including one made after it. `GET /api/workspaces/{name}/notes-channel` answers
 `{listening, last_seen}`: `listening` is true when a marked read came in the
 last 30 seconds (three intervals at the default 10). A server restart
 forgets it until the next read. The button reads **Send to agent** when a
@@ -304,6 +318,11 @@ If nothing arrives:
 - It is connected but no event comes: the session was started without the
   flag (Claude Code then drops the events silently), or an organization
   policy blocks channels.
+- The request page says no session is listening while one is open: the
+  channel is pinned with `--workspace` to a workspace other than the
+  request's, or it is talking to a server older than `GET /api/requests`
+  and so watches only the default workspace. Drop `--workspace`, or update
+  the server.
 - **Protocol revision.** Claude Code does not register a server that
   negotiates MCP protocol revision 2026-07-28 as a channel. This process
   declines that revision by itself: it answers the `server/discover` probe

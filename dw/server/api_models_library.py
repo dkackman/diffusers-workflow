@@ -513,6 +513,20 @@ class LedgerList(ApiModel):
     )
 
 
+class OpenRequestSummary(LedgerSummary):
+    workspace: str = Field(description="The workspace the request is in.")
+
+
+class OpenRequestList(ApiModel):
+    requests: list[OpenRequestSummary] = Field(
+        description="Every workspace's open requests, newest change first."
+    )
+    unreadable: dict[str, str] = sometimes(
+        "Workspace name -> why its requests.json could not be read; its "
+        "requests are left out."
+    )
+
+
 class LedgerDeleted(ApiModel):
     id: str
     workspace: str

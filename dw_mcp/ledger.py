@@ -329,56 +329,94 @@ def retry_delay(interval, failures):
 class NoteWatch:
     """Which waiting notes one channel process has yet to announce.
 
-    `poll` reads the workspace's request list - one call when nothing
-    changed - and each open request whose revision moved since it was last
-    read. The first poll that reaches the server answers with one digest of
-    everything waiting; after it, each note is announced once, keyed by its
-    note id and `at`, so an edited note (a new `at`) is announced
-    again and one the agent has written after never is.
+    `poll` reads a request list - one call when nothing changed - and each
+    open request whose revision moved since it was last read. With
+    `everywhere`, the list is the server's (`/api/requests`: every
+    workspace's open requests, one read), so a note reaches the session
+    whichever workspace it works in; a server without that route is read
+    one workspace at a time from then on, the client's. Otherwise it is
+    the `workspace` list (the client's when None). The first poll that
+    reaches the server answers with one digest of everything waiting per
+    workspace; after it, each note is announced once, keyed by its
+    workspace, request, note id and `at`, so an edited note (a new `at`) is
+    announced again and one the agent has written after never is.
     """
 
-    def __init__(self, workspace=None):
+    def __init__(self, workspace=None, everywhere=False):
         self.workspace = workspace
+        self.everywhere = everywhere
         self.fault = None  # why the last poll could not read a request
         self._started = False
-        self._stamps = {}  # request id -> (revision, updated_at) last read
-        self._announced = {}  # request id -> {(note id, at)} still waiting
+        self._stamps = {}  # (workspace, request id) -> (revision, updated_at)
+        self._announced = {}  # (workspace, request id) -> {(note id, at)}
 
-    def poll(self, client):
-        """The events to send now. Raises DwApiError when the list cannot
-        be read; a single request that cannot be is left for the next poll
-        and named in `fault`."""
-        self.fault = None
+    def _rows(self, client):
+        """`(workspace, row)` for each open request the list names, and why
+        a workspace's ledger could not be read (None when every one could).
+        Raises DwApiError when no list can be read."""
+        if self.everywhere:
+            try:
+                listing = client.get_json(
+                    api_path("api", "requests"), headers=CHANNEL_HEADER
+                )
+            except DwApiError as e:
+                if e.status_code != 404:
+                    raise
+                self.everywhere = False  # a server older than the route
+            else:
+                broken = listing.get("unreadable") or {}
+                rows = [
+                    (row.get("workspace"), row)
+                    for row in listing.get("requests") or []
+                    if row.get("state") == "open"
+                ]
+                fault = None
+                if broken:
+                    fault = "; ".join(f"{n}: {why}" for n, why in broken.items())
+                return rows, fault
         name = _workspace(client, self.workspace)
         listing = get_request(client, workspace=name, headers=CHANNEL_HEADER)
         if listing.get("unreadable"):
             raise DwApiError(str(listing["unreadable"]))
-        fresh, open_ids = [], set()
-        for row in listing.get("requests") or []:
-            if row.get("state") != "open":
-                continue
-            request_id = row.get("id")
-            open_ids.add(request_id)
+        rows = [
+            (name, row)
+            for row in listing.get("requests") or []
+            if row.get("state") == "open"
+        ]
+        return rows, None
+
+    def poll(self, client):
+        """The events to send now. Raises DwApiError when the list cannot
+        be read; a single request or workspace that cannot be is left for
+        the next poll and named in `fault`."""
+        rows, self.fault = self._rows(client)
+        fresh, open_keys = [], set()
+        for name, row in rows:
+            key = (name, row.get("id"))
+            open_keys.add(key)
             stamp = (row.get("revision"), row.get("updated_at"))
-            if self._stamps.get(request_id) == stamp:
+            if self._stamps.get(key) == stamp:
                 continue
             try:
-                request = get_request(client, request_id, name)
+                request = get_request(client, key[1], name)
             except DwApiError as e:
                 if e.status_code != 404:  # deleted since the list was read
                     self.fault = str(e)
                 continue
             waiting = waiting_notes(request)
-            told = self._announced.get(request_id, ())
-            fresh += [n for n in waiting if (n["note"], n["at"]) not in told]
-            self._announced[request_id] = {(n["note"], n["at"]) for n in waiting}
-            self._stamps[request_id] = stamp
-        for request_id in set(self._stamps) - open_ids:
-            del self._stamps[request_id]
-            del self._announced[request_id]
+            told = self._announced.get(key, ())
+            fresh += [(name, n) for n in waiting if (n["note"], n["at"]) not in told]
+            self._announced[key] = {(n["note"], n["at"]) for n in waiting}
+            self._stamps[key] = stamp
+        for key in set(self._stamps) - open_keys:
+            del self._stamps[key]
+            del self._announced[key]
         started, self._started = self._started, True
         if not fresh:
             return []
         if not started:
-            return [waiting_event(fresh, name)]
-        return [note_event(note, name) for note in fresh]
+            by_workspace = {}
+            for name, note in fresh:
+                by_workspace.setdefault(name, []).append(note)
+            return [waiting_event(notes, name) for name, notes in by_workspace.items()]
+        return [note_event(note, name) for name, note in fresh]

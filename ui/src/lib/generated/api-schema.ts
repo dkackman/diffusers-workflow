@@ -1394,6 +1394,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Open Requests
+         * @description Every workspace's open requests, without their items, newest change
+         *     first: the one read a notes channel makes when it watches the whole
+         *     server. Marked `X-DW-Notes-Channel: 1`, it counts as a poll of every
+         *     workspace. `unreadable` names a workspace whose requests.json is there
+         *     but is not a ledger; the others still list.
+         */
+        get: operations["list_open_requests_api_requests_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/schema": {
         parameters: {
             query?: never;
@@ -3992,6 +4016,62 @@ export interface components {
              * @description True while a notes channel polled this workspace's request list in the last 30 seconds.
              */
             listening: boolean;
+        };
+        /** OpenRequestList */
+        OpenRequestList: {
+            /**
+             * Requests
+             * @description Every workspace's open requests, newest change first.
+             */
+            requests: components["schemas"]["OpenRequestSummary"][];
+            /**
+             * Unreadable
+             * @description Workspace name -> why its requests.json could not be read; its requests are left out.
+             */
+            unreadable?: {
+                [key: string]: string;
+            };
+        };
+        /** OpenRequestSummary */
+        OpenRequestSummary: {
+            /**
+             * Cover
+             * @description Up to three outputs of the latest results, newest first.
+             */
+            cover: components["schemas"]["LedgerOutput"][];
+            /** Id */
+            id: string;
+            /** Items */
+            items: number;
+            /**
+             * Ready
+             * @description Items a job could be queued for now.
+             */
+            ready: number;
+            /** Remaining Minutes */
+            remaining_minutes: number;
+            /** Revision */
+            revision: number;
+            /** Spent Minutes */
+            spent_minutes: number;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "open" | "done" | "abandoned";
+            /** Status Counts */
+            status_counts: {
+                [key: string]: number;
+            };
+            /** Title */
+            title: string;
+            /** Updated At */
+            updated_at: string | null;
+            /**
+             * Workspace
+             * @description The workspace the request is in.
+             */
+            workspace: string;
         };
         /** OutputDeleted */
         OutputDeleted: {
@@ -6996,6 +7076,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_open_requests_api_requests_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OpenRequestList"];
                 };
             };
         };

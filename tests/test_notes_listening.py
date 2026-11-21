@@ -90,3 +90,83 @@ def test_an_unknown_workspace_is_refused_and_not_recorded(client):
     assert r.status_code == 404
     assert client.get("/api/workspaces/nope/notes-channel").status_code == 404
     assert client.app.state.listening.state("nope")["last_seen"] is None
+
+
+# --- a channel that watches the whole server (GET /api/requests, #1529) ---
+
+
+def put(client, workspace, request_id, state="open"):
+    body = {
+        "title": request_id,
+        "goal": "g",
+        "items": [{"key": "a", "title": "A", "depends_on": []}],
+        "revision": 0,
+        "why": "w",
+        "by": "agent",
+    }
+    r = client.put(f"/api/workspaces/{workspace}/requests/{request_id}", json=body)
+    assert r.status_code == 200, r.text
+    if state != "open":
+        r = client.put(
+            f"/api/workspaces/{workspace}/requests/{request_id}",
+            json={**body, "revision": 1, "state": state},
+        )
+        assert r.status_code == 200, r.text
+
+
+def add_workspace(client, name):
+    r = client.post("/api/workspaces", json={"name": name})
+    assert r.status_code == 201, r.text
+
+
+def test_the_server_wide_list_has_every_workspaces_open_requests(client):
+    add_workspace(client, "notes")
+    put(client, "default", "first")
+    put(client, "notes", "turbine")
+    put(client, "notes", "shipped", state="done")
+    r = client.get("/api/requests")
+    assert r.status_code == 200, r.text
+    got = {(row["workspace"], row["id"]) for row in r.json()["requests"]}
+    assert got == {("default", "first"), ("notes", "turbine")}
+    row = next(row for row in r.json()["requests"] if row["id"] == "turbine")
+    assert row["state"] == "open" and row["items"] == 1 and "ready" in row
+    assert "unreadable" not in r.json()
+
+
+def test_a_marked_server_wide_read_means_listening_in_every_workspace(client, clock):
+    add_workspace(client, "notes")
+    assert client.get("/api/requests", headers=MARK).status_code == 200
+    assert state(client)["listening"] is True
+    assert state(client, "notes")["listening"] is True
+    # a workspace made after the poll is covered too: the channel reads it
+    # on its next poll
+    add_workspace(client, "later")
+    assert state(client, "later")["listening"] is True
+    clock.now += LISTENING_WINDOW + 1
+    assert state(client, "notes")["listening"] is False
+
+
+def test_an_unmarked_server_wide_read_records_nothing(client):
+    client.get("/api/requests")
+    assert state(client) == {"listening": False, "last_seen": None}
+
+
+def test_one_workspaces_broken_ledger_is_named_and_the_others_still_list(
+    client, tmp_path
+):
+    add_workspace(client, "notes")
+    put(client, "default", "first")
+    (tmp_path / "studio" / "notes" / "requests.json").write_text("not json")
+    r = client.get("/api/requests")
+    assert r.status_code == 200, r.text
+    assert [row["id"] for row in r.json()["requests"]] == ["first"]
+    assert set(r.json()["unreadable"]) == {"notes"}
+
+
+def test_a_workspace_poll_still_marks_only_its_own_after_a_server_wide_one(clock):
+    listening = Listening(clock=clock)
+    listening.seen_all()
+    clock.now += LISTENING_WINDOW + 1
+    listening.seen("a")
+    assert listening.state("a")["listening"] is True
+    assert listening.state("b")["listening"] is False

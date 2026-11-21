@@ -162,7 +162,9 @@ def no_channel(monkeypatch):
     monkeypatch.setattr(
         cli,
         "run_notes_channel",
-        lambda client, interval: ran.update(interval=interval, url=client.base_url),
+        lambda client, interval, workspace=None: ran.update(
+            interval=interval, url=client.base_url, workspace=workspace
+        ),
     )
     monkeypatch.setattr(cli, "build_server", lambda client: pytest.fail("tools"))
     return ran
@@ -171,7 +173,25 @@ def no_channel(monkeypatch):
 def test_notes_channel_mode_serves_the_channel_and_no_tools(no_channel):
     code = cli.main(["--notes-channel"], transport=httpx.MockTransport(healthy))
     assert code == 0
-    assert no_channel == {"interval": 10.0, "url": "http://127.0.0.1:8765"}
+    assert no_channel == {
+        "interval": 10.0,
+        "url": "http://127.0.0.1:8765",
+        "workspace": None,
+    }
+
+
+def test_a_notes_channel_with_no_workspace_watches_every_one(no_channel, monkeypatch):
+    """$DW_MCP_WORKSPACE picks where a session starts, not what its channel
+    hears: a session can move with use_workspace, so the channel watches
+    the whole server unless --workspace pins it (#1529)."""
+    monkeypatch.setenv("DW_MCP_WORKSPACE", "notes")
+    cli.main(["--notes-channel"], transport=httpx.MockTransport(healthy))
+    assert no_channel["workspace"] is None
+    cli.main(
+        ["--notes-channel", "--workspace", "notes"],
+        transport=httpx.MockTransport(healthy),
+    )
+    assert no_channel["workspace"] == "notes"
 
 
 def test_the_notes_channel_refuses_a_remote_url_without_a_token_too(no_channel, capsys):

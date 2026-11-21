@@ -49,6 +49,28 @@ A PyPI install gets released `diffusers`, which may lag the newest pipelines; in
 
 GitHub generates notes from commits at tag time. The sections below are the hand-written notes: the newest is drafted at release prep and pasted into the GitHub release body once the tag has published (`gh release edit v<version> --notes-file ...`). Items a branch's author wants the next note to name go in a new section at the top.
 
+### 0.22.0
+
+<!-- Branch notes (fix/notes-1529-1530). Fold into the release-prep draft for 0.22.0 and paste into the GitHub release body once the tag has published: gh release edit v0.22.0 --notes-file ... -->
+
+**Notes reach the session whichever workspace it is in** (#1529, #1530)
+
+- The notes channel (`dw-mcp --notes-channel`) now watches every workspace
+  on the server unless `--workspace` pins it. Before, it watched only the
+  default workspace (or `DW_MCP_WORKSPACE`), so a session that worked in
+  another workspace never heard its notes and the request page said no
+  session was listening. Each event names its workspace. Against a server
+  older than this release the channel falls back to the default workspace.
+- The note box on the request page sends a note only with words. An item
+  picked with no text no longer closes the box as if a note had gone out;
+  it says a note needs words, and a closed box with an item waiting says
+  it is not sent yet.
+- REST: `GET /api/requests` lists every workspace's open requests in one
+  read (each row a request summary with its `workspace`; `unreadable` names
+  a workspace whose ledger cannot be read). Marked `X-DW-Notes-Channel: 1`,
+  it counts as a channel poll of every workspace for
+  `GET /api/workspaces/{name}/notes-channel`.
+
 ### 0.21.0
 
 <!-- Drafted from v0.20.0..develop at release prep (2026-11-20). Paste into the GitHub release body once the tag has published: gh release edit v0.21.0 --notes-file ... -->

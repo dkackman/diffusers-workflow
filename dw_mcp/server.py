@@ -325,7 +325,9 @@ async def serve_notes_channel(client, interval, workspace=None, sleep=anyio.slee
     what a notification outside any request is sent on.
     """
     server, options = build_notes_channel()
-    watch = NoteWatch(workspace)
+    # No workspace named: every one, so a session that moves with
+    # use_workspace still hears its notes
+    watch = NoteWatch(workspace, everywhere=workspace is None)
     async with stdio_server() as (read_stream, write_stream):
         dispatcher = JSONRPCDispatcher(
             read_stream, write_stream, inline_methods=frozenset({"initialize"})
