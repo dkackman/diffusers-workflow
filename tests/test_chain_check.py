@@ -1013,3 +1013,67 @@ class TestWordsValidation:
         from dw import validation
 
         assert "chain_lines_warnings" in [c.name for c in validation.WARNING_CHECKS]
+
+
+# measures_record (#1474): the kept attempt's measures for its shot
+
+
+def test_measures_record_marks_texture_and_face_drop_warn_only():
+    from dw.pipeline_processors.chain_check import measures_record
+
+    result = CheckResult(
+        False,
+        {
+            "jump_ratio": 1.2,
+            "frame_delta": 3.0,
+            "texture_ratio": 0.4,
+            "face_drop": 0.31,
+        },
+        ["texture_ratio", "face_drop"],
+    )
+    record = measures_record(result, SegmentCheck(face_drop_max=0.2))
+    # Only MEASURES names: frame_delta is a working number, not a measure
+    assert set(record) == {"jump_ratio", "texture_ratio", "face_drop"}
+    assert record["texture_ratio"] == {
+        "value": 0.4,
+        "ceiling": TEXTURE_RATIO_MAX,
+        "bound": "max",
+        "warn_only": True,
+        "failed": True,
+    }
+    assert record["face_drop"]["warn_only"] is True
+    assert record["face_drop"]["ceiling"] == 0.2
+    assert record["jump_ratio"]["warn_only"] is False
+
+
+def test_measures_record_gives_null_for_a_measure_with_no_ceiling():
+    from dw.pipeline_processors.chain_check import measures_record
+
+    result = CheckResult(True, {"face_drop": 0.05, "cut_ratio": 1.1}, [])
+    record = measures_record(result, SegmentCheck(cut_ratio_max=None))
+    assert record["face_drop"]["ceiling"] is None  # FACE_DROP_DEFAULT
+    assert record["cut_ratio"]["ceiling"] is None
+
+
+def test_measures_record_reads_words_by_similarity_against_its_minimum():
+    from dw.pipeline_processors.chain_check import measures_record
+
+    words = {"heard": "hi", "similarity": 0.72, "findings": [], "passed": False}
+    result = with_words(CheckResult(True, {"jump_ratio": 1.0}, []), words)
+    record = measures_record(result, SegmentCheck(words_similarity_min=0.8))
+    assert record["words"] == {
+        "value": 0.72,
+        "ceiling": 0.8,
+        "bound": "min",
+        "warn_only": False,
+        "failed": True,
+    }
+
+
+def test_measures_record_leaves_out_what_was_not_measured():
+    from dw.pipeline_processors.chain_check import measures_record
+
+    skipped = CheckResult(True, {"skipped": "no frames", "audio_dbfs": None}, [])
+    assert measures_record(skipped, SegmentCheck()) == {}
+    no_line = with_words(CheckResult(True, {"face_drop": None}, []), None)
+    assert measures_record(no_line, SegmentCheck()) == {}

@@ -360,3 +360,30 @@ def test_load_tokenizer_reads_a_local_tokenizer_json(tmp_path):
     assert loaded.encode("hello world", add_special_tokens=False) == [1, 2]
     data = a8.ArkttsProcessor.for_model(loaded, a8.ArkttsConfig())("hello")
     assert data["prefix_input_ids"].dtype == torch.long
+
+
+def test_rope_matches_scalar_pow_reference_with_int_base():
+    # #1396: the config's rope_base is an int; the frequencies are built
+    # without a device-side scalar ** tensor.
+    got = a8._rope(5, 8, 10000, torch.device("cpu"))
+    freqs = 1.0 / (10000.0 ** (torch.arange(0, 8, 2).float() / 8))
+    phases = torch.outer(torch.arange(5), freqs)
+    want = torch.stack((torch.cos(phases), torch.sin(phases)), dim=-1)
+    assert torch.allclose(got.float(), want.to(torch.bfloat16).float(), atol=1e-2)
+
+
+@pytest.mark.skipif(not torch.backends.mps.is_available(), reason="needs an MPS device")
+def test_rope_runs_on_mps_with_int_base():
+    out = a8._rope(5, 8, 10000, torch.device("mps"))
+    assert out.device.type == "mps"
+    assert (
+        a8._precompute_rope(5, 8, 1_000_000.0, torch.device("mps")).device.type == "mps"
+    )
+
+
+@pytest.mark.skipif(not torch.backends.mps.is_available(), reason="needs an MPS device")
+def test_scalar_pow_on_mps_tensor_works():
+    # #1395: torch 2.15 + the fp4-fp8-for-torch-mps autoload fails this
+    # (Grounding-DINO's position embedding); the darwin pin keeps it off 2.15.
+    t = torch.arange(4.0, device="mps")
+    assert torch.allclose((10000**t).cpu(), 10000.0 ** torch.arange(4.0))

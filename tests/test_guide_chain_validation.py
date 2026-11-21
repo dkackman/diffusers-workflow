@@ -153,8 +153,10 @@ class TestRefused:
             chain = {"segments": 2, "continuity": mode}
             assert guide_chain_errors(definition("t2va", chain=chain)) == []
 
-    def test_the_step_rule_is_the_guides_rule(self):
-        # One owner: the chain's refusal carries the `guides` check's own reason
+    def test_the_step_rule_is_the_t2va_fl2va_rule(self):
+        # One owner: the chain's refusal ends with `_takes_guides_problem`'s
+        # reason, the rule for the t2va/fl2va-only arguments (`guides` itself
+        # takes ref2va narrowly, #1411)
         from dw.guides import _takes_guides_problem
 
         step = definition("ref2va")["steps"][0]["pipeline"]
@@ -263,3 +265,11 @@ class TestOwnGuidesPlusTheChain:
             )
             == []
         )
+
+
+class TestRef2VAGuideDoesNotLiftTheChain:
+    def test_a_guide_chain_beside_a_valid_ref2va_guide_is_refused(self):
+        guide = [{"video": "clip.mp4", "frame": 0}]
+        error = one(definition("ref2va", guides=guide))
+        assert "ref2va" in error["message"]
+        assert "never a guide chain" in error["message"]

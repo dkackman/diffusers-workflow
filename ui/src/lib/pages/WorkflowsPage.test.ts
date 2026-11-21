@@ -17,6 +17,7 @@ type Detail = Record<string, unknown>
 const listing = vi.hoisted(() => ({
   workflows: [] as string[],
   details: {} as Record<string, Detail>,
+  cost_basis: 'curated' as string,
 }))
 
 const listWorkflows = vi.hoisted(() =>
@@ -36,6 +37,7 @@ const listWorkflows = vi.hoisted(() =>
               shadowed: [],
               workflows: listing.workflows,
               details: listing.details,
+              cost_basis: listing.cost_basis,
             }),
           0,
         ),
@@ -68,6 +70,7 @@ beforeEach(() => {
   location.hash = '#/ws/default/workflows'
   window.dispatchEvent(new HashChangeEvent('hashchange'))
   listing.workflows = ['templates/tti', 'templates/shot', 'models/flux-dev']
+  listing.cost_basis = 'curated'
   listing.details = {
     'templates/tti': {
       kinds: ['image'],
@@ -88,6 +91,7 @@ beforeEach(() => {
       shape: 'shot',
       traits: ['has-audio', 'image-conditioned'],
       cost: [{ device: 'cuda', name: 'RTX 4090', vram_gb: 22, minutes: 3 }],
+      cost_drivers: { num_frames: 121, images: ['a.png', 'b.png'] },
     },
     'models/flux-dev': {
       kinds: ['image'],
@@ -156,6 +160,36 @@ it('shows the measured cost and omits it when nothing was measured', async () =>
   expect(screen.getByText('<1 min · 0.5 GB VRAM')).toBeTruthy()
   // cost: null - the card says nothing rather than guessing
   expect(card('tti')?.textContent).not.toContain('min')
+})
+
+it("says whose figure the cost is and the card's settings it was measured at", async () => {
+  await renderPage('tti')
+  // The "at" values are the card's cost_drivers - preset-applied - in map
+  // order, a list as its entry count
+  expect(card('shot')!.getAttribute('title')).toContain(
+    "a maintainer's figure, measured on RTX 4090 at num_frames=121, images=2 entries",
+  )
+  // No drivers: no "at" clause; the device names the card when it has no name
+  const flux = card('flux-dev')!.getAttribute('title')!
+  expect(flux).toContain("a maintainer's figure, measured on mps")
+  expect(flux).not.toContain(' at ')
+  // A null cost has no cost line at all
+  expect(card('tti')!.getAttribute('title')).not.toContain('measured on')
+  // and the caption is unchanged
+  expect(screen.getByText('~3 min · 22 GB VRAM')).toBeTruthy()
+})
+
+it('prints a basis it does not know and a hostile driver value literally', async () => {
+  listing.cost_basis = 'estimated'
+  listing.details['templates/shot'] = {
+    ...listing.details['templates/shot'],
+    cost_drivers: { prompt: '<img src=x onerror=alert(1)>' },
+  }
+  await renderPage('tti')
+  expect(card('shot')!.getAttribute('title')).toContain(
+    'estimated, measured on RTX 4090 at prompt=<img src=x onerror=alert(1)>',
+  )
+  expect(document.querySelector('img[src="x"]')).toBeNull()
 })
 
 it('keeps a fractional measurement rather than rounding it away', async () => {

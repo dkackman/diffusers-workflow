@@ -6,10 +6,11 @@
   import FolderGroups from '../FolderGroups.svelte'
   import { leafOf } from '../grouping'
   import HintBar from '../HintBar.svelte'
-  import { formatMinutes } from '../format'
-  import { observedText, observedTitle } from '../observed'
+  import { costFigure } from '../cost'
+  import { observedText } from '../observed'
   import { latestProofs } from '../proofs'
   import { sharedHref, wsHref } from '../routes'
+  import { cardTitle } from '../workflowCard'
   import { workspace } from '../workspace.svelte'
   import {
     WORKFLOW_SHAPES,
@@ -27,6 +28,8 @@
   let workflows = $state<string[]>([])
   let details = $state<Record<string, Detail>>({})
   let workflowDir = $state('')
+  /** What the listing says a card's `cost` is - "curated" today. */
+  let costBasis = $state('')
   let filter = $state('')
   let shape = $state('')
   let traits = $state<WorkflowTrait[]>([])
@@ -46,6 +49,7 @@
       .then((result) => {
         workflows = result.workflows
         details = result.details ?? {}
+        costBasis = result.cost_basis
         workflowDir = writableRoot(result.libraries)
         loaded = true
       })
@@ -136,28 +140,7 @@
    * has room for the numbers, not for the hardware they came from. */
   const formatCost = (cost?: WorkflowCost[] | null) => {
     const measured = cost?.[0]
-    if (!measured) return ''
-    return `${formatMinutes(measured.minutes)} · ${Number(
-      measured.vram_gb.toFixed(1),
-    )} GB VRAM`
-  }
-
-  /** Everything the card does not have room to print, so hovering it still
-   * answers "what is this and what does it need". */
-  const cardTitle = (name: string, detail?: Detail) => {
-    const lines = [name]
-    if (detail?.description) lines.push(detail.description)
-    if (detail?.traits?.length) lines.push(detail.traits.join(', '))
-    if (detail?.cost?.[0]) {
-      const measured = detail.cost[0]
-      const where = measured.name ?? measured.device
-      lines.push(`measured on ${where}`)
-    }
-    const seen = observedTitle(detail?.observed)
-    if (seen) lines.push(seen)
-    if (detail?.writable === false)
-      lines.push(`read-only, from the ${detail.origin} directory`)
-    return lines.join('\n')
+    return measured ? costFigure(measured) : ''
   }
 
   const href = (name: string) =>
@@ -247,7 +230,11 @@
   {#snippet card(name)}
     {@const detail = details[name]}
     {@const proof = proofs[name]}
-    <a class="card" href={href(name)} title={cardTitle(name, detail)}>
+    <a
+      class="card"
+      href={href(name)}
+      title={cardTitle(name, detail, costBasis)}
+    >
       <!-- The proof: what this workflow actually made last time. In a tool
            whose entire output is pictures, the picture is the description.
            A workflow that has never run gets no frame at all rather than a

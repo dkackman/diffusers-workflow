@@ -86,6 +86,23 @@ def _acknowledgement_body(acknowledged_cost):
     return {"acknowledged_cost": bool(acknowledged_cost)}
 
 
+def _ledger_link(request):
+    """`"<request-id>/<item-key>"` as the POST body's `request` and `item`,
+    or None for no link. Refused here, before any HTTP call, when it has
+    not exactly one '/'. Each half's key rule is the server's alone
+    (dw.security.validate_ledger_key): a bad key is its 422, before
+    anything queues."""
+    if request is None or request == "":
+        return None
+    parts = request.split("/") if isinstance(request, str) else []
+    if len(parts) != 2:
+        raise DwApiError(
+            f'`request` must be "<request-id>/<item-key>": exactly one '
+            f"'/' (got {request!r})."
+        )
+    return {"request": parts[0], "item": parts[1]}
+
+
 def run_workflow(
     client,
     workflow_path=None,
@@ -97,6 +114,7 @@ def run_workflow(
     workspace=None,
     wait_seconds=0,
     note=None,
+    request=None,
 ):
     """Queue a workflow. `workflow_path` (or `name` - the same thing
     `validate_workflow` calls it) is either a catalog name from
@@ -121,7 +139,12 @@ def run_workflow(
     `acknowledged_cost` is true or, better, the plan it was quoted from:
     {fingerprint, minutes, downloads} from `validate_workflow` - see
     COST_REFUSAL. A bound one the server checks; a 409 means the run's
-    shape changed since the quote and the message carries the new plan."""
+    shape changed since the quote and the message carries the new plan.
+
+    `request` is "<request-id>/<item-key>": the job is linked to that ledger
+    item (both keys meet the ledger's key rule). The server refuses a link
+    it cannot admit with a 422 naming the code."""
+    ledger_link = _ledger_link(request)
     path, inline = workflow_source(name, workflow_path, workflow, inline_workflow)
     if not acknowledged_cost:
         raise DwApiError(COST_REFUSAL)
@@ -135,6 +158,8 @@ def run_workflow(
     payload.update(_acknowledgement_body(acknowledged_cost))
     if note:
         payload["note"] = note
+    if ledger_link:
+        payload.update(ledger_link)
     if path is not None:
         payload["workflow_path"] = path
     else:
@@ -373,7 +398,22 @@ def cancel_job(client, job_id):
     return client.post_json(api_path("api", "jobs", job_id, "cancel"))
 
 
-def rerun_job(client, job_id, acknowledged_cost=False, new_seed=False, arguments=None):
+RESTART_BATCH_OVERRIDE_REFUSAL = (
+    "restart_batch reruns every job one server restart cancelled, each from "
+    "its own stored spec, so `new_seed` and `arguments` cannot be given with "
+    "it: one override cannot apply to every member's workflow. Rerun the "
+    "batch as stored, then rerun_job a single member with the override."
+)
+
+
+def rerun_job(
+    client,
+    job_id,
+    acknowledged_cost=False,
+    new_seed=False,
+    arguments=None,
+    restart_batch=False,
+):
     """Queue a fresh job from a previous job's stored spec. This costs the
     same GPU time as `run_workflow` and passes through the same gate - a
     rerun is a run, and the gate would be worth nothing if a job id bought
@@ -391,7 +431,23 @@ def rerun_job(client, job_id, acknowledged_cost=False, new_seed=False, arguments
 
     `arguments` overrides variables for the rerun (a draft promoted with
     `{"tier": "standard"}`); an override may change the plan, so a bound
-    acknowledgement must name the plan of the merged arguments."""
+    acknowledgement must name the plan of the merged arguments.
+
+    `restart_batch` names a batch by one of its tombstones: every job the
+    same dead server closed as `server restart:` (#1266). Without
+    `acknowledged_cost` the server answers a preview - `would_queue` with
+    each member's estimate - and queues nothing, so this form alone passes
+    the gate through: the preview is how the cost gets quoted. With it,
+    every member not already rerun is queued oldest first, each with
+    `rerun_of`. A bound acknowledgement is the server's to refuse (one
+    fingerprint cannot bind N plans)."""
+    if restart_batch:
+        if new_seed or arguments:
+            raise DwApiError(RESTART_BATCH_OVERRIDE_REFUSAL)
+        body = {"acknowledged_cost": acknowledged_cost} if acknowledged_cost else {}
+        return client.post_json(
+            api_path("api", "jobs", job_id, "rerun-restart-batch"), body
+        )
     if not acknowledged_cost:
         raise DwApiError(COST_REFUSAL)
     return client.post_json(

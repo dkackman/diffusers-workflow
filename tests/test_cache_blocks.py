@@ -633,3 +633,62 @@ def test_mag_calibration_an_errored_call_reports_no_partial_lists(monkeypatch):
                 raise RuntimeError("out of memory")
 
     assert not [w for w in warnings if w.startswith("MagCache calibration (")]
+
+
+def _calibrate_call_reset_in_call(components, model, steps_run):
+    """As _calibrate_call, but the call resets its components' cache hooks before
+    it returns, the way diffusers 0.43's ModularPipeline.__call__ does in its
+    `finally` (#1315)."""
+    with components.captured_mag_calibration(
+        _FakePipeline(model), {"num_inference_steps": 4}
+    ):
+        with components.stateful_cache_context(_FakePipeline(model)):
+            try:
+                for context in ("cond", "uncond"):
+                    _run_calibration_steps(model, context, steps_run)
+            finally:
+                model._reset_stateful_cache()
+
+
+def test_mag_calibration_survives_a_reset_inside_the_call(monkeypatch):
+    """#1315: under 0.43 the state is reset before the call returns; the
+    unfinished ratios are still reported, one list per CFG context."""
+    from dw.pipeline_processors import components, mag_calibration
+
+    warnings = []
+    monkeypatch.setattr(mag_calibration, "emit_log", lambda *a, **k: None)
+    monkeypatch.setattr(mag_calibration, "emit_warning", warnings.append)
+
+    _calibrate_call_reset_in_call(components, _mag_model(4), steps_run=3)
+
+    reported = [w for w in warnings if w.startswith("MagCache calibration (")]
+    assert len(reported) == 2
+    assert "[cond]" in reported[0] and "[uncond]" in reported[1]
+    assert all("MagCache calibration (3 steps)" in w for w in reported)
+
+
+def test_mag_calibration_a_finished_call_reset_inside_is_reported_once(monkeypatch):
+    from dw.pipeline_processors import components, mag_calibration
+
+    warnings = []
+    monkeypatch.setattr(mag_calibration, "emit_log", lambda *a, **k: None)
+    monkeypatch.setattr(mag_calibration, "emit_warning", warnings.append)
+
+    _calibrate_call_reset_in_call(components, _mag_model(4), steps_run=4)
+
+    reported = [w for w in warnings if w.startswith("MagCache calibration (")]
+    assert len(reported) == 2
+    assert all("MagCache calibration (4 steps)" in w for w in reported)
+
+
+def test_mag_calibration_watch_is_removed_after_the_call(monkeypatch):
+    """The reset wrapper does not outlive the call it watched."""
+    from dw.pipeline_processors import components, mag_calibration
+
+    monkeypatch.setattr(mag_calibration, "emit_log", lambda *a, **k: None)
+    monkeypatch.setattr(mag_calibration, "emit_warning", lambda *a, **k: None)
+
+    model = _mag_model(4)
+    _calibrate_call_reset_in_call(components, model, steps_run=3)
+    manager = mag_calibration._tail_state_manager(model)
+    assert "reset" not in vars(manager)

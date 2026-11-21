@@ -15,8 +15,10 @@ for_each member's name (`<group>@<entry>`), a JSON path to a value
 definition's steps that finds each one's author index and member
 (`iter_steps`).
 
-This module imports nothing from dw, so every module can import it.
+This module imports nothing from dw (the standard library only), so every module can import it.
 """
+
+from inspect import Parameter, signature
 
 ASSET = "asset:"
 OUTPUT = "output:"
@@ -217,3 +219,43 @@ def iter_previous_result_references(value, *, descend_into_from, path=()):
             )
     elif is_ref(PREVIOUS_RESULT, value):
         yield path, ref_name(PREVIOUS_RESULT, value), "prefix"
+
+
+def named_from_file_parameters(object_type):
+    """The keyword names an object type's from_file() takes, or None if it takes any.
+
+    None when from_file() has a **kwargs, which is handed every key; otherwise the
+    POSITIONAL_OR_KEYWORD and KEYWORD_ONLY names of its signature. The one owner of
+    which keys of a from_file description reach from_file() (`dw/arguments.py` splits
+    on it; `dw/reference_limits.py` validates on it).
+    """
+    parameters = signature(getattr(object_type, FROM_FILE_KEY)).parameters
+    if any(p.kind is Parameter.VAR_KEYWORD for p in parameters.values()):
+        return None
+    return {
+        name
+        for name, p in parameters.items()
+        if p.kind in (Parameter.POSITIONAL_OR_KEYWORD, Parameter.KEYWORD_ONLY)
+    }
+
+
+def has_field(target, name):
+    """Whether an object (or its type) has a field by that name: the one field test.
+
+    A dataclass field with no default is not a class attribute, so the type's
+    declared fields count as well as `hasattr`.
+    """
+    object_type = target if isinstance(target, type) else type(target)
+    return hasattr(target, name) or name in (
+        getattr(object_type, "__dataclass_fields__", None) or ()
+    )
+
+
+def no_field_message(object_type, name):
+    """The refusal for a key the type has no field for and its from_file() does not take."""
+    fields = getattr(object_type, "__dataclass_fields__", None)
+    takes = f" - it holds {', '.join(fields)}" if fields else ""
+    return (
+        f"{object_type.__name__} has no field '{name}', and its "
+        f"{FROM_FILE_KEY}() does not take it either{takes}"
+    )

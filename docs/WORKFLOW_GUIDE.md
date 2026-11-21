@@ -258,6 +258,11 @@ produces the shape it needs, and is about to write JSON. `get_schema` says what
 is *well-formed*; this section says what the engine *does* with a well-formed
 document, which is where a draft that validates still fails.
 
+H3 literal `num_frames`, `width` and `height` are checked against the
+pipeline's own limits (5-15 s on the 17n + 5 grid, so 124-345 frames;
+multiples of 32), and `variable_constraints` is still how a template refuses a
+value before substitution.
+
 When exploring variations, pass `note` to `run_workflow` saying what each run
 tests ("video_shift 5 against 3"), and call `set_note` to mark the keeper: the
 note is shown with every file the run made. Each file carries a `role`
@@ -433,7 +438,12 @@ A string value takes `min_length` instead: the fewest characters it may have
 once surrounding whitespace is dropped, a null counting as empty. Music 3
 refuses an empty lyric only after the model has loaded, so its templates
 declare `"lyrics": {"min_length": 1, "reason": "..."}`, and the `reason`
-says what to send instead (a tag-only body for an instrumental).
+says what to send instead (a tag-only body for an instrumental). A list value
+takes the same `min_length`, counted in entries: an edit with nothing to edit
+is refused at validate rather than at the pipeline, so
+`templates/minimax-h3-image/multi-reference` declares
+`"images": {"min_length": 1, "reason": "..."}` and `images: []` is refused at
+`arguments.images`. A list with no `min_length` is not judged by its length.
 
 `"required": true` marks a variable that has no default. Declare it `null` in
 `variables` and set the flag: a run, or a validation given `arguments`, refuses
@@ -719,7 +729,10 @@ by the source, and `validate_workflow` names the entries to add or drop.
    declared type, and an `asset:`, `prompt:` or `output:` reference that names
    nothing in this workspace each come back at `arguments.<name>`. Without them
    the verdict is about the stored definition and its defaults;
-   `checked_arguments` in the answer says which it was.
+   `checked_arguments` in the answer says which it was. A literal H3
+   `num_frames`, `width` or `height` the pipeline would refuse is an error too
+   (`dw/pipeline_limits.py`), beside the reference-set check
+   (`dw/reference_limits.py`).
 2. Fix everything reported, including the warnings: a typo against a real
    `__call__` shows up only as a warning. Signature warnings are computed only
    for a schema-valid draft (while schema errors remain, `warnings` is `[]`),
@@ -780,7 +793,9 @@ by the source, and `validate_workflow` names the entries to add or drop.
    schedule the pipeline actually runs: MiniMax H3's scheduler counts sigma
    grid points including the terminal zero, so it runs N-1 model evaluations
    for N (9 reports 8, 20 reports 19). That is the vendor's convention, not a
-   dropped step.
+   dropped step. A fixed step-list sampler is the exception: Pika H3 Flex
+   (`templates/pika-h3/`) takes no `num_inference_steps`, and its 7-point list
+   runs 6 evaluations, so `denoise_total_steps` reports 6.
 6. `get_output_image` to look at what was made, and say whether it answers
    the request. Nothing before this step establishes that it does.
    `get_output_frames` looks at a video and `get_output_audio` listens to a
@@ -846,6 +861,30 @@ workflow.
   `templates/multi-image-reference.json`, and for video the MiniMax
   `reference-to-video` and `dialogue-short` templates). The `identity-referenced`
   trait in the listing marks the workflows that take one.
+
+### A portrait still that feeds an H3 clip: MiniMax-H3-Image
+
+A cast still or keyframe that will become a MiniMax-H3 clip holds its face
+better in that clip when it comes from MiniMax-H3-Image than from FLUX 3 Klein
+(`bench/records/h3-image.md`). Every other still, board sheets included, stays
+on Klein (`templates/flux3/`).
+
+1. **Check the host first.** `get_server_info`: the family is CUDA-only and
+   declares `host_ram_gb: 64`, so a host under about 70 GB of RAM is refused
+   at validate. A cold first run, on a host without its quantized cache, peaks
+   near 120 GB of host RAM and takes about 38 minutes. Below that, use Klein.
+2. **The still:** `templates/minimax-h3-image/text-to-image` (or
+   `templates/minimax-h3-image/multi-reference` to hold an existing face as
+   `<Picture 1>`). The prompt is a long, complete description, used verbatim;
+   there are no steps, guidance or negative prompt to set, and 1024 is no
+   faster than 2048. Quote `plan.estimate` and the host-RAM floor, and wait for
+   the go-ahead.
+3. **Look at it** with `get_output_image` before spending video time.
+4. **The clip:** a second job, `templates/minimax/image-to-video` (or
+   `first-and-last-frame`), with `image` as an `output:` reference to the
+   still. There is no chained template for the pair.
+
+The `dw:minimax-h3-image` plugin skill carries the costs and failure modes.
 
 ### Erasing versus repainting a masked region
 
@@ -1023,7 +1062,12 @@ scalar variable, or a field of a list driver's entries summed over them
 held out of the scaling: a moved run is quoted `fixed_minutes + (minutes -
 fixed_minutes) x factor`, so a long chain is not charged its load once per
 segment (`minimax/chained-segments` declares 10). Absent, the whole figure
-scales. An entry carrying `cost` has been run to completion on the device it names; one
+scales. Its
+`guide_factor` is what a pipeline step that lays in a `guides` clip costs
+against the same step without one, on the scaling part: a ref2va guide
+appends a second copy of the target's video rows, so every pass denoises
+twice the rows (`minimax/reference-to-video` declares 2, from a 3.8 and a 7.4
+min run of the same shot). Absent, a guide is not priced. An entry carrying `cost` has been run to completion on the device it names; one
 without has only been authored, and its first run is the one that finds out
 what its description could not check.
 
@@ -1126,8 +1170,11 @@ reported.
 `compare_outputs(names)` (`POST /api/gallery/compare`)
 lays 2-8 outputs (variations, reruns, the same shot with and without a speed
 setting) in one grid, a row per output and a column per moment, every output
-read at the same frame number, and measures each against a `baseline` (default
-the first). Per non-baseline output it reports PSNR (dB, higher is closer;
+read at the same frame index, and measures each against a `baseline` (default
+the first). `at` lists the moments (1 to 8; default 4 evenly spaced): a number
+is **seconds** (`at=[24]` is 24 s, not frame 24, and past the end of a short
+clip), converted at the baseline's fps; the string `"frame:N"` is frame index
+N. Nothing else is accepted. Per non-baseline output it reports PSNR (dB, higher is closer;
 `identical` when equal), SSIM (structure on luma, 1.0 identical) and mean
 absolute difference (0-255, lower is closer), at source resolution, per column
 and as mean/min/max. A shared `crop` is the region both shown and measured; one
@@ -1878,7 +1925,7 @@ declared variable, so reference a `guides` variable or edit the argument.
 | clip length | 1, 5 or 17m + 5 frames (22, 39, 56, ... 124); any other length is cut down to the longest such length (n < 5 gives 1, 5 <= n < 22 gives 5, else 17 * ((n - 5) // 17) + 5) with a warning |
 | extent | `frame` + length must not run past `num_frames` (H3 rounds it up to 17n + 5; default 124); ending exactly at the end is fine |
 | count | at most 4 guides per step. Each guide is also checked against the card: each guide frame adds attention rows, and the template's `vram_estimate` charges each guide's frames on the canvas; `guides: []` is the same as none |
-| where | `t2va` or `fl2va` on an H3 pipeline; not with `references` (`ref2va`), not on a non-H3 pipeline |
+| where | `t2va` or `fl2va` on an H3 pipeline; with `references` (`ref2va`) exactly one video guide at frame 0 that covers the whole render (its snapped length must reach `num_frames`), video only - `guide.audio: true` is refused; not on a non-H3 pipeline |
 
 Validation refuses all of the above before the run (`dw/guides.py`); a `previous_result:`
 guide is checked at run time, when its clip exists.
@@ -1939,6 +1986,41 @@ loosens the carried guide too.
 | where | MiniMax-H3 `t2va` or `fl2va`, where `guides` run; refused on `ref2va`, on a step that passes `references`, and on a non-H3 step |
 | no guides | a warning, not a refusal: a step with no `guides` and no `continuity: "guide"` chain has nothing to noise |
 
+#### Laying out the composition without the turbo LoRA: `turbo_lead_in`
+
+A turbo LoRA fixes the composition in its first, high-noise evaluations. `turbo_lead_in` N
+(an H3 call argument, a whole number >= 0) runs the first N transformer evaluations of each
+pipeline call with the LoRA adapter named `turbo` at scale 0, so the base model lays out the
+scene, then at its configured scale for the rest. The unit is evaluations, not steps:
+`num_inference_steps` N runs N - 1, so a turbo template's 5 steps are 4 evaluations (a Pika H3
+Flex step has no `turbo` adapter and no `num_inference_steps`, so the lead-in is not for it). Only the
+adapter named `turbo` is touched; other adapters keep their scales, and its scale is restored
+on success, error and cancel. Every chain segment and re-roll is its own call, so the count
+restarts at each. `0` or `null` is off.
+
+```json
+"pipeline": {
+    "loras": [{ "model_name": "...", "adapter_name": "turbo", "scale": 1.0 }],
+    "arguments": { "num_inference_steps": 5, "turbo_lead_in": 1 }
+}
+```
+
+Refused at validate and at run: a value that is not a whole number >= 0; N at or past the
+call's evaluations; a step with no LoRA whose `adapter_name` is `turbo` (the error lists the
+names it has); a `first_block` cache (its residual threshold reads the adapter switch as a
+change, and cached steps skip it); and a step that is not H3 (an H3-only argument). Each call
+logs one job event: `turbo lead-in: evaluations 1..N with adapter 'turbo' at 0 of M`. Under
+`torch.compile` the scale-0 graph compiles once per worker: measured at +5.5 s on the first
+lead-in call and nothing after it ([ACCELERATION.md](ACCELERATION.md#torchcompile)).
+
+No template turns it on. Measured on 8-segment `chained-segments` and
+`chain-video-continuity` chains (#1326), every lead-in made the per-cut lightness step
+larger, not smaller; on `chain-video-continuity` it held the subject's pose and texture
+better but darkened the chain and raised saturation faster
+(`docs/proposals/complete/h3-turbo-lead-in-complete.md`).
+
+**Experimental**, refused unless `DW_EXPERIMENTAL_REFINE_WINDOWS=1`: `experimental_keystone_attention: {"balance": 20, "blocks": "31-33,36-44,47"}`, an H3 `fl2va` call argument with `image` and `guides`, re-splits on the named blocks the attention each query pays to the keyframe rows (from `image`) against the guide rows (from `guides`), keeping their sum. A `balance` above 1 moves it toward the keyframe and 1 is no change; `blocks` are comma-separated whole numbers and inclusive `a-b` ranges, numbered 0..N-1 down diffusers' `transformer_blocks` (0-49 on H3), the same numbering as ComfyUI's (checked on lem with a brightened keystone, #1394). On the narrated bench chain it visibly changed the take but gave no clear win, so no template uses it (`docs/proposals/complete/h3-keystone-attention-complete.md`). Refused with `experimental_tst`, sparse attention, a capstone or gated guide rows; CUDA needs cuDNN or native flash attention (`dw/pipeline_processors/h3_keystone_attention.py`).
+
 #### Chaining with a guide: `continuity: "guide"`
 
 A chain on an H3 `t2va` or `fl2va` step can carry its seam with a guide instead of a
@@ -1954,7 +2036,7 @@ head: N segments of F frames give F + (N - 1)(F - P) frames - 3 x 124 at P = 22 
 | Rule | Value |
 |---|---|
 | `guide_frames` | 22 (default) or 39 - a whole-latent guide length; anything else is refused |
-| where | MiniMax-H3 `t2va` or `fl2va`; refused on `ref2va`, with `references`, or on a non-H3 step - guides stay off ref2va |
+| where | MiniMax-H3 `t2va` or `fl2va`; refused on `ref2va`, with `references`, or on a non-H3 step - guide chains stay off ref2va, which takes only one whole-render guide |
 | `carry_frames` | refused - the carry is always the last `guide_frames` frames |
 | `guide_backoff` | 0 (default) or a multiple of 17: the carry is the `guide_frames` frames that many before the segment's end (audio sliced the same span), and every segment but the last loses that tail at assembly, so the join lands inside the held copy and each segment's least-constrained tail is replaced by the next take. Frames drop by the back-off per seam (3 x 124 at P = 22 and 17 is 294). Needs `num_frames` above P + back-off. Refused off `guide` continuity and with `match_audio` or `duration_seconds` |
 | `keystone` | `none` (default) or `segment_1`: on `fl2va`, every later segment's keyframe is segment 1's frame 0 instead of the guide's first frame, so each segment is pulled back toward the clean start of the chain. The guide stays the carried tail, and the keyframe region is trimmed at assembly, so segment 1's frame never reaches the output. Refused on `last_frame` (there the keyframe is the only carry), and any other value is refused naming the two |
@@ -2317,7 +2399,8 @@ so the loaded model is reused - with these `arguments`, and the step saves the r
 ```
 
 `num_inference_steps` is the number of sigma points, ending at 0, spaced by the
-scheduler's `shift`, so a refine runs `num_inference_steps - 1` denoise evaluations. Here
+scheduler's `shift`, so a refine runs `num_inference_steps - 1` denoise evaluations (H3's
+scheduler only: Pika H3 Flex's templates have no refine). Here
 `5` points at shift 12 (the example's `video_shift`) and strength 0.2 are sigma `0.2,
 0.157, 0.110, 0.058, 0`: 4 evaluations. The time a refine takes scales with `num_inference_steps`. `refine_strength`
 sets where it starts, not how many steps run: a higher strength moves the picture further
@@ -2590,33 +2673,71 @@ Validation and the run refuse, naming `refine_tiles`:
 - a reference image or video, a `<Picture N>`, a keyframe or `guides` on the step;
 - an explicit `width` or `height` that does not match the `latents` canvas.
 
-### Experimental: refining a long take in time windows
+### Refining a long take in time windows
 
-**Experimental, off by default.** `experimental_refine_windows: {"frames": W, "overlap":
-O}` (latent frames) on a `refine_strength` step refines the take in overlapping time
-windows fused at every step. It needs `DW_EXPERIMENTAL_REFINE_WINDOWS=1` in the server's
-environment and a server restart, and a step that sets it without the flag is refused.
-Only such a step may be longer than H3's 15 s. Every other H3 call keeps the ceiling.
+`refine_windows` on a `refine_strength` step re-denoises a finished take in overlapping
+time windows, fused at every step. It is a seam pass: it smooths the jumps at a chain's
+seams. It is not a burn fix (`bench/records/structural.md`, *Step 4*). Only a step that
+sets it may be longer than H3's 15 s; every other H3 call keeps the ceiling. It needs no
+flag. The old name `experimental_refine_windows` is refused, naming this one.
 
-A take over 15 s is three steps:
+Every key is optional; `refine_windows: {}` is the default windows, the benched 120 s
+setting. Windows are in latent frames (a latent is about 4 pixel frames).
 
-1. `encode_h3_latents` with `source` set to the finished 24 fps take (`output:` or
-   `asset:`). It reads and encodes one 17-frame VAE clip at a time, and the result is
-   bit-identical to the whole-take encode. It returns `latents`, `num_frames` (the take
-   padded with its last frame up to the next 17m + 5) and `source_frames` (the take's own
-   count).
-2. The H3 refine, with `latents: previous_result:encode.latents`, `num_frames:
-   previous_result:encode.num_frames`, `refine_strength`, `experimental_refine_windows`
-   and `hold_audio` set to the take's own soundtrack (`hold_audio` reads a video's
-   track, so the take's `.mp4` can go in directly). The held track is encoded whole,
-   and that encode has no ceiling of its own. Put `"latents"` in the step's `output`.
-3. `decode_h3_latents` with `latents: previous_result:refine.latents` and `num_frames:
-   previous_result:encode.source_frames`, which trims the padding off so the take comes
-   back at its own length. `pair_audio` then puts back the take's own soundtrack, which
-   is `source_frames` long.
+| Key | Default | Meaning |
+|---|---|---|
+| `frames` | `42` | The window's length. |
+| `overlap` | `12` | Frames two neighbouring windows share. |
+| `blend` | `"pyramid"` | How a window's prediction is weighted where windows overlap. |
+| `positions` | `"rebased"` | `rebased` shifts each window's media time to start where the take does; `true` keeps each row's own position. |
 
-A `source_video` over 15 s is refused on a windowed step, and the refusal names
-`encode_h3_latents`: that path would encode the whole take as one float32 tensor.
+With `rebased`, `frames` - `overlap` must be a multiple of 5 latents (H3's clip grid);
+42 - 12 = 30 is.
+
+A take over 15 s is four steps (`bench/workflows/refine-windows.json` runs it):
+
+```json
+{"name": "encode", "task": {"command": "encode_h3_latents",
+  "arguments": {"source": "output:Chain/.../final.mp4"}}},
+{"name": "refine", "pipeline": {"...": "H3 t2va", "arguments": {
+  "prompt": "variable:prompt", "refine_strength": 0.3,
+  "refine_windows": {},
+  "latents": "previous_result:encode.latents",
+  "num_frames": "previous_result:encode.num_frames",
+  "hold_audio": "output:Chain/.../final.mp4",
+  "output": ["latents"]}}},
+{"name": "decode", "task": {"command": "decode_h3_latents", "arguments": {
+  "latents": "previous_result:refine.latents",
+  "num_frames": "previous_result:encode.source_frames"}}},
+{"name": "mux", "task": {"command": "pair_audio", "arguments": {
+  "video": "previous_result:decode", "audio": "output:Chain/.../final.mp4"}}}
+```
+
+1. `encode_h3_latents` reads the 24 fps take one 17-frame VAE clip at a time, bit-identical
+   to the whole-take encode. It returns `latents`, `num_frames` (the take padded with its
+   last frame up to the next 17m + 5) and `source_frames` (the take's own count).
+2. The refine takes those `latents` and `num_frames`, `hold_audio` set to the take's own
+   soundtrack (a video's track is read from the `.mp4` directly; the held track is encoded
+   whole, with no ceiling of its own), and `"latents"` in `output`. Leave `videos` out
+   and that skips the step's own VAE decode: an H3 refine runs only the decode blocks its
+   `output` asks for, so the take decodes once, in `decode_h3_latents`, and the job log
+   says `decode skipped` and names what it left out. Keeping `audio` and `sampling_rate`
+   still decodes the soundtrack (the audio decode is short); ask for `videos` and the
+   step decodes its video as before.
+3. `decode_h3_latents` with `num_frames: previous_result:encode.source_frames` trims the
+   padding so the take comes back at its own length.
+4. `pair_audio` puts back the take's own soundtrack.
+
+Validation and the run refuse a windowed step that:
+
+- has no `refine_strength`, or refines anything but `latents` (or an unmasked
+  `source_video`) with `hold_audio`;
+- sets `refine_tiles`, or any mask input;
+- sets a step `cache`;
+- has a `source_video` over 15 s: encode it with `encode_h3_latents` and pass its
+  `latents` and `num_frames` (that path would otherwise encode the whole take as one
+  float32 tensor);
+- uses `rebased` positions with `frames` - `overlap` not a multiple of 5.
 
 ### Chained Video Generation
 
@@ -2675,7 +2796,7 @@ joined into a single file:
   segment itself (frames and its generated soundtrack) into the next as a video
   reference, which also carries motion, camera, and voice across the seam; it
   requires a `segment_argument` that takes a references list. `guide` (MiniMax-H3
-  `t2va`/`fl2va` only) lays the previous segment's last `guide_frames` frames into the
+  `t2va`/`fl2va` only; a `ref2va` step takes one whole-render guide, not a chain) lays the previous segment's last `guide_frames` frames into the
   next as a held frame-0 guide (see *H3: holding a clip with `guides`*, *Chaining with a
   guide*).
 - `guide_frames` — with `guide`, how many frames the guide carries: 22 (default) or 39.
@@ -2867,7 +2988,7 @@ video, its audio, its shot record, a `save_segments` file or the look-hold state
 | `cut_ratio` | the segment itself: its largest frame change over its own typical change, floored as `jump_ratio` is - a cut inside the segment, past the seam's windows, which the seam measures do not see | `cut_ratio_max` 3.5 | above the ceiling; `null` skips it |
 | `audio_dbfs` | the segment itself: the RMS level (dBFS, to 0.1) of its generated audio over the kept span, past the head trim; segment 1 included | `audio_dbfs_min` -70 | below the floor; `null` skips it. Skipped (no level) when the segment has no generated audio or the audio is held: `match_audio` or its `hold_audio`, or a step `hold_audio` argument. A `guide` chain carrying its audio is measured: the guide holds only the span the head trim drops |
 | `words` | the segment's expected line (see `lines`): its kept audio transcribed (Whisper, on CPU) and compared with `check_script`'s similarity; segment 1 included | `words_similarity_min` `null` (off) | below the minimum, a number above 0 and at most 1, or on any of the findings `line_clipped_at_end`, `transcript_loop`, `tag_spoken`, `unscripted_speech` at any similarity; the re-roll log and the `chain_check_failed` message name the findings and what was heard (`words 1.0 with unscripted_speech, heard '...'`). Off by default: `bench/records/words.md` found no clean separation of good takes from bad. `chain_check.WORDS_SIMILARITY_MIN` (0.80) is the ceiling that passed every good take seen, and catches only gross failures (a wrong or missing line, a garbled segment). Never measured when the chain holds its audio (`match_audio`, `hold_audio`), and skipped for a segment with no line |
-| `face_drop` | segment 1: its median SFace similarity (`analyze_face_drift`'s scoring) of 8 evenly spaced frames from frame 1 on to its own frame 0, minus this segment's median to that same frame 0; segment 1 itself is not measured | `face_drop_max` `null` (record only) | above the ceiling, a number above 0. Warn-only, like `texture_ratio`: recorded and warned, never re-rolled. `null` (unmeasured) when segment 1's frame 0 or this segment holds no face, or the face models cannot load |
+| `face_drop` | segment 1: its median SFace similarity (`analyze_face_drift`'s scoring) of 8 evenly spaced frames from frame 1 on to its own frame 0, minus this segment's median to that same frame 0; segment 1 itself is not measured | `face_drop_max` `null` (record only) | above the ceiling, a number above 0. Warn-only, like `texture_ratio`: recorded and warned, never re-rolled. `null` (unmeasured) when segment 1's frame 0 or this segment holds no face, or the face models cannot load. The base, segment 1's frame 0 and its median, is read from the in-memory frames on a fresh chain and from the kept file on a resume, so across a resume it can move by up to the face encode floor (0.016 on a median, a lower bound; `bench/records/face-encode-floor.md`) |
 
 A segment whose prompt asks for a cut inside it fails `cut_ratio` and re-rolls, so set
 `check: {"cut_ratio_max": null}` to turn that measure off. A step that asks for silence
@@ -2913,7 +3034,14 @@ frames and audio are the ones stitched, and the seam is crossfaded against them.
 
 Each shot of a checked chain records `attempts`; a re-rolled one records the `seed` its
 kept attempt ran at, and one that failed every attempt records `check_failed` (the
-measures its kept attempt failed). The job gets one `warning` (`kind:
+measures its kept attempt failed). Every checked shot also records `measures`, one
+entry per measure its kept attempt took, passing or not: `{"value", "ceiling", "bound",
+"warn_only", "failed"}`. `ceiling` is the one in force (the workflow's override, else the
+default; `null` when the measure has none, as `face_drop` by default), `bound` is `"max"`
+for a ceiling and `"min"` for a floor (`audio_dbfs`, which also stays a top-level key, and
+`words`, whose value is its similarity against `words_similarity_min`), and `failed` is the
+check's verdict - read it, not value against ceiling, since `texture_ratio` fails both
+ways. Segment 1 records only what it measured, and check off records no `measures`. The job gets one `warning` (`kind:
 "chain_check_failed"`) per such segment, naming the measures, their values and the kept
 attempt, and the job log names each re-roll. When `words` failed, the warning also carries
 `heard`, `similarity` and `findings` (`values.words` is the similarity); when every
@@ -2945,7 +3073,9 @@ any other checked chain never re-rolls segment 1 and costs up to
 1 + (N - 1)(1 + `retries`). The curated figure, measured without re-rolls, paid N. With `words` active the
 estimate adds about 0.05 min (one Whisper CPU pass) per worst-case attempt,
 (segments - kept) x (1 + `retries`) passes with segment 1 counted as checked, named in
-the estimate's `scaled` text as "words check: N Whisper pass(es)".
+the estimate's `scaled` text as "words check: N Whisper pass(es)". A checked chain never quotes less than the same chain unchecked at that worst
+case: when this box's checked history is thin and fast enough to blend below it, the
+quote is floored there and `scaled` says so ("floored at the same chain unchecked").
 
 ### A narrated long take
 
@@ -2982,7 +3112,7 @@ eye called was 0.146 at 36 s on `dialogue`.
 - `shot: dialogue` (the default): the face is etched by about 30 s and
   `face_drop` steps up at segment 6 (36 s). Good for a take of about 30 s.
 - `shot: standing` (`keystone: segment_1`, `keystone_slot: last`, no keyframes):
-  face and backdrop hold to 85 s, `face_drop` within 0.015 (seed 1 only). The speaker stands;
+  face and backdrop hold to 85 s, `face_drop` within 0.015 (seed 1; on seed 1362 it held 65.6 s, at most 0.027, `bench/records/drill.md`). The speaker stands;
   each segment eases back to the opening frame.
 - `shot: walk_keyframed` with `keyframes`: the face holds to 85 s (`face_drop` at
   most 0.041 on two seeds), with the cleanest seams, at the price of a
@@ -2993,10 +3123,53 @@ eye called was 0.146 at 36 s on `dialogue`.
   measured past 86 s. `experimental_latent_carry` with `experimental_capstone`
   and the latent keystone (`anchor_every`) stay experimental.
 
-A piece longer than one clean take is split into passages, one narrated take per
-passage (its own `narration-retime`, its own opening still or angle), joined as
-cuts. That composition is not yet run end to end. The design is
-`docs/proposals/complete/narrated-long-take-complete.md`.
+A piece longer than one clean take is passages joined as cuts, one narrated take
+per passage. That composition is run end to end once (`bench/records/drill.md`,
+*Cold drill attempt 2*): 106.6 s from two `standing` passages and one cut, within
+4 ms of the narration, with no hole over 1.5 s at the cut. `templates/minimax/chained-segments`
+with a voice H3 invents per passage is not this recipe: nothing ties the
+passages' voices together (`bench/records/drill.md`, *Cold drill: the
+Gettysburg Address*). The recipe:
+
+1. **One narration for the whole script**: `get_workflow("templates/narration-long")`
+   and `get_workflow("templates/narration-retime")`; both list under
+   `list_workflows(shape="audio")`. With no voice clip from the user, make the
+   reference first: a 5-10 s line from `templates/generate-speech`, kept as an
+   asset and passed with its exact words as the reference. Speak the script
+   once with `templates/narration-long` from that one reference and retime it
+   once with `templates/narration-retime`. One track keeps one voice, room
+   tone and level across the cuts.
+2. **Passages**: `standing` for a monologue to camera, `dialogue` only for a
+   passage under 30 s. Split at paragraph or section breaks to fit the
+   preset: about 175 words for `standing` (about 85 s), about 60 for
+   `dialogue` (about 30 s), at the retimed pace of about 126 words a minute.
+   Cut the retimed track in the middle of those section-break pauses with
+   `slice_audio`, and `keep_output` each slice.
+3. **One `templates/minimax/narrated-take` per passage**, with its slice, its
+   text and a different still or angle; a cut to the same still reads as a
+   reset. Make the second angle from the first still with
+   `templates/image-edit`, or with the same FLUX 3 Klein portrait prompt on
+   the same seed and only the framing changed (or, on a CUDA host with about
+   70 GB of host RAM, `templates/minimax-h3-image/multi-reference` with the
+   first still as `<Picture 1>`; not measured at a cut). Validate each passage and sum
+   their `plan.estimate`s; the H3 chain estimate runs high (18.3 min quoted,
+   about 7 run). A cut resets the face's detail: a take opens as smooth as
+   its still, so a fresh still drops the face to about a quarter of the
+   sharpness the take before it ended on. Make each later passage's still
+   from the take before it instead: the sharpest face in its last 2 s
+   (a `get_frame` task) through `templates/flux3/image-edit` to the new
+   angle, as the next passage's `image`. That kept 86% at the cut; only
+   the next passage's opening segment was measured, so judge its last
+   segment too (`bench/records/narrated.md`, *Cut probe at the #1311
+   keeper's 41.0 s cut*).
+4. **Join** with an authored one-step `concat_videos` workflow: the takes as
+   `output:` references, `trim_frames: 0` (a hard cut), `match_levels: "lufs"`
+   (off by default). Every take must be the same frame size. After the join,
+   run `assess_output(probe="analyze_seams")`, `get_output_frames(seams=...)`
+   at the passage cuts and `get_output_audio` across each cut before calling
+   the piece done. Then `export_timeline` if an editor is wanted.
+
+The design is `docs/proposals/complete/narrated-long-take-complete.md`.
 
 ## Schedulers
 
@@ -3012,6 +3185,11 @@ Override the default scheduler:
     }
 }
 ```
+
+`from_config_args` values are literal scheduler options: a string such as
+`"algorithm_type": "dpmsolver++"` or `"solver_type": "midpoint"` is passed as
+written, even though the key ends in `_type` (elsewhere a `*_type` string loads
+as a diffusers type).
 
 A scheduler block may also carry `shift`, the exponential sigma shift for
 schedulers that take one (MiniMax H3's released checkpoint: 12.0 for video,
@@ -3033,6 +3211,11 @@ a pipeline's own `seed` overrides its step's, which overrides the workflow's:
     ]
 }
 ```
+
+A `for_each` step's `seed` may read the entry: `"seed": "item:seed"` is the entry's
+seed, and `"seed": {"item": "seed", "default": "variable:seed"}` falls back to the
+workflow's for an entry without one, so one entry can be re-rolled alone
+(`replace-performer`).
 
 Omit `seed` entirely to let the workflow draw a random one at run time. The seed a run
 actually used - drawn or named - is recorded in its `manifest.json`, so a run you liked

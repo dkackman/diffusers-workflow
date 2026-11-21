@@ -181,7 +181,7 @@ seed 1; about 18-19 min per segment on dialogue and walk_keyframed; standing too
 3. **Judge.** Read each shot's `face_drop`, which is recorded and never
    failed. It is the face's drift from segment 1: `dialogue` read 0.003-0.057
    to 30 s, then 0.146 at 36 s, where an eye first calls the face etched;
-   `standing` stayed within 0.015 to 85 s (seed 1 only); `walk_keyframed` stayed at or under
+   `standing` stayed within 0.015 to 85 s (seed 1; on seed 1362 it held 65.6 s, at most 0.027, `bench/records/drill.md`); `walk_keyframed` stayed at or under
    0.041 on two seeds. A rising `face_drop` is the face, so the tool is
    `get_output_frames(at=...)` late in the take; seams are
    `assess_output(probe="analyze_seams")`. Lip sync is judged by eye
@@ -194,10 +194,77 @@ seed 1; about 18-19 min per segment on dialogue and walk_keyframed; standing too
    that drifted on its own is not repaired this way:
    `templates/minimax/face-repair` had no reference to aim at and was dropped.
 
-Longer than one clean take: split the script into passages, make one narrated
-take per passage (its own `narration-retime`, its own opening still or angle),
-and join them as cuts with the tools named above. Not yet run end to end.
-Nothing is measured past 86 s.
+### Longer than one take: passages joined as cuts
+
+A piece longer than one clean take is passages joined as cuts, one narrated
+take each, all held to one narration track. Run end to end once
+(`bench/records/drill.md`, *Cold drill attempt 2*): 106.6 s from two `standing`
+passages (41.0 s and 65.6 s, `face_drop` at most 0.027) and one cut, within 4 ms
+of the narration, 0.75 s below -50 dBFS at the cut. It cost about 2.6 GPU-minutes
+per second of video on one RTX 3090 (4.6 h); `validate_workflow` gives this
+template no estimate, so quote that figure. Run the first passage and judge it
+before queueing the rest. `templates/minimax/chained-segments` with a voice H3
+invents per passage is **not** this recipe: nothing ties the passages' voices
+together, and the cold drill that took that path left silence holes at 5 of
+its 6 cuts (`bench/records/drill.md`, *Cold drill: the Gettysburg Address*).
+
+1. **One narration for the whole script.** Both templates are in the
+   catalog: `get_workflow("templates/narration-long")` and
+   `get_workflow("templates/narration-retime")` (both list under
+   `list_workflows(shape="audio")`). A user with no voice clip is not a
+   blocker. Make the reference first: speak a 5-10 s line with
+   `templates/generate-speech` (`model_name`
+   `Edge0/Audio8-TTS-Realistic-0.6b`), `keep_output` it, and pass it as
+   `reference_audio` with its exact words as `reference_text`. Speak the
+   script once with `templates/narration-long` from that one reference, then
+   retime it once with `templates/narration-retime`. One track gives one
+   voice, one room tone and one level across every cut; a narration made per
+   passage gives none of those.
+2. **Passages.** Use `shot: standing` for a monologue to camera, and
+   `shot: dialogue` only for a passage under 30 s. Split the script at
+   paragraph or section breaks so each passage fits its preset. At the
+   retimed pace (about 126 words a minute, `bench/records/narrated.md`) that
+   is about 175 words for `shot: standing` (about 85 s) and about 60 words
+   for `shot: dialogue` (about 30 s). Cut
+   the retimed track at those section-break pauses with `slice_audio`
+   (`start_seconds`/`duration_seconds`, the cut in the middle of the pause;
+   the retime report's `words` give the times), and `keep_output` each slice.
+   A slice's segment boundaries restart at its cut, so its
+   `mid_word_boundaries` are not the whole track's: they stay advisory.
+3. **Takes.** Run one `templates/minimax/narrated-take` per passage: that
+   passage's slice as `narration`, that passage's text as `script`, and **a
+   different still or angle** for each. A cut to the same still reads as a
+   reset. Make the second angle from the first still: `templates/image-edit`
+   with the new framing as its instruction, or the same FLUX 3 Klein portrait
+   prompt on the same seed with only the framing changed (closer, wider, or
+   turned). On a CUDA host with about 70 GB of host RAM, the
+   `minimax-h3-image` skill's `templates/minimax-h3-image/multi-reference`
+   is a third route, the first still as `<Picture 1>` and the new framing
+   in the prompt; it is not measured at a cut. Probe passage 1 first, as above.
+   **Make each later passage's still from the take before it.** A take's
+   face ripens as H3 runs, and the next take opens as smooth as its still,
+   so a fresh still drops the face's detail at the cut: the #1311 keeper's
+   face lost 77% of its sharpness there. Render passage A, then pull the
+   sharpest face in A's last 2 s with a `get_frame` task (`video`,
+   `frame_index`; compare the candidates with `get_output_frames`), run it
+   through `templates/flux3/image-edit` with the new angle as `instruction`
+   and the take's seed, and pass the result as passage B's `image`. Measured
+   at the keeper's cut, this kept 86% of A's end sharpness and the closest
+   identity across the cut. Sharpening a fresh still with `sharpen` kept
+   39%, and sharpening B's opening at the join reads as a filter, so use
+   neither (`bench/records/narrated.md`, *Cut probe at the #1311 keeper's
+   41.0 s cut*). Only B's opening segment was measured from such a still:
+   whether B's later segments etch from the sharper start is not. Judge
+   B's last segment with `get_output_frames` before calling the passage
+   done.
+4. **Join.** Author a one-step `concat_videos` workflow: the takes as
+   `output:` refs in order, `trim_frames: 0` (a hard cut), `match_levels:
+   "lufs"` (off by default), `fps: 24`. Every take must be the same frame
+   size. **After the join, judge the cut before calling the piece done:**
+   `assess_output(probe="analyze_seams")` on it, `get_output_frames(seams=...)`
+   at the passage cuts, and `get_output_audio` (`start`, `duration`) across
+   each cut, listening for a hole of silence or a step in level. Then
+   `export_timeline` (below) if an editor is wanted.
 
 ## Export the cut for an editor
 

@@ -26,6 +26,7 @@ from ..workspace import (
 from . import api_models
 from .http_security import install_middleware
 from .jobs import JobManager
+from .listening import Listening
 from .netinfo import LOOPBACK_HOSTS, WILDCARD_HOSTS
 from .observed_cost import ObservedCosts
 from .outputs import MEDIA_KINDS, RAW_MEDIA_EXTENSIONS
@@ -122,6 +123,19 @@ def _store_directories(
         prompts=state.prompt_dir,
         root=state.workspace,
     )
+
+    # Where a job's requests-ledger link is checked on a rerun: the folder
+    # holding the workspace's requests.json, or None. Never raises - a
+    # workspace that is gone has no ledger, which the rerun warns about
+    def ledger_root_for(name):
+        from .deps import workspace_for
+
+        try:
+            return workspace_for(state, name).root or None
+        except Exception:
+            return None
+
+    manager.ledger_root_for = ledger_root_for
     # A StaticFiles instance per output/asset root, built lazily and reused -
     # a mount is bound to one directory at startup, but a named workspace's
     # root does not exist yet then. Keeping the instance around (rather than
@@ -247,6 +261,7 @@ def create_app(
         workspace,
     )
     app.state.mcp_mounted = mcp_asgi is not None
+    app.state.listening = Listening()
     _store_serving(
         app.state,
         host,

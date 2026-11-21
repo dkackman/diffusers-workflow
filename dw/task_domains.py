@@ -837,6 +837,13 @@ def slice_region(
     return start, max(total - start, 0)
 
 
+def slice_kept_length(total, start, length):
+    """A `past_end: "stop"` slice's length in samples: cut at the source's
+    end (`total`) rather than padded past it. The one rule the run and the
+    validator share (#1427); never negative."""
+    return max(min(length, total - start), 0)
+
+
 def slice_padding(total_samples, start, length, sample_rate):
     """The seconds of silence a slice pads past its source's end, or None
     when there is none worth saying - under `SLICE_PAD_WARN_MS`, which is

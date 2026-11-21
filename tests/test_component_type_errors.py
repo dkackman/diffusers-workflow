@@ -333,3 +333,88 @@ class TestTheCatalogItself:
         if not isinstance(definition, dict) or "steps" not in definition:
             pytest.skip("not a workflow")
         assert component_type_errors(definition) == []
+
+
+class TestAMalformedDottedName:
+    """A dotted name with an empty segment or a trailing dot used to skip the
+    check entirely - it failed the dotted-name pattern, so it was read as "not
+    a class name" and validated clean, though the run cannot import it either
+    (#1341, SE-F067)."""
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            "diffusers.models..LTX2LatentUpsamplerModel",
+            "diffusers.models.",
+            ".FluxPipeline",
+            "diffusers..FluxPipeline",
+            "diffusers.models.1Model",
+        ],
+    )
+    @pytest.mark.parametrize("key", ["component_type", "scheduler_type", "config_type"])
+    def test_it_is_refused_at_its_path(self, key, value):
+        errors = component_type_errors(
+            {
+                "id": "ct",
+                "steps": [
+                    {
+                        "name": "a",
+                        "pipeline": {"configuration": {key: value}},
+                        "result": {"content_type": "image/png"},
+                    }
+                ],
+            }
+        )
+        assert len(errors) == 1
+        assert errors[0]["path"] == f"steps[0].pipeline.configuration.{key}"
+        assert "not a valid dotted name" in errors[0]["message"]
+
+    @pytest.mark.parametrize(
+        "value",
+        ["variable:pipeline_class", "{FluxPipeline}", "constant:torch.float16"],
+    )
+    def test_a_reference_or_escaped_value_is_still_left_alone(self, value):
+        assert errors_for(value) == []
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            "diffusers.models.latent_upscaler.LTX2LatentUpsamplerModel",
+            "diffusers.pipelines.ltx2.latent_upsampler.LTX2LatentUpsamplerModel",
+        ],
+    )
+    def test_the_well_formed_upsampler_paths_are_accepted(self, value):
+        assert errors_for(value) == []
+
+
+@pytest.mark.parametrize(
+    "value", ["diffusers.models..LTX2LatentUpsamplerModel", "diffusers.models."]
+)
+def test_the_ltx2_two_stage_template_refuses_a_malformed_upsampler(tmp_path, value):
+    """The tester's carrier: the catalog two-stage template with only the
+    latent upsampler's component_type changed, through the same
+    workflow_errors validate_workflow reports."""
+    from dw.validation import workflow_errors
+    from dw.workflow import workflow_from_definition
+
+    template = REPO_ROOT / "workflows" / "templates" / "ltx2" / "two-stage.json"
+    definition = json.loads(template.read_text())
+    clean = workflow_errors(workflow_from_definition(definition, str(tmp_path)), {})
+    assert clean == []
+
+    upsampler = None
+    for i, step in enumerate(definition["steps"]):
+        candidate = step.get("pipeline", {}).get("latent_upsampler")
+        if candidate is not None:
+            upsampler = (i, candidate)
+            break
+    assert upsampler is not None
+    index, component = upsampler
+    component["configuration"]["component_type"] = value
+
+    errors = workflow_errors(workflow_from_definition(definition, str(tmp_path)), {})
+    assert any(
+        str(e.get("path")).startswith(f"steps[{index}].pipeline.latent_upsampler")
+        and "not a valid dotted name" in str(e.get("message"))
+        for e in errors
+    ), errors

@@ -19,9 +19,8 @@ asset is probed afresh by the next request.
 
 Callers use the functions at the end of this module directly
 (`workflow_errors`, `workflow_context`, `run_warning_check`,
-`undeclared_variable_errors`, `sub_workflow_errors`,
-`sub_workflow_argument_warnings`); only `Workflow.validation_errors` and
-`Workflow.validate` remain as methods. The step-value checkers the error
+`undeclared_variable_errors`, `sub_workflow_errors`); only
+`Workflow.validation_errors` and `Workflow.validate` remain as methods. The step-value checkers the error
 registry runs (`fps_errors`, `cache_errors`, `null_media_errors`, `select_errors`) are in
 dw/step_value_checks.py.
 """
@@ -36,11 +35,20 @@ from . import references
 from .acceleration_warnings import acceleration_warnings
 from . import get_device_type, device_capacity_gb
 from .adapter_compatibility import adapter_errors, adapter_warnings
-from .argument_warnings import workflow_argument_warnings
+from .argument_warnings import (
+    null_variable_argument_warnings,
+    sub_workflow_argument_warnings,
+    workflow_argument_warnings,
+)
 from .content_types import content_type_errors
 from .dissolve_frame_errors import dissolve_frame_errors
 from .for_each import ForEachError, entry_field_warnings
 from .presets import apply_presets
+from .pipeline_processors.h3_lead_in import lead_in_errors
+from .pipeline_processors.h3_keystone_attention import (
+    keystone_attention_errors,
+    keystone_attention_notes,
+)
 from .pipeline_processors.h3_tst import tst_errors
 from .guides import (
     anchor_errors,
@@ -52,6 +60,7 @@ from .guides import (
     guide_noise_warnings,
     guides_errors,
     selflift_errors,
+    windows_errors,
 )
 from .hold_audio import hold_audio_errors, mask_errors, refine_strength_errors
 from .introspection import task_signature_errors
@@ -59,15 +68,23 @@ from .kernel_availability import kernel_availability_errors
 from .library import SubWorkflowNotFound
 from .locations import location_errors
 from .media import probe_metadata
+from .pipeline_limits import pipeline_limit_errors
 from .previous_results import (
     cross_entry_reference_errors,
     previous_result_reference_errors,
 )
-from .reference_limits import reference_limit_errors
+from .reference_limits import (
+    reference_duration_errors,
+    reference_field_errors,
+    reference_length_errors,
+    reference_limit_errors,
+)
 from .reference_names import reference_name_errors
-from .scalar_result_validation import scalar_result_errors
+from .scalar_result_validation import scalar_result_errors, unsaved_json_warnings
 from .schema import load_schema, validate_data_all
 from .security import InvalidInputError, SecurityError
+from .pipeline_ownership import released_reference_warnings
+from .step_cache import unseeded_cache_warnings
 from .shot_span_preflight import script_shot_name_errors, shot_span_warnings
 from .slice_preflight import slice_past_end_warnings
 from .subfolders import subfolder_errors
@@ -80,7 +97,7 @@ from .step_value_checks import (
     select_errors,
 )
 from .task_domains import task_argument_errors
-from .trust import task_remote_code_errors
+from .trust import pipeline_remote_code_errors, task_remote_code_errors
 from .type_references import (
     component_name_errors,
     component_type_errors,
@@ -387,7 +404,9 @@ ERROR_CHECKS = [
     # schedule fails after the checkpoint load just the same
     Check(
         "refine_strength",
-        lambda c: refine_strength_errors(c.expanded, c.source_indices),
+        lambda c: refine_strength_errors(
+            c.expanded, c.source_indices, written=c.definition, given=c.arguments
+        ),
     ),
     # A regional edit on a pipeline that is not H3, a mask with no source, or a
     # source with no refine_strength, with latents or on a chained step
@@ -423,6 +442,36 @@ ERROR_CHECKS = [
     Check(
         "reference_limits",
         lambda c: reference_limit_errors(c.expanded, c.source_indices),
+    ),
+    # A key on a reference its class has no field for (#1428)
+    Check(
+        "reference_fields",
+        lambda c: reference_field_errors(c.expanded, c.source_indices),
+    ),
+    # An H3 video reference too short for the conditioner: refused after the
+    # load, and after the earlier chain steps, otherwise (#1422)
+    Check(
+        "reference_length",
+        lambda c: reference_length_errors(
+            c.expanded, c.source_indices, c.base_dir, probe=c.probe
+        ),
+    ),
+    # A Pika audio reference outside the duration bound its setup block
+    # declares (#1427)
+    Check(
+        "reference_duration",
+        lambda c: reference_duration_errors(
+            c.expanded, c.source_indices, c.base_dir, probe=c.probe
+        ),
+    ),
+    # A literal H3 num_frames, width or height the pipeline would refuse,
+    # read off the diffusers class that enforces it (dw/pipeline_limits.py,
+    # #1361)
+    Check(
+        "pipeline_limits",
+        lambda c: pipeline_limit_errors(
+            c.expanded, c.source_indices, written=c.definition
+        ),
     ),
     # A step a declared vram_estimate projects past the card 'cost' was
     # measured on - per step, after expansion, so a for_each member is
@@ -546,11 +595,32 @@ ERROR_CHECKS = [
         "selflift",
         lambda c: selflift_errors(c.expanded, c.source_indices),
     ),
+    # A refine_windows off H3 t2va/fl2va, under its old experimental_ name,
+    # or on a call it cannot window (#1230)
+    Check(
+        "refine_windows",
+        lambda c: windows_errors(
+            c.expanded, c.source_indices, written=c.definition, given=c.arguments
+        ),
+    ),
     # The experimental TST correction (#1196): the flag off, off H3, a bad
     # value, or a transformer on dw's 'sparse' backend
     Check(
         "experimental_tst",
         lambda c: tst_errors(c.expanded, c.source_indices),
+    ),
+    # The experimental keystone attention re-split (#1391): the flag off, not
+    # H3 fl2va with image and guides, a bad balance or block list, or with TST,
+    # sparse, a capstone or gated guide rows
+    Check(
+        "experimental_keystone_attention",
+        lambda c: keystone_attention_errors(c.expanded, c.source_indices),
+    ),
+    # A turbo_lead_in off H3, not a whole number >= 0, at or past the call's
+    # evaluations, with no adapter named 'turbo', or a first_block cache (#1326)
+    Check(
+        "turbo_lead_in",
+        lambda c: lead_in_errors(c.expanded, c.source_indices),
     ),
     Check("task_signatures", _task_errors),
     # A task argument that runs Hub code, anywhere in the step - the run
@@ -559,6 +629,12 @@ ERROR_CHECKS = [
     Check(
         "task_remote_code",
         lambda c: task_remote_code_errors(c.expanded, c.source_indices),
+    ),
+    # A pipeline block that sets a remote-code key (trust_remote_code,
+    # custom_pipeline), the gate the worker runs before a load (#1410)
+    Check(
+        "pipeline_remote_code",
+        lambda c: pipeline_remote_code_errors(c.expanded, c.source_indices),
     ),
     # A component_type/scheduler_type/config_type that does not exist, or is
     # outside the trusted ecosystem (dw/type_references.py, #345)
@@ -598,62 +674,6 @@ ERROR_CHECKS = [
 ]
 
 
-# --- Whether a run gets the step cache (was in dw/plan.py) ----------------
-#
-# unseeded_cache_warnings is a warning source; it and its two helpers live
-# here so the registry need not import dw.plan, which reaches dw.workflow.
-
-
-def unseeded_cache_warnings(definition, arguments=None):
-    """Say once, where a caller is already looking, that an unseeded workflow
-    gets no step cache at all.
-
-    `cached_steps: 0` is indistinguishable from 'probed, nothing hit' out
-    there, and the difference is the one that matters: without a `seed` the
-    cache is off, so nothing is ever reused however many times the same
-    workflow runs (#107).
-
-    Silent for a workflow with no `pipeline`/`pipeline_reference`/`workflow`
-    step: a task-only utility has no generative randomness a `seed` would
-    pin down in the first place, and each of its steps is a pure function of
-    its inputs - a repeat run is already free without one (#247)
-    """
-    if _is_seeded(definition, arguments) or not _has_seedable_step(definition):
-        return []
-    return [
-        "This workflow sets no 'seed', so the step cache is disabled and "
-        "'cached_steps' is 0 without being probed - every step regenerates "
-        "on every run. Set a top-level 'seed': 'variable:seed' with a "
-        "declared default in 'variables' to make a repeat run reuse what it "
-        "already produced"
-    ]
-
-
-def _has_seedable_step(definition):
-    """Whether any step could consume a seed: a pipeline (inline or
-    referenced) or a sub-workflow, which may hold one in turn. A workflow
-    built entirely of `task` steps has nothing a seed would affect."""
-    for step in definition.get("steps") or []:
-        if not isinstance(step, dict):
-            continue
-        if "pipeline" in step or "pipeline_reference" in step or "workflow" in step:
-            return True
-    return False
-
-
-def _is_seeded(definition, arguments):
-    """Whether a run of this workflow has a seed before it draws one - read
-    from the definition as written and the caller's arguments, since
-    realization pins a seed of its own into the copy."""
-    seed = definition.get("seed")
-    if references.is_ref(references.VARIABLE, seed):
-        name = references.ref_name(references.VARIABLE, seed)
-        if name in (arguments or {}):
-            return arguments[name] is not None
-        return (definition.get("variables") or {}).get(name) is not None
-    return seed is not None
-
-
 # --- The warning registry ----------------------------------------------------
 #
 # Every warning source admit() reports that does not need the plan, in the
@@ -668,22 +688,6 @@ def _is_seeded(definition, arguments):
 # source reads the two alike (`arguments or {}`), except
 # null_variable_argument_warnings, which is exactly the one that draws the
 # line.
-
-
-def _null_variable_argument_warnings(context):
-    """A required task argument fed by `variable:name` whose value is null.
-    validation_errors drops that case when the document is checked with no
-    arguments (#364); here it is said, since a run left as-is would fail.
-    Empty once arguments are given - it is a hard error then."""
-    if context.arguments is not None:
-        return []
-    return [
-        f"{entry['path']}: {entry['message']}"
-        for entry in task_signature_errors(
-            context.expanded, context.source_indices, context.definition
-        )
-        if "variable" in entry
-    ]
 
 
 WARNING_CHECKS = [
@@ -728,7 +732,7 @@ WARNING_CHECKS = [
             catalog=c.lora_index,
         ),
     ),
-    Check("null_variable_argument_warnings", _null_variable_argument_warnings),
+    Check("null_variable_argument_warnings", null_variable_argument_warnings),
     # An argument a sub-workflow step passes to a workflow that declares no
     # variable for it - dropped in silence at run time (#89)
     Check(
@@ -785,6 +789,18 @@ WARNING_CHECKS = [
     # cache, a CUDA-only attention backend off CUDA - each of which cost a
     # render to find out (#868)
     Check("acceleration_warnings", acceleration_warnings),
+    # A JSON-answering command (an assessment probe) with no 'result' block and
+    # no reader: its measurements go nowhere (#1366)
+    Check(
+        "unsaved_json_warnings",
+        lambda c: unsaved_json_warnings(c.expanded, c.source_indices),
+    ),
+    # A pipeline_reference whose model an earlier release_pipeline dropped,
+    # through a shared cache key or a composed child (#1409)
+    Check(
+        "released_reference_warnings",
+        lambda c: released_reference_warnings(c.workflow, c.expanded, c.source_indices),
+    ),
     # A guide_noise on a step with no guides and no guide chain - it would
     # noise nothing (#1166)
     Check(
@@ -808,6 +824,12 @@ WARNING_CHECKS = [
     Check(
         "held_audio_warnings",
         lambda c: held_audio_warnings(c.expanded, c.source_indices),
+    ),
+    # The settings an experimental_keystone_attention runs, its defaults
+    # filled (#1391) - what validate shows for `{}`
+    Check(
+        "keystone_attention_notes",
+        lambda c: keystone_attention_notes(c.expanded, c.source_indices),
     ),
 ]
 
@@ -1062,32 +1084,3 @@ def sub_workflow_errors(workflow, expanded, source_indices=None, composing=None)
                 }
             )
     return errors
-
-
-def sub_workflow_argument_warnings(workflow, expanded, source_indices=None):
-    """sub_workflow_warnings over an expansion already made - what the
-    registry check calls with the request's own."""
-    warnings = []
-    for index, step in enumerate(expanded.get("steps", []) or []):
-        reference = step.get("workflow")
-        if not isinstance(reference, dict):
-            continue
-        passed = reference.get("arguments")
-        if not isinstance(passed, dict) or not isinstance(reference.get("path"), str):
-            continue
-        try:
-            child, _ = workflow.open_sub_workflow(reference["path"])
-        except Exception:
-            # An unresolvable path is an error, reported by
-            # sub_workflow_errors - not a second complaint here
-            continue
-        declared = child.workflow_definition.get("variables") or {}
-        source = references.author_index(source_indices, index)
-        for name in sorted(set(passed) - set(declared)):
-            warnings.append(
-                f"steps[{source}].workflow.arguments.{name}: "
-                f"'{reference['path']}' declares no variable '{name}' - the "
-                "value is dropped. Declared: "
-                + (", ".join(sorted(declared)) or "<none>")
-            )
-    return warnings

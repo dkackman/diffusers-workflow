@@ -123,3 +123,34 @@ export function nextStepTimes(
     return []
   return times
 }
+
+/** Why a queued job has not started, told by the server's own prefix:
+ * `waiting for host RAM` (a free card the host cannot back yet) or
+ * `queued behind` (every card is running a job). No kind is exposed. */
+export function holdKind(
+  waitingFor: string | null | undefined,
+): 'host_ram' | 'cards_busy' | 'other' | null {
+  if (!waitingFor) return null
+  if (waitingFor.startsWith('waiting for host RAM')) return 'host_ram'
+  if (waitingFor.startsWith('queued behind')) return 'cards_busy'
+  return 'other'
+}
+
+/** The latest phase_stall still standing: one with no event of another
+ * kind after it, since the server sends no "stall cleared" event. Repeated
+ * stalls climb, so the latest carries the longest silence. */
+export function activeStall(
+  events: JobEvent[],
+): { phase: string; seconds: number } | null {
+  for (let i = events.length - 1; i >= 0; i--) {
+    const event = events[i]
+    if (event.event === 'warning' && event.kind === 'phase_stall') {
+      return {
+        phase: event.phase as string,
+        seconds: event.seconds_since_last_progress as number,
+      }
+    }
+    return null
+  }
+  return null
+}

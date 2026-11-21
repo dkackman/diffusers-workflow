@@ -15,6 +15,7 @@ from ..task_domains import (
     SLICE_PAST_END_CHOICES,
     check_arguments,
     real_number,
+    slice_kept_length,
     slice_lead_problem,
     slice_padding,
     slice_region,
@@ -335,7 +336,7 @@ def _stop_at_the_end(total, start, length, sample_rate):
             f"past the end of a {total / float(sample_rate):.2f} s source, so "
             f"with 'past_end' \"stop\" there is nothing to keep"
         )
-    kept = min(length, total - start)
+    kept = slice_kept_length(total, start, length)
     if kept < length:
         emit_log(
             f"slice_audio: the source ends {kept / float(sample_rate):.2f} s "

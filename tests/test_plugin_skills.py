@@ -225,6 +225,53 @@ class TestMiniMaxH3Skill:
         # The 4-step default since 2026-10-10
         assert "denoise_total_steps" in text and "reports 4" in text
 
+    def test_pika_flex_runs_six_passes_and_takes_no_steps(self):
+        """#1344: Pika H3 Flex is the carve-out from the N-1 rule above. Its
+        blocks run a fixed `denoising_step_list` (7 points, 6 passes) and take
+        no `num_inference_steps` or shift, so the skill must say so and every
+        pika-h3 template must carry the pipeline's own list and no steps."""
+        import inspect
+
+        from diffusers.modular_pipelines.pika_h3_flex import before_denoise
+
+        step_list = [1000, 750, 500, 250, 100, 40, 0]
+        assert f'ConfigSpec("denoising_step_list", {step_list})' in inspect.getsource(
+            before_denoise
+        )
+
+        skill = open(H3_SKILL, encoding="utf-8").read()
+        assert "references/pika-flex.md" in skill
+        pika = open(
+            os.path.join(os.path.dirname(H3_SKILL), "references", "pika-flex.md"),
+            encoding="utf-8",
+        ).read()
+        assert "6 passes" in pika and "no `num_inference_steps`" in pika
+        assert str(step_list) in pika
+
+        templates = glob.glob(
+            os.path.join(REPO_ROOT, "workflows", "templates", "pika-h3", "*.json")
+        )
+        assert templates
+        for path in templates:
+            with open(path, encoding="utf-8") as f:
+                workflow = json.load(f)
+            assert "num_inference_steps" not in workflow.get("variables", {}), path
+            for step in workflow["steps"]:
+                pipeline = step.get("pipeline")
+                if not pipeline:
+                    continue
+                configs = pipeline["configuration"]["configs"]
+                assert configs["denoising_step_list"] == step_list, path
+                assert len(step_list) - 1 == 6
+                arguments = pipeline.get("arguments", {})
+                for key in (
+                    "num_inference_steps",
+                    "shift",
+                    "video_shift",
+                    "audio_shift",
+                ):
+                    assert key not in arguments, (path, key)
+
     def test_the_canvas_rules_are_the_pipeline_s(self):
         import inspect
 
@@ -848,6 +895,118 @@ class TestFlux3KleinSkill:
         assert text.index("get_server_info") < text.index("templates/flux3/")
 
 
+H3_IMAGE_SKILL = os.path.join(PLUGIN_DIR, "skills", "minimax-h3-image", "SKILL.md")
+
+
+def h3_image_text():
+    """The MiniMax-H3-Image skill with its line wraps collapsed."""
+    return " ".join(skill_text(H3_IMAGE_SKILL).split())
+
+
+class TestMiniMaxH3ImageSkill:
+    """#1425: the H3-Image skill's numbers are the diffusers modular blocks'
+    (the six-step grid, the minimum generation area, the 32-pixel canvas),
+    its costs are the templates', and it routes a host that cannot run it to
+    Klein before any template is named."""
+
+    def test_the_step_count_is_the_fixed_sigma_grid_s(self):
+        from diffusers.modular_pipelines.minimax_h3_image import (
+            before_denoise,
+            modular_pipeline,
+        )
+
+        configs = {
+            c.name: c.default
+            for c in before_denoise.MiniMaxH3ImageSetTimestepsStep().expected_configs
+        }
+        # Seven sigmas, the last the terminal zero: six denoise steps.
+        assert len(configs["sample_sigmas"]) - 1 == 6
+        assert "fixed grid of six steps" in inspect.getsource(modular_pipeline)
+        assert "fixed grid of 6 steps" in h3_image_text()
+
+    def test_no_speedup_below_the_pipeline_s_minimum_area(self):
+        from diffusers.modular_pipelines.minimax_h3_image import before_denoise
+
+        defaults = {
+            p.name: p.default
+            for p in before_denoise.MiniMaxH3ImagePrepareCanvasStep().inputs
+        }
+        assert defaults["min_generation_area"] == 4194304 == 2048 * 2048
+        text = h3_image_text()
+        assert "4,194,304 pixels (2048x2048)" in text
+        assert "No speedup below 2048x2048" in text
+
+    def test_the_canvas_is_the_pipeline_s_multiple_of_32(self):
+        from diffusers.modular_pipelines.minimax_h3_image import before_denoise
+
+        assert "multiples of 32" in inspect.getsource(before_denoise)
+        assert "multiples of 32" in h3_image_text()
+
+    def test_the_costs_are_the_templates(self):
+        text = h3_image_text()
+        for name in ("text-to-image", "multi-reference"):
+            path = os.path.join(
+                REPO_ROOT, "workflows", "templates", "minimax-h3-image", f"{name}.json"
+            )
+            with open(path) as handle:
+                template = json.load(handle)
+            assert f"`templates/minimax-h3-image/{name}`" in text
+            assert f"{name} {template['cost'][0]['minutes']} min" in text
+            assert template["host_ram_gb"] == 64
+        assert "`host_ram_gb: 64`" in text
+
+    def test_the_host_ram_rules_and_the_klein_route(self):
+        text = h3_image_text()
+        for phrase in ("70 GB", "64 GB", "120 GB", "117 GB", "`plan.host_memory`"):
+            assert phrase in text, phrase
+        assert "`host_ram_gb`" in text and "`flux3-klein`" in text
+
+    def test_the_skill_starts_with_the_server(self):
+        text = h3_image_text()
+        assert text.index("get_server_info") < text.index("list_workflows")
+        assert text.index("get_server_info") < text.index("templates/minimax-h3-image/")
+
+    def test_references_are_one_based_and_the_still_goes_to_h3_as_output(self):
+        text = h3_image_text()
+        assert "`<Picture 1>`" in text and "`<ref_image_0>`" in text
+        assert "`output:<path from get_job>`" in text
+        for template in ("image-to-video", "first-and-last-frame"):
+            assert f"`templates/minimax/{template}`" in text
+
+    def test_the_clip_cites_output_not_a_kept_asset(self):
+        # The #1425 drill kept the still and cited `asset:`; the plan's
+        # route is `output:` for the clip the still feeds.
+        flat = " ".join(h3_image_text().split())
+        assert "Cite `output:` for this clip" in flat
+        assert "or `keep_output` it as a cast asset and cite `asset:`" not in flat
+
+    def test_the_cost_and_host_floor_are_quoted_before_any_run(self):
+        # The #1425 drill ran both jobs in its first turn with an
+        # `acknowledged_cost` it filled in itself.
+        text = h3_image_text()
+        quote = text[text.index("## Quote, then wait") : text.index("## Run and judge")]
+        for phrase in ("`plan.estimate`", "64 GB", "120 GB", "`plan.host_memory`"):
+            assert phrase in quote, phrase
+        assert "wait for the user's go-ahead" in quote
+        assert "Never fill in `acknowledged_cost` yourself" in " ".join(quote.split())
+        assert text.index("## Quote, then wait") < text.index(
+            "After the go-ahead, `run_workflow`"
+        )
+
+    def test_the_h3_skill_routes_its_picture_here_or_to_klein(self):
+        flat = " ".join(skill_text(H3_SKILL).split())
+        assert "`minimax-h3-image` skill (CUDA, ~70 GB RAM), else `flux3-klein`" in flat
+
+    def test_storyboard_keeps_board_sheets_on_klein(self):
+        flat = " ".join(
+            skill_text(
+                os.path.join(PLUGIN_DIR, "skills", "storyboard", "SKILL.md")
+            ).split()
+        )
+        assert "`minimax-h3-image`" in flat
+        assert "for a board sheet, it stays on Klein" in flat
+
+
 SCRIPT_SKILL = os.path.join(PLUGIN_DIR, "skills", "script-to-video", "SKILL.md")
 SCRIPT_JOINS = os.path.join(os.path.dirname(SCRIPT_SKILL), "references", "joins.md")
 
@@ -1040,6 +1199,7 @@ CINE_COMPILES = {
     "ltx-2.5": "compile-ltx-2.5.md",
     "kandinsky-6": "compile-kandinsky-6.md",
     "flux3-klein": "compile-flux3-klein.md",
+    "minimax-h3-image": "compile-minimax-h3-image.md",
 }
 
 
@@ -1138,8 +1298,8 @@ class TestCinematographySkill:
         assert "`minimax-music3`" in section
         flat = " ".join(section.split())
         assert (
-            "covers H3, LTX-2.5 and Kandinsky 6 video plus FLUX 3 Klein stills only"
-            in flat
+            "covers H3, LTX-2.5 and Kandinsky 6 video plus FLUX 3 Klein and "
+            "MiniMax-H3-Image stills only" in flat
         )
         assert "do not borrow a table" in flat
 
@@ -1891,7 +2051,7 @@ class TestLongFormSkill:
     def test_the_open_questions_are_marked_pending(self):
         text = self._text()
         assert "pending measurement" in text
-        for topic in ("windowed refine", "latent carry", "capstone", "tier", "ltx"):
+        for topic in ("latent carry", "capstone", "tier", "ltx"):
             assert topic in text.lower(), topic
 
     def test_the_measured_levers_carry_their_verdicts(self):
@@ -1900,7 +2060,7 @@ class TestLongFormSkill:
         verdict rather than reading as pending."""
         text = " ".join(self._text().split())
         for verdict in (
-            "not a burn fix",  # windowed refine
+            "not a burn fix",  # windowed refine, the seam pass
             "not a default",  # latent carry
             "does not win",  # late capstone
             "Don ruled slot `last` the static long-take default",  # keystone
@@ -1909,6 +2069,28 @@ class TestLongFormSkill:
         ):
             assert verdict in text, verdict
         assert "experimental_keystone_slot" not in text
+
+    def test_the_seam_pass_is_offered_with_its_cost_and_its_limit(self):
+        """#1378: the windowed refine is measured and shipped as a template,
+        so *Per seam* names it, when its cost is worth it, and that it is not
+        a burn fix; levers.md no longer lists it under "do not offer"."""
+        body = _flat(skill_body(LONG_FORM_SKILL))
+        per_seam = body[body.index("## 4. Per seam") : body.index("## 5.")]
+        assert "`templates/minimax/h3-seam-pass`" in per_seam
+        assert "about 36 GPU-min per minute" in per_seam
+        assert "not a burn fix" in per_seam
+        levers = _flat(_read(os.path.join(LONG_FORM_DIR, "references", "levers.md")))
+        structural = levers[levers.index("## Structural levers") :]
+        structural = structural[: structural.index("## ", 3)]
+        assert "Windowed refine" not in structural
+        assert "`templates/minimax/h3-seam-pass`" in levers
+        assert "not a burn fix" in levers
+        speed = _flat(
+            _read(os.path.join(LONG_FORM_DIR, "references", "quality-and-speed.md"))
+        )
+        assert "`templates/minimax/h3-seam-pass`" in speed
+        assert "36-40 GPU-min per minute of take" in speed
+        assert "do not offer it" not in speed
 
     def test_the_narrated_take_rule_cites_its_record_and_presets(self):
         """A speaking subject held to narration is one take: the template's
@@ -1921,7 +2103,8 @@ class TestLongFormSkill:
             "`templates/minimax/narrated-take`",
             "`shot: standing`",
             "passages joined as cuts",
-            "not yet run end to end",
+            "run end to end once",
+            "bench/records/drill.md",
             "`face_drop`",
             "bench/records/narrated.md",
         ):
@@ -1938,6 +2121,121 @@ class TestLongFormSkill:
         for name in ("run-and-repair.md", "levers.md"):
             body = _flat(_read(os.path.join(LONG_FORM_DIR, "references", name)))
             assert "bench/records/narrated.md" in body, name
+
+    def test_the_passage_procedure_names_its_tools(self):
+        """#1311 stage #1336: the multi-passage procedure names its narration,
+        its cut and its join, where it once said "the tools named above" and
+        named none: one `narration-long` track, `slice_audio` passages, a
+        `concat_videos` join at `trim_frames: 0` with `match_levels`."""
+        body = _read(os.path.join(LONG_FORM_DIR, "references", "run-and-repair.md"))
+        start = body.index("### Longer than one take: passages joined as cuts")
+        end = body.index("\n## ", start)
+        procedure = _flat(body[start:end])
+        for name in (
+            "`templates/narration-long`",
+            "`templates/narration-retime`",
+            "`slice_audio`",
+            "`keep_output`",
+            "`templates/minimax/narrated-take`",
+            "different still or angle",
+            "`concat_videos`",
+            "`trim_frames: 0`",
+            '`match_levels: "lufs"`',
+            "`output:`",
+            "Run end to end once",
+            "Cold drill attempt 2",
+            "Run the first passage and judge it",
+        ):
+            assert name in procedure, name
+        assert "tools named above" not in body
+        for name in ("levers.md", "audio.md"):
+            other = _flat(_read(os.path.join(LONG_FORM_DIR, "references", name)))
+            for tool in ("narration-long", "slice_audio", "concat_videos"):
+                assert tool in other, (name, tool)
+        guide = _read(os.path.join(REPO_ROOT, "docs", "WORKFLOW_GUIDE.md"))
+        start = guide.index("### A narrated long take")
+        section = _flat(guide[start : guide.index("\n## ", start)])
+        for name in ("`concat_videos`", "`trim_frames: 0`", "`match_levels"):
+            assert name in section, name
+
+    def test_the_passage_procedure_carries_the_drill_fixes(self):
+        """#1311 stage #1338: the cold drill (`bench/records/drill.md`, *Cold
+        drill: the Gettysburg Address*) took `chained-segments` with an
+        invented voice. The recipe now names the retime template by its
+        catalog id (W1), makes a voice reference with `generate-speech` (W2),
+        says `standing` for a monologue (W4), and judges the cuts with
+        `analyze_seams` after the join (W7); the guide and levers agree."""
+        body = _read(os.path.join(LONG_FORM_DIR, "references", "run-and-repair.md"))
+        start = body.index("### Longer than one take: passages joined as cuts")
+        procedure = _flat(body[start : body.index("\n## ", start)])
+        for name in (
+            'get_workflow("templates/narration-retime")',
+            "`templates/generate-speech`",
+            "`shot: standing` for a monologue",
+            "`templates/image-edit`",
+            "is **not** this recipe",
+        ):
+            assert name in procedure, name
+        assert procedure.index("analyze_seams") > procedure.index("`concat_videos`")
+        assert "After the join" in procedure
+        guide = _read(os.path.join(REPO_ROOT, "docs", "WORKFLOW_GUIDE.md"))
+        start = guide.index("### A narrated long take")
+        section = _flat(guide[start : guide.index("\n## ", start)])
+        for name in (
+            'get_workflow("templates/narration-retime")',
+            "`templates/generate-speech`",
+            "`standing` for a monologue",
+            "run end to end once",
+        ):
+            assert name in section, name
+        assert section.index("analyze_seams") > section.index("`concat_videos`")
+        levers = _flat(_read(LONG_FORM_LEVERS))
+        for name in (
+            "generate-speech",
+            "`shot: standing` for a monologue",
+            "analyze_seams",
+        ):
+            assert name in levers, name
+        skill = _flat(self._text())
+        assert "sum the `plan.estimate`s" in skill
+
+    def test_the_cut_detail_reset_names_the_late_frame_route(self):
+        """#1385 stage #1389: Don's viewing verdict on the #1388 cut probe
+        picked arm L. A cut is no longer said to cost nothing; step 3 makes
+        the next passage's still from the last take's late frame through
+        flux3 image-edit, states that only B's opening segment was measured,
+        and the guide and levers cite the probe's record."""
+        record = "Cut probe at the #1311 keeper's 41.0 s cut"
+        skill = _flat(skill_body(LONG_FORM_SKILL))
+        assert "costs nothing at the seam" not in skill
+        assert "late frame" in skill
+        body = _read(os.path.join(LONG_FORM_DIR, "references", "run-and-repair.md"))
+        start = body.index("### Longer than one take: passages joined as cuts")
+        procedure = _flat(body[start : body.index("\n## ", start)])
+        step3 = procedure[
+            procedure.index("3. **Takes.**") : procedure.index("4. **Join.**")
+        ]
+        for name in (
+            "`get_frame`",
+            "`templates/flux3/image-edit`",
+            "last 2 s",
+            "Only B's opening segment was measured",
+            "B's last segment",
+            record,
+        ):
+            assert name in step3, name
+        levers = _flat(_read(LONG_FORM_LEVERS))
+        assert record in levers
+        assert "`templates/flux3/image-edit`" in levers
+        guide = _read(os.path.join(REPO_ROOT, "docs", "WORKFLOW_GUIDE.md"))
+        start = guide.index("### A narrated long take")
+        section = _flat(guide[start : guide.index("\n## ", start)])
+        for name in (
+            "resets the face's detail",
+            "`templates/flux3/image-edit`",
+            record,
+        ):
+            assert name in section, name
 
     def test_the_move_class_comes_from_the_vocabulary(self):
         """#1255: the "until #1200" stand-in is replaced by a pointer to the
@@ -2133,5 +2431,80 @@ class TestLongFormPointers:
         ids=lambda p: os.path.basename(os.path.dirname(p)),
     )
     def test_every_touched_skill_holds_its_budget(self, path):
+        size = len(skill_body(path).encode("utf-8"))
+        assert size <= SKILL_SIZE_LIMIT, f"{path} is {size} bytes"
+
+
+SCRIPT_REQUEST = os.path.join(os.path.dirname(SCRIPT_SKILL), "references", "request.md")
+REQUEST_SKILLS = [SCRIPT_SKILL, LONG_FORM_SKILL, STORYBOARD_SKILL, SERIES_SKILL]
+
+
+class TestSkillRequests:
+    """The multi-job skills keep a request (#1484, #1458 stage 4): opened at
+    the shot list for three or more jobs, items pointing at saved prompts,
+    the keeper accepted in the ledger, comments read before a revision."""
+
+    @pytest.mark.parametrize(
+        "path", REQUEST_SKILLS, ids=lambda p: os.path.basename(os.path.dirname(p))
+    )
+    def test_each_skill_opens_a_request_from_its_shot_list(self, path):
+        body = _flat(skill_body(path))
+        assert "request.md`" in body
+        # An episode is always several jobs, so series-episodes opens one
+        # per episode; the others gate it on three or more.
+        assert "shot list" in body
+        if path != SERIES_SKILL:
+            assert "three or more" in body.lower()
+
+    @pytest.mark.parametrize(
+        "path",
+        [SCRIPT_SKILL, STORYBOARD_SKILL, SERIES_SKILL],
+        ids=lambda p: os.path.basename(os.path.dirname(p)),
+    )
+    def test_run_accept_and_read_go_through_the_request(self, path):
+        body = _flat(skill_body(path))
+        assert "`request`" in body or 'request="' in body
+        assert "`set_request`" in body
+        assert "`get_request`" in body or "`get_request(" in body
+
+    def test_the_reference_holds_the_procedure(self):
+        text = _flat(_read(SCRIPT_REQUEST))
+        for claim in (
+            "three or more jobs",
+            'save_prompt("<project>/shots"',
+            "revision=0",
+            "verbatim",
+            "`prompt:<project>/shot-NN`",
+            'request="<request>/<key>"',
+            "not with `set_note`",
+            'accepted: {"job": "<job id>"}',
+            "`stale_revision`",
+            "`notes`",
+            "creative source",
+            "`dropped`",
+        ):
+            assert claim in text, claim
+
+    def test_storyboard_request_is_self_contained(self):
+        body = _flat(skill_body(STORYBOARD_SKILL))
+        for claim in (
+            "revision=0",
+            '"board-NN"',
+            '"prompt:<project>/board-NN"',
+            'request="<project>/board-NN"',
+            "`spent_minutes`",
+            'accepted: {"job": "<job id>"}',
+            "not `set_note`",
+        ):
+            assert claim in body, claim
+
+    def test_the_shot_document_stays_the_source(self):
+        script = _flat(skill_body(SCRIPT_SKILL))
+        assert "`prompt:<project>/shot-NN` references, not text" in script
+
+    @pytest.mark.parametrize(
+        "path", REQUEST_SKILLS, ids=lambda p: os.path.basename(os.path.dirname(p))
+    )
+    def test_each_skill_holds_its_budget(self, path):
         size = len(skill_body(path).encode("utf-8"))
         assert size <= SKILL_SIZE_LIMIT, f"{path} is {size} bytes"

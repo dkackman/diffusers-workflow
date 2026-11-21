@@ -177,6 +177,8 @@ The variables are read by the server and inherited by its workers, so set them i
 
 The cache never fails a job; one that can't help steps aside.
 
+A cold SDNQ quantize peaks host RAM well above the warm footprint (MiniMax-H3-Image measured ~117 GB peak RSS cold against ~64 GB warm), so the first run needs the larger host; changing the quantizer arguments changes the key, invalidates the entry and repeats the cold pass.
+
 ### Pre-quantized models
 
 Pre-quantized SDNQ repos load as complete pipelines. The `sdnq` module must be imported before loading so it can register with diffusers:

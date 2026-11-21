@@ -8,6 +8,19 @@ for a measure is the absolute difference of the two runs (`bench/verdict.py`
 `bench/records/cheap-checks.json` (6 runs). Every measure is lower-is-better;
 `texture_*_seg_last` is `|ln(last/first)|` of the crop's band energy.
 
+The `split_<m>_*` keys (#1324, added after these runs) are the exception: they
+are signed and not lower-is-better. For each whole-frame look measure `<m>`
+(saturation, lightness, contrast, detail) from `analyze_seams`'
+`segment_looks`, 1 s endpoint windows on 128×72 thumbs:
+`split_<m>_seams` is the sum of the steps across seams (next segment's first
+second minus this one's last), `split_<m>_segments` the sum of each segment's
+last second minus its first, and `split_<m>_total` their sum, the end-to-end
+change. `split_<m>_seam_share` is `seams / (|seams| + |segments|)` (left out
+when both are 0) and `split_<m>_seam_sign` the fraction of seams whose step has
+the sign of the seam total. The split says where a measure changes, not
+whether Don sees it: it informs a viewing verdict and doesn't replace one.
+These records predate it and carry no `split_*` keys; their floor is unmeasured.
+
 ## Correction (2026-11-05, ruling R35): the floor is not zero
 
 The zero same-seed floor below is **retracted**. Each scene's pair here

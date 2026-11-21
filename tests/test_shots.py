@@ -87,12 +87,16 @@ EXPECTED_SITES = {
     ("dw/output_extraction.py", "pair_audio_with_frames"): ("none", 1),
     ("dw/tasks/h3_latent_upscale.py", "decode_h3_latents"): ("none", 1),
     ("dw/tasks/face_track.py", "crop_face_track"): ("none", 1),
+    # mask videos, not the source's shots - a track restarts at each cut
+    ("dw/tasks/person_track.py", "_mask_videos"): ("none", 1),
     ("dw/tasks/windows.py", "window_video"): ("none", 1),
     ("dw/tasks/fit.py", "restore_to_source"): ("none", 1),
     # a guide chain's carried tail - a conditioning input, not a joined output
     ("dw/pipeline_processors/chain_continuity.py", "inject"): ("none", 1),
     ("dw/tasks/face_track.py", "paste_face_track"): ("carries", 1),
     ("dw/tasks/trim.py", "trim_video"): ("trims", 1),
+    # the take's own frame count, so its shots hold as they were
+    ("dw/tasks/trim.py", "replace_cuts"): ("carries", 1),
     # the take's shots with the repaired span as one shot of its own
     ("dw/tasks/chain_repair.py", "chain_repair_splice"): ("populates", 1),
 }

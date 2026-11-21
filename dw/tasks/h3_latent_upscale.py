@@ -661,6 +661,16 @@ def _take_problem(source_frames, fps, height, width, multiple):
     return None
 
 
+def encode_h3_latents_errors(arguments):
+    """[(argument, message)] for a `source` whose extension says it is not a
+    video file - an audio file or a still would otherwise pass validate and
+    fail the job when the take is opened."""
+    from ..video_extensions import video_extension_problem
+
+    problem = video_extension_problem(arguments.get("source"))
+    return [("source", problem)] if problem else []
+
+
 def encode_h3_latents(source, device="cpu", model_name=None):
     """Encode a finished take into one MiniMax-H3 video latent, clip by clip.
 
@@ -680,7 +690,8 @@ def encode_h3_latents(source, device="cpu", model_name=None):
         A dict: `latents`, (1, 24, 5m + 2, h / 16, w / 16), the refine's
         `latents` argument; `num_frames`, the 17m + 5 count the refine renders
         (the take padded up with its last frame); and `source_frames`, the
-        take's own count, for `decode_h3_latents`' `num_frames` to trim back to
+        take's own count, for `decode_h3_latents`' `num_frames` to trim back to;
+        and `width` and `height`, the take's canvas, for the refine's
     """
     read, source_frames, fps, path, (height, width) = _take_reader(source)
     source_frames = bounded_take_frames(source_frames, path, fps)
@@ -724,4 +735,6 @@ def encode_h3_latents(source, device="cpu", model_name=None):
         "latents": latents,
         "num_frames": num_frames,
         "source_frames": source_frames,
+        "width": width,
+        "height": height,
     }

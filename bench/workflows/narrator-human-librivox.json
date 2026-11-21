@@ -1,0 +1,28 @@
+{
+  "id": "BenchNarratorHumanLibrivox",
+  "summary": "A 5-10 s public-domain human narrator clip for the #1386 reference A/B.",
+  "description": "Reference A/B (#1384 stage A), preparation: cuts one sentence out of the LibriVox recording of the Gettysburg Address read by John Greenman (https://archive.org/details/gettysburg_johng_librivox, public domain), fetched over https, and saves it as a wav. The span, 'start_seconds' to 'start_seconds' + 'duration_seconds', was placed from word timings (transcribe_audio, timestamps 'word') to hold exactly 'reference_text' with a little silence either side and none of the neighbouring sentences. Keep the output as the asset 'bench/narrator-human.wav' (keep_output) before running narration-reference-ab.json's human arm, which reads it with this same 'reference_text'.",
+  "variables": {
+    "source_url": "https://archive.org/download/gettysburg_johng_librivox/gettysburg_address_64kb.mp3",
+    "start_seconds": 80.7,
+    "duration_seconds": 9.95,
+    "reference_text": "The brave men, living and dead, who struggled here have consecrated it, far above our poor power to add or detract."
+  },
+  "steps": [
+    {
+      "name": "narrator_human",
+      "task": {
+        "command": "slice_audio",
+        "arguments": {
+          "audio": "variable:source_url",
+          "start_seconds": "variable:start_seconds",
+          "duration_seconds": "variable:duration_seconds"
+        }
+      },
+      "result": {
+        "content_type": "audio/wav",
+        "subfolder": "final"
+      }
+    }
+  ]
+}

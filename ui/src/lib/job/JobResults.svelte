@@ -15,6 +15,7 @@
   import { wsHref } from '../routes'
   import { isTimeline } from '../timeline'
   import TimelineStrip from './TimelineStrip.svelte'
+  import TimingBar from './TimingBar.svelte'
 
   // The Results panel's body: each output beside what made it, sectioned by
   // subfolder and grouped by step, then the steps that wrote nothing. The
@@ -25,13 +26,24 @@
     unsaved,
     kinds,
     seedVariable,
+    onnote,
   }: {
     job: JobDetail
     fileGroups: StepGroup[]
     unsaved: UnsavedStep[]
     kinds: Record<string, string | null>
     seedVariable: string | null
+    /** Given for a finished take of a request item: "Note this file"
+     * opens the page's note for the agent about that file */
+    onnote?: (file: string) => void
   } = $props()
+
+  // A step's timing is the manifest's: a job opened from history has no
+  // events. A reused step, a task or a composed step carries none
+  const timingOf = (step: string) => {
+    const entry = job.manifest?.find((e) => e.step === step)
+    return entry && !entry.reused ? (entry.timing ?? null) : null
+  }
 
   const kindOf = (path: string) => kinds[path] ?? null
 
@@ -187,6 +199,9 @@
                  earlier run's files, nothing generated for this step"
             >· reused</span
           >
+        {:else}
+          {@const timing = timingOf(group.step)}
+          {#if timing}<TimingBar {timing} />{/if}
         {/if}
       </svelte:element>
     {/if}
@@ -222,6 +237,16 @@
           <div class="metabar">
             <span class="filename">{file.split('/').pop()}</span>
             <DownloadLink href={api.outputDownloadUrl(file, job.workspace)} />
+            {#if onnote}
+              <button
+                type="button"
+                class="bare"
+                aria-label="Note this file ({file
+                  .split('/')
+                  .pop()}) for the agent"
+                onclick={() => onnote(file)}>Note this file</button
+              >
+            {/if}
           </div>
           {#if info.model}
             <div>

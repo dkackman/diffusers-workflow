@@ -699,7 +699,10 @@ TEXT_DRIVER_EXTRAS = {
 
 def _text_drivers_allowed(relative):
     allowed = set(TEXT_DRIVER_EXTRAS.get(relative, ()))
-    if relative.startswith("workflows/templates/minimax/"):
+    # Pika H3 Flex runs MiniMax-H3's weights, so H3's knobs move it alike (#1316)
+    if relative.startswith(
+        ("workflows/templates/minimax/", "workflows/templates/pika-h3/")
+    ):
         allowed |= H3_KNOBS
     return allowed
 

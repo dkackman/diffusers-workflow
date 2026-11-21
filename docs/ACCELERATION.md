@@ -13,6 +13,8 @@ A `cache` block in the pipeline `configuration` attaches one of diffusers' cache
 - **`taylorseer_state_unestimated`**: said whenever `taylorseer` is set - see [TaylorSeerCache](#taylorseercache).
 - **`compile_fullgraph_with_cache`**: see [torch.compile](#torchcompile).
 
+Leave `cache` null on a guide chain. The held guide rows count toward the skip test (`first_block`) or its calibration (`mag`), and this is unmeasured.
+
 ### Models diffusers has not registered
 
 `first_block` and `mag` look the transformer's block class up in diffusers' block registry and raise when it is absent, so a model that supports `enable_cache()` can still have no usable cache. [cache_blocks.json](../dw/cache_blocks.json) registers the missing block metadata on demand (`dw/cache_blocks.py`); an entry becomes redundant, not wrong, once diffusers registers the class itself. It lists MiniMax-H3, LTX-2 and Qwen-Image-2.1.
@@ -34,7 +36,7 @@ Compares the first block's residual between steps to decide whether to skip the 
 }
 ```
 
-`threshold` defaults to `0.05`. Higher skips more and costs more quality. On MiniMax-H3 (RTX 3090, 1344x768, 4 references) `0.05` took 22% off a 30-step base-model job and nothing off a 12-step or turbo one. On H3 `torch.compile` cost 289 s on the first pass for about 1% per pass, `text_kv` did nothing on Ref2VA, and `taylorseer` ran out of memory. On an H3 template pass `cache={"type": "first_block", "threshold": 0.05}`, at 20 or more base steps and never with a turbo LoRA.
+`threshold` defaults to `0.05`. Higher skips more and costs more quality. On MiniMax-H3 (RTX 3090, 1344x768, 4 references) `0.05` took 22% off a 30-step base-model job and nothing off a 12-step or turbo one. On H3 `torch.compile` cost 289 s on the first pass for about 1% per pass, `text_kv` did nothing on Ref2VA, and `taylorseer` ran out of memory. On an H3 template pass `cache={"type": "first_block", "threshold": 0.05}`, at 20 or more base steps and never with a turbo LoRA or on Pika H3 Flex (`templates/pika-h3/`, a fixed 6 passes). `turbo_lead_in` ([WORKFLOW_GUIDE.md](WORKFLOW_GUIDE.md#laying-out-the-composition-without-the-turbo-lora-turbo_lead_in)) is refused with a `first_block` cache: its residual threshold reads the adapter switch as a change, and cached steps skip it.
 
 **Example:** [step-caching.json](../workflows/templates/step-caching.json)
 
@@ -57,7 +59,7 @@ Magnitude-based skipping with error accumulation:
 | -------- | ------- | ----------- |
 | `mag_ratios` | required unless `calibrate` | Preset name or per-step ratio array - see below |
 | `threshold` | 0.06 | Accumulated error threshold for skipping |
-| `num_inference_steps` | 28 (diffusers) | The transformer forwards the call runs: the pipeline's `num_inference_steps`, except where the scheduler runs fewer (MiniMax-H3 runs one fewer). Set it to match the call |
+| `num_inference_steps` | 28 (diffusers) | The transformer forwards the call runs: the pipeline's `num_inference_steps`, except where the scheduler runs fewer (MiniMax-H3 runs one fewer). Set it to match the call. A fixed step-list sampler (Pika H3 Flex) takes none, and a mag cache is dropped there |
 | `max_skip_steps` | 3 | Max consecutive steps to skip |
 | `retention_ratio` | 0.2 | Fraction of initial steps where skipping is disabled |
 | `calibrate` | false | Measure ratios for a new model instead of skipping - see below |
@@ -75,7 +77,9 @@ For a model with no preset, run once with `"calibrate": true`:
 "cache": { "type": "mag", "calibrate": true, "num_inference_steps": 28 }
 ```
 
-Calibration skips nothing. At the end of the run the ratios appear as a job warning and a `log` event (`get_job`'s `warnings`, `get_job_events`, `export_job`): `MagCache calibration (N steps): [ ... ] — paste into mag_ratios`. While calibrating, the run's own `num_inference_steps` is used, and a mismatch with the cache's is reported as a warning. Paste the array into `mag_ratios`, drop `calibrate`, and set the cache's `num_inference_steps` to the reported `N`, which counts the forwards actually made: MiniMax-H3's scheduler turns N sigmas into N - 1 evaluations, so a 30-step H3 call reports 29 ratios.
+Calibration skips nothing. At the end of the run the ratios appear as a job warning and a `log` event (`get_job`'s `warnings`, `get_job_events`, `export_job`): `MagCache calibration (N steps): [ ... ] — paste into mag_ratios`. While calibrating, the run's own `num_inference_steps` is used, and a mismatch with the cache's is reported as a warning. Paste the array into `mag_ratios`, drop `calibrate`, and set the cache's `num_inference_steps` to the reported `N`, which counts the forwards actually made: MiniMax-H3's scheduler turns N sigmas into N - 1 evaluations, so a 30-step H3 call reports 29 ratios. That N - 1 rule is the H3 scheduler's under `num_inference_steps`, not Pika H3 Flex's step list (next paragraph).
+
+A pipeline whose config fixes a `denoising_step_list` (a distilled sampler that takes no `num_inference_steps`) runs `len - 1` passes, and that count is what the short-schedule warning, progress and cost scaling read. MagCache (its ratios and its calibration) and TST are keyed on `num_inference_steps`, so on such a pipeline a `mag` cache is dropped and TST skipped, each with a warning at validate and in the job's warnings that it is not supported on a fixed step-list sampler; the step runs uncached. The short-schedule warning there says to drop the cache, never to run more steps (`dw/step_passes.py`).
 
 A pipeline that runs classifier-free guidance as two passes in separate `cond` and `uncond` cache contexts (Qwen-Image-2.1 with `true_cfg_scale` above 1 and a `negative_prompt`, or the other Qwen-Image pipelines) emits two lists, labeled `[cond]` and `[uncond]`; use the `cond` one. A guidance-distilled pipeline such as Flux, or one that batches both passes into one forward, emits one unlabeled list. A pipeline the cache cannot attach to (see `cache_unsupported` above) reports nothing.
 
@@ -157,6 +161,7 @@ Values are diffusers' `AttentionBackendName` enum, plus dw's [`sparse`](#sparse-
 - diffusers refuses a Hub kernel from a publisher it does not list as trusted - `sage_hub` among them (SageAttention 2 from `SageAttention/sage-attention`) - until `DIFFUSERS_TRUST_REMOTE_KERNELS=true` is set in the server's environment (`.env`). That allows remote code from any such publisher.
 - The local `sage` backend needs `sageattention>=2.1.1`, which PyPI does not carry.
 - The flash, flash-3, sage and xformers families need CUDA, `_hub` variants included. On a server whose device is not CUDA, `validate_workflow` warns `attention_backend_unavailable`, naming the backend and the device: the job would fail at load. A `native`-family backend never warns, and a backend diffusers adds later draws no warning until dw's list (`CUDA_ONLY_ATTENTION_BACKENDS`) is updated.
+- The backends the server offers (`/api/health`'s `attention_backends`, the web UI's menu) follow diffusers' own requirement check: a backend whose package is missing here, or older than the installed diffusers needs, is left out (#1315). diffusers 0.43 raised several of those minimums, so an upgrade can shorten the list until the package is updated. dw states none of the minimums itself; they move with diffusers.
 
 On an RTX 3090 `sage_hub` measured about 30% faster per MiniMax-H3 step than `native` (13.8 s against 19.2 s at 960x544x124, 54.7 s against 81.2 s at 345 frames). LTX-2.5 cannot use sage: its transformer passes an attention mask, which sage refuses ("`attn_mask` is not supported for sage attention", measured 2026-10-10), so the LTX templates expose no backend.
 
@@ -249,6 +254,7 @@ Typical gains are 1.3-1.5x on diffusion transformers, and compile stacks with th
 - **Pin the attention backend** on a compiled component ([Attention Backends](#attention-backends)).
 - **Don't combine `fullgraph` with a `cache`.** The cache's per-step skip decision is a data-dependent branch diffusers wraps in `torch.compiler.disable`, which needs the graph break `fullgraph: true` forbids. `validate_workflow` warns `compile_fullgraph_with_cache` on such a component.
 - **Composes with offloading**: `group_offload` and `compile` on the same component install the offload hooks first, as required.
+- **`turbo_lead_in` changes a LoRA scale mid-call.** It sets the `turbo` adapter to 0, then back, after N evaluations. Under `torch.compile` peft's scale is a Python float the compiled forward guards on, so the switch can cost a recompile. Measured on lem (RTX 3090, H3 fl2va at 960x544x124, turbo at 5 steps, int4, `repeated_blocks`, `native` attention; #1352): the first call with a lead-in in a warm worker recompiles once for scale 0, and its first evaluation takes 19.2 s against 13.7 s, so the job takes **+5.5 s** (98.0 s against 92.4 s). The switch back to the configured scale does not recompile, and a second lead-in call runs at baseline speed (13.7 s first evaluation, 92.5 s job): each scale value compiles once per worker. For comparison, the cold compile is about +90 s on the first evaluation (103.8 s).
 - **Skipped on MPS** with a warning.
 - **Quantize-on-load is a separate cost.** An SDNQ on-the-fly component re-quantizes on every cold load unless `DW_QUANTIZED_CACHE=1` ([QUANTIZATION.md](QUANTIZATION.md#cached-on-the-fly-dw_quantized_cache)).
 - **TorchAO quantization needs compile to be fast** ([QUANTIZATION.md](QUANTIZATION.md#torchao)).

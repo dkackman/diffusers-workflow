@@ -10,8 +10,10 @@ import type {
   DiskCacheEntryDeleted,
   DiskCacheList,
   EnhancerPresets,
+  EventLogReply,
   GalleryList,
   GalleryMetadata,
+  AssessReply,
   HealthInfo,
   JobCancelled,
   JobDetail,
@@ -21,6 +23,15 @@ import type {
   JobMoved,
   JobWorkflow,
   Kept,
+  LedgerDeleted,
+  LedgerList,
+  LedgerRequest,
+  LoraList,
+  NoteAdd,
+  NoteDeleted,
+  NoteEdit,
+  NotesChannelState,
+  NoteWritten,
   MemoryInfo,
   ModelCache,
   ModelDeleted,
@@ -32,6 +43,7 @@ import type {
   PromptDefinition,
   PromptList,
   PromptSaved,
+  RestartBatchRerun,
   ServerInfo,
   StoredPrompt,
   TaskList,
@@ -47,15 +59,23 @@ import type {
   WorkspaceInfo,
   WorkspaceList,
 } from './types'
-import { getApiToken } from './token'
 import { ApiError, errorDetail } from './apiErrors'
+import {
+  archiveFrom,
+  fetchJson,
+  isValidateRequest,
+  jsonInit,
+  request,
+  type JobSubmitBody,
+  type RequestWriteBody,
+  type ValidateRequest,
+} from './apiRequest'
 import {
   addToken,
   appendQuery,
   encodePath,
   outputUrl,
   scopeTo,
-  scoped,
   withToken,
   galleryThumbnailUrl,
 } from './apiUrls'
@@ -63,85 +83,13 @@ import {
 // Pages and their test mocks import these from here
 export { ApiError, errorDetail, outputUrl }
 
-/** A JSON response together with its headers, for the rare endpoint whose
- * result depends on both - `getWorkflow` reads its origin/writable from
- * headers rather than the body. */
-/** A request with the bearer token, scoped to the picker's workspace
- * unless `scope` is false, failing with an ApiError that carries the
- * server's detail and status. Under every JSON call and file download. */
-async function send(
-  path: string,
-  init: RequestInit = {},
-  scope = true,
-): Promise<Response> {
-  const token = getApiToken()
-  const headers = new Headers(init.headers)
-  if (token) headers.set('Authorization', `Bearer ${token}`)
-  const response = await fetch(scope ? scoped(path) : path, {
-    ...init,
-    headers,
-  })
-  if (!response.ok) {
-    let detail = response.statusText
-    try {
-      detail = errorDetail(await response.json(), detail)
-    } catch {
-      /* not json */
-    }
-    throw new ApiError(detail, response.status)
-  }
-  return response
-}
+export type { JobSubmitBody, RequestWriteBody, ValidateRequest }
 
-async function fetchJson<T>(
-  path: string,
-  init?: RequestInit,
-  options?: { scope?: boolean },
-): Promise<{ body: T; response: Response }> {
-  const response = await send(path, init, options?.scope !== false)
-  return { body: await response.json(), response }
-}
-
-async function request<T>(
-  path: string,
-  init?: RequestInit,
-  options?: { scope?: boolean },
-): Promise<T> {
-  return (await fetchJson<T>(path, init, options)).body
-}
-
-/** Fetch a file-response endpoint and hand the body to the browser as a
- * save, using the name the server put in Content-Disposition. Separate
- * from `request` because the body is a file, not JSON, and separate from
- * the `<a download>` URLs because the request needs a method and a body. */
-async function downloadResponse(
-  path: string,
-  init: RequestInit,
-): Promise<void> {
-  const response = await send(path, init)
-  const disposition = response.headers.get('content-disposition') ?? ''
-  const filename = /filename="?([^"]+)"?/.exec(disposition)?.[1] ?? 'download'
-  const url = URL.createObjectURL(await response.blob())
-  try {
-    const anchor = document.createElement('a')
-    anchor.href = url
-    anchor.download = filename
-    anchor.click()
-  } finally {
-    URL.revokeObjectURL(url)
-  }
-}
-
-/** A bulk-download endpoint: POST the selection, save the zip that comes
- * back. The gallery and the asset library each have one. */
-function archiveFrom(path: string) {
-  return (names: string[]) =>
-    downloadResponse(path, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ names }),
-    })
-}
+// The request-notes routes; like the rest of the ledger, the workspace is
+// in the path
+const UNSCOPED = { scope: false }
+const notesUrl = (workspace: string) =>
+  `/api/workspaces/${encodeURIComponent(workspace)}/request-notes`
 
 export const api = {
   listWorkflows: () => request<WorkflowList>('/api/workflows'),
@@ -162,10 +110,20 @@ export const api = {
   // workspace and a workspace's Jobs page can name its own. `status` is one
   // state or a comma-separated set ('succeeded,failed,cancelled'); `limit`
   // keeps the newest N of what matched.
-  listJobs: (workspace?: string, limit?: number, status?: string) => {
+  // `requestId` (with `item`) narrows to the jobs linked to a requests-ledger
+  // request, or one item of it
+  listJobs: (
+    workspace?: string,
+    limit?: number,
+    status?: string,
+    requestId?: string,
+    item?: string,
+  ) => {
     const query = new URLSearchParams()
     if (workspace) query.set('workspace', workspace)
     if (status) query.set('status', status)
+    if (requestId) query.set('request', requestId)
+    if (requestId && item) query.set('item', item)
     if (limit) query.set('limit', String(limit))
     const qs = query.toString()
     return request<JobList>(qs ? `/api/jobs?${qs}` : '/api/jobs', undefined, {
@@ -180,15 +138,63 @@ export const api = {
    * readable. */
   getJobWorkflow: (id: string) =>
     request<JobWorkflow>(`/api/jobs/${id}/workflow`),
+  /** One JSON page of a job's events, after `after` (exclusive). `kinds`
+   * goes as repeated parameters and keeps events whose `event` or `kind`
+   * is one of them. A finished job answers from the tail history kept,
+   * with a `note` on what was dropped; an unknown job is a 404. */
+  eventLog: (
+    id: string,
+    {
+      after,
+      limit,
+      kinds,
+    }: { after?: number; limit?: number; kinds?: string[] } = {},
+  ) => {
+    const query = new URLSearchParams()
+    if (after !== undefined) query.set('after', String(after))
+    if (limit !== undefined) query.set('limit', String(limit))
+    for (const kind of kinds ?? []) query.append('kinds', kind)
+    const qs = query.toString()
+    const path = `/api/jobs/${id}/event-log`
+    return request<EventLogReply>(qs ? `${path}?${qs}` : path)
+  },
   /** Queue the job again. `newSeed` draws a fresh seed into the workflow's
    * seed variable; without it the arguments repeat exactly, which the step
-   * cache serves from the earlier run rather than generating anything. */
-  rerunJob: (id: string, newSeed = false) =>
+   * cache serves from the earlier run rather than generating anything.
+   * `arguments` override the run's own, and are sent only when there are
+   * some - the server stores them as the rerun's `overrides` exactly as
+   * sent, so they must be only what changed. */
+  rerunJob: (
+    id: string,
+    {
+      newSeed = false,
+      arguments: overrides,
+    }: { newSeed?: boolean; arguments?: Record<string, unknown> } = {},
+  ) =>
     request<JobDetail>(`/api/jobs/${id}/rerun`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ new_seed: newSeed }),
+      body: JSON.stringify(
+        overrides && Object.keys(overrides).length
+          ? { new_seed: newSeed, arguments: overrides }
+          : { new_seed: newSeed },
+      ),
     }),
+  /** Rerun every job one dead server's restart cancelled, naming any one of
+   * them. Without `acknowledged` it is a priced preview - `would_queue` and
+   * `skipped` - and queues nothing; with it the batch is queued. Every
+   * member is priced, so only a click calls this, never a poll. Unscoped:
+   * a batch can span workspaces and the route needs no workspace. */
+  rerunRestartBatch: (id: string, acknowledged = false) =>
+    request<RestartBatchRerun>(
+      `/api/jobs/${id}/rerun-restart-batch`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(acknowledged ? { acknowledged_cost: true } : {}),
+      },
+      { scope: false },
+    ),
   listTasks: () => request<TaskList>('/api/tasks'),
   listBuiltinWorkflows: () =>
     request<BuiltinWorkflows>('/api/builtin-workflows'),
@@ -225,12 +231,12 @@ export const api = {
     request<JobCancelled>(`/api/jobs/${id}/cancel`, {
       method: 'POST',
     }),
-  submitJob: (body: {
-    workflow_path?: string
-    workflow?: WorkflowDefinition
-    arguments?: Record<string, unknown>
-    base_dir?: string
-  }) =>
+  /** Queue a run. With `request` and `item` it is linked to that item of
+   * the requests ledger (422 `request_closed`, `item_dropped`,
+   * `unknown_request`, `unknown_item` before anything queues); with
+   * `acknowledged_cost` bound to a validate plan, a run whose plan has
+   * moved is a 409 carrying the current plan and what to resend. */
+  submitJob: (body: JobSubmitBody) =>
     request<JobDetail>('/api/jobs', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -281,9 +287,14 @@ export const api = {
   // `roles` narrows to those roles server-side (repeated `role` parameters;
   // a null role counts as final there). The page filters on the client, so
   // it asks for none
-  gallery: (roles?: string[]) => {
+  // `requestId` narrows to the runs whose job is linked to that
+  // requests-ledger request (in the selected workspace), and `item` to one
+  // item of it
+  gallery: (roles?: string[], requestId?: string, item?: string) => {
     const params = new URLSearchParams({ limit: '100000' })
     for (const role of roles ?? []) params.append('role', role)
+    if (requestId) params.set('request', requestId)
+    if (requestId && item) params.set('item', item)
     return request<GalleryList>(`/api/gallery?${params}`)
   },
   // `workspace`, when given, names the file's own workspace and wins over
@@ -297,6 +308,11 @@ export const api = {
       undefined,
       { scope: workspace === undefined },
     ),
+  /** Run every assessment probe that applies to one output, in the
+   * server's threadpool: a GET, scoped to the picker's workspace. It decodes
+   * the whole file, so only a click calls it, never a poll. */
+  assess: (name: string) =>
+    request<AssessReply>(`/api/gallery/${encodePath(name)}/assess`),
   galleryThumbnailUrl,
   deleteOutput: (name: string) =>
     request<OutputDeleted>(`/api/gallery/${encodePath(name)}`, {
@@ -341,6 +357,61 @@ export const api = {
     request<AssetDeleted>(`/api/assets/${encodePath(name)}`, {
       method: 'DELETE',
     }),
+  // The requests ledger. Unscoped: the workspace is in the path
+  listRequests: (workspace: string) =>
+    request<LedgerList>(
+      `/api/workspaces/${encodeURIComponent(workspace)}/requests`,
+      undefined,
+      { scope: false },
+    ),
+  getRequest: (workspace: string, id: string) =>
+    request<LedgerRequest>(
+      `/api/workspaces/${encodeURIComponent(workspace)}/requests/${encodeURIComponent(id)}`,
+      undefined,
+      { scope: false },
+    ),
+  /** Write the whole plan back as read, at the revision it was read at,
+   * by the user. A stale revision is a 409 ApiError. */
+  putRequest: (workspace: string, id: string, body: RequestWriteBody) =>
+    request<LedgerRequest>(
+      `/api/workspaces/${encodeURIComponent(workspace)}/requests/${encodeURIComponent(id)}`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ by: 'user', ...body }),
+      },
+      { scope: false },
+    ),
+  /** Remove a request from the ledger, at the revision it was read at. Its
+   * jobs and their files stay. 409 `stale_revision`, or
+   * `request_has_active_jobs` while one of its jobs is queued or running. */
+  deleteRequest: (workspace: string, id: string, revision: number) =>
+    request<LedgerDeleted>(
+      `/api/workspaces/${encodeURIComponent(workspace)}/requests/${encodeURIComponent(id)}?revision=${revision}`,
+      { method: 'DELETE' },
+      { scope: false },
+    ),
+  /** Add one of the user's notes for the agent, on an item or (no `item`)
+   * on the request. 422 `invalid_note_ref`, `too_many_refs`,
+   * `too_many_notes`, `unknown_item`, `item_dropped`. */
+  addNote: (workspace: string, body: NoteAdd) =>
+    request<NoteWritten>(notesUrl(workspace), jsonInit('POST', body), UNSCOPED),
+  /** A note's new text; its references stay. 404 `unknown_note`. */
+  editNote: (workspace: string, body: NoteEdit) =>
+    request<NoteWritten>(notesUrl(workspace), jsonInit('PUT', body), UNSCOPED),
+  deleteNote: (workspace: string, requestId: string, note: string) =>
+    request<NoteDeleted>(
+      `${notesUrl(workspace)}?${new URLSearchParams({ request: requestId, note })}`,
+      { method: 'DELETE' },
+      UNSCOPED,
+    ),
+  /** Whether an agent session's notes channel polled the workspace lately */
+  notesChannel: (workspace: string) =>
+    request<NotesChannelState>(
+      `/api/workspaces/${encodeURIComponent(workspace)}/notes-channel`,
+      undefined,
+      UNSCOPED,
+    ),
   listWorkspaces: () => request<WorkspaceList>('/api/workspaces'),
   createWorkspace: (name: string) =>
     request<WorkspaceInfo>('/api/workspaces', {
@@ -379,12 +450,28 @@ export const api = {
       `/api/classes/${encodeURIComponent(name)}?target=${target}`,
     ),
   getSchema: () => request<Record<string, unknown>>('/api/schema'),
-  validate: (workflow: WorkflowDefinition) =>
-    request<ValidationResult>('/api/validate', {
+  /** Check a workflow without queuing it. The editor hands over the inline
+   * definition it holds; the run page asks by name with the arguments a
+   * Run would send, and `sizes: false` to skip the hub for a faster answer.
+   * `signal` lets a caller drop a check it no longer needs. */
+  validate: (
+    input: WorkflowDefinition | ValidateRequest,
+    signal?: AbortSignal,
+  ) => {
+    const asked: ValidateRequest = isValidateRequest(input)
+      ? input
+      : { workflow: input }
+    const { sizes, ...body } = asked
+    // one literal, so tests/test_ui_twins.py reads the route with its POST
+    const route = '/api/validate'
+    const path = sizes === false ? appendQuery(route, 'sizes', 'false') : route
+    return request<ValidationResult>(path, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ workflow }),
-    }),
+      body: JSON.stringify(body),
+      signal,
+    })
+  },
   deleteWorkflow: (name: string) =>
     request<WorkflowDeleted>(`/api/workflows/${encodePath(name)}`, {
       method: 'DELETE',
@@ -398,6 +485,15 @@ export const api = {
       body: JSON.stringify({ workflow }),
     }),
   listPrompts: () => request<PromptList>('/api/prompts'),
+  /** Catalog LoRA entries for one base: `model` a Hub repo id (or a saved
+   * workflow's name), `workflow` an optional partition. Catalog-only - the
+   * Hub is searched by /api/loras/recommend, which the UI never calls.
+   * Rejected entries are included; the caller drops them. */
+  listLoras: ({ model, workflow }: { model: string; workflow?: string }) => {
+    const query = new URLSearchParams({ model })
+    if (workflow) query.set('workflow', workflow)
+    return request<LoraList>(`/api/loras?${query}`)
+  },
   /** The prompt plus which library it came from, read off the response
    * headers rather than a separate `listPrompts` lookup. */
   getPrompt: (name: string) =>

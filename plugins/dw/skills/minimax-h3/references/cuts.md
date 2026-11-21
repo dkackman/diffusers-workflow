@@ -129,3 +129,101 @@ would skip `seam_frame_jump`).
 Drift above is lightness, saturation and contrast. For texture (grain, blotching,
 smoothing) over a static region, `compare_outputs(texture_bands=true)` reports
 energy by band; see the workflows guide, *Comparing outputs*, *Texture bands*.
+
+## Visual memory at a cut
+
+After a hard cut, H3 sees only the new prompt and its references, so the
+room, props and wardrobe of the shots before can change. An earlier shot
+passed as a `MiniMaxH3VideoReference` can carry them across. That makes the
+shot ref2va, which refuses guides, anchors and latent carry, so the
+narrated-take shape (fl2va with guides) can't take one. This works for the
+ref2va cut shapes: `dialogue-short`, and script-to-video or series-episodes
+shots rendered through it.
+
+**Probed (lem, turbo, int4, sparse, seed 1398; November 2026; one scene, one
+seed, so one sample; #1398, record `bench/records/visual-memory-cut.md`;
+markers as Don viewed them, 2026-11-17).**
+E was an establishing wide and A a medium on the character. Each B was the
+reverse angle, with a prompt naming the lamp, shelf, window and coat but not
+their colours.
+
+| Arm | Reference besides the portrait | Lamp | Shelf | Window | Coat | Framing |
+|---|---|---|---|---|---|---|
+| B0 (1344x768) | none | lost (white) | dim | lost (orange sky) | lost (purple) | the reverse |
+| B2 (1344x768) | 22 frames from E's middle (51-72) | held (red) | held | held (blue night) | held (green) | the reverse, no replay |
+| B0s (960x544) | none | lost | dim | lost | lost | the reverse |
+| B1s (960x544) | A's whole 124-frame clip | held | held | held | **lost** (purple dress) | pulled back toward A's angle, not a clear reverse |
+
+- **A short window held all four; the whole clip held three and pulled the
+  framing back to A.** The whole clip also scored the lowest identity across
+  the cut (SFace 0.584, against 0.695 for its control).
+- **The whole clip lost the wardrobe colour in both arms that used one.** B1s
+  and S1s (the speech arm, also A′'s whole clip at 960x544) each put the
+  character in a purple dress, not the green coat; the 22-frame window (B2)
+  kept the coat. That is the case for the window over the whole clip.
+- **Cost, per denoise pass against the same size's control:** a 22-frame
+  window 1.35x (wall 1.36x); the whole clip 4.4x (wall 2.3x to 3.2x). The
+  engine prices a video reference by its length (`video_reference_exponent`,
+  #1429: about 4x and 1.4x on these two), the figures `SKILL.md` quotes.
+- **The whole clip does not fit a 24 GB card at 1344x768** with this
+  offload: B1 ran out of CUDA memory (validate now flags it, #1429). It ran
+  at 960x544.
+- **A window cut from the frames just before the cut replays them.** S2,
+  given A′'s last 22 frames, opened on those frames for about 1.4 s, then cut
+  inside the clip to its own reverse (all four markers held). A window from
+  the middle of a shot (B2) did not replay. Trim a replayed opening off before
+  the join.
+
+**The recipe: a short window, not the whole clip.**
+- Take the window from the shot that shows the place best, usually the
+  establishing wide, from its middle. Not from the frames next to the cut,
+  unless you trim the replay.
+- **22 frames.** dw refuses a video reference under 13 frames ("it must run
+  at least 13 frames at 24 fps"), and `validate_workflow` refuses it too, at
+  the reference's path. 22 is the next length on H3's `17n + 5` grid. Start
+  on a multiple of 17.
+- Drop the window's soundtrack (`audio: null`), so the reference carries the
+  picture and not the earlier line.
+- It costs one of the 3 video slots (12 files in all).
+
+In one workflow, a `trim_video` step feeds the reference by
+`from_previous_result`:
+
+```json
+{
+    "name": "window",
+    "task": {
+        "command": "trim_video",
+        "arguments": {
+            "video": "output:<establishing shot file>",
+            "start_frame": 51,
+            "num_frames": 22
+        }
+    },
+    "result": { "content_type": "video/mp4", "fps": 24, "subfolder": "intermediate" }
+}
+```
+
+and the shot's `references` list gains, beside its portraits and voices:
+
+```json
+{
+    "reference_type": "diffusers.modular_pipelines.minimax_h3.MiniMaxH3VideoReference",
+    "from_previous_result": "window",
+    "audio": null
+}
+```
+
+For a template that takes references as caller data (`dialogue-short`'s
+per-shot `references`), run the `trim_video` step as its own one-step run
+first, then pass its file as `"from_file": "output:<window file>"` in that
+entry, with the same `reference_type` and `audio: null`.
+
+**Speech at a cut: never pass the whole earlier clip.** When either side of
+the cut speaks, pass only a short window (the frames before the cut, its
+replayed opening trimmed), or no video reference at all. This is the source's
+claim (KadoBOT/ComfyUI-H3-Continuity-Studio): a whole clip with speech in it
+makes the new shot copy its mouth motion. The probe did not show a copy
+(S1s, the whole of A′ at 960x544, spoke its own line on its own timing, as
+viewed), but it was one sample, and the whole clip also cost 4.4x a
+pass and pulled the angle back, so the rule holds on those grounds too.

@@ -17,7 +17,9 @@ reading `num_frames: 124` with no range had no way to know the rule was
 
 The rule is declared in the workflow, where `frame_snap` already puts the
 same numbers for a chain step, and the engine holds no model knowledge of its
-own (CLAUDE.md). One shape, not two: a `variable_constraints` entry takes
+own (CLAUDE.md). A literal H3 `num_frames`, `width` or `height` a workflow
+writes with no rule is checked in dw/pipeline_limits.py, against the limits
+the pipeline class publishes. One shape, not two: a `variable_constraints` entry takes
 `frame_snap`'s field names, and a chain step's `frame_snap` may be the string
 `"constraint:<variable>"` so a template states `17n + 5` once rather than
 twice in one file.
@@ -60,7 +62,8 @@ SNAP_FIELDS = ("modulus", "remainder", "min_frames", "max_frames")
 # A string value's rule: its length once surrounding whitespace is dropped.
 # A Music 3 `lyrics: ""` passed validation and failed at run time - the
 # pipeline refuses empty lyrics, and an instrumental is a tag-only body, which
-# the template's own `reason` says (#1199)
+# the template's own `reason` says (#1199). A list value is held to the same
+# rule by its entry count: an edit's `images: []` has nothing to edit (#1424)
 MIN_LENGTH = "min_length"
 # A variable with no default: it is declared `null` and this marks the null as
 # "nothing given", so an omitted value is refused by name rather than by
@@ -118,6 +121,13 @@ def density_notice(name, value, constraint, siblings):
         words,
         math.floor(allowed),
     )
+
+
+def _declared_value(definition, name):
+    """The workflow's stored value for a variable: what a null is a stand-in
+    for when the refusal has to say which type was wanted."""
+    declared = definition.get("variables")
+    return declared.get(name) if isinstance(declared, dict) else None
 
 
 def declared_constraints(definition):
@@ -278,14 +288,25 @@ def snapped(value, constraint):
 
 
 def _length_violations(value, constraint):
-    """Why a string value breaks a `min_length` rule, as phrases.
+    """Why a string or list value breaks a `min_length` rule, as phrases.
 
-    A null counts as empty: a pipeline handed None for its lyric fails the
-    same way as one handed "". Anything else that is not a string (a list, a
-    number) is not this rule's to judge.
+    A string is measured in characters once surrounding whitespace is
+    dropped, a list in entries. A null counts as empty: a pipeline handed
+    None for its lyric fails the same way as one handed "", and an edit
+    handed no reference images has nothing to edit (#1424: a MiniMax-H3-Image
+    multi-reference `images: []` validated clean). Anything else (a number)
+    is not this rule's to judge.
     """
     minimum = constraint.get(MIN_LENGTH)
-    if minimum is None or not (value is None or isinstance(value, str)):
+    if minimum is None:
+        return []
+    if isinstance(value, list):
+        if len(value) >= minimum:
+            return []
+        if minimum == 1:
+            return ["must not be empty"]
+        return [f"must have at least {minimum} entries"]
+    if not (value is None or isinstance(value, str)):
         return []
     if len((value or "").strip()) >= minimum:
         return []
@@ -319,12 +340,19 @@ def violations(value, constraint):
     return problems
 
 
-def _accepted(constraint):
+def _accepted(constraint, value=None, like=None):
     """The rule as a phrase a consumer can act on, which is the half of #96
-    that stops the next caller picking 61: the range and the step, together."""
+    that stops the next caller picking 61: the range and the step, together.
+    A `min_length` reads as a list's rule when the value judged is a list, or
+    a null whose declared default (`like`) is one (#1433)."""
     parts = []
     minimum = constraint.get(MIN_LENGTH)
-    if minimum == 1:
+    if isinstance(value, list) or (value is None and isinstance(like, list)):
+        if minimum == 1:
+            parts.append("a non-empty list")
+        elif minimum is not None:
+            parts.append(f"a list of at least {minimum} entries")
+    elif minimum == 1:
         parts.append("a non-empty string")
     elif minimum is not None:
         parts.append(f"a string of at least {minimum} characters")
@@ -350,7 +378,7 @@ def required_refusal(name, value, constraint):
     return f"'{name}' is required and has no default{because}"
 
 
-def refusal(name, value, constraint):
+def refusal(name, value, constraint, like=None):
     """The one wording every layer uses for a value outside its constraint."""
     missing = required_refusal(name, value, constraint)
     if missing is not None:
@@ -365,19 +393,19 @@ def refusal(name, value, constraint):
     shown = repr(value) if value is None or isinstance(value, str) else value
     return (
         f"'{name}' is {shown}{rounding}, which this workflow does not "
-        f"accept: {'; '.join(problems)}. Accepted: {_accepted(constraint)}{because}. "
+        f"accept: {'; '.join(problems)}. Accepted: {_accepted(constraint, value, like)}{because}. "
         f"The rule is declared on the workflow, so it is checked before "
         f"anything loads rather than after the weights are in memory"
     )
 
 
-def checked_refusal(name, value, constraint, arguments):
+def checked_refusal(name, value, constraint, arguments, like=None):
     """`refusal`, except that checking the document (no `arguments`) does not
     judge a required variable's stored null: it has no default to judge
     (#1253)."""
     if arguments is None and required_refusal(name, value, constraint):
         return None
-    return refusal(name, value, constraint)
+    return refusal(name, value, constraint, like)
 
 
 def snap_notice(name, value, constraint):
@@ -421,7 +449,9 @@ def constraint_errors(definition, arguments=None, supplied=()):
             continue
         if name in from_bundle:
             continue
-        message = checked_refusal(name, values[name], constraint, arguments)
+        message = checked_refusal(
+            name, values[name], constraint, arguments, _declared_value(definition, name)
+        )
         if message is None:
             # Either legal, or legal once rounded - a value the workflow
             # rounds is a warning (constraint_warnings), never an error
@@ -576,7 +606,9 @@ def apply_constraints(definition, variables):
         constraint = constraints[name]
         if not isinstance(constraint, dict) or name not in variables:
             continue
-        message = refusal(name, variables[name], constraint)
+        message = refusal(
+            name, variables[name], constraint, _declared_value(definition, name)
+        )
         if message is not None:
             raise ValueError(message)
     # The same refusal for a value sitting in a list entry, where the rule

@@ -167,6 +167,55 @@ the model's `17n+5` ceiling (345) is reachable at 960x544, not at 1344x768.
 
 **Examples:** [reference-to-video.json](../workflows/templates/minimax/reference-to-video.json), [chain-matched-to-audio.json](../workflows/templates/minimax/chain-matched-to-audio.json), [image-to-video.json](../workflows/templates/minimax/image-to-video.json), [dialogue-short.json](../workflows/templates/minimax/dialogue-short.json) (five ref2va shots + two Z-Image portraits in ~35 minutes end to end)
 
+## MiniMax-H3-Image
+
+A low-VRAM, large-host-RAM recipe: the card holds a few GiB, the host holds the model.
+It is a modular pipeline (`MiniMaxH3ImageModularPipeline`), so everything is per
+component, and it is CUDA-only. Measured on lem (2x RTX 3090 24GB, 128GB host RAM),
+2026-11-16 and 17. The recipe, with H3's quantizer arguments:
+
+| Component | Config |
+| --------- | ------ |
+| `transformer` | SDNQ `weights_dtype` (`int8`; `quantization_device: "cuda"`, `return_device: "cpu"`), `modules_to_not_convert` read off the H3-Image transformer; `group_offload` `block_level` with `num_blocks_per_group: 2`, `use_stream: true`, `low_cpu_mem_usage: true` |
+| `text_encoder` | Loaded from `MiniMaxAI/MiniMax-H3` at the pinned revision `0919fb68`, through the per-component `load_components` override, so it shares H3's quantized cache. SDNQ at the same `weights_dtype` (`.model.visual` and `lm_head` unconverted); `remove_modules: ["lm_head"]` |
+| `text_encoder.model` | `truncate_layers: {"language_model.layers": 51}` (the pipeline reads `hidden_states[50]`), `group_offload` `leaf_level` |
+| `vae` | bf16 (H3-Image's own `AutoencoderKLMiniMaxH3Image`; H3's int8 VAE recipe does not carry over), `device: "cuda"`, `residency: "on_demand"` |
+
+The sampler is fixed by the checkpoint (6 steps, guidance distilled), so the templates
+pass no `num_inference_steps`, `guidance_scale` or `negative_prompt`. Width and height
+are multiples of 32.
+
+| Measure | Value |
+| ------- | ----- |
+| VRAM reserved | ~3.7 GiB at the end of the denoise, 5.5 GiB at the start of the decode (job memory snapshots) |
+| Host RAM, warm | 63 to 64 GB committed (the transformer and text encoder live in host RAM under offload) |
+| Host RAM, cold first quantize | 116,760 MB peak RSS of 128,712 MB; budget ~120GB on a host without the quantized cache |
+| t2i 2048x2048 | priced at 2.3 min after a load on cuda:0 (built from the phases below: a ~33 s encode after a load, as in the cold run and the edit's, plus ~10 s of job start-up and save); 2.0 min fully warm (22.3 s encode, 91.4 s denoise at 15.2 s a pass, 3.4 s decode); 38.2 min cold (2110.8 s load, which is the download and the quantize) |
+| t2i 1024x1024 | 2.5 min warm - no faster |
+| 3-reference edit, 2048x2048 | priced at 2.7 min: 2.68 min on cuda:0 after a load, less its 55.6 s load (job `6c336a3bfba8`: 41.5 s encode, 104.2 s denoise at 15.8 s a pass, 3.8 s decode, ~10 s start-up and save); 2.2 min fully warm on cuda:0 2026-11-18 (32.1 s encode, 94.2 s denoise at 15.6 s a pass, 3.8 s decode; job `29a738225baa`); 1.3 min warm on cuda:1 2026-11-17 (22.1 s encode, 51.7 s denoise at 8.6 s a pass, 3.3 s decode); 3.8 min in the bench with the quantized cache hit on a new card (56.9 s load, 23.6 s encode, 132.1 s denoise: 89.1 s first pass then 8.6 s each, 3.5 s decode); ~5.5 GiB reserved at decode |
+| First download | ~64 GiB (63.93 GiB: transformer and VAE; the text encoder comes from H3's repo, not H3-Image's ~204GB) |
+
+**The card gap.** The templates are priced on the slower of lem's two 3090s, which sits
+on a PCIe x4 link; this offload is bus-bound, so a card on an x16 link runs it in about
+half the time. A pass took 15.1 to 15.6 s on cuda:0 (x4) and 4.5 to 8.6 s on cuda:1
+(x16), for both templates (`bench/records/h3-image.md`, *The card gap*). Each price
+covers a run that has just loaded its models, less the load: the first text encode after
+a load runs about 10 s slower than a fully warm one.
+
+Host RAM is the binding resource, not VRAM. The cold run is the expensive one: it
+downloads, then quantizes the transformer, and peaks around 117GB RSS, so the first run
+needs a ~120GB host. Once the quantized cache is warm the worker sits near 64GB. The
+cache is keyed on the quantizer arguments ([Cached on-the-fly](QUANTIZATION.md#cached-on-the-fly-dw_quantized_cache)),
+so changing them - `weights_dtype` included - repeats the cold pass.
+
+A 1024 canvas is no faster. By default the pipeline generates anything under its
+`min_generation_area` of 4194304 (~4 MP) at that area and resizes back, and the
+templates do not expose that minimum. Even at a true 1024 (the bench set
+`min_generation_area=1024`), a pass takes the same 15.1 s as a 2048 pass, since the
+block-offloaded transformer is bound by weight transfer, not compute.
+
+**Examples:** [text-to-image.json](../workflows/templates/minimax-h3-image/text-to-image.json), [multi-reference.json](../workflows/templates/minimax-h3-image/multi-reference.json) (references named `<Picture 1>`..`<Picture 3>` in the prompt)
+
 ## MiniMax-Music3
 
 Music3 runs at about 22GiB in bfloat16 under the templates' `components_manager`

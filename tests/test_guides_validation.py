@@ -63,8 +63,15 @@ class TestClean:
         assert check(step("fl2va", guides="previous_result:cut.guides")) == []
 
     def test_a_whole_list_reference_still_needs_a_step_that_takes_guides(self):
-        error = one(step("ref2va", guides="previous_result:cut.guides"))
-        assert "ref2va" in error["message"]
+        s = step(guides="previous_result:cut.guides")
+        s["pipeline"]["configuration"]["component_type"] = "StableDiffusionPipeline"
+        error = one(s)
+        assert "StableDiffusionPipeline" in error["message"]
+        assert error["path"] == "steps[0].pipeline.arguments.guides"
+
+    def test_a_whole_list_reference_on_ref2va_is_left_to_the_run(self):
+        # ref2va takes guides now (#1411); the run holds the list to one clip
+        assert check(step("ref2va", guides="previous_result:cut.guides")) == []
 
     def test_a_string_that_is_no_reference_is_not_a_list(self):
         assert "must be a list" in one(step(guides="cut.guides"))["message"]
@@ -127,12 +134,16 @@ class TestRefusals:
         assert "StableDiffusionPipeline" in error["message"]
         assert error["path"] == "steps[0].pipeline.arguments.guides"
 
-    def test_ref2va_workflow(self):
-        assert "ref2va" in one(step("ref2va", guides=[GOOD]))["message"]
+    def test_ref2va_workflow_holds_the_guide_to_frame_0(self):
+        # GOOD is at frame 17: the narrow ref2va rule, not the old blanket refusal
+        error = one(step("ref2va", guides=[GOOD]))
+        assert "frame 17" in error["message"]
+        assert "ref2va / references" not in error["message"]
 
-    def test_references_argument(self):
+    def test_references_argument_holds_the_guide_to_frame_0(self):
         error = one(step(guides=[GOOD], references=["asset:r.png"]))
-        assert "ref2va / references" in error["message"]
+        assert "frame 17" in error["message"]
+        assert "ref2va / references" not in error["message"]
 
     def test_not_a_list(self):
         assert "must be a list" in one(step(guides=GOOD))["message"]
@@ -220,3 +231,61 @@ def test_through_the_validation_entry_point():
     found = [p for p in workflow.validation_errors() if p["path"].endswith("guides[0]")]
     assert len(found) == 1
     assert "multiple of 17" in found[0]["message"]
+
+
+REF2VA_STEPS = [
+    pytest.param(lambda **a: step("ref2va", **a), id="workflow"),
+    pytest.param(lambda **a: step(references=["asset:r.png"], **a), id="references"),
+]
+WHOLE = {"video": "asset:clip.mp4", "frame": 0}
+
+
+@pytest.mark.parametrize("make", REF2VA_STEPS)
+class TestRef2VAGuide:
+    """ref2va takes one whole-render, frame-0, video-only guide (#1411)."""
+
+    def test_one_frame_0_guide_covering_the_render_is_clean(self, make):
+        s = make(guides=[WHOLE], num_frames=124)
+        assert check(s) == []
+        # 124 frames snap to 124; a clip of exactly the render's length fits
+        assert check(s, fake_probe(frame_count=124)) == []
+
+    def test_a_longer_clip_is_cut_to_the_render_and_clean_without_a_render(self, make):
+        assert check(make(guides=[WHOLE]), fake_probe(frame_count=124)) == []
+
+    def test_two_guides_are_refused(self, make):
+        error = one(make(guides=[WHOLE, {**WHOLE, "video": "asset:b.mp4"}]))
+        assert "exactly one clip" in error["message"]
+        assert "got 2" in error["message"]
+        assert error["path"] == "steps[0].pipeline.arguments.guides"
+
+    def test_a_guide_at_frame_17_is_refused_naming_the_frame(self, make):
+        error = one(make(guides=[{**WHOLE, "frame": 17}]))
+        assert "frame 17" in error["message"]
+        assert error["path"] == "steps[0].pipeline.arguments.guides[0]"
+
+    def test_a_guide_shorter_than_the_render_is_refused(self, make):
+        error = one(make(guides=[WHOLE], num_frames=124), fake_probe(frame_count=22))
+        assert "22-frame" in error["message"]
+        assert "124-frame" in error["message"]
+
+    def test_a_guide_past_the_end_is_still_the_end_rule(self, make):
+        # guide_end_problem runs first: a clip longer than the render
+        error = one(make(guides=[WHOLE], num_frames=22), fake_probe(frame_count=39))
+        assert "past the end of the 22-frame render" in error["message"]
+
+    def test_audio_true_is_refused(self, make):
+        error = one(make(guides=[{**WHOLE, "audio": True}]))
+        assert "'audio' is refused on ref2va" in error["message"]
+
+    def test_audio_false_is_clean(self, make):
+        assert check(make(guides=[{**WHOLE, "audio": False}])) == []
+
+
+@pytest.mark.parametrize("workflow", ["t2va", "fl2va"])
+def test_t2va_and_fl2va_still_take_several_guides(workflow):
+    s = step(workflow, guides=[GOOD, {"video": "asset:b.mp4", "frame": 0}])
+    assert check(s) == []
+    assert check(s, fake_probe()) == []
+    # ...and a short clip at frame 17 is no ref2va refusal
+    assert check(step(workflow, guides=[GOOD], num_frames=124), fake_probe()) == []

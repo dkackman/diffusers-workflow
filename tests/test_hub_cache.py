@@ -104,6 +104,51 @@ class TestRepoDownloadIncomplete:
         make_repo(tmp_path)
         assert repo_download_incomplete("acme/tiny", cache_dir=tmp_path) is False
 
+    def _model_repo(self, tmp_path, files, architectures=("Sam3VideoModel",)):
+        """A transformers model repo: config.json at the root naming its
+        architectures, plus `files`."""
+        repo = make_repo(tmp_path)
+        snapshot = repo / "snapshots" / "aaaa1111"
+        (snapshot / "model.bin").unlink()
+        config = {"architectures": list(architectures)} if architectures else {}
+        (snapshot / "config.json").write_text(json.dumps(config))
+        for name in files:
+            (snapshot / name).write_bytes(b"x")
+        return snapshot
+
+    def test_a_model_repo_with_only_its_config_is_incomplete(self, tmp_path):
+        # #1404: facebook/sam3 on mini-ai held config.json alone, and the
+        # plan read it as cached
+        self._model_repo(tmp_path, [])
+        assert repo_download_incomplete("acme/tiny", cache_dir=tmp_path) is True
+
+    def test_a_model_repo_with_its_weights_is_complete(self, tmp_path):
+        self._model_repo(tmp_path, ["model.safetensors"])
+        assert repo_download_incomplete("acme/tiny", cache_dir=tmp_path) is False
+
+    def test_a_model_repo_missing_a_shard_its_index_names_is_incomplete(self, tmp_path):
+        snapshot = self._model_repo(tmp_path, ["model-00001-of-00002.safetensors"])
+        (snapshot / "model.safetensors.index.json").write_text(
+            json.dumps(
+                {
+                    "weight_map": {
+                        "a": "model-00001-of-00002.safetensors",
+                        "b": "model-00002-of-00002.safetensors",
+                    }
+                }
+            )
+        )
+        assert repo_download_incomplete("acme/tiny", cache_dir=tmp_path) is True
+
+    def test_a_config_naming_no_architectures_is_not_a_model_repo(self, tmp_path):
+        # A processor- or config-only repo has nothing more to fetch
+        self._model_repo(tmp_path, ["preprocessor_config.json"], architectures=())
+        assert repo_download_incomplete("acme/tiny", cache_dir=tmp_path) is False
+
+    def test_a_weightless_architecture_with_only_configs_is_complete(self, tmp_path):
+        self._model_repo(tmp_path, [], architectures=("SomeTokenizer",))
+        assert repo_download_incomplete("acme/tiny", cache_dir=tmp_path) is False
+
     def test_a_repo_whose_ref_points_at_no_snapshot_is_incomplete(self, tmp_path):
         repo = make_repo(tmp_path)
         (repo / "refs" / "main").write_text("some-other-commit-never-fetched")

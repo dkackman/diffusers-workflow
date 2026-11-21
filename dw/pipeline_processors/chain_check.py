@@ -39,6 +39,7 @@ the timeline. The chain keys are validated by `chain_rules.chain_check_problem`.
 
 import logging
 import math
+import numbers
 from dataclasses import dataclass, field
 
 import numpy
@@ -393,6 +394,51 @@ def with_face_drop(result, frames, base, check):
 def face_record(result):
     """The identity measure of a checked segment, for its shot."""
     return {name: result.measures.get(name) for name in FACE_RECORD}
+
+
+# Each recorded measure's bound in the SegmentCheck (#1474): the field its
+# ceiling is read from and whether the value must stay under it ("max") or
+# over it ("min"). texture_ratio_max bounds the ratio both ways, so a texture
+# value under 1/ceiling fails too: `failed` is the verdict, not value-vs-ceiling
+MEASURE_BOUNDS = {
+    "jump_ratio": ("jump_ratio_max", "max"),
+    "look_ratio": ("look_ratio_max", "max"),
+    "texture_ratio": ("texture_ratio_max", "max"),
+    "cut_ratio": ("cut_ratio_max", "max"),
+    "audio_dbfs": ("audio_dbfs_min", "min"),
+    "words": ("words_similarity_min", "min"),
+    "face_drop": ("face_drop_max", "max"),
+}
+
+
+def measures_record(result, check):
+    """The kept attempt's measures for its shot's `measures` (#1474): one
+    entry per measure in MEASURES the CheckResult computed - a number, or for
+    `words` its similarity - as {value, ceiling, bound, warn_only, failed}.
+    The ceiling is the SegmentCheck's in force (null where it sets none);
+    `failed` is whether the check failed that measure. A measure it did not
+    compute (None, or a skipped seam) has no entry."""
+    record = {}
+    for name in MEASURES:
+        value = result.measures.get(name)
+        if name == "words":
+            value = value.get("similarity") if isinstance(value, dict) else None
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, numbers.Real)
+            or not math.isfinite(value)
+        ):
+            continue
+        setting, bound = MEASURE_BOUNDS[name]
+        ceiling = getattr(check, setting)
+        record[name] = {
+            "value": float(value),
+            "ceiling": None if ceiling is None else float(ceiling),
+            "bound": bound,
+            "warn_only": name in WARN_ONLY,
+            "failed": name in result.failed,
+        }
+    return record
 
 
 def shown_value(result, name):

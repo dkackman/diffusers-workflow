@@ -15,7 +15,7 @@ from dw.plan import (
     missing_repo_errors,
 )
 from dw.cost_scaling import scale_curated
-from dw.validation import unseeded_cache_warnings
+from dw.step_cache import unseeded_cache_warnings
 from dw.runs import new_run_id
 from dw.workflow import workflow_from_definition
 
@@ -2011,6 +2011,60 @@ class TestDownloadsRequired:
             "facebook/sam2-hiera-large",
         ]
 
+    def test_a_sam3_track_people_step_lists_only_the_sam3_repo(self, plan):
+        spec = definition()
+        spec["steps"].append(
+            {
+                "name": "people",
+                "task": {"command": "track_people", "arguments": {"backend": "sam3"}},
+            }
+        )
+        repos = [d["repo"] for d in plan(spec)["downloads_required"]]
+        assert repos == ["org/still-model", "facebook/sam3"]
+        assert "IDEA-Research/grounding-dino-base" not in repos
+        assert "facebook/sam2-hiera-large" not in repos
+
+    def test_a_sam3_repo_cached_as_its_config_alone_is_still_listed(
+        self, plan, tmp_path, monkeypatch
+    ):
+        # #1404: mini-ai's cache held facebook/sam3's config.json and nothing
+        # else, and the plan read the repo as present - so no quote, no gate
+        import dw.plan_downloads
+
+        cache = tmp_path / "hub"
+        repo = cache / "models--facebook--sam3"
+        snapshot = repo / "snapshots" / "c0ffee"
+        snapshot.mkdir(parents=True)
+        (repo / "refs").mkdir()
+        (repo / "refs" / "main").write_text("c0ffee")
+        (snapshot / "config.json").write_text(
+            json.dumps({"architectures": ["Sam3VideoModel"]})
+        )
+        monkeypatch.setattr(
+            dw.plan_downloads,
+            "scan_models",
+            lambda cache_dir=None: {"repos": [{"repo_id": "facebook/sam3"}]},
+        )
+        spec = {
+            "id": "people",
+            "steps": [
+                {
+                    "name": "people",
+                    "task": {
+                        "command": "track_people",
+                        "arguments": {"video": "v.mp4", "backend": "sam3"},
+                    },
+                }
+            ],
+        }
+        repos = [
+            d["repo"] for d in plan(spec, cache_dir=str(cache))["downloads_required"]
+        ]
+        assert repos == ["facebook/sam3"]
+        # Its weights arriving makes it cached, and the quote goes away
+        (snapshot / "model.safetensors").write_bytes(b"x")
+        assert plan(spec, cache_dir=str(cache))["downloads_required"] == []
+
     def test_a_repo_a_pipeline_and_a_task_both_load_is_listed_once(self, plan):
         spec = definition()
         spec["steps"][0]["pipeline"]["from_pretrained_arguments"]["model_name"] = (
@@ -2325,6 +2379,259 @@ class TestDownloadsRequired:
         plan(lookup_sizes=False)
 
 
+BASE = "org/flex"
+OTHER = "org/base"
+BASE_REV = "a" * 40
+OTHER_REV = "b" * 40
+WEIGHTS = ("transformer", "text_encoder", "vae")
+OWN = ("scheduler", "tokenizer")
+
+
+def _modular_index():
+    """A modular_model_index.json: three weight components and two small ones,
+    every spec on BASE, and one key that is no component."""
+    entry = lambda name: [  # noqa: E731
+        "diffusers",
+        "Thing",
+        {"pretrained_model_name_or_path": BASE, "subfolder": name, "revision": None},
+    ]
+    index = {"_class_name": "FlexModularPipeline"}
+    index.update({name: entry(name) for name in WEIGHTS + OWN})
+    return index
+
+
+def _flex_step(load_components=None):
+    """A modular step on BASE whose load_components sends the weights to OTHER
+    - under configuration, as the catalog's Pika templates write it."""
+    load_components = load_components or {
+        "pretrained_model_name_or_path": {name: OTHER for name in WEIGHTS},
+        "revision": {**{name: OTHER_REV for name in WEIGHTS}, "default": BASE_REV},
+    }
+    return {
+        "name": "flex",
+        "pipeline": {
+            "configuration": {
+                "component_type": "ModularPipeline",
+                "load_components": load_components,
+            },
+            "from_pretrained_arguments": {"model_name": BASE, "workflow": "ref2va"},
+            "loras": [
+                {"model_name": BASE, "weight_name": "ref2va/adapter.safetensors"}
+            ],
+            "arguments": {},
+        },
+        "result": {"content_type": "video/mp4"},
+    }
+
+
+def _flex_spec(*steps):
+    spec = definition()
+    spec["steps"] = list(steps) or [_flex_step()]
+    return spec
+
+
+class _Sibling:
+    def __init__(self, rfilename, size):
+        self.rfilename = rfilename
+        self.size = size
+
+
+class _Info:
+    gated = False
+
+    def __init__(self, siblings):
+        self.siblings = siblings
+
+
+GIB = 1024**3
+
+
+class TestAComponentOverrideIsNotTheWholeBaseRepo:
+    """#1343: a modular step whose load_components loads its weights from
+    another repo fetches only what is left on its own - the base repo's
+    components that no override moved, by its modular_model_index.json - and
+    its adapter file, not the base repo whole."""
+
+    @pytest.fixture
+    def hub(self, monkeypatch):
+        import dw.plan_downloads
+
+        calls = []
+        siblings = [_Sibling(f"{name}/weights.bin", 50 * GIB) for name in WEIGHTS]
+        siblings += [_Sibling(f"{name}/config.json", GIB // 2) for name in OWN]
+        siblings += [_Sibling("ref2va/adapter.safetensors", 2 * GIB)]
+
+        def fake_model_info(name, revision=None, **k):
+            calls.append((name, revision))
+            return _Info(siblings if name == BASE else [_Sibling("x", 10 * GIB)])
+
+        class Metadata:
+            size = 2 * GIB
+
+        monkeypatch.setattr(dw.plan_downloads, "model_info", fake_model_info)
+        monkeypatch.setattr(
+            dw.plan_downloads, "get_hf_file_metadata", lambda url, **k: Metadata()
+        )
+        monkeypatch.setattr(
+            dw.plan_downloads,
+            "_fetch_modular_index",
+            lambda repo, rev: _modular_index(),
+        )
+        return calls
+
+    def test_only_the_components_left_on_the_base_repo_and_the_adapter(self, plan, hub):
+        assert plan(_flex_spec(), lookup_sizes=True)["downloads_required"] == [
+            {
+                "repo": BASE,
+                "components": ["scheduler", "tokenizer"],
+                "revision": BASE_REV,
+                "gb": 1.0,
+                "gated": False,
+                "access_blocked": False,
+            },
+            {"repo": OTHER, "gb": 10.0, "gated": False, "access_blocked": False},
+            {
+                "repo": BASE,
+                "filename": "ref2va/adapter.safetensors",
+                "revision": None,
+                "gb": 2.0,
+                "gated": None,
+                "access_blocked": False,
+            },
+        ]
+        assert (BASE, BASE_REV) in hub
+
+    def test_a_component_already_cached_is_not_listed(self, plan, hub, monkeypatch):
+        import dw.plan_downloads
+
+        monkeypatch.setattr(
+            dw.plan_downloads,
+            "_cached_file",
+            lambda repo, filename, revision, cache_dir=None: (
+                "/cache/x" if repo == BASE and filename.startswith(OWN) else None
+            ),
+        )
+        repos = plan(_flex_spec(), lookup_sizes=True)["downloads_required"]
+        assert [(d["repo"], d.get("filename")) for d in repos] == [
+            (OTHER, None),
+            (BASE, "ref2va/adapter.safetensors"),
+        ]
+
+    def test_an_unreadable_index_lists_the_base_repo_whole(
+        self, plan, hub, monkeypatch
+    ):
+        """Never a miss: without the index the base repo stands for it, and
+        the whole-repo entry covers the adapter file."""
+        import dw.plan_downloads
+
+        def offline(repo, rev):
+            raise RuntimeError("offline")
+
+        monkeypatch.setattr(dw.plan_downloads, "_fetch_modular_index", offline)
+        repos = plan(_flex_spec(), lookup_sizes=True)["downloads_required"]
+        assert [(d["repo"], d.get("components"), d.get("filename")) for d in repos] == [
+            (BASE, None, None),
+            (OTHER, None, None),
+        ]
+
+    def test_offline_with_the_index_and_its_components_cached_lists_nothing(
+        self, plan, tmp_path, monkeypatch
+    ):
+        import dw.plan_downloads
+
+        snapshot = tmp_path / "snapshot"
+        for name in OWN:
+            (snapshot / name).mkdir(parents=True)
+            (snapshot / name / "config.json").write_text("{}")
+        (snapshot / "modular_model_index.json").write_text(json.dumps(_modular_index()))
+
+        def cached(repo, filename, revision, cache_dir=None):
+            if repo == BASE and filename in (
+                "modular_model_index.json",
+                "ref2va/adapter.safetensors",
+            ):
+                return str(snapshot / filename)
+            return None
+
+        monkeypatch.setattr(dw.plan_downloads, "_cached_file", cached)
+        repos = plan(_flex_spec())["downloads_required"]
+        assert [d["repo"] for d in repos] == [OTHER]
+
+    def test_offline_with_a_component_not_cached_lists_it_unsized(
+        self, plan, tmp_path, monkeypatch
+    ):
+        import dw.plan_downloads
+
+        snapshot = tmp_path / "snapshot"
+        snapshot.mkdir()
+        (snapshot / "modular_model_index.json").write_text(json.dumps(_modular_index()))
+        monkeypatch.setattr(
+            dw.plan_downloads,
+            "_cached_file",
+            lambda repo, filename, revision, cache_dir=None: (
+                str(snapshot / filename)
+                if filename == "modular_model_index.json"
+                else None
+            ),
+        )
+        [flex, other, adapter] = plan(_flex_spec())["downloads_required"]
+        assert flex == {
+            "repo": BASE,
+            "components": ["scheduler", "tokenizer"],
+            "revision": BASE_REV,
+            "gb": None,
+            "gated": None,
+            "access_blocked": None,
+        }
+        assert other["repo"] == OTHER
+        assert adapter["filename"] == "ref2va/adapter.safetensors"
+
+    def test_a_string_override_moves_every_component(self, plan, hub):
+        """`pretrained_model_name_or_path` as one string sends all of them
+        away: nothing is left to fetch from the base repo but the adapter."""
+        step = _flex_step({"pretrained_model_name_or_path": OTHER})
+        repos = plan(_flex_spec(step), lookup_sizes=True)["downloads_required"]
+        assert [(d["repo"], d.get("filename")) for d in repos] == [
+            (OTHER, None),
+            (BASE, "ref2va/adapter.safetensors"),
+        ]
+
+    def test_a_local_path_override_plans_the_base_as_without_one(
+        self, plan, hub, monkeypatch
+    ):
+        """#1490: a component moved to a local folder fetches nothing, so the
+        base repo is judged whole (cached -> no entry), not by component."""
+        import dw.plan_downloads
+
+        monkeypatch.setattr(
+            dw.plan_downloads,
+            "scan_models",
+            lambda cache_dir: {"repos": [{"repo_id": BASE}]},
+        )
+        monkeypatch.setattr(
+            dw.plan_downloads, "repo_download_incomplete", lambda *a, **k: False
+        )
+        step = _flex_step(
+            {"pretrained_model_name_or_path": {"transformer_ref": "/scratch/graft"}}
+        )
+        repos = plan(_flex_spec(step), lookup_sizes=True)["downloads_required"]
+        assert not [d for d in repos if d["repo"] == BASE and not d.get("filename")]
+
+    def test_the_same_base_loaded_with_no_override_elsewhere_is_listed_whole(
+        self, plan, hub
+    ):
+        plain = _flex_step()
+        plain["name"] = "plain"
+        del plain["pipeline"]["configuration"]["load_components"]
+        repos = plan(_flex_spec(_flex_step(), plain), lookup_sizes=True)[
+            "downloads_required"
+        ]
+        assert [(d["repo"], d.get("components"), d.get("filename")) for d in repos] == [
+            (BASE, None, None),
+            (OTHER, None, None),
+        ]
+
+
 class TestGateWarnings:
     def test_a_blocked_repo_gets_a_warning(self):
         required = [
@@ -2591,6 +2898,52 @@ class TestAnAdapterIsADownloadToo:
         ]
         assert looked_up == []
 
+    def test_a_file_cached_under_an_older_snapshot_is_no_download(
+        self, monkeypatch, tmp_path
+    ):
+        """#1392: `refs/main` moved to a snapshot without the file, but the
+        blob is cached under an older one, so the loader links it with no
+        download. Resolved through a `variable:` weight name, on a real
+        cache layout."""
+        import dw.plan_downloads
+        from dw.workflow import Workflow
+
+        repo = "org/turbo"
+        name = "turbo.safetensors"
+        root = tmp_path / "models--org--turbo"
+        (root / "blobs").mkdir(parents=True)
+        (root / "blobs" / ("a" * 64)).write_bytes(b"x")
+        for commit in ("old", "new"):
+            (root / "snapshots" / commit).mkdir(parents=True)
+        (root / "snapshots" / "old" / name).symlink_to(root / "blobs" / ("a" * 64))
+        (root / "refs").mkdir()
+        (root / "refs" / "main").write_text("new")
+        monkeypatch.setattr(
+            dw.plan_downloads,
+            "scan_models",
+            lambda *a: {"repos": [{"repo_id": "Lightricks/LTX-2.5-Diffusers"}]},
+        )
+        monkeypatch.setattr(
+            dw.plan_downloads, "repo_download_incomplete", lambda *a, **k: False
+        )
+        definition = self.definition()
+        definition["variables"] = {"weight": name}
+        lora = definition["steps"][0]["pipeline"]["loras"][0]
+        lora["model_name"] = repo
+        lora["weight_name"] = "variable:weight"
+        expanded = Workflow(definition, str(tmp_path), None).expanded_definition({})
+        assert expanded["steps"][0]["pipeline"]["loras"][0]["weight_name"] == name
+        required = dw.plan_downloads.downloads_required(
+            expanded, None, None, str(tmp_path), False
+        )
+        assert [e["repo"] for e in required] == []
+        # A file no snapshot holds is still a download
+        lora["weight_name"] = "other.safetensors"
+        required = dw.plan_downloads.downloads_required(
+            definition, None, None, str(tmp_path), False
+        )
+        assert [e["repo"] for e in required] == [repo]
+
     def test_the_adapter_is_named_when_it_is_absent(self, monkeypatch):
         assert self.repos(["Lightricks/LTX-2.5-Diffusers"], monkeypatch) == [
             "Lightricks/LTX-2.5-22b-IC-LoRA-Ingredients"
@@ -2718,6 +3071,96 @@ class TestTiersPriceFromTheObservedDefault:
         # 10 + 3.5 x (the 7.2 / 13.5 proportional factor)
         assert draft["curated_minutes"] == pytest.approx(11.87, abs=0.05)
         assert "scaled from the curated 13.5 min" in draft["scaled"]
+
+
+class TestCheckedChainQuotesMoreThanUnchecked:
+    """#1334 (C-F747): a checked dialogue chain whose thin history tempers
+    below the curated figure still quotes more than the same chain
+    unchecked, which has no history and quotes the curated figure."""
+
+    COMMON = {
+        "shot": "dialogue",
+        "segments": 2,
+        "num_frames": 124,
+        "seed": 1262,
+        "prompts": [
+            "A man speaks. <d>We the people of the United States.</d>",
+            "A man speaks. <d>In order to form a more perfect union.</d>",
+        ],
+    }
+    CHECKED = {**COMMON, "retries": 1, "check": {"words_similarity_min": 0.8}}
+    UNCHECKED = {**COMMON, "retries": 0, "check": False}
+
+    @staticmethod
+    def history(checked=None, unchecked=None):
+        def answer(arguments):
+            return unchecked if arguments.get("check") is False else checked
+
+        return answer
+
+    def quote(self, plan, arguments, history):
+        return plan(_repo_json(CATALOG_CHAINED), arguments=arguments, observed=history)[
+            "estimate"
+        ]
+
+    def test_a_thin_fast_checked_history_quotes_above_the_unchecked(self, plan):
+        history = self.history(checked=observed(minutes=5.5, runs=1))
+        checked = self.quote(plan, self.CHECKED, history)
+        unchecked = self.quote(plan, self.UNCHECKED, history)
+        assert unchecked["minutes"] == pytest.approx(12.3, abs=0.05)
+        assert checked["minutes"] > unchecked["minutes"]
+        # Floored at the unchecked chain (curated, no history) at its worst
+        # case: the curated 13.5 for 2 of 3 segments, 4 renders for 2, plus
+        # 4 Whisper passes
+        assert checked["minutes"] == pytest.approx(14.87, abs=0.05)
+        assert "4 renders for 2" in checked["scaled"]
+        assert "words check: 4 Whisper pass(es)" in checked["scaled"]
+        assert "floored at the same chain unchecked" in checked["scaled"]
+        assert "checked history alone quoted 12.3 min" in checked["scaled"]
+
+    def test_the_floor_reads_the_unchecked_chains_own_history(self, plan):
+        history = self.history(
+            checked=observed(minutes=5.5, runs=1),
+            unchecked=observed(minutes=12.0, runs=5),
+        )
+        checked = self.quote(plan, self.CHECKED, history)
+        unchecked = self.quote(plan, self.UNCHECKED, history)
+        assert unchecked["minutes"] == 12.0
+        # The twin's own 12 min plus the curated worst-case extra (14.87 -
+        # 12.33), while the scaled text still names the checked worst case
+        assert checked["minutes"] == pytest.approx(14.6, abs=0.05)
+        assert "same chain unchecked (12 min)" in checked["scaled"]
+        assert "4 renders for 2" in checked["scaled"]
+        assert "words check: 4 Whisper pass(es)" in checked["scaled"]
+
+    @pytest.mark.parametrize("twin_minutes", [5.5, 7.1, 9.0, 12.0])
+    def test_strictly_above_the_twin_whatever_its_history(self, plan, twin_minutes):
+        # The bounce: with both buckets thin and from a fast box, pricing the
+        # checked shape on the twin's history could land at or under the
+        # twin's own quote; the floor is the twin's quote plus the extra
+        history = self.history(
+            checked=observed(minutes=5.5, runs=1),
+            unchecked=observed(minutes=twin_minutes, runs=1),
+        )
+        checked = self.quote(plan, self.CHECKED, history)
+        unchecked = self.quote(plan, self.UNCHECKED, history)
+        assert checked["minutes"] > unchecked["minutes"]
+        assert "4 renders for 2" in checked["scaled"]
+        assert "words check: 4 Whisper pass(es)" in checked["scaled"]
+
+    def test_a_checked_history_above_the_floor_stands(self, plan):
+        history = self.history(
+            checked=observed(minutes=20.0, runs=5),
+            unchecked=observed(minutes=6.0, runs=5),
+        )
+        checked = self.quote(plan, self.CHECKED, history)
+        assert "floored" not in checked["scaled"]
+        assert "from the observed 20 min" in checked["scaled"]
+
+    def test_an_unchecked_chain_is_not_floored(self, plan):
+        history = self.history(unchecked=observed(minutes=6.0, runs=1))
+        unchecked = self.quote(plan, self.UNCHECKED, history)
+        assert "floored" not in (unchecked.get("scaled") or "")
 
 
 class TestResumedChainEstimate:
@@ -2849,3 +3292,121 @@ class TestResumedChainWithNothingToRender(TestResumedChainEstimate):
 
         assert any("nothing is left to render" in d for d in quoted["differs"])
         assert quoted["low_confidence"] is True
+
+
+class TestReplacePerformerPricesRenderFrames:
+    """#1419: the estimate summed the source `num_frames`, so 32 short cuts
+    each rendered at 124 frames were quoted far below 3 long ones."""
+
+    def _cuts(self, count, num_frames):
+        return [
+            {
+                "name": f"c{i}",
+                "start_frame": i * num_frames,
+                "num_frames": num_frames,
+                "render_frames": 124,
+            }
+            for i in range(count)
+        ]
+
+    def test_many_short_cuts_cost_more_than_few_long_ones(self, plan):
+        template = _repo_json("workflows/templates/minimax/replace-performer.json")
+        many = plan(template, arguments={"cuts": self._cuts(32, 11)})["estimate"]
+        few = plan(template, arguments={"cuts": self._cuts(3, 124)})["estimate"]
+        assert many["minutes"] > few["minutes"]
+
+    def test_a_cut_left_out_of_the_list_is_not_priced(self, plan):
+        """An untouched cut is left out of `cuts` and replace_cuts keeps the
+        take's frames for it, so the quote is for the listed cuts alone
+        (0.21.0 review)."""
+        template = _repo_json("workflows/templates/minimax/replace-performer.json")
+        cuts = self._cuts(3, 124)
+        whole = plan(template, arguments={"cuts": cuts})["estimate"]
+        gap = plan(template, arguments={"cuts": [cuts[0], cuts[2]]})["estimate"]
+        assert gap["minutes"] < whole["minutes"]
+
+
+class TestACachedComponentFolderIsNotListed:
+    """#1488: a component folder the snapshot holds whole is cached even when
+    the hub's file list names small files a load never fetches."""
+
+    def _snapshot(self, tmp_path):
+        snap = tmp_path / "snap"
+        (snap / "vae").mkdir(parents=True)
+        (snap / "vae" / "config.json").write_text("{}")
+        (snap / "vae" / "model.safetensors").write_bytes(b"x")
+        (snap / "scheduler").mkdir()
+        (snap / "scheduler" / "scheduler_config.json").write_text("{}")
+        (snap / "modular_model_index.json").write_text("{}")
+        return snap
+
+    def test_held_folders_drop_out_despite_unfetched_siblings(
+        self, tmp_path, monkeypatch
+    ):
+        import dw.plan_downloads as pd
+
+        snap = self._snapshot(tmp_path)
+        monkeypatch.setattr(
+            pd,
+            "_cached_file",
+            lambda repo, name, *a, **k: (
+                str(snap / name) if name == "modular_model_index.json" else None
+            ),
+        )
+        extra = [_Sibling("vae/generation_config.json", 1000)]
+        monkeypatch.setattr(pd, "model_info", lambda *a, **k: _Info(extra))
+        assert (
+            pd._components_entry(
+                BASE,
+                None,
+                ["scheduler", "vae"],
+                None,
+                True,
+                classes={"scheduler": "FlowScheduler", "vae": "AutoencoderKL"},
+            )
+            is None
+        )
+
+    def test_a_missing_folder_is_still_listed(self, tmp_path, monkeypatch):
+        import dw.plan_downloads as pd
+
+        snap = self._snapshot(tmp_path)
+        monkeypatch.setattr(
+            pd,
+            "_cached_file",
+            lambda repo, name, *a, **k: (
+                str(snap / name) if name == "modular_model_index.json" else None
+            ),
+        )
+        siblings = [_Sibling("tokenizer/vocab.json", GIB)]
+        monkeypatch.setattr(pd, "model_info", lambda *a, **k: _Info(siblings))
+        entry = pd._components_entry(
+            BASE,
+            None,
+            ["vae", "tokenizer"],
+            None,
+            True,
+            classes={"vae": "AutoencoderKL", "tokenizer": "T5Tokenizer"},
+        )
+        assert entry["components"] == ["tokenizer"] and entry["gb"] == 1.0
+
+    def test_a_weight_bearing_folder_of_only_configs_is_still_listed(
+        self, tmp_path, monkeypatch
+    ):
+        import dw.plan_downloads as pd
+
+        snap = self._snapshot(tmp_path)
+        (snap / "vae" / "model.safetensors").unlink()
+        monkeypatch.setattr(
+            pd,
+            "_cached_file",
+            lambda repo, name, *a, **k: (
+                str(snap / name) if name == "modular_model_index.json" else None
+            ),
+        )
+        siblings = [_Sibling("vae/model.safetensors", GIB)]
+        monkeypatch.setattr(pd, "model_info", lambda *a, **k: _Info(siblings))
+        entry = pd._components_entry(
+            BASE, None, ["vae"], None, True, classes={"vae": "AutoencoderKL"}
+        )
+        assert entry["components"] == ["vae"] and entry["gb"] == 1.0

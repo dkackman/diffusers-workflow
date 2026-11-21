@@ -537,9 +537,9 @@ MATCH_CEILING_DBFS = -0.5
 MATCH_RMS_CEILING_DBFS = -3.0
 
 LEVEL_SPREAD_WARN_DB = 6.0
-
 # The level step between a multi-shot input's own shots that match_levels cannot
-# level (#876); assessment_rules' seam_level_step reads the same number
+# level (#876); assessment_rules' seam_level_step reads the same number, and so
+# does the spread a clip-held match leaves (#1368)
 INNER_LEVEL_STEP_WARN_DB = 3.0
 
 # Mirrors audio_qc.py's NEAR_SILENT_WARN_DBFS: the same mean/rms level a job's
@@ -547,6 +547,8 @@ INNER_LEVEL_STEP_WARN_DB = 3.0
 # already this quiet up to the target raises a noise floor rather than
 # leveling a performance, and #434 found a +29.9 dB case that only reached
 # the log, never job.warnings
+# A hold this small is inaudible and prints as 0.0 dB (#1416)
+MATCH_HELD_NEGLIGIBLE_DB = 0.1
 MATCH_NEAR_SILENT_DBFS = -40.0
 
 MATCH_LARGE_GAIN_WARN_DB = 20.0
@@ -606,6 +608,42 @@ def _lufs_or_rms(waveform, sample_rate, target_lufs, command, index, label):
     return "lufs", target_lufs
 
 
+def _warn_on_residual_spread(resulting, measure, command):
+    """Say when a clip-held shot left the others above it (#1368).
+    `resulting` is (level after gain, target, shortfall, unit) per shot."""
+    # Only the shots measured as the mode measures: under "lufs" a shot too
+    # short for it is matched by rms to its own dBFS target, and its level is
+    # no figure to set beside the others' LUFS
+    unit = "LUFS" if measure == "lufs" else "dBFS"
+    resulting = [r for r in resulting if r[3] == unit]
+    if len(resulting) > 1:
+        levels = [r[0] for r in resulting]
+        spread = max(levels) - min(levels)
+        if spread > INNER_LEVEL_STEP_WARN_DB:
+            # The held shots could not reach the target, so the others sit
+            # above them: the join is not matched, and the remedy is a lower
+            # target that every shot can reach (#1368)
+            suggested = min(r[1] - r[2] for r in resulting)
+            argument = "match_levels_lufs" if measure == "lufs" else "match_levels_dbfs"
+            emit_warning(
+                f"{command}: match_levels left the shots {spread:.1f} dB apart "
+                f"({min(levels):.1f} to {max(levels):.1f} {unit}) because a "
+                "clip-held shot could not reach the target - the level step at "
+                f"the cut remains. Pass a lower {argument} (about "
+                f"{suggested:.0f} {unit} reaches every shot without clipping)"
+                + (
+                    ""
+                    if measure == "lufs"
+                    else ', or match_levels: "lufs" with a limiter'
+                ),
+                kind="match_levels_spread",
+                command=command,
+                spread_db=round(spread, 1),
+                suggested_target_dbfs=round(suggested, 1),
+                unit=unit,
+            )
+
+
 def match_levels(
     waveforms,
     measure,
@@ -641,6 +679,9 @@ def match_levels(
         measured=any(waveform is not None for waveform in waveforms),
     )
     matched = []
+    # (level after gain, target, shortfall, unit) per measured shot
+    resulting = []
+    any_held = False
     for index, waveform in enumerate(waveforms):
         label = names[index] if names else f"video {index + 1}"
         if label == f"video {index + 1}":
@@ -674,27 +715,29 @@ def match_levels(
         held = False
         if peak is not None and peak + gain_db > ceiling_dbfs:
             gain_db = ceiling_dbfs - peak
-            held = True
             shortfall_db = target_gain_db - gain_db
+            held = shortfall_db >= MATCH_HELD_NEGLIGIBLE_DB
+            any_held = any_held or held
             # emit_warning rather than logger.warning: a clip-held shot stays
             # off the target and the residual spread is exactly the level
             # jump match_levels exists to remove (#214) - a caller reading
             # the job's warnings list is the one who can act on it (#82)
-            emit_warning(
-                f"{command}: {label} would clip at the {shot_measure} target "
-                f"({peak + target_gain_db:+.1f} {ceiling_unit} peak) - held to "
-                f"{ceiling_dbfs} {ceiling_unit}, {shortfall_db:.1f} dB short of "
-                "target",
-                kind="match_levels_held",
-                command=command,
-                index=index,
-                measure_dbfs=round(level, 1),
-                target_dbfs=target_dbfs,
-                gain_db=round(gain_db, 1),
-                shortfall_db=round(shortfall_db, 1),
-                ceiling_dbfs=ceiling_dbfs,
-                unit=unit,
-            )
+            if held:
+                emit_warning(
+                    f"{command}: {label} would clip at the {shot_measure} target "
+                    f"({peak + target_gain_db:+.1f} {ceiling_unit} peak) - held to "
+                    f"{ceiling_dbfs} {ceiling_unit}, {shortfall_db:.1f} dB short of "
+                    "target",
+                    kind="match_levels_held",
+                    command=command,
+                    index=index,
+                    measure_dbfs=round(level, 1),
+                    target_dbfs=target_dbfs,
+                    gain_db=round(gain_db, 1),
+                    shortfall_db=round(shortfall_db, 1),
+                    ceiling_dbfs=ceiling_dbfs,
+                    unit=unit,
+                )
         elif level <= MATCH_NEAR_SILENT_DBFS or gain_db >= MATCH_LARGE_GAIN_WARN_DB:
             # The other end of the range `held` covers (#434): an input this
             # quiet is noise floor, not a performance at a lower level, and
@@ -721,7 +764,10 @@ def match_levels(
             held=held,
             unit=unit,
         )
+        resulting.append((level + gain_db, target_dbfs, target_gain_db - gain_db, unit))
         matched.append((waveform * (10 ** (gain_db / 20.0))).astype(numpy.float32))
+    if any_held:
+        _warn_on_residual_spread(resulting, measure, command)
     return matched
 
 

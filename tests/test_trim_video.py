@@ -10,7 +10,7 @@ from dw.media_types import AudioVideo
 from dw.shots import named_shots, shot_record, trimmed_shots
 from dw.tasks.concat_videos import concat_videos
 from dw.tasks.task import _COMMAND_REGISTRY
-from dw.tasks.trim import trim_video
+from dw.tasks.trim import span_problem, trim_video
 from dw.task_domains import frames_to_samples
 
 
@@ -82,6 +82,16 @@ class TestRefusals:
     def test_past_the_end(self):
         with pytest.raises(ValueError, match="only 24 frames"):
             trim_video(clip(24), 20, 5)
+
+    def test_past_the_end_is_the_span_rule(self):
+        """trim_video raises span_problem's message, the one owner (#1374)."""
+        with pytest.raises(ValueError) as raised:
+            trim_video(clip(24), 20, 5)
+        assert span_problem(20, 5, 24) in str(raised.value)
+
+    def test_span_rule(self):
+        assert span_problem(19, 5, 24) is None
+        assert "reaches frame 25" in span_problem(20, 5, 24)
 
     @pytest.mark.parametrize("count", [0, -3])
     def test_non_positive_count(self, count):
@@ -259,3 +269,93 @@ def test_for_each_over_object_entries_trims_each_file_with_its_audio(tmp_path):
         assert trimmed.audio is not None and trimmed.audio.shape[1] > 0
     files = [f for e in workflow.manifest for f in e.get("files", [])]
     assert len(files) == 2 and all(f.endswith(".mp4") for f in files)
+
+
+class TestPadTo:
+    """pad_to holds the last kept frame and pads the track with silence (#1194)."""
+
+    def test_holds_the_last_frame_to_the_count(self):
+        result = trim_video(clip(200), 5, 110, pad_to=124)
+        assert len(result.frames) == 124
+        values = [f.getpixel((0, 0))[0] for f in result.frames]
+        assert values[:110] == list(range(5, 115))
+        assert values[110:] == [114] * 14
+
+    @pytest.mark.parametrize("rate", [48000, 44100])
+    def test_audio_runs_on_in_silence_to_the_same_end(self, rate):
+        source = clip(200, sample_rate=rate)
+        result = trim_video(source, 5, 110, pad_to=124)
+        first = frames_to_samples(5, 24, rate)
+        kept = frames_to_samples(115, 24, rate) - first
+        padded = frames_to_samples(129, 24, rate) - first
+        assert result.audio.shape == (1, padded)
+        assert numpy.array_equal(
+            result.audio[:, :kept], source.audio[:, first : first + kept]
+        )
+        assert not result.audio[:, kept:].any()
+        assert abs(result.audio.shape[1] / rate - 124 / 24) < 1 / rate * 2
+
+    def test_pad_to_equal_to_num_frames_changes_nothing(self):
+        source = clip(48)
+        plain, padded = trim_video(source, 4, 20), trim_video(source, 4, 20, pad_to=20)
+        assert len(padded.frames) == 20
+        assert numpy.array_equal(plain.audio, padded.audio)
+        assert plain.shots == padded.shots
+
+    def test_the_one_shot_covers_the_held_frames(self):
+        result = trim_video(clip(200), 0, 110, pad_to=124)
+        assert result.shots == [
+            shot_record("video 1", 0, 124, 0, result.audio.shape[1])
+        ]
+
+    def test_the_last_carried_shot_runs_over_the_held_frames(self):
+        shots = [shot_record("a", 0, 30), shot_record("b", 30, 70)]
+        result = trim_video(clip(100, shots=shots), 10, 50, pad_to=60)
+        assert [
+            (s["name"], s["start_frame"], s["num_frames"]) for s in result.shots
+        ] == [
+            ("a", 0, 20),
+            ("b", 20, 40),
+        ]
+
+    def test_a_silent_clip_pads_its_frames_only(self):
+        result = trim_video(frames(30), 0, 10, fps=24, pad_to=24)
+        assert len(result.frames) == 24 and result.audio is None
+
+    @pytest.mark.parametrize("pad_to", [109, 1])
+    def test_below_num_frames_is_refused(self, pad_to):
+        with pytest.raises(ValueError, match="pad_to"):
+            trim_video(clip(200), 0, 110, pad_to=pad_to)
+
+    @pytest.mark.parametrize("pad_to", [124.5, "x", 0, -4])
+    def test_a_non_whole_pad_to_is_refused(self, pad_to):
+        with pytest.raises(ValueError, match="pad_to"):
+            trim_video(clip(200), 0, 110, pad_to=pad_to)
+
+
+class TestPadToValidation:
+    @staticmethod
+    def workflow(arguments):
+        return {
+            "id": "x",
+            "steps": [
+                {"name": "s", "task": {"command": "trim_video", "arguments": arguments}}
+            ],
+        }
+
+    @pytest.mark.parametrize("pad_to", [109, 124.5, "x", 0])
+    def test_a_bad_pad_to_is_an_error_at_its_argument(self, pad_to):
+        from dw.task_domains import task_argument_errors
+
+        arguments = {"video": "v.mp4", "start_frame": 0, "num_frames": 110}
+        errors = task_argument_errors(self.workflow({**arguments, "pad_to": pad_to}))
+        assert [e["path"] for e in errors] == ["steps[0].task.arguments.pad_to"], errors
+
+    @pytest.mark.parametrize("pad_to", [110, 124, "variable:p"])
+    def test_a_good_pad_to_passes(self, pad_to):
+        from dw.task_domains import task_argument_errors
+
+        arguments = {"video": "v.mp4", "start_frame": 0, "num_frames": 110}
+        assert (
+            task_argument_errors(self.workflow({**arguments, "pad_to": pad_to})) == []
+        )

@@ -147,7 +147,8 @@ python -m pip install --upgrade pip
 # cannot load (which would silently fall back to the CPU).
 if $MACOS; then
   echo "macOS detected - installing torch with MPS support"
-  pip install torch torchvision torchaudio
+  # <2.15: torch 2.15 + the fp4-fp8 MPS autoload breaks scalar ** mps_tensor (#1395)
+  pip install "torch<2.15" torchvision torchaudio
 else
   DRIVER_CUDA=""
   # `command -v` alone only proves the binary exists; a stale/broken driver

@@ -78,6 +78,8 @@ logger = logging.getLogger("dw")
 LAYOUT_ANCHORS = (
     "MiniMaxH3PrepareLayoutStep",
     "MiniMaxH3PrepareLayoutStep.build_packed_sequence",
+    "MiniMaxH3Ref2VAPrepareLayoutStep",
+    "MiniMaxH3Ref2VAPrepareLayoutStep.build_ref2va_packed_sequence",
     "MiniMaxH3PrepareConditionLatentsStep",
     "MiniMaxH3FL2VAPrepareLatentsStep",
     "_temporal_position_grid",
@@ -474,8 +476,8 @@ CAPSTONE_KEYS = (CAPSTONE_PAST_END, CAPSTONE_GATE)
 
 def _capstone(where, guide):
     """A guide's capstone keys, checked: {} for a plain guide. Both keys are
-    a scratch spike, refused unless REFINE_WINDOWS_ENV_VAR is on, since the
-    gate is run by the windowed denoiser that flag puts in."""
+    a scratch spike, refused unless REFINE_WINDOWS_ENV_VAR is on; the gate is
+    run by the windowed denoiser, which every H3 load carries (#1230)."""
     given = {key: guide[key] for key in CAPSTONE_KEYS if key in guide}
     if not given:
         return {}
@@ -518,6 +520,27 @@ def guide_blocks():
     )
 
 
+def ref2va_guide_block():
+    """`DwH3Ref2VAGuideLayoutStep`, ref2va's one-guide layout (#1411), imported
+    on first use as `guide_blocks` is."""
+    from . import h3_guide_steps
+
+    return h3_guide_steps.DwH3Ref2VAGuideLayoutStep
+
+
+def _ref2va_layout_sequences(pipeline):
+    """[(prefix, sequence)] for the `ref2va` core-denoise sequences - the stock
+    ref2va layout, or the guide twin in its place."""
+    from diffusers.modular_pipelines.minimax_h3 import before_denoise
+
+    kinds = (before_denoise.MiniMaxH3Ref2VAPrepareLayoutStep, ref2va_guide_block())
+    return [
+        (prefix, sequence)
+        for prefix, sequence in core_denoise_sequences(pipeline)
+        if type(sequence.sub_blocks.get(prefix + LAYOUT_STEP)) in kinds
+    ]
+
+
 def _layout_sequences(pipeline):
     """[(prefix, sequence)] for the core-denoise sequences that lay out their own
     keyframes - every one but `ref2va`, whose layout is a different step."""
@@ -535,7 +558,9 @@ def _layout_sequences(pipeline):
 
 def insert_guides(pipeline):
     """Swap `prepare_layout` for the guide layout in every `t2va`/`fl2va`
-    core-denoise sequence, and give `t2va` the condition steps it lacks.
+    core-denoise sequence, and give `t2va` the condition steps it lacks; swap
+    `ref2va`'s for its one-guide twin (#1411), which needs nothing else - its
+    condition and latents steps already pack every condition latent.
 
     Idempotent. Returns whether the pipeline now takes `guides`. A diffusers
     missing a name the layout is built on gets nothing, with a warning naming it,
@@ -588,6 +613,12 @@ def insert_guides(pipeline):
                 prefix + GUIDE_AUDIO_BLOCK, audio_block(), names.index(audio_before)
             )
         inserted = True
+    ref2va_block = ref2va_guide_block()
+    for prefix, sequence in _ref2va_layout_sequences(pipeline):
+        name = prefix + LAYOUT_STEP
+        if not isinstance(sequence.sub_blocks[name], ref2va_block):
+            sequence.sub_blocks[name] = ref2va_block()
+        inserted = True
     return inserted
 
 
@@ -615,9 +646,9 @@ def takes_guides(pipeline):
     """Whether a pipeline's block graph carries the guide layout."""
     if layout_anchor_problem():
         return False
-    layout_block = guide_blocks()[0]
+    layout_blocks = (guide_blocks()[0], ref2va_guide_block())
     return any(
-        isinstance(sequence.sub_blocks.get(prefix + LAYOUT_STEP), layout_block)
+        isinstance(sequence.sub_blocks.get(prefix + LAYOUT_STEP), layout_blocks)
         for prefix, sequence in core_denoise_sequences(pipeline)
     )
 
@@ -632,7 +663,7 @@ def guides_refusal(pipeline):
         )
     if not takes_guides(pipeline):
         return (
-            f"guides is a MiniMax-H3 t2va/fl2va argument, and "
+            f"guides is a MiniMax-H3 argument, and "
             f"{type(pipeline).__name__} has no '{LAYOUT_STEP}' step to take them"
         )
     return None

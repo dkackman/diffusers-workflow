@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
+  activeStall,
   estimateEta,
+  holdKind,
   nextStepTimes,
   phaseLabel,
   stepProgress,
@@ -155,5 +157,43 @@ describe('nextStepTimes', () => {
   it('leaves the clocks alone on any other event', () => {
     const times = [1, 2, 3]
     expect(nextStepTimes(times, event('log'), 9)).toBe(times)
+  })
+})
+
+describe('activeStall', () => {
+  const stall = (seconds: number) =>
+    event('warning', {
+      kind: 'phase_stall',
+      phase: 'loading',
+      seconds_since_last_progress: seconds,
+    })
+  it('is the latest stall, so a repeat carries the higher seconds', () => {
+    expect(
+      activeStall([
+        event('phase', { phase: 'loading' }),
+        stall(60),
+        stall(120),
+      ]),
+    ).toEqual({ phase: 'loading', seconds: 120 })
+  })
+  it('is cleared by a later event of another kind', () => {
+    expect(
+      activeStall([stall(60), event('phase', { phase: 'generating' })]),
+    ).toBeNull()
+  })
+  it('is null with no stall', () => {
+    expect(activeStall([event('phase', { phase: 'loading' })])).toBeNull()
+    expect(activeStall([])).toBeNull()
+  })
+})
+
+describe('holdKind', () => {
+  it('tells the holds by prefix', () => {
+    expect(holdKind('waiting for host RAM: needs ~9 GB')).toBe('host_ram')
+    expect(holdKind('queued behind 2 running job(s) on every card')).toBe(
+      'cards_busy',
+    )
+    expect(holdKind('something else')).toBe('other')
+    expect(holdKind(null)).toBeNull()
   })
 })

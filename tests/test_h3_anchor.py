@@ -390,9 +390,10 @@ class TestAnchorErrors:
         assert "'references'" in error["message"]
 
     @pytest.mark.parametrize("workflow", ["ref2va", "fl2va"])
-    def test_the_step_rule_is_the_guides_rule(self, workflow):
-        # One owner: the anchor's refusal is the `guides` check's own reason,
-        # asked for the anchor's argument name
+    def test_the_step_rule_is_the_t2va_fl2va_rule(self, workflow):
+        # One owner: the anchor's refusal is `_takes_guides_problem`'s reason,
+        # the rule for the t2va/fl2va-only arguments, asked for the anchor's
+        # argument name
         from dw.guides import _takes_guides_problem
 
         arguments = {"latent_anchor": "clip.mp4"}
@@ -606,3 +607,19 @@ class TestWithLatentAnchor:
                 self.step(anchored),
                 {LATENT_ANCHOR_INPUT: self.frames(), "references": [object()]},
             )
+
+
+class TestRef2VAGuideDoesNotLiftAnchors:
+    """ref2va takes one whole-render guide (#1411), and still refuses an anchor."""
+
+    GUIDE = [{"video": "clip.mp4", "frame": 0}]
+
+    def test_latent_anchor_with_a_valid_ref2va_guide(self):
+        step = definition("ref2va", latent_anchor="clip.mp4", guides=self.GUIDE)
+        (error,) = anchor_errors(step)
+        assert "ref2va / references" in error["message"]
+
+    def test_segment_1_with_a_valid_ref2va_guide(self):
+        chain = {"segments": 2, "anchor": "segment_1"}
+        (error,) = anchor_errors(definition("ref2va", chain=chain, guides=self.GUIDE))
+        assert "ref2va / references" in error["message"]

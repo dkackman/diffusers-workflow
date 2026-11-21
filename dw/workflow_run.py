@@ -24,17 +24,20 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 from . import __version__, device_capacity_gb, get_device, get_device_type
-from . import references
 from .adapter_compatibility import warn_adapters
 from .arguments import realize_args
 from .pipeline_processors.chain_rules import resume_variables
-from .elision import elide_definition, warn_elided
-from .for_each import group_of
+from .elision import elide_definition, surviving_variables, warn_elided
 from .media import probe_metadata
-from .pipeline_ownership import allocated_mb, evict_idle_for_task, finish_release
+from .pipeline_ownership import (
+    allocated_mb,
+    evict_idle_for_task,
+    finish_release,
+    release_step_pipeline,
+)
 from .pipeline_processors.timing import mark, step_timer
-from .previous_results import StepResults
-from .realize import pin_output_reference, realize_workflow
+from .previous_results import StepResults, selected_field
+from .realize import pin_inputs, realize_workflow
 from .roles import annotate_roles, role_basis, run_inputs
 from .runs import (
     FLAT_LAYOUT,
@@ -69,6 +72,7 @@ from .step_cache import (
     step_pipeline_keys,
 )
 from .subfolders import step_subfolder
+from .trust import require_trusted_block
 from .variable_constraints import apply_constraints
 from .vram_estimate import apply_vram_estimate
 
@@ -172,47 +176,6 @@ def _relative_shots(entry, run_dir):
         return {}
     files = manifest_relative_files([shot["file"] for shot in shots], run_dir)
     return {"shots": [{**shot, "file": f} for shot, f in zip(shots, files)]}
-
-
-def selected_field(step_data, selected):
-    """The manifest/step_end 'selected' block for a step's Result.selected.
-
-    Carries the winning position and score always; adds 'entry' - the
-    for_each member name ('shot@b') - only when the step's 'candidates'
-    argument was built from a gather: reference, recoverable at this point
-    only because step_data still holds the post-for_each-expansion,
-    pre-argument-resolution reference strings (dw/for_each.py's _gather()).
-    """
-    if selected is None:
-        return None
-
-    field = dict(selected)
-    candidates = step_data.get("task", {}).get("arguments", {}).get("candidates")
-    if isinstance(candidates, list):
-        position = selected.get("position")
-        if isinstance(position, int) and 0 <= position < len(candidates):
-            candidate = candidates[position]
-            entry = references.ref_name(references.PREVIOUS_RESULT, candidate)
-            if entry is not None:
-                field["entry"] = entry
-    return field
-
-
-def release_unreferenced_results(results, remaining_refs):
-    """Drop results no remaining reference can resolve to.
-
-    A reference resolves to a result whose name it equals or extends with a
-    property ('step.mask'), so any result that is such a prefix stays. Saved
-    artifacts are already on disk - holding every intermediate image and frame
-    list in RAM until the workflow ends is what OOMs long chains.
-    """
-    for name in [
-        n
-        for n in results
-        if not any(reference_resolves_to(ref, n) for ref in remaining_refs)
-    ]:
-        logger.debug(f"Releasing result: {name}")
-        del results[name]
 
 
 def write_run_manifest(workflow, record, status=None):
@@ -357,7 +320,7 @@ def prepare_definition(workflow, workflow_def, arguments, base_dir):
     workflow._elided_steps = elide_definition(
         workflow_def, workflow.workflow_definition
     )
-    workflow._used_variables = _surviving_variables(
+    workflow._used_variables = surviving_variables(
         authored_steps, workflow_def.get("steps")
     )
 
@@ -379,53 +342,6 @@ def prepare_definition(workflow, workflow_def, arguments, base_dir):
             )
         workflow_def["seed"] = default_seed
     return workflow_def, default_seed, recorded_variables
-
-
-def _variable_names(value):
-    """Every 'variable:' name a nested value references, in first-use order."""
-    names = []
-    if isinstance(value, str):
-        name = references.ref_name(references.VARIABLE, value)
-        if name is not None:
-            names.append(name)
-    elif isinstance(value, dict):
-        for item in value.values():
-            names.extend(_variable_names(item))
-    elif isinstance(value, list):
-        for item in value:
-            names.extend(_variable_names(item))
-    return names
-
-
-def _surviving_variables(authored_steps, expanded_steps):
-    """The variable names the steps that survived expansion and elision
-    referenced before substitution (#857). A for_each member
-    ('<group>@<entry>') stands for the step it was expanded from."""
-    groups = {
-        group_of(step.get("name"))
-        for step in expanded_steps or []
-        if isinstance(step, dict)
-    }
-    used = []
-    for step in authored_steps or []:
-        if isinstance(step, dict) and step.get("name") in groups:
-            for name in _variable_names(step):
-                if name not in used:
-                    used.append(name)
-    return used
-
-
-def _pin_inputs(inputs, output_root):
-    """`inputs` with each output: reference pinned as the realized workflow
-    pins it, duplicates merged."""
-    pinned = []
-    for entry in inputs:
-        reference = entry["reference"]
-        if entry["kind"] == "output":
-            reference = pin_output_reference(reference, output_root)
-        if not any(p["reference"] == reference for p in pinned):
-            pinned.append({**entry, "reference": reference})
-    return pinned
 
 
 def cache_lookup(
@@ -561,6 +477,43 @@ def cache_hits(workflow, arguments):
         deactivate_output_root(output_root_token)
 
 
+def _prepared_steps(workflow, arguments):
+    output_root_token = activate_output_root(workflow.output_dir)
+    try:
+        workflow_def = copy.deepcopy(workflow.workflow_definition)
+        base_dir = run_base_dir(workflow)
+        workflow_def, _, _ = prepare_definition(
+            workflow, workflow_def, arguments or {}, base_dir
+        )
+        steps = workflow_def.get("steps", [])
+        realize_args(steps, base_dir)
+        return steps
+    finally:
+        deactivate_output_root(output_root_token)
+
+
+def require_trusted_pipelines(workflow, arguments):
+    """Refuse an untrusted workflow whose pipeline steps reach for remote
+    code, before the worker releases the previous workflow's models: the run
+    would be refused at load, and a refusal should leave the warm cache where
+    it was. Raises what the loader's own gate raises; a definition that
+    cannot be prepared is left for the run to report."""
+    try:
+        steps = _prepared_steps(workflow, arguments)
+    except Exception as e:
+        logger.debug(f"Could not prepare the definition for the trust check: {e}")
+        return
+    require_trusted_steps(steps)
+
+
+def require_trusted_steps(steps):
+    """The gate over prepared steps - the one the worker runs before a load
+    and validate runs over its own expansion (#1410)."""
+    for step in steps:
+        if isinstance(step, dict):
+            require_trusted_block(step.get("pipeline"), "pipeline")
+
+
 def pipeline_keys(workflow, arguments):
     """The set of pipeline cache keys a run of `workflow` with `arguments`
     loads its steps under - the table run() and cache_hits() take
@@ -574,18 +527,7 @@ def pipeline_keys(workflow, arguments):
     the price of loading step media once per switch (the price cache_hits
     already pays).
     """
-    output_root_token = activate_output_root(workflow.output_dir)
-    try:
-        workflow_def = copy.deepcopy(workflow.workflow_definition)
-        base_dir = run_base_dir(workflow)
-        workflow_def, _, _ = prepare_definition(
-            workflow, workflow_def, arguments or {}, base_dir
-        )
-        steps = workflow_def.get("steps", [])
-        realize_args(steps, base_dir)
-        return set(step_pipeline_keys(steps).values())
-    finally:
-        deactivate_output_root(output_root_token)
+    return set(step_pipeline_keys(_prepared_steps(workflow, arguments)).values())
 
 
 def prepare_run(workflow, record):
@@ -722,7 +664,7 @@ def open_run(workflow, prepared, record, run_context):
             record.realized_name = REALIZED_FILE_NAME
         # Made from names the run realize_workflow pinned, not 'latest'
         # as read when the page is viewed (#858)
-        record.inputs = _pin_inputs(record.inputs, workflow.output_dir)
+        record.inputs = pin_inputs(record.inputs, workflow.output_dir)
     except Exception as e:
         # Never fatal: the record is worth less than the run
         logger.warning(f"Could not realize workflow {prepared.workflow_id}: {e}")
@@ -818,15 +760,6 @@ def wire_child(workflow, child, step_data, index, total_steps):
         and parent_result.get("content_type")
         and parent_result.get("save", True)
     )
-
-
-def release_step_pipeline(workflow, loop, step_name):
-    """Pop a release_pipeline step's pipeline and mark it released. Returns
-    the popped pipeline, or None - the caller drops its own references to
-    it and to the step's action before the release is finished."""
-    released = loop.pipelines.pop(workflow.pipeline_ownership.key_for(step_name), None)
-    workflow.pipeline_ownership.mark_released(step_name)
-    return released
 
 
 def save_step(workflow, loop, index, step_data, step, result, cache_entry):
@@ -1050,7 +983,11 @@ def _run_started_step(workflow, loop, index, step_data, step, step_seed, record,
     # resident through the next step's load, which is exactly when
     # both models would be in memory at once
     release = step_data.get("release_pipeline", False)
-    released = release_step_pipeline(workflow, loop, step.name) if release else None
+    released = (
+        release_step_pipeline(workflow, loop, step.name, step_action)
+        if release
+        else None
+    )
     # A hit that loaded nothing holds nothing: announcing a
     # release would report a drop that never happened. Not gated
     # on the pop alone - a sub-workflow step has no pipeline key,

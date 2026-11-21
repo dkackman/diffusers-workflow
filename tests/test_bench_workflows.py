@@ -300,3 +300,47 @@ def test_the_narrated_take_copy_is_the_template_plus_the_exposed_keys():
         copy.pop(key)
     copy.pop("summary")
     assert copy == template
+
+
+FACE_FLOOR = sorted((BENCH / "workflows").glob("probe-1418-*.json"))
+
+
+def test_the_face_encode_floor_probe_workflows_exist():
+    assert sorted(p.stem for p in FACE_FLOOR) == [
+        "probe-1418-face-encode-floor",
+        "probe-1418-face-encode-floor-prep",
+    ]
+
+
+@pytest.mark.parametrize("path", FACE_FLOOR, ids=lambda p: p.stem)
+def test_the_face_encode_floor_probe_validates(path):
+    assert _errors(path) == []
+
+
+def test_the_face_encode_floor_record_floor_is_its_table():
+    record = json.loads(
+        (BENCH / "records" / "face-encode-floor.json").read_text(encoding="utf-8")
+    )
+    for pair, floor in record["floor"].items():
+        for stat in ("median", "min"):
+            assert floor[stat] == max(
+                abs(clip["deltas"][pair][stat]) for clip in record["clips"]
+            )
+    assert record["median_floor_ge_0_02"] is (record["median_floor"] >= 0.02)
+
+
+def test_the_face_encode_floor_pairs_share_a_shot_record():
+    # #1420 bounce: a floor pair must differ only by the encode it measures.
+    record = json.loads(
+        (BENCH / "records" / "face-encode-floor.json").read_text(encoding="utf-8")
+    )
+    assert set(record["floor_pairs"]) == set(record["floor"])
+    for clip in record["clips"]:
+        arms = clip["arms"]
+        for pair, (base, later) in record["floor_pairs"].items():
+            assert clip["deltas"][pair] == {
+                stat: round(arms[later][stat] - arms[base][stat], 3)
+                for stat in ("median", "min")
+            }
+            for key in record["shot_record_keys"]:
+                assert arms[base][key] == arms[later][key], (clip["clip"], pair, key)

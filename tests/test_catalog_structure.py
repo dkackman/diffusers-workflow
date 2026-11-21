@@ -67,6 +67,12 @@ def load(path):
 # is subtle enough that a rule change should have to answer to them.
 EXPECTED_SHAPES = {
     "workflows/templates/text-to-image.json": ("image", []),
+    # #1424: MiniMax-H3-Image; the edit's `images` list makes it an edit
+    "workflows/templates/minimax-h3-image/text-to-image.json": ("image", []),
+    "workflows/templates/minimax-h3-image/multi-reference.json": (
+        "image-edit",
+        ["needs-input-media"],
+    ),
     "workflows/templates/minimax/storyboard.json": (
         "shot",
         ["has-audio", "identity-referenced"],
@@ -90,6 +96,14 @@ EXPECTED_SHAPES = {
         "sequence",
         ["has-audio", "identity-referenced"],
     ),
+    # #1374: the take it recasts is input media, and its soundtrack is paired back
+    "workflows/templates/minimax/replace-performer.json": (
+        "sequence",
+        ["has-audio", "identity-referenced", "needs-input-media"],
+    ),
+    # #1378: the take it smooths is input media (its soundtrack is paired back
+    # under 'audio'), though 'source' itself is not a media argument name
+    "workflows/templates/minimax/h3-seam-pass.json": ("shot", ["needs-input-media"]),
     "workflows/templates/minimax/chained-segments.json": (
         "shot",
         ["chained", "has-audio", "image-conditioned", "needs-input-media"],
@@ -139,11 +153,11 @@ UTILITIES = {
     "workflows/templates/audio-trim-fade.json",
     "workflows/templates/check-script.json",
     "workflows/templates/check-narration.json",
-    "workflows/templates/narration-retime.json",
     "workflows/templates/split-takes.json",
     "workflows/templates/face-drift-check.json",
     "workflows/templates/image-processors.json",
     "workflows/templates/minimax/music-video-cuts.json",
+    "workflows/templates/minimax/replace-performer-cuts.json",
     "workflows/templates/recenter-crop.json",
     "workflows/templates/relevel-clip.json",
     "workflows/templates/segment.json",
@@ -171,10 +185,21 @@ def test_no_template_falls_through_to_utility(path):
         )
 
 
+# Declarations that repeat the derivation on purpose. Each is a shape a
+# recipe names an agent to list by, so it must not move if a rule changes.
+# `narration-long` derives `audio` today; the passages recipe's step 1 sends
+# the agent to `list_workflows(shape="audio")` for it (#1311 plan v2, Q6).
+PINNED_DECLARATIONS = {
+    "workflows/templates/narration-long.json": {"shape"},
+}
+
+
 @pytest.mark.parametrize("path", TEMPLATES + MODEL_CONFIGS)
 def test_a_declaration_must_differ_from_the_derivation(path):
     """An override that repeats the rules is noise that will rot when the
-    rules or the file change. Declare only what derivation gets wrong."""
+    rules or the file change. Declare only what derivation gets wrong, or
+    what a recipe pins (`PINNED_DECLARATIONS`)."""
+    pinned = PINNED_DECLARATIONS.get(path, set())
     definition = load(path)
     meta = derive_catalog_metadata(definition)
     stripped = {
@@ -182,6 +207,8 @@ def test_a_declaration_must_differ_from_the_derivation(path):
     }
     derived = derive_catalog_metadata(stripped)
     for key in meta["declared"]:
+        if key in pinned:
+            continue
         assert meta[key] != derived[key], (
             f"{path} declares {key}={meta[key]!r}, which derivation already produces"
         )
@@ -328,7 +355,23 @@ LEGITIMATE_MENTIONS = {
     # a field of the step's 'chain' block
     "workflows/templates/minimax/chained-segments.json": {"trim_frames", "look_hold"},
     # fields of a 'shots' list entry, not this workflow's own variables
-    "workflows/templates/minimax/dialogue-short.json": {"prompt", "num_frames"},
+    # and 'references', the argument of the identity workflow it composes
+    # (replace-performer declares a variable of that name since #1374)
+    "workflows/templates/minimax/dialogue-short.json": {
+        "prompt",
+        "num_frames",
+        "references",
+    },
+    # 'references', the sub-workflow's argument (replace-performer declares a
+    # variable of that name since #1374)
+    "workflows/templates/minimax/chain-matched-to-audio.json": {"references"},
+    "workflows/templates/minimax/reference-to-video.json": {"references"},
+    # replace-performer's own variables, which this workflow's results feed
+    # (#1374)
+    "workflows/templates/minimax/replace-performer-cuts.json": {
+        "cuts",
+        "mask_video",
+    },
     # the fl2va sub-workflow's argument, named to say this one leaves it unset
     "workflows/templates/minimax/last-frame-only.json": {"image"},
     # a 'result' field the modular pipeline needs declared
@@ -607,8 +650,30 @@ def test_no_stale_entry_in_the_allowlist():
 # Then to 14_450 (measured 14_425) for `minimax/narrated-take`: one new entry,
 # the catalog's only long take held to a retimed narration, with no cost
 # block until a per-segment figure is measured.
-COMPACT_BUDGET = 14_450
-FILTERED_BUDGET = 1_500
+# Re-measured at 14_449.75 after `narration-retime` gained the
+# `boundary_slack_seconds` variable its own description advises raising
+# (#1311, stage #1336), so the budget stands, with no headroom left.
+# Then to 14_850 (measured 14_819) for `minimax/replace-performer` and
+# `minimax/replace-performer-cuts` (#1374): two new entries, the catalog's only
+# swap of the performer in a take, cut by cut, and the cut list and person mask
+# it starts from, with no cost blocks yet.
+# Then to 15_000 (measured 14_981) for `minimax/h3-seam-pass` (#1230, stage
+# #1378): one new entry, the catalog's only seam smoothing of a finished take,
+# with its measured cost block.
+# Then to 15_475 (measured 15_454) for `pika-h3/text-to-video`,
+# `pika-h3/first-and-last-frame` and `pika-h3/reference-to-video` (#1316, stage
+# #1343): three new entries, the catalog's only Pika H3 Flex family - MiniMax-H3's
+# weights under Pika's adapter and fixed 6-pass schedule - with estimated cost
+# blocks until a measured run replaces them.
+# Then to 15_725 (measured 15_706) for `minimax-h3-image/text-to-image` and
+# `minimax-h3-image/multi-reference` (#1317, stage #1424): two new entries, the
+# catalog's only MiniMax-H3-Image family - a fixed 6-step image model at under
+# 6 GB of VRAM and 64 GB of host RAM - with measured cost blocks.
+COMPACT_BUDGET = 15_725
+# The shape=sequence listing to 1_650 (measured 1_642) for
+# `minimax/replace-performer` (#1374), the catalog's only sequence that recasts
+# a take.
+FILTERED_BUDGET = 1_650
 
 
 def _tokens(payload):
@@ -673,6 +738,20 @@ def test_the_compact_listing_fits_the_budget():
     assert _tokens(sequences) <= FILTERED_BUDGET, (
         f"shape=sequence is {_tokens(sequences):.0f} tokens"
     )
+
+
+def test_the_narration_templates_list_under_audio():
+    """#1311 stage #1338 (drill W1): the passages recipe's narration and
+    retime templates both answer `list_workflows(shape="audio")`, and both
+    declare it (Q6): retime derived `utility`, and narration-long's matching
+    derivation is pinned so a rule change cannot move it."""
+    found, _shadowed = library_path(
+        "workflows", None, primary=os.path.join(REPO_ROOT, "workflows")
+    ).entries()
+    audio = project_listing(workflow_details(found), view="compact", shape="audio")
+    for name in ("templates/narration-retime", "templates/narration-long"):
+        assert name in audio, name
+        assert load(f"workflows/{name}.json").get("shape") == "audio", name
 
 
 def _walk(value):

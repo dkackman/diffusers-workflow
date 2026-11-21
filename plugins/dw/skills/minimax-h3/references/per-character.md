@@ -42,3 +42,13 @@ Tested on our server (Ref2VA turbo, 960x544, two seeds per arm, November
   better (claim 3). The prompt said twice that the clothes are not taken
   from the picture and marked her `partially_preserved`; a prompt without
   those words, or a picture with a bold print, wasn't run.
+
+Tested on our server (Ref2VA turbo, 960x544, two seeds per arm, November
+2026; the record is `docs/proposals/audits/2026-11-face-once-sheet.md`,
+#1400), and not a rule:
+
+- No gain: a generated reference sheet (head panel plus body views) held
+  the face no better than a single portrait. It scored 0.05-0.12 lower in
+  SFace on both seeds, though no clip reused the sheet's layout. Asked for
+  the face only once, Z-Image-Turbo drew a head on every figure anyway.
+  Keep the portrait.

@@ -274,7 +274,18 @@
         />
 
         <label for={'dtype-' + index}>dtype</label>
-        <select id={'dtype-' + index} bind:value={pretrained.torch_dtype}>
+        <!-- value + onchange, not bind:value: binding an unset dtype would
+             write the first option back on mount and mark the step unsaved -->
+        <select
+          id={'dtype-' + index}
+          value={pretrained.torch_dtype ?? ''}
+          onchange={(e) => {
+            const v = e.currentTarget.value
+            if (v) pretrained.torch_dtype = v
+            else delete pretrained.torch_dtype
+          }}
+        >
+          <option value="">default</option>
           {#each optionsWith(TORCH_DTYPES, pretrained.torch_dtype) as dtype (dtype)}<option
               >{dtype}</option
             >{/each}

@@ -476,6 +476,7 @@ def test_watchdog_thread_is_cleanly_stopped_at_run_end():
 def test_watchdog_event_carries_the_required_fields():
     events = []
     context = RunContext(on_event=events.append)
+    before = time.time()
     with _fast_watchdog():
         context.enter_run()
         try:
@@ -485,6 +486,7 @@ def test_watchdog_event_carries_the_required_fields():
             context.exit_run()
 
     stall = next(e for e in events if e.get("kind") == "phase_stall")
+    assert before <= stall["worker_time"] <= time.time()
     assert stall["event"] == "warning"
     assert stall["phase"] == "saving"
     assert isinstance(stall["seconds_since_phase_start"], (int, float))

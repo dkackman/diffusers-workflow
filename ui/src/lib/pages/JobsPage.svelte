@@ -1,16 +1,25 @@
 <script lang="ts">
   import { formatDuration, formatExact, formatMtime } from '../format'
+  import { holdKind } from '../progress'
   import { queueWait } from '../jobTimes'
   import { poll } from '../poll'
   import { onMount } from 'svelte'
-  import { ChevronDown, ChevronUp, ChevronsUp, Inbox } from '@lucide/svelte'
+  import { ChevronDown, ChevronUp, ChevronsUp, Inbox, X } from '@lucide/svelte'
   import { api } from '../api'
   import Empty from '../Empty.svelte'
   import { notify } from '../toast'
   import type { JobSummary } from '../types'
   import { wsHref } from '../routes'
   import { hashQuery, setHashQuery } from '../router.svelte'
+  import { parseRequestFilter, type RequestFilter } from '../requestFilter'
+  import { latestOnly } from '../latest'
+  import { listingFailure, listingWorkspace, queueLength } from '../jobsListing'
   import { loadWorkspaces, workspace } from '../workspace.svelte'
+  import {
+    rerunRestartBatchWithConfirm,
+    restartBanners,
+    type RestartBanner,
+  } from '../restartBatches'
 
   let { scope = 'workspace' }: { scope?: 'workspace' | 'all' } = $props()
 
@@ -27,12 +36,17 @@
   // point of that view; a workspace's own Jobs page filters by
   // `workspace.current` instead.
   let workspaceFilter = $state(initial.ws ?? '')
+  // Server-side too: `req=<id>` or `req=<id>/<item>` asks the server for
+  // the jobs linked to that requests-ledger request (or one item of it)
+  let reqFilter = $state(initial.req ?? '')
+  const requestScope = $derived(parseRequestFilter(reqFilter))
 
   $effect(() =>
     setHashQuery({
       status: statusFilter,
       q: nameFilter,
       ws: scope === 'all' ? workspaceFilter : '',
+      req: reqFilter,
     }),
   )
   // The route's view is unchanged when the Jobs nav link lands on the bare
@@ -44,18 +58,37 @@
       statusFilter = query.status ?? ''
       nameFilter = query.q ?? ''
       workspaceFilter = query.ws ?? ''
+      reqFilter = query.req ?? ''
     }
     window.addEventListener('hashchange', sync)
     return () => window.removeEventListener('hashchange', sync)
   })
   const filtered = $derived(
-    !!statusFilter || !!nameFilter || (scope === 'all' && !!workspaceFilter),
+    !!statusFilter ||
+      !!nameFilter ||
+      !!requestScope.request ||
+      (scope === 'all' && !!workspaceFilter),
   )
   function clearFilters() {
     statusFilter = ''
     nameFilter = ''
     workspaceFilter = ''
+    reqFilter = ''
   }
+  // A request lives in one workspace, so its filter is never read across
+  // them (listingWorkspace): on the all-jobs view it pins the picker to the
+  // workspace it is read in, and choosing every workspace lets go of it
+  const listed = $derived(
+    listingWorkspace(
+      scope,
+      workspaceFilter,
+      workspace.current,
+      requestScope.request,
+    ),
+  )
+  $effect(() => {
+    if (scope === 'all' && listed !== workspaceFilter) workspaceFilter = listed
+  })
 
   // Only worth a picker once there is a choice - a single-workspace server
   // has nothing to filter by
@@ -69,24 +102,77 @@
     ),
   )
 
+  // The waiting queue's length, for the move buttons (queueLength)
+  let queueSize = $state(0)
+  const beginListing = latestOnly()
+  /** Load the listing the filters name. A reply a later call superseded is
+   * dropped, so a narrowed view never shows another question's rows. */
+  async function refresh(ws: string, scoped: RequestFilter) {
+    const current = beginListing()
+    try {
+      const rows = (await listJobs(ws, scoped)).jobs.reverse()
+      const queued = await queuedEverywhere(rows, !!(ws || scoped.request))
+      if (!current()) return
+      jobs = rows
+      queueSize = queueLength(rows, queued)
+      error = ''
+    } catch (e) {
+      if (!current()) return
+      const failure = listingFailure(e)
+      error = failure.message
+      if (failure.refused) jobs = []
+    }
+  }
+  const listJobs = (ws: string, scoped: RequestFilter) =>
+    api.listJobs(
+      ws || undefined,
+      undefined,
+      undefined,
+      scoped.request || undefined,
+      scoped.item || undefined,
+    )
+  /** The server's count of every queued job, asked for only by a narrowed
+   * listing that shows a waiting one: an unnarrowed listing holds the whole
+   * queue, and 0 leaves the length to the rows. */
+  async function queuedEverywhere(rows: JobSummary[], narrowed: boolean) {
+    if (!narrowed || !rows.some((job) => job.queue_position !== undefined))
+      return 0
+    return (await api.listJobs(undefined, 1, 'queued')).total
+  }
+
   $effect(() => {
     // Read synchronously so the effect reruns (and restarts the poll) when
     // the filter (or the scope's own workspace) changes, rather than the
     // interval quietly polling stale
-    const filter = scope === 'all' ? workspaceFilter : workspace.current
-    return poll(async () => {
-      try {
-        jobs = (await api.listJobs(filter || undefined)).jobs.reverse()
-        error = ''
-      } catch (e) {
-        error = e instanceof Error ? e.message : String(e)
-      }
-    }, 3000)
+    const [ws, scoped] = [listed, requestScope]
+    return poll(() => refresh(ws, scoped), 3000)
   })
 
-  const queuedCount = $derived(
-    jobs.filter((job) => job.queue_position !== undefined).length,
+  // Batches a preview found nothing left to rerun in: their banner stays
+  // hidden for the rest of the session, in memory only - the client's
+  // count is an estimate and the preview corrected it
+  let dismissedBatches = $state(new Set<string>())
+  let previewing = $state('')
+  // All of a scope's rows, not the name-filtered ones: a batch spans
+  // workflows. A status filter that hides cancelled rows hides it too
+  const banners = $derived(
+    statusFilter && statusFilter !== 'cancelled'
+      ? []
+      : restartBanners(jobs, dismissedBatches),
   )
+
+  // Only a click previews: the preview prices every member of the batch,
+  // which the 3 s poll must never pay for
+  async function rerunBatch(banner: RestartBanner) {
+    previewing = banner.batch
+    try {
+      const outcome = await rerunRestartBatchWithConfirm(banner.id)
+      if (outcome === 'empty')
+        dismissedBatches = new Set([...dismissedBatches, banner.batch])
+    } finally {
+      previewing = ''
+    }
+  }
 
   async function move(
     event: MouseEvent,
@@ -96,16 +182,17 @@
     event.preventDefault()
     try {
       await api.moveJob(id, direction)
-      // Same filter the poll uses - refreshing without it would flash every
-      // workspace's jobs into a view the user had narrowed to one
-      const filter = scope === 'all' ? workspaceFilter : workspace.current
-      jobs = (await api.listJobs(filter || undefined)).jobs.reverse()
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e)
-      notify.error(msg)
+      notify.error(e instanceof Error ? e.message : String(e))
+      return
     }
+    // Same listing the poll asks for - refreshing without its filters would
+    // flash every workspace's jobs into a view the user had narrowed to one
+    await refresh(listed, requestScope)
   }
 
+  const requestLabel = (f: { request: string; item: string }) =>
+    f.item ? `${f.request} › ${f.item}` : f.request
   const when = (t: number | null) => (t ? formatMtime(t) : '—')
   const waitOf = (job: JobSummary) => queueWait(job, Date.now() / 1000)
   // The row shows the compact start; hovering gives it to the second, with
@@ -140,7 +227,13 @@
     <option value="cancelled">cancelled</option>
   </select>
   {#if scope === 'all' && (workspace.names?.length ?? 0) > 1}
-    <select bind:value={workspaceFilter} title="filter by workspace">
+    <select
+      bind:value={workspaceFilter}
+      onchange={() => {
+        if (!workspaceFilter) reqFilter = ''
+      }}
+      title="filter by workspace"
+    >
       <option value="">all workspaces</option>
       {#each workspace.names ?? [] as name (name)}
         <option value={name}>{name}</option>
@@ -152,9 +245,38 @@
     placeholder="filter by workflow…"
     bind:value={nameFilter}
   />
+  {#if requestScope.request}
+    <span class="wschip active-filter" data-testid="req-filter">
+      <a
+        class="plain"
+        href={wsHref(listed, 'requests', requestScope.request)}
+        title="open this request">{requestLabel(requestScope)}</a
+      >
+      <button
+        class="quiet icon"
+        onclick={() => (reqFilter = '')}
+        title="remove the request filter"
+        aria-label="remove the request filter"><X size={12} /></button
+      >
+    </span>
+  {/if}
 </div>
 
-{#if error}<p class="muted">Could not reach the server: {error}</p>{/if}
+{#if error}<p class="muted" role="alert">{error}</p>{/if}
+
+{#each banners as banner (banner.batch)}
+  <div class="panel restart" role="status" data-batch={banner.batch}>
+    <span
+      >{`${banner.count} ${banner.count === 1 ? 'job was' : 'jobs were'} cancelled by a server restart`}</span
+    >
+    <button
+      onclick={() => rerunBatch(banner)}
+      disabled={previewing === banner.batch}
+      title="preview what a rerun would queue, with its cost, before anything is queued"
+      >Rerun…</button
+    >
+  </div>
+{/each}
 
 {#if jobs.length === 0 && !filtered}
   <Empty>
@@ -172,78 +294,96 @@
       <a
         class="row plain"
         class:historical={job.historical}
-        class:runningnow={job.status === 'running'}
+        class:row-live={job.status === 'running'}
         href={wsHref(job.workspace, 'jobs', job.id)}
         title={job.historical
           ? 'finished before this server started - loaded from history'
           : ''}
       >
         <span class="chip {job.status}">{job.status}</span>
-        <span class="name">
-          {job.workflow}
-          {#if job.run_version}
-            <span
-              class="wschip muted"
-              title="version {job.run_version} of this workflow - the gallery labels its files the same way"
-              >v{job.run_version}</span
-            >
-          {/if}
-          {#if job.rerun_of}
-            <span class="wschip muted" title="a rerun of {job.rerun_of}"
-              >rerun</span
-            >
-          {/if}
-          {#if scope === 'all' && (workspace.names?.length ?? 0) > 1}
-            <span class="wschip muted" title="workspace">{job.workspace}</span>
-          {/if}
-          {#if job.device}
-            <span class="wschip muted" title="the card this job ran on"
-              >{job.device}</span
-            >
-          {/if}
-          {#if job.acknowledged === 'bound'}
-            <span
-              class="wschip muted"
-              title="queued with a cost acknowledgement bound to the validated plan"
-              >acknowledged</span
-            >
-          {/if}
-          {#if job.queue_position !== undefined}
-            <span class="qpos" title="position in the waiting queue"
-              >#{job.queue_position + 1}</span
-            >
-            {#if queuedCount > 1}
-              <span class="qmove">
-                {#if job.queue_position > 0}
-                  <button
-                    class="quiet icon"
-                    onclick={(e) => move(e, job.id, 'front')}
-                    title="run this job next"
-                    aria-label="move {job.id} to the front of the queue"
-                  >
-                    <ChevronsUp size={13} />
-                  </button>
-                  <button
-                    class="quiet icon"
-                    onclick={(e) => move(e, job.id, 'up')}
-                    title="move up one place"
-                    aria-label="move {job.id} up one place"
-                  >
-                    <ChevronUp size={13} />
-                  </button>
-                {/if}
-                {#if job.queue_position < queuedCount - 1}
-                  <button
-                    class="quiet icon"
-                    onclick={(e) => move(e, job.id, 'down')}
-                    title="move down one place"
-                    aria-label="move {job.id} down one place"
-                  >
-                    <ChevronDown size={13} />
-                  </button>
-                {/if}
-              </span>
+        <span class="namecol">
+          <span class="name">
+            {job.workflow}
+            {#if job.run_version}
+              <span
+                class="wschip muted"
+                title="version {job.run_version} of this workflow - the gallery labels its files the same way"
+                >v{job.run_version}</span
+              >
             {/if}
+            {#if job.rerun_of}
+              <span class="wschip muted" title="a rerun of {job.rerun_of}"
+                >rerun</span
+              >
+            {/if}
+            {#if job.request}
+              <span
+                class="wschip muted"
+                title="request {job.request}{job.item
+                  ? `, item ${job.item}`
+                  : ''}"
+                >{requestLabel({
+                  request: job.request,
+                  item: job.item ?? '',
+                })}</span
+              >
+            {/if}
+            {#if scope === 'all' && (workspace.names?.length ?? 0) > 1}
+              <span class="wschip muted" title="workspace">{job.workspace}</span
+              >
+            {/if}
+            {#if job.device}
+              <span class="wschip muted" title="the card this job ran on"
+                >{job.device}</span
+              >
+            {/if}
+            {#if job.acknowledged === 'bound'}
+              <span
+                class="wschip muted"
+                title="queued with a cost acknowledgement bound to the validated plan"
+                >acknowledged</span
+              >
+            {/if}
+            {#if job.queue_position !== undefined}
+              <span class="qpos" title="position in the waiting queue"
+                >#{job.queue_position + 1}</span
+              >
+              {#if queueSize > 1}
+                <span class="qmove">
+                  {#if job.queue_position > 0}
+                    <button
+                      class="quiet icon"
+                      onclick={(e) => move(e, job.id, 'front')}
+                      title="run this job next"
+                      aria-label="move {job.id} to the front of the queue"
+                    >
+                      <ChevronsUp size={13} />
+                    </button>
+                    <button
+                      class="quiet icon"
+                      onclick={(e) => move(e, job.id, 'up')}
+                      title="move up one place"
+                      aria-label="move {job.id} up one place"
+                    >
+                      <ChevronUp size={13} />
+                    </button>
+                  {/if}
+                  {#if job.queue_position < queueSize - 1}
+                    <button
+                      class="quiet icon"
+                      onclick={(e) => move(e, job.id, 'down')}
+                      title="move down one place"
+                      aria-label="move {job.id} down one place"
+                    >
+                      <ChevronDown size={13} />
+                    </button>
+                  {/if}
+                </span>
+              {/if}
+            {/if}
+          </span>
+          {#if job.reason}
+            <span class="reason muted" title={job.reason}>{job.reason}</span>
           {/if}
         </span>
         {#if job.status === 'queued'}
@@ -255,6 +395,16 @@
               : 'time spent waiting for a card'}
             >waiting {wait === null ? '' : formatDuration(wait)}</span
           >
+          {#if job.waiting_for}
+            {@const kind = holdKind(job.waiting_for)}
+            <span class="muted" title={job.waiting_for}
+              >· {kind === 'host_ram'
+                ? 'host RAM'
+                : kind === 'cards_busy'
+                  ? 'cards busy'
+                  : 'held'}</span
+            >
+          {/if}
         {:else}
           <span class="muted started" title={timesOf(job)}
             >{when(job.started_at)}</span
@@ -271,15 +421,6 @@
   .pagehead h1 {
     margin: 0;
     flex: 1;
-  }
-  /* The job the worker is on right now, marked the way it is marked in the
-     header: the one row you came to the page to find */
-  .row.runningnow {
-    background: color-mix(in srgb, var(--live) 10%, transparent);
-    box-shadow: inset 2px 0 0 var(--live);
-  }
-  .row.runningnow:hover {
-    background: color-mix(in srgb, var(--live) 16%, transparent);
   }
   .pagehead select {
     max-width: 150px;
@@ -322,6 +463,29 @@
   .row.historical {
     opacity: 0.72;
   }
+  /* The name and, under it, why a failed or cancelled job ended - each its
+     own element, so a later line beside the reason is a sibling */
+  .namecol {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    min-width: 0;
+  }
+  .reason {
+    font-size: var(--t-xs);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .restart {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.55rem 0.8rem;
+    margin-bottom: 0.6rem;
+    box-shadow: inset 3px 0 0 var(--warn);
+  }
   /* A workflow name is what the engine resolved to run this job */
   .name {
     font-family: var(--font-mono);
@@ -355,6 +519,11 @@
     border: 1px solid var(--line);
     border-radius: 4px;
     padding: 0 0.3rem;
+  }
+  .active-filter {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
   }
   .qmove {
     display: inline-flex;

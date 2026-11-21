@@ -214,6 +214,40 @@ def realism_step(workflow, weight_name=NO_TOKEN):
     return h3_step(workflow, weight_name, model_name=REALISM)
 
 
+class TestAnOmittedWeightName:
+    """#1489: no weight_name loads the repo's one default file, so the
+    catalog entry for the repo decides."""
+
+    def test_a_proven_entry_refuses_without_a_weight_name(self):
+        catalog = catalogued(["t2va", "fl2va"])
+        step = realism_step("ref2va")
+        del step["pipeline"]["loras"][0]["weight_name"]
+        errors = adapter_errors(definition(step), catalog=catalog)
+        assert len(errors) == 1
+        assert errors[0]["path"] == "steps[0].pipeline.loras[0]"
+        assert "h3/realism" in errors[0]["message"]
+
+    def test_it_agrees_cleanly_on_its_own_partition(self):
+        catalog = catalogued(["t2va", "fl2va"])
+        step = realism_step("fl2va")
+        del step["pipeline"]["loras"][0]["weight_name"]
+        assert adapter_errors(definition(step), catalog=catalog) == []
+
+    def test_a_repo_with_two_files_is_ambiguous(self):
+        entries = {
+            n: {
+                "model_name": REALISM,
+                "weight_name": w,
+                "workflow": ["t2va"],
+                "status": "proven",
+            }
+            for n, w in (("a", "a.safetensors"), ("b", "b.safetensors"))
+        }
+        step = realism_step("ref2va")
+        del step["pipeline"]["loras"][0]["weight_name"]
+        assert adapter_errors(definition(step), catalog=catalog_index(entries)) == []
+
+
 class TestTheCatalogDecidesFirst:
     """#870: a catalog entry's `workflow` places a file its name cannot."""
 

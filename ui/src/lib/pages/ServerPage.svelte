@@ -14,6 +14,8 @@
     isUnauthenticatedPublicBind,
     mcpAddCommand,
     mcpUrl,
+    runtimeRows,
+    runtimeText,
   } from '../serverinfo'
   import type { HealthInfo, MemoryInfo, ServerInfo } from '../types'
 
@@ -95,6 +97,25 @@
       <dd>{health?.queued ?? 0} queued</dd>
       <dt>Memory</dt>
       <dd><CardMemoryList {cards} /></dd>
+    </dl>
+  </div>
+
+  <div class="panel runtime">
+    <h2>
+      Runtime
+      <CopyButton text={runtimeText(info)} title="copy the runtime versions" />
+    </h2>
+    <dl>
+      {#each runtimeRows(info.runtime) as row (row.name)}
+        <dt>{row.name}</dt>
+        <dd>
+          {#if row.value != null}
+            <code>{row.value}</code>
+          {:else}
+            <span class="muted">{row.absent}</span>
+          {/if}
+        </dd>
+      {/each}
     </dl>
   </div>
 

@@ -402,6 +402,18 @@ def get_value(v, desired_type, name=None):
         logger.error(message)
         raise ValueError(message)
 
+    # A JSON boolean for a variable typed float by its default would be taken
+    # as 1.0/0.0 through float(True) with no word (#1354): refuse it
+    if desired_type is float and isinstance(v, bool):
+        var_label = name if name is not None else "<unknown>"
+        message = (
+            f"Cannot convert variable '{var_label}' value {v!r} to type float: "
+            f"this variable is typed float by its default and takes a number, "
+            f"not true or false"
+        )
+        logger.error(message)
+        raise ValueError(message)
+
     # A string cannot be coerced into a dict or a None - dict('/a/b.png') is
     # nonsense, NoneType('x') a TypeError. Those defaults are how media
     # variables ({'location': ...}) and optional inputs (null) are declared,

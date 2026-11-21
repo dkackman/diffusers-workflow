@@ -714,6 +714,63 @@ class TestValidationTimeErrors:
         assert errors[0]["path"].startswith("steps[0]")
 
 
+class TestLoraWeightSuffix:
+    """A `loras` entry's weight file is safetensors in every shape: a subfolder
+    did not move it past the suffix gate (SE-F066)."""
+
+    @staticmethod
+    def _definition(weight_name):
+        return {
+            "steps": [
+                {
+                    "name": "shot",
+                    "pipeline": {
+                        "loras": [
+                            {"model_name": "org/repo", "weight_name": weight_name}
+                        ]
+                    },
+                }
+            ]
+        }
+
+    @pytest.mark.parametrize(
+        "name", ["adapter.pt", "fl2va/adapter.pt", "a/b/adapter.bin", "x.ckpt"]
+    )
+    def test_a_pickle_lora_weight_is_refused(self, untrusted, workflow_dir, name):
+        errors = location_errors(self._definition(name), base_dir=workflow_dir)
+        assert [error["path"] for error in errors] == [
+            "steps[0].pipeline.loras[0].weight_name"
+        ]
+        assert "'.safetensors'" in errors[0]["message"]
+
+    @pytest.mark.parametrize(
+        "name", ["adapter.safetensors", "fl2va/adapter.safetensors"]
+    )
+    def test_a_safetensors_lora_weight_passes(self, untrusted, workflow_dir, name):
+        assert location_errors(self._definition(name), base_dir=workflow_dir) == []
+
+    def test_a_subfolder_still_may_not_climb(self, untrusted, workflow_dir):
+        errors = location_errors(
+            self._definition("../x.safetensors"), base_dir=workflow_dir
+        )
+        assert errors and "'..'" in errors[0]["message"]
+
+    def test_an_ip_adapter_weight_keeps_any_suffix(self, untrusted, workflow_dir):
+        definition = {
+            "steps": [
+                {
+                    "name": "shot",
+                    "pipeline": {
+                        "ip_adapter": [
+                            {"model_name": "org/repo", "weight_name": "sdxl/ip.bin"}
+                        ]
+                    },
+                }
+            ]
+        }
+        assert location_errors(definition, base_dir=workflow_dir) == []
+
+
 class TestTaskMediaArguments:
     """A task argument that reads a file under a generic name - join_windows'
     'source' - is refused at validation like a media key (#630, SE-F042),

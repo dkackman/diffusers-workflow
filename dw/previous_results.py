@@ -187,12 +187,12 @@ def _as_frame_lists(artifacts):
     handed = []
     for artifact in artifacts:
         if isinstance(artifact, SavedFrames):
-            artifact = list(artifact)
+            artifact = artifact.as_list()
         elif isinstance(artifact, AudioVideo) and isinstance(
             artifact.frames, SavedFrames
         ):
             artifact = copy.copy(artifact)
-            artifact.frames = list(artifact.frames)
+            artifact.frames = artifact.frames.as_list()
         handed.append(artifact)
     return handed
 
@@ -554,3 +554,44 @@ def _collect_reference_paths(value, path, found):
         if via == "key" and references.is_ref(references.VARIABLE, name):
             continue
         found[where] = name
+
+
+def selected_field(step_data, selected):
+    """The manifest/step_end 'selected' block for a step's Result.selected.
+
+    Carries the winning position and score always; adds 'entry' - the
+    for_each member name ('shot@b') - only when the step's 'candidates'
+    argument was built from a gather: reference, recoverable at this point
+    only because step_data still holds the post-for_each-expansion,
+    pre-argument-resolution reference strings (dw/for_each.py's _gather()).
+    """
+    if selected is None:
+        return None
+
+    field = dict(selected)
+    candidates = step_data.get("task", {}).get("arguments", {}).get("candidates")
+    if isinstance(candidates, list):
+        position = selected.get("position")
+        if isinstance(position, int) and 0 <= position < len(candidates):
+            candidate = candidates[position]
+            entry = references.ref_name(references.PREVIOUS_RESULT, candidate)
+            if entry is not None:
+                field["entry"] = entry
+    return field
+
+
+def release_unreferenced_results(results, remaining_refs):
+    """Drop results no remaining reference can resolve to.
+
+    A reference resolves to a result whose name it equals or extends with a
+    property ('step.mask'), so any result that is such a prefix stays. Saved
+    artifacts are already on disk - holding every intermediate image and frame
+    list in RAM until the workflow ends is what OOMs long chains.
+    """
+    for name in [
+        n
+        for n in results
+        if not any(reference_resolves_to(ref, n) for ref in remaining_refs)
+    ]:
+        logger.debug(f"Releasing result: {name}")
+        del results[name]

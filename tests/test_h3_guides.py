@@ -392,14 +392,23 @@ class TestInsert:
             sequence.sub_blocks[prefix + "prepare_layout"], guide_blocks()[0]
         )
 
-    def test_ref2va_is_untouched(self):
+    def test_ref2va_gets_the_one_guide_layout(self):
         stock = names(fresh("ref2va"))
         pipeline = fresh("ref2va")
-        assert insert_guides(pipeline) is False
-        assert names(pipeline) == stock
         assert not takes_guides(pipeline)
-        assert "ref2va" not in (guides_refusal(pipeline) or "")
-        assert guides_refusal(pipeline)
+        assert insert_guides(pipeline) is True
+        # Only the layout step is swapped: the same steps in the same order
+        assert names(pipeline) == stock
+        ((prefix, _),) = names(pipeline)
+        sequence = h3_hold.core_denoise_sequences(pipeline)[0][1]
+        layout = sequence.sub_blocks[prefix + "prepare_layout"]
+        assert type(layout).__name__ == "DwH3Ref2VAGuideLayoutStep"
+        assert takes_guides(pipeline)
+        assert guides_refusal(pipeline) is None
+        # Idempotent: a second insert keeps the same block
+        assert insert_guides(pipeline) is True
+        assert sequence.sub_blocks[prefix + "prepare_layout"] is layout
+        assert names(pipeline) == stock
 
     def test_whole_graph_swaps_only_the_two_layouts(self):
         pipeline = fresh()
@@ -856,6 +865,13 @@ def guided():
     return pipeline
 
 
+@pytest.fixture(scope="module")
+def ref2va_guided():
+    pipeline = fresh("ref2va")
+    assert insert_guides(pipeline)
+    return pipeline
+
+
 @pytest.fixture
 def warnings_seen(monkeypatch):
     seen = []
@@ -888,12 +904,59 @@ class TestWithGuides:
                 ns(object()), {"guides": [{"video": clip(), "frame": 0}]}
             )
 
-    def test_references_are_refused(self, guided):
-        with pytest.raises(ValueError, match="references"):
+    def test_a_whole_render_guide_passes_with_references(self, ref2va_guided):
+        result = Pipeline._with_guides(
+            ns(ref2va_guided),
+            {
+                "guides": [{"video": clip(22), "frame": 0}],
+                "references": [object()],
+                "num_frames": 22,
+            },
+        )
+        (guide,) = result["guides"]
+        assert guide["video"].shape[0] == 22 and guide["frame"] == 0
+
+    @pytest.mark.parametrize(
+        "guides, arguments, message",
+        [
+            (
+                [{"video": clip(22), "frame": 0}] * 2,
+                {"num_frames": 22},
+                "exactly one clip.*got 2",
+            ),
+            ([{"video": clip(22), "frame": 17}], {"num_frames": 22}, "frame 17"),
+            (
+                [{"video": clip(22), "frame": 0, "audio": True}],
+                {"num_frames": 22},
+                "'audio' is refused on ref2va",
+            ),
+            (
+                [{"video": clip(22), "frame": 0}],
+                {"num_frames": 39},
+                "22-frame guide is shorter than the 39-frame render",
+            ),
+        ],
+    )
+    def test_ref2va_guides_are_held_to_the_narrow_rule(
+        self, ref2va_guided, guides, arguments, message
+    ):
+        with pytest.raises(ValueError, match=message):
             Pipeline._with_guides(
-                ns(guided),
-                {"guides": [{"video": clip(), "frame": 0}], "references": [object()]},
+                ns(ref2va_guided),
+                {"guides": guides, "references": [object()], **arguments},
             )
+
+    def test_a_longer_clip_is_cut_to_the_render(self, ref2va_guided):
+        # 30 frames snap to 22, which covers a 22-frame render
+        result = Pipeline._with_guides(
+            ns(ref2va_guided),
+            {
+                "guides": [{"video": clip(30), "frame": 0}],
+                "references": [object()],
+                "num_frames": 22,
+            },
+        )
+        assert result["guides"][0]["video"].shape[0] == 22
 
     def test_too_many(self, guided):
         many = [{"video": clip(), "frame": 0}] * (GUIDE_LIMIT + 1)

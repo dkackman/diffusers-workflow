@@ -341,3 +341,109 @@ def test_face_similarities_detects_only_the_sampled_frames(probe):
     scores = fd.face_similarities(frames, frames[0], samples=8)
     assert len(scores) == 8
     assert probe.calls == 9
+
+
+# scored_from (#1418 stage B): which form each half was scored in
+
+
+def write_face_mp4(path, frames):
+    """frames as a near-lossless mp4: the file a stored path or output: names."""
+    import av
+
+    container = av.open(str(path), "w")
+    stream = container.add_stream("libx264", rate=24)
+    stream.width, stream.height, stream.pix_fmt = SIZE, SIZE, "yuv420p"
+    stream.options = {"crf": "0", "preset": "ultrafast"}
+    for picture in frames:
+        for packet in stream.encode(av.VideoFrame.from_image(picture)):
+            container.mux(packet)
+    for packet in stream.encode():
+        container.mux(packet)
+    container.close()
+    return str(path)
+
+
+@pytest.fixture
+def stored(tmp_path):
+    """(mp4 path, png path): a face clip and its reference, both on disk."""
+    video = write_face_mp4(tmp_path / "clip.mp4", [a_face()] * 4)
+    reference = str(tmp_path / "reference.png")
+    a_face().save(reference)
+    return video, reference
+
+
+def _mixed(answer):
+    return [note for note in answer["notes"] if "mixes forms" in note]
+
+
+def test_in_memory_frames_and_picture_score_from_frames_and_picture(probe):
+    answer = fd.analyze_face_drift(clip([a_face()] * 4), a_face())
+    assert answer["scored_from"] == {"video": "frames", "reference": "picture"}
+    assert _mixed(answer) == []
+
+
+def test_a_stored_file_and_path_score_from_file_and_file(probe, stored):
+    from dw.tasks.video_utils import VideoFileReference
+
+    video, reference = stored
+    for given in (VideoFileReference(video), video):
+        answer = fd.analyze_face_drift(given, reference)
+        assert answer["scored_from"] == {"video": "file", "reference": "file"}
+        assert _mixed(answer) == []
+        assert answer["measurements"][0]["faces_found"] == 4
+
+
+def test_a_saved_chains_frames_score_from_file(probe, stored):
+    from dw.pipeline_processors.chain_spill import ReadFrames, SavedFrames
+    from dw.previous_results import _as_frame_lists
+
+    video, _ = stored
+    saved = AudioVideo(SavedFrames(video, 4), None, None, fps=24)
+    # previous_result: hands the step a list decoded from the file, not the
+    # SavedFrames itself - it still reads as the encoded form
+    (handed,) = _as_frame_lists([saved])
+    assert isinstance(handed.frames, ReadFrames) and handed.frames.path == video
+    answer = fd.analyze_face_drift(handed, a_face())
+    assert answer["scored_from"] == {"video": "file", "reference": "picture"}
+    assert answer["measurements"][0]["faces_found"] == 4
+
+
+def test_a_mixed_pair_carries_the_floor_note_and_a_same_form_pair_does_not(
+    probe, stored
+):
+    from dw.tasks.video_utils import VideoFileReference
+
+    video, reference = stored
+    mixed = [
+        fd.analyze_face_drift(clip([a_face()] * 4), reference),
+        fd.analyze_face_drift(VideoFileReference(video), a_face()),
+    ]
+    assert [answer["scored_from"] for answer in mixed] == [
+        {"video": "frames", "reference": "file"},
+        {"video": "file", "reference": "picture"},
+    ]
+    for answer in mixed:
+        (note,) = _mixed(answer)
+        assert "0.016" in note and "0.030" in note
+        assert "bench/records/face-encode-floor.md" in note
+    same = fd.analyze_face_drift(clip([a_face()] * 4), a_face())
+    assert _mixed(same) == []
+
+
+def test_scored_from_is_additive(probe, stored):
+    # one clip, its reference in memory and from a lossless png: the scoring
+    # keys are the same, only scored_from and the note tell them apart
+    _, reference = stored
+    frames = clip([a_face()] * 3 + [a_face(PERSON_B)] * 3, shots_of(3, 3))
+    in_memory = fd.analyze_face_drift(frames, a_face(), samples_per_shot=3)
+    from_file = fd.analyze_face_drift(frames, reference, samples_per_shot=3)
+    for key in ("measurements", "findings", "rules_applied", "shots_source"):
+        assert in_memory[key] == from_file[key]
+    assert set(in_memory) == {
+        "measurements",
+        "findings",
+        "rules_applied",
+        "shots_source",
+        "scored_from",
+        "notes",
+    }

@@ -25,6 +25,7 @@ from .components import (
     load_and_configure_scheduler,
     load_component,
     captured_mag_calibration,
+    drops_step_list_mag_cache,
     stateful_cache_context,
 )
 from .placement import (
@@ -35,14 +36,15 @@ from .placement import (
 from .h3_rules import (
     REFINE_TILES_INPUT,
 )
-from .h3_tiles import run_tiled_refine
+from .h3_tiles import run_tiled_refine, run_without_decode, skips_decode
+from .modular_arguments import call_arguments
 from .pipeline_h3 import H3Arguments, latent_anchor_source  # noqa: F401 - re-exported
 from .progress import reported_blocks, reported_progress_bars
 from .timing import denoise_start_hook, is_compiled, mark
 from .remote import remote_text_encoder
 from ..type_helpers import has_method
 from ..trust import (
-    require_trusted_from_pretrained_arguments,
+    require_trusted_block,
     require_trusted_pre_load_modules,
 )
 from .. import empty_device_cache, resolve_device
@@ -51,7 +53,14 @@ from diffusers import attention_backend
 # dw.prompt_weighting (transformers) and diffusers.hooks (peft, bitsandbytes) are
 # imported where they are used - at module scope they add seconds to every startup
 
-from ..events import WorkflowCancelled, emit_log, emit_phase, get_context
+from ..events import (
+    WorkflowCancelled,
+    emit_log,
+    emit_phase,
+    emit_warning,
+    get_context,
+)
+from ..step_passes import step_list_passes
 from ..output_extraction import attach_video_frame_rate
 from ..step_cache import component_names, copy_containers
 from ..sparse_attention import (
@@ -317,23 +326,7 @@ class Pipeline(H3Arguments):
         # Walk the whole definition rather than the component names this class
         # knows: a gate that only covers what it remembers to enumerate stops
         # covering a block added later
-        self._check_trusted_block(self.pipeline_definition, "pipeline")
-
-    @staticmethod
-    def _check_trusted_block(block, what):
-        if not isinstance(block, dict):
-            return
-        require_trusted_from_pretrained_arguments(
-            block.get("from_pretrained_arguments"), what
-        )
-        for key, value in block.items():
-            if key == "from_pretrained_arguments":
-                continue
-            if isinstance(value, dict):
-                Pipeline._check_trusted_block(value, key)
-            elif isinstance(value, list):
-                for entry in value:
-                    Pipeline._check_trusted_block(entry, key)
+        require_trusted_block(self.pipeline_definition, "pipeline")
 
     def apply_runtime_settings(self):
         """Re-apply what a run may have changed without changing the weights:
@@ -415,15 +408,7 @@ class Pipeline(H3Arguments):
             if sdnq_optimize:
                 apply_sdnq_optimizations(self.pipeline, sdnq_optimize)
 
-            # Enable diffusers built-in cache acceleration on transformer
-            cache_config = get_cache_configuration(self.configuration)
-            if cache_config is not None:
-                enable_cache_on_transformer(
-                    self.pipeline,
-                    cache_config,
-                    distilled_explicit="is_guidance_distilled"
-                    in self.configuration["cache"],
-                )
+            self._enable_transformer_cache()
 
             # Configure the schedulers if specified - a pipeline that denoises two
             # modalities against two schedules configures each of them separately
@@ -489,6 +474,28 @@ class Pipeline(H3Arguments):
             raise
 
         logger.debug("Pipeline loaded successfully")
+
+    def _enable_transformer_cache(self):
+        """Enable diffusers built-in cache acceleration on the transformer. A
+        mag cache on a fixed step-list sampler is dropped with a warning: it
+        is keyed on num_inference_steps, which such a sampler does not take
+        (#1430)."""
+        cache_config = (
+            None
+            if drops_step_list_mag_cache(
+                self.configuration.get("cache"),
+                self.pipeline,
+                self.pipeline_definition,
+            )
+            else get_cache_configuration(self.configuration)
+        )
+        if cache_config is not None:
+            enable_cache_on_transformer(
+                self.pipeline,
+                cache_config,
+                distilled_explicit="is_guidance_distilled"
+                in self.configuration["cache"],
+            )
 
     def _discard_failed_load(self, shared_components):
         """Drop everything a load that raised had built, and reclaim it.
@@ -642,7 +649,12 @@ class Pipeline(H3Arguments):
         return self._call_pipeline(arguments, attn_backend)
 
     def _call_pipeline(self, arguments, attn_backend):
-        """Call the pipeline with optional attention backend and cache contexts."""
+        """Call the pipeline with optional attention backend and cache contexts.
+
+        A modular pipeline is called without its None arguments, so a block's
+        own default applies (diffusers 0.43 keeps an explicit None); a classic
+        pipeline gets them as given (#1315, modular_arguments.py).
+        """
         arguments = self._with_step_callback(arguments)
         self._check_refine(arguments)
         self._check_selflift(arguments)
@@ -653,6 +665,10 @@ class Pipeline(H3Arguments):
         arguments = self._with_latent_anchor(arguments)
         # The experimental TST correction (#1196), installed for this call only
         arguments, tst = self._take_tst(arguments)
+        # The experimental keystone attention re-split (#1391), likewise
+        arguments, keystone_attention = self._take_keystone_attention(arguments, tst)
+        # The turbo adapter held at 0 for the call's first N evaluations (#1326)
+        arguments, lead_in = self._take_lead_in(arguments)
         # The load is over and the denoise loop is starting. Pipelines whose
         # signature has no step callback report nothing else at all, so this
         # is the only thing that distinguishes running from still loading
@@ -675,13 +691,35 @@ class Pipeline(H3Arguments):
             # (and reports a fallback) while the processors are still on
             stack.enter_context(sparse_call(self.pipeline, label))
             if tst is not None:
-                from .h3_tst import tst_call
+                from .h3_tst import step_list_refusal, tst_call
 
+                skipped = step_list_refusal(self.pipeline, arguments)
+                if skipped:
+                    emit_warning(f"{label}: {skipped}")
+                    tst = None
+            if tst is not None:
                 stack.enter_context(
                     tst_call(
                         self.pipeline,
                         tst,
                         arguments.get("num_inference_steps"),
+                        label,
+                    )
+                )
+            if keystone_attention is not None:
+                from .h3_keystone_attention import keystone_attention_call
+
+                stack.enter_context(
+                    keystone_attention_call(self.pipeline, keystone_attention, label)
+                )
+            if lead_in is not None:
+                from .h3_lead_in import evaluations, lead_in_call
+
+                stack.enter_context(
+                    lead_in_call(
+                        self.pipeline,
+                        lead_in,
+                        evaluations(self.pipeline, arguments),
                         label,
                     )
                 )
@@ -710,8 +748,18 @@ class Pipeline(H3Arguments):
                     output = run_tiled_refine(
                         self.pipeline, arguments, self.segment_label or self.name
                     )
+                elif skips_decode(self.pipeline, arguments):
+                    # An H3 refine whose output asks for no decoded media
+                    # leaves the decode blocks out (#1377)
+                    output = run_without_decode(
+                        self.pipeline,
+                        call_arguments(self.pipeline, arguments),
+                        self.segment_label or self.name,
+                    )
                 else:
-                    output = self.pipeline(**arguments)
+                    # A modular call drops its None arguments (the None
+                    # rule, dw/pipeline_processors/modular_arguments.py)
+                    output = self.pipeline(**call_arguments(self.pipeline, arguments))
             except IndexError as e:
                 cache = self.configuration.get("cache")
                 if (
@@ -752,7 +800,11 @@ class Pipeline(H3Arguments):
             return arguments
 
         run_context = get_context()
-        num_steps = arguments.get("num_inference_steps", None)
+        # A fixed step list runs len - 1 passes and takes no
+        # num_inference_steps (#1316, dw/step_passes.py)
+        num_steps = step_list_passes(self.pipeline, arguments) or arguments.get(
+            "num_inference_steps", None
+        )
 
         def on_step_end(pipe, step_index, timestep, callback_kwargs):
             mark("pass_ended")

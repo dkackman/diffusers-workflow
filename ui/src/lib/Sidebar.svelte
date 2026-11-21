@@ -2,6 +2,7 @@
   import { onMount, untrack } from 'svelte'
   import {
     BookCopy,
+    ClipboardList,
     ChevronDown,
     ChevronRight,
     Database,
@@ -82,6 +83,7 @@
       { section: 'overview', label: 'Overview', icon: LayoutDashboard },
       { section: 'workflows', label: 'Workflows', icon: Layers },
       { section: 'jobs', label: 'Jobs', icon: ListTodo },
+      { section: 'requests', label: 'Requests', icon: ClipboardList },
       { section: 'gallery', label: 'Gallery', icon: Images },
       { section: 'assets', label: 'Assets', icon: FolderOpen },
       { section: 'edit', label: 'Editor', icon: SquarePen },

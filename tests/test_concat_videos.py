@@ -766,6 +766,101 @@ class TestWarningsReachTheCaller:
         # #681: a positional label says its count starts at 1
         assert "video 1 (counting from 1, in join order)" in warnings[0]["message"]
 
+    def test_an_inaudible_clip_hold_draws_no_warning(self):
+        """#1416: a hold that falls 0.02 dB short of the target printed as
+        '0.0 dB short' - noise a consumer can't tell from a real hold."""
+        from dw.events import RunContext, activate_context, deactivate_context
+
+        events = []
+        token = activate_context(RunContext(on_event=events.append))
+        try:
+            concat_videos(
+                [audio_video(4, 0.5), audio_video(4, 0.5)],
+                match_levels="rms",
+                match_levels_dbfs=-2.98,
+            )
+        finally:
+            deactivate_context(token)
+
+        assert [e for e in events if e.get("kind") == "match_levels_held"] == []
+
+    def test_a_clip_held_match_warns_of_the_spread_it_leaves(self):
+        """#1368: the held shot stays quiet and the other reaches the target,
+        so the join is not matched - the warning says by how much and what
+        target every shot can reach."""
+        from dw.events import RunContext, activate_context, deactivate_context
+
+        spiky = numpy.full((2, 100), 0.02, dtype=numpy.float32)
+        spiky[:, 50] = 0.9
+        video = AudioVideo(frames(4), spiky, 100)
+
+        events = []
+        token = activate_context(RunContext(on_event=events.append))
+        try:
+            concat_videos(
+                [video, audio_video(4, 0.02)],
+                match_levels="rms",
+                match_levels_dbfs=-18,
+            )
+        finally:
+            deactivate_context(token)
+
+        spread = [e for e in events if e.get("kind") == "match_levels_spread"]
+        assert len(spread) == 1
+        assert spread[0]["spread_db"] >= 3.0
+        assert "match_levels_dbfs" in spread[0]["message"]
+        assert spread[0]["suggested_target_dbfs"] < -18
+
+    def test_the_spread_warning_shares_the_seam_level_step_threshold(self):
+        """#1368: one owner for the number, one comparator (strict >), so the
+        join-time warning and assess_output's seam_level_step agree."""
+        from dw import assessment_rules
+        from dw.events import RunContext, activate_context, deactivate_context
+        from dw.tasks import joins
+
+        spiky = numpy.full((2, 100), 0.02, dtype=numpy.float32)
+        spiky[:, 50] = 0.9
+
+        def spreads():
+            events = []
+            token = activate_context(RunContext(on_event=events.append))
+            try:
+                concat_videos(
+                    [AudioVideo(frames(4), spiky, 100), audio_video(4, 0.02)],
+                    match_levels="rms",
+                    match_levels_dbfs=-18,
+                )
+            finally:
+                deactivate_context(token)
+            return [e for e in events if e.get("kind") == "match_levels_spread"]
+
+        assert not hasattr(joins, "MATCH_RESIDUAL_SPREAD_DB")
+        assert (
+            assessment_rules.INNER_LEVEL_STEP_WARN_DB is joins.INNER_LEVEL_STEP_WARN_DB
+        )
+        found = spreads()
+        assert len(found) == 1
+        spread = found[0]["spread_db"]
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(joins, "INNER_LEVEL_STEP_WARN_DB", spread + 0.5)
+            assert spreads() == []
+            mp.setattr(joins, "INNER_LEVEL_STEP_WARN_DB", spread - 0.5)
+            assert len(spreads()) == 1
+
+    def test_an_unheld_match_draws_no_spread_warning(self):
+        from dw.events import RunContext, activate_context, deactivate_context
+
+        events = []
+        token = activate_context(RunContext(on_event=events.append))
+        try:
+            concat_videos(
+                [audio_video(4, 0.05), audio_video(4, 0.02)], match_levels="rms"
+            )
+        finally:
+            deactivate_context(token)
+
+        assert [e for e in events if e.get("kind") == "match_levels_spread"] == []
+
     def test_the_near_silent_gain_is_emitted_as_a_warning_event(self):
         """#434: a near-silent input gained up to the target only ever
         reached the server's log, so job.warnings looked clean while the
@@ -1205,3 +1300,37 @@ class TestContinuousJoins:
             concat_videos(
                 [audio_video(4, 0.1), audio_video(4, 0.2)], continuous_joins="yes"
             )
+
+
+def test_a_lufs_spread_warning_leaves_out_a_shot_matched_by_rms():
+    """A shot too short for LUFS is matched by rms to a dBFS target: its
+    level is not set beside the others' LUFS, and the remedy names the
+    argument the lufs mode takes (0.21.0 review)."""
+    from dw.events import RunContext, activate_context, deactivate_context
+    from dw.tasks.joins import match_levels
+
+    rate = 32000
+
+    def tone(seconds, amplitude=0.1):
+        t = numpy.arange(int(rate * seconds)) / rate
+        wave = (amplitude * numpy.sin(2 * numpy.pi * 440 * t)).astype(numpy.float32)
+        return numpy.stack([wave, wave])
+
+    peaky = tone(3.0)
+    peaky[:, ::8000] = 0.99
+
+    def spreads(shots):
+        events = []
+        token = activate_context(RunContext(on_event=events.append))
+        try:
+            match_levels(shots, "lufs", sample_rate=rate, target_lufs=-16)
+        finally:
+            deactivate_context(token)
+        return [e for e in events if e.get("kind") == "match_levels_spread"]
+
+    (event,) = spreads([tone(3.0), tone(0.3), peaky])
+    assert "match_levels_lufs" in event["message"]
+    assert "match_levels_dbfs" not in event["message"]
+    assert event["unit"] == "LUFS"
+    # the short shot's -20 dBFS alone makes no spread among LUFS shots
+    assert spreads([tone(3.0), tone(0.3), tone(3.0)]) == []

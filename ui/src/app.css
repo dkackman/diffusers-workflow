@@ -13,6 +13,8 @@
  * - `--select` (a cool blue) is the user's place: the open workspace, the
  *   active nav section and the focus ring. It stays in the chrome - the
  *   sidebar and focus - never in a surface behind an image.
+ * - `--finding-warn` / `--finding-info` mark an assessment finding's
+ *   severity in the gallery detail: a place to look, not machine state.
  * - a workspace's own dot (`wsColor()` in src/lib/wsColor.ts) identifies
  *   it in the sidebar and breadcrumb. It is identity, not state.
  *
@@ -46,6 +48,8 @@
   --good: #2f6b3f;
   --bad: #a33224;
   --warn: #a85b00;
+  --finding-warn: #a04400;
+  --finding-info: #3d6470;
   color-scheme: light;
 }
 
@@ -65,6 +69,8 @@
     --good: #6fbf87;
     --bad: #e3796a;
     --warn: #e8a33d;
+    --finding-warn: #f0a05a;
+    --finding-info: #8fb8c4;
     color-scheme: dark;
   }
 }
@@ -83,6 +89,8 @@
   --good: #6fbf87;
   --bad: #e3796a;
   --warn: #e8a33d;
+  --finding-warn: #f0a05a;
+  --finding-info: #8fb8c4;
   color-scheme: dark;
 }
 
@@ -100,6 +108,8 @@
   --good: #2f6b3f;
   --bad: #a33224;
   --warn: #a85b00;
+  --finding-warn: #a04400;
+  --finding-info: #3d6470;
   color-scheme: light;
 }
 
@@ -421,9 +431,19 @@ a.danger:hover {
 .panel.good-edge {
   border-left: 3px solid var(--good);
 }
-.chip.queued {
+/* .idle is an item of a request that nothing is happening to: planned,
+   waiting on another, cancelled, dropped. The chip's word says which */
+.chip.queued,
+.chip.idle {
   background: var(--panel-2);
   color: var(--muted);
+}
+/* A request item a job could be queued for now. It waits on the user, and
+   no colour means that: ink on the surface, outlined */
+.chip.ready {
+  background: transparent;
+  color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--ink);
 }
 .chip.running {
   background: var(--live);
@@ -445,96 +465,37 @@ a.danger:hover {
   color: var(--muted);
 }
 
+/* The row of a list that the machine is on right now - a running job, a
+   request item being rendered, a request with a job running - marked the
+   way it is marked in the header: the one row you came to find. Here, so
+   a page's own file needs no --live. The tripled class outranks a page's
+   scoped `.row:hover`, which sits at (0,3,0) */
+.row-live {
+  background: color-mix(in srgb, var(--live) 10%, transparent);
+  box-shadow: inset 2px 0 0 var(--live);
+}
+a.row-live.row-live.row-live:hover {
+  background: color-mix(in srgb, var(--live) 16%, transparent);
+}
+
+/* Words for a screen reader only: a live region's announcement, the name
+   of a column of icons */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
 /* Prose stays inside a comfortable measure wherever it runs long. */
 .prose {
   max-width: 68ch;
 }
 
-/* A contact-sheet frame. Every place the app shows something a workflow
-   produced - a catalog card's proof, a workflow's recent outputs, a job's
-   results, a gallery tile - uses this, so a picture reads the same wherever
-   it turns up. The picture fills the frame edge to edge: no inner padding
-   and no rounding on the image itself, which is what makes it read as a
-   proof on a sheet rather than as another rounded card. Set the size on
-   the frame; the media inside always fills it. */
-.frame {
-  display: block;
-  position: relative;
-  background: var(--panel-2);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-frame);
-  overflow: hidden;
-}
-.frame > img,
-.frame > video {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-/* Marks a still as a video's first frame: grids show a clip as its
-   thumbnail, never as a <video>, and this is what says it plays. Sits in the
-   corner of the nearest positioned ancestor. */
-.videobadge {
-  position: absolute;
-  top: var(--space-2);
-  left: var(--space-2);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  background: color-mix(in srgb, var(--ink) 65%, transparent);
-  color: var(--panel);
-  pointer-events: none;
-}
-
-/* The frame is only ever the picture, so any interactive frame gets its
-   affordance from the border rather than from a colour wash over it */
-a.frame:hover,
-button.frame:hover {
-  border-color: var(--ink);
-  filter: none;
-}
-
-/* A contact sheet whose tiles can be ticked for a bulk action - the gallery
-   and the assets page. The selection logic is picks.svelte.ts and the bar is
-   BulkBar.svelte; these are the two rules that have to reach a tile the page
-   itself lays out, so they live here rather than twice in scoped styles. */
-.cellwrap {
-  position: relative;
-}
-.cellwrap .pick {
-  position: absolute;
-  top: 0.4rem;
-  left: 0.4rem;
-  z-index: 1;
-  margin: 0;
-  width: auto;
-  cursor: pointer;
-  /* It sits over the picture rather than over a padded panel, so it needs
-     its own ground to stay findable against a dark image */
-  outline: 2px solid var(--panel);
-  /* Out of the way until it is wanted: hovering the tile, focusing the box
-     itself, or the tile being ticked at all brings it back */
-  opacity: 0;
-}
-.cellwrap:hover .pick,
-.cellwrap .pick:focus-visible,
-.cellwrap .pick:checked {
-  opacity: 1;
-}
-/* Ticked is the user's own state, not the machine's, so it reads as a
-   heavier ink edge rather than taking the signal colour. A page's own
-   scoped `.cell.active` / `.cell:hover` sits at the same (0,3,0)+hash
-   specificity as this global rule and would win on source order, so the
-   doubled class pushes this one to (0,4,0) to outrank it deliberately
-   rather than by accident of where each stylesheet lands. */
-.cellwrap.picked > .cell.cell {
-  border-color: var(--ink);
-  box-shadow: inset 0 0 0 1px var(--ink);
-}
+/* The contact-sheet frame (.frame, .videobadge) and the pickable tile
+   (.cellwrap) are in frames.css. */
 
 /* One stacking scale for everything above the page. Bits renders overlays
    in a portal on <body>, where a component's scoped styles cannot reach,
@@ -581,6 +542,10 @@ button.frame:hover {
 .ui-message {
   margin: 0 0 var(--space-4);
   white-space: pre-line;
+  /* a long message - a batch's every member - scrolls inside the sheet
+     rather than pushing its buttons off the screen */
+  max-height: 60vh;
+  overflow-y: auto;
 }
 .ui-actions {
   display: flex;
@@ -595,4 +560,8 @@ button.frame:hover {
   min-width: min(320px, 90vw);
   box-shadow: 0 6px 24px color-mix(in srgb, var(--bg) 60%, transparent);
   font-size: 0.85rem;
+}
+.ui-popover-menu {
+  min-width: 11rem;
+  padding: 0.3rem;
 }

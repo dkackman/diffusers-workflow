@@ -350,9 +350,13 @@ def _numbers(definition):
 # minimax/repair-segment is not measured on its own: its two guides are clips
 # cut at run time, which the per-guide charge would price at num_frames each,
 # so it folds their frames into the identity's voxel rate (#1169)
+# minimax/replace-performer is not measured on its own: a ref2va regional
+# edit, it prices its source and mask clips as guides (regional-edit's
+# bytes_per_guide_voxel), which the ref2va identity's numbers do not (#1374)
 TEMPLATE_SPECIFIC = {
     "templates/ltx2/reference-sheet",
     "templates/minimax/repair-segment",
+    "templates/minimax/replace-performer",
 }
 
 

@@ -7,7 +7,9 @@ Everything here is a walk over the expanded definition: a `model_name` or
 `loras` repo under a `from_pretrained_arguments`, a `from_single_file` URL, a
 `load_components` repo override, the repos a task declares through its
 command's `required_weights` hook, and the face models a chain whose `check`
-is on reads for its face_drop. The cache is read through `hub_cache` and
+is on reads for its face_drop. A modular `model_name` whose `load_components`
+moves components to another repo is planned by component from its
+`modular_model_index.json` (#1343), not whole. The cache is read through `hub_cache` and
 `quantized_cache`, never a directory probe of the plan's own - a free
 pre-flight must not be an existence oracle for paths on the box. Nothing here
 knows a model; `dw/plan.py` assembles the answer into the plan beside the
@@ -17,6 +19,7 @@ estimate and the fingerprint, and this module never imports it back.
 import copy
 import json
 import logging
+from pathlib import Path
 
 from huggingface_hub import model_info
 from huggingface_hub import get_hf_file_metadata, hf_hub_url
@@ -24,11 +27,13 @@ from huggingface_hub.utils import (
     GatedRepoError,
     HFValidationError,
     RepositoryNotFoundError,
+    build_hf_headers,
+    get_session,
     validate_repo_id,
 )
 
 from .hub_cache import repo_download_incomplete, scan_models
-from .quantized_cache import _cached_file
+from .quantized_cache import _SPEC_FIELDS, _cached_file, _per_component
 from . import references
 from .realize import read_sub_workflow
 from .security import validate_url
@@ -47,6 +52,10 @@ SINGLE_FILE_KEY = "from_single_file"
 VARIANT_KEY = "variant"
 LOAD_COMPONENTS_KEY = "load_components"
 OVERRIDE_KEY = "pretrained_model_name_or_path"
+CONFIGURATION_KEY = "configuration"
+REVISION_KEY = "revision"
+# The file a modular repo names its components' loading specs in
+MODULAR_INDEX = "modular_model_index.json"
 
 
 class _RepoNotFound(Exception):
@@ -73,30 +82,33 @@ def downloads_required(expanded, base_dir, workflow_dir, cache_dir, lookup_sizes
     offline box is a state, not an error, so nothing here raises or logs
     above debug.
     """
-    names = []
-    variants = {}
-    urls = []
-    files = []
-    _collect_sources(expanded, names, variants, urls, files)
-    _collect_task_weights(expanded, names, files, urls)
-    for path, _arguments in _sub_workflow_paths(expanded):
-        raw = read_sub_workflow(path, base_dir, workflow_dir)
-        if raw is None:
-            continue
-        try:
-            child = json.loads(raw)
-        except ValueError:
-            continue
-        _collect_sources(child, names, variants, urls, files)
-        _collect_task_weights(child, names, files, urls)
+    names, variants, urls, files, partials, whole = _walk(
+        expanded, base_dir, workflow_dir
+    )
     present = {repo.get("repo_id") for repo in scan_models(cache_dir).get("repos", [])}
     required = []
-    for name in names:
+    listed_whole = set()
+    for name in names:  # grows: a component the index sends elsewhere
         # A name not shaped like a hub id is a local checkout - decided by
         # shape, never by touching the disk: the name came from the request
         # body, and a free pre-flight must not be a directory-existence oracle
         if not _is_repo_id(name):
             continue
+        if name in partials and name not in whole:
+            planned = _component_plan(
+                name,
+                *partials[name],
+                cache_dir,
+                lookup_sizes,
+                variant=variants.get(name),
+            )
+            if planned is not None:
+                entries, elsewhere = planned
+                required.extend(entries)
+                # A component the index points at another repo, not overridden
+                names.extend(repo for repo in elsewhere if repo not in names)
+                continue
+        listed_whole.add(name)
         if name in present and not repo_download_incomplete(
             name, cache_dir, variant=variants.get(name)
         ):
@@ -109,10 +121,13 @@ def downloads_required(expanded, base_dir, workflow_dir, cache_dir, lookup_sizes
                 entry["not_found"] = True
         required.append(entry)
     for repo, filename, revision in files:
-        # A whole-repo entry for the same repo already covers the file
-        if repo in names or not _is_repo_id(repo):
+        # A whole-repo entry for the same repo already covers the file; one
+        # planned by component does not - an adapter is no component
+        if repo in listed_whole or not _is_repo_id(repo):
             continue
         if _cached_file(repo, filename, revision or "main", cache_dir) is not None:
+            continue
+        if revision is None and _blob_cached(repo, filename, cache_dir, lookup_sizes):
             continue
         entry = {
             "repo": repo,
@@ -138,7 +153,55 @@ def downloads_required(expanded, base_dir, workflow_dir, cache_dir, lookup_sizes
     return required
 
 
-def _collect_sources(tree, names, variants, urls, files=None):
+def repos_named(expanded, base_dir, workflow_dir):
+    """Every Hub repo the run names, deduplicated in first-seen order: the
+    walk `downloads_required` makes - step and component `model_name`s,
+    `loras`, `load_components` overrides, task weights (a file-level weight
+    counts as its repo) and composed children - with no cache or hub I/O.
+
+    `expanded` is the definition after its arguments are substituted, so a
+    `variable:`-supplied `model_name` is its resolved repo. A name not shaped
+    like a hub id - a local path, a URL, a reference left unresolved - is
+    dropped by shape, as the plan drops it. What dw/model_use.py stamps when
+    the run starts (#1445)."""
+    names, _variants, _urls, files, _partials, _whole = _walk(
+        expanded, base_dir, workflow_dir
+    )
+    named = []
+    for name in [*names, *(repo for repo, _filename, _revision in files)]:
+        if isinstance(name, str) and name not in named and _is_repo_id(name):
+            named.append(name)
+    return named
+
+
+def _walk(expanded, base_dir, workflow_dir):
+    """The sources the expanded definition and each composed child name, as
+    `(names, variants, urls, files, partials, whole)` - see `_collect_sources`
+    and `_collect_task_weights`."""
+    names = []
+    variants = {}
+    urls = []
+    files = []
+    partials = {}
+    whole = set()
+    _collect_sources(expanded, names, variants, urls, files, partials, whole)
+    _collect_task_weights(expanded, names, files, urls, whole)
+    for path, _arguments in _sub_workflow_paths(expanded):
+        raw = read_sub_workflow(path, base_dir, workflow_dir)
+        if raw is None:
+            continue
+        try:
+            child = json.loads(raw)
+        except ValueError:
+            continue
+        _collect_sources(child, names, variants, urls, files, partials, whole)
+        _collect_task_weights(child, names, files, urls, whole)
+    return names, variants, urls, files, partials, whole
+
+
+def _collect_sources(
+    tree, names, variants, urls, files=None, partials=None, whole=None
+):
     """Every from_pretrained source in a tree, first-seen order, deduplicated.
     `variants` collects each name's requested `variant` (first-seen), used to
     tell a repo that is merely missing its fp16 files from one that is fully
@@ -156,30 +219,76 @@ def _collect_sources(tree, names, variants, urls, files=None):
     and sized as the file, not as the repo it sits in (#1088). A weight name
     still holding a reference is no file yet, and a name `file_entries`
     refuses is none either: the repo stands for it.
+
+    A modular step whose `load_components` overrides where some components
+    load from (`pretrained_model_name_or_path`) does not need its base repo
+    whole - Pika H3 Flex's five weight components come from MiniMax-H3, so
+    only its schedulers, tokenizer and processor come from Pika's own 220 GB
+    repo (#1343). With `partials` given, such a base is keyed there as
+    `name -> (load_components, revision)` and planned by component
+    (`_component_plan`); a base any other source names with no override goes
+    in `whole`, and is listed whole as before.
     """
     if isinstance(tree, dict):
         for lora in tree.get(LORAS_KEY) or []:
-            _collect_lora_source(lora, names, files)
+            _collect_lora_source(lora, names, files, whole)
         source = tree.get(FROM_PRETRAINED_KEY)
+        load_components = _step_load_components(tree)
         if isinstance(source, dict):
             name = source.get(MODEL_NAME_KEY)
-            if isinstance(name, str) and name not in names:
-                names.append(name)
-                variant = source.get(VARIANT_KEY)
-                if isinstance(variant, str):
-                    variants[name] = variant
+            if isinstance(name, str):
+                if name not in names:
+                    names.append(name)
+                    variant = source.get(VARIANT_KEY)
+                    if isinstance(variant, str):
+                        variants[name] = variant
+                overrides = isinstance(load_components, dict) and _moves_to_a_repo(
+                    load_components.get(OVERRIDE_KEY)
+                )
+                if partials is not None and overrides:
+                    revision = source.get(REVISION_KEY)
+                    partials.setdefault(
+                        name,
+                        (
+                            load_components,
+                            revision if isinstance(revision, str) else None,
+                        ),
+                    )
+                elif whole is not None:
+                    whole.add(name)
             single = source.get(SINGLE_FILE_KEY)
             if isinstance(single, str) and _is_url(single) and single not in urls:
                 urls.append(single)
-        _collect_component_overrides(tree.get(LOAD_COMPONENTS_KEY), names)
+        _collect_component_overrides(tree.get(LOAD_COMPONENTS_KEY), names, whole)
         for value in tree.values():
-            _collect_sources(value, names, variants, urls, files)
+            _collect_sources(value, names, variants, urls, files, partials, whole)
     elif isinstance(tree, list):
         for value in tree:
-            _collect_sources(value, names, variants, urls, files)
+            _collect_sources(value, names, variants, urls, files, partials, whole)
 
 
-def _collect_lora_source(lora, names, files):
+def _moves_to_a_repo(value):
+    """Whether a `pretrained_model_name_or_path` override sends a component to
+    a hub repo. A local path (not shaped like a hub id) moves it off the base
+    without fetching anything, so the base is planned whole, exactly as with
+    no override: its other components still load from it (#1490)."""
+    values = value.values() if isinstance(value, dict) else [value]
+    return any(isinstance(v, str) and _is_repo_id(v) for v in values)
+
+
+def _step_load_components(tree):
+    """The `load_components` block of the step `tree` is, wherever it sits:
+    beside `from_pretrained_arguments` or under the step's `configuration`."""
+    configuration = tree.get(CONFIGURATION_KEY)
+    if isinstance(configuration, dict) and isinstance(
+        configuration.get(LOAD_COMPONENTS_KEY), dict
+    ):
+        return configuration[LOAD_COMPONENTS_KEY]
+    value = tree.get(LOAD_COMPONENTS_KEY)
+    return value if isinstance(value, dict) else None
+
+
+def _collect_lora_source(lora, names, files, whole=None):
     """One `loras` entry into `files` (its single weight file, when it names
     one and `files` is collected) or `names` (its whole repo otherwise)."""
     name = lora.get(MODEL_NAME_KEY) if isinstance(lora, dict) else None
@@ -202,25 +311,32 @@ def _collect_lora_source(lora, names, files):
         key = (entry["repo"], entry["filename"], entry["revision"])
         if key not in files:
             files.append(key)
-    if not entries and name not in names:
-        names.append(name)
+    if not entries:
+        if name not in names:
+            names.append(name)
+        if whole is not None:
+            whole.add(name)
 
 
-def _collect_component_overrides(arguments, names):
+def _collect_component_overrides(arguments, names, whole=None):
     """The repos a modular step's `load_components.pretrained_model_name_or_path`
     names: a string for every component, or a dict keyed by component name
     with an optional `default`. Diffusers merges it over each component's
-    spec, so the repo is pulled mid-run (#981). The base repo is still listed
-    whole - the subfolder an override replaces is not subtracted."""
+    spec, so the repo is pulled mid-run (#981). An override repo is listed
+    whole; the base repo it stands in for is planned by component when the
+    walk knows it (`_collect_sources`, `_component_plan`)."""
     if not isinstance(arguments, dict):
         return
     value = arguments.get(OVERRIDE_KEY)
     for name in value.values() if isinstance(value, dict) else [value]:
-        if isinstance(name, str) and name not in names:
-            names.append(name)
+        if isinstance(name, str):
+            if name not in names:
+                names.append(name)
+            if whole is not None:
+                whole.add(name)
 
 
-def _collect_task_weights(tree, names, files, urls):
+def _collect_task_weights(tree, names, files, urls, whole=None):
     """Every repo, file or URL a task step in a tree declares, appended after
     the pipeline sources and deduplicated against them - a file as a
     `(repo, filename, revision)` key in `files`. Each `task` block's
@@ -242,18 +358,19 @@ def _collect_task_weights(tree, names, files, urls):
                 names,
                 files,
                 urls,
+                whole,
             )
         chain = tree.get("chain")
         if isinstance(chain, dict) and _chain_checked(chain.get("check")):
-            _add_weights(_chain_check_weights(), names, files, urls)
+            _add_weights(_chain_check_weights(), names, files, urls, whole)
         for value in tree.values():
-            _collect_task_weights(value, names, files, urls)
+            _collect_task_weights(value, names, files, urls, whole)
     elif isinstance(tree, list):
         for value in tree:
-            _collect_task_weights(value, names, files, urls)
+            _collect_task_weights(value, names, files, urls, whole)
 
 
-def _add_weights(entries, names, files, urls):
+def _add_weights(entries, names, files, urls, whole=None):
     """Weight entries into the walk's lists, deduplicated: a file as a
     `(repo, filename, revision)` key, a whole repo by name, a bare URL."""
     for entry in entries:
@@ -263,8 +380,11 @@ def _add_weights(entries, names, files, urls):
             key = (repo, filename, entry.get("revision"))
             if key not in files:
                 files.append(key)
-        elif isinstance(repo, str) and repo not in names:
-            names.append(repo)
+        elif isinstance(repo, str):
+            if repo not in names:
+                names.append(repo)
+            if whole is not None:
+                whole.add(repo)
         elif repo is None and isinstance(url, str) and _is_url(url):
             if url not in urls:
                 urls.append(url)
@@ -336,6 +456,47 @@ def gate_warnings(downloads_required):
     ]
 
 
+def _blob_cached(repo, filename, cache_dir, check_hub):
+    """Whether `filename` sits in some snapshot of the repo other than the
+    one `refs/main` names (#1392). The hub moves `main` when any file of the
+    repo changes; the loader finds the unchanged file's blob already cached
+    and links it into the new snapshot without a download, while
+    `_cached_file` reads only the `refs/main` snapshot and calls the file
+    missing. With `check_hub` the blob must be the one the hub serves now
+    (an LFS etag is its blob's sha256); offline, or when the hub does not
+    answer, the cached copy stands, as it will for the run."""
+    from huggingface_hub.file_download import repo_folder_name
+
+    from .quantized_cache import _hub_cache_dir
+
+    try:
+        snapshots = (
+            Path(_hub_cache_dir(cache_dir))
+            / repo_folder_name(repo_id=repo, repo_type="model")
+            / "snapshots"
+        )
+        blobs = set()
+        for snapshot in snapshots.iterdir() if snapshots.is_dir() else []:
+            path = snapshot / filename
+            if path.is_file():
+                blobs.add(path.resolve().name)
+    except (OSError, ValueError):
+        return False
+    if not blobs:
+        return False
+    if check_hub:
+        try:
+            etag = get_hf_file_metadata(
+                hf_hub_url(repo, filename), timeout=SIZE_LOOKUP_TIMEOUT
+            ).etag
+        except Exception:
+            return True
+        etag = etag.strip('"') if isinstance(etag, str) else ""
+        if len(etag) == 64:
+            return etag in blobs
+    return True
+
+
 def _is_repo_id(name):
     try:
         validate_repo_id(name)
@@ -352,6 +513,196 @@ def _is_url(value):
         return True
     except Exception:
         return False
+
+
+def _component_plan(
+    base, load_components, base_revision, cache_dir, lookup_sizes, variant=None
+):
+    """What a modular step fetches from `base` when its `load_components`
+    sends some components elsewhere (#1343): an `(entries, elsewhere)` pair,
+    or `None` when the repo's `modular_model_index.json` can't be read, which
+    lists `base` whole as before - an overstatement, never a miss.
+
+    The index names each component's loading spec; `load_components` is laid
+    over it per component (`_per_component`, a dict keyed by name with a
+    `default`), the way diffusers merges them at load. A component left on
+    `base` is kept, by subfolder; one moved to another repo is that repo's
+    entry, listed whole by the walk. `elsewhere` is a repo the index itself
+    points a component at, which no override named. `entries` is one
+    `{"repo", "components", "revision", "gb", "gated", "access_blocked"}`
+    per revision with something left to fetch - none when it is all cached.
+    """
+    index = _read_modular_index(base, base_revision, cache_dir, lookup_sizes)
+    if not isinstance(index, dict):
+        return None
+    by_revision = {}
+    classes = {}
+    elsewhere = []
+    for component, value in index.items():
+        if not (isinstance(value, (list, tuple)) and len(value) == 3):
+            continue
+        spec = value[2] if isinstance(value[2], dict) else {}
+        resolved = _per_component(load_components, component)
+        overlay = {
+            field: resolved[field]
+            for field in _SPEC_FIELDS
+            if isinstance(resolved.get(field), str)
+        }
+        repo = overlay.get(OVERRIDE_KEY) or spec.get(OVERRIDE_KEY) or base
+        if repo != base:
+            if OVERRIDE_KEY not in overlay and isinstance(repo, str):
+                elsewhere.append(repo)
+            continue
+        subfolder = overlay.get(SUBFOLDER_KEY) or spec.get(SUBFOLDER_KEY) or component
+        revision = overlay.get(REVISION_KEY) or spec.get(REVISION_KEY) or base_revision
+        by_revision.setdefault(revision, set()).add(subfolder)
+        if isinstance(value[1], str):
+            classes[(revision, subfolder)] = value[1]
+    entries = []
+    for revision, subfolders in by_revision.items():
+        entry = _components_entry(
+            base,
+            revision,
+            sorted(subfolders),
+            cache_dir,
+            lookup_sizes,
+            classes={s: classes.get((revision, s)) for s in subfolders},
+            variant=variant,
+        )
+        if entry is not None:
+            entries.append(entry)
+    return entries, elsewhere
+
+
+def _components_entry(
+    base, revision, subfolders, cache_dir, lookup_sizes, classes=None, variant=None
+):
+    """The entry for `subfolders` of `base` at `revision`, or `None` when
+    every file of them is cached. Sized from the hub's file list at that
+    revision, counting only the files not cached; offline, a subfolder whose
+    snapshot directory holds files counts as cached."""
+    entry = {
+        "repo": base,
+        "components": subfolders,
+        "revision": revision,
+        "gb": None,
+        "gated": None,
+        "access_blocked": None,
+    }
+    # A component folder the snapshot already holds whole is cached, the way
+    # the whole-repo check reads a modular repo: the hub's file list also
+    # names files a load never fetches (#1488)
+    classes = classes or {}
+    subfolders = [
+        s
+        for s in subfolders
+        if not _component_held(base, revision, s, cache_dir, classes.get(s), variant)
+    ]
+    if not subfolders:
+        return None
+    entry["components"] = subfolders
+    prefixes = tuple(f"{subfolder}/" for subfolder in subfolders)
+    if lookup_sizes:
+        try:
+            info = model_info(
+                base,
+                revision=revision,
+                files_metadata=True,
+                timeout=SIZE_LOOKUP_TIMEOUT,
+            )
+        except GatedRepoError as e:
+            logger.debug(f"Gate not accepted for {base}: {e}")
+            entry["gated"] = entry["access_blocked"] = True
+            return entry
+        except RepositoryNotFoundError as e:
+            logger.debug(f"No such repo {base}: {e}")
+            entry["not_found"] = True
+            return entry
+        except Exception as e:
+            logger.debug(f"No file list for {base}: {e}")
+            info = None
+        if info is not None:
+            missing = [
+                s
+                for s in (info.siblings or [])
+                if getattr(s, "rfilename", "").startswith(prefixes)
+                and _cached_file(base, s.rfilename, revision or "main", cache_dir)
+                is None
+            ]
+            if not missing:
+                return None
+            total = sum(getattr(s, "size", None) or 0 for s in missing)
+            entry["gb"] = max(round(total / GIB, 2), 0.01) if total else None
+            entry["gated"] = getattr(info, "gated", False) or False
+            entry["access_blocked"] = (
+                _probe_gate_blocked(base, missing) if entry["gated"] else False
+            )
+            return entry
+    index_path = _cached_file(base, MODULAR_INDEX, revision or "main", cache_dir)
+    if index_path is not None:
+        # The snapshot is listed, never probed by name: a subfolder can come
+        # from the request body, and must not make this an existence oracle
+        held = {
+            child.name
+            for child in Path(index_path).parent.iterdir()
+            if child.is_dir() and any(child.iterdir())
+        }
+        if set(subfolders) <= held:
+            return None
+    return entry
+
+
+def _component_held(
+    base, revision, subfolder, cache_dir, class_name=None, variant=None
+):
+    """Whether `subfolder` of `base`'s snapshot at `revision` is on disk and
+    complete by the #894 component rule. The snapshot is found through the
+    cached modular index, never by probing a name from the request. The
+    component's `class_name` (from the index) and the step's `variant` go to
+    the rule, so a weight-bearing folder holding only configs is not held.
+    A component with no known class is not held: the list overstates."""
+    if not isinstance(class_name, str):
+        return False
+    from .hub_cache import _component_incomplete
+
+    index_path = _cached_file(base, MODULAR_INDEX, revision or "main", cache_dir)
+    if index_path is None:
+        return False
+    snapshot = Path(index_path).parent
+    try:
+        held = {child.name for child in snapshot.iterdir() if child.is_dir()}
+        return subfolder in held and not _component_incomplete(
+            str(snapshot / subfolder), variant, class_name
+        )
+    except OSError:
+        return False
+
+
+def _read_modular_index(base, revision, cache_dir, lookup_sizes):
+    """`base`'s `modular_model_index.json` at `revision` as a dict: the cached
+    copy, else (with `lookup_sizes`) the hub's, read without caching it.
+    `None` when neither answers."""
+    path = _cached_file(base, MODULAR_INDEX, revision or "main", cache_dir)
+    try:
+        if path is not None:
+            return json.loads(Path(path).read_text())
+        if lookup_sizes:
+            return _fetch_modular_index(base, revision)
+    except Exception as e:
+        logger.debug(f"No modular index for {base}: {e}")
+    return None
+
+
+def _fetch_modular_index(base, revision):
+    """The hub's `modular_model_index.json` for `base` at `revision`."""
+    response = get_session().get(
+        hf_hub_url(base, MODULAR_INDEX, revision=revision),
+        headers=build_hf_headers(),
+        timeout=SIZE_LOOKUP_TIMEOUT,
+        follow_redirects=True,
+    )
+    response.raise_for_status()
+    return json.loads(response.text)
 
 
 def _model_info(name):

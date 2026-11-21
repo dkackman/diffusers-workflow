@@ -6,6 +6,7 @@ to one side fails until the other follows. A copy that can be read from the
 server instead is deleted, not pinned.
 """
 
+import copy
 import json
 import pathlib
 import re
@@ -18,6 +19,7 @@ from dw.security import InvalidInputError, SecurityError, validate_workspace_nam
 from dw.server.job_record import TERMINAL_STATES
 from dw.workflow import workflow_from_definition
 from dw.workspace import DEFAULT_WORKSPACE_NAME, RESERVED_WORKSPACE_NAMES
+from dw_mcp.ledger import waiting_notes
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 UI_LIB = REPO / "ui" / "src" / "lib"
@@ -255,10 +257,21 @@ NOT_IN_CONTRACT = {
     "/api/assets/archive",
     "/api/workflows/{}/download",
     "/api/prompts/{}/download",
+    # The assess reply varies with `probe`/`detail` and MCP reads keys a model
+    # would filter (`probes`), so it has no response_model; the UI's narrowed
+    # `AssessReply` in ui/src/lib/types.ts names this route (#1452 plan, Q1)
+    "/api/gallery/{}/assess",
+    # The event-log route has no response_model either; the UI's narrowed
+    # `EventLogReply` in ui/src/lib/types.ts names it (#1452 plan, stage B)
+    "/api/jobs/{}/event-log",
 }
 # The raw workflow/prompt GETs serve the file verbatim; their PUT and DELETE
 # on the same path are in the contract
 VERBATIM_GETS = {("get", "/api/workflows/{}"), ("get", "/api/prompts/{}")}
+# api.ts keeps the request-notes URL in one helper (`notesUrl`) and calls it
+# with POST, PUT and DELETE; the route has no GET, so the scan's bare-literal
+# GET is the helper, not a call
+URL_HELPERS = {("get", "/api/workspaces/{}/request-notes")}
 
 
 def _api_calls(text):
@@ -295,8 +308,27 @@ def test_every_json_route_the_ui_calls_declares_its_response():
     from tests.test_api_contract import UI_READ_ROUTES
 
     covered = {(m, re.sub(r"\{[^}]*\}", "{}", path)) for m, path in UI_READ_ROUTES}
-    calls = _api_calls(API_TS.read_text()) - VERBATIM_GETS - covered
+    calls = _api_calls(API_TS.read_text()) - VERBATIM_GETS - URL_HELPERS - covered
     missing = sorted(call for call in calls if call[1] not in NOT_IN_CONTRACT)
     assert missing == [], (
         f"api.ts calls routes with no declared response model: {missing}"
     )
+
+
+NOTE_WAITING_CASES = json.loads(
+    (REPO / "tests" / "fixtures" / "note_waiting_cases.json").read_text()
+)
+
+
+@pytest.mark.parametrize("case", NOTE_WAITING_CASES, ids=lambda c: c["name"])
+def test_the_notes_channel_decides_each_shared_waiting_note_case(case):
+    """`noteWaiting` in ui/src/lib/request/noteState.ts runs the same cases
+    (noteState.test.ts): the page and the channel agree on which notes wait."""
+    assert [n["note"] for n in waiting_notes(copy.deepcopy(case["request"]))] == case[
+        "waiting"
+    ]
+
+
+def test_the_ui_test_reads_the_shared_waiting_note_cases():
+    source = (UI_LIB / "request" / "noteState.test.ts").read_text()
+    assert "tests/fixtures/note_waiting_cases.json" in source

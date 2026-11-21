@@ -39,7 +39,7 @@ from ..assessment_rules import (
 from .. import dsp
 from ..media import read_thumbnails_and_track
 from ..events import emit_warning
-from .image_ops import luma
+from .image_ops import look_stats, thumbs_and_looks
 
 logger = logging.getLogger("dw")
 
@@ -82,6 +82,12 @@ TYPICAL_DELTA_FLOOR = 2.0
 # as a run on their own (#465)
 DEAD_AIR_WINDOW = 0.05
 TYPICAL_DELTA_PERCENTILE = 90
+
+# A shot's noise floor is this percentile of its DEAD_AIR_WINDOW levels, and
+# is reported only over at least this many windows (0.5 s): fewer leave the
+# percentile resting on one or two windows (#1442)
+NOISE_FLOOR_PERCENTILE = 10
+NOISE_FLOOR_MIN_WINDOWS = 10
 
 # A ratio against a zero neighbour has no size; report it capped
 CLICK_CAP_DB = 120.0
@@ -162,88 +168,12 @@ def read_media(path):
     )
 
 
-def look_stats(rgb):
-    """A frame's look as four float32 scalars on the 0-255 scale, in
-    LOOK_MEASURES order: lightness (mean Rec. 709 luma), contrast (luma
-    standard deviation), saturation (mean per-pixel max(RGB) - min(RGB)) and
-    detail (mean |luma - its 3x3 box blur|, edges extended). The one
-    reduction both the file reader and the in-memory path use."""
-    import scipy.ndimage
-
-    rgb = numpy.asarray(rgb, dtype=numpy.float32)
-    plane = luma(rgb)
-    blurred = scipy.ndimage.uniform_filter(plane, size=3, mode="nearest")
-    return numpy.array(
-        [
-            plane.mean(),
-            plane.std(),
-            (rgb.max(axis=-1) - rgb.min(axis=-1)).mean(),
-            numpy.abs(plane - blurred).mean(),
-        ],
-        dtype=numpy.float32,
-    )
-
-
-def _image(frame):
-    """One in-memory frame (PIL image, or an HxWxC array or tensor, uint8 or
-    float in [0, 1]) as a PIL image."""
-    from PIL import Image
-
-    if not isinstance(frame, Image.Image):
-        array = frame
-        if hasattr(array, "detach"):
-            array = array.detach().cpu().numpy()
-        array = numpy.asarray(array)
-        if array.dtype.kind == "f":
-            array = numpy.clip(array * 255.0, 0, 255)
-        array = array.astype(numpy.uint8)
-        if array.ndim == 3 and array.shape[-1] == 1:
-            array = array[..., 0]
-        frame = Image.fromarray(array)
-    return frame
-
-
-def _thumb(frame):
-    """One in-memory frame as (its grey thumbnail, its look_stats)."""
-    from PIL import Image
-
-    image = _image(frame)
-    thumb = numpy.asarray(
-        image.convert("L").resize((THUMB_WIDTH, THUMB_HEIGHT), Image.BILINEAR),
-        dtype=numpy.uint8,
-    )
-    look = look_stats(
-        numpy.asarray(
-            image.convert("RGB").resize((LOOK_WIDTH, LOOK_HEIGHT), Image.BILINEAR)
-        )
-    )
-    return thumb, look
-
-
 def _in_memory_thumbs(frames):
-    """(thumbnails, looks) of an AudioVideo's frames, one frame at a time: a
-    list, an (N, H, W, C) array, or a SegmentedFrames replaying (N, H, W, 3)
-    chunks. Both None for no frames."""
-    from ..pipeline_processors.chain_spill import SegmentedFrames
-
-    thumbs = []
-    looks = []
-
-    def add(frame):
-        thumb, look = _thumb(frame)
-        thumbs.append(thumb)
-        looks.append(look)
-
-    if isinstance(frames, SegmentedFrames):
-        for chunk in frames:
-            for frame in chunk:
-                add(frame)
-    else:
-        for frame in frames:
-            add(frame)
-    if not thumbs:
-        return None, None
-    return numpy.stack(thumbs), numpy.stack(looks)
+    """(thumbnails, looks) of an AudioVideo's frames at THUMB_ and LOOK_
+    size; `image_ops.thumbs_and_looks` is the reduction."""
+    return thumbs_and_looks(
+        frames, (THUMB_WIDTH, THUMB_HEIGHT), (LOOK_WIDTH, LOOK_HEIGHT)
+    )
 
 
 def frame_measures(frames):
@@ -284,37 +214,37 @@ def media_from(video):
     path = _file_path(video)
     if path is not None:
         return read_media(path)
-    if hasattr(video, "frames") or hasattr(video, "audio"):
+    if isinstance(video, numpy.ndarray) and video.ndim == 4:
+        # video_frames / fit_to_model hand on the frames as one array (a
+        # FittedVideo carries its rate): frames only, no soundtrack
+        frames, audio, sample_rate, shots = video, None, None, None
+    elif hasattr(video, "frames") or hasattr(video, "audio"):
+        frames = getattr(video, "frames", None)
         audio = getattr(video, "audio", None)
-        waveform = None if audio is None else dsp.as_channels_samples(audio)
-        thumbs, looks = (
-            _in_memory_thumbs(video.frames)
-            if getattr(video, "frames", None) is not None
-            else (None, None)
-        )
         sample_rate = getattr(video, "sample_rate", None)
-        fps = getattr(video, "fps", None)
-        media = Media(
-            thumbs,
-            waveform,
-            sample_rate,
-            fps,
-            video_seconds=(thumbs.shape[0] / fps)
-            if thumbs is not None and fps
-            else None,
-            audio_seconds=(
-                waveform.shape[1] / sample_rate
-                if waveform is not None and sample_rate
-                else None
-            ),
-            shots=getattr(video, "shots", None),
-            looks=looks,
+        shots = getattr(video, "shots", None)
+    else:
+        raise ValueError(
+            "a probe takes a stored video (asset:, output: or a path) or the "
+            "video an earlier step returned (a video, or the frames video_frames "
+            f"or fit_to_model returned), not {type(video).__name__}"
         )
-        return media
-    raise ValueError(
-        "a probe takes a stored video (asset:, output: or a path) or the "
-        f"video an earlier step returned, not {type(video).__name__} - a URL "
-        "downloads as bare frames with no soundtrack to measure"
+    waveform = None if audio is None else dsp.as_channels_samples(audio)
+    thumbs, looks = (None, None) if frames is None else _in_memory_thumbs(frames)
+    fps = getattr(video, "fps", None)
+    return Media(
+        thumbs,
+        waveform,
+        sample_rate,
+        fps,
+        video_seconds=thumbs.shape[0] / fps if thumbs is not None and fps else None,
+        audio_seconds=(
+            waveform.shape[1] / sample_rate
+            if waveform is not None and sample_rate
+            else None
+        ),
+        shots=shots,
+        looks=looks,
     )
 
 
@@ -378,6 +308,41 @@ def _round(value, places=2):
     return None if value is None else round(float(value), places)
 
 
+def _window_levels(media, start, count):
+    """The RMS level of each whole `DEAD_AIR_WINDOW`-second window inside a
+    shot's audio span, in dBFS, None for a window of digital silence; and the
+    window's length in samples. `_dead_air` and `_noise_floor` both read these,
+    so the two can't disagree about what a window measured. ([], None) when
+    the span can't be placed."""
+    rate = media.sample_rate
+    if start is None or count is None or not rate:
+        return [], None
+    window_samples = max(1, int(round(DEAD_AIR_WINDOW * rate)))
+    end = min(media.audio.shape[1], start + count)
+    rms = dsp.window_rms(media.audio, start, end, window_samples)
+    return [_db(level) for level in rms], window_samples
+
+
+def _noise_floor(media, start, count, rms_dbfs):
+    """The `NOISE_FLOOR_PERCENTILE`th percentile of a shot's window levels, in
+    dBFS: the room tone plus any hiss under its quiet moments (#1442).
+
+    Nearest rank, counting a silent window as the quietest, so the answer is
+    always one window's own level and never NaN. None under
+    `NOISE_FLOOR_MIN_WINDOWS` windows, and None when that window is digital
+    silence - the value `rms_dbfs` gives for silence. Never above the shot's
+    own `rms_dbfs`: the partial window past the last whole one and a level
+    that is flat throughout could otherwise round the floor a hair above it.
+    """
+    levels, _window_samples = _window_levels(media, start, count)
+    if len(levels) < NOISE_FLOOR_MIN_WINDOWS:
+        return None
+    floor = dsp.nearest_rank(levels, NOISE_FLOOR_PERCENTILE)
+    if floor is None or rms_dbfs is None:
+        return None
+    return min(floor, rms_dbfs)
+
+
 def _dead_air(media, start, count):
     """The longest run of consecutive `DEAD_AIR_WINDOW`-second windows inside
     a shot's audio span that sit at or below `DEAD_AIR_FLOOR_DBFS` - a gap in
@@ -391,18 +356,10 @@ def _dead_air(media, start, count):
     have to add the shot's own start back on. All three are None when the
     span holds fewer than two windows; `seconds` is 0.0 with no run found.
     """
+    levels, window_samples = _window_levels(media, start, count)
+    if len(levels) < 2:
+        return None, None, None
     rate = media.sample_rate
-    if start is None or not rate:
-        return None, None, None
-    window_samples = max(1, int(round(DEAD_AIR_WINDOW * rate)))
-    total = media.audio.shape[1]
-    end = min(total, start + count)
-    if end - start < window_samples * 2:
-        return None, None, None
-    levels = [
-        _db(dsp.rms(media.audio[:, offset : offset + window_samples]))
-        for offset in range(start, end - window_samples + 1, window_samples)
-    ]
     best_len, best_start, best_levels = 0, None, []
     run_start, run_levels = None, []
     for index, level in enumerate(levels):
@@ -559,8 +516,9 @@ def analyze_shots(video, shots=None):
 
     Returns:
         {shots: [{name, start_frame, num_frames, peak_dbfs, rms_dbfs, crest_db, low_dbfs, mid_dbfs,
-        high_dbfs, dead_air_seconds, dead_air_at, dead_air_floor_dbfs, samples}], rms_range_db,
-        findings, rules_applied, rules_skipped, shots_source}
+        high_dbfs, high_share, noise_floor_dbfs, dead_air_seconds, dead_air_at,
+        dead_air_floor_dbfs, samples}], rms_range_db, findings, rules_applied, rules_skipped,
+        shots_source}
     """
     media = media_from(video)
     return shots_answer(media, *resolve_shots(video, media, shots))
@@ -590,6 +548,7 @@ def shots_answer(media, records, source):
             if window is not None and window.size
             else {"low_dbfs": None, "mid_dbfs": None, "high_dbfs": None}
         )
+        shares = dsp.band_shares(balance)
         dead_air_seconds, dead_air_at, dead_air_floor_dbfs = (
             _dead_air(media, start, count) if start is not None else (None, None, None)
         )
@@ -602,6 +561,10 @@ def shots_answer(media, records, source):
                 "rms_dbfs": _round(rms),
                 "crest_db": _round(None if peak is None or rms is None else peak - rms),
                 **{key: _round(value) for key, value in balance.items()},
+                "high_share": _round(
+                    shares["high_dbfs"] if shares is not None else None, 4
+                ),
+                "noise_floor_dbfs": _round(_noise_floor(media, start, count, rms)),
                 "dead_air_seconds": dead_air_seconds,
                 "dead_air_at": dead_air_at,
                 "dead_air_floor_dbfs": dead_air_floor_dbfs,
@@ -661,15 +624,7 @@ def shots_answer(media, records, source):
 def _band_shares(window, sample_rate):
     if window is None or window.size == 0:
         return None
-    bands = dsp.spectral_balance(window, sample_rate)
-    energies = {
-        key: (10.0 ** (value / 10.0) if value is not None else 0.0)
-        for key, value in bands.items()
-    }
-    total = sum(energies.values())
-    if total <= 0.0:
-        return None
-    return {key: value / total for key, value in energies.items()}
+    return dsp.band_shares(dsp.spectral_balance(window, sample_rate))
 
 
 def _shot_rms(media, shot):
@@ -866,6 +821,56 @@ def _seam_look(media, previous, shot, fade):
     return record
 
 
+def _window_look(looks, start, end):
+    """The mean of each LOOK_MEASURES column over looks[start:end]."""
+    means = looks[start:end].mean(axis=0, dtype=numpy.float64)
+    return {
+        measure: _round(means[column], 3)
+        for column, measure in enumerate(LOOK_MEASURES)
+    }
+
+
+def _segment_looks(media, records):
+    """Each shot's look at the start and the end of its own new frames (#1324):
+    the frames from after its `overlap_frames` (the dissolve fade
+    `_seam_look` steps over) to the next shot's start, or for the last shot
+    to the end of the take. `first` is the mean over the first second of
+    those frames, `last` over the last second, each clipped to the segment;
+    a segment shorter than two seconds splits its frames in half (a single
+    frame is both). With `next.first - this.last` at each seam, the seam
+    differences and the in-segment `last - first` changes sum exactly to the
+    take's last-minus-first. A measure only: no rule reads it. Empty for
+    media with no picture or fewer than two shots."""
+    looks = media.looks
+    if looks is None or not records or len(records) < 2:
+        return []
+    frames = looks.shape[0]
+    window = max(1, int(round(media.fps))) if media.fps else LOOK_WINDOW
+    segments = []
+    for index, shot in enumerate(records):
+        start = int(shot.get("start_frame", 0))
+        begin = min(frames, start + int(shot.get("overlap_frames") or 0))
+        end = _shot_end(shot, frames)
+        if index + 1 < len(records):
+            end = min(end, int(records[index + 1].get("start_frame", 0)))
+        end = max(begin, min(frames, end))
+        count = end - begin
+        entry = {"shot": shot.get("name"), "between_frames": None}
+        if count == 0:
+            entry.update(first=None, last=None)
+        else:
+            entry["between_frames"] = [begin, end - 1]
+            if count >= 2 * window:
+                head, tail = window, window
+            else:
+                head = max(1, count // 2)
+                tail = max(1, count - count // 2)
+            entry["first"] = _window_look(looks, begin, begin + head)
+            entry["last"] = _window_look(looks, end - tail, end)
+        segments.append(entry)
+    return segments
+
+
 def analyze_seams(video, shots=None):
     """Task command: measure every seam between shots, audio and picture.
 
@@ -882,9 +887,14 @@ def analyze_seams(video, shots=None):
         spectral_shift, before_rms_dbfs, after_rms_dbfs,
         frame_delta, typical_delta, jump_ratio, saturation_step,
         lightness_step, contrast_step, look_ratio, look_ratio_measure,
-        detail_ratio}], findings, rules_applied, rules_skipped,
-        shots_source}. The look fields are measures only - no rule reads
-        them - and null when the media has no picture.
+        detail_ratio}], segment_looks: [{shot, between_frames: [first,
+        last], first: {lightness, contrast, saturation, detail}, last:
+        {...}}], findings, rules_applied, rules_skipped, shots_source}. The
+        look fields are measures only - no rule reads them - and null when
+        the media has no picture. `segment_looks` is each shot's mean look
+        over the first and last second of its own new frames (after any
+        overlap), so seam differences plus in-segment changes sum to the
+        take's change; `[]` with no picture or fewer than two shots.
     """
     media = media_from(video)
     return seams_answer(media, *resolve_shots(video, media, shots))
@@ -895,7 +905,7 @@ def seams_answer(media, records, source):
     if not records or len(records) < 2:
         return _answer(
             "analyze_seams",
-            {"seams": []},
+            {"seams": [], "segment_looks": []},
             _shot_span_findings("analyze_seams", records, media),
             source,
             shot_dependent=True,
@@ -974,7 +984,11 @@ def seams_answer(media, records, source):
             )
         )
     answer = _answer(
-        "analyze_seams", {"seams": seams}, findings, source, shot_dependent=True
+        "analyze_seams",
+        {"seams": seams, "segment_looks": _segment_looks(media, records)},
+        findings,
+        source,
+        shot_dependent=True,
     )
     if blended and "seam_hole" in answer["rules_applied"]:
         # Skipped at those seams only, but say so (#660)

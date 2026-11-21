@@ -2,9 +2,11 @@
 
 `get_cache_transformer` names the component a cache hook attaches to, and
 `captured_mag_calibration` turns diffusers' end-of-run calibration log record
-into job events (#891), `_report_unfinished_mag_calibration` the ratios a call
-that ran fewer forwards than its schedule left behind (#927). Imported by
-dw/pipeline_processors/components.py, which re-exports the two public names for
+into job events (#891), and `watching_unfinished_mag_calibration` the ratios a
+call that ran fewer forwards than its schedule left behind (#927), taken before
+the call's reset drops them. `drops_step_list_mag_cache` says when a mag cache
+cannot run at all: on a fixed step-list sampler (#1430). Imported by
+dw/pipeline_processors/components.py, which re-exports the public names for
 dw/pipeline_processors/pipeline.py, and never imports it back.
 """
 
@@ -13,6 +15,7 @@ import contextlib
 import logging
 
 from ..events import emit_log, emit_warning
+from ..step_passes import STEP_LIST_UNSUPPORTED, step_list_passes
 
 
 def get_cache_transformer(pipeline):
@@ -91,28 +94,110 @@ def _report_mag_ratios(ratios, context):
     emit_warning(text)
 
 
-def _report_unfinished_mag_calibration(transformer):
-    """Report the ratios a calibrating call left in its mag state (#927).
-
-    diffusers logs a calibration only when its step counter reaches the
-    config's num_inference_steps, and a scheduler can run fewer forwards than
-    that: MiniMax-H3's turns N sigmas into N - 1 evaluations. Such a call ends
-    with its ratios still in the state, which the call's reset then drops. A
-    call that did finish has nothing left here - diffusers clears the list
-    when it logs - so nothing is reported twice.
-    """
-    if not getattr(getattr(transformer, "_cache_config", None), "calibrate", False):
-        return
+def _tail_state_manager(transformer):
+    """The StateManager of the transformer's tail mag hook, which holds the
+    calibration ratios, or None."""
     from diffusers.hooks.mag_cache import MagCacheBlockHook
 
     for module in transformer.modules():
         registry = getattr(module, "_diffusers_hook", None)
         for hook in getattr(registry, "hooks", {}).values():
             if isinstance(hook, MagCacheBlockHook) and hook.is_tail:
-                for name, state in hook.state_manager._state_cache.items():
-                    if state.calibration_ratios:
-                        _report_mag_ratios(list(state.calibration_ratios), name)
-                return
+                return getattr(hook, "state_manager", None)
+    return None
+
+
+class _UnfinishedCalibration:
+    """The ratios a calibrating call left unfinished, read while they exist.
+
+    diffusers logs a calibration only when its step counter reaches the
+    config's num_inference_steps, and a scheduler can run fewer forwards than
+    that: MiniMax-H3's turns N sigmas into N - 1 evaluations. Such a call ends
+    with its ratios still in the mag state.
+
+    When that state is dropped changed with diffusers 0.43 (#1315). 0.42 kept it
+    until dw's own reset after the call, and 0.43's ModularPipeline resets every
+    component's cache hooks in its own `finally`, before the call returns. So the
+    ratios are taken in the state manager's `reset`, just before either reset
+    clears them, and once more after the call for a state no reset has reached.
+    A call that did finish has nothing left - diffusers clears the list when it
+    logs - so nothing is reported twice.
+    """
+
+    def __init__(self, manager):
+        self.manager = manager
+        self.ratios = {}
+
+    def _take(self):
+        for name, state in list(getattr(self.manager, "_state_cache", {}).items()):
+            ratios = list(getattr(state, "calibration_ratios", None) or ())
+            if ratios:
+                self.ratios[name] = ratios
+            else:
+                self.ratios.pop(name, None)
+
+    def install(self):
+        reset = self.manager.reset
+
+        def taking_reset(*args, **kwargs):
+            self._take()
+            return reset(*args, **kwargs)
+
+        self.manager.reset = taking_reset
+
+    def remove(self):
+        # The wrapper is an instance attribute over the class's own method
+        self.manager.__dict__.pop("reset", None)
+
+    def report(self):
+        self._take()
+        for name, ratios in self.ratios.items():
+            _report_mag_ratios(ratios, name)
+        self.ratios = {}
+
+
+def watching_unfinished_mag_calibration(transformer):
+    """Start holding the ratios a calibrating call leaves unfinished (#927).
+
+    Returns:
+        (report, remove): `report()` emits them, once the call has completed;
+        `remove()` stops watching. Both are no-ops unless the transformer's
+        cache is a MagCacheConfig with calibrate on.
+    """
+    if not getattr(getattr(transformer, "_cache_config", None), "calibrate", False):
+        return (lambda: None), (lambda: None)
+    manager = _tail_state_manager(transformer)
+    if manager is None or not callable(getattr(manager, "reset", None)):
+        return (lambda: None), (lambda: None)
+    watch = _UnfinishedCalibration(manager)
+    watch.install()
+    return watch.report, watch.remove
+
+
+def drops_step_list_mag_cache(cache, *pipelines):
+    """Whether a step's `cache` is a MagCache the run must drop (#1430).
+
+    MagCache is keyed on `num_inference_steps`: its `mag_ratios` are per step
+    of that schedule, and without them diffusers refuses the config unless it
+    calibrates, which counts the same steps. A pipeline that fixes a
+    `denoising_step_list` takes neither, so the cache is dropped and the step
+    runs uncached, with the line validate gives (`step_list_unsupported` in
+    dw/acceleration_warnings.py).
+
+    Args:
+        cache: The step configuration's `cache` block, or None.
+        *pipelines: Where the step list may be read: the loaded pipeline and
+            the step's `pipeline` block (dw/step_passes.py).
+
+    Returns:
+        True, after emitting the warning, when the cache is dropped.
+    """
+    if not isinstance(cache, dict) or cache.get("type") != "mag":
+        return False
+    if all(step_list_passes(pipeline) is None for pipeline in pipelines):
+        return False
+    emit_warning(f"MagCache is {STEP_LIST_UNSUPPORTED}; this step runs uncached")
+    return True
 
 
 @contextlib.contextmanager
@@ -131,6 +216,16 @@ def captured_mag_calibration(pipeline, arguments=None):
     transformer = get_cache_transformer(pipeline)
     config = getattr(transformer, "_cache_config", None)
     if not getattr(config, "calibrate", False):
+        yield
+        return
+
+    if step_list_passes(pipeline, arguments) is not None:
+        # The calibration counts num_inference_steps, which a fixed step
+        # list does not take (#1316): skip it rather than end unlogged
+        emit_warning(
+            f"MagCache calibration is {STEP_LIST_UNSUPPORTED}; "
+            f"the call runs without calibrating"
+        )
         yield
         return
 

@@ -3,7 +3,11 @@
   import DownloadLink from '../DownloadLink.svelte'
   import JsonEditor from '../editor/JsonEditor.svelte'
   import VariablesForm from '../editor/VariablesForm.svelte'
-  import { attentionBackendVariables, requiredVariables } from '../editor'
+  import {
+    attentionBackendVariables,
+    constraintHints,
+    requiredVariables,
+  } from '../editor'
   import { api } from '../api'
   import { goWs, route } from '../router.svelte'
   import { leafOf } from '../grouping'
@@ -12,9 +16,16 @@
   import { loadPromptLibrary } from '../promptlib.svelte'
   import { notify } from '../toast'
   import { observedText, observedTitle } from '../observed'
+  import { costBasisWords, costFigure, costMeasuredOn } from '../cost'
   import { confirmDialog } from '../confirm.svelte'
   import type { GalleryFile, WorkflowDefinition } from '../types'
   import ClampedText from '../ui/ClampedText.svelte'
+  import { onDestroy } from 'svelte'
+  import { describePlan } from '../plan'
+  import { placeFindings } from '../findings'
+  import { RunCheck } from '../runCheck.svelte'
+  import RunCheckPanel from '../workflow/RunCheckPanel.svelte'
+  import { WORKFLOW_PREFILL_KEY } from '../chainActions'
 
   let { name }: { name: string } = $props()
 
@@ -39,9 +50,33 @@
   let proofs = $state<GalleryFile[]>([])
   /** This server's own measured run time for the workflow, if it has one. */
   let observed = $state<Record<string, unknown> | null>(null)
+  /** The maintainer's figure for this workflow, from the same catalog card:
+   * "a maintainer's figure: ~3 min · 22 GB VRAM, measured on <card> at
+   * steps=30". Null when the card has no cost - never "unknown cost". */
+  let curated = $state<string | null>(null)
+
+  /** Values another page asked this one to open with (Repair this
+   * segment, #1476): read once, and only when they name this workflow.
+   * Filled in, never submitted - Run is still the user's */
+  function takePrefill(): Record<string, string> {
+    const raw = sessionStorage.getItem(WORKFLOW_PREFILL_KEY)
+    if (raw === null) return {}
+    sessionStorage.removeItem(WORKFLOW_PREFILL_KEY)
+    try {
+      const parsed = JSON.parse(raw)
+      if (parsed?.workflow !== name) return {}
+      const args = parsed.arguments
+      if (!args || typeof args !== 'object') return {}
+      return Object.fromEntries(
+        Object.entries(args).map(([key, value]) => [key, String(value)]),
+      )
+    } catch {
+      return {}
+    }
+  }
 
   $effect(() => {
-    overrides = {}
+    overrides = takePrefill()
     workflow = null
     origin = ''
     writable = true
@@ -55,13 +90,20 @@
       })
       .catch((e) => (error = e.message))
     observed = null
+    curated = null
     const wanted = name
     api
       .listWorkflows()
       .then((r) => {
         if (wanted !== name) return
-        observed =
-          (r.details?.[name]?.observed as Record<string, unknown>) ?? null
+        const card = r.details?.[name]
+        observed = (card?.observed as Record<string, unknown>) ?? null
+        const measured = card?.cost?.[0]
+        if (measured) {
+          const basis = costBasisWords(r.cost_basis)
+          const figure = `${costFigure(measured)}, ${costMeasuredOn(card.cost, card.cost_drivers)}`
+          curated = basis ? `${basis}: ${figure}` : figure
+        }
       })
       .catch(() => {})
   })
@@ -87,6 +129,46 @@
   })
 
   const variables = $derived(Object.entries(workflow?.variables ?? {}))
+
+  /** The arguments a Run sends: the overrides with every blank dropped, so
+   * a blank field leaves the workflow's own default in place. Validate asks
+   * about exactly these, so its answer predicts the Run click. */
+  function runArguments(): Record<string, unknown> {
+    const args: Record<string, unknown> = {}
+    for (const [key, value] of Object.entries(overrides)) {
+      if (value !== '') args[key] = value
+    }
+    return args
+  }
+
+  /** The check beside Run, asked about exactly what Run would send. */
+  const runCheck = new RunCheck((sizes, signal) =>
+    api.validate(
+      { workflow_path: name, arguments: runArguments(), sizes },
+      signal,
+    ),
+  )
+
+  $effect(() => {
+    if (!workflow) {
+      runCheck.clear()
+      return
+    }
+    // Reading every override is what makes this re-run on each change
+    runCheck.changed(name, runArguments())
+  })
+
+  onDestroy(runCheck.stop)
+
+  const placed = $derived(
+    placeFindings(
+      runCheck.validation,
+      variables.map(([key]) => key),
+    ),
+  )
+  const planLines = $derived(
+    runCheck.validation?.plan ? describePlan(runCheck.validation.plan) : [],
+  )
 
   function newFrom() {
     if (!workflow) return
@@ -120,15 +202,11 @@
     submitting = true
     error = ''
     try {
-      const args: Record<string, unknown> = {}
-      for (const [key, value] of Object.entries(overrides)) {
-        if (value !== '') args[key] = value
-      }
       const job = await api.submitJob({
         // By name, not by composed path: the server resolves a name across
         // every source it can read, so an example runs where it lives
         workflow_path: name,
-        arguments: args,
+        arguments: runArguments(),
       })
       goWs('jobs', job.id)
     } catch (e) {
@@ -176,11 +254,6 @@
   >
     <Copy size={14} />Duplicate
   </button>
-  {#if observedText(observed)}
-    <span class="num muted" title={observedTitle(observed) ?? ''}
-      >{observedText(observed)}</span
-    >
-  {/if}
   <button
     class="withicon run"
     onclick={run}
@@ -191,9 +264,36 @@
   </button>
 </div>
 
+<!-- The template's own figure, then what this server measured: two claims,
+     each saying whose it is. The per-run figure for the values below is the
+     plan in the run check -->
+{#if curated || observedText(observed)}
+  <div class="costs">
+    {#if curated}
+      <p class="curated num" aria-label="curated cost">
+        {curated}
+        <span class="muted">· other values re-price it in the plan</span>
+      </p>
+    {/if}
+    {#if observedText(observed)}
+      <p class="num muted" title={observedTitle(observed) ?? ''}>
+        {observedText(observed)}
+      </p>
+    {/if}
+  </div>
+{/if}
+
 {#if error}<p class="error">{error}</p>{/if}
 
 {#if workflow}
+  <RunCheckPanel
+    verdict={runCheck.verdict}
+    checking={runCheck.checking}
+    {planLines}
+    checkError={runCheck.error}
+    findings={placed.general}
+  />
+
   {#if workflow.description}
     <div class="muted desc prose">
       <ClampedText text={String(workflow.description)} />
@@ -247,6 +347,9 @@
         idPrefix="var-"
         backendVariables={attentionBackendVariables(workflow)}
         requiredVariables={requiredVariables(workflow)}
+        constraints={constraintHints(workflow)}
+        presets={workflow.presets}
+        findings={placed.byVariable}
       />
     </div>
   {:else}
@@ -356,6 +459,12 @@
   }
   .json {
     margin-top: var(--space-3);
+  }
+  .costs {
+    margin: 0 0 var(--space-3);
+  }
+  .costs p {
+    margin: var(--space-1) 0;
   }
   .error {
     color: var(--bad);

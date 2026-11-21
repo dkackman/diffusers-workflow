@@ -1,5 +1,7 @@
 """The gallery routes: list a workspace's outputs, bundle a selection into a
-zip, and delete one output or run directory.
+zip, delete one output or run directory, and the two marks a person puts on
+one: `PUT /api/notes` (the note on an output, a run, an asset or a workspace;
+dw/notes.py holds the stores) and `PUT /api/stars`.
 
 Registered after the media router, so the `/metadata`, `/thumbnail` and
 `/download` GETs under `/api/gallery/{name:path}` are matched before the
@@ -14,16 +16,31 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
 
 from ..api_models import (
     GalleryList,
+    NoteSet,
     OutputDeleted,
+    StarSet,
 )
+from ...assets import is_asset_reference
+from ...library import ReadOnlyLibraryError
 from ...media import probe_media
 from ...notes import (
+    MAX_NOTE_LENGTH,
     NOTES_FILE_NAME,
+    NoteTooLong,
+    clean_note,
     drop_file_note,
+    effective_note,
+    read_notes,
+    set_file_note,
+    set_file_starred,
+    set_run_note,
+    set_workspace_note,
 )
+from ...references import ASSET, WORKSPACE, is_ref, ref_name
 from ...roles import ROLES
 from ...runs import (
     MANIFEST_FILE_NAME,
@@ -32,9 +49,21 @@ from ...runs import (
     record_run_versions,
     split_run_path,
 )
-from ...security import SecurityError, validate_path
-from ...workspace import Workspace, forget_workspace_usage
-from ..deps import selected_workspace
+from ...security import (
+    InvalidInputError,
+    SecurityError,
+    validate_asset_reference,
+    validate_ledger_key,
+    validate_path,
+)
+from ...workspace import DEFAULT_WORKSPACE_NAME, Workspace, forget_workspace_usage
+from ..deps import (
+    asset_library_missing,
+    internal_error,
+    selected_workspace,
+    workspace_for,
+    workspace_root,
+)
 from ..outputs import (
     ArchiveRequest,
     delete_run_directory,
@@ -49,6 +78,8 @@ from ..outputs import (
     served_url,
     split_run_name,
     strip_output_prefix,
+    validated_run_split,
+    workspace_asset_library,
 )
 
 logger = logging.getLogger("dw")
@@ -173,6 +204,26 @@ def _orphan_entries(root):
     return entries
 
 
+def _check_gallery_filters(role, request_id, item):
+    """Refuse a gallery query's bad filters: an unknown role is a 400; an
+    `item` without a `request`, or either as a malformed ledger key, a 422."""
+    if role:
+        unknown = sorted(set(role) - set(ROLES))
+        if unknown:
+            raise HTTPException(
+                status_code=400,
+                detail=f"unknown role {unknown}; roles are {list(ROLES)}",
+            )
+    if item and not request_id:
+        raise HTTPException(status_code=422, detail="item needs request")
+    for value, what in ((request_id, "request"), (item, "item")):
+        if value:
+            try:
+                validate_ledger_key(value, what)
+            except InvalidInputError as e:
+                raise HTTPException(status_code=422, detail=str(e))
+
+
 @router.get(
     "/api/gallery", response_model=GalleryList, response_model_exclude_unset=True
 )
@@ -186,6 +237,17 @@ def gallery(
     version: Optional[int] = None,
     media: bool = False,
     role: Optional[list[str]] = Query(None),
+    request_id: Optional[str] = Query(
+        default=None,
+        alias="request",
+        description="Only the files of runs whose job is linked to this "
+        "requests-ledger request in this workspace",
+    ),
+    item: Optional[str] = Query(
+        default=None,
+        description="With `request`: only the files of runs whose job is "
+        "linked to this item of it",
+    ),
     ws: Workspace = Depends(selected_workspace),
 ):
     """A page of media files in the output directory, newest first.
@@ -228,13 +290,7 @@ def gallery(
     (dw/roles.py rule 4). A run that recorded no role takes the role its
     file's subfolder names, then rule 4; with neither it is null. `role`
     is a repeatable filter; a null role counts as final. Omitted, every file is listed."""
-    if role:
-        unknown = sorted(set(role) - set(ROLES))
-        if unknown:
-            raise HTTPException(
-                status_code=400,
-                detail=f"unknown role {unknown}; roles are {list(ROLES)}",
-            )
+    _check_gallery_filters(role, request_id, item)
     if only_orphans:
         entries = _orphan_entries(ws.outputs)
         offset = max(0, offset)
@@ -264,6 +320,13 @@ def gallery(
     if role:
         wanted = set(role)
         entries = [e for e in entries if (e.get("role") or "final") in wanted]
+    if request_id:
+        # A run belongs to the request its job was linked to; the history's
+        # run_id column is the map from one to the other
+        runs = request.app.state.job_manager.history.run_ids_for_request(
+            ws.name, request_id, item
+        )
+        entries = [e for e in entries if e["run_id"] in runs]
     offset = max(0, offset)
     limit = max(0, limit)
     page = entries[offset : offset + limit]
@@ -398,3 +461,150 @@ def delete_output(
     swept = _prune_empty_run_directory(name, ws.outputs)
     forget_workspace_usage()
     return {"name": name, "deleted": True, "run_swept": swept}
+
+
+class NoteRequest(BaseModel):
+    target: str = Field(
+        description="What the note is on: a gallery file name, a run directory "
+        "`<identity>/<run id>`, `asset:<name>` or `workspace:<name>`"
+    )
+    note: Optional[str] = Field(
+        default=None,
+        description=f"At most {MAX_NOTE_LENGTH} characters; null or '' clears it",
+    )
+
+
+def _workspace_note_target(state, name):
+    """The root a `workspace:<name>` target writes workspace.json into."""
+    if not name:
+        raise HTTPException(
+            status_code=400, detail="Name a workspace: workspace:<name>"
+        )
+    if name == DEFAULT_WORKSPACE_NAME:
+        root = state.default_workspace.root
+        if not root:
+            raise HTTPException(
+                status_code=409,
+                detail="This server has no workspace root, so the default "
+                "workspace has nowhere to keep a note",
+            )
+        return root
+    # 400 for a name a workspace cannot take, 404 for one that is not there
+    selected = workspace_for(state, name)
+    try:
+        return validate_path(
+            selected.root, workspace_root(state).root, allow_create=False
+        )
+    except SecurityError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+def _asset_note_target(state, ws, name):
+    """(directory, file name) of the asset an `asset:<name>` target names -
+    resolved the way the asset delete resolves it, read-only roots refused."""
+    library = workspace_asset_library(state, ws)
+    if not library.roots():
+        raise asset_library_missing()
+    try:
+        relative = validate_asset_reference(name)
+    except SecurityError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    found = library.find(relative)
+    if not found:
+        raise HTTPException(status_code=404, detail=f"No such asset: {relative}")
+    path, root = found
+    try:
+        library.require_writable(root, relative)
+    except ReadOnlyLibraryError as refusal:
+        raise HTTPException(status_code=403, detail=str(refusal))
+    return os.path.dirname(path), os.path.basename(path)
+
+
+def resolve_note_target(state, ws, target):
+    """(directory, name, kind) for a note target, kind one of "workspace",
+    "run" and "file" (an asset is a file in its library directory). Every
+    directory is a validator's return value against a non-None root, or the
+    server's own configured default root. Raises the route's 400/403/404/409.
+    """
+    if is_ref(WORKSPACE, target):
+        name = ref_name(WORKSPACE, target).strip()
+        return _workspace_note_target(state, name), None, "workspace"
+    if is_asset_reference(target):
+        name = ref_name(ASSET, target).strip()
+        directory, file_name = _asset_note_target(state, ws, name)
+        return directory, file_name, "file"
+    name = strip_output_prefix(target)
+    run_dir = run_directory(name, ws.outputs)
+    if run_dir is not None:
+        return run_dir, None, "run"
+    path = resolve_output_file(state, name, ws.outputs)
+    split = validated_run_split(ws.outputs, path)
+    if split is None:
+        raise HTTPException(
+            status_code=409,
+            detail=f"{name} is not in a run directory, and notes need a run directory",
+        )
+    return split[0], split[1], "file"
+
+
+@router.put("/api/notes", response_model=NoteSet, response_model_exclude_unset=True)
+def put_note(
+    request: Request, body: NoteRequest, ws: Workspace = Depends(selected_workspace)
+):
+    """Set or clear the note on a run, a file, an asset or a workspace.
+
+    `target` is a gallery file name (that file's own note), a run directory
+    `<identity>/<run id>` (the run note every file of the run falls back to),
+    `asset:<name>` or `workspace:<name>` ('default' for the root's own). The
+    answer is the target's effective note after the write: a file with no
+    note of its own answers with its run's, and `note_source` says which.
+    """
+    try:
+        note = clean_note(body.note)
+    except (NoteTooLong, TypeError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    directory, name, kind = resolve_note_target(request.app.state, ws, body.target)
+    try:
+        if kind == "workspace":
+            stored, source = set_workspace_note(directory, note), None
+        elif kind == "run":
+            stored, source = set_run_note(directory, note), "run"
+        else:
+            set_file_note(directory, name, note)
+            stored, source = effective_note(read_notes(directory), name)
+    except OSError:
+        raise internal_error(f"Could not write the note on {body.target!r}")
+    return {
+        "target": body.target,
+        "note": stored,
+        "note_source": source if stored else None,
+    }
+
+
+class StarRequest(BaseModel):
+    name: str = Field(description="A gallery file name")
+    starred: bool
+
+
+@router.put("/api/stars", response_model=StarSet)
+def put_star(
+    request: Request, body: StarRequest, ws: Workspace = Depends(selected_workspace)
+):
+    """Star or unstar one output file - the "keep" mark a person culls a run
+    with. It lives in the run's notes.json beside the notes, so it is
+    resolved exactly as a file note is, and only a file in a run directory
+    can carry one."""
+    if is_ref(WORKSPACE, body.name) or is_asset_reference(body.name):
+        raise HTTPException(
+            status_code=400, detail="Only an output file can be starred"
+        )
+    directory, name, kind = resolve_note_target(request.app.state, ws, body.name)
+    if kind != "file":
+        raise HTTPException(
+            status_code=400, detail="Only an output file can be starred"
+        )
+    try:
+        starred = set_file_starred(directory, name, body.starred)
+    except OSError:
+        raise internal_error(f"Could not write the star on {body.name!r}")
+    return {"name": body.name, "starred": starred}

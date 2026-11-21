@@ -70,15 +70,13 @@ The guides in `docs/`, by topic:
 
 ### Claude Code plugin
 
-`.claude-plugin/marketplace.json` publishes the `dw` plugin in `plugins/dw/`: one
-composition skill per model family (`minimax-h3`, `minimax-music3`, `ltx-2.5`,
-`kandinsky-6`, `flux3-klein`) that chooses a template for a request's shape and states the
-family's hard rules, plus cross-cutting composition skills (`script-to-video`,
-`series-episodes`, `cinematography`, `storyboard`, `long-form`) - shapes above the
-families that orchestrate the decision trees, cast consistency across multiple
-generations, one camera-and-look vocabulary compiled per family, boards and a timed
-animatic before video, and the measured playbook for pieces longer than one clip. Every skill the directory holds is named in `plugins/dw/README.md` and here, pinned
-by `tests/test_plugin_skills.py`; that README says how the rest is pinned and versioned.
+`.claude-plugin/marketplace.json` publishes the `dw` plugin in `plugins/dw/`: one composition skill per model family (`minimax-h3`,
+`minimax-music3`, `ltx-2.5`, `kandinsky-6`, `flux3-klein`, `minimax-h3-image`) that chooses a template for a request's shape and
+states the family's hard rules, plus cross-cutting composition skills (`script-to-video`, `series-episodes`, `cinematography`,
+`storyboard`, `long-form`) - shapes above the families that orchestrate the decision trees, cast consistency across multiple
+generations, one camera-and-look vocabulary compiled per family, boards and a timed animatic before video, and the measured playbook
+for pieces longer than one clip. Every skill the directory holds is named in `plugins/dw/README.md` and here, pinned by
+`tests/test_plugin_skills.py`; that README says how the rest is pinned and versioned.
 
 ## Security Rules
 
@@ -98,8 +96,9 @@ noise. `validate_path(path, base)` is a barrier only when `base` is not `None`; 
 
 ## Before you edit
 
-- **Model knowledge lives in `plugins/dw/` and the catalog, never in engine code.** A
-  model's rule about a value is declared in the workflow (`dw/variable_constraints.py`).
+- **Model knowledge lives in `plugins/dw/` and the catalog, never in engine code.** A model's rule about a
+  value is declared in the workflow (`dw/variable_constraints.py`), or read off the diffusers class that
+  enforces it (`dw/reference_limits.py`, `dw/pipeline_limits.py`); the engine names the class, never the number.
 - **Compare backends with `get_device_type()`, not `== "cuda"`** - a device like
   `cuda:1` fails the string compare (`dw/__init__.py`).
 - **`{}` keeps a value a string**: under a `*_type`/`*_dtype`/`dtype` key `"{nf4}"` stays

@@ -31,5 +31,45 @@
       "refine_strength": null
     },
     "seed": 1194
+  },
+  {
+    "name": "t16-swap-g0-s1194",
+    "scene": "s4-montage",
+    "workflow": "t16-performer-swap.json",
+    "arguments": {
+      "mask_grow": 0
+    },
+    "seed": 1194
+  },
+  {
+    "name": "t16-swap-g0-s2002",
+    "scene": "s4-montage",
+    "workflow": "t16-performer-swap.json",
+    "arguments": {
+      "mask_grow": 0
+    },
+    "seed": 2002
+  },
+  {
+    "name": "t16-swap-e16-s1194",
+    "scene": "s4-montage",
+    "workflow": "t16-performer-swap.json",
+    "arguments": {
+      "mask_grow": 0,
+      "source_video": "asset:bench/t16/deflect-cut.mp4",
+      "mask_video": "asset:bench/t16/deflect-mask-e16.mp4"
+    },
+    "seed": 1194
+  },
+  {
+    "name": "t16-swap-e16-s2002",
+    "scene": "s4-montage",
+    "workflow": "t16-performer-swap.json",
+    "arguments": {
+      "mask_grow": 0,
+      "source_video": "asset:bench/t16/deflect-cut.mp4",
+      "mask_video": "asset:bench/t16/deflect-mask-e16.mp4"
+    },
+    "seed": 2002
   }
 ]

@@ -25,9 +25,10 @@
   import { loadWorkspaces, workspace } from '../workspace.svelte'
   import {
     attentionBackendVariables,
+    constraintHints,
     emptyWorkflow,
-    referenceSuggestions,
   } from '../editor'
+  import { referenceSuggestions } from '../referenceSuggestions'
   import { danglingReferenceDetails, flowGraph } from '../flow'
   import { groupOf, leafOf } from '../grouping'
   import { loadPromptLibrary, promptLibrary } from '../promptlib.svelte'
@@ -456,6 +457,8 @@
           bind:variables={ed.doc.variables}
           idPrefix="wfvar-"
           backendVariables={attentionBackendVariables(ed.doc)}
+          constraints={constraintHints(ed.doc)}
+          presets={ed.doc.presets}
         />
       </div>
 

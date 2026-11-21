@@ -97,7 +97,7 @@ motion together at 86 s, and nothing is measured past 86 s.
   unbroken, the face is etched by about 30 s and `face_drop` steps up at
   segment 6 (36 s). Good for a take of about 30 s.
 - **`shot: standing`** (`keystone: segment_1`, `keystone_slot: last`, no
-  keyframes): face and backdrop hold to 85 s, `face_drop` within 0.015 (seed 1 only). She
+  keyframes): face and backdrop hold to 85 s, `face_drop` within 0.015 (seed 1; on seed 1362 it held 65.6 s, at most 0.027, `bench/records/drill.md`). She
   stands; each segment eases back to the opening frame. The keyframe-free way
   to a longer take.
 - **`shot: walk_keyframed`** (the moving keystone, `keyframes`): the face
@@ -117,8 +117,29 @@ motion together at 86 s, and nothing is measured past 86 s.
   blurrier and, on one segment, older.
 - **Kandinsky S2V 1.0 Lite distilled** (86 s spike): failed on identity, the
   face drifting to a different, darker one by 85 s.
+- **Kandinsky S2V 1.0 Pro distilled at 4-bit** (20 s gate, outside dw):
+  failed on identity sooner (SFace 0.72 by 20 s), and is too slow on one 24 GB
+  card (it needs the transformer offloaded and ~48 GB host RAM). Not onboarded.
 - **Passages joined as cuts**: the released shape for a piece longer than one
-  clean take. Not yet run end to end.
+  clean take: one narration for the whole script (`templates/narration-long`
+  from one `templates/generate-speech` reference when the user has no voice
+  clip, retimed once with `templates/narration-retime`), cut into passages
+  with `slice_audio`, one take per passage (`shot: standing` for a monologue
+  to camera, `dialogue` only under 30 s) from a different still or angle,
+  joined by `concat_videos` at `trim_frames: 0`, `match_levels: "lufs"`, then
+  judged at each cut with `analyze_seams` and by ear (`run-and-repair.md`,
+  *A narrated take*). `chained-segments` with a voice H3 invents per passage
+  is not this shape. Run end to end once: 106.6 s, two `standing` passages,
+  one cut (`bench/records/drill.md`, *Cold drill attempt 2*).
+- **The next passage's still from the last take's late frame**: the cut's
+  detail reset. A fresh still opens B at 0.23x A's end face sharpness. The
+  sharpest face in A's last 2 s (`get_frame`) through
+  `templates/flux3/image-edit` to B's angle opens B at 0.86x, holding about
+  750-950 through B's first 8 s. A `sharpen`ed still opens at 0.39x, and a
+  stepped `sharpen` on B's head matches A but looks etched. Don picked the
+  late frame on viewing. Only B's first segment is measured
+  (`bench/records/narrated.md`, *Cut probe at the #1311 keeper's 41.0 s
+  cut*; `run-and-repair.md`, *Longer than one take*, *Takes*).
 
 ## Measured and cut: do not re-propose
 
@@ -126,16 +147,22 @@ motion together at 86 s, and nothing is measured past 86 s.
 - **sharpest of the last 4** (#1032, `carry_pick`) ties on S1 and froze S2.
 - **guide `look_hold`** (#1191) gains inside the floor on S1 and loses on S2.
 
+## The seam pass
+
+- **Windowed refine seam pass** (Task 17 Step 4, #1230):
+  `templates/minimax/h3-seam-pass` with `source` set to the finished take.
+  Run it after a chain or a narrated-take passage when seam jumps show and
+  the take is worth about 36 min of GPU time per minute of take (36-40,
+  about 16 GiB peak). It wins seam jump past the floor on the static, arc
+  and dialogue shots (S1, S2 and S3; look too on S2, nothing worse). It is
+  **not a burn fix**: drift against segment 1 is unchanged on every scene,
+  so restore or re-render a burnt take, don't seam-pass it
+  (`bench/records/structural.md`, *Step 4*, *Verdict*).
+
 ## Structural levers
 
 Each is experimental and behind a server flag. Do not offer any of them.
 
-- **Windowed refine seam pass** (Task 17 Step 4): wins as a seam pass on
-  every shot type measured (seam jump past the floor on S1, S2 and S3, look
-  too on S2, nothing worse), at about 36-40 min per minute of take. It is
-  **not a burn fix**: drift against segment 1 is unchanged on every scene
-  (`bench/records/structural.md`, *Step 4*, *Verdict*). Promotion waits on
-  an eye check and the feature stages.
 - **Latent carry** between segments (#1150/#1044, Task 17 Steps 2-3): **not
   a default** and not a burn fix. On the static scene the take still burns;
   on the moving scene the seams get worse on both seeds. Under the keystone

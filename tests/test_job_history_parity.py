@@ -44,8 +44,9 @@ def _job(**extra):
         {},
         {"note": "a test", "rerun_of": "abc123def456"},
         {"rerun_of": "abc123def456", "overrides": {"steps": 4}},
+        {"request": "cats", "item": "shot-1"},
     ],
-    ids=["optional-unset", "optional-set", "overrides-set"],
+    ids=["optional-unset", "optional-set", "overrides-set", "ledger-link-set"],
 )
 def test_history_serves_the_keys_a_live_job_does(tmp_path, extra):
     job = _job(**extra)
@@ -70,3 +71,22 @@ def test_a_reopened_history_still_reports_the_overrides(tmp_path):
     reopened = JobHistory(path)
 
     assert reopened.get(job.id)["overrides"] == {"steps": 4}
+
+
+def test_a_failed_job_lists_the_same_reason_live_and_from_history(tmp_path):
+    """`reason` is filled on both sides by one helper (#1449): a field on
+    one side only would fail the key-set parity above and this."""
+    job = _job()
+    job.status = "failed"
+    job.error = "CUDA out of memory\nTraceback (most recent call last):\n  ..."
+    history = JobHistory(tmp_path / "jobs.sqlite")
+    history.record(job)
+
+    (summary,) = history.recent_summaries()
+    detail = history.get(job.id)
+
+    assert job.summary()["reason"] == "CUDA out of memory"
+    assert set(summary) - HISTORY_ONLY_SUMMARY == set(job.summary()) - LIVE_ONLY
+    assert set(detail) - HISTORY_ONLY_DETAIL == set(job.detail()) - LIVE_ONLY
+    assert summary["reason"] == detail["reason"] == job.summary()["reason"]
+    assert "restart_batch" not in summary

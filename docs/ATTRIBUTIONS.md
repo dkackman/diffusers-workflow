@@ -34,6 +34,7 @@ apply to anything generated with them.
 | [hkchengrex/MMAudio](https://huggingface.co/hkchengrex/MMAudio) (`weights/mmaudio_large_44k_v2.pth` and its `ext_weights/`) | `generate_sound_effects`: [dw/vendored/mmaudio_model.py](../dw/vendored/mmaudio_model.py) | [CC-BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/): non-commercial use only |
 | [hkchengrex/MMAudio](https://huggingface.co/hkchengrex/MMAudio) `ext_weights/synchformer_state_dict.pth` | `generate_sound_effects`, MMAudio's sync features, [dw/vendored/mmaudio_sync_model.py](../dw/vendored/mmaudio_sync_model.py) | [CC-BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/): non-commercial use only |
 | [kandinskylab/Kandinsky-6.0-Lite-distill-5s-Diffusers](https://huggingface.co/kandinskylab/Kandinsky-6.0-Lite-distill-5s-Diffusers/tree/4c487e8b4aeeb9059e5a77905aa2ddb59ec28f81) `audio_vae/` and `vocoder/` | `generate_sound_effects`, MMAudio's decoder, [dw/tasks/mmaudio_decoder.py](../dw/tasks/mmaudio_decoder.py) | The MMAudio VAE tensors: [CC-BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/), non-commercial use only, as MMAudio's weights (K6's model card states MIT; dw follows the stricter MMAudio terms). The BigVGAN vocoder: MIT. |
+| [facebook/sam3](https://huggingface.co/facebook/sam3) | `track_people`, backend `sam3` (opt-in) | [SAM License](https://github.com/facebookresearch/sam3/blob/main/LICENSE) (facebookresearch/sam3, 2025-11-19): not for ITAR-covered purposes, military, nuclear, espionage or weapons applications. The weights are gated: you accept the licence and download them from Hugging Face yourself, and dw does not redistribute them. |
 | [apple/DFN5B-CLIP-ViT-H-14-384](https://huggingface.co/apple/DFN5B-CLIP-ViT-H-14-384) | `generate_sound_effects`, MMAudio's CLIP conditioning, [dw/vendored/mmaudio_clip.py](../dw/vendored/mmaudio_clip.py) | [Apple Machine Learning Research Model License](https://huggingface.co/apple/DFN5B-CLIP-ViT-H-14-384/blob/main/LICENSE): research purposes only. Apple Machine Learning Research Model is licensed under the Apple Machine Learning Research Model License Agreement. dw maps the weights into transformers' layout in memory at load time and never writes or ships converted tensors. |
 
 ## Ideas reimplemented here
@@ -69,6 +70,22 @@ allow reuse here, so only concepts were taken. It inspired:
 - the script-to-video shot-list contract and voice bible ([#610](https://github.com/dkackman/diffusers-workflow/issues/610))
 - H3 chunk continuation in latent space ([#611](https://github.com/dkackman/diffusers-workflow/issues/611))
 - trying the Alissonerdx H3 LoRAs, which its workflows use ([#612](https://github.com/dkackman/diffusers-workflow/issues/612))
+
+### Directors-Cut
+
+MIT licence. Its cut-by-cut approach to replacing a performer in a take
+inspired `replace-performer` and `replace-performer-cuts`
+([#1194](https://github.com/dkackman/diffusers-workflow/issues/1194)).
+
+### [Bambushu/h3-recast](https://github.com/Bambushu/h3-recast)
+
+A ComfyUI workflow for recasting a whole MiniMax H3 shot, under the MIT
+licence; concepts only, no files copied. It gave the minimax-h3 skill's caption
+rules for a performer swap
+([plugins/dw/skills/minimax-h3/references/regional-edit.md](../plugins/dw/skills/minimax-h3/references/regional-edit.md);
+[#1411](https://github.com/dkackman/diffusers-workflow/issues/1411)): a line for
+every person in the shot, one "A becomes B" line per person, big changes landing
+where subtle ones fall back to the clip, and no colliding colour words.
 
 ### [Kablex/ComfyUI-Ref2VA-VSA](https://github.com/Kablex/ComfyUI-Ref2VA-VSA)
 
@@ -110,6 +127,14 @@ rendering the odd shots of a long take first and bridging the gaps
 finding phrase starts from the centre of the stereo mix
 ([#1095](https://github.com/dkackman/diffusers-workflow/issues/1095)).
 
+### [ComfyUI-H3-FaceRefine](https://github.com/Carasibana/ComfyUI-H3-FaceRefine)
+
+A ComfyUI node pack for refining faces in MiniMax H3 takes, under the MIT
+licence. Two concepts are reimplemented in `crop_face_track`
+([dw/tasks/face_track.py](../dw/tasks/face_track.py)): choosing which subject to
+follow when several faces are visible (`select`), and staying lost after a lost
+face track rather than jumping to another face. No code was adapted.
+
 ### [knoic/ComfyUI-MiniMaxH3-PrefixStream](https://github.com/knoic/ComfyUI-MiniMaxH3-PrefixStream)
 
 A ComfyUI node pack for MiniMax H3 prefix streaming, under the MIT licence. It
@@ -140,6 +165,14 @@ re-render, and the chain's own text encoder, length and sizes kept
 [dw/tasks/chain_repair.py](../dw/tasks/chain_repair.py);
 [#1169](https://github.com/dkackman/diffusers-workflow/issues/1169)).
 
+### ComfyUI-Continuity
+
+Concept only, no code taken. It inspired `turbo_lead_in`
+([dw/pipeline_processors/h3_lead_in.py](../dw/pipeline_processors/h3_lead_in.py);
+[#1326](https://github.com/dkackman/diffusers-workflow/issues/1326)): running a
+call's first denoising steps without the turbo (step-distilled) LoRA, so the base
+model lays out the composition.
+
 ### [matlowai/h3-long-video-research](https://github.com/matlowai/h3-long-video-research)
 
 A research repository on long MiniMax H3 videos, under CC BY 4.0. Its findings
@@ -154,6 +187,37 @@ Tests 16-18 of the NerdNotes collection, under CC BY-SA, informed the narrated
 take (`templates/minimax/narrated-take`), which dw rebuilt and measured in its
 own code. No text or data was copied; because the licence is share-alike, only
 the concepts were taken.
+
+Tests 19-20 of the same collection (`20261113/attention_sweep.md` and
+`20261115/keystone_attention_motion_and_hybrid.md`, CC BY-SA 4.0, so concepts only)
+informed `experimental_keystone_attention`
+([dw/pipeline_processors/h3_keystone_attention.py](../dw/pipeline_processors/h3_keystone_attention.py);
+[#1391](https://github.com/dkackman/diffusers-workflow/issues/1391)): the balance
+re-split of the attention a query pays to the keyframe against the guide rows, and
+the default block subset 31-33,36-44,47. No text or data was copied.
+
+Test 21 of the same collection (`20261119/block_map.md`, CC BY-SA 4.0, so concepts only)
+corrected test 19's figures (same-block control, no extra LoRA) and listed per-property
+block sets. The [narrated record](../bench/records/narrated.md) quotes its corrected
+lifts and names its block sets as candidates for a re-run. No text or data was copied.
+
+The way the #1391 bench finds which blocks to use comes from roycho87's comment on
+[#1391](https://github.com/dkackman/diffusers-workflow/issues/1391#issuecomment-6922271175)
+and from NerdNotes test 19 (CC BY-SA 4.0, so concepts only)
+([bench/workflows/keystone-probe.json](../bench/workflows/keystone-probe.json);
+[#1394](https://github.com/dkackman/diffusers-workflow/issues/1394)). A copy of the scene
+with one trait changed (brightened, or sharpened) serves as the keystone. One block group
+gets the re-split per run, and the groups whose run carries that trait into the new
+frames are the ones the bench keeps. No text or data was copied.
+
+The masked-keystone bench
+([bench/workflows/masked-keystone-probe.json](../bench/workflows/masked-keystone-probe.json);
+[#1505](https://github.com/dkackman/diffusers-workflow/issues/1505)) takes two ideas from
+roycho87's comment on [#1391](https://github.com/dkackman/diffusers-workflow/issues/1391):
+that a keystone fails to pull under guides but holds under a carried context, so the
+first clip's frame 0 is grafted into that context at frame 0; and NerdNotes test 21's saturation block set (30-32,34-37,39,42,44; CC BY-SA 4.0,
+so concepts and data only), which the bench's attention arm uses. No code from
+geiru_context_suite (GPL-3.0) was read, and no text was copied.
 
 ### [roycho87/geiru_context_suite](https://github.com/roycho87/geiru_context_suite)
 
@@ -173,6 +237,12 @@ with its audio, gave the repair's tail hold and the rule that the tail hold
 outnumbers the head (39 frames against 22 in
 [templates/minimax/repair-segment](../workflows/templates/minimax/repair-segment.json);
 [#1169](https://github.com/dkackman/diffusers-workflow/issues/1169)).
+
+The same suite's Keystone Attention (GPL-3.0, so concepts only; no code was read or
+copied) inspired `experimental_keystone_attention`
+([dw/pipeline_processors/h3_keystone_attention.py](../dw/pipeline_processors/h3_keystone_attention.py);
+[#1391](https://github.com/dkackman/diffusers-workflow/issues/1391)): re-weighting a
+target's attention toward a keystone.
 
 harlixay7/Kinoloom (MIT; concept only, no code taken) inspired `carry_pick`
 ([dw/pipeline_processors/chain_pick.py](../dw/pipeline_processors/chain_pick.py);
@@ -202,3 +272,34 @@ inspired `export_timeline`
 [#1197](https://github.com/dkackman/diffusers-workflow/issues/1197)): a joined
 piece written as an OpenTimelineIO `.otioz` bundle with one clip per shot, so an
 editor opens it as a timeline.
+
+roadmaus/ComfyUI-Continuity (MIT; concept only, no code taken) inspired the
+seam/segment drift split: `analyze_seams`' `segment_looks`
+([dw/tasks/assess.py](../dw/tasks/assess.py)) and the bench driver's `split_*`
+measures ([bench/driver.py](../bench/driver.py);
+[#1324](https://github.com/dkackman/diffusers-workflow/issues/1324)), which say
+how much of a chained take's drift arrives as a step at each seam and how much
+inside the segments. The same source, again concept only, inspired the
+seam-restore probe
+([bench/workflows/seam-restore.json](../bench/workflows/seam-restore.json);
+[#1325](https://github.com/dkackman/diffusers-workflow/issues/1325)): a
+reference-anchored, low-strength redraw of a segment's tail before it is handed
+on as the next segment's guide, so each seam starts from a reset copy rather
+than the inherited texture.
+
+KadoBOT/ComfyUI-H3-Continuity-Studio (MIT; concept only, read at `a2ddb97`, no
+code taken) inspired the visual-memory-at-a-cut probe and guidance
+([bench/records/visual-memory-cut.md](../bench/records/visual-memory-cut.md);
+`plugins/dw/skills/minimax-h3/references/cuts.md`, *Visual memory at a cut*;
+[#1398](https://github.com/dkackman/diffusers-workflow/issues/1398)): an earlier
+shot passed as a video reference so the place, props and wardrobe hold across an
+angle change, and its rule that a shot with speech never takes a whole earlier
+clip, only the frames before the cut.
+
+### ckinpdx/ComfyUI-MMH3Tools
+
+Its Carry Attention node (concept only; no code used) inspired
+`experimental_keystone_attention`
+([dw/pipeline_processors/h3_keystone_attention.py](../dw/pipeline_processors/h3_keystone_attention.py);
+[#1391](https://github.com/dkackman/diffusers-workflow/issues/1391)): carrying a
+keyframe's weight in attention on a subset of blocks.

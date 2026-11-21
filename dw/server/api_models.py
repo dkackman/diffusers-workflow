@@ -18,7 +18,14 @@ from typing import Any, Literal
 from pydantic import ConfigDict, Field
 
 from .admission import AcknowledgedCost
-from .api_models_base import STRICT, ApiModel, send_rejected_responses, sometimes
+from .api_models_base import (
+    STRICT,
+    ApiModel,
+    JobStatus,
+    OutputKind,
+    send_rejected_responses,
+    sometimes,
+)
 from .api_models_library import (
     Origin,
     Shape,
@@ -43,6 +50,36 @@ from .api_models_library import (
     Deleted,
     EnhancerPreset,
     EnhancerPresets,
+    LoraScale,
+    LoraEvidence,
+    LoraRow,
+    ResolvedBase,
+    LoraList,
+    AssetOrigin,
+    AssetKind,
+    AssetLibraryRoot,
+    AssetFile,
+    ShadowedAsset,
+    AssetList,
+    Uploaded,
+    Kept,
+    AssetDeleted,
+    LedgerAccepted,
+    LedgerNoteRef,
+    LedgerNote,
+    LedgerAttempt,
+    LedgerResult,
+    LedgerItem,
+    LedgerHistoryEntry,
+    LedgerRequest,
+    LedgerSummary,
+    LedgerList,
+    NoteWritten,
+    NoteDeleted,
+    NotesChannelState,
+    GalleryLinkedJob,
+    StarSet,
+    NoteSet,
 )
 
 # The library's models live in api_models_library, and the base in
@@ -50,6 +87,7 @@ from .api_models_library import (
 __all__ = [
     "STRICT",
     "ApiModel",
+    "JobStatus",
     "send_rejected_responses",
     "sometimes",
     "Origin",
@@ -75,6 +113,36 @@ __all__ = [
     "Deleted",
     "EnhancerPreset",
     "EnhancerPresets",
+    "LoraScale",
+    "LoraEvidence",
+    "LoraRow",
+    "ResolvedBase",
+    "LoraList",
+    "AssetOrigin",
+    "AssetKind",
+    "AssetLibraryRoot",
+    "AssetFile",
+    "ShadowedAsset",
+    "AssetList",
+    "Uploaded",
+    "Kept",
+    "AssetDeleted",
+    "LedgerAccepted",
+    "LedgerNoteRef",
+    "LedgerNote",
+    "LedgerAttempt",
+    "LedgerResult",
+    "LedgerItem",
+    "LedgerHistoryEntry",
+    "LedgerRequest",
+    "LedgerSummary",
+    "LedgerList",
+    "NoteWritten",
+    "NoteDeleted",
+    "NotesChannelState",
+    "GalleryLinkedJob",
+    "StarSet",
+    "NoteSet",
 ]
 
 
@@ -244,9 +312,18 @@ class ModelRepo(ApiModel):
     repo_type: str
     size_on_disk: int
     nb_files: int
-    last_accessed: int | float | None
+    last_accessed: int | float | None = Field(
+        description="The newest access time (atime) of the repo's files - a "
+        "fallback for last_job_use: copies and backups bump it, and a "
+        "noatime or relatime disk may never move it."
+    )
     last_modified: int | float | None
     revisions: list[ModelRevision]
+    last_job_use: int | float | None = Field(
+        description="Epoch seconds a dw job that named this repo last "
+        "started (dw/model_use.py); null when no dw job has used it since "
+        "tracking began - then last_accessed is the only date there is.",
+    )
 
 
 class ModelCache(ApiModel):
@@ -365,11 +442,6 @@ class DiffusersStatus(ApiModel):
 
 # ------------------------------------------------------------------- jobs
 
-JobStatus = Literal["queued", "running", "succeeded", "failed", "cancelled"]
-OutputKind = Literal["image", "video", "audio", "text"]
-# An asset library entry may also be a .cube colour lookup table
-AssetKind = Literal["image", "video", "audio", "text", "lut"]
-
 
 class JobSummary(ApiModel):
     id: str
@@ -405,16 +477,39 @@ class JobSummary(ApiModel):
     historical: bool = sometimes("Read from job history rather than a live job.")
     queue_position: int = sometimes("Index in the waiting queue; only while queued.")
     waiting_for: str = sometimes(
-        "Why dispatch is holding this queued job though a card is free - "
-        "'waiting for host RAM: needs ~N GB, ~M GB free'; only while queued and "
-        "held. It starts when a running job frees the RAM."
+        "Why dispatch is holding this queued job - 'waiting for host RAM: "
+        "needs ~N GB, ~M GB free' (a card is free), or 'queued behind N running "
+        "job(s) on every card (...)' when every card is busy; only while queued. "
+        "Each hold also emits one queue_wait event (reason host_ram or gpu_busy)."
     )
     note: str = sometimes("The note it was submitted with; also its run's note.")
     rerun_of: str = sometimes(
         "The job this one reran; absent for a job submitted fresh."
     )
+    request: str = sometimes(
+        "The requests-ledger request this job serves; absent when unlinked."
+    )
+    item: str = sometimes(
+        "The item of `request` this job serves; absent when unlinked."
+    )
     overrides: dict = sometimes(
         "The variables a rerun changed from the job it reran; absent when none were."
+    )
+    cancel_requested: bool = sometimes(
+        "True when a cancel was asked of this running job and it has not stopped "
+        "yet - a model load or a task has no checkpoint; only while running."
+    )
+    reason: str = sometimes(
+        "Why the job ended: the first line of its `error`, clipped to 160 "
+        "characters with a trailing '…'. Only on a failed or cancelled job that "
+        "has an error - a plain user cancel has none. The full error, traceback "
+        "and all, is on the job's detail."
+    )
+    restart_batch: str = sometimes(
+        "The `server_instance` of the server whose restart cancelled this job - "
+        "the key a restart batch is grouped by. Only on a restart tombstone (a "
+        "cancelled job whose error starts 'server restart:'); any row of the "
+        "batch is a valid id for POST /api/jobs/{id}/rerun-restart-batch."
     )
 
 
@@ -465,14 +560,80 @@ class StepTiming(ApiModel):
     cache: dict[str, Any] = sometimes("Skip counts, on a step that set a `cache`.")
 
 
+class ShotMeasure(ApiModel):
+    """One measure a chain's check computed for a segment's kept attempt
+    (#1474), against the ceiling in force."""
+
+    value: float = Field(
+        description="The measure; for `words`, the heard words' similarity to the line."
+    )
+    ceiling: float | None = Field(
+        description="The bound the check held it to - the workflow's own when it "
+        "set one - or null where the check sets none (measured, never failed)."
+    )
+    bound: Literal["max", "min"] = Field(
+        description="`max`: the value must stay at or under the ceiling; `min`: "
+        "at or over it. `texture_ratio` is bounded both ways, so `failed`, not "
+        "value against ceiling, is the verdict."
+    )
+    warn_only: bool = Field(
+        description="A failure is warned and recorded but never re-rolled."
+    )
+    failed: bool = Field(description="The check failed this measure.")
+
+
+class ShotRecord(ApiModel):
+    """One shot of a joined video: where an input landed in it, and for a
+    chain's segment what its check recorded (`dw/shots.py` lists every key).
+    Open even in strict mode: a join may add detail of its own."""
+
+    model_config = ConfigDict(extra="allow")
+
+    name: str
+    start_frame: int
+    num_frames: int
+    start_sample: int | None = Field(
+        default=None, description="Null when the video has no track the join built."
+    )
+    num_samples: int | None = Field(
+        default=None, description="Null when the video has no track the join built."
+    )
+    planned_segments: int = sometimes(
+        "On a chain's shot: the segment count its plan asked for."
+    )
+    segment_file: str = sometimes(
+        "On a chain's shot under save_segments and keep_segments: its segment's file."
+    )
+    resumed: bool = sometimes(
+        "On a chain's shot: the segment was copied from an earlier run (resume_from)."
+    )
+    attempts: int = sometimes("On a chain's shot: renders its check tried.")
+    check_failed: list[str] = sometimes(
+        "On a checked chain shot whose every attempt failed: the measures the "
+        "kept one failed."
+    )
+    audio_dbfs: float = sometimes(
+        "On a chain's shot with generated audio: its kept audio's level."
+    )
+    measures: dict[str, ShotMeasure] = sometimes(
+        "On a chain's shot with the check on: every measure the kept attempt "
+        "computed, by name. Absent with the check off, on a resumed segment, "
+        "and on a job recorded before the field existed."
+    )
+
+
 class ManifestEntry(ApiModel):
     """One step's saved files. Open even in strict mode: the worker adds
-    per-step detail (`selected`, `shots`, ...) the UI does not read."""
+    per-step detail (`selected`, ...) beyond the keys typed here."""
 
     model_config = ConfigDict(extra="allow")
 
     step: str
     files: list[str]
+    shots: list[ShotRecord] | None = sometimes(
+        "Where each input landed in the step's joined video (dw/shots.py); "
+        "null or absent on a step that joined none."
+    )
     subfolder: str = sometimes(
         "The in-run subfolder the step's `result.subfolder` chose - "
         "`final`, `intermediate`, any relative path - `''` when it chose none. "
@@ -596,6 +757,41 @@ class JobCancelled(ApiModel):
     status: JobStatus
 
 
+class RestartBatchQueued(ApiModel):
+    id: str = Field(description="The new job's id.")
+    rerun_of: str = Field(description="The tombstone it reruns.")
+    workflow: str | None
+    workspace: str
+
+
+class RestartBatchCandidate(ApiModel):
+    id: str = Field(description="The tombstone's id.")
+    workflow: str | None
+    workspace: str
+    estimate: "PlanEstimate | None" = Field(
+        description="The plan's estimate of the rerun; null when none was built."
+    )
+
+
+class RestartBatchSkipped(ApiModel):
+    id: str
+    reason: str = Field(
+        description="Why it was not queued: `already rerun as <id>`, a deleted "
+        "workspace, or what admission refused."
+    )
+
+
+class RestartBatchRerun(ApiModel):
+    server_instance: str = Field(description="The dead server whose batch this is.")
+    queued: list[RestartBatchQueued] = Field(
+        description="What was queued, oldest original first; empty in a preview."
+    )
+    would_queue: list[RestartBatchCandidate] = sometimes(
+        "A preview only: what `acknowledged_cost: true` would queue, oldest first."
+    )
+    skipped: list[RestartBatchSkipped]
+
+
 # ------------------------------------------------------------- validation
 
 
@@ -700,8 +896,10 @@ class PlanHostMemory(ApiModel):
     projected_mb: int = Field(
         description="The host RAM, in MB, this run is projected to hold at its peak."
     )
-    basis: Literal["observed", "fit", "declared"] = Field(
-        description="`observed`: the largest job peak of this machine's successful "
+    basis: Literal["observed", "fit", "declared", "inherited"] = Field(
+        description="`inherited`: an inline workflow with no runs of its own, read "
+        "from the largest peak of this machine's runs of the catalog template that "
+        "loads the same pipeline. `observed`: the largest job peak of this machine's successful "
         "runs with the same pipelines, quantization and offload; `fit`: projected "
         "from this workflow's own runs for the requested list length; `declared`: "
         "the workflow's own `host_ram_gb`, larger than anything observed."
@@ -746,10 +944,7 @@ class ValidationResult(ApiModel):
     )
 
 
-# --------------------------------------------------------- gallery, assets
-
-# Assets have no packaged (builtin) library
-AssetOrigin = Literal["workspace", "common", "examples"]
+# ---------------------------------------------------------------- gallery
 
 
 class GalleryFile(ApiModel):
@@ -851,93 +1046,10 @@ class GalleryMetadata(ApiModel):
     run_note: str = sometimes("The note of the run that wrote the file.")
     note_source: Literal["file", "run"] = sometimes("Whose note `note` is.")
     starred: bool = sometimes("True when the file is starred; absent otherwise.")
-
-
-class AssetLibraryRoot(ApiModel):
-    root: str
-    origin: AssetOrigin
-    writable: bool
-
-
-class AssetFile(ApiModel):
-    name: str
-    reference: str
-    folder: str
-    kind: AssetKind
-    size: int
-    mtime: int | float
-    origin: AssetOrigin = Field(
-        description="Which library it came from: this workspace's own, the `common` "
-        "one every workspace shares, or a read-only examples tree - why a delete "
-        "can answer 403."
+    linked_jobs: list[GalleryLinkedJob] = Field(
+        description="Every job linked to a request whose manifest lists the "
+        "file, a step-cache reuse included, newest first; empty for an asset."
     )
-    writable: bool
-    url: str
-    absolute_url: str = sometimes()
-    used_by: list[str] = sometimes(
-        "This workspace's own workflows that name it in an `asset:` reference, "
-        "when any do"
-    )
-    note: str = sometimes("The asset's note, when it has one.")
-
-
-class ShadowedAsset(ApiModel):
-    name: str
-    reference: str
-    folder: str
-    kind: AssetKind
-    size: int
-    mtime: int | float
-    origin: AssetOrigin
-    writable: bool
-    shadowed_by: AssetOrigin
-
-
-class AssetList(ApiModel):
-    workspace: str
-    libraries: list[AssetLibraryRoot]
-    assets: list[AssetFile]
-    folders: list[str]
-    shadowed: list[ShadowedAsset]
-    total: int = sometimes("Assets matching the prefix, before `limit` cut them")
-    shadowed_total: int = sometimes("Shadowed names matching, before `limit`")
-
-
-class Uploaded(ApiModel):
-    reference: str
-    workspace: str
-    url: str
-    absolute_url: str = sometimes()
-    shared: bool
-
-
-class Kept(ApiModel):
-    reference: str
-    name: str
-    workspace: str
-    linked: bool
-    shared: bool
-
-
-class StarSet(ApiModel):
-    name: str
-    starred: bool
-
-
-class NoteSet(ApiModel):
-    target: str
-    note: str | None = Field(description="The effective note after the write.")
-    note_source: Literal["file", "run"] | None = Field(
-        description="Whose note `note` is; null for a workspace or no note."
-    )
-
-
-class AssetDeleted(ApiModel):
-    name: str
-    workspace: str
-    reference: str
-    deleted: bool
-    origin: AssetOrigin
 
 
 # ---------------------------------------------------------- introspection
@@ -977,3 +1089,7 @@ class TaskList(ApiModel):
 class ClassList(ApiModel):
     kind: str
     classes: list[str]
+
+
+# Read PlanEstimate, declared after it
+RestartBatchCandidate.model_rebuild()

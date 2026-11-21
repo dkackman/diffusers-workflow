@@ -897,3 +897,92 @@ class TestDeclaredBasisReachesTheApi:
             "basis": "declared",
             "runs": 0,
         }
+
+
+class TestSettledJobIsNotChargedGrowth:
+    """#1357: an hours-long running job is charged no more growth, so a queued
+    job isn't held on its stale projection while a card idles."""
+
+    def _slot(self, started_ago):
+        import time
+
+        class Slot:
+            started_at = time.time() - started_ago
+
+        return Slot()
+
+    def _job(self):
+        class Job:
+            host_ram_need = (180 * 1024, False)
+
+        return Job()
+
+    def test_loading_job_is_charged_its_peak(self):
+        from dw.server.dispatch import Dispatcher
+
+        assert Dispatcher._growth_peak(self._slot(30), self._job()) == 180 * 1024
+
+    def test_settled_job_is_charged_nothing(self):
+        from dw.server.dispatch import Dispatcher
+
+        assert Dispatcher._growth_peak(self._slot(3600), self._job()) is None
+
+    def test_gate_admits_beside_settled_job_but_not_loading_one(self):
+        from dw.server.dispatch import Dispatcher
+        from dw.server.pool import host_ram_wait
+
+        avail, need = 86 * 1024, 40 * 1024
+        for ago, held in ((30, True), (3600, False)):
+            peak = Dispatcher._growth_peak(self._slot(ago), self._job())
+            reason = host_ram_wait(need, avail, [(peak, 98 * 1024)], 19 * 1024)
+            assert (reason is not None) is held
+
+
+class TestInheritedHostRam:
+    """An inline workflow with no run under its own memory key reads the
+    catalog template of the same pipeline identity (#1436)."""
+
+    def inline_with_other_offload(self):
+        inline = template()
+        inline.pop("id", None)
+        step = pipeline_step(inline)
+        step["pipeline"]["offload"] = {"mode": "sequential"}
+        return inline
+
+    def test_an_inline_copy_with_other_settings_inherits_the_templates_peak(
+        self, tmp_path, monkeypatch
+    ):
+        from dw.server import deps
+
+        catalog = template()
+        inline = self.inline_with_other_offload()
+        assert memory_key(inline) != memory_key(catalog)
+        history = JobHistory(str(tmp_path / "jobs.sqlite"))
+        history.record(recorded_job("a", catalog, 41000))
+        history.record(recorded_job("b", catalog, 47000))
+        monkeypatch.setattr(
+            deps, "_catalog_listing", lambda state, ws: [("t", catalog, True)]
+        )
+
+        assert projected_peak(inline, {}, history) is None
+        assert deps.inherited_host_ram(None, None, inline, history) == (
+            47000,
+            "inherited",
+            2,
+        )
+
+    def test_a_template_with_no_runs_gives_no_figure(self, tmp_path, monkeypatch):
+        from dw.server import deps
+
+        catalog = template()
+        history = JobHistory(str(tmp_path / "jobs.sqlite"))
+        monkeypatch.setattr(
+            deps, "_catalog_listing", lambda state, ws: [("t", catalog, True)]
+        )
+
+        assert (
+            deps.inherited_host_ram(
+                None, None, self.inline_with_other_offload(), history
+            )
+            is None
+        )

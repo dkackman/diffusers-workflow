@@ -78,6 +78,8 @@ JOB_RECORD_KEYS = (
     "run_id",
     "run_dir",
     "run_version",
+    "request",
+    "item",
 )
 
 README_TEMPLATE = """# {workflow_name} - job {job_id}

@@ -10,6 +10,7 @@ and the rest are still named from there; the rules they apply live in
 
 from .h3_anchor import anchor_refusal, prepared_anchor
 from .h3_guides import (
+    default_num_frames,
     guide_frames_array,
     guides_refusal,
     prepared_guide,
@@ -17,8 +18,10 @@ from .h3_guides import (
 )
 from .h3_hold import hold_audio_reference, holds_audio, refines
 from .h3_mask import binarized, edits_regions, listen_frames, passes_audio
+from .h3_mask_cells import listen_canvas, media_problems, retimed_indices
 from .h3_rules import (
     REFINE_WINDOWS_INPUT,
+    renamed_windows_problem,
     GUIDES_INPUT,
     GUIDE_LIMIT,
     GUIDE_NOISE_INPUT,
@@ -40,15 +43,29 @@ from .h3_rules import (
     SOURCE_VIDEO_INPUT,
     edits_region,
     is_audio_pass,
-    listen_canvas,
-    retimed_indices,
     anchor_strength_problem,
     guide_noise_problem,
     mask_problems,
-    media_problems,
     refine_problems,
+    ref2va_guide_problem,
+    ref2va_guides_count_problem,
 )
 from ..events import emit_log
+
+
+def check_ref2va_guide(where, guide, prepared, arguments):
+    """A ref2va step's one guide against the narrow rule (#1411): video only,
+    at frame 0, its clip cut to a whole-latent length covering the render."""
+    num_frames = arguments.get("num_frames") or default_num_frames()
+    frame = guide.get("frame") if isinstance(guide, dict) else None
+    problem = ref2va_guide_problem(
+        frame,
+        len(prepared["video"]),
+        num_frames,
+        audio=bool(guide.get("audio")) if isinstance(guide, dict) else False,
+    )
+    if problem:
+        raise ValueError(f"{where}[0]: {problem}")
 
 
 def latent_anchor_source(chain_source, value):
@@ -188,9 +205,10 @@ class H3Arguments:
         `audio` and `sample_rate`; with `audio` false or absent it carries none.
 
         Raises:
-            ValueError: If this pipeline cannot take guides, the step also passes
-                `references`, a guide is not `{video, frame, audio?}` with a video,
-                or `audio` is true on a video with no audio
+            ValueError: If this pipeline cannot take guides, a guide is not
+                `{video, frame, audio?}` with a video, `audio` is true on a video
+                with no audio, or - with `references`, ref2va (#1411) - the guides
+                are not one video-only clip at frame 0 covering the render
         """
         guides = arguments.get(GUIDES_INPUT)
         if guides is None:
@@ -203,15 +221,21 @@ class H3Arguments:
         refusal = guides_refusal(self.pipeline)
         if refusal:
             raise ValueError(f"{where}: {refusal}")
-        if arguments.get("references") is not None:
-            raise ValueError(
-                f"{where} cannot be combined with references - ref2va lays out "
-                f"its own conditioning; use guides on t2va or fl2va"
-            )
         if not isinstance(guides, (list, tuple)):
             raise ValueError(
                 f"{where} must be a list of {{video, frame}}, got {type(guides).__name__}"
             )
+        ref2va = arguments.get("references") is not None
+        if ref2va:
+            guide = guides[0] if guides else None
+            problem = ref2va_guides_count_problem(len(guides)) or (
+                isinstance(guide, dict)
+                and ref2va_guide_problem(
+                    guide.get("frame"), None, None, audio=bool(guide.get("audio"))
+                )
+            )
+            if problem:
+                raise ValueError(f"{where}: {problem}")
         if len(guides) > GUIDE_LIMIT:
             raise ValueError(
                 f"{where} takes at most {GUIDE_LIMIT} clips, got {len(guides)}"
@@ -220,6 +244,8 @@ class H3Arguments:
             prepared_guide(where, index, guide, self.base_dir)
             for index, guide in enumerate(guides)
         ]
+        if ref2va:
+            check_ref2va_guide(where, guides[0], prepared[0], arguments)
         arguments[GUIDES_INPUT] = prepared
         return arguments
 
@@ -399,6 +425,85 @@ class H3Arguments:
                 raise ValueError(f"Step '{self.name}': {refusal}")
         return arguments, settings
 
+    def _take_keystone_attention(self, arguments, tst=None):
+        """`experimental_keystone_attention` off the call: (the arguments
+        without it, the settings `h3_keystone_attention.keystone_attention_call`
+        installs, or None). Null or false is none. Taken after `_with_guides`,
+        so an empty `guides` list is already gone.
+
+        Raises:
+            ValueError: If the flag is off, the value is no keystone attention
+                object, the call is not fl2va with an image and guides, it
+                also runs TST, or this pipeline has no dense H3 transformer
+        """
+        from .h3_keystone_attention import (
+            FL2VA,
+            IMAGE_INPUT,
+            KEYSTONE_ATTENTION_INPUT,
+            keystone_attention_refusal,
+            keystone_attention_settings,
+        )
+
+        if KEYSTONE_ATTENTION_INPUT not in arguments:
+            return arguments, None
+        arguments = dict(arguments)
+        value = arguments.pop(KEYSTONE_ATTENTION_INPUT)
+        where = f"Step '{self.name}'"
+        try:
+            settings = keystone_attention_settings(value)
+        except ValueError as e:
+            raise ValueError(f"{where}: {e}") from e
+        if settings is None:
+            return arguments, None
+        workflow = self.from_pretrained_arguments.get("workflow")
+        if workflow != FL2VA:
+            raise ValueError(
+                f"{where}: {KEYSTONE_ATTENTION_INPUT} runs on an H3 fl2va call, "
+                f"and this step loads {workflow!r}"
+            )
+        for name in (IMAGE_INPUT, GUIDES_INPUT):
+            if not arguments.get(name):
+                raise ValueError(
+                    f"{where}: {KEYSTONE_ATTENTION_INPUT} re-splits attention "
+                    f"between the keyframe and guide rows, and this call passes "
+                    f"no '{name}'"
+                )
+        if tst is not None:
+            raise ValueError(
+                f"{where}: {KEYSTONE_ATTENTION_INPUT} does not combine with "
+                f"experimental_tst: both own the blocks' attention processor"
+            )
+        refusal = keystone_attention_refusal(self.pipeline, self.configuration)
+        if refusal:
+            raise ValueError(f"{where}: {refusal}")
+        return arguments, settings
+
+    def _take_lead_in(self, arguments):
+        """`turbo_lead_in` off the call: (the arguments without it, the N
+        `h3_lead_in.lead_in_call` runs, or None). Null or 0 is no lead-in.
+
+        Raises:
+            ValueError: If the value, the call's evaluations or the cache
+                refuse it, or this pipeline has no H3 transformer
+        """
+        from .h3_lead_in import LEAD_IN_INPUT, lead_in_count
+        from .h3_tst import _h3_transformers
+
+        if LEAD_IN_INPUT not in arguments:
+            return arguments, None
+        arguments = dict(arguments)
+        value = arguments.pop(LEAD_IN_INPUT)
+        if value is not None and not _h3_transformers(self.pipeline):
+            raise ValueError(
+                f"Step '{self.name}': {LEAD_IN_INPUT} is a MiniMax-H3 argument, "
+                f"and this pipeline has no MiniMax-H3 transformer"
+            )
+        try:
+            lead_in = lead_in_count(value, self.pipeline, arguments, self.configuration)
+        except ValueError as e:
+            raise ValueError(f"Step '{self.name}': {e}") from e
+        return arguments, lead_in
+
     def _check_selflift(self, arguments):
         """Refuse an `experimental_selflift` this call cannot run, before the
         call (h3_selflift.py, #1195).
@@ -430,9 +535,12 @@ class H3Arguments:
                 `refine_sigmas` schedule or the step count is out of range, or the
                 step passes no `latents` or `hold_audio`
         """
+        renamed = renamed_windows_problem(arguments)
+        if renamed is not None:
+            raise ValueError(f"Step '{self.name}': {renamed}")
         if arguments.get(REFINE_WINDOWS_INPUT) is not None:
-            # The experimental time-windowed refine (h3_windows.py), which
-            # imports diffusers, so only when a step asks for it
+            # The time-windowed refine (h3_windows.py), which imports
+            # diffusers, so only when a step asks for it
             from .h3_windows import windows_refusal
 
             refusal = windows_refusal(

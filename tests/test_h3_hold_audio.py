@@ -965,3 +965,48 @@ class TestModularArtifacts:
 def test_module_exports_stay_in_sync():
     assert h3_rules.HOLD_BEFORE == "set_timesteps"
     assert h3_rules.RELEASE_BEFORE == "after_denoise"
+
+
+def _trim_refine(frames):
+    return {
+        "steps": [
+            {
+                "name": "cut",
+                "task": {
+                    "command": "trim_video",
+                    "arguments": {
+                        "video": "asset:clip.mp4",
+                        "start_frame": 0,
+                        "num_frames": frames,
+                    },
+                },
+            },
+            {
+                "name": "restore01",
+                "pipeline": {
+                    "type": "MiniMaxH3Pipeline",
+                    "arguments": {
+                        "source_video": "previous_result:cut",
+                        "mask_image": "asset:m.png",
+                        "hold_audio": "asset:a.wav",
+                        "refine_strength": 0.9,
+                    },
+                },
+            },
+        ]
+    }
+
+
+def test_trimmed_source_off_grid_is_refused_before_the_run():
+    from dw.hold_audio import mask_errors
+
+    errors = mask_errors(_trim_refine(120))
+    assert any("17n + 5 grid" in e["message"] for e in errors)
+    assert any("107 frames" in e["message"] and "124" in e["message"] for e in errors)
+
+
+def test_trimmed_source_on_grid_validates_clean():
+    from dw.hold_audio import mask_errors
+
+    errors = mask_errors(_trim_refine(124))
+    assert not [e for e in errors if "17n + 5" in e["message"]]

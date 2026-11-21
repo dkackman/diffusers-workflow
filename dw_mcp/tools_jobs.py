@@ -22,9 +22,10 @@ class JobTools:
         workspace: str | None = None,
         wait_seconds: int = 0,
         note: str | None = None,
+        request: str | None = None,
     ) -> dict:
         """Queue a workflow for generation. This costs GPU time: a run
-        occupies a GPU for minutes and the engine runs one job per GPU.
+        occupies a GPU for minutes.
         Tell the user what will run and get their go-ahead, then pass
         acknowledged_cost as below. Returns as soon as the job is queued;
         follow it with `wait_for_job`, then `get_job` for the manifest - or
@@ -32,8 +33,7 @@ class JobTools:
         the job exactly as `wait_for_job(job_id,
         timeout_seconds=wait_seconds)` would ({cap}s cap per call) and adds
         its fields to the result (`still_running`, `waited_seconds`,
-        `timeout_*`, the slim `job`). If the cap covers the job's
-        runtime one call is enough; on `still_running: true` call
+        `timeout_*`, the slim `job`). On `still_running: true` call
         `wait_for_job` again. Give exactly one of `workflow_path` - a
         catalog name from `list_workflows`, with or without .json, or a
         path on the server - or `inline_workflow`, a full definition
@@ -53,7 +53,9 @@ class JobTools:
         that was null.
 
         `note`: what this run is for, shown on every file it writes
-        ('testing video_shift 5 against 3'). Give each variation its own."""
+        ('testing video_shift 5 against 3'). Give each variation its own.
+
+        `request`: "<request-id>/<item-key>" links the job to a ledger item."""
         return diagnose.run_workflow(
             self.client,
             workflow_path=workflow_path,
@@ -65,6 +67,7 @@ class JobTools:
             workspace=workspace,
             wait_seconds=wait_seconds,
             note=note,
+            request=request,
         )
 
     # The cap is a number a caller paces against, so the description
@@ -142,8 +145,7 @@ class JobTools:
         One call blocks for at most {cap} seconds, whatever timeout_seconds
         asks for - this deployment's cap, set for the tool-call budget the
         client holds open; a larger value is clamped, not honoured, so
-        budget one call per {cap}s of the job, and one call is enough when
-        {cap} covers its runtime. Every reply says which happened:
+        budget one call per {cap}s of the job. Every reply says which happened:
         waited_seconds, timeout_requested_seconds, timeout_applied_seconds
         and timeout_capped. If the call dies client-side ("timed out"), call again
         with timeout_seconds ~60 and loop; progress survives, get_job loses it.
@@ -184,6 +186,7 @@ class JobTools:
         acknowledged_cost: bool | dict = False,
         new_seed: bool = False,
         arguments: dict | None = None,
+        restart_batch: bool = False,
     ) -> dict:
         """Queue a fresh job from a previous job's stored specification. This
         costs GPU time: a rerun is a run - it occupies a GPU for
@@ -199,13 +202,19 @@ class JobTools:
         fresh seed never changes the fingerprint, so the original plan still
         binds a new_seed rerun. `arguments` overrides variables for the rerun
         (a draft promoted with `{"tier": "standard"}`); validate first, since an
-        override changes the plan a bound acknowledgement must name."""
+        override changes the plan a bound acknowledgement must name.
+
+        restart_batch=true on a `server restart:` tombstone reruns every job
+        that restart cancelled, previewing without acknowledged_cost and
+        refusing new_seed or arguments. See get_guide("server",
+        section="After a restart")."""
         return diagnose.rerun_job(
             self.client,
             job_id,
             acknowledged_cost=acknowledged_cost,
             new_seed=new_seed,
             arguments=arguments,
+            restart_batch=restart_batch,
         )
 
     def move_job(
@@ -218,12 +227,11 @@ class JobTools:
     def export_job(self, job_id: str, overwrite: bool = False) -> dict:
         """Gather one finished job into a directory on the server: the
         realized workflow, the run's manifest, the job row, a README, and
-        copies of every asset it used, every earlier run's file it read and
+        every asset it used, every earlier run's file it read and
         every file it made. The export copies every output and input file
         rather than linking them, so a video job's export costs its size
-        again on the server's disk; `total_bytes` in the result reports
-        what was copied. Returns the directory, a zip URL, the file list
-        with sizes and the total. The three JSON files are in the zip, not
+        again on the server's disk (`total_bytes`). Returns the directory,
+        a zip URL, the file list with sizes and the total. The three JSON files are in the zip, not
         repeated here - get_job_workflow and get_job serve them individually.
         THE DIRECTORY IS ON THE MACHINE RUNNING THE SERVER, not on yours.
 

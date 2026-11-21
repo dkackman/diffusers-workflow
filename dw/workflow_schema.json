@@ -55,6 +55,16 @@
                         "minimum": 0,
                         "description": "The part of 'minutes' that does not scale with the cost drivers (model load, text encode, VAE decode, a LoRA fuse). A run that moves a driver is quoted fixed_minutes + (minutes - fixed_minutes) x the scale factor, so a long run is not charged the fixed share many times over. Declared by the workflow, set from two measured runs; absent means the whole figure scales."
                     },
+                    "guide_factor": {
+                        "type": "number",
+                        "minimum": 1,
+                        "description": "How many times the scaling part of 'minutes' a pipeline step costs when it lays in a 'guides' clip, against the same step without one (a ref2va guide appends a second copy of the target's video rows, so every pass denoises twice the rows). Applied per pipeline step that carries a guide, relative to the guides the figure was measured with; the fixed_minutes share is not multiplied. Declared by the workflow from a guided and an unguided run; absent means a guide is not priced."
+                    },
+                    "video_reference_exponent": {
+                        "type": "number",
+                        "exclusiveMinimum": 0,
+                        "description": "How a video reference's length prices a pipeline step: the step costs (1 + reference frames / its num_frames) ** exponent times the same step without one, on the scaling part of 'minutes' only (fixed_minutes is not multiplied), a run the mean over its pipeline steps. A reference's frames are read as the 13-frame minimum reads them (a trim_video literal num_frames, or a probed from_file); one whose length is not known before the run is not priced. Image and audio references are not priced. Declared by the workflow from two measured runs; absent means a video reference is not priced."
+                    },
                     "per_entry": {
                         "type": "object",
                         "description": "For a list-driven workflow: the measured cost of one entry of 'variable' (every member it produces), and the length of the default list 'minutes' was measured with, so a run over N entries is (minutes - per_entry.minutes * entries) + per_entry.minutes * N.",
@@ -111,6 +121,7 @@
                 },
                 "gb_per_reference": {"type": "number", "minimum": 0, "description": "GB of additional VRAM per reference the step passes - a reference-conditioned pipeline holds each one's encoding resident beside the latents. Every kind counts once; an entry whose media is null is dropped before the pipeline sees it and is not counted. Absent means references are not in the formula."},
                 "bytes_per_guide_voxel": {"type": "number", "minimum": 0, "description": "Bytes of additional VRAM per guide voxel - an H3 guide is encoded on the target canvas, so each one the step lays in (its own 'guides' whose video is not null, plus the one a continuity 'guide' chain appends) costs its snapped frame count times the product of the voxel_variables other than num_frames. A clip's frames are probed from its header; one that cannot be probed (a previous_result:, an unreadable file) is charged at the step's num_frames, the worst case. Absent means guides are not in the formula."},
+                "bytes_per_reference_voxel": {"type": "number", "minimum": 0, "description": "Bytes of additional VRAM per video-reference voxel, on top of gb_per_reference - a video reference is encoded on the target canvas, so each one the step passes costs its frame count times the product of the voxel_variables other than num_frames, as a guide does. The frame count is read as the 13-frame minimum reads it (a trim_video literal num_frames, or a probed from_file); a reference whose length is not known before the run is not charged, so a recipe that cannot say its length is never refused on a guess. Image and audio references are not charged. Absent means a video reference's length is not in the formula."},
                 "reason": {"type": "string"}
             },
             "additionalProperties": false
@@ -170,7 +181,7 @@
                     "minimum": 1
                 },
                 "min_length": {
-                    "description": "For a string value: the fewest characters it may have once surrounding whitespace is dropped (a null counts as empty), so 1 refuses an empty string. Put what to send instead in 'reason' - a Music 3 instrumental is a tag-only lyrics body, not an empty one.",
+                    "description": "For a string value: the fewest characters it may have once surrounding whitespace is dropped. For a list value: the fewest entries it may have. A null counts as empty, so 1 refuses an empty string, an empty list and a null. Put what to send instead in 'reason' - a Music 3 instrumental is a tag-only lyrics body, not an empty one; an edit needs at least one reference image.",
                     "type": "integer",
                     "minimum": 1
                 },
@@ -249,13 +260,38 @@
                     "maxItems": 32
                 },
                 "seed": {
-                    "description": "Default seed for the entire step. Accepts a 'variable:' reference.",
-                    "type": [
-                        "integer",
-                        "string"
-                    ],
-                    "pattern": "^variable:",
-                    "format": "int64"
+                    "description": "Default seed for the entire step. Accepts a 'variable:' reference, and on a for_each step an 'item:' reference or {\"item\": field, \"default\": ...} so each entry can carry its own seed.",
+                    "anyOf": [
+                        {
+                            "type": "integer",
+                            "format": "int64"
+                        },
+                        {
+                            "type": "string",
+                            "pattern": "^(variable|item):"
+                        },
+                        {
+                            "type": "object",
+                            "properties": {
+                                "item": {
+                                    "type": "string",
+                                    "minLength": 1
+                                },
+                                "default": {
+                                    "type": [
+                                        "integer",
+                                        "string"
+                                    ],
+                                    "pattern": "^variable:",
+                                    "format": "int64"
+                                }
+                            },
+                            "required": [
+                                "item"
+                            ],
+                            "additionalProperties": false
+                        }
+                    ]
                 },
                 "release_pipeline": {
                     "description": "Unload this step's pipeline once the step completes, freeing its memory for later steps. A later pipeline_reference to this step is an error, and the persistent worker's cross-run model cache will not retain it.",
@@ -369,7 +405,7 @@
                     "type": "boolean"
                 },
                 "continuity": {
-                    "description": "How continuity is carried from one segment into the next. 'last_frame' carries the segment's final frame as the next one's keyframe. 'last_segment' carries the segment itself - its frames and the soundtrack generated with them - as a video reference, which keeps motion, camera and voice across the seam instead of appearance alone; it needs a 'segment_argument' holding a references list. 'guide' (MiniMax-H3 t2va and fl2va only - guides stay off ref2va) lays the segment's last 'guide_frames' frames, with their audio when 'carry_audio', into the next at frame 0 as a guide, sets an fl2va keyframe to the guide's first frame, and trims the guide off again; 'trim_frames' and 'carry_frames' do not apply, and 'crossfade_ms' only when 'carry_audio' is false. Accepts a 'variable:' reference.",
+                    "description": "How continuity is carried from one segment into the next. 'last_frame' carries the segment's final frame as the next one's keyframe. 'last_segment' carries the segment itself - its frames and the soundtrack generated with them - as a video reference, which keeps motion, camera and voice across the seam instead of appearance alone; it needs a 'segment_argument' holding a references list. 'guide' (MiniMax-H3 t2va and fl2va only - guide chains stay off ref2va, which takes only one whole-render guide) lays the segment's last 'guide_frames' frames, with their audio when 'carry_audio', into the next at frame 0 as a guide, sets an fl2va keyframe to the guide's first frame, and trims the guide off again; 'trim_frames' and 'carry_frames' do not apply, and 'crossfade_ms' only when 'carry_audio' is false. Accepts a 'variable:' reference.",
                     "anyOf": [
                         {
                             "type": "string",

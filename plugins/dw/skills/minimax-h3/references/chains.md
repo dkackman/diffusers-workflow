@@ -15,13 +15,18 @@ segment's last `guide_frames` and its voice as a guide.
   tail's audio.
 - Guide continuity exists only on this template. The reference chains
   (`chain-video-continuity`, `chain-matched-to-audio`,
-  `chain-matched-and-aligned`) are ref2va, and guides stay off ref2va.
+  `chain-matched-and-aligned`) are ref2va, and guide chains stay off ref2va (ref2va takes only one whole-render guide).
 
 ## Drift
 
 Drift compounds per seam. On the reference chains, reference the subject
 picture in each segment, prefer `last_segment`, and use the longest segments
 memory allows.
+
+Sound drifts too where H3 invents the voice. `assess_output`'s
+`analyze_shots` reports each segment's `high_share` and `noise_floor_dbfs`:
+the two rising together down a chain's segments is the dulling-voice
+signature, and neither alone is. Judge it by ear with `get_output_audio`.
 
 ## Probed and not a rule
 
@@ -42,3 +47,5 @@ Everything else about drift on a long take is the `long-form` skill's: the
 `shot` preset per shot type (`static_long` past 30 s), the per-segment check,
 how to measure drift, and the community reports with the bench's verdict on
 each (`long-form/references/levers.md`).
+
+Leave `cache` null on a guide chain. The held guide rows count toward the skip test (`first_block`) or its calibration (`mag`), and this is unmeasured.

@@ -127,7 +127,9 @@ order:
 - `bridge`: a cut must land on a fixed frame (a first-and-last-frame or
   last-frame-only shot).
 
-Prefer `cuts`: a cut resets drift and costs nothing at the seam. Choose
+Prefer `cuts`: a cut resets drift. On a face it also resets detail, so a
+take from a fresh still opens softer than the last one ended (`long-form`
+`references/run-and-repair.md`, *Takes*, gives the late-frame fix). Choose
 `chain` only for what must be unbroken. The sum of the scenes'
 `length_seconds` is the piece's length, and the plan's cost is quoted from
 it before anything renders.

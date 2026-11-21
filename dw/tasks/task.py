@@ -24,6 +24,8 @@ from . import lip_sync  # noqa: F401 - registers measure_lip_sync
 from . import phrases  # noqa: F401 - registers analyze_phrases
 from . import cuts  # noqa: F401 - registers plan_cuts
 from . import trim  # noqa: F401 - registers trim_video
+from . import scene_cuts  # noqa: F401 - registers detect_cuts
+from . import person_track  # noqa: F401 - registers track_people
 from . import text_takes  # noqa: F401 - registers split_takes
 from . import narration_check  # noqa: F401 - registers check_narration
 from . import narration_retime  # noqa: F401 - registers retime_narration, narration_lines

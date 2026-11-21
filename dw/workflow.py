@@ -20,6 +20,7 @@ from .step_cache import borrowed_pipeline_keys
 from .runs import activate_output_root, deactivate_output_root
 from .schema import format_validation_errors
 from .for_each import expand_for_each
+from .previous_results import release_unreferenced_results
 from .presets import apply_presets
 from .variables import (
     ConstantError,
@@ -623,7 +624,7 @@ class Workflow:
                 )
                 # Release results no later step references - saved to disk
                 # already, and last_result keeps the workflow's return value
-                workflow_run.release_unreferenced_results(loop.results, remaining_refs)
+                release_unreferenced_results(loop.results, remaining_refs)
                 # Task models the step asked to release, then the cleanup
                 # between steps (pipelines stay loaded)
                 reclaim_after_step(step_data, step_data["name"])

@@ -1,7 +1,6 @@
 import os
 import copy
 import logging
-from inspect import Parameter, signature
 from . import references
 from .references import (
     FROM_ARGUMENTS_KEY,
@@ -40,6 +39,11 @@ from .security import (
 from .locations import validate_media_path
 
 logger = logging.getLogger("dw")
+
+# A scheduler's constructor options. Its values are literal config (a string
+# option such as algorithm_type: "dpmsolver++"), so the '*_type' key convention
+# does not apply inside it (#1491)
+FROM_CONFIG_ARGS_KEY = "from_config_args"
 
 
 class EscapedString(str):
@@ -134,6 +138,9 @@ def realize_args(arg, base_dir=None, apply_key_conventions=True):
             arg[k] = v
             if handled:
                 continue
+            if k == FROM_CONFIG_ARGS_KEY and isinstance(v, dict):
+                _realize_literal_options(v, base_dir)
+                continue
             # Handle image loading for keys ending in '_image' or exactly 'image'
             if apply_key_conventions and (k.endswith("_image") or k == "image"):
                 logger.debug(f"Loading image for key: {k}")
@@ -168,6 +175,16 @@ def realize_args(arg, base_dir=None, apply_key_conventions=True):
     # Recursively process lists
     elif isinstance(arg, list):
         _realize_list(arg, base_dir, apply_key_conventions)
+
+
+def _realize_literal_options(options, base_dir):
+    """Realize a from_config_args dict: explicit references resolve, but no key
+    is read by its name, so a string stays a string. A {} escape is still
+    consumed, as it is under any '*_type' key."""
+    realize_args(options, base_dir, apply_key_conventions=False)
+    for key, value in options.items():
+        if is_escaped(value) and not isinstance(value, EscapedString):
+            options[key] = EscapedString(value.strip("{}"))
 
 
 def _realize_explicit_reference(value, base_dir, containers=True):
@@ -607,17 +624,10 @@ def split_from_file_arguments(object_type, arguments):
     Returns:
         (arguments for from_file, fields to set on the result)
     """
-    parameters = signature(getattr(object_type, FROM_FILE_KEY)).parameters
-    if any(
-        parameter.kind is Parameter.VAR_KEYWORD for parameter in parameters.values()
-    ):
+    named = references.named_from_file_parameters(object_type)
+    if named is None:
         return arguments, {}
 
-    named = {
-        name
-        for name, parameter in parameters.items()
-        if parameter.kind in (Parameter.POSITIONAL_OR_KEYWORD, Parameter.KEYWORD_ONLY)
-    }
     accepted = {k: v for k, v in arguments.items() if k in named}
     return accepted, {k: v for k, v in arguments.items() if k not in named}
 
@@ -637,13 +647,8 @@ def apply_field_overrides(constructed, overrides, object_type):
         ValueError: If it has no field by one of those names
     """
     for name, value in overrides.items():
-        if not hasattr(constructed, name):
-            fields = getattr(object_type, "__dataclass_fields__", None)
-            takes = f" - it holds {', '.join(fields)}" if fields else ""
-            raise ValueError(
-                f"{object_type.__name__} has no field '{name}', and its "
-                f"{FROM_FILE_KEY}() does not take it either{takes}"
-            )
+        if not references.has_field(constructed, name):
+            raise ValueError(references.no_field_message(object_type, name))
         logger.debug(f"Setting {object_type.__name__}.{name} from the workflow")
         setattr(constructed, name, value)
 
@@ -983,7 +988,10 @@ def resolve_relative_path(path, base_dir):
 # on an asset:/output: video (#387) - and window_video, which cuts the
 # source's soundtrack with its frames and so reads the file with its audio
 # (#601) - and trim_video, which cuts a soundtrack the same way (#627) - and
-# generate_sound_effects, which samples the file at its own rates (#1133) - see
+# generate_sound_effects, which samples the file at its own rates (#1133) - and
+# detect_cuts, whose cuts report the file's fps and sample spans (#1373) - and
+# track_people, which reads the file's fps and shots itself (#1375) - and
+# replace_cuts, whose result keeps the take's own soundtrack - see
 # _realize_lazy_frame_arguments
 _LAZY_FRAME_COMMANDS = frozenset(
     {
@@ -998,6 +1006,9 @@ _LAZY_FRAME_COMMANDS = frozenset(
         "window_video",
         "trim_video",
         "generate_sound_effects",
+        "detect_cuts",
+        "track_people",
+        "replace_cuts",
     }
 )
 

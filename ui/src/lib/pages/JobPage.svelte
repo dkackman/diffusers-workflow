@@ -14,14 +14,23 @@
     stepDurations,
   } from '../runstate'
   import { formatDuration } from '../format'
-  import { estimateEta, nextStepTimes, stepProgress } from '../progress'
+  import {
+    estimateEta,
+    nextStepTimes,
+    stepProgress,
+    activeStall,
+  } from '../progress'
   import FlowView from '../editor/FlowView.svelte'
   import JsonEditor from '../editor/JsonEditor.svelte'
   import JobHeader from '../job/JobHeader.svelte'
   import JobProgress from '../job/JobProgress.svelte'
   import NoteEditor from '../ui/NoteEditor.svelte'
   import JobResults from '../job/JobResults.svelte'
-  import type { JobDetail, JobEvent } from '../types'
+  import EventLog from '../job/EventLog.svelte'
+  import ChainSegments from '../job/ChainSegments.svelte'
+  import LinkedNotes from '../request/LinkedNotes.svelte'
+  import { LinkedRequest } from '../request/linkedRequest.svelte'
+  import type { JobDetail, JobEvent, LedgerNote } from '../types'
 
   let { jobId }: { jobId: string } = $props()
 
@@ -53,6 +62,7 @@
     seedVariable = null
     realized = false
     showJson = false
+    error = ''
     // stopped guards the async gap: navigating away mid-fetch must not let
     // a late-resolving getJob open a stream nothing will ever stop
     let stopped = false
@@ -84,7 +94,12 @@
           (event) => {
             events.push(event)
             stepTimes = nextStepTimes(stepTimes, event, performance.now())
-            if (event.event === 'job_status') refresh()
+            if (
+              event.event === 'job_status' ||
+              event.event === 'queue_wait' ||
+              (event.event === 'warning' && event.kind !== 'phase_stall')
+            )
+              refresh()
           },
           () => refresh(),
         )
@@ -95,6 +110,28 @@
       stop?.()
     }
   })
+
+  // The request item this job is a take of: one read of the request serves
+  // the header's link and the note box. Keyed on primitives, so a poll that
+  // replaces `job` with an equal one does not read it again
+  const linkWs = $derived(job?.workspace)
+  const linkId = $derived(job?.request)
+  const linkItem = $derived(job?.item ?? null)
+  const linked = $derived(
+    linkWs && linkId ? new LinkedRequest(linkWs, linkId) : null,
+  )
+  $effect(() => {
+    void linked?.read()
+  })
+  const aboutJob = (note: LedgerNote) =>
+    (note.refs ?? []).some((ref) => ref.job === jobId)
+  let agentNotes = $state<ReturnType<typeof LinkedNotes>>()
+  // A file names no output until its job has finished, so only a finished
+  // take's files can be noted
+  function noteFile(file: string) {
+    if (linkItem)
+      void agentNotes?.noteAbout([{ item: linkItem, job: jobId, output: file }])
+  }
 
   async function refresh() {
     try {
@@ -135,6 +172,7 @@
   // Scoped to the step now running: its phase, and its own denoise counter
   const progress = $derived(stepProgress(events as JobEvent[]))
   const denoise = $derived(progress.denoise)
+  const stall = $derived(activeStall(events as JobEvent[]))
   // each line led by its clock - seconds since the job started, which every
   // event carries - so the log says where the time went
   const logs = $derived(
@@ -243,7 +281,20 @@
   {running}
   {cancelPending}
   {seedVariable}
+  declared={definition?.variables ?? null}
+  request={linked?.request ?? null}
+  requestGone={linked?.gone ?? false}
 />
+
+{#if linked && linkItem}
+  <LinkedNotes
+    bind:this={agentNotes}
+    {linked}
+    item={linkItem}
+    filter={aboutJob}
+    refs={[{ item: linkItem, job: jobId }]}
+  />
+{/if}
 
 {#if error}<p class="error">{error}</p>{/if}
 
@@ -266,6 +317,7 @@
         {running}
         {progress}
         {etaSeconds}
+        {stall}
       />
     </div>
   {/if}
@@ -336,10 +388,21 @@
     <div class="panel">
       <h2>Results</h2>
       {#key job.id}
-        <JobResults {job} {fileGroups} {unsaved} {kinds} {seedVariable} />
+        <JobResults
+          {job}
+          {fileGroups}
+          {unsaved}
+          {kinds}
+          {seedVariable}
+          onnote={linked?.request && linkItem && !running
+            ? noteFile
+            : undefined}
+        />
       {/key}
     </div>
   {/if}
+
+  <ChainSegments {job} {definition} />
 
   {#if job.error}
     <div class="panel error-edge">
@@ -355,6 +418,8 @@
       <pre>{logs.join('\n')}</pre>
     </div>
   {/if}
+
+  <EventLog {jobId} live={running} />
 {/if}
 
 <style>

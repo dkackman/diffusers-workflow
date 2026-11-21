@@ -1133,3 +1133,37 @@ def test_a_composed_childs_release_models_spares_the_parents_pipelines(tmp_path)
     pipelines = {"parent-key": object(), "child-key": object(), "old-job": object()}
     evict_idle_for_task(pipelines, set(grandchild.claimed_pipeline_keys()), "t")
     assert sorted(pipelines) == ["child-key", "parent-key"]
+
+
+def test_release_pipeline_on_a_workflow_step_pops_the_childs_pipelines(tmp_path):
+    """#1408: a `workflow:` step has no pipeline key of its own; the child
+    loaded into the shared pipelines dict, so the release pops its keys and
+    leaves the parent's other pipelines alone."""
+    import json
+    from types import SimpleNamespace
+
+    from dw.pipeline_ownership import release_step_pipeline
+
+    child_path = tmp_path / "child.json"
+    task = {"command": "text_generation", "arguments": {"prompt": "hi"}}
+    child_path.write_text(
+        json.dumps({"id": "child", "steps": [{"name": "t", "task": task}]})
+    )
+    parent = Workflow({"id": "parent", "steps": []}, str(tmp_path), "p.json")
+    parent.pipeline_ownership.record("keep", "parent-key")
+    child = parent._sub_workflow_action(
+        {"name": "inner", "workflow": {"path": str(child_path)}}, 1
+    )
+    child.pipeline_ownership.record("a", "child-key-a")
+    child.pipeline_ownership.record("b", "child-key-b")
+
+    pipelines = {
+        "parent-key": object(),
+        "child-key-a": object(),
+        "child-key-b": object(),
+    }
+    loop = SimpleNamespace(pipelines=pipelines)
+    released = release_step_pipeline(parent, loop, "inner", child)
+
+    assert released is not None
+    assert sorted(pipelines) == ["parent-key"]

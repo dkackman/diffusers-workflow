@@ -6,8 +6,11 @@ The rules that need no model are refused here rather than after a checkpoint
 load, with the helpers the run-time check calls (`guide_frame_problem`,
 `snap_guide_length`, `guide_end_problem`) so the two cannot drift:
 
-- a step that is not an H3 pipeline, or that loads `ref2va` or also passes
-  `references` - ref2va lays out its own conditioning;
+- a step that is not an H3 pipeline;
+- on ref2va (a step that loads `ref2va` or passes `references`), anything but
+  the narrow rule (#1411, `h3_rules.ref2va_guide_problem` and
+  `ref2va_guides_count_problem`): exactly one clip, at frame 0, covering the
+  whole render, with no `audio: true`;
 - a `guides` that is not a list, more than GUIDE_LIMIT entries, an entry that is
   not `{video, frame}` (no other key but an optional `audio`, both present);
 - a `frame` that is not a whole, non-negative multiple of 17, and an `audio` that
@@ -28,8 +31,8 @@ an H3 t2va/fl2va step, with a `guide_frames` other than 22 or 39, or with a
 
 The latent statistics anchor (#1166) is refused here too, by `anchor_errors`:
 a `latent_anchor` argument, or a chain's `anchor: "segment_1"`, on a step the
-guides step rule refuses (`_takes_guides_problem`: off H3, ref2va, or passing
-`references`), and a chain `anchor` that is unknown, paired with a continuity
+rule for the t2va/fl2va-only arguments refuses (`_takes_guides_problem`: off
+H3, ref2va, or passing `references`), and a chain `anchor` that is unknown, paired with a continuity
 other than guide or last_frame, or carried into `references`
 (`chain_anchor_problem`, shared with the run).
 
@@ -40,13 +43,14 @@ off, a continuity other than guide, a look_hold or the step's nonzero
 
 Fixed guide noise (#1166) is refused by `guide_noise_errors`: a `guide_noise`
 that is not a number in [0, 1) (`guide_noise_problem`, shared with the run), or
-one on a step the guides step rule refuses. `guide_noise_warnings` says when it
+one on a step `_takes_guides_problem` refuses. `guide_noise_warnings` says when it
 would do nothing: a step with no `guides` and no guide chain.
 """
 
 from . import references
 from .adapter_compatibility import (
     FROM_PRETRAINED_KEY,
+    H3_WORKFLOWS,
     KEYFRAME_WORKFLOWS,
     REFERENCE_WORKFLOWS,
     WORKFLOW_KEY,
@@ -103,6 +107,8 @@ from .pipeline_processors.h3_rules import (
     guide_frame_problem,
     guide_noise_problem,
     not_h3,
+    ref2va_guide_problem,
+    ref2va_guides_count_problem,
     snap_guide_length,
 )
 from .probe_paths import resolve_probe_path
@@ -152,17 +158,9 @@ def _clip_frames(video, base_dir, probe, with_audio=False):
     return None, None
 
 
-def _takes_guides_problem(pipeline, arguments, argument=GUIDES_INPUT):
-    """Why this step cannot take `argument`, or None: it is not MiniMax-H3
-    (`h3_rules.not_h3`), or it loads ref2va or passes `references` (a call
-    with references routes to ref2va). The one step rule for a `guides`
-    argument, a guide chain, a `latent_anchor` argument and a chain's
-    `anchor: "segment_1"` - every H3 t2va/fl2va-only input. A pipeline or
-    workflow that is not literal is left to the run."""
-    # Named as taken by t2va/fl2va only: ref2va refuses it below
-    h3_problem = not_h3(pipeline, argument, taken_by=KEYFRAME_WORKFLOWS)
-    if h3_problem:
-        return h3_problem
+def _is_ref2va(pipeline, arguments):
+    """Whether this step runs ref2va: it loads the ref2va workflow, or passes
+    `references` (a call with references routes to ref2va)."""
     from_pretrained = pipeline.get(FROM_PRETRAINED_KEY)
     workflow = (
         from_pretrained.get(WORKFLOW_KEY) if isinstance(from_pretrained, dict) else None
@@ -170,15 +168,32 @@ def _takes_guides_problem(pipeline, arguments, argument=GUIDES_INPUT):
     passes_references = (
         isinstance(arguments, dict) and arguments.get("references") is not None
     )
-    if workflow in REFERENCE_WORKFLOWS or passes_references:
+    return workflow in REFERENCE_WORKFLOWS or passes_references
+
+
+def _takes_guides_problem(pipeline, arguments, argument=GUIDES_INPUT):
+    """Why this step cannot take `argument`, or None: it is not MiniMax-H3
+    (`h3_rules.not_h3`), or it runs ref2va (`_is_ref2va`). The step rule for
+    a guide chain, a `latent_anchor` argument, a chain's `anchor:
+    "segment_1"`, guide noise, selflift and windows - every H3 t2va/fl2va-only
+    input. `guides` itself is ref2va's too, narrowly (#1411), so
+    `_step_problems` does not ask this rule: it asks `not_h3` and
+    `_is_ref2va` itself, then `h3_rules.ref2va_guide_problem`. A pipeline or workflow
+    that is not literal is left to the run."""
+    # Named as taken by t2va/fl2va only: ref2va refuses it below
+    h3_problem = not_h3(pipeline, argument, taken_by=KEYFRAME_WORKFLOWS)
+    if h3_problem:
+        return h3_problem
+    if _is_ref2va(pipeline, arguments):
         return f"{argument} cannot be combined with ref2va / references - use t2va or fl2va"
     return None
 
 
-def _guide_problems(guide, render, base_dir, probe):
+def _guide_problems(guide, render, base_dir, probe, ref2va=False):
     """[message] for one entry of a step's `guides`, in the order
     `_step_problems` reports them; `render` is the step's literal render
-    length, or None."""
+    length, or None. On `ref2va` the guide is also held to the narrow rule
+    (`h3_rules.ref2va_guide_problem`)."""
     if not isinstance(guide, dict):
         return [f"a guide must be {{video, frame}}, got {type(guide).__name__}"]
     problems = []
@@ -212,11 +227,22 @@ def _guide_problems(guide, render, base_dir, probe):
             f"'audio' must be true or false, got {type(with_audio).__name__}"
         )
         with_audio = False
+    if ref2va:
+        problem = ref2va_guide_problem(
+            frame if frame_ok else 0, None, None, audio=with_audio
+        )
+        if problem:
+            # The audio refusal is the one to read: the stream probe is moot
+            problems.append(problem)
+            return problems
     problem, count = _clip_frames(guide["video"], base_dir, probe, with_audio)
     if problem:
         problems.append(problem)
     elif frame_ok and count is not None and render is not None:
-        problem = guide_end_problem(frame, snap_guide_length(count), render)
+        length = snap_guide_length(count)
+        problem = guide_end_problem(frame, length, render) or (
+            ref2va and ref2va_guide_problem(frame, length, render)
+        )
         if problem:
             problems.append(problem)
     return problems
@@ -227,9 +253,11 @@ def _step_problems(pipeline, arguments, base_dir, probe):
     guides = arguments[GUIDES_INPUT]
     if isinstance(guides, (list, tuple)) and not guides:
         return []
-    problem = _takes_guides_problem(pipeline, arguments)
+    # ref2va takes guides too, narrowly (#1411): one clip, checked below
+    problem = not_h3(pipeline, GUIDES_INPUT, taken_by=H3_WORKFLOWS)
     if problem:
         return [(None, problem)]
+    ref2va = _is_ref2va(pipeline, arguments)
     if isinstance(guides, str) and references.is_ref(references.UNRESOLVED, guides):
         # The whole list from an earlier step (repair-segment's cut): its
         # entries are the run-time check's
@@ -243,7 +271,11 @@ def _step_problems(pipeline, arguments, base_dir, probe):
             )
         ]
     problems = []
-    if len(guides) > GUIDE_LIMIT:
+    if ref2va:
+        problem = ref2va_guides_count_problem(len(guides))
+        if problem:
+            return [(None, problem)]
+    elif len(guides) > GUIDE_LIMIT:
         problems.append(
             (None, f"guides takes at most {GUIDE_LIMIT} clips, got {len(guides)}")
         )
@@ -251,7 +283,7 @@ def _step_problems(pipeline, arguments, base_dir, probe):
     for index, guide in enumerate(guides):
         problems.extend(
             (index, message)
-            for message in _guide_problems(guide, render, base_dir, probe)
+            for message in _guide_problems(guide, render, base_dir, probe, ref2va)
         )
     return problems
 
@@ -747,6 +779,57 @@ def selflift_errors(workflow_definition, source_indices=None):
     return errors
 
 
+def windows_errors(workflow_definition, source_indices=None, written=None, given=None):
+    """Every `refine_windows` refused before the run, as [{path, message}]
+    (#1230; dw/pipeline_processors/h3_windows.py): the spike-era name
+    `experimental_refine_windows`, a step that is not H3 t2va/fl2va, and the
+    call rules the run asks too (`window_problems`) - the settings with their
+    defaults filled, the refine they ride on and a step `cache`. A setting
+    still a reference is left to the run. `written` and `given` (the
+    caller's arguments) leave a required `hold_audio` to its own rule when
+    the document is checked bare (dw/hold_audio.py `judged_arguments`)."""
+    from .hold_audio import judged_arguments
+    from .pipeline_processors.h3_rules import (
+        OLD_REFINE_WINDOWS_INPUT,
+        REFINE_WINDOWS_INPUT,
+        renamed_windows_problem,
+    )
+    from .pipeline_processors.h3_windows import window_problems
+
+    errors = []
+    for _, _, pipeline, source, where in references.iter_steps(
+        workflow_definition.get("steps"), source_indices, "pipeline"
+    ):
+        arguments = pipeline.get("arguments")
+        if not isinstance(arguments, dict):
+            continue
+        renamed = renamed_windows_problem(arguments)
+        if renamed:
+            path = render_path(
+                ("steps", source, "pipeline", "arguments", OLD_REFINE_WINDOWS_INPUT)
+            )
+            errors.append({"path": path, "message": f"{renamed}{where}"})
+        if arguments.get(REFINE_WINDOWS_INPUT) is None:
+            continue
+        path = render_path(
+            ("steps", source, "pipeline", "arguments", REFINE_WINDOWS_INPUT)
+        )
+        step_problem = _takes_guides_problem(pipeline, arguments, REFINE_WINDOWS_INPUT)
+        if step_problem:
+            problems = [step_problem]
+        else:
+            configuration = pipeline.get("configuration")
+            cached = (
+                isinstance(configuration, dict)
+                and configuration.get("cache") is not None
+            )
+            problems = window_problems(
+                judged_arguments(arguments, source, written, given), has_cache=cached
+            )
+        errors += [{"path": path, "message": f"{p}{where}"} for p in problems]
+    return errors
+
+
 __all__ = [
     "anchor_errors",
     "guide_chain_errors",
@@ -755,4 +838,5 @@ __all__ = [
     "guide_noise_warnings",
     "guides_errors",
     "selflift_errors",
+    "windows_errors",
 ]

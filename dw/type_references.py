@@ -12,7 +12,12 @@ import re
 
 from . import references
 from .argument_media import is_media_reference
-from .arguments import fetch_constant, is_constant_reference, is_escaped
+from .arguments import (
+    FROM_CONFIG_ARGS_KEY,
+    fetch_constant,
+    is_constant_reference,
+    is_escaped,
+)
 from .for_each import render_path
 from .introspection import (
     CLASS_NAME_PATTERN,
@@ -31,6 +36,13 @@ _TYPE_REFERENCE_KEYS = ("component_type", "scheduler_type", "config_type")
 _DOTTED_NAME_PATTERN = re.compile(
     r"^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*$"
 )
+
+# Only identifier characters and dots, with at least one dot: a dotted name
+# as an author writes one. When it fails _DOTTED_NAME_PATTERN it is malformed
+# (an empty segment, a leading or trailing dot, a segment starting with a
+# digit), and the run cannot import it - so a component_type/scheduler_type/
+# config_type shaped like this is refused rather than skipped (#1341)
+_DOTTED_SHAPE_PATTERN = re.compile(r"^[A-Za-z0-9_.]*\.[A-Za-z0-9_.]*$")
 
 
 def _type_reference_candidates(key):
@@ -52,9 +64,24 @@ def _type_reference_error(key, value, path):
     resolver is what makes #345's own invariant hold: this can never refuse
     a name that would in fact have run.
 
+    A dotted name with an empty segment or a trailing dot
+    ('diffusers.models..X', 'diffusers.models.') is refused as malformed:
+    the run's import cannot load it either (#1341).
+
     Returns an error dict ({path, message}), or None if `value` would resolve.
     """
-    if not isinstance(value, str) or not _DOTTED_NAME_PATTERN.match(value):
+    if not isinstance(value, str):
+        return None
+    if not _DOTTED_NAME_PATTERN.match(value):
+        if _DOTTED_SHAPE_PATTERN.match(value):
+            return {
+                "path": path,
+                "message": (
+                    f"{key} {value!r} is not a valid dotted name: every "
+                    "segment between dots has to be a Python identifier "
+                    "(no empty segment, and no leading or trailing dot)"
+                ),
+            }
         return None
 
     try:
@@ -193,8 +220,13 @@ def _walk_type_references(node, path, errors, warnings=None):
     # A {media_type, location} dict is loaded as media, and its media_type
     # names a kind rather than a type - realize_args never reads it as one
     if isinstance(node, dict) and not is_media_reference(node):
+        # A scheduler's from_config_args are literal config values: a
+        # '*_type' key there ('algorithm_type') is a string option, never a type
+        literal_values = bool(path) and path[-1] == FROM_CONFIG_ARGS_KEY
         for k, v in node.items():
-            if k in _TYPE_REFERENCE_KEYS:
+            if literal_values:
+                error = _constant_reference_error(v, path + (k,))
+            elif k in _TYPE_REFERENCE_KEYS:
                 error = _type_reference_error(k, v, path + (k,))
             elif _is_type_key(k):
                 error = _loose_type_reference_error(k, v, path + (k,), warnings)

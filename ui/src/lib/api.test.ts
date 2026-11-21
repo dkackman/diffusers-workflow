@@ -37,6 +37,26 @@ describe('request error handling', () => {
     await expect(api.listJobs()).rejects.toThrow('Unknown variable')
   })
 
+  it("carries the detail's code, for a caller that branches on it", async () => {
+    stubFetch({
+      ok: false,
+      status: 409,
+      body: {
+        detail: {
+          code: 'stale_revision',
+          message: 'request is at revision 5, not 3',
+          current_revision: 5,
+        },
+      },
+    })
+    const failure = await api.getRequest('default', 'r1').catch((e) => e)
+    expect(failure.message).toBe('request is at revision 5, not 3')
+    expect(failure.status).toBe(409)
+    expect(failure.code).toBe('stale_revision')
+    stubFetch({ ok: false, status: 400, body: { detail: 'Unknown variable' } })
+    expect((await api.listJobs().catch((e) => e)).code).toBeUndefined()
+  })
+
   it('reads the message and counts out of an object-shaped detail', async () => {
     stubFetch({
       ok: false,
@@ -126,6 +146,52 @@ describe('name encoding', () => {
     )
     expect(calls[1][0]).toBe('/api/gallery/ltx/wf-gen.0-0.0%20copy.png')
   })
+
+  it("GETs a file's assess route, scoped to the picker's workspace", async () => {
+    const { workspace, DEFAULT_WORKSPACE } = await import('./workspace.svelte')
+    const calls = stubFetch({ ok: true, body: {} })
+    await api.assess('ltx/run-1/final/clip one.mp4')
+    expect(calls[0][0]).toBe(
+      '/api/gallery/ltx/run-1/final/clip%20one.mp4/assess',
+    )
+    expect(calls[0][1]?.method ?? 'GET').toBe('GET')
+    workspace.current = 'studio'
+    try {
+      await api.assess('a.mp4')
+      expect(calls[1][0]).toBe('/api/gallery/a.mp4/assess?workspace=studio')
+    } finally {
+      workspace.current = DEFAULT_WORKSPACE
+    }
+  })
+})
+
+describe('job event log', () => {
+  it('sends after, limit and each kind as a repeated parameter', async () => {
+    const calls = stubFetch({ ok: true, body: { events: [] } })
+    await api.eventLog('j1', {
+      after: 41,
+      limit: 500,
+      kinds: ['log', 'warning'],
+    })
+    expect(calls[0][0]).toBe(
+      '/api/jobs/j1/event-log?after=41&limit=500&kinds=log&kinds=warning',
+    )
+    expect(calls[0][1]?.method ?? 'GET').toBe('GET')
+  })
+
+  it('sends no query when nothing narrows it, and keeps after=-1', async () => {
+    const calls = stubFetch({ ok: true, body: { events: [] } })
+    await api.eventLog('j1')
+    await api.eventLog('j1', { after: -1 })
+    expect(calls[0][0]).toBe('/api/jobs/j1/event-log')
+    expect(calls[1][0]).toBe('/api/jobs/j1/event-log?after=-1')
+  })
+
+  it('fails with the 404 status for an unknown job', async () => {
+    stubFetch({ ok: false, status: 404, body: { detail: 'Unknown job' } })
+    const failure = await api.eventLog('gone').catch((e) => e)
+    expect(failure.status).toBe(404)
+  })
 })
 
 describe('job listing', () => {
@@ -172,6 +238,20 @@ describe('gallery listing and thumbnails', () => {
     const calls = stubFetch({ ok: true, body: {} })
     await api.gallery()
     expect(calls[0][0]).toBe('/api/gallery?limit=100000')
+  })
+
+  it('narrows to a request item, and sends no item without a request', async () => {
+    const calls = stubFetch({ ok: true, body: {} })
+    await api.gallery(undefined, 'r1', 'alpha')
+    await api.gallery(undefined, undefined, 'alpha')
+    expect(calls[0][0]).toBe('/api/gallery?limit=100000&request=r1&item=alpha')
+    expect(calls[1][0]).toBe('/api/gallery?limit=100000')
+  })
+
+  it("scopes a thumbnail URL to the file's own workspace when one is named", () => {
+    expect(api.galleryThumbnailUrl('run/clip.mp4', 'studio')).toBe(
+      '/api/gallery/run/clip.mp4/thumbnail?workspace=studio',
+    )
   })
 
   it('builds a thumbnail URL that keeps folder separators', () => {
@@ -241,6 +321,39 @@ describe('output URLs', () => {
   })
 })
 
+describe('rerunJob', () => {
+  const body = (calls: Array<[string, RequestInit | undefined]>) =>
+    JSON.parse(String(calls[0][1]?.body))
+
+  it('sends new_seed alone for a plain Run again', async () => {
+    const calls = stubFetch({ ok: true, body: { id: 'j2' } })
+    await api.rerunJob('j1')
+    expect(calls[0][0]).toContain('/api/jobs/j1/rerun')
+    expect(body(calls)).toEqual({ new_seed: false })
+  })
+
+  it('sends new_seed true for New seed', async () => {
+    const calls = stubFetch({ ok: true, body: { id: 'j2' } })
+    await api.rerunJob('j1', { newSeed: true })
+    expect(body(calls)).toEqual({ new_seed: true })
+  })
+
+  it('leaves arguments out when there are none', async () => {
+    const calls = stubFetch({ ok: true, body: { id: 'j2' } })
+    await api.rerunJob('j1', { arguments: {} })
+    expect(body(calls)).toEqual({ new_seed: false })
+  })
+
+  it('sends the changed arguments beside new_seed', async () => {
+    const calls = stubFetch({ ok: true, body: { id: 'j2' } })
+    await api.rerunJob('j1', { arguments: { tier: 'standard' } })
+    expect(body(calls)).toEqual({
+      new_seed: false,
+      arguments: { tier: 'standard' },
+    })
+  })
+})
+
 describe('job export', () => {
   it("posts to the job's own workspace, not the selected one", async () => {
     const calls = stubFetch({
@@ -306,5 +419,37 @@ describe('setNote', () => {
     const calls = stubFetch({ ok: true, body: {} })
     await setNote('wf/run-1', null)
     expect(calls[0][0]).toBe('/api/notes')
+  })
+})
+
+describe('request notes', () => {
+  it('adds, edits and deletes through the request-notes route, unscoped', async () => {
+    const calls = stubFetch({ ok: true, body: { revision: 4 } })
+    await api.addNote('my ws', {
+      request: 'r1',
+      item: 's3',
+      text: 'warmer',
+      refs: [{ item: 's3', job: 'j2' }],
+    })
+    await api.editNote('my ws', { request: 'r1', note: 'n2', text: 'cooler' })
+    await api.deleteNote('my ws', 'r1', 'n2')
+    await api.notesChannel('my ws')
+    expect(calls.map(([url, init]) => [init?.method ?? 'GET', url])).toEqual([
+      ['POST', '/api/workspaces/my%20ws/request-notes'],
+      ['PUT', '/api/workspaces/my%20ws/request-notes'],
+      ['DELETE', '/api/workspaces/my%20ws/request-notes?request=r1&note=n2'],
+      ['GET', '/api/workspaces/my%20ws/notes-channel'],
+    ])
+    expect(JSON.parse(String(calls[0][1]?.body))).toEqual({
+      request: 'r1',
+      item: 's3',
+      text: 'warmer',
+      refs: [{ item: 's3', job: 'j2' }],
+    })
+    expect(JSON.parse(String(calls[1][1]?.body))).toEqual({
+      request: 'r1',
+      note: 'n2',
+      text: 'cooler',
+    })
   })
 })

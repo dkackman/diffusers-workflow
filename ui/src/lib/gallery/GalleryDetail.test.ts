@@ -5,17 +5,33 @@ import {
   screen,
   waitFor,
 } from '@testing-library/svelte'
-import { afterEach, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import GalleryDetail from './GalleryDetail.svelte'
-import type { GalleryFile } from '../types'
+import { attempt, item, request } from '../request/fixtures'
+import type { GalleryFile, GalleryLinkedJob } from '../types'
 
 const setNote = vi.hoisted(() => vi.fn())
-vi.mock('../api', () => ({
+const assess = vi.hoisted(() => vi.fn<(name: string) => Promise<unknown>>())
+// The request-notes calls the file's note for the agent makes
+const ledger = vi.hoisted(() => ({
+  getRequest: vi.fn(),
+  addNote: vi.fn(),
+  notesChannel: vi.fn(),
+}))
+vi.mock('../api', async () => ({
+  ApiError: (await import('../apiErrors')).ApiError,
   setNote: (t: string, n: string | null) => setNote(t, n),
-  api: { outputDownloadUrl: (name: string) => `/download/${name}` },
+  api: {
+    outputDownloadUrl: (name: string) => `/download/${name}`,
+    assess: (name: string) => assess(name),
+    ...ledger,
+  },
 }))
 
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  assess.mockReset()
+})
 
 const file: GalleryFile = {
   name: 'wf/run-1/final/a.png',
@@ -55,7 +71,14 @@ it('orders the panel role, Settings, Made from, Location', () => {
       (el.matches('details') && el.querySelector('summary')?.textContent) ||
       el.querySelector('.muted')?.textContent,
   )
-  expect(order).toEqual(['role', 'Note', 'Settings', 'Made from', 'Location'])
+  expect(order).toEqual([
+    'role',
+    'Note',
+    'Findings',
+    'Settings',
+    'Made from',
+    'Location',
+  ])
   // Settings starts collapsed
   expect((meta.querySelector('details') as HTMLDetailsElement).open).toBe(false)
   expect(meta.querySelector('.location code')?.textContent).toBe(
@@ -147,4 +170,192 @@ it("labels a saved file note as the file's own, and a cleared one returns the ru
   await fireEvent.click(screen.getByRole('button', { name: /save/i }))
   await waitFor(() => expect(screen.getByText('Run note')).toBeTruthy())
   expect(screen.getByText('for the client')).toBeTruthy()
+})
+
+const finding = (
+  severity: 'warn' | 'info',
+  says: string,
+  at: number | null = null,
+) => ({
+  rule: `${severity}_rule`,
+  severity,
+  at,
+  value: 1,
+  threshold: 0,
+  says,
+})
+
+const video: GalleryFile = {
+  ...file,
+  name: 'wf/run-1/final/clip.mp4',
+  url: '/outputs/wf/run-1/final/clip.mp4',
+  kind: 'video',
+  label: 'clip.mp4',
+}
+
+const reply = (findings: ReturnType<typeof finding>[]) => ({
+  name: video.name,
+  source: 'output',
+  kind: 'video',
+  findings,
+  rules_applied: ['near_silent', 'shot_dead_air'],
+  rules_skipped: [],
+  not_applicable: { analyze_seams: 'no shot boundaries recorded' },
+})
+
+const findingsRegion = () => screen.getByRole('region', { name: 'Findings' })
+
+it("lists the metadata's findings warn first", () => {
+  render(GalleryDetail, {
+    ...props,
+    findings: [finding('info', 'quiet note'), finding('warn', 'too loud')],
+  })
+  const rows = [...findingsRegion().querySelectorAll('li')]
+  expect(rows.map((r) => r.querySelector('.severity')?.textContent)).toEqual([
+    'warn',
+    'info',
+  ])
+  expect(rows[0].textContent).toContain('too loud')
+})
+
+it('says No findings when there are none', () => {
+  render(GalleryDetail, props)
+  expect(findingsRegion().textContent).toContain('No findings')
+})
+
+it("disables an image's Assess and says why", () => {
+  render(GalleryDetail, props)
+  const button = screen.getByRole('button', { name: 'Assess' })
+  expect((button as HTMLButtonElement).disabled).toBe(true)
+  expect(button.getAttribute('title')).toBe(
+    'a still has no shots, seams or soundtrack to measure',
+  )
+  expect(assess).not.toHaveBeenCalled()
+})
+
+it("Assess shows the reply's findings, their time and what did not apply", async () => {
+  assess.mockResolvedValue(
+    reply([finding('info', 'picture jumps', 64.25), finding('warn', 'silent')]),
+  )
+  render(GalleryDetail, { ...props, file: video })
+  await fireEvent.click(screen.getByRole('button', { name: 'Assess' }))
+  expect(assess).toHaveBeenCalledWith(video.name)
+  await waitFor(() =>
+    expect(findingsRegion().querySelectorAll('li')).toHaveLength(2),
+  )
+  const rows = [...findingsRegion().querySelectorAll('li')]
+  expect(rows[0].textContent).toContain('silent')
+  expect(rows[1].querySelector('.at')?.textContent).toBe('1:04.3')
+  expect(findingsRegion().textContent).toContain(
+    'analyze_seams not applicable (no shot boundaries recorded)',
+  )
+})
+
+it('shows Assessing… while the request runs', async () => {
+  assess.mockImplementation(() => new Promise(() => {}))
+  render(GalleryDetail, { ...props, file: video })
+  await fireEvent.click(screen.getByRole('button', { name: 'Assess' }))
+  const busy = await screen.findByRole('button', { name: /Assessing/ })
+  expect((busy as HTMLButtonElement).disabled).toBe(true)
+})
+
+it('a failed Assess keeps the earlier list and shows the error', async () => {
+  assess.mockResolvedValueOnce(reply([finding('warn', 'silent')]))
+  render(GalleryDetail, { ...props, file: video })
+  await fireEvent.click(screen.getByRole('button', { name: 'Assess' }))
+  await waitFor(() => expect(findingsRegion().textContent).toContain('silent'))
+  assess.mockRejectedValueOnce(new Error('cannot read this file'))
+  await fireEvent.click(screen.getByRole('button', { name: 'Assess' }))
+  expect((await screen.findByRole('alert')).textContent).toContain(
+    'cannot read this file',
+  )
+  expect(findingsRegion().textContent).toContain('silent')
+})
+
+describe('the note for the agent', () => {
+  const take = (id: string, n: number): GalleryLinkedJob => ({
+    id,
+    request: 'r1',
+    item: 's3',
+    attempt: n,
+  })
+  beforeEach(() => {
+    sessionStorage.clear()
+    for (const call of Object.values(ledger)) call.mockReset()
+    ledger.notesChannel.mockResolvedValue({ listening: false, last_seen: null })
+    ledger.addNote.mockResolvedValue({ revision: 4 })
+    ledger.getRequest.mockResolvedValue(
+      request([
+        item('s3', {
+          title: 'Shot 3',
+          status: 'done',
+          attempts: [attempt('j1'), attempt('j2')],
+          notes: [
+            {
+              id: 'n1',
+              text: 'about this file',
+              created: 'x',
+              at: 'x',
+              refs: [{ item: 's3', job: 'j1', output: file.name }],
+            },
+            {
+              id: 'n2',
+              text: 'about another file',
+              created: 'x',
+              at: 'x',
+              refs: [{ item: 's3', job: 'j1', output: 'wf/run-1/b.png' }],
+            },
+          ],
+        }),
+      ]),
+    )
+  })
+  const box = () => screen.getByLabelText('Note for the agent on Shot 3')
+  async function send(text: string) {
+    await fireEvent.click(
+      screen.getByRole('button', { name: 'Add a note for the agent' }),
+    )
+    await fireEvent.input(box(), { target: { value: text } })
+    await fireEvent.click(screen.getByRole('button', { name: 'Save note' }))
+  }
+
+  it('is not there for a file no take of a request item published', () => {
+    render(GalleryDetail, { ...props, linkedJobs: [] })
+    expect(screen.queryByText('Note for the agent')).toBeNull()
+    expect(ledger.getRequest).not.toHaveBeenCalled()
+  })
+
+  it("with one take, shows the file's notes and a new one is about it", async () => {
+    render(GalleryDetail, { ...props, linkedJobs: [take('j1', 1)] })
+    await screen.findByText('about this file')
+    expect(screen.queryByText('about another file')).toBeNull()
+    expect(screen.queryByRole('combobox')).toBeNull()
+    await send('too much grain')
+    await waitFor(() => expect(ledger.addNote).toHaveBeenCalled())
+    expect(ledger.addNote).toHaveBeenCalledWith('default', {
+      request: 'r1',
+      item: 's3',
+      text: 'too much grain',
+      refs: [{ item: 's3', job: 'j1', output: file.name }],
+    })
+  })
+
+  it('with two takes, asks which one first and notes the one chosen', async () => {
+    render(GalleryDetail, {
+      ...props,
+      linkedJobs: [take('j2', 2), take('j1', 1)],
+    })
+    const picker = screen.getByRole('combobox') as HTMLSelectElement
+    expect(
+      [...picker.options].slice(1).map((option) => option.textContent),
+    ).toEqual(['take 2 of item s3', 'take 1 of item s3'])
+    expect(screen.queryByText('Note for the agent')).toBeNull()
+    await fireEvent.change(picker, { target: { value: 'j2' } })
+    await screen.findByText('about this file')
+    await send('the cached one is fine')
+    await waitFor(() => expect(ledger.addNote).toHaveBeenCalled())
+    expect(ledger.addNote.mock.calls[0][1].refs).toEqual([
+      { item: 's3', job: 'j2', output: file.name },
+    ])
+  })
 })

@@ -265,6 +265,20 @@ FACE_CROP_REMAINDER = 1
 FACE_CROP_MULTIPLE = 32
 FACE_PADDING_MAX = 3.0
 FACE_DETECTOR_SUFFIX = ".onnx"
+# Which face a track starts on, at frame 0 and at each shot start or cut
+# (dw/tasks/face_track.py `select_face`); the first is the default (#1348)
+FACE_SELECT_CHOICES = ("largest", "centre", "left", "right", "confident")
+
+
+def face_select_problem(select):
+    """The refusal for a `select` outside FACE_SELECT_CHOICES, or None - the
+    same words `choice_errors` gives at validate time."""
+    if select is None or select in FACE_SELECT_CHOICES:
+        return None
+    return (
+        f"crop_face_track needs 'select' as one of {list(FACE_SELECT_CHOICES)}, "
+        f"got {select!r}"
+    )
 
 
 def face_track_problems(
@@ -278,13 +292,18 @@ def face_track_problems(
     multiple=FACE_CROP_MULTIPLE,
     min_frames=None,
     max_frames=None,
+    select=None,
 ):
     """[(argument, message)] for each crop_face_track rule these values break.
 
     A value that is None or not a number is skipped - the domain check, or
-    another pass, owns that complaint.
+    another pass, owns that complaint. `select` is checked here for the run
+    time only; the static pass reads it through `choice_errors`.
     """
     problems = []
+    select_problem = face_select_problem(select)
+    if select_problem is not None:
+        problems.append(("select", select_problem))
     size = as_number(crop_size)
     step = as_number(multiple)
     if step is not None and (step <= 0 or step != int(step)):
@@ -409,8 +428,12 @@ def check_face_detector_source(repo, filename):
 
 def face_track_errors(arguments):
     """[(argument, message)] for the crop_face_track rules a literal workflow
-    can break before it runs: the crop, padding, gate and frame-grid rules, and
-    a detector source that is not a Hub repo and an .onnx file."""
+    can break before it runs: the crop, padding, gate and frame-grid rules, a
+    `select` that is not one of FACE_SELECT_CHOICES, and a detector source
+    that is not a Hub repo and an .onnx file."""
+    # `choices` alone is not enforced: a command's static check runs its own
+    # choice_errors, which skips a deferred value
+    errors = choice_errors("crop_face_track", arguments)
     # A deferred value is passed through, not dropped: as_number reads it as
     # no number, so its rules are skipped instead of run against a default
     literal = {
@@ -429,7 +452,7 @@ def face_track_errors(arguments):
         )
         if name in arguments
     }
-    errors = face_track_problems(**literal)
+    errors += face_track_problems(**literal)
     from .locations import validate_hub_repo_id
     from .security import SecurityError, validate_weight_name
 

@@ -8,7 +8,10 @@ generated video (text, references, target audio) stays dense.
 The layout rule: H3 packs text, then the references in request order, then the
 target audio, then the target video last. A reference image carries the same
 video tag as the target, so the target video is the trailing run of video rows,
-not every video-tagged row. Rows before it go first, in segment-pure tiles
+not every video-tagged row. Within that run the first row at each grid cell
+is the target; a later row at an already-seen cell is a ref2va guide's
+condition row (a copy of the target's positions appended after it), and it
+joins the dense prefix. Rows before the target go first, in segment-pure tiles
 (contiguous runs of one tag, at most 64 rows each) that are always attended in
 full; the video tiles follow.
 
@@ -120,20 +123,6 @@ def build_tile_map(
     live: list[int] = []
     tile = 0
 
-    # Prefix segments are contiguous runs of one tag
-    prefix_tags = tags[:target_start]
-    breaks = torch.ones(target_start, dtype=torch.bool)
-    if target_start > 1:
-        breaks[1:] = prefix_tags[1:] != prefix_tags[:-1]
-    starts = breaks.nonzero().squeeze(1).tolist() + [target_start]
-    for a, b in zip(starts[:-1], starts[1:]):
-        for c in range(a, b, TILE):
-            n = min(TILE, b - c)
-            dst[c : c + n] = tile * TILE + torch.arange(n)
-            live.append(n)
-            tile += 1
-    num_prefix_tiles = tile
-
     # H3's rotary coordinates are fractional (aspect-normalized space, uneven
     # time), so rank each axis's distinct values to get the integer grid index
     vrows = torch.arange(target_start, s)
@@ -141,10 +130,38 @@ def build_tile_map(
         [torch.unique(pos[vrows, a], return_inverse=True)[1] for a in range(3)], dim=1
     )
     gt, gh, gw = (vp.max(0).values + 1).tolist()
-    if gt * gh * gw != len(vrows):
+
+    # A ref2va guide's rows are video-tagged copies of the target's positions
+    # appended after it: the first row at each grid cell is the target, any
+    # later one is a condition row that joins the dense prefix
+    key = (vp[:, 0] * gh + vp[:, 1]) * gw + vp[:, 2]
+    by_key = torch.argsort(key, stable=True)
+    extra_sorted = torch.zeros(len(vrows), dtype=torch.bool)
+    extra_sorted[1:] = key[by_key][1:] == key[by_key][:-1]
+    extra = torch.zeros(len(vrows), dtype=torch.bool)
+    extra[by_key] = extra_sorted
+    if gt * gh * gw != int((~extra).sum()):
         raise SparseLayoutError(
-            f"target video is not a full grid: {gt}x{gh}x{gw} != {len(vrows)} rows"
+            f"target video is not a full grid: {gt}x{gh}x{gw} != {int((~extra).sum())} rows"
         )
+    prefix_rows = torch.cat([torch.arange(target_start), vrows[extra]])
+    vrows, vp = vrows[~extra], vp[~extra]
+
+    # Prefix segments are contiguous runs of one tag
+    prefix_tags = tags[prefix_rows]
+    n_prefix = prefix_rows.numel()
+    breaks = torch.ones(n_prefix, dtype=torch.bool)
+    if n_prefix > 1:
+        breaks[1:] = prefix_tags[1:] != prefix_tags[:-1]
+    starts = breaks.nonzero().squeeze(1).tolist() + [n_prefix]
+    for a, b in zip(starts[:-1], starts[1:]):
+        for c in range(a, b, TILE):
+            n = min(TILE, b - c)
+            dst[prefix_rows[c : c + n]] = tile * TILE + torch.arange(n)
+            live.append(n)
+            tile += 1
+    num_prefix_tiles = tile
+
     nh, nw = (gh + _SIDE - 1) // _SIDE, (gw + _SIDE - 1) // _SIDE
     tid = ((vp[:, 0] // _SIDE) * nh + vp[:, 1] // _SIDE) * nw + vp[:, 2] // _SIDE
     within = ((vp[:, 0] % _SIDE) * _SIDE + vp[:, 1] % _SIDE) * _SIDE + vp[:, 2] % _SIDE

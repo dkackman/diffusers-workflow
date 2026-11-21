@@ -102,6 +102,12 @@ from .. import references
 from ..events import emit_log
 from ..for_each import render_path
 from ..sparse_attention import forward_arg
+from ..step_passes import (
+    STEP_LIST_UNSUPPORTED,
+    STEPS_KEY,
+    pipeline_step_passes,
+    step_list_passes,
+)
 from .h3_rules import REFINE_WINDOWS_ENV_VAR, not_h3
 
 logger = logging.getLogger("dw")
@@ -601,11 +607,23 @@ DEFAULT_STEPS = 50
 def _evaluations(num_inference_steps):
     """The transformer evaluations a call runs. H3's `num_inference_steps` N
     counts sigma grid points (MiniMaxH3Scheduler), so it drives N - 1; a call
-    that names none (or not a whole number) runs the default."""
-    steps = num_inference_steps
-    if isinstance(steps, bool) or not isinstance(steps, int) or steps < 2:
-        steps = DEFAULT_STEPS
-    return steps - 1
+    that names none (or not a whole number) runs the default. The rule is
+    `dw.step_passes.pipeline_step_passes`'; a step-list pipeline never gets
+    here (`step_list_refusal`)."""
+    return pipeline_step_passes(
+        None, {STEPS_KEY: num_inference_steps}, default=DEFAULT_STEPS
+    )
+
+
+def step_list_refusal(pipeline, arguments):
+    """Why TST's step-keyed schedule is skipped for this call, or None.
+
+    The ramp is keyed on the passes a `num_inference_steps` schedule runs; a
+    pipeline whose config fixes a `denoising_step_list` is skipped with a
+    warning rather than ramped over a step count it does not run (#1316)."""
+    if step_list_passes(pipeline, arguments) is None:
+        return None
+    return f"TST (experimental, #1196) is {STEP_LIST_UNSUPPORTED}; the call runs without it"
 
 
 @contextmanager

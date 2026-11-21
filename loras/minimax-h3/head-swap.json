@@ -1,25 +1,28 @@
 {
   "model_name": "Alissonerdx/Minimax-H3-ComfyUI",
   "weight_name": "loras/minimax_h3_head_swap_v1.0_r32.safetensors",
-  "revision": "849fb3d4f434f2e9b4a4d4f7253471bf5e6719f9",
+  "revision": "6121334513f6d8d406f2d36118a3845d602c13e2",
   "base_models": [
     "MiniMaxAI/MiniMax-H3"
   ],
-  "workflow": null,
-  "description": "Blocked, not judged: head replacement from a reference image, trigger 'head_swap:'. It conditions on the source video's latents laid over the whole output grid from frame 0 (ComfyUI MiniMaxH3AddGuide); diffusers' H3 keyframe layout takes only single-frame first/last anchors, so no dw workflow can feed it its guide",
-  "use_when": "Do not use under dw until a full-length aligned guide exists (#611)",
+  "workflow": "ref2va",
+  "description": "Head replacement from a reference image, trigger 'head_swap:', on ref2va with the source clip as one whole-render guide at frame 0 and the reference as <Picture 1> (#1411). Benched against templates/minimax/replace-performer on #1194's deflect cut (#1414, one seed) with a scene reference (frame 0 edited to show the new performer): it holds the performance but holds the face less well (SFace median 0.543 against 0.747) and re-renders the whole frame (23.1 dB outside the person against 37.5)",
+  "use_when": "Not for performer replacement: templates/minimax/replace-performer holds the face better and leaves the rest of the frame alone. Worth a look only when no person mask is available and a whole-frame re-render is acceptable",
   "scale": {
     "default": 1.0
   },
   "status": "rejected",
   "evidence": [
     {
-      "issue": 611,
-      "note": "Blocked on #611: needs a multi-frame source-video guide aligned to the output grid at frame_idx 0, which dw's keyframe layout cannot express. Not tried and not rejected on merit; reopen the entry when #611 lands"
+      "issue": 1411,
+      "note": "Built on #1411: ref2va takes one whole-render source-video guide at frame 0 (video only), the layout this LoRA conditions on"
+    },
+    {
+      "issue": 1414,
+      "note": "Bench, seed 1194 only, on lem (bench/records/performer-replacement.md, #1411 section). Head swap job 7d1c0393d177 with the plan's scene reference asset:bench/t16/recast-scene-ref.png as <Picture 1> (20 steps, CFG 1, shift 12, 26.3 min) against replace-performer job 9c0fd3314b01 (4.2 min). Face hold vs the portrait: 0.543 against 0.747 (face checks 54231da0b116, 36575d4889d7; gate: within 0.03). PSNR more than 96 px outside the person: 23.1 dB against 37.5 (gate: within 2 dB). No seam band, audio held (corr 0.9991 on both). Fails the measured gate; Don's verdict on the frames is pending. A supplementary run with the bare portrait as <Picture 1> (bcca0dababf5: 0.653, 29.5 dB) fails too. Re-pinned from 849fb3d4, which the repo's history rewrite removed, to 61213345, the commit that last wrote the file"
     }
   ],
   "tags": [
-    "blocked",
     "head-swap",
     "video-to-video"
   ],

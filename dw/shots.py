@@ -47,6 +47,12 @@ A shot is a dict:
   included), beside the take - how `chain_repair_cut` finds them (#1169)
 - `planned_segments` - every shot of a chain's take carries its plan's segment
   count, which a probe's take (`stop_after`) falls short of
+- `measures` - every checked segment's shot of a chain with `check` on carries
+  its kept attempt's measures, `{name: {value, ceiling, bound, warn_only,
+  failed}}`: the ceiling in force (null when none), `bound` "max" or "min"
+  (`audio_dbfs`, mirrored from its top-level key, and `words`, its similarity
+  against `words_similarity_min`), and `failed` the check's verdict. Segment 1
+  carries only what it measured; check off, or a resumed shot, has no key (#1474)
 
 Every other `AudioVideo` constructor either carries the list (same frames),
 rescales it (`interpolate_frames`), re-measures the sample side for a new
@@ -58,7 +64,8 @@ of a longer source, #601), or clips the list to a kept span
 cleared; a clip with no shots carries one spanning the kept frames, #627).
 `chain_repair_splice` builds its list from the take's: the repaired span
 becomes one `(repaired)` shot and the shot after it starts where the take
-resumes (#1169). `tests/test_shots.py` fails on a constructor site nobody decided for.
+resumes (#1169). `replace_cuts` carries the take's list: its frame count is
+the take's. `tests/test_shots.py` fails on a constructor site nobody decided for.
 
 `Result.save` keeps each file's shots as plain data in `saved_shots` (path ->
 shots), so a step cache hit's stripped copy still reports them. The manifest

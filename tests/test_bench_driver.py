@@ -203,6 +203,115 @@ def test_measure_uses_the_arm_moments_override(monkeypatch):
     assert calls[-1]["at"] == ["frame:9"]
 
 
+def _look(saturation, lightness, contrast=0.3, detail=None):
+    look = {"saturation": saturation, "lightness": lightness, "contrast": contrast}
+    if detail is not None:
+        look["detail"] = detail
+    return look
+
+
+SEGMENT_LOOKS = [
+    {
+        "shot": "a",
+        "between_frames": [0, 47],
+        "first": _look(0.40, 0.5, detail=1.0),
+        "last": _look(0.42, 0.5, detail=1.2),
+    },
+    # detail missing here: the seam bridges this segment
+    {
+        "shot": "b",
+        "between_frames": [56, 95],
+        "first": _look(0.45, 0.6),
+        "last": _look(0.43, 0.6),
+    },
+    {
+        "shot": "c",
+        "between_frames": [104, 143],
+        "first": _look(0.47, 0.55, detail=1.5),
+        "last": _look(0.46, 0.55, detail=1.4),
+    },
+]
+
+
+def _measure_with_assess(monkeypatch, answer):
+    def fake(method, path, server, token, payload=None, params=None):
+        return answer if path.endswith("/assess") else {"texture": []}
+
+    monkeypatch.setattr(driver, "http", fake)
+    scene = driver.Scene("s", [0, 0, 8, 8], ["frame:1", "frame:2"])
+    job = {"id": "j", "manifest": [{"files": ["o.mp4"], "subfolder": "final"}]}
+    return driver.measure(job, scene, "http://h", "tok")
+
+
+def test_measure_splits_segment_looks_into_seams_and_segments(monkeypatch):
+    out = _measure_with_assess(
+        monkeypatch, {"seams": [], "segment_looks": SEGMENT_LOOKS}
+    )
+    approx = pytest.approx
+    # saturation: seams +0.03 +0.04, segments +0.02 -0.02 -0.01
+    assert out["split_saturation_seams"] == approx(0.07)
+    assert out["split_saturation_segments"] == approx(-0.01)
+    assert out["split_saturation_total"] == approx(0.06)
+    assert out["split_saturation_seam_share"] == approx(0.07 / 0.08)
+    assert out["split_saturation_seam_sign"] == approx(1.0)
+    # lightness: seams +0.1 -0.05, flat segments: one seam disagrees
+    assert out["split_lightness_seams"] == approx(0.05)
+    assert out["split_lightness_segments"] == approx(0.0)
+    assert out["split_lightness_seam_share"] == approx(1.0)
+    assert out["split_lightness_seam_sign"] == approx(0.5)
+    # contrast: nothing moves, so share and sign are left out
+    assert out["split_contrast_total"] == approx(0.0)
+    assert "split_contrast_seam_share" not in out
+    assert "split_contrast_seam_sign" not in out
+    # detail: segment b lacks it; the one seam bridges a.last -> c.first
+    assert out["split_detail_seams"] == approx(0.3)
+    assert out["split_detail_segments"] == approx(0.1)
+    assert out["split_detail_total"] == approx(0.4)
+    assert out["split_detail_seam_sign"] == approx(1.0)
+    for m in driver.SPLIT_MEASURES:
+        assert out[f"split_{m}_total"] == approx(
+            out[f"split_{m}_seams"] + out[f"split_{m}_segments"]
+        )
+    assert all(type(v) is float for k, v in out.items() if k.startswith("split_"))
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        {"seams": []},
+        {"seams": [], "segment_looks": []},
+        {"seams": [], "segment_looks": None},
+        {
+            "seams": [],
+            "segment_looks": [
+                {"shot": "a", "between_frames": None, "first": None, "last": None}
+            ],
+        },
+    ],
+)
+def test_measure_adds_no_split_keys_without_segment_looks(monkeypatch, answer):
+    out = _measure_with_assess(monkeypatch, answer)
+    assert not [k for k in out if k.startswith("split_")]
+
+
+def test_report_renders_the_split_keys(monkeypatch):
+    out = _measure_with_assess(
+        monkeypatch, {"seams": [], "segment_looks": SEGMENT_LOOKS}
+    )
+    record = {"arm": "x", "scene": "s", "seed": 1, "status": "succeeded"}
+    text = driver.report([dict(record, measures=out)])
+    header = text.splitlines()[0]
+    for key in (
+        "split_saturation_total",
+        "split_saturation_seams",
+        "split_saturation_segments",
+        "split_saturation_seam_share",
+        "split_saturation_seam_sign",
+    ):
+        assert key in header
+    assert "0.875" in text.splitlines()[2]
+
+
 def _fake_server(compare_calls):
     def fake(method, path, server, token, payload=None, params=None):
         if path.startswith("/api/jobs/"):

@@ -651,8 +651,8 @@ def _latent_slot_problem(chain):
 
 def _gate_problem(gate):
     """Why a frame slot's `enter_below_sigma` is refused, or None: a value
-    not in (0, 1], or - since the windowed denoiser runs the gate, and only
-    its scratch flag puts that in - the flag off."""
+    not in (0, 1], or the long-form spikes' scratch flag off (the gate is a
+    spike, run by the windowed denoiser every H3 load carries)."""
     if gate is None:
         return None
     if not _number_over(gate, 0) or (not isinstance(gate, str) and gate > 1):

@@ -106,7 +106,7 @@
                 },
                 "latent_upsampler": {
                     "configuration": {
-                        "component_type": "diffusers.pipelines.ltx2.latent_upsampler.LTX2LatentUpsamplerModel"
+                        "component_type": "diffusers.models.latent_upscaler.LTX2LatentUpsamplerModel"
                     },
                     "from_pretrained_arguments": {
                         "model_name": "Lightricks/LTX-2.5-Diffusers",

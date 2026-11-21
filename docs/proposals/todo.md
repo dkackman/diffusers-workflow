@@ -37,6 +37,288 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **Requests: a ledger that joins the jobs made for one ask** (#1458, stages
+  #1481-#1484), closed 2026-11-19. A request is a revisioned plan of items in
+  `<workspace>/requests.json`, with the initiating prompt verbatim and the
+  settled goal. Jobs link with `run_workflow(request="<id>/<item>")`, reruns
+  inherit the link, and item state, the accepted result and spent/remaining
+  minutes are derived from the jobs. MCP `set_request`/`get_request`; a
+  Requests section, request page with a per-item comment box, and request
+  filters on the jobs list and gallery; storyboard, long-form, script-to-video
+  and series-episodes open one for three or more jobs. Page edits (#1485) and
+  runnable items (#1486) were cut to parked ideas:
+  `complete/requests-ledger-complete.md`.
+- **A per-segment view of a chain** (#1451, stages #1474-#1476), closed
+  2026-11-19. Every checked chain shot carries `measures` (`{value, ceiling,
+  bound, warn_only, failed}` per measure, from the kept attempt), typed as
+  `ShotRecord` in the REST schema. The job page shows a segment table: a
+  thumbnail, attempts, each measure against its ceiling, and resumed/repaired
+  marks. Repair (H3 family only, matched by the template's `model_name`) opens
+  `minimax/repair-segment` pre-filled, and Continue the chain prices and reruns
+  a `stop_after` take from its last segment. Live rows, died-chain resume and
+  per-row resume were cut: `complete/chain-segments-view-complete.md`.
+- **Catalog LoRA suggestions in the LoRA editor** (#1456, stage #1480), closed
+  2026-11-19. For a literal `owner/name` base, the editor lists the catalog's
+  non-rejected entries for that base (and literal partition), proven first, with
+  each entry's scale, notes and trigger, and adds one in a click. `GET /api/loras`
+  now declares its response (`LoraList`). Hub search (`/recommend`), `lora-schema`
+  and `variable:` bases were cut: `complete/lora-editor-suggestions-complete.md`.
+
+- **The curated cost figure says its basis and the settings it was measured
+  at** (#1454, stage #1479), closed 2026-11-19. A catalog card's tooltip reads
+  "a maintainer's figure, measured on <where> at <drivers>" from the card's
+  `cost_drivers`, and the run page shows that figure above the observed one,
+  with a hint that the plan re-prices other values. The per-field "moves the
+  cost" mark was cut (it would need a server driver classification):
+  `complete/cost-basis-drivers-complete.md`.
+- **Findings and Assess in the gallery, and a job's event log** (#1452, stages
+  #1477 and #1478), closed 2026-11-19. The gallery detail lists an output's
+  findings by severity, and its Assess button shows the assess route's findings
+  with the probes that didn't apply. The job page has a collapsed Event log
+  that pages `GET /api/jobs/{id}/event-log` with the server's trimming note.
+  The compare-page crop and texture bands were cut:
+  `complete/gallery-findings-job-event-log-complete.md`.
+- **Job-list rows say why a job ended, and a banner reruns a restart's
+  casualties** (#1449, stages #1472 and #1473), closed 2026-11-19. `GET
+  /api/jobs` and MCP `list_jobs` rows carry `reason` (the error's first line,
+  clipped at 160) and, on a restart tombstone, `restart_batch`. The jobs page
+  shows the reason under the workflow name, and a "N jobs were cancelled by a
+  server restart" banner previews and then confirms
+  `rerun-restart-batch`: `complete/job-row-reason-restart-banner-complete.md`.
+- **Run again with changes, and what a rerun changed** (#1448, stage #1471),
+  closed 2026-11-19. The job page's "Run again with changes…" opens the run's
+  variables with its values as placeholders and sends only what changed as rerun
+  `arguments`. Buttons offer the other values of each preset selector as
+  one-click promotions, and a `changed: …` chip beside "rerun of" names a
+  rerun's overrides. The jobs-list overrides were cut (they need a server
+  change): `complete/rerun-with-changes-complete.md`.
+- **The run form shows preset bundles and declared variable rules** (#1447,
+  stages #1469 and #1470), closed 2026-11-19. Each declared
+  `variable_constraints` rule and its reason shows under its field on the run
+  page and in the editor, with list-entry rules under their list. A preset
+  selector is a dropdown of its bundles, with "sets …" under it, and the chosen
+  bundle's values are the placeholders of the variables it sets; only the
+  selector is sent. Client-side violation marks were cut in favour of #1446's
+  server check: `complete/run-form-presets-constraints-complete.md`.
+- **The run page checks a run before Run** (#1446, stages #1467 and #1468),
+  closed 2026-11-19. The workflow page validates on load and 600 ms after each
+  change, and shows the plan, a verdict and the findings beside Run, with a
+  finding placed under the variable its path names. `describePlan` now reads
+  host RAM, low-confidence, tempered, withheld, inherited and unpriced figures,
+  the card a run is priced for, and gated or missing repos. The editor shows a
+  plan whenever one is present. Run stays ungated. Comparing against free host
+  RAM was cut (no API field): `complete/run-page-plan-complete.md`.
+- **When a job last used each Hub model** (#1445, stages #1461 and #1462),
+  closed 2026-11-19. dw records the start time of the latest job that named
+  each Hub repo in `model-use.json` under the settings dir. `GET /api/models`
+  and `list_models` rows carry it as `last_job_use`, and the Models page shows
+  it, with the files' atime as a muted "(disk)" fallback. The `get_server_info`
+  summary, local-path loads and redirect following were cut:
+  `complete/model-last-job-use-complete.md`.
+- **Per-shot audio drift figures** (#1442, stage #1464), closed 2026-11-19.
+  `analyze_shots` gains report-only `high_share` (energy above 4 kHz) and
+  `noise_floor_dbfs` (10th percentile of 50 ms windows) per shot. On the bench
+  S3 dialogue chain `high_share` rose unevenly and the floor didn't follow,
+  so no dulling-voice defect was found. The audio anchor (idea B), a drift
+  rule, a centroid field and a bench measure were cut, each with a trigger:
+  `complete/shot-audio-drift-complete.md`.
+- **H3 keystone attention probe** (#1391, stages #1393 and #1394), closed
+  2026-11-19. `experimental_keystone_attention`, an fl2va call argument behind
+  `DW_EXPERIMENTAL_REFINE_WINDOWS`, re-splits the keystone/carried-guide
+  attention slice on chosen blocks. A brightened-keystone check showed that
+  diffusers' block numbering matches ComfyUI's. The early gate on the narrated
+  chain, which ran dense, failed on its letter. The op visibly acts, but Don
+  saw no clear win and stopped the bench. The sharpness sweep, the full arms,
+  the chain key, the sparse re-split and the moving-shot arm were cut, each
+  with a trigger: `complete/h3-keystone-attention-complete.md`.
+- **H3 masked handoff + keystone probe** (#1505, stage #1506), closed
+  2026-11-20 as a bench record. #1322's reopen trigger: the masked carried
+  latent with a keystone, with and without keystone attention on NerdNotes
+  test 21's saturation blocks. The keystone pull passed weakly (+1.10%,
+  confounded with the seam lift), but both arms failed the seg01-02 gate on
+  saturation and luma while keeping #1322's seam win. No full run; the
+  narrated drift stays open: `complete/h3-masked-keystone-complete.md`.
+- **H3 fl2va/ref2va hybrid probe** (#1441, stage #1463), closed 2026-11-19
+  as a bench record. The smhfacct-style graft (fl2va weights, ref2va's
+  `adaln_proj` for blocks 20-49) was built locally from lem's cached
+  transformers, with no Hub download. Rendered against stock ref2va at seed
+  1441, it misses the SFace floor: median 0.788 vs 0.855, a gap of 0.067
+  with 0.02 allowed. The quality verdict is Don's look. The catalog entry,
+  the turbo LoRA on a hybrid, references in a guide chain and the Hub
+  files were cut, each with a trigger:
+  `complete/h3-hybrid-ref-probe-complete.md`.
+- **H3 stochastic sampling probe** (#1438, stage #1459), closed 2026-11-19
+  as a bench record, no gain. `MiniMaxH3Scheduler(stochastic_sampling=True)`
+  (EasyFix's every-step re-noise) renders clean H3 turbo video, but its
+  re-noise is unseeded: two flagged runs at seed 42 differ as much as flag on
+  from flag off. On a 3-segment chain it creeps no less than the control
+  (x2.15 vs x1.82). H3-Image shows no speckle at 2048² or 16 MP. Every arm is
+  dropped; adoption would need a seeded path first. The flag only reaches the
+  scheduler through `from_config_args`:
+  `complete/h3-stochastic-sampling-complete.md`.
+- **MiniMax-H3-Image as the stills family for H3 video** (#1317, stages
+  #1345, #1424 and #1425), shipped 2026-11-18. It adds
+  `workflows/templates/minimax-h3-image/` (text-to-image and multi-reference,
+  int8, 2048 by default, with a 64 GB warm host-RAM floor and ~120 GB on a cold
+  first run), list-length `min_length`, and the `dw:minimax-h3-image` skill.
+  The skill routes stills that feed H3 clips to H3-Image on a qualifying host;
+  everything else stays on Klein. Costs (2.3 / 2.7 min) are priced on lem's
+  PCIe-x4 cuda:0. `complete/minimax-h3-image-complete.md`.
+- **Kandinsky S2V 1.0 Pro at 4-bit probe** (#1314, stage #1339), closed
+  2026-11-18 as a negative bench record. The probe ran in the spike venv,
+  because S2V takes a waveform and dw's `fetch_media` has no `audio` branch.
+  Without offload it ran out of GPU memory (21.0 GiB). With the transformer
+  group-offloaded, SDNQ int4 loads, but it needs ~48 GB host RAM and ~36 min a
+  chunk. At 20 s it fails the gate: SFace 0.72, saturation +5.4, Laplacian
+  61-114. So there was no 86 s take and no onboarding:
+  `complete/ks2v-pro-probe-complete.md`.
+- **LongCat-Video-Avatar 1.6 at INT8 probe** (#1443, stage #1465), closed
+  2026-11-19 as a negative bench record. It ran in a spike venv outside dw.
+  It fits the 3090 only with DiT block streaming (10.25 GB VRAM, 80 GB host
+  RSS, ~256 s a window, 832x480 at 25 fps). At 30 s it fails the gate: SFace
+  .80 at 15 s, 256 px Laplacian 254 against 410. So there was no 86 s take and
+  no onboarding: `complete/longcat-avatar-probe-complete.md`.
+- **Pika H3 Flex** (#1316, stages #1342-#1344), shipped 2026-11-17.
+  `workflows/templates/pika-h3/` holds six-step t2va, fl2va and ref2va single
+  clips. Their weight components come from `MiniMaxAI/MiniMax-H3` through
+  `load_components`, so lem downloaded only the adapters. The step list is
+  counted as len − 1 passes. Don's bench verdict: an option, not the default.
+  H3 lightx2v stays the default, and chains stay cut:
+  `complete/pika-h3-flex-complete.md`.
+- **Face encode floor and `scored_from`** (#1418, stages #1420-#1421),
+  shipped 2026-11-17. A bench probe on mini-ai measured in-memory against
+  saved-file face scores of one clip: up to 0.016 on a median and 0.030 on a
+  minimum, a lower bound from re-encoding, almost all of it from the mp4
+  encode. `analyze_face_drift` now returns `scored_from` (frames/picture/file)
+  and a note when the forms mix. Encoded-form scoring in-job stays cut:
+  `complete/face-encode-floor-complete.md`.
+- **Performer replacement** (#1194, stages #1373-#1375), shipped 2026-11-17.
+  `detect_cuts` lays a clip's cuts out on H3's 17n+5 grid, and `trim_video`
+  `pad_to` pads each cut by holding its last frame. `track_people` gives one
+  SAM2-propagated mask per person. `templates/minimax/replace-performer-cuts`
+  prepares the cut list and the mask. `replace-performer` runs a masked ref2va
+  edit per cut with a portrait, trims each cut back, and rejoins the cuts with
+  the source soundtrack. Each cut can carry its own `seed` and `prompt`, so one
+  cut can be re-rolled alone. `mask_grow` stays 1, from the seam bench:
+  `complete/performer-replacement-complete.md`.
+- **Maskless whole-shot performer swap** (#1411, stages #1412-#1414; D #1415
+  not planned), closed 2026-11-20 as a negative result. ref2va now takes one
+  whole-render guide, and the regional-edit guidance has h3-recast's caption
+  rules. On seed 1194 the guide plus `head-swap` held the face at 0.543 against
+  `replace-performer`'s 0.747, and the untouched regions at 23.1 against 37.5 dB,
+  so no template shipped and `head-swap` stays `rejected`:
+  `complete/maskless-recast-complete.md`.
+- **SAM 3 `track_people` backend** (#1397, stages #1404-#1405), shipped
+  2026-11-18. `track_people` takes `backend: "sam3"` (opt-in, gated, SAM
+  License), which detects on every frame of a cut, so a person who enters
+  mid-cut gets a mask. The transformers floor is now 5.21. The 12-cell bench on
+  mini-ai and lem: only SAM 3 caught ep65's late entrant, both backends agreed
+  elsewhere, and SAM 3 cost about 2.5-3x and found two near-floor false
+  entrants on ep49. Grounding-DINO stays the default:
+  `complete/sam3-track-people-complete.md`.
+- **Visual memory at a cut** (#1398, stages #1401-#1402), closed 2026-11-18
+  as guidance. A 22-frame `trim_video` window from the middle of the
+  establishing shot, passed as an H3 video reference, held all four place and
+  wardrobe markers on the reverse, at 1.35x a pass. The whole previous clip
+  lost the coat, pulled the shot toward the earlier angle, cost 4.4x, and ran
+  out of memory at 1344x768. The lip-copy rule ships as the source's claim:
+  `minimax-h3/references/cuts.md`, `complete/visual-memory-cut-complete.md`.
+- **H3 turbo version vs chain burn** (#1399, stage #1403), closed 2026-11-17
+  as a bench record, no gain. lightx2v's fl2v 4step v1.3 burned no less than
+  v1.2 on `chained-segments`, and ref2v 8step v1.1 on `chain-video-continuity`
+  cut `chain_check` fails but nearly quadrupled the mean seam lightness step
+  (4.94 vs 1.26). The astronaut subject had no face, so a gray Laplacian stood
+  in for face creep, and the anti-burn arm did not run. No catalog entry, no
+  template change: `complete/h3-turbo-version-burn-complete.md`.
+- **Face-once cast reference sheet** (#1400, stage #1406), closed 2026-11-17
+  as a bench record, no gain. A 16:9 sheet with one head panel and four
+  neck-down views held a Ref2VA clip's face worse than today's portrait
+  (−0.123 and −0.074 SFace median), and Z-Image-Turbo never drew the sheet
+  face-once. The adoption stage was withdrawn, and the portrait stays the
+  cast reference: `complete/face-once-sheet-complete.md`.
+- **Performer replacement seam: an eroded-mask arm** (#1382, stage #1390),
+  shipped 2026-11-16 as a bench record. `bench/erode_mask.py` eroded the person
+  mask by 16 px before H3 pools it, at `mask_grow` 0, and `seam_bands.py
+  --inner K` measures inside the silhouette. The `step` halved against
+  `mask_grow` 1, but the crops show a ghost of the source silhouette and the
+  couch back is still redrawn on one seed, so `replace-performer` keeps
+  `mask_grow` 1 and no engine erode is proposed:
+  `complete/performer-eroded-mask-complete.md`.
+- **diffusers floor to 0.43.0** (#1315, stages #1340-#1341), shipped
+  2026-11-16. Stage A made develop correct on 0.43 behaviour: modular `None`
+  drop, MagCache readout across the per-call hook reset, a guarded
+  attention-backend pin, and backends filtered by diffusers' requirement check.
+  Stage B moved the floor to `diffusers>=0.43.0`, moved the LTX2 latent
+  upsampler to `diffusers.models.latent_upscaler`, and refuses a malformed
+  dotted `*_type` at validate. The suite passes alike on 0.43.0 and HEAD.
+  Every GPU parity run was cut, with triggers:
+  `complete/diffusers-043-floor-complete.md`.
+- **H3 seam pass: the windowed refine out of the flag** (#1230, stages
+  #1376-#1378), shipped 2026-11-15. `refine_windows` (renamed from
+  `experimental_refine_windows`, defaults 42/12/pyramid/rebased) is validated
+  for free; a refine leaving `videos` out of its output skips its own video
+  decode; `templates/minimax/h3-seam-pass` smooths a finished take's seams at
+  about 36 GPU-min per minute of take. Not a burn fix. The flag still gates
+  every other spike: `complete/h3-seam-pass-complete.md`.
+- **Rerun a restart's tombstones as one batch** (#1266, stages #1370-#1371),
+  shipped 2026-11-15. `rerun_job(job_id=<a tombstone>, restart_batch=true)`
+  (REST: `POST /api/jobs/{id}/rerun-restart-batch`) previews every job the same
+  dead server left, then with `acknowledged_cost` reruns them oldest first, each
+  in its own workspace with `rerun_of`, and skips any already rerun. It was
+  verified with a staged `kill -9` drill on mini-ai, which is also #1245's
+  verify. UI and resume at startup stayed cut:
+  `complete/restart-batch-rerun-complete.md`.
+- **H3 turbo lead-in** (#1326, stages #1352-#1353, fix #1365), shipped
+  2026-11-15 as an opt-in with a negative probe. `turbo_lead_in` N holds the
+  `turbo` adapter at 0 for each call's first N evaluations. On 8-segment
+  chains it raised the mean per-cut lightness step on every arm (+35% to
+  +129%), so Don ruled (Q4) that no template or skill uses it:
+  `complete/h3-turbo-lead-in-complete.md`.
+- **Validate refuses H3 literals the pipeline would refuse** (#1361, stage
+  #1364), shipped 2026-11-15. `dw/pipeline_limits.py` reads H3's duration,
+  fps, 17n+5 grid and 32-multiple canvas off `MiniMaxH3ModularPipeline` and
+  refuses a literal `num_frames`, `width` or `height` outside them at
+  `steps[i].pipeline.arguments.<key>`, so inline JSON fails at validate, not
+  after the load. Catalog-held rules by model id and a no-rule warning were
+  cut, with triggers: `complete/h3-pipeline-limits-complete.md`.
+- **Narrated passages joined as cuts, run by a cold agent** (#1311, stages
+  #1336-#1338, #1362), shipped 2026-11-14. The long-form recipe for a
+  narrated piece longer than one take: one `narration-long` track, retimed
+  once, cut with `slice_audio`, one `narrated-take` per passage from its own
+  angle, joined with `concat_videos`. Both narration templates declare
+  `shape: "audio"`. A cold Sonnet agent got the shape wrong on attempt 1 and
+  followed it on attempt 2 (1:46.58, 1 cut). Don's eye-and-ear verdict and
+  the null `narrated-take` estimate are open:
+  `complete/narrated-passages-complete.md`.
+- **A cut's face-detail reset, closed with a late-frame still** (#1385,
+  stages #1388-#1389), shipped 2026-11-16. A take opens as smooth as its
+  still, so the #1311 keeper's cut dropped the face to 0.23x of A's end. A
+  bench probe of four arms: Don picked L (the sharpest face in A's last 2 s,
+  flux3 image-edit to B's angle, as B's still; 0.86x), and the join-time
+  sharpen read as etched. The recipe's *Takes* step carries the route. B's
+  late segments under it are unmeasured:
+  `complete/cut-detail-reset-complete.md`.
+- **Seam/segment split of chain drift** (#1324, stages #1349-#1350), shipped
+  2026-11-14. `analyze_seams` answers gain `segment_looks`: each shot's 1 s
+  first and last window of new frames (lightness, contrast, saturation,
+  detail), a measure no rule reads. `bench/driver.py measure` totals it into
+  `split_<m>_total`/`_seams`/`_segments`/`_seam_share`/`_seam_sign`, which sum
+  exactly. It says where a measure changes, not whether Don sees it.
+  Face-crop measures were cut, with a trigger:
+  `complete/seam-segment-split-complete.md`.
+- **H3 precision burn probe** (#1319, stage #1346), shipped 2026-11-14 as a
+  bench record. A bf16 transformer under block offload on one card burns at the
+  int8 control's rate, so precision is not a burn lever at int8→bf16. Tensor
+  parallelism across lem's two cards was cut, because on 3090s it can't run H3
+  above int8. It is deferred under two triggers, and the first is now shown
+  unmet: `complete/h3-bf16-burn-probe-complete.md`.
+- **Face track subject selection** (#1321, stage #1348), shipped 2026-11-14.
+  `crop_face_track` gains `select` (`largest` default, `centre`, `left`,
+  `right`, `confident`), applied at each track start, and a lost track now
+  keeps source pixels instead of jumping to another face. Both face-repair
+  templates pass `select` through. `reference` (SFace), Gaussian smoothing and
+  per-shot `select` were cut, each with a trigger:
+  `complete/face-track-select-complete.md`.
 - **Words check for dialogue chains** (#1262, stages #1297-#1299), shipped
   2026-11-09. The H3 chain check gains a `words` measure: each segment's kept
   audio is transcribed on CPU Whisper and compared with its line (`lines[k]`
@@ -50,7 +332,9 @@ remaining deferred fix is recorded in
   vocabulary has a `class`. Only `static` is `static`. Every `moving` id
   carries the H3 "never `last_frame` with `look_hold`/`carry_pick`" note,
   and `long-form` picks its `shot` preset from that column. No new ids. The
-  measurement probe is parked as #1260:
+  measurement probe (#1260) has since run, all 13 moves at two seeds on H3
+  (#1379) and LTX-2.5 (#1380): `audits/2026-11-move-seeds.md`, record
+  `complete/move-seeds-complete.md`. Record:
   `complete/move-class-complete.md`.
 - **Long-form media** (#1199), shipped 2026-11-06. Static long takes (`shot:
   static_long`, the H3 keystone at the last slot), `look_hold` on by default in the
@@ -575,8 +859,9 @@ remaining deferred fix is recorded in
   - a sitcom multicam grammar in `series-episodes`.
 
   A measured trial put six moves × three families at honoured or partial,
-  none ignored. Record, including what was deferred (the 7 unmeasured
-  moves, tier 2 in `cinematic-addons.md`):
+  none ignored. The 7 moves it left unmeasured were measured later by
+  #1260 (`audits/2026-11-move-seeds.md`). Record, including what was
+  deferred (tier 2 in `cinematic-addons.md`):
   `complete/cinematic-controls-complete.md`.
 - **H3 dialogue pacing: split `<d>` blocks** (#1180, stages #1184, #1185),
   shipped 2026-11-02. A non-turbo probe on lem found that splitting a short

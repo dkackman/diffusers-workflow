@@ -1,0 +1,169 @@
+{
+  "issue": 1460,
+  "feature": 1439,
+  "plan": "v2",
+  "date": "2026-11-19",
+  "run_by": "claude-opus-5-5 (anthropic)",
+  "server": "lem (2x RTX 3090), main dw.serve, develop @ 603649f1; workspace bench",
+  "workflows": [
+    "bench/workflows/probe-1439-refprep.json",
+    "bench/workflows/t26-face-check.json"
+  ],
+  "arm1_path": "fallback",
+  "arm1_path_why": "the #487 known-leak shot lived in workspace encanto-uprising, which no longer exists on lem, and #484 item 5 names no job id",
+  "outcome": "not reproduced at one reference; drop",
+  "verdict": "drop",
+  "arms_run": [
+    "arm1"
+  ],
+  "arms_not_run": {
+    "arm2": "gate unmet: no bleed on either fallback picture, so no crop was made",
+    "arm3": "gate unmet: no bleed on either fallback picture, so no blur was made"
+  },
+  "settings": {
+    "template": "templates/minimax/reference-to-video at its defaults (960x544, 124 frames @ 24 fps, 9 steps, int4, turbo LoRA, the template's voice reference)",
+    "seeds": [
+      14391,
+      14392
+    ],
+    "bleed_frames": [
+      0,
+      12,
+      24,
+      48,
+      62
+    ],
+    "bleed_labels": [
+      "none",
+      "framing",
+      "backdrop",
+      "both"
+    ],
+    "sface": {
+      "task": "analyze_face_drift",
+      "samples_per_shot": 16,
+      "reference": "the original picture",
+      "tie_below": 0.03
+    },
+    "segmenter": "segment task, prompt 'person' (GDINO + SAM2 on lem); not run, gate unmet",
+    "crop": "arm 2: square recenter_crop on the mask bbox, side 1.75x the subject box's longer side, capped at the full picture; not computed, gate unmet",
+    "blur": {
+      "script": "bench/blur_outside_mask.py",
+      "grow_px": 12,
+      "feather_sigma": 6.0,
+      "blur_sigma": 20.0,
+      "run": false
+    }
+  },
+  "pictures": [
+    {
+      "name": "grocer",
+      "asset": "asset:bench/1439/grocer.jpg",
+      "made_by": "templates/flux3/text-to-image, seed 1439, 1024x1024",
+      "job": "fd1ebe8f261f",
+      "run": "20261119-064924-98273732",
+      "backdrop": "grocery shop: shelves, cereal boxes, cans, a neon OPEN sign; man in a mustard jacket, chest-up",
+      "prompt": "subject_definitions:\n<Subject 1> is the man in <Picture 1>: forties, short dark curly hair, a trimmed beard, a mustard-yellow canvas jacket over a blue shirt.\n<Audio 1> is the voice timbre reference for <Subject 1> (S1): a recorded male voiceover, mid-range in pitch, measured and formal in delivery.\n\nsummary:\n[reference generation + audio reference] The target video shows <Subject 1> walking alone along an empty beach at dusk, then stopping to speak to camera. The voice timbre references <Audio 1>.\n\nretention_analysis:\n<Subject 1> (appears in [Shot 1]): partially_preserved - only his face, hair, beard and clothing are kept from <Picture 1>; the setting, the framing and the background of <Picture 1> are not used.\n<Audio 1>: reference - only the timbre, pitch and measured delivery of the recorded male voice are referenced for <Subject 1>'s speech; none of its content is reused.\n\ndetailed_description:\nThe target video is in realistic photographic style. [Shot 1] A wide shot of an empty sandy beach at dusk: low surf rolling in on the left, wet sand reflecting an orange and violet sky, no buildings, no people, nothing else on the shore. <Subject 1> walks slowly along the waterline toward camera, small in the frame, his full figure visible from head to feet. He stops a few metres from the lens and turns to face camera. <Subject 1> (S1) speaks in a measured, formal male voice, <d>[English] Nobody comes down here this late. That is why I do.</d> As he finishes he looks back out toward the water. The camera holds wide and static on a tripod at waist height throughout.\n\noverall_soundscape:\nSoft surf breaking and drawing back over sand, a light steady sea wind, distant gulls, the crunch of his steps in damp sand.\n\nnon_diegetic_music:\nNone."
+    },
+    {
+      "name": "market",
+      "asset": "asset:bench/1439/market.jpg",
+      "made_by": "templates/flux3/text-to-image, seed 1440, 1024x1024",
+      "job": "bff2f1550c70",
+      "run": "20261119-065458-03c9671e",
+      "backdrop": "neon night market: signs, lanterns, scooters, a crowd; woman with an auburn bob and teal scarf",
+      "prompt": "subject_definitions:\n<Subject 1> is the woman in <Picture 1>: thirties, a shoulder-length auburn bob, a teal knit scarf over a charcoal wool coat.\n<Audio 1> is the voice timbre reference for <Subject 1> (S1): a recorded male voiceover, mid-range in pitch, measured and formal in delivery.\n\nsummary:\n[reference generation + audio reference] The target video shows <Subject 1> walking alone along an empty beach at dusk, then stopping to speak to camera. The voice timbre references <Audio 1>.\n\nretention_analysis:\n<Subject 1> (appears in [Shot 1]): partially_preserved - only her face, hair and clothing are kept from <Picture 1>; the setting, the framing and the background of <Picture 1> are not used.\n<Audio 1>: reference - only the timbre, pitch and measured delivery of the recorded male voice are referenced for <Subject 1>'s speech, pitched to suit her; none of its content is reused.\n\ndetailed_description:\nThe target video is in realistic photographic style. [Shot 1] A wide shot of an empty sandy beach at dusk: low surf rolling in on the left, wet sand reflecting an orange and violet sky, no buildings, no people, nothing else on the shore. <Subject 1> walks slowly along the waterline toward camera, small in the frame, her full figure visible from head to feet. She stops a few metres from the lens and turns to face camera. <Subject 1> (S1) speaks in a measured, formal voice, <d>[English] Nobody comes down here this late. That is why I do.</d> As she finishes she looks back out toward the water. The camera holds wide and static on a tripod at waist height throughout.\n\noverall_soundscape:\nSoft surf breaking and drawing back over sand, a light steady sea wind, distant gulls, the crunch of her steps in damp sand.\n\nnon_diegetic_music:\nNone.",
+      "prompt_note": "passed as the 'prompt' argument; its voice line still describes the template's male voice reference"
+    }
+  ],
+  "clips": [
+    {
+      "picture": "grocer",
+      "arm": "arm1",
+      "subject": "asset:bench/1439/grocer.jpg",
+      "seed": 14391,
+      "job": "bee9c7bccd1c",
+      "run": "BenchProbe1439RefPrep/20261119-065039-c0b45ff9",
+      "device": "cuda:1",
+      "minutes": 4.0,
+      "bleed": "none",
+      "sface_job": "dde677150e51",
+      "sface_run": "bench/t26-face-check/20261119-070101-db7edf8b",
+      "sface_median": 0.211,
+      "sface_min": 0.12,
+      "faces_found": "16/16",
+      "warnings": []
+    },
+    {
+      "picture": "grocer",
+      "arm": "arm1",
+      "subject": "asset:bench/1439/grocer.jpg",
+      "seed": 14392,
+      "job": "57c092b9464e",
+      "run": "BenchProbe1439RefPrep/20261119-065047-15a48259",
+      "device": "cuda:0",
+      "minutes": 3.6,
+      "bleed": "none",
+      "sface_job": "3cbf9bcf68c7",
+      "sface_run": "bench/t26-face-check/20261119-070113-f905b2f6",
+      "sface_median": 0.179,
+      "sface_min": 0.058,
+      "faces_found": "16/16",
+      "warnings": []
+    },
+    {
+      "picture": "market",
+      "arm": "arm1",
+      "subject": "asset:bench/1439/market.jpg",
+      "seed": 14391,
+      "job": "432ef37f69cd",
+      "run": "BenchProbe1439RefPrep/20261119-065556-5f3ef3d2",
+      "device": "cuda:1",
+      "minutes": 3.7,
+      "bleed": "none",
+      "sface_job": "fa1d34609289",
+      "sface_run": "bench/t26-face-check/20261119-070115-cd343827",
+      "sface_median": 0.222,
+      "sface_min": 0.042,
+      "faces_found": "16/16",
+      "warnings": [
+        "audio peaks at +0.78 dBFS (clips)"
+      ]
+    },
+    {
+      "picture": "market",
+      "arm": "arm1",
+      "subject": "asset:bench/1439/market.jpg",
+      "seed": 14392,
+      "job": "c58224e7a012",
+      "run": "BenchProbe1439RefPrep/20261119-065606-3b8df9ff",
+      "device": "cuda:0",
+      "minutes": 3.55,
+      "bleed": "none",
+      "sface_job": "e4733e963132",
+      "sface_run": "bench/t26-face-check/20261119-070118-f886c5fe",
+      "sface_median": 0.191,
+      "sface_min": 0.049,
+      "faces_found": "16/16",
+      "warnings": []
+    }
+  ],
+  "gpu_minutes": {
+    "pictures": 1.0,
+    "clips": 14.85,
+    "sface": 0.2,
+    "total": 16.0,
+    "cap": 90
+  },
+  "missing_tasks": [
+    "a still-image SAM 3 mask",
+    "mask grow / feather",
+    "gaussian blur",
+    "composite through a mask",
+    "a margin crop to a mask box"
+  ],
+  "follow_ups": [
+    "the two-character pair (two references in one ref2va clip), where cross-reference bleed is more likely",
+    "a reference with a chest-up prompt (framing bleed is suppressed here by the wide full-figure prompt)"
+  ]
+}

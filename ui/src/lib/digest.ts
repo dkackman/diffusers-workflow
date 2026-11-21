@@ -142,7 +142,9 @@ function schedulerLine(pipeline: Config): DigestLine[] {
 
 function accelerationLine(configuration: Config): DigestLine[] {
   const acceleration = [
-    configuration.cache ? `cache: ${configuration.cache.type}` : null,
+    configuration.cache
+      ? `cache: ${typeof configuration.cache === 'string' ? configuration.cache : configuration.cache.type}`
+      : null,
     configuration.attention_backend
       ? `attention: ${configuration.attention_backend}`
       : null,

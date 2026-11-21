@@ -14,7 +14,7 @@ from array import array
 
 from .. import references
 from ..adapter_compatibility import FROM_PRETRAINED_KEY, H3_WORKFLOWS, WORKFLOW_KEY
-from ..variable_constraints import aligned, aligned_down
+from ..variable_constraints import aligned_down
 
 MODULAR_PIPELINE = "ModularPipeline"
 
@@ -210,18 +210,45 @@ TILE_OVERLAP_FLOOR = 192
 LATENT_SCALE = 16
 # The rate H3 generates video at
 H3_FPS = 24
-# The experimental time-windowed refine (#1199 Task 17 Step 4,
-# dw/pipeline_processors/h3_windows.py): its call argument, and the scratch flag
-# the loader reads before it puts the windowed denoiser in. Here, not in
-# h3_windows.py, because that module imports diffusers and the loader reads the
-# flag on every H3 load
-REFINE_WINDOWS_INPUT = "experimental_refine_windows"
+# The time-windowed refine (#1199 Task 17 Step 4, #1230;
+# dw/pipeline_processors/h3_windows.py): its call argument, on every H3 load,
+# and the name it had while it was a spike, refused naming this one. Here, not
+# in h3_windows.py, because that module imports diffusers
+REFINE_WINDOWS_INPUT = "refine_windows"
+OLD_REFINE_WINDOWS_INPUT = "experimental_refine_windows"
+# The long-form spikes' one scratch flag (selflift, the capstone, latent carry,
+# the latent keystone, anchor_every, the sigma gate, TST). It kept the windowed
+# refine's name when the windows left it (#1230), and h3_tst.py reads it by
+# this name, so the name stays
 REFINE_WINDOWS_ENV_VAR = "DW_EXPERIMENTAL_REFINE_WINDOWS"
 
 
 def refine_windows_enabled():
-    """Whether the windowed refine's scratch flag is on in this process."""
+    """Whether the long-form spikes' scratch flag is on in this process."""
     return os.environ.get(REFINE_WINDOWS_ENV_VAR) == "1"
+
+
+def lifts_duration_ceiling(arguments):
+    """Whether a call is the windowed refine whose take may run past H3's
+    `max_duration`: it carries both `refine_windows` and `refine_strength`.
+    Asked by the layout step at the call (h3_windows.py
+    `DwH3LongRefineLayoutStep`) and by validate before the load
+    (dw/pipeline_limits.py); every other call keeps the ceiling."""
+    return (
+        arguments.get(REFINE_WINDOWS_INPUT) is not None
+        and arguments.get(REFINE_STRENGTH_INPUT) is not None
+    )
+
+
+def renamed_windows_problem(arguments):
+    """The refusal of the windowed refine's spike-era name, or None."""
+    if not isinstance(arguments, dict) or OLD_REFINE_WINDOWS_INPUT not in arguments:
+        return None
+    return (
+        f"{OLD_REFINE_WINDOWS_INPUT} is now {REFINE_WINDOWS_INPUT} - rename the "
+        f"argument (every key is optional, and {REFINE_WINDOWS_INPUT}: {{}} is "
+        f"the default windows)"
+    )
 
 
 # The experimental SelfLift (#1195, #1199 Task 19; h3_selflift.py): the early
@@ -439,7 +466,7 @@ def not_h3(pipeline, argument=HOLD_AUDIO_INPUT, taken_by=H3_WORKFLOWS):
     """Why this step's pipeline cannot take `argument` - one of the H3 block
     arguments - or None when it can or cannot be told before the load.
     `taken_by` is the H3 workflows the message names as taking it: an
-    argument ref2va refuses (guides, latent_anchor) passes t2va/fl2va only,
+    argument ref2va refuses (latent_anchor, guide_noise) passes t2va/fl2va only,
     so the refusal does not send the author to a workflow that refuses it
     too. It only words the message - an H3 workflow outside it is left to
     the caller's own rule, which says why."""
@@ -588,7 +615,8 @@ GUIDE_BACKOFF_BLOCK = 17
 # Where a guide chain runs is where `guides` runs (dw/guides.py); the run and
 # validate lead their refusal with this rule
 GUIDE_CHAIN_RULE = (
-    "continuity 'guide' runs on MiniMax-H3 t2va or fl2va only - guides stay off ref2va"
+    "continuity 'guide' runs on MiniMax-H3 t2va or fl2va only - ref2va takes one "
+    "whole-render guide, never a guide chain"
 )
 
 # Every chain continuity mode, in the order chain_continuity.py registers its classes
@@ -796,6 +824,43 @@ def guide_backoff_problems(chain):
     return []
 
 
+# ref2va takes `guides` too (#1411), narrowly: one clip, at frame 0, covering
+# the whole render - a performer swap's source, held under the references. Its
+# guide rows go after the target at the target's own rotary times
+# (h3_guide_steps.DwH3Ref2VAGuideLayoutStep); no guide audio, no guide noise,
+# no guide chain, no latent_anchor.
+REF2VA_GUIDE_RULE = (
+    "on ref2va, guides takes exactly one clip, at frame 0, covering the whole render"
+)
+
+
+def ref2va_guides_count_problem(count):
+    """Why a ref2va step's `guides` list of `count` entries is refused, or None."""
+    if count != 1:
+        return f"{REF2VA_GUIDE_RULE} - got {count} clips"
+    return None
+
+
+def ref2va_guide_problem(frame, length, num_frames, audio=False):
+    """Why one ref2va guide is refused, or None: `audio` on, a `frame` other
+    than 0, or a snapped `length` shorter than the `num_frames` render (a
+    length or render not known yet is not checked). A guide past the end is
+    `guide_end_problem`'s."""
+    if audio:
+        return (
+            "'audio' is refused on ref2va - a ref2va guide holds video only; "
+            "use guide audio on t2va or fl2va"
+        )
+    if frame != 0:
+        return f"{REF2VA_GUIDE_RULE}, and this guide is at frame {frame}"
+    if length is not None and num_frames is not None and length < num_frames:
+        return (
+            f"{REF2VA_GUIDE_RULE}, and this {length}-frame guide is shorter than "
+            f"the {num_frames}-frame render"
+        )
+    return None
+
+
 def guide_end_problem(frame, length, num_frames):
     """Why a guide of `length` frames at `frame` runs past a `num_frames` render,
     or None. Ending exactly at `num_frames` fits."""
@@ -969,96 +1034,5 @@ def _audio_pass_problems(arguments):
             problems.append(
                 f"listen_scale is one of {', '.join(map(str, LISTEN_SCALES))} - "
                 f"the audio pass's canvas against the source's - not {scale!r}"
-            )
-    return problems
-
-
-def listen_canvas(width, height, scale):
-    """The (width, height) an audio pass at `scale` runs its kept rows on: the
-    shorter side scaled and snapped to the nearest TILE_GRID multiple, ties
-    up, the longer derived from the source's aspect and snapped the same way,
-    neither below one cell of the grid. Snapping each side on its own would
-    squeeze 960x544 at 0.25 to 256x128, 13% off its aspect."""
-
-    def snapped(side):
-        return max(TILE_GRID, int(side / TILE_GRID + 0.5) * TILE_GRID)
-
-    short = snapped(min(width, height) * scale)
-    long = snapped(short * max(width, height) / min(width, height))
-    return (long, short) if width >= height else (short, long)
-
-
-def retimed_indices(frame_count, fps):
-    """The source frame each conditioning frame of an audio pass shows: the
-    source's `frame_count` frames at `fps` resampled in time, nearest frame,
-    to H3_FPS over the same duration, the count snapped up onto RENDER_GRID
-    as `num_frames` is (the frames past the end repeat the last). The video
-    rows then encode a 24 fps picture of the same moments, and the audio
-    generated against them covers the source's real duration (R25)."""
-    count = aligned(max(1, round(frame_count / fps * H3_FPS)), RENDER_GRID)
-    return [min(frame_count - 1, int(i * fps / H3_FPS + 0.5)) for i in range(count)]
-
-
-def media_problems(
-    name, shape, width, height, num_frames=None, fps=None, frames_constraint=None
-):
-    """Why a `source_video` or mask of `shape` - (frames, height, width) -
-    does not fit a `width` x `height` canvas, as a list. `num_frames` is the
-    step's frame count, when it is known; a `mask_image` (one frame) fits any.
-    `fps` is an audio pass's source rate: at any rate but H3_FPS the source is
-    retimed onto the grid (`retimed_indices`), so its own count need not be.
-    `frames_constraint` is the workflow's declared `num_frames` constraint
-    (`variable_constraints`, the owner of the ceiling), when the caller has
-    it: a `source_video` past its `max_frames` is then named too long."""
-    ceiling = (frames_constraint or {}).get("max_frames")
-    problems = []
-    if (width, height) != (shape[2], shape[1]):
-        problems.append(
-            f"{name} is {shape[2]}x{shape[1]}, and the step renders "
-            f"{width}x{height} - they must match"
-        )
-    # An audio pass at another rate conditions on the source retimed to H3_FPS,
-    # so it is that count, not the source's own, the step must render
-    expected = shape[0]
-    retimed = name == SOURCE_VIDEO_INPUT and fps not in (None, H3_FPS)
-    if retimed:
-        expected = len(retimed_indices(shape[0], fps))
-    if num_frames is not None and name != MASK_IMAGE_INPUT and expected != num_frames:
-        if retimed:
-            have = (
-                f"{name} has {shape[0]} frames at {fps:g} fps ({expected} once "
-                f"retimed to {H3_FPS} fps)"
-            )
-        else:
-            have = f"{name} has {shape[0]} frames"
-        problem = (
-            f"{have}, and the step renders num_frames={num_frames} - they must match"
-        )
-        if (
-            name == SOURCE_VIDEO_INPUT
-            and isinstance(ceiling, int)
-            and expected > ceiling
-        ):
-            fits = aligned_down(ceiling, frames_constraint)
-            problem += (
-                f". This workflow renders at most {ceiling} frames, so this clip "
-                f"is too long - trim it to {fits if fits is not None else ceiling} "
-                f"frames or fewer"
-            )
-        problems.append(problem)
-    elif (
-        num_frames is not None and name == SOURCE_VIDEO_INPUT and fps in (None, H3_FPS)
-    ):
-        # Off the 17n + 5 grid the pipeline snaps num_frames up and the source
-        # is padded to fit, so the mask drifts in time and the output is longer
-        # than the source: refused here, where the count can still be changed
-        on_grid = aligned(num_frames, RENDER_GRID)
-        if on_grid != num_frames:
-            below = aligned_down(num_frames, RENDER_GRID)
-            problems.append(
-                f"{name} has {shape[0]} frames, off the 17n + 5 grid the step "
-                f"renders on: the pipeline would render {on_grid} and pad the "
-                f"source, drifting the mask - trim the clip to {below} frames or "
-                f"pad it to {on_grid}"
             )
     return problems

@@ -1,12 +1,21 @@
 <script lang="ts">
-  import { Bookmark, FolderOpen, Star, Trash2, X } from '@lucide/svelte'
+  import { Bookmark, FolderOpen, Gauge, Star, Trash2, X } from '@lucide/svelte'
   import DownloadLink from '../DownloadLink.svelte'
   import { api } from '../api'
   import { goWs } from '../router.svelte'
   import { notify } from '../toast'
   import { confirmDialog } from '../confirm.svelte'
   import { describeOutputMeta } from '../outputMeta'
-  import type { GalleryFile, GalleryInput, OutputRole } from '../types'
+  import type {
+    GalleryFile,
+    GalleryInput,
+    GalleryLinkedJob,
+    LevelFinding,
+    OutputRole,
+  } from '../types'
+  import GalleryFindings from './GalleryFindings.svelte'
+  import FileAgentNotes from './FileAgentNotes.svelte'
+  import { AssessCache } from './assess.svelte'
   import RoleTag from './RoleTag.svelte'
   import NoteEditor from '../ui/NoteEditor.svelte'
   import { ASSET, OUTPUT, referenceName } from '../references'
@@ -25,6 +34,9 @@
     sourceJob,
     role = null,
     inputs = [],
+    findings = [],
+    linkedJobs = [],
+    assessCache = new AssessCache(),
     note = null,
     runNote = null,
     noteSource = null,
@@ -42,6 +54,13 @@
     role?: OutputRole | null
     /** The assets and outputs the run read */
     inputs?: GalleryInput[]
+    /** The level findings the metadata reply carries, warn first */
+    findings?: LevelFinding[]
+    /** The takes of request items that published the file */
+    linkedJobs?: GalleryLinkedJob[]
+    /** Assess results by output for the page's life; the page passes its
+     * own so one survives the panel closing */
+    assessCache?: AssessCache
     /** The file's effective note, its run's note, and whose the effective one is */
     note?: string | null
     runNote?: string | null
@@ -110,6 +129,19 @@
       }
     }
   }
+
+  // Assess measures shots, seams and a soundtrack; a still has none, and
+  // the title says so in the server's own words (dw/server/assess.py)
+  const assessable = $derived(file.kind === 'video' || file.kind === 'audio')
+  const assessKey = $derived(AssessCache.key(workspace.current, file.name))
+  const assessed = $derived(assessCache.get(assessKey))
+  const assessTitle = $derived(
+    assessable
+      ? 'measure this file for shots, seams, sync and level - places to look, not verdicts'
+      : file.kind === 'image'
+        ? 'a still has no shots, seams or soundtrack to measure'
+        : 'not a video or audio file',
+  )
 
   const embeddedWorkflow = $derived(
     (metadata?.workflow as Record<string, unknown> | undefined) ?? null,
@@ -184,6 +216,14 @@
     >
       <Bookmark size={14} />Keep as asset
     </button>
+    <button
+      class="quiet withicon"
+      onclick={() => assessCache.run(assessKey, file.name)}
+      disabled={!assessable || assessed?.running}
+      title={assessTitle}
+    >
+      <Gauge size={14} />{assessed?.running ? 'Assessing…' : 'Assess'}
+    </button>
     <a
       href={file.url}
       target="_blank"
@@ -238,7 +278,7 @@
     {:else if file.kind === 'text'}
       <pre class="text">{textBody ?? 'loading…'}</pre>
     {/if}
-    {#if metadata || role || inputs.length}
+    {#if metadata || role || inputs.length || findings.length || assessed || linkedJobs.length}
       <div class="meta">
         <div><RoleTag {role} /></div>
         {#if inherited}
@@ -259,6 +299,12 @@
             onsaved={saveFileNote}
           />
         {/if}
+        <GalleryFindings {findings} {assessed} />
+        <FileAgentNotes
+          file={file.name}
+          {linkedJobs}
+          workspace={workspace.current}
+        />
         {#if metadata}
           <details class="settings">
             <summary>Settings</summary>

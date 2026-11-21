@@ -384,6 +384,20 @@ def test_opening_missing_on_every_attempt_is_reported(monkeypatch):
     assert call.kwargs["segment"] == 2
     assert "line_opening_missing" in call.args[0]
     assert call.kwargs["findings"][0]["rule"] == "line_opening_missing"
+    # #1363: the similarity passed, so the note is not about the words or carry
+    assert "failed its words" not in call.kwargs["note"]
+    assert "repair-segment" not in call.kwargs["note"]
+    assert "narrated take" in call.kwargs["note"]
+
+
+def test_segment_one_words_failure_is_not_pointed_at_repair_segment(monkeypatch):
+    fake = FakeWords(bad={"one one"})
+    pipeline, result, warn = _run_words(monkeypatch, fake, _words_chain(retries=1))
+    (call,) = _chain_check_warnings(warn)
+    assert call.kwargs["segment"] == 1
+    assert "repair-segment" not in call.kwargs["note"]
+    assert "carry" not in call.kwargs["note"]
+    assert "different seed" in call.kwargs["note"]
 
 
 def test_a_segment_with_no_line_is_neither_checked_nor_re_rolled(monkeypatch):
@@ -468,3 +482,121 @@ def test_lines_of_the_wrong_length_are_refused_by_the_config():
     # an empty list is a count mismatch, named with both numbers (#1262 bounce)
     with pytest.raises(ValueError, match=r"0 line\(s\) for 3"):
         ChainConfig(_chain(lines=[]), {})
+
+
+# The kept attempt's measures on every checked segment's shot (#1474), through
+# the run: passing or not, each against the ceiling in force
+
+
+def _shots(bad_calls=(), **overrides):
+    result = run_chain(
+        FakePipeline(_output(set(bad_calls))),
+        _chain(**overrides),
+        {"num_frames": 8, "seed": 5},
+    )
+    return result.shots
+
+
+def test_a_passing_segment_records_its_measures_with_their_ceilings():
+    from dw.pipeline_processors.chain_check import (
+        AUDIO_DBFS_MIN,
+        CUT_RATIO_MAX,
+        JUMP_RATIO_MAX,
+        LOOK_RATIO_MAX,
+    )
+
+    shot = _shots()[1]
+    assert "check_failed" not in shot
+    measures = shot["measures"]
+    assert {"jump_ratio", "look_ratio", "cut_ratio", "audio_dbfs"} <= set(measures)
+    ceilings = {
+        "jump_ratio": JUMP_RATIO_MAX,
+        "look_ratio": LOOK_RATIO_MAX,
+        "cut_ratio": CUT_RATIO_MAX,
+        "audio_dbfs": AUDIO_DBFS_MIN,
+    }
+    for name, ceiling in ceilings.items():
+        entry = measures[name]
+        assert set(entry) == {"value", "ceiling", "bound", "warn_only", "failed"}
+        assert isinstance(entry["value"], float)
+        assert entry["ceiling"] == ceiling
+        assert entry["failed"] is False
+        assert entry["warn_only"] is False
+    assert measures["jump_ratio"]["bound"] == "max"
+
+
+def test_an_overridden_ceiling_shows_the_workflows_value():
+    measures = _shots(check={"jump_ratio_max": 3.25})[1]["measures"]
+    assert measures["jump_ratio"]["ceiling"] == 3.25
+    assert measures["look_ratio"]["ceiling"] == 5.5
+
+
+def test_a_failed_measure_agrees_with_check_failed():
+    shot = _shots({1, 2})[1]
+    assert shot["check_failed"]
+    failed = {name for name, entry in shot["measures"].items() if entry["failed"]}
+    assert failed == set(shot["check_failed"])
+
+
+def test_check_off_records_no_measures_and_leaves_the_shot_as_it_was():
+    shots = _shots(check=False, retries=0)
+    assert shots and all("measures" not in shot for shot in shots)
+    assert all("check" not in shot for shot in shots)
+
+
+def test_segment_1_carries_only_what_it_measured():
+    measures = _shots()[0]["measures"]
+    # No seam before it: only its audio floor is held
+    assert set(measures) == {"audio_dbfs"}
+
+
+def test_audio_dbfs_stays_top_level_and_is_mirrored_as_a_floor():
+    for shot in _shots():
+        mirrored = shot["measures"]["audio_dbfs"]
+        assert shot["audio_dbfs"] == mirrored["value"]
+        assert mirrored["bound"] == "min"
+        assert mirrored["ceiling"] == -70.0
+
+
+def test_a_null_floor_records_a_null_ceiling():
+    shots = _shots(check={"audio_dbfs_min": None})
+    entry = shots[1]["measures"]["audio_dbfs"]
+    assert entry["ceiling"] is None and entry["failed"] is False
+
+
+def test_the_existing_shot_keys_are_unchanged():
+    without = run_chain(
+        FakePipeline(_output({1, 2})), _chain(), {"num_frames": 8, "seed": 5}
+    ).shots
+    keys = [
+        "name",
+        "start_frame",
+        "num_frames",
+        "start_sample",
+        "num_samples",
+        "attempts",
+        "check",
+        "check_failed",
+        "audio_dbfs",
+        "trim_frames",
+        "crossfade_ms",
+        "planned_segments",
+    ]
+    assert [k for k in without[1] if k != "measures"] == keys
+    assert without[1]["check"] == {"face_drop": None}
+
+
+def test_a_chain_manifest_entry_round_trips_through_the_api_model():
+    from dw.server.api_models import ManifestEntry
+
+    shots = _shots({1, 2}, check={"jump_ratio_max": 3.25})
+    entry = {"step": "chain", "files": ["take.mp4"], "shots": shots}
+    model = ManifestEntry.model_validate(entry)
+    dumped = model.model_dump(exclude_unset=True)
+    assert dumped == entry
+    assert model.shots[1].measures["jump_ratio"].ceiling == 3.25
+    # A shot from before #1474, with no measures, still validates
+    old = {k: v for k, v in shots[1].items() if k != "measures"}
+    assert ManifestEntry.model_validate(
+        {"step": "chain", "files": [], "shots": [old]}
+    ).model_dump(exclude_unset=True)["shots"] == [old]

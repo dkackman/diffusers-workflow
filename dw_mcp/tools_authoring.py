@@ -2,7 +2,7 @@
 
 from typing import Optional
 
-from dw_mcp import authoring, loras, prompts, workspaces
+from dw_mcp import authoring, ledger, loras, prompts, workspaces
 
 
 class WorkspaceTools:
@@ -33,7 +33,7 @@ class WorkspaceTools:
         """Create a workspace on the server. It gets its own workflows,
         assets and outputs and shares the one prompt library. The name is a
         single path segment and cannot be one of the reserved folder names
-        (workflows, prompts, assets, outputs, exports, common, loras). Pass use=true to switch this
+        (workflows, prompts, assets, outputs, exports, common, loras, requests.json, workspace.json). Pass use=true to switch this
         session to it as well; otherwise the session stays where it was and
         the result says so."""
         return workspaces.create_workspace(self.client, name, use=use)
@@ -65,6 +65,56 @@ class WorkspaceTools:
         reports what it would remove instead."""
         return workspaces.delete_workspace(
             self.client, name, acknowledged_cost=acknowledged_cost
+        )
+
+    def get_request(
+        self, request: str | None = None, workspace: str | None = None
+    ) -> dict:
+        """Read a request's plan from the workspace's ledger: items with
+        derived status, revision and history. Omit request to list them."""
+        return ledger.get_request(self.client, request, workspace)
+
+    def delete_request(
+        self, request: str, revision: int, workspace: str | None = None
+    ) -> dict:
+        """Delete a request from the ledger at the `revision` read. Its jobs
+        keep their link and files; refused while one is queued or running."""
+        return ledger.delete_request(self.client, request, revision, workspace)
+
+    def set_request(
+        self,
+        request: str,
+        title: str,
+        goal: str,
+        items: list[dict],
+        revision: int,
+        why: str,
+        prompt: str | None = None,
+        state: str | None = None,
+        workspace: str | None = None,
+        purge: list[str] | None = None,
+    ) -> dict:
+        """Write the whole plan for what the user asked, so it outlives this
+        session. revision: the one you read, 0 to create; stale is refused.
+        prompt: the user's ask, on create only. items: ordered {key, title,
+        depends_on, estimate_minutes, workflow, arguments, accepted}; one
+        left out is dropped. accepted: {job}, the keeper. Act on the user's
+        `notes` (request and items, each may carry `refs` to the takes and
+        files it is about) in what you read; never write them.
+        why: one line. state: open, done or abandoned. purge: dropped keys
+        to remove for good. get_guide("workspaces", section="Requests")."""
+        return ledger.set_request(
+            self.client,
+            request,
+            title,
+            goal,
+            items,
+            revision,
+            why,
+            prompt,
+            state,
+            workspace,
+            purge,
         )
 
 
@@ -106,8 +156,9 @@ class AuthoringTools:
         workspace can reach, each at `arguments.<name>`.
         `checked_arguments` says whether your values or only the stored
         defaults were checked. A value outside a bound the workflow
-        declares is an error here rather than a failed run; one the workflow rounds up
-        comes back as a warning naming what it becomes.
+        declares, or the pipeline publishes, is an error here rather than a
+        failed run; one the workflow rounds up comes back as a warning naming
+        what it becomes.
 
         Also checked: an unwritable `result.subfolder` or `file_base_name`,
         after `for_each` expansion; and each sub-workflow step - an

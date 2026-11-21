@@ -61,3 +61,19 @@ def test_no_target_video_raises():
     tags = torch.ones(128, dtype=torch.long)
     with pytest.raises(SparseLayoutError):
         build_tile_map(torch.zeros(128, 3, dtype=torch.float64), tags, "cpu")
+
+
+def test_ref2va_guide_rows_join_the_dense_prefix():
+    # #1426: a guide's rows are video-tagged copies of the target's positions
+    # appended after it; they must not make the target look like two grids
+    tags, pos = _layout(text=20, ref_rows=30, audio=20, t=4, h=4, w=8)
+    target = pos[-4 * 4 * 8 :]
+    tags2 = torch.cat([tags, torch.zeros(len(target), dtype=tags.dtype)])
+    pos2 = torch.cat([pos, target])
+    tm = build_tile_map(pos2, tags2, "cpu")
+    assert tm.video_grid == (4, 4, 8)
+    assert tm.rows == len(tags2) and torch.unique(tm.dst).numel() == tm.rows
+    guide = torch.arange(len(tags), len(tags2))
+    assert (tm.dst[guide] < tm.num_prefix_tiles * 64).all()
+    video = torch.arange(len(tags) - len(target), len(tags))
+    assert (tm.dst[video] >= tm.num_prefix_tiles * 64).all()

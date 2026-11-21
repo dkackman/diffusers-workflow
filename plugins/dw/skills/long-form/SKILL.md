@@ -5,9 +5,9 @@ description: Use when a dw MCP server is connected and the request is longer tha
 
 # Long-form pieces on a dw server
 
-A model renders one clip at a time: H3 up to 14.4 s, LTX-2.5 about 17 s at
-768. A piece longer than that is planned per piece, then per scene, then per
-seam, then per run. This skill is that plan. The family skills
+A model renders one clip at a time (the *One clip* row). A longer
+piece is planned per piece, then per scene, then per seam, then per run.
+This skill is that plan. The family skills
 (`minimax-h3`, `ltx-2.5`, `minimax-music3`) still own their templates'
 rules and prompt formats, and their rules win. `script-to-video`,
 `storyboard` and `series-episodes` own the shot list, the boards and the
@@ -22,7 +22,7 @@ Each rule names its bench record (`bench/records/<name>.md` in the repo;
 
 1. `get_server_info`: the device. H3 is CUDA-first. On a 24 GB Mac,
    `templates/minimax/chained-segments` at its defaults is refused
-   (about 18.3 GB projected against an approximate 17.8 GB working set; the device reports the real limit). Lower the
+   (about 18.3 GB projected against about 17.8 GB; the device reports the real limit). Lower the
    canvas to 768x448, which fits under guide continuity. `num_frames`
    cannot drop below 124 (`docs/ACCELERATION.md`, *MPS*).
 2. `list_workflows(shape="sequence")` and `list_workflows(traits="chained")`:
@@ -36,7 +36,9 @@ Split the piece into scenes the way a storyboard would. A scene is one place
 and one continuous moment. Give each scene a target length from the story,
 not from the model; the model ceiling only decides how the scene is rendered.
 Record per scene `length_seconds` and `continuity` in the shot document's
-`<project>/scenes` (`script-to-video/references/shot-document.md`).
+`<project>/scenes` (`script-to-video/references/shot-document.md`). Three or
+more jobs: open a request from the shot list
+(`script-to-video/references/request.md`).
 
 ## 2. Per scene: the rendering shape
 
@@ -48,7 +50,9 @@ Record per scene `length_seconds` and `continuity` in the shot document's
 | Narrated take | a speaking subject in one place, held to a narration | `templates/narration-retime`, then `templates/minimax/narrated-take` |
 | Bridge | a cut must land on a fixed frame | `templates/minimax/first-and-last-frame`, `templates/minimax/last-frame-only` |
 
-Prefer cuts. A cut resets drift and costs nothing at the seam. Chain only
+Prefer cuts. A cut resets drift but drops the face to about a quarter of
+its sharpness; make the next still from the last take's late frame
+(`references/run-and-repair.md`, *Takes*). Chain only
 what must be unbroken. A soundtrack-driven chain is
 `templates/minimax/chain-matched-to-audio`; see `minimax-h3`.
 
@@ -80,15 +84,15 @@ Set `shot` on `templates/minimax/chained-segments` from the shot's
 
 - **A speaking subject in one place is a narrated take.** Make the
   narration with `templates/narration-retime`, listen, then run
-  `templates/minimax/narrated-take`. `shot: dialogue` holds about 30 s;
-  `shot: standing` (no keyframes) holds to about 85 s (seed 1 only);
-  choose `standing` unless the user supplies keyframes;
-  `walk_keyframed` needs a hand-built keyframe per segment. Longer than a
-  take is passages joined as cuts, one take each: not yet run end to end
-  (`bench/records/narrated.md`). Procedure: `references/run-and-repair.md`,
-  *A narrated take*.
+  `templates/minimax/narrated-take`. `shot: standing` (a monologue to
+  camera) holds about 85 s (`bench/records/narrated.md`), `dialogue`
+  about 30 s; `walk_keyframed` needs a keyframe per segment. Longer is
+  passages joined as cuts: one `narration-long` track,
+  `slice_audio`, a take each, `concat_videos`; run end to end once
+  (`bench/records/drill.md`). Procedure:
+  `references/run-and-repair.md`, *A narrated take*.
 
-Two rules that bite:
+Rules that bite:
 
 - **Never use `last_frame` with `look_hold` or `carry_pick` on an H3
   camera move.** It froze the orbit on seed 1166 and held it back on seed 2. The
@@ -102,10 +106,10 @@ Two rules that bite:
 - **An H3 take of any other shot type drifts past about 35 s.** A 90 s
   `shot: dialogue` walk was clean to 35 s; from 45 s the face changed
   and by 60 s the picture was oversaturated and painterly. The check
-  passed every seam, because the drift is in the carry
+  passed every seam: the drift is in the carry
   (`bench/records/drill.md`, ask 1). Before quoting a longer "single
   take", say it will not hold, and offer chains of 35 s or less joined
-  by cuts (the *Cuts* row above; `minimax-h3` has the cut rules).
+  by cuts (the *Cuts* row; `minimax-h3` has the cut rules).
 - **Cap an LTX-2.5 chain at about 15-20 s (3-4 segments).** At 36 s the
   subject was replaced by about 30 s and streaks grew from 20 s. Cut and
   start the next shot from a fresh still of the subject. `last_frame`
@@ -116,8 +120,8 @@ Each move's class is the `class` column of
 (or `static_long`), and every `moving` id, `push-in` and `handheld` included,
 is `shot: moving`.
 
-`references/levers.md` has every lever, the knobs that are not defaults, and
-the ideas that were measured and cut. Read it before proposing a counter.
+`references/levers.md` has every lever, the knobs that are not defaults and
+the ideas measured and cut: read it before proposing a counter.
 
 ## 4. Per seam: the check, then the repair
 
@@ -130,10 +134,10 @@ Turn on the per-segment check for any chain you mean to keep: pass
 - `audio_dbfs` re-rolls a segment (segment 1 too) whose generated audio reads
   under `audio_dbfs_min`, -70 dBFS by default: dropout segments read -88, the
   quietest real one -57. Held audio is not measured. Set
-  `"audio_dbfs_min": null` for a step that asks for silence. The re-roll is
-  not guaranteed to bring sound back (on the measured repro both seeds read
-  about -89), so don't spend `retries` expecting a fix: the
-  `chain_segment_silent` warning reports the segment either way.
+  `"audio_dbfs_min": null` for a step that asks for silence. The re-roll
+  is not guaranteed to bring sound back (both seeds read about -89 on the
+  repro), so don't spend `retries` on it: `chain_segment_silent` reports
+  the segment either way.
 - `face_drop` (narrated take) is recorded, never failed: read it per segment
   (`references/run-and-repair.md`).
 - `texture_ratio` is warn-only: the drift is in the carry, so a re-roll
@@ -150,11 +154,12 @@ Turn on the per-segment check for any chain you mean to keep: pass
   prompt's `<d>`. A warning with `every_attempt_failed: true` means the
   carry is the cause: repair with `repair-segment`, not more `retries`.
 
-When a kept take still has one bad interior segment,
+One bad interior segment in a kept take:
 `templates/minimax/repair-segment` re-renders it between its neighbours
-(`bench/records/repair.md`). It needs the chain run with `keep_segments:
-true`. `references/run-and-repair.md` has both procedures, their costs, and
-the one break a repair cannot fix.
+(`bench/records/repair.md`; needs `keep_segments: true`).
+`references/run-and-repair.md` has both procedures, their costs, and the
+break a repair cannot fix. Seam jumps on a take worth about 36
+GPU-min per minute of it: `templates/minimax/h3-seam-pass`, not a burn fix.
 
 ## 5. Per piece: the soundtrack
 
@@ -177,10 +182,8 @@ the one break a repair cannot fix.
 ## 6. Quality, speed and cost
 
 Defaults favour quality. `references/quality-and-speed.md` has the measured
-costs, what is still being measured, and the dial. In short, the chain's
-`cost` row is 13.5 min on an RTX 3090 for 3 segments of 124 frames. The
-bench's two-minute static take took 69 min, against 52 min for the plain
-guide chain. Quote `plan.estimate` from `validate_workflow`, never these.
+costs, what is still being measured, and the dial. Quote `plan.estimate`
+from `validate_workflow`, never these.
 
 ## Run and judge
 
@@ -188,9 +191,10 @@ guide chain. Quote `plan.estimate` from `validate_workflow`, never these.
    chain quotes its worst case: N(1 + `retries`) segment renders when it
    generates its audio (segment 1 is re-rolled on the audio floor), else
    1 + (N - 1)(1 + `retries`).
-   A saved copy has no `cost` row of its own (its estimate comes back
-   `basis: unknown`), so validate the template with the same arguments and
-   scale that figure by the worst case over N.
+   A saved copy has no `cost` row (`basis: unknown`): validate the template
+   with the same arguments and scale by the worst case over N. For passages
+   joined as cuts, validate each passage and sum the `plan.estimate`s; the
+   H3 chain estimate runs high (18.3 min quoted, 7 run: `bench/records/drill.md`).
    Get the go-ahead, then `run_workflow` with `acknowledged_cost`.
 2. `wait_for_job`, then `get_job`. Each entry carries `subfolder`: `final`
    is the take or the cut, and `intermediate` is the scratch. Kept segment

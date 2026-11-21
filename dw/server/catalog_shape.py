@@ -70,7 +70,15 @@ _MEDIA_ARGUMENTS = frozenset(
         "reference_audio",
     }
 )
-_CUT_TASKS = frozenset({"concat_videos", "dissolve_videos", "join_windows"})
+# A task that cuts shots together, and the argument holding the shots.
+# replace_cuts puts re-rendered cuts back into a take: as much an edit of
+# several shots as a concat of them
+_CUT_TASKS = {
+    "concat_videos": "videos",
+    "dissolve_videos": "videos",
+    "join_windows": "videos",
+    "replace_cuts": "clips",
+}
 # Components that exist only to synthesise a waveform. A video pipeline
 # carrying one emits an audio track whether or not it says so in `output`.
 _AUDIO_COMPONENTS = frozenset({"vocoder", "audio_vae"})
@@ -185,14 +193,15 @@ def _needs_input_media(steps, variables=None):
 
 
 def _cuts_together(steps):
-    """A concat or dissolve fed by two or more distinct steps, or by a list
-    of shots handed in whole - one `variable:` reference is a supplied list
-    whose length only the caller knows, one `gather:` reference is every
-    member of a for_each group, and a cut over either is still an edit."""
+    """A concat, dissolve or cut replacement fed by two or more distinct
+    steps, or by a list of shots handed in whole - one `variable:` reference
+    is a supplied list whose length only the caller knows, one `gather:`
+    reference is every member of a for_each group, and a cut over either is
+    still an edit."""
     for step in steps:
         key, body = _block(step)
         if key == "task" and body.get("command") in _CUT_TASKS:
-            videos = _arguments(step).get("videos")
+            videos = _arguments(step).get(_CUT_TASKS[body["command"]])
             if references.is_ref((references.VARIABLE, references.GATHER), videos):
                 return True
             sources = _fed_by(videos)
@@ -414,11 +423,13 @@ def terse_constraint(rule):
     parts = []
     if rule.get("required"):
         parts.append("required")
+    # `min_length` counts a string's characters or a list's entries (#1424);
+    # the rule alone does not say which, so the phrase names both
     minimum = rule.get("min_length")
     if minimum == 1:
         parts.append("non-empty")
     elif minimum is not None:
-        parts.append(f"{minimum}+ chars")
+        parts.append(f"{minimum}+ chars or entries")
     if rule.get("modulus"):
         parts.append(f"{rule['modulus']}*n+{rule.get('remainder', 0)}")
     low, high = rule.get("min_frames"), rule.get("max_frames")
@@ -486,9 +497,14 @@ def project_listing(
             if isinstance(slim.get("cost"), list):
                 # `scales_with` is how `plan.estimate` prices a run off the
                 # defaults; the quote carries the answer, so the compact
-                # listing spends no tokens on the rule (#1199)
+                # listing spends no tokens on the rule (#1199); the
+                # reference exponent (#1429) is a pricing rule alike
                 slim["cost"] = [
-                    {k: v for k, v in entry.items() if k != "scales_with"}
+                    {
+                        k: v
+                        for k, v in entry.items()
+                        if k not in ("scales_with", "video_reference_exponent")
+                    }
                     if isinstance(entry, dict)
                     else entry
                     for entry in slim["cost"]

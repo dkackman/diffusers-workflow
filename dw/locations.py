@@ -734,6 +734,14 @@ def _weight_rules(step):
     return None, True, False
 
 
+def _lora_weight_rules(weight_rules):
+    """A `loras` entry's weight file is safetensors whatever its shape: diffusers'
+    load_lora_weights reads any other ending as a pickle, so a subfolder (or a
+    bare name) does not move it past the suffix (SE-F066)."""
+    _, subfolders, hub_only = weight_rules
+    return (SAFETENSORS_SUFFIX,), subfolders, hub_only
+
+
 def _walk(node, path, base_dir, errors, weight_rules=(None, True, False)):
     if isinstance(node, dict):
         for key, value in node.items():
@@ -741,10 +749,20 @@ def _walk(node, path, base_dir, errors, weight_rules=(None, True, False)):
             if _named_value_errors(key, value, here, base_dir, errors, weight_rules):
                 continue
             _media_value_errors(key, value, here, base_dir, errors)
-            _walk(value, here, base_dir, errors, weight_rules)
+            rules = _lora_weight_rules(weight_rules) if key == "loras" else weight_rules
+            _walk(value, here, base_dir, errors, rules)
     elif isinstance(node, list):
         for index, item in enumerate(node):
             _walk(item, f"{path}[{index}]", base_dir, errors, weight_rules)
+
+
+MODEL_OVERRIDE_KEY = "pretrained_model_name_or_path"
+
+
+def _names_a_model(key):
+    return isinstance(key, str) and (
+        key == MODEL_OVERRIDE_KEY or key.endswith("_model_name")
+    )
 
 
 def _named_value_errors(key, value, here, base_dir, errors, weight_rules):
@@ -755,6 +773,21 @@ def _named_value_errors(key, value, here, base_dir, errors, weight_rules):
         message = _model_name_message(value, base_dir, weight_rules[2])
         if message:
             errors.append({"path": here, "message": message})
+        return True
+    if _names_a_model(key):
+        # A second model a step names under its own key - track_people's
+        # sam_model_name, a modular load_components' repo override (one name,
+        # or one per component) - is a model name like the first
+        named = (
+            [(f"{here}.{k}", v) for k, v in value.items()]
+            if isinstance(value, dict)
+            else _each(value, here)
+        )
+        for sub_path, name in named:
+            if isinstance(name, str):
+                message = _model_name_message(name, base_dir, weight_rules[2])
+                if message:
+                    errors.append({"path": sub_path, "message": message})
         return True
     if key == WEIGHT_NAME_KEY and isinstance(value, str):
         if not _deferred(value):

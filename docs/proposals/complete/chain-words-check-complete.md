@@ -151,6 +151,28 @@ is untyped, and the chain rules decide which values are valid.
 
 Cases verified: C-F754 to C-F756.
 
+### Fix-forward (#1334): the checked estimate's floor
+
+The feature's final check failed C-F747. A checked dialogue chain quoted 12.3
+min, the same as the chain unchecked. The curated side priced the re-rolls,
+but the tempered quote leaned on one observed run that rendered without a
+re-roll, and that pulled the worst case back under the unchecked quote. Stage
+B's estimate term was present but didn't move the number.
+
+- 8e15807e (merged def442b3): `dw/plan.py` `_checked_estimate` floors a
+  checked chain's quote at the same chain unchecked plus its worst case.
+- bca9735e (merged 5043a2fb): the floor is strict, so a checked chain always
+  quotes more than the unchecked one. On the case's shape, (a) quotes 14.9 min
+  against (b)'s 12.3.
+
+**Bounces: 1.** The tester's bounce of the first fix ran against `595cee1f`.
+lem was serving a hand-started `dw.serve` that held the port, while the
+`dw-serve` unit crash-looped behind it and every deploy's health check read as
+healthy. Don stopped the stray server. The strict floor verified on the
+deployed tree (`0.21.0-alpha.1`).
+
+Cases verified: C-F747.
+
 ## Measurement (`bench/records/words.md`)
 
 - **Spread.** Good takes read 0.90–1.0 with number folding. The lowest are
@@ -175,6 +197,7 @@ Cases verified: C-F754 to C-F756.
 | #1297 | 2 (architecture, verify C-F743/744/745) | Not recorded on the stage |
 | #1298 | 3 (verify ×2, architecture) plus one driver park | Not recorded on the stage. Two verify sessions ran out of budget |
 | #1299 | 1 (verify C-F755/756, `check` typed bool) | Not recorded on the stage |
+| #1334 (fix-forward) | 1 (verify C-F747, run against stale server code) | Not recorded on the stage |
 
 ## Deferred and open
 

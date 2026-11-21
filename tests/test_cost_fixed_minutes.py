@@ -3,7 +3,7 @@
 import pytest
 
 from dw.cost_scaling import _driver_scaling, _scaled, fixed_minutes
-from dw.plan import _own_price
+from dw.plan_pricing import _own_price
 
 
 def _definition(**cost):

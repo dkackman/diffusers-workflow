@@ -376,3 +376,77 @@ class TestThroughValidationErrors(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_video_commands_refuse_a_non_video_result_content_type_1358():
+    for command in ("crop_face_track", "paste_face_track"):
+        definition = {
+            "steps": [
+                {
+                    "name": "s",
+                    "task": {"command": command, "arguments": {}},
+                    "result": {"content_type": "application/json"},
+                }
+            ]
+        }
+        errors = scalar_result_errors(definition)
+        assert len(errors) == 1, command
+        assert "video/mp4" in errors[0]["message"]
+        definition["steps"][0]["result"]["content_type"] = "video/mp4"
+        assert scalar_result_errors(definition) == []
+
+
+class TestUnsavedJsonWarnings(unittest.TestCase):
+    """#1366: a probe step with no result block and no reader drops its answer."""
+
+    def _warn(self, steps):
+        from dw.scalar_result_validation import unsaved_json_warnings
+
+        return unsaved_json_warnings({"steps": steps}, source_indices=None)
+
+    def test_probe_without_result_warns(self):
+        warnings = self._warn(
+            [_step("seams", "analyze_seams", None, {"video": "a.mp4"})]
+        )
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("steps[0].task", warnings[0])
+        self.assertIn("application/json", warnings[0])
+
+    def test_result_block_silences(self):
+        steps = [_step("seams", "analyze_seams", {"content_type": "application/json"})]
+        self.assertEqual(self._warn(steps), [])
+
+    def test_later_reader_silences(self):
+        steps = [
+            _step("seams", "analyze_seams"),
+            _step("x", "judge", None, {"a": "previous_result:seams.seams"}),
+        ]
+        self.assertEqual(self._warn(steps), [])
+
+    def test_unrelated_name_prefix_does_not_silence(self):
+        steps = [
+            _step("seam", "analyze_seams"),
+            _step("x", "judge", None, {"a": "previous_result:seams"}),
+        ]
+        self.assertEqual(len(self._warn(steps)), 1)
+
+    def test_artifact_command_is_not_flagged(self):
+        self.assertEqual(self._warn([_step("s", "gather_images")]), [])
+
+    def test_surfaces_through_validation(self):
+        import tempfile
+
+        from dw import validation
+        from dw.workflow import workflow_from_definition
+
+        definition = {
+            "id": "seams-probe",
+            "steps": [_step("seams", "analyze_seams", None, {"video": "a.mp4"})],
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            workflow = workflow_from_definition(definition, tmp, tmp, None)
+            warnings = validation.run_warning_check(
+                workflow, "unsaved_json_warnings", None
+            )
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("analyze_seams", warnings[0])

@@ -1,7 +1,8 @@
-"""MiniMax-H3 time-windowed refine (#1199 Task 17 Step 4, #1188): EXPERIMENTAL.
+"""MiniMax-H3 time-windowed refine (#1199 Task 17 Step 4, #1188, #1230).
 
-A spike, not a public surface. `experimental_refine_windows` on a
-`refine_strength` call (`latents`, or an unmasked `source_video` - a finished
+A seam pass over a finished take: it smooths the jumps at a chain's seams, and
+does not undo a burn (bench/records/structural.md, *Step 4*). `refine_windows`
+on a `refine_strength` call (`latents`, or an unmasked `source_video` - a finished
 take as pixels, encoded by the regional edit's block - plus `hold_audio`)
 re-denoises the take in
 overlapping windows of latent frames instead of one full-sequence forward,
@@ -12,9 +13,15 @@ lives: the tiles are whole pipeline calls blended once at the end, and the
 windows are fused at *every* step, so the fusion has to be inside the denoise
 loop.
 
-Off unless `DW_EXPERIMENTAL_REFINE_WINDOWS=1` is set where the pipeline loads.
-Without it the graph is stock and a step passing the argument is refused at the
-call (`windows_refusal`).
+On every H3 load (#1230): the loader (components.py) swaps the blocks in
+unconditionally, and each runs the stock path unless a call carries
+`refine_windows`. Every key of the argument is optional (`WINDOW_DEFAULTS`, the
+benched 120 s setting), so `refine_windows: {}` is the default windows. The
+call rules (`window_problems`) are checked at validate time too
+(dw/guides.py `windows_errors`) and again before the call (`windows_refusal`).
+The long-form spikes' flag, `DW_EXPERIMENTAL_REFINE_WINDOWS`, still gates the
+capstone's gate rows this denoiser holds out (`_gated`); the windows no longer
+need it.
 
 Where it sits. H3's denoise loop is two sub-blocks, `denoiser` (one
 transformer forward over the whole packed sequence) and `update` (one
@@ -48,7 +55,7 @@ Past 15 s. diffusers' layout step refuses a take over
 `MiniMaxH3ModularPipeline.max_duration` (15 s, a read-only property).
 `insert_refine_windows` also swaps each t2va/fl2va `prepare_layout` for
 `DwH3LongRefineLayoutStep`, which runs the stock step unchanged unless the
-call carries both `experimental_refine_windows` and `refine_strength`; then it
+call carries both `refine_windows` and `refine_strength`; then it
 hands the stock step a view of `components` whose `max_duration` is the take's
 own (`_LongTakeComponents`). Nothing is patched: every other call, and every
 other job in the worker, keeps the ceiling, because a generation over 15 s is
@@ -82,6 +89,7 @@ from diffusers.modular_pipelines.minimax_h3.decoders import MiniMaxH3VideoDecode
 from diffusers.modular_pipelines.minimax_h3.denoise import MiniMaxH3LoopDenoiser
 from diffusers.modular_pipelines.modular_pipeline_utils import InputParam
 
+from .. import references
 from .h3_hold import core_denoise_sequences
 from .h3_rules import (
     GATED_GUIDE_ROWS,
@@ -94,12 +102,12 @@ from .h3_rules import (
     REFINE_BEFORE,
     REFINE_STRENGTH_INPUT,
     REFINE_TILES_INPUT,
-    REFINE_WINDOWS_ENV_VAR as ENABLE_ENV_VAR,
     REFINE_WINDOWS_INPUT,
     H3_FPS,
     RENDER_GRID,
     SOURCE_VIDEO_INPUT,
     guide_latent_frames,
+    lifts_duration_ceiling,
 )
 
 logger = logging.getLogger("dw")
@@ -113,6 +121,15 @@ H3_MAX_SECONDS = MiniMaxH3ModularPipeline.max_duration.fget(None)
 BLENDS = ("pyramid", "cosine")
 POSITIONS = ("true", "rebased")
 _KEYS = ("frames", "overlap", "blend", "positions")
+# What an absent key means (#1230 Q2): the setting benched at 120 s, which won
+# seam jump on every chain shot type (bench/records/structural.md, *Step 4*).
+# 42 - 12 = 30 latents is on the rebased clip grid
+WINDOW_DEFAULTS = {
+    "frames": 42,
+    "overlap": 12,
+    "blend": "pyramid",
+    "positions": "rebased",
+}
 # The arguments that put rows into the sequence the windows do not hold - a
 # keyframe's or a reference's conditioning rows, a guide's - or that act on
 # the take after the loop. The loop refuses the rows at step 0; these are
@@ -229,6 +246,16 @@ def rebase_problem(plan):
     )
 
 
+def window_settings(settings):
+    """A `refine_windows` value with every absent key at its default
+    (`WINDOW_DEFAULTS`). The settings are not checked here."""
+    return {**WINDOW_DEFAULTS, **settings}
+
+
+def _unresolved(value):
+    return isinstance(value, str) and references.is_ref(references.UNRESOLVED, value)
+
+
 def _take_latent_frames(arguments):
     """The take's latent frame count when the call already says it - a 5-d
     `latents` tensor, or a `num_frames` on the 17m + 5 render grid - or None."""
@@ -278,15 +305,17 @@ def _long_source_problem(arguments):
 
 
 def window_problems(arguments, has_cache=False):
-    """Why this step's `experimental_refine_windows` cannot run - a list,
-    empty when it can. Pure: the settings, and the refine it rides on."""
+    """Why this step's `refine_windows` cannot run - a list, empty when it
+    can or cannot be told yet. Pure: the settings, and the refine it rides on.
+    A setting that is still an unresolved reference (validate time) is left
+    to the run, which checks it again."""
     settings = arguments.get(REFINE_WINDOWS_INPUT)
-    if settings is None:
+    if settings is None or _unresolved(settings):
         return []
     if not isinstance(settings, dict):
         return [
-            f"{REFINE_WINDOWS_INPUT} is {{frames, overlap}} in latent frames, "
-            f"got {settings!r}"
+            f"{REFINE_WINDOWS_INPUT} is {{frames, overlap, blend, positions}}, "
+            f"every key optional, got {settings!r}"
         ]
     return _settings_problems(settings, arguments) + _refine_problems(
         arguments, has_cache
@@ -301,16 +330,23 @@ def _settings_problems(settings, arguments):
     extra = sorted(set(settings) - set(_KEYS))
     if extra:
         problems.append(f"{name} takes {', '.join(_KEYS)}, not {', '.join(extra)}")
-    frames, overlap = settings.get("frames"), settings.get("overlap", 0)
+    resolved = window_settings(settings)
+    frames, overlap = resolved["frames"], resolved["overlap"]
     planned = False
-    try:
-        window_plan(max(1, frames if isinstance(frames, int) else 1), frames, overlap)
-        planned = True
-    except (TypeError, ValueError) as error:
-        problems.append(f"{name}: {error}")
-    if settings.get("blend", "pyramid") not in BLENDS:
+    if not (_unresolved(frames) or _unresolved(overlap)):
+        try:
+            window_plan(
+                max(1, frames if isinstance(frames, int) else 1), frames, overlap
+            )
+            planned = True
+        except (TypeError, ValueError) as error:
+            problems.append(f"{name}: {error}")
+    blend = resolved["blend"]
+    if not _unresolved(blend) and blend not in BLENDS:
         problems.append(f"{name} blend is one of {', '.join(BLENDS)}")
-    positions = settings.get("positions", "true")
+    positions = resolved["positions"]
+    if _unresolved(positions):
+        return problems
     if positions not in POSITIONS:
         problems.append(f"{name} positions is one of {', '.join(POSITIONS)}")
     elif positions == "rebased" and planned:
@@ -370,13 +406,15 @@ def _refine_problems(arguments, has_cache):
 
 
 def windows_refusal(pipeline, arguments, has_cache=False):
-    """The first reason this call cannot window its refine, or None."""
+    """The first reason this call cannot window its refine, or None. The
+    loader puts the windowed denoiser in every H3 load, so a pipeline without
+    it is one that has no core denoise loop to window."""
     if arguments.get(REFINE_WINDOWS_INPUT) is None:
         return None
     if not windows_refine(pipeline):
         return (
-            f"{REFINE_WINDOWS_INPUT} is experimental and off in this process - "
-            f"start the server with {ENABLE_ENV_VAR}=1"
+            f"{REFINE_WINDOWS_INPUT} is a MiniMax-H3 t2va/fl2va refine argument, "
+            f"and {type(pipeline).__name__} has no denoise loop that windows"
         )
     problems = window_problems(arguments, has_cache)
     return problems[0] if problems else None
@@ -480,7 +518,7 @@ class DwH3LongRefineLayoutStep(MiniMaxH3PrepareLayoutStep):
     def description(self):
         return (
             super().description
-            + " dw (experimental): a refine with `experimental_refine_windows` lays out a take longer than "
+            + " dw: a refine with `refine_windows` lays out a take longer than "
             "15 s; every other call keeps the ceiling."
         )
 
@@ -493,9 +531,11 @@ class DwH3LongRefineLayoutStep(MiniMaxH3PrepareLayoutStep):
 
     def __call__(self, components, state):
         block_state = self.get_block_state(state)
-        windowed = (
-            getattr(block_state, REFINE_WINDOWS_INPUT, None) is not None
-            and getattr(block_state, REFINE_STRENGTH_INPUT, None) is not None
+        windowed = lifts_duration_ceiling(
+            {
+                name: getattr(block_state, name, None)
+                for name in (REFINE_WINDOWS_INPUT, REFINE_STRENGTH_INPUT)
+            }
         )
         if not windowed or block_state.num_frames is None:
             return super().__call__(components, state)
@@ -631,7 +671,7 @@ class DwH3WindowedLoopDenoiser(MiniMaxH3LoopDenoiser):
     @property
     def description(self):
         return (
-            "dw (experimental): with `experimental_refine_windows`, runs the forward on overlapping windows of "
+            "dw: with `refine_windows`, runs the forward on overlapping windows of "
             "latent frames - each with the text, its video rows and the held audio rows of its span - and fuses "
             "the video velocities into the full-sequence prediction. The stock forward otherwise."
         )
@@ -644,8 +684,9 @@ class DwH3WindowedLoopDenoiser(MiniMaxH3LoopDenoiser):
                 type_hint=dict,
                 default=None,
                 description=(
-                    "Experimental: {frames, overlap} in latent frames (blend pyramid|cosine, positions "
-                    "true|rebased) - refine in fused time windows. Needs refine_strength and hold_audio."
+                    "{frames 42, overlap 12} in latent frames (blend pyramid|cosine, positions "
+                    "rebased|true), every key optional - refine in fused time windows. Needs "
+                    "refine_strength and hold_audio."
                 ),
             ),
             InputParam(name="num_latent_frames", type_hint=int, default=None),
@@ -720,15 +761,12 @@ class DwH3WindowedLoopDenoiser(MiniMaxH3LoopDenoiser):
         accepted = inspect.signature(transformer.forward).parameters
         fields = block_state.denoiser_input_fields
         num_latent_frames = block_state.num_latent_frames
-        plan = window_plan(
-            num_latent_frames, settings["frames"], settings.get("overlap", 0)
-        )
-        weights = fuse_weights(
-            plan, num_latent_frames, settings.get("blend", "pyramid")
-        )
+        settings = window_settings(settings)
+        plan = window_plan(num_latent_frames, settings["frames"], settings["overlap"])
+        weights = fuse_weights(plan, num_latent_frames, settings["blend"])
         latents, audio_latents = block_state.latents, block_state.audio_latents
         rebase_from = None
-        if settings.get("positions", "true") == "rebased":
+        if settings["positions"] == "rebased":
             problem = rebase_problem(plan)
             if problem:
                 raise ValueError(problem)

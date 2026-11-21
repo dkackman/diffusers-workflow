@@ -30,6 +30,12 @@ Each of these cost a render to find out in Don's `h3-quality` matrix:
 - `sparse_attention_fallback`: the `sparse` attention backend on a device that
   isn't CUDA. It never fails a run: it falls back to dense attention, so this
   says the speedup is not coming, not that the job will break.
+- `step_list_unsupported`: a MagCache (calibrating or not) or TST on a
+  pipeline whose config fixes a `denoising_step_list` (#1316, #1430). Both are
+  keyed on `num_inference_steps`, so the run drops the mag cache and skips
+  TST. The short-schedule check above counts such a pipeline's `len - 1`
+  passes (`dw/step_passes.py`) and never advises more steps there, which a
+  fixed list cannot take; a mag cache gets this warning in its place.
 
 Every one is a warning and never a refusal. A value that cannot be resolved
 before the run (a null variable, an unknown device) leaves its warning
@@ -44,6 +50,7 @@ from .introspection import load_pipeline_class
 from .references import iter_steps, render_path
 from . import sparse_attention
 from .sparse_attention import SPARSE_BACKEND
+from .step_passes import STEP_LIST_UNSUPPORTED, STEPS_KEY, step_list_passes
 from .vram_estimate import required_vram_gb
 
 # The fewest denoise steps a threshold cache is expected to skip any of. A
@@ -89,6 +96,11 @@ FULLGRAPH_WITH_CACHE = "compile_fullgraph_with_cache"
 BACKEND_UNAVAILABLE = "attention_backend_unavailable"
 SPARSE_FALLBACK = "sparse_attention_fallback"
 CACHE_UNSUPPORTED = "cache_unsupported"
+STEP_LIST_FEATURE = "step_list_unsupported"
+
+# The call argument that turns TST on (h3_tst.TST_INPUT; that module loads
+# torch, which validate does not)
+_TST_INPUT = "experimental_tst"
 
 # The component names a cache hook attaches to, as in
 # dw.pipeline_processors.mag_calibration.get_cache_transformer
@@ -97,11 +109,13 @@ _CACHE_COMPONENTS = ("transformer", "transformer_ref")
 
 def _steps(pipeline):
     """The resolved `num_inference_steps` the pipeline is called with, or
-    None when it is not a number known before the run."""
+    None when it is not a number known before the run. A pipeline that fixes
+    a `denoising_step_list` runs its `len - 1` passes instead (#1316)."""
+    passes = step_list_passes(pipeline)
+    if passes is not None:
+        return passes
     arguments = pipeline.get("arguments")
-    value = (arguments if isinstance(arguments, dict) else {}).get(
-        "num_inference_steps"
-    )
+    value = (arguments if isinstance(arguments, dict) else {}).get(STEPS_KEY)
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
     return value
@@ -188,16 +202,32 @@ def _cache_warnings(cache, pipeline, path, where, context, component_type=None):
     cache_type = cache.get("type")
     warnings = []
     steps = _steps(pipeline)
-    if (
+    fixed_list = step_list_passes(pipeline) is not None
+    if cache_type == "mag" and fixed_list:
+        # MagCache is keyed on num_inference_steps (its ratios and its
+        # calibration), which a fixed step list does not take, so the run
+        # drops it (mag_calibration.drops_step_list_mag_cache): that is the
+        # one thing to say about it
+        warnings.append(
+            f"{path}: {STEP_LIST_FEATURE}: MagCache is "
+            f"{STEP_LIST_UNSUPPORTED}{where}; the run drops the cache"
+        )
+    elif (
         cache_type in THRESHOLD_CACHES
         and steps is not None
         and steps < CACHE_MIN_USEFUL_STEPS
     ):
+        # A fixed step list's length is the sampler's: more steps is no
+        # remedy there
+        remedy = (
+            "drop the cache (a fixed step-list sampler's step count cannot change)"
+            if fixed_list
+            else f"drop the cache or run >= {CACHE_MIN_USEFUL_STEPS} steps"
+        )
         warnings.append(
             f"{path}: {SHORT_SCHEDULE}: a '{cache_type}' cache on {steps:g} "
             f"steps will likely skip nothing (consecutive steps differ too much "
-            f"for its threshold) and still perturbs the result{where}; drop the "
-            f"cache or run >= {CACHE_MIN_USEFUL_STEPS} steps"
+            f"for its threshold) and still perturbs the result{where}; {remedy}"
         )
     reason = _cache_unsupported(component_type)
     if reason:
@@ -240,6 +270,18 @@ def acceleration_warnings(context):
                 where,
                 context,
                 configuration.get("component_type"),
+            )
+
+        arguments = pipeline.get("arguments")
+        if (
+            isinstance(arguments, dict)
+            and arguments.get(_TST_INPUT) not in (None, False)
+            and step_list_passes(pipeline) is not None
+        ):
+            warnings.append(
+                f"{render_path(('steps', source, 'pipeline', 'arguments', _TST_INPUT))}: "
+                f"{STEP_LIST_FEATURE}: TST is {STEP_LIST_UNSUPPORTED}{where}; "
+                f"the run skips it"
             )
 
         backends = [(base + ("attention_backend",), configuration)]
@@ -293,12 +335,14 @@ def available_attention_backends(device_type: str) -> list[str]:
 
     `native` first, then the other `native`-family names; on CUDA, `sparse`
     (only where the compiled kernels loaded) and the CUDA-only names. A name
-    diffusers' `AttentionBackendName` lacks is dropped, so the menu never
-    offers one the pipeline would refuse.
+    diffusers' `AttentionBackendName` lacks is dropped, and so is one diffusers'
+    own requirement check reports unusable here (a missing package, or one
+    older than that diffusers needs), so the menu never offers one the pipeline
+    would refuse.
     """
     from diffusers.models.attention_dispatch import AttentionBackendName
 
-    known = {backend.value for backend in AttentionBackendName}
+    known = {backend.value: backend for backend in AttentionBackendName}
     cuda = device_type == "cuda"
     names = ["native", "_native_flash", "_native_efficient", "_native_math"]
     if cuda:
@@ -308,4 +352,32 @@ def available_attention_backends(device_type: str) -> list[str]:
         if sparse_attention._kernels_importable():
             names.append(SPARSE_BACKEND)
         names.extend(sorted(CUDA_ONLY_ATTENTION_BACKENDS))
-    return [name for name in names if name == SPARSE_BACKEND or name in known]
+    return [
+        name
+        for name in names
+        if name == SPARSE_BACKEND
+        or (name in known and attention_backend_usable(known[name]))
+    ]
+
+
+def attention_backend_usable(backend) -> bool:
+    """Whether diffusers itself would accept `backend` (an
+    `AttentionBackendName`) on this install.
+
+    diffusers raises from its requirement check when a backend's package is
+    missing or older than it needs, and only that check knows its minimums -
+    they move with the diffusers release (0.43 refuses too-old packages), so
+    dw restates none of them. The check is private to diffusers and has no
+    public equivalent: a diffusers without it filters nothing, as before.
+    """
+    try:
+        from diffusers.models.attention_dispatch import (
+            _check_attention_backend_requirements as check,
+        )
+    except ImportError:
+        return True
+    try:
+        check(backend)
+    except (RuntimeError, ImportError, ValueError):
+        return False
+    return True

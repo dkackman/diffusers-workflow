@@ -1,0 +1,37 @@
+[
+  {
+    "name": "ref-ab-synthetic-s1166",
+    "scene": "s6-narration",
+    "workflow": "narration-reference-ab.json",
+    "arguments": {
+      "reference_audio": "asset:bench/narrator.wav",
+      "reference_text": "The tide comes in twice a day, and the lamp has to be ready for both.",
+      "generate_kwargs": {}
+    },
+    "seed": 1166
+  },
+  {
+    "name": "ref-ab-human-s1166",
+    "scene": "s6-narration",
+    "workflow": "narration-reference-ab.json",
+    "arguments": {
+      "reference_audio": "asset:bench/narrator-human.wav",
+      "reference_text": "The brave men, living and dead, who struggled here have consecrated it, far above our poor power to add or detract.",
+      "generate_kwargs": {}
+    },
+    "seed": 1166
+  },
+  {
+    "name": "ref-ab-sampling-t1.0-s1166",
+    "scene": "s6-narration",
+    "workflow": "narration-reference-ab.json",
+    "arguments": {
+      "reference_audio": "asset:bench/narrator.wav",
+      "reference_text": "The tide comes in twice a day, and the lamp has to be ready for both.",
+      "generate_kwargs": {
+        "temperature": 1.0
+      }
+    },
+    "seed": 1166
+  }
+]

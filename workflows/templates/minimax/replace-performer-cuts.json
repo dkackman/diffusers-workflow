@@ -1,0 +1,75 @@
+{
+    "id": "MiniMaxReplacePerformerCuts",
+    "summary": "A take's cut list and a whole-clip person mask, the inputs replace-performer needs.",
+    "description": "Prepares a take for replace-performer.json. 'cuts' runs detect_cuts on 'video': one entry per shot of the take, each {name, start_frame, num_frames, render_frames, detail}, where 'render_frames' is the cut's length padded up to the next frame count H3 renders (its 17n+5 grid, at least 124) and a shot longer than 'max_frames' is split. 'frames' and 'mask' then turn every frame of the take into a person mask: segment runs a text-prompted segmenter ('prompt', 'threshold') per frame, so the result is one black-and-white video the take's size and length, white where a person is. Nothing is generated. Pass the 'cuts' result's list as replace-performer's 'cuts' and the mask video as its 'mask_video'. Pass only the cuts to re-render, in the take's order: replace-performer puts each one back over the take's own frames and returns the whole take, so a cut left out of the list (one with nobody to replace in it) stays exactly as the take has it, is not rendered and costs nothing, and the picture stays under its own sound. Cuts out of order or overlapping are refused before the run. The take must be 24 fps, the rate H3 renders at. 'prompt' names what the mask covers. 'person' masks everyone in frame; to replace one of several people, set 'track' to the number of people to separate them - 'people' then writes people-0.0-person-1.mp4, people-0.0-person-2.mp4 ... (one mask per person, numbered by size per cut) and people-0.0-contact_sheet.png showing who is which number; pass the chosen person's mask as mask_video. With track 0 (the default) the step tracks nobody and loads no model.",
+    "cost_drivers": [
+        "max_frames"
+    ],
+    "variables": {
+        "video": "asset:take.mp4",
+        "max_frames": 345,
+        "prompt": "person",
+        "threshold": 0.3,
+        "track": 0
+    },
+    "steps": [
+        {
+            "name": "cuts",
+            "task": {
+                "command": "detect_cuts",
+                "arguments": {
+                    "video": "variable:video",
+                    "max_frames": "variable:max_frames"
+                }
+            },
+            "result": {
+                "content_type": "application/json",
+                "subfolder": "final"
+            }
+        },
+        {
+            "name": "frames",
+            "task": {
+                "command": "video_frames",
+                "arguments": {
+                    "video": "variable:video"
+                }
+            }
+        },
+        {
+            "name": "mask",
+            "task": {
+                "command": "segment",
+                "arguments": {
+                    "image": "previous_result:frames",
+                    "prompt": "variable:prompt",
+                    "threshold": "variable:threshold"
+                }
+            },
+            "result": {
+                "content_type": "video/mp4",
+                "fps": 24,
+                "subfolder": "final",
+                "file_base_name": "mask"
+            }
+        },
+        {
+            "name": "people",
+            "task": {
+                "command": "track_people",
+                "arguments": {
+                    "video": "variable:video",
+                    "prompt": "variable:prompt",
+                    "threshold": "variable:threshold",
+                    "max_people": "variable:track"
+                }
+            },
+            "result": {
+                "content_type": "video/mp4",
+                "fps": 24,
+                "subfolder": "final",
+                "file_base_name": "people"
+            }
+        }
+    ]
+}

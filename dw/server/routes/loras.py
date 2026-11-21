@@ -35,6 +35,7 @@ from ...security import (
     validate_path,
 )
 from ...workspace import Workspace, forget_workspace_usage
+from ..api_models import LoraList
 from ..deps import (
     catalog_entries,
     lora_library_missing,
@@ -101,7 +102,7 @@ def get_lora_schema():
     return JSONResponse(load_schema(SCHEMA_NAME))
 
 
-@router.get("/api/loras")
+@router.get("/api/loras", response_model=LoraList, response_model_exclude_unset=True)
 def list_loras(
     request: Request,
     model: Optional[str] = None,

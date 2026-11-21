@@ -3,8 +3,8 @@
   import { describePlan } from '../plan'
   import type { ValidationResult } from '../types'
 
-  // The verdict on the definition as it stands, and under a valid one what
-  // a run will do
+  // The verdict on the definition as it stands, and under it, whenever the
+  // server sent a plan, what a run will do
   let {
     validation,
     ondismiss,
@@ -29,21 +29,26 @@
     <span class="ok"
       ><CircleCheck size={14} /> schema-valid, no argument warnings</span
     >
-  {:else if validation.valid}
-    {#each validation.warnings as warning, i (i)}
+  {:else}
+    {#if !validation.valid}
+      {#if validation.errors && validation.errors.length}
+        {#each validation.errors as e, i (i)}
+          <div class="error">{e.path ?? 'root'}: {e.message}</div>
+        {/each}
+      {:else}
+        <div class="error">{validation.error}</div>
+      {/if}
+    {/if}
+    {#each validation.warnings ?? [] as warning, i (i)}
       <div class="warn"><TriangleAlert size={14} /> {warning}</div>
     {/each}
-  {:else if validation.errors && validation.errors.length}
-    {#each validation.errors as e, i (i)}
-      <div class="error">{e.path ?? 'root'}: {e.message}</div>
-    {/each}
-  {:else}
-    <div class="error">{validation.error}</div>
   {/if}
-  {#if validation.valid && validation.plan}
+  {#if validation.plan}
     <!-- What a run of this definition, with these defaults, will do -
          the figure to expect before pressing Run, and the weights it
-         would pull first, which the cost block never counts -->
+         would pull first, which the cost block never counts. Shown whenever
+         the server sent one: a repo that isn't there makes the answer
+         invalid but keeps its plan, under the error that names it -->
     <ul
       class="plan"
       aria-label="what a run will do"

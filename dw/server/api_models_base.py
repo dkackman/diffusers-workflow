@@ -7,7 +7,7 @@ every name here; import from it, not from this module.
 import logging
 import os
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -53,3 +53,9 @@ def sometimes(description: str | None = None) -> Any:
     `response_model_exclude_unset` keeps out of the payload. The generated
     type is then `key?: T`, not `key?: T | null`."""
     return Field(default=None, description=description)
+
+
+# A job's states, shared by the job models and the ledger's attempts
+JobStatus = Literal["queued", "running", "succeeded", "failed", "cancelled"]
+# What a client renders an output as (dw/server/outputs.py: MEDIA_KINDS)
+OutputKind = Literal["image", "video", "audio", "text"]

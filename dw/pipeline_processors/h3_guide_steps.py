@@ -48,6 +48,8 @@ from diffusers.modular_pipelines.modular_pipeline_utils import (
 from PIL import Image
 
 from . import h3_hold_steps
+from .h3_keystone_attention import installed as keystone_attention_installed
+from .h3_keystone_attention import publish_rows
 from .h3_rules import (
     CAPSTONE_GATE,
     CAPSTONE_PAST_END,
@@ -59,9 +61,12 @@ from .h3_rules import (
     GUIDES_INPUT,
     KEYSTONE_LATENTS,
     KEYSTONE_RESTORE_ROWS,
+    REF2VA_GUIDE_RULE,
     guide_end_problem,
     guide_frame_problem,
     guide_noise_taper,
+    ref2va_guide_problem,
+    ref2va_guides_count_problem,
 )
 
 logger = logging.getLogger("dw")
@@ -480,14 +485,28 @@ class DwH3GuideLayoutStep(ModularPipelineBlocks):
             components, state, guides, layout, laid, width_grid, num_text
         )
 
+        gated = gated_guide_rows(guides, positions, laid["num_condition_video_rows"])
+        # The keystone attention re-split (#1391), when installed for this
+        # call, takes the keyframe rows K and the guide video rows C from here
+        transformer = getattr(components, "transformer", None)
+        if keystone_attention_installed(transformer):
+            if gated:
+                raise ValueError(
+                    "experimental_keystone_attention does not combine with "
+                    "gated guide rows: they move the rows it re-splits"
+                )
+            publish_rows(
+                transformer,
+                num_text,
+                laid["num_condition_video_rows"],
+                sum(rows.shape[0] for rows in positions),
+                frame_rows=frame_grid.shape[0],
+            )
         for name, value in zip(_PACKED, layout):
             state.set(name, value.to(device))
         state.set("num_condition_video_rows", layout[5])
         state.set("num_condition_audio_rows", num_audio_rows)
-        state.set(
-            GATED_GUIDE_ROWS,
-            gated_guide_rows(guides, positions, laid["num_condition_video_rows"]),
-        )
+        state.set(GATED_GUIDE_ROWS, gated)
         state.set(
             KEYSTONE_RESTORE_ROWS,
             keystone_restore_rows(
@@ -641,6 +660,171 @@ class DwH3GuideLayoutStep(ModularPipelineBlocks):
             self._audio_encoder, components, waveform, count
         )
         return latents.reshape(-1, components.audio_latent_channels), start, count
+
+
+def append_ref2va_guide_rows(layout, guide_positions, video_tag):
+    """A ref2va layout with one guide's rows appended as condition rows (#1411).
+
+    `layout` is `(position_ids, token_tags, video_indices, audio_indices,
+    text_indices, num_condition_video_rows)` as the stock ref2va layout built
+    it, on the CPU. The guide rows go physically at the end of the sequence -
+    the transformer reads every row through `video_indices`, so the order of
+    the indices, not of the rows, is what places them - and their indices sit
+    after the reference rows and before the target's, so they are condition
+    rows: held at the condition timestep, and never decoded.
+    """
+    position_ids, token_tags, video_indices, audio_indices, text_indices, rows = layout
+    count = guide_positions.shape[0]
+    if not count:
+        return layout
+    end = position_ids.shape[0]
+    position_ids = torch.cat([position_ids, guide_positions.to(position_ids.dtype)])
+    token_tags = torch.cat(
+        [token_tags, torch.full((count,), video_tag, dtype=token_tags.dtype)]
+    )
+    video_indices = torch.cat(
+        [
+            video_indices[:rows],
+            torch.arange(end, end + count, dtype=video_indices.dtype),
+            video_indices[rows:],
+        ]
+    )
+    return (
+        position_ids,
+        token_tags,
+        video_indices,
+        audio_indices,
+        text_indices,
+        rows + count,
+    )
+
+
+def ref2va_guide_positions(layout):
+    """The rotary positions a whole-render ref2va guide takes: a copy of the
+    target video rows' own, so guide latent i sits at target latent i's time
+    and (h, w) cell. The target's time is where the reference blocks left the
+    clock, which only the stock layout knows, so it is read off its rows."""
+    position_ids, _, video_indices, _, _, rows = layout
+    return position_ids[video_indices[rows:]].clone()
+
+
+class DwH3Ref2VAGuideLayoutStep(ModularPipelineBlocks):
+    """The ref2va layout plus one whole-render guide (#1411): the guide clip
+    VAE-encoded on the canvas and appended as condition rows at the target's
+    own rotary times. One guide, at frame 0, covering the render, video only -
+    `h3_rules.ref2va_guide_problem`, checked here again at run time."""
+
+    model_name = "minimax-h3"
+
+    def __init__(self):
+        super().__init__()
+        self._layout = before_denoise.MiniMaxH3Ref2VAPrepareLayoutStep()
+
+    @property
+    def description(self):
+        return (
+            "dw: the stock ref2va layout, plus `guides` - one clip covering the whole render, VAE-encoded on "
+            "the canvas and appended as condition rows at the target's own times. Without `guides` it is the "
+            "stock layout."
+        )
+
+    @property
+    def expected_components(self):
+        return list(self._layout.expected_components) + [
+            ComponentSpec("vae", AutoencoderKLMiniMaxH3),
+        ]
+
+    @property
+    def expected_configs(self):
+        return self._layout.expected_configs
+
+    @property
+    def inputs(self):
+        names = {param.name for param in self._layout.inputs}
+        inputs = list(self._layout.inputs) + [
+            InputParam(
+                name=GUIDES_INPUT,
+                type_hint=list,
+                default=None,
+                description=(
+                    "On ref2va, one clip to hold the generated video to: [{'video': (n, h, w, 3) uint8 "
+                    "frames, 'frame': 0}], n the render's frame count. Video only."
+                ),
+            ),
+        ]
+        if "condition_latents" not in names:
+            inputs.append(
+                InputParam(name="condition_latents", type_hint=list, default=None)
+            )
+        return inputs
+
+    @property
+    def intermediate_outputs(self):
+        return list(self._layout.intermediate_outputs) + [
+            OutputParam("condition_latents", type_hint=list),
+        ]
+
+    @torch.no_grad()
+    def __call__(self, components, state):
+        components, state = self._layout(components, state)
+        guides = state.get(GUIDES_INPUT) or []
+        if not guides:
+            return components, state
+        laid = state.get(list(_LAID_OUT))
+        problem = ref2va_guides_count_problem(len(guides))
+        if problem:
+            raise ValueError(f"guides: {problem}")
+        guide = guides[0]
+        for name in (
+            "latents",
+            "audio_latents",
+            KEYSTONE_LATENTS,
+            CAPSTONE_GATE,
+            CAPSTONE_PAST_END,
+        ):
+            if guide.get(name) is not None:
+                raise ValueError(
+                    f"guides[0]: {REF2VA_GUIDE_RULE} - '{name}' is a guide chain's, "
+                    f"and a guide chain runs on t2va or fl2va only"
+                )
+        frames = guide["video"]
+        problem = ref2va_guide_problem(
+            guide["frame"],
+            frames.shape[0],
+            laid["num_frames"],
+            audio=guide.get("audio") is not None,
+        ) or guide_end_problem(guide["frame"], frames.shape[0], laid["num_frames"])
+        if problem:
+            raise ValueError(f"guides[0]: {problem}")
+
+        device = components._execution_device
+        pixels = fit_guide_frames(frames, laid["height"], laid["width"])
+        encoded = DwH3GuideLayoutStep._encode_pixels(
+            components, torch.from_numpy(np.ascontiguousarray(pixels)), device
+        )
+        if encoded.shape[2] != laid["num_latent_frames"]:
+            raise ValueError(
+                f"guides[0]: {encoded.shape[2]} latent frames, and the render has "
+                f"{laid['num_latent_frames']}"
+            )
+        layout = tuple(laid[name].cpu() for name in _PACKED) + (
+            laid["num_condition_video_rows"],
+        )
+        layout = append_ref2va_guide_rows(
+            layout, ref2va_guide_positions(layout), components.video_tag
+        )
+        logger.info(
+            f"Guide 0: {frames.shape[0]} frames over the ref2va render "
+            f"({encoded.shape[2]} latent frames, {layout[5] - laid['num_condition_video_rows']} rows)"
+        )
+        for name, value in zip(_PACKED, layout):
+            state.set(name, value.to(device))
+        state.set("num_condition_video_rows", layout[5])
+        # References first, then the guide: the order of the condition indices
+        state.set(
+            "condition_latents", list(laid["condition_latents"] or []) + [encoded]
+        )
+        return components, state
 
 
 # A t2va step that runs the stock `fl2va` one only with conditioning to pack -

@@ -37,8 +37,22 @@ const listing = vi.hoisted(() => ({ files: [] as GalleryFile[] }))
 
 // Resolves on a macrotask so that a re-triggering effect cannot starve the
 // timers this test waits on - the failure then shows as a call count
+const listRequests = vi.hoisted(() =>
+  vi.fn(() =>
+    Promise.resolve({
+      workspace: 'default',
+      requests: [{ id: 'r1', title: 'Spring campaign' }] as unknown[],
+    }),
+  ),
+)
 const gallery = vi.hoisted(() =>
-  vi.fn(
+  vi.fn<
+    (
+      roles?: string[],
+      request?: string,
+      item?: string,
+    ) => Promise<{ files: GalleryFile[] }>
+  >(
     () =>
       new Promise<{ files: GalleryFile[] }>((resolve) =>
         setTimeout(() => resolve({ files: listing.files }), 0),
@@ -61,7 +75,9 @@ const galleryMetadata = vi.hoisted(() =>
 vi.mock('../api', () => ({
   setNote: (t: string, n: string | null) => setNote(t, n),
   api: {
-    gallery: () => gallery(),
+    gallery: (roles?: string[], request?: string, item?: string) =>
+      gallery(roles, request, item),
+    listRequests: () => listRequests(),
     galleryThumbnailUrl: (name: string) => `/thumb/${name}`,
     galleryUrl: (name: string) => `/outputs/${name}`,
     outputDownloadUrl: (name: string) => `/download/${name}`,
@@ -69,6 +85,7 @@ vi.mock('../api', () => ({
     setStarred: (name: string, starred: boolean) => setStarred(name, starred),
     archiveOutputs: (names: string[]) => archiveOutputs(names),
     galleryMetadata: (name: string) => galleryMetadata(name),
+    assess: () => new Promise(() => {}),
   },
 }))
 
@@ -83,6 +100,7 @@ afterEach(() => {
   // queries find two of everything
   cleanup()
   gallery.mockClear()
+  location.hash = '#/ws/default/gallery'
   deleteOutput.mockClear()
   setStarred.mockClear()
   archiveOutputs.mockClear()
@@ -604,4 +622,102 @@ it('unstarring the open file under Starred steps on from its place', async () =>
   await waitFor(() => expect(screen.queryByTitle('a.png')).toBeNull())
   await fireEvent.keyDown(window, { key: 'ArrowRight' })
   expect(galleryMetadata).toHaveBeenLastCalledWith('b.png')
+})
+
+it("shows the open file's level findings from its metadata", async () => {
+  galleryMetadata.mockResolvedValue({
+    metadata: {},
+    job: null,
+    inputs: [],
+    role: null,
+    findings: [
+      {
+        rule: 'near_silent',
+        severity: 'warn',
+        at: null,
+        value: -62,
+        threshold: -50,
+        says: 'near-silent for a track meant to be heard',
+      },
+    ],
+  })
+  await renderGallery()
+  await openFile('a.png')
+  const region = await screen.findByRole('region', { name: 'Findings' })
+  await waitFor(() => expect(region.textContent).toContain('near-silent'))
+})
+
+it('with req in the hash, asks for that request and shows a removable chip', async () => {
+  location.hash = '#/ws/default/gallery?req=r1'
+  await renderGallery()
+  expect(gallery).toHaveBeenLastCalledWith(undefined, 'r1', undefined)
+  const chip = screen.getByTestId('req-filter')
+  expect(chip.querySelector('a')?.getAttribute('href')).toBe(
+    '#/ws/default/requests/r1',
+  )
+  await fireEvent.click(screen.getByLabelText('remove the request filter'))
+  await waitFor(() =>
+    expect(gallery).toHaveBeenLastCalledWith(undefined, undefined, undefined),
+  )
+  expect(screen.queryByTestId('req-filter')).toBeNull()
+})
+
+it('with req=<id>/<item> in the hash, keeps the item and asks for it', async () => {
+  location.hash = '#/ws/default/gallery?req=r1/alpha'
+  await renderGallery()
+  expect(gallery).toHaveBeenLastCalledWith(undefined, 'r1', 'alpha')
+  const chip = screen.getByTestId('req-filter')
+  expect(chip.textContent).toContain('r1 › alpha')
+  await Promise.resolve()
+  expect(location.hash).toBe('#/ws/default/gallery?req=r1%2Falpha')
+  await fireEvent.click(screen.getByLabelText('remove the request filter'))
+  await waitFor(() =>
+    expect(gallery).toHaveBeenLastCalledWith(undefined, undefined, undefined),
+  )
+  expect(screen.queryByTestId('req-filter')).toBeNull()
+})
+
+it('says the filter matched nothing, not that nothing was generated', async () => {
+  location.hash = '#/ws/default/gallery?req=r1/alpha'
+  listing.files = []
+  render(GalleryPage)
+  expect(
+    await screen.findByText(/No outputs for this request item yet/),
+  ).toBeTruthy()
+  expect(screen.queryByText(/Nothing generated yet/)).toBeNull()
+})
+
+it('offers a request picker, and picking one reloads narrowed', async () => {
+  await renderGallery()
+  const picker = await screen.findByLabelText('filter by request')
+  await fireEvent.change(picker, { target: { value: 'r1' } })
+  await waitFor(() =>
+    expect(gallery).toHaveBeenLastCalledWith(undefined, 'r1', undefined),
+  )
+  expect(screen.getByTestId('req-filter')).toBeTruthy()
+})
+
+it('hides the picker when the workspace has no requests', async () => {
+  listRequests.mockResolvedValueOnce({ workspace: 'default', requests: [] })
+  await renderGallery()
+  await Promise.resolve()
+  expect(screen.queryByLabelText('filter by request')).toBeNull()
+})
+
+it('drops an unfiltered listing that lands after the filtered one', async () => {
+  let land: (reply: { files: GalleryFile[] }) => void = () => {}
+  gallery.mockImplementationOnce(
+    () => new Promise<{ files: GalleryFile[] }>((resolve) => (land = resolve)),
+  )
+  render(GalleryPage)
+  const everything = listing.files
+  listing.files = [file('only.png')]
+  const picker = await screen.findByLabelText('filter by request')
+  await fireEvent.change(picker, { target: { value: 'r1' } })
+  await waitFor(() => expect(screen.getByLabelText('select only.png')))
+  land({ files: everything })
+  await new Promise((r) => setTimeout(r, 10))
+  expect(screen.getByTestId('req-filter')).toBeTruthy()
+  expect(screen.queryByLabelText('select a.png')).toBeNull()
+  expect(screen.getByLabelText('select only.png')).toBeTruthy()
 })

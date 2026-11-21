@@ -64,6 +64,55 @@ class TestSegment:
         )
 
 
+class TestTrackPeople:
+    def test_the_defaults_are_the_detector_and_the_segmenter(self):
+        assert declared("track_people") == [
+            "IDEA-Research/grounding-dino-base",
+            "facebook/sam2-hiera-large",
+        ]
+
+    def test_model_name_overrides_the_detector(self):
+        assert declared("track_people", {"model_name": "org/dino"}) == [
+            "org/dino",
+            "facebook/sam2-hiera-large",
+        ]
+
+    def test_sam_model_name_overrides_the_segmenter(self):
+        assert declared("track_people", {"sam_model_name": "org/sam"}) == [
+            "IDEA-Research/grounding-dino-base",
+            "org/sam",
+        ]
+
+    def test_a_literal_max_people_of_zero_declares_nothing(self):
+        assert declared("track_people", {"max_people": 0}) == []
+
+    def test_a_reference_max_people_still_declares_both(self):
+        assert declared("track_people", {"max_people": "variable:n"}) == [
+            "IDEA-Research/grounding-dino-base",
+            "facebook/sam2-hiera-large",
+        ]
+
+    def test_a_positive_max_people_declares_both(self):
+        assert len(declared("track_people", {"max_people": 2})) == 2
+
+    def test_the_sam3_backend_declares_only_its_repo(self):
+        assert declared("track_people", {"backend": "sam3"}) == ["facebook/sam3"]
+
+    def test_sam3_model_name_overrides_the_sam3_repo(self):
+        assert declared(
+            "track_people", {"backend": "sam3", "sam3_model_name": "x/y"}
+        ) == ["x/y"]
+
+    def test_a_literal_max_people_of_zero_declares_nothing_on_sam3(self):
+        assert declared("track_people", {"backend": "sam3", "max_people": 0}) == []
+
+    def test_the_grounding_dino_backend_is_the_default(self):
+        assert declared("track_people", {"backend": "grounding-dino"}) == [
+            "IDEA-Research/grounding-dino-base",
+            "facebook/sam2-hiera-large",
+        ]
+
+
 class TestRemoveBackground:
     def test_is_the_one_fixed_repo(self):
         assert declared("remove_background") == ["briaai/RMBG-2.0"]

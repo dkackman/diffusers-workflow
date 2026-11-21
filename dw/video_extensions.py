@@ -66,6 +66,12 @@ def _extension_problem(value):
     return f"Video file extension not allowed: {ext}"
 
 
+def video_extension_problem(value):
+    """Why a file argument that is read as a video (whatever it is named)
+    cannot be one, or None when it can, or when that is not yet knowable."""
+    return _extension_problem(value)
+
+
 def _video_key_values(value, path):
     """Strings a video-named key hands to `fetch_video` - itself, or each
     element of a list of them. A dict here is a `media_type` reference and

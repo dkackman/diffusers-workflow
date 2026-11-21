@@ -164,6 +164,7 @@ UI_READ_ROUTES = [
     ("delete", "/api/jobs/{job_id}/run"),
     ("get", "/api/jobs/{job_id}/workflow"),
     ("post", "/api/jobs/{job_id}/rerun"),
+    ("post", "/api/jobs/{job_id}/rerun-restart-batch"),
     ("post", "/api/jobs/{job_id}/export"),
     ("post", "/api/jobs/{job_id}/move"),
     ("post", "/api/jobs/{job_id}/cancel"),
@@ -172,6 +173,14 @@ UI_READ_ROUTES = [
     ("get", "/api/workspaces"),
     ("post", "/api/workspaces"),
     ("delete", "/api/workspaces/{name}"),
+    ("get", "/api/workspaces/{name}/requests"),
+    ("get", "/api/workspaces/{name}/requests/{request_id}"),
+    ("put", "/api/workspaces/{name}/requests/{request_id}"),
+    ("delete", "/api/workspaces/{name}/requests/{request_id}"),
+    ("get", "/api/workspaces/{name}/notes-channel"),
+    ("post", "/api/workspaces/{name}/request-notes"),
+    ("put", "/api/workspaces/{name}/request-notes"),
+    ("delete", "/api/workspaces/{name}/request-notes"),
     ("get", "/api/workflows"),
     ("put", "/api/workflows/{name}"),
     ("patch", "/api/workflows/{name}"),
@@ -196,6 +205,7 @@ UI_READ_ROUTES = [
     ("get", "/api/tasks/{command}"),
     ("get", "/api/classes"),
     ("get", "/api/classes/{name}"),
+    ("get", "/api/loras"),
 ]
 
 
@@ -542,8 +552,10 @@ def test_gallery_and_asset_answers_keep_their_keys(server, tmp_path):
         "findings",
         "role",
         "inputs",
+        "linked_jobs",
     }
     assert metadata["job"] is None and metadata["findings"] == []
+    assert metadata["linked_jobs"] == []
     assert set(assets) == {"workspace", "libraries", "assets", "folders", "shadowed"}
 
 

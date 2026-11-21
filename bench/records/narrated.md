@@ -478,3 +478,1025 @@ keyframes for identity.
 On `levelled-carry-s1.mp4`: "she becomes progressively glossy". Rejected; the stills and
 the face-sharpness measure read the gloss as softening and missed it. Don closed the
 experiment here. The untried combinations above were not run.
+
+## bf16 transformer, seed 1 - gate db33868da007, arm af390360c19b (#1319 stage 1, #1346)
+
+`bench/workflows/narrated-take-bf16.json` is `narrated-take.json` with the transformer's
+SDNQ int8 config removed. The transformer loads in bf16 under the same block group
+offload; the text encoder and VAE stay int8 SDNQ. Every other argument matches the CP1
+control `d5584b91816d` (shot `dialogue`, seed 1, `stop_after` 12, tier `best`, no
+counters). Both jobs were submitted inline because the server can't reach `bench/` by
+path, so `get_job_workflow` shows what ran.
+
+### Gate (stop_after 1) - job db33868da007
+
+- Wall time 951 s: load 94.6, encode 29, denoise 738.3 (19 passes, ~37 s each), decode 70.9.
+- Host RAM: `get_job`'s `host_memory_job_peak_committed_mb` is 37,124 MB. Committed
+  memory leaves out file-backed pages, so it misses the bf16 transformer, which is
+  mmap'd from its checkpoint. The worker process's peak RSS on lem was 108,325 MB,
+  reached at load. In-run RSS was ~98 GB, ~63 GB of it file-backed. `host_ram_gb` was
+  set to 110 from the RSS figure.
+- Peak reserved VRAM 22,142 MB.
+- No admission refusal, no OOM, under 45 min, so the full arm ran.
+
+### Cost
+
+| | int8 control d5584b91816d | bf16 af390360c19b |
+|---|---|---|
+| wall, 12 segments | 233.0 min | 223.7 min |
+| denoise per pass | 54.6 s | 54.5 s |
+| host committed peak | 68,747 MB | 37,994 MB |
+
+The bf16 arm loaded nothing (`load_cached`: the worker still held the gate's pipeline),
+so its wall time carries no load; the control's load was 58 s. Its passes ran at the
+control's pace, not the gate's ~37 s. Committed memory leaves out file-backed pages, and
+the bf16 transformer is mmap'd from its checkpoint, so 37,994 MB does not mean bf16 used
+less host RAM. The host figure for bf16 is the gate's process peak RSS, 108,325 MB.
+
+### face_drop per segment (chain check; already relative to segment 1)
+
+| segment | int8 | bf16 |
+|---|---|---|
+| 2 | 0.003 | 0.011 |
+| 3 | 0.032 | 0.019 |
+| 4 | 0.043 | 0.027 |
+| 5 | 0.057 | 0.060 |
+| 6 | 0.146 | 0.101 |
+| 7 | 0.114 | 0.097 |
+| 8 | 0.111 | 0.183 |
+| 9 | 0.140 | 0.178 |
+| 10 | 0.148 | 0.176 |
+| 11 | 0.154 | 0.212 |
+| 12 | 0.207 | 0.225 |
+
+Mean over segments 7-12, where CP1's burn shows: int8 0.146, bf16 0.179. Both arms fail
+`texture_ratio` on segments 9-12 at the same size (int8 2.12 / 2.25 / 2.51 / 2.39, bf16
+2.17 / 2.32 / 2.49 / 2.30, from each job's warnings).
+
+### Face crop at the CP1 windows (`bench/face_windows.py`)
+
+Sharpness (median Laplacian variance of the face crop), saturation (mean HSV S of the
+crop) and SFace similarity to the face at 0.5 s. This script's crop and scale differ
+from the earlier sections' scratch measure (the control reads 90 here against 204
+above at 0-10 s), so only the two columns in this table compare with each other.
+Growth is read from each arm's own 0-10 s window, because different weights give a
+different segment 1.
+
+| window | int8: sharp / sat / sim | bf16: sharp / sat / sim |
+|---|---|---|
+| 0-10 s | 90 / 101.7 / .92 | 103 / 101.5 / .94 |
+| 20-30 s | 167 / 109.6 / .90 | 120 / 115.2 / .90 |
+| 40-50 s | 283 / 111.9 / .80 | 252 / 118.5 / .80 |
+| 60-70 s | 573 / 118.4 / .80 | 700 / 127.4 / .76 |
+| 80-90 s | 807 / 120.4 / .74 | 894 / 120.4 / .72 |
+| growth 0-10 to 80-90 | 9.0x / +18.7 / -.18 | 8.7x / +18.9 / -.22 |
+
+Face strip (0.5 / 40 / 60 / 85 s, int8 row above bf16): `asset:bench/1346-bf16-face-strip.jpg`
+in workspace `constitution-walk-3`, written by `bench/face_windows.py` from the two takes
+(`output:BenchNarratedTake/20261109-225944-af94be0b/final/BenchNarratedTake-take.1-0.0.mp4`,
+`output:BenchNarratedTakeBf16/20261114-081739-b46f591b/final/BenchNarratedTakeBf16-take.1-0.0.mp4`).
+Whether the bf16 row looks less burnt is Don's call (plan Q3).
+
+### Verdict
+
+**Precision is not a burn lever at int8 to bf16** (seed 1). The bf16 arm burns at
+the control's rate: face_drop reaches 0.225 against 0.207 at segment 12 (mean over 7-12
+0.179 against 0.146), sharpness grows 8.7x against 9.0x, saturation +18.9 against +18.7,
+and identity falls .22 against .18. Only the sharpness growth is lower in bf16, by an
+amount one seed can't separate from noise. The rest is level or worse. A lever would
+have shown as a clear drop, as int4 to int8 did (`tiers.md`: crust 1.6x instead of 4.5x).
+None showed, so this is not a marginal result and needs no second seed. The burn left
+at int8 is not quantization error. A higher-precision tier would not remove it, and
+#1319's TP trigger (a) is not met.
+
+## Seam restore (ref2va tail redraw), seed 1 - early ccb20cd03ffa, arm da4a93845ba9 (refs #1325, #1351)
+
+Before each seam k, the restore redraws segment k's frames 68-191 (124 frames, on H3's
+17n+5 grid) as ref2va. Each redraw runs `refine_strength` 0.3 at shift *s* = 12, which is
+ComfyUI *d* = 0.3 / (12 - 11*0.3) = 0.0345. It takes the still as reference, segment
+k+1's prompt, the matching 124-frame narration as `hold_audio`, and seed 1000+k. Restore
+frames 102-123 become segment k+1's 22-frame guide, and frame 102 becomes its image.
+Segment k keeps its own unrestored tail in the output. The control is reused, not re-run:
+`aed61997052a`, `bench/seam-restore-control`, 5912 s.
+
+- **Control take:** `bench/seam-restore-control/20261114-181113-99c25c22/final/SeamRestoreControl-take.22-0.0.mp4`
+- **Arm take:** `bench/seam-restore/20261115-200029-ff99d30b/final/SeamRestoreProbe-take.37-0.0.mp4`
+
+Both are 1042 frames, 6 segments, with audio. lem was on diffusers `0.44.0.dev0` @
+`43e30028` (`get_diffusers_state` before the early job: `{"status":"idle",
+"version":"0.44.0.dev0","commit":"43e30028af5120d8b0868cb6975b9fad39cc4fab"}`). Each
+arm job ran alone on lem, after `clear_memory` on both cards.
+
+The construction matches the control. The restore workflow, diffed against the control
+with `release_pipeline` stripped, differs only in three places:
+- the `rtailsrc`/`raud`/`restore`/`rtail` steps, which replace the control's `tail` steps;
+- `key k`'s and `seg k`'s guide source (`rtail k-1` instead of `tail k-1`);
+- the description.
+
+Variables, seeds, prompts, still, audio slices, size and schedule are identical.
+
+Two failed jobs came first. Neither is part of the arm:
+- **`dd3e9db5f675`** (plan v3): refused in `restore01`, 874 s in. Its 120-frame source was
+  off the 17n+5 grid (#1372). Host peak 66.3 GB, and it never denoised a restore.
+- **`782ceef4f82e`** (plan v5): seg01 finished, 192 frames in 903 s. restore01 completed
+  all 19 passes (+1072 s to +2181 s). The job was then SIGKILLed by the OOM killer about
+  41 s into `decode.video`. Host committed memory peaked at 124 151.9 MB, against 128 GB
+  on lem, because seg01's fl2va and restore01's ref2va pipelines were resident together.
+  Plan v6 added `release_pipeline: true` to every segment and restore step.
+
+**Gate** (early job `ccb20cd03ffa`, run `20261115-190311-7fd38e7b`, take
+`bench/seam-restore-early/20261115-190311-7fd38e7b/final/SeamRestoreProbeEarly-take.9-0.0.mp4`,
+362 frames, 47.6 min, host peak 66 058.8 MB). The gate compares seg02 against the
+control take's frames 192-361:
+
+| measure | control | restore |
+|---|---|---|
+| seg02 face-sharpness rise (seam + in-segment) | +4.6 (-16.1 + 20.7) | -9.5 (-22.4 + 12.9) |
+| seg02 face-saturation rise | -3.3 (-0.6 - 2.6) | +0.4 (+3.6 - 3.1) |
+| seam-1 score (peak / median) | 1.37 | 1.40 (1.02x the control) |
+
+The gate passed: the arm's rise is below the control's, and its seam score is under
+1.5x the control's. The full job ran.
+
+Early-job timing (`get_job(ccb20cd03ffa)` step timing). `load_cached` was false on every
+step, as `release_pipeline` intends.
+
+| step | load | encode | denoise | per pass | decode |
+|---|---|---|---|---|---|
+| seg01 | 57.9 s | 33.7 s | 680.4 s | 34.3 s | 60.2 s |
+| restore01 | 57.0 s | 93.7 s | 746.2 s | 39.2 s | 39.5 s |
+| seg02 | 56.7 s | 48.4 s | 892.2 s | 46.9 s | 59.5 s |
+
+- **Loads** took 171.6 s in total, 57.0 s of it for the restore.
+- **Restore denoise** took 746.2 s (one restore, restore01).
+
+**Full job `da4a93845ba9`** (run `20261115-200029-ff99d30b`, cuda:1). 209.2 min wall
+time against the control's 98.5 min. Host peak 67 473.1 MB, against the control's
+71 057.0 MB.
+
+Measurements: every frame was measured, using YuNet's largest face. The drift split
+uses 1 s endpoint windows, the `bench/driver.py` `_split` rule.
+
+| measure | control: total / seams / in-segment | restore: total / seams / in-segment |
+|---|---|---|
+| luma | -0.5 / -0.8 / +0.3 | -3.0 / -9.0 / +5.9 |
+| saturation | +8.8 / +9.4 / -0.7 | +17.0 / +21.4 / -4.4 |
+| face saturation | +8.3 / +11.8 / -3.5 | +15.1 / +29.8 / -14.7 |
+| face sharpness | +105 / +32 / +73 | +251 / +137 / +114 |
+
+Face-sharpness step at each seam, from seg k's last 1 s to seg k+1's first 1 s:
+- control: -16.1, -1.3, +30.8, +22.8, -3.9
+- restore: -22.4, -1.9, +63.7, +26.3, +71.0
+
+Face windows: median sharpness / mean saturation / SFace similarity to the 0.5 s face,
+sampled every 0.5 s. The take is 43 s, so the windows are 10 s back to back.
+
+| window | control | restore |
+|---|---|---|
+| 0-10 s | 94 / 99.3 / .94 | 91 / 100.3 / .94 |
+| 10-20 s | 100 / 101.1 / .92 | 90 / 106.5 / .92 |
+| 20-30 s | 156 / 104.6 / .89 | 171 / 114.1 / .90 |
+| 30-40 s | 211 / 107.2 / .83 | 259 / 114.6 / .83 |
+| 40-43 s | 331 / 106.8 / .78 | 407 / 116.6 / .79 |
+
+Seam jumps. The join jump is the frame difference from (seg k, 191) to (seg k+1, 22)
+over the median frame difference (control 6.33, restore 6.07). The detail step is face
+median sharpness and mean saturation over the 6 frames either side of the join.
+
+| seam | control: jump / sharp / sat | restore: jump / sharp / sat |
+|---|---|---|
+| 1 | 1.18x / 192 -> 77 / 99.4 -> 97.8 | 1.21x / 189 -> 78 / 98.9 -> 101.6 |
+| 2 | 1.19x / 70 -> 138 / 97.7 -> 104.3 | 1.22x / 66 -> 120 / 102.4 -> 113.0 |
+| 3 | 1.46x / 96 -> 100 / 102.7 -> 106.3 | 1.45x / 92 -> 126 / 110.1 -> 118.9 |
+| 4 | 1.55x / 108 -> 160 / 106.3 -> 109.2 | 1.22x / 142 -> 194 / 117.6 -> 121.9 |
+| 5 | 1.59x / 206 -> 321 / 103.7 -> 105.8 | 0.84x / 399 -> 482 / 113.8 -> 118.0 |
+
+The peak frame difference within -2..+3 frames of each join gives the same ratios. The
+one exception is control seam 1, where it is 1.32x at frame 195.
+
+How far the redraw moved: `rtail k` (restore frames 102-123) against seg k's frames
+170-191.
+
+| seam | mean abs diff | face sharpness change | SFace similarity |
+|---|---|---|---|
+| 1 | 2.8 | -20.2 | .950 |
+| 2 | 2.8 | -2.0 | .949 |
+| 3 | 2.8 | -0.5 | .974 |
+| 4 | 2.9 | +10.5 | .963 |
+| 5 | 3.2 | +23.0 | .949 |
+
+Still-mouth bins: 0 control, 0 restore. The mouth box here is approximated from YuNet's
+mouth-corner landmarks (1.5 x 1.0 corner widths). It is not `lip_sync`'s box, so these
+counts don't compare with the other sections'.
+
+Full-job timing (`get_job(da4a93845ba9)` step timing). `load_cached` was false on every step, as
+`release_pipeline` intends.
+
+| step | load | encode | denoise | per pass | decode |
+|---|---|---|---|---|---|
+| seg01 | 47.4 s | 19.5 s | 743.8 s | 39.3 s | 59.8 s |
+| restore01 | 57.6 s | 95.8 s | 859.7 s | 45.2 s | 40.6 s |
+| seg02 | 51.4 s | 38.1 s | 1038.7 s | 54.7 s | 58.0 s |
+| restore02 | 57.1 s | 96.8 s | 867.4 s | 45.2 s | 41.6 s |
+| seg03 | 51.2 s | 45.5 s | 1039.7 s | 54.7 s | 58.0 s |
+| restore03 | 58.6 s | 99.9 s | 863.1 s | 45.2 s | 43.1 s |
+| seg04 | 205.5 s | 34.5 s | 1035.4 s | 54.5 s | 63.3 s |
+| restore04 | 56.1 s | 101.6 s | 865.0 s | 45.3 s | 42.2 s |
+| seg05 | 213.8 s | 34.0 s | 1036.6 s | 54.6 s | 59.2 s |
+| restore05 | 57.9 s | 102.1 s | 861.3 s | 45.2 s | 39.8 s |
+| seg06 | 57.1 s | 40.5 s | 1037.4 s | 54.6 s | 65.9 s |
+
+- **Loads** took 913.7 s in total, 287.3 s of it for the restores.
+- **Restore denoise** took 4316.5 s, 72 min, which is a third of the job.
+- **Segment passes** ran at 54.6 s against the control's 46.9 s and the early job's 46.9 s
+  (seg02). Nothing in the step timing explains this.
+
+The probe used about 5.1 h of lem time against the 4 h approved: early 47.6 min, full
+209.2 min, and about 52 min on the failed jobs.
+
+The only ruling this record states is the gate's. Whether the restore helps is Don's
+viewing verdict, on the two take paths above. One seed.
+
+## Cut probe at the #1311 keeper's 41.0 s cut (#1385 stage A, #1388)
+
+The keeper is GettysburgJoin `be80b3c3` (job 86e43a45af77, workspace `drill-1311-2`, left
+untouched). It joins passage A (job 48c68b1e1c72, run `45d023c8`, `speaker.jpg`) to passage B
+(job 50b48953037f, run `5760a9e4`, `gettysburg/speaker-angle-b.jpg`) at 41.0 s. Everything
+below ran in workspace `bench`, one H3 job at a time.
+
+The measure is `bench/cut_windows.py` (new): `bench/face_windows.py`'s measure, which is
+YuNet's largest face, the Laplacian variance of its gray crop, and SFace cosine, taken in
+1 s windows sampled every 0.25 s. Each window is the median. "SFace across the cut" is
+the cosine between the mean features of the 1 s on each side. A clip's numbers sit a
+few percent off the source's because every arm is re-encoded.
+
+### The keeper
+
+`cut_windows.py pair A B` on the two source takes:
+
+- **A climbs to its end.** It starts at about 360, sits at about 650-800 over 31-38 s,
+  and reaches 1059 and **1141** in its last 2 s.
+- **B opens at 276**, a step of **0.24x (-76%)** at the cut.
+- **B holds at about 200-280 for its first 17 s.** It rises to about 600-900 after 45 s.
+  Its only window at or above A's end level is one spike at 54-55 s (1228), so it never
+  reaches that level for more than a second.
+- **SFace across the cut is 0.913.**
+
+This corrects `bench/records/drill.md`'s "Resets at the cut: none" (see the correction
+under it there). `detail_ratio` 0.86 is a whole-frame measure. The face crop loses about
+three quarters of its detail at the cut and does not regain it for the length of B's
+first segment.
+
+### The arms
+
+Each arm is a 16 s clip: A's last 8 s (frames 792-983), then 8 s of B or its replacement.
+The cut is at 8.0 s.
+
+| Arm | What follows the cut | Job | File (workspace `bench`) |
+|---|---|---|---|
+| C | the keeper's own cut, trimmed (join frames 792-1175) | 359bca51bb43 | `BenchCutProbeCJ/20261116-160223-dcd1316b/final/arm-c-0.0.mp4` |
+| J | B's first 8 s in four 2 s chunks, `sharpen` 1.1 / 0.75 / 0.45 / 0.2, rejoined | 359bca51bb43 | `BenchCutProbeCJ/20261116-160223-dcd1316b/final/arm-j-0.0.mp4` |
+| S | B's segment 1 re-rendered from angle B sharpened to A's end level | 88dc63d36f81 (render), f522b8e3c84d (clip) | `BenchCutProbeSL/20261116-163339-fc4b4c3f/final/arm-s-0.0.mp4` |
+| L | B's segment 1 re-rendered from A's frame 980 through flux3 image-edit | 094d3eee5576 (render), f522b8e3c84d (clip) | `BenchCutProbeSL/20261116-163339-fc4b4c3f/final/arm-l-0.0.mp4` |
+
+The inputs:
+
+- **C and J** come from `bench/workflows/cut-probe-cj.json`. J uses only `trim_video`,
+  `sharpen` and `concat_videos`.
+  - B's chunks rejoin as one continuous take (`continuous_joins`, `seam_fade_ms` 0), so
+    B's audio passes through, and that head then joins A's tail with `trim_frames` 0.
+  - The amounts were calibrated locally with Pillow's UnsharpMask (radius 2, the
+    `sharpen` task's filter) on B's 1 s windows. The first is matched to A's last 1 s.
+- **The S still** is `bench/workflows/cut-probe-stills.json` (job 6ae8e4f404d1, run
+  `BenchCutProbeStills/20261116-160341-815995d8`). It is `arm-s-still-0.0.png`: angle B
+  through `sharpen` 0.36, which measures **1119** against 634 unsharpened (-2% from 1141).
+- **The L frame** is `arm-l-frame-0.0.png` from the same job. It is A's frame 980
+  (40.83 s), the sharpest face in A's last 2 s, at 1558 (that span's median is 1091).
+  - It went through `templates/flux3/image-edit` with 7a326418cd63's instruction and
+    seed 1311 (job 314c4f2dee50,
+    `templates/flux3/image-edit/20261116-160404-0035fcca/final/Flux3KleinImageEdit-edit.1-0.0.jpg`).
+  - The edited still measures **2085**. The gate skips the render only below 799 (30%
+    under 1141), so **the gate passed** and L was rendered.
+- **The S and L renders** are `templates/minimax/narrated-take` with B's job's arguments
+  (narration, script, scene, speaker, `shot` `standing`, seed 1311). Only `image`
+  changed, and `stop_after` is 1. The renders are
+  `templates/minimax/narrated-take/20261116-160645-788405be/final/MiniMaxH3NarratedTake-take.1-0.0.mp4`
+  (S, 13.7 min) and `.../20261116-162036-dbdd2de4/final/...` (L, 12.3 min).
+- **The S and L clips** come from `bench/workflows/cut-probe-sl.json`.
+
+### Sharpness and identity at the cut
+
+Measured with `cut_windows.py clip <arm> 8`:
+
+| Arm | last 1 s before | first 1 s after | step | SFace across the cut |
+|---|---|---|---|---|
+| C | 1079 | 251 | 0.23x (-77%) | 0.902 |
+| J | 1098 | 1091 | 0.99x (-1%) | 0.921 |
+| S | 1111 | 437 | 0.39x (-61%) | 0.913 |
+| L | 1104 | 949 | 0.86x (-14%) | 0.942 |
+
+Per second after the cut (8-16 s of the clip):
+
+| Arm | 8-9 | 9-10 | 10-11 | 11-12 | 12-13 | 13-14 | 14-15 | 15-16 |
+|---|---|---|---|---|---|---|---|---|
+| C | 251 | 215 | 196 | 253 | 194 | 252 | 212 | 192 |
+| J | 1091 | 949 | 596 | 733 | 393 | 490 | 294 | 258 |
+| S | 437 | 353 | 297 | 409 | 312 | 436 | 342 | 304 |
+| L | 949 | 778 | 756 | 880 | 795 | 930 | 857 | 704 |
+
+Before the cut, all four clips read 684, 608, 535, 637, 589, 720, then about 1000 and
+about 1100: it is the same A tail.
+
+### Does B's opening keep the added detail through 8 s?
+
+- **S: partly, at a lower level.** The still was raised to 1119, but the render's first
+  second is 466 (source segment) and its 8 s settle at about 300-450 (median about 350).
+  That is about 1.4x B's 200-280 over the same seconds, but a third of the still's level.
+  H3 drops most of the added sharpening in the first second and keeps the rest to 8 s.
+- **L: yes, at about three quarters of A's end level.** The source segment reads 984
+  first, then 726-963 to 8 s, without a downward trend until the last second (726). The
+  edited still was 2085, so the render keeps about 40-45% of it. That is still 3-4x B's
+  opening.
+- **J holds by construction.** It is a filter, not a render. Its step-down (1091 down to
+  258) is the four amounts tapering into B's own level.
+
+### Limit
+
+S and L re-render only B's first segment (`stop_after` 1, plan Q3). They show how B would
+open from a new start image. They do not show B's later segments, which chain from that
+opening and are not rendered here. A full-B re-render, and whether the opening's level
+carries through B's own chain, is outside this probe. Each arm is one seed (1311).
+
+This record gives no ruling on the arms. Which reads best at the cut is Don's viewing
+verdict (plan Q2), on the four clips above.
+
+## #1399 turbo version vs burn (#1403)
+
+_Bench by the lead agent, model `claude-opus-5-5` via `anthropic`, 2026-11-17._
+
+The question: do the newer lightx2v turbo files burn less on an 8-segment H3 chain than
+the ones the templates ship? Each new file runs on the #1326 probe it replaces, at the
+same seed (42), prompt, size (960x544), segment count (8) and check settings (check on,
+retries 0). Only `lora_weight_name` moves. The two probe workflows are copied unchanged
+into `bench/workflows/probe-1399-*.json`. The controls are #1326's own runs, reused and
+re-measured.
+
+| Arm | Probe | Turbo file | Steps (evals) | Shift video/audio | Partition | Job | Workspace |
+|---|---|---|---|---|---|---|---|
+| A0 | chained-segments (cs-0) | `minimax_h3_fl2v_turbo_4step_v1.2_768p_bf16` | 5 (4) | 6/3 | fl2va | `5fa5a09b083f` | probe-1326 |
+| A1 | chained-segments | `minimax_h3_fl2v_turbo_4step_v1.3_768p_bf16` | 5 (4) | 6/3 | fl2va | `372b4229b0a1` | probe-1399 |
+| B0 | chain-video-continuity (cvc-0) | `minimax_h3_ref2v_turbo_8step_v1.0_768p_bf16` | 9 (8) | 12/3 | ref2va | `fecc614dc513` | probe-1326 |
+| B1 | chain-video-continuity | `minimax_h3_ref2v_turbo_8step_v1.1_768p_bf16` | 9 (8) | 12/3 | ref2va | `8f7d30d7434e` | probe-1399 |
+| C | B1 + #1151 anti-burn 0.5 | - | - | - | ref2va | did not run | - |
+
+- **Shifts.** ModelTC's spec page lists no shift for v1.3 or v1.1, so each arm keeps its
+  predecessor's: fl2va 6/3 and ref2va 12/3.
+- **Partitions.** `validate_workflow` refuses the ref2v v1.1 file on the fl2va probe
+  (cross-partition). That is as designed, so no ref2v file ran on fl2va.
+- **Runs.** One H3 job at a time on lem. Each job's `note` names its arm.
+
+### Build
+
+`get_diffusers_state` at the bench:
+
+    {"status": "idle", "version": "0.44.0.dev0",
+     "commit": "1dabc292d8413638cf0666cca6d7a6c2c765befa", "revert": false}
+
+The controls ran on 2026-11-14 on lem develop @ 0a60c514. Their job records do not hold
+the diffusers commit. Every `get_diffusers_state` recorded in that week (the move-seeds
+audit and the seam-restore record of 2026-11-15) reads `43e30028`, so the controls very
+likely ran on `43e30028`, not `1dabc292`.
+
+**The new arms and their controls therefore ran on different diffusers builds.** A
+difference smaller than this tolerance is not attributed to the turbo file:
+- creep: ±15%;
+- per-seam lightness step: ±0.3;
+- mean |L|: ±0.1.
+
+That tolerance is also the noise floor of one seed per arm.
+
+The measures are deterministic per file: measuring the same file again gives the same
+numbers. The spread between runs comes from the seed and the build, not from the
+measure.
+
+### The face measure has no face to measure
+
+The plan's burn measure is face-crop sharpness creep and SFace (YuNet + SFace,
+`bench/face_windows.py`'s measure, per 1 s window in `bench/face_creep.py`).
+
+The #1326 subject is a toy astronaut with a gold-mirrored visor, and it has no face.
+YuNet finds a "face" in:
+- A0: 2 of 140 samples;
+- A1: 31 of 140;
+- B0: 38 of 164;
+- B1: 17 of 164.
+
+Those hits are on the visor and suit and sit at a scale of 20 to 900. No arm has a
+detection in both its first and its last 1 s window. **Face creep and SFace, first to
+last, are unmeasurable on every arm.**
+
+In their place, `bench/region_creep.py` (new) takes the same Laplacian variance of the gray
+frame, per 1 s window (median of samples every 0.25 s), on two regions:
+- a fixed centre box (x 35-65%, y 5-60%);
+- the whole frame.
+
+The box does not track the subject. A's astronaut sits left of centre, and B's framing is
+tighter. The whole frame is the steadier of the two. Neither reads chroma noise. B0's
+background ends in coloured speckle that a viewer reads as burn, while its gray Laplacian
+falls.
+
+### Measurements
+
+| | A0 | A1 | B0 | B1 |
+|---|---|---|---|---|
+| Face creep / SFace first to last | no face | no face | no face | no face |
+| Whole-frame sharpness, first 1 s to last full 1 s | 687 -> 1956 (x2.85) | 640 -> 1904 (x2.97) | 158 -> 105 (x0.67) | 111 -> 163 (x1.47) |
+| Centre-box sharpness | 1418 -> 1701 (x1.20) | 1312 -> 2242 (x1.71) | 466 -> 129 (x0.28) | 354 -> 389 (x1.10) |
+| `segment_looks.detail`, seg 1 first to seg 8 last | 5.584 -> 8.078 (x1.45) | 5.711 -> 8.391 (x1.47) | 4.549 -> 6.396 (x1.41) | 4.721 -> 6.209 (x1.32) |
+| Lightness, start to end | 81.00 -> 81.01 | 80.24 -> 73.59 | 82.02 -> 68.64 | 71.32 -> 55.30 |
+| Saturation, start to end | 13.68 -> 18.52 | 13.14 -> 15.78 | 17.17 -> 23.82 | 13.19 -> 17.86 |
+| Per-seam lightness step, seams 1-7 | 0.63, 0.21, 0.19, -0.46, 0.10, -0.67, -1.38 | 0.54, 0.12, 0.54, -0.50, 0.47, -0.43, -0.39 | -2.15, -1.28, -2.05, 0.61, -0.76, -1.04, -0.93 | -4.54, -3.80, -12.72, 7.70, -2.83, -1.83, -1.14 |
+| Mean seam \|L\| | 0.52 | 0.43 | 1.26 | **4.94** |
+| `chain_check` fails | 0 | 0 | 7 (segs 2-8, jump_ratio) | 2 (segs 4-5, jump_ratio + look_ratio) |
+| Wall time (denoise) | 14.6 min (496 s) | 15.2 min (493 s) | 62.6 min (3224 s) | 53.8 min (2580 s) |
+| Transformer passes | 32 | 32 | 64 | 64 |
+
+- **Audio.** `analyze_seams` warns on seam level steps above 3 dB:
+  - A0: seams 3, 6 and 7;
+  - A1: seams 1-3;
+  - B0: seams 2, 4 and 6 (8.0, 7.1 and 14.1 dB);
+  - B1: seams 3, 4, 6 and 7 (5.8, 7.4, 5.5 and 4.6 dB).
+- **A1's audio level.** It sits about 20 dB above cs-0's.
+- **B1's seam jumps.** B1's seam `jump_ratio` is lower than B0's at 5 of 7 seams (1.7 to
+  2.4 against B0's 7.8 to 15.1).
+- **B1's lightness.** It opens 11 points darker than B0 and loses 16 more by the end.
+  Segment 4 drops to 52 (seam 3, -12.7), and segment 5 recovers 7.7.
+
+### Reading
+
+The bar is "burns less": creep at most 0.7x its own control, with SFace and seams no worse.
+
+- **A1 (fl2v v1.3) does not burn less than A0.**
+  - Its creep is no lower on either region (whole frame 1.04x A0's, centre box 1.43x),
+    and its detail climb matches (x1.47 against x1.45).
+  - Its seams are within tolerance (mean |L| 0.43 against 0.52).
+  - It darkens by 6.6 where A0 holds lightness.
+  - It does not meet the bar.
+- **B1 (ref2v v1.1) fails the bar on seams, whatever its creep.**
+  - Its mean seam |L| is 4.94 against B0's 1.26, nearly four times as large, and far
+    outside tolerance. The bar asks seams no worse.
+  - It does pass `chain_check` more often (2 fails against 7), and its seam frame jumps
+    are smaller.
+  - Its detail climbs less (x1.32 against x1.41).
+  - Its whole-frame Laplacian rises (x1.47) where B0's falls (x0.67). That says more
+    about B0's softening than about B1's burn.
+- **No file met the bar, so no catalog entry is added.**
+
+### Arm C did not run
+
+The gate has two conditions:
+1. B1's face-sharpness creep is at most 0.7x A0's;
+2. B1's `chain_check` fails are no worse than B0's.
+
+- **Condition 2 is met:** B1 has 2 fails, B0 has 7.
+- **Condition 1 cannot be evaluated as written,** because no arm has a measurable face.
+  - The stand-ins split. On the whole frame, B1's x1.47 is 0.52x A0's x2.85, which opens
+    the gate. On the centre box, B1's x1.10 is 0.92x A0's x1.20, which shuts it.
+  - A gate that cannot be read is not met, so C, about 55 min of lem, did not run.
+  - `validate_workflow` was not tried for anti-burn on ref2va. Its catalog entry lists
+    fl2va only.
+- **C could not have met the bar either way.** It is B1 plus anti-burn, so it would also
+  have to bring the seams from 4.94 back to B0's 1.26.
+
+### Limits
+
+- **One seed** per arm.
+- **Different diffusers builds** for the new arms and the controls (see *Build*).
+- **The burn measure is a stand-in.** It is the whole-frame and fixed-box gray Laplacian,
+  not the face measure, and it misses chroma noise.
+- **Any future turbo-version bench needs a different subject.** It needs a subject with a
+
+
+## Kandinsky S2V Pro 4-bit probe (2026-11-16 to 11-18, #1339) - Pro distilled, 20 s gate, seed 1
+
+**Result: fails the 20 s gate on all three thresholds, so the 86 s take was not run.**
+
+### Path taken
+
+This used the plan's fallback for the waveform case, outside the dw server. S2V's encoder
+step takes `audio` as a 16 kHz mono waveform. dw's argument realization decodes only
+image and video media (`dw/argument_media.py`), so an `asset:` wav reaches the pipeline as
+a path. **Onboarding needs an `audio` media branch.** `bench/arms/ks2v-pro-4bit.json` (workflow `bench/workflows/ks2v-pro-4bit.json`) is
+the dw shape, and it validates. The probe that ran is `bench/ks2v_pro_probe.py`, run from
+`lem:~/spikes/ks2v` on **the spike venv's interpreter** (`~/spikes/ks2v/venv/bin/python`,
+the 2026-11-12 standalone venv), not the dw server's venv.
+
+- Inputs: `kandinskylab/Kandinsky-S2V-1.0-Pro-distill-Diffusers`, 16 steps, 768x512,
+  25 fps, seed 1, cuda:0, with these files from workspace `constitution-walk-3`:
+  - the still: keyframes-v2 kf00, `asset:uploads/bench/keyframes-v2/kf00.jpg`;
+  - the narration: `asset:bench/constitution-narration-retimed.wav`.
+- diffusers 0.43.0, torch 2.14.1+cu130, in the spike venv (`RECORD` lines in the logs
+  below). The dw server on lem reports its own diffusers separately (0.44.0.dev0 at
+  e84bda1c on 2026-11-18). It didn't run this probe.
+- Backend that loaded: **SDNQ int4**, on the first try both times. bnb nf4 was never needed.
+
+### Attempt 1: 4-bit, encoders on model CPU offload (2026-11-16)
+
+GPU OOM in `KandinskyS2VDistilledCoreDenoiseStep`, chunk 1: 21.02 GiB allocated by PyTorch
+and 23.43 GiB in use on a 23.56 GiB card, while trying to allocate 862 MiB. The automatic
+retry with group offload crashed in the probe script itself. It called
+`enable_group_offload` on the Qwen2.5-Omni thinker, which has no such method (fixed in
+a732352d). Log: `lem:~/spikes/ks2v/pro-gate-20s.log`.
+
+**Pro distilled at 4-bit does not fit 24 GB without offloading the transformer.**
+
+### Attempt 2: 4-bit, transformer group-offloaded (2026-11-18)
+
+Only the transformer was group-offloaded (block level, with a stream). The encoders, CLIP
+and the VAE stayed on model CPU offload. Log: `lem:~/spikes/ks2v/pro-gate-20s-go.log`.
+Output: `lem:~/spikes/ks2v/pro-gate-20s-go-s1.mp4`, 500 frames at 25 fps (20.00 s) with a
+20.00 s AAC narration track.
+
+- **Peak VRAM: 17.1 GiB allocated, 17.6 GiB reserved.**
+- **Host memory: about 48 GB RSS for the probe.** The pinned transformer and the 7B thinker
+  pushed lem into swap. At 04:52 UTC the kernel OOM killer took the dw server's worker
+  (pid 1304878, `dw-serve.service`), not the probe. sshd took minutes to answer while it
+  thrashed.
+- **Sampling took 143.9 min for 4 chunks, 36.0 min per chunk on average.** By chunk:
+  - chunk 1: 89.3 min, with step 3 alone taking 75 min of swap thrash;
+  - chunk 2: 20.9 min;
+  - chunk 3: 17.1 min;
+  - chunk 4: 12.5 min, at 46.7 s a step once the memory pressure cleared.
+
+  Even the steady rate is about 5x Lite distilled's 2.6 min per chunk. At that rate an
+  86 s take (18 chunks) would need about 3.7 h with lem's memory otherwise idle.
+
+### Face table at the gate
+
+Measured with `bench/ks2v_gate.py`, YuNet 2023mar and SFace 2021dec, all four takes in the
+same script. SFace is the cosine to each take's own 0.5 s face. Saturation is the mean HSV S
+of the YuNet face crop. The Laplacian is the variance of that crop in grey, at native scale.
+Still-mouth bins are half-second bins over 0-20 s where the narration's RMS is above 0.7x
+its median and the mouth box's frame diff is below 0.45x its median.
+
+This script's tight crop reads saturation and Laplacian on a different scale from the
+2026-11-12 table, so those two columns compare only within this table. SFace reproduces
+the 2026-11-12 row to within 0.02. Re-run over 0.5/15/.../85 s, it gives keystone
+1/.95/.90/.93/.92/.90/.90 and Lite 1/.90/.81/.76/.86/.80/.73.
+
+| at 0.5/5/10/15/19.5 s | moving keystone s1 | arc + latent s1 | S2V Lite distilled | **S2V Pro distilled, 4-bit** |
+|---|---|---|---|---|
+| SFace similarity to first frame | 1/.87/.93/.95/.95 | 1/.91/.85/.91/.92 | 1/.85/.77/.90/.85 | **1/.76/.69/.73/.72** |
+| SFace similarity to kf00 | .93/.86/.92/.95/.94 | .94/.92/.84/.88/.90 | .94/.81/.74/.87/.80 | **.91/.77/.68/.73/.69** |
+| saturation | 105.3/104.8/107.1/100.1/109.7 | 102.6/109.1/115.2/109.5/107.4 | 93.9/88.8/105.2/100.9/107.1 | **92.0/93.2/98.4/97.4/97.4** |
+| face-crop Laplacian variance | 312/208/210/308/305 | 327/285/206/257/375 | 159/66/33/49/51 | **114/96/61/71/94** |
+| still-mouth bins (0-20 s) | 0 of 40 | 0 of 40 | 0 of 41 | 0 of 41 |
+
+Sources:
+- moving keystone s1: run `20261110-230854-abc647e9`;
+- arc + latent s1: run `20261112-040003-f9eb4c89`;
+- Lite distilled: `lem:~/spikes/ks2v/lite-distill-86s-s1.mp4`.
+
+The two H3 runs are under `constitution-walk-3/outputs`; each uses its `take.1-0.0.mp4`.
+
+The kf00 row comes from the same script run with `--ref` set to kf00 (2026-11-18). That
+run reproduced every other row exactly. kf00 is the reference `face-drift-check` uses. The
+first-frame row's reference, the Pro take's frame 12 (0.5 s), is also on the server as
+`asset:bench/ks2v-pro/pro-gate-20s-ref-0.5s.png`.
+
+Pro files on the server, workspace `constitution-walk-3`:
+- the take: `asset:bench/ks2v-pro/pro-gate-20s-go-s1.mp4`;
+- the contact sheet: `asset:bench/ks2v-pro/pro-gate-20s-faces.jpg`.
+
+### Gate decision
+
+| threshold | Pro at 20 s | |
+|---|---|---|
+| SFace ≥ 0.88 | 0.72 at 19.5 s, and never above 0.76 after 0.5 s (against kf00: 0.69, never above 0.77) | **fails** |
+| saturation rise ≤ 5 | 92.0 → 97.4, +5.4 | **fails** |
+| Laplacian within the H3 arms' range (206-375, both H3 arms over the same samples) | 61-114 | **fails** |
+
+**The gate fails, so the run stopped at 20 s, as the plan says.** Under Don's 2026-11-17
+ruling there is no third attempt and no further download. The Pro-distill weights stay in
+lem's default HF cache (`~/.cache/huggingface`); deleting them is Don's call.
+
+### Contact sheet
+
+`lem:~/spikes/ks2v/pro-gate-20s-faces.jpg` has one row per take, at 0.5/5/10/15/19.5 s.
+
+Reading: Pro starts close to the still. By 5 s the face is rounder and smoother, with
+waxy skin and softer folds, and by 10 s it reads as a different woman. It does not come
+back by 19.5 s. Both H3 rows hold the face and its folds. Lite drifts too, but less than
+Pro over the same 20 s. The earrings, scarf and background hold in every row.
+
+Pro at 4-bit is softer than Lite distilled at the start (114 against 159 at 0.5 s) and
+loses identity faster. Whether 4-bit SDNQ caused this or Pro does it anyway isn't
+isolated: an unquantized Pro (21B) needs about 42 GB for its transformer alone.
+
+## LongCat-Video-Avatar 1.6 INT8 (2026-11-19, #1465)
+
+It fits a 3090 only with block streaming, at 255 s per extra window. It fails the 30 s
+gate on SFace to kf00 (0.80 at 15 s) and on 256 px sharpness (254 against 410 at
+20-30 s). See `bench/records/longcat-avatar.md`.
+
+## Keystone attention: step 1, the block-numbering check (#1391 stage B, #1394)
+
+Status: **closed, gate failed.** Don ruled on 2026-11-18 that step 2 doesn't run and
+the gate does. The gate failed, and on 2026-11-19, after viewing both takes, he stopped
+the bench there: no full arms (see *Keystone attention: early gate* below).
+
+The method is roycho87's brightened-keystone test (#1391 issuecomment-6922271175), after
+NerdNotes test 19 (CC BY-SA 4.0, concepts only). See `docs/ATTRIBUTIONS.md`.
+
+### Setup
+
+- Build: diffusers `0.44.0.dev0` @ `e84bda1c` (`get_diffusers_state`), not the control's
+  `43e30028` (Don's ruling, 2026-11-18).
+  Workspace `bench`, one H3 job at a time.
+- Shared segment 1 and the test keystones: `f835a2292345`
+  (`bench/workflows/keystone-probe-seg01.json`, 1524 s, dense). Its files are under
+  `KeystoneProbeSeg01/20261118-124246-9b6fdb6d/`: the segment is
+  `segments/KeystoneProbeSeg01-seg01.1-0.0.mp4` and the keystones are
+  `keystones/KeystoneProbeSeg01-{normal.2,bright.3,sharp.4}-0.0.png`. Mean luma: normal
+  101.99, bright 132.44 (×1.299), sharp 101.99 (Laplacian variance 116 → 198).
+- Every run renders segment 2 only, with dense attention, seed 2, and segment 1's
+  22-frame tail as the guide. `keystone-probe-noarg.json` is `keystone-probe.json`
+  without the argument. The argument runs differ only in `blocks`, at `balance` 20.
+- Measure: `bench/keystone_luma.py`, mean BT.601 luma (0-255) of the new frames 22-191,
+  plus their HSV saturation.
+
+### Results
+
+| Job | Keystone | `blocks` | Card | Wall | s/pass | frame 0 | new frames | vs normal | new sat |
+|---|---|---|---|---|---|---|---|---|---|
+| `53e01c397101` | normal | (no argument) | cuda:1 | 2045 s (cold) | 98.8 | 103.63 | **101.049** | - | 70.98 |
+| `4444aa27a7dc` | bright | (no argument) | cuda:1 | 1977 s | 99.1 | 104.00 | 101.182 | **+0.13%** | 70.87 |
+| `b686b8a0a40b` | bright | `0-29` | cuda:0 | 1930 s (cold) | 92.6 | 132.62 | 101.627 | **+0.57%** | 70.58 |
+| `ad1e332586f1` | bright | `30-39` | cuda:0 | 1808 s | 90.4 | 109.48 | 109.526 | **+8.39%** | 72.13 |
+
+`53e01c397101` re-runs `43045ca7c88a`, which lem's crash cancelled ("server restart").
+Every take is `bench/keystone-probe{,-noarg}/<run>/segments/*-seg02.2-0.0.mp4`: runs
+`20261119-003654-fca9788e`, `20261119-011109-be51bfbc`, `20261119-014436-ed1d2859` and
+`20261119-021658-05c9b3fa`.
+
+24-frame window means:
+
+- normal, no argument: 101.56 102.72 100.41 100.82 100.06 101.55 101.03 100.62
+- bright, no argument: 101.69 102.86 100.45 101.02 100.48 101.73 101.07 100.55
+- bright, `0-29`: 104.62 102.30 101.12 103.16 100.99 99.91 101.90 101.92
+- bright, `30-39`: 103.26 109.30 109.06 110.29 109.80 107.93 110.29 110.46
+
+### Reading
+
+- **The numbering matches.** `0-29` lands near no argument (+0.57% against +0.13%), and
+  `30-39` lifts clearly (+8.39%). That is the shape roycho87 reported in test 19 (+4.4% /
+  +4.1% / +13.8%). His test 21
+  ([block_map.md](https://github.com/roycho87/NerdNotes/blob/main/20261119/block_map.md),
+  CC BY-SA 4.0) corrects those figures: test 19 compared every block set with the normal
+  keystone at balance 20 on all 50 blocks, with an extra LoRA on, and balance alone
+  darkens a clip by up to 3%, so test 19 reads 3 to 4 points high. Test 21, with a
+  same-block control and no extra LoRA, gives none +0.9% (was +4.4%), `0-29`, which
+  test 21 splits by row: 0-9 +1.1%, 10-19 +0.9%, 20-29 +1.4% (test 19 had +4.1% for
+  `0-29`), and `30-39` +13.2% (was +13.8%). The conclusion
+  stands, and test 21 cites our #1394 numbers as confirming the same numbering.
+  diffusers' indices 0-49 behave as ComfyUI's `diffusion_model.blocks[i]`, so the arms
+  may go ahead on this numbering.
+- **Our plain keystone carries less on its own.** With no argument, the bright keystone
+  moves the new frames by +0.13% where roycho87's corrected figure is +0.9%: a gap of
+  about 7x, not the 34x the test 19 figure implied. Hypothesis, untested: this chain's
+  22-frame carried guide may dominate the single keyframe row more than his setup does
+  (his holds 39 frames from clip 1, with 17 freed). The absolute lifts are smaller than
+  his, but the ratio between the groups matches.
+- **Caveat on the baseline.** Our rows are measured against a no-argument normal keystone,
+  not against the normal keystone on the same blocks, so balance's own effect is inside
+  our `0-29` and `30-39` figures. That doesn't change the numbering result.
+- **Candidates for a re-run.** Test 21's per-property block sets (saturation
+  `30-32,34-37,39,42,44`; sharpness `32-35,37,39-40,42,44`; strongest sharpening
+  `30,32-37,39-47`) are the candidates if keystone attention is ever re-run for our
+  saturation and sharpness drift.
+- **The early blocks copy the keystone into frame 0 only.** With `0-29`, frame 0 reaches
+  132.6, the bright keystone's own level, and the new frames barely move. With `30-39`,
+  the lift spreads over the whole segment: windows 2-8 hold at about 108-110.
+- **The LSE op's cost isn't separable from these runs.** The argument runs landed on
+  cuda:0 and the no-argument runs on cuda:1. The argument runs were faster per pass
+  (90-93 s against 99 s), so the difference between cards outweighs the op here. The
+  arms' cost comparison has to pin both arms to one card or compare like-for-like
+  cards.
+
+## Keystone attention: early gate (#1391 stage B, #1394)
+
+Don's ruling (2026-11-18): no step 2. The numbering check passed, so the arms use
+roycho87's 13 blocks, `31-33,36-44,47`, at `balance` 20, the plan's fallback when no
+group is picked. The gate ran as #1325's did: seg01-02 of both arms, one H3 job at a
+time, with `free -g` and `get_health` checked before each. lem stayed up through both.
+
+### Setup
+
+- Build: diffusers `0.44.0.dev0` @ `e84bda1c` (`get_diffusers_state`), workspace `bench`.
+- Control: `bench/workflows/keystone-attention-control-early.json`. Every segment's
+  image is seg01's frame 0 (key01), the 22-frame tail is the guide, and attention is dense.
+- Attention arm: `bench/workflows/keystone-attention-early.json` is the control plus
+  `experimental_keystone_attention` (`blocks` `31-33,36-44,47`, `balance` 20) on seg02.
+  Nothing else differs: seeds, prompts, audio slices, size and schedule are the same.
+  The validate warning confirmed the argument: "runs balance 20 on blocks
+  31-33,36-44,47".
+- **The two seg01s match.** seg01 carries no argument in either arm. Across the two
+  cards its frames 0-169 differ by a mean |diff| of 0.024 (0-255). Most frames are
+  bit-identical, and the mean PSNR is 335 dB. So seg01 is a fair yardstick for the cards.
+
+### Jobs
+
+| Job | Arm | Card | Wall | Host peak |
+|---|---|---|---|---|
+| `2817a04202ae` | control | cuda:0 | 3232 s | 67 923 MB |
+| `29923da18475` | attention | cuda:1 | ~3758 s | 67 906 MB |
+
+Step timing (`get_job`). seg02 reused the pipeline seg01 had loaded.
+
+| Arm | Step | Load | Encode | Denoise | Per pass | Decode |
+|---|---|---|---|---|---|---|
+| control | seg01 | 43.0 s | 38.1 s | 1347.1 s | 70.9 s | 57.8 s |
+| control | seg02 | cached | 44.0 s | 1632.1 s | 85.9 s | 54.7 s |
+| attention | seg01 | 46.3 s | 22.7 s | 1546.2 s | 81.5 s | 58.3 s |
+| attention | seg02 | cached | 34.4 s | 1975.9 s | 103.8 s | 57.1 s |
+
+**The LSE op's cost** is about +5% per pass. It is an estimate: the dispatcher put the
+arms on different cards (`run_workflow` has no device pin), so the jobs couldn't share
+one. Per pass, the identical seg01 ran 81.5 s on cuda:1 against 70.9 s on cuda:0, so
+cuda:1 is 1.149x slower. seg02's raw ratio is 103.8 / 85.9 = 1.208, and correcting for
+the card leaves 1.208 / 1.149 = 1.05.
+
+Takes, in workspace `bench`:
+- control: `keystone-attention-control-early/20261119-033059-82643275/final/KeystoneAttentionControlEarly-take.6-0.0.mp4`
+- attention: `keystone-attention-early/20261119-042526-08aab8e0/final/KeystoneAttentionEarly-take.6-0.0.mp4`
+
+The segments are under `segments/` in the same runs (`*-seg01.1-0.0.mp4`,
+`*-seg02.5-0.0.mp4`).
+
+### Measures
+
+How they were measured:
+- Every frame of each 362-frame take. YuNet 2023mar's largest face was found on all 362.
+- Face sharpness is the Laplacian variance of the gray face crop. Saturation is the HSV
+  mean. Luma is BT.601 gray.
+- seg01 is frames 0-191 and seg02 is frames 192-361, matching `analyze_seams`'
+  `between_frames`.
+- The split uses 1 s (24-frame) endpoint means, the `bench/driver.py` `_split` rule.
+- The seg02 rise is the seam step (seg02's first 1 s minus seg01's last 1 s) plus
+  seg02's in-segment slope.
+
+| Measure | Control: total / seams / in-segment | Attention: total / seams / in-segment |
+|---|---|---|
+| luma | +1.58 / +2.50 / -0.92 | +1.43 / +1.54 / -0.11 |
+| saturation | +1.79 / +1.09 / +0.70 | +2.44 / +2.30 / +0.14 |
+| face saturation | -2.23 / -0.51 / -1.71 | -2.75 / -1.01 / -1.74 |
+| face sharpness | -63.6 / -5.2 / -58.4 | -54.2 / +18.1 / -72.4 |
+
+**Gate:**
+
+| Measure | Control | Attention |
+|---|---|---|
+| seg02 face-sharpness rise (seam + in-segment) | **-16.9** (-5.2 - 11.7) | **-7.7** (+18.1 - 25.8) |
+| seg02 face-sharpness, first 1 s → last 1 s | 103.6 → 92.0 | 127.1 → 101.3 |
+| seg02 face-saturation rise | -3.5 (-0.5 - 3.0) | -3.5 (-1.0 - 2.5) |
+| seam-1 score (`analyze_seams` `jump_ratio`) | 1.09 | 1.19 (**1.09x** the control) |
+| seam-1 `look_ratio` (contrast) | 2.50 | 2.91 |
+| SFace to the 0.5 s face: seg02 first 1 s / last 1 s | .908 / .907 | .916 / .894 |
+
+Face-sharpness medians per 1 s window, frames 0-359. seg01 is windows 0-7 (frames
+0-191) and seg02 starts at window 8 (frame 192).
+
+- control: 160 113 111 89 96 92 144 103 100 106 102 99 108 131 82
+- attention: 160 113 111 89 96 92 143 102 108 98 103 99 108 120 98
+
+### Verdict
+
+**The gate fails on its letter.** The seam score passes (1.09x, under 1.5x). But the
+attention arm's seg02 face-sharpness rise, -7.7, is higher than the control's, -16.9,
+and the gate asks for no worse. Following Don's ruling, the full arms did not run.
+
+How to read it:
+- **Neither arm creeps sharper here.** Face sharpness falls through both seg02s. The
+  "rise" is a smaller fall in the attention arm, not over-sharpening. The gate's
+  direction comes from #1325, where the control rose +4.6, and doesn't separate
+  "creeps sharper" from "keeps more of the keystone's detail".
+- **The op clearly does something.** seg02's new frames differ from the control's by a
+  mean |diff| of 17.8 (PSNR 17.7 dB): pose and framing change, not just grain. seg02
+  opens at face sharpness 127, closer to the keystone's 156 (seg01's first 1 s), than
+  the control's 104. That is the +18 seam step. It then decays faster (-25.8 against
+  -11.7) and ends a little sharper, 101 against 92.
+- **The luma seam step is smaller** (+1.5 against +2.5). Identity drifts a little more
+  by seg02's end (SFace .894 against .907).
+- **The frames don't show a clear win.** Face crops at 0.5, 8.5, 11.0 and 14.9 s
+  (`get_output_frames`, crop `[372, 0, 600, 768]`) look alike in texture and identity,
+  with neither crusted. They differ in pose and framing: at 11.0 s the attention arm's
+  speaker is nearer the centre, closer to the keystone's framing.
+- Ruling point 4 applies: the gate fails, but the op visibly acts. That is the case for
+  going back to step 2 with a narrower set of groups, which is Don's call.
+- A positive result here would still be a dense-attention result, while the shipped
+  templates run sparse (Q5).
+
+### Don's verdict (2026-11-19)
+
+**Gate failed. Stop here.** Don watched both takes and saw no clear win. Neither step 2
+with narrower groups nor the full arms runs, and no more lem time goes to this. Stage A's
+`experimental_keystone_attention` stays experimental and behind the flag. The chain key
+and the moving-shot arm stay cut (plan v4's non-goals): nothing here brings them back.
+
+## Masked keystone: early gate (#1505 stage A, #1506)
+
+Plan v1 of #1505, with Don's defaults: no new surface (Q1), a staged gate (Q2), the
+saturation blocks only (Q3), and the #1394 control `2817a04202ae` as the baseline (Q4;
+lem's build is still `e84bda1c`). Segment 2 of the keystone control is made an unchained
+fl2va regional edit. The keystone is the source's first frame and is held by the mask,
+instead of being only the `image` conditioning. Step 1 checks that the mask holds what
+it should and that the keystone pulls. Step 2 runs the masked segment with the normal
+keystone, without the attention argument (M) and with it (MA). One H3 job ran at a time.
+
+### Setup
+
+- **Build:** diffusers `0.44.0.dev0` @ `e84bda1c` (`e84bda1c0005da3f48cc4c899635438cb0aa13c1`).
+  The build session checked it before the first job, but didn't quote the
+  `get_diffusers_state` output at the time. Re-quoted on 2026-11-20 after the jobs:
+  `"version": "0.44.0.dev0"`, `"commit": "e84bda1c0005da3f48cc4c899635438cb0aa13c1"`,
+  `"status": "idle"`, no update requested or in flight. That is the build #1394's gate ran
+  on (2026-11-18/19, above), and nothing on the record changed it in between.
+- **Baseline: reused, not re-run.** `2817a04202ae` (#1394's gate control) was reused under
+  Q4, because its build, `e84bda1c`, is the build these jobs ran on.
+- Workflows: `bench/workflows/masked-keystone-probe.json` (step 1),
+  `masked-keystone-control-early.json` (M) and `masked-keystone-attention-early.json`
+  (MA). `tests/test_bench_masked_keystone.py` pins how they are built.
+- seg02 is `keystone-probe-noarg.json`'s seg02 unchanged (dense attention, seed 2, the
+  22-frame tail as the guide, `image` the keystone, `hold_audio` aud02), plus
+  `source_video`, `mask_video`, `mask_grow` 0 and `refine_strength` 1.0.
+- seg01 and both keystones come from the shared run `KeystoneProbeSeg01/20261118-124246-9b6fdb6d`.
+- **Source:** the keystone as one frame, then seg01's frames 170-191 (the tail), then seg01's
+  frame 191 held for 169 frames.
+  - **Deviation:** the plan's source was the keystone plus the tail (23 frames). The first
+    run (`da262a1f03dc`) failed: "source_video has 23 frames ... must match" num_frames.
+    A masked source must be num_frames (192) long. The padding frames are all under the
+    white mask, so they are all regenerated, the frames `fit_source_frames` would have repeated.
+- **Mask:** 22 black frames (kept), then 170 white (regenerated). It pools to 6 latent
+  cells, and the log reads "regenerating 51408 of 57456 patch cells (6048 kept)".
+  - **Deviation:** #1322's `mask-22.mp4` asset isn't on lem, so the mask is built in the
+    workflow. The keystone is flattened to one grey by `grade` (contrast 0), then pushed
+    below (blacks -1, luma 112) or above (whites 1, luma 143) the 128 binarize threshold.
+- **Join (M, MA):** seg01's first `head_frames` = 169 + `held` frames, then seg02 with
+  `held` frames trimmed from its head, with an 80 ms crossfade. The held frames are
+  dropped, so no frame appears twice.
+
+### Jobs
+
+All three ran on cuda:0, so the per-pass times compare directly.
+
+| Job | Run | Arm | Wall | Encode | Denoise | Per pass | Decode | Host peak |
+|---|---|---|---|---|---|---|---|---|
+| `71ec47d79e63` | `20261120-111312-de6818d0` | step 1, bright keystone | 1835 s | 137.5 s | 1633.7 s | 86.0 s | 53.0 s | 68 976 MB |
+| `158ff0b20f0c` | `20261120-114624-5252303f` | M | 1836 s | 129.1 s | 1639.5 s | 86.2 s | 53.0 s | 69 825 MB |
+| `9eedaee96617` | `20261120-121710-331c39ff` | MA | 1878 s | 129.3 s | 1682.7 s | 88.5 s | 52.9 s | 69 773 MB |
+
+- Each job ran 19 passes, with the pipeline load cached.
+- The masked edit costs about what the unmasked seg02 did: 85.9 s per pass on cuda:0 in
+  `2817a04202ae`.
+- MA's attention op adds about +2.7% per pass (88.5 s against 86.2 s on the same card).
+  #1394 estimated +5% across two cards.
+
+Takes, in workspace `bench`:
+- M: `masked-keystone-control-early/20261120-114624-5252303f/final/MaskedKeystoneControlEarly-take.11-0.0.mp4`
+- MA: `masked-keystone-attention-early/20261120-121710-331c39ff/final/MaskedKeystoneAttentionEarly-take.11-0.0.mp4`
+- step 1: `masked-keystone-probe/20261120-111312-de6818d0/segments/MaskedKeystoneProbe-seg02.9-0.0.mp4`
+
+### Step 1: does the keystone pull? (bright keystone)
+
+**It passes on its letter.**
+- Frames 22+ of the probe have a mean luma of 102.16.
+- The unmasked bright-keystone probe (`53e01c397101`) had 101.05 there, so the masked
+  edit is +1.10% toward the keystone (luma 132.4), past the +0.5% bar.
+- Frame 0 is the keystone: mean |diff| 3.75 after the encode.
+
+**But read it as a weak pull, perhaps not a pull at all.**
+- The kept frames' luma drifts down from 103 to 95.6 across frames 1-17.
+- Over frames 18-22, where the regenerated region begins, it jumps back to 102.
+- That is the seam lift #1322 measured at a masked hand-off (+11.6 luma there). It can
+  account for the whole +1.1% without the keystone pulling at all.
+- The 1 s window means over frames 0-191 are 100.8 103.2 100.4 101.5 100.5 104.0 102.5 103.1.
+
+**Frames held: H = 18.** Probe frame j matches seg01 frame 169 + j as follows:
+
+| Frames | Mean \|diff\| |
+|---|---|
+| j = 1-17 | 2.7-3.3 (encode noise) |
+| j = 18 | 3.72 |
+| j = 19 | 5.84 |
+| j = 20 | 7.66 |
+| j = 22 | 10.23 |
+
+So the latent mask holds about 18 frames, not 22, and the join uses `held` 18 and
+`head_frames` 187.
+
+**Why `head_frames` is 187 and not 192 (seg01's frame count).** seg02's `source_video` is
+the keystone at frame 0, then seg01's tail (seg01 frames 170-191) at frames 1-22, so seg02
+frame *j* (1 ≤ *j* ≤ 22) is seg01 frame 169 + *j*. With 18 frames held, seg02's first kept
+frame, frame 18, is seg01 frame 187, so the head is seg01 frames 0-186 (`head_frames` =
+169 + 18 = 187). seg02 re-renders seg01 frames 187-191 (its frames 18-22), so the join
+drops them from seg01 so they don't show twice. The take is 187 + (192 − 18) = 361
+frames, which is what `get_gallery_metadata` reports for the MA take `9eedaee96617`
+(shots: head 187, seg02 174).
+
+### Step 2 measures (normal keystone)
+
+How they were measured:
+- The method is #1394's. Every frame was scanned, and YuNet 2023mar found a face on all 361 of each take.
+- Face sharpness is the Laplacian variance of the gray face crop, saturation the HSV
+  mean, and luma BT.601 gray.
+- Each value is a 1 s (24-frame) endpoint mean.
+- The new takes are 361 frames: head 0-186, then seg02 from frame 187 (`analyze_seams`'
+  `between_frames`). They split at 187. The baseline's 362-frame take splits at 192, as
+  #1394 did.
+- The same script reproduces #1394's control row exactly.
+- SFace is the cosine between the 0.5 s face (frame 12) and the mean feature of
+  seg02's first and last 1 s. It is one per-frame feature at frame 12, not #1394's
+  0.25 s-sampled reference. So all three arms are re-measured here, and the baseline's
+  SFace reads .967 / .943 rather than the .908 / .907 recorded in #1394.
+
+| Measure (total / seams / in-segment) | Baseline `2817a04202ae` | M | MA |
+|---|---|---|---|
+| luma | +1.58 / +2.50 / -0.92 | +4.46 / +1.33 / +3.13 | +3.92 / +1.42 / +2.49 |
+| saturation | +1.79 / +1.09 / +0.70 | +3.05 / +3.01 / +0.04 | +3.77 / +3.49 / +0.28 |
+| face saturation | -2.23 / -0.51 / -1.71 | -0.86 / +0.27 / -1.13 | -0.64 / -0.55 / -0.09 |
+| face sharpness | -63.6 / -5.2 / -58.4 | -29.4 / +1.2 / -30.7 | -38.4 / +1.6 / -40.0 |
+
+| Measure | Baseline | M | MA |
+|---|---|---|---|
+| seg02 luma rise (seam + in-segment) | +1.14 | +3.05 | +2.50 |
+| seg02 saturation rise | +2.72 | +4.52 | +5.24 |
+| face sharpness: seg01 last 1 s → seg02 last 1 s | 108.9 → 92.0 (**16.9**) | 96.2 → 116.2 (**19.9**) | 96.6 → 107.2 (**10.6**) |
+| SFace to the 0.5 s face: seg02 first / last 1 s | .967 / .943 | .971 / .942 | .971 / .950 |
+| seam-1 `jump_ratio` | 1.09 | 0.40 | 0.40 |
+| seam-1 `look_ratio` (contrast) | 2.50 | 1.95 | 2.16 |
+
+Face-sharpness medians per 1 s window. In the new takes seg02 starts in window 7 (frame 187):
+
+- baseline: 160 113 111 89 96 92 144 103 100 106 102 99 108 131 82
+- M: 140 105 104 78 89 83 130 88 96 81 92 82 110 93 123
+- MA: 140 105 104 78 89 83 132 87 100 64 104 65 112 96 117
+
+The head reads less sharp than the baseline's seg01 (140 against 160 in the first
+second), so the two seg01s are not the same frames. The head is a `trim_video` of the
+shared run's seg01, one more encode, and that seg01 is a different render from the one
+inside `2817a04202ae`. The totals are each take's own end minus its own start, so this
+doesn't change the verdict below.
+
+Splitting the new takes at 192, as #1394 did, leaves the totals unchanged and doesn't
+change any criterion. The seg02 luma rise reads +3.48 (M) and +2.95 (MA), the saturation
+rise +3.86 and +4.55, and the sharpness distance 28.5 and 19.7.
+
+**Face crops** (`get_output_frames`, crop `[372, 0, 600, 768]`, at 0.5, 8.5, 11.0 and
+14.9 s, `max_dimension` 256):
+
+![Face crops: rows baseline, M, MA; columns 0.5, 8.5, 11.0, 14.9 s](img/masked-keystone-early-face-crops.png)
+
+Rows, top to bottom: baseline `2817a04202ae`, M, MA. Columns: 0.5, 8.5, 11.0 and 14.9 s.
+
+- M and MA look almost the same. Identity holds, and no face is crusted or over-sharpened.
+- After the seam, both arms' speaker drifts left of centre (8.5 s) and comes back
+  toward centre by 14.9 s.
+- By 14.9 s the skin reads warmer and more saturated than at 0.5 s in both, which matches the saturation rise.
+- The baseline's 14.9 s face reads nearer its 0.5 s tone than either masked arm's does.
+
+### Gate (MA against the baseline)
+
+| Criterion | Bar | MA | Result |
+|---|---|---|---|
+| saturation rise ≥25% smaller than the baseline's, and ≤ M's | ≤ +1.34 and ≤ +3.05 | +3.77 | **fails** |
+| \|face-sharpness distance\| from seg01's last 1 s ≤ the baseline's | ≤ 16.9 | 10.6 | passes |
+| luma rise ≤ the baseline's | ≤ +1.58 | +3.92 | **fails** |
+| SFace ≥ baseline − .02 | ≥ .923 (last 1 s) | .950 | passes |
+| `jump_ratio` < 1.5x the baseline's | < 1.64 | 0.40 | passes |
+
+**M fails the same bars.** Its saturation rise is +3.05 against a +1.34 bar, its luma rise
++4.46 against +1.58, and its sharpness distance 19.9 against 16.9. So "the masked keystone
+helps, the attention doesn't" does not apply.
+
+### Outcome
+
+**The gate fails. Neither the masked keystone nor the attention on top of it helps.**
+Per the plan, no full 12-segment run follows.
+
+How to read it:
+- **The masked edit makes the drift worse, not better.** Both arms' seg02s brighten and
+  saturate *through* the segment: luma in-segment slope +1.7 (M), against -1.4 for the
+  baseline's seg02. Their seam steps are larger in saturation (+3.0 and +3.5 against
+  +1.1). That is the masked hand-off's lift that #1322 found and step 1 showed again.
+  Holding the keystone frame in the source doesn't hold the look.
+- **The seam itself is cleaner.** `jump_ratio` falls from 1.09 to 0.40, because the kept
+  frames are seg01's own and the join drops them. That is a property of the mask, not of
+  the keystone.
+- **MA against M:**
+  - MA's face sharpness ends nearer seg01's (10.6 against 19.9 away), and its identity
+    holds a little better (SFace .950 against .942).
+  - But its saturation rises more (+3.77 against +3.05), the opposite of what Q3's
+    saturation blocks were chosen for.
+  - The windows show MA's face sharpness swinging (64-112) where M's is steadier.
+- As in #1394, this is a dense-attention result on one seed and one take, and the
+  shipped templates run sparse.

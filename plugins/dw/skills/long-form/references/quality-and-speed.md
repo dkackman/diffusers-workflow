@@ -71,10 +71,12 @@ Defaults favour quality. A speedup with no marked loss becomes a default.
   `look_hold` on LTX wins on numbers, is invisible by eye and is safe on a
   moving camera; it is the `ltx2/chained-segments` default (pass false for
   the plain chain).
-- **Windowed refine seam pass**: measured. It wins as a seam pass on every
-  shot type, at about 36-40 min per minute of take, and is not a burn fix
-  (`bench/records/structural.md`, *Step 4*). It is experimental and
-  flag-gated; do not offer it.
+- **Windowed refine seam pass** (`templates/minimax/h3-seam-pass`):
+  measured. It wins as a seam pass on every shot type and is not a burn fix
+  (`bench/records/structural.md`, *Step 4*). It costs about 36-40 GPU-min
+  per minute of take on a 24 GB card (18.5 min for a 26 s take, model load
+  included) at about 16 GiB peak, on top of the chain that made the take;
+  offer it only for a take worth that.
 
 ## What does not buy quality on a long take
 

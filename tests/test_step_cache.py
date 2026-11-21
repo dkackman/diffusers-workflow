@@ -622,6 +622,10 @@ def test_normalized_downstream_false_when_nothing_references_it():
 # The H3 steps of the nineteen minimax templates that pin an attention backend
 # moved when it defaulted to sparse instead of null (#931): the backend is part of
 # the pipeline's identity, sparse_tau is not.
+#
+# ltx2/refine-clip (upscale, refine) and ltx2/two-stage (upscale) moved when
+# the latent upsampler's component_type moved to its diffusers 0.43 home,
+# diffusers.models.latent_upscaler (#1341): a worker reloads it once.
 TEMPLATE_PIPELINE_KEYS = {
     "animatic.json": {},
     "assemble-and-score.json": {},
@@ -768,8 +772,8 @@ TEMPLATE_PIPELINE_KEYS = {
         "shot": "c3a7874569313ba50b184de0f22a52dc3f42f34fa5e53831c3586d948bf94372"
     },
     "ltx2/refine-clip.json": {
-        "refine": "cdc51f4b605ee60ec9359390b4a9fb7f60762b419637699527f5a7b1457c1f22",
-        "upscale": "f97469b7a921acca65cf45135dafd45796a29297794eabb43d3adabeeed3c33d",
+        "refine": "ef53cc602d55a8b2036b77cdd0bd6fef00d8c9e9c67fbbf8c6fb7ac8db8e1e78",
+        "upscale": "108ca1acc56d30b99194ce36f7c773c7f72cd7ff028e2f7013d772fbea797aeb",
     },
     "ltx2/refine-in-place.json": {
         "refine": "4b54a53f5c05de50d0b3094addf68b2d843135fdc02518b0ab02fb7e225b2552"
@@ -794,7 +798,7 @@ TEMPLATE_PIPELINE_KEYS = {
     "ltx2/two-stage.json": {
         "base": "21b2f1afafba342e7ca064bf431ddb00307a49bd1404eb3011c31b3d486cd239",
         "refine": "21b2f1afafba342e7ca064bf431ddb00307a49bd1404eb3011c31b3d486cd239",
-        "upscale": "caa78ea250fb765b6aff640c03219cfbc3a9c02366fd31997776520a20c8ee75",
+        "upscale": "ad41af3095ee71e0e04d90e49affb916b743867dd50633b0e2cc254f49d88f60",
     },
     "ltx2/upscale-clip.json": {
         "upscaled": "94618b4210efdaaf17afda812fbcfd9566bdaba1220a5b2518b178a154a9677c"
@@ -817,6 +821,9 @@ TEMPLATE_PIPELINE_KEYS = {
     },
     "minimax/narrated-take.json": {
         "take": "0959b31f34f2d8e8c8eb869d5389d7f89d1d7b7b06f219b1b51d9986c3ed51c5"
+    },
+    "minimax/h3-seam-pass.json": {
+        "refine": "2a7fdf989a40500620fb03212502bbda8f52827f5fcd872b8fda182fab2fac77"
     },
     "minimax/repair-segment.json": {
         "repair": "0d1cd2532b5c19d97ba165ddb4c715c9ead5e05c2ab6ba4db9bb182e012ec4c0"
@@ -871,6 +878,11 @@ TEMPLATE_PIPELINE_KEYS = {
     "minimax/reference-to-video.json": {
         "reference_to_video_audio": "ba9915580e6a8017d8c68efbddea776985d107222546f84cca18e319298243bf"
     },
+    "minimax/replace-performer-cuts.json": {},
+    "minimax/replace-performer.json": {
+        "swap@cut-1": "ba9915580e6a8017d8c68efbddea776985d107222546f84cca18e319298243bf",
+        "swap@cut-2": "ba9915580e6a8017d8c68efbddea776985d107222546f84cca18e319298243bf",
+    },
     "minimax/face-repair.json": {
         "refine": "2a7fdf989a40500620fb03212502bbda8f52827f5fcd872b8fda182fab2fac77"
     },
@@ -904,6 +916,21 @@ TEMPLATE_PIPELINE_KEYS = {
     },
     "outpaint.json": {
         "outpaint": "8ece64de576884be947f5af07c5713b92d3a1e641035434ef805629f12ae8c77"
+    },
+    "minimax-h3-image/multi-reference.json": {
+        "multi_reference": "837e8e0f4989823775d05af1ce14c18b2edec9cfb9c32c7894a9a8fdeaf2b74b"
+    },
+    "minimax-h3-image/text-to-image.json": {
+        "text_to_image": "837e8e0f4989823775d05af1ce14c18b2edec9cfb9c32c7894a9a8fdeaf2b74b"
+    },
+    "pika-h3/first-and-last-frame.json": {
+        "first_and_last_frame_to_video_audio": "7af35d5951f5197222509c6447645ae2ccebc89526544cd45bf0898ce28e2904"
+    },
+    "pika-h3/reference-to-video.json": {
+        "reference_to_video_audio": "0cb95dc5aa1da0005bb003359f084d7ea1b16e820809a42cafef6bfd50adf102"
+    },
+    "pika-h3/text-to-video.json": {
+        "text_to_video_audio": "aed542a148ef71032b67465b7c9b053bfe11a7789025501598aa930c60e221e1"
     },
     "prompt-weighting.json": {
         "txt2img": "745df144eb83ac12caa01de34dc7238b8595b28b70db7c960f4d1c0366b2f2f4"

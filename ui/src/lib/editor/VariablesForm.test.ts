@@ -104,3 +104,173 @@ describe('VariablesForm attention backend variables', () => {
     expect(select.selectedOptions[0].textContent).toBe('default (none)')
   })
 })
+
+describe('VariablesForm constraint hints', () => {
+  const hint = '32 * n + 0 - <b>the VAE</b>'
+  for (const mode of ['override', 'define'] as const) {
+    it(`renders the hint under its field in ${mode} mode, as text`, () => {
+      render(VariablesForm, {
+        mode,
+        variables: { width: 1024, prompt: 'x' },
+        idPrefix: 'v-',
+        constraints: { width: [hint] },
+      })
+      const list = document.querySelector('[data-hints-for="width"]')
+      expect(list?.textContent?.trim()).toBe(hint)
+      expect(list?.querySelector('b')).toBeNull()
+      // Under the field: after the width input, before the next label
+      const field = document.getElementById('v-width')!
+      expect(
+        field.compareDocumentPosition(list!) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy()
+      const next = document.querySelector('label[for="v-prompt"]')!
+      expect(
+        list!.compareDocumentPosition(next) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy()
+      expect(document.querySelector('[data-hints-for="prompt"]')).toBeNull()
+      // Read-only: the hint is not a form control
+      expect(list!.querySelector('input, textarea, select')).toBeNull()
+    })
+  }
+})
+
+describe('VariablesForm preset selectors', () => {
+  const variables = { resolution: '480p', width: 832, height: 480 }
+  const presets = {
+    resolution: {
+      '480p': { width: 832, height: 480 },
+      '768p': { width: 1344, height: 768 },
+    },
+  }
+  const optionTexts = (select: Element) =>
+    Array.from(select.querySelectorAll('option')).map((o) =>
+      o.textContent?.trim(),
+    )
+
+  it('in override mode is a select: the default, then exactly the bundles', () => {
+    render(VariablesForm, {
+      mode: 'override',
+      variables,
+      overrides: {},
+      idPrefix: 'v-',
+      presets,
+    })
+    const select = document.getElementById('v-resolution') as HTMLSelectElement
+    expect(select.tagName).toBe('SELECT')
+    expect(select.value).toBe('')
+    expect(optionTexts(select)).toEqual(['default (480p)', '480p', '768p'])
+    expect(
+      document
+        .querySelector('[data-presets-for="resolution"]')
+        ?.textContent?.trim(),
+    ).toBe('sets width, height')
+  })
+
+  it('a picked bundle moves the placeholders, an explicit value is left alone, and nothing is copied', async () => {
+    const overrides: Record<string, string> = { height: '500' }
+    const { rerender } = render(VariablesForm, {
+      mode: 'override',
+      variables,
+      overrides,
+      idPrefix: 'v-',
+      presets,
+    })
+    const width = document.getElementById('v-width') as HTMLTextAreaElement
+    expect(width.getAttribute('placeholder')).toBe('832')
+    await fireEvent.change(document.getElementById('v-resolution')!, {
+      target: { value: '768p' },
+    })
+    // Only the selector is written: the bundle's values stay placeholders
+    expect(overrides).toEqual({ resolution: '768p', height: '500' })
+    // The pages hold overrides as $state; a plain test object is handed
+    // back the way that state would be
+    await rerender({ overrides: { ...overrides } })
+    expect(
+      (document.getElementById('v-width') as HTMLElement).getAttribute(
+        'placeholder',
+      ),
+    ).toBe('1344')
+    const height = document.getElementById('v-height') as HTMLTextAreaElement
+    expect(height.value).toBe('500')
+  })
+
+  it('a current value that is no bundle shows as (not a preset), its raw value kept', () => {
+    render(VariablesForm, {
+      mode: 'override',
+      variables,
+      overrides: { resolution: '1080p' },
+      idPrefix: 'v-',
+      presets,
+    })
+    const select = document.getElementById('v-resolution') as HTMLSelectElement
+    expect(select.value).toBe('1080p')
+    expect(optionTexts(select)).toEqual([
+      'default (480p)',
+      '1080p (not a preset)',
+      '480p',
+      '768p',
+    ])
+    expect(select.selectedOptions[0].value).toBe('1080p')
+  })
+
+  it('a reference or a non-string selector stays a text field', () => {
+    render(VariablesForm, {
+      mode: 'override',
+      variables: { ...variables, resolution: 'variable:other' },
+      overrides: {},
+      idPrefix: 'v-',
+      presets,
+    })
+    expect(document.querySelector('select')).toBeNull()
+    cleanup()
+    render(VariablesForm, {
+      mode: 'override',
+      variables,
+      overrides: { resolution: 'variable:other' },
+      idPrefix: 'v-',
+      presets,
+    })
+    expect(document.querySelector('select')).toBeNull()
+    cleanup()
+    render(VariablesForm, {
+      mode: 'override',
+      variables: { ...variables, resolution: 3 },
+      overrides: {},
+      idPrefix: 'v-',
+      presets,
+    })
+    expect(document.querySelector('select')).toBeNull()
+  })
+
+  it('in define mode stays a text field, with what it sets and its bundles', () => {
+    render(VariablesForm, {
+      mode: 'define',
+      variables,
+      idPrefix: 'v-',
+      presets,
+    })
+    expect(document.querySelector('select')).toBeNull()
+    expect(document.getElementById('v-resolution')?.tagName).not.toBe('SELECT')
+    const lines = Array.from(
+      document.querySelectorAll('[data-presets-for="resolution"] li'),
+    ).map((li) => li.textContent?.trim())
+    expect(lines).toEqual(['sets width, height', 'bundles: 480p, 768p'])
+  })
+
+  it("leaves the backend select's labels as they were", () => {
+    attentionBackends.list = ['native', 'sparse']
+    render(VariablesForm, {
+      mode: 'override',
+      variables: { ...variables, attn: 'sparse' },
+      overrides: {},
+      idPrefix: 'v-',
+      backendVariables: new Set(['attn']),
+      presets,
+    })
+    expect(optionTexts(document.getElementById('v-attn')!)).toEqual([
+      'default (sparse)',
+      'native',
+      'sparse',
+    ])
+  })
+})

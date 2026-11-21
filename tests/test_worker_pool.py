@@ -580,6 +580,20 @@ class TestHealth:
         assert health["workers"][0]["current_job"] is None
         assert health["worker_alive"] is False
 
+    def test_health_does_not_walk_the_job_history(self, server):  # noqa: F811
+        """#1434: health counts the queue from memory; list() reads history
+        and every run's note from disk and stalled health during a load."""
+        with server(success_script) as client:
+            manager = client.app.state.job_manager
+
+            def boom(*args, **kwargs):
+                raise AssertionError("health must not call list()")
+
+            manager.list = boom
+            health = client.get("/api/health").json()
+
+        assert health["queued"] == 0
+
     def test_two_workers_are_each_reported(self, pool):
         gate_a = Gate()
         a = card(gate_a, "cuda:0", 24)
@@ -1413,6 +1427,34 @@ class TestHostRamGate:
         assert big.waiting_for is not None
         assert small.waiting_for is None
 
+    def test_a_job_queued_behind_busy_cards_says_so(self, pool, host):
+        """#1355: every card busy -> waiting_for and one queue_wait event
+        (gpu_busy), cleared when the job starts."""
+        manager, first_gate, second_gate = self._two_cards(pool)
+        self.submit(manager, "one")
+        self.submit(manager, "two")
+        first_gate.wait_started()
+        second_gate.wait_started()
+        queued = self.submit(manager, "behind")
+        behind = self.submit(manager, "behind2")
+        wait_for(queued, {"queued"})
+        deadline = time.time() + 5
+        while queued.waiting_for is None and time.time() < deadline:
+            time.sleep(0.05)
+        assert "behind 2 running job(s)" in queued.waiting_for
+        assert "cuda:0" in queued.waiting_for and "cuda:1" in queued.waiting_for
+        assert "0 queued job(s) ahead" in queued.waiting_for
+        deadline = time.time() + 5
+        while behind.waiting_for is None and time.time() < deadline:
+            time.sleep(0.05)
+        assert "1 queued job(s) ahead" in behind.waiting_for
+        waits = self.queue_waits(queued)
+        assert [w["reason"] for w in waits] == ["gpu_busy"]
+        first_gate.release.set()
+        second_gate.release.set()
+        wait_for(queued, {"succeeded"})
+        assert queued.waiting_for is None
+
     def test_a_job_alone_is_never_held(self, pool, host):
         host["available_mb"] = 1 * GB
         manager = pool(card(success_script, "cuda:0", 24))
@@ -1464,6 +1506,36 @@ class TestHostRamGate:
         job = self.submit(manager, "reuses", host_gb=20)
         second_gate.wait_started()
         wait_for(job, {"running"})
+
+    def test_a_warm_idle_worker_on_another_card_is_released(
+        self, pool, host, monkeypatch
+    ):
+        """#1407: nothing is running, but the other card's idle worker holds
+        the RAM; the job is held, that worker is cleared, and the job starts."""
+        monkeypatch.setattr("dw.server.dispatch.HOST_RAM_RECHECK_SECONDS", 0.02)
+        manager, first_gate, second_gate = self._two_cards(pool)
+        warm = self.submit(manager, "warm", host_gb=10)
+        first_gate.wait_started()
+        first_gate.release.set()
+        wait_for(warm, {"succeeded"})
+        host["rss"] = {"cuda:0": 60 * GB}
+        host["available_mb"] = 20 * GB
+        cleared = []
+
+        def clear(slot, lock, timeout):
+            cleared.append(slot.device)
+            host["rss"] = {}
+            host["available_mb"] = 80 * GB
+            return {"device": slot.device, "cleared": True, "info": None}
+
+        monkeypatch.setattr("dw.server.jobs.worker_memory.clear_slot", clear)
+        job = self.submit(manager, "big", host_gb=69)
+        second_gate.wait_started()
+        wait_for(job, {"running"})
+        assert cleared == ["cuda:0"]
+        messages = [e["message"] for e in self.queue_waits(job)]
+        assert any("releasing the warm idle worker on cuda:0" in m for m in messages)
+        assert any("released the warm models on cuda:0" in m for m in messages)
 
     def test_the_event_fires_once_per_hold(self, pool, host, monkeypatch):
         monkeypatch.setattr("dw.server.dispatch.HOST_RAM_RECHECK_SECONDS", 0.02)

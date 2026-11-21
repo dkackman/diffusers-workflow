@@ -87,10 +87,14 @@ figures.
 
 ## Deferred
 
-- **The measurement probe** (#1260, parked with Don as a `spend` decision).
-  It covers the 7 unmeasured moves on two seeds and a second seed on the
-  measured 6, on H3 and LTX-2.5: 40 clips, about 1.5 GPU-hours. Until it
-  runs, the seven ids stay hints.
+- **The measurement probe** (#1260) has run: all 13 moves at seeds 42 and
+  7 on H3 (stage #1379, 26.9 GPU-min) and LTX-2.5 (stage #1380, 21.0
+  GPU-min, one rerun), 40 clips plus the rerun. The verdicts are in each
+  compile table's `measured (#1148, #1260)` column and the skill's table;
+  the record is `docs/proposals/audits/2026-11-move-seeds.md`, and the
+  design record `move-seeds-complete.md`. LTX-2.5's
+  `handheld` was ignored on both seeds and on the rerun, so it stays a
+  hint only.
 - **Benching counters on the borderline moves** (`push-in`, `handheld`)
   belongs to #1225 (a drift counter for moving shots).
 - **New move ids** from the community list: declined (Q1).

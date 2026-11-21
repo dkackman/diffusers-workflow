@@ -81,9 +81,14 @@ EXPECTED_TOOLS = {
     "copy_to_workspace",
     "create_workspace",
     "delete_workspace",
+    "get_request",
+    "set_request",
+    "delete_request",
 }
 
 READ_ONLY_TOOLS = EXPECTED_TOOLS - {
+    "set_request",
+    "delete_request",
     "clear_memory",
     "save_workflow",
     "delete_workflow",
@@ -121,6 +126,7 @@ DESTRUCTIVE_TOOLS = {
     "download_output",
     "delete_output",
     "delete_asset",
+    "delete_request",
 }
 
 # Tools that refuse until the caller passes acknowledged_cost=true. The
@@ -758,6 +764,32 @@ TOOL_WIRING = [
         {"name": "shots", "acknowledged_cost": True},
         "DELETE",
         "/api/workspaces/shots",
+    ),
+    ("get_request", {}, "GET", "/api/workspaces/default/requests"),
+    (
+        "get_request",
+        {"request": "cats", "workspace": "shots"},
+        "GET",
+        "/api/workspaces/shots/requests/cats",
+    ),
+    (
+        "set_request",
+        {
+            "request": "cats",
+            "title": "Cats",
+            "goal": "three cats",
+            "items": [{"key": "a", "title": "one cat"}],
+            "revision": 0,
+            "why": "first plan",
+        },
+        "PUT",
+        "/api/workspaces/default/requests/cats",
+    ),
+    (
+        "delete_request",
+        {"request": "cats", "revision": 3, "workspace": "shots"},
+        "DELETE",
+        "/api/workspaces/shots/requests/cats",
     ),
     (
         "upload_asset",
@@ -1534,6 +1566,15 @@ def test_the_instructions_say_a_hand_built_workflow_inherits_a_warning_ceiling()
         assert words in server.instructions
 
 
+def test_the_instructions_name_the_card_capacity_exception():
+    """#1343: "never refuses" is the inherited ceiling only. A catalog
+    template's own `vram_estimate` past the card is refused at validate (the
+    #900 queue gate), and the line has to say so."""
+    server = server_over(ok({}))
+
+    assert "refuses templates past the card" in server.instructions
+
+
 @pytest.mark.asyncio
 async def test_list_workflows_takes_shape_and_traits():
     tools = await tools_of(server_over(ok({})))
@@ -1640,7 +1681,8 @@ def test_the_stated_tool_count_is_the_registered_one():
 # for itself by trimming another tool's sentences - about twenty rounds of it
 # (this file's history has each one) - and at least once the trim took the
 # pointer an agent needed (#574 re-broke #282). Measured 2026-10-19 at
-# 15_051.75 (65 tools); the ceiling is set at 16_000, about one large tool's
+# 15_051.75 (65 tools), and the ledger's two tools (#1481) fit
+# under it unraised; the ceiling is set at 16_000, about one large tool's
 # worth of room.
 #
 # What a description holds: what the tool does, when to use it, the pinned
@@ -1674,3 +1716,207 @@ async def test_the_tool_surface_fits_the_budget():
         f"(descriptions {descriptions / 4:.0f}, schemas {schemas / 4:.0f}, "
         f"instructions {instructions / 4:.0f})"
     )
+
+
+@pytest.mark.asyncio
+async def test_run_workflow_request_is_an_optional_nullable_string():
+    tools = await tools_of(server_over(ok({})))
+    run = tools["run_workflow"].input_schema
+
+    assert "request" not in run.get("required", [])
+    assert run["properties"]["request"]["default"] is None
+    assert {"type": "string"} in run["properties"]["request"]["anyOf"]
+    assert {"type": "null"} in run["properties"]["request"]["anyOf"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bad", ["demo", "a/b/c", "demo//cat"])
+async def test_run_workflow_refuses_a_malformed_request_before_any_call(bad):
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        return httpx.Response(200, json={"id": "job-1"})
+
+    server = server_over(handler)
+    with pytest.raises(Exception) as caught:
+        await server.call_tool(
+            "run_workflow",
+            {"workflow_path": "w.json", "acknowledged_cost": True, "request": bad},
+        )
+
+    assert "<request-id>/<item-key>" in str(caught.value)
+    assert calls == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("key", ["Demo/cat", "demo/", "/cat"])
+async def test_run_workflow_leaves_the_key_rule_to_the_server(key):
+    # one owner of the key rule (dw.security.validate_ledger_key): the
+    # client splits on the one '/', and the server's 422 refuses the key
+    sent = []
+
+    def handler(request):
+        sent.append(json.loads(request.content))
+        return httpx.Response(
+            422, json={"detail": [{"msg": "Request must be a ledger key"}]}
+        )
+
+    with pytest.raises(Exception):
+        await server_over(handler).call_tool(
+            "run_workflow",
+            {"workflow_path": "w.json", "acknowledged_cost": True, "request": key},
+        )
+
+    request_id, item = key.split("/")
+    assert [(body["request"], body["item"]) for body in sent] == [(request_id, item)]
+
+
+@pytest.mark.asyncio
+async def test_run_workflow_sends_the_request_and_item_split():
+    sent = []
+
+    def handler(request):
+        sent.append(json.loads(request.content))
+        return httpx.Response(200, json={"id": "job-1", "status": "queued"})
+
+    await server_over(handler).call_tool(
+        "run_workflow",
+        {
+            "workflow_path": "w.json",
+            "acknowledged_cost": True,
+            "request": "demo-1/cat",
+        },
+    )
+    await server_over(handler).call_tool(
+        "run_workflow", {"workflow_path": "w.json", "acknowledged_cost": True}
+    )
+
+    assert sent[0]["request"] == "demo-1" and sent[0]["item"] == "cat"
+    assert "request" not in sent[1] and "item" not in sent[1]
+
+
+@pytest.mark.asyncio
+async def test_run_workflow_shows_the_servers_ledger_refusal():
+    def handler(request):
+        return httpx.Response(
+            422,
+            json={
+                "detail": {
+                    "code": "request_closed",
+                    "message": "request 'demo' is done",
+                }
+            },
+        )
+
+    with pytest.raises(Exception) as caught:
+        await server_over(handler).call_tool(
+            "run_workflow",
+            {
+                "workflow_path": "w.json",
+                "acknowledged_cost": True,
+                "request": "demo/cat",
+            },
+        )
+
+    assert "request 'demo' is done" in str(caught.value)
+
+
+# --- the requests ledger from the agent's side ------------------------------
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "tool,path", [("list_jobs", "/api/jobs"), ("list_gallery", "/api/gallery")]
+)
+@pytest.mark.parametrize(
+    "request_filter,sent",
+    [
+        ("demo-1", {"request": "demo-1"}),
+        ("demo-1/cat", {"request": "demo-1", "item": "cat"}),
+        (None, {}),
+    ],
+)
+async def test_the_listings_filter_by_request_and_item(
+    tool, path, request_filter, sent
+):
+    """REST's `?request=&item=` filter, spelled the way `run_workflow` links
+    a job: the request id, or "<request-id>/<item-key>" for one item."""
+    seen = []
+
+    def handler(request):
+        seen.append((request.url.path, dict(request.url.params)))
+        return httpx.Response(200, json={"jobs": [], "files": [], "total": 0})
+
+    await server_over(handler).call_tool(tool, {"request": request_filter})
+
+    assert [p for p, _ in seen] == [path]
+    params = seen[0][1]
+    assert {k: params.get(k) for k in ("request", "item") if k in params} == sent
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("tool", ["list_jobs", "list_gallery"])
+async def test_a_malformed_request_filter_is_refused_before_any_call(tool):
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        return httpx.Response(200, json={})
+
+    with pytest.raises(Exception) as caught:
+        await server_over(handler).call_tool(tool, {"request": "a/b/c"})
+
+    assert "<request-id>/<item-key>" in str(caught.value)
+    assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_set_request_purges_and_never_writes_the_users_notes():
+    sent = []
+
+    def handler(request):
+        sent.append(json.loads(request.content))
+        return httpx.Response(200, json={"id": "cats", "revision": 1})
+
+    server = server_over(handler)
+    plan = {
+        "request": "cats",
+        "title": "Cats",
+        "goal": "three cats",
+        "items": [],
+        "revision": 0,
+        "why": "first plan",
+    }
+    await server.call_tool("set_request", plan)
+    await server.call_tool("set_request", {**plan, "purge": ["a", "b"]})
+
+    assert "purge" not in sent[0] and sent[1]["purge"] == ["a", "b"]
+    assert all("notes" not in body and body["by"] == "agent" for body in sent)
+    tools = await tools_of(server)
+    assert "notes" not in tools["set_request"].input_schema["properties"]
+    assert "comment" not in tools["set_request"].input_schema["properties"]
+
+
+@pytest.mark.asyncio
+async def test_set_request_names_what_an_agent_reads_and_writes_on_an_item():
+    """`accepted` is how a keeper is recorded and the notes are what the
+    user said: an agent that reads neither in the description never looks."""
+    tools = await tools_of(server_over(ok({})))
+    doc = tools["set_request"].description
+    for word in ("accepted", "notes", "purge", "revision"):
+        assert word in doc, word
+    assert 'get_guide("workspaces", section="Requests")' in doc
+
+
+def test_the_instructions_say_requests_exist_and_where_the_keeper_goes():
+    """An agent that never reads the workspaces guide still has to learn
+    that a multi-job ask gets a request, and that its keeper is the item's
+    `accepted` - the skills say so, and "`set_note` marks the keeper" with
+    nothing beside it said otherwise."""
+    server = server_over(ok({}))
+    text = server.instructions
+    for words in ("`set_request`", 'run_workflow(request="<id>/<item>")', "`accepted`"):
+        assert words in text, words
+    assert text.index("`accepted`") < text.index("`set_note`")
+    assert "`set_note` marks the keeper" not in text

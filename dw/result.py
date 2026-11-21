@@ -17,7 +17,7 @@ from .content_types import (
     guess_extension,
     refuse_active_content_type,
 )
-from .audio_qc import check_written_media, warn_without_headroom
+from .audio_qc import _peak_dbfs, check_written_media, warn_without_headroom
 from .events import emit_log, emit_phase, emit_warning
 from .media_types import (
     AudioTrack,
@@ -73,6 +73,13 @@ AUDIO_WRITE_ARGUMENTS = ["subtype", "format", "compression_level", "bitrate_mode
 # Distinguishes "the artifact has no such attribute" from "it has one holding None" -
 # an AudioVideo whose pipeline reported no sample rate carries exactly that
 _NO_PROPERTY = object()
+
+
+def _is_still_beside_video(artifact, content_type):
+    """True for one PIL image, a mapping entry, under a video content type (#1375)."""
+    from PIL import Image
+
+    return isinstance(artifact, Image.Image) and content_type.startswith("video")
 
 
 def _refuse_scalar_artifact(artifact, file_base_name):
@@ -153,6 +160,7 @@ class Result:
         # initialized here so a caller reading it before that runs gets None
         # rather than an AttributeError.
         self._predicted_peak_dbfs = None
+        self._input_peak_dbfs = None
         # get_artifact_list(result) memoized by id(result) - see
         # _artifacts_for. Keeps result_list itself untouched, so
         # Result.retainable's attribute walk over result_list is unaffected.
@@ -450,6 +458,7 @@ class Result:
         started = time.monotonic()
         self._no_headroom_warned = False
         self._predicted_peak_dbfs = None
+        self._input_peak_dbfs = None
 
         try:
             batched = self._write_artifact_file(
@@ -484,6 +493,7 @@ class Result:
                 consumed_by_normalizer=self._consumed_by_normalizer,
                 headroom_warned=self._no_headroom_warned,
                 predicted_peak_dbfs=self._predicted_peak_dbfs,
+                input_peak_dbfs=self._input_peak_dbfs,
             )
 
         emit_log(
@@ -521,6 +531,16 @@ class Result:
                     key=k,
                     content_type=content_type,
                 )
+                continue
+            if _is_still_beside_video(v, content_type):
+                # A still riding beside a step's videos (track_people's
+                # contact sheet, #1375) is saved as a PNG, not as a
+                # one-frame video; a step whose whole result is one image
+                # still writes the one-frame video it always did
+                output_path = output_file_path(output_dir, f"{file_base_name}-{k}.png")
+                logger.info(f"Saving still to {output_path}")
+                v.save(output_path)
+                saved_files.append(output_path)
                 continue
             saved_files.extend(
                 self.save_artifact(
@@ -830,6 +850,7 @@ class Result:
                     artifact.audio, os.path.basename(output_path), emit=False
                 )
                 self._no_headroom_warned = self._predicted_peak_dbfs is not None
+                self._input_peak_dbfs = _peak_dbfs(artifact.audio)
             logger.debug(
                 f"Streaming {len(artifact.frames)} segments into {output_path}"
             )
@@ -881,6 +902,7 @@ class Result:
             audio, os.path.basename(output_path), emit=False
         )
         self._no_headroom_warned = self._predicted_peak_dbfs is not None
+        self._input_peak_dbfs = _peak_dbfs(audio)
         encode_video(
             frames_for_encoding(artifact.frames),
             fps=fps,

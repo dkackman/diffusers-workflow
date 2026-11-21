@@ -1,0 +1,84 @@
+{
+  "id": "BenchCutProbeCJ",
+  "summary": "#1388 cut probe arms C (keeper cut) and J (B's head sharpened in steps).",
+  "description": "Feature #1385 stage A (#1388). C trims the keeper join (GettysburgJoin be80b3c3) to 33.0-49.0 s, the cut at 8.0 s. J rebuilds the same window from the two passages: A's last 8 s (frames 792-983 of A, run 45d023c8), then B's (5760a9e4) first 8 s cut by trim_video into four 2 s chunks, each through sharpen at a stepped-down amount (first matched to A's last 1 s face sharpness, measured locally with bench/cut_windows.py), rejoined by concat_videos with trim_frames 0. B's chunks rejoin as one continuous take with seam_fade_ms 0, so B's audio passes through unchanged; sharpen keeps each chunk's audio as it is. Only trim_video, sharpen and concat_videos run.",
+  "variables": {
+    "join": "output:GettysburgJoin/20261115-033327-be80b3c3/final/gettysburg-address-0.0.mp4",
+    "a": "output:templates/minimax/narrated-take/20261114-225505-45d023c8/final/MiniMaxH3NarratedTake-take.1-0.0.mp4",
+    "b": "output:templates/minimax/narrated-take/20261115-004231-5760a9e4/final/MiniMaxH3NarratedTake-take.1-0.0.mp4",
+    "amount_1": 1.1,
+    "amount_2": 0.75,
+    "amount_3": 0.45,
+    "amount_4": 0.2
+  },
+  "steps": [
+    {
+      "name": "c",
+      "task": {
+        "command": "trim_video",
+        "arguments": {"video": "variable:join", "start_frame": 792, "num_frames": 384}
+      },
+      "result": {"content_type": "video/mp4", "fps": 24, "subfolder": "final", "file_base_name": "arm-c"}
+    },
+    {
+      "name": "a_tail",
+      "task": {
+        "command": "trim_video",
+        "arguments": {"video": "variable:a", "start_frame": 792, "num_frames": 192}
+      }
+    },
+    {
+      "name": "b1",
+      "task": {"command": "trim_video", "arguments": {"video": "variable:b", "start_frame": 0, "num_frames": 48}}
+    },
+    {
+      "name": "b2",
+      "task": {"command": "trim_video", "arguments": {"video": "variable:b", "start_frame": 48, "num_frames": 48}}
+    },
+    {
+      "name": "b3",
+      "task": {"command": "trim_video", "arguments": {"video": "variable:b", "start_frame": 96, "num_frames": 48}}
+    },
+    {
+      "name": "b4",
+      "task": {"command": "trim_video", "arguments": {"video": "variable:b", "start_frame": 144, "num_frames": 48}}
+    },
+    {
+      "name": "s1",
+      "task": {"command": "sharpen", "arguments": {"media": "previous_result:b1", "amount": "variable:amount_1"}}
+    },
+    {
+      "name": "s2",
+      "task": {"command": "sharpen", "arguments": {"media": "previous_result:b2", "amount": "variable:amount_2"}}
+    },
+    {
+      "name": "s3",
+      "task": {"command": "sharpen", "arguments": {"media": "previous_result:b3", "amount": "variable:amount_3"}}
+    },
+    {
+      "name": "s4",
+      "task": {"command": "sharpen", "arguments": {"media": "previous_result:b4", "amount": "variable:amount_4"}}
+    },
+    {
+      "name": "b_head",
+      "task": {
+        "command": "concat_videos",
+        "arguments": {
+          "videos": ["previous_result:s1", "previous_result:s2", "previous_result:s3", "previous_result:s4"],
+          "trim_frames": 0,
+          "continuous_joins": true,
+          "seam_fade_ms": 0,
+          "fps": 24
+        }
+      }
+    },
+    {
+      "name": "j",
+      "task": {
+        "command": "concat_videos",
+        "arguments": {"videos": ["previous_result:a_tail", "previous_result:b_head"], "trim_frames": 0, "fps": 24}
+      },
+      "result": {"content_type": "video/mp4", "fps": 24, "subfolder": "final", "file_base_name": "arm-j"}
+    }
+  ]
+}

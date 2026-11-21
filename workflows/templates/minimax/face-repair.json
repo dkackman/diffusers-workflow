@@ -1,7 +1,7 @@
 {
     "id": "MiniMaxH3FaceRepair",
     "description": "Gives a good H3 take's small, soft face more detail without losing its lip sync. 'crop' (crop_face_track) tracks the take's main face and cuts a 'crop_size' square around it on every frame, padded to H3's 17n+5 frame grid with reflected frames, and carries the take's own soundtrack padded with silence to match; 'refine' re-denoises those crops with MiniMax-H3 t2va from 'refine_strength' while its hold_audio holds that soundtrack, so the mouth is redrawn against the speech it says; 'pasted' (paste_face_track) feathers each refined crop back into the take at the track's box, colour-matched to it, and drops the padded frames. The take must be 24 fps and, padded, 124 to 345 frames (about 5.2 to 14.4 s): the crop step refuses anything else, naming the clip's frame count or rate, before H3 loads; a shorter take uses templates/ltx2/face-repair. How much each frame is repaired comes from the face's size: full strength while it is at most 'gate_full' of the frame's width, fading to none at 'gate_zero', so a large face comes back as the source. 'refine_strength' 0.6 (measured on two dialogue takes, #1092) keeps the person; 0.72 drifts identity and 0.8 distorts frames. Replace the default prompt with a description of the person (hair, clothing, lighting) to hold identity closer. A ref2va refine with the cast picture as <Picture 1> held identity slightly better at about 4x the denoise time; this template is t2va. The final picture keeps the take's frame count, frame rate and soundtrack; the crops and refined crops are saved to intermediate/.",
-    "summary": "An H3 take's small, soft face redrawn by H3 with its soundtrack held; lip sync kept.",
+    "summary": "An H3 take's small, soft face redrawn by H3 with its audio held; lip sync kept.",
     "cost": [
         {
             "device": "cuda",
@@ -25,6 +25,7 @@
         "num_inference_steps": 5,
         "crop_size": 512,
         "padding": 1.5,
+        "select": "largest",
         "gate_full": 0.2,
         "gate_zero": 0.3,
         "feather": 0.3,
@@ -59,6 +60,7 @@
                     "clip": "variable:source_video",
                     "crop_size": "variable:crop_size",
                     "padding": "variable:padding",
+                    "select": "variable:select",
                     "gate_full": "variable:gate_full",
                     "gate_zero": "variable:gate_zero",
                     "modulus": 17,

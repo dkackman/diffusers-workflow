@@ -328,6 +328,12 @@ def _handle_decode_h3_latents(task, arguments, previous_pipelines):
     return decode_h3_latents(latents, device=task.device_for(arguments), **arguments)
 
 
+def _encode_h3_latents_errors(arguments):
+    from .h3_latent_upscale import encode_h3_latents_errors
+
+    return encode_h3_latents_errors(arguments)
+
+
 @register_command(
     "encode_h3_latents",
     implementation="dw.tasks.h3_latent_upscale.encode_h3_latents",
@@ -336,8 +342,9 @@ def _handle_decode_h3_latents(task, arguments, previous_pipelines):
         "Experimental: encode a finished 24 fps take into one MiniMax-H3 video "
         "latent, a 17-frame VAE clip at a time (exactly the whole-take "
         "encode), for a refine longer than a source_video can hold. Returns "
-        "{latents, num_frames, source_frames}: the refine's latents and "
-        "num_frames, and the take's own length for decode_h3_latents."
+        "{latents, num_frames, source_frames, width, height}: the refine's "
+        "latents and num_frames, the take's own length for decode_h3_latents, "
+        "and its canvas for the refine's width and height."
     ),
     parameter_descriptions={
         "source": (
@@ -350,6 +357,7 @@ def _handle_decode_h3_latents(task, arguments, previous_pipelines):
         ),
     },
     media_arguments=("source",),
+    static_check=_encode_h3_latents_errors,
 )
 def _handle_encode_h3_latents(task, arguments, previous_pipelines):
     """Encode a finished take into one MiniMax-H3 video latent, clip by clip"""

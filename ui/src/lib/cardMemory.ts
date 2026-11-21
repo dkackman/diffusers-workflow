@@ -11,6 +11,11 @@ export interface CardReading {
   allocatedMb: number
   /** null on a backend that reports allocated only (MPS) */
   totalMb: number | null
+  /** null unless the card reported a total: the worker defaults free to 0
+   *  when it could not measure it, which must not read as "full" */
+  freeMb: number | null
+  /** null when the card reported none */
+  reservedMb: number | null
   /** allocated as a share of total, 0-100; null without a total */
   pct: number | null
   live: boolean
@@ -35,6 +40,10 @@ export function cardReadings(memory: MemoryInfo | null): CardReading[] {
       available: !!info?.gpu_available,
       allocatedMb,
       totalMb,
+      freeMb: totalMb ? (info?.gpu_memory_free_mb ?? null) : null,
+      reservedMb: info?.gpu_available
+        ? (info.gpu_memory_reserved_mb ?? null)
+        : null,
       pct: totalMb ? Math.min(100, (100 * allocatedMb) / totalMb) : null,
       live: entry.live,
       ageSeconds: entry.age_seconds,

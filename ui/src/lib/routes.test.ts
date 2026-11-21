@@ -16,6 +16,21 @@ describe('parseView', () => {
       rest: ['abc'],
     })
   })
+  it('reads the requests list and one request', () => {
+    expect(parseView(['ws', 'studio', 'requests'])).toEqual({
+      kind: 'ws',
+      workspace: 'studio',
+      section: 'requests',
+      rest: [],
+    })
+    expect(parseView(['ws', 'studio', 'requests', 'r-1'])).toEqual({
+      kind: 'ws',
+      workspace: 'studio',
+      section: 'requests',
+      rest: ['r-1'],
+    })
+    expect(wsHref('studio', 'requests', 'r-1')).toBe('#/ws/studio/requests/r-1')
+  })
   it('defaults a bare workspace, or an unknown section, to overview', () => {
     expect(parseView(['ws', 'studio'])).toMatchObject({ section: 'overview' })
     expect(parseView(['ws', 'studio', 'nope'])).toMatchObject({

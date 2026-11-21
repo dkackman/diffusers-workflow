@@ -5,7 +5,7 @@ import {
   screen,
   waitFor,
 } from '@testing-library/svelte'
-import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import JobPage from './JobPage.svelte'
 import '../router.svelte'
 import { api, setNote } from '../api'
@@ -28,6 +28,12 @@ const ran = vi.hoisted(() => ({
   definition: null as Record<string, any> | null,
   realized: true,
 }))
+// What the event-log route answers: one page, or a status to fail with
+const eventLog = vi.hoisted(() => ({
+  events: [] as JobEvent[],
+  note: null as string | null,
+  status: 0,
+}))
 
 // Monaco cannot boot in jsdom; the page's JSON view is tested through this
 // stub, which renders the value it was handed as plain text
@@ -36,7 +42,14 @@ vi.mock('../editor/JsonEditor.svelte', async () => ({
 }))
 
 vi.mock('../api', () => ({
-  ApiError: class ApiError extends Error {},
+  ApiError: class ApiError extends Error {
+    status: number
+    constructor(message: string, status = 500) {
+      super(message)
+      this.name = 'ApiError'
+      this.status = status
+    }
+  },
   TERMINAL_STATUSES: ['succeeded', 'failed', 'cancelled'],
   api: {
     getJob: vi.fn(() => Promise.resolve(detail.job)),
@@ -56,6 +69,22 @@ vi.mock('../api', () => ({
       }),
     ),
     outputDownloadUrl: (name: string) => `/api/gallery/${name}/download`,
+    eventLog: vi.fn(async (id: string, query: { after?: number } = {}) => {
+      if (eventLog.status) {
+        const { ApiError } = await import('../api')
+        throw new ApiError('Unknown job', eventLog.status)
+      }
+      const after = query.after ?? -1
+      const page = eventLog.events.filter((e) => e.seq > after)
+      return {
+        id,
+        status: detail.job?.status ?? null,
+        events: page,
+        last_seq: page.length ? page[page.length - 1].seq : after,
+        truncated: false,
+        note: eventLog.note,
+      }
+    }),
   },
   outputUrl: (path: string) => `/outputs/${path}`,
   setNote: vi.fn((target: string, note: string | null) =>
@@ -109,7 +138,11 @@ afterEach(() => {
   metadata.inputs = []
   ran.definition = null
   ran.realized = true
+  eventLog.events = []
+  eventLog.note = null
+  eventLog.status = 0
   vi.mocked(api.galleryMetadata).mockClear()
+  vi.mocked(api.eventLog).mockClear()
 })
 
 /** The flow view's box for one step of the definition. */
@@ -516,6 +549,26 @@ it('shows no card for a job without a device', async () => {
   expect(screen.queryByText(/Card:/)).toBeNull()
 })
 
+it('names what a rerun changed beside "rerun of", value per override in its title', async () => {
+  detail.job = {
+    ...job([]),
+    rerun_of: 'orig1',
+    overrides: { size: 'large', steps: 30 },
+  }
+  render(JobPage, { jobId: 'j1' })
+  await waitFor(() => expect(screen.getByText('orig1')).toBeTruthy())
+  const chip = screen.getByText('changed: size, steps')
+  expect(chip.tagName).toBe('CODE')
+  expect(chip.getAttribute('title')).toBe('size = large\nsteps = 30')
+})
+
+it('shows no changed chip on a rerun without overrides', async () => {
+  detail.job = { ...job([]), rerun_of: 'orig1' }
+  render(JobPage, { jobId: 'j1' })
+  await waitFor(() => expect(screen.getByText('orig1')).toBeTruthy())
+  expect(screen.queryByText(/changed:/)).toBeNull()
+})
+
 const roleJob = (): JobDetail => ({
   ...job([
     { step: 'draft', files: ['draft.png'], role: 'intermediate' },
@@ -609,4 +662,265 @@ it("saves the run note in the job's own workspace", async () => {
     'third pass',
     'studio',
   )
+})
+
+it('refetches the detail on queue_wait and on a live warning, not on a stall', async () => {
+  detail.job = { ...job([]), status: 'running', finished_at: null }
+  render(JobPage, { jobId: 'j1' })
+  await waitFor(() => expect(stream.onEvent).not.toBeNull())
+  const calls = () => vi.mocked(api.getJob).mock.calls.length
+  const before = calls()
+  stream.onEvent!({ seq: 1, event: 'queue_wait', reason: 'gpu_busy' })
+  await waitFor(() => expect(calls()).toBe(before + 1))
+  stream.onEvent!({
+    seq: 2,
+    event: 'warning',
+    kind: 'phase_stall',
+    phase: 'loading',
+    seconds_since_last_progress: 90,
+  })
+  expect(calls()).toBe(before + 1)
+  detail.job = { ...detail.job!, warnings: ['gen: audio clipped'] }
+  stream.onEvent!({
+    seq: 3,
+    event: 'warning',
+    kind: 'audio_clipped',
+    message: 'x',
+  })
+  await waitFor(() =>
+    expect(screen.getByText('gen: audio clipped')).toBeTruthy(),
+  )
+})
+
+it('shows a stall line while a phase_stall is the latest event', async () => {
+  detail.job = { ...job([]), status: 'running', finished_at: null }
+  const { container } = render(JobPage, { jobId: 'j1' })
+  await waitFor(() => expect(stream.onEvent).not.toBeNull())
+  stream.onEvent!({ seq: 1, event: 'workflow_start', steps: ['gen'] })
+  stream.onEvent!({ seq: 2, event: 'step_start', step: 'gen' })
+  stream.onEvent!({
+    seq: 3,
+    event: 'warning',
+    kind: 'phase_stall',
+    phase: 'loading',
+    seconds_since_last_progress: 240,
+  })
+  await waitFor(() =>
+    expect(container.textContent).toContain('no event for 4m'),
+  )
+  stream.onEvent!({ seq: 4, event: 'phase', phase: 'generating' })
+  await waitFor(() =>
+    expect(container.textContent).not.toContain('no event for'),
+  )
+})
+
+describe('step timing bar and peak host RAM (#1453)', () => {
+  const timing = (extra: Record<string, unknown> = {}) => ({
+    load_s: 4,
+    encode_s: null,
+    denoise_s: 10,
+    decode_s: null,
+    save_s: 1,
+    first_pass_s: 3,
+    pass_s: 0.9,
+    passes: 12,
+    load_cached: false,
+    compiled: null,
+    segments: 1,
+    ...extra,
+  })
+  const timed = (a: object, b: object) => {
+    detail.job = {
+      ...job([
+        { step: 'a', files: ['a.png'], ...a },
+        { step: 'b', files: ['b.png'], ...b },
+      ]),
+      output_kinds: { 'a.png': 'image', 'b.png': 'image' },
+    } as JobDetail
+  }
+  const bars = (c: HTMLElement) => [
+    ...c.querySelectorAll<HTMLElement>('[data-testid="timing-bar"]'),
+  ]
+
+  it('draws a bar from manifest timing, skipping null parts', async () => {
+    timed({ timing: timing() }, {})
+    const { container } = render(JobPage, { jobId: 'j1' })
+    await waitFor(() => expect(bars(container).length).toBe(1))
+    const bar = bars(container)[0]
+    expect(
+      [...bar.querySelectorAll('[data-part]')].map((e) =>
+        e.getAttribute('data-part'),
+      ),
+    ).toEqual(['load', 'denoise', 'save'])
+    // inner first/pass figures are in the title only, never stacked
+    expect(bar.getAttribute('title')).toContain('first pass 3.0s')
+    expect(bar.getAttribute('title')).toContain('pass 0.9s')
+    expect(bar.getAttribute('title')).toContain('12 passes')
+    expect(bar.getAttribute('title')).not.toContain('segments')
+    expect(bar.textContent).not.toContain('cached')
+  })
+
+  it('says cached only on true, and segments when more than one', async () => {
+    timed(
+      { timing: timing({ load_cached: true, segments: 3 }) },
+      { timing: timing({ load_cached: null, load_s: null }) },
+    )
+    const { container } = render(JobPage, { jobId: 'j1' })
+    await waitFor(() => expect(bars(container).length).toBe(2))
+    const [first, second] = bars(container)
+    expect(first.textContent).toContain('cached')
+    expect(first.getAttribute('title')).toContain('3 segments')
+    expect(second.textContent).not.toContain('cached')
+  })
+
+  it('draws no bar for a reused entry or one without timing', async () => {
+    timed({ reused: true, timing: timing() }, {})
+    const { container } = render(JobPage, { jobId: 'j1' })
+    await waitFor(() => expect(screen.getByText('· reused')).toBeTruthy())
+    expect(bars(container).length).toBe(0)
+  })
+
+  it('shows peak host RAM when set and nothing when null', async () => {
+    detail.job = { ...job([]), host_memory_job_peak_committed_mb: 20480 }
+    const first = render(JobPage, { jobId: 'j1' })
+    await waitFor(() =>
+      expect(screen.getByText('peak host RAM 20.0 GB')).toBeTruthy(),
+    )
+    first.unmount()
+    detail.job = { ...job([]), host_memory_job_peak_committed_mb: null }
+    render(JobPage, { jobId: 'j1' })
+    await waitFor(() => expect(screen.getByText('j1')).toBeTruthy())
+    expect(screen.queryByText(/peak host RAM/)).toBeNull()
+  })
+})
+
+describe('event log (#1478)', () => {
+  const logToggle = () => screen.getByRole('button', { name: /Event log/ })
+  const logRows = (c: HTMLElement) =>
+    [...c.querySelectorAll('.eventlog tbody tr')].map((tr) =>
+      [...tr.querySelectorAll('td')].map((td) => td.textContent?.trim()),
+    )
+
+  it('is collapsed on a historical job and asks for nothing until opened', async () => {
+    detail.job = { ...job([]), historical: true } as JobDetail
+    eventLog.note =
+      'Only the last 200 events of this job were retained; everything before seq 41 was dropped when the job was recorded.'
+    eventLog.events = [
+      { seq: 41, event: 'step_start', at: 1.5, step: 'gen' },
+      { seq: 42, event: 'log', at: 2, message: 'loading model' },
+    ]
+    const { container } = render(JobPage, { jobId: 'j1' })
+    await waitFor(() => expect(logToggle()).toBeTruthy())
+    expect(logToggle().getAttribute('aria-expanded')).toBe('false')
+    expect(vi.mocked(api.eventLog)).not.toHaveBeenCalled()
+
+    await fireEvent.click(logToggle())
+    await waitFor(() => expect(logRows(container).length).toBe(2))
+    expect(
+      screen.getByText(/everything before seq 41 was dropped/),
+    ).toBeTruthy()
+    expect(logRows(container)).toEqual([
+      ['41', '+1.5s', 'step_start', '{"step":"gen"}'],
+      ['42', '+2.0s', 'log', 'loading model'],
+    ])
+    expect(vi.mocked(api.eventLog).mock.calls).toEqual([
+      ['j1', { after: -1, limit: 500 }],
+    ])
+    // A finished job's log does not grow, so nothing offers to refresh it
+    expect(
+      screen.queryByRole('button', { name: 'Refresh event log' }),
+    ).toBeNull()
+  })
+
+  it('says there is no log for an unknown or pruned job', async () => {
+    detail.job = { ...job([]), historical: true } as JobDetail
+    eventLog.status = 404
+    render(JobPage, { jobId: 'j1' })
+    await waitFor(() => expect(logToggle()).toBeTruthy())
+    await fireEvent.click(logToggle())
+    await waitFor(() =>
+      expect(screen.getByText('no event log for this job')).toBeTruthy(),
+    )
+  })
+
+  it('filters the rows to one kind', async () => {
+    detail.job = job([])
+    eventLog.events = [
+      { seq: 0, event: 'log', message: 'one' },
+      { seq: 1, event: 'warning', kind: 'audio_clipped', message: 'clip' },
+      { seq: 2, event: 'log', message: 'two' },
+    ]
+    const { container } = render(JobPage, { jobId: 'j1' })
+    await waitFor(() => expect(logToggle()).toBeTruthy())
+    await fireEvent.click(logToggle())
+    await waitFor(() => expect(logRows(container).length).toBe(3))
+    const select = screen.getByRole('combobox', { name: 'filter by kind' })
+    await fireEvent.change(select, { target: { value: 'log' } })
+    expect(logRows(container).map((r) => r[0])).toEqual(['0', '2'])
+    expect(container.querySelector('.eventlog .count')?.textContent).toMatch(
+      /^2 of \d+ events, seq 0–\d+$/,
+    )
+    await fireEvent.change(select, {
+      target: { value: 'warning · audio_clipped' },
+    })
+    expect(logRows(container).map((r) => r[3])).toEqual(['clip'])
+  })
+
+  it("leaves a live job's flow view alone, and grows on Refresh", async () => {
+    ran.definition = {
+      steps: [
+        {
+          name: 'gen',
+          pipeline: { configuration: { component_type: 'Fake' } },
+        },
+        { name: 'mux', task: { command: 'mux' } },
+      ],
+    }
+    detail.job = { ...job([]), status: 'running', finished_at: null }
+    const { container } = render(JobPage, { jobId: 'j1' })
+    await waitFor(() => expect(stream.onEvent).not.toBeNull())
+    stream.onEvent!({ seq: 0, event: 'workflow_start', steps: ['gen', 'mux'] })
+    stream.onEvent!({ seq: 1, event: 'step_start', step: 'gen' })
+    await waitFor(() =>
+      expect(nodeFor(container, 'gen').classList.contains('active')).toBe(true),
+    )
+
+    // The log names a later step than the stream has reached; none of it
+    // may reach the page's own events
+    eventLog.events = [
+      { seq: 0, event: 'workflow_start', steps: ['gen', 'mux'] },
+      { seq: 1, event: 'step_start', step: 'gen' },
+      { seq: 2, event: 'step_end', step: 'gen', files: [] },
+      { seq: 3, event: 'step_start', step: 'mux' },
+    ]
+    await fireEvent.click(logToggle())
+    await waitFor(() => expect(logRows(container).length).toBe(4))
+    expect(nodeFor(container, 'gen').classList.contains('active')).toBe(true)
+    expect(screen.getByText('4 events, seq 0–3')).toBeTruthy()
+    expect(nodeFor(container, 'gen').classList.contains('done')).toBe(false)
+    expect(nodeFor(container, 'mux').classList.contains('active')).toBe(false)
+
+    eventLog.events.push({ seq: 4, event: 'log', message: 'muxing' })
+    await fireEvent.click(
+      screen.getByRole('button', { name: 'Refresh event log' }),
+    )
+    await waitFor(() => expect(logRows(container).length).toBe(5))
+    expect(screen.getByText('5 events, seq 0–4')).toBeTruthy()
+    expect(vi.mocked(api.eventLog).mock.calls.at(-1)).toEqual([
+      'j1',
+      { after: 3, limit: 500 },
+    ])
+    expect(nodeFor(container, 'mux').classList.contains('active')).toBe(false)
+  })
+})
+
+it("clears a previous job id's error when the id changes to a valid job", async () => {
+  const good = job([])
+  detail.job = good
+  vi.mocked(api.getJob).mockRejectedValueOnce(new Error('Unknown job'))
+  const { rerender } = render(JobPage, { jobId: 'dead' })
+  await waitFor(() => expect(screen.getByText('Unknown job')).toBeTruthy())
+  await rerender({ jobId: 'j1' })
+  await waitFor(() => expect(screen.getByText('Event log')).toBeTruthy())
+  expect(screen.queryByText('Unknown job')).toBeNull()
 })

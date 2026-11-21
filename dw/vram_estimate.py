@@ -71,10 +71,12 @@ import numbers
 from .references import FROM_FILE_KEY, FROM_PREVIOUS_RESULT_KEY, VARIABLE, ref_name
 from .for_each import FOR_EACH_KEY, MEMBER_SEPARATOR, render_path
 from .guides import guide_lengths
+from .reference_limits import video_reference_frames
 
 KEY = "vram_estimate"
 REFERENCES_KEY = "references"
 GUIDE_VOXEL_KEY = "bytes_per_guide_voxel"
+REFERENCE_VOXEL_KEY = "bytes_per_reference_voxel"
 # The voxel variable a guide's own frame count stands in for
 FRAMES_VARIABLE = "num_frames"
 # The H3 argument that puts a refine step in tile mode (the name
@@ -159,12 +161,14 @@ def reference_count(arguments):
     return count
 
 
-def required_gb(estimate, values, references=0, guides=()):
+def required_gb(estimate, values, references=0, guides=(), reference_frames=()):
     """The projected requirement for `values` with `references` and `guides`
     (each guide's snapped frame count) counted, or None when a voxel
     variable's value is not a number this pass can compute with - an
     undeclared reference or a list is somebody else's error. A guide's voxels
-    are its frames times the canvas: every voxel variable but `num_frames`."""
+    are its frames times the canvas: every voxel variable but `num_frames`;
+    so are a video reference's (`reference_frames`, #1429), on top of the flat
+    `gb_per_reference` it is counted in."""
     product = 1.0
     canvas = 1.0
     for name in estimate.get("voxel_variables", []):
@@ -178,12 +182,15 @@ def required_gb(estimate, values, references=0, guides=()):
     per_voxel = estimate.get("bytes_per_voxel", 0)
     per_reference = estimate.get("gb_per_reference", 0)
     per_guide_voxel = estimate.get(GUIDE_VOXEL_KEY, 0)
+    per_reference_voxel = estimate.get(REFERENCE_VOXEL_KEY, 0)
     guide_voxels = sum(guides) * canvas
+    reference_voxels = sum(reference_frames) * canvas
     return (
         base
         + per_voxel * product / (1024**3)
         + per_reference * references
         + per_guide_voxel * guide_voxels / (1024**3)
+        + per_reference_voxel * reference_voxels / (1024**3)
     )
 
 
@@ -201,7 +208,9 @@ def tile_size(arguments):
     return width, height
 
 
-def tiled_required_gb(estimate, values, tile, references=0, guides=()):
+def tiled_required_gb(
+    estimate, values, tile, references=0, guides=(), reference_frames=()
+):
     """The projected requirement of a step in tile mode (#1043), or None when
     `required_gb` cannot compute `values`: the larger of the denoise, priced
     at `tile`'s (width, height) in place of the canvas's, and the decode,
@@ -211,7 +220,11 @@ def tiled_required_gb(estimate, values, tile, references=0, guides=()):
     if required_gb(estimate, values) is None:
         return None
     denoise = required_gb(
-        estimate, {**values, "width": tile[0], "height": tile[1]}, references, guides
+        estimate,
+        {**values, "width": tile[0], "height": tile[1]},
+        references,
+        guides,
+        reference_frames,
     )
     voxels = 1.0
     for name in estimate.get("voxel_variables", []):
@@ -331,7 +344,7 @@ def _estimate_identity(steps, variables, names):
 
 
 def _projections(definition, estimate, arguments, base_dir=None, probe=None):
-    """(step index, step, values, references, guides, projected GB) for every
+    """(step index, step, values, references, guides, clips, projected GB) for every
     step the estimate can project - `guides` as `_guide_frames` gives them.
 
     Only a step that loads a pipeline is projected, since the ceiling is the
@@ -350,7 +363,7 @@ def _projections(definition, estimate, arguments, base_dir=None, probe=None):
     if not isinstance(steps, list):
         projected = required_gb(estimate, variables)
         if projected is not None:
-            yield None, None, variables, 0, [], projected
+            yield None, None, variables, 0, [], [], projected
         return
     names = estimate.get("voxel_variables", [])
     identity = _estimate_identity(steps, variables, names)
@@ -378,13 +391,27 @@ def _projections(definition, estimate, arguments, base_dir=None, probe=None):
         if guides is None:
             continue
         frames = [count for count, _ in guides]
+        # A video reference whose length is known now; one that is not is not
+        # charged, so a worst case never refuses a recipe the length of
+        # which is only the run's to tell (#1429)
+        clips = (
+            [
+                count
+                for count in video_reference_frames(pipeline, steps, base_dir, probe)
+                if count is not None
+            ]
+            if REFERENCE_VOXEL_KEY in estimate
+            else []
+        )
         tile = tile_size(step_arguments)
         if tile is not None:
-            projected = tiled_required_gb(estimate, values, tile, references, frames)
+            projected = tiled_required_gb(
+                estimate, values, tile, references, frames, clips
+            )
         else:
-            projected = required_gb(estimate, values, references, frames)
+            projected = required_gb(estimate, values, references, frames, clips)
         if projected is not None:
-            yield index, step, values, references, guides, projected
+            yield index, step, values, references, guides, clips, projected
 
 
 def _variable_names(value):
@@ -461,6 +488,12 @@ def _formula(estimate):
             f" plus {estimate[GUIDE_VOXEL_KEY]:.4g} bytes per unit of each "
             f"guide's frames * {' * '.join(canvas)}"
         )
+    if REFERENCE_VOXEL_KEY in estimate:
+        canvas = [name for name in voxel_variables if name != FRAMES_VARIABLE]
+        formula += (
+            f" plus {estimate[REFERENCE_VOXEL_KEY]:.4g} bytes per unit of each "
+            f"video reference's frames * {' * '.join(canvas)}"
+        )
     return formula
 
 
@@ -478,6 +511,14 @@ def _tiled_note(step, values):
         f"the {values.get('width')}x{values.get('height')} canvas)"
     )
     return {**values, "width": width, "height": height}, note
+
+
+def _with_clips(clips):
+    """' (video references 124 frames)' for the video references charged by
+    their length (#1429), or '' with none."""
+    if not clips:
+        return ""
+    return f" (video reference{'s' if len(clips) != 1 else ''} {'+'.join(map(str, clips))} frames)"
 
 
 def _with_guides(guides):
@@ -542,7 +583,9 @@ def vram_estimate_errors(
     ]
     if not over:
         return []
-    index, step, values, references, guides, projected = max(over, key=lambda p: p[-1])
+    index, step, values, references, guides, clips, projected = max(
+        over, key=lambda p: p[-1]
+    )
 
     voxel_variables = estimate.get("voxel_variables", [])
     reason = estimate.get("reason")
@@ -581,7 +624,7 @@ def vram_estimate_errors(
                 "message": (
                     f"{member}{'*'.join(voxel_variables)} = "
                     f"{'*'.join(str(values.get(v)) for v in voxel_variables)}"
-                    f"{tiled}{with_references}{_with_guides(guides)} projects to "
+                    f"{tiled}{with_references}{_with_clips(clips)}{_with_guides(guides)} projects to "
                     f"{projected:.2f} GB VRAM, "
                     f"above the {capacity} GB declared for {device_label}"
                     f"{because}. {_formula(estimate)}"
@@ -619,7 +662,7 @@ def largest_projection(
     projections = list(_projections(definition, estimate, arguments, base_dir, probe))
     if not cards or not projections:
         return None
-    index, step, _, _, _, projected = max(projections, key=lambda p: p[-1])
+    index, step, _, _, _, _, projected = max(projections, key=lambda p: p[-1])
     card = min(cards, key=lambda e: e["vram_gb"])
     label = card.get("name") or card.get("device", "this device")
     return {

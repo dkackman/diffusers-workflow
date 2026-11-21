@@ -11,7 +11,6 @@ import copy
 import json
 import logging
 import os
-from types import SimpleNamespace
 from typing import Any, Optional, Union
 from urllib.parse import quote
 
@@ -26,17 +25,23 @@ from ..api_models import (
     JobList,
     JobMoved,
     JobWorkflow,
+    RestartBatchRerun,
     RunDeleted,
     ValidationResult,
 )
+from ... import ledger
 from ...events import select_kinds
 from ...host_memory_projection import CEILING_FRACTION, host_memory_warnings
-from ...plan import build_plan, gate_warnings, missing_repo_errors
+from ...plan import gate_warnings, missing_repo_errors
 from ...presets import apply_presets
 from ...schema import format_validation_errors
-from ...security import SecurityError, validate_path
+from ...security import (
+    InvalidInputError,
+    SecurityError,
+    validate_ledger_key,
+    validate_path,
+)
 from ...variables import set_variables
-from ...library import SubWorkflowNotFound, resolve_sub_workflow_reference
 from ...workspace import Workspace
 from ..admission import (
     ACKNOWLEDGED_COST_FIELD,
@@ -46,17 +51,16 @@ from ..admission import (
     acknowledgement_form,
     admitted_note,
     admit_for,
+    bound_plan_for,
     check_bound_acknowledgement,
+    validation_plan,
 )
 from ..catalog import (
     catalog_name_for,
-    catalog_name_from_root,
     resolve_workflow_reference,
 )
 from ..deps import (
-    inherited_observed,
     internal_error,
-    observed_for_name,
     selected_workspace,
     sources_for,
     workspace_for,
@@ -65,6 +69,7 @@ from ..exports import export_job
 from ..host_ram_need import host_memory_block
 from ..http_security import query_token_ok
 from ..job_record import (
+    ACK_BOOLEAN,
     ACK_BOUND,
     MAX_PERSISTED_EVENTS,
     QUEUED,
@@ -127,6 +132,15 @@ def submit_job(
     note = admitted_note(request.note)
     try:
         workspace = workspace_for(state, request.workspace or ws.name)
+        if request.request:
+            # Before anything queues: a job links only to an open request's
+            # live item in its own workspace. A rerun's inherited link is
+            # not held to this (JobManager.rerun warns instead)
+            problem = ledger.link_problem(
+                workspace.root or None, request.request, request.item
+            )
+            if problem is not None:
+                raise HTTPException(status_code=problem.status, detail=problem.detail())
         resolved, source = resolve_workflow_reference(
             request.workflow_path, sources_for(state, workspace)
         )
@@ -152,7 +166,7 @@ def submit_job(
             # the figure a re-validate would (#1038); only the hub size
             # lookup is skipped
             plan_for=(
-                _bound_plan_for(
+                bound_plan_for(
                     state,
                     workspace,
                     request.workflow_path,
@@ -211,7 +225,10 @@ def submit_job(
             # What a card must hold to run it: the pool dispatches on it
             vram_need=admission.vram_need,
             host_ram_need=admission.host_ram_need,
+            repos_named=admission.repos_named,
             note=note,
+            request=request.request,
+            item=request.item,
         )
         return manager.describe(job)
     except HTTPException:
@@ -226,6 +243,15 @@ def list_jobs(
     workspace: Optional[str] = None,
     status: Optional[str] = None,
     limit: Optional[int] = None,
+    request_id: Optional[str] = Query(
+        default=None,
+        alias="request",
+        description="Only the jobs linked to this requests-ledger request",
+    ),
+    item: Optional[str] = Query(
+        default=None,
+        description="With `request`: only the jobs linked to this item of it",
+    ),
 ):
     """All jobs by default - a plain filter, not `selected_workspace`,
     since the jobs list spans every workspace the server holds unless a
@@ -237,6 +263,14 @@ def list_jobs(
     complete one. The default is still every matching job, oldest first -
     what the web UI polls."""
     manager = request.app.state.job_manager
+    if item and not request_id:
+        raise HTTPException(status_code=422, detail="item needs request")
+    for value, what in ((request_id, "request"), (item, "item")):
+        if value:
+            try:
+                validate_ledger_key(value, what)
+            except InvalidInputError as e:
+                raise HTTPException(status_code=422, detail=str(e))
     if workspace:
         # A name that was never a workspace is a typo, not "no jobs here"
         workspace_for(request.app.state, workspace)
@@ -256,7 +290,13 @@ def list_jobs(
             )
     if limit is not None and limit < 0:
         raise HTTPException(status_code=400, detail="limit must not be negative")
-    jobs, total = manager.list_page(workspace=workspace, statuses=statuses, limit=limit)
+    jobs, total = manager.list_page(
+        workspace=workspace,
+        statuses=statuses,
+        limit=limit,
+        request=request_id,
+        item=item,
+    )
     return {"jobs": jobs, "total": total}
 
 
@@ -410,6 +450,44 @@ def get_job_workflow(request: Request, job_id: str):
     }
 
 
+def _admit_rerun(state, spec, arguments, *, with_plan):
+    """(workspace, admission) for a rerun of `spec` with `arguments`, the
+    pair rerun_spec answered - admitted as a new submission would be, then
+    refused (raised) when admission refused it or no card here can hold it.
+    `with_plan` builds the plan validate would, for a bound acknowledgement
+    to be checked against or a preview's estimate to be read from."""
+    manager = state.job_manager
+    workspace = workspace_for(state, spec.get("workspace"))
+    admission = admit_for(
+        state,
+        workspace,
+        workflow_path=spec.get("workflow_path"),
+        workflow=spec.get("workflow"),
+        arguments=arguments,
+        base_dir=spec.get("base_dir"),
+        output_dir=spec.get("output_dir") or manager.output_dir,
+        workflow_dir=spec.get("workflow_dir") or manager.workflow_dir,
+        plan_for=(
+            bound_plan_for(
+                state,
+                workspace,
+                spec.get("workflow_path"),
+                arguments,
+                resolve_workflow_reference(
+                    spec.get("workflow_path"), sources_for(state, workspace)
+                )[1],
+                spec.get("catalog_name"),
+            )
+            if with_plan
+            else None
+        ),
+        catalog_name=spec.get("catalog_name"),
+    )
+    # Refuses what admission refused, and a job too big for every card
+    manager.check_fits(admission)
+    return workspace, admission
+
+
 class RerunRequest(BaseModel):
     new_seed: bool = Field(
         default=False,
@@ -453,34 +531,9 @@ def rerun_job(request: Request, job_id: str, body: RerunRequest = RerunRequest()
         if prepared is None:
             raise HTTPException(status_code=404, detail="Unknown job")
         spec, arguments = prepared
-        workspace = workspace_for(state, spec.get("workspace"))
-        admission = admit_for(
-            state,
-            workspace,
-            workflow_path=spec.get("workflow_path"),
-            workflow=spec.get("workflow"),
-            arguments=arguments,
-            base_dir=spec.get("base_dir"),
-            output_dir=spec.get("output_dir") or manager.output_dir,
-            workflow_dir=spec.get("workflow_dir") or manager.workflow_dir,
-            plan_for=(
-                _bound_plan_for(
-                    state,
-                    workspace,
-                    spec.get("workflow_path"),
-                    arguments,
-                    resolve_workflow_reference(
-                        spec.get("workflow_path"), sources_for(state, workspace)
-                    )[1],
-                    spec.get("catalog_name"),
-                )
-                if form == ACK_BOUND
-                else None
-            ),
-            catalog_name=spec.get("catalog_name"),
+        workspace, admission = _admit_rerun(
+            state, spec, arguments, with_plan=form == ACK_BOUND
         )
-        # Refuses what admission refused, and a job too big for every card
-        manager.check_fits(admission)
         if form == ACK_BOUND:
             check_bound_acknowledgement(
                 admission.plan, body.acknowledged_cost, workspace
@@ -504,6 +557,7 @@ def rerun_job(request: Request, job_id: str, body: RerunRequest = RerunRequest()
             admitted=admission.workflow,
             vram_need=admission.vram_need,
             host_ram_need=admission.host_ram_need,
+            repos_named=admission.repos_named,
         )
         if job is None:
             raise HTTPException(status_code=404, detail="Unknown job")
@@ -512,6 +566,79 @@ def rerun_job(request: Request, job_id: str, body: RerunRequest = RerunRequest()
         raise
     except Exception:
         raise internal_error("Job rerun failed after admission")
+
+
+class RestartBatchRequest(BaseModel):
+    acknowledged_cost: Optional[Union[bool, AcknowledgedCost]] = Field(
+        default=None,
+        description="true queues the batch; omitted or false answers a "
+        "preview and queues nothing. An object bound to one plan is "
+        "refused: one fingerprint cannot cover every member's plan.",
+    )
+
+
+@router.post(
+    "/api/jobs/{job_id}/rerun-restart-batch",
+    response_model=RestartBatchRerun,
+    response_model_exclude_unset=True,
+)
+def rerun_restart_batch(
+    request: Request, job_id: str, body: RestartBatchRequest = RestartBatchRequest()
+):
+    """Rerun every job a server restart cancelled along with `job_id` - the
+    tombstones one dead server left, named by any one of them (#1266) -
+    oldest first, each in its own workspace and admitted as a single rerun
+    is. A member already rerun, in a deleted workspace, or refused by
+    admission is skipped with why; the rest are still queued. Without
+    `acknowledged_cost: true` nothing is queued: the answer is a preview,
+    `would_queue` with each member's estimate."""
+    state = request.app.state
+    manager = state.job_manager
+    if manager.get(job_id) is None:
+        raise HTTPException(status_code=404, detail="Unknown job")
+    form = acknowledgement_form(body.acknowledged_cost)
+    if form == ACK_BOUND:
+        raise HTTPException(
+            status_code=400,
+            detail="A bound acknowledgement cannot cover a restart batch: "
+            "it binds one plan and the batch has one per member - send "
+            "acknowledged_cost: true after reading the preview",
+        )
+    queue = form == ACK_BOOLEAN
+
+    def admit(member_id):
+        try:
+            prepared = manager.rerun_spec(member_id)
+            if prepared is None:
+                raise ValueError("no longer in history")
+            spec, arguments = prepared
+            _, admission = _admit_rerun(state, spec, arguments, with_plan=not queue)
+        except HTTPException as e:
+            raise ValueError(e.detail) from e
+        return arguments, admission
+
+    try:
+        answer = manager.rerun_restart_batch(job_id, admit, queue=queue)
+    except Exception:
+        raise internal_error("Restart batch rerun failed")
+    if answer is None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Job {job_id} is not a restart tombstone: only a job a "
+            "server restart closed as cancelled (its error starts "
+            "'server restart:', recorded since #1245) names a batch",
+        )
+    if queue:
+        answer.pop("would_queue")
+    else:
+        answer["would_queue"] = [
+            {
+                **{key: value for key, value in entry.items() if key != "admission"},
+                "estimate": (entry["admission"].plan or {}).get("estimate"),
+            }
+            for entry in answer["would_queue"]
+        ]
+    return answer
 
 
 @router.post(
@@ -701,152 +828,6 @@ def job_event_log(
     }
 
 
-def _probe_command_for(candidate, request, workspace, workflow_dir):
-    """The execute-shaped command a cache probe of this validate request
-    needs - the same fields _run_job sends, built from the candidate
-    admission checked, so the worker builds the workflow exactly as a
-    job would. Its keys must be ProbeCache's fields (dw/worker_protocol.py):
-    JobManager.probe_cache builds ProbeCache(**command), so a key that
-    is not one raises TypeError there and the plan comes back null."""
-    command = {
-        "definition": candidate.workflow_definition,
-        "file_spec": candidate.file_spec,
-        "source": "path" if request.workflow_path is not None else "inline",
-        "arguments": request.arguments,
-        "output_dir": workspace.outputs,
-        "workflow_dir": workflow_dir,
-    }
-    if workspace.assets:
-        command["asset_dir"] = workspace.assets
-    return command
-
-
-def _validation_plan(
-    state, candidate, vram_need, request, workspace, source, catalog_name, sizes
-):
-    """The plan a valid /api/validate answer carries: what the run will
-    execute for these arguments, fingerprinted so an acknowledgement can
-    be bound to it (#85). Best effort - None when it cannot be built,
-    since the verdict is the schema's and the planner may not change it.
-    `vram_need` is admission's (`Admission.vram_need`), the need dispatch
-    routes the job by.
-    """
-    source_root = source.root if source else workspace.workflows
-    definition = candidate.workflow_definition
-    try:
-        from ... import get_device, get_device_type
-
-        command = _probe_command_for(candidate, request, workspace, source_root)
-        # The card this run would be dispatched to now: its step cache is
-        # the one probed, and its history the one the estimate quotes (#462)
-        manager = state.job_manager
-        card = manager.route(
-            manager.identity_of(command["source"], command["file_spec"], definition),
-            vram_need,
-        )
-
-        def observed_for_child(path, child_definition, arguments=None):
-            """A composed child's own observed figure, keyed by the
-            catalog name it resolves to - so a parent with no figure of
-            its own can quote what this box's runs of the *child* took
-            rather than falling back to unknown (#268).
-
-            `arguments` are the composing step's own overrides - the
-            same role `arguments` plays for the top-level `observed`
-            callback - so a child whose composing step shifted a
-            declared scalar `cost_driver` (#341) is bucketed against
-            *that* value rather than always the child's stored
-            defaults, which silently answered the default bucket's
-            history for every override."""
-            base_dir = (
-                os.path.dirname(os.path.abspath(candidate.file_spec))
-                if candidate.file_spec
-                else "."
-            )
-            try:
-                child_path, child_root = resolve_sub_workflow_reference(
-                    path, base_dir, candidate.workflow_dir
-                )
-            except (SecurityError, OSError, ValueError, SubWorkflowNotFound):
-                return None
-            child_name = catalog_name_from_root(child_path, child_root)
-            if not child_name:
-                return None
-            # The workspace's own workflows/ is the writable one (#274). The
-            # root's `writable` tag is not enough: the run's own confinement
-            # is tagged writable whatever directory it is, so equality with
-            # the workspace's workflows/ stays the test
-            child_workspace = (
-                workspace.name if child_root == workspace.workflows else None
-            )
-            return observed_for_name(
-                state,
-                child_name,
-                child_definition,
-                arguments,
-                workspace=child_workspace,
-                card=card.ordinal(),
-            )
-
-        plan = build_plan(
-            candidate,
-            request.arguments,
-            device=get_device_type(get_device()),
-            prompt_dir=workspace.prompts,
-            lookup_sizes=sizes,
-            cache_probe=lambda arguments: manager.probe_cache(
-                {**command, "arguments": arguments}, slot=card
-            ),
-            # What this box's own runs of this shape took, which is what
-            # the estimate quotes ahead of a curated figure (#154) - the
-            # same aggregate the listing reports, asked with the
-            # caller's arguments rather than the defaults
-            observed=(
-                (
-                    lambda arguments: observed_for_name(
-                        state,
-                        catalog_name,
-                        definition,
-                        arguments,
-                        workspace=workspace.name if source.writable else None,
-                        card=card.ordinal(),
-                    )
-                )
-                if catalog_name
-                # An inline workflow has no name to look history up by:
-                # price it by pipeline identity, the way the VRAM ceiling
-                # is inherited (#797)
-                else lambda arguments: inherited_observed(
-                    state, workspace, definition, arguments, card=card.ordinal()
-                )
-            ),
-            observed_for_child=observed_for_child,
-        )
-        # Which card the estimate is for - with several, the figure is
-        # that card's, and another card's may differ
-        priced_for = card.label() or card.ordinal()
-        if priced_for and isinstance(plan.get("estimate"), dict):
-            plan["estimate"]["priced_for"] = priced_for
-        return plan
-    except Exception:
-        logger.exception("Plan could not be built")
-        return None
-
-
-def _bound_plan_for(state, workspace, workflow_path, arguments, source, catalog_name):
-    """The `plan_for` a bound acknowledgement is checked against: the plan
-    /api/validate builds for the same run, without the hub size lookup, so
-    a 409 quotes the observed estimate validate would (#1038)."""
-    request = SimpleNamespace(workflow_path=workflow_path, arguments=arguments)
-
-    def plan_for(candidate, vram_need=None):
-        return _validation_plan(
-            state, candidate, vram_need, request, workspace, source, catalog_name, False
-        )
-
-    return plan_for
-
-
 @router.post(
     "/api/validate", response_model=ValidationResult, response_model_exclude_unset=True
 )
@@ -906,7 +887,7 @@ def validate_workflow(
             supplied="arguments" in request.model_fields_set,
             catalog_name=catalog_name,
             history_workspace=(workspace.name if source and source.writable else None),
-            plan_for=lambda candidate, vram_need: _validation_plan(
+            plan_for=lambda candidate, vram_need: validation_plan(
                 state,
                 candidate,
                 vram_need,

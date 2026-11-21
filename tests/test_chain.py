@@ -24,7 +24,7 @@ from dw.pipeline_processors.chain_config import (
     snap_frames,
     validate_frame_snap,
 )
-from dw.media_types import AudioVideo
+from dw.media_types import AudioVideo, fit_codec_padding
 from dw.task_domains import frames_to_samples
 
 MINIMAX_SNAP = {"modulus": 17, "remainder": 5, "min_frames": 124, "max_frames": 345}
@@ -905,6 +905,32 @@ class TestGuideContinuity:
         assert [s.head_trim for s in config.plan] == [
             0 if i == 0 else 22 for i in range(len(config.plan))
         ]
+
+    def test_held_guide_audio_is_fitted_to_its_picture_like_resume(self):
+        overhang = 8
+        expected = round(124 / self.FPS * self.RATE)
+
+        def output(arguments, index):
+            frames = [solid_frame((index * 50, f, 7)) for f in range(124)]
+            ramp = torch.arange(expected + overhang, dtype=torch.float32)
+            audio = ramp.expand(1, 2, -1).clone()
+            return {"videos": [frames], "audio": audio, "sampling_rate": self.RATE}
+
+        pipeline = FakePipeline(output)
+        run_chain(
+            pipeline,
+            self.chain(guide_frames=22),
+            self.arguments(image=solid_frame((1, 2, 3))),
+        )
+
+        held = pipeline.calls[1]["guides"][0]["video"].audio.numpy()
+        samples = frames_to_samples(22, self.FPS, self.RATE)
+        full = numpy.arange(expected + overhang, dtype=numpy.float32)[None].repeat(2, 0)
+        fitted = fit_codec_padding(full, 124, self.FPS, self.RATE)
+        # ends at the sample matching the last guide frame, not the overhang
+        assert held[0, -1] == expected - 1
+        # and is the slice the resume path takes for the same segment
+        assert numpy.array_equal(held, fitted[:, -samples:])
 
     @pytest.mark.parametrize("guide_frames", [22, 39])
     def test_segments_mode_lays_the_previous_tail_in_as_a_guide(self, guide_frames):

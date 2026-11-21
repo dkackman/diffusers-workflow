@@ -30,7 +30,7 @@ workspace and caches with a native install on the same host:
 python3 -m venv venv
 source venv/bin/activate
 
-pip install torch torchvision torchaudio  # add --index-url https://download.pytorch.org/whl/cu130 for CUDA 13 on Linux
+pip install torch torchvision torchaudio  # add --index-url https://download.pytorch.org/whl/cu130 for CUDA 13 on Linux; on macOS use "torch<2.15" torchvision torchaudio (#1395)
 pip install -r requirements.txt           # -e .[server]; requirements-test.txt is -e .[dev]
 pip install --force-reinstall --no-deps git+https://github.com/huggingface/diffusers
 pip install diffusers                     # adds any dependency the git commit needs
@@ -63,7 +63,7 @@ The full list is in `pyproject.toml`. These are the ones with behaviour worth kn
 
 **Windows:** `install.ps1` installs bitsandbytes and kernels explicitly.
 
-**macOS (MPS):** `install.sh` adds fp4-fp8-for-torch-mps (FP8/FP4 dtypes for Metal; autoloads on every torch import, overrides mm/linear/copy on the MPS dispatch key and sets `PYTORCH_ENABLE_MPS_FALLBACK=1`) and fluidtop (a GPU/power TUI; needs sudo). bitsandbytes and flash_attn are not available on macOS.
+**macOS (MPS):** `install.sh` adds fp4-fp8-for-torch-mps (FP8/FP4 dtypes for Metal; autoloads on every torch import, overrides mm/linear/copy on the MPS dispatch key and sets `PYTORCH_ENABLE_MPS_FALLBACK=1`) and fluidtop (a GPU/power TUI; needs sudo). On macOS torch is pinned below 2.15 (`install.sh` and `pyproject.toml`, #1395): torch 2.15 with that autoload fails `scalar ** mps_tensor`, which breaks every Grounding-DINO run. bitsandbytes and flash_attn are not available on macOS.
 
 ## Optional
 

@@ -20,6 +20,8 @@ from dw.shots import shot_record
 from dw.tasks.assess import (
     THUMB_HEIGHT,
     THUMB_WIDTH,
+    _dead_air,
+    _window_levels,
     analyze_seams,
     analyze_shots,
     analyze_sync_drift,
@@ -264,6 +266,126 @@ class TestShotDeadAir:
         video.shots[0]["silent_by_design"] = True
         answer = analyze_shots(video)
         assert not [f for f in answer["findings"] if f["rule"] == "shot_dead_air"]
+
+
+# ---------------------------------------------------------------------------
+# 1c. Per-shot high_share and noise_floor_dbfs (#1442 stage 1, #1464)
+# ---------------------------------------------------------------------------
+
+
+def _one_shot(audio, sample_rate=48000, fps=24):
+    frames = make_frames(
+        max(1, int(round(audio.shape[1] / sample_rate * fps))), base_grey=120
+    )
+    shots = [shot_record("s0", 0, len(frames), 0, audio.shape[1])]
+    return AudioVideo(frames, audio, sample_rate, fps=fps, shots=shots)
+
+
+class TestHighShare:
+    def test_a_1khz_tone_has_almost_no_high_share(self):
+        shot = analyze_shots(_one_shot(make_tone(48000, freq=1000.0)))["shots"][0]
+        assert shot["high_share"] == pytest.approx(0.0, abs=0.01)
+
+    def test_an_8khz_tone_is_almost_all_high_share(self):
+        shot = analyze_shots(_one_shot(make_tone(48000, freq=8000.0)))["shots"][0]
+        assert shot["high_share"] == pytest.approx(1.0, abs=0.01)
+
+    def test_high_share_is_a_share_of_the_same_bands_the_shot_reports(self):
+        audio = make_tone(48000, freq=1000.0) + make_tone(48000, freq=8000.0)
+        shot = analyze_shots(_one_shot(audio))["shots"][0]
+        assert 0.3 < shot["high_share"] < 0.7
+        json.dumps(shot)
+
+
+class TestNoiseFloor:
+    @staticmethod
+    def _speech_over_bed(bed_dbfs=-60.0, sample_rate=48000):
+        """Four seconds over a white-noise bed: 0.5 s of -17 dBFS tone, then
+        0.5 s of the bed alone, repeated - the bed is the floor."""
+        rng = numpy.random.default_rng(3)
+        total = 4 * sample_rate
+        bed = (10 ** (bed_dbfs / 20) * rng.standard_normal((2, total))).astype(
+            numpy.float32
+        )
+        tone = make_tone(total, sample_rate, amplitude=math.sqrt(2) * 10 ** (-17 / 20))
+        gate = (numpy.arange(total) // (sample_rate // 2)) % 2 == 0
+        return bed + tone * gate
+
+    def test_a_tone_over_a_bed_with_gaps_reads_the_bed(self):
+        shot = analyze_shots(_one_shot(self._speech_over_bed()))["shots"][0]
+        assert shot["noise_floor_dbfs"] == pytest.approx(-60.0, abs=1.5)
+        assert shot["noise_floor_dbfs"] <= shot["rms_dbfs"]
+
+    def test_a_shot_under_half_a_second_has_no_floor(self):
+        answer = analyze_shots(_one_shot(make_tone(int(0.4 * 48000))))
+        shot = answer["shots"][0]
+        assert shot["noise_floor_dbfs"] is None
+        assert shot["rms_dbfs"] is not None
+        json.dumps(answer)
+
+    def test_ten_windows_is_enough(self):
+        shot = analyze_shots(_one_shot(make_tone(int(0.5 * 48000))))["shots"][0]
+        assert shot["noise_floor_dbfs"] is not None
+
+    def test_an_all_zero_shot_reports_the_silence_value_rms_does(self):
+        answer = analyze_shots(_one_shot(numpy.zeros((2, 48000), numpy.float32)))
+        shot = answer["shots"][0]
+        assert shot["rms_dbfs"] is None
+        assert shot["noise_floor_dbfs"] is None
+        assert shot["high_share"] is None
+        json.dumps(answer, allow_nan=False)
+
+    def test_a_steady_tone_floor_never_sits_above_its_rms(self):
+        # A partial last window makes the tail different from the rest
+        audio = make_tone(int(1.37 * 48000), freq=440.0)
+        shot = analyze_shots(_one_shot(audio))["shots"][0]
+        assert shot["noise_floor_dbfs"] <= shot["rms_dbfs"]
+        assert shot["noise_floor_dbfs"] == pytest.approx(shot["rms_dbfs"], abs=0.1)
+
+    def test_mostly_silent_windows_give_a_null_floor_not_nan(self):
+        audio = numpy.zeros((2, 48000), numpy.float32)
+        audio[:, :4800] = make_tone(4800)
+        shot = analyze_shots(_one_shot(audio))["shots"][0]
+        assert shot["rms_dbfs"] is not None
+        assert shot["noise_floor_dbfs"] is None
+
+
+class TestDeadAirSharesTheWindows:
+    """`_dead_air` reads `_window_levels` now; its answers on the same
+    signals are pinned here (#1464)."""
+
+    def test_dead_air_values_are_unchanged(self):
+        video = TestShotDeadAir._shot(gap_dbfs=-80.0)
+        assert _dead_air(video, 0, video.audio.shape[1]) == (1.0, 1.0, -80.0)
+        shallow = TestShotDeadAir._shot(gap_dbfs=-58.0)
+        assert _dead_air(shallow, 0, shallow.audio.shape[1]) == (0.0, None, None)
+
+    def test_dead_air_needs_two_windows(self):
+        video = _one_shot(make_tone(48000))
+        assert _dead_air(video, 0, 4799) == (None, None, None)
+        assert _dead_air(video, 0, 4800) == (0.0, None, None)
+        assert _dead_air(video, None, None) == (None, None, None)
+
+    def test_dead_air_digital_silence_has_no_floor(self):
+        audio = numpy.concatenate(
+            [
+                make_tone(48000),
+                numpy.zeros((2, 48000), numpy.float32),
+                make_tone(48000),
+            ],
+            axis=1,
+        )
+        video = _one_shot(audio)
+        assert _dead_air(video, 0, audio.shape[1]) == (1.0, 1.0, None)
+
+    def test_both_read_the_same_windows(self):
+        video = TestShotDeadAir._shot(gap_dbfs=-80.0)
+        levels, window_samples = _window_levels(video, 0, video.audio.shape[1])
+        assert window_samples == 2400
+        assert len(levels) == 60
+        assert min(level for level in levels if level is not None) == pytest.approx(
+            -80.0, abs=0.01
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1036,3 +1158,27 @@ class TestShotSpanOverrun:
 
         assert not [f for f in answer["findings"] if f["rule"] == "shot_span_overrun"]
         assert not any(w[1].get("kind") == "shot_span_overrun" for w in warnings)
+
+
+class TestMediaFromFrameArray:
+    """#1423: video_frames hands on a FittedVideo (frames, a rate, no .frames)."""
+
+    def test_fitted_video_is_scored_as_frames(self):
+        import numpy
+
+        from dw.media_types import FittedVideo
+        from dw.tasks.assess import media_from
+
+        frames = numpy.random.randint(0, 255, (5, 32, 48, 3), dtype=numpy.uint8)
+        media = media_from(FittedVideo(frames, fps=24, dtype=numpy.uint8))
+        assert media.frame_count == 5
+        assert media.fps == 24
+        assert media.audio is None
+
+    def test_other_object_names_accepted_forms(self):
+        import pytest
+
+        from dw.tasks.assess import media_from
+
+        with pytest.raises(ValueError, match="video_frames"):
+            media_from(object())

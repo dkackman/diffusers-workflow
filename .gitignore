@@ -169,3 +169,6 @@ workflows/*/assets/
 
 # Claude Code worktrees
 .claude/worktrees/
+
+# test caches written when vitest is run from the repo root
+/node_modules/

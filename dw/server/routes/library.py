@@ -32,10 +32,15 @@ from ..api_models import (
     WorkspaceInfo,
     WorkspaceList,
 )
+
 from ...argument_warnings import workflow_argument_warnings
 from ...schema import format_validation_errors, load_schema, validate_data
 from ... import references, validation
-from ...security import InvalidInputError, SecurityError, validate_prompt_reference
+from ...security import (
+    InvalidInputError,
+    SecurityError,
+    validate_prompt_reference,
+)
 from ...workflow import Workflow
 from ...workspace_copy import CopyRefused, copy_between
 from ...notes import read_workspace_note
@@ -915,6 +920,7 @@ def enhance(
             warnings=admission.warnings,
             vram_need=admission.vram_need,
             host_ram_need=admission.host_ram_need,
+            repos_named=admission.repos_named,
         )
         return manager.describe(job)
     except Exception:

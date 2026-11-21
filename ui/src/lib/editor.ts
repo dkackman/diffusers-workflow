@@ -1,13 +1,6 @@
 import { api } from './api'
 import type { PipelineDescription, PipelineParameter } from './types'
-import { danglingReferenceDetails, forEachReferences } from './flow'
-import {
-  PREVIOUS_RESULT,
-  PROMPT,
-  VARIABLE,
-  isReference,
-  reference,
-} from './references'
+import { ITEM, VARIABLE, isReference, reference } from './references'
 
 export { isReference }
 
@@ -35,73 +28,6 @@ export function classDescription(
 }
 
 export type Widget = 'number' | 'boolean' | 'text' | 'textarea' | 'json'
-
-export type MediaKind = 'image' | 'video'
-
-// A pipeline's __call__ signature types media arguments as a union like
-// PipelineImageInput (PIL.Image.Image | np.ndarray | torch.Tensor | lists of
-// those) - introspection stringifies whatever the annotation or the
-// docstring's type column says, and both carry the word "image"/"video".
-// No \b word boundary: PyTorch/diffusers type names are often one run of
-// camelCase (PipelineImageInput, VaeImageProcessor's output types, ...)
-// with no separator before "Image"/"Video" for \b to catch.
-const IMAGE_TYPE_PATTERN = /image/i
-const VIDEO_TYPE_PATTERN = /video/i
-
-// **kwargs-only callables (from_pretrained) and dw's own tasks (see
-// dw/introspection.py's describe_task, e.g. depth_estimator's "image") carry
-// no annotation at all - the same argument names workflows/*.json already
-// use (img2img's `image`, ControlNet's `control_image`/`conditioning_image`,
-// inpainting's `mask_image`) are the only signal left.
-const IMAGE_NAME_PATTERN =
-  /^(image|mask_image|control_image|conditioning_image|init_image|input_image|ip_adapter_image|reference_image|style_image|depth_map)(_\d+)?$/i
-const VIDEO_NAME_PATTERN =
-  /^(video|control_video|conditioning_video|input_video)(_\d+)?$/i
-
-/** Whether an argument takes an image/video rather than plain text - and
- * which kind. Reference values (variable:, previous_result:, ...) are the
- * caller's job to exclude first; they resolve to media at run time but are
- * always edited as the reference string itself. */
-export function mediaKindFor(
-  parameter: PipelineParameter | undefined,
-  key: string,
-): MediaKind | null {
-  const typeText = `${parameter?.annotation ?? ''} ${parameter?.doc_type ?? ''}`
-  if (IMAGE_TYPE_PATTERN.test(typeText)) return 'image'
-  if (VIDEO_TYPE_PATTERN.test(typeText)) return 'video'
-  if (!parameter?.annotation && !parameter?.doc_type) {
-    if (IMAGE_NAME_PATTERN.test(key)) return 'image'
-    if (VIDEO_NAME_PATTERN.test(key)) return 'video'
-  }
-  return null
-}
-
-/** The file path or URL a media argument's value names, whichever shape it
- * is in: a bare string, or the `{ location: ... }` object the engine also
- * accepts (see dw/references.py's FROM_FILE_KEY) - optionally alongside a
- * `media_type`. */
-export function mediaLocation(value: unknown): string {
-  if (typeof value === 'string') return value
-  if (
-    value !== null &&
-    typeof value === 'object' &&
-    !Array.isArray(value) &&
-    typeof (value as Record<string, unknown>).location === 'string'
-  ) {
-    return (value as Record<string, unknown>).location as string
-  }
-  return ''
-}
-
-/** Write a new location into a media argument's value, preserving its shape:
- * an object value keeps its other keys (e.g. `media_type`), anything else
- * becomes a plain path string - both are forms the engine accepts. */
-export function withMediaLocation(value: unknown, location: string): unknown {
-  if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
-    return { ...(value as Record<string, unknown>), location }
-  }
-  return location
-}
 
 export function widgetFor(
   parameter: PipelineParameter | undefined,
@@ -331,6 +257,269 @@ export function requiredVariables(definition: unknown): Set<string> {
   return found
 }
 
+/** The keys of a `variable_constraint` (`dw/workflow_schema.json`) that
+ * `constraintHints` states in words. Every key the schema declares is here,
+ * pinned by `editor.test.ts`: a key with no label would fall back to
+ * `key: value`. `required` is the field's existing "required" mark and
+ * `reason` follows the rule, so neither is a line of its own. */
+export const CONSTRAINT_LABELLED_KEYS = [
+  'min_frames',
+  'max_frames',
+  'modulus',
+  'remainder',
+  'snap',
+  'min_length',
+  'max_words_per_second',
+  'seconds_from',
+  'required',
+  'reason',
+]
+
+/** The rule one constraint declares, as phrases - the engine's own
+ * `_accepted` wording (`dw/variable_constraints.py`) - with every number
+ * read from the declaration. `like` is the declared default, which decides
+ * whether a `min_length` reads as a string's rule or a list's. */
+function constraintPhrases(rule: Record<string, unknown>, like: unknown) {
+  const parts = [...lengthPhrases(rule, like), ...framePhrases(rule)]
+  if (rule.max_words_per_second !== undefined) {
+    const of = rule.seconds_from !== undefined ? ` of ${rule.seconds_from}` : ''
+    parts.push(
+      `about ${rule.max_words_per_second} words a second${of} (a warning)`,
+    )
+  }
+  for (const [key, value] of Object.entries(rule)) {
+    if (!CONSTRAINT_LABELLED_KEYS.includes(key)) {
+      parts.push(`${key}: ${displayValue(value)}`)
+    }
+  }
+  return parts
+}
+
+/** `min_length`, as a list's rule or a string's. */
+function lengthPhrases(rule: Record<string, unknown>, like: unknown): string[] {
+  const minimum = rule.min_length
+  if (minimum === undefined || minimum === null) return []
+  if (Array.isArray(like)) {
+    return [minimum === 1 ? 'a non-empty list' : `at least ${minimum} entries`]
+  }
+  return [
+    minimum === 1 ? 'a non-empty string' : `at least ${minimum} characters`,
+  ]
+}
+
+/** The frame count's range, grid and rounding. */
+function framePhrases(rule: Record<string, unknown>): string[] {
+  const parts: string[] = []
+  const low = rule.min_frames
+  const high = rule.max_frames
+  if (low !== undefined && high !== undefined) parts.push(`${low} to ${high}`)
+  else if (low !== undefined) parts.push(`${low} or more`)
+  else if (high !== undefined) parts.push(`${high} or less`)
+  if (rule.modulus !== undefined) {
+    parts.push(`${rule.modulus} * n + ${rule.remainder ?? 0}`)
+  }
+  if (rule.snap === 'up') parts.push('an off-grid value rounds up')
+  return parts
+}
+
+/** The optional item form {"item": "<field>", "default": ...} */
+function isOptionalItem(
+  obj: Record<string, unknown>,
+): obj is Record<string, unknown> & { item: string } {
+  return (
+    typeof obj.item === 'string' &&
+    obj.item !== '' &&
+    Object.keys(obj).every((k) => k === 'item' || k === 'default')
+  )
+}
+
+/** Which list-driven variables carry an entry field, read the way the
+ * engine's `list_fields` reads it (`dw/for_each.py`): every step whose
+ * `for_each` is `variable:<list>`, and the `item:<field>` references in it. */
+function entryFields(definition: unknown): Map<string, Set<string>> {
+  const found = new Map<string, Set<string>>()
+  const steps = (definition as { steps?: unknown } | null)?.steps
+  if (!Array.isArray(steps)) return found
+  const walk = (node: unknown, into: Set<string>): void => {
+    if (typeof node === 'string') {
+      if (node.startsWith(ITEM) && node.length > ITEM.length) {
+        into.add(node.slice(ITEM.length))
+      }
+    } else if (Array.isArray(node)) {
+      node.forEach((n) => walk(n, into))
+    } else if (node !== null && typeof node === 'object') {
+      const obj = node as Record<string, unknown>
+      if (isOptionalItem(obj)) {
+        into.add(obj.item)
+        walk(obj.default, into)
+        return
+      }
+      for (const [key, value] of Object.entries(obj)) {
+        if (key !== 'for_each') walk(value, into)
+      }
+    }
+  }
+  for (const step of steps) {
+    const target = (step as { for_each?: unknown } | null)?.for_each
+    if (typeof target !== 'string' || !target.startsWith(VARIABLE)) continue
+    const list = target.slice(VARIABLE.length)
+    const fields = found.get(list) ?? new Set<string>()
+    walk(step, fields)
+    found.set(list, fields)
+  }
+  return found
+}
+
+/** Each declared `variable_constraints` rule stated in words, as
+ * {variable: lines}, for the form to show under the field. A rule on a
+ * list entry's field (dialogue-short's `num_frames` in `shots`) shows under
+ * the list, prefixed "each entry's <field>:". It states the rule only:
+ * every verdict on a value stays the server's. */
+export function constraintHints(definition: unknown): Record<string, string[]> {
+  const hints: Record<string, string[]> = {}
+  const { rules, variables } = declaredConstraints(definition)
+  const add = (name: string, line: string | null, prefix = '') => {
+    if (line) (hints[name] ??= []).push(prefix + line)
+  }
+  const lists = entryFields(definition)
+  for (const [name, rule] of rules) {
+    if (name in variables) add(name, constraintLine(rule, variables[name]))
+    for (const [list, fields] of lists) {
+      if (!fields.has(name) || !(list in variables)) continue
+      const like = entryValue(variables[list], name)
+      add(list, constraintLine(rule, like), `each entry's ${name}: `)
+    }
+  }
+  return hints
+}
+
+type ConstraintRule = Record<string, unknown>
+
+/** The definition's `variable_constraints` that are rules, in declaration
+ * order, and the variables it declares. */
+function declaredConstraints(definition: unknown): {
+  rules: [string, ConstraintRule][]
+  variables: Record<string, unknown>
+} {
+  const def = definition as {
+    variables?: Record<string, unknown>
+    variable_constraints?: unknown
+  } | null
+  const declared = def?.variable_constraints
+  const rules = isPlainObject(declared)
+    ? Object.entries(declared).filter(
+        (entry): entry is [string, ConstraintRule] =>
+          entry[1] !== null && typeof entry[1] === 'object',
+      )
+    : []
+  return { rules, variables: def?.variables ?? {} }
+}
+
+/** One rule as a line: its phrases, then its `reason`; null when it has
+ * no phrase to state. */
+function constraintLine(rule: Record<string, unknown>, like: unknown) {
+  const parts = constraintPhrases(rule, like)
+  if (!parts.length) return null
+  const reason =
+    typeof rule.reason === 'string' && rule.reason ? ` - ${rule.reason}` : ''
+  return parts.join(', ') + reason
+}
+
+/** The first value a list's entries give `field`, which is what its rule
+ * is worded like. */
+function entryValue(entries: unknown, field: string): unknown {
+  if (!Array.isArray(entries)) return undefined
+  const entry = entries.find(
+    (e) => e !== null && typeof e === 'object' && field in e,
+  ) as Record<string, unknown> | undefined
+  return entry?.[field]
+}
+
+/** One preset selector as the form shows it: its bundle names, exactly the
+ * keys of `presets.<selector>`, and the variables its bundles set (their
+ * union, the selector itself left out, as `dw/presets.py` skips it). */
+export type PresetSelector = { bundles: string[]; sets: string[] }
+
+type Bundles = Record<string, Record<string, unknown>>
+
+/** The definition's `presets` ({selector: {bundle: {variable: value}}}),
+ * keeping only the selectors and bundles that are objects - what
+ * `apply_presets` would read. */
+function presetBundles(definition: unknown): Record<string, Bundles> {
+  const raw = (definition as { presets?: unknown } | null)?.presets
+  const found: Record<string, Bundles> = {}
+  if (!isPlainObject(raw)) return found
+  for (const [selector, bundles] of Object.entries(raw)) {
+    if (!isPlainObject(bundles)) continue
+    const kept: Bundles = {}
+    for (const [name, bundle] of Object.entries(bundles)) {
+      if (isPlainObject(bundle)) kept[name] = bundle
+    }
+    found[selector] = kept
+  }
+  return found
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+/** Each preset selector the definition declares: {selector: its bundle
+ * names and the variables they set}. */
+export function presetView(
+  definition: unknown,
+): Record<string, PresetSelector> {
+  const view: Record<string, PresetSelector> = {}
+  for (const [selector, bundles] of Object.entries(presetBundles(definition))) {
+    const sets = new Set<string>()
+    for (const bundle of Object.values(bundles)) {
+      for (const name of Object.keys(bundle)) {
+        if (name !== selector) sets.add(name)
+      }
+    }
+    view[selector] = { bundles: Object.keys(bundles), sets: [...sets] }
+  }
+  return view
+}
+
+/** The value the chosen bundle gives `name`, as the placeholder of an empty
+ * field; undefined when no chosen bundle sets it, or the field holds a value
+ * of its own (an explicit value wins, `dw/presets.py`'s `apply_presets`).
+ * The chosen bundle is the selector's override, else its declared default -
+ * the engine's `effective_variables` order: declared default, then bundle,
+ * then explicit value. Display only: the bundle's values are never sent. */
+export function presetPlaceholder(
+  definition: unknown,
+  overrides: Record<string, string>,
+  name: string,
+): string | undefined {
+  if (overrides[name]) return undefined
+  const declared =
+    (definition as { variables?: Record<string, unknown> } | null)?.variables ??
+    {}
+  let found: string | undefined
+  // In declaration order, a later selector's bundle over an earlier one's,
+  // as apply_presets sets them
+  for (const [selector, bundles] of Object.entries(presetBundles(definition))) {
+    if (selector === name) continue
+    const bundle = chosenBundle(
+      bundles,
+      overrides[selector] || declared[selector],
+    )
+    if (bundle && Object.hasOwn(bundle, name)) {
+      found = displayValue(bundle[name])
+    }
+  }
+  return found
+}
+
+/** The bundle a selector's value names, if it names one. */
+function chosenBundle(bundles: Bundles, chosen: unknown) {
+  return typeof chosen === 'string' && Object.hasOwn(bundles, chosen)
+    ? bundles[chosen]
+    : undefined
+}
+
 export const ATTENTION_BACKENDS = [
   'native',
   'flash',
@@ -360,54 +549,4 @@ export function emptyWorkflowStep() {
     name: 'delegate',
     workflow: { path: '', arguments: {} },
   }
-}
-
-/** `previous_result:` for a step, plus the `.frames` and `.audio` of a
- * video result. */
-function resultReferences(step: Record<string, any>): string[] {
-  const own = reference(PREVIOUS_RESULT, step.name)
-  return (step.result?.content_type ?? '').startsWith('video')
-    ? [own, `${own}.frames`, `${own}.audio`]
-    : [own]
-}
-
-/** Reference completions available to a value input in step `stepIndex`:
- * every declared variable, every EARLIER step's result - with media
- * property suffixes for steps whose result is a video - every stored
- * prompt the library lists, and the for_each references the step can
- * make (`item:` and its fields, `gather:`, members). An earlier for_each
- * step is offered by plain name only where the engine allows it: from a
- * for_each over the same list. */
-export function referenceSuggestions(
-  workflow: Record<string, any>,
-  stepIndex: number,
-  promptNames: string[] = [],
-): string[] {
-  const suggestions: string[] = []
-  for (const name of Object.keys(workflow.variables ?? {})) {
-    suggestions.push(reference(VARIABLE, name))
-  }
-  for (const name of promptNames) {
-    suggestions.push(reference(PROMPT, name))
-  }
-  const forEach = forEachReferences(workflow, stepIndex)
-  const steps: Array<Record<string, any>> = workflow.steps ?? []
-  for (const step of steps.slice(0, Math.max(0, stepIndex))) {
-    if (step.name && !forEach.plainRefused.has(step.name))
-      suggestions.push(...resultReferences(step))
-  }
-  suggestions.push(...forEach.suggestions)
-  return suggestions
-}
-
-/** References the workflow makes that nothing declares: variable: names
- * missing from variables, previous_result: names that match no EARLIER
- * step, and - when the prompt library's listing is supplied - prompt:
- * names it does not hold. The engine would fail these at run time; the
- * editor says so now. */
-export function danglingReferences(
-  workflow: Record<string, any>,
-  promptNames?: string[],
-): string[] {
-  return danglingReferenceDetails(workflow, promptNames).map((d) => d.message)
 }

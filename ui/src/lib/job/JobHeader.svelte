@@ -6,9 +6,13 @@
   import { wsHref } from '../routes'
   import { workspace } from '../workspace.svelte'
   import CopyButton from '../CopyButton.svelte'
-  import { formatDuration, formatExact, formatMtime } from '../format'
+  import RerunWithChanges from './RerunWithChanges.svelte'
+  import { exportMessage } from './exportMessage'
+  import { displayValue } from '../editor'
+  import { formatDuration, formatExact, formatMtime, gbFromMb } from '../format'
   import { notify } from '../toast'
-  import type { JobDetail } from '../types'
+  import { holdKind } from '../progress'
+  import type { JobDetail, LedgerRequest } from '../types'
 
   // The job page's title row: what ran, its state and identity, and the
   // actions a job offers - cancel while it runs, run again and export after.
@@ -21,6 +25,9 @@
     running,
     cancelPending,
     seedVariable,
+    declared = null,
+    request = null,
+    requestGone = false,
   }: {
     job: JobDetail | null
     jobId: string
@@ -29,7 +36,21 @@
     running: boolean
     cancelPending: boolean
     seedVariable: string | null
+    /** The run's definition's declared variables, for Run again with
+     * changes; null while it loads or when it is not on file */
+    declared?: Record<string, unknown> | null
+    /** The request the job was run for, once read */
+    request?: LedgerRequest | null
+    /** The server said that request is gone (404) */
+    requestGone?: boolean
   } = $props()
+
+  // The request this job was run for (requests ledger) names the link.
+  // The page reads it, for this title and its note box alike
+  const requestTitle = $derived(request?.title ?? '')
+
+  // What a rerun changed, as the server stored it: absent on a plain rerun
+  const overrideKeys = $derived(Object.keys(job?.overrides ?? {}))
 
   // Start to finish off the job record's own clocks. A running job's
   // figure counts up on a one-second tick; the record only changes when the
@@ -40,6 +61,9 @@
     const tick = setInterval(() => (now = Date.now() / 1000), 1000)
     return () => clearInterval(tick)
   })
+  const peakRam = (mb: number) =>
+    mb >= 1024 ? `${gbFromMb(mb)} GB` : `${Math.round(mb)} MB`
+
   const took = $derived.by(() => {
     if (!job?.started_at) return null
     const end = job.finished_at ?? (running ? now : null)
@@ -48,7 +72,12 @@
 
   async function rerun(newSeed: boolean) {
     try {
-      go('ws', job!.workspace, 'jobs', (await api.rerunJob(jobId, newSeed)).id)
+      go(
+        'ws',
+        job!.workspace,
+        'jobs',
+        (await api.rerunJob(jobId, { newSeed })).id,
+      )
     } catch (e) {
       // Without this the button silently does nothing - the failure mode
       // that made a cache-served rerun so hard to read in the first place
@@ -62,41 +91,49 @@
   // gathering it twice while the first is still copying media.
   let exporting = $state(false)
 
+  /** The export, or null when one exists and the user kept it. The server
+   * keeps one export per job. An existing one is not a failure but a
+   * question, and only a 409 asks it - anything else is reported as the
+   * error it is. */
+  async function exportOrReplace(workspace: string) {
+    try {
+      return await api.exportJob(jobId, workspace)
+    } catch (e) {
+      if (!(e instanceof ApiError) || e.status !== 409) throw e
+    }
+    const replace = await confirmDialog(
+      'This job has already been exported on the server. Replace that export with a fresh one?',
+      { confirmLabel: 'Replace' },
+    )
+    return replace ? api.exportJob(jobId, workspace, true) : null
+  }
+
   async function exportJob() {
     if (!job || exporting) return
     exporting = true
     try {
-      let result
-      try {
-        result = await api.exportJob(jobId, job.workspace)
-      } catch (e) {
-        // The server keeps one export per job. An existing one is not a
-        // failure but a question, and only a 409 asks it - anything else
-        // is reported as the error it is.
-        if (!(e instanceof ApiError) || e.status !== 409) throw e
-        const replace = await confirmDialog(
-          'This job has already been exported on the server. Replace that export with a fresh one?',
-          { confirmLabel: 'Replace' },
-        )
-        if (!replace) return
-        result = await api.exportJob(jobId, job.workspace, true)
-      }
+      const result = await exportOrReplace(job.workspace)
+      if (!result) return
       const anchor = document.createElement('a')
       anchor.href = api.exportZipUrl(result.zip_url)
       anchor.download = `${jobId}.zip`
       anchor.click()
-      const mb = (result.total_bytes / (1024 * 1024)).toFixed(1)
-      notify.success(
-        `Exported ${result.files.length} file${result.files.length === 1 ? '' : 's'} (${mb} MB) to ${result.directory}` +
-          (result.missing.length
-            ? ` - ${result.missing.length} referenced file${result.missing.length === 1 ? '' : 's'} no longer on disk`
-            : ''),
-      )
+      notify.success(exportMessage(result))
     } catch (e) {
       notify.error(e instanceof Error ? e.message : String(e))
     } finally {
       exporting = false
     }
+  }
+
+  /** Hover text for the hold, matched to whichever hold it is. */
+  function holdTitle(waitingFor: string | null | undefined): string {
+    const kind = holdKind(waitingFor)
+    if (kind === 'host_ram')
+      return "a card is free, but the host can't hold this job beside the running ones yet - it starts when one finishes"
+    if (kind === 'cards_busy')
+      return 'every card is running a job - this one starts when a card frees up'
+    return "why this job hasn't started"
   }
 </script>
 
@@ -117,6 +154,33 @@
           ><code>{job.rerun_of}</code></a
         ></span
       >
+      {#if overrideKeys.length}
+        <!-- Its own element beside "rerun of", so a sibling can be added
+             without editing it -->
+        <code
+          class="muted seed overrides"
+          title={Object.entries(job.overrides ?? {})
+            .map(([name, value]) => `${name} = ${displayValue(value)}`)
+            .join('\n')}>changed: {overrideKeys.join(', ')}</code
+        >
+      {/if}
+    {/if}
+    {#if job.request}
+      <span class="muted">
+        {#if requestGone}
+          <span title="request no longer exists"
+            >{job.request}{job.item ? ` › ${job.item}` : ''}</span
+          >
+          <span>request no longer exists</span>
+        {:else}
+          <a
+            class="plain"
+            href={wsHref(job.workspace, 'requests', job.request)}
+            title={requestTitle || `request ${job.request}`}
+            >{job.request}{job.item ? ` › ${job.item}` : ''}</a
+          >
+        {/if}
+      </span>
     {/if}
     {#if cancelPending}
       <span
@@ -131,9 +195,7 @@
       >
     {/if}
     {#if job.waiting_for}
-      <span
-        class="muted"
-        title="a card is free, but the host can't hold this job beside the running ones yet - it starts when one finishes"
+      <span class="muted" title={holdTitle(job.waiting_for)}
         >{job.waiting_for}</span
       >
     {/if}
@@ -173,6 +235,13 @@
     {#if job.device}
       <code class="muted seed" title="the card this job ran on"
         >Card: {job.device}</code
+      >
+    {/if}
+    {#if job.host_memory_job_peak_committed_mb != null}
+      <code
+        class="muted seed"
+        title="the whole server process's committed memory at its peak during this job - what the host-RAM gate projects from, not growth caused by this job alone"
+        >peak host RAM {peakRam(job.host_memory_job_peak_committed_mb)}</code
       >
     {/if}
     {#if job.acknowledged === 'bound'}
@@ -221,6 +290,7 @@
           <Dices size={14} />New seed
         </button>
       {/if}
+      <RerunWithChanges {job} {declared} />
       <button
         class="quiet withicon"
         onclick={exportJob}

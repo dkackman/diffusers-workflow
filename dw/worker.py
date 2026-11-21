@@ -380,6 +380,9 @@ class WorkflowWorker:
         changed."""
         job.workflow, identity = self._load_workflow(command, command["output_dir"])
 
+        # A refusal leaves the warm cache where it was
+        workflow_run.require_trusted_pipelines(job.workflow, command.get("arguments"))
+
         # Switching to a different workflow frees the old one's models
         # before the new one loads - on one accelerator, holding both is
         # what runs out of memory

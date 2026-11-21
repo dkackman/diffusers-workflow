@@ -1,13 +1,17 @@
-"""Response models for the library routes - workspaces, workflows, prompts
-and enhancer presets. Part of the UI's response contract that
-`dw/server/api_models.py` describes; it re-exports every name here.
+"""Response models for the library routes - workspaces, workflows, prompts,
+enhancer presets, LoRAs, the asset library, the requests ledger, and the
+gallery's marks and request links on one file. Part of
+the UI's response contract that `dw/server/api_models.py` describes; it
+re-exports every name here.
 """
 
 from typing import Any, Literal
 
-from pydantic import ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field
 
-from .api_models_base import ApiModel, sometimes
+from .api_models_base import ApiModel, JobStatus, OutputKind, sometimes
+from ..ledger import MAX_TITLE_LENGTH, MAX_WHY_LENGTH
+from ..lora_catalog import STATUS_ORDER
 from .catalog_shape import SHAPES, TRAITS
 
 Origin = Literal["workspace", "common", "examples", "builtin"]
@@ -212,3 +216,437 @@ class EnhancerPreset(ApiModel):
 
 class EnhancerPresets(ApiModel):
     presets: list[EnhancerPreset]
+
+
+# The LoRA catalog listing (GET /api/loras). A row is a catalog entry
+# (dw/lora_catalog_schema.json) as stored, plus where it came from. Every
+# field the schema allows is declared, so the strict suite fails on an entry
+# key the model does not know rather than the route dropping it; numbers are
+# `int | float` so a stored `1` goes out as `1`, not `1.0`.
+
+
+class LoraScale(ApiModel):
+    default: int | float
+    range: list[int | float] = sometimes("`[low, high]`, when the entry states one.")
+
+
+class LoraEvidence(ApiModel):
+    note: str
+    job: str = sometimes()
+    issue: int = sometimes()
+
+
+class LoraRow(ApiModel):
+    name: str = Field(description="The entry's catalog name: its path under loras/.")
+    origin: Origin = Field(description="Which library root the entry came from.")
+    writable: bool
+    model_name: str = Field(description="The LoRA's Hub repo (owner/name).")
+    base_models: list[str] = Field(description="The base repos it was made for.")
+    description: str
+    use_when: str
+    status: Literal[tuple(STATUS_ORDER)]
+    weight_name: str = sometimes(
+        "The .safetensors file in the repo, when it has several."
+    )
+    revision: str = sometimes("The commit or branch the entry pins.")
+    workflow: str | list[str] | None = sometimes(
+        "The base's workflow partition(s) the LoRA fits; null or absent for any."
+    )
+    trigger: str = sometimes("Words the prompt needs for the LoRA to act.")
+    scale: LoraScale = sometimes("The scale the entry states; absent on some entries.")
+    stacks_with: list[str] = sometimes()
+    evidence: list[LoraEvidence] = sometimes()
+    license: str = sometimes()
+    tags: list[str] = sometimes()
+
+
+class ResolvedBase(ApiModel):
+    repo: str
+    workflow: str | None
+
+
+class LoraList(ApiModel):
+    libraries: list[LibraryRoot]
+    resolved: list[ResolvedBase] = sometimes(
+        "The bases `model` resolved to; only when `model` was given."
+    )
+    loras: list[LoraRow] = Field(
+        description="Matching entries, rejected ones included, sorted by name."
+    )
+
+
+# An asset library entry may also be a .cube colour lookup table
+AssetKind = Literal["image", "video", "audio", "text", "lut"]
+
+
+# Assets have no packaged (builtin) library
+AssetOrigin = Literal["workspace", "common", "examples"]
+
+
+class AssetLibraryRoot(ApiModel):
+    root: str
+    origin: AssetOrigin
+    writable: bool
+
+
+class AssetFile(ApiModel):
+    name: str
+    reference: str
+    folder: str
+    kind: AssetKind
+    size: int
+    mtime: int | float
+    origin: AssetOrigin = Field(
+        description="Which library it came from: this workspace's own, the `common` "
+        "one every workspace shares, or a read-only examples tree - why a delete "
+        "can answer 403."
+    )
+    writable: bool
+    url: str
+    absolute_url: str = sometimes()
+    used_by: list[str] = sometimes(
+        "This workspace's own workflows that name it in an `asset:` reference, "
+        "when any do"
+    )
+    note: str = sometimes("The asset's note, when it has one.")
+
+
+class ShadowedAsset(ApiModel):
+    name: str
+    reference: str
+    folder: str
+    kind: AssetKind
+    size: int
+    mtime: int | float
+    origin: AssetOrigin
+    writable: bool
+    shadowed_by: AssetOrigin
+
+
+class AssetList(ApiModel):
+    workspace: str
+    libraries: list[AssetLibraryRoot]
+    assets: list[AssetFile]
+    folders: list[str]
+    shadowed: list[ShadowedAsset]
+    total: int = sometimes("Assets matching the prefix, before `limit` cut them")
+    shadowed_total: int = sometimes("Shadowed names matching, before `limit`")
+
+
+class Uploaded(ApiModel):
+    reference: str
+    workspace: str
+    url: str
+    absolute_url: str = sometimes()
+    shared: bool
+
+
+class Kept(ApiModel):
+    reference: str
+    name: str
+    workspace: str
+    linked: bool
+    shared: bool
+
+
+class LedgerAccepted(ApiModel):
+    job: str
+    run_id: str | None
+
+
+class LedgerNoteRef(ApiModel):
+    """What a note is about: one item, planned or rendered, and maybe one of
+    its linked jobs and one of that job's files."""
+
+    item: str = Field(description="The item key.")
+    job: str = sometimes("A job linked to the item.")
+    output: str = sometimes(
+        "One file of the job's manifest, relative to the workspace's outputs."
+    )
+    kind: OutputKind = sometimes("The file's kind, set by the server.")
+    attempt: int | None = sometimes(
+        "On a read, when the ref names a job: the job's 1-based place among "
+        "the item's attempts; null when the job is no longer linked to it."
+    )
+    gone: bool = sometimes(
+        "On a read: true when the item is dropped or out of the plan, or the "
+        "job is no longer linked or its run is gone."
+    )
+
+
+class LedgerNote(ApiModel):
+    """One note the user wrote for the agent. Only the request-notes routes
+    write one."""
+
+    id: str = Field(description="Unique within the request; never reused.")
+    text: str
+    created: str = Field(description="When the note was first saved.")
+    at: str = Field(description="When its text last changed.")
+    refs: list[LedgerNoteRef] = sometimes(
+        "The items, takes or files the note is about."
+    )
+
+
+class LedgerOutput(ApiModel):
+    """The one file that stands for a job: what a list shows as its proof."""
+
+    name: str = Field(
+        description="The file as the job's manifest and the gallery name it, "
+        "relative to the workspace's outputs: `/api/gallery/{name}/thumbnail`."
+    )
+    kind: OutputKind = Field(description="A thumbnail exists for image and video.")
+
+
+class LedgerAttempt(ApiModel):
+    job: str
+    status: JobStatus
+    note: str = sometimes("The job's note.")
+    minutes: int | float | None = Field(
+        description="Run time; null until the job has started."
+    )
+    output: LedgerOutput | None = Field(
+        description="The job's first final image or video, else its first "
+        "sound or text; null when it wrote none or its run is gone."
+    )
+
+
+class LedgerResult(ApiModel):
+    job: str
+    run_id: str | None
+    output: LedgerOutput | None
+
+
+class LedgerItem(ApiModel):
+    key: str
+    title: str
+    depends_on: list[str]
+    estimate_minutes: int | float | None
+    workflow: str | None
+    arguments: dict[str, Any]
+    dropped: bool
+    accepted: LedgerAccepted | None
+    notes: list[LedgerNote] = Field(description="The user's notes on the item.")
+    status: Literal["dropped", "done", "running", "queued", "failed", "planned"] = (
+        Field(
+            description="Derived from the item's linked jobs, first that holds: "
+            "dropped, done (a result exists), running, queued, failed (every "
+            "linked job failed or was cancelled), planned."
+        )
+    )
+    ready: bool = Field(
+        description="A job could be queued for it now: planned, with a stored "
+        "workflow and every dependency done, in an open request."
+    )
+    attempts: list["LedgerAttempt"] = Field(
+        description="Every linked job, oldest first."
+    )
+    result: "LedgerResult | None" = Field(
+        description="The accepted job's run, else the latest succeeded job's "
+        "run whose directory still exists; null when neither."
+    )
+    accepted_missing: bool = sometimes(
+        "True when an accepted job's run directory is gone; `result` then "
+        "falls back to the latest succeeded attempt."
+    )
+    spent_minutes: int | float = Field(
+        description="Minutes the item's linked jobs ran, summed."
+    )
+
+
+class LedgerHistoryEntry(ApiModel):
+    revision: int
+    at: str
+    by: Literal["agent", "user"]
+    why: str
+    goal: str | None = sometimes("The goal, when this revision changed it.")
+    state: Literal["open", "done", "abandoned"] = sometimes(
+        "The state, when this revision set or changed it: who closed or "
+        "reopened the request, when and why."
+    )
+
+
+class LedgerRequest(ApiModel):
+    id: str
+    title: str
+    state: Literal["open", "done", "abandoned"]
+    revision: int
+    prompt: str | None = Field(description="The ask that started it; write-once.")
+    goal: str
+    notes: list[LedgerNote] = Field(
+        description="The user's notes on the whole request."
+    )
+    next_note: int = Field(description="The number of the next note id.")
+    agent_wrote_at: str | None = Field(
+        description="When the agent last wrote the plan; null when it never has."
+    )
+    items: list[LedgerItem]
+    history: list[LedgerHistoryEntry]
+    spent_minutes: int | float = Field(description="Minutes every linked job ran.")
+    remaining_minutes: int | float = Field(
+        description="Estimates of the items not done and not dropped."
+    )
+
+
+class LedgerSummary(ApiModel):
+    id: str
+    title: str
+    state: Literal["open", "done", "abandoned"]
+    revision: int
+    items: int
+    status_counts: dict[str, int]
+    ready: int = Field(description="Items a job could be queued for now.")
+    cover: list[LedgerOutput] = Field(
+        description="Up to three outputs of the latest results, newest first."
+    )
+    spent_minutes: int | float
+    remaining_minutes: int | float
+    updated_at: str | None
+
+
+class LedgerList(ApiModel):
+    workspace: str
+    requests: list[LedgerSummary]
+    unreadable: str = sometimes(
+        "Why requests.json could not be read, when it is there but is not a "
+        "ledger; `requests` is then empty and every write is 409 "
+        "`ledger_unreadable` until the file is fixed or removed."
+    )
+
+
+class LedgerDeleted(ApiModel):
+    id: str
+    workspace: str
+    deleted: bool
+    revision: int = Field(description="The revision that was deleted.")
+    linked_jobs: int = Field(
+        description="Jobs linked to it; each keeps its row, link and files."
+    )
+
+
+class RequestWrite(BaseModel):
+    """One request's whole plan."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    title: str = Field(description=f"One line, at most {MAX_TITLE_LENGTH}")
+    goal: str = Field(description="What done looks like")
+    items: list[dict[str, Any]] = Field(
+        description="The ordered plan; each item is key, title, depends_on, "
+        "estimate_minutes, workflow, arguments, accepted; an item's `notes` "
+        "are ignored (the request-notes routes write them)"
+    )
+    revision: int = Field(description="The revision read, or 0 to create")
+    why: str = Field(description=f"One line, at most {MAX_WHY_LENGTH}")
+    prompt: str | None = Field(default=None, description="Create only")
+    state: Literal["open", "done", "abandoned"] | None = None
+    purge: list[str] | None = Field(
+        default=None,
+        description="Keys of stored items this plan leaves out, removed for "
+        "good instead of kept as dropped; their jobs keep their link and files",
+    )
+    by: Literal["agent", "user"] = Field(
+        default="user", description="Who wrote this revision; the UI is the user"
+    )
+
+
+class NoteRefWrite(BaseModel):
+    """One reference of a new note. `kind` is the server's to set."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    item: str | None = Field(
+        default=None,
+        description="The item key; left out on an item's note, that item. "
+        "Alone, it names a planned shot that may have no job yet",
+    )
+    job: str | None = Field(default=None, description="A job linked to that item")
+    output: str | None = Field(
+        default=None,
+        description="One file of that finished job's manifest, as the gallery "
+        "names it (relative to the workspace's outputs); left out, the note "
+        "is about the take as a whole",
+    )
+
+
+class NoteAdd(BaseModel):
+    """One new note for the agent, from the user."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    request: str = Field(description="The request id")
+    item: str | None = Field(
+        default=None, description="The item key; left out, the request's own notes"
+    )
+    text: str = Field(description="The note, at most 4,000 characters")
+    refs: list[NoteRefWrite] | None = Field(
+        default=None,
+        description="The items, takes or files the note is about, at most 16; "
+        "an item's note references only that item",
+    )
+
+
+class NoteEdit(BaseModel):
+    """A note's new text. Its references never change."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    request: str = Field(description="The request id")
+    note: str = Field(description="The note id")
+    text: str = Field(description="The note, at most 4,000 characters")
+
+
+class NoteWritten(ApiModel):
+    note: LedgerNote
+    revision: int = Field(description="The request's revision after the write.")
+
+
+class NotesChannelState(ApiModel):
+    listening: bool = Field(
+        description="True while a notes channel polled this workspace's "
+        "request list in the last 30 seconds."
+    )
+    last_seen: str | None = Field(
+        description="ISO UTC time of the last such poll, null if none since "
+        "the server started."
+    )
+
+
+class NoteDeleted(ApiModel):
+    revision: int = Field(description="The request's revision after the write.")
+
+
+class AssetDeleted(ApiModel):
+    name: str
+    workspace: str
+    reference: str
+    deleted: bool
+    origin: AssetOrigin
+
+
+# ------------------------------------- a gallery file's marks and links
+
+
+class GalleryLinkedJob(ApiModel):
+    """A job linked to a request item that published the file - wrote it or
+    republished it from the step cache."""
+
+    id: str
+    request: str
+    item: str | None
+    attempt: int | None = Field(
+        description="The job's 1-based place among the item's attempts; null "
+        "when the request no longer lists it."
+    )
+
+
+class StarSet(ApiModel):
+    name: str
+    starred: bool
+
+
+class NoteSet(ApiModel):
+    target: str
+    note: str | None = Field(description="The effective note after the write.")
+    note_source: Literal["file", "run"] | None = Field(
+        description="Whose note `note` is; null for a workspace or no note."
+    )

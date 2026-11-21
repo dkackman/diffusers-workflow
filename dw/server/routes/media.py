@@ -1,7 +1,5 @@
 """The media routes under `/api/gallery/{name:path}`: metadata, assessment,
-audio, frames, thumbnail and download of one output or asset - and
-`PUT /api/notes`, which sets the note on an output, a run, an asset or a
-workspace (dw/notes.py holds the stores).
+audio, frames, thumbnail and download of one output or asset.
 
 Registered before the gallery router, so these GETs sit ahead of the greedy
 `DELETE /api/gallery/{name:path}`, as they always have. `video_shape` is looked
@@ -10,6 +8,7 @@ up here, at call time.
 
 import base64
 import io
+import logging
 import mimetypes
 import os
 from typing import Literal, Optional, Union
@@ -22,23 +21,11 @@ from pydantic import BaseModel, Field
 
 from ..api_models import (
     GalleryMetadata,
-    NoteSet,
-    StarSet,
 )
 from ...assets import is_asset_reference
-from ...library import ReadOnlyLibraryError
 from ...notes import (
-    MAX_NOTE_LENGTH,
-    NoteTooLong,
-    clean_note,
-    effective_note,
     read_notes,
-    set_file_note,
-    set_file_starred,
-    set_run_note,
-    set_workspace_note,
 )
-from ...references import ASSET, WORKSPACE, is_ref, ref_name
 from ...media import (
     MAX_INLINE_AUDIO_BYTES,
     NoSoundtrack,
@@ -61,18 +48,11 @@ from ...writers import read_embedded_metadata
 from ...runs import kept_provenance, recorded_shots, shots_beside
 from ...security import (
     MAX_DECODE_PIXELS,
-    SecurityError,
-    validate_asset_reference,
-    validate_path,
 )
-from ...workspace import DEFAULT_WORKSPACE_NAME, Workspace
+from ...workspace import Workspace
 from ..assess import assess, level_findings, unknown_probe
 from ..deps import (
-    asset_library_missing,
-    internal_error,
     selected_workspace,
-    workspace_for,
-    workspace_root,
 )
 from ..http_security import query_token_ok
 from ..inline_media import (
@@ -87,14 +67,14 @@ from ..outputs import (
     asset_file,
     job_provenance,
     resolve_output_file,
-    run_directory,
     consumed_in,
     output_annotations,
     run_inputs,
     strip_output_prefix,
     validated_run_split,
-    workspace_asset_library,
 )
+
+logger = logging.getLogger("dw")
 
 router = APIRouter()
 
@@ -219,7 +199,28 @@ def gallery_metadata(
         "role": role,
         "inputs": inputs,
         **notes,
+        "linked_jobs": _linked_jobs(request, name, ws) if source == "output" else [],
     }
+
+
+def _linked_jobs(request, name, ws):
+    """The jobs linked to a request item that published output `name`,
+    newest first, each with its 1-based `attempt` among the item's linked
+    jobs (null when the request no longer lists it)."""
+    manager = request.app.state.job_manager
+    try:
+        found = manager.history.jobs_publishing_file(name, ws.name)
+    except Exception:
+        logger.warning("Could not read the linked jobs of %s", name, exc_info=True)
+        return []
+    attempts = {}
+    for request_id in {job["request"] for job in found}:
+        places = {}
+        for job in manager.request_jobs(ws.name, request_id):
+            places.setdefault(job["item"], []).append(job["job"])
+        for jobs in places.values():
+            attempts.update({job_id: n for n, job_id in enumerate(jobs, 1)})
+    return [{**job, "attempt": attempts.get(job["id"])} for job in found]
 
 
 def _provenance(request, name, ws):
@@ -944,150 +945,3 @@ def download_output(
     """Serve one output file as a forced download rather than an inline view."""
     path = resolve_output_file(request.app.state, name, ws.outputs)
     return FileResponse(path, filename=os.path.basename(name))
-
-
-class NoteRequest(BaseModel):
-    target: str = Field(
-        description="What the note is on: a gallery file name, a run directory "
-        "`<identity>/<run id>`, `asset:<name>` or `workspace:<name>`"
-    )
-    note: Optional[str] = Field(
-        default=None,
-        description=f"At most {MAX_NOTE_LENGTH} characters; null or '' clears it",
-    )
-
-
-def _workspace_note_target(state, name):
-    """The root a `workspace:<name>` target writes workspace.json into."""
-    if not name:
-        raise HTTPException(
-            status_code=400, detail="Name a workspace: workspace:<name>"
-        )
-    if name == DEFAULT_WORKSPACE_NAME:
-        root = state.default_workspace.root
-        if not root:
-            raise HTTPException(
-                status_code=409,
-                detail="This server has no workspace root, so the default "
-                "workspace has nowhere to keep a note",
-            )
-        return root
-    # 400 for a name a workspace cannot take, 404 for one that is not there
-    selected = workspace_for(state, name)
-    try:
-        return validate_path(
-            selected.root, workspace_root(state).root, allow_create=False
-        )
-    except SecurityError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-
-def _asset_note_target(state, ws, name):
-    """(directory, file name) of the asset an `asset:<name>` target names -
-    resolved the way the asset delete resolves it, read-only roots refused."""
-    library = workspace_asset_library(state, ws)
-    if not library.roots():
-        raise asset_library_missing()
-    try:
-        relative = validate_asset_reference(name)
-    except SecurityError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    found = library.find(relative)
-    if not found:
-        raise HTTPException(status_code=404, detail=f"No such asset: {relative}")
-    path, root = found
-    try:
-        library.require_writable(root, relative)
-    except ReadOnlyLibraryError as refusal:
-        raise HTTPException(status_code=403, detail=str(refusal))
-    return os.path.dirname(path), os.path.basename(path)
-
-
-def resolve_note_target(state, ws, target):
-    """(directory, name, kind) for a note target, kind one of "workspace",
-    "run" and "file" (an asset is a file in its library directory). Every
-    directory is a validator's return value against a non-None root, or the
-    server's own configured default root. Raises the route's 400/403/404/409.
-    """
-    if is_ref(WORKSPACE, target):
-        name = ref_name(WORKSPACE, target).strip()
-        return _workspace_note_target(state, name), None, "workspace"
-    if is_asset_reference(target):
-        name = ref_name(ASSET, target).strip()
-        directory, file_name = _asset_note_target(state, ws, name)
-        return directory, file_name, "file"
-    name = strip_output_prefix(target)
-    run_dir = run_directory(name, ws.outputs)
-    if run_dir is not None:
-        return run_dir, None, "run"
-    path = resolve_output_file(state, name, ws.outputs)
-    split = validated_run_split(ws.outputs, path)
-    if split is None:
-        raise HTTPException(
-            status_code=409,
-            detail=f"{name} is not in a run directory, and notes need a run directory",
-        )
-    return split[0], split[1], "file"
-
-
-@router.put("/api/notes", response_model=NoteSet, response_model_exclude_unset=True)
-def put_note(
-    request: Request, body: NoteRequest, ws: Workspace = Depends(selected_workspace)
-):
-    """Set or clear the note on a run, a file, an asset or a workspace.
-
-    `target` is a gallery file name (that file's own note), a run directory
-    `<identity>/<run id>` (the run note every file of the run falls back to),
-    `asset:<name>` or `workspace:<name>` ('default' for the root's own). The
-    answer is the target's effective note after the write: a file with no
-    note of its own answers with its run's, and `note_source` says which.
-    """
-    try:
-        note = clean_note(body.note)
-    except (NoteTooLong, TypeError) as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    directory, name, kind = resolve_note_target(request.app.state, ws, body.target)
-    try:
-        if kind == "workspace":
-            stored, source = set_workspace_note(directory, note), None
-        elif kind == "run":
-            stored, source = set_run_note(directory, note), "run"
-        else:
-            set_file_note(directory, name, note)
-            stored, source = effective_note(read_notes(directory), name)
-    except OSError:
-        raise internal_error(f"Could not write the note on {body.target!r}")
-    return {
-        "target": body.target,
-        "note": stored,
-        "note_source": source if stored else None,
-    }
-
-
-class StarRequest(BaseModel):
-    name: str = Field(description="A gallery file name")
-    starred: bool
-
-
-@router.put("/api/stars", response_model=StarSet)
-def put_star(
-    request: Request, body: StarRequest, ws: Workspace = Depends(selected_workspace)
-):
-    """Star or unstar one output file - the "keep" mark a person culls a run
-    with. It lives in the run's notes.json beside the notes, so it is
-    resolved exactly as a file note is, and only a file in a run directory
-    can carry one."""
-    if is_ref(WORKSPACE, body.name) or is_asset_reference(body.name):
-        raise HTTPException(
-            status_code=400, detail="Only an output file can be starred"
-        )
-    directory, name, kind = resolve_note_target(request.app.state, ws, body.name)
-    if kind != "file":
-        raise HTTPException(
-            status_code=400, detail="Only an output file can be starred"
-        )
-    try:
-        starred = set_file_starred(directory, name, body.starred)
-    except OSError:
-        raise internal_error(f"Could not write the star on {body.name!r}")
-    return {"name": body.name, "starred": starred}

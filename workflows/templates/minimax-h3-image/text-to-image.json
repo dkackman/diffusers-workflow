@@ -1,0 +1,184 @@
+{
+    "id": "MiniMaxH3ImageT2I",
+    "description": "MiniMax-H3-Image text to image, the baseline of the MiniMax-H3-Image templates. The prompt is a detailed English description of the whole picture, used verbatim (no chat template) and truncated at 4096 tokens; say the task first, then the layout, then the details and style. 'size' picks a canvas: 2048 (the default, 2048x2048, about 4 MP, the size the cost was measured at) or one of the vendor's recommended sizes of about 16 MP - 1:1 4096x4096, 4:3 4736x3552, 3:2 5024x3360, 16:9 5472x3072, 21:9 6272x2688 and their portrait swaps (3:4, 2:3, 9:16, 9:21); the 16 MP sizes have not been timed on a 24 GB card. Pass width and height for any other size, both multiples of 32. A canvas under about 4 MP is generated at about 4 MP at the same aspect ratio and resized back (the pipeline's default minimum generation area), so 1024x1024 is no faster than 2048x2048. The checkpoint is distilled to a fixed 6-step sampler with its guidance baked in: it takes no step count, guidance scale or negative prompt, and the template declares none. CUDA only. The recipe is int8 SDNQ on the transformer and the text encoder, with group offload, so it needs under 6 GB of VRAM but about 64 GB of host RAM warm (host_ram_gb 64); a cold first run on a host without the quantized cache peaks at about 120 GB of host RAM (117 GB measured) while it quantizes, and the first download is about 64 GiB. The text encoder is loaded from MiniMaxAI/MiniMax-H3 at the commit the H3 templates pin, so it shares H3's quantized cache.",
+    "summary": "MiniMax-H3-Image text to image at 2048x2048 on a 24 GB card, with about 64 GB of host RAM.",
+    "cost": [
+        {
+            "device": "cuda",
+            "name": "RTX 3090",
+            "vram_gb": 24,
+            "minutes": 2.3
+        }
+    ],
+    "cost_drivers": [
+        "width",
+        "height"
+    ],
+    "host_ram_gb": 64,
+    "variables": {
+        "prompt": "A weathered lighthouse keeper in a wool coat stands on the gallery of a white lighthouse at dusk, a storm rolling in over a grey sea behind him, wind pulling at his coat. Photographic, natural skin texture, 50 mm, eye level.",
+        "size": "2048",
+        "width": 2048,
+        "height": 2048,
+        "weights_dtype": "{int8}",
+        "seed": 1317
+    },
+    "variable_constraints": {
+        "width": {
+            "modulus": 32,
+            "remainder": 0,
+            "reason": "MiniMax-H3-Image's canvas is a multiple of 32 (the VAE's 16x compression times the transformer's 2x2 patch), and its pipeline refuses one that is not only after the weights have loaded; refused here instead, with no 'snap', since rounding would be a silent change to the size asked for"
+        },
+        "height": {
+            "modulus": 32,
+            "remainder": 0,
+            "reason": "MiniMax-H3-Image's canvas is a multiple of 32 (the VAE's 16x compression times the transformer's 2x2 patch), and its pipeline refuses one that is not only after the weights have loaded; refused here instead, with no 'snap', since rounding would be a silent change to the size asked for"
+        }
+    },
+    "presets": {
+        "size": {
+            "2048": {
+                "width": 2048,
+                "height": 2048
+            },
+            "1:1": {
+                "width": 4096,
+                "height": 4096
+            },
+            "4:3": {
+                "width": 4736,
+                "height": 3552
+            },
+            "3:4": {
+                "width": 3552,
+                "height": 4736
+            },
+            "3:2": {
+                "width": 5024,
+                "height": 3360
+            },
+            "2:3": {
+                "width": 3360,
+                "height": 5024
+            },
+            "16:9": {
+                "width": 5472,
+                "height": 3072
+            },
+            "9:16": {
+                "width": 3072,
+                "height": 5472
+            },
+            "21:9": {
+                "width": 6272,
+                "height": 2688
+            },
+            "9:21": {
+                "width": 2688,
+                "height": 6272
+            }
+        }
+    },
+    "seed": "variable:seed",
+    "steps": [
+        {
+            "name": "text_to_image",
+            "pipeline": {
+                "configuration": {
+                    "component_type": "ModularPipeline",
+                    "pre_load_modules": [
+                        "sdnq"
+                    ],
+                    "load_components": {
+                        "dtype": "torch.bfloat16",
+                        "pretrained_model_name_or_path": {
+                            "text_encoder": "MiniMaxAI/MiniMax-H3"
+                        },
+                        "revision": {
+                            "text_encoder": "0919fb684102ef115126612f3fbb84d1027e7317"
+                        },
+                        "quantization_config": {
+                            "transformer": {
+                                "configuration": {
+                                    "config_type": "sdnq.SDNQConfig"
+                                },
+                                "arguments": {
+                                    "weights_dtype": "variable:weights_dtype",
+                                    "quantization_device": "cuda",
+                                    "return_device": "cpu",
+                                    "use_quantized_matmul": true,
+                                    "dequantize_fp32": false,
+                                    "modules_to_not_convert": [
+                                        "proj_in",
+                                        "context_embedder",
+                                        "time_embedder",
+                                        "time_proj",
+                                        "token_refiner",
+                                        "norm_out",
+                                        "pdd_proj_out"
+                                    ]
+                                }
+                            },
+                            "text_encoder": {
+                                "configuration": {
+                                    "config_type": "sdnq.SDNQConfig"
+                                },
+                                "arguments": {
+                                    "weights_dtype": "variable:weights_dtype",
+                                    "quantization_device": "cuda",
+                                    "return_device": "cpu",
+                                    "dequantize_fp32": false,
+                                    "modules_to_not_convert": [
+                                        ".model.visual",
+                                        "lm_head"
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "components": {
+                        "transformer": {
+                            "group_offload": {
+                                "offload_type": "block_level",
+                                "num_blocks_per_group": 2,
+                                "use_stream": true,
+                                "record_stream": true,
+                                "low_cpu_mem_usage": true
+                            }
+                        },
+                        "text_encoder": {
+                            "remove_modules": [
+                                "lm_head"
+                            ]
+                        },
+                        "text_encoder.model": {
+                            "truncate_layers": {
+                                "language_model.layers": 51
+                            },
+                            "group_offload": {
+                                "offload_type": "leaf_level"
+                            }
+                        },
+                        "vae": {
+                            "device": "cuda",
+                            "residency": "on_demand"
+                        }
+                    }
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "MiniMaxAI/MiniMax-H3-Image"
+                },
+                "arguments": {
+                    "prompt": "variable:prompt",
+                    "width": "variable:width",
+                    "height": "variable:height",
+                    "output": "images"
+                }
+            },
+            "result": {
+                "content_type": "image/png",
+                "subfolder": "final"
+            }
+        }
+    ]
+}

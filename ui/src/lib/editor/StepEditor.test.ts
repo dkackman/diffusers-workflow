@@ -1,6 +1,19 @@
-import { afterEach, expect, it } from 'vitest'
+import { afterEach, expect, it, vi } from 'vitest'
 import { cleanup, render, screen } from '@testing-library/svelte'
+import { VARIABLE } from '../references'
 import StepEditor from './StepEditor.svelte'
+
+// The LoRA editor asks the catalog about a literal base repo; keep it offline
+vi.mock('../api', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../api')>()
+  return {
+    ...actual,
+    api: {
+      ...actual.api,
+      listLoras: () => Promise.resolve({ libraries: [], loras: [] }),
+    },
+  }
+})
 
 afterEach(() => cleanup())
 
@@ -62,4 +75,47 @@ it('opens full on a step whose schedulers set only a shift', () => {
     (document.getElementById('audio_schedulershift-0') as HTMLInputElement)
       .value,
   ).toBe('3')
+})
+
+// templates give the cache as a reference string (`variable:cache`); the
+// full view used to set `.type` on it and throw
+it('opens full on a step whose cache is a variable reference', () => {
+  const ref = VARIABLE + 'cache'
+  const s = step()
+  Object.assign(s.pipeline.configuration, { cache: ref })
+  render(StepEditor, {
+    step: s,
+    index: 0,
+    count: 1,
+    mode: 'full',
+    onremove: () => {},
+    onmove: () => {},
+  })
+  expect(
+    (screen.getByPlaceholderText(/a reference/) as HTMLInputElement).value,
+  ).toBe(ref)
+  expect((s.pipeline.configuration as { cache?: string }).cache).toBe(ref)
+})
+
+// Opening the full view is display only. A step with no torch_dtype (the
+// minimax templates) used to get the first dtype option bound back in, which
+// marked the workflow unsaved with no edit (#1496)
+it('leaves a step with no torch_dtype unchanged on opening full', async () => {
+  const s = step()
+  Object.assign(s.pipeline.configuration, { cache: VARIABLE + 'cache' })
+  s.pipeline.from_pretrained_arguments = {
+    model_name: 'MiniMaxAI/MiniMax-H3',
+    workflow: 'ref2va',
+  } as unknown as typeof s.pipeline.from_pretrained_arguments
+  const before = JSON.stringify(s)
+  render(StepEditor, {
+    step: s,
+    index: 0,
+    count: 1,
+    mode: 'full',
+    onremove: () => {},
+    onmove: () => {},
+  })
+  await new Promise((r) => setTimeout(r, 50))
+  expect(JSON.stringify(s)).toBe(before)
 })

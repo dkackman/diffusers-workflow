@@ -23,6 +23,41 @@ FAILED = "failed"
 CANCELLED = "cancelled"
 TERMINAL_STATES = (SUCCEEDED, FAILED, CANCELLED)
 
+# The prefix every restart tombstone's error starts with (#1220) - what a
+# batch is matched on. job_history holds the texts written with it
+RESTART_PREFIX = "server restart:"
+# The same prefix as the SQL LIKE pattern history selects a batch with (#1266)
+RESTART_LIKE = RESTART_PREFIX + "%"
+# A list row's `reason` is the error's first line, clipped to this (#1449)
+REASON_MAX = 160
+
+
+def row_reason_fields(status, error, server_instance=None):
+    """The list-row fields a job's end leaves (#1449), shared by the live
+    summary and history's: `reason`, the error's first line clipped to
+    REASON_MAX with a trailing `…`, on a failed or cancelled job that has
+    an error; `restart_batch`, its `server_instance`, on a restart tombstone
+    only (cancelled, a `server restart:` error, an instance recorded). Each
+    is absent, never null, when it does not apply - the full error and its
+    traceback stay on the job's detail."""
+    if status not in (FAILED, CANCELLED) or not error:
+        return {}
+    lines = str(error).strip().splitlines()
+    first = lines[0].strip() if lines else ""
+    if not first:
+        return {}
+    if len(first) > REASON_MAX:
+        first = first[:REASON_MAX].rstrip() + "…"
+    fields = {"reason": first}
+    if (
+        status == CANCELLED
+        and server_instance
+        and str(error).startswith(RESTART_PREFIX)
+    ):
+        fields["restart_batch"] = server_instance
+    return fields
+
+
 # Which form of cost acknowledgement a job was queued with (#85): none (the
 # web UI and every HTTP caller that sends nothing), a bare boolean, or one
 # bound to the plan that was validated
@@ -48,6 +83,9 @@ RERUN_SPEC_KEYS = (
     "acknowledged_cost",
     # the note it was submitted with, carried to the rerun's own run
     "note",
+    # the requests-ledger link (#1458): a rerun serves the same item
+    "request",
+    "item",
 )
 
 RERUN_SEED_UNKNOWN = "rerun_seed_unknown"
@@ -90,7 +128,7 @@ def rerun_arguments(arguments, overrides, new_seed, variable, realized):
     arguments = {**arguments, **overrides}
     warnings = []
     draws_fresh = variable is not None and overrides.get(variable, 1) is None
-    if overrides and not new_seed and not draws_fresh:
+    if not new_seed and not draws_fresh:
         arguments, warnings = keep_drawn_seed(arguments, variable, realized())
     if new_seed:
         if variable in overrides:
@@ -153,6 +191,8 @@ class Job:
         # The note it was submitted with; written as the run note at run_start
         self.note = spec.get("note")
         self.rerun_of = spec.get("rerun_of")
+        self.request = spec.get("request")
+        self.item = spec.get("item")
         # The worker's own high-water mark for this run, from its final
         # memory_info message - None for a run that never got that far (#243)
         self.host_memory_peak_rss_mb = None
@@ -169,9 +209,15 @@ class Job:
         # The host RAM it was projected to hold at its peak when admitted,
         # (mb, basis, runs) or None (dw/server/host_ram_need.py, #869)
         self.host_ram_need = None
+        # The Hub repos admission found the job names (Admission.repos_named),
+        # stamped into dw/model_use.py when its run starts (#1445). Not
+        # persisted: a restored job never starts again
+        self.repos_named = []
         # Why dispatch is holding it while it is queued - "waiting for host
         # RAM: ..." - or None; a live state, never a warning (#869)
         self.waiting_for = None
+        # "host_ram" | "gpu_busy" | None: which wait waiting_for describes
+        self.wait_kind = None
         self.events = []
         # The running summary a poll reads - see _note_progress. Kept as the
         # events arrive rather than derived from the log on request, because
@@ -386,6 +432,11 @@ class Job:
             ),
             **({"note": self.note} if self.note else {}),
             **({"rerun_of": self.rerun_of} if self.rerun_of else {}),
+            **({"request": self.request} if self.request else {}),
+            **({"item": self.item} if self.item else {}),
+            # A live job is never a tombstone (the sweep writes those into a
+            # dead server's rows), so only `reason` can apply here
+            **row_reason_fields(self.status, self.error),
         }
 
     def detail(self):

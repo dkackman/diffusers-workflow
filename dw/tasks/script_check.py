@@ -110,6 +110,23 @@ logger = logging.getLogger("dw")
 # dw/script_lines.py beside the detector, which transcribe_audio shares
 
 
+# Hesitation sounds a speaker makes before a line. Heard on their own, outside
+# any line and not in the script, they are not ad-libbed speech (#1360): the
+# transcriber boosts a quiet take (#925) and so now hears a soft "Uh,".
+HESITATIONS = frozenset(
+    {"uh", "um", "uhm", "umm", "er", "erm", "hm", "hmm", "mm", "mmm", "ah", "eh"}
+)
+
+
+def _drop_hesitations(heard, unassigned, script_words):
+    """`unassigned` without the heard hesitation sounds the script never uses."""
+    return [
+        (j, near)
+        for j, near in unassigned
+        if heard[j]["word"] not in HESITATIONS or heard[j]["word"] in script_words
+    ]
+
+
 def align(expected_lines, heard):
     """Assign each heard word to the expected line it was spoken for.
 
@@ -183,6 +200,45 @@ def _release_repeats(expected, heard, assigned, unassigned):
     unassigned.sort()
 
 
+def _last_copy_is_the_line(heard, assigned, unassigned):
+    """When a line was heard twice word for word, the later copy is the line
+    and the earlier one is released (#1360). SequenceMatcher ties go to the
+    first copy, but #920's verified result (suite case C-F503) has the
+    finding on the first. Swaps a line's assigned words with the last later
+    unassigned stretch of the same words that neighbours that line, with no
+    other line's words between. The stretch may sit inside a longer run of
+    unassigned words - between this line and the next, beside a filler
+    ("... open? Uh, the freezer wanted air.", ep198) - and only the copy
+    moves."""
+    for index, own in enumerate(assigned):
+        if not own:
+            continue
+        words = [heard[j]["word"] for j in own]
+        size = len(words)
+        runs = []
+        for j, near in unassigned:
+            if index in near and j > own[-1]:
+                if runs and runs[-1][-1] == j - 1:
+                    runs[-1].append(j)
+                else:
+                    runs.append([j])
+        copy = None
+        for run in runs:
+            if any(o and own[-1] < o[0] < run[0] for o in assigned):
+                break
+            for k in range(len(run) - size + 1):
+                if [heard[j]["word"] for j in run[k : k + size]] == words:
+                    copy = run[k : k + size]
+        if copy is None:
+            continue
+        taken = set(copy)
+        unassigned[:] = [(j, near) for j, near in unassigned if j not in taken] + [
+            (j, (index,)) for j in own
+        ]
+        assigned[index] = copy
+        unassigned.sort()
+
+
 def _no_shot_reason(shots_source, spans, parsed_lines):
     """Why speech_in_silent_shot cannot run on this call, or None when it
     can."""
@@ -249,6 +305,8 @@ def check(
     expected = [normalize_words(line["text"]) for line in parsed_lines]
     assigned, unassigned = align(expected, heard)
     _release_repeats(expected, heard, assigned, unassigned)
+    _last_copy_is_the_line(heard, assigned, unassigned)
+    unassigned = _drop_hesitations(heard, unassigned, script_words)
     lines, claimed, found = _line_pass(
         parsed_lines,
         expected,

@@ -37,7 +37,7 @@ them as well (dw/pipeline_processors/h3_mask.py): its rules are
 `h3_rules.mask_problems`, called here and at the call alike. Where the files
 resolve now, they are read here too, the way the guide-frame check reads its
 videos (`dw/guides.py`): the source's and the mask's size and frame count
-against the canvas (`h3_rules.media_problems`, which `Pipeline._with_mask` asks
+against the canvas (`h3_mask_cells.media_problems`, which `Pipeline._with_mask` asks
 again at the call), and a mask with no white pixel in it. A `source_video` with
 no mask and no `hold_audio` is the audio pass (#1192), whose rules - no refine
 argument, a `listen_scale` of 1, 0.5 or 0.25 - `mask_problems` owns too; its
@@ -54,6 +54,7 @@ from .pipeline_processors.h3_rules import (
     LISTEN_SCALE_INPUT,
     MASK_IMAGE_INPUT,
     MASK_INPUTS,
+    MASK_VIDEO_INPUT,
     REFINE_SIGMAS_INPUT,
     REFINE_STRENGTH_INPUT,
     REFINE_TILES_INPUT,
@@ -63,14 +64,14 @@ from .pipeline_processors.h3_rules import (
     is_audio_pass,
     is_h3_step,
     mask_problems,
-    media_problems,
     not_h3,
     refine_problems,
-    retimed_indices,
 )
+from .pipeline_processors.h3_mask_cells import media_problems, retimed_indices
 from .probe_paths import resolve_probe_path
 from .security import ALLOWED_AUDIO_EXTENSIONS, ALLOWED_VIDEO_EXTENSIONS
-from .variable_constraints import declared_constraints
+from .tasks.trim import span_problem
+from .variable_constraints import CONSTRAINTS_KEY, REQUIRED, declared_constraints
 
 # A video is held by its own soundtrack - a regional edit's source_video
 HOLDABLE_EXTENSIONS = ALLOWED_AUDIO_EXTENSIONS | ALLOWED_VIDEO_EXTENSIONS
@@ -182,14 +183,64 @@ def _upscaled_canvas(steps, latents):
     return None
 
 
+def held_by_a_required_null(written, source, arguments):
+    """Whether a step's `hold_audio` is null only because the author wrote it
+    as a `required` variable left null. That null is "nothing given", which
+    the variable's own constraint refuses by name when a caller omits it,
+    and which checking the document does not judge (#1253) - so the track is
+    not reported missing a second time. `written` is the definition as
+    written, `source` the step's written index and `arguments` its
+    substituted pipeline arguments."""
+    if (arguments or {}).get(HOLD_AUDIO_INPUT) is not None:
+        return False
+    held = _written_hold(written, source)
+    if not references.is_ref(references.VARIABLE, held):
+        return False
+    name = references.ref_name(references.VARIABLE, held)
+    constraint = ((written or {}).get(CONSTRAINTS_KEY) or {}).get(name) or {}
+    return constraint.get(REQUIRED) is True
+
+
+def _written_hold(written, source):
+    """The `hold_audio` of written step `source`, as the author wrote it."""
+    steps = (written or {}).get("steps")
+    if not isinstance(steps, list) or not 0 <= source < len(steps):
+        return None
+    step = steps[source] if isinstance(steps[source], dict) else {}
+    pipeline = step.get("pipeline") if isinstance(step.get("pipeline"), dict) else {}
+    return (pipeline.get("arguments") or {}).get(HOLD_AUDIO_INPUT)
+
+
+def judged_arguments(arguments, source, written=None, given=None):
+    """A refine step's substituted `arguments` as its static checks judge
+    them. Checking the document with no arguments (`given` None, `written`
+    the definition as written) does not judge a track held from a required
+    variable left null (`held_by_a_required_null`, #1253): it stands as its
+    written reference, the way the run leaves a reference it cannot resolve
+    yet, so no "needs hold_audio" finding is raised. A caller who omits it is
+    refused by the variable's own required rule."""
+    if (
+        written is None
+        or given is not None
+        or not held_by_a_required_null(written, source, arguments)
+    ):
+        return arguments
+    return {**arguments, HOLD_AUDIO_INPUT: _written_hold(written, source)}
+
+
 _REFINE_INPUTS = (REFINE_STRENGTH_INPUT, REFINE_SIGMAS_INPUT, REFINE_TILES_INPUT)
 
 
-def refine_strength_errors(workflow_definition, source_indices=None):
+def refine_strength_errors(
+    workflow_definition, source_indices=None, written=None, given=None
+):
     """Every `refine_strength`, `refine_sigmas` or `refine_tiles` argument
     refused before the run, as [{path, message}] - walked the way
     `hold_audio_errors` walks. A problem about `refine_sigmas` or
-    `refine_tiles` is at its path; the rest are at `refine_strength`'s."""
+    `refine_tiles` is at its path; the rest are at `refine_strength`'s.
+    `written` and `given` (the caller's arguments) leave a required
+    `hold_audio` to its own rule when the document is checked bare
+    (`judged_arguments`)."""
     errors = []
     steps = workflow_definition.get("steps")
     for _, _, pipeline, source, where in references.iter_steps(
@@ -200,6 +251,7 @@ def refine_strength_errors(workflow_definition, source_indices=None):
             arguments.get(name) is None for name in _REFINE_INPUTS
         ):
             continue
+        arguments = judged_arguments(arguments, source, written, given)
         paths = {
             name: render_path(("steps", source, "pipeline", "arguments", name))
             for name in _REFINE_INPUTS
@@ -279,11 +331,156 @@ def _video_shape(name, value, base_dir, probe):
     return None, (frames, height, width), path, fps
 
 
-def _media_problems(arguments, base_dir, probe, frames_constraint=None):
+TRIM_COMMAND = "trim_video"
+
+
+def _trim_arguments(steps, value):
+    """The arguments of the `trim_video` step a `previous_result:` value
+    names, or None when it names no trim."""
+    name = references.ref_name(references.PREVIOUS_RESULT, value)
+    if name is None:
+        return None
+    name = name.partition(".")[0]
+    for _, step, task, _, _ in references.iter_steps(steps, None, "task"):
+        if step.get("name") != name:
+            continue
+        arguments = task.get("arguments")
+        if task.get("command") != TRIM_COMMAND or not isinstance(arguments, dict):
+            return None
+        return arguments
+    return None
+
+
+def _trimmed_frames(steps, value):
+    """The frame count a `previous_result:` source names, when it is a
+    `trim_video` step with a literal `num_frames` - what the run keeps, known
+    before it runs, lengthened to a literal `pad_to` past it - else None."""
+    arguments = _trim_arguments(steps, value)
+    if arguments is None:
+        return None
+    count = _static(arguments.get("num_frames"))
+    if not count or count <= 0:
+        return None
+    pad_to = _static(arguments.get("pad_to"))
+    return max(count, pad_to) if isinstance(pad_to, int) else count
+
+
+def _trimmed_file_problems(arguments, steps, base_dir, probe):
+    """[(argument, problem)] for a regional edit whose source and mask are
+    `trim_video` results of files that resolve now (#1374): a span that runs
+    past its file's end - the trim would refuse it, after the steps before
+    it have run - and a mask file whose size is not the source file's. Each
+    rule is asked of its owner: the span of `trim.span_problem`, the size of
+    `media_problems` with the source's size as the canvas, as `_with_mask`
+    takes it when the step names none."""
+    if probe is None:
+        return []
+    problems, shapes = [], {}
+    for name in (SOURCE_VIDEO_INPUT, MASK_VIDEO_INPUT):
+        trim = _trim_arguments(steps, arguments.get(name))
+        if trim is None:
+            continue
+        _, shape, _, _ = _video_shape(name, trim.get("video"), base_dir, probe)
+        if shape is None:
+            continue
+        shapes[name] = shape
+        start, count = (_static(trim.get(k)) for k in ("start_frame", "num_frames"))
+        if isinstance(start, int) and isinstance(count, int) and count > 0:
+            problem = span_problem(start, count, shape[0])
+            if problem:
+                problems.append((name, f"{name} is cut by {TRIM_COMMAND}: {problem}"))
+    if len(shapes) == 2:
+        _, height, width = shapes[SOURCE_VIDEO_INPUT]
+        width = _static(arguments.get("width")) or width
+        height = _static(arguments.get("height")) or height
+        problems += [
+            (MASK_VIDEO_INPUT, p)
+            for p in media_problems(
+                MASK_VIDEO_INPUT, shapes[MASK_VIDEO_INPUT], width, height
+            )
+        ]
+    return problems
+
+
+def _trimmed_source_problems(arguments, frames):
+    """[(argument, problem)] for a `source_video` known only by its frame
+    count `frames` (a `trim_video` result): the frame-count rules of
+    `media_problems`, which owns the 17n + 5 grid. Its size is not known yet,
+    so the canvas is taken as the source's own; an audio pass retimes the
+    source and is left to the run."""
+    if is_audio_pass(arguments):
+        return []
+    width, height, num_frames = _trimmed_canvas(arguments, frames)
+    width, height = width or 1, height or 1
+    shape = (frames, height, width)
+    return [
+        (SOURCE_VIDEO_INPUT, p)
+        for p in media_problems(SOURCE_VIDEO_INPUT, shape, width, height, num_frames)
+    ]
+
+
+def _trimmed_canvas(arguments, frames):
+    """(width, height, num_frames) of an edit whose `source_video` is a
+    `trim_video` result of `frames` frames: the step's literal size, each None
+    when it names none (the size is then the source's own, not known before
+    the trim runs), and its literal count, else the count the trim keeps."""
+    width, height, num_frames = (
+        _static(arguments.get(k)) for k in ("width", "height", "num_frames")
+    )
+    num_frames = frames if arguments.get("num_frames") is None else num_frames
+    return width, height, num_frames
+
+
+def _mask_file_problems(arguments, base_dir, probe, canvas):
+    """[(argument, problem)] for the mask file a regional edit names, when it
+    resolves now: a mask video that is no video, a mask with no white pixel,
+    and its size and frame count against `canvas` - (width, height,
+    num_frames), read only when the width and height are both known."""
+    name = next((n for n in MASK_INPUTS if arguments.get(n) is not None), None)
+    if name is None:
+        return []
+    problems = []
+    white = None
+    if name == MASK_IMAGE_INPUT:
+        path = resolve_probe_path(arguments[name], base_dir, name)
+        read = _mask_image_shape(path) if path is not None else None
+        mask_shape, white = read if read is not None else (None, None)
+    else:
+        problem, mask_shape, path, _ = _video_shape(
+            name, arguments[name], base_dir, probe
+        )
+        if problem:
+            problems.append((name, problem))
+        elif path is not None:
+            white = _mask_video_white(path)
+    if white is False:
+        problems.append(
+            (
+                name,
+                f"{name} is all black, so nothing would regenerate - white marks "
+                f"the region to regenerate",
+            )
+        )
+    if mask_shape is not None and None not in canvas[:2]:
+        problems += [(name, p) for p in media_problems(name, mask_shape, *canvas)]
+    return problems
+
+
+def _media_problems(arguments, base_dir, probe, frames_constraint=None, steps=None):
     """[(argument, problem)] for the regional edit's files that resolve now:
     the source's and the mask's size and frame count against the canvas - a
     canvas key the step leaves out is the source's, as at the call - and a
-    mask with no white pixel."""
+    mask with no white pixel. A source that is a `trim_video` result is known
+    by its frame count alone, and its mask file is still read, against the
+    canvas the step writes."""
+    trimmed = _trimmed_frames(steps, arguments.get(SOURCE_VIDEO_INPUT))
+    if trimmed is not None:
+        problems = _trimmed_source_problems(arguments, trimmed)
+        problems += _trimmed_file_problems(arguments, steps, base_dir, probe)
+        if probe is not None:
+            canvas = _trimmed_canvas(arguments, trimmed)
+            problems += _mask_file_problems(arguments, base_dir, probe, canvas)
+        return problems
     if probe is None:
         return []
     problems = []
@@ -312,33 +509,7 @@ def _media_problems(arguments, base_dir, probe, frames_constraint=None):
                 SOURCE_VIDEO_INPUT, shape, *canvas, fps, frames_constraint
             )
         ]
-    name = next((n for n in MASK_INPUTS if arguments.get(n) is not None), None)
-    if name is None:
-        return problems
-    white = None
-    if name == MASK_IMAGE_INPUT:
-        path = resolve_probe_path(arguments[name], base_dir, name)
-        read = _mask_image_shape(path) if path is not None else None
-        mask_shape, white = read if read is not None else (None, None)
-    else:
-        problem, mask_shape, path, _ = _video_shape(
-            name, arguments[name], base_dir, probe
-        )
-        if problem:
-            problems.append((name, problem))
-        elif path is not None:
-            white = _mask_video_white(path)
-    if white is False:
-        problems.append(
-            (
-                name,
-                f"{name} is all black, so nothing would regenerate - white marks "
-                f"the region to regenerate",
-            )
-        )
-    if mask_shape is not None and None not in canvas[:2]:
-        problems += [(name, p) for p in media_problems(name, mask_shape, *canvas)]
-    return problems
+    return problems + _mask_file_problems(arguments, base_dir, probe, canvas)
 
 
 def mask_errors(workflow_definition, source_indices=None, base_dir=None, probe=None):
@@ -372,6 +543,7 @@ def mask_errors(workflow_definition, source_indices=None, base_dir=None, probe=N
                 base_dir,
                 probe,
                 declared_constraints(workflow_definition).get("num_frames"),
+                steps,
             )
         for name, problem in problems:
             if problem is not None:
@@ -380,4 +552,10 @@ def mask_errors(workflow_definition, source_indices=None, base_dir=None, probe=N
     return errors
 
 
-__all__ = ["hold_audio_errors", "mask_errors", "refine_strength_errors"]
+__all__ = [
+    "held_by_a_required_null",
+    "hold_audio_errors",
+    "judged_arguments",
+    "mask_errors",
+    "refine_strength_errors",
+]

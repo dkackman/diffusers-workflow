@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { StepProgress } from '../progress'
+  import { formatDuration } from '../format'
 
   // The Progress list: one row per step the run will take, the running
   // one carrying its denoise bar, ETA and phase
@@ -10,6 +11,7 @@
     running,
     progress,
     etaSeconds,
+    stall = null,
   }: {
     steps: string[]
     finishedSteps: string[]
@@ -17,6 +19,7 @@
     running: boolean
     progress: StepProgress
     etaSeconds: number | null
+    stall?: { phase: string; seconds: number } | null
   } = $props()
 
   const denoise = $derived(progress.denoise)
@@ -54,11 +57,22 @@
           >{progress.label}</span
         >
       {/if}
+      {#if stall}
+        <span
+          class="stall"
+          title="the engine reports no progress event - long silences are normal for some models"
+          >no event for {formatDuration(stall.seconds)} in {stall.phase}</span
+        >
+      {/if}
     {/if}
   </div>
 {/each}
 
 <style>
+  .stall {
+    font-size: 0.82rem;
+    color: var(--warn);
+  }
   .phase {
     font-size: 0.82rem;
     overflow: hidden;

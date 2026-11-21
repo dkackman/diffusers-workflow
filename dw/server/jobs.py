@@ -22,6 +22,8 @@ route or test calls:
 - `dw/server/pool.py`: WorkerSlot and the lock-free fit and affinity policy;
 - `dw/server/dispatch.py`: the queue scan picking the next job and card,
   with the host-RAM hold (`Dispatcher`, a mixin of JobManager);
+- `dw/server/reruns.py`: a rerun of one job, and of a dead server's restart
+  batch (`Reruns`, a mixin of JobManager);
 - `dw/server/job_results.py`: folding a run's worker messages into its Job;
 - `dw/server/worker_memory.py`: a card's memory reading, cache probe and
   memory clear.
@@ -40,6 +42,7 @@ import time
 import uuid
 import logging
 import threading
+from collections import OrderedDict
 from contextlib import contextmanager
 
 from ..events import NON_INTERRUPTIBLE_PHASES
@@ -52,27 +55,27 @@ from ..security import (
     validate_path,
     validate_workflow_path,
 )
-from .. import references
+from .. import model_use
 from ..runs import REALIZED_FILE_NAME
 from ..settings import resolve_path
 from ..workspace import DEFAULT_WORKSPACE_NAME
 from . import dispatch, job_results, pool, worker_memory
 from .dispatch import Dispatcher
-from .job_history import JobHistory, close_dead_servers, hold_server_lock
+from .job_history import JobHistory, close_dead_servers
+from .job_history import hold_server_lock
 from .job_history import release_server_lock
-from .outputs import job_run_directory, with_run_note, with_run_state
+from .outputs import job_run_directory, proof_output, with_run_note, with_run_state
 from .job_record import (
     ACK_NONE,
     CANCELLED,
     FAILED,
     QUEUED,
-    RERUN_SPEC_KEYS,
     RUNNING,
     TERMINAL_STATES,
     Job,
-    rerun_arguments,
 )
 from .pool import WorkerSlot
+from .reruns import Reruns
 from .worker_memory import WorkerBusy
 
 __all__ = ["JobManager", "TERMINAL_JOBS_KEPT", "WorkerBusy", "WorkerSlot"]
@@ -82,6 +85,10 @@ logger = logging.getLogger("dw")
 # Finished jobs kept in memory for SSE replay grace; older ones live in
 # history only, so a long-running server's memory stays bounded
 TERMINAL_JOBS_KEPT = 20
+# Closed jobs whose proof output (`JobManager._proof`) is kept in memory: a
+# polled requests list then reads each manifest from history once, not once
+# per poll. About 150 bytes each.
+PROOFS_KEPT = 4096
 
 # How long a cancel waits for a worker in a phase with no checkpoint (a model
 # load, a task) before the worker is terminated (#892)
@@ -92,7 +99,7 @@ class JobsActive(Exception):
     """A job is running or queued."""
 
 
-class JobManager(Dispatcher):
+class JobManager(Dispatcher, Reruns):
     """Queues jobs and dispatches them onto one worker process per card."""
 
     def __init__(
@@ -133,9 +140,17 @@ class JobManager(Dispatcher):
         # Before the runner starts and before the app takes a request
         close_dead_servers(self.history, self.instance)
         self.jobs = {}
+        self._proofs = OrderedDict()
         # Reentrant: cancel() finishes a queued job while holding it, and
         # _finish's terminal-job trim needs it again on the same thread
         self._lock = threading.RLock()  # guards job state transitions
+        # Held across a restart-batch rerun, admission included, so two
+        # concurrent batches cannot both pass its already-rerun check (#1266)
+        self._batch_lock = threading.Lock()
+        # workspace name -> the folder holding its requests.json, or None;
+        # set by the app, which knows the workspaces. Unset, a rerun does
+        # not check the link it inherits
+        self.ledger_root_for = None
         # Pending job ids in run order - a list, not a Queue, so the queue
         # can be reordered while jobs wait
         self._pending = []
@@ -147,6 +162,10 @@ class JobManager(Dispatcher):
         self._host_needs = {}
         # The card a rerun prefers - the original's ordinal - by job id
         self._preferred = {}
+        # Idle workers a held job asked released for host RAM, by job id,
+        # and when each card's was last released (#1407)
+        self._release_idle = {}
+        self._released_at = {}
         # Callers holding dispatch (hold_dispatch): while any does, no queued
         # job is started, though jobs may still be submitted
         self._dispatch_holds = 0
@@ -157,6 +176,13 @@ class JobManager(Dispatcher):
             target=self._run_loop, daemon=True, name="job-runner"
         )
         self._runner.start()
+
+    def queued_count(self):
+        """How many jobs wait for a card - /api/health's `queued`. Read from
+        the in-memory queue: `list()` walks the whole history and every run's
+        note on disk, which stalled health while a job loaded (#1434)."""
+        with self._lock:
+            return len(self._pending)
 
     def running_job_id(self):
         """The oldest running job's id, or None while every card is idle -
@@ -178,6 +204,16 @@ class JobManager(Dispatcher):
             self.history.record(job)
         except Exception as e:
             logger.warning(f"Could not record job {job.id} in history: {e}")
+
+    def _on_run_start(self, job):
+        """The worker's `run_start`: the row goes to running, and every Hub
+        repo admission found the job names is stamped as used now
+        (dw/model_use.py, #1445) - the run has started, so a job cancelled
+        while it queued, or refused at dispatch, never stamps. The stamp is
+        best-effort (`model_use.record` swallows its own failures)."""
+        self._record_open(job)
+        if job.repos_named:
+            model_use.record(job.repos_named, time.time())
 
     # ------------------------------------------------------------- affinity
 
@@ -250,10 +286,13 @@ class JobManager(Dispatcher):
         warnings=None,
         vram_need=None,
         host_ram_need=None,
+        repos_named=None,
         preferred_device=None,
         note=None,
         rerun_of=None,
         overrides=None,
+        request=None,
+        item=None,
     ):
         """Record a job request and queue it.
 
@@ -295,11 +334,16 @@ class JobManager(Dispatcher):
         as `job.host_ram_need` (#869). The job waits to start while the
         host cannot hold it beside the running jobs (`_host_ram_wait`).
 
+        `repos_named` is the admission's (`Admission.repos_named`): the Hub
+        repos the run names, stamped in dw/model_use.py when its run starts
+        (`_run_on`, #1445). A job cancelled while queued stamps none.
+
         `preferred_device` is the card ('cuda:1') the job goes to when that
         card is free and fits it - a rerun's original card (`rerun`).
 
         `note` is the run's note, already cleaned (`admitted_note`): kept on
         the job and written into the run directory when the run opens.
+        `request` and `item` link the job to a requests-ledger item (#1458).
 
         `rerun_of` is the job this one reruns, recorded so the list can say so;
         `overrides` the variables the rerun changed, recorded beside it.
@@ -347,18 +391,17 @@ class JobManager(Dispatcher):
         if acknowledged_cost is not None:
             spec["acknowledged_cost"] = acknowledged_cost
         spec["output_dir"] = job_output_dir
-        if asset_dir:
-            spec["asset_dir"] = asset_dir
         spec["warnings"] = list(warnings or [])
-        if note:
-            spec["note"] = note
-        if rerun_of:
-            spec["rerun_of"] = rerun_of
-        if overrides:
-            spec["overrides"] = overrides
+        # Each recorded only when given
+        optional = dict(asset_dir=asset_dir, note=note, rerun_of=rerun_of)
+        optional["overrides"] = overrides
+        if request and item:  # admission checked it; a rerun's, `rerun` warns on
+            optional.update(request=request, item=item)
+        spec.update({key: value for key, value in optional.items() if value})
 
         job = Job(spec)
         job.host_ram_need = host_ram_need
+        job.repos_named = list(repos_named or [])
         job.server_instance = self.instance
         # Its row before anyone can see it: no outcome is written first (#1220)
         self._record_open(job)
@@ -476,149 +519,83 @@ class JobManager(Dispatcher):
         historical = self.history.get(job_id)
         return (historical or {}).get("arguments") or {}
 
-    def seed_variable(self, job_id):
-        """The variable this job's workflow draws its seed from, or None.
+    def request_jobs(self, workspace, request_id):
+        """Every job linked to `request_id` in `workspace`, live queue and
+        history, oldest first, as `{job, item, status, run_id, run_dir,
+        run_exists, started_at, finished_at, created_at, note, output}`.
 
-        Read from the workflow as written, never from the realized copy the
-        run wrote: realization pins the top-level seed to the integer the run
-        used, so a realized workflow always looks like it names a literal.
+        `run_exists` is whether the job's run directory is still on disk -
+        the directory `delete_job_run` removes. `output` is a callable
+        answering the job's `proof_output`, so no manifest is read for a
+        job nobody shows. One indexed history query."""
+        found = {}
+        for row in self.history.request_jobs(workspace, request_id):
+            found[row["id"]] = self._linked(
+                row["id"], row, row["run_dir"], row["output_dir"]
+            )
+        with self._lock:
+            live = [
+                job
+                for job in self.jobs.values()
+                if job.request == request_id
+                and (job.spec.get("workspace") or DEFAULT_WORKSPACE_NAME) == workspace
+            ]
+        for job in live:
+            found[job.id] = self._linked(
+                job.id,
+                {
+                    "item": job.item,
+                    "status": job.status,
+                    "run_id": job.run_id,
+                    "note": job.note,
+                    "created_at": job.created_at,
+                    "started_at": job.started_at,
+                    "finished_at": job.finished_at,
+                },
+                job.run_dir,
+                job.spec.get("output_dir"),
+            )
+        return sorted(found.values(), key=lambda entry: entry["created_at"] or 0)
 
-        None means a new-seed rerun has nowhere to put one - either the seed
-        is a literal (an argument cannot override it) or the workflow names
-        no seed at all, in which case every run already draws a fresh one and
-        the step cache is off.
-        """
-        definition = self.definition(job_id)
-        seed = (definition or {}).get("seed")
-        name = references.ref_name(references.VARIABLE, seed)
-        if name is None:
-            return None
-        return name if name in (definition.get("variables") or {}) else None
+    def _linked(self, job_id, row, run_dir, output_dir):
+        exists = False
+        if run_dir:
+            try:
+                root = validate_output_path(output_dir or self.output_dir, None)
+                exists = job_run_directory(root, run_dir) is not None
+            except SecurityError:
+                exists = False
+        return {
+            "job": job_id,
+            "item": row["item"],
+            "status": row["status"],
+            "run_id": row["run_id"],
+            "run_dir": run_dir,
+            "run_exists": exists,
+            "started_at": row["started_at"],
+            "finished_at": row["finished_at"],
+            "created_at": row["created_at"],
+            "note": row["note"],
+            "output": lambda: self._proof(job_id),
+        }
 
-    def rerun_spec(self, job_id, new_seed=False, overrides=None):
-        """The spec and arguments a rerun of `job_id` would submit, as
-        (spec, arguments), or None for an unknown job - split from rerun()
-        so a route can admit the run before queuing it (#85).
-
-        `new_seed` draws a fresh seed into the workflow's seed variable
-        (see rerun). `overrides` are variables merged over the stored
-        arguments first, keeping a seed the original drew (rerun_arguments).
-        Raises ValueError when it cannot, or the job's workspace is gone."""
-        job = self.jobs.get(job_id)
+    def _proof(self, job_id):
+        """A linked job's `proof_output`: a live job's from the manifest it
+        holds, a closed one's from its history row - read once and kept
+        (`PROOFS_KEPT` of them), since that row never changes."""
+        with self._lock:
+            job = self.jobs.get(job_id)
+            if job is None and job_id in self._proofs:
+                self._proofs.move_to_end(job_id)
+                return self._proofs[job_id]
         if job is not None:
-            spec = {key: job.spec[key] for key in RERUN_SPEC_KEYS if key in job.spec}
-            arguments = job.spec.get("arguments", {})
-        else:
-            historical = self.history.get(job_id)
-            if historical is None:
-                return None
-            spec = {
-                key: historical["spec"][key]
-                for key in RERUN_SPEC_KEYS
-                if key in historical["spec"]
-            }
-            arguments = historical["arguments"]
-
-        arguments, spec["rerun_warnings"] = rerun_arguments(
-            arguments,
-            overrides,
-            new_seed,
-            self.seed_variable(job_id),
-            lambda: self.realized(job_id),
-        )
-
-        workspace = spec.get("workspace")
-        if (
-            workspace
-            and workspace != DEFAULT_WORKSPACE_NAME
-            and spec.get("output_dir")
-            and not os.path.isdir(spec["output_dir"])
-        ):
-            raise ValueError(f"Workspace '{workspace}' the job ran in no longer exists")
-        return spec, arguments
-
-    def rerun(
-        self,
-        job_id,
-        *,
-        admitted,
-        new_seed=False,
-        acknowledged=ACK_NONE,
-        acknowledged_cost=None,
-        warnings=None,
-        arguments=None,
-        vram_need=None,
-        host_ram_need=None,
-        overrides=None,
-    ):
-        """Queue a fresh job from a previous job's spec.
-
-        Every root the original ran against (workflow_dir/output_dir/
-        asset_dir/workspace) rides along, not just the workflow identity -
-        otherwise a rerun of a job from a named workspace would fall back to
-        the manager's process-wide default and silently run somewhere else.
-
-        `new_seed` draws a fresh seed into the workflow's seed variable. A
-        plain rerun of a seeded workflow repeats its arguments exactly, which
-        makes every step a step-cache hit: it republishes the earlier run's
-        files in a fraction of a second and generates nothing. That is the
-        cache doing its job - the same seed and the same inputs would produce
-        the same pixels - so the way to actually get another image is to
-        change the seed, and this is that.
-
-        Like submit, rerun does not re-check: callers admit first. The route
-        admits the arguments `rerun_spec(job_id, new_seed)` answered and
-        passes them back as `arguments`, with the admission's `warnings` and
-        its Workflow as `admitted`, so what is queued is what was admitted -
-        the seed is not drawn twice.
-
-        `acknowledged` and `acknowledged_cost` are this request's own; the
-        original's bound object rides along in the spec for the record when
-        the request brought none.
-
-        The rerun prefers the card the original ran on: its step cache is
-        there, which is what makes a same-seed rerun finish at once. When
-        that card is busy, the rerun takes any free card it fits.
-        """
-        prepared = self.rerun_spec(
-            job_id, new_seed=new_seed and arguments is None, overrides=overrides
-        )
-        if prepared is None:
-            return None
-        spec, recorded = prepared
-        return self.submit(
-            workflow_path=spec.get("workflow_path"),
-            workflow=spec.get("workflow"),
-            admitted=admitted,
-            arguments=recorded if arguments is None else arguments,
-            base_dir=spec.get("base_dir"),
-            workflow_dir=spec.get("workflow_dir"),
-            output_dir=spec.get("output_dir"),
-            asset_dir=spec.get("asset_dir"),
-            workspace=spec.get("workspace"),
-            catalog_name=spec.get("catalog_name"),
-            acknowledged=acknowledged,
-            acknowledged_cost=(
-                acknowledged_cost
-                if acknowledged_cost is not None
-                else spec.get("acknowledged_cost")
-            ),
-            # keep_drawn_seed's, unless a new_seed replaced the drawn seed
-            warnings=[*(warnings or []), *([] if new_seed else spec["rerun_warnings"])],
-            vram_need=vram_need,
-            host_ram_need=host_ram_need,
-            preferred_device=self._original_device(job_id),
-            note=spec.get("note"),
-            rerun_of=job_id,
-            overrides=overrides,
-        )
-
-    def _original_device(self, job_id):
-        """The ordinal of the card `job_id` ran on ('cuda:1'), or None."""
-        job = self.jobs.get(job_id)
-        if job is not None:
-            return job.device_ordinal
-        return self.history.device_ordinal(job_id)
+            return proof_output(job.manifest)
+        proof = proof_output(self.history.manifest_of(job_id))
+        with self._lock:
+            self._proofs[job_id] = proof
+            while len(self._proofs) > PROOFS_KEPT:
+                self._proofs.popitem(last=False)
+        return proof
 
     def queue_position(self, job_id):
         """Index in the waiting queue, or None when the job is not queued."""
@@ -635,15 +612,17 @@ class JobManager(Dispatcher):
             detail["queue_position"] = position
         return detail
 
-    def list(self, workspace=None, statuses=None):
+    def list(self, workspace=None, statuses=None, request=None, item=None):
         """All jobs, live and historical, sorted by creation. `workspace` filters to one workspace; omitted, the list
         spans every workspace the server holds, unchanged from before
         workspaces existed. `statuses` filters to a set of job states
         ('queued', 'running', 'succeeded', 'failed', 'cancelled'); omitted,
         every state is listed."""
-        return self.list_page(workspace, statuses)[0]
+        return self.list_page(workspace, statuses, request=request, item=item)[0]
 
-    def list_page(self, workspace=None, statuses=None, limit=None):
+    def list_page(
+        self, workspace=None, statuses=None, limit=None, request=None, item=None
+    ):
         """`list`'s jobs cut to the newest `limit` (every one when None),
         and how many matched before the cut. Each run's current note is
         read after the cut, so a small page does not read the notes of
@@ -660,24 +639,45 @@ class JobManager(Dispatcher):
                 continue
             if statuses and summary["status"] not in statuses:
                 continue
+            # `request`/`item` filter in SQL for history, here for the live
+            if request and summary.get("request") != request:
+                continue
+            if item and summary.get("item") != item:
+                continue
             if job.id in positions:
                 summary["queue_position"] = positions[job.id]
             output_dir = job.spec.get("output_dir")
             summaries.append((summary, output_dir, job.run_dir))
+        # only the newest `limit` rows can reach the page; the live ids are
+        # dropped below, so fetch that many extra. The total is counted in
+        # SQL, not from the capped list (#1466)
+        live_count = len(summaries)
+        history_limit = None if limit is None else limit + len(live_ids)
+        history_total = self.history.count_summaries(
+            workspace=workspace,
+            statuses=statuses,
+            exclude_ids=live_ids,
+            request=request,
+            item=item,
+        )
         for historical in self.history.recent_summaries(
-            workspace=workspace, statuses=statuses
+            limit=history_limit if history_limit is not None else -1,
+            workspace=workspace,
+            statuses=statuses,
+            request=request,
+            item=item,
         ):
             run_dir = historical.pop("_run_dir", None)
             output_dir = historical.pop("_output_dir", None)
             if historical["id"] not in live_ids:
                 summaries.append((historical, output_dir, run_dir))
         summaries.sort(key=lambda entry: entry[0]["created_at"] or 0)
-        total = len(summaries)
+        total = live_count + history_total
         if limit is not None:
             # the newest are the interesting ones and the list is oldest
             # first, so the cut comes off the front; max(0, ...) because a
             # bare negative start would be read from the end instead
-            summaries = summaries[max(0, total - limit) :] if limit else []
+            summaries = summaries[max(0, len(summaries) - limit) :] if limit else []
         return [self._current_note(*entry) for entry in summaries], total
 
     def _current_note(self, summary, output_dir, run_dir):
@@ -810,6 +810,9 @@ class JobManager(Dispatcher):
                     picked = self._next_dispatch()
                     if picked is not None:
                         break
+                    if self._release_idle:
+                        self._release_idle_workers()
+                        continue
                     # Host RAM frees outside dw too, so a job held for it is
                     # looked at again on a timer, not only on a wake (#869)
                     held = any(self._held_for_host_ram())
@@ -937,7 +940,7 @@ class JobManager(Dispatcher):
                         slot,
                         job.spec.get("output_dir") or self.output_dir,
                         worker_memory.record_memory,
-                        on_run_start=lambda: self._record_open(job),
+                        on_run_start=lambda: self._on_run_start(job),
                     )
             except Exception as e:
                 logger.error(f"Job {job.id} failed: {e}", exc_info=True)
@@ -953,42 +956,6 @@ class JobManager(Dispatcher):
         if job.status not in TERMINAL_STATES:
             status, error, traceback_text = outcome
             self._finish(job, status, error=error, traceback_text=traceback_text)
-
-    def _rank_for_oom(self, slot, job=None):
-        """Score the dispatching worker 1000 for the kernel's OOM killer and
-        put every other live worker back to its spawn-time floor, on every
-        dispatch, so a host-RAM squeeze kills the newest job whatever the
-        workers' sizes (#881). The floor rather than 0: an unprivileged write
-        below it is refused (WorkerManager.reset_oom_score_adj). Nothing is
-        written while it is the only worker, so one card runs exactly as
-        before. A write the kernel refuses is a warning on the job, since a
-        tie at 1000 is the failure this exists to prevent."""
-        manager = slot.manager
-        if not hasattr(manager, "set_oom_score_adj"):
-            return
-        others = [
-            other.manager for other in self.slots if other is not slot and other.alive()
-        ]
-        if not others:
-            return
-        refused = []
-        if manager.set_oom_score_adj(1000) is False:
-            refused.append((manager, 1000))
-        for other in others:
-            if (
-                hasattr(other, "reset_oom_score_adj")
-                and other.reset_oom_score_adj() is False
-            ):
-                refused.append((other, other.oom_score_floor or 0))
-        for worker, value in refused:
-            message = (
-                f"Could not set oom_score_adj to {value} on the {worker.device} "
-                f"worker (pid {worker.pid()}): a host-RAM squeeze may not kill "
-                "the newest job first"
-            )
-            logger.warning(message)
-            if job is not None:
-                job.add_event({"event": "warning", "message": message})
 
     def is_busy(self):
         """True while a job is running on any card or queued - the window in

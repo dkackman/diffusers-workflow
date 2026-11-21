@@ -12,7 +12,7 @@
   import { referenceCompletions } from '../refcomplete.svelte'
   import { ASSET, OUTPUT, referenceName } from '../references'
   import { ensureOutputLibrary, outputNamed } from '../outputlib.svelte'
-  import type { MediaKind } from '../editor'
+  import type { MediaKind } from '../mediaArguments'
   import { dropFiles } from '../dropFiles'
 
   let {

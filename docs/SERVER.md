@@ -115,7 +115,7 @@ box's default card.
 
 The sidebar lists every workspace on the server (`+ new` creates one; names
 sharing a prefix fold into one group). The selected workspace opens into
-**Overview, Workflows, Jobs, Gallery, Assets, Editor**, and the hash names
+**Overview, Workflows, Jobs, Requests, Gallery, Assets, Editor**, and the hash names
 it (`#/ws/studio/gallery`), so a link and a reload land where they say; a
 pre-workspace bookmark (`#/gallery`) redirects to the last workspace used.
 Below the workspaces, **Shared** holds what every workspace sees - Prompts,
@@ -138,8 +138,32 @@ icon, a finish-alert toggle, the theme toggle, and links to these docs and
   `GET /api/workflows`); folders become collapsible groups. **Shared →
   Examples** is the same page over the `--examples-dir` trees. A card opens
   the workflow's page: its recent outputs, a run form generated from its
-  variables (with `asset:`/`prompt:`/`output:` pickers), the raw JSON on
-  request, **Edit**, **Duplicate**, **Run** and delete. Opening an example in
+  variables (with `asset:`/`prompt:`/`output:` pickers; each rule the
+  workflow declares in `variable_constraints` - its range, grid, minimum
+  length - and the author's reason show under the field they govern, a
+  list-entry rule under its list; the editor shows the same lines,
+  read-only; a preset selector is a dropdown of its bundles, with a line
+  naming the variables they set, and the fields a bundle sets show the
+  chosen bundle's values as placeholders - only the selector is sent, so
+  the server applies the bundle itself; in the editor the selector stays
+  a text field with that line and its bundle names), the raw JSON on request, **Edit**, **Duplicate**, **Run** and delete.
+  Under the title, the card's curated figure says whose it is and the
+  settings it holds for - "a maintainer's figure: ~3 min · 22 GB VRAM,
+  measured on RTX 4090 at num_frames=121" (the card's `cost_drivers`, a list
+  as its entry count, an object as `{…}`, `null` as `unset`) - then this
+  server's observed time; a workflow with no `cost` shows no curated line.
+  The catalog card's tooltip carries the same "a maintainer's figure,
+  measured on … at …" line.
+  The page checks a run as you edit: on load and 600 ms after the last
+  change it posts `POST /api/validate?sizes=false` by name with exactly the
+  arguments Run would send (blank fields dropped), and once more with sizes
+  after 3 s idle; an answer to anything but the latest values is dropped.
+  A box beside Run shows the plan (`describePlan`, as the editor's), a
+  verdict, and the findings: one whose path is `arguments.<name>` or
+  `variables.<name>` for a field the form shows prints under that field,
+  every other error and warning in the general list, all as plain text.
+  The check informs only - Run is never disabled by it, and a Run the
+  server refuses still says why in a toast. Opening an example in
   the editor saves a copy into the current workspace.
 
   ![Shared → Examples: workflow cards with their last image, shape and trait filters, and each card's summary and observed run time](img/ui-examples.jpg)
@@ -157,32 +181,203 @@ icon, a finish-alert toggle, the theme toggle, and links to these docs and
   segments inside its box, one chip per segment with what each seam carries.
   A variable declared `required: true` is marked required in the form.
   Clicking a step in the flow jumps
-  to it in the form. Validate, save and run from the same screen; a valid
-  verdict shows the run's plan - step and list counts, the estimate with its
-  basis, how many steps the step cache would serve, and the weights to
-  download first (`POST /api/validate`'s `plan`, rendered by
-  `ui/src/lib/plan.ts`).
+  to it in the form. Validate, save and run from the same screen; whenever
+  the answer carries a plan it is shown under the verdict - under the error
+  list too when the answer is invalid, as one naming a repo that isn't there
+  is. The plan reads: step and list counts; the estimate with its basis, the
+  card it is priced for when that says more than the backend (`on <card>`,
+  or `- for <card>` closing an inherited or no-figure line), whether it is low confidence, blended toward the
+  curated figure, inherited from a template, or withheld (with the template
+  it was not priced from) or unpriced for a stated reason; the host RAM the
+  run is projected to hold (`host RAM ~N GB (observed | fit to N runs |
+  declared | inherited from the template)`); how many steps the step cache
+  would serve; and the weights to download first, a gated repo this box's
+  token can't reach or one that isn't found named as such (`POST
+  /api/validate`'s `plan`, rendered by `ui/src/lib/plan.ts`).
 
   ![The editor in split view: the variables as a form beside the workflow JSON](img/ui-editor.png)
 
 - **Jobs** - the workspace's queue and run history (history persists in
   `~/.diffusers_helper/jobs.sqlite`; a job queued or running when the
   server stopped is listed as `cancelled` with `error` starting
-  `server restart:`, and `rerun_job` resubmits it; each server holds a
+  `server restart:`, and `rerun_job` resubmits it; `POST
+  /api/jobs/{id}/rerun-restart-batch` reruns every job that one restart closed
+  (the rows of the tombstone's `server_instance`), oldest first - without
+  `acknowledged_cost: true` it answers `would_queue` with each member's
+  estimate and queues nothing, and with it each member is admitted as a single
+  rerun would be and queued with `rerun_of`; a member already rerun, or whose
+  workspace was deleted, is listed in `skipped` with its reason. A job that is
+  not a restart tombstone, or one closed before #1245 recorded the instance, is
+  a 400, and a bound acknowledgement is refused; each server holds a
   lock under `servers/` beside the database for its life, so a second server
-  sharing the database leaves a live sibling's jobs alone), filterable by status; a waiting job
-  shows its place in line, can be moved, and shows `waiting_for` while held
-  for host RAM. A job's page streams step progress, denoise ticks, the phase
+  sharing the database leaves a live sibling's jobs alone), filterable by status. A failed or cancelled row shows its `reason` on a muted line under the workflow name, cut to one line with the full text on hover. When loaded rows hold restart tombstones (`restart_batch`) that no loaded row's `rerun_of` names, a banner per batch, newest first, says "N jobs were cancelled by a server restart" with a **Rerun…** button (hidden under a status filter that hides cancelled rows). Only the click calls the batch route - the poll never does: its preview lists what would be queued with each estimate and a total, and what is skipped with why; confirming resends with `acknowledged_cost: true`, cancelling queues nothing, and a preview with nothing left to rerun says so and hides that banner for the session (`ui/src/lib/restartBatches.ts`). A waiting job
+  shows its place in line, can be moved (the place is in the whole queue, so a list narrowed to a workspace or a request asks the server how many jobs are queued rather than counting its own rows), and shows `waiting_for` while held
+  (for host RAM, or because every card is busy): the jobs list adds a short reason (`· host RAM` / `· cards busy`) to the queued row with the full text on hover, and the job page's hover matches the hold. The job page also refetches on `queue_wait` and on a live `warning`, and shows a warn-tone stall line (`no event for 4m in loading`) from the latest `phase_stall` until another event arrives. A job's page streams step progress, denoise ticks, the phase
   between them (loading, decoding, saving; a model download shows its bytes and rate), its log, and its results as they
   land - finals first, intermediates folded, and a section per
   `result.subfolder` when a step chose one. **Cancel**, **Run again**,
-  **New seed**, and **Export** (gathers the run into the workspace's `exports/` with
+  **New seed**, **Run again with changes…** (a form over every declared
+  variable with this run's values as placeholders; only the fields that differ
+  are sent as the rerun's `arguments`), one button per other value of each
+  `presets` selector the run declares (read from the workflow file as it is now;
+  an inline workflow has none), and **Export** (gathers the run into the workspace's `exports/` with
   `POST /api/jobs/{id}/export` and downloads the zip - the same bundle as
   MCP's `export_job`; replacing an existing export asks first). An `.otioz`
   among the results is drawn as a timeline strip (clips sized by duration, gaps
   hatched, a copy button for each clip's `output:` reference).
 
+  A chained step (one whose shots carry `planned_segments`) gets a
+  **Segments** table below Results, one row per segment its take holds, read
+  off the step's manifest entry and headed "k of N planned" (a `stop_after`
+  take shows fewer rows than planned). Each row has a thumbnail (the
+  segment's own clip under `keep_segments`, else the take seeked to the
+  segment's start frame, loaded only as it scrolls into view), its frame
+  range, its attempts against the budget (`2 of 3`, 1 + the chain's `retries`
+  as the run's definition resolved it) with the kept seed when a re-roll was
+  kept, and one cell per recorded measure - the value against its ceiling
+  (`0.41 ≤ 0.6`; `≥` for a floor like `audio_dbfs`) marked **pass**, **warn**
+  (a warn-only measure that failed) or **fail**, taken from the record's
+  `failed`, never recomputed. A measure the UI does not know shows under its
+  own name. A segment 1 the check had nothing to compare says "nothing
+  measured"; a resumed segment, a `(repaired)` one, and a checked chain
+  recorded before measures were kept say "not recorded"; a chain run with
+  `check` off has no measure cells (`ui/src/lib/job/ChainSegments.svelte`,
+  its rows from `ui/src/lib/chainRows.ts`).
+
+  Each row ends with **Repair this segment**. It is live only when the
+  chain step loads a model that a pipeline step of
+  `templates/minimax/repair-segment` loads (today H3; the rule is read off
+  both definitions, not a family name), on rows 2..N whose segment file the
+  run kept, in a take with no `(repaired)` segment. Pressing it opens that
+  template's workflow page with `chain_take` set to the take's `output:`
+  reference and `segment` to the row's number; nothing runs until **Run**.
+  A disabled button says why, in one sentence: no repair-segment template
+  for this model family, segment 1 cannot be repaired (re-render with a new
+  seed), a repaired take has no segment files, or the run did not keep its
+  segments. A take that stopped short of its plan, kept every segment's
+  file, and whose chain's `stop_after` and `resume_from` are both declared
+  variables offers **Continue the chain** above the table. Its confirm
+  quotes an estimate: `POST /api/validate` with the job's workflow and the
+  rerun's merged arguments, read as the plan's figure line (one that cannot
+  be priced says so). Confirmed, it reruns the job with `resume_from` set to the last segment's `output:`
+  reference and `stop_after` cleared, and opens the new job. What each
+  action offers and sends is `ui/src/lib/chainActions.ts`.
+
+  Every job page, live or from history, ends with an **Event log** section,
+  collapsed until clicked; nothing is fetched before then. Opening it reads
+  `GET /api/jobs/{id}/event-log` in pages of 500, following `truncated`, and
+  stops at 5,000 events ("showing the first 5,000; more on the server"). Each
+  row is the event's seq, its time since the job started, its kind (a
+  warning's own `kind` beside it, e.g. `warning · phase_stall`), and its
+  message or the rest of its payload as compact JSON; a **kind** select filters
+  the rows to one kind. The route's `note` - what a finished job's history
+  dropped, or that it kept no log - shows above the rows, and an unknown or
+  pruned job says "no event log for this job". While the job is live a
+  **Refresh** button fetches the events after the last one shown. The section
+  keeps its own rows: the Progress list, the flow view and its chips still
+  read the live stream alone (`ui/src/lib/job/EventLog.svelte`).
+
   ![A finished job: a warning about a level jump at a cut, then the workflow as a data-flow graph from the edit and soundtrack through mixing and normalizing to the film](img/ui-job.png)
+
+- **Requests** - the workspace's requests ledger
+  ([WORKSPACES.md](WORKSPACES.md#requests)): what was asked of an agent, as
+  the plan it wrote. The list is one row a request - up to three thumbnails
+  of its latest results, the title, one line that is the first of *failed*,
+  *running*, *queued*, *idle* and *all done, still open*, a bar of its items
+  with done of those in the plan, minutes spent (measured, so no `~`) and
+  left (estimated), and when it was last written. Requests with something
+  for you to do come first, then those with a job in flight; closed ones
+  are hidden until the filter is set to **all** (`?show=all`).
+
+  A request's page leads with where it stands in a sentence ("Rendering
+  Shot 3. 4 of 9 done."), then what needs you (items ready to run, failed,
+  with two good takes and none accepted, or whose accepted take's files are
+  gone), a bar with one segment an item - each goes to its row - and the
+  minutes. Each item is a row: its result as a picture linked to the job
+  that made it (a dashed slot until there is one), its title, its state as
+  a word, and one figure. **ready** is a planned item a job could be queued
+  for now and **waiting** one whose dependency is not done, named with its
+  own state; **cancelled** is a failure whose every attempt was cancelled.
+  Opening a row shows its takes oldest to newest, with the accepted one or
+  the latest standing as the result marked, what it follows and what needs
+  it, the workflow and arguments it would run, and its note. Dropped items
+  fold into a group under the plan. What you asked, the goal and the plan's
+  changes - newest first, your own writes folded into one line - sit beside
+  the plan on a wide window and fold under it on a narrow one.
+
+  You edit the plan from its rows. Under each good take, **Accept** makes it
+  the item's result (**Accepted** pressed again clears the choice). The grip
+  at the start of a row reorders it - drag it, or focus it and press
+  ArrowUp/ArrowDown, Home or End; the order is written once, shortly after
+  the last move. A row's **more actions** menu has the same four moves, a
+  note, the item's jobs and outputs, and **Drop from plan**; a dropped row
+  has **Restore**. Accept and drop show at once and can be undone from the
+  toast for eight seconds. A drop asks first only when it does more than
+  the row shows: other items wait on it (the drop takes that dependency away
+  from them), nothing was run for it (the ledger deletes it outright, and
+  the page can restore it only until you leave), or its job is queued or
+  running (the drop does not cancel it).
+
+  **Notes for the agent** go on the request or on an item (each up to 4000
+  characters; Ctrl+Enter saves, Esc sets the draft aside, and an unsaved
+  draft survives a reload of the tab). An item holds a list of them, so a
+  second note does not replace the first, and each is edited or removed on
+  its own. A note can carry references to what it is about: a chip per
+  reference ("take 2 · shot3.mp4", or the item's title for a planned shot)
+  that links to the job or file. Write one where you are looking: on the
+  request page (the attempt strip has **Note this take**, and the request's
+  own box has an item picker, so one note can cover several shots, before or
+  after a render), on a job page (a panel by the `request › item` link, and
+  **Note this file** on each output) or on a gallery file (when a job linked
+  to a request item published it; with several, it asks which take). Job
+  page and gallery are for jobs linked to a request item only. A reference
+  that has gone stale (item dropped, run purged) is greyed out. The line
+  under each saved note says only what the ledger shows - that the agent
+  has, or has not, written since - and when the agent writes after a waiting
+  note, a toast says so, once per note per page load.
+  The save button asks the server whether a session is listening
+  ([the notes channel](MCP.md#the-notes-channel)). It reads **Send to
+  agent** when one is, and the line under a waiting note says it will see
+  the note within about 10 seconds; it reads **Save note** when none is, and
+  the line says the agent reads it the next time it updates the plan. Saving
+  works either way. "Listening" only means a session has the channel set up:
+  one started without the development-channels flag still counts, and Claude
+  Code drops its events ([MCP.md](MCP.md#is-a-session-listening)).
+
+  The page queues jobs only when you ask, and only after pricing them.
+  **Run {n} ready…** in the header takes every ready item; a ready row has
+  **Run…**, a failed or cancelled one whose dependencies are done **Run
+  again…**, and a done row's menu **Run another take…**. Each opens a dialog
+  that validates every item first (the spend button stays disabled until
+  each has its quote) and shows, per item, its workflow, the quote with what
+  it rests on, what the step cache would serve and what must be downloaded,
+  the plan's own estimate when the quote is more than a quarter off it, and
+  a warning when every step is cached - such a run reproduces the last take
+  rather than making a new one. **Will not run** lists the other items with
+  the reason each is left out (waits on another, no stored workflow, already
+  queued, would be refused), and **Afterwards** says which items become
+  ready once these finish - the page never starts them for you. On **Run
+  {n}** each item is submitted in plan order, linked to its item and with
+  the quoted plan as its cost acknowledgement; a row reads *queued* only
+  once the server has queued it, a price that moved since the quote is
+  re-priced on its row with **Run at this price**, and a refusal (the
+  request was closed, the item dropped) is said on its row.
+
+  The header's **more actions** menu marks the request **done**, **abandons**
+  or **reopens** it - nothing can be run on a closed request - and deletes a
+  closed one from the ledger after a confirm (its jobs and outputs stay).
+
+  The agent may rewrite the plan while you edit it. The page never sends
+  back a plan it read earlier: it reads the request again and makes your
+  change over that. When the item you changed is as you saw it, the change
+  goes on top and a line above the plan says so, naming the agent's write
+  (**See changes** goes to it). When you were dropping an item or accepting
+  a take and the agent has changed that item, nothing is written and the
+  row asks - **Drop anyway** or **Keep it**. When the change no longer
+  applies (the item is gone), the page says so and keeps a note's words for
+  you to copy. The page refreshes itself while the request is open,
+  announces what changed to a screen reader, and keeps the plan it has, with
+  its age and a **Retry**, when a refresh fails.
 
 - **Gallery** - everything in the workspace's output directory
   (`<workflow>/<run id>/`, see [WORKSPACES.md](WORKSPACES.md#runs)), grouped
@@ -197,6 +392,16 @@ icon, a finish-alert toggle, the theme toggle, and links to these docs and
   **Select all** takes what the filter shows); a selection downloads as one
   zip, is deleted in bulk (anything that fails to delete stays selected), or,
   for two to four files, opens in Compare.
+
+  The panel's **Findings** list the level findings the metadata reply
+  carries (warn first, each with the server's words and, for a timed one,
+  its place as m:ss.s). On a video or audio file, **Assess** runs every
+  assessment probe through `GET /api/gallery/{name}/assess` - read-only,
+  nothing queued or stored - and replaces the list with its reply, under a
+  muted line naming the rules applied and each probe that did not apply, in
+  the server's reason. The result is held for the page's life, by workspace
+  and file; a refusal shows beneath the list it leaves in place. On a still
+  the button is disabled and its title says why.
 
   ![A gallery file's detail panel: the poster, its run and settings, a note, Keep as asset and open as workflow](img/ui-gallery-detail.jpg)
 
@@ -226,8 +431,13 @@ icon, a finish-alert toggle, the theme toggle, and links to these docs and
   ![The prompt editor: a stored H3 shot prompt with its description and tags, and the Enhance with AI panel](img/ui-prompt-editor.png)
 
 - **Models** (Server) - the Hugging Face hub cache: each cached repo with
-  sizes, revisions and last-used dates, plus free disk. Download a repo by id
-  with live progress (cancellable; partial files resume on retry), and delete
+  sizes, revisions and two dates, plus free disk. `last_job_use` is when a dw
+  job that named the repo last started (epoch seconds, kept in
+  `model-use.json` beside the settings, `null` if none has since tracking
+  began); `last_accessed` is the files' atime, the labelled fallback when
+  `last_job_use` is `null` - a copy or backup bumps it and a noatime or
+  relatime disk may never move it. Deleting a repo forgets its
+  `last_job_use`. Download a repo by id with live progress (cancellable; partial files resume on retry), and delete
   one to free disk (refused while a job runs). It also shows the installed
   diffusers version (with its commit for a git install) and **Update from
   GitHub** installs HEAD - new pipelines usually land there before a PyPI
@@ -242,11 +452,18 @@ icon, a finish-alert toggle, the theme toggle, and links to these docs and
   required markers, defaults, enums and descriptions. `$ref` labels jump to
   their definition; a filter narrows the list.
 - **Status** (Server) - what this server is and how to reach it: workers per
-  card, bind address and LAN addresses, whether a token is required, whether
+  card (with its pid), per-card memory (free and reserved where the backend
+  reports them), a **Runtime** panel (Python, torch, CUDA, driver and package
+  versions, with a copy button), bind address and LAN addresses, whether a token is required, whether
   `/mcp` is mounted, a **Connect from another machine** panel with the
   browser URL and the `claude mcp add` line for a chosen address, the
   resolved directories, and the Caches panel (below) - then the queue and
-  history across every workspace, with a workspace filter.
+  history across every workspace, with a workspace filter. A request filter
+  there (`req=`) is read in one workspace - the one picked, else the current
+  one, which the picker then shows - because a request id names a request
+  inside a workspace; picking every workspace drops the filter. On either
+  jobs list a filter the server refuses (a `req` that is not a request id)
+  shows the server's message over no rows.
 
   ![The Status page: host, version, a worker per RTX 3090 with its memory, the queue, and the bind address](img/ui-status-dark.png)
 
@@ -278,8 +495,8 @@ server's refusal when a job is running:
 
 | Route | What it does |
 | --- | --- |
-| `POST /api/jobs` | Queue a run: `{"workflow_path": ...}` or an inline `{"workflow": {...}, "base_dir": ...}`, plus `arguments` for variable overrides. `workflow_path` accepts a stored workflow name as listed by `/api/workflows` (with or without `.json`, nested names included), or a relative/absolute path that still resolves under `--workflow-dir` - confined the same way the `/api/workflows` CRUD routes are; a path that names a real file outside that directory is rejected with 400, not opened. Answers with argument warnings from signature checking. Takes an optional `acknowledged_cost`: `true` is recorded as `acknowledged: boolean`; the object `{fingerprint, minutes, downloads}` from a validate answer's `plan` is `bound` - the server re-plans the run for the arguments given and answers **409** when the fingerprint differs or a repo in `downloads_required` (pipeline `model_name`s and the repos task steps fetch) is not in `downloads` (a download that has since vanished is not a refusal); the body is `{"detail": {message, reason: "fingerprint" \| "downloads" \| "unplannable", acknowledged, plan, acknowledge}}` with the current plan, so the caller re-quotes from it, and `acknowledge` - the `{fingerprint, minutes, downloads}` to resend - whenever there is a plan. A `null` in `downloads` (a URL with no repo) is ignored. The validate `plan` sent unedited is bound too: when `downloads` is absent, its `downloads_required` repos (and `estimate.minutes`) are what was acknowledged; an explicit `downloads`, even `[]`, wins. `minutes` is recorded, never compared. Nothing is required: the web UI and every caller that sends nothing are `acknowledged: none`, and every job answer and history row carries `acknowledged` (and `acknowledged_cost` when bound). `POST /api/jobs/{id}/rerun` takes the same field and checks against the stored spec; a fresh seed does not change a fingerprint. |
-| `GET /api/jobs?workspace=&status=&limit=` | Queue + history summaries, oldest first, with `total` beside them. `status` narrows to one state or a comma-separated set (`queued`, `running`, `succeeded`, `failed`, `cancelled`; anything else is a 400); `limit` keeps the newest N, and `total` still reports how many matched, so a bounded answer cannot be mistaken for a complete one. Each summary carries `device`, the card the job ran on (`"cuda:1 NVIDIA GeForce RTX 3090"`; null while queued and for older jobs), and `rerun_of`, present on a job started by rerun: the id of the job it reran; absent for a fresh submit. No parameters means every job, which is what the web UI polls |
+| `POST /api/jobs` | Queue a run: `{"workflow_path": ...}` or an inline `{"workflow": {...}, "base_dir": ...}`, plus `arguments` for variable overrides. `workflow_path` accepts a stored workflow name as listed by `/api/workflows` (with or without `.json`, nested names included), or a relative/absolute path that still resolves under `--workflow-dir` - confined the same way the `/api/workflows` CRUD routes are; a path that names a real file outside that directory is rejected with 400, not opened. Answers with argument warnings from signature checking. Takes an optional `acknowledged_cost`: `true` is recorded as `acknowledged: boolean`; the object `{fingerprint, minutes, downloads}` from a validate answer's `plan` is `bound` - the server re-plans the run for the arguments given and answers **409** when the fingerprint differs or a repo in `downloads_required` (pipeline `model_name`s and the repos task steps fetch) is not in `downloads` (a download that has since vanished is not a refusal); the body is `{"detail": {message, reason: "fingerprint" \| "downloads" \| "unplannable", acknowledged, plan, acknowledge}}` with the current plan, so the caller re-quotes from it, and `acknowledge` - the `{fingerprint, minutes, downloads}` to resend - whenever there is a plan. A `null` in `downloads` (a URL with no repo) is ignored. The validate `plan` sent unedited is bound too: when `downloads` is absent, its `downloads_required` repos (and `estimate.minutes`) are what was acknowledged; an explicit `downloads`, even `[]`, wins. `minutes` is recorded, never compared. Nothing is required: the web UI and every caller that sends nothing are `acknowledged: none`, and every job answer and history row carries `acknowledged` (and `acknowledged_cost` when bound). `POST /api/jobs/{id}/rerun` takes the same field and checks against the stored spec; a fresh seed does not change a fingerprint. Takes optional `request` and `item` (both or neither, each matching `^[a-z0-9][a-z0-9-]{0,63}$`) linking the job to an item of that workspace's requests ledger; a link the ledger cannot admit is refused **422** with `detail: {code, message}`, `code` one of `unknown_request` (no such request, or no workspace root), `request_closed` (done or abandoned), `unknown_item`, `item_dropped`. The job summary and detail carry `request` and `item` when set (absent otherwise). A rerun inherits the link; when it no longer admits, the rerun is queued unlinked with a `rerun_ledger_link_<code>` warning. |
+| `GET /api/jobs?workspace=&status=&request=&item=&limit=` | Queue + history summaries, oldest first, with `total` beside them. `request` keeps the jobs linked to that request, and `item` (with `request`) those linked to that item. `status` narrows to one state or a comma-separated set (`queued`, `running`, `succeeded`, `failed`, `cancelled`; anything else is a 400); `limit` keeps the newest N, and `total` still reports how many matched, so a bounded answer cannot be mistaken for a complete one. Each summary carries `device`, the card the job ran on (`"cuda:1 NVIDIA GeForce RTX 3090"`; null while queued and for older jobs), and `rerun_of`, present on a job started by rerun: the id of the job it reran; absent for a fresh submit. A failed or cancelled job with an error carries `reason`, the error's first line clipped to 160 characters with a trailing `…` (the full error stays on the detail); a restart tombstone also carries `restart_batch`, its dead server's `server_instance` - the key a restart batch groups by. Both are absent, never null, otherwise. No parameters means every job, which is what the web UI polls |
 | `GET /api/jobs/{id}` | Full detail: spec, events, manifest, error. A manifest entry for a step served from the step cache carries `reused: true`. Every entry carries `subfolder` - the in-run subfolder the step's `result.subfolder` chose, `''` for none. A `for_each` step appears in the manifest as its members (`shot@wide_open`, `shot@closeup`), because the manifest records what ran; the run's `workflow.json` keeps the `for_each` form, because it records what was asked Carries `output_kinds`: each manifest file mapped to its media kind (`image`, `video`, `audio`, `text`, or null), and each file-carrying run event (`step_end`) carries the same map for its own files. The entry of a pipeline step that ran carries `timing` (see [Step timing](WORKSPACES.md#step-timing)). Carries `rerun_of` - present on a job started by rerun: the id of the job it reran; absent for a fresh submit. Carries `host_memory_job_peak_committed_mb`, the job's peak committed host memory (anonymous + shared + device-mapped pages, the figure the host-RAM gate projects from), null until a reading lands (#1214). |
 | `DELETE /api/jobs/{id}/run` | Delete the run directory a finished job wrote, whole, from the output root the job ran against (no workspace selector applies): `{job_id, run_dir, deleted, run_swept}`. 404 for an unknown job or one with no run directory, 409 for one still queued or running |
 | `GET /api/jobs/{id}/workflow` | The workflow the job ran: `{id, definition, realized, seed_variable}`. `seed_variable` names the variable a `new_seed` rerun would draw into (null when the workflow has none), read from the workflow as written rather than the realized copy, whose seed is pinned. `realized: true` is the copy the run itself wrote (`workflow.json` in its run directory), with arguments, seed, prompts and `output:latest` pinned; `false` falls back to the submitted definition, which is what a job from before run tracking has. 404 means neither is readable - the job itself still is. The equivalent MCP tool is `get_job_workflow` (see [MCP.md](MCP.md#diagnose)) |
@@ -289,7 +506,7 @@ server's refusal when a job is running:
 | `GET /api/jobs/{id}/event-log?after=-1&limit=200&kinds=` | The same events as the SSE stream, as one JSON page: `{id, status, events, last_seq, truncated, note}`. `after` is exclusive; page by passing back the previous `last_seq`. `limit` is capped at 1000. `kinds` (repeatable) keeps events whose `event` or `kind` is one of those named (`log`, `warning`, `phase_stall`, ...). A job restored from history serves the bounded event tail persisted with it; a job that finished before events were retained returns an empty list and a `note` saying so. |
 | `POST /api/jobs/{id}/cancel` | Cooperative cancel: takes effect at the next step boundary or denoise step. During a model load or a task step, which cannot be interrupted, a `cancel_pending` event says it waits for that to finish |
 | `POST /api/jobs/{id}/rerun` | Re-queue a finished job's spec. Body `{"new_seed": true}` draws a fresh seed into the workflow's seed variable instead of repeating the original arguments; 400 when the workflow pins its seed to a literal or names none. Body `{"arguments": {...}}` merges variable overrides over the stored arguments before admission (shallow, by name; the one-call promotion of a draft is `{"arguments": {"tier": "standard"}}`, which keeps the draft's staging at the same seed - `best` re-stages, so it is a render of its own). A rerun with `arguments` keeps the original's seed unless `new_seed`: a seed the template drew at run time (a null seed variable) is read from the original's realized workflow, and when that is gone the job carries a `rerun_seed_unknown` warning and draws a fresh one. A variable the workflow does not declare is a 400, the seed variable together with `new_seed` is a 400, and a bound `acknowledged_cost` is checked against the plan of the merged arguments. The new job's detail carries `overrides` when any were given. A plain rerun of a seeded workflow is served whole from the step cache — the earlier run's files, republished with `reused: true`, generating nothing. The new job's summary and detail carry `rerun_of`: the id of the job it reran (absent on a fresh submit) |
-| `POST /api/jobs/{id}/move` | Reorder a queued job: `{"direction": "up"\|"down"\|"front"\|"back"}`. Job listings carry each waiting job's `queue_position`, and `waiting_for` while one is held for host RAM. |
+| `POST /api/jobs/{id}/move` | Reorder a queued job: `{"direction": "up"\|"down"\|"front"\|"back"}`. Job listings carry each waiting job's `queue_position`, and `waiting_for` while one is held (host RAM, or every card busy). |
 
 ### Dispatch
 
@@ -350,7 +567,7 @@ this server's own gate does. A job is never held when no other job is running on
 or another, nor when it has no figure, nor where host RAM cannot be read
 (macOS without psutil). A held job is re-checked every 10 s. The hold emits one `queue_wait` event (message
 `waiting for host RAM: needs ~N GB with its margin, ~M GB free`; not a `warning`), and job
-detail and summaries carry `waiting_for` - that message - only while held.
+detail and summaries carry `waiting_for` - that message - only while held. `waiting_for` also appears (`queued behind N running job(s) on every card`) while every card is busy.
 An observed or fitted figure never refuses a submit; it only delays a start,
 and the OOM ranking is the backstop for a wrong projection. A workflow's
 declared `host_ram_gb` (a number or a `variable:` a `presets.tier` bundle
@@ -367,6 +584,33 @@ freed ([WORKER_GUIDE.md](WORKER_GUIDE.md)). A validation's cache probe and
 its `plan.estimate` ask about the card the job would go to now, named in
 `priced_for`. `GET /api/memory` and `POST /api/memory/clear` take an
 optional `device`.
+
+### After a restart
+
+A server that dies uncleanly (a crash, `kill -9`, a power cut) leaves its
+queued and running jobs open; the next server closes them as `cancelled`
+with an `error` starting `server restart:` - its tombstones. To get them
+back:
+
+1. Find one: `list_jobs(status="cancelled")`: a row with `restart_batch` is a
+   tombstone, and rows sharing that value are one batch (its `reason` reads
+   `server restart: …`). Any one tombstone names the whole batch.
+2. Preview: `rerun_job(<tombstone>, restart_batch=true)` without
+   `acknowledged_cost` queues nothing and answers `would_queue` - every
+   tombstone of that restart, oldest first, each with its workspace and
+   `estimate` - plus `skipped`. Quote the total to the user.
+3. Queue: the same call with `acknowledged_cost=true` queues the members in
+   `created_at` order, each in its own workspace and each with `rerun_of`.
+   A member already rerun is skipped as `already rerun as <id>`, so a
+   repeat queues nothing twice; one in a deleted workspace, or refused by
+   admission, is skipped with its reason and the rest still queue.
+
+`new_seed` and `arguments` are refused with `restart_batch` (one override
+cannot fit every member), and so is a bound acknowledgement. A job that is
+not a tombstone, or one closed before #1245 recorded its server, is refused
+as `not a restart tombstone`. A member that was running redoes its finished
+steps: the step cache does not survive a restart. The REST form is `POST
+/api/jobs/{id}/rerun-restart-batch`.
 
 ### Step timing
 
@@ -394,7 +638,7 @@ Every event in the stream carries a `seq` and an `event` name:
 | `warning` | a step finds something wrong with what it is about to write | `message`, plus a `kind` and the figures behind it (`level_spread`: `spread_db`, `measure`, `command`; `fps_mismatch`: `declared_fps`, `source_fps`; `audio_no_headroom`: `file`, `peak_dbfs` - a deliverable at or above -0.5 dBFS, which an mp3 or AAC encode decodes over full scale; `step_elided`: `step`, `overridden_by` when a supplied argument is what made it unreferenced; `cache_stats_unavailable`: `cache_type` - the installed diffusers moved the private hook state dw reads, so the step's cache counts are null; the run is unaffected). Also appended to the job's `warnings`, prefixed with the step it fired in - the event keeps the moment, `warnings` keeps it where a caller polling the finished job will look, since a warning about the artifact outlives the run that noticed it |
 | `cache_stats` | a pipeline call that set a `cache` finishes its denoise, once per call | `step`, `segment` (only on a chain segment, e.g. `segment 1/3`), and the fields of `timing.cache`: `type`, `threshold`, `forwards`, `computed`, `skipped`, `hit_rate`. Counts are null for a cache diffusers keeps no per-forward decision for. For watching live (`get_job_events(kinds=["cache_stats"])`); the manifest entry's `timing.cache` is the record |
 | `workflow_end` | the run finishes | `manifest` |
-| `queue_wait` | a queued job is held for host RAM (below) | `reason: "host_ram"`, `message` |
+| `queue_wait` | a queued job is held for host RAM (below) | `reason: "host_ram"` or `"gpu_busy"`, `message` |
 | `cancel_pending` | a cancel arrives during a phase that cannot be interrupted | `phase` |
 
 A `warning` with `kind: "phase_stall"` is emitted when a phase has gone 30 s
@@ -560,7 +804,17 @@ The editor's forms come from these; they are just as usable from scripts:
   when it succeeds, `null` when unknown. It is listed when that file at that
   revision is not in the hub cache (checked per file, so another cached file
   of the same repo does not count), and a whole-repo entry for the same repo
-  subsumes it. Acknowledgements still compare by `repo`. `restore_faces`
+  subsumes it. A modular step whose `load_components` loads some
+  components from another repo (`pretrained_model_name_or_path`) lists
+  that repo whole and its own `model_name` by component (#1343):
+  `{repo, components, revision, gb, gated, access_blocked}`, where
+  `components` are the subfolders left on `model_name` by its
+  `modular_model_index.json` with the overrides laid over it, `revision` the
+  one `load_components` names for them (`null` for `main`), and `gb` only
+  their files not cached. Nothing left to fetch gives no entry; an index that
+  can't be read (offline, uncached) lists `model_name` whole instead. Its
+  adapter file is then a file entry of its own. Acknowledgements still
+  compare by `repo`. `restore_faces`
   also lists facexlib's weights as URL entries (`detection_Resnet50_Final.pth`,
   and `parsing_parsenet.pth` unless `use_parse` is false) while they are
   missing from facexlib's weights directory; they download outside the
@@ -610,9 +864,13 @@ The editor's forms come from these; they are just as usable from scripts:
   peak - `basis` is `observed` (the largest committed job peak of this
   machine's successful runs with the same memory key, or the largest job peak
   RSS where none measured it), `fit` (the list-run projection from the
-  workflow's own history, on the same basis) or `declared` (the workflow's
-  `host_ram_gb`, when it is larger than either; `runs` is 0), and the key is
-  absent when there is no figure. `plan` is `null` when
+  workflow's own history, on the same basis), `declared` (the workflow's
+  `host_ram_gb`, when it is larger than either or there is neither; `runs` is
+  0) or `inherited` (no run of its own memory key, no fit and no
+  declaration: the largest peak among this machine's successful runs of the
+  catalog templates that load the same single pipeline identity, each at its
+  default arguments; `runs` counts the runs of the template that gave it), and the key is absent when
+  there is no figure. `plan` is `null` when
   it could not be built; an invalid answer carries no `plan` key.
 
 ## Files and models
@@ -633,7 +891,11 @@ The editor's forms come from these; they are just as usable from scripts:
   the maintainer-measured `{device, name, vram_gb, minutes}` runs, or `null`
   when nobody has measured it - a list-driven workflow's `cost` entry may
   also carry a measured `per_entry` (`{variable, minutes, entries}`), the
-  cost of one entry of the list it was measured against. The response's
+  cost of one entry of the list it was measured against. A card's
+  `cost_drivers` is a map from each driver the workflow declares to its
+  default with any preset bundle applied - the settings the curated `cost`
+  was measured at, which for a preset template can differ from the raw
+  definition's `variables` (`GET /api/workflows/{name}`). The response's
   `cost_basis` says what that is - `curated`: figures a maintainer measured
   once and wrote into the workflow, never derived from this server's own job
   history, so `null` means nobody wrote one down rather than "this box has
@@ -691,7 +953,7 @@ The editor's forms come from these; they are just as usable from scripts:
 - `GET /api/loras?model=&workflow=&status=&tag=`, `GET/PUT/DELETE /api/loras/{name}` —
   the LoRA catalog (see [LORAS.md](LORAS.md#lora-catalog)): one JSON file per
   tried LoRA, in the root's writable `loras/` ahead of the shipped read-only
-  ones. The listing carries `libraries` and an `origin`/`writable` per entry;
+  ones. The listing (declared as `LoraList`) carries `libraries` and an `origin`/`writable` per entry;
   `model` is a Hub repo id or a workflow name and matches exactly. `GET` of an
   entry that cannot be parsed is a 404 naming it unreadable; deleting a
   read-only entry is a 403; saves are validated against the entry schema,
@@ -705,7 +967,9 @@ The editor's forms come from these; they are just as usable from scripts:
   queue an enhancement as an ordinary job whose saved text file is the
   result
 - `GET /api/gallery`, `GET /api/gallery/{name}/metadata`,
-  `DELETE /api/gallery/{name}` — outputs and their embedded metadata. Delete
+  `DELETE /api/gallery/{name}` — outputs and their embedded metadata (the
+  metadata's `linked_jobs` lists every job linked to a request whose manifest
+  lists the file, a step-cache reuse included, so a note can name the take). Delete
   takes a file, or a run directory (`<workflow>/<run id>`) to remove the whole
   run; a run's directory goes with its last media file. Each
   gallery entry carries `folder` (the workflow identity, the run id dropped)
@@ -804,6 +1068,58 @@ The editor's forms come from these; they are just as usable from scripts:
   path so output subfolders survive; the gallery's bulk download. An unknown
   or out-of-directory name 404s the whole request rather than yielding a
   partial archive
+- `GET /api/workspaces/{name}/requests[/{id}]`, `PUT
+  /api/workspaces/{name}/requests/{id}`, `DELETE
+  /api/workspaces/{name}/requests/{id}?revision=N` — the requests ledger
+  ([WORKSPACES.md](WORKSPACES.md#requests) has the rules). `PUT` takes one
+  request's whole plan: `title`, `goal`, `items`, `revision` (the one read,
+  0 to create) and `why`, and optionally `prompt` (create only), `state`
+  (`open`, `done`, `abandoned` - a user's write closes and reopens),
+  `purge` (keys of left-out items to remove for good) and `by`
+  (`user`, the default, or `agent`). A `notes` field, on the request or an
+  item, is ignored on write: notes have their own routes (below), and a
+  whole-plan write keeps the stored ones. `DELETE` removes the ledger entry at
+  that revision and answers `{id, workspace, deleted, revision,
+  linked_jobs}`; the linked jobs keep their rows, link and files. Reads
+  derive from the jobs linked through `POST /api/jobs` `request`/`item`:
+  each item carries `status` (`dropped`, `done`, `running`, `queued`,
+  `failed`, `planned`), `ready`, `attempts` (`[{job, status, note?,
+  minutes, output}]`, oldest first), `result` (`{job, run_id, output}` or
+  null), `accepted_missing` (only when true) and `spent_minutes`, where
+  `output` is `{name, kind}` - the gallery name of the one file that stands
+  for the job, and `image`, `video`, `audio` or `text` - or null. The
+  request view and each list row carry `spent_minutes` and
+  `remaining_minutes`; a list row also carries `status_counts`, `ready`
+  (items a job could be queued for now) and `cover` (up to three `output`s
+  of the latest results), and the list `unreadable` when the file is not a
+  ledger. An item's `accepted` on write takes `{"job": id}` or a bare job
+  id of a succeeded job linked to that request and item, stored as `{job,
+  run_id}`, or null to clear it. A refusal's `detail` is `{code, message}`:
+  400 `invalid_request`, 404 `unknown_request` (delete), 409
+  `stale_revision` (with `current_revision`), `ledger_full`,
+  `too_many_dropped_items`, `request_has_active_jobs` (with `jobs`),
+  `ledger_unreadable` and `no_workspace_root`, 413 `ledger_too_large`, 422
+  `prompt_is_write_once`, 503 `ledger_busy`. `GET
+  /api/gallery?request=<id>[&item=<key>]` lists only files of runs whose
+  jobs are linked to that request (or that item of it).
+- `POST`, `PUT` and `DELETE /api/workspaces/{name}/request-notes` — the
+  user's notes for the agent ([WORKSPACES.md](WORKSPACES.md#requests) has the
+  rules). `POST` takes `{request, item?, text, refs?}` (no `item`: the
+  request's own note; `refs` is `[{item?, job?, output?}]`, at most 16) and
+  answers `{note, revision}`; `PUT` takes `{request, note, text}` and edits
+  the text only; `DELETE ?request=<id>&note=<id>` removes one. The server
+  does the read-modify-write under the ledger lock, adds a `user` history
+  entry and bumps the revision, so a caller sends no revision. Refusals:
+  404 `unknown_request`, `unknown_note`; 422 `invalid_note_ref` (a job not
+  linked to the item, an output not in its manifest, a job still running
+  with an `output`), `too_many_refs`, `too_many_notes` (20 per item or
+  request), `unknown_item`, `item_dropped`.
+- `GET /api/workspaces/{name}/notes-channel` — `{listening, last_seen}`:
+  whether a notes channel polled this workspace's request list in the last
+  30 seconds. The channel marks its polls with an `X-DW-Notes-Channel: 1`
+  header, and the server keeps the time in memory only. It means a session
+  has the channel set up, not that Claude Code is passing its events on
+  ([MCP.md](MCP.md#is-a-session-listening)).
 - `GET /api/workspaces`, `POST /api/workspaces` (`{"name": ...}`),
   `DELETE /api/workspaces/{name}?acknowledged=true` — the workspaces on this
   server ([layout](WORKSPACES.md#several-workspaces-on-one-server)). Delete

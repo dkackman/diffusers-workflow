@@ -94,7 +94,16 @@ def scan_models(cache_dir=None):
     }
 
 
-_WEIGHT_SUFFIXES = (".safetensors", ".bin", ".msgpack", ".onnx", ".pt")
+_WEIGHT_SUFFIXES = (
+    ".safetensors",
+    ".bin",
+    ".msgpack",
+    ".onnx",
+    ".pt",
+    ".pth",
+    ".ckpt",
+    ".gguf",
+)
 
 
 def _repo_folder_name(repo_id, repo_type="model"):
@@ -117,6 +126,26 @@ def _snapshot_dir(repo_dir):
 # Component classes that carry no weights: a folder holding only config
 # files is whole for them
 _WEIGHTLESS_CLASS_MARKERS = ("Scheduler", "Tokenizer", "Processor", "Extractor")
+
+
+def _model_repo_incomplete(snapshot):
+    """Whether a repo with no model_index.json is a transformers model left
+    with only its configs: a root config.json naming its `architectures`
+    marks it a model repo, and the #894 component rule decides it by that
+    class - so a config fetched alone (an AutoConfig probe, a pull stopped
+    after the small files) does not read as the whole repo (#1404). Any
+    other repo - a checkpoint, a LoRA, a processor-only repo - is whole."""
+    try:
+        with open(os.path.join(snapshot, "config.json")) as f:
+            architectures = json.load(f).get("architectures")
+    except (OSError, ValueError, AttributeError):
+        return False
+    if not isinstance(architectures, list) or not architectures:
+        return False
+    class_name = architectures[0]
+    if not isinstance(class_name, str):
+        return False
+    return _component_incomplete(snapshot, None, class_name)
 
 
 def _component_incomplete(folder, variant, class_name=None):
@@ -214,8 +243,9 @@ def repo_download_incomplete(repo_id, cache_dir=None, variant=None):
 
     index_path = os.path.join(snapshot, "model_index.json")
     if not os.path.isfile(index_path):
-        # Not a diffusers pipeline repo - blob completeness is all there is
-        return False
+        # Not a diffusers pipeline repo: blob completeness is all there is,
+        # unless it is a transformers model repo left with only its configs
+        return _model_repo_incomplete(snapshot)
     try:
         with open(index_path) as f:
             index = json.load(f)

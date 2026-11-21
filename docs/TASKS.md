@@ -925,6 +925,7 @@ Keep one span of a video's frames, and its audio over the same span:
 | `start_frame` | Yes | The first frame kept, from `0` |
 | `num_frames` | Yes | How many frames are kept: `1` or more |
 | `fps` | No | The clip's frame rate. Defaults to the rate the clip carries; needed only to cut its audio, which is refused without one |
+| `pad_to` | No | A frame count at least `num_frames`: the last kept frame is held until the clip is this long, and its audio runs on in silence to the same end (a cut's `render_frames` from [`detect_cuts`](#detect_cuts)). The last shot covers the held frames. Omitted, the span is kept as is |
 
 Frames `[start_frame, start_frame + num_frames)` are kept. The audio is cut to
 the same span, each end `frames_to_samples` of a frame index rounded on its
@@ -932,9 +933,97 @@ own, so consecutive trims tile the track exactly. A clip with audio comes back
 as an audio+video pair; a bare frame list as one silent clip at `fps`, so a
 step saves it as one video rather than one per frame. Carried shots are clipped
 to the span and re-based to `0`, their sample side cleared; a clip with none
-comes back as one shot named after its file (else `video 1`). A span past the clip's end is refused, naming the clip's frame count (never
-shortened or padded), as are a `num_frames` of `0` or less and a negative
-`start_frame`; `validate_workflow` catches these on literal values.
+comes back as one shot named after its file (else `video 1`). A span past the clip's end is refused, naming the clip's frame count (it is
+never shortened; only `pad_to` lengthens a span, and only from inside the
+clip), as are a `num_frames` of `0` or less, a negative `start_frame`, and a
+`pad_to` below `num_frames` or not a whole number; `validate_workflow` catches
+these on literal values.
+
+### detect_cuts
+
+Find a clip's cuts, each laid out for a MiniMax-H3 render (#1194):
+
+```json
+{
+    "task": {
+        "command": "detect_cuts",
+        "arguments": {
+            "video": "asset:source.mp4",
+            "max_frames": 345
+        }
+    },
+    "result": {"content_type": "application/json"}
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `video` | Yes | The clip: a path, `asset:` or `output:` reference (read with its audio), or an earlier step's video |
+| `max_frames` | No | The longest cut kept whole, at most `345` (H3's ceiling; above it is refused). A longer cut is split into near-equal pieces (default `345`) |
+
+The result is JSON: `fps`, `num_frames` (the clip's), `max_frames`,
+`render_grid` (`modulus`, `remainder`, `min_frames`, `max_frames`, read off
+the diffusers pipeline class), and `cuts`, a list of shot records named
+`cut-1`, `cut-2`, ... in order, each with:
+
+- `start_frame`, `num_frames`; `start_sample`, `num_samples` when the clip has
+  audio (consecutive cuts tile the track);
+- `render_frames`: the smallest count on H3's `17n + 5` grid inside `124`-`345`
+  at or above `num_frames`, the `pad_to` to hand [`trim_video`](#trim_video)
+  so the cut renders whole and is trimmed back to its own length after;
+- `detail`: `{"reason": "clip start"}` for the first, else `{"reason":
+  "content", "histogram_correlation", "frame_change"}`, what the detector saw;
+- `split: true` on each piece of a cut longer than `max_frames`;
+- `too_short: true` on a cut under `22` frames (the grid's first step), which
+  would pad to `124` from almost nothing: merge it into a neighbour, or leave
+  it out of the cuts you re-render.
+
+Both flags are also reported as warnings on the job. Nothing is dropped: the
+list is a literal to edit, and [`replace_cuts`](#replace_cuts) puts back
+whichever cuts were re-rendered, the rest of the take kept. The detector is `crop_face_track`'s
+(`content_cuts`, a colour-histogram drop or a frame-difference spike), so the
+two see the same cuts; it is tuned for hard cuts and misses dissolves and
+slow fades.
+
+### replace_cuts
+
+Put re-rendered cuts back into the take they were cut from, the rest of the
+take and its whole soundtrack kept
+([templates/minimax/replace-performer](../workflows/templates/minimax/replace-performer.json)):
+
+```json
+{
+    "task": {
+        "command": "replace_cuts",
+        "arguments": {
+            "video": "variable:source_video",
+            "clips": "gather:cut",
+            "cuts": "variable:cuts"
+        }
+    },
+    "result": {"content_type": "video/mp4", "fps": 24}
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `video` | Yes | The take. A path, `asset:` or `output:` reference is read with its audio; an earlier step's video is used as is |
+| `clips` | Yes | One re-rendered clip per entry of `cuts`, in the same order. A clip's first `num_frames` frames are used, so one rendered longer ([`trim_video`](#trim_video)'s `pad_to`) needs no trim first |
+| `cuts` | Yes | The cuts the clips were rendered from, as [`detect_cuts`](#detect_cuts) lists them: objects with `start_frame` and `num_frames` (other fields are ignored). Any subset of a take's cuts, in the take's order |
+
+Frames `[start_frame, start_frame + num_frames)` of each cut become its clip's;
+every other frame, the track, the frame rate and the shots are the take's. The
+result is the take's length whatever `cuts` holds, so a cut left out of the
+list stays as the take has it and no cut can slide against the sound: joining
+the rendered cuts with [`concat_videos`](#concat_videos) and pairing the take's
+track on with [`pair_audio`](#pair_audio) loses a cut left out of the middle
+and puts every later cut under the wrong sound. Refused, on literal values by
+`validate_workflow` and otherwise by the task: cuts out of the take's order
+(list them in order; a cut to leave alone is left out, not moved), two cuts
+covering the same frames (start the later one at or after the earlier one's
+end, or merge them), a `clips` list of another length, a cut past the take's
+end, a clip shorter than its cut's `num_frames`, and a clip of another size
+than the take.
 
 ### chain_repair_cut
 
@@ -1297,6 +1386,7 @@ face-detail pass that needs the face large and still:
 | `gate_full` | No | Face width over frame width at or below which strength is 1. Default `0.06` |
 | `gate_zero` | No | Face width over frame width at or above which strength is 0; must exceed `gate_full`. Default `0.12` |
 | `min_confidence` | No | Detections scoring below this are ignored; below `1`. Default `0.6` |
+| `select` | No | Which face the track follows when a clip shows several: `largest` (biggest box, ties to the more confident), `centre` (nearest the frame centre), `left` or `right` (smallest or largest centre x), `confident` (highest detector score). Applied only where a track starts. Default `largest` |
 | `modulus` | No | The crop count is padded to `modulus * n + remainder` frames - the frame grid of the model the crops feed. At least `1`. Default `8` |
 | `remainder` | No | The padded count's remainder, `0` up to `modulus - 1`. Default `1` |
 | `multiple` | No | `crop_size` must be a multiple of this - the model's frame-size step. At least `1`. Default `32` |
@@ -1323,7 +1413,22 @@ still seen. One track is kept, smoothed with an exponential moving average;
 across a short miss the last box is held at a decaying strength. The track
 restarts at each shot boundary the clip records, or, with none recorded, where
 the picture jumps (a sharp drop in its HSV colour histogram, or a spike in
-frame difference). A padded square around the smoothed box is cut from every
+frame difference). `select` picks the face only where a track starts: frame 0,
+each recorded shot start and each content cut.
+
+After 6 missed frames the track is lost: those frames carry a null `box`,
+strength 0 and state `lost`, and `paste_face_track` keeps the source pixels
+there. A lost track is picked up again only by a face whose centre is within 3
+face widths of the last box, or by the one face on a frame when every earlier
+frame of the segment (since frame 0, the last shot start or cut) showed at most
+one. Otherwise it stays lost until the next shot start or cut, where `select`
+applies again; it never jumps to another face.
+
+Behaviour change: on a clip with several faces the default start face is now the
+`largest`, not the most confident; `select: "confident"` restores the old rule.
+Lost frames keep the source pixels instead of restarting on another face.
+
+A padded square around the smoothed box is cut from every
 frame, resized to `crop_size`, and the crops are padded to
 `modulus * n + remainder` frames with mirrored warm-up and cool-down frames.
 
@@ -1347,13 +1452,14 @@ JSON record saved as its own `.json` file, read as
 | Field | Description |
 | ----- | ----------- |
 | `source` | `{width, height, frames, fps}` of the input |
-| `crop_size`, `padding`, `gate_full`, `gate_zero`, `min_confidence` | The parameters used |
+| `crop_size`, `padding`, `gate_full`, `gate_zero`, `min_confidence`, `select` | The parameters used |
 | `detector` | `{repo, file}` |
 | `pad_before`, `pad_after` | Mirrored frames added to the start and end |
 | `crop_frames` | Frames in `crops`, including the padding |
 | `face_found` | Whether any frame had a face |
 | `message` | Present only when no face was found |
-| `frames` | One entry per source frame: `box` (the smoothed `[x, y, w, h]`, or null), `crop` (the `[x, y, side, side]` square cut), `strength`, and `state` (`tracked`, `held` or `none`) |
+| `frames` | One entry per source frame: `box` (the smoothed `[x, y, w, h]`, or null), `crop` (the `[x, y, side, side]` square cut), `strength`, and `state` (`tracked`, `held`, `lost` or `none`) |
+| `lost` | `[{start, end}]`, the inclusive frame ranges whose state is `lost` |
 | `resets` | `[{frame, reason, detail}]` where the track restarted; `reason` is `shot`, `cut` or `lost`; a `cut`'s `detail` is `{histogram_correlation, frame_change}` |
 
 A clip with no face still succeeds: every strength is 0, the crops are the
@@ -1361,7 +1467,7 @@ centre square, and a `no_face_found` warning is raised. `validate_workflow`
 refuses, before anything downloads: a `crop_size` that is not a multiple of
 `multiple`; a `modulus` below 1; a `remainder` below 0 or not below `modulus`;
 a `gate_full` or `gate_zero` above 1, or a `gate_zero` at or below `gate_full`;
-a `min_confidence` at or above 1; a `padding` out of range; a `detector_repo`
+a `min_confidence` at or above 1; a `select` that is not one of `largest`, `centre`, `left`, `right` or `confident` (`crop_face_track needs 'select' as one of [...], got 'biggest'`; a `variable:` or `previous_result:` value is judged at run time); a `padding` out of range; a `detector_repo`
 that is not a repo id; a `detector_file` that is not a `.onnx` name; a
 `min_frames`, `max_frames` or `fps` at or below 0; and a `max_frames` below
 `min_frames`.
@@ -2409,6 +2515,8 @@ Each shot's level and spectral balance, and how far apart the shots sit:
 | `shots[].rms_dbfs` | RMS level within the shot |
 | `shots[].crest_db` | `peak_dbfs` minus `rms_dbfs` |
 | `shots[].low_dbfs` / `mid_dbfs` / `high_dbfs` | Spectral balance (20-250 Hz / 250-4000 Hz / 4000-20000 Hz), on the same scale as `rms_dbfs` |
+| `shots[].high_share` | The share of the shot's energy above 4 kHz (the `high_dbfs` band against all three), 0-1. Null where the balance is null |
+| `shots[].noise_floor_dbfs` | The 10th percentile of the shot's 50ms window levels: the room tone plus any hiss under its quiet moments, never above `rms_dbfs`. Null under 10 windows (0.5 s), and null when that window is digital silence. In dense dialogue it may track speech tails rather than hiss. Read across a chain's segments, `high_share` and this rising together is the signature of a voice dulling and hissing; neither alone is |
 | `shots[].samples` | Whether the shot's sample span was `recorded` (carried by the shot record) or `derived` (scaled from its frames) |
 | `shots[].dead_air_seconds` | The longest run of 50ms windows inside the shot at or below the `DEAD_AIR_FLOOR_DBFS` threshold (-65 dBFS) |
 | `shots[].dead_air_at` | Where that run starts, in seconds into the file |
@@ -2451,6 +2559,25 @@ scale of a 128x72 colour copy of each frame, and the numbers are not
 perceptual - a `look_ratio` of 10 is not a calibrated "visible". They are null
 when the file has no picture.
 
+The answer also carries `segment_looks`, one entry per shot in order, which
+splits a take's drift into what the seams add and what builds up inside the
+shots (#1324):
+
+| Field | Meaning |
+| ----- | ------- |
+| `segment_looks[].shot` | The shot's name |
+| `segment_looks[].between_frames` | `[first, last]` frame (inclusive) of the shot's own new frames: from after its `overlap_frames` (a dissolve's fade) to the frame before the next shot starts, or for the last shot to the end of the take. Null when the shot has no new frames |
+| `segment_looks[].first` | `{lightness, contrast, saturation, detail}`: the mean look over the first second (`round(fps)` frames) of those frames. A segment shorter than two seconds is split in half instead (a single frame is both halves). Null when the shot has no new frames |
+| `segment_looks[].last` | The same over the last second |
+
+For each measure, the seam differences (`next.first - this.last` at each
+seam) plus the in-segment changes (`last - first` for each shot) sum to the
+last shot's `last` minus the first shot's `first`, so each part is a true
+share of the take's end-to-end change. A seam difference is over 1 s windows,
+not the 4-frame windows of `saturation_step`, so the two share a direction
+but not a size. Like the look fields, `segment_looks` is a measure only: no
+rule reads it. It is `[]` when the file has no picture or fewer than two shots.
+
 ### analyze_sync_drift
 
 How far the soundtrack sits from the picture, shot by shot and over the
@@ -2472,7 +2599,7 @@ measured; with none, `shots` is empty, `max_offset_ms` is null, and only
 Whether a recurring character still looks like their cast portrait. It is not
 a probe: it measures faces, and its two rules live in the command rather than
 in the table below. It returns `measurements`, `findings`, `rules_applied`,
-`shots_source` and `notes` (no `rules_skipped`). Needs the SFace and YuNet
+`shots_source`, `scored_from` and `notes` (no `rules_skipped`). Needs the SFace and YuNet
 weights from `opencv/face_recognition_sface` and `opencv/face_detection_yunet`,
 which `validate_workflow` lists under `downloads_required`.
 
@@ -2508,6 +2635,21 @@ finding's `at` carries the shot's `shot`, `index`, `start_frame`,
 (info) for a shot where no sampled frame had a face. Like the probes, they
 are places to look, not verdicts: a turned head or a mask also lowers the
 score, so look at the shot before regenerating it.
+
+`scored_from` says which form each half was scored in:
+`{"video": "frames" | "file", "reference": "picture" | "file"}`. `"file"` is
+the encoded form: a stored path, `asset:`, `output:`, or a chain's
+`previous_result:` once `save_segments` has read it back from its saved mp4.
+`"frames"` and `"picture"` are in-memory pixels an earlier step returned,
+which never went through a dw encode. The two forms of one clip score apart:
+the **face encode floor** measured on mini-ai is **0.016 on a median and
+0.030 on a minimum**, almost all of it the video encode (a jpg reference
+moves the median by 0.001 at most). It is a lower bound, from re-encoding
+already-encoded clips; a first encode of freshly generated frames may lose
+more (`bench/records/face-encode-floor.md`). So compare a score only with
+another of the same forms, and a margin between two scores of different forms
+must clear that floor. When the two halves differ, `notes` says so and quotes
+the floor.
 
 ### Rules
 
@@ -2933,8 +3075,8 @@ A validate's `downloads_required` lists the repo for the `mode` given; `model_na
 Two tasks promote a MiniMax-H3 take in latent space; the workflow guide's
 [Promoting an H3 take](WORKFLOW_GUIDE.md#promoting-an-h3-take-to-768p-in-latent-space-upscale_h3_latents-and-decode_h3_latents)
 section has the full recipe. A third, `encode_h3_latents`, goes the other way
-for the experimental windowed refine of a long take
-([Refining a long take in time windows](WORKFLOW_GUIDE.md#experimental-refining-a-long-take-in-time-windows)).
+for the windowed refine of a long take
+([Refining a long take in time windows](WORKFLOW_GUIDE.md#refining-a-long-take-in-time-windows)).
 
 ### upscale_h3_latents
 
@@ -2982,7 +3124,9 @@ bit-identical to the whole-take encode.
 Returns `latents` (the refine's `latents` argument), `num_frames` (the take
 padded with its last frame up to the next 17m + 5, the refine's `num_frames`)
 and `source_frames` (the take's own count, for `decode_h3_latents`'
-`num_frames`). Refused: a take that is not 24 fps, a side off the 32 grid, an
+`num_frames`), plus `width` and `height`, the take's canvas, for the refine's
+own. Refused at validate: a `source` whose extension is not a video file's.
+Refused at run time: a take that is not 24 fps, a side off the 32 grid, an
 empty take, and one over 30 minutes. A file header that claims far more frames
 than its duration holds is refused; one that claims a few more (a
 variable-frame-rate take) is encoded at the duration's count, with a warning.
@@ -3100,6 +3244,77 @@ Returns a grayscale PIL Image (mode "L"): white (255) for detected objects, blac
 - [segment.json](../workflows/templates/segment.json) — Segment an object from an image
 - [segment-and-remove.json](../workflows/templates/segment-and-remove.json) — Segment, then erase the object with `remove_object` (no prompt)
 - [segment-and-inpaint.json](../workflows/templates/segment-and-inpaint.json) — Segment, then repaint the masked region with a prompt
+
+### track_people
+
+Follow each person through a clip as a mask of their own (#1194). [`segment`](#object-segmentation) masks everything its prompt matches, so on a two-person shot `person` is both of them; `track_people` separates them. It splits the clip into cuts (frame 0, every shot the clip records, every cut [`detect_cuts`](#detect_cuts)' detector finds), finds the prompt with Grounding-DINO on each cut's first frame, keeps the `max_people` largest, and propagates each through the cut with SAM2's video predictor. Masks never overlap: where two claim a pixel, the person SAM2 scores higher there keeps it.
+
+```json
+{
+    "name": "people",
+    "task": {
+        "command": "track_people",
+        "arguments": {
+            "video": "asset:take.mp4",
+            "prompt": "person",
+            "max_people": 2
+        }
+    },
+    "result": {"content_type": "video/mp4", "fps": 24, "file_base_name": "people"}
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `video` | Yes | The clip: a path, `asset:` or `output:` reference, or an earlier step's video |
+| `prompt` | No | What to track (default `person`) |
+| `max_people` | No | How many of the largest finds to track per cut (default `4`). `0` tracks nobody, loads no model and returns only `people` (`tracked: false`) |
+| `threshold` | No | Detection score floor (default `0.3` on `grounding-dino`, `0.5` on `sam3`: the scales differ) |
+| `backend` | No | `grounding-dino` (default: DINO boxes + SAM2) or `sam3` (opt-in, see [the sam3 backend](#the-sam3-backend)); anything else is refused at validate time |
+| `model_name` | No | Grounding-DINO model ID (default `IDEA-Research/grounding-dino-base`) |
+| `sam_model_name` | No | SAM2 model ID (default `facebook/sam2-hiera-large`, the weights `segment` uses) |
+| `sam3_model_name` | No | SAM 3 repo, `sam3` backend only (default `facebook/sam3`) |
+
+Returns, by key:
+
+- `person-1`, `person-2`, ...: one black-and-white mask video each, white where that person is, with the source's frame count and size.
+- `contact_sheet`: a PNG of each cut's first frame with every person outlined and labelled `person-N`, tiles labelled `shot-N`.
+- `people`: a JSON record: `prompt`, `backend`, `threshold`, `max_people`, `fps`, `num_frames`, `width`, `height`, `tracked`, `people` (the count), and `cuts`, each `{name, start_frame, num_frames, found, people: [{name, box, score, area, first_frame}]}`.
+
+Saved under a step whose result is `video/mp4` they become `<base>-0.0-person-1.mp4`, `<base>-0.0-contact_sheet.png` and `<base>-0.0-people.json` (the `-0.0` is the writer's result and item index, the same prefix every step's files carry), and a later step reads `previous_result:<step>.person-2`.
+
+**Numbering is per cut.** People are numbered by mask area on each cut's first frame, largest first, so on a multi-cut clip `person-1` is the largest figure in each cut, not one identity across cuts. A cut with fewer people leaves the higher numbers black there. Check the contact sheet before choosing a mask.
+
+**Only people in a cut's first frame are tracked.** Someone who walks in later in the cut gets no mask there. So does someone who appears across a dissolve or slow fade, which the cut detector does not split (it finds hard cuts). The `people` record's `cuts` show where each track started. To mask a late entrant, trim the clip to start where they are in frame.
+
+No person in any cut is a run-time error ("no person found"). A cut with nobody, and more people found than `max_people`, are warnings. `segment` is unchanged.
+
+**A match is not proof of a person.** Grounding-DINO is open-vocabulary. At the default `threshold` of 0.3, shared with `segment`, it can match a person-free frame: a full-frame QR code scored 0.52 as "person". Each person's `score` is in the `people` record. A frame that really shows someone usually scores well above that (0.9 on the qa-cast two-shots). Check the contact sheet, and raise `threshold` (0.6 refused that QR code) if a numbered box isn't a person.
+
+#### The sam3 backend
+
+`"backend": "sam3"` (#1397, opt-in; `grounding-dino` stays the default) swaps the detector and SAM2 for SAM 3's video model (transformers' `Sam3VideoModel`). It takes the text prompt directly and detects on every frame of each cut, not just the first, so a late entrant (someone absent from a cut's first frame, say through a dissolve) gets a mask of their own.
+
+```json
+{
+    "name": "people",
+    "task": {
+        "command": "track_people",
+        "arguments": {
+            "video": "asset:take.mp4",
+            "prompt": "person",
+            "backend": "sam3"
+        }
+    },
+    "result": {"content_type": "video/mp4", "fps": 24, "file_base_name": "people"}
+}
+```
+
+- **Numbering:** first-frame people by area, largest first, then late entrants by first appearance. `max_people` caps in that order, and masks stay exclusive.
+- **`first_frame`:** each `people` entry records the cut-relative frame where that person first appears (always `0` on `grounding-dino`). The contact sheet adds a tile at each late entrant's first frame.
+- **`threshold`:** defaults to `0.5`, SAM 3's own detection-score default. It is not the same scale as Grounding-DINO's `0.3`, so don't carry a tuned value across backends.
+- **Weights:** `facebook/sam3` is gated on Hugging Face (accept the licence, then `hf auth login`) and is under the SAM License, not Apache; see [ATTRIBUTIONS.md](ATTRIBUTIONS.md). A validate's `downloads_required` lists only `facebook/sam3` on this path.
+- **transformers >= 5.21** is required. dw's floor is 5.21 (#1405), so a current install has it; an older venv is refused with a message naming the installed version.
 
 ## Object Removal
 
@@ -3806,7 +4021,7 @@ Markup stripped from an expected line: `<d>[Language] ...</d>`, `<scenetrans>`, 
 | `line_clipped_at_end` | A line's last heard word ends inside the final `CLIP_TAIL_SECONDS` of its shot (when the line has one) or of the file, and that tail is still above `GUARD_FLOOR_DBFS` and within `CLIP_TAIL_BELOW_WORD_DB` of the last word's own loudest window (a quieter tail is a score bed or room tone, not the word - #953) | The tail's level in dBFS / `GUARD_FLOOR_DBFS` | `{line, seconds, word, shot}` - `shot` when the line has one. A line nothing was heard for has no last word: when a `speech_not_transcribed` block credited to it runs to its shot's end and that tail is voiced, it fires at the block's end with no `word` (#1115); otherwise the line is listed in `rules_skipped` with its `line` index |
 | `speech_where_silent` | `lines` is `[]` and words were heard above the floor and outside a repetition loop | Number of words heard / 0 | `{line: null, seconds, word}` - the first; `shot` when shots are known |
 | `speech_in_silent_shot` | Shots are known, at least one line names a shot, and words were heard above the floor and outside a repetition loop in a shot no line names. A word is in the shot its midpoint falls in; one a line in another shot matched (a word straddling the cut) is that line's, not counted | Number of words heard in the shot / 0 | `{line: null, seconds, word, shot}` - the shot's first counted word, `seconds` no earlier than the shot's start |
-| `unscripted_speech` | Shots are known and a line names the shot; words were heard inside it that align to no line (a line spoken twice, an ad-lib) | Number of unmatched words in the shot / 0 | `{line: null, seconds, end, word, shot, repeats_line}` - the first such word; `repeats_line` is true when those words repeat or contain one of the shot's lines |
+| `unscripted_speech` | Shots are known and a line names the shot; words were heard inside it that align to no line (a line spoken twice, an ad-lib; a lone hesitation sound such as "Uh," that the script never uses is not one, #1360) | Number of unmatched words in the shot / 0 | `{line: null, seconds, end, word, shot, repeats_line}` - the first such word; `repeats_line` is true when those words repeat or contain one of the shot's lines |
 | `speech_not_transcribed` | Between two words of one matched line, or between one line's last word and the next line's first (#960; the finding sits on the next line, and a gap holding heard-but-unmatched words is `unscripted_speech`'s), there is a gap of `UNHEARD_MIN_SECONDS` or more, or one of its words lasts `UNHEARD_MIN_SECONDS` + 2 `UNHEARD_MARGIN_SECONDS` or more, and the interior (trimmed by `UNHEARD_MARGIN_SECONDS` each side) holds a window above `UNHEARD_FLOOR_DBFS`: audible speech the ASR left out of its text, which the line's timing absorbed (#923). A block that repeats itself sample for sample (`BED_CORRELATION` 0.98 at a lag of 0.3 s or more, 0.5 s compared) is a looped bed from `loop_audio`, not speech, and is no finding (#1118) | The gap's length in seconds / `UNHEARD_FLOOR_DBFS` | `{line, seconds, end, shot}` - `shot` when the line has one |
 
 Every finding is severity `warn`; `at.shot` is set whenever the shot is known. A rule that does not apply to the call is listed in `rules_skipped` with its reason: `speech_in_silent_shot` and `unscripted_speech` are skipped when the shots carry neither a sample span nor a frame span the take's frame rate can place, or when no line names a shot (no shot is known to be meant silent). When no shots are known at all (no `shots`, none carried by the take, no manifest beside the file) and the lines name at most one shot, the whole file is checked as one implicit shot: `unscripted_speech` runs (a line spoken twice, an ad-lib) and `speech_in_silent_shot` is skipped; `line_clipped_at_end` looks at the file's end only. Lines naming two or more shots with none placed skip both. With shots known there is no minimum word count - one unmatched word inside a named shot fires it.

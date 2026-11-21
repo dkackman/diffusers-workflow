@@ -6,6 +6,8 @@ import {
   isUnauthenticatedPublicBind,
   mcpAddCommand,
   mcpUrl,
+  runtimeRows,
+  runtimeText,
   TOKEN_PLACEHOLDER,
   urlHost,
 } from './serverinfo'
@@ -107,4 +109,36 @@ it('labels an address by itself when the interface is unknown', () => {
   expect(
     addressLabel({ address: '10.0.0.4', family: 'IPv4', interface: null }),
   ).toBe('10.0.0.4')
+})
+
+it('copies the runtime as host, version, then one line per row', () => {
+  const text = runtimeText(
+    info({
+      runtime: {
+        python_version: '3.12.0',
+        torch_version: '2.9.0',
+        cuda_version: null,
+        driver_version: null,
+        packages: { transformers: null, diffusers: '0.36.0' },
+      },
+    }),
+  )
+  expect(text.split('\n')).toEqual([
+    'host: lem',
+    'dw: 0.4.0-alpha.12',
+    'Python: 3.12.0',
+    'torch: 2.9.0',
+    'CUDA: none',
+    'driver: none',
+    'diffusers: 0.36.0',
+    'transformers: not installed',
+  ])
+})
+
+it('sorts packages by name after the fixed rows', () => {
+  const rows = runtimeRows({
+    ...info().runtime,
+    packages: { b: '1', a: '2' },
+  })
+  expect(rows.map((r) => r.name).slice(4)).toEqual(['a', 'b'])
 })

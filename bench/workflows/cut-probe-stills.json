@@ -1,0 +1,23 @@
+{
+  "id": "BenchCutProbeStills",
+  "summary": "#1388 cut probe stills: B's angle sharpened (arm S), A's sharpest late frame (arm L).",
+  "description": "Feature #1385 stage A (#1388). S: B's start image (asset gettysburg/speaker-angle-b.jpg) through sharpen at the amount that brings its face sharpness to A's last 1 s (1141, bench/cut_windows.py; 634 unsharpened, 0.36 calibrated locally with Pillow's UnsharpMask at radius 2). L: frame 980 of A (run 45d023c8, 40.83 s), the sharpest face in A's last 2 s, pulled out by get_frame for templates/flux3/image-edit.",
+  "variables": {
+    "still": "asset:gettysburg/speaker-angle-b.jpg",
+    "amount": 0.36,
+    "a": "output:templates/minimax/narrated-take/20261114-225505-45d023c8/final/MiniMaxH3NarratedTake-take.1-0.0.mp4",
+    "frame_index": 980
+  },
+  "steps": [
+    {
+      "name": "s_still",
+      "task": {"command": "sharpen", "arguments": {"media": "variable:still", "amount": "variable:amount"}},
+      "result": {"content_type": "image/png", "subfolder": "final", "file_base_name": "arm-s-still"}
+    },
+    {
+      "name": "l_frame",
+      "task": {"command": "get_frame", "arguments": {"video": "variable:a", "frame_index": "variable:frame_index"}},
+      "result": {"content_type": "image/png", "subfolder": "final", "file_base_name": "arm-l-frame"}
+    }
+  ]
+}

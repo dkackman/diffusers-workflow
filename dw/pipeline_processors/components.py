@@ -23,9 +23,10 @@ from ..sparse_attention import (
 from huggingface_hub.errors import HfHubHTTPError
 from .timing import counting_forwards, report_cache_stats
 from .mag_calibration import (  # noqa: F401 - re-exported for pipeline.py
-    _report_unfinished_mag_calibration,
     captured_mag_calibration,
+    drops_step_list_mag_cache,
     get_cache_transformer,
+    watching_unfinished_mag_calibration,
 )
 from .h3_anchor import insert_latent_anchor
 from .h3_guides import insert_guides, insert_keystone_restore
@@ -195,9 +196,15 @@ def set_component_attention_backend(component, backend):
     and models sage cannot serve (Music3's head_dim-256 audio decoder, LTX's
     attention mask) crash. Restoring the active backend keeps the pin on the
     component it was asked for; its processors pass their own backend explicitly.
+
+    The restore reads a private registry attribute, so it runs only while that
+    attribute exists (#1315): a diffusers that renamed it just pins the backend.
     """
     from diffusers.models.attention_dispatch import _AttentionBackendRegistry
 
+    if not hasattr(_AttentionBackendRegistry, "_active_backend"):
+        component.set_attention_backend(backend)
+        return
     active_backend = _AttentionBackendRegistry._active_backend
     try:
         component.set_attention_backend(backend)
@@ -501,7 +508,20 @@ def load_and_configure_scheduler(
     scheduler_type = scheduler_configuration.get("scheduler_type", None)
     if scheduler_type is not None:
         from_config_args = scheduler_definition.get("from_config_args", {})
-        logger.info(f"Loading {component_name}: {scheduler_type}")
+        scheduler_name = getattr(scheduler_type, "__name__", None) or str(
+            scheduler_type
+        )
+        message = f"Loading {component_name}: {scheduler_name}"
+        fields = {"component": component_name, "scheduler_type": scheduler_name}
+        if from_config_args:
+            # Keys only: a dropped key is the silent failure this line exposes
+            keys = sorted(str(key) for key in from_config_args)
+            fields["from_config_args"] = keys
+            message += f" (from_config_args: {', '.join(keys)})"
+        logger.info(message)
+        # Emitted in the cold-load path only (Pipeline load), so the line
+        # appears on a job that loads the pipeline, not on a warm-cache hit
+        emit_log(message, **fields)
         setattr(
             pipeline,
             component_name,
@@ -812,12 +832,15 @@ def _assemble_loaded(
 
     if core_denoise_sequences(component):
         attach_tile_blocks(component)
-        # ...and, behind its scratch flag, the time-windowed refine (h3_windows.py)
-        if refine_windows_enabled():
-            from .h3_windows import insert_refine_windows
+        # ...and the time-windowed refine, its long layout and its streamed
+        # decode (h3_windows.py, #1230), each the stock path unless a call
+        # carries `refine_windows`
+        from .h3_windows import insert_refine_windows
 
-            insert_refine_windows(component)
-            # ...and the latent keystone's restore (h3_guides, Task 9)
+        insert_refine_windows(component)
+        # ...and, behind the long-form spikes' scratch flag
+        if refine_windows_enabled():
+            # ...the latent keystone's restore (h3_guides, Task 9)
             insert_keystone_restore(component)
             # ...and the mid-schedule SelfLift (h3_selflift.py, #1195)
             from .h3_selflift import insert_selflift
@@ -970,16 +993,20 @@ def stateful_cache_context(pipeline, segment=None):
 
     logger.debug(f"Entering cache context for {transformer.__class__.__name__}")
     counter, stop_counting = counting_forwards(transformer)
+    report_calibration, stop_watching = watching_unfinished_mag_calibration(transformer)
     try:
         with transformer.cache_context(_CACHE_CONTEXT_NAME):
             yield
         # Only a call that completed has ratios worth pasting
-        _report_unfinished_mag_calibration(transformer)
+        report_calibration()
     finally:
         try:
+            # The counter's own tallies, taken per forward: a hook state the
+            # call has already reset (diffusers 0.43) is never read here
             report_cache_stats(counter, segment)
         finally:
             stop_counting()
+            stop_watching()
         # Private, but it is what diffusers' own pipelines call and there is no
         # public equivalent. Also clears the context an errored call left set
         transformer._reset_stateful_cache()

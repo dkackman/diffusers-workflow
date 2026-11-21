@@ -940,6 +940,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/jobs/{job_id}/rerun-restart-batch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Rerun Restart Batch
+         * @description Rerun every job a server restart cancelled along with `job_id` - the
+         *     tombstones one dead server left, named by any one of them (#1266) -
+         *     oldest first, each in its own workspace and admitted as a single rerun
+         *     is. A member already rerun, in a deleted workspace, or refused by
+         *     admission is skipped with why; the rest are still queued. Without
+         *     `acknowledged_cost: true` nothing is queued: the answer is a preview,
+         *     `would_queue` with each member's estimate.
+         */
+        post: operations["rerun_restart_batch_api_jobs__job_id__rerun_restart_batch_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/jobs/{job_id}/run": {
         parameters: {
             query?: never;
@@ -1137,7 +1163,10 @@ export interface paths {
         };
         /**
          * Get Models
-         * @description What the Hugging Face hub cache holds, largest repo first.
+         * @description What the Hugging Face hub cache holds, largest repo first. Each row
+         *     carries `last_job_use`, when a dw job that named the repo last started
+         *     (dw/model_use.py, #1445), null when none has - always set, so the field
+         *     is never dropped as unset. `last_accessed` stays the files' atime.
          */
         get: operations["get_models_api_models_get"];
         put?: never;
@@ -1820,6 +1849,122 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/workspaces/{name}/notes-channel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Notes Channel
+         * @description Whether a notes channel has polled this workspace's request list in
+         *     the last 30 seconds, so the UI can say whether a session is listening.
+         */
+        get: operations["notes_channel_api_workspaces__name__notes_channel_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workspaces/{name}/request-notes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Edit Request Note
+         * @description Change one note's text; its `refs` and `created` stay, `at` moves to
+         *     now. The same text writes nothing. 404 `unknown_request` or
+         *     `unknown_note`.
+         */
+        put: operations["edit_request_note_api_workspaces__name__request_notes_put"];
+        /**
+         * Add Request Note
+         * @description Add one of the user's notes for the agent, on an item or (no `item`)
+         *     on the request itself; answers the note and the request's new revision.
+         *     Each of `refs` names an item (the note's own, for an item note; any live
+         *     item, for a request note) and optionally a job linked to it and one file
+         *     of that job's manifest; the server adds the file's `kind`. 422
+         *     `invalid_note_ref` for a ref that does not hold, `too_many_refs`,
+         *     `unknown_item`, `item_dropped` or `too_many_notes`; 404
+         *     `unknown_request`.
+         */
+        post: operations["add_request_note_api_workspaces__name__request_notes_post"];
+        /**
+         * Delete Request Note
+         * @description Remove one note; its id is never handed out again. 404
+         *     `unknown_request` or `unknown_note`.
+         */
+        delete: operations["delete_request_note_api_workspaces__name__request_notes_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workspaces/{name}/requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Requests
+         * @description A workspace's requests, newest change first, without their items.
+         *     `unreadable` says why when requests.json is there but is not a ledger.
+         */
+        get: operations["list_requests_api_workspaces__name__requests_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workspaces/{name}/requests/{request_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Request
+         * @description One request: its plan, every item with its derived status, and its
+         *     history. 409 `ledger_unreadable` when requests.json is not a ledger.
+         */
+        get: operations["get_request_api_workspaces__name__requests__request_id__get"];
+        /**
+         * Put Request
+         * @description Write one request's whole plan. `revision` is the revision it was
+         *     read at, or 0 to create it; a write against any other revision is 409
+         *     `stale_revision`, with `current_revision` in the detail. `prompt` is
+         *     set on create only (a later change is 422 `prompt_is_write_once`). An
+         *     item left out is deleted, or kept as dropped when jobs link to it.
+         */
+        put: operations["put_request_api_workspaces__name__requests__request_id__put"];
+        post?: never;
+        /**
+         * Delete Request
+         * @description Remove one request from the ledger. Its linked jobs keep their
+         *     history rows, their `request`/`item` and their files. 409
+         *     `stale_revision` at another revision, 409 `request_has_active_jobs`
+         *     while a linked job is queued or running, 404 `unknown_request`.
+         */
+        delete: operations["delete_request_api_workspaces__name__requests__request_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/exports/{job_id}.zip": {
         parameters: {
             query?: never;
@@ -2420,6 +2565,24 @@ export interface components {
             /** Reference */
             reference: string;
         };
+        /**
+         * GalleryLinkedJob
+         * @description A job linked to a request item that published the file - wrote it or
+         *     republished it from the step cache.
+         */
+        GalleryLinkedJob: {
+            /**
+             * Attempt
+             * @description The job's 1-based place among the item's attempts; null when the request no longer lists it.
+             */
+            attempt: number | null;
+            /** Id */
+            id: string;
+            /** Item */
+            item: string | null;
+            /** Request */
+            request: string;
+        };
         /** GalleryList */
         GalleryList: {
             /**
@@ -2450,6 +2613,11 @@ export interface components {
              */
             inputs?: components["schemas"]["GalleryInput"][] | null;
             job: components["schemas"]["JobRef"] | null;
+            /**
+             * Linked Jobs
+             * @description Every job linked to a request whose manifest lists the file, a step-cache reuse included, newest first; empty for an asset.
+             */
+            linked_jobs: components["schemas"]["GalleryLinkedJob"][];
             /**
              * Media
              * @description The probe of an audio or video file, or an image's kind, width, height and mode, or an .otioz's timeline (tracks, clips with durations, members); null for another file.
@@ -2569,6 +2737,11 @@ export interface components {
             arguments: {
                 [key: string]: unknown;
             };
+            /**
+             * Cancel Requested
+             * @description True when a cancel was asked of this running job and it has not stopped yet - a model load or a task has no checkpoint; only while running.
+             */
+            cancel_requested?: boolean;
             /** Created At */
             created_at: number | null;
             /**
@@ -2594,6 +2767,11 @@ export interface components {
             host_memory_job_peak_committed_mb?: number | null;
             /** Id */
             id: string;
+            /**
+             * Item
+             * @description The item of `request` this job serves; absent when unlinked.
+             */
+            item?: string;
             /**
              * Manifest
              * @description Null on a history row recorded before manifests, or by a run that wrote none.
@@ -2626,10 +2804,25 @@ export interface components {
              */
             queue_position?: number;
             /**
+             * Reason
+             * @description Why the job ended: the first line of its `error`, clipped to 160 characters with a trailing '…'. Only on a failed or cancelled job that has an error - a plain user cancel has none. The full error, traceback and all, is on the job's detail.
+             */
+            reason?: string;
+            /**
+             * Request
+             * @description The requests-ledger request this job serves; absent when unlinked.
+             */
+            request?: string;
+            /**
              * Rerun Of
              * @description The job this one reran; absent for a job submitted fresh.
              */
             rerun_of?: string;
+            /**
+             * Restart Batch
+             * @description The `server_instance` of the server whose restart cancelled this job - the key a restart batch is grouped by. Only on a restart tombstone (a cancelled job whose error starts 'server restart:'); any row of the batch is a valid id for POST /api/jobs/{id}/rerun-restart-batch.
+             */
+            restart_batch?: string;
             /** Run Dir */
             run_dir: string | null;
             /**
@@ -2653,7 +2846,7 @@ export interface components {
             traceback: string | null;
             /**
              * Waiting For
-             * @description Why dispatch is holding this queued job though a card is free - 'waiting for host RAM: needs ~N GB, ~M GB free'; only while queued and held. It starts when a running job frees the RAM.
+             * @description Why dispatch is holding this queued job - 'waiting for host RAM: needs ~N GB, ~M GB free' (a card is free), or 'queued behind N running job(s) on every card (...)' when every card is busy; only while queued. Each hold also emits one queue_wait event (reason host_ram or gpu_busy).
              */
             waiting_for?: string;
             /** Warnings */
@@ -2786,10 +2979,20 @@ export interface components {
              */
             base_dir?: string | null;
             /**
+             * Item
+             * @description The item key of `request` this job serves; both or neither
+             */
+            item?: string | null;
+            /**
              * Note
              * @description A note on the run, at most 4000 characters: kept with the job and written as the run note when the run opens
              */
             note?: string | null;
+            /**
+             * Request
+             * @description The requests-ledger request this job serves (with `item`): an open request in the job's workspace. Refused with 422 and a `{code, message}` detail - unknown_request, request_closed, unknown_item or item_dropped - before anything queues
+             */
+            request?: string | null;
             /**
              * Workflow
              * @description Inline workflow definition
@@ -2816,6 +3019,11 @@ export interface components {
              * @enum {string}
              */
             acknowledged: "none" | "boolean" | "bound";
+            /**
+             * Cancel Requested
+             * @description True when a cancel was asked of this running job and it has not stopped yet - a model load or a task has no checkpoint; only while running.
+             */
+            cancel_requested?: boolean;
             /** Created At */
             created_at: number | null;
             /**
@@ -2832,6 +3040,11 @@ export interface components {
             historical?: boolean;
             /** Id */
             id: string;
+            /**
+             * Item
+             * @description The item of `request` this job serves; absent when unlinked.
+             */
+            item?: string;
             /**
              * Note
              * @description The note it was submitted with; also its run's note.
@@ -2850,10 +3063,25 @@ export interface components {
              */
             queue_position?: number;
             /**
+             * Reason
+             * @description Why the job ended: the first line of its `error`, clipped to 160 characters with a trailing '…'. Only on a failed or cancelled job that has an error - a plain user cancel has none. The full error, traceback and all, is on the job's detail.
+             */
+            reason?: string;
+            /**
+             * Request
+             * @description The requests-ledger request this job serves; absent when unlinked.
+             */
+            request?: string;
+            /**
              * Rerun Of
              * @description The job this one reran; absent for a job submitted fresh.
              */
             rerun_of?: string;
+            /**
+             * Restart Batch
+             * @description The `server_instance` of the server whose restart cancelled this job - the key a restart batch is grouped by. Only on a restart tombstone (a cancelled job whose error starts 'server restart:'); any row of the batch is a valid id for POST /api/jobs/{id}/rerun-restart-batch.
+             */
+            restart_batch?: string;
             /**
              * Run Id
              * @description The run this job opened - null until it opens one, and for a job recorded before runs were tracked.
@@ -2873,7 +3101,7 @@ export interface components {
             status: "queued" | "running" | "succeeded" | "failed" | "cancelled";
             /**
              * Waiting For
-             * @description Why dispatch is holding this queued job though a card is free - 'waiting for host RAM: needs ~N GB, ~M GB free'; only while queued and held. It starts when a running job frees the RAM.
+             * @description Why dispatch is holding this queued job - 'waiting for host RAM: needs ~N GB, ~M GB free' (a card is free), or 'queued behind N running job(s) on every card (...)' when every card is busy; only while queued. Each hold also emits one queue_wait event (reason host_ram or gpu_busy).
              */
             waiting_for?: string;
             /**
@@ -2959,6 +3187,322 @@ export interface components {
             /** Workspace */
             workspace: string;
         };
+        /** LedgerAccepted */
+        LedgerAccepted: {
+            /** Job */
+            job: string;
+            /** Run Id */
+            run_id: string | null;
+        };
+        /** LedgerAttempt */
+        LedgerAttempt: {
+            /** Job */
+            job: string;
+            /**
+             * Minutes
+             * @description Run time; null until the job has started.
+             */
+            minutes: number | null;
+            /**
+             * Note
+             * @description The job's note.
+             */
+            note?: string;
+            /** @description The job's first final image or video, else its first sound or text; null when it wrote none or its run is gone. */
+            output: components["schemas"]["LedgerOutput"] | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "queued" | "running" | "succeeded" | "failed" | "cancelled";
+        };
+        /** LedgerDeleted */
+        LedgerDeleted: {
+            /** Deleted */
+            deleted: boolean;
+            /** Id */
+            id: string;
+            /**
+             * Linked Jobs
+             * @description Jobs linked to it; each keeps its row, link and files.
+             */
+            linked_jobs: number;
+            /**
+             * Revision
+             * @description The revision that was deleted.
+             */
+            revision: number;
+            /** Workspace */
+            workspace: string;
+        };
+        /** LedgerHistoryEntry */
+        LedgerHistoryEntry: {
+            /** At */
+            at: string;
+            /**
+             * By
+             * @enum {string}
+             */
+            by: "agent" | "user";
+            /**
+             * Goal
+             * @description The goal, when this revision changed it.
+             */
+            goal?: string | null;
+            /** Revision */
+            revision: number;
+            /**
+             * State
+             * @description The state, when this revision set or changed it: who closed or reopened the request, when and why.
+             * @enum {string}
+             */
+            state?: "open" | "done" | "abandoned";
+            /** Why */
+            why: string;
+        };
+        /** LedgerItem */
+        LedgerItem: {
+            accepted: components["schemas"]["LedgerAccepted"] | null;
+            /**
+             * Accepted Missing
+             * @description True when an accepted job's run directory is gone; `result` then falls back to the latest succeeded attempt.
+             */
+            accepted_missing?: boolean;
+            /** Arguments */
+            arguments: {
+                [key: string]: unknown;
+            };
+            /**
+             * Attempts
+             * @description Every linked job, oldest first.
+             */
+            attempts: components["schemas"]["LedgerAttempt"][];
+            /** Depends On */
+            depends_on: string[];
+            /** Dropped */
+            dropped: boolean;
+            /** Estimate Minutes */
+            estimate_minutes: number | null;
+            /** Key */
+            key: string;
+            /**
+             * Notes
+             * @description The user's notes on the item.
+             */
+            notes: components["schemas"]["LedgerNote"][];
+            /**
+             * Ready
+             * @description A job could be queued for it now: planned, with a stored workflow and every dependency done, in an open request.
+             */
+            ready: boolean;
+            /** @description The accepted job's run, else the latest succeeded job's run whose directory still exists; null when neither. */
+            result: components["schemas"]["LedgerResult"] | null;
+            /**
+             * Spent Minutes
+             * @description Minutes the item's linked jobs ran, summed.
+             */
+            spent_minutes: number;
+            /**
+             * Status
+             * @description Derived from the item's linked jobs, first that holds: dropped, done (a result exists), running, queued, failed (every linked job failed or was cancelled), planned.
+             * @enum {string}
+             */
+            status: "dropped" | "done" | "running" | "queued" | "failed" | "planned";
+            /** Title */
+            title: string;
+            /** Workflow */
+            workflow: string | null;
+        };
+        /** LedgerList */
+        LedgerList: {
+            /** Requests */
+            requests: components["schemas"]["LedgerSummary"][];
+            /**
+             * Unreadable
+             * @description Why requests.json could not be read, when it is there but is not a ledger; `requests` is then empty and every write is 409 `ledger_unreadable` until the file is fixed or removed.
+             */
+            unreadable?: string;
+            /** Workspace */
+            workspace: string;
+        };
+        /**
+         * LedgerNote
+         * @description One note the user wrote for the agent. Only the request-notes routes
+         *     write one.
+         */
+        LedgerNote: {
+            /**
+             * At
+             * @description When its text last changed.
+             */
+            at: string;
+            /**
+             * Created
+             * @description When the note was first saved.
+             */
+            created: string;
+            /**
+             * Id
+             * @description Unique within the request; never reused.
+             */
+            id: string;
+            /**
+             * Refs
+             * @description The items, takes or files the note is about.
+             */
+            refs?: components["schemas"]["LedgerNoteRef"][];
+            /** Text */
+            text: string;
+        };
+        /**
+         * LedgerNoteRef
+         * @description What a note is about: one item, planned or rendered, and maybe one of
+         *     its linked jobs and one of that job's files.
+         */
+        LedgerNoteRef: {
+            /**
+             * Attempt
+             * @description On a read, when the ref names a job: the job's 1-based place among the item's attempts; null when the job is no longer linked to it.
+             */
+            attempt?: number | null;
+            /**
+             * Gone
+             * @description On a read: true when the item is dropped or out of the plan, or the job is no longer linked or its run is gone.
+             */
+            gone?: boolean;
+            /**
+             * Item
+             * @description The item key.
+             */
+            item: string;
+            /**
+             * Job
+             * @description A job linked to the item.
+             */
+            job?: string;
+            /**
+             * Kind
+             * @description The file's kind, set by the server.
+             * @enum {string}
+             */
+            kind?: "image" | "video" | "audio" | "text";
+            /**
+             * Output
+             * @description One file of the job's manifest, relative to the workspace's outputs.
+             */
+            output?: string;
+        };
+        /**
+         * LedgerOutput
+         * @description The one file that stands for a job: what a list shows as its proof.
+         */
+        LedgerOutput: {
+            /**
+             * Kind
+             * @description A thumbnail exists for image and video.
+             * @enum {string}
+             */
+            kind: "image" | "video" | "audio" | "text";
+            /**
+             * Name
+             * @description The file as the job's manifest and the gallery name it, relative to the workspace's outputs: `/api/gallery/{name}/thumbnail`.
+             */
+            name: string;
+        };
+        /** LedgerRequest */
+        LedgerRequest: {
+            /**
+             * Agent Wrote At
+             * @description When the agent last wrote the plan; null when it never has.
+             */
+            agent_wrote_at: string | null;
+            /** Goal */
+            goal: string;
+            /** History */
+            history: components["schemas"]["LedgerHistoryEntry"][];
+            /** Id */
+            id: string;
+            /** Items */
+            items: components["schemas"]["LedgerItem"][];
+            /**
+             * Next Note
+             * @description The number of the next note id.
+             */
+            next_note: number;
+            /**
+             * Notes
+             * @description The user's notes on the whole request.
+             */
+            notes: components["schemas"]["LedgerNote"][];
+            /**
+             * Prompt
+             * @description The ask that started it; write-once.
+             */
+            prompt: string | null;
+            /**
+             * Remaining Minutes
+             * @description Estimates of the items not done and not dropped.
+             */
+            remaining_minutes: number;
+            /** Revision */
+            revision: number;
+            /**
+             * Spent Minutes
+             * @description Minutes every linked job ran.
+             */
+            spent_minutes: number;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "open" | "done" | "abandoned";
+            /** Title */
+            title: string;
+        };
+        /** LedgerResult */
+        LedgerResult: {
+            /** Job */
+            job: string;
+            output: components["schemas"]["LedgerOutput"] | null;
+            /** Run Id */
+            run_id: string | null;
+        };
+        /** LedgerSummary */
+        LedgerSummary: {
+            /**
+             * Cover
+             * @description Up to three outputs of the latest results, newest first.
+             */
+            cover: components["schemas"]["LedgerOutput"][];
+            /** Id */
+            id: string;
+            /** Items */
+            items: number;
+            /**
+             * Ready
+             * @description Items a job could be queued for now.
+             */
+            ready: number;
+            /** Remaining Minutes */
+            remaining_minutes: number;
+            /** Revision */
+            revision: number;
+            /** Spent Minutes */
+            spent_minutes: number;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "open" | "done" | "abandoned";
+            /** Status Counts */
+            status_counts: {
+                [key: string]: number;
+            };
+            /** Title */
+            title: string;
+            /** Updated At */
+            updated_at: string | null;
+        };
         /**
          * LevelFinding
          * @description A probe threshold crossing (dw/assessment_rules.finding).
@@ -2989,6 +3533,30 @@ export interface components {
             /** Writable */
             writable: boolean;
         };
+        /** LoraEvidence */
+        LoraEvidence: {
+            /** Issue */
+            issue?: number;
+            /** Job */
+            job?: string;
+            /** Note */
+            note: string;
+        };
+        /** LoraList */
+        LoraList: {
+            /** Libraries */
+            libraries: components["schemas"]["LibraryRoot"][];
+            /**
+             * Loras
+             * @description Matching entries, rejected ones included, sorted by name.
+             */
+            loras: components["schemas"]["LoraRow"][];
+            /**
+             * Resolved
+             * @description The bases `model` resolved to; only when `model` was given.
+             */
+            resolved?: components["schemas"]["ResolvedBase"][];
+        };
         /** LoraRequest */
         LoraRequest: {
             /**
@@ -2999,10 +3567,85 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        /** LoraRow */
+        LoraRow: {
+            /**
+             * Base Models
+             * @description The base repos it was made for.
+             */
+            base_models: string[];
+            /** Description */
+            description: string;
+            /** Evidence */
+            evidence?: components["schemas"]["LoraEvidence"][];
+            /** License */
+            license?: string;
+            /**
+             * Model Name
+             * @description The LoRA's Hub repo (owner/name).
+             */
+            model_name: string;
+            /**
+             * Name
+             * @description The entry's catalog name: its path under loras/.
+             */
+            name: string;
+            /**
+             * Origin
+             * @description Which library root the entry came from.
+             * @enum {string}
+             */
+            origin: "workspace" | "common" | "examples" | "builtin";
+            /**
+             * Revision
+             * @description The commit or branch the entry pins.
+             */
+            revision?: string;
+            /** @description The scale the entry states; absent on some entries. */
+            scale?: components["schemas"]["LoraScale"];
+            /** Stacks With */
+            stacks_with?: string[];
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "proven" | "trial" | "rejected";
+            /** Tags */
+            tags?: string[];
+            /**
+             * Trigger
+             * @description Words the prompt needs for the LoRA to act.
+             */
+            trigger?: string;
+            /** Use When */
+            use_when: string;
+            /**
+             * Weight Name
+             * @description The .safetensors file in the repo, when it has several.
+             */
+            weight_name?: string;
+            /**
+             * Workflow
+             * @description The base's workflow partition(s) the LoRA fits; null or absent for any.
+             */
+            workflow?: string | string[] | null;
+            /** Writable */
+            writable: boolean;
+        };
+        /** LoraScale */
+        LoraScale: {
+            /** Default */
+            default: number;
+            /**
+             * Range
+             * @description `[low, high]`, when the entry states one.
+             */
+            range?: (number)[];
+        };
         /**
          * ManifestEntry
          * @description One step's saved files. Open even in strict mode: the worker adds
-         *     per-step detail (`selected`, `shots`, ...) the UI does not read.
+         *     per-step detail (`selected`, ...) beyond the keys typed here.
          */
         ManifestEntry: {
             /** Files */
@@ -3023,6 +3666,11 @@ export interface components {
              * @enum {string}
              */
             role?: "final" | "intermediate";
+            /**
+             * Shots
+             * @description Where each input landed in the step's joined video (dw/shots.py); null or absent on a step that joined none.
+             */
+            shots?: components["schemas"]["ShotRecord"][] | null;
             /** Step */
             step: string;
             /**
@@ -3177,8 +3825,16 @@ export interface components {
         };
         /** ModelRepo */
         ModelRepo: {
-            /** Last Accessed */
+            /**
+             * Last Accessed
+             * @description The newest access time (atime) of the repo's files - a fallback for last_job_use: copies and backups bump it, and a noatime or relatime disk may never move it.
+             */
             last_accessed: number | null;
+            /**
+             * Last Job Use
+             * @description Epoch seconds a dw job that named this repo last started (dw/model_use.py); null when no dw job has used it since tracking began - then last_accessed is the only date there is.
+             */
+            last_job_use: number | null;
             /** Last Modified */
             last_modified: number | null;
             /** Nb Files */
@@ -3211,6 +3867,82 @@ export interface components {
              */
             direction: string;
         };
+        /**
+         * NoteAdd
+         * @description One new note for the agent, from the user.
+         */
+        NoteAdd: {
+            /**
+             * Item
+             * @description The item key; left out, the request's own notes
+             */
+            item?: string | null;
+            /**
+             * Refs
+             * @description The items, takes or files the note is about, at most 16; an item's note references only that item
+             */
+            refs?: components["schemas"]["NoteRefWrite"][] | null;
+            /**
+             * Request
+             * @description The request id
+             */
+            request: string;
+            /**
+             * Text
+             * @description The note, at most 4,000 characters
+             */
+            text: string;
+        };
+        /** NoteDeleted */
+        NoteDeleted: {
+            /**
+             * Revision
+             * @description The request's revision after the write.
+             */
+            revision: number;
+        };
+        /**
+         * NoteEdit
+         * @description A note's new text. Its references never change.
+         */
+        NoteEdit: {
+            /**
+             * Note
+             * @description The note id
+             */
+            note: string;
+            /**
+             * Request
+             * @description The request id
+             */
+            request: string;
+            /**
+             * Text
+             * @description The note, at most 4,000 characters
+             */
+            text: string;
+        };
+        /**
+         * NoteRefWrite
+         * @description One reference of a new note. `kind` is the server's to set.
+         */
+        NoteRefWrite: {
+            /**
+             * Item
+             * @description The item key; left out on an item's note, that item. Alone, it names a planned shot that may have no job yet
+             */
+            item?: string | null;
+            /**
+             * Job
+             * @description A job linked to that item
+             */
+            job?: string | null;
+            /**
+             * Output
+             * @description One file of that finished job's manifest, as the gallery names it (relative to the workspace's outputs); left out, the note is about the take as a whole
+             */
+            output?: string | null;
+        };
         /** NoteRequest */
         NoteRequest: {
             /**
@@ -3238,6 +3970,28 @@ export interface components {
             note_source: ("file" | "run") | null;
             /** Target */
             target: string;
+        };
+        /** NoteWritten */
+        NoteWritten: {
+            note: components["schemas"]["LedgerNote"];
+            /**
+             * Revision
+             * @description The request's revision after the write.
+             */
+            revision: number;
+        };
+        /** NotesChannelState */
+        NotesChannelState: {
+            /**
+             * Last Seen
+             * @description ISO UTC time of the last such poll, null if none since the server started.
+             */
+            last_seen: string | null;
+            /**
+             * Listening
+             * @description True while a notes channel polled this workspace's request list in the last 30 seconds.
+             */
+            listening: boolean;
         };
         /** OutputDeleted */
         OutputDeleted: {
@@ -3403,10 +4157,10 @@ export interface components {
         PlanHostMemory: {
             /**
              * Basis
-             * @description `observed`: the largest job peak of this machine's successful runs with the same pipelines, quantization and offload; `fit`: projected from this workflow's own runs for the requested list length; `declared`: the workflow's own `host_ram_gb`, larger than anything observed.
+             * @description `inherited`: an inline workflow with no runs of its own, read from the largest peak of this machine's runs of the catalog template that loads the same pipeline. `observed`: the largest job peak of this machine's successful runs with the same pipelines, quantization and offload; `fit`: projected from this workflow's own runs for the requested list length; `declared`: the workflow's own `host_ram_gb`, larger than anything observed.
              * @enum {string}
              */
-            basis: "observed" | "fit" | "declared";
+            basis: "observed" | "fit" | "declared" | "inherited";
             /**
              * Projected Mb
              * @description The host RAM, in MB, this run is projected to hold at its peak.
@@ -3473,6 +4227,58 @@ export interface components {
             /** Name */
             name: string;
         };
+        /**
+         * RequestWrite
+         * @description One request's whole plan.
+         */
+        RequestWrite: {
+            /**
+             * By
+             * @description Who wrote this revision; the UI is the user
+             * @default user
+             * @enum {string}
+             */
+            by: "agent" | "user";
+            /**
+             * Goal
+             * @description What done looks like
+             */
+            goal: string;
+            /**
+             * Items
+             * @description The ordered plan; each item is key, title, depends_on, estimate_minutes, workflow, arguments, accepted; an item's `notes` are ignored (the request-notes routes write them)
+             */
+            items: {
+                [key: string]: unknown;
+            }[];
+            /**
+             * Prompt
+             * @description Create only
+             */
+            prompt?: string | null;
+            /**
+             * Purge
+             * @description Keys of stored items this plan leaves out, removed for good instead of kept as dropped; their jobs keep their link and files
+             */
+            purge?: string[] | null;
+            /**
+             * Revision
+             * @description The revision read, or 0 to create
+             */
+            revision: number;
+            /** State */
+            state?: ("open" | "done" | "abandoned") | null;
+            /**
+             * Title
+             * @description One line, at most 200
+             */
+            title: string;
+            /**
+             * Why
+             * @description One line, at most 200
+             */
+            why: string;
+        };
         /** RequiredDownload */
         RequiredDownload: {
             /** Access Blocked */
@@ -3527,6 +4333,82 @@ export interface components {
              * @default false
              */
             new_seed: boolean;
+        };
+        /** ResolvedBase */
+        ResolvedBase: {
+            /** Repo */
+            repo: string;
+            /** Workflow */
+            workflow: string | null;
+        };
+        /** RestartBatchCandidate */
+        RestartBatchCandidate: {
+            /** @description The plan's estimate of the rerun; null when none was built. */
+            estimate: components["schemas"]["PlanEstimate"] | null;
+            /**
+             * Id
+             * @description The tombstone's id.
+             */
+            id: string;
+            /** Workflow */
+            workflow: string | null;
+            /** Workspace */
+            workspace: string;
+        };
+        /** RestartBatchQueued */
+        RestartBatchQueued: {
+            /**
+             * Id
+             * @description The new job's id.
+             */
+            id: string;
+            /**
+             * Rerun Of
+             * @description The tombstone it reruns.
+             */
+            rerun_of: string;
+            /** Workflow */
+            workflow: string | null;
+            /** Workspace */
+            workspace: string;
+        };
+        /** RestartBatchRequest */
+        RestartBatchRequest: {
+            /**
+             * Acknowledged Cost
+             * @description true queues the batch; omitted or false answers a preview and queues nothing. An object bound to one plan is refused: one fingerprint cannot cover every member's plan.
+             */
+            acknowledged_cost?: boolean | components["schemas"]["AcknowledgedCost"] | null;
+        };
+        /** RestartBatchRerun */
+        RestartBatchRerun: {
+            /**
+             * Queued
+             * @description What was queued, oldest original first; empty in a preview.
+             */
+            queued: components["schemas"]["RestartBatchQueued"][];
+            /**
+             * Server Instance
+             * @description The dead server whose batch this is.
+             */
+            server_instance: string;
+            /** Skipped */
+            skipped: components["schemas"]["RestartBatchSkipped"][];
+            /**
+             * Would Queue
+             * @description A preview only: what `acknowledged_cost: true` would queue, oldest first.
+             */
+            would_queue?: components["schemas"]["RestartBatchCandidate"][];
+        };
+        /** RestartBatchSkipped */
+        RestartBatchSkipped: {
+            /** Id */
+            id: string;
+            /**
+             * Reason
+             * @description Why it was not queued: `already rerun as <id>`, a deleted workspace, or what admission refused.
+             */
+            reason: string;
         };
         /** RunDeleted */
         RunDeleted: {
@@ -3656,6 +4538,102 @@ export interface components {
              * @enum {string}
              */
             shadowed_by: "workspace" | "common" | "examples" | "builtin";
+        };
+        /**
+         * ShotMeasure
+         * @description One measure a chain's check computed for a segment's kept attempt
+         *     (#1474), against the ceiling in force.
+         */
+        ShotMeasure: {
+            /**
+             * Bound
+             * @description `max`: the value must stay at or under the ceiling; `min`: at or over it. `texture_ratio` is bounded both ways, so `failed`, not value against ceiling, is the verdict.
+             * @enum {string}
+             */
+            bound: "max" | "min";
+            /**
+             * Ceiling
+             * @description The bound the check held it to - the workflow's own when it set one - or null where the check sets none (measured, never failed).
+             */
+            ceiling: number | null;
+            /**
+             * Failed
+             * @description The check failed this measure.
+             */
+            failed: boolean;
+            /**
+             * Value
+             * @description The measure; for `words`, the heard words' similarity to the line.
+             */
+            value: number;
+            /**
+             * Warn Only
+             * @description A failure is warned and recorded but never re-rolled.
+             */
+            warn_only: boolean;
+        };
+        /**
+         * ShotRecord
+         * @description One shot of a joined video: where an input landed in it, and for a
+         *     chain's segment what its check recorded (`dw/shots.py` lists every key).
+         *     Open even in strict mode: a join may add detail of its own.
+         */
+        ShotRecord: {
+            /**
+             * Attempts
+             * @description On a chain's shot: renders its check tried.
+             */
+            attempts?: number;
+            /**
+             * Audio Dbfs
+             * @description On a chain's shot with generated audio: its kept audio's level.
+             */
+            audio_dbfs?: number;
+            /**
+             * Check Failed
+             * @description On a checked chain shot whose every attempt failed: the measures the kept one failed.
+             */
+            check_failed?: string[];
+            /**
+             * Measures
+             * @description On a chain's shot with the check on: every measure the kept attempt computed, by name. Absent with the check off, on a resumed segment, and on a job recorded before the field existed.
+             */
+            measures?: {
+                [key: string]: components["schemas"]["ShotMeasure"];
+            };
+            /** Name */
+            name: string;
+            /** Num Frames */
+            num_frames: number;
+            /**
+             * Num Samples
+             * @description Null when the video has no track the join built.
+             */
+            num_samples?: number | null;
+            /**
+             * Planned Segments
+             * @description On a chain's shot: the segment count its plan asked for.
+             */
+            planned_segments?: number;
+            /**
+             * Resumed
+             * @description On a chain's shot: the segment was copied from an earlier run (resume_from).
+             */
+            resumed?: boolean;
+            /**
+             * Segment File
+             * @description On a chain's shot under save_segments and keep_segments: its segment's file.
+             */
+            segment_file?: string;
+            /** Start Frame */
+            start_frame: number;
+            /**
+             * Start Sample
+             * @description Null when the video has no track the join built.
+             */
+            start_sample?: number | null;
+        } & {
+            [key: string]: unknown;
         };
         /** StarRequest */
         StarRequest: {
@@ -4509,6 +5487,10 @@ export interface operations {
                 version?: number | null;
                 media?: boolean;
                 role?: string[] | null;
+                /** @description Only the files of runs whose job is linked to this requests-ledger request in this workspace */
+                request?: string | null;
+                /** @description With `request`: only the files of runs whose job is linked to this item of it */
+                item?: string | null;
                 workspace?: string | null;
             };
             header?: never;
@@ -4969,6 +5951,10 @@ export interface operations {
                 workspace?: string | null;
                 status?: string | null;
                 limit?: number | null;
+                /** @description Only the jobs linked to this requests-ledger request */
+                request?: string | null;
+                /** @description With `request`: only the jobs linked to this item of it */
+                item?: string | null;
             };
             header?: never;
             path?: never;
@@ -5265,6 +6251,41 @@ export interface operations {
             };
         };
     };
+    rerun_restart_batch_api_jobs__job_id__rerun_restart_batch_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["RestartBatchRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RestartBatchRerun"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     delete_job_run_api_jobs__job_id__run_delete: {
         parameters: {
             query?: never;
@@ -5368,7 +6389,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["LoraList"];
                 };
             };
             /** @description Validation Error */
@@ -6606,6 +7627,277 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WorkspaceDeleted"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    notes_channel_api_workspaces__name__notes_channel_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotesChannelState"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    edit_request_note_api_workspaces__name__request_notes_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NoteEdit"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NoteWritten"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    add_request_note_api_workspaces__name__request_notes_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NoteAdd"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NoteWritten"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_request_note_api_workspaces__name__request_notes_delete: {
+        parameters: {
+            query: {
+                /** @description The request id */
+                request: string;
+                /** @description The note id */
+                note: string;
+            };
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NoteDeleted"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_requests_api_workspaces__name__requests_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LedgerList"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_request_api_workspaces__name__requests__request_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+                request_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LedgerRequest"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    put_request_api_workspaces__name__requests__request_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+                request_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RequestWrite"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LedgerRequest"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_request_api_workspaces__name__requests__request_id__delete: {
+        parameters: {
+            query: {
+                /** @description The revision the request was read at */
+                revision: number;
+            };
+            header?: never;
+            path: {
+                name: string;
+                request_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LedgerDeleted"];
                 };
             };
             /** @description Validation Error */
