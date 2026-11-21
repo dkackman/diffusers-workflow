@@ -2482,6 +2482,8 @@ class TestSkillRequests:
             "`notes`",
             "creative source",
             "`dropped`",
+            "watches every workspace on the server",
+            "belongs to another session",
         ):
             assert claim in text, claim
 

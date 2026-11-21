@@ -139,6 +139,12 @@ session, and that write is what marks the note answered. A
 is waiting and confirm before spending on them. A `kind="review_due"` event
 is the hold above running out.
 
+The channel watches every workspace on the server, so an event's
+`workspace` attribute may name one other than the session's: pass it to
+`get_request` and to the run, as the event's own text does. A note on a
+request this session is not working on belongs to another session; leave
+it alone.
+
 ## Changing the plan
 
 A shot added, split or cut changes the shot document first, then the

@@ -7,6 +7,7 @@ import {
 } from '@testing-library/svelte'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import ItemNote from './ItemNote.svelte'
+import { NEEDS_WORDS } from './noteState'
 import { ApiError } from '../apiErrors'
 
 const confirmDialog = vi.hoisted(() => vi.fn())
@@ -80,7 +81,7 @@ it('says Send to agent while a session is listening, and saves either way', asyn
   await waitFor(() => expect(given.onsave).toHaveBeenCalledWith('cooler'))
 })
 
-it('a new note shows what it is about, and a reference comes off before it is saved', async () => {
+it('a new note shows what it is about under About, below its words, and a reference comes off before it is saved', async () => {
   const { createRawSnippet } = await import('svelte')
   const onremoveref = vi.fn()
   const take = { item: 's3', job: 'j2', output: 'run/s3.mp4' }
@@ -90,6 +91,16 @@ it('a new note shows what it is about, and a reference comes off before it is sa
       render: () => `<span class="chip">${ref().job ?? ref().item}</span>`,
     })),
   })
+  // closed: no chip, so nothing reads as a note already sent
+  expect(document.querySelectorAll('.chip')).toHaveLength(0)
+  await fireEvent.click(
+    screen.getByRole('button', { name: 'Add a note for the agent' }),
+  )
+  // the words come first; what the note is about follows, labelled
+  const about = screen.getByText('About')
+  expect(
+    box().compareDocumentPosition(about) & Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy()
   expect(
     [...document.querySelectorAll('.chip')].map((c) => c.textContent),
   ).toEqual(['j2', 's5'])
@@ -106,7 +117,7 @@ it('shows a saved note with the line about where it stands', () => {
   expect(screen.getByRole('button', { name: 'Delete note' })).toBeTruthy()
 })
 
-it('saves the draft; a saved note emptied is deleted, an empty new one not sent', async () => {
+it('saves the draft; a saved note emptied is deleted', async () => {
   const given = await draft('needs more red')
   given.onsave.mockResolvedValue(undefined)
   await fireEvent.click(screen.getByRole('button', { name: 'Save note' }))
@@ -119,11 +130,47 @@ it('saves the draft; a saved note emptied is deleted, an empty new one not sent'
   await fireEvent.click(screen.getByRole('button', { name: 'Save note' }))
   await waitFor(() => expect(cleared.ondelete).toHaveBeenCalledTimes(1))
   expect(cleared.onsave).not.toHaveBeenCalled()
-  cleanup()
+})
+
+it('a new note cannot be sent without words: the button waits, Ctrl+Enter does nothing, the box stays open', async () => {
   const empty = await draft('  ')
-  await fireEvent.click(screen.getByRole('button', { name: 'Save note' }))
-  await noBox()
+  const send = screen.getByRole('button', {
+    name: 'Save note',
+  }) as HTMLButtonElement
+  expect(send.disabled).toBe(true)
+  await fireEvent.keyDown(box(), { key: 'Enter', ctrlKey: true })
+  expect(box()).toBeTruthy()
   expect(empty.onsave).not.toHaveBeenCalled()
+  await fireEvent.input(box(), { target: { value: 'warmer' } })
+  expect(send.disabled).toBe(false)
+})
+
+it('a reference with no words says the note needs words, until it has some', async () => {
+  render(ItemNote, props(null, { refs: [{ item: 's5' }] }))
+  await fireEvent.click(
+    screen.getByRole('button', { name: 'Add a note for the agent' }),
+  )
+  expect(screen.getByText(NEEDS_WORDS)).toBeTruthy()
+  await fireEvent.input(box(), { target: { value: 'lower the camera' } })
+  expect(screen.queryByText(NEEDS_WORDS)).toBeNull()
+})
+
+it('a new note with no reference and no picker shows no About line', async () => {
+  await draft('')
+  expect(screen.queryByText('About')).toBeNull()
+  expect(screen.queryByText(NEEDS_WORDS)).toBeNull()
+})
+
+it('a saved note lists what it is about under About', async () => {
+  const { createRawSnippet } = await import('svelte')
+  render(ItemNote, {
+    ...props('warmer', { refs: [{ item: 's5' }] }),
+    chip: createRawSnippet((ref: () => { item: string }) => ({
+      render: () => `<span class="chip">${ref().item}</span>`,
+    })),
+  })
+  expect(screen.getByText('About')).toBeTruthy()
+  expect(document.querySelector('.chip')?.textContent).toBe('s5')
 })
 
 it('Ctrl+Enter saves', async () => {

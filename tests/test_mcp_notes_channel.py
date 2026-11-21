@@ -945,3 +945,205 @@ def test_a_hold_set_in_the_write_that_creates_its_request_is_fresh(client, clock
     assert event["content"].startswith(
         'Review time is up on request "newer" with no note from the user.'
     )
+
+
+# --- a channel that watches every workspace (#1529) -------------------------
+
+
+class ServerClient:
+    """What the channel needs of a DwClient on a server with several
+    workspaces, each a ledger folder; `/api/requests` answers as the
+    server-wide list does, or 404 when `old` (a server without it)."""
+
+    def __init__(self, base, names=("default", "notes")):
+        self.roots = {}
+        for name in names:
+            path = base / name
+            path.mkdir()
+            self.roots[name] = str(path)
+        self.workspace = "default"
+        self.calls = []  # (path, headers)
+        self.old = False
+        self.broken = set()
+
+    def get_json(self, path, params=None, workspace=None, headers=None):
+        self.calls.append((path, headers))
+        if path == "/api/requests":
+            if self.old:
+                raise DwApiError("Not Found", status_code=404)
+            rows, broken = [], {}
+            for name, root in self.roots.items():
+                if name in self.broken:
+                    broken[name] = "requests.json is not a ledger"
+                    continue
+                rows += [
+                    {"workspace": name, **store.summary_view(r, [])}
+                    for r in store.read_requests(root).values()
+                    if r.get("state") == "open"
+                ]
+            return {"requests": rows, **({"unreadable": broken} if broken else {})}
+        parts = path.split("/")  # "", api, workspaces, <name>, requests[, id]
+        root = self.roots[parts[3]]
+        if len(parts) == 5:
+            return {"workspace": parts[3], **store.listing(root)}
+        found = store.get_request(root, parts[5])
+        if found is None:
+            raise DwApiError(f"No request {parts[5]!r}", status_code=404)
+        return found
+
+
+@pytest.fixture
+def server(tmp_path, clock):
+    return ServerClient(tmp_path)
+
+
+def put_in(server, name, request_id="turbine", by="agent", why="w"):
+    root = server.roots[name]
+    current = store.get_request(root, request_id)
+    return store.put_request(
+        root,
+        request_id,
+        {
+            "title": "Wind turbine",
+            "goal": "three boards",
+            "items": current["items"] if current else items("b1", "b2"),
+            "revision": current["revision"] if current else 0,
+            "why": why,
+        },
+        by=by,
+    )
+
+
+def note_in(server, name, text, item=None, request_id="turbine"):
+    put_in(server, name, request_id, by="user", why="note")
+    save_note(server.roots[name], request_id, text, item)
+
+
+def watching_all(server):
+    watch = ledger.NoteWatch(everywhere=True)
+    assert watch.poll(server) == []
+    server.calls.clear()
+    return watch
+
+
+def test_a_note_in_any_workspace_reaches_a_whole_server_channel(server, clock):
+    put_in(server, "notes")
+    watch = watching_all(server)
+    clock.tick()
+    note_in(server, "notes", "lower the camera", item="b2")
+    [event] = watch.poll(server)
+    assert event["meta"]["workspace"] == "notes"
+    assert event["meta"]["request"] == "turbine"
+    assert 'get_request("turbine", workspace="notes")' in event["content"]
+    assert "lower the camera" in event["content"]
+
+
+def test_an_idle_whole_server_channel_costs_one_marked_read_per_poll(server):
+    put_in(server, "notes")
+    watch = watching_all(server)
+    assert watch.poll(server) == []
+    assert server.calls == [("/api/requests", ledger.CHANNEL_HEADER)]
+
+
+def test_the_same_request_id_in_two_workspaces_is_kept_apart(server, clock):
+    put_in(server, "default")
+    put_in(server, "notes")
+    watch = watching_all(server)
+    clock.tick()
+    note_in(server, "notes", "from notes")
+    [event] = watch.poll(server)
+    assert event["meta"]["workspace"] == "notes"
+    clock.tick()
+    note_in(server, "default", "from default")
+    [event] = watch.poll(server)
+    assert event["meta"]["workspace"] == "default"
+    assert watch.poll(server) == []
+
+
+def test_startup_digests_each_workspaces_waiting_notes_apart(server, clock):
+    put_in(server, "default")
+    put_in(server, "notes")
+    clock.tick()
+    note_in(server, "default", "one")
+    note_in(server, "notes", "two")
+    events = ledger.NoteWatch(everywhere=True).poll(server)
+    assert [e["meta"]["kind"] for e in events] == ["notes_waiting"] * 2
+    assert {e["meta"]["workspace"] for e in events} == {"default", "notes"}
+
+
+def test_a_request_made_after_startup_in_another_workspace_is_watched(server, clock):
+    watch = watching_all(server)
+    put_in(server, "notes", "fresh")
+    assert watch.poll(server) == []
+    clock.tick()
+    note_in(server, "notes", "warmer", request_id="fresh")
+    [event] = watch.poll(server)
+    assert event["meta"]["request"] == "fresh"
+
+
+def test_a_server_without_the_whole_server_list_falls_back_to_one_workspace(
+    server, clock
+):
+    server.old = True
+    put_in(server, "default")
+    watch = watching_all(server)
+    clock.tick()
+    note_in(server, "default", "still heard")
+    [event] = watch.poll(server)
+    assert event["meta"]["workspace"] == "default"
+    assert watch.fault is None
+    # the fallback sticks: the missing route is not asked for every poll
+    server.calls.clear()
+    watch.poll(server)
+    assert ("/api/requests", ledger.CHANNEL_HEADER) not in server.calls
+
+
+def test_one_unreadable_workspace_is_a_fault_and_the_others_still_announce(
+    server, clock
+):
+    put_in(server, "default")
+    watch = watching_all(server)
+    server.broken.add("notes")
+    clock.tick()
+    note_in(server, "default", "heard anyway")
+    [event] = watch.poll(server)
+    assert event["meta"]["workspace"] == "default"
+    assert "notes" in watch.fault
+
+
+def test_a_pinned_channel_reads_only_its_workspace(client):
+    watch = ledger.NoteWatch(WORKSPACE)
+    watch.poll(client)
+    assert all(p.startswith(f"/api/workspaces/{WORKSPACE}/") for p in client.calls)
+
+
+def test_a_workspace_that_reads_again_after_a_break_does_not_repeat_its_notes(
+    server, clock
+):
+    put_in(server, "notes")
+    watch = watching_all(server)
+    clock.tick()
+    note_in(server, "notes", "lower the camera")
+    assert len(watch.poll(server)) == 1
+    server.broken.add("notes")
+    assert watch.poll(server) == []
+    server.broken.discard("notes")
+    assert watch.poll(server) == []
+    assert watch.fault is None
+
+
+def test_an_old_server_is_asked_for_the_whole_server_list_again_later(server, clock):
+    server.old = True
+    put_in(server, "notes")
+    watch = watching_all(server)
+    assert "GET /api/requests" in watch.notice
+    for _ in range(ledger.ROUTE_RETRY_POLLS - 1):
+        watch.poll(server)
+    assert ("/api/requests", ledger.CHANNEL_HEADER) not in server.calls
+    # the server was updated while the channel ran
+    server.old = False
+    clock.tick()
+    note_in(server, "notes", "heard after the upgrade")
+    [event] = watch.poll(server)
+    assert event["meta"]["workspace"] == "notes"
+    assert watch.notice is None

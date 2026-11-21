@@ -424,11 +424,14 @@ def announce(polls):
     class Watch:
         fault = None
 
+        notice = None
+
         def poll(self, client):
             step = next(script)
             if isinstance(step, Exception):
                 raise step
             self.fault = step.get("fault")
+            self.notice = step.get("notice")
             return step["events"]
 
     class Connection:
@@ -481,7 +484,9 @@ def test_a_failing_server_is_logged_once_backed_off_and_recovered_from():
             {"events": []},
         ]
     )
-    assert delays[1:] == [10.0, 20.0, 40.0, 80.0, 160.0, 300.0, 10.0, 20.0, 10.0]
+    # a fault in part of the ledger (one request, one workspace) is said but
+    # not backed off: the rest is still read every interval (#1529)
+    assert delays[1:] == [10.0, 20.0, 40.0, 80.0, 160.0, 300.0, 10.0, 10.0, 10.0]
     assert said == [
         f"could not read the ledger, will keep trying: {down}",
         "could not read the ledger, will keep trying: bad token",
@@ -493,3 +498,16 @@ def test_a_failing_server_is_logged_once_backed_off_and_recovered_from():
         "reading the ledger again",
     ]
     assert sent == [("notifications/claude/channel", event)]
+
+
+def test_a_notice_is_said_once_when_it_changes_and_is_not_a_fault():
+    note = "the server has no GET /api/requests: watching default only"
+    sent, delays, said = announce(
+        [
+            {"events": [], "notice": note},
+            {"events": [], "notice": note},
+            {"events": []},
+        ]
+    )
+    assert said == [note]
+    assert delays[1:] == [10.0, 10.0, 10.0]

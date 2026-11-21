@@ -100,6 +100,11 @@ def delete_request(client, request, revision, workspace=None):
 # Marks the channel's request-list poll, so the server can tell a session
 # is listening. A hint for the page, never an authority.
 CHANNEL_HEADER = {"X-DW-Notes-Channel": "1"}
+
+# Polls between asks for GET /api/requests on a server that answered 404:
+# about five minutes at the default interval, so a server updated while a
+# channel runs is found again without restarting the session
+ROUTE_RETRY_POLLS = 30
 # The ledger's own cap on a note (dw/notes.py); a note is quoted whole
 # up to it
 NOTE_QUOTE_CAP = 4000
@@ -415,106 +420,158 @@ class NoteWatch:
     """Which waiting notes and due review holds one channel process has yet
     to announce.
 
-    `poll` reads the workspace's request list - one call when nothing
-    changed - and each open request whose stamp (revision, `updated_at`,
-    count of ready items) moved since it was last read, or whose earliest
-    hold has run out on the monotonic `clock` since (a deadline passing
-    changes nothing the list shows). The first poll that reaches the server
-    answers with one digest of every note waiting; after it, each note is announced once,
-    keyed by its note id and `at` (an edited note is announced again, one
-    the agent has written after never is), and each due item once per
+    `poll` reads a request list - one call when nothing changed - and each
+    open request whose stamp (revision, `updated_at`, count of ready items)
+    moved since it was last read, or whose earliest hold has run out on the
+    monotonic `clock` since (a deadline passing changes nothing the list
+    shows). With `everywhere`, the list is the server's (`/api/requests`:
+    every workspace's open requests, one read), so a note reaches the
+    session whichever workspace it works in; a server without that route
+    is read one workspace at a time, the client's, and asked again every
+    ROUTE_RETRY_POLLS polls. Otherwise it is the `workspace` list (the
+    client's when None). Requests are keyed by workspace and id, and a
+    workspace the read names as unreadable keeps what was known of it. The
+    first poll that reaches the server answers with one digest of the notes
+    waiting per workspace; after it, each note is announced once, keyed by
+    its note id and `at` (an edited note is announced again, one the agent
+    has written after never is), and each due item once per
     `(item, review_until)`, after the notes of the same poll. A due hold is
     stale when it was already on the item the first time this watch read a
-    request that the first listing held, fresh otherwise (a request that first
-    appears in a later listing was created, hold and all, while the watch ran).
+    request that the first listing held, fresh otherwise (a request that
+    first appears in a later listing was created, hold and all, while the
+    watch ran).
     """
 
-    def __init__(self, workspace=None, clock=time.monotonic):
+    def __init__(self, workspace=None, everywhere=False, clock=time.monotonic):
         self.workspace = workspace
-        self.fault = None  # why the last poll could not read a request
+        self.everywhere = everywhere
+        self.fault = None  # why the last poll could not read part of the ledger
+        self.notice = None  # what a person should know of how it is watching
+        self._skip_route = 0  # polls left before asking for the route again
         self._clock = clock
         self._started = False
-        self._stamps = {}  # request id -> (revision, updated_at, ready) last read
-        self._announced = {}  # request id -> {(note id, at)} still waiting
-        self._due_at = {}  # request id -> clock moment its earliest hold runs out
-        self._due_told = {}  # request id -> {(item, review_until)} announced
-        self._inherited = {}  # request id -> {(item, review_until)} held at first read
-        self._first_ids = None  # open request ids in the first listing read
+        # each keyed by (workspace, request id)
+        self._stamps = {}  # -> (revision, updated_at, ready) last read
+        self._announced = {}  # -> {(note id, at)} still waiting
+        self._due_at = {}  # -> clock moment its earliest hold runs out
+        self._due_told = {}  # -> {(item, review_until)} announced
+        self._inherited = {}  # -> {(item, review_until)} held at first read
+        self._first_keys = None  # the open requests in the first listing read
 
-    def _read_due(self, request_id, stamp):
-        """Whether `request_id` must be read again: its stamp moved, or its
-        earliest hold has run out."""
-        if self._stamps.get(request_id) != stamp:
-            return True
-        due_at = self._due_at.get(request_id)
-        return due_at is not None and self._clock() >= due_at
-
-    def poll(self, client):
-        """The events to send now. Raises DwApiError when the list cannot
-        be read; a single request that cannot be is left for the next poll
-        and named in `fault`."""
-        self.fault = None
+    def _rows(self, client):
+        """`(workspace, row)` for each open request the list names, and the
+        workspaces it could not read (name -> why), whose requests are kept
+        as they were rather than taken for closed. Raises DwApiError when no
+        list can be read."""
+        if self.everywhere and self._skip_route > 0:
+            self._skip_route -= 1
+        elif self.everywhere:
+            try:
+                listing = client.get_json(
+                    api_path("api", "requests"), headers=CHANNEL_HEADER
+                )
+            except DwApiError as e:
+                if e.status_code != 404:
+                    raise
+                # a server older than the route: one workspace, asking again
+                # now and then in case it is updated under a running channel
+                self._skip_route = ROUTE_RETRY_POLLS - 1
+                self.notice = (
+                    "the server has no GET /api/requests, so only workspace "
+                    f'"{_workspace(client, self.workspace)}" is watched; '
+                    "update the server to hear every workspace"
+                )
+            else:
+                self.notice = None
+                rows = [
+                    (row.get("workspace"), row)
+                    for row in listing.get("requests") or []
+                    if row.get("state") == "open"
+                ]
+                return rows, dict(listing.get("unreadable") or {})
         name = _workspace(client, self.workspace)
         listing = get_request(client, workspace=name, headers=CHANNEL_HEADER)
         if listing.get("unreadable"):
             raise DwApiError(str(listing["unreadable"]))
-        fresh, reviews, open_ids = [], [], set()
-        if self._first_ids is None:
-            self._first_ids = {
-                row.get("id")
-                for row in listing.get("requests") or []
-                if row.get("state") == "open"
-            }
-        for row in listing.get("requests") or []:
-            if row.get("state") != "open":
-                continue
-            request_id = row.get("id")
-            open_ids.add(request_id)
+        rows = [
+            (name, row)
+            for row in listing.get("requests") or []
+            if row.get("state") == "open"
+        ]
+        return rows, {}
+
+    def _read_due(self, key, stamp):
+        """Whether request `key` must be read again: its stamp moved, or its
+        earliest hold has run out."""
+        if self._stamps.get(key) != stamp:
+            return True
+        due_at = self._due_at.get(key)
+        return due_at is not None and self._clock() >= due_at
+
+    def poll(self, client):
+        """The events to send now. Raises DwApiError when the list cannot
+        be read; a single request or workspace that cannot be is left for
+        the next poll and named in `fault`."""
+        rows, broken = self._rows(client)
+        self.fault = "; ".join(f"{n}: {why}" for n, why in broken.items()) or None
+        fresh, reviews, open_keys = [], [], set()
+        if self._first_keys is None:
+            self._first_keys = {(name, row.get("id")) for name, row in rows}
+        for name, row in rows:
+            key = (name, row.get("id"))
+            open_keys.add(key)
             stamp = (row.get("revision"), row.get("updated_at"), row.get("ready"))
-            if not self._read_due(request_id, stamp):
+            if not self._read_due(key, stamp):
                 continue
             try:
-                request = get_request(client, request_id, name)
+                request = get_request(client, key[1], name)
             except DwApiError as e:
                 if e.status_code != 404:  # deleted since the list was read
                     self.fault = str(e)
                 continue
             waiting = waiting_notes(request)
-            told = self._announced.get(request_id, ())
-            fresh += [n for n in waiting if (n["note"], n["at"]) not in told]
-            self._announced[request_id] = {(n["note"], n["at"]) for n in waiting}
-            if request_id not in self._inherited:
-                held = request_id in self._first_ids
-                self._inherited[request_id] = {
+            told = self._announced.get(key, ())
+            fresh += [(name, n) for n in waiting if (n["note"], n["at"]) not in told]
+            self._announced[key] = {(n["note"], n["at"]) for n in waiting}
+            if key not in self._inherited:
+                held = key in self._first_keys
+                self._inherited[key] = {
                     (item.get("key"), item["review_until"])
                     for item in request.get("items") or []
                     if held and not item.get("dropped") and item.get("review_until")
                 }
-            inherited = self._inherited[request_id]
+            inherited = self._inherited[key]
             due = due_reviews(request)
-            seen = self._due_told.setdefault(request_id, set())
+            seen = self._due_told.setdefault(key, set())
             new = [d for d in due if (d["item"], d["until"]) not in seen]
             seen.update((d["item"], d["until"]) for d in new)
             old = [d for d in new if (d["item"], d["until"]) in inherited]
             if old:
-                reviews.append((old, True))
+                reviews.append((name, old, True))
             if len(old) < len(new):
-                reviews.append(([d for d in new if d not in old], False))
+                reviews.append((name, [d for d in new if d not in old], False))
             left = _holding_left(request)
             if left is None:
-                self._due_at.pop(request_id, None)
+                self._due_at.pop(key, None)
             else:
-                self._due_at[request_id] = self._clock() + left
-            self._stamps[request_id] = stamp
-        for request_id in set(self._stamps) - open_ids:
-            del self._stamps[request_id]
-            del self._announced[request_id]
-            self._due_at.pop(request_id, None)
-            self._due_told.pop(request_id, None)
-            self._inherited.pop(request_id, None)
+                self._due_at[key] = self._clock() + left
+            self._stamps[key] = stamp
+        for key in set(self._stamps) - open_keys:
+            if key[0] in broken:  # not read this time, not closed
+                continue
+            del self._stamps[key]
+            del self._announced[key]
+            self._due_at.pop(key, None)
+            self._due_told.pop(key, None)
+            self._inherited.pop(key, None)
         started, self._started = self._started, True
         if not started:
-            events = [waiting_event(fresh, name)] if fresh else []
+            by_workspace = {}
+            for name, note in fresh:
+                by_workspace.setdefault(name, []).append(note)
+            events = [
+                waiting_event(notes, name) for name, notes in by_workspace.items()
+            ]
         else:
-            events = [note_event(note, name) for note in fresh]
-        return events + [review_event(d, name, stale=s) for d, s in reviews]
+            events = [note_event(note, name) for name, note in fresh]
+        return events + [review_event(d, name, stale=s) for name, d, s in reviews]

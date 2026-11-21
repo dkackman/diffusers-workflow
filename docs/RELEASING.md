@@ -51,7 +51,7 @@ GitHub generates notes from commits at tag time. The sections below are the hand
 
 ### 0.22.0
 
-<!-- Branch notes (feat/review-gate). Fold into the release-prep draft for 0.22.0 and paste into the GitHub release body once the tag has published: gh release edit v0.22.0 --notes-file ... -->
+<!-- Branch notes (feat/review-gate, with fix/notes-1529-1530 merged). Fold into the release-prep draft for 0.22.0 and paste into the GitHub release body once the tag has published: gh release edit v0.22.0 --notes-file ... -->
 
 **The review hold** (#1521)
 
@@ -77,6 +77,26 @@ GitHub generates notes from commits at tag time. The sections below are the hand
   60 seconds to 24 hours ahead) and reads back `review_set_at` and a derived
   `review` (`{until, state, seconds_left}`). The same fields are on the MCP
   `set_request` and `get_request` items.
+
+**Notes reach the session whichever workspace it is in** (#1529, #1530)
+
+- The notes channel (`dw-mcp --notes-channel`) now watches every workspace
+  on the server unless `--workspace` pins it. Before, it watched only the
+  default workspace (or `DW_MCP_WORKSPACE`), so a session that worked in
+  another workspace never heard its notes and the request page said no
+  session was listening. Each event names its workspace. Against a server
+  older than this release the channel falls back to the default workspace.
+- The note box puts your words first. Under the text, an **About** line
+  holds the items, takes and files the note is about, with a small "+ Add
+  an item" control that lists items by key; before, the item picker sat
+  above the text box and read as a list of suggested notes. A note goes
+  out only with words, and a closed box shows nothing pending, so nothing
+  looks sent that was not.
+- REST: `GET /api/requests` lists every workspace's open requests in one
+  read (each row a request summary with its `workspace`; `unreadable` names
+  a workspace whose ledger cannot be read). Marked `X-DW-Notes-Channel: 1`,
+  it counts as a channel poll of every workspace for
+  `GET /api/workspaces/{name}/notes-channel`.
 
 ### 0.21.0
 

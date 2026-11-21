@@ -190,13 +190,12 @@ it("the request's new note can be about several items, picked from the plan", as
   await fireEvent.click(
     screen.getByRole('button', { name: 'Add a note for the agent' }),
   )
-  const picker = screen.getByLabelText(
-    'Add an item to the note',
-  ) as HTMLSelectElement
-  picker.value = 'a'
-  await fireEvent.change(picker)
-  picker.value = 'b'
-  await fireEvent.change(picker)
+  const picker = () =>
+    screen.getByLabelText('Add an item this note is about') as HTMLSelectElement
+  picker().value = 'a'
+  await fireEvent.change(picker())
+  picker().value = 'b'
+  await fireEvent.change(picker())
   // an item's chip goes to its row
   await fireEvent.click(screen.getByRole('button', { name: 'Shot 5' }))
   expect(given.onselect).toHaveBeenCalledWith('b')

@@ -66,7 +66,8 @@ def main(argv=None, transport=None):
         default=False,
         help="Serve no tools: be a Claude Code channel that tells the open "
         "session when the user saves a note for the agent on a request in "
-        "--workspace (docs/MCP.md, 'The notes channel')",
+        "any workspace, or only in --workspace when given (docs/MCP.md, "
+        "'The notes channel')",
     )
     parser.add_argument(
         "--interval",
@@ -119,7 +120,7 @@ def main(argv=None, transport=None):
             if code:
                 return code
         if args.notes_channel:
-            run_notes_channel(client, args.interval)
+            run_notes_channel(client, args.interval, workspace=args.workspace)
         else:
             build_server(client).run(transport="stdio")
     finally:
