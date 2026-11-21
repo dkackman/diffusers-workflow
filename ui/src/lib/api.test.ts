@@ -421,3 +421,35 @@ describe('setNote', () => {
     expect(calls[0][0]).toBe('/api/notes')
   })
 })
+
+describe('request notes', () => {
+  it('adds, edits and deletes through the request-notes route, unscoped', async () => {
+    const calls = stubFetch({ ok: true, body: { revision: 4 } })
+    await api.addNote('my ws', {
+      request: 'r1',
+      item: 's3',
+      text: 'warmer',
+      refs: [{ item: 's3', job: 'j2' }],
+    })
+    await api.editNote('my ws', { request: 'r1', note: 'n2', text: 'cooler' })
+    await api.deleteNote('my ws', 'r1', 'n2')
+    await api.notesChannel('my ws')
+    expect(calls.map(([url, init]) => [init?.method ?? 'GET', url])).toEqual([
+      ['POST', '/api/workspaces/my%20ws/request-notes'],
+      ['PUT', '/api/workspaces/my%20ws/request-notes'],
+      ['DELETE', '/api/workspaces/my%20ws/request-notes?request=r1&note=n2'],
+      ['GET', '/api/workspaces/my%20ws/notes-channel'],
+    ])
+    expect(JSON.parse(String(calls[0][1]?.body))).toEqual({
+      request: 'r1',
+      item: 's3',
+      text: 'warmer',
+      refs: [{ item: 's3', job: 'j2' }],
+    })
+    expect(JSON.parse(String(calls[1][1]?.body))).toEqual({
+      request: 'r1',
+      note: 'n2',
+      text: 'cooler',
+    })
+  })
+})

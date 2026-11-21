@@ -353,9 +353,37 @@ class LedgerAccepted(ApiModel):
     run_id: str | None
 
 
-class LedgerComment(ApiModel):
+class LedgerNoteRef(ApiModel):
+    """What a note is about: one item, planned or rendered, and maybe one of
+    its linked jobs and one of that job's files."""
+
+    item: str = Field(description="The item key.")
+    job: str = sometimes("A job linked to the item.")
+    output: str = sometimes(
+        "One file of the job's manifest, relative to the workspace's outputs."
+    )
+    kind: OutputKind = sometimes("The file's kind, set by the server.")
+    attempt: int | None = sometimes(
+        "On a read, when the ref names a job: the job's 1-based place among "
+        "the item's attempts; null when the job is no longer linked to it."
+    )
+    gone: bool = sometimes(
+        "On a read: true when the item is dropped or out of the plan, or the "
+        "job is no longer linked or its run is gone."
+    )
+
+
+class LedgerNote(ApiModel):
+    """One note the user wrote for the agent. Only the request-notes routes
+    write one."""
+
+    id: str = Field(description="Unique within the request; never reused.")
     text: str
-    at: str
+    created: str = Field(description="When the note was first saved.")
+    at: str = Field(description="When its text last changed.")
+    refs: list[LedgerNoteRef] = sometimes(
+        "The items, takes or files the note is about."
+    )
 
 
 class LedgerOutput(ApiModel):
@@ -396,9 +424,7 @@ class LedgerItem(ApiModel):
     arguments: dict[str, Any]
     dropped: bool
     accepted: LedgerAccepted | None
-    comment: LedgerComment | None = Field(
-        description="The user's; an agent never writes it."
-    )
+    notes: list[LedgerNote] = Field(description="The user's notes on the item.")
     status: Literal["dropped", "done", "running", "queued", "failed", "planned"] = (
         Field(
             description="Derived from the item's linked jobs, first that holds: "
@@ -445,9 +471,12 @@ class LedgerRequest(ApiModel):
     revision: int
     prompt: str | None = Field(description="The ask that started it; write-once.")
     goal: str
-    comment: LedgerComment | None = Field(
-        description="The user's note on the whole request; an agent never "
-        "writes it, and reads it on its next write."
+    notes: list[LedgerNote] = Field(
+        description="The user's notes on the whole request."
+    )
+    next_note: int = Field(description="The number of the next note id.")
+    agent_wrote_at: str | None = Field(
+        description="When the agent last wrote the plan; null when it never has."
     )
     items: list[LedgerItem]
     history: list[LedgerHistoryEntry]
@@ -502,18 +531,13 @@ class RequestWrite(BaseModel):
     goal: str = Field(description="What done looks like")
     items: list[dict[str, Any]] = Field(
         description="The ordered plan; each item is key, title, depends_on, "
-        "estimate_minutes, workflow, arguments, accepted, comment"
+        "estimate_minutes, workflow, arguments, accepted; an item's `notes` "
+        "are ignored (the request-notes routes write them)"
     )
     revision: int = Field(description="The revision read, or 0 to create")
     why: str = Field(description=f"One line, at most {MAX_WHY_LENGTH}")
     prompt: str | None = Field(default=None, description="Create only")
     state: Literal["open", "done", "abandoned"] | None = None
-    comment: str | dict[str, Any] | None = Field(
-        default=None,
-        description="The user's note on the whole request, at most 4,000 "
-        "characters: text, or `{text}` as read. Left out, it is kept; null or "
-        "blank clears it. An agent's write omits it",
-    )
     purge: list[str] | None = Field(
         default=None,
         description="Keys of stored items this plan leaves out, removed for "
@@ -522,6 +546,72 @@ class RequestWrite(BaseModel):
     by: Literal["agent", "user"] = Field(
         default="user", description="Who wrote this revision; the UI is the user"
     )
+
+
+class NoteRefWrite(BaseModel):
+    """One reference of a new note. `kind` is the server's to set."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    item: str | None = Field(
+        default=None,
+        description="The item key; left out on an item's note, that item. "
+        "Alone, it names a planned shot that may have no job yet",
+    )
+    job: str | None = Field(default=None, description="A job linked to that item")
+    output: str | None = Field(
+        default=None,
+        description="One file of that finished job's manifest, as the gallery "
+        "names it (relative to the workspace's outputs); left out, the note "
+        "is about the take as a whole",
+    )
+
+
+class NoteAdd(BaseModel):
+    """One new note for the agent, from the user."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    request: str = Field(description="The request id")
+    item: str | None = Field(
+        default=None, description="The item key; left out, the request's own notes"
+    )
+    text: str = Field(description="The note, at most 4,000 characters")
+    refs: list[NoteRefWrite] | None = Field(
+        default=None,
+        description="The items, takes or files the note is about, at most 16; "
+        "an item's note references only that item",
+    )
+
+
+class NoteEdit(BaseModel):
+    """A note's new text. Its references never change."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    request: str = Field(description="The request id")
+    note: str = Field(description="The note id")
+    text: str = Field(description="The note, at most 4,000 characters")
+
+
+class NoteWritten(ApiModel):
+    note: LedgerNote
+    revision: int = Field(description="The request's revision after the write.")
+
+
+class NotesChannelState(ApiModel):
+    listening: bool = Field(
+        description="True while a notes channel polled this workspace's "
+        "request list in the last 30 seconds."
+    )
+    last_seen: str | None = Field(
+        description="ISO UTC time of the last such poll, null if none since "
+        "the server started."
+    )
+
+
+class NoteDeleted(ApiModel):
+    revision: int = Field(description="The request's revision after the write.")
 
 
 class AssetDeleted(ApiModel):

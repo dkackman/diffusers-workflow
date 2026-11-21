@@ -2,6 +2,8 @@ import { toast } from 'svelte-sonner'
 
 /** How long an undo toast offers to take the action back */
 export const UNDO_MS = 8000
+/** How long news with a place to go and see stays */
+export const NEWS_MS = 12000
 
 /** All app feedback goes through here, not svelte-sonner directly - one
  * place owns durations and dismissal semantics. Successes announce and
@@ -24,6 +26,10 @@ export const notify = {
       id,
       action: { label: 'Undo', onClick: onUndo },
     })
+  },
+  /** Something that happened elsewhere, with the button that goes to it */
+  news(message: string, action: { label: string; onClick: () => void }) {
+    toast.info(message, { duration: NEWS_MS, action })
   },
   dismiss(id: string) {
     toast.dismiss(id)

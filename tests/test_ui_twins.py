@@ -6,6 +6,7 @@ to one side fails until the other follows. A copy that can be read from the
 server instead is deleted, not pinned.
 """
 
+import copy
 import json
 import pathlib
 import re
@@ -267,6 +268,10 @@ NOT_IN_CONTRACT = {
 # The raw workflow/prompt GETs serve the file verbatim; their PUT and DELETE
 # on the same path are in the contract
 VERBATIM_GETS = {("get", "/api/workflows/{}"), ("get", "/api/prompts/{}")}
+# api.ts keeps the request-notes URL in one helper (`notesUrl`) and calls it
+# with POST, PUT and DELETE; the route has no GET, so the scan's bare-literal
+# GET is the helper, not a call
+URL_HELPERS = {("get", "/api/workspaces/{}/request-notes")}
 
 
 def _api_calls(text):
@@ -303,7 +308,7 @@ def test_every_json_route_the_ui_calls_declares_its_response():
     from tests.test_api_contract import UI_READ_ROUTES
 
     covered = {(m, re.sub(r"\{[^}]*\}", "{}", path)) for m, path in UI_READ_ROUTES}
-    calls = _api_calls(API_TS.read_text()) - VERBATIM_GETS - covered
+    calls = _api_calls(API_TS.read_text()) - VERBATIM_GETS - URL_HELPERS - covered
     missing = sorted(call for call in calls if call[1] not in NOT_IN_CONTRACT)
     assert missing == [], (
         f"api.ts calls routes with no declared response model: {missing}"
@@ -319,7 +324,9 @@ NOTE_WAITING_CASES = json.loads(
 def test_the_notes_channel_decides_each_shared_waiting_note_case(case):
     """`noteWaiting` in ui/src/lib/request/noteState.ts runs the same cases
     (noteState.test.ts): the page and the channel agree on which notes wait."""
-    assert [n["item"] for n in waiting_notes(case["request"])] == case["waiting"]
+    assert [n["note"] for n in waiting_notes(copy.deepcopy(case["request"]))] == case[
+        "waiting"
+    ]
 
 
 def test_the_ui_test_reads_the_shared_waiting_note_cases():

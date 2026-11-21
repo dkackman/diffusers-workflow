@@ -1,4 +1,10 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/svelte'
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/svelte'
 import { createRawSnippet } from 'svelte'
 import { afterEach, expect, it, vi } from 'vitest'
 import RequestHeader from './RequestHeader.svelte'
@@ -6,6 +12,12 @@ import { planState } from './itemState'
 import { attempt, doneItem, entry, item, request } from './fixtures'
 import type { LedgerItem, LedgerRequest } from '../types'
 
+const api = vi.hoisted(() => ({
+  addNote: vi.fn(),
+  editNote: vi.fn(),
+  notesChannel: vi.fn(async () => ({ listening: false, last_seen: null })),
+}))
+vi.mock('../api', () => ({ api }))
 vi.mock('../confirm.svelte', () => ({ confirmDialog: vi.fn() }))
 vi.mock('../toast', () => ({ notify: { error: vi.fn(), success: vi.fn() } }))
 
@@ -18,7 +30,6 @@ function props(items: LedgerItem[], over: Partial<LedgerRequest> = {}) {
     plan: planState(req),
     workspace: 'studio',
     onselect: vi.fn(),
-    onsavenote: vi.fn(),
     onreload: vi.fn(),
   }
 }
@@ -98,13 +109,14 @@ it('bands a plan too long for a segment an item', () => {
 })
 
 it('gives minutes spent with no tilde, what is left, and the notes waiting', () => {
-  const note = { text: 'warmer', at: '2026-01-01T00:05:00+00:00' }
+  const at = '2026-01-01T00:05:00+00:00'
+  const note = { id: 'n1', text: 'warmer', created: at, at }
   const { container } = render(
     RequestHeader,
-    props([item('a', { comment: note }), doneItem('b')], {
+    props([item('a', { notes: [{ ...note, id: 'n2' }] }), doneItem('b')], {
       spent_minutes: 38.2,
       remaining_minutes: 52,
-      comment: note,
+      notes: [note],
       history: [entry(1, 'agent', 'opened')],
     }),
   )
@@ -145,19 +157,60 @@ it('links to its jobs and outputs through the req filter', () => {
   )
 })
 
-it("holds the note on the whole request, by an item note's rules", async () => {
+it("holds the request's own notes, by an item note's rules", async () => {
+  const at = '2026-01-01T00:05:00+00:00'
   const given = props([doneItem('a')], {
-    comment: { text: 'make it all warmer', at: '2026-01-01T00:05:00+00:00' },
+    notes: [{ id: 'n1', text: 'make it all warmer', created: at, at }],
   })
-  given.onsavenote.mockResolvedValue(undefined)
+  api.editNote.mockResolvedValue({ revision: 4 })
   render(RequestHeader, given)
   expect(screen.getByText('make it all warmer')).toBeTruthy()
-  expect(screen.getByText(/Nothing is sent to the agent/)).toBeTruthy()
+  expect(screen.getByText(/No agent session is listening/)).toBeTruthy()
   await fireEvent.click(screen.getByRole('button', { name: 'Edit note' }))
-  const box = screen.getByLabelText('Note for the agent on this request')
+  const box = screen.getByLabelText(
+    'Edit your note for the agent on this request',
+  )
   await fireEvent.input(box, { target: { value: 'cooler, actually' } })
   await fireEvent.click(screen.getByRole('button', { name: 'Save note' }))
-  expect(given.onsavenote).toHaveBeenCalledWith('cooler, actually')
+  await waitFor(() => expect(given.onreload).toHaveBeenCalled())
+  expect(api.editNote).toHaveBeenCalledWith('studio', {
+    request: 'r1',
+    note: 'n1',
+    text: 'cooler, actually',
+  })
+})
+
+it("the request's new note can be about several items, picked from the plan", async () => {
+  api.addNote.mockResolvedValue({ revision: 4 })
+  const given = props([
+    doneItem('a', { title: 'Shot 3' }),
+    item('b', { title: 'Shot 5' }),
+  ])
+  render(RequestHeader, given)
+  await fireEvent.click(
+    screen.getByRole('button', { name: 'Add a note for the agent' }),
+  )
+  const picker = screen.getByLabelText(
+    'Add an item to the note',
+  ) as HTMLSelectElement
+  picker.value = 'a'
+  await fireEvent.change(picker)
+  picker.value = 'b'
+  await fireEvent.change(picker)
+  // an item's chip goes to its row
+  await fireEvent.click(screen.getByRole('button', { name: 'Shot 5' }))
+  expect(given.onselect).toHaveBeenCalledWith('b')
+  await fireEvent.input(
+    screen.getByLabelText('Note for the agent on this request'),
+    { target: { value: 'warmer light on both' } },
+  )
+  await fireEvent.click(screen.getByRole('button', { name: 'Save note' }))
+  await waitFor(() => expect(given.onreload).toHaveBeenCalled())
+  expect(api.addNote).toHaveBeenCalledWith('studio', {
+    request: 'r1',
+    text: 'warmer light on both',
+    refs: [{ item: 'a' }, { item: 'b' }],
+  })
 })
 
 it('has no filled button of its own, and a place for the one a page hands it', () => {

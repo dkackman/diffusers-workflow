@@ -101,7 +101,7 @@ Once an episode's shot list is saved, open a request for it (`<series>-ep01`)
 with an item per cast sheet still to draw, shot, score and the cut
 (`script-to-video/references/request.md`). Give each `run_workflow` a `note`
 (episode, shot) and its item's `request`; accept the keeper with
-`set_request`, not `set_note`, and read the user's comments with
+`set_request`, not `set_note`, and read the user's notes with
 `get_request` before a revision pass.
 Once every shot for the episode exists (freshly generated, or promoted from
 a run with `keep_output`), cut and score them with

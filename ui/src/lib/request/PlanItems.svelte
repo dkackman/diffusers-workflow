@@ -44,7 +44,9 @@
     workspace: string
     /** Go to an item's row */
     ongo: (key: string) => void
-    onreload: () => void
+    /** Read the request again: a note was written, or a save found it
+     * had moved on */
+    onreload: () => void | Promise<void>
     /** Tell a screen reader what an edit did */
     onsay: (text: string) => void
     /** Show a write among the plan's changes */
@@ -237,8 +239,6 @@
     {row}
     {request}
     {workspace}
-    onsave={(text) =>
-      store.push({ kind: 'note', key: row.item.key, text }).then(() => {})}
     {onreload}
     {ongo}
     handle={row.item.dropped ? undefined : handle}

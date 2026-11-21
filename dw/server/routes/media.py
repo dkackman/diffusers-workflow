@@ -10,6 +10,7 @@ up here, at call time.
 
 import base64
 import io
+import logging
 import mimetypes
 import os
 from typing import Literal, Optional, Union
@@ -95,6 +96,8 @@ from ..outputs import (
     validated_run_split,
     workspace_asset_library,
 )
+
+logger = logging.getLogger("dw")
 
 router = APIRouter()
 
@@ -219,7 +222,28 @@ def gallery_metadata(
         "role": role,
         "inputs": inputs,
         **notes,
+        "linked_jobs": _linked_jobs(request, name, ws) if source == "output" else [],
     }
+
+
+def _linked_jobs(request, name, ws):
+    """The jobs linked to a request item that published output `name`,
+    newest first, each with its 1-based `attempt` among the item's linked
+    jobs (null when the request no longer lists it)."""
+    manager = request.app.state.job_manager
+    try:
+        found = manager.history.jobs_publishing_file(name, ws.name)
+    except Exception:
+        logger.warning("Could not read the linked jobs of %s", name, exc_info=True)
+        return []
+    attempts = {}
+    for request_id in {job["request"] for job in found}:
+        places = {}
+        for job in manager.request_jobs(ws.name, request_id):
+            places.setdefault(job["item"], []).append(job["job"])
+        for jobs in places.values():
+            attempts.update({job_id: n for n, job_id in enumerate(jobs, 1)})
+    return [{**job, "attempt": attempts.get(job["id"])} for job in found]
 
 
 def _provenance(request, name, ws):

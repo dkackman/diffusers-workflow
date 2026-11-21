@@ -35,7 +35,7 @@ it('does not count what a decision does not rest on', () => {
       ...before,
       status: 'running',
       ready: true,
-      comment: { text: 'n', at: 't' },
+      notes: [{ id: 'n1', text: 'n', created: 't', at: 't' }],
       accepted: { job: 'j', run_id: null },
       estimate_minutes: 9,
       spent_minutes: 3,

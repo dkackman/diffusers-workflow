@@ -12,7 +12,7 @@
   import { formatDuration, formatExact, formatMtime, gbFromMb } from '../format'
   import { notify } from '../toast'
   import { holdKind } from '../progress'
-  import type { JobDetail } from '../types'
+  import type { JobDetail, LedgerRequest } from '../types'
 
   // The job page's title row: what ran, its state and identity, and the
   // actions a job offers - cancel while it runs, run again and export after.
@@ -26,6 +26,8 @@
     cancelPending,
     seedVariable,
     declared = null,
+    request = null,
+    requestGone = false,
   }: {
     job: JobDetail | null
     jobId: string
@@ -37,35 +39,15 @@
     /** The run's definition's declared variables, for Run again with
      * changes; null while it loads or when it is not on file */
     declared?: Record<string, unknown> | null
+    /** The request the job was run for, once read */
+    request?: LedgerRequest | null
+    /** The server said that request is gone (404) */
+    requestGone?: boolean
   } = $props()
 
-  // The request this job was run for (requests ledger). `gone` once the
-  // server says 404 - the request or its whole workspace was deleted; while
-  // it loads, or on any other error, the link shows
-  let requestTitle = $state('')
-  let requestGone = $state(false)
-  // Derived primitives, so a poll that replaces `job` with an equal one
-  // does not fetch the request again
-  const requestWs = $derived(job?.workspace)
-  const requestId = $derived(job?.request)
-  $effect(() => {
-    const ws = requestWs
-    const id = requestId
-    requestTitle = ''
-    requestGone = false
-    if (!ws || !id) return
-    let live = true
-    api.getRequest(ws, id).then(
-      (found) => {
-        if (live) requestTitle = found.title
-      },
-      (e) => {
-        if (live && e instanceof ApiError && e.status === 404)
-          requestGone = true
-      },
-    )
-    return () => (live = false)
-  })
+  // The request this job was run for (requests ledger) names the link.
+  // The page reads it, for this title and its note box alike
+  const requestTitle = $derived(request?.title ?? '')
 
   // What a rerun changed, as the server stored it: absent on a plain rerun
   const overrideKeys = $derived(Object.keys(job?.overrides ?? {}))

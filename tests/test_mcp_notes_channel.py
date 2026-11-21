@@ -3,14 +3,19 @@ announced and when, and what an event says. The client here answers from
 the real ledger (`dw/ledger.py`) on a temp folder, under a clock the test
 moves; nothing sleeps."""
 
+import json
+import os
 import re
 
 import pytest
 
 from dw import ledger as store
+from dw.workspace import REQUESTS_FILE_NAME
 from dw.notes import MAX_NOTE_LENGTH
 from dw_mcp import ledger
 from dw_mcp.client import DwApiError
+
+from .notes_helpers import save_note
 
 WORKSPACE = "studio"
 
@@ -40,10 +45,13 @@ class LedgerClient:
         self.root = str(root)
         self.workspace = WORKSPACE
         self.calls = []
+        self.headers = []  # (path, headers) of every read
         self.fail = {}  # path suffix -> DwApiError to raise
+        self.jobs = []  # the linked jobs every request read is given
 
-    def get_json(self, path, params=None, workspace=None):
+    def get_json(self, path, params=None, workspace=None, headers=None):
         self.calls.append(path)
+        self.headers.append((path, headers))
         for suffix, error in self.fail.items():
             if path.endswith(suffix):
                 raise error
@@ -52,10 +60,13 @@ class LedgerClient:
         request_id = path[len(prefix) :].lstrip("/")
         if not request_id:
             return {"workspace": WORKSPACE, **store.listing(self.root)}
-        found = store.get_request(self.root, request_id)
+        found = store.get_request(self.root, request_id, jobs_for=self.linked)
         if found is None:
             raise DwApiError(f"No request {request_id!r}", status_code=404)
         return found
+
+    def linked(self, request_id):
+        return self.jobs
 
     def reads(self):
         """The requests read one by one since the last ask."""
@@ -88,16 +99,12 @@ def write(client, request_id="lighthouse", by="agent", why="w", **fields):
     return store.put_request(client.root, request_id, body, by=by)
 
 
-def note(client, text, item=None, request_id="lighthouse"):
-    """The user saves `text` on an item, or on the request itself."""
-    current = store.get_request(client.root, request_id)
-    if item is None:
-        return write(client, request_id, by="user", why="note", comment=text)
-    plan = [
-        {**entry, "comment": text} if entry["key"] == item else entry
-        for entry in current["items"]
-    ]
-    return write(client, request_id, by="user", why=f"note on {item}", items=plan)
+def note(client, text, item=None, request_id="lighthouse", refs=None):
+    """The user saves `text` on an item, or on the request itself (None
+    clears it)."""
+    why = "note" if item is None else f"note on {item}"
+    write(client, request_id, by="user", why=why)
+    save_note(client.root, request_id, text, item, refs=refs)
 
 
 def started(client):
@@ -142,6 +149,8 @@ def test_a_note_saved_while_listening_is_one_event(client, clock):
         "request": "lighthouse",
         "item": "shot3",
         "revision": "2",
+        "note": "n1",
+        "created": "2026-11-20T14:02:00+00:00",
     }
     assert watch.poll(client) == []
 
@@ -155,7 +164,7 @@ def test_a_request_level_note_names_no_item(client, clock):
     (event,) = watch.poll(client)
 
     assert event["content"].startswith(
-        'Note from the user on request "lighthouse" (Lighthouse short), saved '
+        'Note from the user on request "lighthouse", saved '
     )
     assert "item" not in event["meta"]
     assert event["meta"]["request"] == "lighthouse"
@@ -264,7 +273,7 @@ def test_startup_announces_what_is_waiting_once_as_one_digest(client, clock):
         '- request "lighthouse", item "shot3" (Shot shot3), saved '
         "2026-11-20 14:01 UTC: off lipsync: reroll it" in content
     )
-    assert '- request "lighthouse" (Lighthouse short), saved' in content
+    assert '- request "lighthouse", saved' in content
     assert "answered already" not in content
     assert "confirm with them before spending GPU time" in content
     assert watch.poll(client) == []
@@ -309,14 +318,18 @@ def test_the_digest_clips_each_note_and_caps_the_list(client, clock):
 # --- the event --------------------------------------------------------------
 
 
-def _note(text, item="shot3"):
+def _note(text, item="shot3", **more):
     return {
         "request": "lighthouse",
         "revision": 7,
         "item": item,
+        "note": "n1",
         "title": "Shot 3: lamp room",
         "text": text,
+        "created": "2026-11-20T14:02:09+00:00",
         "at": "2026-11-20T14:02:09+00:00",
+        "refs": [],
+        **more,
     }
 
 
@@ -440,3 +453,152 @@ def test_failed_polls_back_off_to_a_ceiling_and_a_good_one_resets():
     assert ledger.retry_delay(10.0, 10_000) == ledger.MAX_BACKOFF_SECONDS
     # an interval above the ceiling is never shortened by a failure
     assert ledger.retry_delay(900.0, 3) == 900.0
+
+
+# --- references, edits, the header ------------------------------------------
+
+REF = {
+    "item": "shot3",
+    "title": "Shot 3: lamp room",
+    "takes": 3,
+    "job": "j_8f2c",
+    "attempt": 2,
+    "output": "lighthouse/run_41/final/shot3.mp4",
+    "kind": "video",
+}
+
+
+def test_the_list_poll_carries_the_channel_header_and_a_request_read_does_not(
+    client, clock
+):
+    write(client)
+    watch = ledger.NoteWatch()
+    watch.poll(client)
+    by_path = dict(client.headers)
+    listing = f"/api/workspaces/{WORKSPACE}/requests"
+    assert by_path[listing] == {"X-DW-Notes-Channel": "1"}
+    assert by_path[f"{listing}/lighthouse"] is None
+
+
+def test_an_event_names_each_reference_its_take_and_file():
+    planned = {"item": "shot5", "title": "Shot 5: the keeper"}
+    event = ledger.note_event(
+        _note("too dark", refs=[REF, planned, {**REF, "item": "shot3"}]), "studio"
+    )
+    first, *rest = event["content"].split("\n\n")
+    assert first == (
+        'Note from the user on request "lighthouse", item "shot3" (Shot 3: lamp '
+        "room), saved 2026-11-20 14:02 UTC, about:\n"
+        '- item "shot3" (Shot 3: lamp room), take 2 of 3 (job j_8f2c), file '
+        '"lighthouse/run_41/final/shot3.mp4" (video)\n'
+        '- item "shot5" (Shot 5: the keeper), not rendered yet\n'
+        '- item "shot3" (Shot 3: lamp room), take 2 of 3 (job j_8f2c), file '
+        '"lighthouse/run_41/final/shot3.mp4" (video)'
+    )
+    assert rest[0] == "too dark"
+    assert event["meta"]["items"] == "shot3,shot5"
+    assert event["meta"]["note"] == "n1"
+    assert event["meta"]["created"] == "2026-11-20T14:02:09+00:00"
+
+
+def test_reference_variants():
+    line = ledger._ref_line
+    bare = {"item": "shot3", "title": "T", "job": "j1", "attempt": None}
+    assert line(bare) == '- item "shot3" (T), job j1'
+    assert line({**REF, "output": None}) == (
+        '- item "shot3" (Shot 3: lamp room), take 2 of 3 (job j_8f2c)'
+    )
+    assert line({**REF, "gone": True}).endswith(
+        "(video) (that job's run no longer exists)"
+    )
+    assert line({"item": "s", "title": "T", "gone": True, "dropped": True}) == (
+        '- item "s" (T) (dropped from the plan)'
+    )
+    assert line({**bare, "gone": True}) == (
+        '- item "shot3" (T), job j1 (no longer a take of this item)'
+    )
+
+
+def test_an_edited_note_says_when_it_was_saved_and_when_edited():
+    event = ledger.note_event(_note("x", at="2026-11-20T15:30:00+00:00"), "studio")
+    assert event["content"].startswith(
+        'Note from the user on request "lighthouse", item "shot3" (Shot 3: lamp '
+        "room), saved 2026-11-20 14:02 UTC, edited 2026-11-20 15:30 UTC:\n\n"
+    )
+    assert "items" not in event["meta"]
+
+
+def test_the_digest_puts_a_notes_references_under_it():
+    event = ledger.waiting_event([_note("dark", refs=[REF])], "studio")
+    assert (
+        '- request "lighthouse", item "shot3" (Shot 3: lamp room), saved '
+        "2026-11-20 14:02 UTC: dark\n"
+        '  - item "shot3" (Shot 3: lamp room), take 2 of 3 (job j_8f2c), '
+        'file "lighthouse/run_41/final/shot3.mp4" (video)'
+    ) in event["content"]
+
+
+def test_two_notes_on_one_item_are_announced_separately(client, clock):
+    write(client)
+    watch = started(client)
+    clock.tick()
+    write(client, by="user", why="notes")
+    path = os.path.join(client.root, REQUESTS_FILE_NAME)
+    document = json.load(open(path))
+    request = document["requests"]["lighthouse"]
+    at = request["history"][-1]["at"]
+    shot = next(i for i in request["items"] if i["key"] == "shot1")
+    shot["notes"] = [
+        {"id": f"n{n}", "text": t, "created": at, "at": at}
+        for n, t in ((1, "warmer"), (2, "slower"))
+    ]
+    json.dump(document, open(path, "w"))
+
+    events = watch.poll(client)
+
+    assert [e["meta"]["note"] for e in events] == ["n1", "n2"]
+    assert watch.poll(client) == []
+
+
+def test_a_reference_is_read_from_the_plan_by_its_own_item(client, clock):
+    write(client)
+    watch = started(client)
+    clock.tick()
+    note(client, "lamp is off", "shot1", refs=[{"item": "shot2"}])
+    (event,) = watch.poll(client)
+    assert '- item "shot2" (Shot shot2), not rendered yet' in event["content"]
+    assert event["meta"]["items"] == "shot2"
+
+
+def test_a_note_edited_to_new_text_is_announced_again_and_the_same_text_is_not(
+    client, clock
+):
+    write(client)
+    watch = started(client)
+    clock.tick()
+    note(client, "warmer", "shot1")
+    (first,) = watch.poll(client)
+    assert "edited" not in first["content"]
+
+    clock.tick()
+    store.edit_note(client.root, "lighthouse", "n1", "warmer")  # same text: no-op
+    assert watch.poll(client) == []
+
+    clock.tick()
+    store.edit_note(client.root, "lighthouse", "n1", "much warmer")
+    (again,) = watch.poll(client)
+    assert ", edited 2026-11-20 14:03 UTC" in again["content"]
+    assert "saved 2026-11-20 14:01 UTC" in again["content"]
+
+
+def test_a_queued_jobs_reference_is_not_stale(client, clock):
+    write(client)
+    watch = started(client)
+    client.jobs = [
+        {"job": "jq", "item": "shot1", "status": "queued", "run_exists": False}
+    ]
+    clock.tick()
+    note(client, "when it runs, warmer", "shot1", refs=[{"item": "shot1", "job": "jq"}])
+    (event,) = watch.poll(client)
+    assert '- item "shot1" (Shot shot1), take 1 of 1 (job jq)\n' in event["content"]
+    assert "no longer" not in event["content"]

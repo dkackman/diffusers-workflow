@@ -27,6 +27,11 @@ import type {
   LedgerList,
   LedgerRequest,
   LoraList,
+  NoteAdd,
+  NoteDeleted,
+  NoteEdit,
+  NotesChannelState,
+  NoteWritten,
   MemoryInfo,
   ModelCache,
   ModelDeleted,
@@ -59,6 +64,7 @@ import {
   archiveFrom,
   fetchJson,
   isValidateRequest,
+  jsonInit,
   request,
   type JobSubmitBody,
   type RequestWriteBody,
@@ -78,6 +84,12 @@ import {
 export { ApiError, errorDetail, outputUrl }
 
 export type { JobSubmitBody, RequestWriteBody, ValidateRequest }
+
+// The request-notes routes; like the rest of the ledger, the workspace is
+// in the path
+const UNSCOPED = { scope: false }
+const notesUrl = (workspace: string) =>
+  `/api/workspaces/${encodeURIComponent(workspace)}/request-notes`
 
 export const api = {
   listWorkflows: () => request<WorkflowList>('/api/workflows'),
@@ -378,6 +390,27 @@ export const api = {
       `/api/workspaces/${encodeURIComponent(workspace)}/requests/${encodeURIComponent(id)}?revision=${revision}`,
       { method: 'DELETE' },
       { scope: false },
+    ),
+  /** Add one of the user's notes for the agent, on an item or (no `item`)
+   * on the request. 422 `invalid_note_ref`, `too_many_refs`,
+   * `too_many_notes`, `unknown_item`, `item_dropped`. */
+  addNote: (workspace: string, body: NoteAdd) =>
+    request<NoteWritten>(notesUrl(workspace), jsonInit('POST', body), UNSCOPED),
+  /** A note's new text; its references stay. 404 `unknown_note`. */
+  editNote: (workspace: string, body: NoteEdit) =>
+    request<NoteWritten>(notesUrl(workspace), jsonInit('PUT', body), UNSCOPED),
+  deleteNote: (workspace: string, requestId: string, note: string) =>
+    request<NoteDeleted>(
+      `${notesUrl(workspace)}?${new URLSearchParams({ request: requestId, note })}`,
+      { method: 'DELETE' },
+      UNSCOPED,
+    ),
+  /** Whether an agent session's notes channel polled the workspace lately */
+  notesChannel: (workspace: string) =>
+    request<NotesChannelState>(
+      `/api/workspaces/${encodeURIComponent(workspace)}/notes-channel`,
+      undefined,
+      UNSCOPED,
     ),
   listWorkspaces: () => request<WorkspaceList>('/api/workspaces'),
   createWorkspace: (name: string) =>

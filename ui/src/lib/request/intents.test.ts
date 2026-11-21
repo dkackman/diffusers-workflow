@@ -55,8 +55,12 @@ it('accepts a succeeded take, and shows it as the result before the server answe
   expect(sent.why).toBe('accept j1 for a')
   expect(sent.items[0].accepted).toEqual({ job: 'j1', run_id: null })
   expect(sent.items[0].result?.job).toBe('j1')
-  // only that item changed
-  expect(sent.items.slice(1)).toEqual(plan().items.slice(1))
+  // only that item changed (and no item carries its notes)
+  expect(sent.items.slice(1)).toEqual(
+    plan()
+      .items.slice(1)
+      .map((i) => ({ ...i, notes: undefined })),
+  )
 })
 
 it('clears an accepted take back to the latest', () => {
@@ -202,23 +206,13 @@ it('refuses a move by name, and dropped items do not move', () => {
   expect(refusal({ kind: 'move', key: 'a', before: 'a' })).toBe('no_change')
 })
 
-it("a note changes one comment: an item's by key, the request's own by the body", () => {
-  const sent = body({ kind: 'note', key: 'b', text: 'warmer' })
-  expect(sent.why).toBe('comment on b')
-  expect(sent.items[1].comment).toEqual({ text: 'warmer' })
-  expect('comment' in sent).toBe(false)
-  const own = body({ kind: 'note', key: null, text: 'all of it' })
-  expect(own.why).toBe('comment on the request')
-  expect(own.comment).toEqual({ text: 'all of it' })
-  expect(own.items).toEqual(plan().items)
-  const held = plan()
-  held.comment = { text: 'x', at: 't' }
-  expect(body({ kind: 'note', key: null, text: null }, held).comment).toBeNull()
-  expect(refusal({ kind: 'note', key: null, text: 'x' }, held)).toBe(
-    'no_change',
-  )
-  expect(refusal({ kind: 'note', key: 'x', text: 'n' })).toBe('item_dropped')
-  expect(refusal({ kind: 'note', key: 'gone', text: 'n' })).toBe('item_gone')
+it('sends no notes: the server keeps the stored ones, the note routes write them', () => {
+  const noted = plan()
+  noted.items[1].notes = [{ id: 'n1', text: 'warmer', created: 't', at: 't' }]
+  const sent = body({ kind: 'accept', key: 'a', job: 'j1' }, noted)
+  expect(sent.items.every((i) => !('notes' in i))).toBe(true)
+  expect(sent).not.toHaveProperty('notes')
+  expect(sent).not.toHaveProperty('comment')
 })
 
 it('a change of state says why in words the history can show', () => {
@@ -239,13 +233,11 @@ it('folds the waiting edits over a read, passing over one that no longer applies
     { kind: 'accept', key: 'gone', job: 'j1' },
     { kind: 'move', key: 'd', before: 'a' },
     { kind: 'accept', key: 'a', job: 'j1' },
-    // not shown before the server has them
-    { kind: 'note', key: 'a', text: 'unsaved' },
+    // not shown before the server has it
     { kind: 'state', state: 'done' },
   ])
   expect(keys(view)).toEqual(['d', 'a', 'c'])
   expect(view.items[1].accepted?.job).toBe('j1')
-  expect(view.items[1].comment).toBeNull()
   expect(view.state).toBe('open')
   expect(view.revision).toBe(3)
 })

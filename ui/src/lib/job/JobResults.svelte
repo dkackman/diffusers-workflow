@@ -26,12 +26,16 @@
     unsaved,
     kinds,
     seedVariable,
+    onnote,
   }: {
     job: JobDetail
     fileGroups: StepGroup[]
     unsaved: UnsavedStep[]
     kinds: Record<string, string | null>
     seedVariable: string | null
+    /** Given for a finished take of a request item: "Note this file"
+     * opens the page's note for the agent about that file */
+    onnote?: (file: string) => void
   } = $props()
 
   // A step's timing is the manifest's: a job opened from history has no
@@ -233,6 +237,16 @@
           <div class="metabar">
             <span class="filename">{file.split('/').pop()}</span>
             <DownloadLink href={api.outputDownloadUrl(file, job.workspace)} />
+            {#if onnote}
+              <button
+                type="button"
+                class="bare"
+                aria-label="Note this file ({file
+                  .split('/')
+                  .pop()}) for the agent"
+                onclick={() => onnote(file)}>Note this file</button
+              >
+            {/if}
           </div>
           {#if info.model}
             <div>

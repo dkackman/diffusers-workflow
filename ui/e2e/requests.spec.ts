@@ -186,7 +186,7 @@ test('a done item shows its takes as pictures, the latest marked as the result',
   ).toHaveAttribute('aria-pressed', 'false')
 })
 
-test('a note for the agent says nothing is sent, and is in the ledger after a reload', async ({
+test('a note for the agent says whether a session listens, and is in the ledger after a reload', async ({
   page,
 }) => {
   const text = `warmer light, please (${Date.now()})`
@@ -195,34 +195,32 @@ test('a note for the agent says nothing is sent, and is in the ledger after a re
   await expand(alt, 'Alternate poster')
   const revision = page.locator('.rail .now')
   const before = await revision.textContent()
-  await alt
-    .getByRole('button', { name: /^(Leave a note for the agent|Edit note)$/ })
-    .click()
+  await alt.getByRole('button', { name: 'Add a note for the agent' }).click()
   const box = alt.getByRole('textbox', {
     name: 'Note for the agent on Alternate poster',
   })
-  // said before a word is written
-  await expect(alt.getByText(/Nothing is sent to the agent/)).toBeVisible()
+  // said before a word is written: no agent session polls this server
+  await expect(alt.getByText(/No agent session is listening/)).toBeVisible()
   await box.fill(text)
-  const put = page.waitForResponse(
+  const post = page.waitForResponse(
     (r) =>
-      r.request().method() === 'PUT' &&
-      r.url().endsWith(`/api/workspaces/default/requests/${ID}`),
+      r.request().method() === 'POST' &&
+      r.url().endsWith('/api/workspaces/default/request-notes'),
   )
   await alt.getByRole('button', { name: 'Save note' }).click()
-  expect((await put).status()).toBe(200)
+  expect((await post).status()).toBe(200)
   await expect(alt.getByRole('textbox')).toHaveCount(0)
   await expect(alt.getByText(text)).toBeVisible()
   // and said again under the saved note: when the agent will see it
   await expect(
     alt.getByText(
-      /^Saved .+\. Nothing is sent to the agent\. It reads this the next time it updates the plan\.$/,
+      /^Saved .+\. No agent session is listening\. It reads this the next time it updates the plan\.$/,
     ),
   ).toBeVisible()
   await expect(page.locator('.reqhead .figures')).toContainText(
     /\d+ notes? waiting/,
   )
-  // the write was a revision of the plan, by the user
+  // the write was a revision of the request, by the user
   await expect(revision).not.toHaveText(before ?? '')
   const rail = page.getByRole('complementary', { name: /The ask/ })
   await expect(rail.locator('.changes li').first()).toContainText('you')
@@ -247,24 +245,25 @@ test("a note on the whole request is saved by an item note's rules", async ({
   const text = `make it all warmer (${Date.now()})`
   await page.goto(REQUEST)
   const head = page.locator('.reqhead')
-  await head
-    .getByRole('button', { name: /^(Leave a note for the agent|Edit note)$/ })
-    .click()
+  await head.getByRole('button', { name: 'Add a note for the agent' }).click()
   await head
     .getByRole('textbox', { name: 'Note for the agent on this request' })
     .fill(text)
-  const put = page.waitForResponse(
+  const post = page.waitForResponse(
     (r) =>
-      r.request().method() === 'PUT' &&
-      r.url().endsWith(`/api/workspaces/default/requests/${ID}`),
+      r.request().method() === 'POST' &&
+      r.url().endsWith('/api/workspaces/default/request-notes'),
   )
   await head.getByRole('button', { name: 'Save note' }).click()
-  expect((await put).status()).toBe(200)
+  expect((await post).status()).toBe(200)
   await expect(head.getByText(text)).toBeVisible()
   await page.reload()
   await expect(page.locator('.reqhead').getByText(text)).toBeVisible()
   await expect(
-    page.locator('.reqhead').getByText(/Nothing is sent to the agent/),
+    page
+      .locator('.reqhead')
+      .getByText(/No agent session is listening/)
+      .first(),
   ).toBeVisible()
 })
 

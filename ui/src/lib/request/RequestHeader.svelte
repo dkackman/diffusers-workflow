@@ -1,11 +1,10 @@
 <script lang="ts">
   import type { Snippet } from 'svelte'
-  import ItemNote from './ItemNote.svelte'
+  import NoteList from './NoteList.svelte'
   import RequestProgress from './RequestProgress.svelte'
   import StateTag from './StateTag.svelte'
   import { CHIP, type PlanState } from './itemState'
-  import { draftKey } from './draft'
-  import { noteLine, notesWaiting } from './noteState'
+  import { notesWaiting } from './noteState'
   import { standing } from './standing'
   import { formatMinutes, formatSpent } from '../format'
   import { requestQuery } from '../requestFilter'
@@ -20,7 +19,6 @@
     plan,
     workspace,
     onselect,
-    onsavenote,
     onreload,
     actions,
     menu,
@@ -30,9 +28,8 @@
     workspace: string
     /** Go to an item's row: a progress segment was pressed */
     onselect: (key: string) => void
-    /** Store the note on the whole request (null clears it) */
-    onsavenote: (text: string | null) => Promise<void>
-    onreload: () => void
+    /** Read the request again: a note was written */
+    onreload: () => void | Promise<void>
     actions?: Snippet
     /** Beside the state: the request's own menu */
     menu?: Snippet
@@ -87,13 +84,15 @@
     >
   </div>
 
-  <ItemNote
-    comment={request.comment}
+  <NoteList
+    notes={request.notes}
+    {request}
+    item={null}
+    {workspace}
     about="this request"
-    draftKey={draftKey(workspace, request.id)}
-    line={request.comment ? noteLine(request.comment, request) : null}
-    onsave={onsavenote}
-    {onreload}
+    pickItems
+    ongo={onselect}
+    onchanged={onreload}
   />
 </header>
 

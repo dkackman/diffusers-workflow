@@ -318,15 +318,31 @@ icon, a finish-alert toggle, the theme toggle, and links to these docs and
   the page can restore it only until you leave), or its job is queued or
   running (the drop does not cancel it).
 
-  A **note for the agent** goes on the request or on an item (up to 4000
+  **Notes for the agent** go on the request or on an item (each up to 4000
   characters; Ctrl+Enter saves, Esc sets the draft aside, and an unsaved
-  draft survives a reload of the tab). Nothing is sent: the agent reads a
-  note the next time it writes the plan, and the line under a saved note
-  says only what the ledger shows - that the agent has, or has not, written
-  since.
-  An open Claude Code session can be told as each note is saved, through
-  [the notes channel](MCP.md#the-notes-channel); the page does not know
-  whether one is listening.
+  draft survives a reload of the tab). An item holds a list of them, so a
+  second note does not replace the first, and each is edited or removed on
+  its own. A note can carry references to what it is about: a chip per
+  reference ("take 2 · shot3.mp4", or the item's title for a planned shot)
+  that links to the job or file. Write one where you are looking: on the
+  request page (the attempt strip has **Note this take**, and the request's
+  own box has an item picker, so one note can cover several shots, before or
+  after a render), on a job page (a panel by the `request › item` link, and
+  **Note this file** on each output) or on a gallery file (when a job linked
+  to a request item published it; with several, it asks which take). Job
+  page and gallery are for jobs linked to a request item only. A reference
+  that has gone stale (item dropped, run purged) is greyed out. The line
+  under each saved note says only what the ledger shows - that the agent
+  has, or has not, written since - and when the agent writes after a waiting
+  note, a toast says so, once per note per page load.
+  The save button asks the server whether a session is listening
+  ([the notes channel](MCP.md#the-notes-channel)). It reads **Send to
+  agent** when one is, and the line under a waiting note says it will see
+  the note within about 10 seconds; it reads **Save note** when none is, and
+  the line says the agent reads it the next time it updates the plan. Saving
+  works either way. "Listening" only means a session has the channel set up:
+  one started without the development-channels flag still counts, and Claude
+  Code drops its events ([MCP.md](MCP.md#is-a-session-listening)).
 
   The page queues jobs only when you ask, and only after pricing them.
   **Run {n} ready…** in the header takes every ready item; a ready row has
@@ -951,7 +967,9 @@ The editor's forms come from these; they are just as usable from scripts:
   queue an enhancement as an ordinary job whose saved text file is the
   result
 - `GET /api/gallery`, `GET /api/gallery/{name}/metadata`,
-  `DELETE /api/gallery/{name}` — outputs and their embedded metadata. Delete
+  `DELETE /api/gallery/{name}` — outputs and their embedded metadata (the
+  metadata's `linked_jobs` lists every job linked to a request whose manifest
+  lists the file, a step-cache reuse included, so a note can name the take). Delete
   takes a file, or a run directory (`<workflow>/<run id>`) to remove the whole
   run; a run's directory goes with its last media file. Each
   gallery entry carries `folder` (the workflow identity, the run id dropped)
@@ -1057,9 +1075,10 @@ The editor's forms come from these; they are just as usable from scripts:
   request's whole plan: `title`, `goal`, `items`, `revision` (the one read,
   0 to create) and `why`, and optionally `prompt` (create only), `state`
   (`open`, `done`, `abandoned` - a user's write closes and reopens),
-  `comment` (the user's note on the request: left out it is kept, null
-  clears it), `purge` (keys of left-out items to remove for good) and `by`
-  (`user`, the default, or `agent`). `DELETE` removes the ledger entry at
+  `purge` (keys of left-out items to remove for good) and `by`
+  (`user`, the default, or `agent`). A `notes` field, on the request or an
+  item, is ignored on write: notes have their own routes (below), and a
+  whole-plan write keeps the stored ones. `DELETE` removes the ledger entry at
   that revision and answers `{id, workspace, deleted, revision,
   linked_jobs}`; the linked jobs keep their rows, link and files. Reads
   derive from the jobs linked through `POST /api/jobs` `request`/`item`:
@@ -1083,6 +1102,24 @@ The editor's forms come from these; they are just as usable from scripts:
   `prompt_is_write_once`, 503 `ledger_busy`. `GET
   /api/gallery?request=<id>[&item=<key>]` lists only files of runs whose
   jobs are linked to that request (or that item of it).
+- `POST`, `PUT` and `DELETE /api/workspaces/{name}/request-notes` — the
+  user's notes for the agent ([WORKSPACES.md](WORKSPACES.md#requests) has the
+  rules). `POST` takes `{request, item?, text, refs?}` (no `item`: the
+  request's own note; `refs` is `[{item?, job?, output?}]`, at most 16) and
+  answers `{note, revision}`; `PUT` takes `{request, note, text}` and edits
+  the text only; `DELETE ?request=<id>&note=<id>` removes one. The server
+  does the read-modify-write under the ledger lock, adds a `user` history
+  entry and bumps the revision, so a caller sends no revision. Refusals:
+  404 `unknown_request`, `unknown_note`; 422 `invalid_note_ref` (a job not
+  linked to the item, an output not in its manifest, a job still running
+  with an `output`), `too_many_refs`, `too_many_notes` (20 per item or
+  request), `unknown_item`, `item_dropped`.
+- `GET /api/workspaces/{name}/notes-channel` — `{listening, last_seen}`:
+  whether a notes channel polled this workspace's request list in the last
+  30 seconds. The channel marks its polls with an `X-DW-Notes-Channel: 1`
+  header, and the server keeps the time in memory only. It means a session
+  has the channel set up, not that Claude Code is passing its events on
+  ([MCP.md](MCP.md#is-a-session-listening)).
 - `GET /api/workspaces`, `POST /api/workspaces` (`{"name": ...}`),
   `DELETE /api/workspaces/{name}?acknowledged=true` — the workspaces on this
   server ([layout](WORKSPACES.md#several-workspaces-on-one-server)). Delete

@@ -21,7 +21,13 @@ const world = vi.hoisted(() => ({
   validate: vi.fn(),
   submitJob: vi.fn(),
   deleteRequest: vi.fn(),
-  notify: { error: vi.fn(), success: vi.fn(), undo: vi.fn(), dismiss: vi.fn() },
+  notify: {
+    error: vi.fn(),
+    success: vi.fn(),
+    undo: vi.fn(),
+    dismiss: vi.fn(),
+    news: vi.fn(),
+  },
 }))
 vi.mock('../api', async () => ({
   ApiError: (await import('../apiErrors')).ApiError,
@@ -29,6 +35,8 @@ vi.mock('../api', async () => ({
     getRequest: () => world.ledger.get(),
     putRequest: (_ws: string, _id: string, body: never) =>
       world.ledger.put(body),
+    addNote: (_ws: string, body: never) => world.ledger.addNote(body),
+    notesChannel: async () => ({ listening: false, last_seen: null }),
     galleryThumbnailUrl: (name: string) => `/thumb/${name}`,
     validate: (...args: unknown[]) => world.validate(...args),
     submitJob: (...args: unknown[]) => world.submitJob(...args),
@@ -282,9 +290,9 @@ it('the menu moves an item too, written at once', async () => {
   ])
 })
 
-it('"Leave a note" in the menu opens the row and its box', async () => {
+it('"Add a note" in the menu opens the row and its box', async () => {
   await start()
-  await choose('s4', 'Leave a note for the agent')
+  await choose('s4', 'Add a note for the agent')
   const box = await screen.findByLabelText('Note for the agent on Shot 4')
   await waitFor(() => expect(document.activeElement).toBe(box))
 })
@@ -356,38 +364,71 @@ it('an accept goes on top of an agent write to another item, and says so', async
   expect(order()).toContain('s7')
 })
 
-it('a note on an item the agent removed is not saved, and the page keeps its words', async () => {
+it('a note on an item the agent removed is not saved, and the box keeps its words', async () => {
   await start()
   await fireEvent.click(
     within(row('s4')).getByRole('button', { name: 'Shot 4' }),
   )
   await fireEvent.click(
     within(row('s4')).getByRole('button', {
-      name: 'Leave a note for the agent',
+      name: 'Add a note for the agent',
     }),
   )
-  await fireEvent.input(screen.getByLabelText('Note for the agent on Shot 4'), {
-    target: { value: 'keep the rain' },
-  })
+  const box = screen.getByLabelText(
+    'Note for the agent on Shot 4',
+  ) as HTMLTextAreaElement
+  await fireEvent.input(box, { target: { value: 'keep the rain' } })
   world.ledger.agent('merged into shot 3', (items) =>
     items.filter((i) => i.key !== 's4'),
   )
   await fireEvent.click(
     within(row('s4')).getByRole('button', { name: 'Save note' }),
   )
-  const card = await screen.findByRole('alert')
-  expect(card.textContent).toContain(
-    "Not applied: the agent removed Shot 4 in r4 ('merged into shot 3').",
+  const alert = await within(row('s4')).findByRole('alert')
+  expect(alert.textContent).toContain(
+    'This item was dropped or removed from the plan, so the note is not saved.',
   )
-  expect(
-    (
-      within(card).getByLabelText(
-        'Your note, which was not saved',
-      ) as HTMLTextAreaElement
-    ).value,
-  ).toBe('keep the rain')
-  expect(row('s4')).toBeNull()
+  expect(box.value).toBe('keep the rain')
   expect(world.ledger.current.revision).toBe(4)
+  // reading again shows the plan as it is
+  await fireEvent.click(
+    within(alert).getByRole('button', { name: 'Reload the plan' }),
+  )
+  await waitFor(() => expect(row('s4')).toBeNull())
+})
+
+it('a plan write sends no notes, and the notes stored stay', async () => {
+  await start()
+  await fireEvent.click(
+    within(row('s4')).getByRole('button', { name: 'Shot 4' }),
+  )
+  await fireEvent.click(
+    within(row('s4')).getByRole('button', {
+      name: 'Add a note for the agent',
+    }),
+  )
+  await fireEvent.input(screen.getByLabelText('Note for the agent on Shot 4'), {
+    target: { value: 'keep the rain' },
+  })
+  await fireEvent.click(
+    within(row('s4')).getByRole('button', { name: 'Save note' }),
+  )
+  await within(row('s4')).findByText('keep the rain')
+  expect(world.ledger.added).toEqual([
+    { request: 'r1', item: 's4', text: 'keep the rain' },
+  ])
+  expect(world.ledger.puts).toEqual([])
+  await fireEvent.click(
+    within(row('cast')).getByRole('button', {
+      name: 'Accept take 1 for Cast sheet',
+    }),
+  )
+  await saved(5)
+  expect(world.ledger.puts[0].items.some((i) => 'notes' in i)).toBe(false)
+  expect(
+    world.ledger.current.items.find((i) => i.key === 's4')?.notes,
+  ).toMatchObject([{ id: 'n1', text: 'keep the rain' }])
+  expect(within(row('s4')).getByText('keep the rain')).toBeTruthy()
 })
 
 it('a write that fails says so, and the edit is taken back', async () => {

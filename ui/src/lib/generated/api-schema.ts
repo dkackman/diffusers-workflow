@@ -1849,6 +1849,65 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/workspaces/{name}/notes-channel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Notes Channel
+         * @description Whether a notes channel has polled this workspace's request list in
+         *     the last 30 seconds, so the UI can say whether a session is listening.
+         */
+        get: operations["notes_channel_api_workspaces__name__notes_channel_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workspaces/{name}/request-notes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Edit Request Note
+         * @description Change one note's text; its `refs` and `created` stay, `at` moves to
+         *     now. The same text writes nothing. 404 `unknown_request` or
+         *     `unknown_note`.
+         */
+        put: operations["edit_request_note_api_workspaces__name__request_notes_put"];
+        /**
+         * Add Request Note
+         * @description Add one of the user's notes for the agent, on an item or (no `item`)
+         *     on the request itself; answers the note and the request's new revision.
+         *     Each of `refs` names an item (the note's own, for an item note; any live
+         *     item, for a request note) and optionally a job linked to it and one file
+         *     of that job's manifest; the server adds the file's `kind`. 422
+         *     `invalid_note_ref` for a ref that does not hold, `too_many_refs`,
+         *     `unknown_item`, `item_dropped` or `too_many_notes`; 404
+         *     `unknown_request`.
+         */
+        post: operations["add_request_note_api_workspaces__name__request_notes_post"];
+        /**
+         * Delete Request Note
+         * @description Remove one note; its id is never handed out again. 404
+         *     `unknown_request` or `unknown_note`.
+         */
+        delete: operations["delete_request_note_api_workspaces__name__request_notes_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/workspaces/{name}/requests": {
         parameters: {
             query?: never;
@@ -2506,6 +2565,24 @@ export interface components {
             /** Reference */
             reference: string;
         };
+        /**
+         * GalleryLinkedJob
+         * @description A job linked to a request item that published the file - wrote it or
+         *     republished it from the step cache.
+         */
+        GalleryLinkedJob: {
+            /**
+             * Attempt
+             * @description The job's 1-based place among the item's attempts; null when the request no longer lists it.
+             */
+            attempt: number | null;
+            /** Id */
+            id: string;
+            /** Item */
+            item: string | null;
+            /** Request */
+            request: string;
+        };
         /** GalleryList */
         GalleryList: {
             /**
@@ -2536,6 +2613,11 @@ export interface components {
              */
             inputs?: components["schemas"]["GalleryInput"][] | null;
             job: components["schemas"]["JobRef"] | null;
+            /**
+             * Linked Jobs
+             * @description Every job linked to a request whose manifest lists the file, a step-cache reuse included, newest first; empty for an asset.
+             */
+            linked_jobs: components["schemas"]["GalleryLinkedJob"][];
             /**
              * Media
              * @description The probe of an audio or video file, or an image's kind, width, height and mode, or an .otioz's timeline (tracks, clips with durations, members); null for another file.
@@ -3134,13 +3216,6 @@ export interface components {
              */
             status: "queued" | "running" | "succeeded" | "failed" | "cancelled";
         };
-        /** LedgerComment */
-        LedgerComment: {
-            /** At */
-            at: string;
-            /** Text */
-            text: string;
-        };
         /** LedgerDeleted */
         LedgerDeleted: {
             /** Deleted */
@@ -3202,8 +3277,6 @@ export interface components {
              * @description Every linked job, oldest first.
              */
             attempts: components["schemas"]["LedgerAttempt"][];
-            /** @description The user's; an agent never writes it. */
-            comment: components["schemas"]["LedgerComment"] | null;
             /** Depends On */
             depends_on: string[];
             /** Dropped */
@@ -3212,6 +3285,11 @@ export interface components {
             estimate_minutes: number | null;
             /** Key */
             key: string;
+            /**
+             * Notes
+             * @description The user's notes on the item.
+             */
+            notes: components["schemas"]["LedgerNote"][];
             /**
              * Ready
              * @description A job could be queued for it now: planned, with a stored workflow and every dependency done, in an open request.
@@ -3248,6 +3326,73 @@ export interface components {
             workspace: string;
         };
         /**
+         * LedgerNote
+         * @description One note the user wrote for the agent. Only the request-notes routes
+         *     write one.
+         */
+        LedgerNote: {
+            /**
+             * At
+             * @description When its text last changed.
+             */
+            at: string;
+            /**
+             * Created
+             * @description When the note was first saved.
+             */
+            created: string;
+            /**
+             * Id
+             * @description Unique within the request; never reused.
+             */
+            id: string;
+            /**
+             * Refs
+             * @description The items, takes or files the note is about.
+             */
+            refs?: components["schemas"]["LedgerNoteRef"][];
+            /** Text */
+            text: string;
+        };
+        /**
+         * LedgerNoteRef
+         * @description What a note is about: one item, planned or rendered, and maybe one of
+         *     its linked jobs and one of that job's files.
+         */
+        LedgerNoteRef: {
+            /**
+             * Attempt
+             * @description On a read, when the ref names a job: the job's 1-based place among the item's attempts; null when the job is no longer linked to it.
+             */
+            attempt?: number | null;
+            /**
+             * Gone
+             * @description On a read: true when the item is dropped or out of the plan, or the job is no longer linked or its run is gone.
+             */
+            gone?: boolean;
+            /**
+             * Item
+             * @description The item key.
+             */
+            item: string;
+            /**
+             * Job
+             * @description A job linked to the item.
+             */
+            job?: string;
+            /**
+             * Kind
+             * @description The file's kind, set by the server.
+             * @enum {string}
+             */
+            kind?: "image" | "video" | "audio" | "text";
+            /**
+             * Output
+             * @description One file of the job's manifest, relative to the workspace's outputs.
+             */
+            output?: string;
+        };
+        /**
          * LedgerOutput
          * @description The one file that stands for a job: what a list shows as its proof.
          */
@@ -3266,8 +3411,11 @@ export interface components {
         };
         /** LedgerRequest */
         LedgerRequest: {
-            /** @description The user's note on the whole request; an agent never writes it, and reads it on its next write. */
-            comment: components["schemas"]["LedgerComment"] | null;
+            /**
+             * Agent Wrote At
+             * @description When the agent last wrote the plan; null when it never has.
+             */
+            agent_wrote_at: string | null;
             /** Goal */
             goal: string;
             /** History */
@@ -3276,6 +3424,16 @@ export interface components {
             id: string;
             /** Items */
             items: components["schemas"]["LedgerItem"][];
+            /**
+             * Next Note
+             * @description The number of the next note id.
+             */
+            next_note: number;
+            /**
+             * Notes
+             * @description The user's notes on the whole request.
+             */
+            notes: components["schemas"]["LedgerNote"][];
             /**
              * Prompt
              * @description The ask that started it; write-once.
@@ -3709,6 +3867,82 @@ export interface components {
              */
             direction: string;
         };
+        /**
+         * NoteAdd
+         * @description One new note for the agent, from the user.
+         */
+        NoteAdd: {
+            /**
+             * Item
+             * @description The item key; left out, the request's own notes
+             */
+            item?: string | null;
+            /**
+             * Refs
+             * @description The items, takes or files the note is about, at most 16; an item's note references only that item
+             */
+            refs?: components["schemas"]["NoteRefWrite"][] | null;
+            /**
+             * Request
+             * @description The request id
+             */
+            request: string;
+            /**
+             * Text
+             * @description The note, at most 4,000 characters
+             */
+            text: string;
+        };
+        /** NoteDeleted */
+        NoteDeleted: {
+            /**
+             * Revision
+             * @description The request's revision after the write.
+             */
+            revision: number;
+        };
+        /**
+         * NoteEdit
+         * @description A note's new text. Its references never change.
+         */
+        NoteEdit: {
+            /**
+             * Note
+             * @description The note id
+             */
+            note: string;
+            /**
+             * Request
+             * @description The request id
+             */
+            request: string;
+            /**
+             * Text
+             * @description The note, at most 4,000 characters
+             */
+            text: string;
+        };
+        /**
+         * NoteRefWrite
+         * @description One reference of a new note. `kind` is the server's to set.
+         */
+        NoteRefWrite: {
+            /**
+             * Item
+             * @description The item key; left out on an item's note, that item. Alone, it names a planned shot that may have no job yet
+             */
+            item?: string | null;
+            /**
+             * Job
+             * @description A job linked to that item
+             */
+            job?: string | null;
+            /**
+             * Output
+             * @description One file of that finished job's manifest, as the gallery names it (relative to the workspace's outputs); left out, the note is about the take as a whole
+             */
+            output?: string | null;
+        };
         /** NoteRequest */
         NoteRequest: {
             /**
@@ -3736,6 +3970,28 @@ export interface components {
             note_source: ("file" | "run") | null;
             /** Target */
             target: string;
+        };
+        /** NoteWritten */
+        NoteWritten: {
+            note: components["schemas"]["LedgerNote"];
+            /**
+             * Revision
+             * @description The request's revision after the write.
+             */
+            revision: number;
+        };
+        /** NotesChannelState */
+        NotesChannelState: {
+            /**
+             * Last Seen
+             * @description ISO UTC time of the last such poll, null if none since the server started.
+             */
+            last_seen: string | null;
+            /**
+             * Listening
+             * @description True while a notes channel polled this workspace's request list in the last 30 seconds.
+             */
+            listening: boolean;
         };
         /** OutputDeleted */
         OutputDeleted: {
@@ -3984,20 +4240,13 @@ export interface components {
              */
             by: "agent" | "user";
             /**
-             * Comment
-             * @description The user's note on the whole request, at most 4,000 characters: text, or `{text}` as read. Left out, it is kept; null or blank clears it. An agent's write omits it
-             */
-            comment?: string | {
-                [key: string]: unknown;
-            } | null;
-            /**
              * Goal
              * @description What done looks like
              */
             goal: string;
             /**
              * Items
-             * @description The ordered plan; each item is key, title, depends_on, estimate_minutes, workflow, arguments, accepted, comment
+             * @description The ordered plan; each item is key, title, depends_on, estimate_minutes, workflow, arguments, accepted; an item's `notes` are ignored (the request-notes routes write them)
              */
             items: {
                 [key: string]: unknown;
@@ -7378,6 +7627,143 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WorkspaceDeleted"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    notes_channel_api_workspaces__name__notes_channel_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotesChannelState"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    edit_request_note_api_workspaces__name__request_notes_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NoteEdit"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NoteWritten"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    add_request_note_api_workspaces__name__request_notes_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NoteAdd"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NoteWritten"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_request_note_api_workspaces__name__request_notes_delete: {
+        parameters: {
+            query: {
+                /** @description The request id */
+                request: string;
+                /** @description The note id */
+                note: string;
+            };
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NoteDeleted"];
                 };
             };
             /** @description Validation Error */

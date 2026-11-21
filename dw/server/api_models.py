@@ -65,7 +65,8 @@ from .api_models_library import (
     Kept,
     AssetDeleted,
     LedgerAccepted,
-    LedgerComment,
+    LedgerNoteRef,
+    LedgerNote,
     LedgerAttempt,
     LedgerResult,
     LedgerItem,
@@ -73,6 +74,9 @@ from .api_models_library import (
     LedgerRequest,
     LedgerSummary,
     LedgerList,
+    NoteWritten,
+    NoteDeleted,
+    NotesChannelState,
 )
 
 # The library's models live in api_models_library, and the base in
@@ -121,7 +125,8 @@ __all__ = [
     "Kept",
     "AssetDeleted",
     "LedgerAccepted",
-    "LedgerComment",
+    "LedgerNoteRef",
+    "LedgerNote",
     "LedgerAttempt",
     "LedgerResult",
     "LedgerItem",
@@ -129,6 +134,9 @@ __all__ = [
     "LedgerRequest",
     "LedgerSummary",
     "LedgerList",
+    "NoteWritten",
+    "NoteDeleted",
+    "NotesChannelState",
 ]
 
 
@@ -1006,6 +1014,19 @@ class GalleryInput(ApiModel):
     kind: Literal["asset", "output"]
 
 
+class GalleryLinkedJob(ApiModel):
+    """A job linked to a request item that published the file - wrote it or
+    republished it from the step cache."""
+
+    id: str
+    request: str
+    item: str | None
+    attempt: int | None = Field(
+        description="The job's 1-based place among the item's attempts; null "
+        "when the request no longer lists it."
+    )
+
+
 class GalleryMetadata(ApiModel):
     name: str
     source: Literal["output", "asset"]
@@ -1032,6 +1053,10 @@ class GalleryMetadata(ApiModel):
     run_note: str = sometimes("The note of the run that wrote the file.")
     note_source: Literal["file", "run"] = sometimes("Whose note `note` is.")
     starred: bool = sometimes("True when the file is starred; absent otherwise.")
+    linked_jobs: list[GalleryLinkedJob] = Field(
+        description="Every job linked to a request whose manifest lists the "
+        "file, a step-cache reuse included, newest first; empty for an asset."
+    )
 
 
 class StarSet(ApiModel):

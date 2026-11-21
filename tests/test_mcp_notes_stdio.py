@@ -17,6 +17,7 @@ import subprocess
 import sys
 import threading
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 import httpx
@@ -34,6 +35,7 @@ from dw_mcp import server as mcp_server  # noqa: E402
 from dw_mcp.client import DwApiError  # noqa: E402
 from dw_mcp.server import NOTES_INSTRUCTIONS  # noqa: E402
 
+from .notes_helpers import save_note  # noqa: E402
 from .test_server import ScriptedWorkerManager, success_script  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[1]
@@ -71,6 +73,7 @@ class DwServer:
             time.sleep(0.02)
         port = self.uvicorn.servers[0].sockets[0].getsockname()[1]
         self.url = f"http://127.0.0.1:{port}"
+        self.root = root.root
         self.api = httpx.Client(
             base_url=self.url, headers={"Authorization": f"Bearer {TOKEN}"}
         )
@@ -92,6 +95,13 @@ class DwServer:
         response = self.api.put(path, json=body)
         assert response.status_code == 200, response.text
         return response.json()
+
+    def save_note(self, request_id, text, item=None):
+        """The user saves a note: the note is stored first, then a user write
+        moves the revision, so a poll never sees the revision without it."""
+        at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        saved = save_note(self.root, request_id, text, item, at)
+        return saved, self.put(request_id, why="note")
 
     def stop(self):
         self.api.close()
@@ -229,7 +239,7 @@ def test_a_saved_note_reaches_the_client_as_a_channel_notification(dw_server, ch
             {"key": "shot3", "title": "Shot 3: lamp room", "depends_on": []},
         ],
     )
-    dw_server.put("lighthouse", comment="colder overall")
+    dw_server.save_note("lighthouse", "colder overall")
     proc = channel(dw_server.url, DW_API_TOKEN=TOKEN)
 
     # A client on the 2026-07-28 revision probes first. The channel must not
@@ -265,11 +275,9 @@ def test_a_saved_note_reaches_the_client_as_a_channel_notification(dw_server, ch
     assert "colder overall" in digest["params"]["content"]
 
     # the user saves a note on an item in the web UI
-    plan = dw_server.put("lighthouse")["items"]
     text = "this one has off lipsync - reroll it and recreate the final piece"
-    plan = [{**i, "comment": text} if i["key"] == "shot3" else i for i in plan]
-    written = dw_server.put("lighthouse", items=plan)
-    saved = written["items"][1]["comment"]["at"]
+    saved, written = dw_server.save_note("lighthouse", text, "shot3")
+    saved = saved["at"]
 
     event = proc.receive()
     assert set(event) == {"jsonrpc", "method", "params"}
@@ -281,6 +289,8 @@ def test_a_saved_note_reaches_the_client_as_a_channel_notification(dw_server, ch
         "request": "lighthouse",
         "item": "shot3",
         "revision": str(written["revision"]),
+        "note": "n2",
+        "created": saved,
     }
     minute = saved[:16].replace("T", " ")
     assert event["params"]["content"] == (
@@ -341,7 +351,7 @@ def test_a_client_that_went_away_ends_the_process_cleanly(dw_server, channel):
     # the client's end of our stdout goes first, and an event is written
     # into it before our stdin reads end-of-file
     proc.process.stdout.close()
-    dw_server.put("lighthouse", comment="anyone there?")
+    dw_server.save_note("lighthouse", "anyone there?")
     time.sleep(4)  # two polls: the event has gone into the closed pipe
 
     assert proc.finish() == 0

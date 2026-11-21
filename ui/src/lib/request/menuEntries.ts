@@ -79,12 +79,7 @@ export function itemMenu(row: ItemState, context: MenuContext): MenuEntry[] {
   groups.push(links(row, context))
   if (live) {
     groups.push(moves(row, context.total))
-    groups.push([
-      action(
-        'note',
-        row.item.comment ? 'Edit the note' : 'Leave a note for the agent',
-      ),
-    ])
+    groups.push([action('note', 'Add a note for the agent')])
     groups.push([action('drop', 'Drop from plan', { danger: true })])
   }
   return groups

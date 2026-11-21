@@ -2479,7 +2479,7 @@ class TestSkillRequests:
             "not with `set_note`",
             'accepted: {"job": "<job id>"}',
             "`stale_revision`",
-            "`comment`",
+            "`notes`",
             "creative source",
             "`dropped`",
         ):

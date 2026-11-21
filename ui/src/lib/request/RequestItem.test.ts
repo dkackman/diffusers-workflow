@@ -11,8 +11,13 @@ import { planState } from './itemState'
 import { attempt, doneItem, entry, item, request } from './fixtures'
 import type { LedgerItem, LedgerRequest } from '../types'
 
+const api = vi.hoisted(() => ({
+  addNote: vi.fn(),
+  notesChannel: vi.fn(async () => ({ listening: false, last_seen: null })),
+}))
 vi.mock('../api', () => ({
   api: {
+    ...api,
     galleryThumbnailUrl: (name: string, ws?: string) =>
       `/thumb/${name}?ws=${ws}`,
   },
@@ -21,6 +26,14 @@ vi.mock('../confirm.svelte', () => ({ confirmDialog: vi.fn() }))
 vi.mock('../toast', () => ({ notify: { error: vi.fn(), success: vi.fn() } }))
 
 afterEach(cleanup)
+
+let ids = 0
+const note = (text: string, at: string) => ({
+  id: `n${++ids}`,
+  text,
+  created: at,
+  at,
+})
 
 /** The props for the row of `key` in a request of `items` */
 function props(
@@ -35,7 +48,6 @@ function props(
     row,
     request: req,
     workspace: 'studio',
-    onsave: vi.fn(),
     onreload: vi.fn(),
     ongo: vi.fn(),
   }
@@ -265,7 +277,7 @@ it('a dropped item is struck, keeps its note, and offers no way to edit one', as
         title: 'Cut scene',
         dropped: true,
         status: 'dropped',
-        comment: { text: 'too long', at: '2026-01-01T00:00:00+00:00' },
+        notes: [note('too long', '2026-01-01T00:00:00+00:00')],
       }),
     ]),
   )
@@ -326,13 +338,34 @@ it("links an item's jobs through the req filter", async () => {
 })
 
 const noted = (at: string) =>
-  item('a', { title: 'Shot 3', comment: { text: 'warmer\nand slower', at } })
+  item('a', { title: 'Shot 3', notes: [note('warmer\nand slower', at)] })
+
+it('a closed row with notes shows the first line of the latest, and how many more', () => {
+  const at = '2026-01-01T00:05:00+00:00'
+  const { container } = render(
+    RequestItem,
+    props(
+      [
+        item('a', {
+          title: 'Shot 3',
+          notes: [note('first', at), note('second\nmore', at)],
+        }),
+      ],
+      'a',
+      { agent_wrote_at: '2026-01-01T00:09:00+00:00' },
+    ),
+  )
+  expect(
+    container.querySelector('.peek')?.textContent?.replace(/\s+/g, ' ').trim(),
+  ).toBe('second +1')
+})
 
 it('a closed row with a note shows its first line', () => {
   const { container } = render(
     RequestItem,
     props([noted('2026-01-01T00:05:00+00:00')], 'a', {
       history: [entry(9, 'agent', 'replanned')],
+      agent_wrote_at: entry(9, 'agent', 'replanned').at,
     }),
   )
   expect(title('Shot 3').getAttribute('aria-expanded')).toBe('false')
@@ -346,7 +379,7 @@ it('opens a row whose note the agent has had no chance to read', () => {
   )
   expect(title('Shot 3').getAttribute('aria-expanded')).toBe('true')
   expect(container.querySelector('.peek')).toBeNull()
-  expect(screen.getByText(/Nothing is sent to the agent/)).toBeTruthy()
+  expect(screen.getByText(/No agent session is listening/)).toBeTruthy()
 })
 
 it("the user's toggle outlives a refresh, and closing a row keeps its draft", async () => {
@@ -360,7 +393,7 @@ it("the user's toggle outlives a refresh, and closing a row keeps its draft", as
     ])
   const view = render(RequestItem, running(1))
   await fireEvent.click(
-    screen.getByRole('button', { name: 'Leave a note for the agent' }),
+    screen.getByRole('button', { name: 'Add a note for the agent' }),
   )
   const box = () =>
     view.container.querySelector('textarea') as HTMLTextAreaElement
@@ -477,4 +510,55 @@ it('the menu can ask the row to open its note box', async () => {
   const box = await screen.findByLabelText('Note for the agent on Shot 4')
   expect(title('Shot 4').getAttribute('aria-expanded')).toBe('true')
   await vi.waitFor(() => expect(document.activeElement).toBe(box))
+})
+
+it('"Note this take" adds the take and its file to the new note, once', async () => {
+  api.addNote.mockResolvedValue({ revision: 4 })
+  const proof = { name: 'run/shot3-take1.png', kind: 'image' as const }
+  const given = props([
+    goodTakes({
+      attempts: [
+        attempt('j1', 'succeeded', { output: proof }),
+        attempt('j2'),
+        attempt('j3', 'failed'),
+      ],
+    }),
+  ])
+  render(RequestItem, given)
+  await fireEvent.click(
+    screen.getByRole('button', { name: 'Note take 1 of Shot 3 for the agent' }),
+  )
+  const box = await screen.findByLabelText('Note for the agent on Shot 3')
+  await vi.waitFor(() => expect(document.activeElement).toBe(box))
+  await fireEvent.click(
+    screen.getByRole('button', { name: 'Note take 1 of Shot 3 for the agent' }),
+  )
+  await fireEvent.click(
+    screen.getByRole('button', { name: 'Note take 3 of Shot 3 for the agent' }),
+  )
+  const chips = screen
+    .getByRole('list', { name: 'What the note is about' })
+    .querySelectorAll('.ref')
+  expect([...chips].map((c) => c.textContent)).toEqual([
+    'take 1 · shot3-take1.png',
+    'take 3',
+  ])
+  await fireEvent.input(box, { target: { value: 'take 1, warmer' } })
+  await fireEvent.click(screen.getByRole('button', { name: 'Save note' }))
+  await vi.waitFor(() => expect(given.onreload).toHaveBeenCalled())
+  expect(api.addNote.mock.calls[0][1]).toEqual({
+    request: 'r1',
+    item: 'a',
+    text: 'take 1, warmer',
+    refs: [
+      { item: 'a', job: 'j1', output: 'run/shot3-take1.png' },
+      { item: 'a', job: 'j3' },
+    ],
+  })
+})
+
+it('a dropped item offers no "Note this take"', async () => {
+  render(RequestItem, props([goodTakes({ dropped: true, status: 'dropped' })]))
+  await fireEvent.click(title('Shot 3'))
+  expect(screen.queryByRole('button', { name: /^Note take/ })).toBeNull()
 })

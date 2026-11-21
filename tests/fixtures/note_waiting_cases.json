@@ -6,13 +6,12 @@
       "title": "A cat short",
       "state": "open",
       "revision": 1,
-      "comment": null,
       "items": [
         {
           "key": "a",
           "title": "shot a",
-          "comment": null,
-          "dropped": false
+          "dropped": false,
+          "notes": []
         }
       ],
       "history": [
@@ -22,7 +21,9 @@
           "by": "agent",
           "why": "r1"
         }
-      ]
+      ],
+      "notes": [],
+      "agent_wrote_at": "2026-01-01T01:00:00+00:00"
     },
     "waiting": []
   },
@@ -33,16 +34,12 @@
       "title": "A cat short",
       "state": "open",
       "revision": 2,
-      "comment": {
-        "text": "warmer, please",
-        "at": "2026-01-01T05:00:00+00:00"
-      },
       "items": [
         {
           "key": "a",
           "title": "shot a",
-          "comment": null,
-          "dropped": false
+          "dropped": false,
+          "notes": []
         }
       ],
       "history": [
@@ -58,10 +55,19 @@
           "by": "user",
           "why": "r2"
         }
-      ]
+      ],
+      "notes": [
+        {
+          "id": "n1",
+          "text": "warmer, please",
+          "created": "2026-01-01T05:00:00+00:00",
+          "at": "2026-01-01T05:00:00+00:00"
+        }
+      ],
+      "agent_wrote_at": "2026-01-01T01:00:00+00:00"
     },
     "waiting": [
-      ""
+      "n1"
     ]
   },
   {
@@ -71,16 +77,19 @@
       "title": "A cat short",
       "state": "open",
       "revision": 2,
-      "comment": null,
       "items": [
         {
           "key": "a",
           "title": "shot a",
-          "comment": {
-            "text": "warmer, please",
-            "at": "2026-01-01T05:00:00+00:00"
-          },
-          "dropped": false
+          "dropped": false,
+          "notes": [
+            {
+              "id": "n1",
+              "text": "warmer, please",
+              "created": "2026-01-01T05:00:00+00:00",
+              "at": "2026-01-01T05:00:00+00:00"
+            }
+          ]
         }
       ],
       "history": [
@@ -96,10 +105,12 @@
           "by": "user",
           "why": "r2"
         }
-      ]
+      ],
+      "notes": [],
+      "agent_wrote_at": "2026-01-01T04:00:00+00:00"
     },
     "waiting": [
-      "a"
+      "n1"
     ]
   },
   {
@@ -109,16 +120,19 @@
       "title": "A cat short",
       "state": "open",
       "revision": 3,
-      "comment": null,
       "items": [
         {
           "key": "a",
           "title": "shot a",
-          "comment": {
-            "text": "warmer, please",
-            "at": "2026-01-01T05:00:00+00:00"
-          },
-          "dropped": false
+          "dropped": false,
+          "notes": [
+            {
+              "id": "n1",
+              "text": "warmer, please",
+              "created": "2026-01-01T05:00:00+00:00",
+              "at": "2026-01-01T05:00:00+00:00"
+            }
+          ]
         }
       ],
       "history": [
@@ -140,7 +154,9 @@
           "by": "agent",
           "why": "r3"
         }
-      ]
+      ],
+      "notes": [],
+      "agent_wrote_at": "2026-01-01T06:00:00+00:00"
     },
     "waiting": []
   },
@@ -151,16 +167,19 @@
       "title": "A cat short",
       "state": "open",
       "revision": 1,
-      "comment": null,
       "items": [
         {
           "key": "a",
           "title": "shot a",
-          "comment": {
-            "text": "warmer, please",
-            "at": "2026-01-01T05:00:00+00:00"
-          },
-          "dropped": false
+          "dropped": false,
+          "notes": [
+            {
+              "id": "n1",
+              "text": "warmer, please",
+              "created": "2026-01-01T05:00:00+00:00",
+              "at": "2026-01-01T05:00:00+00:00"
+            }
+          ]
         }
       ],
       "history": [
@@ -170,10 +189,12 @@
           "by": "agent",
           "why": "r1"
         }
-      ]
+      ],
+      "notes": [],
+      "agent_wrote_at": "2026-01-01T05:00:00+00:00"
     },
     "waiting": [
-      "a"
+      "n1"
     ]
   },
   {
@@ -183,16 +204,19 @@
       "title": "A cat short",
       "state": "open",
       "revision": 3,
-      "comment": null,
       "items": [
         {
           "key": "a",
           "title": "shot a",
-          "comment": {
-            "text": "warmer, please",
-            "at": "2026-01-01T05:00:00+00:00"
-          },
-          "dropped": false
+          "dropped": false,
+          "notes": [
+            {
+              "id": "n1",
+              "text": "warmer, please",
+              "created": "2026-01-01T05:00:00+00:00",
+              "at": "2026-01-01T05:00:00+00:00"
+            }
+          ]
         }
       ],
       "history": [
@@ -214,10 +238,12 @@
           "by": "user",
           "why": "r3"
         }
-      ]
+      ],
+      "notes": [],
+      "agent_wrote_at": "2026-01-01T01:00:00+00:00"
     },
     "waiting": [
-      "a"
+      "n1"
     ]
   },
   {
@@ -227,19 +253,19 @@
       "title": "A cat short",
       "state": "done",
       "revision": 1,
-      "comment": {
-        "text": "warmer, please",
-        "at": "2026-01-01T05:00:00+00:00"
-      },
       "items": [
         {
           "key": "a",
           "title": "shot a",
-          "comment": {
-            "text": "warmer, please",
-            "at": "2026-01-01T05:00:00+00:00"
-          },
-          "dropped": false
+          "dropped": false,
+          "notes": [
+            {
+              "id": "n2",
+              "text": "warmer, please",
+              "created": "2026-01-01T05:00:00+00:00",
+              "at": "2026-01-01T05:00:00+00:00"
+            }
+          ]
         }
       ],
       "history": [
@@ -249,7 +275,16 @@
           "by": "agent",
           "why": "r1"
         }
-      ]
+      ],
+      "notes": [
+        {
+          "id": "n1",
+          "text": "warmer, please",
+          "created": "2026-01-01T05:00:00+00:00",
+          "at": "2026-01-01T05:00:00+00:00"
+        }
+      ],
+      "agent_wrote_at": "2026-01-01T01:00:00+00:00"
     },
     "waiting": []
   },
@@ -260,22 +295,31 @@
       "title": "A cat short",
       "state": "abandoned",
       "revision": 0,
-      "comment": {
-        "text": "warmer, please",
-        "at": "2026-01-01T05:00:00+00:00"
-      },
       "items": [
         {
           "key": "a",
           "title": "shot a",
-          "comment": {
-            "text": "warmer, please",
-            "at": "2026-01-01T05:00:00+00:00"
-          },
-          "dropped": false
+          "dropped": false,
+          "notes": [
+            {
+              "id": "n2",
+              "text": "warmer, please",
+              "created": "2026-01-01T05:00:00+00:00",
+              "at": "2026-01-01T05:00:00+00:00"
+            }
+          ]
         }
       ],
-      "history": []
+      "history": [],
+      "notes": [
+        {
+          "id": "n1",
+          "text": "warmer, please",
+          "created": "2026-01-01T05:00:00+00:00",
+          "at": "2026-01-01T05:00:00+00:00"
+        }
+      ],
+      "agent_wrote_at": null
     },
     "waiting": []
   },
@@ -286,25 +330,25 @@
       "title": "A cat short",
       "state": "open",
       "revision": 1,
-      "comment": {
-        "text": "warmer, please",
-        "at": "2026-01-01T05:00:00+00:00"
-      },
       "items": [
         {
           "key": "a",
           "title": "shot a",
-          "comment": {
-            "text": "warmer, please",
-            "at": "2026-01-01T05:00:00+00:00"
-          },
-          "dropped": true
+          "dropped": true,
+          "notes": [
+            {
+              "id": "n2",
+              "text": "warmer, please",
+              "created": "2026-01-01T05:00:00+00:00",
+              "at": "2026-01-01T05:00:00+00:00"
+            }
+          ]
         },
         {
           "key": "b",
           "title": "shot b",
-          "comment": null,
-          "dropped": false
+          "dropped": false,
+          "notes": []
         }
       ],
       "history": [
@@ -314,10 +358,19 @@
           "by": "agent",
           "why": "r1"
         }
-      ]
+      ],
+      "notes": [
+        {
+          "id": "n1",
+          "text": "warmer, please",
+          "created": "2026-01-01T05:00:00+00:00",
+          "at": "2026-01-01T05:00:00+00:00"
+        }
+      ],
+      "agent_wrote_at": "2026-01-01T01:00:00+00:00"
     },
     "waiting": [
-      ""
+      "n1"
     ]
   },
   {
@@ -327,28 +380,32 @@
       "title": "A cat short",
       "state": "open",
       "revision": 4,
-      "comment": {
-        "text": "old too",
-        "at": "2026-01-01T03:00:00+00:00"
-      },
       "items": [
         {
           "key": "a",
           "title": "shot a",
-          "comment": {
-            "text": "old",
-            "at": "2026-01-01T02:00:00+00:00"
-          },
-          "dropped": false
+          "dropped": false,
+          "notes": [
+            {
+              "id": "n2",
+              "text": "old",
+              "created": "2026-01-01T02:00:00+00:00",
+              "at": "2026-01-01T02:00:00+00:00"
+            }
+          ]
         },
         {
           "key": "b",
           "title": "shot b",
-          "comment": {
-            "text": "new",
-            "at": "2026-01-01T08:00:00+00:00"
-          },
-          "dropped": false
+          "dropped": false,
+          "notes": [
+            {
+              "id": "n3",
+              "text": "new",
+              "created": "2026-01-01T08:00:00+00:00",
+              "at": "2026-01-01T08:00:00+00:00"
+            }
+          ]
         }
       ],
       "history": [
@@ -376,10 +433,19 @@
           "by": "user",
           "why": "r4"
         }
-      ]
+      ],
+      "notes": [
+        {
+          "id": "n1",
+          "text": "old too",
+          "created": "2026-01-01T03:00:00+00:00",
+          "at": "2026-01-01T03:00:00+00:00"
+        }
+      ],
+      "agent_wrote_at": "2026-01-01T06:00:00+00:00"
     },
     "waiting": [
-      "b"
+      "n3"
     ]
   },
   {
@@ -389,16 +455,19 @@
       "title": "A cat short",
       "state": "open",
       "revision": 1,
-      "comment": null,
       "items": [
         {
           "key": "a",
           "title": "shot a",
-          "comment": {
-            "text": "x",
-            "at": "2026-01-01T10:00:00+02:00"
-          },
-          "dropped": false
+          "dropped": false,
+          "notes": [
+            {
+              "id": "n1",
+              "text": "x",
+              "created": "2026-01-01T10:00:00+02:00",
+              "at": "2026-01-01T10:00:00+02:00"
+            }
+          ]
         }
       ],
       "history": [
@@ -408,7 +477,9 @@
           "by": "agent",
           "why": "r1"
         }
-      ]
+      ],
+      "notes": [],
+      "agent_wrote_at": "2026-01-01T09:00:00+00:00"
     },
     "waiting": []
   },
@@ -419,36 +490,226 @@
       "title": "A cat short",
       "state": "open",
       "revision": 0,
-      "comment": {
-        "text": "warmer, please",
-        "at": "2026-01-01T05:00:00+00:00"
-      },
       "items": [
         {
           "key": "a",
           "title": "shot a",
-          "comment": {
-            "text": "warmer, please",
-            "at": "2026-01-01T05:00:00+00:00"
-          },
-          "dropped": false
+          "dropped": false,
+          "notes": [
+            {
+              "id": "n2",
+              "text": "warmer, please",
+              "created": "2026-01-01T05:00:00+00:00",
+              "at": "2026-01-01T05:00:00+00:00"
+            }
+          ]
         },
         {
           "key": "b",
           "title": "shot b",
-          "comment": {
-            "text": "warmer, please",
-            "at": "2026-01-01T05:00:00+00:00"
-          },
+          "dropped": false,
+          "notes": [
+            {
+              "id": "n3",
+              "text": "warmer, please",
+              "created": "2026-01-01T05:00:00+00:00",
+              "at": "2026-01-01T05:00:00+00:00"
+            }
+          ]
+        }
+      ],
+      "history": [],
+      "notes": [
+        {
+          "id": "n1",
+          "text": "warmer, please",
+          "created": "2026-01-01T05:00:00+00:00",
+          "at": "2026-01-01T05:00:00+00:00"
+        }
+      ],
+      "agent_wrote_at": null
+    },
+    "waiting": [
+      "n1",
+      "n2",
+      "n3"
+    ]
+  },
+  {
+    "name": "two notes on one item, agent wrote between them",
+    "request": {
+      "id": "cats",
+      "title": "A cat short",
+      "state": "open",
+      "revision": 1,
+      "items": [
+        {
+          "key": "a",
+          "title": "shot a",
+          "notes": [
+            {
+              "id": "n1",
+              "text": "t",
+              "created": "2026-01-01T03:00:00+00:00",
+              "at": "2026-01-01T03:00:00+00:00"
+            },
+            {
+              "id": "n2",
+              "text": "t",
+              "created": "2026-01-01T07:00:00+00:00",
+              "at": "2026-01-01T07:00:00+00:00"
+            }
+          ],
           "dropped": false
         }
       ],
-      "history": []
+      "history": [
+        {
+          "revision": 1,
+          "at": "2026-01-01T05:00:00+00:00",
+          "by": "agent",
+          "why": "r1"
+        }
+      ],
+      "notes": [],
+      "agent_wrote_at": "2026-01-01T05:00:00+00:00"
     },
     "waiting": [
-      "",
-      "a",
-      "b"
+      "n2"
+    ]
+  },
+  {
+    "name": "history holds no agent entry but agent_wrote_at is later",
+    "request": {
+      "id": "cats",
+      "title": "A cat short",
+      "state": "open",
+      "revision": 1,
+      "items": [
+        {
+          "key": "a",
+          "title": "shot a",
+          "notes": [
+            {
+              "id": "n2",
+              "text": "t",
+              "created": "2026-01-01T04:00:00+00:00",
+              "at": "2026-01-01T04:00:00+00:00"
+            }
+          ],
+          "dropped": false
+        }
+      ],
+      "history": [
+        {
+          "revision": 1,
+          "at": "2026-01-01T01:00:00+00:00",
+          "by": "user",
+          "why": "r1"
+        }
+      ],
+      "notes": [
+        {
+          "id": "n1",
+          "text": "t",
+          "created": "2026-01-01T03:00:00+00:00",
+          "at": "2026-01-01T03:00:00+00:00"
+        }
+      ],
+      "agent_wrote_at": "2026-01-01T06:00:00+00:00"
+    },
+    "waiting": []
+  },
+  {
+    "name": "a closed request with a note has none waiting",
+    "request": {
+      "id": "cats",
+      "title": "A cat short",
+      "state": "done",
+      "revision": 1,
+      "items": [
+        {
+          "key": "a",
+          "title": "shot a",
+          "notes": [
+            {
+              "id": "n2",
+              "text": "t",
+              "created": "2026-01-01T04:00:00+00:00",
+              "at": "2026-01-01T04:00:00+00:00"
+            }
+          ],
+          "dropped": false
+        }
+      ],
+      "history": [
+        {
+          "revision": 1,
+          "at": "2026-01-01T01:00:00+00:00",
+          "by": "agent",
+          "why": "r1"
+        }
+      ],
+      "notes": [
+        {
+          "id": "n1",
+          "text": "t",
+          "created": "2026-01-01T03:00:00+00:00",
+          "at": "2026-01-01T03:00:00+00:00"
+        }
+      ],
+      "agent_wrote_at": null
+    },
+    "waiting": []
+  },
+  {
+    "name": "a dropped item note and a live one: only the live one waits",
+    "request": {
+      "id": "cats",
+      "title": "A cat short",
+      "state": "open",
+      "revision": 1,
+      "items": [
+        {
+          "key": "a",
+          "title": "shot a",
+          "notes": [
+            {
+              "id": "n1",
+              "text": "t",
+              "created": "2026-01-01T04:00:00+00:00",
+              "at": "2026-01-01T04:00:00+00:00"
+            }
+          ],
+          "dropped": true
+        },
+        {
+          "key": "b",
+          "title": "shot b",
+          "notes": [
+            {
+              "id": "n2",
+              "text": "t",
+              "created": "2026-01-01T04:00:00+00:00",
+              "at": "2026-01-01T04:00:00+00:00"
+            }
+          ],
+          "dropped": false
+        }
+      ],
+      "history": [
+        {
+          "revision": 1,
+          "at": "2026-01-01T01:00:00+00:00",
+          "by": "agent",
+          "why": "r1"
+        }
+      ],
+      "notes": [],
+      "agent_wrote_at": "2026-01-01T01:00:00+00:00"
+    },
+    "waiting": [
+      "n2"
     ]
   }
 ]

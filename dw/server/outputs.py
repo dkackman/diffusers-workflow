@@ -100,6 +100,15 @@ def _shown(entries):
                 yield name, kind
 
 
+def shown_outputs(manifest):
+    """`{name: kind}` for every file of a job manifest the gallery shows -
+    the names a note's reference may take. A name that is not a plain
+    relative one is left out."""
+    if not isinstance(manifest, list):
+        return {}
+    return dict(_shown(e for e in manifest if isinstance(e, dict)))
+
+
 def proof_output(manifest):
     """The one file that stands for a job in a list, as `{name, kind}`, or
     None: the first image or video of its `final` entries, else their first

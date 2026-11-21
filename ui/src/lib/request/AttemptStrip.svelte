@@ -11,12 +11,14 @@
   // pictures: which one is the result, and whether the user chose it or it
   // is only the latest. With `onaccept`, each good take has the button
   // that makes it the result - or, pressed again on the chosen one, clears
-  // the choice
+  // the choice. With `onnote`, each take has "Note this take", which adds
+  // it to the item's new note for the agent
   let {
     item,
     workspace,
     requestId,
     onaccept,
+    onnote,
   }: {
     item: LedgerItem
     workspace: string
@@ -24,6 +26,8 @@
     /** Accept this take, or with null clear the one accepted. Left out
      * where the plan would not keep it: a dropped item */
     onaccept?: (take: Take, job: string | null) => void
+    /** Add this take to the new note. Left out for a dropped item */
+    onnote?: (take: Take) => void
   } = $props()
 
   const takes = $derived(takesOf(item))
@@ -107,6 +111,14 @@
           >{chosen(take) ? 'Accepted' : 'Accept'}</button
         >
       {/if}
+      {#if onnote}
+        <button
+          type="button"
+          class="bare notetake"
+          aria-label="Note take {take.n} of {item.title} for the agent"
+          onclick={() => onnote(take)}>Note this take</button
+        >
+      {/if}
     </li>
   {/each}
 </ul>
@@ -161,13 +173,21 @@
     padding: 0.2rem 0.5rem;
     font-size: var(--t-xs);
   }
+  .notetake {
+    align-self: flex-start;
+    padding: 0.1rem 0;
+    font-size: var(--t-xs);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
   .accept[aria-pressed='true'] {
     color: var(--ink);
     border-color: var(--ink);
     font-weight: 600;
   }
   @media (pointer: coarse) {
-    .accept {
+    .accept,
+    .notetake {
       min-height: 44px;
     }
   }

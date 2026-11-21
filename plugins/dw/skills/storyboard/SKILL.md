@@ -44,8 +44,8 @@ has the rules). One or two boards need none.
    attempts, and the request's `spent_minutes`. To keep a board, write the
    plan back with `set_request` at the `revision` it read, every item as
    read, and that board's `accepted: {"job": "<job id>"}`: not `set_note`.
-5. Before redrawing any board, `get_request` and read its `comment`: the
-   user's note from the request page.
+5. Before redrawing any board, `get_request` and read its `notes`: the
+   user's notes from the request page, job page or gallery.
 
 ## 1. Draw the boards (Popcorn shape)
 

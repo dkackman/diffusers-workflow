@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { untrack } from 'svelte'
+  import { tick, untrack } from 'svelte'
   import { api, ApiError } from '../api'
   import Skeleton from '../ui/Skeleton.svelte'
   import ClampedText from '../ui/ClampedText.svelte'
@@ -11,6 +11,8 @@
   import { itemPlan, readyPlan, type RunPlan } from '../request/runPlan'
   import { goWs } from '../router.svelte'
   import { announce } from '../request/announce'
+  import { answeredNow, answeredText, noteItem } from '../request/answered'
+  import { noteAnchor } from '../request/noteState'
   import { planState, titleId } from '../request/itemState'
   import { PlanStore } from '../request/planStore.svelte'
   import { poll } from '../poll'
@@ -18,6 +20,7 @@
   import { formatMtime } from '../format'
   import { latestOnly } from '../latest'
   import { wsHref } from '../routes'
+  import { notify } from '../toast'
   import type { LedgerRequest } from '../types'
   import { workspace } from '../workspace.svelte'
 
@@ -44,8 +47,24 @@
       const news = announce(previous, next)
       if (news) said = news
       readAt = Date.now() / 1000
+      if (previous)
+        for (const note of answeredNow(previous, next)) told(next, note.id)
     },
   })
+
+  // The agent wrote after one of the user's waiting notes: said once per
+  // note while the page is open, never for one answered before it opened.
+  // Note ids restart per request, so a switch forgets them (the effect below)
+  let toldOf: Record<string, true> = {}
+  function told(next: LedgerRequest, id: string) {
+    if (toldOf[id]) return
+    toldOf[id] = true
+    const key = noteItem(next, id)
+    notify.news(answeredText(next), {
+      label: 'Show the note',
+      onClick: () => void showNote(key, id),
+    })
+  }
   const request = $derived(store.view)
   const plan = $derived(request ? planState(request) : null)
 
@@ -83,7 +102,10 @@
   $effect(() => {
     void ws
     void requestId
-    untrack(() => store.reset())
+    untrack(() => {
+      store.reset()
+      toldOf = {}
+    })
     missing = false
     error = null
     stale = null
@@ -119,10 +141,6 @@
     }
   })
 
-  /** The note on the whole request: an intent like any other edit */
-  const saveNote = (text: string | null) =>
-    store.push({ kind: 'note', key: null, text }).then(() => {})
-
   // The priced run dialog, for what is ready or for one item. The page
   // never starts anything itself: a newly ready item waits to be asked for
   let running = $state<RunPlan | null>(null)
@@ -156,6 +174,20 @@
       block: 'center',
     })
     title.focus({ preventScroll: true })
+  }
+
+  /** Go to a note: its item's row opened (the title toggles it, as a
+   * press would), out of the dropped fold, and the note in view */
+  async function showNote(key: string | null, id: string) {
+    const title = key ? document.getElementById(titleId(key)) : null
+    const fold = title?.closest('details')
+    if (fold) fold.open = true
+    if (title?.getAttribute('aria-expanded') === 'false') title.click()
+    await tick()
+    const note = document.getElementById(noteAnchor(id))
+    if (!note) return
+    note.scrollIntoView?.({ block: 'center' })
+    note.focus({ preventScroll: true })
   }
 
   // Under 640px the rail's sections fold: what the page is for comes first.
@@ -228,7 +260,6 @@
           {plan}
           workspace={ws}
           onselect={goTo}
-          onsavenote={saveNote}
           onreload={load}
         >
           {#snippet actions()}

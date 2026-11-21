@@ -26,6 +26,7 @@ from ..workspace import (
 from . import api_models
 from .http_security import install_middleware
 from .jobs import JobManager
+from .listening import Listening
 from .netinfo import LOOPBACK_HOSTS, WILDCARD_HOSTS
 from .observed_cost import ObservedCosts
 from .outputs import MEDIA_KINDS, RAW_MEDIA_EXTENSIONS
@@ -260,6 +261,7 @@ def create_app(
         workspace,
     )
     app.state.mcp_mounted = mcp_asgi is not None
+    app.state.listening = Listening()
     _store_serving(
         app.state,
         host,

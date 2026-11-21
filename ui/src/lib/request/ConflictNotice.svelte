@@ -1,13 +1,11 @@
 <script lang="ts">
   import { TriangleAlert, X } from '@lucide/svelte'
-  import { notify } from '../toast'
   import type { LedgerHistoryEntry } from '../types'
   import {
     ANSWERS,
     appliedText,
     changedText,
     goneText,
-    lostDraft,
     type Conflict,
   } from './conflict'
 
@@ -35,22 +33,6 @@
   } = $props()
 
   const answers = $derived(conflict ? ANSWERS[conflict.intent.kind] : undefined)
-  const draft = $derived(conflict ? lostDraft(conflict) : null)
-  let box = $state<HTMLTextAreaElement>()
-  let copied = $state(false)
-
-  /** The clipboard where there is one; else the text selected, for the
-   * user's own copy */
-  async function copy() {
-    try {
-      if (!navigator.clipboard) throw new Error('no clipboard')
-      await navigator.clipboard.writeText(draft ?? '')
-      copied = true
-    } catch {
-      box?.select()
-      notify.error('Could not copy. The text is selected: copy it yourself.')
-    }
-  }
 </script>
 
 {#if conflict?.kind === 'changed'}
@@ -74,20 +56,7 @@
       <TriangleAlert size={14} aria-hidden="true" />
       <span>{goneText(conflict)}</span>
     </p>
-    {#if draft}
-      <textarea
-        bind:this={box}
-        readonly
-        rows="3"
-        aria-label="Your note, which was not saved"
-        value={draft}></textarea>
-    {/if}
     <div class="answers">
-      {#if draft}
-        <button type="button" class="quiet" onclick={copy}
-          >{copied ? 'Copied' : 'Copy text'}</button
-        >
-      {/if}
       <button type="button" class="quiet" onclick={ondismiss}>Dismiss</button>
     </div>
   </div>
@@ -139,10 +108,6 @@
   p :global(svg) {
     flex: none;
     margin-top: 0.25em;
-  }
-  textarea {
-    width: 100%;
-    max-width: 68ch;
   }
   .answers {
     display: flex;

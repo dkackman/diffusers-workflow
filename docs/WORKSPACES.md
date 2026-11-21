@@ -309,7 +309,7 @@ workspace root, holding `{"requests": {<id>: <request>}}`. A request is the
 user's `prompt` (set when the request is created, never changed after: a
 change is refused with 422 `prompt_is_write_once`), a `title`, a `goal`
 saying what done looks like, a `state` (`open`, `done`, `abandoned`), the
-user's `comment` on the whole of it, and an ordered plan of `items`. Only
+user's `notes` on the whole of it, and an ordered plan of `items`. Only
 the server writes the file.
 
 Read it with `get_request(request=None)` (MCP) or `GET
@@ -328,12 +328,12 @@ Read it with `get_request(request=None)` (MCP) or `GET
   to `open`. Closing changes nothing else. A closed request takes no new
   job (422 `request_closed`) until it is reopened, and stays writable.
 - **Items** are `{key, title, depends_on, estimate_minutes, workflow,
-  arguments, accepted, comment}`, matched across writes by `key`; the order
+  arguments, accepted, notes}`, matched across writes by `key`; the order
   written is the order kept. An item left out of a write is deleted, or kept
   as `dropped` (moved to the end) when jobs link to it; writing a dropped
   key again, not dropped, brings it back with everything it held. Each item
   reads back with derived fields (below). A field not listed is refused on
-  write, apart from the derived ones, which are ignored - so a plan can be
+  write, apart from the derived ones and `notes`, which are ignored - so a plan can be
   written back as it was read.
 - **`purge`** on a write lists keys of stored items the plan leaves out
   that are to be removed for good instead of kept as dropped. Their jobs
@@ -344,17 +344,38 @@ Read it with `get_request(request=None)` (MCP) or `GET
   the item itself, and never in a cycle. An item others still depend on
   cannot be dropped.
 - **`accepted`** names a succeeded job linked to that request and item: `{"job": "<id>"}` or the bare job id, stored as `{job, run_id}`. It can be moved to another such job, or cleared with null.
-- **`comment`**, on an item and on the request, is the user's: `{text,
-  at}` on a read, plain text (or `{text}`) on a write, at most 4000
-  characters. Left out of a write it is kept, null or blank clears it, and
-  unchanged text keeps its time. An agent's write omits it or sends it back
-  as read - changing it is refused - and the agent reads both on its next
-  `get_request`, before it writes again.
+- **`notes`**, on an item and on the request, are the user's: a list, so a
+  second note does not replace the first. A note is `{id, text, created, at,
+  refs}`: `id` is assigned by the server (`n1`, `n2`, ...) and never reused,
+  `text` is at most 4000 characters, `created` is when it was first saved and
+  never changes, and `at` is the last text change. At most 20 notes live on
+  one item or on the request.
+  A note carries `refs`, the things it is about: each is `{item, job?,
+  output?}` and reads back with the output's `kind`, the take's `attempt`
+  (1-based, oldest first) and `gone: true` once the item was dropped or the
+  job's run no longer exists. A reference with only `item` is a planned shot
+  that may have no job yet, so a note can act before a render. `job` must be
+  linked to that item, and `output` must be a file in that job's manifest,
+  named as the gallery names it. An item's note references only that item; the
+  request's own note may reference several items, at most 16 references in
+  all. A bad reference refuses the whole note (422 `invalid_note_ref`). A
+  reference is fixed once written and is kept as written if it goes stale.
+  Notes are written only by the user and only through `POST`, `PUT` and
+  `DELETE /api/workspaces/{name}/request-notes`, which edit the text of one
+  note (references stay) or remove it, add a revision and a `user` history
+  entry, and need no revision from the caller. A whole-plan write, from the
+  user or the agent, ignores any `notes` it sends and keeps the stored ones,
+  so a plan read earlier cannot delete a note added since. The agent reads them on its
+  next `get_request`, before it writes again. A request saved before notes
+  were a list reads its old `comment` as the first note.
+  A note waits while the request is open, its item is not dropped and the
+  request's last agent write (`agent_wrote_at`) is not later than the note's
+  `at`; the agent's next `set_request` answers every note waiting then.
   Nothing is sent when one is saved, unless a Claude Code session is open
   with [the notes channel](MCP.md#the-notes-channel), which tells that
-  session about each note as it is saved.
+  session about each note as it is saved, with its references.
 - **Keys** (request ids and item keys) match `^[a-z0-9][a-z0-9-]{0,63}$`.
-- **Caps.** Titles 200 characters, prompt and goal 20000, comment 4000;
+- **Caps.** Titles 200 characters, prompt and goal 20000, note 4000;
   `estimate_minutes` 0 to 10000; `arguments` at most 64, scalar values
   only, names as variable names, strings at most 20000. No text carries
   control characters. A workspace holds 100 **open** requests and a request

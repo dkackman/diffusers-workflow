@@ -66,6 +66,8 @@ MAX_ARGUMENTS = 64
 MAX_WORKFLOW_NAME_LENGTH = 200
 MAX_FILE_BYTES = 2 * 1024 * 1024
 MAX_HISTORY = 100
+MAX_NOTES = 20  # live notes of one target: an item, or the request itself
+MAX_NOTE_REFS = 16  # references in one note
 # The list's `cover`: this many result outputs, found among at most
 # COVER_SCAN of a request's latest results - the bound on what one row of a
 # polled list may read
@@ -95,7 +97,7 @@ _ITEM_FIELDS = frozenset(
         "arguments",
         "dropped",
         "accepted",
-        "comment",
+        "notes",
         "status",
         "ready",
         "attempts",
@@ -218,7 +220,38 @@ def _load(root):
         fault = _request_fault(request_id, request)
         if fault:
             raise _unreadable(f"request {str(request_id)[:64]!r} {fault}")
+        _upgrade(request)
     return requests
+
+
+def _upgrade(request):
+    """Bring a stored request to the notes shape, in place, and return it.
+    A stored `comment {text, at}` (the request's, then each item's in plan
+    order) becomes one note `{id, text, created, at}` with `created = at`;
+    `next_note` counts past the ids handed out; `agent_wrote_at` is filled
+    from the latest agent entry in the history when it was never stored.
+    Idempotent, and `comment` is never written again."""
+    request.setdefault("next_note", 1)
+    for owner in (request, *request["items"]):
+        comment = owner.pop("comment", None)
+        owner.setdefault("notes", [])
+        if isinstance(comment, dict) and comment.get("text"):
+            at = comment.get("at")
+            owner["notes"].append(
+                {
+                    "id": f"n{request['next_note']}",
+                    "text": comment["text"],
+                    "created": at,
+                    "at": at,
+                }
+            )
+            request["next_note"] += 1
+    if "agent_wrote_at" not in request:
+        agent = [
+            h.get("at") for h in request.get("history") or [] if h.get("by") == "agent"
+        ]
+        request["agent_wrote_at"] = agent[-1] if agent else None
+    return request
 
 
 def read_requests(root):
@@ -354,6 +387,59 @@ def _jobs_by_item(jobs):
     return grouped
 
 
+def _positions(jobs):
+    """Each linked job's `(item, attempt, held)`: its item, its 1-based
+    place among `jobs` (the attempts of one item, oldest first), and whether
+    what it made still stands - its run exists, or it is queued or running
+    and has opened no run yet."""
+    return {
+        job.get("job"): (job.get("item"), place, _held(job))
+        for place, job in enumerate(jobs, 1)
+    }
+
+
+def _held(job):
+    if job.get("run_exists"):
+        return True
+    return not job.get("run_dir") and job.get("status") in ("queued", "running")
+
+
+def _read_ref(ref, positions, live):
+    """One stored reference as read: `attempt` when it names a job (the
+    job's 1-based place among its item's attempts, null when the job is no
+    longer linked to that item), and `gone: True` when its item is not in
+    `live` (dropped or out of the plan), or its job is unlinked, or its run
+    is gone (a job that opened a run since removed, or ended with none)."""
+    gone = ref.get("item") not in live
+    out = dict(ref)
+    if "job" in ref:
+        item, attempt, held = positions.get(ref["job"], (None, None, False))
+        if item != ref.get("item"):
+            attempt, held = None, False
+        out["attempt"] = attempt
+        gone = gone or not held
+    if gone:
+        out["gone"] = True
+    return out
+
+
+def _noted(notes, positions, live):
+    """The notes as read, each reference in a note's `refs` enriched by
+    `_read_ref`. `live` is the keys of the items in the plan and not
+    dropped. The stored notes are not changed."""
+    out = []
+    for note in notes or []:
+        if note.get("refs"):
+            refs = [_read_ref(ref, positions, live) for ref in note["refs"]]
+            note = {**note, "refs": refs}
+        out.append(note)
+    return out
+
+
+def _live_keys(items):
+    return {item.get("key") for item in items if not item.get("dropped")}
+
+
 def item_view(item, jobs, ready=False):
     """One item as read, with what its linked `jobs` derive: `status`,
     `ready`, `attempts` (every linked job, oldest first, as `{job, status,
@@ -378,6 +464,7 @@ def item_view(item, jobs, ready=False):
     }
     return {
         **item,
+        "notes": _noted(item.get("notes"), _positions(jobs), _live_keys([item])),
         "status": _item_status(item, jobs),
         "ready": ready,
         "attempts": attempts,
@@ -405,11 +492,21 @@ def _remaining(request, grouped):
 def request_view(request, jobs=()):
     """A stored request as read: every item with its derived fields
     (`item_view`) and the request's `spent_minutes` and `remaining_minutes`.
-    `jobs` are the linked jobs (`{job, item, status, run_id, run_exists,
-    note, created_at, started_at, finished_at, output}`)."""
+    `jobs` are the linked jobs (`{job, item, status, run_id, run_dir,
+    run_exists, note, created_at, started_at, finished_at, output}`)."""
     grouped = _jobs_by_item(jobs)
     ready = _ready(request, grouped)
-    view = {**request, "comment": request.get("comment")}
+    positions = {}
+    for key, group in grouped.items():
+        if key is not None:
+            positions.update(_positions(group))
+    view = {
+        **request,
+        "notes": _noted(
+            request.get("notes"), positions, _live_keys(request.get("items", []))
+        ),
+        "agent_wrote_at": request.get("agent_wrote_at"),
+    }
     view["items"] = [
         item_view(item, grouped.get(item.get("key"), []), item.get("key") in ready)
         for item in request.get("items", [])
@@ -601,43 +698,6 @@ def _arguments(value, key):
     return out
 
 
-def _comment(value, what, existing, by, at):
-    """The comment to store, an item's or the request's own (`what` names
-    which). A user writes it; an agent's write keeps what is there
-    (omitting it, or sending it back unchanged)."""
-    if by != "user":
-        if value is _MISSING or value == existing:
-            return existing
-        if (
-            isinstance(value, dict)
-            and existing
-            and value.get("text") == existing.get("text")
-        ):
-            return existing
-        raise LedgerError(
-            f"{what}: the comment is the user's - an agent's write omits it"
-        )
-    if value is _MISSING:
-        return existing
-    if isinstance(value, dict):
-        unknown = set(value) - {"text", "at"}
-        if unknown:
-            raise LedgerError(
-                f"{what}: comment carries unknown fields {sorted(unknown)}"
-            )
-        value = value.get("text")
-    try:
-        text = clean_note(value)
-    except (NoteTooLong, TypeError) as e:
-        raise LedgerError(f"{what} comment: {e}") from e
-    if text is None:
-        return None
-    _text(text, f"{what} comment", len(text) or 1)
-    if existing and existing.get("text") == text:
-        return existing
-    return {"text": text, "at": at}
-
-
 def _accepted(value, key, existing, linked):
     if value is None:
         return None
@@ -662,9 +722,6 @@ def _accepted(value, key, existing, linked):
         f"item {key!r}: job {job!r} is not linked to this request and item, "
         "so it cannot be accepted"
     )
-
-
-_MISSING = object()
 
 
 def _check_dependencies(items):
@@ -713,7 +770,19 @@ def _no_links(_request_id, _key):
 
 
 _BODY_FIELDS = frozenset(
-    ("title", "goal", "items", "revision", "why", "prompt", "state", "purge", "comment")
+    (
+        "title",
+        "goal",
+        "items",
+        "revision",
+        "why",
+        "prompt",
+        "state",
+        "purge",
+        "notes",
+        "next_note",
+        "agent_wrote_at",
+    )
 )
 
 
@@ -746,7 +815,6 @@ def _check_body(body):
         raise LedgerError("purge must be a list of item keys")
     return {
         "purge": [_key(key, "purge key") for key in purge],
-        "comment": body.get("comment", _MISSING),
         "revision": revision,
         "title": _text(body.get("title"), "title", MAX_TITLE_LENGTH, one_line=True),
         "goal": _text(body.get("goal"), "goal", MAX_TEXT_LENGTH, allow_empty=True),
@@ -841,13 +909,7 @@ def _item(raw, key, previous, linked, by, at):
         "accepted": _accepted(
             raw.get("accepted"), key, previous.get("accepted"), linked
         ),
-        "comment": _comment(
-            raw.get("comment", _MISSING),
-            f"item {key!r}",
-            previous.get("comment"),
-            by,
-            at,
-        ),
+        "notes": list(previous.get("notes") or []),
     }
 
 
@@ -930,8 +992,7 @@ def put_request(
     """Write one request's whole plan and return its view.
 
     `body` holds title, goal, items, revision and why, and optionally
-    prompt, state, `comment` (the user's note on the whole request, by the
-    item comment's rules) and `purge` (keys of items this plan leaves out,
+    prompt, state and `purge` (keys of items this plan leaves out,
     removed for good even though jobs link to them). `linked_jobs(request_id, key)` lists the jobs linked
     to an item as `{job, status, run_id}`; `accepted` must name one of them
     that succeeded. `jobs_for(request_id)` lists every job linked to the request, for
@@ -963,9 +1024,11 @@ def put_request(
             "revision": revision,
             "prompt": current.get("prompt") if current else write["prompt"],
             "goal": write["goal"],
-            "comment": _comment(
-                write["comment"], "request", (current or {}).get("comment"), by, at
-            ),
+            "notes": list((current or {}).get("notes") or []),
+            "next_note": (current or {}).get("next_note", 1),
+            "agent_wrote_at": at
+            if by == "agent"
+            else (current or {}).get("agent_wrote_at"),
             "items": _merge_items(
                 write["items"],
                 current,
@@ -990,6 +1053,207 @@ def put_request(
             )
         write_json_atomic(ledger_path(root), document)
     return request_view(request, jobs_for(request_id))
+
+
+def _note_target(requests, request_id, item):
+    """The stored request and the note list a note belongs on: the item's
+    when `item` is given, else the request's."""
+    request = requests.get(request_id)
+    if request is None:
+        raise LedgerError(
+            f"no request {request_id!r} in this workspace",
+            status=404,
+            code="unknown_request",
+        )
+    if item is None:
+        request["notes"] = request.get("notes") or []
+        return request, request["notes"]
+    for stored in request["items"]:
+        if stored.get("key") == item:
+            if stored.get("dropped"):
+                raise LedgerError(
+                    f"item {item!r} of request {request_id!r} was dropped",
+                    status=422,
+                    code="item_dropped",
+                )
+            stored["notes"] = stored.get("notes") or []
+            return request, stored["notes"]
+    raise LedgerError(
+        f"request {request_id!r} has no item {item!r}",
+        status=422,
+        code="unknown_item",
+    )
+
+
+def _find_note(request, note_id):
+    """The note list holding `note_id` and the note, in the request or in
+    any of its items."""
+    for notes in (request.get("notes"), *(i.get("notes") for i in request["items"])):
+        for note in notes or []:
+            if note.get("id") == note_id:
+                return notes, note
+    raise LedgerError(
+        f"request {request['id']!r} has no note {note_id!r}",
+        status=404,
+        code="unknown_note",
+    )
+
+
+def _note_text(text):
+    try:
+        cleaned = clean_note(text)
+    except (TypeError, NoteTooLong) as e:
+        raise LedgerError(str(e)) from e
+    if cleaned is None:
+        raise LedgerError("a note needs text - delete it to remove it")
+    return cleaned
+
+
+def _noted_write(root, requests, request, why):
+    """Record a note write by the user: bump the revision, add its history
+    entry, check the file's size and save. Returns the new revision."""
+    at = _now()
+    request["revision"] += 1
+    history = (request.get("history") or []) + [
+        {"revision": request["revision"], "at": at, "by": "user", "why": why}
+    ]
+    if len(history) > MAX_HISTORY:
+        history = history[:1] + history[-(MAX_HISTORY - 1) :]
+    request["history"] = history
+    document = {"requests": requests}
+    size = len(json.dumps(document, indent=2).encode("utf-8"))
+    if size > MAX_FILE_BYTES:
+        raise LedgerError(
+            f"{REQUESTS_FILE_NAME} would be {size} bytes, past its "
+            f"{MAX_FILE_BYTES}-byte cap - shorten the note or delete a closed "
+            "request",
+            status=413,
+            code="ledger_too_large",
+        )
+    write_json_atomic(ledger_path(root), document)
+    return request["revision"]
+
+
+def _need_root(root):
+    if root is None:
+        raise LedgerError(
+            "this workspace has no root folder, so it cannot hold requests",
+            status=409,
+            code="no_workspace_root",
+        )
+
+
+def _note_refs(request, item, refs):
+    """A new note's references as `{item, job?, output?}`, checked against
+    the plan and with duplicates collapsed in first order. An item note's
+    references default to and must name its item; each item must be in the
+    plan and not dropped; `output` needs `job`. Raises LedgerError
+    (`too_many_refs`, `invalid_note_ref`)."""
+    refs = list(refs or [])
+    if len(refs) > MAX_NOTE_REFS:
+        raise LedgerError(
+            f"at most {MAX_NOTE_REFS} references fit in one note, not {len(refs)}",
+            status=422,
+            code="too_many_refs",
+        )
+    live = _live_keys(request["items"])
+    out = []
+    for ref in refs:
+        given = {k: ref[k] for k in ("item", "job", "output") if ref.get(k) is not None}
+        ref = {"item": item, **given}
+        where = ref["item"]
+        if not isinstance(where, str):
+            raise _bad_ref("a request note's reference names its item")
+        if item is not None and where != item:
+            raise _bad_ref(
+                f"a note on item {item!r} references only that item, not {where!r}"
+            )
+        if where not in live:
+            raise _bad_ref(
+                f"item {where!r} of request {request['id']!r} is not in the plan "
+                "or was dropped"
+            )
+        if "output" in ref and "job" not in ref:
+            raise _bad_ref("a reference names `output` only with its `job`")
+        if ref not in out:
+            out.append(ref)
+    return out
+
+
+def _bad_ref(why):
+    return LedgerError(why, status=422, code="invalid_note_ref")
+
+
+def add_note(root, request_id, *, item, text, refs, check_ref):
+    """Add one user note to an item (or to the request when `item` is None)
+    and answer `{note, revision}`. `refs` is a list of `{item?, job?,
+    output?}` (see `_note_refs`); `check_ref(request_id, ref)` is called
+    once per reference, after its item is filled in, and answers the
+    reference to store or raises LedgerError (`invalid_note_ref`); the
+    ledger reads no jobs itself. One refused reference refuses the note.
+
+    Raises LedgerError (`unknown_request`, `unknown_item`, `item_dropped`,
+    `too_many_notes`, `too_many_refs`, `invalid_note_ref`), or OSError when
+    the file cannot be written."""
+    _need_root(root)
+    _key(request_id, "Request id")
+    text = _note_text(text)
+    with _writing(root):
+        requests = _load(root)
+        request, notes = _note_target(requests, request_id, item)
+        if len(notes) >= MAX_NOTES:
+            raise LedgerError(
+                f"at most {MAX_NOTES} notes fit on one request or item - "
+                "delete one first",
+                status=422,
+                code="too_many_notes",
+            )
+        stored = [check_ref(request_id, ref) for ref in _note_refs(request, item, refs)]
+        at = _now()
+        note = {
+            "id": f"n{request['next_note']}",
+            "text": text,
+            "created": at,
+            "at": at,
+            **({"refs": stored} if stored else {}),
+        }
+        request["next_note"] += 1
+        notes.append(note)
+        revision = _noted_write(root, requests, request, "note added")
+    return {"note": note, "revision": revision}
+
+
+def edit_note(root, request_id, note_id, text):
+    """Change one note's text and answer `{note, revision}`. `at` moves to
+    now, `created` and `refs` stay. The same text is a no-op: the note and the
+    current revision come back and nothing is written."""
+    _need_root(root)
+    _key(request_id, "Request id")
+    text = _note_text(text)
+    with _writing(root):
+        requests = _load(root)
+        request, _ = _note_target(requests, request_id, None)
+        _, note = _find_note(request, note_id)
+        if note["text"] == text:
+            return {"note": note, "revision": request["revision"]}
+        note["text"] = text
+        note["at"] = _now()
+        revision = _noted_write(root, requests, request, "note edited")
+    return {"note": note, "revision": revision}
+
+
+def delete_note(root, request_id, note_id):
+    """Remove one note and answer `{revision}`. Its id is not handed out
+    again."""
+    _need_root(root)
+    _key(request_id, "Request id")
+    with _writing(root):
+        requests = _load(root)
+        request, _ = _note_target(requests, request_id, None)
+        notes, note = _find_note(request, note_id)
+        notes.remove(note)
+        revision = _noted_write(root, requests, request, "note removed")
+    return {"revision": revision}
 
 
 def delete_request(root, request_id, revision, *, jobs_for=_no_jobs):

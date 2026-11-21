@@ -1872,7 +1872,7 @@ async def test_a_malformed_request_filter_is_refused_before_any_call(tool):
 
 
 @pytest.mark.asyncio
-async def test_set_request_purges_and_never_writes_the_users_comment():
+async def test_set_request_purges_and_never_writes_the_users_notes():
     sent = []
 
     def handler(request):
@@ -1892,18 +1892,19 @@ async def test_set_request_purges_and_never_writes_the_users_comment():
     await server.call_tool("set_request", {**plan, "purge": ["a", "b"]})
 
     assert "purge" not in sent[0] and sent[1]["purge"] == ["a", "b"]
-    assert all("comment" not in body and body["by"] == "agent" for body in sent)
+    assert all("notes" not in body and body["by"] == "agent" for body in sent)
     tools = await tools_of(server)
+    assert "notes" not in tools["set_request"].input_schema["properties"]
     assert "comment" not in tools["set_request"].input_schema["properties"]
 
 
 @pytest.mark.asyncio
 async def test_set_request_names_what_an_agent_reads_and_writes_on_an_item():
-    """`accepted` is how a keeper is recorded and the comments are what the
+    """`accepted` is how a keeper is recorded and the notes are what the
     user said: an agent that reads neither in the description never looks."""
     tools = await tools_of(server_over(ok({})))
     doc = tools["set_request"].description
-    for word in ("accepted", "comment", "purge", "revision"):
+    for word in ("accepted", "notes", "purge", "revision"):
         assert word in doc, word
     assert 'get_guide("workspaces", section="Requests")' in doc
 

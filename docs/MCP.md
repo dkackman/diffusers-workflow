@@ -164,15 +164,40 @@ items in the web UI ([WORKSPACES.md](WORKSPACES.md#requests)), nothing is
 sent anywhere: the agent reads the note the next time it reads the plan. The
 notes channel closes that gap for an open Claude Code session. It is a
 second, small stdio process, `dw-mcp --notes-channel`, that watches one
-workspace's requests and tells the session about each note as it is saved:
+workspace's requests and tells the session about each note as it is saved.
 
-    <channel source="dw-notes" kind="note" workspace="default" request="lighthouse-short" item="shot3" revision="12">
-    Note from the user on request "lighthouse-short", item "shot3" (Shot 3: lamp room), saved 2026-11-20 14:02 UTC:
+A note can carry references to the items, takes and files it is about, so the
+event says which. This one was written from the request page and names two
+items, one of them a take and a file:
 
-    this one has off lipsync - reroll it and recreate the final piece
+    <channel source="dw-notes" kind="note" workspace="default" request="lighthouse-short" revision="12" note="n3" created="2026-11-21T13:02:11Z" items="shot3,shot5">
+    Note from the user on request "lighthouse-short", saved 2026-11-21 13:02 UTC, about:
+    - item "shot3" (Shot 3: lamp room), take 2 of 3 (job j_8f2c), file "lighthouse/run_41/final/shot3.mp4" (video)
+    - item "shot5" (Shot 5: the keeper), not rendered yet
+
+    lipsync drifts after 2s - reroll this one
 
     Read the request with get_request("lighthouse-short", workspace="default") and act on the note; say what you did in the "why" of your next set_request.
     </channel>
+
+The first line says who, which request (and item, for a note written on an
+item), when it was first saved and, once its text has been edited, `, edited`
+and when. A note with no references ends that line with a colon and has no
+list. Each reference is one line: the item and its title, then either "not
+rendered yet", or the take (its place among the item's jobs, oldest first)
+with its job id and, when it names one, the file as the gallery names it
+(relative to the workspace's outputs, never a path on the server) and its
+kind. A reference that has gone stale since the note was saved says so:
+"(dropped from the plan)" (an item-only reference then drops "not rendered
+yet"), "(no longer a take of this item)" when its job is no longer linked to
+that item, or "(that job's run no longer exists)". A job still queued, or
+running before its run opens, is not stale.
+
+The tag's attributes are the event's `meta`: `kind` (`note`), `workspace`,
+`request`, `revision`, `note` (the note's id, unique within the request),
+`created` (when it was first saved), `item` (only for a note written on an
+item) and `items` (the item keys its references name, comma separated, only
+when it has any). Every value is a string.
 
 It uses Claude Code [channels](https://code.claude.com/docs/en/channels-reference),
 a **research preview**: the flag, the capability and the notification below
@@ -196,12 +221,14 @@ saved while no session is open waits as it always did.
 - **Which notes.** A note *waits* while its request is open, its item is not
   dropped, and the agent has not written the request since the note was
   saved - the rule behind the page's "Nothing is sent to the agent" line. A
-  waiting note is announced once; edit it and it is announced again. Once
-  the agent has written (`set_request`) it is not announced again.
+  waiting note is announced once, by request, note id and the time of its
+  last text change: edit it and it is announced again; a second note on the
+  same item is a new event, never a replacement of the first. Once the agent
+  has written (`set_request`) it is not announced again.
 - **At connect.** A few seconds after the handshake (one interval, at most
   5 seconds, so Claude Code is listening), notes already waiting are
   announced as one `kind="notes_waiting"` event that lists them (each
-  clipped to 300 characters). Those predate the session, so the agent is told to say what
+  clipped to 300 characters, its references on the lines under it). Those predate the session, so the agent is told to say what
   is waiting and to confirm before spending GPU time on them. A note saved
   after that is a `kind="note"` event, quoted whole (the ledger's 4000
   characters), which the agent acts on.
@@ -216,6 +243,24 @@ saved while no session is open waits as it always did.
   retried, the delay doubling up to five minutes; the process stays up.
   Events are not queued across a restart: a note is either still waiting
   (and in the next session's digest) or answered.
+
+### Is a session listening?
+
+The web UI labels the note's save button by whether a channel is running. The
+channel marks each read of the request list with an `X-DW-Notes-Channel: 1`
+header, and the server remembers, in memory only, when a marked read last
+came for each workspace. `GET /api/workspaces/{name}/notes-channel` answers
+`{listening, last_seen}`: `listening` is true when a marked read came in the
+last 30 seconds (three intervals at the default 10). A server restart
+forgets it until the next read. The button reads **Send to agent** when a
+session is listening and **Save note** when none is; saving works either way.
+
+"Listening" means a session has the channel set up and is polling, nothing
+more. A session started without `--dangerously-load-development-channels`
+still runs the poller, so the page says "listening", but Claude Code drops
+its events and the agent sees the note only when it next reads the plan. The
+server cannot tell the two apart. The header is a hint for the page: anyone
+holding the token can send it, and the worst result is a wrong label.
 
 ### Set it up
 
@@ -279,14 +324,15 @@ for everyone who installed the plugin for its skills.
 ### Whose text it is
 
 A channel puts text in front of the model as an instruction, so what matters
-is who can write it. A note is written through `PUT
-/api/workspaces/{name}/requests/{id}`, and the ledger refuses a comment
-change from an agent's write: the text is from whoever holds that server's
-token - or anyone who can reach it, when it runs without one. **Point the
+is who can write it. A note is written through `POST`, `PUT` and `DELETE
+/api/workspaces/{name}/request-notes`, which only the user's side calls: no
+MCP tool writes a note, and the ledger keeps the stored notes whatever a
+`set_request` sends. The text is from whoever holds that server's token - or
+anyone who can reach it, when it runs without one. **Point the
 channel only at a dw server you control.** Like the tool server it refuses
 to start against a non-loopback `--url` without a token. An event carries
-the workspace's name, the request's id and titles and the note; never a
-path on the server. The channel declares no permission relay: it cannot
+the workspace's name, the request's id and titles, the note, and the job ids
+and gallery names of the files it references; never a path on the server. The channel declares no permission relay: it cannot
 approve a tool call.
 
 ## Tool reference
@@ -374,8 +420,8 @@ isolation on a mounted server passes `workspace=` on every call that takes it.
 | `list_assets(detail=False, workspace=None, limit=50, prefix=None)` | Input media on the server, each with its `asset:` reference, newest first. Entries carry `name`, `reference`, `kind`, `size`, `origin` and any `note`; `detail=true` adds `folder`, `mtime`, `url`, `writable`, and `absolute_url`/`used_by` when set. `prefix` keeps names starting with it (`cast/`); `total` counts all matches. `libraries` and `shadowed` are as in `list_workflows` |
 | `keep_output(name, asset_name=None, overwrite=False, shared=False, workspace=None, note=None)` | Keep a generated file as an input asset under a stable `asset:` name, copied on the server. `asset_name` may name a folder and takes the file's extension when it has none; `shared=true` keeps it in the shared library, where a recurring cast belongs. `note` defaults to the source file's note |
 | `set_note(target, note=None, workspace=None)` | Set the note (plain text, up to 4000 characters) on a run (`<workflow>/<run id>`), an output file, `asset:<name>` or `workspace:<name>`; null or `""` clears it. Returns `{target, note, note_source}`. Listings clip notes to 200 characters (`note_truncated`); `get_job` and `get_gallery_metadata` return them whole, and `get_job` shows the current note |
-| `get_request(request=None, workspace=None)` | Read the workspace's requests ledger (`requests.json` at its root). With no `request`, every request newest change first, with item counts by status, `ready` (items a job could be queued for now) and `cover` (up to three outputs of the latest results); with one, its whole plan: the user's `comment` on it, every item with its `comment` and its derived `status`, `ready`, `attempts`, `result` and `spent_minutes` (from the jobs linked by `run_workflow(request=...)`), the request's `spent_minutes` and `remaining_minutes`, and its history. Each attempt and result carries `output`, `{name, kind}` of the one file that stands for the job - a gallery name the output tools take |
-| `set_request(request, title, goal, items, revision, why, prompt=None, state=None, workspace=None, purge=None)` | Write one request's whole plan against the `revision` it was read at (0 creates it); another revision is refused with `stale_revision` and the current one. `prompt` is the user's ask, set on create only. Items match by `key`: one left out is deleted, or kept as dropped when jobs link to it; `purge` lists dropped keys to remove for good. `why` is one line saying what changed. `state` closes (`done`, `abandoned`) or reopens (`open`). The user's `comment`s, on the request and on an item, are theirs: read them with `get_request` and act on them; this tool never sends one and the server keeps what is there. An item's `accepted` takes `{"job": id}` (or a bare job id): a succeeded job linked to that item - how a keeper is recorded in a request, not `set_note`. `ledger_full` means 100 open requests: close or delete one. See `get_guide("workspaces", section="Requests")` |
+| `get_request(request=None, workspace=None)` | Read the workspace's requests ledger (`requests.json` at its root). With no `request`, every request newest change first, with item counts by status, `ready` (items a job could be queued for now) and `cover` (up to three outputs of the latest results); with one, its whole plan: the user's `notes` on it, every item with its `notes` and its derived `status`, `ready`, `attempts`, `result` and `spent_minutes` (from the jobs linked by `run_workflow(request=...)`), the request's `spent_minutes` and `remaining_minutes`, and its history. Each attempt and result carries `output`, `{name, kind}` of the one file that stands for the job - a gallery name the output tools take |
+| `set_request(request, title, goal, items, revision, why, prompt=None, state=None, workspace=None, purge=None)` | Write one request's whole plan against the `revision` it was read at (0 creates it); another revision is refused with `stale_revision` and the current one. `prompt` is the user's ask, set on create only. Items match by `key`: one left out is deleted, or kept as dropped when jobs link to it; `purge` lists dropped keys to remove for good. `why` is one line saying what changed. `state` closes (`done`, `abandoned`) or reopens (`open`). The user's `notes`, on the request and on an item, are theirs: read them with `get_request` and act on them; this tool never sends one and the server keeps what is there. A note is `{id, text, created, at, refs?}`; each ref is `{item, job?, output?, kind?, attempt?, gone?}`, naming the item, take (`attempt`, 1-based) and file the note is about, and `gone` marks one that no longer exists. An item's `accepted` takes `{"job": id}` (or a bare job id): a succeeded job linked to that item - how a keeper is recorded in a request, not `set_note`. `ledger_full` means 100 open requests: close or delete one. See `get_guide("workspaces", section="Requests")` |
 | `delete_request(request, revision, workspace=None)` | Remove one request from the ledger at the `revision` it was read at (`stale_revision` otherwise). Only the ledger entry goes: every linked job keeps its history row, its `request`/`item` and its files, and the `request` filters still find them. Refused with `request_has_active_jobs` while a linked job is queued or running. Answers `{id, workspace, deleted, revision, linked_jobs}` |
 | `upload_asset(file_path=None, content=None, asset_name=None, shared=False, workspace=None, note=None)` | Put an image, video, audio file or `.cube` LUT into the asset library and get its `asset:` reference. Exactly one of `file_path` (read on the machine running the MCP server, up to 200MB) or `content` (base64 inline, up to 4MB, #203; `asset_name` required). The file is stored under the library's `uploads/`, named `asset_name` when given (`cast/priya-voice.wav`, folders allowed, the extension matching the file's kind) and randomly otherwise; `shared=true` uses the shared library |
 | `delete_asset(name, workspace=None)` | Permanently remove one asset, by the name `list_assets` reports, from whichever library holds it (the workspace's own before the shared one). One from a read-only examples library is refused. A workflow still carrying the reference stops loading |

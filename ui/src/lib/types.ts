@@ -65,6 +65,8 @@ export type GalleryFile = Schemas['GalleryFile']
 export type GalleryList = Schemas['GalleryList']
 export type GalleryMetadata = Schemas['GalleryMetadata']
 export type GalleryInput = Schemas['GalleryInput']
+// A take of a request item that published a gallery file
+export type GalleryLinkedJob = Schemas['GalleryLinkedJob']
 // One finding, as GET /api/gallery/{name}/metadata (`findings`) and
 // /assess send it (dw/assessment_rules.py `finding()`)
 export type LevelFinding = Schemas['LevelFinding']
@@ -87,7 +89,15 @@ export type LedgerDeleted = Schemas['LedgerDeleted']
 export type LedgerItem = Schemas['LedgerItem']
 export type LedgerAttempt = Schemas['LedgerAttempt']
 export type LedgerOutput = Schemas['LedgerOutput']
-export type LedgerComment = Schemas['LedgerComment']
+export type LedgerNote = Schemas['LedgerNote']
+export type LedgerNoteRef = Schemas['LedgerNoteRef']
+// The request-notes routes: a new note, a new text, what they answer, and
+// whether a notes channel is polling the workspace
+export type NoteAdd = Schemas['NoteAdd']
+export type NoteEdit = Schemas['NoteEdit']
+export type NoteWritten = Schemas['NoteWritten']
+export type NoteDeleted = Schemas['NoteDeleted']
+export type NotesChannelState = Schemas['NotesChannelState']
 export type LedgerHistoryEntry = Schemas['LedgerHistoryEntry']
 export type LedgerItemStatus = LedgerItem['status']
 export type PipelineParameter = Schemas['PipelineParameter']
