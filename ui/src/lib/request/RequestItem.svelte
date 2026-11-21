@@ -22,6 +22,8 @@
     type Take,
   } from './itemState'
   import { noteWaiting } from './noteState'
+  import type { ReviewCountdown } from './review.svelte'
+  import { chipText } from './reviewText'
   import { addRef } from './noteRefs'
   import { displayValue } from '../editor'
   import { wsHref } from '../routes'
@@ -42,6 +44,7 @@
     menu,
     notice,
     onaccept,
+    countdown,
   }: {
     row: ItemState
     request: LedgerRequest
@@ -61,6 +64,8 @@
     notice?: Snippet<[ItemState]>
     /** Accept a take as the result (null clears the choice) */
     onaccept?: (take: Take, job: string | null) => void
+    /** The page's review countdowns: what a held row's chip counts down */
+    countdown?: ReviewCountdown
   } = $props()
 
   /** What a row's menu can ask of it */
@@ -76,6 +81,9 @@
   let chosen = $state<boolean | null>(null)
   const open = $derived(chosen ?? opensByDefault(row, waitingNote))
 
+  const held = $derived(
+    row.review ? chipText(row.review, countdown?.left(item.key) ?? null) : null,
+  )
   const figure = $derived(figureOf(row))
   const takes = $derived(takesLine(row))
   const mark = $derived(row.display === 'done' ? resultMark(item) : null)
@@ -145,6 +153,7 @@
           <span class="name">{item.title}</span>
         </button>
         <code class="muted key">{item.key}</code>
+        {#if held}<span class="chip idle held">{held}</span>{/if}
       </div>
       {#if row.display === 'waiting'}
         <p class="sub">waits on {@render refs(row.blockers)}</p>
@@ -366,6 +375,9 @@
   }
   .key {
     font-size: var(--t-xs);
+  }
+  .held {
+    white-space: nowrap;
   }
   .dropped {
     opacity: 0.72;

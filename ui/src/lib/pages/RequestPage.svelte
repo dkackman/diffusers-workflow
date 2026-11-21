@@ -8,7 +8,13 @@
   import RequestHeader from '../request/RequestHeader.svelte'
   import RequestMenu from '../request/RequestMenu.svelte'
   import RunDialog from '../request/RunDialog.svelte'
-  import { itemPlan, readyPlan, type RunPlan } from '../request/runPlan'
+  import {
+    heldPlan,
+    itemPlan,
+    readyPlan,
+    type RunPlan,
+  } from '../request/runPlan'
+  import { ReviewCountdown } from '../request/review.svelte'
   import { goWs } from '../router.svelte'
   import { announce } from '../request/announce'
   import { answeredNow, answeredText, noteItem } from '../request/answered'
@@ -37,6 +43,10 @@
   let said = $state('')
   const ws = $derived(workspace.current)
 
+  // Held items count down from each read the store keeps; one reaching
+  // zero reads the request again (review.svelte.ts)
+  const countdown = new ReviewCountdown(() => void load())
+
   // What the server last said, and the edits not yet written over it
   // (planStore.svelte.ts). The page draws the store's view; every edit is
   // an intent handed to it, applied to the read only when it is sent
@@ -47,6 +57,7 @@
       const news = announce(previous, next)
       if (news) said = news
       readAt = Date.now() / 1000
+      countdown.read(next)
       if (previous)
         for (const note of answeredNow(previous, next)) told(next, note.id)
     },
@@ -261,6 +272,8 @@
           workspace={ws}
           onselect={goTo}
           onreload={load}
+          {countdown}
+          onrunheld={(keys) => (running = heldPlan(plan, keys))}
         >
           {#snippet actions()}
             {#if ready}
@@ -289,6 +302,7 @@
           onsay={(text) => (said = text)}
           onsee={seeChanges}
           onrun={(key) => (running = itemPlan(plan, key))}
+          {countdown}
         />
       </div>
 

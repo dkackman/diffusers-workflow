@@ -562,3 +562,22 @@ it('a dropped item offers no "Note this take"', async () => {
   await fireEvent.click(title('Shot 3'))
   expect(screen.queryByRole('button', { name: /^Note take/ })).toBeNull()
 })
+
+it('marks a held row with a chip: its countdown, a note left, or time up', () => {
+  const hold = (state: 'holding' | 'redirected' | 'due') =>
+    item('a', {
+      ready: true,
+      review: { until: '2026-11-21T12:00:00+00:00', state, seconds_left: 125 },
+    })
+  const chip = (state: 'holding' | 'redirected' | 'due') => {
+    const { container, unmount } = render(RequestItem, props([hold(state)]))
+    const text = container.querySelector('.chip.held')?.textContent
+    unmount()
+    return text
+  }
+  expect(chip('holding')).toBe('held · 02:05')
+  expect(chip('redirected')).toBe('held · note left')
+  expect(chip('due')).toBe('review time up')
+  const { container } = render(RequestItem, props([item('a')]))
+  expect(container.querySelector('.chip.held')).toBeNull()
+})

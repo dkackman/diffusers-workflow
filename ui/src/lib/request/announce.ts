@@ -3,6 +3,7 @@
 // first read says nothing - there is no change to announce.
 import type { LedgerRequest } from '../types'
 import { planState, type ItemDisplay, type ItemState } from './itemState'
+import { holdGroup, holdNews } from './reviewText'
 
 /** More changes than this in one refresh are counted, not listed */
 const MAX_SENTENCES = 3
@@ -46,12 +47,18 @@ export function announce(
   next: LedgerRequest,
 ): string {
   if (!previous || previous.id !== next.id) return ''
-  const before = new Map(
-    planState(previous).items.map((state) => [state.item.key, state]),
-  )
-  const said = planState(next)
-    .items.map((state) => itemChange(before.get(state.item.key), state))
+  const was = planState(previous)
+  const now = planState(next)
+  const before = new Map(was.items.map((state) => [state.item.key, state]))
+  const said = now.items
+    .map((state) => itemChange(before.get(state.item.key), state))
     .filter((sentence): sentence is string => sentence !== null)
+  // The review banner's state, said once when it changes (ahead of the
+  // item changes, so a busy refresh does not count it away); its
+  // countdown ticks on the page, never here
+  const hold = holdGroup(now.held)
+  if (hold && hold.state !== holdGroup(was.held)?.state)
+    said.unshift(holdNews(hold))
   if (previous.state !== next.state) said.unshift(STATE[next.state])
   if (said.length <= MAX_SENTENCES) return said.join(' ')
   const more = said.length - MAX_SENTENCES

@@ -8,7 +8,14 @@
   import Modal from '../ui/Modal.svelte'
   import Skeleton from '../ui/Skeleton.svelte'
   import type { PlanState } from './itemState'
-  import { afterwardsLine, planNotes, planSaid, type RunPlan } from './runPlan'
+  import { listening } from './listening.svelte'
+  import {
+    afterwardsLine,
+    heldLine,
+    planNotes,
+    planSaid,
+    type RunPlan,
+  } from './runPlan'
   import { RunQueue, type RunRow } from './runQueue.svelte'
 
   // The one way this page spends GPU time: every item priced before the
@@ -92,6 +99,15 @@
   )
   const n = $derived(queue.chosen.length)
 
+  // A held item says that running it is the go-ahead, read off the plan
+  // as it is now: its review may end while the dialog is open
+  const channel = $derived(listening(workspace))
+  const held = (key: string) =>
+    heldLine(
+      plan.live.find((state) => state.item.key === key)?.review ?? null,
+      channel.listening,
+    )
+
   const quote = (row: RunRow) => describeEstimate(row.plan?.estimate ?? null)
   const said = (row: RunRow) =>
     planSaid(row.candidate.planMinutes, row.plan?.estimate.minutes)
@@ -118,6 +134,7 @@
       <ul class="rows" aria-label="Will run">
         {#each rows as row (row.candidate.key)}
           {@const item = row.candidate}
+          {@const hold = held(item.key)}
           <li class="runrow" data-key={item.key}>
             <div class="who">
               {#if !run.single}
@@ -134,6 +151,15 @@
               <code class="muted">{item.key}</code>
               <code class="flow">{item.workflow}</code>
             </div>
+            {#if hold}
+              <p class="held" class:warn={hold.tone === 'warn'}>
+                {#if hold.tone === 'warn'}<TriangleAlert
+                    size={13}
+                    aria-hidden="true"
+                  />{/if}
+                <span>{hold.text}</span>
+              </p>
+            {/if}
             <div class="quote">
               {#if row.state === 'pricing'}
                 <Skeleton lines={1} label="pricing {item.title}" />
@@ -296,8 +322,14 @@
     align-items: center;
     gap: var(--space-1) var(--space-2);
   }
-  .quote :global(svg) {
+  .quote :global(svg),
+  .held :global(svg) {
     flex: none;
+  }
+  .held {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1) var(--space-2);
   }
   .quote span {
     min-width: 0;

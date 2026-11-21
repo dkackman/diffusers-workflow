@@ -4,7 +4,10 @@
   import RequestProgress from './RequestProgress.svelte'
   import StateTag from './StateTag.svelte'
   import { CHIP, type PlanState } from './itemState'
+  import { listening } from './listening.svelte'
   import { notesWaiting } from './noteState'
+  import type { ReviewCountdown } from './review.svelte'
+  import { bannerText, holdGroup, runNowKeys } from './reviewText'
   import { standing } from './standing'
   import { formatMinutes, formatSpent } from '../format'
   import { requestQuery } from '../requestFilter'
@@ -22,6 +25,8 @@
     onreload,
     actions,
     menu,
+    countdown,
+    onrunheld,
   }: {
     request: LedgerRequest
     plan: PlanState
@@ -33,6 +38,10 @@
     actions?: Snippet
     /** Beside the state: the request's own menu */
     menu?: Snippet
+    /** The page's review countdowns, anchored to its reads */
+    countdown?: ReviewCountdown
+    /** Open the run dialog for these held items: "Run now…" */
+    onrunheld?: (keys: string[]) => void
   } = $props()
 
   const stand = $derived(standing(request, plan))
@@ -46,6 +55,29 @@
     })),
   )
   const open = $derived(request.state === 'open')
+
+  // The review banner: one for the request, worded by its most urgent
+  // hold and by whether a session listens. Its digits tick, so it is not a
+  // live region: the page announces a change of its state once
+  const channel = $derived(listening(workspace))
+  const hold = $derived(holdGroup(plan.held))
+  const counting = $derived(
+    plan.held.some((r) => r.review?.state === 'holding'),
+  )
+  $effect(() => {
+    if (counting && countdown) return countdown.hold()
+  })
+  const left = $derived(
+    hold
+      ? (countdown?.left(hold.first.item.key) ??
+          hold.first.review?.seconds_left ??
+          0)
+      : 0,
+  )
+  const banner = $derived(
+    hold ? bannerText(hold, channel.listening, left) : null,
+  )
+  const runNow = $derived(hold ? runNowKeys(hold, channel.listening) : [])
 </script>
 
 <header class="reqhead">
@@ -86,6 +118,17 @@
       its outputs
     </a>
   </div>
+
+  {#if banner}
+    <div class="panel hold" data-state={hold?.state}>
+      <p>{banner}</p>
+      {#if runNow.length && onrunheld}
+        <button type="button" class="quiet" onclick={() => onrunheld(runNow)}>
+          Run now…
+        </button>
+      {/if}
+    </div>
+  {/if}
 
   <NoteList
     notes={request.notes}
@@ -146,6 +189,18 @@
     gap: 0 var(--space-4);
     font-size: var(--t-sm);
     color: var(--muted);
+  }
+  .hold {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2) var(--space-4);
+    padding: 0.55rem 0.8rem;
+    font-size: var(--t-sm);
+  }
+  .hold p {
+    flex: 1 1 20rem;
   }
   .actions {
     display: flex;

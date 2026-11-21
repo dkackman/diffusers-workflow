@@ -227,3 +227,76 @@ it('has no filled button of its own, and a place for the one a page hands it', (
     'Run 1 ready…',
   )
 })
+
+const UNTIL = '2026-11-21T15:30:00+00:00'
+const held = (
+  key: string,
+  state: 'holding' | 'redirected' | 'due',
+  over: Partial<LedgerItem> = {},
+) =>
+  item(key, {
+    title: `Shot ${key}`,
+    review: { until: UNTIL, state, seconds_left: 125 },
+    ...over,
+  })
+const banner = (container: HTMLElement) =>
+  container.querySelector('.hold p')?.textContent
+
+it('shows one hold banner, worded by its most urgent state, with Run now for the ready rows', async () => {
+  const onrunheld = vi.fn()
+  const { container } = render(RequestHeader, {
+    ...props([
+      held('a', 'holding', { ready: true }),
+      held('b', 'holding'),
+      held('c', 'redirected'),
+    ]),
+    onrunheld,
+  })
+  await waitFor(() =>
+    expect(banner(container)).toMatch(
+      /^2 items held for your review\. No session is listening, so nothing will run at .+\. Run them here, or leave a note\.$/,
+    ),
+  )
+  expect(container.querySelectorAll('.hold')).toHaveLength(1)
+  // not a live region: its digits would be read out every second
+  expect(container.querySelector('.hold')?.closest('[aria-live]')).toBeNull()
+  await fireEvent.click(screen.getByRole('button', { name: 'Run now…' }))
+  expect(onrunheld).toHaveBeenCalledWith(['a'])
+})
+
+it('has no Run now when no held row is ready, and no banner with nothing held', () => {
+  const { container, unmount } = render(RequestHeader, {
+    ...props([held('b', 'holding')]),
+    onrunheld: vi.fn(),
+  })
+  expect(banner(container)).toMatch(/^1 item held for your review\./)
+  expect(screen.queryByRole('button', { name: 'Run now…' })).toBeNull()
+  unmount()
+  const free = render(RequestHeader, props([item('a', { ready: true })]))
+  expect(free.container.querySelector('.hold')).toBeNull()
+})
+
+it('counts down while a session listens, and says a redirect without a button', async () => {
+  api.notesChannel.mockResolvedValue({ listening: true, last_seen: null })
+  const { container, unmount } = render(RequestHeader, {
+    ...props([held('a', 'holding', { ready: true, estimate_minutes: 3 })]),
+    onrunheld: vi.fn(),
+  })
+  await waitFor(() =>
+    expect(banner(container)).toMatch(
+      /^1 item held for your review \(about 3 min by the agent's estimate\)\. A session is listening: it runs at .+ \(in 02:05\) unless you leave a note\.$/,
+    ),
+  )
+  expect(screen.getByRole('button', { name: 'Run now…' })).toBeTruthy()
+  unmount()
+  const redirected = render(RequestHeader, {
+    ...props([held('a', 'redirected', { ready: true })]),
+    onrunheld: vi.fn(),
+  })
+  expect(banner(redirected.container)).toBe(
+    'You left a note after these were held: the agent will revise before running.',
+  )
+  expect(screen.queryByRole('button', { name: 'Run now…' })).toBeNull()
+  redirected.unmount()
+  api.notesChannel.mockResolvedValue({ listening: false, last_seen: null })
+})
