@@ -366,8 +366,8 @@ def review_event(due, workspace, stale=False):
             f'run_workflow(request="{request}/<key>", acknowledged_cost=<the '
             "plan you quoted>). If a run is refused for a changed plan, or "
             "validate_workflow now quotes a figure well off what you told the "
-            "user, do not run it: set a new review_until with the new quote "
-            "in the why."
+            "user, do not run it and do not hold again: clear its "
+            "review_until and put the new figure in the why."
         )
     lines = []
     for item in due:
@@ -424,8 +424,9 @@ class NoteWatch:
     keyed by its note id and `at` (an edited note is announced again, one
     the agent has written after never is), and each due item once per
     `(item, review_until)`, after the notes of the same poll. A due hold is
-    stale when it was already on the item the first time this watch read that
-    request, fresh when it was set on a later read.
+    stale when it was already on the item the first time this watch read a
+    request that the first listing held, fresh otherwise (a request that first
+    appears in a later listing was created, hold and all, while the watch ran).
     """
 
     def __init__(self, workspace=None, clock=time.monotonic):
@@ -438,6 +439,7 @@ class NoteWatch:
         self._due_at = {}  # request id -> clock moment its earliest hold runs out
         self._due_told = {}  # request id -> {(item, review_until)} announced
         self._inherited = {}  # request id -> {(item, review_until)} held at first read
+        self._first_ids = None  # open request ids in the first listing read
 
     def _read_due(self, request_id, stamp):
         """Whether `request_id` must be read again: its stamp moved, or its
@@ -457,6 +459,12 @@ class NoteWatch:
         if listing.get("unreadable"):
             raise DwApiError(str(listing["unreadable"]))
         fresh, reviews, open_ids = [], [], set()
+        if self._first_ids is None:
+            self._first_ids = {
+                row.get("id")
+                for row in listing.get("requests") or []
+                if row.get("state") == "open"
+            }
         for row in listing.get("requests") or []:
             if row.get("state") != "open":
                 continue
@@ -476,10 +484,11 @@ class NoteWatch:
             fresh += [n for n in waiting if (n["note"], n["at"]) not in told]
             self._announced[request_id] = {(n["note"], n["at"]) for n in waiting}
             if request_id not in self._inherited:
+                held = request_id in self._first_ids
                 self._inherited[request_id] = {
                     (item.get("key"), item["review_until"])
                     for item in request.get("items") or []
-                    if not item.get("dropped") and item.get("review_until")
+                    if held and not item.get("dropped") and item.get("review_until")
                 }
             inherited = self._inherited[request_id]
             due = due_reviews(request)

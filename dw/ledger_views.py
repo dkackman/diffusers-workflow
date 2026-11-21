@@ -189,7 +189,8 @@ def _moment(text):
 def _review(item, notes, now):
     """The hold on a planned item of an open request, `{until, state,
     seconds_left}`: `redirected` when a note (the item's or the request's,
-    in `notes`) is at or after the moment the hold was set, else `due` once
+    in `notes`) is at or after the moment the hold was set (any note, when
+    the stamp is missing or unreadable), else `due` once
     `now` reaches the deadline, else `holding`. None when the item has no
     readable hold. `seconds_left` is whole and never negative."""
     until = _moment(item.get("review_until"))
@@ -198,8 +199,9 @@ def _review(item, notes, now):
     set_at = _moment(item.get("review_set_at"))
     now = now or datetime.now(timezone.utc)
     left = max(int((until - now).total_seconds()), 0)
-    if set_at is not None and any(
-        (at := _moment(note.get("at"))) is not None and at >= set_at for note in notes
+    if any(
+        set_at is None or ((at := _moment(note.get("at"))) is not None and at >= set_at)
+        for note in notes
     ):
         state = "redirected"
     else:
@@ -240,8 +242,10 @@ def item_view(item, jobs, ready=False, request_notes=(), state="open", now=None)
     )
     return {
         **item,
-        "review_until": item.get("review_until"),
-        "review_set_at": item.get("review_set_at"),
+        **{
+            field: item.get(field) if isinstance(item.get(field), str) else None
+            for field in ("review_until", "review_set_at")
+        },
         "notes": _noted(item.get("notes"), _positions(jobs), _live_keys([item])),
         "status": status,
         "ready": ready,

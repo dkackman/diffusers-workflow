@@ -234,14 +234,31 @@ def test_a_client_sent_review_set_at_and_review_are_ignored(tmp_path, clock):
     assert "review" not in stored(tmp_path)
 
 
-def test_a_hold_without_review_set_at_is_not_redirected(tmp_path, clock):
+def test_a_hold_without_review_set_at_is_redirected_by_any_note(tmp_path, clock):
     hold(tmp_path, clock)
     clock.at(T0 + timedelta(minutes=5))
     note(tmp_path)
     request = ledger._load(str(tmp_path))["cats"]
     del request["items"][0]["review_set_at"]
     got = ledger.request_view(request, now=T0 + timedelta(minutes=6))["items"][0]
+    assert got["review"]["state"] == "redirected"
+    request["items"][0]["notes"] = []
+    request["notes"] = []
+    got = ledger.request_view(request, now=T0 + timedelta(minutes=6))["items"][0]
     assert got["review"]["state"] == "holding"
+
+
+def test_a_hand_edited_non_string_hold_reads_as_none(tmp_path, clock):
+    from dw.server.api_models_library import LedgerRequest
+
+    hold(tmp_path, clock)
+    request = ledger._load(str(tmp_path))["cats"]
+    request["items"][0]["review_until"] = 5
+    request["items"][0]["review_set_at"] = 7
+    view = ledger.request_view(request, now=T0)
+    got = LedgerRequest.model_validate(view)
+    assert got.items[0].review_until is None
+    assert got.items[0].review_set_at is None
 
 
 def test_a_request_stored_before_the_hold_still_reads(tmp_path, clock):

@@ -687,7 +687,8 @@ def test_a_due_ready_hold_is_announced_once(client, clock, mono):
         'run_workflow(request="lighthouse/<key>", acknowledged_cost=<the plan '
         "you quoted>). If a run is refused for a changed plan, or "
         "validate_workflow now quotes a figure well off what you told the user, "
-        "do not run it: set a new review_until with the new quote in the why."
+        "do not run it and do not hold again: clear its review_until and put "
+        "the new figure in the why."
     )
     assert event["meta"] == {
         "kind": "review_due",
@@ -931,3 +932,16 @@ def test_one_request_splits_into_a_stale_and_a_fresh_event(client, clock, mono):
     stale, fresh = watch.poll(client)
     assert stale["meta"]["items"] == "shot1" and stale["meta"]["stale"] == "1"
     assert fresh["meta"]["items"] == "shot2" and "stale" not in fresh["meta"]
+
+
+def test_a_hold_set_in_the_write_that_creates_its_request_is_fresh(client, clock, mono):
+    client.now = moment(0)
+    watch = watching(client, mono)  # the first listing: no request yet
+    held_plan(client, 10, request_id="newer")
+    client.now = moment(11)
+    mono.t += 11 * 60
+    (event,) = watch.poll(client)
+    assert "stale" not in event["meta"]
+    assert event["content"].startswith(
+        'Review time is up on request "newer" with no note from the user.'
+    )
