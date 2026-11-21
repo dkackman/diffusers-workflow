@@ -7,6 +7,7 @@ read at, so two writers cannot silently overwrite each other; the server's
 refusal says which revision is current.
 """
 
+import time
 from datetime import datetime, timezone
 
 from dw_mcp.client import DwApiError, api_path
@@ -318,6 +319,90 @@ def waiting_event(notes, workspace):
     return {"content": "\n\n".join([head, "\n".join(lines), tail]), "meta": meta}
 
 
+def due_reviews(request):
+    """The held items of one open request whose deadline has passed with no
+    note on them and that are ready to run: live items in plan order, as
+    `{request, revision, item, title, until, estimate_minutes}`."""
+    return [
+        {
+            "request": request.get("id"),
+            "revision": request.get("revision"),
+            "item": item.get("key"),
+            "title": item.get("title") or "",
+            "until": item["review"]["until"],
+            "estimate_minutes": item.get("estimate_minutes"),
+        }
+        for item in request.get("items") or []
+        if not item.get("dropped")
+        and (item.get("review") or {}).get("state") == "due"
+        and item.get("ready")
+    ]
+
+
+def review_event(due, workspace, stale=False):
+    """The channel event for one request's due items (`due_reviews`). Fresh,
+    it tells the agent to run what is still ready under the cost it quoted;
+    `stale` (the hold ran out before this session connected) tells it to
+    confirm with the user first. `meta` values are strings."""
+    request = due[0]["request"]
+    if stale:
+        head = (
+            f'Review time passed on request "{request}" before this session '
+            "connected. Held items:"
+        )
+        tail = (
+            "These holds were set before this session, so the user's go-ahead "
+            "may be stale. Tell the user what is waiting and confirm before "
+            "spending GPU time."
+        )
+    else:
+        head = (
+            f'Review time is up on request "{request}" with no note from the '
+            "user. Held items now due:"
+        )
+        tail = (
+            f'Read the request with get_request("{request}", workspace="{workspace}"). '
+            "Run only the items still ready and without a new note, each with "
+            f'run_workflow(request="{request}/<key>", acknowledged_cost=<the '
+            "plan you quoted>). If a run is refused for a changed plan, or "
+            "validate_workflow now quotes a figure well off what you told the "
+            "user, do not run it: set a new review_until with the new quote "
+            "in the why."
+        )
+    lines = []
+    for item in due:
+        minutes = item.get("estimate_minutes")
+        about = f" (about {minutes:g} min)" if minutes else ""
+        lines.append(f"- {item['item']}: {item['title']}{about}")
+    earliest = min(
+        due,
+        key=lambda d: _instant(d["until"]) or datetime.max.replace(tzinfo=timezone.utc),
+    )
+    meta = {
+        "kind": "review_due",
+        "workspace": str(workspace),
+        "request": str(request),
+        "revision": str(due[0]["revision"]),
+        "items": ",".join(str(d["item"]) for d in due),
+        "until": str(earliest["until"]),
+    }
+    if stale:
+        meta["stale"] = "1"
+    return {"content": "\n\n".join([head, "\n".join(lines), tail]), "meta": meta}
+
+
+def _holding_left(request):
+    """Seconds until the earliest still-`holding` item of `request` is due,
+    or None when none is."""
+    left = [
+        item["review"]["seconds_left"]
+        for item in request.get("items") or []
+        if not item.get("dropped")
+        and (item.get("review") or {}).get("state") == "holding"
+    ]
+    return min(left) if left else None
+
+
 def retry_delay(interval, failures):
     """Seconds until the next poll: the interval, doubled for each failed
     poll in a row, up to MAX_BACKOFF_SECONDS."""
@@ -327,22 +412,38 @@ def retry_delay(interval, failures):
 
 
 class NoteWatch:
-    """Which waiting notes one channel process has yet to announce.
+    """Which waiting notes and due review holds one channel process has yet
+    to announce.
 
     `poll` reads the workspace's request list - one call when nothing
-    changed - and each open request whose revision moved since it was last
-    read. The first poll that reaches the server answers with one digest of
-    everything waiting; after it, each note is announced once, keyed by its
-    note id and `at`, so an edited note (a new `at`) is announced
-    again and one the agent has written after never is.
+    changed - and each open request whose stamp (revision, `updated_at`,
+    count of ready items) moved since it was last read, or whose earliest
+    hold has run out on the monotonic `clock` since (a deadline passing
+    changes nothing the list shows). The first poll that reaches the server
+    answers with one digest of every note waiting, then one stale review
+    event per request with due items; after it, each note is announced once,
+    keyed by its note id and `at` (an edited note is announced again, one
+    the agent has written after never is), and each due item once per
+    `(item, review_until)`, after the notes of the same poll.
     """
 
-    def __init__(self, workspace=None):
+    def __init__(self, workspace=None, clock=time.monotonic):
         self.workspace = workspace
         self.fault = None  # why the last poll could not read a request
+        self._clock = clock
         self._started = False
-        self._stamps = {}  # request id -> (revision, updated_at) last read
+        self._stamps = {}  # request id -> (revision, updated_at, ready) last read
         self._announced = {}  # request id -> {(note id, at)} still waiting
+        self._due_at = {}  # request id -> clock moment its earliest hold runs out
+        self._due_told = {}  # request id -> {(item, review_until)} announced
+
+    def _read_due(self, request_id, stamp):
+        """Whether `request_id` must be read again: its stamp moved, or its
+        earliest hold has run out."""
+        if self._stamps.get(request_id) != stamp:
+            return True
+        due_at = self._due_at.get(request_id)
+        return due_at is not None and self._clock() >= due_at
 
     def poll(self, client):
         """The events to send now. Raises DwApiError when the list cannot
@@ -353,14 +454,14 @@ class NoteWatch:
         listing = get_request(client, workspace=name, headers=CHANNEL_HEADER)
         if listing.get("unreadable"):
             raise DwApiError(str(listing["unreadable"]))
-        fresh, open_ids = [], set()
+        fresh, reviews, open_ids = [], [], set()
         for row in listing.get("requests") or []:
             if row.get("state") != "open":
                 continue
             request_id = row.get("id")
             open_ids.add(request_id)
-            stamp = (row.get("revision"), row.get("updated_at"))
-            if self._stamps.get(request_id) == stamp:
+            stamp = (row.get("revision"), row.get("updated_at"), row.get("ready"))
+            if not self._read_due(request_id, stamp):
                 continue
             try:
                 request = get_request(client, request_id, name)
@@ -372,13 +473,27 @@ class NoteWatch:
             told = self._announced.get(request_id, ())
             fresh += [n for n in waiting if (n["note"], n["at"]) not in told]
             self._announced[request_id] = {(n["note"], n["at"]) for n in waiting}
+            due = due_reviews(request)
+            seen = self._due_told.setdefault(request_id, set())
+            new = [d for d in due if (d["item"], d["until"]) not in seen]
+            seen.update((d["item"], d["until"]) for d in new)
+            if new:
+                reviews.append(new)
+            left = _holding_left(request)
+            if left is None:
+                self._due_at.pop(request_id, None)
+            else:
+                self._due_at[request_id] = self._clock() + left
             self._stamps[request_id] = stamp
         for request_id in set(self._stamps) - open_ids:
             del self._stamps[request_id]
             del self._announced[request_id]
+            self._due_at.pop(request_id, None)
+            self._due_told.pop(request_id, None)
         started, self._started = self._started, True
-        if not fresh:
-            return []
         if not started:
-            return [waiting_event(fresh, name)]
-        return [note_event(note, name) for note in fresh]
+            events = [waiting_event(fresh, name)] if fresh else []
+            return events + [review_event(d, name, stale=True) for d in reviews]
+        return [note_event(note, name) for note in fresh] + [
+            review_event(d, name) for d in reviews
+        ]

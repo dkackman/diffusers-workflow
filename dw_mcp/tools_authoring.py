@@ -94,15 +94,15 @@ class WorkspaceTools:
         workspace: str | None = None,
         purge: list[str] | None = None,
     ) -> dict:
-        """Write the whole plan for what the user asked, so it outlives this
-        session. revision: the one you read, 0 to create; stale is refused.
-        prompt: the user's ask, on create only. items: ordered {key, title,
-        depends_on, estimate_minutes, workflow, arguments, accepted}; one
-        left out is dropped. accepted: {job}, the keeper. Act on the user's
-        `notes` (request and items, each may carry `refs` to the takes and
-        files it is about) in what you read; never write them.
-        why: one line. state: open, done or abandoned. purge: dropped keys
-        to remove for good. get_guide("workspaces", section="Requests")."""
+        """Write the whole plan for the user's ask; it outlives this session.
+        revision: the one you read, 0 to create; stale refused.
+        prompt: the user's ask, on create. items: ordered {key, title,
+        depends_on, estimate_minutes, workflow, arguments, accepted,
+        review_until}; one left out is dropped. accepted: {job}, the keeper.
+        review_until: an ISO time until which a planned item is held for the
+        user's review. Act on the user's `notes` (request and items, with
+        `refs`); never write them. why: one line. state: open, done or
+        abandoned. purge: dropped keys to delete. get_guide("workspaces", section="Requests")."""
         return ledger.set_request(
             self.client,
             request,

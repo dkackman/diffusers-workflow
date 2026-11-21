@@ -257,7 +257,7 @@ NOTES_INSTRUCTIONS = (
     '`kind="note"` is one saved just now: act on it. '
     '`kind="notes_waiting"` lists notes saved before this session '
     "connected: say what is waiting and confirm before spending GPU time on "
-    "them.\n"
+    "them. `review_due`: run its items (stale: ask).\n"
     "\n"
     "Before acting, read the current plan with the dw tools' "
     "`get_request(request, workspace)` - the note may have been edited or "
