@@ -15,7 +15,6 @@
     LISTENING_LINE,
     NEEDS_WORDS,
     NOT_LISTENING_LINE,
-    NOT_SENT,
     type NoteLine,
   } from './noteState'
   import type { LedgerNote, LedgerNoteRef } from '../types'
@@ -216,8 +215,6 @@
 {#if note || editable}
   <div class="note">
     {#if editing}
-      {@render chips()}
-      {@render extra?.()}
       <textarea
         bind:this={box}
         bind:value={draft}
@@ -226,8 +223,19 @@
         aria-label={note
           ? `Edit your note for the agent on ${about}`
           : `Note for the agent on ${about}`}
-        placeholder="What should change?"
+        placeholder="What should the agent change?"
         onkeydown={keys}></textarea>
+      {#if refs.length || extra}
+        <div class="about">
+          <span class="aboutlabel">About</span>
+          {#if refs.length}
+            {@render chips()}
+          {:else}
+            <span class="muted">{about}</span>
+          {/if}
+          {@render extra?.()}
+        </div>
+      {/if}
       {#if wordless && refs.length}
         <p class="hint">{NEEDS_WORDS}</p>
       {/if}
@@ -240,7 +248,7 @@
       <div class="actions">
         <button
           type="button"
-          class="quiet"
+          class="quiet send"
           onclick={save}
           disabled={saving || wordless}
           title="Ctrl+Enter"
@@ -252,13 +260,17 @@
         </button>
       </div>
     {:else}
+      <!-- A new note's references show only in its open box: closed, a
+        chip would read as a note already sent -->
       {#if note}
         <p class="text">{note.text}</p>
-        {@render chips()}
+        {#if refs.length}
+          <div class="about">
+            <span class="aboutlabel">About</span>
+            {@render chips()}
+          </div>
+        {/if}
         {#if line}<p class="hint muted">{line.text}</p>{/if}
-      {:else}
-        {@render chips()}
-        {#if refs.length && !kept}<p class="hint">{NOT_SENT}</p>{/if}
       {/if}
       {#if kept}<p class="hint">You have an unsaved draft.</p>{/if}
       {#if editable}
@@ -315,12 +327,26 @@
     font-size: var(--t-sm);
     margin: var(--space-1) 0 0;
   }
+  .about {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-1) var(--space-2);
+    margin: var(--space-1) 0;
+    font-size: var(--t-sm);
+  }
+  .aboutlabel {
+    color: var(--muted);
+    font-size: var(--t-xs);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
   .refs {
     list-style: none;
     display: flex;
     flex-wrap: wrap;
     gap: var(--space-1) var(--space-2);
-    margin: var(--space-1) 0;
+    margin: 0;
     padding: 0;
   }
   .refs li {
@@ -331,6 +357,13 @@
   .icon {
     padding: 0.1rem;
     color: var(--muted);
+  }
+  /* Outlined like every button but the page's one filled one, and at full
+     strength once there is something to send, so ready and not-yet differ
+     by more than the disabled fade */
+  .send:not(:disabled) {
+    color: var(--ink);
+    border-color: var(--muted);
   }
   .actions {
     display: flex;

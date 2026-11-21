@@ -7,7 +7,7 @@ import {
 } from '@testing-library/svelte'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import ItemNote from './ItemNote.svelte'
-import { NEEDS_WORDS, NOT_SENT } from './noteState'
+import { NEEDS_WORDS } from './noteState'
 import { ApiError } from '../apiErrors'
 
 const confirmDialog = vi.hoisted(() => vi.fn())
@@ -81,7 +81,7 @@ it('says Send to agent while a session is listening, and saves either way', asyn
   await waitFor(() => expect(given.onsave).toHaveBeenCalledWith('cooler'))
 })
 
-it('a new note shows what it is about, and a reference comes off before it is saved', async () => {
+it('a new note shows what it is about under About, below its words, and a reference comes off before it is saved', async () => {
   const { createRawSnippet } = await import('svelte')
   const onremoveref = vi.fn()
   const take = { item: 's3', job: 'j2', output: 'run/s3.mp4' }
@@ -91,6 +91,16 @@ it('a new note shows what it is about, and a reference comes off before it is sa
       render: () => `<span class="chip">${ref().job ?? ref().item}</span>`,
     })),
   })
+  // closed: no chip, so nothing reads as a note already sent
+  expect(document.querySelectorAll('.chip')).toHaveLength(0)
+  await fireEvent.click(
+    screen.getByRole('button', { name: 'Add a note for the agent' }),
+  )
+  // the words come first; what the note is about follows, labelled
+  const about = screen.getByText('About')
+  expect(
+    box().compareDocumentPosition(about) & Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy()
   expect(
     [...document.querySelectorAll('.chip')].map((c) => c.textContent),
   ).toEqual(['j2', 's5'])
@@ -135,31 +145,32 @@ it('a new note cannot be sent without words: the button waits, Ctrl+Enter does n
   expect(send.disabled).toBe(false)
 })
 
-it('a reference with no words says a note needs words, and says it is not sent once the box closes', async () => {
-  const given = props(null, { refs: [{ item: 's5' }] })
-  render(ItemNote, given)
-  // closed, with a reference waiting: not mistaken for a sent note
-  expect(screen.getByText(NOT_SENT)).toBeTruthy()
+it('a reference with no words says the note needs words, until it has some', async () => {
+  render(ItemNote, props(null, { refs: [{ item: 's5' }] }))
   await fireEvent.click(
     screen.getByRole('button', { name: 'Add a note for the agent' }),
   )
-  expect(screen.queryByText(NOT_SENT)).toBeNull()
   expect(screen.getByText(NEEDS_WORDS)).toBeTruthy()
   await fireEvent.input(box(), { target: { value: 'lower the camera' } })
   expect(screen.queryByText(NEEDS_WORDS)).toBeNull()
-  // the words discarded, the reference still waits: it says so again
-  confirmDialog.mockResolvedValue(true)
-  await fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
-  await noBox()
-  expect(screen.getByText(NOT_SENT)).toBeTruthy()
 })
 
-it('a new note with no reference says nothing about one', async () => {
+it('a new note with no reference and no picker shows no About line', async () => {
   await draft('')
+  expect(screen.queryByText('About')).toBeNull()
   expect(screen.queryByText(NEEDS_WORDS)).toBeNull()
-  cleanup()
-  render(ItemNote, props(null))
-  expect(screen.queryByText(NOT_SENT)).toBeNull()
+})
+
+it('a saved note lists what it is about under About', async () => {
+  const { createRawSnippet } = await import('svelte')
+  render(ItemNote, {
+    ...props('warmer', { refs: [{ item: 's5' }] }),
+    chip: createRawSnippet((ref: () => { item: string }) => ({
+      render: () => `<span class="chip">${ref().item}</span>`,
+    })),
+  })
+  expect(screen.getByText('About')).toBeTruthy()
+  expect(document.querySelector('.chip')?.textContent).toBe('s5')
 })
 
 it('Ctrl+Enter saves', async () => {
