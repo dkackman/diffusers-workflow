@@ -177,6 +177,9 @@ UI_READ_ROUTES = [
     ("get", "/api/workspaces/{name}/requests/{request_id}"),
     ("put", "/api/workspaces/{name}/requests/{request_id}"),
     ("delete", "/api/workspaces/{name}/requests/{request_id}"),
+    ("post", "/api/workspaces/{name}/request-notes"),
+    ("put", "/api/workspaces/{name}/request-notes"),
+    ("delete", "/api/workspaces/{name}/request-notes"),
     ("get", "/api/workflows"),
     ("put", "/api/workflows/{name}"),
     ("patch", "/api/workflows/{name}"),
@@ -548,8 +551,10 @@ def test_gallery_and_asset_answers_keep_their_keys(server, tmp_path):
         "findings",
         "role",
         "inputs",
+        "linked_jobs",
     }
     assert metadata["job"] is None and metadata["findings"] == []
+    assert metadata["linked_jobs"] == []
     assert set(assets) == {"workspace", "libraries", "assets", "folders", "shadowed"}
 
 

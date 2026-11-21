@@ -36,7 +36,14 @@ from ..api_models import (
 )
 
 # The ledger's models added after api_models neared its line ceiling
-from ..api_models_library import LedgerDeleted, RequestWrite
+from ..api_models_library import (
+    LedgerDeleted,
+    NoteAdd,
+    NoteDeleted,
+    NoteEdit,
+    NoteWritten,
+    RequestWrite,
+)
 from ...argument_warnings import workflow_argument_warnings
 from ...schema import format_validation_errors, load_schema, validate_data
 from ... import ledger, references, validation
@@ -93,6 +100,7 @@ from ..deps import (
 from ..enhancers import build_enhance_workflow, preset_descriptions
 from ..http_security import query_token_ok
 from ..job_record import TERMINAL_STATES
+from ..outputs import shown_outputs
 
 logger = logging.getLogger("dw")
 
@@ -1025,7 +1033,6 @@ def put_request(request: Request, name: str, request_id: str, body: RequestWrite
     set on create only (a later change is 422 `prompt_is_write_once`). An
     item left out is deleted, or kept as dropped when jobs link to it."""
     root = _ledger_root(request.app.state, name)
-    # Unset is not null: a `comment` left out is kept, a null one cleared
     payload = body.model_dump(exclude={"by"}, exclude_unset=True)
     try:
         return ledger.put_request(
@@ -1040,6 +1047,119 @@ def put_request(request: Request, name: str, request_id: str, body: RequestWrite
         raise HTTPException(status_code=e.status, detail=e.detail())
     except OSError:
         raise internal_error(f"Could not write request {request_id!r}")
+
+
+# --- a user's notes for the agent, on a request or one of its items ---
+# Their own path: `/requests/{request_id:path}` would swallow a `/notes`
+# suffix. No `by`: only the user writes a note, so every write is the
+# user's, and no dw_mcp tool calls these.
+
+NOTES_URL = "/api/workspaces/{name}/request-notes"
+
+
+def _note_ref_check(request, name):
+    """`(request_id, item, ref) -> the ref to store`, or LedgerError
+    `invalid_note_ref`: `ref.job` must be linked to the request, and to
+    `item` when the note is an item's; `ref.output`, when given, must be a
+    file the gallery shows from that finished job's manifest, and its kind
+    is stored with it."""
+    manager = request.app.state.job_manager
+
+    def refused(why):
+        return ledger.LedgerError(why, status=422, code="invalid_note_ref")
+
+    def check(request_id, item, ref):
+        job_id = ref["job"]
+        linked = next(
+            (
+                job
+                for job in manager.request_jobs(name, request_id)
+                if job["job"] == job_id and (item is None or job["item"] == item)
+            ),
+            None,
+        )
+        if linked is None:
+            where = f"item {item!r} of " if item is not None else ""
+            raise refused(
+                f"job {job_id!r} is not linked to {where}request {request_id!r}"
+            )
+        output = ref.get("output")
+        if output is None:
+            return {"job": job_id}
+        if linked["status"] in ("queued", "running"):
+            raise refused(
+                f"job {job_id!r} has not finished, so it names no file yet - "
+                "leave out `output` to note the take as a whole"
+            )
+        kind = shown_outputs(manager.history.manifest_of(job_id)).get(output)
+        if kind is None:
+            raise refused(
+                f"{output!r} is not a file job {job_id!r} wrote - name one of "
+                "its manifest's outputs as the gallery names it"
+            )
+        return {"job": job_id, "output": output, "kind": kind}
+
+    return check
+
+
+def _note_write(write, what):
+    """Run one note write, its LedgerError as the HTTP error it carries."""
+    try:
+        return write()
+    except ledger.LedgerError as e:
+        raise HTTPException(status_code=e.status, detail=e.detail())
+    except OSError:
+        raise internal_error(f"Could not {what}")
+
+
+@router.post(NOTES_URL, response_model=NoteWritten, response_model_exclude_unset=True)
+def add_request_note(request: Request, name: str, body: NoteAdd):
+    """Add one of the user's notes for the agent, on an item or (no `item`)
+    on the request itself; answers the note and the request's new revision.
+    `ref` names a job linked to the item (any item, for a request note) and
+    optionally one file of its manifest; the server adds the file's `kind`.
+    422 `invalid_note_ref` for a ref that does not hold, `unknown_item`,
+    `item_dropped` or `too_many_notes`; 404 `unknown_request`."""
+    root = _ledger_root(request.app.state, name)
+    return _note_write(
+        lambda: ledger.add_note(
+            root,
+            body.request,
+            item=body.item,
+            text=body.text,
+            ref=body.ref.model_dump(exclude_none=True) if body.ref else None,
+            check_ref=_note_ref_check(request, name),
+        ),
+        f"add a note to request {body.request!r}",
+    )
+
+
+@router.put(NOTES_URL, response_model=NoteWritten, response_model_exclude_unset=True)
+def edit_request_note(request: Request, name: str, body: NoteEdit):
+    """Change one note's text; its `ref` and `created` stay, `at` moves to
+    now. The same text writes nothing. 404 `unknown_request` or
+    `unknown_note`."""
+    root = _ledger_root(request.app.state, name)
+    return _note_write(
+        lambda: ledger.edit_note(root, body.request, body.note, body.text),
+        f"edit a note of request {body.request!r}",
+    )
+
+
+@router.delete(NOTES_URL, response_model=NoteDeleted, response_model_exclude_unset=True)
+def delete_request_note(
+    request: Request,
+    name: str,
+    request_id: str = Query(alias="request", description="The request id"),
+    note: str = Query(description="The note id"),
+):
+    """Remove one note; its id is never handed out again. 404
+    `unknown_request` or `unknown_note`."""
+    root = _ledger_root(request.app.state, name)
+    return _note_write(
+        lambda: ledger.delete_note(root, request_id, note),
+        f"remove a note of request {request_id!r}",
+    )
 
 
 @router.delete(
