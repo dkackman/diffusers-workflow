@@ -328,7 +328,7 @@ Read it with `get_request(request=None)` (MCP) or `GET
   to `open`. Closing changes nothing else. A closed request takes no new
   job (422 `request_closed`) until it is reopened, and stays writable.
 - **Items** are `{key, title, depends_on, estimate_minutes, workflow,
-  arguments, accepted, notes}`, matched across writes by `key`; the order
+  arguments, accepted, notes, review_until}`, matched across writes by `key`; the order
   written is the order kept. An item left out of a write is deleted, or kept
   as `dropped` (moved to the end) when jobs link to it; writing a dropped
   key again, not dropped, brings it back with everything it held. Each item
@@ -374,6 +374,28 @@ Read it with `get_request(request=None)` (MCP) or `GET
   Nothing is sent when one is saved, unless a Claude Code session is open
   with [the notes channel](MCP.md#the-notes-channel), which tells that
   session about each note as it is saved, with its references.
+- **Review hold.** An agent can hold a planned item for the user to look at
+  before it runs. An item carries three fields: `review_until`, an ISO time
+  with an offset that the agent writes; `review_set_at`, the time the server
+  stamped when that value was set (ignored on write; writing the same
+  `review_until` back keeps it, so a plan the UI reads and writes unchanged
+  does not restart the hold); and `review`, derived on each read and ignored
+  on write. A new `review_until` must fall at least 60 seconds
+  (`MIN_REVIEW_SECONDS`) and at most 24 hours (`MAX_REVIEW_HOURS`) ahead,
+  or the write is refused with 422 `review_too_soon` or `review_too_far`;
+  a value that is not an ISO time with an offset is 422
+  `invalid_review_until`. `review` is `{until, state, seconds_left}` and is
+  present only while the item's `status` is `planned`, the request is `open`
+  and `review_until` is set. `state` is the first that holds: `redirected`
+  (a note on the item, or one of the request's own notes, was saved at or
+  after `review_set_at`), `due` (the deadline has passed), else `holding`.
+  `seconds_left` is a whole number, never below 0. Only a note redirects:
+  rewriting the plan, even with the old `review_until` echoed back, does
+  not make a redirected item runnable. The server runs nothing at the
+  deadline: with [the notes channel](MCP.md#the-notes-channel) open, a
+  `review_due` event tells the agent session, and the agent runs what it
+  quoted. With no such session listening, a due item simply stays `ready`
+  until someone runs it.
 - **Keys** (request ids and item keys) match `^[a-z0-9][a-z0-9-]{0,63}$`.
 - **Caps.** Titles 200 characters, prompt and goal 20000, note 4000;
   `estimate_minutes` 0 to 10000; `arguments` at most 64, scalar values

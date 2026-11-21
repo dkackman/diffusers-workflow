@@ -49,6 +49,34 @@ A PyPI install gets released `diffusers`, which may lag the newest pipelines; in
 
 GitHub generates notes from commits at tag time. The sections below are the hand-written notes: the newest is drafted at release prep and pasted into the GitHub release body once the tag has published (`gh release edit v<version> --notes-file ...`). Items a branch's author wants the next note to name go in a new section at the top.
 
+### 0.22.0
+
+<!-- Branch notes (feat/review-gate). Fold into the release-prep draft for 0.22.0 and paste into the GitHub release body once the tag has published: gh release edit v0.22.0 --notes-file ... -->
+
+**The review hold** (#1521)
+
+- An agent that has planned and priced a request can hold its items for you
+  to look at before they run. Each held item carries a deadline,
+  `review_until`; the request page shows how many items are held, counts
+  down to the deadline and says whether an agent session is listening. A
+  note you leave on the request or the item redirects the hold: the agent
+  revises instead of running. **Run now** opens the same priced dialog as
+  any other run, so a held item is never started for you.
+- A hold defers a run you already approved in chat; it does not replace
+  that approval. When the deadline passes with no note, the agent runs
+  exactly what it quoted, and a changed plan or a quote well off the one
+  you were given means a new hold, not a run. Nothing on the server starts
+  a job at the deadline: the notes channel tells the open session with a new
+  `review_due` event (`stale` when the deadline passed before the session
+  connected). With no session listening, which needs Claude Code started
+  with the development-channels flag, nothing runs and the items wait for you.
+- The `script-to-video` skill's request reference says when to hold and how
+  the agent answers each event.
+- REST: a request item takes `review_until` (an ISO time with an offset,
+  60 seconds to 24 hours ahead) and reads back `review_set_at` and a derived
+  `review` (`{until, state, seconds_left}`). The same fields are on the MCP
+  `set_request` and `get_request` items.
+
 ### 0.21.0
 
 <!-- Drafted from v0.20.0..develop at release prep (2026-11-20). Paste into the GitHub release body once the tag has published: gh release edit v0.21.0 --notes-file ... -->

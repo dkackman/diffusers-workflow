@@ -199,6 +199,23 @@ The tag's attributes are the event's `meta`: `kind` (`note`), `workspace`,
 item) and `items` (the item keys its references name, comma separated, only
 when it has any). Every value is a string.
 
+A third kind, `review_due`, says a review hold has run out. When the agent
+holds planned items for the user to look at ([WORKSPACES.md](WORKSPACES.md#requests),
+*Review hold*), nothing on the server starts them at the deadline: the
+channel announces them, once for each item and deadline, and the agent runs
+what is still ready under the cost it quoted. The event lists the items
+(`- shot3: Shot 3: lamp room (about 4 min)`) and tells the agent to run only
+those still ready and without a newer note, and not to run one whose plan
+changed or whose quote moved well off what the user was told. Its `meta`
+has `kind` (`review_due`), `workspace`, `request`, `revision`, `items` (the
+due item keys, comma separated) and `until` (the earliest deadline among
+them), all strings. A hold that ran out before the session connected is
+announced at connect as the same kind with `stale` set to `1`, and its text
+tells the agent to confirm with the user before spending. An item held
+behind a dependency is announced when the dependency finishes. A request
+whose revision does not move still produces the event once its deadline
+passes: the channel reads it again then.
+
 It uses Claude Code [channels](https://code.claude.com/docs/en/channels-reference),
 a **research preview**: the flag, the capability and the notification below
 are Claude Code's and may change. It works only in an interactive session
@@ -254,6 +271,9 @@ came for each workspace. `GET /api/workspaces/{name}/notes-channel` answers
 last 30 seconds (three intervals at the default 10). A server restart
 forgets it until the next read. The button reads **Send to agent** when a
 session is listening and **Save note** when none is; saving works either way.
+The request page's review-hold banner reads the same answer: it says whether
+a session is listening, and when none is, that nothing will run at the
+deadline.
 
 "Listening" means a session has the channel set up and is polling, nothing
 more. A session started without `--dangerously-load-development-channels`

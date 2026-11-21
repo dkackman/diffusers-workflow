@@ -2485,6 +2485,36 @@ class TestSkillRequests:
         ):
             assert claim in text, claim
 
+    def test_the_reference_holds_the_review_hold_rules(self):
+        """The review hold (#1521): the user's yes comes first, the hold needs
+        the notes channel, the server runs nothing at the deadline."""
+        text = _flat(_read(SCRIPT_REQUEST))
+        assert "## Hold items for the user's review" in text
+        assert text.index("## Run each item") < text.index(
+            "## Hold items for the user's review"
+        )
+        assert text.index("## Hold items for the user's review") < text.index(
+            "## Accept the keeper"
+        )
+        for claim in (
+            "get a yes to",
+            "Silence on the page confirms that yes; it never replaces it",
+            "only when the dw-notes channel is connected",
+            "`review_until`",
+            "an ISO time with an offset",
+            "15 minutes ahead",
+            "under 60 seconds or over 24 hours",
+            "end the turn",
+            "`wait_for_job`",
+            "`review_due`",
+            "still `ready` with no newer note",
+            "acknowledged_cost=...",
+            "more than a quarter",
+            "The server never starts a job for you",
+            "marked stale",
+        ):
+            assert claim in text, claim
+
     def test_storyboard_request_is_self_contained(self):
         body = _flat(skill_body(STORYBOARD_SKILL))
         for claim in (
