@@ -52,13 +52,9 @@
   })
 
   // NoteList empties the references once a note is sent; the next one is
-  // about this page again. A note that was not there before is that send
-  async function changed() {
-    const before = new Set(home?.notes.map((note) => note.id))
-    await linked.read()
-    if (home?.notes.some((note) => !before.has(note.id)))
-      pendingRefs = [...refs]
-  }
+  // about this page again, whether or not the read after it came back
+  const added = () => (pendingRefs = [...refs])
+  const changed = () => linked.read()
 
   let list = $state<ReturnType<typeof NoteList>>()
   let box = $state<HTMLElement>()
@@ -81,6 +77,7 @@
       about={home.title}
       {filter}
       bind:pendingRefs
+      onadded={added}
       onchanged={changed}
     />
   </div>

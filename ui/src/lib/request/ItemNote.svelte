@@ -36,6 +36,7 @@
     onremoveref,
     extra,
     onsave,
+    onsaved,
     ondelete,
     onreload,
   }: {
@@ -63,6 +64,8 @@
     extra?: Snippet
     /** Store the text; rejects with the server's error */
     onsave: (text: string) => Promise<void>
+    /** The save went through and the draft is emptied */
+    onsaved?: () => void
     /** Remove the saved note; rejects with the server's error */
     ondelete?: () => Promise<void>
     /** Read the request again, after a save found it had moved on */
@@ -147,6 +150,7 @@
       refused = null
       draft = ''
       if (editing) void shut()
+      if (note === null) onsaved?.()
     } catch (e) {
       refused = saveFailure(e)
       if (!refused) notify.error(e instanceof Error ? e.message : String(e))

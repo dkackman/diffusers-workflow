@@ -248,3 +248,15 @@ it('a refusal from the note routes is said beside the draft, which stays', async
   )
   expect(box().value).toBe('my words')
 })
+
+it('tells the page of a stored note once, and keeps the sent draft out of the tab', async () => {
+  const onadded = vi.fn()
+  api.addNote.mockResolvedValue({ note: notes[0], revision: 4 })
+  render(NoteList, props({ pendingRefs: [take2], onadded }))
+  await write('reroll this one')
+  await fireEvent.click(screen.getByRole('button', { name: 'Save note' }))
+  await waitFor(() => expect(onadded).toHaveBeenCalledTimes(1))
+  expect(onadded).toHaveBeenCalledWith(notes[0])
+  const kept = Object.keys(sessionStorage).map((k) => sessionStorage.getItem(k))
+  expect(kept.join('')).not.toContain('reroll this one')
+})

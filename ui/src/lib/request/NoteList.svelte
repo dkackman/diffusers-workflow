@@ -25,6 +25,7 @@
     pendingRefs = $bindable([]),
     pickItems = false,
     ongo,
+    onadded,
     onchanged,
   }: {
     notes: LedgerNote[]
@@ -42,6 +43,9 @@
     pickItems?: boolean
     /** Go to an item's row, from an item's chip */
     ongo?: (key: string) => void
+    /** A new note was stored and its box is empty again; the box's
+     * references have been emptied just before */
+    onadded?: (note: LedgerNote) => void
     onchanged: () => void | Promise<void>
   } = $props()
 
@@ -61,17 +65,26 @@
     return fresh?.edit()
   }
 
+  // The stored note, held until the box has emptied its draft: the
+  // references go then, not before, so a sent draft is never kept under
+  // the key of a box with none
+  let stored: LedgerNote | null = null
   async function added(text: string) {
     await channel.refresh()
     const refs = writtenRefs(pendingRefs)
-    await api.addNote(workspace, {
+    const written = await api.addNote(workspace, {
       request: request.id,
       ...(item === null ? {} : { item }),
       text,
       ...(refs.length ? { refs } : {}),
     })
-    pendingRefs = []
+    stored = written.note
     await onchanged()
+  }
+  function sent() {
+    pendingRefs = []
+    if (stored) onadded?.(stored)
+    stored = null
   }
   async function edited(note: LedgerNote, text: string) {
     await channel.refresh()
@@ -143,6 +156,7 @@
         onremoveref={unref}
         extra={pickItems && live.length ? picker : undefined}
         onsave={added}
+        onsaved={sent}
         onreload={onchanged}
       />
     {/if}
