@@ -206,11 +206,13 @@ channel announces them, once for each item and deadline, and the agent runs
 what is still ready under the cost it quoted. The event lists the items
 (`- shot3: Shot 3: lamp room (about 4 min)`) and tells the agent to run only
 those still ready and without a newer note, and not to run one whose plan
-changed or whose quote moved well off what the user was told. Its `meta`
+changed or whose quote moved well off what the user was told: it clears the
+hold and puts the new figure in the `why`, so the user runs it from the
+request page or says yes in chat. Its `meta`
 has `kind` (`review_due`), `workspace`, `request`, `revision`, `items` (the
 due item keys, comma separated) and `until` (the earliest deadline among
 them), all strings. A hold that was already on the item the first time
-the channel read its request, whatever its state then, is announced at its
+the channel read a request that the channel's first listing held, whatever its state then, is announced at its
 deadline as the same kind with `stale` set to `1`; only a hold set while the
 channel ran is announced fresh. A channel that connects, or restarts, after a
 hold was set announces it as stale: the agent asks the user before spending.

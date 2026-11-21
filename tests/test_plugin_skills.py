@@ -2510,6 +2510,8 @@ class TestSkillRequests:
             "still `ready` with no newer note",
             "acknowledged_cost=...",
             "more than a quarter",
+            "no run and no new hold: clear the hold",
+            "left out of an item, or null, clears its hold",
             "The server never starts a job for you",
             "marked stale",
         ):

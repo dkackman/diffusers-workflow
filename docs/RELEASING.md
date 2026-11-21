@@ -65,7 +65,8 @@ GitHub generates notes from commits at tag time. The sections below are the hand
 - A hold defers a run you already approved in chat; it does not replace
   that approval. When the deadline passes with no note, the agent runs
   exactly what it quoted, and a changed plan or a quote well off the one
-  you were given means a new hold, not a run. Nothing on the server starts
+  you were given means no run and no new hold: the agent clears the hold and
+  gives the new figure, and you run it from the priced dialog or say yes. Nothing on the server starts
   a job at the deadline: the notes channel tells the open session with a new
   `review_due` event (`stale` when the hold was set before the session
   connected). With no session listening, which needs Claude Code started

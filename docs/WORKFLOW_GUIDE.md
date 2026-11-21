@@ -777,7 +777,9 @@ by the source, and `validate_workflow` names the entries to add or drop.
    approved; it does not replace the approval. Quote the total and get the
    yes first. A deadline passing with no note permits exactly the run that
    was quoted and nothing else: a refusal for a changed plan, or a quote
-   well off the one given, means a new hold, not a run. Silence lets the
+   well off the one given (more than a quarter), means no run and no new hold:
+   clear the hold (`review_until: null`) and put the new figure in the `why`;
+   the user runs it from the request page or says yes in chat. Silence lets the
    items run only when a Claude Code session is listening on
    [the notes channel](MCP.md#the-notes-channel). The rules are under
    [Requests](WORKSPACES.md#requests).

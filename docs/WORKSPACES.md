@@ -391,7 +391,9 @@ Read it with `get_request(request=None)` (MCP) or `GET
   after `review_set_at`), `due` (the deadline has passed), else `holding`.
   `seconds_left` is a whole number, never below 0. Only a note redirects:
   rewriting the plan, even with the old `review_until` echoed back, does
-  not clear a redirect; only a new `review_until` starts the hold again. The
+  not clear a redirect; only a new `review_until` starts the hold again.
+  A `review_until` left out of an item, or null, clears its hold, so a plan
+  rewrite must send each held item's `review_until` back as read. The
   server runs nothing at the deadline: with
   [the notes channel](MCP.md#the-notes-channel) open, a `review_due` event
   tells the agent session, and the agent runs what it quoted. With no such

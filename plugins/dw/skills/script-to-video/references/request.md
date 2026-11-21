@@ -72,19 +72,24 @@ approved; it never stands in for the approval.
 3. Set the hold with `set_request`: each held item gets `review_until`, an
    ISO time with an offset, 15 minutes ahead unless the user says otherwise
    (the server refuses under 60 seconds or over 24 hours), and the `why`
-   says so. Then end the turn. Do not block in `wait_for_job` on something
+   says so. A `review_until` left out of an item, or null, clears its hold,
+   so a plan rewrite sends each held item's `review_until` back as read. Then
+   end the turn. Do not block in `wait_for_job` on something
    else; the channel event is what wakes the session.
 
 What wakes you:
 
-- **A note.** Do the revision, write the plan, and give the revised items a
-  new `review_until` if the user should look again. A note redirects the
-  hold; nothing else does.
+- **A note.** Do the revision, write the plan, and hold the revised items
+  again only if the total is still what the user agreed to; otherwise clear
+  the hold and give the new figure in the `why`. A note redirects the hold;
+  nothing else does.
 - **A `review_due` event.** `get_request`, then run only the named items that
   are still `ready` with no newer note, each with
   `run_workflow(request=..., acknowledged_cost=...)` for the plan you quoted.
-  A refusal for a changed plan, or a quote well off what you told the user
-  (more than a quarter), means a new hold with the new figure, not a run.
+  A refusal for a changed plan, or a quote well off what the user agreed to
+  (more than a quarter), means no run and no new hold: clear the hold
+  (`review_until: null`) and put the new figure in the `why`; the user runs
+  it from the request page's priced Run dialog, or says yes in chat.
 - **A dependency finishing.** An item held behind a dependency is announced
   when the dependency finishes; you run it then. The server never starts a
   job for you.
