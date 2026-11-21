@@ -110,6 +110,11 @@ Each item and each request gets `notes: [Note]`, replacing `comment`:
 
 - `id`: short, unique within the request, assigned by the server, never
   reused.
+- `created`: when the note was first saved; set once, never changed (user's
+  addition, 2026-11-21). `at` is the last text change and is what the
+  waiting rule reads. Upgrade on read sets `created = at`. The UI shows
+  "Saved <created>", plus "· edited <at>" when they differ; the channel
+  event carries both.
 - `ref`: optional. `job` is required when `ref` is present; `output` is
   optional (a note about the take as a whole).
 - Validation on write: `ref.job` must be linked to this request (and, for an
@@ -189,6 +194,34 @@ and for a history with no agent entry left in it.
 - `meta` adds `note`, `job` and `output` when present (identifier keys,
   string values, as the channel contract needs).
 - `waiting_event` lists each waiting note with its reference on its line.
+
+### Is a session listening?
+
+User's addition, 2026-11-21: the note's save button says whether an agent
+session will hear it now.
+
+- The channel process marks its request-list poll with a header,
+  `X-DW-Notes-Channel: 1`. The server keeps, in memory, the last time a
+  marked poll read each workspace's list. Nothing is stored on disk, and a
+  restart forgets it until the next poll.
+- `GET /api/workspaces/{name}/notes-channel` returns
+  `{listening: bool, last_seen: str | null}`. `listening` means a marked
+  poll in the last `LISTENING_WINDOW = 30` seconds, three channel
+  intervals at the default 10.
+- What it can't know: a session started without the development-channels
+  flag still runs the poller, and Claude Code drops its events. So
+  "listening" means "a session has the channel set up", and the docs say
+  so.
+- The header is only a hint for the page. Anyone holding the token could
+  send it; the worst outcome is a wrong label.
+- **The button is relabelled, never disabled.** When a session is
+  listening, the save button reads **Send to agent** and the line under a
+  waiting note says "An agent session is listening; it will see this within
+  about 10 seconds." When none is, it reads **Save note** and says "No agent
+  session is listening. It reads this the next time it updates the plan."
+  Saving works either way.
+- The page asks every 15 seconds while a note box is on screen, and once
+  more just before a save, so the label is fresh at the moment it counts.
 
 ### UI
 

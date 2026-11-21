@@ -16,6 +16,8 @@
 - Note text: `clean_note` rules (`dw/notes.py`), 4000 characters.
 - `MAX_NOTES = 20` live notes per target (an item, or the request itself).
 - Note id: `"n<k>"`, `k` from a per-request counter `next_note` (stored, starts at 1, never reused, even after a delete).
+- A note is `{id, text, created, at, ref?}`: `created` is set once at add; `at` changes with the text; the waiting rule reads `at`.
+- `LISTENING_WINDOW = 30` seconds; the UI asks every 15 seconds. Save labels: **Send to agent** when a session is listening, **Save note** when not; saving is never disabled.
 - `ref` is `{job, output?, kind?}`; `job` required when `ref` is present; `kind` is stored by the server, never taken from the caller. `ref` never changes after the note is written.
 - References name a job id and a manifest output name (relative, as `proof_output` returns it), never an absolute path.
 - Every surface labels the new note "Note for the agent". The existing run/file note (`set_note`, `notes.json`) is untouched.
@@ -49,7 +51,9 @@
 def test_a_stored_comment_is_read_as_one_note(tmp_path):
     # write a requests.json by hand with item a's comment {text:"warmer", at:T}
     got = ledger.get_request(str(tmp_path), "cats")
-    assert got["items"][0]["notes"] == [{"id": "n1", "text": "warmer", "at": T}]
+    assert got["items"][0]["notes"] == [
+        {"id": "n1", "text": "warmer", "created": T, "at": T}
+    ]
     assert "comment" not in got["items"][0]
     assert got["next_note"] == 2  # request's own comment, if any, is n1 first
 
@@ -115,7 +119,8 @@ def test_add_note_on_an_item_with_a_ref(tmp_path):
 def test_add_note_without_item_goes_on_the_request(tmp_path): ...
 def test_note_ids_are_never_reused_after_delete(tmp_path): ...  # n1 deleted, next is n2
 def test_edit_note_with_same_text_keeps_at(tmp_path): ...        # Review Focus 3
-def test_edit_note_with_new_text_gets_new_at(tmp_path): ...
+def test_edit_note_with_new_text_gets_new_at(tmp_path): ...      # and created is unchanged
+def test_add_note_sets_created_equal_to_at(tmp_path): ...
 def test_the_21st_note_on_a_target_is_refused(tmp_path): ...     # code too_many_notes
 def test_a_note_on_a_dropped_item_is_refused(tmp_path): ...      # code item_dropped
 def test_a_failed_check_ref_stores_nothing(tmp_path): ...        # revision unchanged
@@ -215,10 +220,11 @@ def test_gallery_metadata_lists_linked_jobs_including_reuse(client): ...  # seco
 **Interfaces:**
 - Consumes: Task 4's `waiting_notes` dicts.
 - Produces: `NoteWatch` dedupe key `(note id, at)`. `note_event` first line, with a ref:
-  `Note from the user on request "<id>", item "<key>" (<title>), about take <attempt> of <n> (job <job>), file "<output>" (<kind>), saved <UTC>:` — `file …` omitted without `output`; `take <attempt> of <n>` becomes `job <job>` alone when `attempt` is null; append ` (that job's run no longer exists)` after the job when `gone`. `meta` adds `note`, and `job` / `output` when present.
+  `Note from the user on request "<id>", item "<key>" (<title>), about take <attempt> of <n> (job <job>), file "<output>" (<kind>), saved <UTC>:` — `file …` omitted without `output`; `take <attempt> of <n>` becomes `job <job>` alone when `attempt` is null; append ` (that job's run no longer exists)` after the job when `gone`. `saved <UTC>` is `created`; when `at` differs it reads `saved <created UTC>, edited <at UTC>`. `meta` adds `note`, `created`, and `job` / `output` when present.
+- Produces: the `DwClient` used by the channel sends `X-DW-Notes-Channel: 1` on its request-list read (`get_request(client, workspace=name)` in `NoteWatch.poll`) and on no other call.
 - `waiting_event` lines carry the same reference phrase.
 
-- [ ] **Step 1: Write failing tests**: event text with ref + output, ref without output, gone ref, no ref (unchanged wording); `meta` keys; two notes on one item announced separately; an edited note (new `at`) re-announced; same-text edit not re-announced.
+- [ ] **Step 1: Write failing tests**: the list poll carries the `X-DW-Notes-Channel` header and a per-request read does not; event text with ref + output, ref without output, gone ref, no ref (unchanged wording), edited note (`saved …, edited …`); `meta` keys; two notes on one item announced separately; an edited note (new `at`) re-announced; same-text edit not re-announced.
 
 - [ ] **Step 2: Run** `pytest tests/test_mcp_notes_channel.py -q` — expect FAIL.
 
@@ -227,6 +233,25 @@ def test_gallery_metadata_lists_linked_jobs_including_reuse(client): ...  # seco
 - [ ] **Step 4: Run** `pytest tests/test_mcp_notes_channel.py tests/test_mcp_notes_stdio.py tests/test_mcp_server.py -q` — expect PASS.
 
 - [ ] **Step 5: Commit** `feat(mcp): channel events name the note's take and file; tool docs read notes`
+
+---
+
+### Task 5b: Server knows whether a channel is listening
+
+**Files:**
+- Create: `dw/server/listening.py`
+- Modify: `dw/server/routes/library.py` (`list_requests` :982 records a marked read; new route), `dw/server/app.py` (one `Listening` on `app.state`), `dw/server/api_models_library.py` (`NotesChannelState`)
+- Test: `tests/test_notes_listening.py`
+
+**Interfaces:**
+- Produces: `class Listening` in `dw/server/listening.py` with `LISTENING_WINDOW = 30`, `seen(workspace: str) -> None`, `state(workspace: str) -> dict` returning `{"listening": bool, "last_seen": str | None}` (ISO UTC, seconds). Thread-safe (a `threading.Lock`), in memory only; it takes a `clock` callable for tests.
+- Produces: `GET /api/workspaces/{name}/notes-channel` → `NotesChannelState {listening, last_seen}`. `list_requests` calls `seen(name)` only when the request has `X-DW-Notes-Channel: 1`.
+
+- [ ] **Step 1: Write failing tests**: no poll → `{listening: False, last_seen: None}`; a marked list read → listening True; 31 s later (fake clock) → False with `last_seen` kept; an unmarked list read records nothing; one workspace's poll doesn't mark another.
+- [ ] **Step 2: Run** `pytest tests/test_notes_listening.py -q` — expect FAIL.
+- [ ] **Step 3: Implement** to the interfaces above.
+- [ ] **Step 4: Run** `pytest tests/test_notes_listening.py tests/test_api_contract.py tests/test_ui_twins.py -q` — expect PASS.
+- [ ] **Step 5: Commit** `feat(server): say whether a notes channel is polling a workspace`
 
 ---
 
@@ -246,8 +271,10 @@ def test_gallery_metadata_lists_linked_jobs_including_reuse(client): ...  # seco
 - Produces: `<NoteList notes={LedgerNote[]} request item={string|null} workspace about filter?={(n)=>boolean} pendingRef?={LedgerNoteRef|null} onchanged />` — every note (or those `filter` keeps) with its `noteLine`, then an "Add a note for the agent" box; `pendingRef` prefills the box's ref chip. Calls the API itself and then `onchanged()` (the request page reloads the plan).
 - Produces: `<NoteRef ref workspace />` chip "take {attempt} · {basename(output)}" linking to the job page (no output) or the gallery file (with output); greyed with title "this run no longer exists" when `gone`.
 - `draftKey(workspace, request, item, refKey)` where `refKey` is `job` or `job/output` or `""`.
+- Produces: `api.notesChannel(ws) → Promise<{listening, last_seen}>`; `ui/src/lib/request/listening.svelte.ts` exports `listening(workspace)`: a shared reactive `{listening: boolean}` per workspace, polled every 15 s while at least one `NoteList` using it is mounted, plus `refresh()` that `NoteList` awaits just before a save. A failed read counts as not listening.
+- `ItemNote`'s save button reads **Send to agent** / **Save note** from it; `noteLine(note, request, now, listening)` gains the listening argument and, for a waiting note on an open request, returns "An agent session is listening; it will see this within about 10 seconds." or "No agent session is listening. It reads this the next time it updates the plan." Each saved note shows `Saved <created>` and `· edited <at>` when they differ.
 
-- [ ] **Step 1: Write failing tests**: NoteList renders two notes with their lines and refs; adding calls `api.addNote` with `pendingRef`; removing the chip before save sends no `ref`; AttemptStrip "Note this take" opens the box with `{job, output: attempt.output.name}`; RequestPage plan save sends no notes; draft keys differ per ref; label text is "Note for the agent".
+- [ ] **Step 1: Write failing tests**: save button label follows `listening` and saving works in both states; the waiting line follows `listening`; an edited note shows both times; NoteList renders two notes with their lines and refs; adding calls `api.addNote` with `pendingRef`; removing the chip before save sends no `ref`; AttemptStrip "Note this take" opens the box with `{job, output: attempt.output.name}`; RequestPage plan save sends no notes; draft keys differ per ref; label text is "Note for the agent".
 
 - [ ] **Step 2: Run** `cd ui && npx vitest run src/lib/request src/lib/pages` — expect FAIL.
 
@@ -286,7 +313,7 @@ def test_gallery_metadata_lists_linked_jobs_including_reuse(client): ...  # seco
 ### Task 8: Docs
 
 **Files:**
-- Modify: `docs/MCP.md` ("The notes channel": event example with a reference; `note`/`job`/`output` meta; dedupe by note id)
+- Modify: `docs/MCP.md` ("The notes channel": event example with a reference and edit time; `note`/`created`/`job`/`output` meta; dedupe by note id; the listening header and what "listening" can't know - a session without the development-channels flag)
 - Modify: `docs/WORKSPACES.md` (Requests: notes are a list, where they can be written, references, user-only)
 - Modify: the 0.21.0 release notes file the notes channel entry is in (one line for referenced notes)
 
