@@ -198,6 +198,47 @@ def _untyped_message(index, entry):
     )
 
 
+def _unnamed_entries(entries):
+    """The indices of a reference list's dict entries that name no class.
+
+    An entry with no `reference_type` key (`type` is the usual slip), or one
+    whose value is a bare class name with no dotted path, can never load: the
+    run refuses it late or passes it on as a plain dict, and every later
+    check skips it because it cannot read a class off it (#1512). A value
+    that is a reference, or dotted, is left to the passes that load it.
+    """
+    if not isinstance(entries, list):
+        return []
+    unnamed = []
+    for index, entry in enumerate(entries):
+        if not isinstance(entry, dict):
+            continue
+        name = entry.get(REFERENCE_TYPE_KEY)
+        if name is None:
+            unnamed.append(index)
+        elif (
+            isinstance(name, str)
+            and "." not in name
+            and not references.is_ref(references.UNRESOLVED, name)
+        ):
+            unnamed.append(index)
+    return unnamed
+
+
+def _unnamed_message(index, entry):
+    given = entry.get(REFERENCE_TYPE_KEY)
+    seen = (
+        f"names {given!r}, which is not a dotted path"
+        if given is not None
+        else f"has no '{REFERENCE_TYPE_KEY}' key (keys: {sorted(entry)})"
+    )
+    return (
+        f"references[{index}] {seen}. A reference needs '{REFERENCE_TYPE_KEY}' "
+        f"with the full dotted path, for example "
+        f'"{H3_FAMILY}.MiniMaxH3VideoReference"'
+    )
+
+
 def reference_limit_errors(workflow_definition, source_indices=None):
     """Every reference list a pipeline would refuse, as [{path, message}].
 
@@ -218,6 +259,24 @@ def reference_limit_errors(workflow_definition, source_indices=None):
             continue
         if is_h3_step(pipeline):
             entries = arguments.get("references")
+            for index in _unnamed_entries(entries):
+                errors.append(
+                    {
+                        "path": render_path(
+                            (
+                                "steps",
+                                source,
+                                "pipeline",
+                                "arguments",
+                                "references",
+                                index,
+                            )
+                        ),
+                        "message": (
+                            f"{_unnamed_message(index, entries[index])}{where}."
+                        ),
+                    }
+                )
             for index in _untyped_entries(entries):
                 errors.append(
                     {
