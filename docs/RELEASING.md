@@ -61,10 +61,12 @@ GitHub generates notes from commits at tag time. The sections below are the hand
   another workspace never heard its notes and the request page said no
   session was listening. Each event names its workspace. Against a server
   older than this release the channel falls back to the default workspace.
-- The note box on the request page sends a note only with words. An item
-  picked with no text no longer closes the box as if a note had gone out;
-  it says a note needs words, and a closed box with an item waiting says
-  it is not sent yet.
+- The note box puts your words first. Under the text, an **About** line
+  holds the items, takes and files the note is about, with a small "+ Add
+  an item" control that lists items by key; before, the item picker sat
+  above the text box and read as a list of suggested notes. A note goes
+  out only with words, and a closed box shows nothing pending, so nothing
+  looks sent that was not.
 - REST: `GET /api/requests` lists every workspace's open requests in one
   read (each row a request summary with its `workspace`; `unreadable` names
   a workspace whose ledger cannot be read). Marked `X-DW-Notes-Channel: 1`,
