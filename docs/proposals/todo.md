@@ -37,6 +37,14 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **Place card for H3 cuts** (#1577, stages #1581-#1582), stage B built
+  2026-11-22. A Klein still of the empty set, kept as `asset:places/<set>` and
+  passed after the people in a ref2va shot, held the set's lamp, shelf and
+  window on a reverse it doesn't frame, at about the 22-frame window's face
+  cost. It doesn't hold the coat, which it doesn't show. A no-people shot that
+  takes the card alone held the set where t2va lost it. The record is
+  PRELIMINARY until Don views it: `minimax-h3/references/cuts.md`, *A place
+  card holds the set*; `bench/records/place-card.md`.
 - **UI live updates by one rule** (#1536, stages #1563-#1565), built
   2026-11-22. Per-workspace change counters on the server
   (`GET /api/workspaces/{ws}/changes`), a 5 s `ChangeFeed` in the UI, and every
