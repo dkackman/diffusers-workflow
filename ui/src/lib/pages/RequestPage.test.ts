@@ -12,6 +12,7 @@ import { workspace } from '../workspaceState.svelte'
 import { ACTIVE_MS, IDLE_MS } from '../request/refresh'
 import { doneItem, entry, item, request } from '../request/fixtures'
 import type { LedgerRequest } from '../types'
+import { feed } from '../test/feedMock'
 
 const data = vi.hoisted(() => ({
   request: null as unknown,
@@ -36,6 +37,9 @@ vi.mock('../api', async () => ({
     addNote: (...args: unknown[]) => data.addNote(...args),
     notesChannel: (...args: unknown[]) => data.notesChannel(...args),
   },
+}))
+vi.mock('../changes.svelte', async () => ({
+  changes: (await import('../test/feedMock')).feed.changes,
 }))
 vi.mock('../toast', () => ({
   notify: { error: vi.fn(), success: vi.fn(), undo: vi.fn(), news: vi.fn() },
@@ -389,7 +393,7 @@ it('tells a screen reader what a refresh changed, and nothing on first load', as
   await waitFor(() => expect(live()).toBe('Second poster finished.'))
 })
 
-it('does not refresh a closed request with nothing in flight', async () => {
+it('a closed request with nothing in flight keeps no timer: it watches the feed', async () => {
   fakeInterval()
   const { api } = await import('../api')
   data.request = { ...make(), state: 'done' }
@@ -398,6 +402,47 @@ it('does not refresh a closed request with nothing in flight', async () => {
   const calls = vi.mocked(api.getRequest).mock.calls.length
   vi.advanceTimersByTime(IDLE_MS * 3)
   expect(vi.mocked(api.getRequest).mock.calls.length).toBe(calls)
+  await waitFor(() => expect(feed.watched('studio')).toEqual(['requests']))
+})
+
+it('a closed request an agent reopens shows open when the feed says requests moved', async () => {
+  fakeInterval()
+  const { api } = await import('../api')
+  data.request = { ...make(), state: 'done', revision: 4 }
+  render(RequestPage, { requestId: 'r1' })
+  await loaded()
+  await waitFor(() => expect(feed.watched('studio')).toEqual(['requests']))
+  // another kind moving asks nothing
+  const calls = vi.mocked(api.getRequest).mock.calls.length
+  feed.move('studio', 'gallery')
+  expect(vi.mocked(api.getRequest).mock.calls.length).toBe(calls)
+  data.request = { ...make(), state: 'open', revision: 5 }
+  feed.move('studio', 'requests')
+  await atRevision(5)
+  // open again, it is back on its own idle timer and off the feed
+  await waitFor(() => expect(feed.watched('studio')).toEqual([]))
+  const reads = vi.mocked(api.getRequest).mock.calls.length
+  vi.advanceTimersByTime(IDLE_MS)
+  expect(vi.mocked(api.getRequest).mock.calls.length).toBe(reads + 1)
+})
+
+it('a feed read of a closed request at an older revision does not replace it', async () => {
+  fakeInterval()
+  data.request = { ...make(), state: 'done', revision: 6 }
+  render(RequestPage, { requestId: 'r1' })
+  await atRevision(6)
+  await waitFor(() => expect(feed.watched('studio')).toEqual(['requests']))
+  data.request = { ...make(), state: 'open', revision: 5 }
+  feed.move('studio', 'requests')
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  expect(revision()).toBe('now at r6')
+})
+
+it('an open request keeps its own timer and does not watch the feed', async () => {
+  fakeInterval()
+  render(RequestPage, { requestId: 'r1' })
+  await loaded()
+  expect(feed.watched('studio')).toEqual([])
 })
 
 it('a refresh sent before a save and answered after it does not undo the save', async () => {

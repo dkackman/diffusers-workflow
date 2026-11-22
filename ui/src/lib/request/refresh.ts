@@ -7,8 +7,10 @@ export const ACTIVE_MS = 5000
  * can still be rewritten, or its first job queued, by someone else */
 export const IDLE_MS = 20000
 
-/** How often to refresh `request`, or null for never: a closed request
- * with no job in flight changes no more. */
+/** How often to refresh `request` on a timer, or null for none: a closed
+ * request with no job in flight changes only when someone writes to it -
+ * reopens it, adds a note - and the page hears that from the change feed
+ * (changes.svelte.ts) instead, within one CHANGES_POLL_MS. */
 export function refreshInterval(request: LedgerRequest | null): number | null {
   if (!request) return null
   const inFlight = request.items.some(
