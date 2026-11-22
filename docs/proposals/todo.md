@@ -37,6 +37,14 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **An intent-keyed index for H3 and LTX-2.5** (#1519, stages #1555-#1556), built
+  2026-11-22. Each family skill has a `references/intents.md` table: intent,
+  template, a pointer to the pattern's skill section, its bench evidence, and a
+  status of confirmed, refuted or untested. `tests/test_plugin_intents.py` checks
+  that the format holds, that cited records and headings exist, and that every
+  `bench/records/*.md` is cited or exempt. The `list_workflows` intent filter, a
+  `get_guide` copy and the other families were cut, each with a reopen trigger:
+  `complete/intents-index-complete.md`.
 - **Requests: a ledger that joins the jobs made for one ask** (#1458, stages
   #1481-#1484), closed 2026-11-19. A request is a revisioned plan of items in
   `<workspace>/requests.json`, with the initiating prompt verbatim and the
