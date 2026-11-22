@@ -267,167 +267,176 @@
 
 <svelte:window onkeydown={onKeydown} />
 
-<div class="head">
-  <a href={sharedHref('prompts')} class="muted">← prompts</a>
-  <h1>{current || 'New prompt'}</h1>
-  <span class="flex"></span>
-  <ViewSwitch
-    view={shell.view}
-    options={[...VIEWS]}
-    onselect={(view) => shell.setView(view)}
-  />
-  {#if current}
-    <button
-      class="quiet withicon"
-      onclick={duplicate}
-      title="open a copy in the editor to save under a new name"
-    >
-      <Copy size={14} />Duplicate
-    </button>
-    <DownloadLink href={api.promptDownloadUrl(current)} />
-    {#if !readOnly}
-      <button
-        class="quiet icon danger"
-        onclick={remove}
-        title="delete this prompt from the library"
-        aria-label="delete this prompt from the library"
-      >
-        <Trash2 size={14} />
-      </button>
-    {/if}
-  {/if}
-  <button
-    class="withicon"
-    onclick={save}
-    disabled={shell.busy || !shell.canWrite}
-    title="write to the prompt directory under the name below (Ctrl+S)"
-  >
-    <Save size={14} />Save{#if shell.dirty}<span class="dirtydot"></span>{/if}
-  </button>
-</div>
-
-{#if shell.loadState === 'failed'}
-  <LoadFailed
-    label={name}
-    error={shell.loadError}
-    onretry={() => open(name)}
-    oncreate={shell.loadError instanceof ApiError &&
-    shell.loadError.status === 404
-      ? () => shell.startNew(emptyPrompt())
-      : undefined}
-  />
-{:else}
-  <div class="savebar muted">
-    saving as
-    <FolderPicker
-      bind:folder={shell.folder}
-      bind:newFolder={shell.newFolder}
-      {folders}
-      newFolderTitle="name for the new folder at the root of the prompt directory"
-    />
-    {#if shell.folder === NEW_FOLDER}<span>/</span>{/if}
-    <input
-      class="savename"
-      bind:value={shell.saveName}
-      placeholder="MyPrompt"
-    />
-    <span class="dirhint">.json in {promptDir}</span>
+<!-- The editing surface: a flush commits the field focused in it -->
+<div class="editing" bind:this={shell.root}>
+  <div class="head">
+    <a href={sharedHref('prompts')} class="muted">← prompts</a>
+    <h1>{current || 'New prompt'}</h1>
     <span class="flex"></span>
-    {#if shell.savePath()}
-      <code class="refhint" title="use the stored prompt from any workflow">
-        prompt:{shell.savePath()}
-      </code>
-      <CopyButton
-        text={reference(PROMPT, shell.savePath() ?? '')}
-        title="copy reference to clipboard"
-      />
+    <ViewSwitch
+      view={shell.view}
+      options={[...VIEWS]}
+      onselect={(view) => shell.setView(view)}
+    />
+    {#if current}
+      <button
+        class="quiet withicon"
+        onclick={duplicate}
+        title="open a copy in the editor to save under a new name"
+      >
+        <Copy size={14} />Duplicate
+      </button>
+      <DownloadLink href={api.promptDownloadUrl(current)} />
+      {#if !readOnly}
+        <button
+          class="quiet icon danger"
+          onclick={remove}
+          title="delete this prompt from the library"
+          aria-label="delete this prompt from the library"
+        >
+          <Trash2 size={14} />
+        </button>
+      {/if}
     {/if}
+    <button
+      class="withicon"
+      onclick={save}
+      disabled={shell.busy || !shell.canWrite}
+      title="write to the prompt directory under the name below (Ctrl+S)"
+    >
+      <Save size={14} />Save{#if shell.dirty}<span class="dirtydot"></span>{/if}
+    </button>
   </div>
 
-  <EditorBody
-    view={shell.view}
-    jsonDraft={shell.jsonDraft}
-    onjson={(raw, o) => shell.applyJson(raw, o)}
-    register={(f) => shell.registerFlush(f)}
-    schema="prompt"
-    hint="Schema-aware: completion, hover docs and validation come from the prompt schema. Changes apply as you type."
-    stickyTop="66px"
-  >
-    {#snippet form()}
-      <!-- Queried by .panelgrid below, so the panels stack on their own
-         column's width - the split view narrows the form well before the
-         viewport -->
-      <div class="promptform">
-        <div class="panelgrid">
-          <div class="panel">
-            <h2>Prompt</h2>
-            <label class="fieldlabel" for="prompt-text">text</label>
-            <textarea
-              id="prompt-text"
-              class="prompttext"
-              rows="8"
-              spellcheck="true"
-              value={shell.doc.text ?? ''}
-              placeholder="the prompt itself - what prompt:{shell.savePath() ??
-                'name'} resolves to"
-              oninput={(e) => (shell.doc.text = e.currentTarget.value)}
-            ></textarea>
-            <label class="fieldlabel" for="prompt-negative">
-              negative prompt
-            </label>
-            <textarea
-              id="prompt-negative"
-              rows="2"
-              spellcheck="true"
-              value={shell.doc.negative_prompt ?? ''}
-              placeholder="optional - for models that take one"
-              oninput={(e) =>
-                setField('negative_prompt', e.currentTarget.value)}></textarea>
-            <div class="metagrid">
-              <label for="prompt-desc">description</label>
-              <input
-                id="prompt-desc"
-                spellcheck="true"
-                value={shell.doc.description ?? ''}
-                placeholder="shown on the prompt's library card"
-                oninput={(e) => setField('description', e.currentTarget.value)}
-              />
-              <label for="prompt-model">intended model</label>
-              <Suggest
-                id="prompt-model"
-                suggestions={intendedModels}
-                value={shell.doc.intended_model ?? ''}
-                placeholder="e.g. minimax-h3 - badges the card, preselects the enhancer"
-                oninput={(value) => setField('intended_model', value)}
-                onchange={(value) => {
-                  setField('intended_model', value)
-                  enhancer.preselect(shell.doc.intended_model)
-                }}
-              />
-              <label for="prompt-tags">tags</label>
-              <input
-                id="prompt-tags"
-                value={tagsText ?? (shell.doc.tags ?? []).join(', ')}
-                placeholder="comma-separated, for filtering the library"
-                oninput={(e) => setTags(e.currentTarget.value)}
-                onblur={() => (tagsText = null)}
-              />
-            </div>
-            {#if shell.doc.enhanced?.model}
-              <p class="muted provenance" title={shell.doc.enhanced.idea}>
-                <Sparkles size={13} /> enhanced by {shell.doc.enhanced.model}
-              </p>
-            {/if}
-          </div>
+  {#if shell.loadState === 'failed'}
+    <LoadFailed
+      label={name}
+      error={shell.loadError}
+      onretry={() => open(name)}
+      oncreate={shell.loadError instanceof ApiError &&
+      shell.loadError.status === 404
+        ? () => shell.startNew(emptyPrompt())
+        : undefined}
+    />
+  {:else}
+    <div class="savebar muted">
+      saving as
+      <FolderPicker
+        bind:folder={shell.folder}
+        bind:newFolder={shell.newFolder}
+        {folders}
+        newFolderTitle="name for the new folder at the root of the prompt directory"
+      />
+      {#if shell.folder === NEW_FOLDER}<span>/</span>{/if}
+      <input
+        class="savename"
+        bind:value={shell.saveName}
+        placeholder="MyPrompt"
+      />
+      <span class="dirhint">.json in {promptDir}</span>
+      <span class="flex"></span>
+      {#if shell.savePath()}
+        <code class="refhint" title="use the stored prompt from any workflow">
+          prompt:{shell.savePath()}
+        </code>
+        <CopyButton
+          text={reference(PROMPT, shell.savePath() ?? '')}
+          title="copy reference to clipboard"
+        />
+      {/if}
+    </div>
 
-          <EnhancePanel {enhancer} onuse={useResult} />
+    <EditorBody
+      view={shell.view}
+      jsonDraft={shell.jsonDraft}
+      onjson={(raw, o) => shell.applyJson(raw, o)}
+      register={(f) => shell.registerFlush(f)}
+      schema="prompt"
+      hint="Schema-aware: completion, hover docs and validation come from the prompt schema. Changes apply as you type."
+      stickyTop="66px"
+    >
+      {#snippet form()}
+        <!-- Queried by .panelgrid below, so the panels stack on their own
+           column's width - the split view narrows the form well before the
+           viewport -->
+        <div class="promptform">
+          <div class="panelgrid">
+            <div class="panel">
+              <h2>Prompt</h2>
+              <label class="fieldlabel" for="prompt-text">text</label>
+              <textarea
+                id="prompt-text"
+                class="prompttext"
+                rows="8"
+                spellcheck="true"
+                value={shell.doc.text ?? ''}
+                placeholder="the prompt itself - what prompt:{shell.savePath() ??
+                  'name'} resolves to"
+                oninput={(e) => (shell.doc.text = e.currentTarget.value)}
+              ></textarea>
+              <label class="fieldlabel" for="prompt-negative">
+                negative prompt
+              </label>
+              <textarea
+                id="prompt-negative"
+                rows="2"
+                spellcheck="true"
+                value={shell.doc.negative_prompt ?? ''}
+                placeholder="optional - for models that take one"
+                oninput={(e) =>
+                  setField('negative_prompt', e.currentTarget.value)}
+              ></textarea>
+              <div class="metagrid">
+                <label for="prompt-desc">description</label>
+                <input
+                  id="prompt-desc"
+                  spellcheck="true"
+                  value={shell.doc.description ?? ''}
+                  placeholder="shown on the prompt's library card"
+                  oninput={(e) =>
+                    setField('description', e.currentTarget.value)}
+                />
+                <label for="prompt-model">intended model</label>
+                <Suggest
+                  id="prompt-model"
+                  suggestions={intendedModels}
+                  value={shell.doc.intended_model ?? ''}
+                  placeholder="e.g. minimax-h3 - badges the card, preselects the enhancer"
+                  oninput={(value) => setField('intended_model', value)}
+                  onchange={(value) => {
+                    setField('intended_model', value)
+                    enhancer.preselect(shell.doc.intended_model)
+                  }}
+                />
+                <label for="prompt-tags">tags</label>
+                <input
+                  id="prompt-tags"
+                  value={tagsText ?? (shell.doc.tags ?? []).join(', ')}
+                  placeholder="comma-separated, for filtering the library"
+                  oninput={(e) => setTags(e.currentTarget.value)}
+                  onblur={() => (tagsText = null)}
+                />
+              </div>
+              {#if shell.doc.enhanced?.model}
+                <p class="muted provenance" title={shell.doc.enhanced.idea}>
+                  <Sparkles size={13} /> enhanced by {shell.doc.enhanced.model}
+                </p>
+              {/if}
+            </div>
+
+            <EnhancePanel {enhancer} onuse={useResult} />
+          </div>
         </div>
-      </div>
-    {/snippet}
-  </EditorBody>
-{/if}
+      {/snippet}
+    </EditorBody>
+  {/if}
+</div>
 
 <style>
+  /* No box of its own: the sticky head keeps its containing block */
+  .editing {
+    display: contents;
+  }
   .head {
     display: flex;
     flex-wrap: wrap;

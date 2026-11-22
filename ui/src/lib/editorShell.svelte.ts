@@ -3,7 +3,9 @@
 // view's draft, the view picked (remembered per editor), and where a save
 // lands. Also whether the document loaded, the ETag it was read at and
 // the preconditions a save sends from them, and the flushers a page's
-// debounced inputs register so a save or view switch sees every keystroke.
+// debounced inputs register so a save, a view switch or a leave sees every
+// keystroke - with the field still focused inside `root`, whose change
+// commits only on blur.
 // Constructed during a page's component init, since it registers the
 // JSON-mirror, tab-close and leave-guard effects there.
 import type { WritePreconditions } from './apiRequest'
@@ -73,6 +75,10 @@ export class DocumentEditor {
       JSON.stringify($state.snapshot(this.doc)) !== this.baseline,
   )
 
+  /** The page's editing surface: a flush commits the field focused in it.
+   * Not reactive: nothing renders from it */
+  root: HTMLElement | null = null
+
   #viewKey: string
   // Not reactive: nothing renders from it
   #flushers: Array<() => void> = []
@@ -100,11 +106,11 @@ export class DocumentEditor {
       if (!this.jsonParseFailed) this.jsonDraft = pretty
     })
 
-    // Unsaved edits should survive an accidental tab close. dirty is read
+    // Unsaved edits should survive an accidental tab close. They are read
     // inside the handler only, so the listener registers exactly once
     $effect(() => {
       const guard = (event: BeforeUnloadEvent) => {
-        if (this.dirty) event.preventDefault()
+        if (this.unsaved()) event.preventDefault()
       }
       window.addEventListener('beforeunload', guard)
       return () => window.removeEventListener('beforeunload', guard)
@@ -114,7 +120,7 @@ export class DocumentEditor {
     $effect(() =>
       addLeaveGuard(
         () =>
-          !this.dirty ||
+          !this.unsaved() ||
           confirmDialog(`Leave without saving your changes to ${label()}?`, {
             confirmLabel: 'Leave',
             cancelLabel: 'Keep editing',
@@ -132,9 +138,23 @@ export class DocumentEditor {
     }
   }
 
-  /** Push every pending (debounced) edit into the document now. */
+  /** Push every pending edit into the document now: the focused field's,
+   * which a browser commits on blur (its `change`), then every debounced
+   * one. The field gets its focus back, so typing carries on. */
   flush() {
+    const active = document.activeElement
+    if (active instanceof HTMLElement && this.root?.contains(active)) {
+      active.blur()
+      if (active.isConnected) active.focus({ preventScroll: true })
+    }
     for (const fn of [...this.#flushers]) fn()
+  }
+
+  /** Whether leaving now would lose anything: an edit not yet saved, once
+   * every pending one is in, or a JSON draft that never parsed. */
+  unsaved(): boolean {
+    this.flush()
+    return this.dirty || this.jsonParseFailed
   }
 
   setView(next: EditorView) {
@@ -182,6 +202,10 @@ export class DocumentEditor {
   ) {
     this.doc = doc
     this.baseline = JSON.stringify(doc)
+    // The last document's broken draft is not this one's: the JSON view
+    // mirrors the document just opened
+    this.jsonParseFailed = false
+    notify.dismiss('json-parse')
     this.loadState = 'loaded'
     this.loadError = null
     this.etag = etag

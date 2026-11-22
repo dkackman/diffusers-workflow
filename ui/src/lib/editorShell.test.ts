@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render } from '@testing-library/svelte'
 import { flushSync } from 'svelte'
 import EditorShellHarness from './EditorShellHarness.svelte'
@@ -7,6 +7,7 @@ import type { DocumentEditor, EditorView } from './editorShell.svelte'
 import { notify } from './toast'
 import { addLeaveGuard } from './router.svelte'
 import { confirmDialog } from './confirm.svelte'
+import { changeOnBlur } from './test/changeOnBlur'
 
 vi.mock('./toast', () => ({
   notify: { error: vi.fn(), success: vi.fn(), dismiss: vi.fn() },
@@ -248,4 +249,103 @@ it('removes its leave guard when the component is destroyed', () => {
   const remove = vi.mocked(addLeaveGuard).mock.results[0].value
   cleanup()
   expect(remove).toHaveBeenCalled()
+})
+
+/** A field inside the editor's root that commits on change, as the form
+ * view's fields do, focused with `typed` in it and no blur yet. */
+function typedField(shell: DocumentEditor, typed: string) {
+  const root = document.createElement('div')
+  const field = document.createElement('input')
+  field.addEventListener('change', () => (shell.doc.text = field.value))
+  root.append(field)
+  document.body.append(root)
+  shell.root = root
+  field.focus()
+  field.value = typed
+  return { root, field }
+}
+
+describe('flush and the leave guard see every edit', () => {
+  let uninstall = () => {}
+  beforeEach(() => (uninstall = changeOnBlur()))
+  afterEach(() => {
+    uninstall()
+    document.body.replaceChildren()
+  })
+
+  it('flush commits the field still focused inside the editor', () => {
+    const shell = mount()
+    shell.load({ text: 'a' })
+    const { field } = typedField(shell, 'typed')
+    shell.flush()
+    expect(shell.doc.text).toBe('typed')
+    // the caret stays where the user was typing
+    expect(document.activeElement).toBe(field)
+  })
+
+  it('flush leaves a field outside the editor focused and alone', () => {
+    const shell = mount()
+    shell.load({ text: 'a' })
+    shell.root = document.createElement('div')
+    const outside = document.createElement('input')
+    const blurred = vi.fn()
+    outside.addEventListener('blur', blurred)
+    document.body.append(outside)
+    outside.focus()
+    shell.flush()
+    expect(blurred).not.toHaveBeenCalled()
+    expect(document.activeElement).toBe(outside)
+  })
+
+  it('the leave guard asks for an edit still in a focused field', async () => {
+    const shell = mount()
+    shell.load({ text: 'a' })
+    flushSync()
+    typedField(shell, 'typed')
+    const guard = vi.mocked(addLeaveGuard).mock.calls[0][0]
+    vi.mocked(confirmDialog).mockResolvedValueOnce(false)
+    expect(await guard()).toBe(false)
+    expect(confirmDialog).toHaveBeenCalledTimes(1)
+  })
+
+  it('the leave guard asks for a pending debounced edit', async () => {
+    const shell = mount()
+    shell.load({ text: 'a' })
+    flushSync()
+    shell.registerFlush(() => (shell.doc.text = 'pending'))
+    const guard = vi.mocked(addLeaveGuard).mock.calls[0][0]
+    vi.mocked(confirmDialog).mockResolvedValueOnce(false)
+    expect(await guard()).toBe(false)
+    expect(confirmDialog).toHaveBeenCalledTimes(1)
+  })
+})
+
+it('a JSON draft that does not parse is guarded on leave and on tab close', async () => {
+  const shell = mount()
+  shell.load({ text: 'a' })
+  flushSync()
+  shell.applyJson('{ broken', { quiet: true })
+  expect(shell.dirty).toBe(false)
+  const guard = vi.mocked(addLeaveGuard).mock.calls[0][0]
+  vi.mocked(confirmDialog).mockResolvedValueOnce(false)
+  expect(await guard()).toBe(false)
+  expect(confirmDialog).toHaveBeenCalledTimes(1)
+  const event = new Event('beforeunload', { cancelable: true })
+  window.dispatchEvent(event)
+  expect(event.defaultPrevented).toBe(true)
+})
+
+it.each([
+  ['load', (shell: DocumentEditor) => shell.load({ text: 'b' })],
+  ['startNew', (shell: DocumentEditor) => shell.startNew({ text: 'b' })],
+])("%s drops the last document's broken JSON draft", (_, open) => {
+  const shell = mount()
+  shell.load({ text: 'a' })
+  flushSync()
+  shell.applyJson('{ broken')
+  open(shell)
+  flushSync()
+  expect(shell.jsonParseFailed).toBe(false)
+  expect(JSON.parse(shell.jsonDraft)).toEqual({ text: 'b' })
+  expect(notify.dismiss).toHaveBeenLastCalledWith('json-parse')
 })

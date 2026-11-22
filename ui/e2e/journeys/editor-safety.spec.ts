@@ -80,6 +80,40 @@ test('JSON view: a new id typed and saved at once survives a reload', async ({
   await expect(page.locator('input.wfid')).toHaveValue('TypedAtOnce')
 })
 
+test('form view: a field typed in and saved at once, without a blur, is saved', async ({
+  page,
+  request,
+}) => {
+  await page.goto(EDIT)
+  const line = page.locator('#wfvar-line')
+  await expect(line).toHaveValue('Title card')
+  // fill leaves focus in the field: its change has not fired
+  await line.fill('Typed, still focused')
+  await page.keyboard.press('ControlOrMeta+s')
+  await expect(page.getByText(`Saved to ${WF}`)).toBeVisible()
+  const read = await request.get(`/api/workflows/${WF}`)
+  expect((await read.json()).variables.line).toBe('Typed, still focused')
+  await expect(page.locator('.chip.unsaved')).toHaveCount(0)
+})
+
+test('form view: Back from a field still focused asks before dropping the edit', async ({
+  page,
+}) => {
+  await page.goto('/#/ws/default/jobs')
+  await page.goto(EDIT)
+  const line = page.locator('#wfvar-line')
+  await expect(line).toHaveValue('Title card')
+  await line.fill('Not blurred')
+  await page.goBack()
+  const dialog = page.getByRole('alertdialog')
+  await expect(dialog).toContainText(
+    `Leave without saving your changes to ${WF}?`,
+  )
+  await dialog.getByRole('button', { name: 'Keep editing' }).click()
+  await expect(page).toHaveURL(new RegExp(`/edit/${WF}$`))
+  await expect(line).toHaveValue('Not blurred')
+})
+
 test('JSON view: switching to form shows the edit, and broken JSON keeps the view', async ({
   page,
 }) => {

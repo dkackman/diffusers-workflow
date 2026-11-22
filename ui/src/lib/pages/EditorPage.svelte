@@ -378,143 +378,150 @@
 
 <svelte:window onkeydown={onKeydown} />
 
-<div class="head">
-  <nav class="crumbs muted" aria-label="breadcrumb">
-    <a href={wsHref(workspace.current, 'workflows')}>← workflows</a>
-    {#each crumbFolders as part (part)}
-      <span class="sep">/</span><span>{part}</span>
-    {/each}
-    {#if crumbName}
-      <span class="sep">/</span>
-      <a
-        href={workflowHref}
-        title="back to the read-only view of this workflow"
+<!-- The editing surface: a flush commits the field focused in it -->
+<div class="editing" bind:this={ed.root}>
+  <div class="head">
+    <nav class="crumbs muted" aria-label="breadcrumb">
+      <a href={wsHref(workspace.current, 'workflows')}>← workflows</a>
+      {#each crumbFolders as part (part)}
+        <span class="sep">/</span><span>{part}</span>
+      {/each}
+      {#if crumbName}
+        <span class="sep">/</span>
+        <a
+          href={workflowHref}
+          title="back to the read-only view of this workflow"
+        >
+          {crumbName}
+        </a>
+      {/if}
+    </nav>
+    <label class="wfidwrap">
+      <span class="wfidlabel">id</span>
+      <input
+        class="wfid"
+        bind:value={ed.doc.id}
+        placeholder="workflow id"
+        aria-label="workflow id"
+        title="the workflow's id - how it names itself, independent of the file name"
+      />
+    </label>
+    {#if ed.dirty}
+      <span
+        class="chip unsaved"
+        title="this definition differs from the last save"
       >
-        {crumbName}
-      </a>
+        unsaved
+      </span>
     {/if}
-  </nav>
-  <label class="wfidwrap">
-    <span class="wfidlabel">id</span>
-    <input
-      class="wfid"
-      bind:value={ed.doc.id}
-      placeholder="workflow id"
-      aria-label="workflow id"
-      title="the workflow's id - how it names itself, independent of the file name"
+    <span class="flex"></span>
+    <ViewSwitch
+      view={ed.view}
+      options={[...VIEWS]}
+      onselect={(view) => ed.setView(view)}
     />
-  </label>
-  {#if ed.dirty}
-    <span
-      class="chip unsaved"
-      title="this definition differs from the last save"
+    <button
+      class="quiet withicon"
+      onclick={validate}
+      disabled={ed.busy || !ed.canWrite}
+      title="check against the schema and real pipeline signatures, without running"
     >
-      unsaved
-    </span>
+      <CircleCheck size={14} />Validate
+    </button>
+    <button
+      class="quiet withicon"
+      class:dirtybtn={ed.dirty}
+      onclick={save}
+      disabled={ed.busy || !ed.canWrite}
+      title="validate, then write to the workflow directory under the name below (Ctrl+S)"
+    >
+      <Save size={14} />Save{#if ed.dirty}<span class="dirtydot"></span>{/if}
+    </button>
+    <button
+      class="withicon"
+      onclick={run}
+      disabled={ed.busy || !ed.canWrite}
+      title="validate, then queue this definition as a job - no save needed (Ctrl+Enter)"
+    >
+      <Play size={14} />Run
+    </button>
+  </div>
+
+  {#if ed.loadState === 'failed'}
+    <LoadFailed
+      label={name}
+      error={ed.loadError}
+      onretry={() => open(name)}
+      oncreate={ed.loadError instanceof ApiError && ed.loadError.status === 404
+        ? startMissing
+        : undefined}
+    />
+  {:else}
+    <WorkflowFileBar
+      {ed}
+      {workflowDir}
+      {folders}
+      bind:fileOpen
+      origin={current
+        ? undefined
+        : {
+            workspace: workspace.current,
+            workspaces: workspace.names ?? [workspace.current],
+            startFrom,
+            examples,
+            onworkspace: moveToWorkspace,
+            onstartfrom: chooseStart,
+          }}
+    />
+
+    {#if validation}
+      <ValidationPanel {validation} ondismiss={() => (validation = null)} />
+    {/if}
+
+    {#if ed.view === 'flow'}
+      <FlowView workflow={$state.snapshot(ed.doc)} onselect={focusStep} />
+    {:else}
+      <EditorBody
+        view={ed.view}
+        jsonDraft={ed.jsonDraft}
+        onjson={(raw, o) => ed.applyJson(raw, o)}
+        register={(f) => ed.registerFlush(f)}
+        hint="Schema-aware: completion, hover docs and validation come from the workflow schema. Changes apply as you type."
+        stickyTop="136px"
+      >
+        {#snippet form()}
+          <div class="panel">
+            <h2>Variables</h2>
+            <VariablesForm
+              mode="define"
+              bind:variables={ed.doc.variables}
+              idPrefix="wfvar-"
+              backendVariables={attentionBackendVariables(ed.doc)}
+              constraints={constraintHints(ed.doc)}
+              presets={ed.doc.presets}
+            />
+          </div>
+
+          <StepList
+            bind:steps={ed.doc.steps}
+            {modes}
+            folder={ed.folder === NEW_FOLDER ? '' : ed.folder}
+            {flow}
+            {problemsByStep}
+            {stepReferences}
+            bind:hovered
+          />
+        {/snippet}
+      </EditorBody>
+    {/if}
   {/if}
-  <span class="flex"></span>
-  <ViewSwitch
-    view={ed.view}
-    options={[...VIEWS]}
-    onselect={(view) => ed.setView(view)}
-  />
-  <button
-    class="quiet withicon"
-    onclick={validate}
-    disabled={ed.busy || !ed.canWrite}
-    title="check against the schema and real pipeline signatures, without running"
-  >
-    <CircleCheck size={14} />Validate
-  </button>
-  <button
-    class="quiet withicon"
-    class:dirtybtn={ed.dirty}
-    onclick={save}
-    disabled={ed.busy || !ed.canWrite}
-    title="validate, then write to the workflow directory under the name below (Ctrl+S)"
-  >
-    <Save size={14} />Save{#if ed.dirty}<span class="dirtydot"></span>{/if}
-  </button>
-  <button
-    class="withicon"
-    onclick={run}
-    disabled={ed.busy || !ed.canWrite}
-    title="validate, then queue this definition as a job - no save needed (Ctrl+Enter)"
-  >
-    <Play size={14} />Run
-  </button>
 </div>
 
-{#if ed.loadState === 'failed'}
-  <LoadFailed
-    label={name}
-    error={ed.loadError}
-    onretry={() => open(name)}
-    oncreate={ed.loadError instanceof ApiError && ed.loadError.status === 404
-      ? startMissing
-      : undefined}
-  />
-{:else}
-  <WorkflowFileBar
-    {ed}
-    {workflowDir}
-    {folders}
-    bind:fileOpen
-    origin={current
-      ? undefined
-      : {
-          workspace: workspace.current,
-          workspaces: workspace.names ?? [workspace.current],
-          startFrom,
-          examples,
-          onworkspace: moveToWorkspace,
-          onstartfrom: chooseStart,
-        }}
-  />
-
-  {#if validation}
-    <ValidationPanel {validation} ondismiss={() => (validation = null)} />
-  {/if}
-
-  {#if ed.view === 'flow'}
-    <FlowView workflow={$state.snapshot(ed.doc)} onselect={focusStep} />
-  {:else}
-    <EditorBody
-      view={ed.view}
-      jsonDraft={ed.jsonDraft}
-      onjson={(raw, o) => ed.applyJson(raw, o)}
-      register={(f) => ed.registerFlush(f)}
-      hint="Schema-aware: completion, hover docs and validation come from the workflow schema. Changes apply as you type."
-      stickyTop="136px"
-    >
-      {#snippet form()}
-        <div class="panel">
-          <h2>Variables</h2>
-          <VariablesForm
-            mode="define"
-            bind:variables={ed.doc.variables}
-            idPrefix="wfvar-"
-            backendVariables={attentionBackendVariables(ed.doc)}
-            constraints={constraintHints(ed.doc)}
-            presets={ed.doc.presets}
-          />
-        </div>
-
-        <StepList
-          bind:steps={ed.doc.steps}
-          {modes}
-          folder={ed.folder === NEW_FOLDER ? '' : ed.folder}
-          {flow}
-          {problemsByStep}
-          {stepReferences}
-          bind:hovered
-        />
-      {/snippet}
-    </EditorBody>
-  {/if}
-{/if}
-
 <style>
+  /* No box of its own: the sticky head keeps its containing block */
+  .editing {
+    display: contents;
+  }
   /* Save, Run and the way out stay reachable while a long workflow
      scrolls. Below 900px the app header wraps to a second row and its
      height stops being predictable, so the pinning is dropped there. */

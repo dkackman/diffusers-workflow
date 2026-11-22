@@ -11,6 +11,7 @@ import EditorPage from './EditorPage.svelte'
 import { api } from '../api'
 import { ApiError } from '../apiErrors'
 import { chooseDialog } from '../confirm.svelte'
+import { changeOnBlur } from '../test/changeOnBlur'
 
 // EditorPage talks to the server on mount (pipeline/class/task catalogs,
 // the workflow listing, the prompt library) purely to feed forms the flow
@@ -448,6 +449,36 @@ describe('EditorPage saving', () => {
 
     await waitFor(() => expect(api.saveWorkflow).toHaveBeenCalledTimes(1))
     expect(vi.mocked(api.saveWorkflow).mock.calls[0][1]).toEqual(typed)
+  })
+
+  it('Cmd+S saves text typed into a form field that has not blurred', async () => {
+    const uninstall = changeOnBlur()
+    try {
+      vi.mocked(api.getWorkflow).mockResolvedValueOnce({
+        definition: {
+          id: 'ZImage',
+          variables: { line: 'Title card' },
+          steps: [{ name: 'generate', pipeline: {} }],
+        },
+        origin: 'workspace',
+        writable: true,
+        etag: '"e1"',
+      } as never)
+      localStorage.removeItem('dw-editor-view')
+      render(EditorPage, { name: 'models/z-image' })
+      const field = (await screen.findByLabelText('line')) as HTMLInputElement
+      await waitFor(() => expect(field.value).toBe('Title card'))
+      field.focus()
+      await fireEvent.input(field, { target: { value: 'Typed, not blurred' } })
+      await fireEvent.keyDown(window, { key: 's', metaKey: true })
+
+      await waitFor(() => expect(api.saveWorkflow).toHaveBeenCalledTimes(1))
+      expect(vi.mocked(api.saveWorkflow).mock.calls[0][1]).toMatchObject({
+        variables: { line: 'Typed, not blurred' },
+      })
+    } finally {
+      uninstall()
+    }
   })
 
   it('going back to a file after another failed to open shows the file', async () => {
