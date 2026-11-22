@@ -762,38 +762,15 @@ class TestMiniMaxH3Skill:
         assert "16 px times the patch size" in " ".join(reference.split())
         assert "`16 * patch`" in inspect.getsource(h3_mask_cells)
 
-    def test_the_reframe_branch_is_the_template_s(self):
-        """#1542: "reframe a keeper take" sends an agent to a template that
-        letterboxes on the mask grid, starts the bars from the picture's own
-        edges (#1567's fill) and refines them, holds the take's soundtrack and
-        pastes its own pixels back."""
+    def test_no_reframe_template_is_named(self):
+        """#1585: the H3 reframe template was withdrawn (#1066, Q6 route a):
+        the skill points at crop or a native portrait re-render."""
         text = skill_text(H3_SKILL)
-        assert "`templates/minimax/reframe`" in text
-
-        path = os.path.join(
-            REPO_ROOT, "workflows", "templates", "minimax", "reframe.json"
+        assert "minimax/reframe" not in text
+        assert 'mode: "crop"' in text
+        assert not os.path.exists(
+            os.path.join(REPO_ROOT, "workflows", "templates", "minimax", "reframe.json")
         )
-        with open(path) as f:
-            template = json.load(f)
-        variables = template["variables"]
-        assert variables["refine_strength"] == 0.8
-        assert variables["fill"] == "edge"
-        assert variables["mask_grow"] == 0
-        assert variables["align"] == 32
-        assert variables["feather"] == 16
-        fit, edit, paste = template["steps"]
-        assert [fit["name"], edit["name"], paste["name"]] == ["fit", "edit", "paste"]
-        assert fit["task"]["command"] == "fit_to_model"
-        assert fit["task"]["arguments"]["mode"] == "letterbox"
-        assert fit["task"]["arguments"]["align"] == "variable:align"
-        assert fit["task"]["arguments"]["fill"] == "variable:fill"
-        arguments = edit["pipeline"]["arguments"]
-        assert arguments["source_video"] == "previous_result:fit.video"
-        assert arguments["mask_image"] == "previous_result:fit.mask"
-        assert arguments["mask_grow"] == "variable:mask_grow"
-        assert arguments["hold_audio"] == "variable:source_video"
-        assert paste["task"]["command"] == "paste_into_box"
-        assert paste["task"]["arguments"]["content_box"] == "previous_result:fit.fit"
 
     def _h3_reference(self, name):
         path = os.path.join(os.path.dirname(H3_SKILL), "references", name)

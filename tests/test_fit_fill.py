@@ -1,6 +1,7 @@
 """Unit tests for #1567 (#1066 stage C): fit_to_model's letterbox `fill`, the
-reframe template's frame-count refusal (C-F1154(7)) and its single feather
-message (C-F1154(9))."""
+fit-source frame-count refusal (C-F1154(7)) and the single feather message
+(C-F1154(9)), checked on a letterbox, edit and paste composition the test
+builds from regional-edit (#1585 withdrew the template that once held it)."""
 
 import json
 import os
@@ -15,7 +16,7 @@ from .test_paste_into_box import COUNT, clip, inside
 
 SOURCES = [(1344, 768), (960, 544), (544, 960)]
 CANVASES = [(544, 960), (768, 768), (960, 544), (768, 1344)]
-TEMPLATE = os.path.join("workflows", "templates", "minimax", "reframe.json")
+TEMPLATE = os.path.join("workflows", "templates", "minimax", "regional-edit.json")
 
 
 def fitted(source, canvas, **arguments):
@@ -206,10 +207,54 @@ def _template_errors(directory, template, args=None):
 
 
 def _reframe():
+    """regional-edit with a letterbox fit in front of its edit and a paste
+    after it: the composition the refusals are about."""
     with open(TEMPLATE) as f:
         template = json.load(f)
-    template["variables"]["source_video"] = "take.mp4"
-    template["variables"]["prompt"] = "a brick wall rises to a ceiling"
+    variables = template["variables"]
+    variables.update(
+        source_video="take.mp4",
+        prompt="a brick wall rises to a ceiling",
+        fill="edge",
+        align=32,
+        feather=16,
+        width=544,
+        height=960,
+    )
+    del variables["mask_image"]
+    edit = template["steps"][0]
+    edit["pipeline"]["arguments"]["source_video"] = "previous_result:fit.video"
+    edit["pipeline"]["arguments"]["mask_image"] = "previous_result:fit.mask"
+    fit = {
+        "name": "fit",
+        "task": {
+            "command": "fit_to_model",
+            "arguments": {
+                "video": "variable:source_video",
+                "width": "variable:width",
+                "height": "variable:height",
+                "num_frames": "variable:num_frames",
+                "mode": "letterbox",
+                "align": "variable:align",
+                "fill": "variable:fill",
+            },
+        },
+        "result": {"content_type": "video/mp4", "save": False},
+    }
+    paste = {
+        "name": "paste",
+        "task": {
+            "command": "paste_into_box",
+            "arguments": {
+                "generated": "previous_result:edit",
+                "source": "variable:source_video",
+                "content_box": "previous_result:fit.fit",
+                "feather": "variable:feather",
+            },
+        },
+        "result": {"content_type": "video/mp4", "fps": 24, "subfolder": "final"},
+    }
+    template["steps"] = [fit, edit, paste]
     return template
 
 

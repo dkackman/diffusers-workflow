@@ -886,9 +886,6 @@ TEMPLATE_PIPELINE_KEYS = {
     "minimax/face-repair.json": {
         "refine": "2a7fdf989a40500620fb03212502bbda8f52827f5fcd872b8fda182fab2fac77"
     },
-    "minimax/reframe.json": {
-        "edit": "2a7fdf989a40500620fb03212502bbda8f52827f5fcd872b8fda182fab2fac77"
-    },
     "minimax/regional-edit.json": {
         "edit": "2a7fdf989a40500620fb03212502bbda8f52827f5fcd872b8fda182fab2fac77"
     },

@@ -82,11 +82,6 @@ EXPECTED_SHAPES = {
         "shot",
         ["has-audio", "needs-input-media"],
     ),
-    # #1542: the take it reframes is input media, and its soundtrack is held
-    "workflows/templates/minimax/reframe.json": (
-        "shot",
-        ["has-audio", "needs-input-media"],
-    ),
     # #1192: the clip it sounds is input media, though 'source_video' is its
     # only media argument (regional-edit also has a 'mask_image')
     "workflows/templates/minimax/add-sound.json": (
@@ -355,8 +350,7 @@ LEGITIMATE_MENTIONS = {
     "workflows/templates/generate-speech.json": {"sample_rate"},
     # arguments of the image_to_text step, edited into the file rather than passed
     "workflows/templates/image-to-text.json": {"model_name", "prompt"},
-    # recenter_crop's own 'fill' argument, written inline (reframe declares a
-    # variable of that name since #1567)
+    # recenter_crop's own 'fill' argument, written inline
     "workflows/templates/recenter-crop.json": {"fill"},
     # a field of the step's 'chain' block, which this workflow writes inline
     "workflows/templates/minimax/chain-matched-and-aligned.json": {"prompts"},
@@ -402,9 +396,6 @@ LEGITIMATE_MENTIONS = {
         "keep_segments",
         "hold_audio",
     },
-    # its first step's name, the fit_to_model step whose record and mask the
-    # edit and paste read (#1542), not another template's 'fit' variable
-    "workflows/templates/minimax/reframe.json": {"fit"},
     # the pipeline's 'cache' block it writes inline, not the H3 templates'
     # variable of that name
     "workflows/templates/step-caching.json": {"cache"},
@@ -683,10 +674,9 @@ def test_no_stale_entry_in_the_allowlist():
 # Then to 15_750 (measured 15_734) for `minimax/composable-references`'s new cost
 # block (#1537): the template took a whole-clip video reference with none, so its
 # estimate quoted ~4x low.
-# Then to 15_950 (measured 15_930) for `minimax/reframe` (#1066, stage #1542): one
-# new entry, the catalog's only reframe of a keeper take to another aspect with its
-# motion and soundtrack kept, with its cost block (Q4: raised by the measured size).
-COMPACT_BUDGET = 15_950
+# (A 15_950 raise for `minimax/reframe`, #1542, was taken back when #1585
+# withdrew the template.)
+COMPACT_BUDGET = 15_750
 # The shape=sequence listing to 1_650 (measured 1_642) for
 # `minimax/replace-performer` (#1374), the catalog's only sequence that recasts
 # a take.

@@ -41,8 +41,8 @@ This skill is written for dw `0.23.0-alpha.1`; `get_server_info`'s `plugin` says
   section="H3: holding a clip with `guides`")`.
 - **Fix one region of a good take** (the rest and audio stay):
   `templates/minimax/regional-edit`; first `references/regional-edit.md`.
-- **Reframe a keeper take** to portrait or square: `templates/minimax/reframe`;
-  its `prompt` describes the whole tall frame, not the take alone.
+- **Reframe a take** to portrait: `fit_to_model` `mode: "crop"`, or re-render
+  at a 32-multiple portrait size.
 - **Replace a performer**: `replace-performer-cuts`, pick its `cuts`,
   `replace-performer`; the prompt gives each cut's pose and framing. A
   cut's own `prompt`/`seed` wins over the workflow `seed`/`prompt`; re-roll one cut by
