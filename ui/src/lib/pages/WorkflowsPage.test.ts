@@ -10,6 +10,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 // Hoisted above the imports so the static import of the component below -
 // itself hoisted - sees an initialized mock
 import WorkflowsPage from './WorkflowsPage.svelte'
+import { feed } from '../test/feedMock'
 import '../router.svelte'
 
 type Detail = Record<string, unknown>
@@ -45,13 +46,17 @@ const listWorkflows = vi.hoisted(() =>
   ),
 )
 
+vi.mock('../changes.svelte', async () => ({
+  changes: (await import('../test/feedMock')).feed.changes,
+}))
+const gallery = vi.hoisted(() => vi.fn(() => Promise.resolve({ files: [] })))
 vi.mock('../api', () => ({
   api: {
     listWorkflows: () => listWorkflows(),
     // The proof thumbnails load beside the listing. These tests are about
     // the catalog's text, so the gallery answers empty and every card
     // renders in its no-output form.
-    gallery: vi.fn(() => Promise.resolve({ files: [] })),
+    gallery: () => gallery(),
     galleryThumbnailUrl: (name: string) => `/api/gallery/${name}/thumbnail`,
   },
 }))
@@ -273,4 +278,56 @@ it('the workspace view links a card under the current workspace', async () => {
   expect(card('tti')!.getAttribute('href')).toBe(
     '#/ws/studio/workflows/templates/tti',
   )
+})
+
+const settle = () => new Promise((r) => setTimeout(r, 10))
+
+it('reloads the listing when workflows move, keeping the cards on screen', async () => {
+  await renderPage('tti')
+  await settle()
+  const lists = listWorkflows.mock.calls.length
+  const proofs = gallery.mock.calls.length
+  listing.workflows = [...listing.workflows, 'templates/new']
+  listing.details = {
+    ...listing.details,
+    'templates/new': { kinds: ['image'], steps: 1, variables: 0 },
+  }
+  feed.move('default', 'workflows')
+  expect(card('tti')).toBeTruthy()
+  await waitFor(() => expect(card('new')).toBeTruthy())
+  expect(listWorkflows.mock.calls.length).toBe(lists + 1)
+  expect(gallery.mock.calls.length).toBe(proofs)
+})
+
+it('reloads only the proofs when the gallery moves', async () => {
+  await renderPage('tti')
+  await settle()
+  const lists = listWorkflows.mock.calls.length
+  const proofs = gallery.mock.calls.length
+  feed.move('default', 'gallery')
+  await settle()
+  expect(gallery.mock.calls.length).toBe(proofs + 1)
+  expect(listWorkflows.mock.calls.length).toBe(lists)
+})
+
+it("another workspace's move, or an unwatched kind, reloads nothing", async () => {
+  await renderPage('tti')
+  await settle()
+  const lists = listWorkflows.mock.calls.length
+  const proofs = gallery.mock.calls.length
+  feed.move('studio', 'workflows')
+  feed.move('studio', 'gallery')
+  feed.move('default', 'jobs')
+  await settle()
+  expect(listWorkflows.mock.calls.length).toBe(lists)
+  expect(gallery.mock.calls.length).toBe(proofs)
+})
+
+it('a quiet reload that fails keeps the cards and shows no error', async () => {
+  await renderPage('tti')
+  listWorkflows.mockImplementationOnce(() => Promise.reject(new Error('boom')))
+  feed.move('default', 'workflows')
+  await settle()
+  expect(card('tti')).toBeTruthy()
+  expect(screen.queryByText(/boom/)).toBeNull()
 })

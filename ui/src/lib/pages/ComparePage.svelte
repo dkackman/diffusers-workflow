@@ -5,6 +5,8 @@
   // the same frame rather than remembered across two players
   import { Pause, Play } from '@lucide/svelte'
   import { api } from '../api'
+  import { changes } from '../changes.svelte'
+  import { latestOnly } from '../latest'
   import { differingArguments, argumentOf, valueText } from '../compare'
   import { formatDuration } from '../format'
   import { wsHref } from '../routes'
@@ -47,23 +49,52 @@
     }
   }
 
-  async function load(wanted: string[]) {
-    length = 0
-    time = 0
-    playing = false
-    const { files } = await api.gallery()
-    const byName = new Map(files.map((f) => [f.name, f]))
-    cells = await Promise.all(
-      wanted.map((name) => cellFor(name, byName.get(name) ?? null)),
-    )
+  // A read overtaken by a newer one (new names, a feed reload) is dropped
+  const beginLoad = latestOnly()
+  /** Read the gallery for `wanted`. A quiet load is the change feed's: the
+   * transport and the cells on screen stay, and a cell that already had its
+   * file keeps the metadata and run time it has - only a cell that was
+   * missing its file, or is new, asks for them */
+  async function load(wanted: string[], { quiet = false } = {}) {
+    const current = beginLoad()
+    const before = quiet ? new Map(cells.map((c) => [c.name, c])) : new Map()
+    if (!quiet) {
+      length = 0
+      time = 0
+      playing = false
+      loaded = false
+    }
+    try {
+      const { files } = await api.gallery()
+      const byName = new Map(files.map((f) => [f.name, f]))
+      const next = await Promise.all(
+        wanted.map((name) => {
+          const file = byName.get(name) ?? null
+          const had: Cell | undefined = before.get(name)
+          return had?.file && file
+            ? Promise.resolve({ ...had, file })
+            : cellFor(name, file)
+        }),
+      )
+      if (!current()) return
+      cells = next
+    } catch {
+      if (!current() || quiet) return
+      cells = []
+    }
+    if (current()) loaded = true
   }
 
   $effect(() => {
     const wanted = [...names]
-    loaded = false
     void load(wanted)
-      .catch(() => (cells = []))
-      .finally(() => (loaded = true))
+  })
+  // A file's note or a new run shows within one feed interval
+  $effect(() => {
+    const ws = workspace.current
+    return changes(ws).watch(['gallery'], () =>
+      load([...names], { quiet: true }),
+    )
   })
 
   const differing = $derived(differingArguments(cells.map((c) => c.meta)))

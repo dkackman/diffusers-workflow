@@ -7,6 +7,8 @@
   // folder groups, a contact-sheet grid, a detail popout.
   import { FolderOpen } from '@lucide/svelte'
   import { api } from '../api'
+  import { changes } from '../changes.svelte'
+  import { latestOnly } from '../latest'
   import Empty from '../Empty.svelte'
   import FolderGroups from '../FolderGroups.svelte'
   import { dropFiles } from '../dropFiles'
@@ -70,14 +72,22 @@
     const name = selected.name
     const patch = (a: AssetFile) =>
       a.name === name ? { ...a, note: note ?? undefined } : a
+    // A background reload already in flight predates this edit
+    beginList()
     assets = assets.map(patch)
     selected = patch(selected)
   }
 
-  function load() {
+  // A reply overtaken by a later load or a local edit is dropped
+  const beginList = latestOnly()
+  /** Read the library. A quiet load is the change feed's: picks merge
+   * rather than reset, and a failure keeps the list and shows no error */
+  function load({ quiet = false } = {}) {
+    const current = beginList()
     return api
       .listAssets()
       .then((result) => {
+        if (!current()) return
         assets = result.assets
         // The editors' asset: completions read the same listing; an
         // upload or delete here is what they offer next
@@ -88,16 +98,26 @@
         error = ''
         if (selected && !result.assets.some((a) => a.name === selected?.name))
           selected = null
-        picks.keepOnly(result.assets.map((a) => a.name))
+        if (!quiet) picks.keepOnly(result.assets.map((a) => a.name))
       })
-      .catch((e) => (error = e.message))
-      .finally(() => (loaded = true))
+      .catch((e) => {
+        if (!current() || quiet) return
+        error = e.message
+      })
+      .finally(() => {
+        if (current()) loaded = true
+      })
   }
 
   $effect(() => {
     // Read inside the effect so switching workspaces refetches the library
     void workspace.current
     void load()
+  })
+  // An asset an agent adds or removes shows within one feed interval
+  $effect(() => {
+    const ws = workspace.current
+    return changes(ws).watch(['assets'], () => void load({ quiet: true }))
   })
 
   const filterActive = $derived(filter !== '')

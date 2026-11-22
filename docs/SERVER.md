@@ -386,6 +386,15 @@ icon, a finish-alert toggle, the theme toggle, and links to these docs and
   announces what changed to a screen reader, and keeps the plan it has, with
   its age and a **Retry**, when a refresh fails.
 
+  The list pages (Requests, Gallery, Assets, Prompts, Workflows, the
+  overview and Compare) show a write they did not make - an agent over MCP,
+  `dw.run`, a job finishing - within about five seconds, from the
+  workspace's change feed (`GET /api/workspaces/{name}/changes`, below).
+  That reload is quiet: no spinner, the rows stay where they are, picks and
+  an open selection are kept, a note you are typing is never replaced, and a
+  reload that fails keeps what is on screen. The Jobs page polls on its own
+  every 3 s while the tab is visible.
+
 - **Gallery** - everything in the workspace's output directory
   (`<workflow>/<run id>/`, see [WORKSPACES.md](WORKSPACES.md#runs)), grouped
   by workflow, with a text filter and **Final** / **Intermediate** /

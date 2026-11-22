@@ -13,6 +13,7 @@ import AssetsPage from './AssetsPage.svelte'
 import ConfirmDialog from '../ui/ConfirmDialog.svelte'
 import type { AssetFile, AssetLibrary, ShadowedAsset } from '../types'
 import { DEFAULT_WORKSPACE, workspace } from '../workspace.svelte'
+import { feed } from '../test/feedMock'
 
 const asset = (
   name: string,
@@ -101,6 +102,10 @@ vi.mock('../api', () => ({
   },
 }))
 
+vi.mock('../changes.svelte', async () => ({
+  changes: (await import('../test/feedMock')).feed.changes,
+}))
+
 const notifyError = vi.hoisted(() => vi.fn())
 const notifySuccess = vi.hoisted(() => vi.fn())
 vi.mock('../toast', () => ({
@@ -152,10 +157,60 @@ async function answerConfirm(accept: boolean) {
     .click()
 }
 
-it('fetches the asset library exactly once on mount', async () => {
-  render(AssetsPage)
-  for (let i = 0; i < 5; i++) await new Promise((r) => setTimeout(r, 10))
+it('fetches the asset library once on mount, and again when assets move, without blanking', async () => {
+  await renderAssets()
+  for (let i = 0; i < 3; i++) await new Promise((r) => setTimeout(r, 10))
   expect(listAssets).toHaveBeenCalledTimes(1)
+
+  listing.assets = [
+    asset('iris.png'),
+    asset('cast/priya.jpg'),
+    asset('new.png'),
+  ]
+  feed.move('default', 'assets')
+  // The list stays up while the reload is asked
+  expect(screen.getByText('iris.png')).toBeTruthy()
+  await waitFor(() => expect(screen.getByText('new.png')).toBeTruthy())
+  expect(listAssets).toHaveBeenCalledTimes(2)
+})
+
+it('reloads nothing when another kind moves, or assets move in another workspace', async () => {
+  await renderAssets()
+  feed.move('default', 'prompts')
+  feed.move('other', 'assets')
+  for (let i = 0; i < 3; i++) await new Promise((r) => setTimeout(r, 10))
+  expect(listAssets).toHaveBeenCalledTimes(1)
+})
+
+it('a quiet reload that fails keeps the list and shows no error', async () => {
+  await renderAssets()
+  listAssets.mockImplementationOnce(() => Promise.reject(new Error('boom')))
+  feed.move('default', 'assets')
+  await waitFor(() => expect(listAssets).toHaveBeenCalledTimes(2))
+  for (let i = 0; i < 3; i++) await new Promise((r) => setTimeout(r, 10))
+  expect(screen.getByText('iris.png')).toBeTruthy()
+  expect(screen.queryByText(/boom/)).toBeNull()
+})
+
+it('keeps the picks across a quiet reload, even for an asset briefly missing', async () => {
+  await renderAssets()
+  screen.getByRole('button', { name: /select all \(2\)/i }).click()
+  await waitFor(() => expect(screen.getByText('2 selected')).toBeTruthy())
+
+  // New asset arrives, one picked asset is briefly omitted
+  listing.assets = [asset('iris.png'), asset('new.png')]
+  feed.move('default', 'assets')
+  await waitFor(() => expect(screen.getByText('new.png')).toBeTruthy())
+  expect(screen.getByText('1 selected')).toBeTruthy()
+
+  // It comes back on the next move, still picked
+  listing.assets = [
+    asset('iris.png'),
+    asset('cast/priya.jpg'),
+    asset('new.png'),
+  ]
+  feed.move('default', 'assets')
+  await waitFor(() => expect(screen.getByText('2 selected')).toBeTruthy())
 })
 
 it('shows every asset, including one in a folder', async () => {
@@ -343,13 +398,18 @@ it('filters by name', async () => {
   expect(screen.getByText('priya.jpg')).toBeTruthy()
 })
 
-it('refetches when the workspace changes', async () => {
+it('refetches when the workspace changes, and watches only the new one', async () => {
   await renderAssets()
   expect(listAssets).toHaveBeenCalledTimes(1)
 
   workspace.current = 'other'
 
   await waitFor(() => expect(listAssets).toHaveBeenCalledTimes(2))
+  feed.move('default', 'assets')
+  for (let i = 0; i < 3; i++) await new Promise((r) => setTimeout(r, 10))
+  expect(listAssets).toHaveBeenCalledTimes(2)
+  feed.move('other', 'assets')
+  await waitFor(() => expect(listAssets).toHaveBeenCalledTimes(3))
 })
 
 // Escape means "close the thing on top". A confirm dialog answers it
