@@ -231,3 +231,43 @@ def test_sub_workflow_h3_and_chained_join(tmp_path):
 def test_scan_refuses_output_inside_the_workspace_root(tmp_path):
     with pytest.raises(SystemExit):
         hf.main(["scan", str(tmp_path), "--out", str(tmp_path / "x.json")])
+
+
+def test_report_reads_the_gate_off_non_static_takes():
+    choppy = hf.measure(stack([f for u in unique(12) for f in (u, u)]), 24.0, [])
+    a, b = unique(2)
+    # one jump: its still neighbours look held, and cluster
+    still = hf.measure(stack([a] * 30 + [b] + [a] * 30), 24.0, [])
+    rows = [
+        {
+            "workspace": "h3-quality",
+            "demand": True,
+            "h3": True,
+            "mode": "single",
+            "steps": [20],
+            "gallery_name": name,
+            "path": name,
+            **result,
+        }
+        for name, result in (("choppy.mp4", choppy), ("still.mp4", still))
+    ]
+    lines = hf.report({"workspaces": ["h3-quality"], "rows": rows})
+    assert still["by_eps"]["1.0"]["held"] == 2 and hf._static(rows[1])
+    assert lines[-1] == (
+        "Gate (eps 1.0): 2 takes have a cluster; 1 non-static takes have >= 7 held frames."
+    )
+
+
+def test_a_run_with_only_workflow_json_is_still_read(tmp_path):
+    run = tmp_path / "outputs" / "trailer" / "r1"
+    (run / "intermediate").mkdir(parents=True)
+    (run / "intermediate" / "shot@s01.mp4").write_bytes(b"")
+    workflow = {
+        "id": "trailer",
+        "variables": {"model": hf.H3_MODEL},
+        "steps": [H3_STEP],
+    }
+    (run / "workflow.json").write_text(json.dumps(workflow))
+    (row,) = hf.walk(tmp_path, ["default"], [])
+    assert row["h3"] is True
+    assert row["mode"] == "no manifest"

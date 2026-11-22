@@ -50,6 +50,8 @@ CUT_GUARD = 1
 CLUSTER_GAP = 4
 CLUSTER_MIN = 2
 PERCENTILES = (10, 25, 50, 75, 90)
+GATE_HELD = 7  # plan v1, Gate after A
+STATIC_SHARE = 0.1  # below this moving share a take is near-static
 
 # Don's workspaces, counted as demand (plan v1, Corpus)
 DEMAND = (
@@ -298,6 +300,7 @@ def run_facts(run_dir, search):
         "files": files,
         "task_of": task_of,
         "run_id": manifest.get("run_id") or run_dir.name,
+        "has_manifest": bool(manifest),
     }
 
 
@@ -306,11 +309,12 @@ def _base_step(name):
 
 
 def mode_of(relative, facts):
-    """single | chain segment | joined | cuts | derived | unlisted."""
+    """single | chain segment | joined | cuts | derived | unlisted (the
+    manifest does not name it) | no manifest (a run with only workflow.json)."""
     if ".segment-" in Path(relative).name:
         return "chain segment"
     if relative not in facts["files"]:
-        return "unlisted"
+        return "unlisted" if facts["has_manifest"] else "no manifest"
     step, shots = facts["files"][relative]
     shots = shots or []
     chained = any(isinstance(s, dict) and s.get("segment_file") for s in shots)
@@ -349,6 +353,7 @@ def walk(root, names, search):
                         parent
                         for parent in [path.parent, *path.parents]
                         if (parent / "manifest.json").is_file()
+                        or (parent / "workflow.json").is_file()
                     ),
                     None,
                 )
@@ -505,7 +510,45 @@ def report(data, eps="1.0"):
     shown = {r["path"] for r in ranked[:5]}
     for r in [r for r in near if r["path"] not in shown][:3]:
         lines.append(_take_row(r, eps))
+    lines.append("")
+    lines.append(f"### The gate: takes with >= 7 held frames (eps {eps})")
+    lines.append("")
+    lines.append(
+        f"A take whose moving share (counted frames with d >= {MOVING:g}) is under "
+        f"{STATIC_SHARE:g} is a near-static shot: its holds are the still frames "
+        "either side of a rare jump, the static case the gate excludes."
+    )
+    lines.append("")
+    lines.append(
+        "| Workspace | Gallery name | Mode | Steps | Held | Moving share "
+        "| Static | Run lengths | Spacing (frames: count) |"
+    )
+    lines.append("|---|---|---|---|---|---|---|---|---|")
+    gate = [r for r in ranked if r["by_eps"][eps]["held"] >= GATE_HELD]
+    for r in gate:
+        by = r["by_eps"][eps]
+        lines.append(
+            f"| {r['workspace']} | `{r['gallery_name']}` | {r['mode']} "
+            f"| {','.join(map(str, r['steps'])) or '?'} | {by['held']} "
+            f"| {r['moving_ratio']:.3f} | {'yes' if _static(r) else 'no'} "
+            f"| {_counts(by['run_lengths'])} | {_counts(by['run_spacing'])} |"
+        )
+    moving = [r for r in gate if not _static(r)]
+    clustered = [r for r in measured if r["by_eps"][eps]["clusters"]]
+    lines.append("")
+    lines.append(
+        f"Gate (eps {eps}): {len(clustered)} takes have a cluster; "
+        f"{len(moving)} non-static takes have >= {GATE_HELD} held frames."
+    )
     return lines
+
+
+def _static(row):
+    return row["moving_ratio"] < STATIC_SHARE
+
+
+def _counts(mapping):
+    return ", ".join(f"{k}: {v}" for k, v in mapping.items()) or "none"
 
 
 def _take_table_header():
@@ -554,7 +597,9 @@ def main(argv=None):
         out = Path(args.out).resolve()
         if root in out.parents:
             parser.error("--out must not be inside the workspace root")
-        repo = Path(__file__).resolve().parent.parent
+        import dw  # the checkout whose library names sub-workflows
+
+        repo = Path(dw.__file__).resolve().parent.parent
         search = [repo / "workflows", repo / "dw" / "workflows"]
         names = args.workspace or list(DEMAND)
         search += [workspace_outputs(root, n).parent / "workflows" for n in names]
