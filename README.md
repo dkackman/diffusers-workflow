@@ -55,7 +55,7 @@ agent starts, not a limit. The full list is in [workflows/](workflows/) and the
 
 - **Everywhere:** git; Python 3.12-3.14; [Node.js](https://nodejs.org) 24.20 or
   newer, which brings npm (`install.sh` uses it to build the web UI, and without it
-  there is no page at `/`); and [Claude Code](https://docs.claude.com/en/docs/claude-code/setup),
+  there is no page at `/`); and [Claude Code](https://code.claude.com/docs/en/setup),
   the `claude` command.
 - **macOS:** the system `python3` is too old. Install Python from
   [Homebrew](https://brew.sh) (`brew install python@3.13`) or
@@ -108,8 +108,9 @@ typed **inside Claude Code**, not in the shell:
 ```
 
 **4. Make the first image.** Ask the agent: *"Run `templates/text-to-image` with the
-prompt 'a lighthouse at dusk'."* The first run downloads SD 1.5 (a few GB), so it
-takes minutes rather than seconds; later runs reuse it. The agent shows you the
+prompt 'a lighthouse at dusk'."* The agent quotes the cost and asks before it
+runs. The first run downloads SD 1.5 (a few GB), so it takes minutes rather than
+seconds; later runs reuse it. The agent shows you the
 image, and the file is under the checkout's `outputs/` folder: a `dw-serve` started
 in the checkout uses the checkout as its workspace
 ([Workspaces](docs/WORKSPACES.md#which-directory-is-used)). It is also in the web
