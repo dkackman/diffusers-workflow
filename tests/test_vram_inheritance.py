@@ -183,9 +183,11 @@ class TestIndex:
         step["pipeline"]["from_pretrained_arguments"]["model_name"] = "variable:model"
         assert pipeline_identity(step, {"model": H3}) == REF2VA
 
-    def test_the_real_catalog_indexes_ref2va_from_reference_to_video(self):
+    def test_the_real_catalog_indexes_ref2va_from_a_single_step_template(self):
+        """Two single-step templates declare it (reference-to-video and, since
+        #1537, composable-references); the name breaks the tie."""
         index = build_index(_real_catalog())
-        assert index[REF2VA]["template"] == "templates/minimax/reference-to-video"
+        assert index[REF2VA]["template"] == "templates/minimax/composable-references"
 
 
 # --- matching ------------------------------------------------------------------

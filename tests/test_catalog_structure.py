@@ -669,7 +669,10 @@ def test_no_stale_entry_in_the_allowlist():
 # `minimax-h3-image/multi-reference` (#1317, stage #1424): two new entries, the
 # catalog's only MiniMax-H3-Image family - a fixed 6-step image model at under
 # 6 GB of VRAM and 64 GB of host RAM - with measured cost blocks.
-COMPACT_BUDGET = 15_725
+# Then to 15_750 (measured 15_734) for `minimax/composable-references`'s new cost
+# block (#1537): the template took a whole-clip video reference with none, so its
+# estimate quoted ~4x low.
+COMPACT_BUDGET = 15_750
 # The shape=sequence listing to 1_650 (measured 1_642) for
 # `minimax/replace-performer` (#1374), the catalog's only sequence that recasts
 # a take.

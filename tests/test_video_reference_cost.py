@@ -270,3 +270,43 @@ class TestTrimWindow:
         # replace-performer, the donor the 1344x768 canvas inherits from
         donor = json.loads((TEMPLATE.parent / "replace-performer.json").read_text())
         assert declared_reference_exponent(donor) == 2.0
+
+
+class TestEveryH3TemplateWithAVideoReferenceDeclaresTheExponent:
+    """#1537: composable-references took a whole-clip reference with no
+    exponent, so its estimate quoted ~4x low."""
+
+    ROOT = TEMPLATE.parent
+
+    # reference-to-video takes its clip through a typed reference too, but
+    # names none by default, so it is listed rather than found
+    NAMED = {"reference-to-video.json"}
+
+    def takes_video_reference(self, path):
+        return path.name in self.NAMED or "MiniMaxH3VideoReference" in path.read_text()
+
+    def test_the_pin_sees_the_templates_that_take_one(self):
+        names = {
+            p.name for p in self.ROOT.glob("*.json") if self.takes_video_reference(p)
+        }
+        assert {"reference-to-video.json", "composable-references.json"} <= names
+
+    def test_each_declares_it(self):
+        missing = [
+            p.name
+            for p in sorted(self.ROOT.glob("*.json"))
+            if self.takes_video_reference(p)
+            and declared_reference_exponent(json.loads(p.read_text())) is None
+        ]
+        assert not missing
+
+    def test_composable_references_quotes_a_whole_clip_near_4x(self):
+        definition = json.loads((self.ROOT / "composable-references.json").read_text())
+        definition["variables"]["motion"] = None
+
+        def price(clip):
+            variables = {**definition["variables"], "motion": clip}
+            return _own_price(definition, {"variables": variables}, {}, "cuda", {})
+
+        ratio = price("clip124.mp4")["minutes"] / price(None)["minutes"]
+        assert ratio == pytest.approx(4.0, abs=0.2)

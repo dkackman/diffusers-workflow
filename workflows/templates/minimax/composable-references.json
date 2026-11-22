@@ -3,6 +3,15 @@
     "description": "Reference types are composable, and each one contributes a different attribute. Here an image reference supplies the subject and a video reference supplies the shot - its framing, lighting and camera movement - so the two are recombined into a clip that copies neither wholesale. The prompt's retention analysis is what assigns those roles; the reference list only declares what is available.",
     "summary": "H3 video: an image reference supplies the subject, a video reference the framing and camera.",
     "seed": "variable:seed",
+    "cost": [
+        {
+            "device": "cuda",
+            "name": "RTX 3090",
+            "vram_gb": 24,
+            "minutes": 6.43,
+            "video_reference_exponent": 2.0
+        }
+    ],
     "cost_drivers": [
         "num_frames",
         "num_inference_steps",
