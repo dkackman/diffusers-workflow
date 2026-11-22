@@ -640,10 +640,10 @@ client loading deferred MCP schemas.
 | 1 | 1 | Ran `templates/flux3/text-to-image` on a caption it expanded by hand from the short request | "A short request ... `templates/flux3/upsample-then-generate`": `plugins/dw/skills/flux3-klein/SKILL.md` *Which shape is the request* | A served guide can carry it: the catalog entry for `text-to-image` can say a short request goes through `upsample-then-generate` |
 | 2 | 1, 2 | Validated and ran in turn 1 with no go-ahead; built `acknowledged_cost` itself from validate's fingerprint | "Get the go-ahead, then `run_workflow`": `plugins/dw/skills/minimax-h3/SKILL.md` *Run and judge* (same step in every family skill) | Model knowledge, no fix: the served instructions already say "get the user's go-ahead", and `acknowledged_cost` can't tell a user's yes from the agent's |
 | 3 | 2 | Prompt in prose with no `<d>` tags and no Context-IR: "The woman, looking concerned, says: \"Did you leave the back door open?\" ..." | "H3 wants Context-IR": `plugins/dw/skills/minimax-h3/SKILL.md` *Prompts* | A served guide can carry it: the catalog entry and validate can point an H3 prompt at `get_prompt` / `templates/minimax/enhance-prompt` |
-| 4 | 2, 3 | Kept the turbo LoRA on dialogue shots: ask 2 at 4 passes, ask 3 on `dialogue-short`'s defaults (`lightx2v/Minimax-h3-Turbo`; `draft` is 5 steps) | "Dialogue shots (any `<d>` line) drop the turbo LoRA ...: `lora_model_name: null`, `num_inference_steps: 12`, `video_shift: 12.0`, `audio_shift: 3.0`": `plugins/dw/skills/minimax-h3/SKILL.md` *Hard rules* | The tool or validation should refuse it, or at least warn: a `<d>` line with the turbo LoRA is checkable. `dialogue-short`'s own defaults contradict the rule, so the template changes too |
+| 4 | 2, 3 | Kept the turbo LoRA on dialogue shots: ask 2 at 4 passes, ask 3 on `dialogue-short`'s defaults (`lightx2v/Minimax-h3-Turbo`; `draft` is 5 steps) | "Dialogue shots (any `<d>` line) drop the turbo LoRA ...: `lora_model_name: null`, `num_inference_steps: 12`, `video_shift: 12.0`, `audio_shift: 3.0`": `plugins/dw/skills/minimax-h3/SKILL.md` *Hard rules* | The tool or validation should refuse it: a `<d>` line with the turbo LoRA is checkable from the arguments |
 | 5 | 2, 3 | Two people in frame with no staging step: both asks prompted two-shots straight from the ask | "A crowd, two people in frame, or a three-reference shot: read `references/staging.md` before the prompt": `plugins/dw/skills/minimax-h3/SKILL.md` *Hard rules* | A served guide can carry it: staging is prose, not a check |
-| 6 | 3 | 6-9-word lines in 345-frame (14.4 s) shots, about 0.4-0.6 words/s; ask 2 was 15 words over 8 s, about 1.9 words/s | "A line at about 2.5–4 written words/s fills the clip ... at 345 frames (14.4 s), about 36–57" words; "A short line is not stretched to fill the clip": `plugins/dw/skills/minimax-h3/references/dialogue.md` *How long a line can be* | Validation can warn: words per second against `num_frames` is computable from the arguments |
-| 7 | 3 | The sailor's voice changed between shots: "a young, soft, slightly shaky male voice" (shot 1), "a young, soft, quiet male voice, subdued and a little shaken" (shot 3); the keeper's stayed verbatim | "Repeat a speaker's voice description verbatim across shots.": `plugins/dw/skills/minimax-h3/SKILL.md` *Prompts* | Validation can warn across a `for_each`'s entries when one speaker's description differs; otherwise a served guide |
+| 6 | 2, 3 | Ask 3: 6-9-word lines in 345-frame (14.4 s) shots, about 0.4-0.6 words/s. Ask 2: 15 words over 8 s, about 1.9 words/s, also under the 2.5 floor (milder: in the range where the skill measured a silent lead-in) | "A line at about 2.5–4 written words/s fills the clip ... at 345 frames (14.4 s), about 36–57" words; "A short line is not stretched to fill the clip": `plugins/dw/skills/minimax-h3/references/dialogue.md` *How long a line can be* | The tool or validation should refuse it: words per second against `num_frames` is computable from the arguments |
+| 7 | 3 | The sailor's voice changed between shots: "a young, soft, slightly shaky male voice" (shot 1), "a young, soft, quiet male voice, subdued and a little shaken" (shot 3); the keeper's stayed verbatim | "Repeat a speaker's voice description verbatim across shots.": `plugins/dw/skills/minimax-h3/SKILL.md` *Prompts* | The tool or validation should refuse it: one speaker's description differing across a `for_each`'s entries is checkable from the arguments |
 | 8 | 3 | Read `assemble-and-score` in turn 1, then wrote its own `lighthouse-final` mix in turn 2 without saying it had changed the plan | "Under cut scenes, use one bed: `templates/assemble-and-score`": `plugins/dw/skills/long-form/SKILL.md` *5. Per piece: the soundtrack* | Model knowledge, no fix: it found the template, and dropped it silently |
 | 9 | 3 | Didn't listen to the score after the 30 s `get_output_audio` errored, and didn't check the dialogue or seams by ear | "Listen with `get_output_audio`" and judge seams with `assess_output(probe="analyze_seams")` and `get_output_frames(seams=true)`: `plugins/dw/skills/long-form/SKILL.md` *Run and judge* | Model knowledge, no fix: the tools were there, and the error named the size limit |
 
@@ -700,15 +700,17 @@ Transcripts: `~/testing/drill-1524-runner/ask<n>-turn-<k>.jsonl` and `probe.json
 
 - **Turbo on dialogue (row 4)** is the costliest miss, and it isn't only the client's:
   `dialogue-short`'s defaults keep the turbo LoRA, so even a careful agent following the template
-  breaks the minimax-h3 rule. Either the template or the rule is wrong; a validate warning on `<d>`
-  with turbo would catch both.
-- **Line sizing (row 6) and verbatim voices (row 7)** are computable from arguments: validate
-  warnings would carry them to any client.
+  breaks the minimax-h3 rule. Either the template or the rule is wrong, so the template changes too.
+  A validate check on `<d>` with turbo would catch both; whether it refuses or only warns is yours.
+- **Line sizing (row 6) and verbatim voices (row 7)** are computable from arguments, so validation
+  carries them to any client. Both are measured tendencies, not failures, so a warning rather than a
+  refusal is probably the right strength.
 - **Routing (row 1), Context-IR (row 3) and staging (row 5)** can ride in catalog and guide text.
 - **The go-ahead (row 2), the silent template swap (row 8) and not listening (row 9)** are model
   behaviour; the served instructions already say the first, and the tools for the others were there.
 - Ask 3's quote ran 37% short (35.1 vs 25.5 min) for `dialogue-short` at 345 frames.
-- **Supported clients:** the evidence supports any MCP client for finding, running and checking
-  catalog work from the served tools and guides alone, and supports only Claude Code with the dw
-  plugin for composing to the family rules (dialogue settings, Context-IR, line sizing, staging),
-  until rows 1 and 3-7 move into served guides and validation.
+- **Supported clients:** a no-plugin Claude Sonnet session was tested and could find, run and
+  check catalog work from the served tools and guides alone, but lost the family rules in rows 1
+  and 3-7 (prompt routing, Context-IR, dialogue settings, line sizing, verbatim voices, staging), so
+  composing to those rules is supported only in Claude Code with the dw plugin, and other MCP
+  clients and models are untested.
