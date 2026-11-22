@@ -547,8 +547,9 @@ not itself sharpened:
 | `stills_to_video` | Hold storyboard stills for a duration each, as one silent clip | `images`, `durations`, `fps` - see [stills_to_video](#stills_to_video) |
 | `window_video` | One overlapping, fixed-length window of a long video, with its audio | `index`, `num_frames`, `overlap`, `fps` - see [window_video](#window_video) |
 | `join_windows` | Blend processed windows back into one video the source's length, with the source's audio | `videos`, `source`, `num_frames`, `overlap`, `curve`, `fps` - see [join_windows](#join_windows) |
-| `fit_to_model` | Fit a video into a model's working size and exact frame count; returns `{video, fit}` | `width`, `height`, `num_frames`, `mode` (`letterbox`, `stretch`, `crop`), `downscale` - see [fit_to_model and restore_to_source](#fit_to_model-and-restore_to_source) |
+| `fit_to_model` | Fit a video into a model's working size and exact frame count; returns `{video, fit}`, and in letterbox mode a `mask` of the bars | `width`, `height`, `num_frames`, `mode` (`letterbox`, `stretch`, `crop`), `downscale`, `align` - see [fit_to_model and restore_to_source](#fit_to_model-and-restore_to_source) |
 | `restore_to_source` | Put a model's output back at its source's size and length, from the `fit` record | `fit`, `fps` (omitted: the input's rate; `"source"`: the source's; or a number) - see [fit_to_model and restore_to_source](#fit_to_model-and-restore_to_source) |
+| `paste_into_box` | Put a source clip back inside a box of a generated clip, feathered at the box's edges, keeping the generated clip's audio and fps | `generated`, `source`, `content_box` (a box or the `fit` record), `feather` (px, default 16) - see [paste_into_box](#paste_into_box) |
 
 The frame commands accept videos in any shape a result carries them: PIL frame
 lists, numpy or torch frame arrays, and audio+video pairs (LTX-2, MiniMax H3).
@@ -1335,14 +1336,31 @@ shorter one holds its last frame. `downscale` (default 1) divides `width` and
 with `downscale: 2` and passes the full `width`/`height` to the pipeline
 (`templates/ltx2/upscale-clip`).
 
+`align` (default 1, letterbox only) snaps the picture's box to multiples of
+that many pixels - a masked model's cell, 32 for H3's 16 px x patch 2 - so the
+bars are whole cells. The box's size is rounded to the nearest multiple and
+its offset down to one, and the source is centre-cropped by the few pixels the
+rounding costs (under one cell in model pixels): 1344x768 into 544x960 at
+`align: 32` is the box `{x: 0, y: 320, w: 544, h: 320}`, with about 38 source
+pixels cut across. `width` and `height` (after `downscale`) must be divisible
+by it, and a non-letterbox `mode` with an `align` is refused, at validation for
+a literal. The value is the workflow's: the engine knows no model's cell.
+
 The step returns `{video, fit}` (`previous_result:<step>.video` and `.fit`).
 `video` is a float32 `(frames, height, width, 3)` array in 0-1 carrying its
 `fps`, ready for a pipeline's `video` or a reference condition's `frames`. The
 `fit` record holds `mode`, `source_width`, `source_height`, `source_frames`,
 `model_width`, `model_height`, `model_frames`, `content_box` (where the source
 sits in the model frame), `source_box` (the part of the source kept, all of it
-unless `mode` is `crop`), each box `{x, y, w, h}`, and `source_fps` (`null`
-when the source carries none).
+unless `mode` is `crop` or `align` snapped the box), each box `{x, y, w, h}`,
+and `source_fps` (`null` when the source carries none).
+
+In letterbox mode the step also returns `mask` (`previous_result:<step>.mask`,
+saved beside the video as `<name>-mask.png`): a greyscale image at the model's
+size, white (255) over the bars and black (0) over `content_box` - the same
+box, so white is exactly what a masked edit should generate. `crop` and
+`stretch` have no bars and return no mask. `paste_into_box` puts the source
+back inside the box afterwards.
 
 `restore_to_source` takes the pipeline's output and that record. The scale is
 the output's size over the fitted size and must be the same across and down,
@@ -1359,6 +1377,46 @@ refused, at validation for a literal. `templates/ltx2/alpha-matte` passes
 `"source"`, so a 24 fps model run on an 8 fps clip is written back at 8.
 
 Neither task carries a soundtrack; pair the source's back with `pair_audio`.
+
+### paste_into_box
+
+The other half of a letterbox outpaint: a masked edit regenerates the whole
+frame, the picture inside the box included, so `paste_into_box` puts the
+source's own pixels back there.
+
+```json
+{
+    "name": "paste",
+    "task": {
+        "command": "paste_into_box",
+        "arguments": {
+            "generated": "previous_result:outpaint",
+            "source": "variable:clip",
+            "content_box": "previous_result:fit.fit",
+            "feather": 16
+        }
+    }
+}
+```
+
+Every frame of `source` is scaled into `content_box` and blended over the
+matching frame of `generated`: fully the source from `feather` pixels inside
+the box's edges, a linear ramp across those pixels, and `generated` untouched
+outside the box. An edge of the box on the frame's own edge gets no ramp -
+nothing was generated beyond it - so a 16:9 source in a 9:16 frame is
+feathered at its top and bottom only. `feather: 0` is a hard edge.
+
+`content_box` is the `fit` record `fit_to_model` returned (or its saved
+.json): the source is cut to the record's `source_box` before it is scaled,
+so an `align`-snapped letterbox lines up pixel for pixel, and a source of
+another size than the record's is refused. A bare box `{x, y, w, h}` (or
+`[x, y, w, h]`) in `generated`'s pixels works too; the source is then scaled
+to fill it and centre-cropped.
+
+The result has `generated`'s size, frames, soundtrack, fps and shots. It is
+refused when `source` has a different frame count from `generated`, when the
+box runs outside `generated`'s frame, and when `feather` is not a whole number
+from 0 to below half the box's shorter side - a literal at validation.
 
 ### crop_face_track
 
