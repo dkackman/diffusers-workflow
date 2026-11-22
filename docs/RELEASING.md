@@ -98,6 +98,19 @@ GitHub generates notes from commits at tag time. The sections below are the hand
   it counts as a channel poll of every workspace for
   `GET /api/workspaces/{name}/notes-channel`.
 
+**The request page, from a first real run** (#1532)
+
+- The header gives the agent's latest word under what needs you, so an
+  answer like "ready for take 2, not run" or "awaiting go-ahead" is on the
+  page, not only in Plan changes. A note's own status line now says when
+  the agent answered rather than quoting it.
+- A done item has **Another take…** on its row. Open, an item shows its
+  takes once, its buttons lined up, and keeps its jobs and outputs links in
+  its menu. A take and its file are one reference chip on a note.
+- The request skill: after a note at the same price the agent holds the
+  revised items again with a fresh countdown, and a note that changes
+  something the whole set shares is carried over to the other items.
+
 **Fixes**
 
 - The worker's trust check no longer decodes each input clip and fetches
