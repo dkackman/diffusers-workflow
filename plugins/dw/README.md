@@ -48,7 +48,9 @@ rules to the catalog and to the diffusers module that enforces them, and
 requires every skill directory to be named here and in the repo's `CLAUDE.md`.
 A skill's `SKILL.md` stays at or under 12 KiB because it loads whenever the
 skill triggers; detail only some requests need is in its `references/`, read
-on demand and held to the same tests. The plugin's version
+on demand and held to the same tests. A family's `references/intents.md` is
+its per-family index from a wanted result to the pattern that writes it and
+the record that settled it (`tests/test_plugin_intents.py`). The plugin's version
 (`.claude-plugin/plugin.json`) is the engine's; `scripts/release.sh` bumps
 both. The marketplace entry is `.claude-plugin/marketplace.json` at the repo
 root.
