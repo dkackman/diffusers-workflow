@@ -17,6 +17,7 @@ import logging
 from .registry import register_command
 from ..task_domains import (
     FINITE,
+    FIT_FILLS,
     FIT_MODES,
     JOIN_WINDOWS_CURVES,
     NON_NEGATIVE,
@@ -235,8 +236,9 @@ def _handle_window_video(task, arguments, previous_pipelines):
             "num_frames frames; a shorter one holds its last frame."
         ),
         "mode": (
-            "letterbox (scale to fit, centred on black; also returns 'mask', "
-            "white over the bars and black over the picture), stretch (resize "
+            "letterbox (scale to fit, centred on black or on what 'fill' "
+            "paints; also returns 'mask', white over the bars and black over "
+            "the picture), stretch (resize "
             "to fill exactly) or crop (scale to fill, centre-crop). crop is also "
             "how to reframe a clip to another aspect (16:9 to 9:16) - see "
             'TASKS.md "Reframe to another aspect". A keeper H3 take can '
@@ -254,6 +256,14 @@ def _handle_window_video(task, arguments, previous_pipelines):
             "source is centre-cropped by the few pixels the snap costs. Width "
             "and height (after downscale) must be divisible by it."
         ),
+        "fill": (
+            "Letterbox only: what the bars start as, default black. edge "
+            "extends the picture's outermost rows and columns across the bars, "
+            "blurred more the further they run from the box; blur scales the "
+            "picture to fill the canvas, centre-crops and heavily blurs it "
+            "under the box. Only pixels outside the box change - the box, "
+            "mask and align are the same for every fill."
+        ),
     },
     domains={
         "width": POSITIVE,
@@ -263,7 +273,7 @@ def _handle_window_video(task, arguments, previous_pipelines):
         "align": POSITIVE,
     },
     whole_numbers=("width", "height", "num_frames", "downscale", "align"),
-    choices={"mode": FIT_MODES},
+    choices={"mode": FIT_MODES, "fill": FIT_FILLS},
     static_check=fit_to_model_errors,
 )
 def _handle_fit_to_model(task, arguments, previous_pipelines):

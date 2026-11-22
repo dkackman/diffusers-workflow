@@ -12,8 +12,7 @@ H3 generates video and audio together. Every template fits a 24 GB card.
 This skill is written for dw `0.23.0-alpha.1`; `get_server_info`'s `plugin` says whether that is current.
 
 1. `get_server_info`: the device (H3 is CUDA) and the workspace.
-2. `list_workflows(shape="shot")`, `list_workflows(shape="sequence")` and
-   `list_workflows(shape="audio")`: the family's templates by name,
+2. `list_workflows` with `shape` "shot", "sequence" and "audio": the family's templates by name,
    `summary`, `traits`, `cost`; it outranks names here.
 3. `get_workflow` on the one chosen: variables and defaults.
 
@@ -42,7 +41,8 @@ This skill is written for dw `0.23.0-alpha.1`; `get_server_info`'s `plugin` says
   section="H3: holding a clip with `guides`")`.
 - **Fix one region of a good take** (the rest and audio stay):
   `templates/minimax/regional-edit`; first `references/regional-edit.md`.
-- **Reframe a keeper take** to portrait or square: `templates/minimax/reframe`.
+- **Reframe a keeper take** to portrait or square: `templates/minimax/reframe`;
+  its `prompt` describes the whole tall frame, not the take alone.
 - **Replace a performer**: `replace-performer-cuts`, pick its `cuts`,
   `replace-performer`; the prompt gives each cut's pose and framing. A
   cut's own `prompt`/`seed` wins over the workflow `seed`/`prompt`; re-roll one cut by
@@ -113,7 +113,7 @@ Else compose from `list_tasks` (the `workflows` guide's authoring section).
 - A crowd, two people in frame, or a three-reference shot: read
   `references/staging.md` before the prompt - who lip-syncs, where the
   landmark is, and the portrait backdrop that can open a shot.
-- Ref2VA reaches 1344x768 too (`recipes` guide, MiniMax-H3). There the 24 GB ceiling on the `17n+5` grid drops with each
+- Ref2VA reaches 1344x768 too (`recipes` guide, MiniMax-H3). There the 24 GB ceiling drops with each
   reference: 243 frames at one, 209 at two, 175 at three, 141 at four. `validate_workflow` refuses
   the largest `for_each` shot over budget.
 - Steps are the LoRA's passes plus one (5 for the 4-step default, 9 for

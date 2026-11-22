@@ -332,11 +332,12 @@ def _video_shape(name, value, base_dir, probe):
 
 
 TRIM_COMMAND = "trim_video"
+FIT_COMMAND = "fit_to_model"
 
 
-def _trim_arguments(steps, value):
-    """The arguments of the `trim_video` step a `previous_result:` value
-    names, or None when it names no trim."""
+def _task_arguments(steps, value, command):
+    """The arguments of the `command` task step a `previous_result:` value
+    names, or None when it names no such step."""
     name = references.ref_name(references.PREVIOUS_RESULT, value)
     if name is None:
         return None
@@ -345,10 +346,43 @@ def _trim_arguments(steps, value):
         if step.get("name") != name:
             continue
         arguments = task.get("arguments")
-        if task.get("command") != TRIM_COMMAND or not isinstance(arguments, dict):
+        if task.get("command") != command or not isinstance(arguments, dict):
             return None
         return arguments
     return None
+
+
+def _trim_arguments(steps, value):
+    """The arguments of the `trim_video` step a `previous_result:` value
+    names, or None when it names no trim."""
+    return _task_arguments(steps, value, TRIM_COMMAND)
+
+
+def _fitted_source_problems(arguments, steps, base_dir, probe):
+    """[(argument, problem)] for a regional edit whose `source_video` is a
+    `fit_to_model` step's video (C-F1154(7), #1066's reframe): that step's own
+    `video`, when it is a file that resolves now, must have the edit's
+    `num_frames` frames. The fit would cut or hold frames to make them match,
+    and the edit then renders a take of another length than the one it
+    reframes - and that hold_audio holds. A bare fit_to_model that pads a
+    short clip on purpose, with no regional edit reading it, is not checked."""
+    value = arguments.get(SOURCE_VIDEO_INPUT)
+    fit = _task_arguments(steps, value, FIT_COMMAND)
+    num_frames = _static(arguments.get("num_frames"))
+    if probe is None or fit is None or num_frames is None:
+        return []
+    _, shape, _, _ = _video_shape("video", fit.get("video"), base_dir, probe)
+    if shape is None or shape[0] == num_frames:
+        return []
+    step = references.ref_name(references.PREVIOUS_RESULT, value).partition(".")[0]
+    return [
+        (
+            SOURCE_VIDEO_INPUT,
+            f"{SOURCE_VIDEO_INPUT} is the video of fit_to_model step '{step}', "
+            f"whose source has {shape[0]} frames, and the step renders "
+            f"num_frames={num_frames} - they must match",
+        )
+    ]
 
 
 def _trimmed_frames(steps, value):
@@ -483,7 +517,7 @@ def _media_problems(arguments, base_dir, probe, frames_constraint=None, steps=No
         return problems
     if probe is None:
         return []
-    problems = []
+    problems = _fitted_source_problems(arguments, steps, base_dir, probe)
     width, height, num_frames = (
         arguments.get(k) for k in ("width", "height", "num_frames")
     )

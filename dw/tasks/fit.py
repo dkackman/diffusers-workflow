@@ -26,7 +26,11 @@ masked edit can fill the bars. `align` snaps that box to a pixel grid - a
 model's mask-cell size, passed by the template, never known here - by scaling
 the source to fill the snapped box and centre-cropping the few pixels that no
 longer fit; the record's `source_box` says what was kept. `paste_into_box`
-puts the source back inside the box afterwards.
+puts the source back inside the box afterwards. `fill` says what the bars
+start as - black, the picture's edges extended and blurred more with distance
+(`edge`), or the picture scaled to fill the canvas and heavily blurred
+(`blur`) - so a masked edit refining them starts from something like the
+scene rather than from black. Only the pixels outside the box change.
 
 Neither task touches a soundtrack. The fitted video has none (its length is
 the model's), and the restored one has none either - a template pairs the
@@ -48,6 +52,7 @@ from ..task_domains import (
     check_arguments,
     fit_align_problem,
     fit_downscale_problem,
+    fit_fill_problem,
     fit_mode_problem,
     fit_record_problem,
     real_number,
@@ -126,8 +131,88 @@ def _letterbox_mask(width, height, box):
     return Image.fromarray(mask, mode="L")
 
 
+# The edge fill's blur radius per pixel of distance from the box: the first
+# row or column outside the box is the picture's own edge, and the bar
+# softens as it runs away from it
+EDGE_BLUR_PER_PIXEL = 0.5
+# The blur fill works at 1/BLUR_FILL_FACTOR of the canvas, which is its blur
+BLUR_FILL_FACTOR = 16
+
+
+def _box_blur_rows(rows, radius):
+    """`rows` (frames, n, 3) box-blurred along n with `radius`, edges held."""
+    if radius < 1:
+        return rows
+    padded = numpy.pad(rows, ((0, 0), (radius + 1, radius), (0, 0)), mode="edge")
+    sums = numpy.cumsum(padded, axis=1, dtype=numpy.float64)
+    window = 2 * radius + 1
+    n = rows.shape[1]
+    return ((sums[:, window : window + n] - sums[:, :n]) / window).astype(numpy.float32)
+
+
+def _paint_edge(fitted, box):
+    """Paint the bars of `fitted` with the box's outermost rows and columns
+    extended outward, each line box-blurred along itself with a radius that
+    grows with its distance from the box. Pixels inside `box` are untouched."""
+    x, y, w, h = box["x"], box["y"], box["w"], box["h"]
+    height, width = fitted.shape[1:3]
+    # Left and right first, on the box's rows, so the top and bottom bars
+    # extend full canvas-width rows that already carry the corners
+    for column, edge, step in ((x - 1, x, -1), (x + w, x + w - 1, 1)):
+        source = fitted[:, y : y + h, edge]
+        distance = 1
+        while 0 <= column < width:
+            radius = int((distance - 1) * EDGE_BLUR_PER_PIXEL)
+            fitted[:, y : y + h, column] = _box_blur_rows(source, radius)
+            column += step
+            distance += 1
+    for row, edge, step in ((y - 1, y, -1), (y + h, y + h - 1, 1)):
+        source = fitted[:, edge].copy()
+        distance = 1
+        while 0 <= row < height:
+            radius = int((distance - 1) * EDGE_BLUR_PER_PIXEL)
+            fitted[:, row] = _box_blur_rows(source, radius)
+            row += step
+            distance += 1
+
+
+def _paint_blur(fitted, frames, box):
+    """Paint `fitted` with `frames` scaled to fill the canvas, centre-cropped
+    and heavily blurred, keeping the picture inside `box` as it is."""
+    count, height, width = fitted.shape[:3]
+    small_w = max(1, width // BLUR_FILL_FACTOR)
+    small_h = max(1, height // BLUR_FILL_FACTOR)
+    source_h, source_w = frames.shape[1:3]
+    small = resize_frames(
+        cut_box(frames, fill_crop(source_w, source_h, small_w, small_h)),
+        small_w,
+        small_h,
+    )
+    # A box blur along each axis of the small copy, then a smooth upscale
+    small = _box_blur_rows(small.reshape(count * small_h, small_w, 3), 2)
+    small = small.reshape(count, small_h, small_w, 3).transpose(0, 2, 1, 3)
+    small = _box_blur_rows(small.reshape(count * small_w, small_h, 3), 2)
+    small = small.reshape(count, small_w, small_h, 3).transpose(0, 2, 1, 3)
+    tensor = torch.from_numpy(numpy.ascontiguousarray(small)).permute(0, 3, 1, 2)
+    backdrop = F.interpolate(
+        tensor, size=(height, width), mode="bilinear", align_corners=False
+    )
+    rows = slice(box["y"], box["y"] + box["h"])
+    columns = slice(box["x"], box["x"] + box["w"])
+    inside = fitted[:, rows, columns].copy()
+    fitted[:] = backdrop.clamp(0.0, 1.0).permute(0, 2, 3, 1).numpy()
+    fitted[:, rows, columns] = inside
+
+
 def fit_to_model(
-    video, width, height, num_frames, mode="letterbox", downscale=1, align=1
+    video,
+    width,
+    height,
+    num_frames,
+    mode="letterbox",
+    downscale=1,
+    align=1,
+    fill="black",
 ):
     """Task command: fit a video into a model's working size and frame count.
 
@@ -163,6 +248,12 @@ def fit_to_model(
             the snapped box and centre-cropping the few source pixels past it.
             1 (the default) does not snap. The fitted size must be divisible
             by it
+        fill: Letterbox only - what the bars start as: "black" (the
+            default), "edge" (the picture's outermost rows and columns
+            extended across the bars, blurred more the further they run from
+            the box) or "blur" (the picture scaled to fill the canvas,
+            centre-cropped and heavily blurred). The box, `mask` and `align`
+            are the same for every fill; only pixels outside the box change
 
     Returns:
         {"video": the fitted frames as a FittedVideo - one float32 array in
@@ -196,9 +287,12 @@ def fit_to_model(
         if problem is not None:
             raise ValueError(problem)
     width, height = width // downscale, height // downscale
-    problem = fit_align_problem(mode, width, height, align)
-    if problem is not None:
-        raise ValueError(problem)
+    for problem in (
+        fit_align_problem(mode, width, height, align),
+        fit_fill_problem(mode, fill),
+    ):
+        if problem is not None:
+            raise ValueError(problem)
 
     if isinstance(video, str):
         video = load_audio_video(video)
@@ -234,6 +328,10 @@ def fit_to_model(
         fitted[:, y : y + inner_h, x : x + inner_w] = resize_frames(
             cut_box(frames, source_box), inner_w, inner_h
         )
+        if fill == "edge":
+            _paint_edge(fitted, content_box)
+        elif fill == "blur":
+            _paint_blur(fitted, cut_box(frames, source_box), content_box)
 
     record = JsonRecord(
         {
@@ -252,7 +350,7 @@ def fit_to_model(
     )
     logger.info(
         f"fit_to_model: {source_width}x{source_height}x{total} -> "
-        f"{width}x{height}x{num_frames} ({mode}, content {content_box}, "
+        f"{width}x{height}x{num_frames} ({mode}, fill {fill}, content {content_box}, "
         f"source {source_box}, {max(0, num_frames - total)} held frames)"
     )
     result = {"video": FittedVideo(fitted, fps=fps), "fit": record}

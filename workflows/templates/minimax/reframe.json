@@ -1,6 +1,6 @@
 {
     "id": "MiniMaxH3Reframe",
-    "description": "Reframes a keeper H3 take to a portrait or square canvas and keeps its motion, timing and soundtrack: the whole original picture stays, centred, and the border around it is generated. For a take you generated, crop it (fit_to_model mode 'crop') or re-render it natively at the new aspect first: both are cheaper and keep more detail; this is for a take whose motion must stay. 'fit' (fit_to_model, mode 'letterbox') scales 'source_video' to fit 'width' x 'height', centres it on black and returns the mask of the bars; 'align' snaps the picture's box to H3's 32 px mask cell, centre-cropping a few source pixels, so no cell straddles the box edge. 'edit' is regional-edit's masked H3 t2va edit of the letterboxed clip with that mask, at 'refine_strength' 1.0 so the bars are generated from noise rather than from black, 'mask_grow' 0 cells, and hold_audio on the original take, so its soundtrack is held. 'paste' (paste_into_box) puts the original's own pixels back inside the box, blended over a 'feather' px linear ramp inside its edges, since the kept cells came back through the VAE. 'prompt' is the take's own prompt with the new space above and below described. A 16:9 take on the default 544x960 canvas keeps a 544x320 picture, so about two thirds of the frame is generated and the picture is downscaled; 768x768 and 768x1344 work too. 768x1344 tops out near 209 frames on 24 GB, and 544x960 at 345 frames is borderline at about 23.6 GiB: validation's VRAM ceiling is an estimate there. 'num_frames' is the take's length (17n+5, 124 to 345); a longer take is cut to it.",
+    "description": "Reframes a keeper H3 take to a portrait or square canvas and keeps its motion, timing and soundtrack: the whole original picture stays, centred, and the border around it is generated. For a take you generated, crop it (fit_to_model mode 'crop') or re-render it natively at the new aspect first: both are cheaper and keep more detail; this is for a take whose motion must stay. 'fit' (fit_to_model, mode 'letterbox') scales 'source_video' to fit 'width' x 'height', centres it, paints the bars with 'fill' and returns the mask of the bars; 'align' snaps the picture's box to H3's 32 px mask cell, centre-cropping a few source pixels, so no cell straddles the box edge. 'edit' is regional-edit's masked H3 t2va edit of the letterboxed clip with that mask, at 'refine_strength' 0.8, 'mask_grow' 0 cells, and hold_audio on the original take, so its soundtrack is held. 'paste' (paste_into_box) puts the original's own pixels back inside the box, blended over a 'feather' px linear ramp inside its edges, since the kept cells came back through the VAE. 'fill' 'edge' (the default) starts the bars as the picture's own outermost rows and columns, blurred more with distance from the box; 'blur' starts them as the whole picture scaled up and heavily blurred; 'black' as black. The edit refines that start at 'refine_strength' (0.8 keeps its colours and light; 1.0 generates the bars from noise). 'prompt' describes the whole tall frame, not just the take: what sits above and below the original, e.g. 'the brick wall rises to a ceiling; below the desk, its front panel and a wooden floor' - 'extended above and below' alone does not say what to draw. A 16:9 take on the default 544x960 canvas keeps a 544x320 picture, so about two thirds of the frame is generated and the picture is downscaled; 768x768 and 768x1344 work too. 768x1344 tops out near 209 frames on 24 GB, and 544x960 at 345 frames is borderline at about 23.6 GiB: validation's VRAM ceiling is an estimate there. 'num_frames' is the take's own length (17n+5, 124 to 345), refused at validation when it is not.",
     "summary": "An H3 take reframed to portrait or square: picture kept, border generated.",
     "cost": [
         {
@@ -34,7 +34,8 @@
     "variables": {
         "source_video": "asset:take.mp4",
         "prompt": "prompt:minimax/fox_dawn_context_ir",
-        "refine_strength": 1.0,
+        "fill": "edge",
+        "refine_strength": 0.8,
         "mask_grow": 0,
         "align": 32,
         "feather": 16,
@@ -88,7 +89,8 @@
                     "height": "variable:height",
                     "num_frames": "variable:num_frames",
                     "mode": "letterbox",
-                    "align": "variable:align"
+                    "align": "variable:align",
+                    "fill": "variable:fill"
                 }
             },
             "result": {

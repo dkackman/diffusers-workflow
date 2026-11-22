@@ -122,6 +122,10 @@ TASK_ARGUMENT_DOMAINS = RegistryTable("domains")
 # rules, in dw/task_problems.py). FIT_MODES is how fit_to_model puts a source
 # into the model's frame (#602)
 FIT_MODES = ("letterbox", "stretch", "crop")
+# What letterbox paints outside its content box (#1066): black, the picture's
+# edges extended and blurred with distance, or the picture itself scaled to
+# fill the canvas and heavily blurred
+FIT_FILLS = ("black", "edge", "blur")
 JOIN_WINDOWS_CURVES = ("cosine", "smoothstep", "linear")
 # What slice_audio does with a slice reaching past the end of its source:
 # zero-pad it to the length asked (the default) or stop at the end
@@ -696,6 +700,20 @@ def fit_align_problem(mode, width, height, align):
     return None
 
 
+def fit_fill_problem(mode, fill):
+    """The refusal sentence for a `fill` fit_to_model cannot honour, or None:
+    an unknown one, or one other than black off letterbox - crop and stretch
+    leave no bars to paint."""
+    if not (isinstance(fill, str) and fill in FIT_FILLS):
+        return f"fit_to_model needs 'fill' as one of {list(FIT_FILLS)}, got {fill!r}"
+    if fill != "black" and mode != "letterbox":
+        return (
+            f"fit_to_model takes 'fill' {fill!r} only with mode 'letterbox' "
+            f"(it paints the letterbox's bars), got mode {mode!r}"
+        )
+    return None
+
+
 FIT_BOX_KEYS = ("x", "y", "w", "h")
 FIT_RECORD_SIZES = (
     "source_width",
@@ -769,8 +787,9 @@ def fit_record_problem(fit):
 
 def fit_to_model_errors(arguments):
     """[(argument, message)] for the fit_to_model rules a literal workflow
-    can break before it runs: an unknown `mode`, a size the downscale does
-    not divide, and an `align` off letterbox or not dividing the fitted size.
+    can break before it runs: an unknown `mode` or `fill`, a size the
+    downscale does not divide, an `align` off letterbox or not dividing the
+    fitted size, and a `fill` other than black off letterbox.
     A size, frame count, downscale or align that is not a whole number is the
     shared whole-number check's (`domain_violation`) to refuse."""
     errors = choice_errors("fit_to_model", arguments)
@@ -778,6 +797,12 @@ def fit_to_model_errors(arguments):
     downscale = as_number(arguments.get("downscale", 1))
     align = as_number(arguments.get("align", 1))
     mode = arguments.get("mode", "letterbox")
+    fill = arguments.get("fill", "black")
+    fill_problem = None
+    if not errors and not any(
+        isinstance(value, str) and is_ref(DEFERRED, value) for value in (mode, fill)
+    ):
+        fill_problem = fit_fill_problem(mode, fill)
     if not errors and all(
         n is not None and n > 0 and n.is_integer() for n in [*sizes, downscale]
     ):
@@ -796,6 +821,8 @@ def fit_to_model_errors(arguments):
             )
             if problem is not None:
                 errors.append(("align", problem))
+    if fill_problem is not None:
+        errors.append(("fill", fill_problem))
     return errors
 
 

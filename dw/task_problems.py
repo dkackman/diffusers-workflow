@@ -451,10 +451,12 @@ def read_paste_box(value):
     return (box, None, None), None
 
 
-def paste_into_box_problems(feather=None, box=None):
+def paste_into_box_problems(feather=None, box=None, signed=True):
     """[(argument, message)] for paste_into_box's feather: a whole number from
     0, and - once the box is known - below half the box's shorter side, so the
-    ramps from opposite edges never meet."""
+    ramps from opposite edges never meet. 'signed' False leaves a negative
+    feather to the caller: validation's shared domain check already refuses
+    one, and a second message for the same value is noise (C-F1154(9))."""
     if feather is None:
         return []
     problem = number_problem(feather, "feather", "paste_into_box", whole=True)
@@ -464,6 +466,8 @@ def paste_into_box_problems(feather=None, box=None):
     if number is None:
         return []
     if number < 0:
+        if not signed:
+            return []
         return [
             (
                 "feather",
@@ -499,7 +503,8 @@ def paste_into_box_errors(arguments):
     feather = arguments.get("feather")
     if is_ref(DEFERRED, feather):
         return problems
-    return problems + paste_into_box_problems(feather, box)
+    # a negative feather is the NON_NEGATIVE domain's to report, once
+    return problems + paste_into_box_problems(feather, box, signed=False)
 
 
 def check_face_detector_source(repo, filename):
