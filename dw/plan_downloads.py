@@ -82,7 +82,7 @@ def downloads_required(expanded, base_dir, workflow_dir, cache_dir, lookup_sizes
     offline box is a state, not an error, so nothing here raises or logs
     above debug.
     """
-    names, variants, urls, files, partials, whole = _walk(
+    names, variants, urls, files, partials, whole, skips = _walk(
         expanded, base_dir, workflow_dir
     )
     present = {repo.get("repo_id") for repo in scan_models(cache_dir).get("repos", [])}
@@ -116,7 +116,9 @@ def downloads_required(expanded, base_dir, workflow_dir, cache_dir, lookup_sizes
         entry = {"repo": name, "gb": None, "gated": None, "access_blocked": None}
         if lookup_sizes:
             try:
-                entry["gb"], entry["gated"], entry["access_blocked"] = _model_info(name)
+                entry["gb"], entry["gated"], entry["access_blocked"] = _model_info(
+                    name, variants.get(name), skips.get(name)
+                )
             except _RepoNotFound:
                 entry["not_found"] = True
         required.append(entry)
@@ -164,7 +166,7 @@ def repos_named(expanded, base_dir, workflow_dir):
     like a hub id - a local path, a URL, a reference left unresolved - is
     dropped by shape, as the plan drops it. What dw/model_use.py stamps when
     the run starts (#1445)."""
-    names, _variants, _urls, files, _partials, _whole = _walk(
+    names, _variants, _urls, files, _partials, _whole, _skips = _walk(
         expanded, base_dir, workflow_dir
     )
     named = []
@@ -176,7 +178,7 @@ def repos_named(expanded, base_dir, workflow_dir):
 
 def _walk(expanded, base_dir, workflow_dir):
     """The sources the expanded definition and each composed child name, as
-    `(names, variants, urls, files, partials, whole)` - see `_collect_sources`
+    `(names, variants, urls, files, partials, whole, skips)` - see `_collect_sources`
     and `_collect_task_weights`."""
     names = []
     variants = {}
@@ -184,7 +186,8 @@ def _walk(expanded, base_dir, workflow_dir):
     files = []
     partials = {}
     whole = set()
-    _collect_sources(expanded, names, variants, urls, files, partials, whole)
+    skips = {}
+    _collect_sources(expanded, names, variants, urls, files, partials, whole, skips)
     _collect_task_weights(expanded, names, files, urls, whole)
     for path, _arguments in _sub_workflow_paths(expanded):
         raw = read_sub_workflow(path, base_dir, workflow_dir)
@@ -194,13 +197,13 @@ def _walk(expanded, base_dir, workflow_dir):
             child = json.loads(raw)
         except ValueError:
             continue
-        _collect_sources(child, names, variants, urls, files, partials, whole)
+        _collect_sources(child, names, variants, urls, files, partials, whole, skips)
         _collect_task_weights(child, names, files, urls, whole)
-    return names, variants, urls, files, partials, whole
+    return names, variants, urls, files, partials, whole, skips
 
 
 def _collect_sources(
-    tree, names, variants, urls, files=None, partials=None, whole=None
+    tree, names, variants, urls, files=None, partials=None, whole=None, skips=None
 ):
     """Every from_pretrained source in a tree, first-seen order, deduplicated.
     `variants` collects each name's requested `variant` (first-seen), used to
@@ -242,6 +245,14 @@ def _collect_sources(
                     variant = source.get(VARIANT_KEY)
                     if isinstance(variant, str):
                         variants[name] = variant
+                if skips is not None:
+                    # A component passed as null (`"safety_checker": null`) is
+                    # not loaded, so its folder is not fetched (#1580)
+                    skips.setdefault(name, set()).update(
+                        key
+                        for key, value in source.items()
+                        if value is None and isinstance(key, str)
+                    )
                 overrides = isinstance(load_components, dict) and _moves_to_a_repo(
                     load_components.get(OVERRIDE_KEY)
                 )
@@ -261,10 +272,14 @@ def _collect_sources(
                 urls.append(single)
         _collect_component_overrides(tree.get(LOAD_COMPONENTS_KEY), names, whole)
         for value in tree.values():
-            _collect_sources(value, names, variants, urls, files, partials, whole)
+            _collect_sources(
+                value, names, variants, urls, files, partials, whole, skips
+            )
     elif isinstance(tree, list):
         for value in tree:
-            _collect_sources(value, names, variants, urls, files, partials, whole)
+            _collect_sources(
+                value, names, variants, urls, files, partials, whole, skips
+            )
 
 
 def _moves_to_a_repo(value):
@@ -705,8 +720,8 @@ def _fetch_modular_index(base, revision):
     return json.loads(response.text)
 
 
-def _model_info(name):
-    """A repo's size in GiB, gate status, and whether this box's token is
+def _model_info(name, variant=None, skip=None):
+    """A repo's size in GiB (what `from_pretrained` fetches, `_load_bytes`), gate status, and whether this box's token is
     blocked from it - a `(gb, gated, access_blocked)` triple.
 
     `gated` is `model_info`'s own field (`False` / `"auto"` / `"manual"`),
@@ -736,13 +751,71 @@ def _model_info(name):
     except Exception as e:
         logger.debug(f"No size for {name}: {e}")
         return None, None, None
-    total = sum(s.size for s in (info.siblings or []) if getattr(s, "size", None))
+    total = _load_bytes(info.siblings or [], variant, skip)
     gb = round(total / GIB, 1) if total else None
     gated = getattr(info, "gated", False) or False
     access_blocked = False
     if gated:
         access_blocked = _probe_gate_blocked(name, info.siblings or [])
     return gb, gated, access_blocked
+
+
+_WEIGHT_FORMATS = (".safetensors", ".bin", ".ckpt", ".pt", ".pth", ".msgpack", ".h5")
+_VARIANT_TOKENS = ("fp16", "bf16", "fp32", "non_ema", "ema")
+
+
+def _weight_variant(filename):
+    """The variant token in a weight file name (`model.fp16.safetensors` ->
+    `fp16`), or None for a plain one."""
+    parts = filename.rsplit("/", 1)[-1].split(".")
+    for token in parts[1:-1]:
+        if token in _VARIANT_TOKENS:
+            return token
+    return None
+
+
+def _load_bytes(siblings, variant=None, skip=None):
+    """Bytes a diffusers `from_pretrained` of a repo fetches, from its file
+    list: a repo with a `model_index.json` is loaded by component folder, so
+    root checkpoints and docs are left out and, per folder, one weight format
+    is kept - safetensors over the rest, the requested `variant` if the folder
+    has it, else the plain files. A folder named in `skip` (a component the
+    step passes as null) is left out. A repo without a `model_index.json`
+    (a modular or single-checkpoint repo) is summed whole, an upper bound
+    (#1580)."""
+    files = [
+        (getattr(s, "rfilename", None) or "", s.size)
+        for s in siblings
+        if getattr(s, "size", None)
+    ]
+    if not any(name == "model_index.json" for name, _ in files):
+        return sum(size for _, size in files)
+    skip = skip or set()
+    total = 0
+    folders = {}
+    for name, size in files:
+        folder, _, leaf = name.rpartition("/")
+        if folder.split("/")[0] in skip:
+            continue
+        if not folder:
+            if name == "model_index.json":
+                total += size
+            continue
+        if name.endswith(_WEIGHT_FORMATS):
+            folders.setdefault(folder, []).append((name, size))
+        else:
+            total += size
+    for weights in folders.values():
+        tagged = [(n, sz, _weight_variant(n)) for n, sz in weights]
+        chosen = [t for t in tagged if variant and t[2] == variant]
+        if not chosen:
+            chosen = [t for t in tagged if t[2] is None] or tagged
+        for ext in _WEIGHT_FORMATS:
+            same = [t for t in chosen if t[0].endswith(ext)]
+            if same:
+                total += sum(sz for _, sz, _ in same)
+                break
+    return total
 
 
 def _file_info(repo, filename, revision):

@@ -53,7 +53,10 @@ claude mcp add --scope user --transport http dw http://localhost:8765/mcp \
   --header "Authorization: Bearer <token>"
 ```
 
-That is the default `DW_HOST_PORT`; use yours if you changed it. Start a new
+That is the default `DW_HOST_PORT`. If 8765 is taken on the host (a native
+`dw.serve` already holds it), set `DW_HOST_PORT` in `docker/.env` to a free
+port before `up -d` (`init-env.sh` always writes 8765), then use that port
+here and in the browser; `login-url` prints it. Start a new
 Claude Code session, and `/mcp` lists `dw` as connected. From another
 machine, see [REMOTE.md](REMOTE.md).
 
