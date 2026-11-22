@@ -414,7 +414,7 @@ def test_validate_answers_for_an_uncached_gated_model(server, monkeypatch):
         dw.plan_downloads, "scan_models", lambda cache_dir=None: {"repos": []}
     )
     monkeypatch.setattr(
-        dw.plan_downloads, "_model_info", lambda name: (31.4, "manual", False)
+        dw.plan_downloads, "_model_info", lambda name, *a: (31.4, "manual", False)
     )
     with server(success_script) as client:
         response = client.post("/api/validate", json={"workflow": valid_workflow()})
