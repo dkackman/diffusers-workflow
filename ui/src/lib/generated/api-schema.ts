@@ -3229,6 +3229,13 @@ export interface components {
              * @description When the acceptance was recorded, an ISO time.
              */
             at: string;
+            /**
+             * Prompts
+             * @description The sha256 of each referenced prompt's text when the acceptance was recorded: it holds until that text changes again.
+             */
+            prompts?: {
+                [key: string]: string;
+            };
         };
         /** LedgerAttempt */
         LedgerAttempt: {
@@ -3354,7 +3361,7 @@ export interface components {
             review_until: string | null;
             /**
              * Revised Because
-             * @description What moved on a revised item: `workflow`, `arguments`. Absent unless the item is revised.
+             * @description What moved on a revised item: `workflow`, `arguments`, `prompt:<name>` (a referenced prompt's text changed). Absent unless the item is revised.
              */
             revised_because?: string[];
             /**

@@ -429,6 +429,10 @@ class LedgerReview(ApiModel):
 
 class LedgerAcceptedBasis(ApiModel):
     at: str = Field(description="When the acceptance was recorded, an ISO time.")
+    prompts: dict[str, str] = sometimes(
+        "The sha256 of each referenced prompt's text when the acceptance was "
+        "recorded: it holds until that text changes again."
+    )
 
 
 class LedgerItem(ApiModel):
@@ -451,8 +455,9 @@ class LedgerItem(ApiModel):
         "was cancelled), planned."
     )
     revised_because: list[str] = sometimes(
-        "What moved on a revised item: `workflow`, `arguments`. Absent "
-        "unless the item is revised."
+        "What moved on a revised item: `workflow`, `arguments`, "
+        "`prompt:<name>` (a referenced prompt's text changed). Absent unless "
+        "the item is revised."
     )
     changed_at: str | None = Field(
         description="When the item was created or its workflow or arguments "

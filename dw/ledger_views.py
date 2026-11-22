@@ -3,8 +3,10 @@ linked jobs derive.
 
 Pure functions over the stored request and the job dicts the caller hands
 over (`{job, item, status, run_id, run_dir, run_exists, note, created_at,
-started_at, finished_at, workflow, arguments, output}`); nothing here reads the job store or the
-file. An item's `status`, `ready`, `attempts`, `result` and
+started_at, finished_at, workflow, arguments, output, prompt_digests}`)
+and, for rule 2, a `prompts` callable (`name -> sha256 of that prompt's
+text now`, or None when it no longer resolves: `dw.prompts.PromptDigests`);
+nothing here reads the job store or the file. An item's `status`, `ready`, `attempts`, `result` and
 `spent_minutes` (and a revised item's `revised_because`), a request's `spent_minutes` and `remaining_minutes`, a list
 row's `cover`, and each note reference's `attempt` and `gone` are derived
 here at read time and never stored. `dw/ledger.py` owns the file, the
@@ -13,6 +15,8 @@ and `ledger.summary_view`.
 """
 
 from datetime import datetime, timezone
+
+from . import references
 
 # The list's `cover`: this many result outputs, found among at most
 # COVER_SCAN of a request's latest results - the bound on what one row of a
@@ -37,10 +41,10 @@ def _epoch(text):
 
 
 def _current(item, job):
-    """Whether succeeded take `job` is current for `item`'s plan: the plan
-    has not changed since the take was created (`changed_at` not later than
-    its `created_at`), or the item's `workflow` and `arguments` equal the
-    take's as submitted (`_same_workflow`)."""
+    """Rule 1: whether succeeded take `job` is current for `item`'s plan:
+    the plan has not changed since the take was created (`changed_at` not
+    later than its `created_at`), or the item's `workflow` and `arguments`
+    equal the take's as submitted (`_same_workflow`)."""
     changed = _epoch(item.get("changed_at"))
     created = job.get("created_at")
     if changed is None or (created is not None and changed <= created):
@@ -66,36 +70,118 @@ def _accepted_since(item):
     return at is not None and changed is not None and at >= changed
 
 
-def is_revised(item, jobs):
-    """Whether an item with a succeeded take reads `revised`: its plan
-    changed after every succeeded take (none is `_current`) and no
-    acceptance was recorded since. An item with no `changed_at` (stored
-    before the stamp) is never revised."""
+def prompt_names(arguments):
+    """The prompt names the `prompt:` references in `arguments` name,
+    wherever they sit (a nested dict or list too), first-seen order - each
+    as the run manifest records it (`ref_name(...).strip()`, dw/realize.py)."""
+    names = []
+
+    def walk(value):
+        if isinstance(value, str):
+            name = references.ref_name(references.PROMPT, value)
+            if name is not None and name.strip() not in names:
+                names.append(name.strip())
+        elif isinstance(value, dict):
+            for inner in value.values():
+                walk(inner)
+        elif isinstance(value, list):
+            for inner in value:
+                walk(inner)
+
+    walk(arguments or {})
+    return names
+
+
+def current_prompts(item, prompts):
+    """`{name: digest}` for each prompt the item's current arguments
+    reference that still resolves (`prompts(name)` not None). Empty with no
+    `prompts` callable, so a caller that hands none gets rule 1 alone."""
+    if prompts is None:
+        return {}
+    found = {}
+    for name in prompt_names(item.get("arguments")):
+        digest = prompts(name)
+        if digest is not None:
+            found[name] = digest
+    return found
+
+
+def _recorded_digests(job):
+    digests = job.get("prompt_digests")
+    if callable(digests):
+        digests = digests()
+    return digests if isinstance(digests, dict) else {}
+
+
+def _moved_prompts(item, job, now):
+    """Rule 2: the names in `now` (the item's current prompt digests) whose
+    text differs from what take `job` ran with - the acceptance basis's
+    digest for a name when it holds one (a re-accept takes the text as it
+    stood then), else the take's recorded one. A name with no recorded
+    digest (a take from before digests were recorded) counts as equal, and
+    a prompt that no longer resolves is not in `now`: no claim without
+    evidence."""
+    if not now:
+        return []
+    basis = item.get("accepted_basis")
+    accepted = basis.get("prompts") if isinstance(basis, dict) else None
+    accepted = accepted if isinstance(accepted, dict) else {}
+    recorded = _recorded_digests(job)
+    moved = []
+    for name, digest in now.items():
+        was = accepted.get(name, recorded.get(name))
+        if isinstance(was, str) and was != digest:
+            moved.append(name)
+    return moved
+
+
+def _take_current(item, job, now):
+    """Whether take `job` is current: its plan holds (rule 1, or an
+    acceptance recorded since the plan last changed) and no prompt it
+    references has new text (rule 2)."""
+    plan = _accepted_since(item) or _current(item, job)
+    return plan and not _moved_prompts(item, job, now)
+
+
+def is_revised(item, jobs, prompts=None):
+    """Whether an item with a succeeded take reads `revised`: no succeeded
+    take is current (`_take_current`) - its plan changed after every one and
+    no acceptance was recorded since (rule 1), or a prompt its arguments
+    reference has text other than the take ran with (rule 2; `prompts` the
+    `name -> digest` callable, None for rule 1 alone). An item with no
+    `changed_at` (stored before the stamp) is revised by rule 2 only."""
     takes = [job for job in jobs if job.get("status") == "succeeded"]
-    if not takes or _accepted_since(item):
+    if not takes:
         return False
-    return not any(_current(item, job) for job in takes)
+    now = current_prompts(item, prompts)
+    return not any(_take_current(item, job, now) for job in takes)
 
 
-def revised_because(item, jobs, result=None):
+def revised_because(item, jobs, result=None, prompts=None):
     """What moved on a revised item, as a list (`["arguments"]`,
-    `["workflow", "arguments"]`): the fields that differ from its result
-    take, else from its latest succeeded take."""
+    `["workflow", "arguments"]`, `["prompt:p"]`, `["arguments", "prompt:p"]`):
+    the fields that differ from its result take, else from its latest
+    succeeded take, then each prompt whose text moved (`_moved_prompts`)."""
     take = result
     if take is None:
         takes = [job for job in jobs if job.get("status") == "succeeded"]
         take = takes[-1] if takes else {}
+    plan_held = _accepted_since(item) or _current(item, take)
     because = []
-    if not _same_workflow(item, take):
+    if not plan_held and not _same_workflow(item, take):
         because.append("workflow")
-    if (item.get("arguments") or {}) != (take.get("arguments") or {}):
+    if not plan_held and (item.get("arguments") or {}) != (take.get("arguments") or {}):
         because.append("arguments")
+    because += [
+        f"prompt:{name}"
+        for name in _moved_prompts(item, take, current_prompts(item, prompts))
+    ]
     # changed_at moved past every take but nothing differs from this one:
     # another take carried the difference; the plan itself is what moved
     return because or ["arguments"]
 
 
-def _item_status(item, jobs):
+def _item_status(item, jobs, prompts=None):
     """An item's status, derived from the jobs linked to it: dropped; done
     (any succeeded), or revised when its plan changed after every succeeded
     take (`is_revised`); running; queued; failed (every linked job failed
@@ -104,7 +190,7 @@ def _item_status(item, jobs):
         return "dropped"
     statuses = {job.get("status") for job in jobs}
     if "succeeded" in statuses:
-        return "revised" if is_revised(item, jobs) else "done"
+        return "revised" if is_revised(item, jobs, prompts) else "done"
     if "running" in statuses:
         return "running"
     if "queued" in statuses:
@@ -144,7 +230,7 @@ def _result(item, jobs):
     return max(kept, key=lambda job: job.get("finished_at") or 0), missing
 
 
-def _ready(request, grouped):
+def _ready(request, grouped, prompts=None):
     """The keys of the items a job could be queued for now: planned or
     revised, with a stored workflow and every dependency done, in an open
     request."""
@@ -152,7 +238,8 @@ def _ready(request, grouped):
         return set()
     items = request.get("items", [])
     status = {
-        i.get("key"): _item_status(i, grouped.get(i.get("key"), [])) for i in items
+        i.get("key"): _item_status(i, grouped.get(i.get("key"), []), prompts)
+        for i in items
     }
     return {
         i.get("key")
@@ -276,7 +363,9 @@ def _review(item, notes, now):
     return {"until": item["review_until"], "state": state, "seconds_left": left}
 
 
-def item_view(item, jobs, ready=False, request_notes=(), state="open", now=None):
+def item_view(
+    item, jobs, ready=False, request_notes=(), state="open", now=None, prompts=None
+):
     """One item as read, with what its linked `jobs` derive: `status`,
     `ready`, `attempts` (every linked job, oldest first, as `{job, status,
     note, minutes, output}` - `note` only when set, `minutes` null until it
@@ -285,7 +374,8 @@ def item_view(item, jobs, ready=False, request_notes=(), state="open", now=None)
     `revised_because` (only on a revised item: `revised_because`) and
     `review` (only on a planned or revised item of an open request with a hold: see
     `_review`; `request_notes` are the request's own notes, `state` its
-    state, `now` the aware time to read it at)."""
+    state, `now` the aware time to read it at; `prompts` the `name ->
+    digest` callable rule 2 reads, None for rule 1 alone)."""
     attempts = [
         {
             "job": job.get("job"),
@@ -302,14 +392,14 @@ def item_view(item, jobs, ready=False, request_notes=(), state="open", now=None)
         "run_id": chosen.get("run_id"),
         "output": attempts[jobs.index(chosen)]["output"],
     }
-    status = _item_status(item, jobs)
+    status = _item_status(item, jobs, prompts)
     review = (
         _review(item, [*(item.get("notes") or []), *request_notes], now)
         if status in ("planned", "revised") and state == "open"
         else None
     )
     because = (
-        revised_because(item, jobs, chosen if chosen in jobs else None)
+        revised_because(item, jobs, chosen if chosen in jobs else None, prompts)
         if status == "revised"
         else None
     )
@@ -341,26 +431,28 @@ def _spent(jobs):
     return round(sum(_minutes(job) or 0 for job in jobs), 2)
 
 
-def _remaining(request, grouped):
+def _remaining(request, grouped, prompts=None):
     """What is left to do: the estimates of the items not done and not
     dropped (a revised item counts again)."""
     total = 0
     for item in request.get("items", []):
-        if _item_status(item, grouped.get(item.get("key"), [])) in ("done", "dropped"):
+        status = _item_status(item, grouped.get(item.get("key"), []), prompts)
+        if status in ("done", "dropped"):
             continue
         total += item.get("estimate_minutes") or 0
     return round(total, 2)
 
 
-def request_view(request, jobs=(), now=None):
+def request_view(request, jobs=(), now=None, prompts=None):
     """A stored request as read: every item with its derived fields
     (`item_view`) and the request's `spent_minutes` and `remaining_minutes`.
     `jobs` are the linked jobs (`{job, item, status, run_id, run_dir,
     run_exists, note, created_at, started_at, finished_at, output}`). `now`
     is an aware datetime to read the review holds at, the current time when
-    omitted."""
+    omitted. `prompts` is the `name -> digest` callable rule 2 reads (None:
+    rule 1 alone); wrap it in one memo per view (`dw.prompts.PromptDigests`)."""
     grouped = _jobs_by_item(jobs)
-    ready = _ready(request, grouped)
+    ready = _ready(request, grouped, prompts)
     positions = {}
     for key, group in grouped.items():
         if key is not None:
@@ -381,20 +473,22 @@ def request_view(request, jobs=(), now=None):
             request.get("notes") or [],
             request.get("state"),
             now,
+            prompts,
         )
         for item in request.get("items", [])
     ]
     view["spent_minutes"] = _spent(jobs)
-    view["remaining_minutes"] = _remaining(request, grouped)
+    view["remaining_minutes"] = _remaining(request, grouped, prompts)
     return view
 
 
-def summary_view(request, jobs=()):
-    """One row of the list: what a request is, without its items."""
+def summary_view(request, jobs=(), prompts=None):
+    """One row of the list: what a request is, without its items. `prompts`
+    as `request_view`'s."""
     grouped = _jobs_by_item(jobs)
     counts = {}
     for item in request.get("items", []):
-        status = _item_status(item, grouped.get(item.get("key"), []))
+        status = _item_status(item, grouped.get(item.get("key"), []), prompts)
         counts[status] = counts.get(status, 0) + 1
     history = request.get("history") or []
     return {
@@ -404,9 +498,9 @@ def summary_view(request, jobs=()):
         "revision": request.get("revision"),
         "items": len(request.get("items", [])),
         "status_counts": counts,
-        "ready": len(_ready(request, grouped)),
+        "ready": len(_ready(request, grouped, prompts)),
         "cover": _cover(request, grouped),
         "spent_minutes": _spent(jobs),
-        "remaining_minutes": _remaining(request, grouped),
+        "remaining_minutes": _remaining(request, grouped, prompts),
         "updated_at": history[-1].get("at") if history else None,
     }
