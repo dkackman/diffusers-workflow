@@ -19,7 +19,7 @@ on seeds 1001 and 2002. These are `templates/minimax/reference-to-video`'s own s
 | P1-P3 | `probe-1528-shot.json` (`Probe1528Shot`): the template's `shot` step, with the whole `references` list a variable | `probe-1528-shot` | `prompt`, `references` |
 | P4 | `probe-1528-held.json` (`Probe1528HeldShot`): `slice_audio` of the song, then one shot taking the performer's portrait plus that slice as an audio reference and holding it (`hold_audio: previous_result:slice`), as `templates/minimax/music-video`'s `shot` step does | `probe-1528-held` | `prompt` |
 
-The exact prompts and references of every arm are in `bench/arms/probe-1528.json`. The prompts
+The exact prompts and references of every arm are in `bench/records/probe-1528-arms.json` (the prompts and references sent to `run_workflow`, not a `bench/driver.py` arm file). The prompts
 were also saved to the server's library as `prompt:probe1528-*`. In each pair, the two prompts
 differ only in the probed sentence.
 
