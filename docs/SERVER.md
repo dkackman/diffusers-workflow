@@ -1035,6 +1035,11 @@ blend toward, `minutes` is left alone and `low_confidence` is set instead.
   (confined to `--workflow-dir`); `PATCH` applies a JSON merge patch (RFC 7396,
   `application/merge-patch+json` or JSON) to the stored version and saves the
   result as `PUT` would, under the same lock, so a save in between is not lost
+  `GET` sends an `ETag` (`"` + 32 hex characters of the file's SHA-256 + `"`) and
+  `PUT`/`PATCH` send the one for the file they wrote. A write is unconditional
+  unless it carries `If-None-Match: *` (409 `exists` when the writable file is
+  there) or `If-Match: <etag>` (409 `stale_write`, with the current `etag` or null,
+  when the writable file differs or is gone)
 - `GET /api/workflows/{name:path}/download` — download a workflow file as JSON
 - `GET /api/workflows/{name:path}/variables` — a workflow's variables and what
   they default to, without the definition around them. Long string defaults are
@@ -1048,6 +1053,9 @@ blend toward, `minutes` is left alone and `low_confidence` is set instead.
   `origin`/`writable` per entry in `details`; deleting a read-only entry is a
   403; saves are validated against the prompt schema,
   served at `GET /api/prompt-schema`
+  `GET` and `PUT /api/prompts/{name}` send the same `ETag`, and `PUT` honours
+  `If-None-Match: *` (409 `exists`) and `If-Match` (409 `stale_write`) as a workflow
+  save does; without either header it overwrites
 - `GET /api/prompts/{name:path}/download` — download a prompt file as text
 - `GET /api/loras?model=&workflow=&status=&tag=`, `GET/PUT/DELETE /api/loras/{name}` —
   the LoRA catalog (see [LORAS.md](LORAS.md#lora-catalog)): one JSON file per
