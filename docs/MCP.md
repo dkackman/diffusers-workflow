@@ -71,6 +71,19 @@ script has its interpreter in its shebang, so it runs with no venv active:
 echo "$(pwd)/venv/bin/dw-mcp"    # the value to register
 ```
 
+## Clients
+
+Claude Code with the `dw` plugin is the tested path. Any MCP client gets every
+tool and every served guide, including the `agent-rules` guide, which carries
+the family rules for a client without the plugin. That case was tested as a
+no-plugin Claude Sonnet session (`bench/records/drill.md`, #1524): it could
+find, run and check catalog work from the served tools and guides alone, but
+without the skills it lost the family rules: FLUX 3 Klein's prompt routing,
+H3's Context-IR, dialogue settings, line sizing, verbatim voices and staging.
+Those rules are now in get_guide("agent-rules"); composing to them is
+supported only in Claude Code with the dw plugin. Other MCP clients and models
+are untested.
+
 ## Client configuration
 
 ### Remote server, no local install

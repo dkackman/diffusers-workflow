@@ -110,6 +110,11 @@ GUIDES = {
         "How a run's workflows, prompts, assets and outputs are rooted, and "
         "what changes when a workspace is named.",
     ),
+    "agent-rules": (
+        "AGENT_RULES.md",
+        "Hard rules per model family and for pieces longer than one clip, for "
+        "a client without the dw plugin.",
+    ),
 }
 
 # Only the top level. Sub-headings would triple the index for detail that is

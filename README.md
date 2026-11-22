@@ -6,7 +6,7 @@ Your GPU, as something an agent can drive.
 
 diffusers-workflow runs [Hugging Face Diffusers](https://github.com/huggingface/diffusers)
 image, video and audio generation as jobs on your own GPU. **An agent does the work.**
-Claude Code, or any MCP client, picks or writes the workflow, checks what it will
+Claude Code, or [any MCP client](docs/MCP.md#clients), picks or writes the workflow, checks what it will
 cost, runs it, and looks at what came back. **You steer from the browser.** Every
 workflow, run and output the agent made is in the web UI, where you can change a
 variable, run it again, compare takes and keep the one you like.
@@ -301,7 +301,7 @@ acts on it.
 
 **Using it**
 
-- [MCP Server](docs/MCP.md) - the agent's tool surface (Claude Code, Claude Desktop, other MCP hosts)
+- [MCP Server](docs/MCP.md) - the agent's tool surface (Claude Code, Claude Desktop, [other MCP hosts](docs/MCP.md#clients))
 - [dw plugin](plugins/dw/README.md) - the model-family and composition skills
 - [Server & Web UI](docs/SERVER.md) - the web UI, the command line, and the [HTTP API](docs/SERVER.md#the-http-api) with its OpenAPI spec
 - [Workspaces](docs/WORKSPACES.md) - where your content lives, run directories, several workspaces on one server

@@ -2672,3 +2672,90 @@ class TestSkillRequests:
     def test_each_skill_holds_its_budget(self, path):
         size = len(skill_body(path).encode("utf-8"))
         assert size <= SKILL_SIZE_LIMIT, f"{path} is {size} bytes"
+
+
+AGENT_RULES = os.path.join(REPO_ROOT, "docs", "AGENT_RULES.md")
+
+# Each agent-rules section and the skill whose rules it copies (#1547).
+AGENT_RULES_SKILLS = {
+    "FLUX 3 Klein": FLUX3_SKILL,
+    "MiniMax H3": H3_SKILL,
+    "Longer than one clip": LONG_FORM_SKILL,
+}
+
+# A rule's load-bearing words, which both copies must hold verbatim.
+AGENT_RULES_PINS = {
+    "FLUX 3 Klein": [
+        "`templates/flux3/upsample-then-generate`",
+        "16 steps, no guidance and no negative prompt",
+        "Every component carries an explicit `device`",
+        "FLUX Kommunity License",
+    ],
+    "MiniMax H3": [
+        "Context-IR, MiniMax's",
+        "`templates/minimax/enhance-prompt`",
+        "Dialogue shots (any `<d>` line) drop the turbo LoRA, which digitizes",
+        "`lora_model_name: null`, `num_inference_steps: 12`,"
+        " `video_shift: 12.0`, `audio_shift: 3.0`",
+        "about 2.5–4 written words/s fills",
+        "At 124 frames (5.17 s) that is about 13–21 words; at 345 frames"
+        " (14.4 s), about 36–57.",
+        "Repeat a speaker's voice description verbatim across shots.",
+        "face-on at medium close-up",
+        "the portraits' backdrop",
+        "`17n + 5`",
+    ],
+    "Longer than one clip": [
+        "Prefer cuts. A cut resets drift",
+        "drifts past about 35 s",
+        "chains of 35 s or less",
+        "`templates/assemble-and-score`",
+        "`templates/minimax/music-long`",
+        "past about 90 s",
+        "`check: true, retries: 1`",
+        "N(1 + `retries`) segment renders when it",
+        "768x448",
+        '`assess_output(probe="analyze_seams")`',
+        "`get_output_frames(seams=true)`",
+    ],
+}
+
+NUMBER = re.compile(r"(?<![\w.])\d+(?:\.\d+)?(?:–\d+(?:\.\d+)?)?(?![\w])")
+
+
+def _agent_rules_sections():
+    text = open(AGENT_RULES, encoding="utf-8").read()
+    parts = re.split(r"^## (.+)$", text, flags=re.M)
+    return dict(zip(parts[1::2], parts[2::2]))
+
+
+class TestAgentRulesGuide:
+    """#1547: the served agent-rules guide copies the skills' hard rules for a
+    client without the dw plugin, and a rule's number can't drift from its
+    skill's."""
+
+    def test_its_sections_are_the_skills_it_copies(self):
+        assert list(_agent_rules_sections()) == list(AGENT_RULES_SKILLS)
+
+    @pytest.mark.parametrize("section", list(AGENT_RULES_SKILLS))
+    def test_each_section_names_its_skill(self, section):
+        body = _agent_rules_sections()[section]
+        skill = os.path.basename(os.path.dirname(AGENT_RULES_SKILLS[section]))
+        assert f"The Claude Code skill `{skill}` carries the same rules" in _flat(body)
+
+    @pytest.mark.parametrize(
+        "section,pin",
+        [(s, p) for s, pins in AGENT_RULES_PINS.items() for p in pins],
+    )
+    def test_a_pinned_rule_reads_the_same_in_both(self, section, pin):
+        guide = _flat(_agent_rules_sections()[section])
+        skill = _flat(skill_text(AGENT_RULES_SKILLS[section]))
+        assert pin in guide, f"agent-rules {section!r} lost {pin!r}"
+        assert pin in skill, f"{AGENT_RULES_SKILLS[section]} lost {pin!r}"
+
+    @pytest.mark.parametrize("section", list(AGENT_RULES_SKILLS))
+    def test_every_number_in_a_section_is_its_skills(self, section):
+        guide = _agent_rules_sections()[section]
+        skill = set(NUMBER.findall(_flat(skill_text(AGENT_RULES_SKILLS[section]))))
+        missing = sorted(set(NUMBER.findall(_flat(guide))) - skill)
+        assert not missing, f"agent-rules {section!r}: {missing} not in its skill"
