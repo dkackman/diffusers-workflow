@@ -13,6 +13,8 @@ says not to run it without one: a short prompt gives a generic picture.
 
 ## Before anything
 
+This skill is written for dw `0.23.0-alpha.1`; `get_server_info`'s `plugin` says whether that is current.
+
 1. `get_server_info`: the device. The templates place every component on
    `cuda`. Apple Silicon is unmeasured (the same 19 GB of weights in unified
    memory, plus activations); on `mps` say so before spending, and

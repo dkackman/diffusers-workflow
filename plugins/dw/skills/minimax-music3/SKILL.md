@@ -12,6 +12,8 @@ shapes; do not author a new workflow until the shape decision below fails.
 
 ## Before anything
 
+This skill is written for dw `0.23.0-alpha.1`; `get_server_info`'s `plugin` says whether that is current.
+
 1. `get_server_info`: the device. On `mps` the `music` template runs, slower
    than the CUDA `cost` says; `music-video` (it also runs H3) hasn't been
    run there. On `cpu` stop and say so.

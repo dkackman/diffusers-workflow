@@ -222,18 +222,19 @@ class CatalogTools:
         self,
         cache_entries: bool = False,
     ) -> dict:
-        """Get what this installation can do and where it keeps things: the
-        accelerator a run will use (`device` - cuda, mps or cpu), the dw
-        version, and the workflow, output and prompt directories. Check the
-        device before authoring: CUDA-only choices (bitsandbytes,
-        torch.compile, flash attention) are unavailable on mps or cpu, and `directories` is what a path passed to
-        run_workflow or download_output is relative to (scoped to this
-        session's workspace). `trust_workflows` false - the default - means
-        a submitted workflow is untrusted input: an out-of-ecosystem
-        import, remote code, and media outside the workspace's roots are
-        refused.
+        """Get what this installation can do and where it keeps things:
+        `device` (cuda, mps or cpu; bitsandbytes, torch.compile and flash
+        attention are CUDA-only), the dw `version`, and `directories`, which
+        a path passed to run_workflow or download_output is relative to
+        (this session's workspace). `trust_workflows` false (the default):
+        an out-of-ecosystem import, remote code, and media outside the
+        workspace's roots are refused.
         `caches` sizes dw's disk caches; `cache_entries=True` lists the
-        quantized cache's entries (`model`, `subfolder`, `component`)."""
+        quantized cache's entries.
+        `plugin`: a dw skill states the release it was written for; if a
+        loaded dw skill states none, or one older than
+        `plugin.current_from`, tell the user once that the dw plugin is out
+        of date and give the `plugin.update` commands."""
         return workspaces.server_info(self.client, cache_entries)
 
     def list_jobs(

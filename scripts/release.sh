@@ -76,7 +76,7 @@ if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
     exit 1
 fi
 
-# The release commit is path-limited to pyproject.toml, so a dirty working
+# The release commit is path-limited to the version files, so a dirty working
 # tree is fine - but staged changes would ride along with a plain commit,
 # so refuse an index that isn't clean
 if ! git diff --cached --quiet; then
@@ -97,8 +97,12 @@ if ! python -m pytest -m integration -n0 -q; then
     exit 1
 fi
 
-# set_version <version>: pyproject.toml and the plugin manifest to <version>
+# set_version <version>: pyproject.toml, the plugin manifest and the skills'
+# "written for" lines to <version>
 plugin_path="plugins/dw/.claude-plugin/plugin.json"
+# The skills' "written for" lines (#1535). No path here has a space, so
+# the unquoted expansions below split it into one word per file
+skill_paths=$(ls plugins/dw/skills/*/SKILL.md)
 set_version() {
     local version="$1"
     current=$(sed -n 's/^version = "\(.*\)"$/\1/p' pyproject.toml)
@@ -144,14 +148,35 @@ with open(path, "w", encoding="utf-8") as f:
 EOF
         echo "$plugin_path: $plugin_current -> $version"
     fi
+
+    # Each skill that starts at get_server_info states the release it was
+    # written for, which get_server_info's `plugin.current_from` is compared
+    # with (#1535); tests/test_plugin_skills.py holds it equal to plugin.json
+    python3 - "$version" $skill_paths <<'EOF'
+import re, sys
+
+version, paths = sys.argv[1], sys.argv[2:]
+for path in paths:
+    with open(path, encoding="utf-8") as f:
+        text = f.read()
+    new = re.sub(
+        r"(This skill is written for dw `)[^`]*(`)",
+        lambda m: m.group(1) + version + m.group(2),
+        text,
+    )
+    if new != text:
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(new)
+        print(f"{path}: written for {version}")
+EOF
 }
 
 set_version "$version"
 
-if ! git diff --quiet -- pyproject.toml "$plugin_path"; then
-    git commit -m "release $version" -- pyproject.toml "$plugin_path"
+if ! git diff --quiet -- pyproject.toml "$plugin_path" $skill_paths; then
+    git commit -m "release $version" -- pyproject.toml "$plugin_path" $skill_paths
 else
-    echo "pyproject.toml and $plugin_path already at $version and committed - tagging HEAD"
+    echo "pyproject.toml, $plugin_path and the skills already at $version and committed - tagging HEAD"
 fi
 
 git push origin master
@@ -173,7 +198,7 @@ if [ -n "$next" ]; then
         # (the usual case under a freeze); a merge commit otherwise
         git merge --no-edit master
         set_version "$next"
-        git commit -m "chore: open $next on develop" -- pyproject.toml "$plugin_path"
+        git commit -m "chore: open $next on develop" -- pyproject.toml "$plugin_path" $skill_paths
         git push origin HEAD:develop
     )
     git worktree remove --force "$reopen"

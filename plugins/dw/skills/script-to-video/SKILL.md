@@ -15,6 +15,8 @@ engine; "Not in scope" lists its refusals.
 
 ## 1. Read the script and the server
 
+This skill is written for dw `0.23.0-alpha.1`; `get_server_info`'s `plugin` says whether that is current.
+
 `get_server_info` for device and workspace, as every dw skill starts.
 Read the script as prose and dialogue; this skill does not parse screenplay
 formats.
@@ -191,11 +193,10 @@ directory (per its `next`).
 
 ## Sources
 
-This skill adds no new mechanism - it is the decision tree over
-what exists: `dw:minimax-h3` and `dw:ltx-2.5` (the family template
-pickers), `h3-prompt-writing` and the family prompt-writing conventions
-(the structured-prompt skills), `dw:series-episodes` (cast consistency and
-the recut/bed/match_levels/normalize/pair pass), `plan.estimate` and
+It adds no new mechanism to what exists: `dw:minimax-h3`, `dw:ltx-2.5`,
+`h3-prompt-writing` and the family prompt conventions,
+`dw:series-episodes` (cast consistency and the
+recut/bed/match_levels/normalize/pair pass), `plan.estimate` and
 `acknowledged_cost` (the cost gate), and the warning kinds `dw/result.py`
-and `dw/elision.py` already emit (`audio_no_headroom`, `audio_clipped`, an
-elision diagnostic).
+and `dw/elision.py` emit (`audio_no_headroom`, `audio_clipped`, an elision
+diagnostic).

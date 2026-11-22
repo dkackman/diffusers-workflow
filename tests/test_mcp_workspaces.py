@@ -6,9 +6,11 @@ import pytest
 
 from dw_mcp.client import DEFAULT_WORKSPACE, DwApiError, DwClient
 from dw_mcp.workspaces import (
+    PLUGIN_UPDATE_COMMANDS,
     create_workspace,
     delete_workspace,
     list_workspaces,
+    plugin_current_from,
     use_workspace,
     server_info,
 )
@@ -358,6 +360,82 @@ class TestServerInfo:
         assert result["device"] == "cuda"
         assert result["version"] == "0.1.0"
         assert result["workspace"] == DEFAULT_WORKSPACE
+
+
+class TestPluginBlock:
+    """get_server_info's `plugin` block (#1535): the oldest plugin release
+    that counts as current against this server, and the update commands."""
+
+    @pytest.mark.parametrize(
+        "version, floor",
+        [
+            ("0.22.0", "0.22.0"),
+            ("0.22.3", "0.22.0"),
+            ("1.4.2", "1.4.0"),
+            # A pre-release's own minor hasn't shipped: the last one that could
+            ("0.23.0-alpha.1", "0.22.0"),
+            ("0.23.1-rc.2", "0.22.0"),
+            ("2.5.0b1", "2.4.0"),
+            # ... except on a .0 minor, where there is no earlier one to name
+            ("1.0.0-alpha", "1.0.0"),
+            ("0.0.1-alpha", "0.0.0"),
+        ],
+    )
+    def test_the_floor_rule(self, version, floor):
+        assert plugin_current_from(version) == floor
+
+    @pytest.mark.parametrize("version", ["", "not-a-version", "dev", None, 23])
+    def test_an_unparseable_version_has_no_floor(self, version):
+        assert plugin_current_from(version) is None
+
+    @staticmethod
+    def client_at(version):
+        server = {"device": "mps", "directories": {"workflows": "/w"}}
+        if version is not None:
+            server["version"] = version
+
+        def handler(request):
+            if request.url.path == "/api/server":
+                return httpx.Response(200, json=server)
+            if request.url.path == "/api/caches":
+                return httpx.Response(200, json={"caches": []})
+            raise AssertionError(f"unexpected request {request.url.path}")
+
+        return DwClient(transport=httpx.MockTransport(handler))
+
+    def test_the_block_is_merged_beside_workspace_and_caches(self):
+        result = server_info(self.client_at("0.23.0-alpha.1"))
+
+        assert result["plugin"] == {
+            "current_from": "0.22.0",
+            "update": [
+                "/plugin marketplace update diffusers-workflow",
+                "/plugin uninstall dw@diffusers-workflow",
+                "/plugin install dw@diffusers-workflow",
+            ],
+        }
+        assert result["version"] == "0.23.0-alpha.1"
+        assert result["device"] == "mps"
+        assert result["directories"] == {"workflows": "/w"}
+        assert result["workspace"] == DEFAULT_WORKSPACE
+        assert result["caches"] == []
+
+    def test_the_commands_are_a_copy(self):
+        """A caller mutating one answer can't change the next one's."""
+        first = server_info(self.client_at("0.22.0"))
+        first["plugin"]["update"].clear()
+
+        second = server_info(self.client_at("0.22.0"))
+
+        assert second["plugin"]["update"] == list(PLUGIN_UPDATE_COMMANDS)
+
+    @pytest.mark.parametrize("version", ["nightly", None])
+    def test_no_block_when_the_version_will_not_parse(self, version):
+        result = server_info(self.client_at(version))
+
+        assert "plugin" not in result
+        assert result["workspace"] == DEFAULT_WORKSPACE
+        assert result["caches"] == []
 
 
 class TestPerCallPin:

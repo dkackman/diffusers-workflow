@@ -14,6 +14,22 @@ Install once, from Claude Code:
 /plugin install dw@diffusers-workflow
 ```
 
+Update it by refreshing the marketplace and reinstalling, then `/reload-plugins`
+(or start a new session). Claude Code has no `/plugin update`; from a shell,
+`claude plugin update dw@diffusers-workflow` does the same after the refresh:
+
+```
+/plugin marketplace update diffusers-workflow
+/plugin uninstall dw@diffusers-workflow
+/plugin install dw@diffusers-workflow
+```
+
+Each skill that starts at `get_server_info` states the dw release it was written
+for (`scripts/release.sh` rewrites the line with `plugin.json`). The server's
+`get_server_info` answer carries `plugin.current_from`, the oldest release that
+counts as current, and these commands, so a session whose skill states an older
+release, or none, tells the user once.
+
 | Skill | Teaches |
 | ----- | ------- |
 | `minimax-h3` | MiniMax H3 video with audio: one take, a fix to one region of a take, a longer take by chain, a piece with cuts, identity and voice references, music; the frame and canvas rules; what a run costs. Prompts come from MiniMax's own `h3-prompt-writing` skill or the guides on the model card. |

@@ -78,6 +78,16 @@ claude mcp add dw -- "$(pwd)/venv/bin/dw-mcp"
 /plugin install dw@diffusers-workflow
 ```
 
+To update it later (`get_server_info` tells the agent when the installed skills are
+older than the server), refresh the marketplace and reinstall, then `/reload-plugins`
+or start a new session:
+
+```
+/plugin marketplace update diffusers-workflow
+/plugin uninstall dw@diffusers-workflow
+/plugin install dw@diffusers-workflow
+```
+
 Most of the shipped models (Flux, LTX, MiniMax, ...) are **gated**. Request access on
 the model's Hugging Face page and run `hf auth login` once. Without it a run fails
 partway through with a 401/403 from the Hub. `templates/text-to-image` uses a small,

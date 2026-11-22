@@ -9,10 +9,12 @@ H3 generates video and audio together. Every template fits a 24 GB card.
 
 ## Before anything
 
+This skill is written for dw `0.23.0-alpha.1`; `get_server_info`'s `plugin` says whether that is current.
+
 1. `get_server_info`: the device (H3 is CUDA) and the workspace.
 2. `list_workflows(shape="shot")`, `list_workflows(shape="sequence")` and
    `list_workflows(shape="audio")`: the family's templates by name,
-   `summary`, `traits`, `cost`; it outranks names below.
+   `summary`, `traits`, `cost`; it outranks names here.
 3. `get_workflow` on the one chosen: variables and defaults.
 
 ## Which shape is the request
@@ -27,7 +29,7 @@ H3 generates video and audio together. Every template fits a 24 GB card.
   `minimax-h3-image` skill (CUDA, ~70 GB RAM), else `flux3-klein`.
 - **A locked frame that lip-syncs to a song**: FL2VA with the song held by
   `hold_audio` keeps the first frame's pixels and the mouth follows the track
-  (#985; add the argument to `templates/minimax/image-to-video`'s fl2va step).
+  (#985; add it to `templates/minimax/image-to-video`'s fl2va step).
   Fallback: Ref2VA `[keyframe completion + audio reuse]`, `<Picture 1>` the
   first frame, `<Audio 1>` the song, also held: framing, not pixels,
   ~4.7x the denoise; a last frame costs 45% more and does not land.
@@ -35,7 +37,7 @@ H3 generates video and audio together. Every template fits a 24 GB card.
   `t2va`/`fl2va` - up to 4 clips, 3 on a guide chain, each at a
   `frame` that is a multiple of 17; the VRAM ceiling charges each
   guide's frames on the canvas. A guide holds look as well as motion: a full-length one
-  copies the take, and a style prompt does not restyle it. `"audio": true`
+  copies the take; a style prompt does not restyle it. `"audio": true`
   on a guide holds its soundtrack too. Rules and example: `get_guide("workflows",
   section="H3: holding a clip with `guides`")`.
 - **Fix one region of a good take** (the rest and audio stay):
@@ -186,11 +188,10 @@ A wanted look (clay, paper): `references/style.md`. Film-term camera or look: th
    in that reference. Then `get_gallery_metadata` for duration/audio and hand the
    user the gallery `url`.
 5. After a run worth keeping, `get_job_workflow` and `save_workflow` it;
-   `export_job` bundles it. `auth_required: false` - fetch
-   `open_url` into `exports/` (never a temp dir). `true` - hand `open_url`
-   to the person.
+   `export_job` bundles it: fetch `open_url` into `exports/` (never a temp
+   dir), or with `auth_required: true` hand it to the person.
 
 ## Sources
 
-Model card, guides, `h3-prompt-writing`, diffusers, turbo LoRA notes; read
-2026-09-07; audit `docs/proposals/audits/2026-09-07-minimax-h3-audit.md`.
+Sources read 2026-09-07: the audit
+`docs/proposals/audits/2026-09-07-minimax-h3-audit.md`.
