@@ -91,7 +91,7 @@ def _now():
 
 
 def _empty_annotations():
-    return {"prompts": [], "sub_workflows": {}}
+    return {"prompts": [], "prompt_digests": {}, "sub_workflows": {}}
 
 
 @dataclass
@@ -229,9 +229,11 @@ def write_run_manifest(workflow, record, status=None):
                 # place that difference is visible
                 "realized": record.realized_name,
                 # Annotations the schema has nowhere to put: which
-                # stored prompts were inlined, and what each local
-                # sub-workflow file held when it ran
+                # stored prompts were inlined (and the sha256 of each
+                # one's text), and what each local sub-workflow file held
+                # when it ran
                 "prompts": (annotations or {}).get("prompts", []),
+                "prompt_digests": (annotations or {}).get("prompt_digests", {}),
                 "sub_workflows": (annotations or {}).get("sub_workflows", {}),
             },
             "seed": record.seed,

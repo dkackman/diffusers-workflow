@@ -30,7 +30,7 @@ import os
 
 from . import references
 from .presets import PRESETS_KEY
-from .prompts import fetch_prompt
+from .prompts import fetch_prompt, prompt_text_digest
 from .runs import (
     LATEST,
     is_output_reference,
@@ -81,10 +81,11 @@ def realize_workflow(
 
     Returns:
         (realized, annotations) - the pinned copy, and
-        {"prompts": [name, ...], "sub_workflows": {path: sha256 or None}}
-        for the manifest to carry, since the schema has nowhere to put them.
+        {"prompts": [name, ...], "prompt_digests": {name: sha256 of text},
+        "sub_workflows": {path: sha256 or None}} for the manifest to carry,
+        since the schema has nowhere to put them.
     """
-    annotations = {"prompts": [], "sub_workflows": {}}
+    annotations = {"prompts": [], "prompt_digests": {}, "sub_workflows": {}}
     realized = copy_containers(definition)
 
     if isinstance(realized.get("variables"), dict) and isinstance(variables, dict):
@@ -179,6 +180,10 @@ def _inline_prompt(reference, annotations, prompt_dir, base_dir):
     name = references.ref_name(references.PROMPT, reference).strip()
     if name not in annotations["prompts"]:
         annotations["prompts"].append(name)
+    # The digest of the text this run inlined - read at run open, so a prompt
+    # saved while the job waited is what it records. The request ledger
+    # compares it with the prompt's text now to say a take is revised (#1558)
+    annotations.setdefault("prompt_digests", {})[name] = prompt_text_digest(text)
     return text
 
 

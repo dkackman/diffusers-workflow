@@ -20,9 +20,15 @@ from ..api_models_library import (
     RequestWrite,
 )
 from ... import ledger
+from ...prompts import PromptDigests
 from ...security import SecurityError, validate_path
 from ...workspace import DEFAULT_WORKSPACE_NAME, workspace_names
-from ..deps import internal_error, workspace_for, workspace_root
+from ..deps import (
+    internal_error,
+    server_prompt_library,
+    workspace_for,
+    workspace_root,
+)
 from ..outputs import shown_outputs
 
 router = APIRouter()
@@ -43,10 +49,17 @@ def _jobs_for(request, name):
     return lambda rid: manager.request_jobs(name, rid)
 
 
+def _prompts(request):
+    """A fresh `name -> sha256 of that prompt's text` memo over the server's
+    prompt library, one per view: what the revised rule's prompt clause
+    reads (`ledger_views.is_revised`, rule 2)."""
+    return PromptDigests(server_prompt_library(request.app.state))
+
+
 def _linked_jobs_for(request, name):
     """`(rid, item key) -> [{job, status, run_id, created_at, workflow,
-    arguments}]`: what `accepted` is checked against, and what says whether
-    the stored item reads revised."""
+    arguments, prompt_digests}]`: what `accepted` is checked against, and
+    what says whether the stored item reads revised."""
     jobs_for = _jobs_for(request, name)
 
     def linked(rid, key):
@@ -60,6 +73,7 @@ def _linked_jobs_for(request, name):
                     "created_at",
                     "workflow",
                     "arguments",
+                    "prompt_digests",
                 )
             }
             for j in jobs_for(rid)
@@ -95,7 +109,10 @@ def list_requests(request: Request, name: str):
     root = _ledger_root(request.app.state, name)
     if request.headers.get("X-DW-Notes-Channel") == "1":
         request.app.state.listening.seen(name)
-    return {"workspace": name, **ledger.listing(root, _jobs_for(request, name))}
+    return {
+        "workspace": name,
+        **ledger.listing(root, _jobs_for(request, name), _prompts(request)),
+    }
 
 
 @router.get(
@@ -120,6 +137,7 @@ def list_open_requests(request: Request):
         else [DEFAULT_WORKSPACE_NAME]
     )
     rows, broken = [], {}
+    prompts = _prompts(request)
     for name in names:
         try:
             root = _ledger_root(state, name)
@@ -132,7 +150,10 @@ def list_open_requests(request: Request):
             continue
         jobs_for = _jobs_for(request, name)
         rows += [
-            {"workspace": name, **ledger.summary_view(r, jobs_for(r.get("id")))}
+            {
+                "workspace": name,
+                **ledger.summary_view(r, jobs_for(r.get("id")), prompts),
+            }
             for r in ledger.read_requests(root).values()
             if r.get("state") == "open"
         ]
@@ -161,7 +182,9 @@ def get_request(request: Request, name: str, request_id: str):
     history. 409 `ledger_unreadable` when requests.json is not a ledger."""
     root = _ledger_root(request.app.state, name)
     try:
-        found = ledger.get_request(root, request_id, _jobs_for(request, name))
+        found = ledger.get_request(
+            root, request_id, _jobs_for(request, name), _prompts(request)
+        )
     except SecurityError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except ledger.LedgerError as e:
@@ -194,6 +217,7 @@ def put_request(request: Request, name: str, request_id: str, body: RequestWrite
             by=body.by,
             linked_jobs=_linked_jobs_for(request, name),
             jobs_for=_jobs_for(request, name),
+            prompts=_prompts(request),
         )
     except ledger.LedgerError as e:
         raise HTTPException(status_code=e.status, detail=e.detail())

@@ -56,7 +56,7 @@ from ..security import (
     validate_workflow_path,
 )
 from .. import model_use
-from ..runs import REALIZED_FILE_NAME
+from ..runs import MANIFEST_FILE_NAME, REALIZED_FILE_NAME
 from ..settings import resolve_path
 from ..workspace import DEFAULT_WORKSPACE_NAME
 from . import dispatch, job_results, pool, worker_memory
@@ -153,6 +153,7 @@ class JobManager(Dispatcher, Reruns):
         close_dead_servers(self.history, self.instance)
         self.jobs = {}
         self._proofs = OrderedDict()
+        self._digests = OrderedDict()
         # Reentrant: cancel() finishes a queued job while holding it, and
         # _finish's terminal-job trim needs it again on the same thread
         self._lock = threading.RLock()  # guards job state transitions
@@ -535,8 +536,10 @@ class JobManager(Dispatcher, Reruns):
         """Every job linked to `request_id` in `workspace`, live queue and
         history, oldest first, as `{job, item, status, run_id, run_dir,
         run_exists, started_at, finished_at, created_at, note, workflow,
-        arguments, output}` - `workflow` the catalog name the job ran from
-        (None for an inline one), `arguments` as submitted.
+        arguments, output, prompt_digests}` - `workflow` the catalog name the
+        job ran from (None for an inline one), `arguments` as submitted, and
+        `prompt_digests` a callable answering the `{prompt name: sha256}` its
+        run recorded (`_prompt_digests`).
 
         `run_exists` is whether the job's run directory is still on disk -
         the directory `delete_job_run` removes. `output` is a callable
@@ -574,13 +577,14 @@ class JobManager(Dispatcher, Reruns):
         return sorted(found.values(), key=lambda entry: entry["created_at"] or 0)
 
     def _linked(self, job_id, row, run_dir, output_dir):
-        exists = False
+        directory = None
         if run_dir:
             try:
                 root = validate_output_path(output_dir or self.output_dir, None)
-                exists = job_run_directory(root, run_dir) is not None
+                directory = job_run_directory(root, run_dir)
             except SecurityError:
-                exists = False
+                directory = None
+        exists = directory is not None
         return {
             "job": job_id,
             "item": row["item"],
@@ -597,7 +601,46 @@ class JobManager(Dispatcher, Reruns):
             "workflow": row.get("workflow_name"),
             "arguments": _submitted(row.get("arguments")),
             "output": lambda: self._proof(job_id),
+            # {prompt name: sha256 of the text the run inlined}, from its
+            # run manifest - None for a run that recorded none (one from
+            # before #1558, or one whose directory is gone). A callable, so
+            # only a take the status rule reaches is read
+            "prompt_digests": lambda: self._prompt_digests(job_id, directory),
         }
+
+    def _prompt_digests(self, job_id, directory):
+        """A take's recorded prompt digests (`workflow.prompt_digests` in its
+        manifest.json), read once per job and kept (`PROOFS_KEPT` of them):
+        the status rule only asks a succeeded take, whose manifest is final.
+        None when the run recorded none."""
+        with self._lock:
+            if job_id in self._digests:
+                self._digests.move_to_end(job_id)
+                return self._digests[job_id]
+        digests = None
+        if directory is not None:
+            try:
+                with open(
+                    os.path.join(directory, MANIFEST_FILE_NAME), "r", encoding="utf-8"
+                ) as file:
+                    recorded = (json.load(file).get("workflow") or {}).get(
+                        "prompt_digests"
+                    )
+                if isinstance(recorded, dict):
+                    digests = {
+                        str(name): value
+                        for name, value in recorded.items()
+                        if isinstance(value, str)
+                    }
+            except (OSError, ValueError, AttributeError):
+                digests = None
+        with self._lock:
+            live = self.jobs.get(job_id)
+            if live is None or live.status == "succeeded":
+                self._digests[job_id] = digests
+                while len(self._digests) > PROOFS_KEPT:
+                    self._digests.popitem(last=False)
+        return digests
 
     def _proof(self, job_id):
         """A linked job's `proof_output`: a live job's from the manifest it
