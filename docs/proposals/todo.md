@@ -928,6 +928,19 @@ the analysis rather than repeating it.
   plan: terminal status is sticky, so the cursor closes no gap, and the
   proposed OOM label would have missed CUDA OOMs. Reopen triggers are at the
   top of the doc.
+- **H3 hold_audio context encode** (no design doc; the plan is on #1516) —
+  encode a held song slice with 1 s of audio before and 0.2 s after the cut,
+  then drop those tokens. Declined 2026-11-22 on #1516. Stage A's codec probe
+  (`bench/h3_audio_vae_probe.py`, record
+  `bench/records/h3-audio-encode-context.md`, #1544) met the bar on 2 of 5
+  cuts, and the bar needed 3. Cuts 3 and 5 met it at the head. No cut met it
+  at the tail: every hard-cut tail run was under 0.25 s. Don's re-run on lem
+  matched the record exactly. Caveats: the probe used one song, and it picked
+  its interior cuts by loudest head (RMS), not by detected vocals. Reopen on
+  a field report of lip sync lagging at the head of a held song shot, or on
+  a multi-song probe that meets the bar. The plan's B/C sketch (an A/B
+  render, then a context encode in `DwH3HoldAudioStep`) is the starting
+  point.
 
 ## Backlog ideas with no doc on file
 
