@@ -70,8 +70,9 @@ class WorkspaceTools:
     def get_request(
         self, request: str | None = None, workspace: str | None = None
     ) -> dict:
-        """Read a request's plan from the workspace's ledger: items with
-        derived status, revision and history. Omit request to list them."""
+        """Read a request's plan from the ledger: items with derived status
+        (revised: plan changed since its take), revision, history. No
+        request lists them."""
         return ledger.get_request(self.client, request, workspace)
 
     def delete_request(
@@ -99,8 +100,8 @@ class WorkspaceTools:
         prompt: the user's ask, on create. items: ordered {key, title,
         depends_on, estimate_minutes, workflow, arguments, accepted,
         review_until}; one left out is dropped. accepted: {job}, the keeper.
-        review_until: an ISO time until which a planned item is held for the
-        user's review. Act on the user's `notes` (request and items, with
+        review_until: an ISO time to hold an unrun item for the user's
+        review. Act on the user's `notes` (request and items, with
         `refs`); never write them. why: one line. state: open, done or
         abandoned. purge: dropped keys to delete. get_guide("workspaces", section="Requests")."""
         return ledger.set_request(

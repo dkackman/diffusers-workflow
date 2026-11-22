@@ -375,7 +375,7 @@ Read it with `get_request(request=None)` (MCP) or `GET
   with [the notes channel](MCP.md#the-notes-channel), which tells that
   session about each note as it is saved, with its references.
 - **Review hold.** An agent can hold a planned item for the user to look at
-  before it runs. An item carries three fields: `review_until`, an ISO time
+  before it runs (a `revised` item can be held too). An item carries three fields: `review_until`, an ISO time
   with an offset that the agent writes; `review_set_at`, the time the server
   stamped when that value was set (ignored on write; writing the same
   `review_until` back keeps it, so a plan the UI reads and writes unchanged
@@ -385,7 +385,7 @@ Read it with `get_request(request=None)` (MCP) or `GET
   or the write is refused with 422 `review_too_soon` or `review_too_far`;
   a value that is not an ISO time with an offset is 422
   `invalid_review_until`. `review` is `{until, state, seconds_left}` and is
-  present only while the item's `status` is `planned`, the request is `open`
+  present only while the item's `status` is `planned` or `revised`, the request is `open`
   and `review_until` is set. `state` is the first that holds: `redirected`
   (a note on the item, or one of the request's own notes, was saved at or
   after `review_set_at`), `due` (the deadline has passed), else `holding`.
@@ -436,8 +436,29 @@ acknowledgement is checked against the plan `validate` answered.
 **Derived, never stored.** Each read works the item out from its linked
 jobs. `status` is the first that applies: `dropped`, `done` (a linked job
 succeeded), `running`, `queued`, `failed` (every linked job failed or was
-cancelled), `planned` (none). `ready` is true when a job could be queued
-for the item now: it is `planned`, stores a `workflow`, every item it
+cancelled), `planned` (none). `revised` replaces `done` when the plan moved
+after the take: no succeeded take is current and no acceptance was recorded
+since. A take is current when the item's `changed_at` is not later than the
+take's `created_at`, or the item's `workflow` and `arguments` equal the
+take's as submitted. A revised item keeps its `result` and `attempts`,
+derives `revised_because` (`["arguments"]`, may include `workflow`), counts in
+`remaining_minutes` again, and is held and run like a planned one; its
+dependents are not ready, since revised is not done. A dropped item is never
+revised, and a take run with other arguments but no plan write does not
+revise the item. The server stamps `changed_at` (when the item is created or
+its `workflow` or `arguments` differ from the stored ones; title, estimate,
+`depends_on` and review edits do not move it) and `accepted_basis` `{at}`;
+both are ignored on write, so a GET then PUT changes nothing, and an item
+stored before the stamp (null `changed_at`) is never revised until its plan
+changes. A write that names an `accepted` take (any linked succeeded take,
+the accepted one included) while the stored item reads revised, leaving
+`workflow` and `arguments` as they were, records `accepted_basis`: the item
+reads `done` again, keeping that take as its result, until the plan changes
+again. Because writes are whole plans, writing back a revised item that
+already carries `accepted` counts as re-accepting it. The other ways back
+to `done`: a new take that succeeds, or writing the arguments (and workflow)
+back to equal a take's. `ready` is true when a job could be queued
+for the item now: it is `planned` or `revised`, stores a `workflow`, every item it
 depends on is `done`, and the request is open. `attempts` lists the jobs
 oldest first as `{job, status, note?, minutes, output}`; `result` is the
 accepted job's `{job, run_id, output}`, else the latest succeeded job whose
@@ -451,7 +472,7 @@ takes) and `kind` is `image`, `video`, `audio` or `text`. It is null for a
 job that wrote nothing the gallery shows, or whose run directory is gone.
 `spent_minutes` sums the attempts' minutes, per item and per request, and
 the request's `remaining_minutes` sums the estimates of items neither done
-nor dropped. A list row carries the counts by status, `ready` (how many
+nor dropped (a revised item counts). A list row carries the counts by status (`revised` appears when any), `ready` (how many
 items are), and `cover`: up to three `output`s of the latest results,
 newest first. To keep a take, read `get_request`, then write the plan back
 with `set_request` and that item's `accepted: {"job": "<id>"}`.

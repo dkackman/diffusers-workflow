@@ -26,6 +26,8 @@ export const item = (
   arguments: {},
   dropped: false,
   accepted: null,
+  accepted_basis: null,
+  changed_at: null,
   notes: [],
   status: 'planned',
   ready: false,

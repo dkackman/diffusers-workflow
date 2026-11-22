@@ -58,6 +58,13 @@ with its `note` as before. A rerun (`rerun_job`) keeps the link by itself.
 `spent_minutes` and `remaining_minutes`. Quote what is left from
 `remaining_minutes` when the user asks.
 
+An item reading `revised` had its plan (workflow or arguments, see
+`revised_because`) change after its take. Its `result` is still the old take.
+Run a new take, or re-accept the old one with `accepted` in `set_request` to
+keep it (the old take stays the result). A revised item is `ready` again and
+counts in `remaining_minutes`. Do not animate dependents from a revised
+item's result: they are not ready until it reads `done`.
+
 ## Hold items for the user's review
 
 Use this when the plan is written and priced and the user wants to look at it
