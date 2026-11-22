@@ -86,6 +86,20 @@ class TestUnnamedReferenceClass:
         assert found[0]["path"].endswith("references[0]")
         assert "MiniMaxH3VideoReference" in found[0]["message"]
 
+    def test_a_dotted_path_naming_no_class_is_refused(self):
+        found = self.found(reference(f"{H3}.MiniMaxH3NoSuchReference"))
+        assert len(found) == 1
+        assert found[0]["path"].endswith("references[0]")
+        assert "names no class" in found[0]["message"]
+        assert "MiniMaxH3VideoReference" in found[0]["message"]
+
+    def test_workflow_validation_refuses_a_missing_class(self):
+        entry = reference(f"{H3}.MiniMaxH3NoSuchReference")
+        errors = Workflow(
+            workflow_with([entry]), "outputs", "x.json"
+        ).validation_errors()
+        assert any("names no class" in str(e) for e in errors)
+
     def test_a_dotted_entry_passes(self):
         assert self.found(reference(VIDEO)) == []
 

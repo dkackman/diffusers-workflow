@@ -202,10 +202,12 @@ def _unnamed_entries(entries):
     """The indices of a reference list's dict entries that name no class.
 
     An entry with no `reference_type` key (`type` is the usual slip), or one
-    whose value is a bare class name with no dotted path, can never load: the
+    whose value is a bare class name with no dotted path, or a dotted path
+    into the H3 family naming no class (#1554), can never load: the
     run refuses it late or passes it on as a plain dict, and every later
     check skips it because it cannot read a class off it (#1512). A value
-    that is a reference, or dotted, is left to the passes that load it.
+    that is a reference, or dotted outside the H3 family, is left to the
+    passes that load it.
     """
     if not isinstance(entries, list):
         return []
@@ -222,11 +224,44 @@ def _unnamed_entries(entries):
             and not references.is_ref(references.UNRESOLVED, name)
         ):
             unnamed.append(index)
+        elif (
+            isinstance(name, str)
+            and name.startswith(H3_FAMILY + ".")
+            and _reference_class(entry) is None
+        ):
+            unnamed.append(index)
     return unnamed
+
+
+def _family_reference_names():
+    """The reference classes the H3 family module declares (those with a kind)."""
+    try:
+        module = importlib.import_module(H3_FAMILY)
+    except Exception:
+        return []
+    names = []
+    # dir(), not vars(): diffusers resolves a package's classes lazily
+    for name in dir(module):
+        try:
+            value = getattr(module, name)
+        except Exception:
+            continue
+        if inspect.isclass(value) and isinstance(getattr(value, "kind", None), str):
+            names.append(name)
+    return sorted(names)
 
 
 def _unnamed_message(index, entry):
     given = entry.get(REFERENCE_TYPE_KEY)
+    if isinstance(given, str) and "." in given:
+        known = _family_reference_names()
+        listing = (
+            f" The reference classes there are: {', '.join(known)}." if known else ""
+        )
+        return (
+            f"references[{index}] '{REFERENCE_TYPE_KEY}' {given!r} names no "
+            f"class.{listing}"
+        )
     seen = (
         f"names {given!r}, which is not a dotted path"
         if given is not None
