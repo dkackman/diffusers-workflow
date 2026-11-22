@@ -13,6 +13,7 @@
   import { overlayOpen } from '../ui/layers.svelte'
   import { notify } from '../toast'
   import { confirmDialog } from '../confirm.svelte'
+  import { askDeletion } from '../gallery/deletion'
   import type {
     GalleryFile,
     GalleryInput,
@@ -146,15 +147,9 @@
   }
 
   async function removePicked() {
-    const names = picks.names
-    if (names.length === 0) return
-    if (
-      !(await confirmDialog(
-        `Delete ${names.length} file${names.length === 1 ? '' : 's'}? This removes them on disk.`,
-        { confirmLabel: 'Delete' },
-      ))
-    )
-      return
+    if (picks.names.length === 0) return
+    const names = await askDeletion(files, picks.names)
+    if (!names) return
     busy = true
     const failed = await actOnEach(names, (name) => api.deleteOutput(name))
     const gone = new Set(names.filter((name) => !failed.includes(name)))

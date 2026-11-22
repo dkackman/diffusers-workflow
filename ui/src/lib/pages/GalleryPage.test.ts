@@ -813,3 +813,19 @@ it('drops an unfiltered listing that lands after the filtered one', async () => 
   expect(screen.queryByLabelText('select a.png')).toBeNull()
   expect(screen.getByLabelText('select only.png')).toBeTruthy()
 })
+
+it('deleting a selection with starred files says how many and can spare them', async () => {
+  listing.files = [file('a.png'), { ...file('b.png'), starred: true }]
+  await renderGallery()
+  checkbox('a.png').click()
+  checkbox('b.png').click()
+  await waitFor(() => expect(screen.getByText('2 selected')).toBeTruthy())
+  screen.getByRole('button', { name: /^delete/i }).click()
+  const dialog = await waitFor(() => screen.getByRole('alertdialog'))
+  expect(dialog.textContent).toContain(
+    'Delete 2 files? 1 of them is starred. This removes them on disk.',
+  )
+  within(dialog).getByRole('button', { name: 'Delete the 1 unstarred' }).click()
+  await waitFor(() => expect(deleteOutput).toHaveBeenCalledTimes(1))
+  expect(deleteOutput).toHaveBeenCalledWith('a.png')
+})

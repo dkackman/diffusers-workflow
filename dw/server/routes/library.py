@@ -13,7 +13,7 @@ import os
 import threading
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Request, Response
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
@@ -89,6 +89,11 @@ from ..deps import (
 )
 from ..enhancers import build_enhance_workflow, preset_descriptions
 from ..http_security import query_token_ok
+from ..preconditions import (
+    check_write_preconditions,
+    content_etag,
+    content_etag_of,
+)
 from ..job_record import TERMINAL_STATES
 
 logger = logging.getLogger("dw")
@@ -421,12 +426,16 @@ def list_builtin_workflows():
 # writes it back: one lock across both, so a save landing between a
 # patch's read and its write is not silently overwritten
 _WORKFLOW_WRITE_LOCK = threading.Lock()
+# The same for prompts: a precondition check and the write it guards are one step
+_PROMPT_WRITE_LOCK = threading.Lock()
 
 
-def _write_validated(state, ws, name, definition):
+def _write_validated(http_request, ws, name, definition):
     """Validate `definition` and write it to the writable workflow source,
     answering what a save answers. A read-only source's name gets a copy
-    in the writable one, which shadows it from then on."""
+    in the writable one, which shadows it from then on. A request's
+    If-Match / If-None-Match are checked against that writable file."""
+    state = http_request.app.state
     path, source = resolve_writable_workflow(sources_for(state, ws), name)
     candidate = Workflow(
         copy.deepcopy(definition),
@@ -447,6 +456,7 @@ def _write_validated(state, ws, name, definition):
         raise internal_error("Workflow validation failed outright on save")
     if errors:
         raise HTTPException(status_code=400, detail=format_validation_errors(errors))
+    check_write_preconditions(http_request, path, f"Workflow {name}")
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w") as file:
         json.dump(definition, file, indent=2)
@@ -470,7 +480,7 @@ def _write_validated(state, ws, name, definition):
             "the catalog summary) or a 'summary' so the listing can say "
             "what this workflow is for"
         )
-    return {
+    return path, {
         "name": name,
         "workspace": ws.name,
         "origin": source.origin,
@@ -488,6 +498,7 @@ def _write_validated(state, ws, name, definition):
 )
 def save_workflow(
     http_request: Request,
+    response: Response,
     name: str,
     request: JobRequest,
     ws: Workspace = Depends(selected_workspace),
@@ -506,7 +517,9 @@ def save_workflow(
             detail='Provide the definition as {"workflow": {...}}',
         )
     with _WORKFLOW_WRITE_LOCK:
-        saved = _write_validated(http_request.app.state, ws, name, request.workflow)
+        path, saved = _write_validated(http_request, ws, name, request.workflow)
+        etag = content_etag(path)
+    response.headers["ETag"] = etag
     changed(http_request, ws.name, WORKFLOWS)
     return saved
 
@@ -518,6 +531,7 @@ def save_workflow(
 )
 def patch_workflow(
     http_request: Request,
+    response: Response,
     name: str,
     patch: Dict[str, Any] = Body(...),
     ws: Workspace = Depends(selected_workspace),
@@ -535,7 +549,11 @@ def patch_workflow(
                 current = json.load(file)
         except (OSError, json.JSONDecodeError) as e:
             raise HTTPException(status_code=500, detail=f"Could not read workflow: {e}")
-        saved = _write_validated(state, ws, name, merge_patch(current, patch))
+        path, saved = _write_validated(
+            http_request, ws, name, merge_patch(current, patch)
+        )
+        etag = content_etag(path)
+    response.headers["ETag"] = etag
     changed(http_request, ws.name, WORKFLOWS)
     return saved
 
@@ -618,9 +636,11 @@ def get_workflow_variables(
     state = request.app.state
     path, source = resolve_readable_workflow(sources_for(state, ws), name)
     try:
-        with open(path, "r") as file:
-            definition = json.load(file)
-    except (OSError, json.JSONDecodeError) as e:
+        # One read: the ETag is the hash of the very bytes parsed below
+        with open(path, "rb") as file:
+            data = file.read()
+        definition = json.loads(data)
+    except (OSError, ValueError) as e:
         raise HTTPException(status_code=500, detail=f"Could not read workflow: {e}")
 
     def preview(value, path):
@@ -675,9 +695,11 @@ def get_workflow(
     state = request.app.state
     path, source = resolve_readable_workflow(sources_for(state, ws), name)
     try:
-        with open(path, "r") as file:
-            definition = json.load(file)
-    except (OSError, json.JSONDecodeError) as e:
+        # One read: the ETag is the hash of the very bytes parsed below
+        with open(path, "rb") as file:
+            data = file.read()
+        definition = json.loads(data)
+    except (OSError, ValueError) as e:
         raise HTTPException(status_code=500, detail=f"Could not read workflow: {e}")
     # Which root it came from and whether a save would land here or
     # copy elsewhere - the editor reads these to offer save-in-place
@@ -687,6 +709,7 @@ def get_workflow(
         headers={
             "X-Workflow-Origin": source.origin,
             "X-Workflow-Writable": "true" if source.writable else "false",
+            "ETag": content_etag_of(data),
         },
     )
 
@@ -797,7 +820,9 @@ def list_prompts(
     response_model=PromptSaved,
     response_model_exclude_unset=True,
 )
-def save_prompt(http_request: Request, name: str, request: PromptRequest):
+def save_prompt(
+    http_request: Request, response: Response, name: str, request: PromptRequest
+):
     """Write a prompt into the prompt directory. Like a workflow save,
     the definition must be schema-valid before it lands on disk."""
     state = http_request.app.state
@@ -813,10 +838,14 @@ def save_prompt(http_request: Request, name: str, request: PromptRequest):
     path = resolve_prompt_name(
         writable_prompt_directory(state), name, allow_create=True
     )
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w") as file:
-        json.dump(request.prompt, file, indent=2)
-        file.write("\n")
+    with _PROMPT_WRITE_LOCK:
+        check_write_preconditions(http_request, path, f"Prompt {name}")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as file:
+            json.dump(request.prompt, file, indent=2)
+            file.write("\n")
+        etag = content_etag(path)
+    response.headers["ETag"] = etag
     logger.info(f"Saved prompt {name} to {path}")
     # One library every workspace reads
     changed_everywhere(http_request, PROMPTS)
@@ -862,18 +891,21 @@ def get_prompt(request: Request, name: str):
     state = request.app.state
     path, root = _find_prompt(state, name)
     try:
-        with open(path, "r") as file:
-            # Which library it came from, the way a workflow carries its
-            # source - the editor offers delete only for a prompt this
-            # server owns, and save-a-copy for a read-only one
-            return JSONResponse(
-                json.load(file),
-                headers={
-                    "X-Prompt-Origin": root.origin,
-                    "X-Prompt-Writable": "true" if root.writable else "false",
-                },
-            )
-    except (OSError, json.JSONDecodeError) as e:
+        # One read: the ETag is the hash of the very bytes parsed here
+        with open(path, "rb") as file:
+            data = file.read()
+        # Which library it came from, the way a workflow carries its
+        # source - the editor offers delete only for a prompt this
+        # server owns, and save-a-copy for a read-only one
+        return JSONResponse(
+            json.loads(data),
+            headers={
+                "X-Prompt-Origin": root.origin,
+                "X-Prompt-Writable": "true" if root.writable else "false",
+                "ETag": content_etag_of(data),
+            },
+        )
+    except (OSError, ValueError) as e:
         raise HTTPException(status_code=500, detail=f"Could not read prompt: {e}")
 
 

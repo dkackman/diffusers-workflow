@@ -45,6 +45,7 @@ from ...security import (
 )
 from ...library import ReadOnlyLibraryError, shadowed_listing
 from ...workspace import Workspace, forget_workspace_usage
+from ..preconditions import check_write_preconditions
 from ..changes import ASSETS, changed, changed_assets, changed_everywhere
 from ..deps import (
     asset_library_missing,
@@ -237,6 +238,11 @@ async def upload_media(
         dest = validate_output_path(os.path.join(uploads_dir, name), uploads_dir)
     except SecurityError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    # A random name cannot collide; a chosen one can, and a caller that sent
+    # If-None-Match: * asked not to replace what is there
+    check_write_preconditions(
+        request, dest, make_ref(ASSET, f"{UPLOADS_SUBDIR}/{name}")
+    )
     os.makedirs(os.path.dirname(dest), exist_ok=True)
     # Taken before the write: only a file this one replaces can have left a
     # kept record behind, and a fresh name leaves the directory's alone

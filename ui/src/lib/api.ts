@@ -40,12 +40,9 @@ import type {
   OutputDeleted,
   PipelineDescription,
   PipelineNames,
-  PromptDefinition,
   PromptList,
-  PromptSaved,
   RestartBatchRerun,
   ServerInfo,
-  StoredPrompt,
   TaskList,
   BuiltinWorkflows,
   Uploaded,
@@ -53,8 +50,6 @@ import type {
   WorkflowDefinition,
   WorkflowDeleted,
   WorkflowList,
-  WorkflowSaved,
-  WorkflowWithOrigin,
   WorkspaceDeleted,
   WorkspaceInfo,
   WorkspaceChanges,
@@ -63,13 +58,14 @@ import type {
 import { ApiError, errorDetail } from './apiErrors'
 import {
   archiveFrom,
-  fetchJson,
   isValidateRequest,
   jsonInit,
+  preconditionHeaders,
   request,
   type JobSubmitBody,
   type RequestWriteBody,
   type ValidateRequest,
+  type WritePreconditions,
 } from './apiRequest'
 import {
   addToken,
@@ -80,11 +76,17 @@ import {
   withToken,
   galleryThumbnailUrl,
 } from './apiUrls'
+import { documentRoutes } from './apiDocuments'
 
 // Pages and their test mocks import these from here
 export { ApiError, errorDetail, outputUrl }
 
-export type { JobSubmitBody, RequestWriteBody, ValidateRequest }
+export type {
+  JobSubmitBody,
+  RequestWriteBody,
+  ValidateRequest,
+  WritePreconditions,
+}
 
 // The ledger's routes (request notes, the change counters): workspace in the path
 const UNSCOPED = { scope: false }
@@ -94,20 +96,9 @@ const notesUrl = (workspace: string) =>
 const ledgerRead = <T>(url: string) => request<T>(url, undefined, UNSCOPED)
 
 export const api = {
+  // getWorkflow, saveWorkflow, getPrompt, savePrompt
+  ...documentRoutes,
   listWorkflows: () => request<WorkflowList>('/api/workflows'),
-  /** The workflow plus where it came from, read off the response headers
-   * rather than a separate `listWorkflows` lookup. Beside the definition,
-   * the way `getPrompt` keeps a prompt's: the object the caller holds is
-   * what validate, save and run send back, and the schema refuses unknown
-   * root keys, so the transport metadata must not ride inside it. */
-  getWorkflow: (name: string) =>
-    fetchJson<WorkflowDefinition>(`/api/workflows/${encodePath(name)}`).then(
-      ({ body, response }): WorkflowWithOrigin => ({
-        definition: body,
-        origin: response.headers.get('X-Workflow-Origin') ?? '',
-        writable: response.headers.get('X-Workflow-Writable') !== 'false',
-      }),
-    ),
   // Unscoped on purpose: `workspace` is explicit so Status can span every
   // workspace and a workspace's Jobs page can name its own. `status` is one
   // state or a comma-separated set ('succeeded,failed,cancelled'); `limit`
@@ -338,13 +329,19 @@ export const api = {
    *
    * `assetName` stores it under a name of the caller's choosing rather
    * than the random one a browser upload gets, and `shared` puts it in the
-   * library every workspace under this root shares. */
-  uploadMedia: (file: File, assetName?: string, shared = false) =>
+   * library every workspace under this root shares. `createOnly` refuses
+   * (409 `exists`) to replace an asset already under that name. */
+  uploadMedia: (
+    file: File,
+    assetName?: string,
+    shared = false,
+    pre?: WritePreconditions,
+  ) =>
     request<Uploaded>(
       `/api/uploads?filename=${encodeURIComponent(file.name)}` +
         (assetName ? `&asset_name=${encodeURIComponent(assetName)}` : '') +
         (shared ? '&shared=true' : ''),
-      { method: 'POST', body: file },
+      { method: 'POST', body: file, headers: preconditionHeaders(pre) },
     ),
   /** The asset library, spanning the workspace's own, the shared `common`
    * one and any example library - each entry tagged with which. */
@@ -479,12 +476,6 @@ export const api = {
     }),
   workflowDownloadUrl: (name: string) =>
     withToken(`/api/workflows/${encodePath(name)}/download`),
-  saveWorkflow: (name: string, workflow: WorkflowDefinition) =>
-    request<WorkflowSaved>(`/api/workflows/${encodePath(name)}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ workflow }),
-    }),
   listPrompts: () => request<PromptList>('/api/prompts'),
   /** Catalog LoRA entries for one base: `model` a Hub repo id (or a saved
    * workflow's name), `workflow` an optional partition. Catalog-only - the
@@ -495,22 +486,6 @@ export const api = {
     if (workflow) query.set('workflow', workflow)
     return request<LoraList>(`/api/loras?${query}`)
   },
-  /** The prompt plus which library it came from, read off the response
-   * headers rather than a separate `listPrompts` lookup. */
-  getPrompt: (name: string) =>
-    fetchJson<PromptDefinition>(`/api/prompts/${encodePath(name)}`).then(
-      ({ body, response }): StoredPrompt => ({
-        prompt: body,
-        origin: response.headers.get('X-Prompt-Origin') ?? '',
-        writable: response.headers.get('X-Prompt-Writable') !== 'false',
-      }),
-    ),
-  savePrompt: (name: string, prompt: PromptDefinition) =>
-    request<PromptSaved>(`/api/prompts/${encodePath(name)}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt }),
-    }),
   deletePrompt: (name: string) =>
     request<Deleted>(`/api/prompts/${encodePath(name)}`, { method: 'DELETE' }),
   promptDownloadUrl: (name: string) =>

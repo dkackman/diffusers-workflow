@@ -11,12 +11,31 @@ import { getApiToken } from './token'
 import { ApiError, errorCode, errorDetail, errorPayload } from './apiErrors'
 import { scoped } from './apiUrls'
 
-/** A JSON body sent with `method` */
-export const jsonInit = (method: string, body: unknown): RequestInit => ({
+/** A JSON body sent with `method`, and any extra `headers` */
+export const jsonInit = (
+  method: string,
+  body: unknown,
+  headers: Record<string, string> = {},
+): RequestInit => ({
   method,
-  headers: { 'Content-Type': 'application/json' },
+  headers: { 'Content-Type': 'application/json', ...headers },
   body: JSON.stringify(body),
 })
+
+/** What a write insists on: `ifMatch` the ETag the caller read, so a file
+ * changed since then is refused (409 `stale_write`); `createOnly` that no
+ * file is there yet (409 `exists`). Neither: overwrite, as before. */
+export type WritePreconditions = { ifMatch?: string; createOnly?: boolean }
+
+/** The request headers that carry `pre`. */
+export function preconditionHeaders(
+  pre: WritePreconditions = {},
+): Record<string, string> {
+  const headers: Record<string, string> = {}
+  if (pre.ifMatch) headers['If-Match'] = pre.ifMatch
+  if (pre.createOnly) headers['If-None-Match'] = '*'
+  return headers
+}
 
 /** A request with the bearer token, scoped to the picker's workspace
  * unless `scope` is false, failing with an ApiError that carries the
@@ -60,6 +79,18 @@ export async function fetchJson<T>(
 ): Promise<{ body: T; response: Response }> {
   const response = await send(path, init, options?.scope !== false)
   return { body: await response.json(), response }
+}
+
+/** PUT a JSON body under `pre`, returning the reply and the ETag of what
+ * was written, for the next write's `ifMatch`. */
+export async function putWithPreconditions<T>(
+  path: string,
+  body: unknown,
+  pre?: WritePreconditions,
+): Promise<{ saved: T; etag: string | null }> {
+  const init = jsonInit('PUT', body, preconditionHeaders(pre))
+  const { body: saved, response } = await fetchJson<T>(path, init)
+  return { saved, etag: response.headers.get('ETag') }
 }
 
 export async function request<T>(

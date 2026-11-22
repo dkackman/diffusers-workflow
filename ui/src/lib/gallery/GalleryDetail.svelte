@@ -1,7 +1,7 @@
 <script lang="ts">
   import { Bookmark, FolderOpen, Gauge, Star, Trash2, X } from '@lucide/svelte'
   import DownloadLink from '../DownloadLink.svelte'
-  import { api } from '../api'
+  import { ApiError, api } from '../api'
   import { goWs } from '../router.svelte'
   import { notify } from '../toast'
   import { confirmDialog } from '../confirm.svelte'
@@ -94,6 +94,14 @@
     }
   })
 
+  /** keep_output's 409 for a name already in the library. Its 409 also
+   * means "no asset library", and neither refusal carries a code, so the
+   * taken one is told apart by its wording. */
+  function nameTaken(e: unknown): boolean {
+    if (!(e instanceof ApiError) || e.status !== 409) return false
+    return e.code === 'exists' || e.message.includes('already exists')
+  }
+
   /** Keep this file as an input asset, so a later workflow can name it
    * without depending on the run that made it. */
   async function keepAsAsset() {
@@ -107,15 +115,15 @@
       const result = await api.keepOutput(file.name, assetName)
       notify.success(`Kept as ${result.reference}`)
     } catch (e) {
-      const message = e instanceof Error ? e.message : String(e)
       // The server refuses an existing name rather than replacing it; the
       // choice to replace belongs to the person, not the button
-      if (
-        message.includes('already exists') &&
-        (await confirmDialog(`${message}\n\nReplace it?`, {
-          confirmLabel: 'Replace',
-        }))
-      ) {
+      if (nameTaken(e)) {
+        const replace = await confirmDialog(
+          `${ASSET}${assetName} already exists. Replace it?`,
+          { confirmLabel: 'Replace', title: 'Replace asset' },
+        )
+        // Declining is an answer, not a failure: nothing to report
+        if (!replace) return
         try {
           const result = await api.keepOutput(file.name, assetName, true)
           notify.success(`Kept as ${result.reference}`)
@@ -125,7 +133,7 @@
           )
         }
       } else {
-        notify.error(message)
+        notify.error(e instanceof Error ? e.message : String(e))
       }
     }
   }

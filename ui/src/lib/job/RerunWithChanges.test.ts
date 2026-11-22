@@ -50,6 +50,7 @@ beforeEach(() => {
     definition: { variables: declared, presets } as never,
     origin: 'workspace',
     writable: true,
+    etag: null,
   })
   vi.mocked(go).mockReset()
 })

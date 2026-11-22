@@ -9,6 +9,7 @@
     view,
     jsonDraft,
     onjson,
+    register,
     schema = 'workflow',
     hint,
     stickyTop,
@@ -16,7 +17,8 @@
   }: {
     view: EditorView
     jsonDraft: string
-    onjson: (raw: string) => void
+    onjson: (raw: string, options?: { quiet?: boolean }) => void
+    register?: (flush: () => void) => () => void
     schema?: 'workflow' | 'prompt'
     hint: string
     // Where the split view's JSON column pins: below the app header, and
@@ -27,7 +29,13 @@
 </script>
 
 {#if view === 'json'}
-  <JsonEditor value={jsonDraft} onchange={onjson} height="560px" {schema} />
+  <JsonEditor
+    value={jsonDraft}
+    onchange={onjson}
+    {register}
+    height="560px"
+    {schema}
+  />
   <p class="muted hint">{hint}</p>
 {:else}
   <div class="editwrap" class:splitcols={view === 'split'}>
@@ -39,6 +47,7 @@
         <JsonEditor
           value={jsonDraft}
           onchange={onjson}
+          {register}
           height="calc(100vh - 200px)"
           {schema}
         />
