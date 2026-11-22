@@ -22,9 +22,11 @@ export type ItemDisplay =
   | 'cancelled'
   | 'dropped'
 
-/** Why an item wants the user: it can be run, it failed, it has two or
- * more good takes and none accepted, or its accepted take's files are gone */
-export type NeedsReason = 'ready' | 'failed' | 'choose' | 'accepted_missing'
+/** Why an item wants the user: it can be run, its result was made for a
+ * plan or prompt that has changed since, it failed, it has two or more good
+ * takes and none accepted, or its accepted take's files are gone */
+export type NeedsReason =
+  'ready' | 'revised' | 'failed' | 'choose' | 'accepted_missing'
 
 /** Another item as a row names it: a dependency, or one that depends on it */
 export type ItemRef = { key: string; title: string; display: ItemDisplay }
@@ -47,6 +49,8 @@ export type ItemState = {
   runnable: boolean
   /** Done, and another take could be queued (from its menu only) */
   canRetake: boolean
+  /** "Run what is ready" would queue it: ready, or revised and runnable */
+  runsNow: boolean
   needs: NeedsReason[]
   /** The server's review hold on it, while one applies; null otherwise.
    * Its `state` is the one shown: the page never derives its own */
@@ -59,6 +63,8 @@ export type PlanState = {
   dropped: ItemState[]
   counts: Record<ItemDisplay, number>
   needs: Record<NeedsReason, number>
+  /** How many live items "Run what is ready" would queue (`runsNow`) */
+  toRun: number
   /** The live items held for the user's review, in plan order */
   held: ItemState[]
 }
@@ -94,8 +100,19 @@ function failedDisplay(item: LedgerItem): ItemDisplay {
   return cancelled ? 'cancelled' : 'failed'
 }
 
+const inFlight = (item: LedgerItem) =>
+  [...item.attempts]
+    .reverse()
+    .find((a) => a.status === 'running' || a.status === 'queued')
+
 export function displayOf(item: LedgerItem, depsDone: boolean): ItemDisplay {
   if (item.status === 'failed') return failedDisplay(item)
+  // The server keeps a revised item revised while its new take is out: the
+  // page shows the take in flight, so it is not offered a second time
+  if (item.status === 'revised') {
+    const active = inFlight(item)
+    if (active) return active.status as 'queued' | 'running'
+  }
   if (item.status !== 'planned') return item.status
   if (item.ready) return 'ready'
   return depsDone ? 'planned' : 'waiting'
@@ -109,6 +126,7 @@ function needsOf(
   if (!open || item.dropped) return []
   const needs: NeedsReason[] = []
   if (display === 'ready') needs.push('ready')
+  if (display === 'revised') needs.push('revised')
   if (display === 'failed') needs.push('failed')
   if (unchosen(item)) needs.push('choose')
   if (item.accepted_missing) needs.push('accepted_missing')
@@ -122,24 +140,33 @@ function runnableNow(
   open: boolean,
 ): boolean {
   if (display === 'ready') return true
-  const retry = display === 'failed' || display === 'cancelled'
-  return retry && open && depsDone && item.workflow !== null
+  const again =
+    display === 'failed' || display === 'cancelled' || display === 'revised'
+  return again && open && depsDone && item.workflow !== null
 }
 
 const zero = <K extends string>(keys: readonly K[]) =>
   Object.fromEntries(keys.map((k) => [k, 0])) as Record<K, number>
 const DISPLAYS = Object.keys(CHIP) as ItemDisplay[]
-const REASONS = ['ready', 'failed', 'choose', 'accepted_missing'] as const
+const REASONS = [
+  'ready',
+  'revised',
+  'failed',
+  'choose',
+  'accepted_missing',
+] as const
 
 function tally(live: ItemState[], dropped: number) {
   const counts = zero(DISPLAYS)
   const needs = zero(REASONS)
+  let toRun = 0
   for (const state of live) {
     counts[state.display]++
     for (const reason of state.needs) needs[reason]++
+    if (state.runsNow) toRun++
   }
   counts.dropped = dropped
-  return { counts, needs }
+  return { counts, needs, toRun }
 }
 
 /** Every item of `request` as the page shows it, in plan order. */
@@ -161,6 +188,7 @@ export function planState(request: LedgerRequest): PlanState {
   const items = request.items.map((item): ItemState => {
     const display = displays.get(item.key) ?? 'dropped'
     const after = item.depends_on.map(ref)
+    const runnable = runnableNow(item, display, depsDone(item), open)
     return {
       item,
       display,
@@ -172,8 +200,9 @@ export function planState(request: LedgerRequest): PlanState {
         .map((o) => ref(o.key)),
       noWorkflow:
         item.workflow === null && display !== 'done' && display !== 'revised',
-      runnable: runnableNow(item, display, depsDone(item), open),
+      runnable,
       canRetake: display === 'done' && open && item.workflow !== null,
+      runsNow: display === 'ready' || (display === 'revised' && runnable),
       needs: needsOf(item, display, open),
       review: (!item.dropped && item.review) || null,
     }
@@ -232,16 +261,12 @@ const count = (n: number, one: string, many: string) =>
  * item with more than one, and that none worked for a failed one. */
 export function takesLine(state: ItemState): string | null {
   const n = state.item.attempts.length
-  if (state.display === 'done') return n > 1 ? count(n, 'take', 'takes') : null
+  if (state.display === 'done' || state.display === 'revised')
+    return n > 1 ? count(n, 'take', 'takes') : null
   if (state.display === 'failed' || state.display === 'cancelled')
     return `${count(n, 'attempt', 'attempts')}, none succeeded`
   return null
 }
-
-const inFlight = (item: LedgerItem) =>
-  [...item.attempts]
-    .reverse()
-    .find((a) => a.status === 'running' || a.status === 'queued')
 
 /** The job a queued or running row's "Open job" leads to */
 export const activeJob = (item: LedgerItem): string | null =>
@@ -261,6 +286,47 @@ export function figureOf(state: ItemState): string {
       ? ''
       : `est. ${formatMinutes(item.estimate_minutes)}`
   return item.spent_minutes > 0 ? formatSpent(item.spent_minutes) : ''
+}
+
+/** The number the next take of an item gets: takes count from 1 */
+export const nextTake = (item: LedgerItem) => item.attempts.length + 1
+
+/** The take a revised row shows as its result, the one "Keep this take"
+ * accepts again: null when its result has no take among its attempts */
+export function shownTake(item: LedgerItem): Take | null {
+  const job = item.result?.job
+  return takesOf(item).find((take) => take.attempt.job === job) ?? null
+}
+
+const MOVED: Record<string, string> = {
+  workflow: 'its workflow',
+  arguments: 'its arguments',
+}
+
+/** One server reason in words: `prompt:<name>` is that saved prompt */
+function moved(reason: string): string {
+  if (reason.startsWith('prompt:'))
+    return `the prompt ${reason.slice('prompt:'.length)}`
+  return MOVED[reason] ?? reason
+}
+
+const listed = (parts: string[]) =>
+  parts.length <= 1
+    ? (parts[0] ?? '')
+    : `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}`
+
+/** What a revised item's `revised_because` says, as a sentence: "The
+ * prompt board-01 changed since take 1." Null for an item not revised. */
+export function revisedLine(
+  item: LedgerItem,
+  take: Take | null,
+): string | null {
+  if (item.status !== 'revised') return null
+  const parts = (item.revised_because ?? []).map(moved)
+  const what = parts.length ? listed(parts) : 'its plan'
+  const subject = what.charAt(0).toUpperCase() + what.slice(1)
+  const since = take ? `take ${take.n}` : 'its result was made'
+  return `${subject} changed since ${since}.`
 }
 
 /** The DOM id of a row's title button: what a dependency name, a progress

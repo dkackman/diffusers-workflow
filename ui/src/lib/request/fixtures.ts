@@ -52,6 +52,20 @@ export const doneItem = (
     ...over,
   })
 
+/** A revised item: done once, its take kept, then its prompt
+ * `prompt:board-01` changed - the result stands, a new take is ready */
+export const revisedItem = (
+  key: string,
+  over: Partial<LedgerItem> = {},
+): LedgerItem =>
+  doneItem(key, {
+    status: 'revised',
+    ready: true,
+    accepted: { job: `job-${key}`, run_id: `run-${key}` },
+    revised_because: ['prompt:board-01'],
+    ...over,
+  })
+
 export const entry = (
   revision: number,
   by: LedgerHistoryEntry['by'],

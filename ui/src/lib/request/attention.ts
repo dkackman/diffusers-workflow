@@ -31,9 +31,14 @@ export const summaryBands = (summary: LedgerSummary): Band[] =>
   bandsOf(summary.status_counts)
 
 function idle(summary: LedgerSummary): string {
+  const revised = of(summary, 'revised')
   const planned = of(summary, 'planned')
+  const parts = [
+    ...(revised ? [`${revised} revised`] : []),
+    ...(planned || !revised ? [`${planned} planned`] : []),
+  ]
   const ready = summary.ready ? ` (${summary.ready} ready)` : ''
-  return `idle: ${planned} planned${ready}, nothing running`
+  return `idle: ${parts.join(', ')}${ready}, nothing running`
 }
 
 function openLine(summary: LedgerSummary): [AttentionKind, string] {
@@ -41,14 +46,15 @@ function openLine(summary: LedgerSummary): [AttentionKind, string] {
   if (failed) return ['failed', `${failed} failed`]
   if (of(summary, 'running')) return ['running', 'running']
   if (of(summary, 'queued')) return ['queued', 'queued']
-  if (of(summary, 'planned')) return ['idle', idle(summary)]
+  if (of(summary, 'planned') || of(summary, 'revised'))
+    return ['idle', idle(summary)]
   return liveItems(summary)
     ? ['done-open', 'all done, still open']
     : ['empty', 'nothing planned yet']
 }
 
 /** The row's one line, the first that holds: something failed, something
- * is running, something is queued, planned items sit idle, everything is
+ * is running, something is queued, planned or revised items sit idle, everything is
  * done and the request is still open. A closed request says nothing: its
  * state tag does. */
 export function attention(summary: LedgerSummary): Attention {
@@ -58,9 +64,11 @@ export function attention(summary: LedgerSummary): Attention {
   return { kind, text, live }
 }
 
-/** An open request with something for the user to do: run or look at */
+/** An open request with something for the user to do: run, look at, or
+ * keep a revised item's take */
 export const needsYou = (summary: LedgerSummary) =>
-  summary.state === 'open' && (summary.ready > 0 || of(summary, 'failed') > 0)
+  summary.state === 'open' &&
+  (summary.ready > 0 || of(summary, 'failed') > 0 || of(summary, 'revised') > 0)
 
 const inFlight = (summary: LedgerSummary) =>
   of(summary, 'running') + of(summary, 'queued') > 0

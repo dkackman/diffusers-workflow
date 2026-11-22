@@ -12,6 +12,7 @@
   import ItemMenu from './ItemMenu.svelte'
   import { itemMenu } from './menuEntries'
   import {
+    nextTake,
     titleId,
     type ItemState,
     type PlanState,
@@ -131,6 +132,14 @@
     )
   }
 
+  /** "Keep this take": the revised item's shown take accepted again, which
+   * the server records as kept against the plan as it now stands */
+  function keep(row: ItemState, take: Take) {
+    const { key, title } = row.item
+    quietly(store.push({ kind: 'accept', key, job: take.attempt.job }))
+    onsay(`Kept take ${take.n} for ${title}.`)
+  }
+
   async function drop(row: ItemState) {
     const { key, title } = row.item
     const warnings = dropWarnings(row)
@@ -211,6 +220,10 @@
     <button type="button" class="quiet act" onclick={() => restore(row)}>
       Restore
     </button>
+  {:else if onrun && row.runnable && row.display === 'revised'}
+    <button type="button" class="quiet act" onclick={() => onrun(row.item.key)}>
+      Run take {nextTake(row.item)}…
+    </button>
   {:else if onrun && row.runnable}
     <button type="button" class="quiet act" onclick={() => onrun(row.item.key)}>
       {row.display === 'ready' ? 'Run…' : 'Run again…'}
@@ -264,6 +277,7 @@
     {menu}
     {notice}
     onaccept={(take, job) => accept(row, take, job)}
+    onkeep={(take) => keep(row, take)}
     {countdown}
     {onmove}
   />

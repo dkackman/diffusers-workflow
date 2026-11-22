@@ -15,6 +15,8 @@
     figureOf,
     opensByDefault,
     resultMark,
+    revisedLine,
+    shownTake,
     takesLine,
     titleId,
     type ItemRef,
@@ -44,6 +46,7 @@
     menu,
     notice,
     onaccept,
+    onkeep,
     countdown,
     onmove,
   }: {
@@ -65,6 +68,8 @@
     notice?: Snippet<[ItemState]>
     /** Accept a take as the result (null clears the choice) */
     onaccept?: (take: Take, job: string | null) => void
+    /** Keep a revised item's shown take as its result: accept it again */
+    onkeep?: (take: Take) => void
     /** The page's review countdowns: what a held row's chip counts down */
     countdown?: ReviewCountdown
     /** "For the whole request instead" on this item's new note */
@@ -89,7 +94,15 @@
   )
   const figure = $derived(figureOf(row))
   const takes = $derived(takesLine(row))
-  const mark = $derived(row.display === 'done' ? resultMark(item) : null)
+  const mark = $derived(
+    row.display === 'done' || row.display === 'revised'
+      ? resultMark(item)
+      : null,
+  )
+  const shown = $derived(shownTake(item))
+  const revised = $derived(
+    row.display === 'revised' ? revisedLine(item, shown) : null,
+  )
   const job = $derived(activeJob(item))
   const args = $derived(Object.entries(item.arguments ?? {}))
   const moreId = $derived(`req-item-${item.key}-more`)
@@ -163,6 +176,20 @@
       {:else if row.noWorkflow && !item.dropped}
         <p class="sub muted">
           No stored workflow. Only the agent can run this.
+        </p>
+      {/if}
+      {#if revised}
+        <p class="sub revised">
+          <span>{revised}</span>
+          {#if shown && onkeep && !item.dropped}
+            <button
+              type="button"
+              class="quiet keep"
+              onclick={() => onkeep(shown)}
+            >
+              Keep this take
+            </button>
+          {/if}
         </p>
       {/if}
       {#if takes}
@@ -402,6 +429,17 @@
   .sub {
     margin: 0;
     font-size: var(--t-sm);
+  }
+  .revised {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--space-2);
+  }
+  .keep {
+    padding: 0.1rem 0.5rem;
+    font-size: var(--t-sm);
+    white-space: nowrap;
   }
   .mark {
     display: inline-flex;

@@ -61,7 +61,7 @@ function lead(request: LedgerRequest, plan: PlanState, now: Date): string {
   if (counts.running) return rendering(plan)
   if (counts.queued) return `${counts.queued} queued behind other jobs.`
   if (request.state !== 'open') return closed(request, now)
-  if (counts.ready) return `Nothing is running. ${counts.ready} ready to run.`
+  if (plan.toRun) return `Nothing is running. ${plan.toRun} ready to run.`
   if (counts.waiting) return waiting(plan)
   if (plan.live.length === 0) return 'Nothing is planned yet.'
   return counts.done === plan.live.length
@@ -71,6 +71,8 @@ function lead(request: LedgerRequest, plan: PlanState, now: Date): string {
 
 const NEEDS: Record<NeedsReason, (n: number) => string> = {
   ready: (n) => `${n} ready to run`,
+  revised: (n) =>
+    count(n, 'revised since its take', 'revised since their takes'),
   failed: (n) => `${n} failed`,
   choose: (n) => count(n, 'take to choose', 'takes to choose'),
   accepted_missing: (n) =>
