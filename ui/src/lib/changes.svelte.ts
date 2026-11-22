@@ -27,6 +27,8 @@ const count = (snapshot: WorkspaceChanges, kind: ChangeKind) =>
 
 export class ChangeFeed {
   #workspace: string
+  // Not reactive: who listens is bookkeeping, never shown
+  // eslint-disable-next-line svelte/prefer-svelte-reactivity
   #watchers = new Set<Watcher>()
   #stop: (() => void) | null = null
   #asked = 0

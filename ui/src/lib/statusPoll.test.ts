@@ -1,6 +1,6 @@
-import { readFileSync } from 'node:fs'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { pollStatus, STATUS_POLL_MS } from './statusPoll'
+import app from '../App.svelte?raw'
 
 function setHidden(hidden: boolean) {
   Object.defineProperty(document, 'visibilityState', {
@@ -34,7 +34,6 @@ it('started in a hidden tab, it fires at once', () => {
 })
 
 it('is the timer the app shell polls its status with', () => {
-  const app = readFileSync('src/App.svelte', 'utf8')
   expect(app).toMatch(/return pollStatus\(refreshStatus\)/)
   // and the shell keeps no other timer of its own for it
   expect(app).not.toMatch(/\bpoll\(refreshStatus/)

@@ -126,7 +126,7 @@ it('a reply overtaken by a later read is dropped', async () => {
   const feed = new ChangeFeed('studio')
   const fn = vi.fn()
   await feed.refresh() // the baseline
-  let answerSlow = (_: WorkspaceChanges) => {}
+  let answerSlow: (value: WorkspaceChanges) => void = () => {}
   reads.next.mockImplementationOnce(
     () => new Promise((resolve) => (answerSlow = resolve)),
   )
