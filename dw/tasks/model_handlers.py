@@ -219,12 +219,37 @@ def _handle_remove_object(task, arguments, previous_pipelines):
     )
 
 
+def _interpolate_exclusive_errors(arguments):
+    """`refill` with `multiplier`, refused at validate in the words the run
+    refuses it in"""
+    from .interpolate_frames import exclusive_argument_errors
+
+    return exclusive_argument_errors(arguments)
+
+
 @register_command(
     "interpolate_frames",
     implementation="dw.tasks.interpolate_frames.interpolate_frames",
     consumes_device=True,
     required_weights="dw.tasks.interpolate_frames.required_weights",
     weight_file_arguments=("filename",),
+    parameter_descriptions={
+        "multiplier": (
+            "Frame count multiplier: 2, 4 or 8 (default 2). The output's fps "
+            "is the source's times the multiplier and its audio is dropped "
+            "(pair_audio puts it back). Exclusive with refill."
+        ),
+        "refill": (
+            "'held': keep the frame count, fps, audio and shots, and replace "
+            "only the frames analyze_held_frames flags as held, each run "
+            "interpolated between the distinct frames either side of it. A "
+            "run that meets a cut or the clip's end is left held. The step's "
+            "log event reports held_before and held_after. Exclusive with "
+            "multiplier."
+        ),
+    },
+    choices={"refill": ("held",)},
+    static_check=_interpolate_exclusive_errors,
 )
 def _handle_interpolate_frames(task, arguments, previous_pipelines):
     """Interpolate video frames to increase frame rate"""

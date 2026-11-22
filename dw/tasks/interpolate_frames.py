@@ -4,6 +4,11 @@ Video frame interpolation via RIFE (Real-Time Intermediate Flow Estimation).
 Takes a list of video frames and generates intermediate frames to increase
 frame rate. Supports 2x, 4x, and 8x multipliers.
 
+`refill: "held"` (#1527) is the other mode: it keeps the frame count and
+rate, and replaces only the frames analyze_held_frames' measure flags as
+held - each run of them interpolated between the distinct frames either side
+of it - so a take that stutters plays smoothly, with its audio still in sync.
+
 Model weights are downloaded from HuggingFace Hub on first use.
 """
 
@@ -20,28 +25,66 @@ logger = logging.getLogger("dw")
 
 _VALID_MULTIPLIERS = {2, 4, 8}
 
+# The values `refill` takes: "held" refills the frames the held-frame measure
+# flags (dw/tasks/assess.py held_measure)
+REFILL_MODES = ("held",)
+
+
+def exclusive_argument_errors(arguments):
+    """[(argument, message)] for an interpolate_frames step setting both
+    `refill` and `multiplier` - the static check validate_workflow runs, and
+    the one interpolate_frames repeats at run time. A refill keeps the
+    frame count; a multiplier multiplies it, so the two can't both apply."""
+    if arguments.get("refill") is not None and arguments.get("multiplier") is not None:
+        return [
+            (
+                "refill",
+                "'refill' and 'multiplier' can't both be set: refill keeps the "
+                "frame count and rate, multiplier multiplies them. Set one",
+            )
+        ]
+    return []
+
 
 def interpolate_frames(video, device="cpu", **kwargs):
-    """Interpolate between video frames using RIFE to increase frame rate.
+    """Interpolate between video frames using RIFE.
 
     Args:
         video: The frames - a list of PIL images, a frame array or tensor, or
-            an AudioVideo (a concat or dissolve step's output, whose
-            soundtrack is dropped here and put back by pair_audio)
+            an AudioVideo (a concat or dissolve step's output). A multiplier
+            drops its soundtrack (pair_audio puts it back); a refill keeps it
         device: Target device ("cuda", "mps", "cpu")
         **kwargs:
-            multiplier: Frame count multiplier — 2, 4, or 8 (default: 2)
+            multiplier: Frame count multiplier - 2, 4, or 8 (default: 2,
+                when `refill` is unset)
+            refill: "held" - keep the frame count, fps, audio and shots, and
+                replace only the held frames (`refill_held`). Exclusive with
+                `multiplier`
             model_name: HuggingFace repo with RIFE v4.13 weights (default: auto)
             filename: Weights filename within the repo (default: auto)
 
     Returns:
-        One AudioVideo holding the interpolated frames and no audio - one
-        artifact, where a bare frame list would fan a later step out over
-        every frame. pair_audio puts a soundtrack under it.
+        One AudioVideo - one artifact, where a bare frame list would fan a
+        later step out over every frame. A multiplier's holds the
+        interpolated frames and no audio; a refill's holds the source's
+        frame count, audio, fps and shots, with `held_before`/`held_after`.
     """
-    multiplier = int(kwargs.get("multiplier", 2))
+    errors = exclusive_argument_errors(kwargs)
+    if errors:
+        raise ValueError(errors[0][1])
+    refill = kwargs.get("refill")
     model_name = kwargs.get("model_name", None)
     filename = kwargs.get("filename", None)
+    if refill is not None:
+        if refill not in REFILL_MODES:
+            raise ValueError(
+                f"refill must be one of {list(REFILL_MODES)}, got {refill!r}"
+            )
+        return refill_held(
+            video, lambda: _load_rife_model(device, model_name, filename)
+        )
+
+    multiplier = int(kwargs.get("multiplier") or 2)
 
     if multiplier not in _VALID_MULTIPLIERS:
         raise ValueError(
@@ -88,6 +131,97 @@ def interpolate_frames(video, device="cpu", **kwargs):
     )
 
 
+def held_runs(d, held, cuts, frame_count, epsilon=None):
+    """The held frames grouped into runs: ([(first, last)] to refill,
+    [(first, last)] left held).
+
+    The measure flags a hold only beside a moving frame, so a frame shown
+    four times flags its first and last repeat but not the middle one: each
+    flagged frame grows over the consecutive frames still under `epsilon`
+    either side, and the whole still stretch is the run. Its anchors are
+    a = first - 1 and b = last + 1. A run is left held when b is past the
+    clip's end or a cut lands in (a, b] - never interpolated across a cut.
+    """
+    from .assess import HELD_EPSILON
+
+    epsilon = HELD_EPSILON if epsilon is None else epsilon
+    runs, seen = [], set()
+    for frame in sorted(held):
+        if frame in seen:
+            continue
+        first = frame
+        while first - 1 >= 1 and d[first - 1] < epsilon:
+            first -= 1
+        last = frame
+        while last + 1 < frame_count and d[last + 1] < epsilon:
+            last += 1
+        seen.update(range(first, last + 1))
+        runs.append((first, last))
+    refill, left = [], []
+    for first, last in runs:
+        a, b = first - 1, last + 1
+        across_cut = any(a < cut <= b for cut in cuts)
+        (left if b >= frame_count or across_cut else refill).append((first, last))
+    return refill, left
+
+
+def refill_held(video, load_model):
+    """`refill: "held"`: the video with each held run replaced by RIFE
+    between its anchors, every other frame passed through as given.
+
+    Run frame first+j of a k-frame run becomes model(a, b, (j+1)/(k+1)). A
+    take with no holds comes back with its frames as given and `load_model`
+    never called. The audio, sample rate, fps and shots are the source's;
+    the result carries `held_before` (the measure on the source) and
+    `held_after` (on the refilled frames), and both go out as a `log` event.
+    """
+    from ..events import emit_log
+    from .assess import frames_media, held_measure
+
+    source_fps = getattr(video, "fps", None)
+    source_shots = getattr(video, "shots", None)
+    audio = getattr(video, "audio", None)
+    sample_rate = getattr(video, "sample_rate", None)
+    frames = frames_as_pil_list(video)
+    if len(frames) < 2:
+        raise ValueError(f"Need at least 2 frames to refill, got {len(frames)}")
+
+    d, held, cuts = held_measure(frames_media(frames))
+    refill, left = held_runs(d, held, cuts, len(frames))
+    held_before = len(held)
+
+    out = list(frames)
+    if refill:
+        model = load_model()
+        for first, last in refill:
+            a, b = frames[first - 1], frames[last + 1]
+            k = last - first + 1
+            for j in range(k):
+                out[first + j] = model(a, b, (j + 1) / (k + 1))
+        _, held_after_frames, _ = held_measure(frames_media(out))
+        held_after = len(held_after_frames)
+    else:
+        held_after = held_before
+
+    refilled = sum(last - first + 1 for first, last in refill)
+    left_frames = sum(last - first + 1 for first, last in left)
+    emit_log(
+        f"interpolate_frames: refilled {refilled} held frame(s) in "
+        f"{len(refill)} run(s), {left_frames} left held at a cut or the "
+        f"clip's end; held frames {held_before} -> {held_after}",
+        command="interpolate_frames",
+        held_before=held_before,
+        held_after=held_after,
+        refilled_frames=refilled,
+        refilled_runs=len(refill),
+        left_held_frames=left_frames,
+    )
+    result = AudioVideo(out, audio, sample_rate, fps=source_fps, shots=source_shots)
+    result.held_before = held_before
+    result.held_after = held_after
+    return result
+
+
 def _interpolate_2x(frames, model):
     """Single pass of 2x interpolation — insert one frame between each pair."""
     result = [frames[0]]
@@ -130,8 +264,10 @@ def _padded_size(h, w, multiple=32):
     return ph, pw
 
 
-def _make_flow_context(ph, pw, device):
-    """Build the warp grid and flow divisors for one padded resolution."""
+def _make_flow_context(ph, pw, device, timestep=0.5):
+    """Build the warp grid, flow divisors and timestep plane for one padded
+    resolution. `timestep` is where between the two frames the result
+    lands: 0.5 is the midpoint `multiplier` uses."""
     tenFlow_div = torch.tensor([(pw - 1.0) / 2.0, (ph - 1.0) / 2.0], device=device)
     backwarp_tenGrid = torch.cat(
         [
@@ -144,7 +280,7 @@ def _make_flow_context(ph, pw, device):
         ],
         1,
     )
-    timestep = torch.full((1, 1, ph, pw), 0.5, dtype=torch.float32, device=device)
+    timestep = torch.full((1, 1, ph, pw), float(timestep), dtype=torch.float32, device=device)
     return tenFlow_div, backwarp_tenGrid, timestep
 
 
@@ -160,7 +296,8 @@ def _load_rife_model(device, model_name=None, filename=None):
             checkpoint formats (.pkl/.pth) are supported.
 
     Returns:
-        Callable that takes (frame1: PIL.Image, frame2: PIL.Image) -> PIL.Image
+        Callable that takes (frame1: PIL.Image, frame2: PIL.Image,
+        timestep=0.5) -> PIL.Image
     """
     from .rife_model import IFNet
     from huggingface_hub import hf_hub_download
@@ -206,11 +343,12 @@ def _load_rife_model(device, model_name=None, filename=None):
 
 
 def _build_inference(net, device):
-    """Build the (img1, img2) -> mid_frame callable for a loaded RIFE net.
+    """Build the (img1, img2, timestep=0.5) -> frame callable for a loaded
+    RIFE net.
 
     All frames of a video share one padded resolution, so the flow-warp
     context (tenFlow_div, backwarp grid, timestep) is computed once per
-    (padded_h, padded_w) and reused for every pair instead of being rebuilt
+    (padded_h, padded_w, timestep) and reused for every pair instead of being rebuilt
     on every call.
 
     `_interpolate_2x` walks frames pairwise: (f0, f1), (f1, f2), (f2, f3), ...
@@ -228,16 +366,17 @@ def _build_inference(net, device):
     flow_context_cache = {}
     carry = {"img": None}
 
-    def get_flow_context(ph, pw):
-        key = (ph, pw)
+    def get_flow_context(ph, pw, timestep):
+        key = (ph, pw, timestep)
         ctx = flow_context_cache.get(key)
         if ctx is None:
-            ctx = _make_flow_context(ph, pw, device)
+            ctx = _make_flow_context(ph, pw, device, timestep)
             flow_context_cache[key] = ctx
         return ctx
 
-    def inference(img1, img2):
-        """Interpolate a single frame between two input frames."""
+    def inference(img1, img2, timestep=0.5):
+        """Interpolate a single frame between two input frames, at
+        `timestep` between them (0.5, the midpoint, by default)."""
         if img1 is carry["img"]:
             t1_padded = carry["tensor"]
             h, w, ph, pw = carry["h"], carry["w"], carry["ph"], carry["pw"]
@@ -255,13 +394,15 @@ def _build_inference(net, device):
         carry["tensor"] = t2_padded
         carry["h"], carry["w"], carry["ph"], carry["pw"] = h, w, ph, pw
 
-        tenFlow_div, backwarp_tenGrid, timestep = get_flow_context(ph, pw)
+        tenFlow_div, backwarp_tenGrid, timestep_plane = get_flow_context(
+            ph, pw, timestep
+        )
 
         with torch.inference_mode():
             _, _, merged = net(
                 t1_padded,
                 t2_padded,
-                timestep,
+                timestep_plane,
                 scale_list,
                 tenFlow_div,
                 backwarp_tenGrid,

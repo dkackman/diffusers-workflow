@@ -1201,18 +1201,21 @@ def analyze_held_frames(video, shots=None, detail=False):
     return held_frames_answer(media, *resolve_shots(video, media, shots), detail=detail)
 
 
-def held_frames_answer(media, records, source, detail=False):
-    """`analyze_held_frames` over an already-read Media. A frame held next
-    to a hard cut is the cut's own, so frames within HELD_CUT_GUARD of one
-    (and frame 0, which has no predecessor) never count."""
+def held_measure(media):
+    """(d series, held frame indices, hard-cut frames) by analyze_held_frames'
+    measure. A frame held next to a hard cut is the cut's own, so frames
+    within HELD_CUT_GUARD of one (and frame 0, which has no predecessor)
+    never count. The cut detector decodes the picture again, so it runs only
+    when there is a hold for a cut to explain away: with no hold the cuts
+    come back [] unmeasured."""
     frames = media.frame_count
     d = _frame_deltas(media.thumbs) if frames else numpy.full(0, numpy.nan)
     skip = {0}
     held = _held_frames(d, skip)
+    cuts = []
     if held:
-        # The cut detector decodes the picture again, so it runs only when
-        # there is a hold for a cut to explain away
-        for cut in _cut_frames(media):
+        cuts = _cut_frames(media)
+        for cut in cuts:
             skip.update(
                 range(
                     max(0, cut - HELD_CUT_GUARD),
@@ -1220,6 +1223,28 @@ def held_frames_answer(media, records, source, detail=False):
                 )
             )
         held = _held_frames(d, skip)
+    return d, held, cuts
+
+
+def frames_media(frames):
+    """A picture-only Media over in-memory frames (a PIL list, an array or
+    SegmentedFrames), for measuring frames a task holds rather than a file."""
+    thumbs, looks = _in_memory_thumbs(frames)
+    return Media(
+        thumbs,
+        None,
+        None,
+        None,
+        looks=looks,
+        rgb_frames=None if thumbs is None else (lambda: _in_memory_rgb(frames)),
+    )
+
+
+def held_frames_answer(media, records, source, detail=False):
+    """`analyze_held_frames` over an already-read Media (`held_measure` is
+    the measure)."""
+    frames = media.frame_count
+    d, held, _ = held_measure(media)
     clusters = _held_clusters(held, media.fps)
     answer = {
         "held_frames": len(held),
@@ -1257,7 +1282,9 @@ __all__ = [
     "analyze_seams",
     "analyze_shots",
     "analyze_sync_drift",
+    "frames_media",
     "held_frames_answer",
+    "held_measure",
     "media_from",
     "read_media",
     "resolve_shots",
