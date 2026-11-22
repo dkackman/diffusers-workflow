@@ -355,6 +355,9 @@ LEGITIMATE_MENTIONS = {
     "workflows/templates/generate-speech.json": {"sample_rate"},
     # arguments of the image_to_text step, edited into the file rather than passed
     "workflows/templates/image-to-text.json": {"model_name", "prompt"},
+    # recenter_crop's own 'fill' argument, written inline (reframe declares a
+    # variable of that name since #1567)
+    "workflows/templates/recenter-crop.json": {"fill"},
     # a field of the step's 'chain' block, which this workflow writes inline
     "workflows/templates/minimax/chain-matched-and-aligned.json": {"prompts"},
     # a field of the step's 'chain' block

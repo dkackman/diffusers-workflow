@@ -547,7 +547,7 @@ not itself sharpened:
 | `stills_to_video` | Hold storyboard stills for a duration each, as one silent clip | `images`, `durations`, `fps` - see [stills_to_video](#stills_to_video) |
 | `window_video` | One overlapping, fixed-length window of a long video, with its audio | `index`, `num_frames`, `overlap`, `fps` - see [window_video](#window_video) |
 | `join_windows` | Blend processed windows back into one video the source's length, with the source's audio | `videos`, `source`, `num_frames`, `overlap`, `curve`, `fps` - see [join_windows](#join_windows) |
-| `fit_to_model` | Fit a video into a model's working size and exact frame count; returns `{video, fit}`, and in letterbox mode a `mask` of the bars | `width`, `height`, `num_frames`, `mode` (`letterbox`, `stretch`, `crop`), `downscale`, `align` - see [fit_to_model and restore_to_source](#fit_to_model-and-restore_to_source) |
+| `fit_to_model` | Fit a video into a model's working size and exact frame count; returns `{video, fit}`, and in letterbox mode a `mask` of the bars | `width`, `height`, `num_frames`, `mode` (`letterbox`, `stretch`, `crop`), `downscale`, `align`, `fill` (`black`, `edge`, `blur`) - see [fit_to_model and restore_to_source](#fit_to_model-and-restore_to_source) |
 | `restore_to_source` | Put a model's output back at its source's size and length, from the `fit` record | `fit`, `fps` (omitted: the input's rate; `"source"`: the source's; or a number) - see [fit_to_model and restore_to_source](#fit_to_model-and-restore_to_source) |
 | `paste_into_box` | Put a source clip back inside a box of a generated clip, feathered at the box's edges, keeping the generated clip's audio and fps | `generated`, `source`, `content_box` (a box or the `fit` record), `feather` (px, default 16) - see [paste_into_box](#paste_into_box) |
 
@@ -1329,10 +1329,15 @@ To turn a 16:9 clip into 9:16, 4:5 or 1:1:
 - **Generate the border.** For a keeper H3 take whose motion, timing and
   soundtrack must stay, `templates/minimax/reframe` keeps the whole picture:
   `fit_to_model` letterboxes it with `align` 32 so the box sits on H3's mask
-  cells, a masked t2va edit at `refine_strength` 1.0 generates the bars with
-  the take's soundtrack held, and `paste_into_box` puts the take's own pixels
-  back inside the box. A 16:9 take on 544x960 keeps a 544x320 picture, so
-  about two thirds of the frame is generated; it costs a full H3 run.
+  cells and `fill: "edge"` so the bars start as the picture's own edges, a
+  masked t2va edit at `refine_strength` 0.8 refines the bars with the take's
+  soundtrack held, and `paste_into_box` puts the take's own pixels back inside
+  the box. Its prompt describes the whole tall frame, not just the take: what
+  sits above and below it ("the brick wall rises to a ceiling; below the desk,
+  its front panel and a wooden floor"). A 16:9 take on 544x960 keeps a 544x320
+  picture, so about two thirds of the frame is generated; it costs a full H3
+  run. `num_frames` must be the take's own length, refused at validation
+  otherwise.
 
 `mode` is `letterbox` (default: scale to fit, centred on black), `stretch`
 (resize to fill exactly) or `crop` (scale to fill, centre-crop). The frame
@@ -1351,6 +1356,21 @@ rounding costs (under one cell in model pixels): 1344x768 into 544x960 at
 pixels cut across. `width` and `height` (after `downscale`) must be divisible
 by it, and a non-letterbox `mode` with an `align` is refused, at validation for
 a literal. The value is the workflow's: the engine knows no model's cell.
+
+`fill` (default `black`, letterbox only) is what the bars start as, for a
+masked edit that refines them rather than generating them from nothing:
+
+- `black` - the bars are black, as before `fill` existed.
+- `edge` - the picture's outermost rows and columns are extended across the
+  bars, each line blurred along itself with a radius that grows with its
+  distance from the box: the first row or column outside the box is the
+  picture's own edge, and the far end of a bar is a soft wash of it.
+- `blur` - the picture is scaled to fill the whole canvas, centre-cropped and
+  heavily blurred, under the box.
+
+Only pixels outside the box change: the box, `mask` and `align` are the same
+for every `fill`. A `fill` other than `black` with `mode` `stretch` or `crop`,
+which leave no bars, is refused, at validation for a literal.
 
 The step returns `{video, fit}` (`previous_result:<step>.video` and `.fit`).
 `video` is a float32 `(frames, height, width, 3)` array in 0-1 carrying its
