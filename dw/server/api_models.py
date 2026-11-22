@@ -819,6 +819,11 @@ class RequiredDownload(ApiModel):
         "rather than the whole repo."
     )
     revision: str | None = sometimes("The commit the file is read at; null means main.")
+    components: list[str] = sometimes(
+        "A modular step's own `model_name` when its `load_components` moves "
+        "some components to another repo: the subfolders still fetched from "
+        "`repo`, counting only those not cached."
+    )
     gb: int | float | None
     gated: bool | Literal["auto", "manual"] | None = Field(
         description="The hub's own `gated` field: false, or how access is granted."
@@ -863,7 +868,8 @@ class PlanEstimate(ApiModel):
     )
     differs: list[str] = sometimes(
         "With basis `inherited`: what this workflow sets differently from "
-        "`inherited_from` among offload, quantization and frame count; empty "
+        "`inherited_from` among offload, quantization, frame count, attention "
+        "backend, cache, LoRA and reference count; empty "
         "when nothing does. Otherwise: the cost drivers with no rule to scale "
         "by that moved off the default the figure was measured at, with "
         "`low_confidence` true."
@@ -885,6 +891,10 @@ class PlanEstimate(ApiModel):
         "With basis `unknown` and no `withheld`: why a workflow of task steps "
         "alone has no price - it has no pipeline to inherit one from, and its "
         "length follows its input media (#948)."
+    )
+    per_segment: bool = sometimes(
+        "True when an `observed` figure is a matched chain's, read per segment "
+        "from this box's history."
     )
     priced_for: str = sometimes(
         "The card the run would be dispatched to, whose history the figure is - "

@@ -350,7 +350,7 @@ SecurityError
   UntrustedWorkflowError - an untrusted workflow reached the code-execution surface
 ```
 
-### Disk caches
+## Disk caches
 
 `DELETE /api/caches/{name}` (`dw/disk_caches.py`) empties a directory whose
 path comes from an environment variable, so it clears only a root carrying a

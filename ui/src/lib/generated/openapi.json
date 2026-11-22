@@ -5220,7 +5220,7 @@
             "type": "string"
           },
           "differs": {
-            "description": "With basis `inherited`: what this workflow sets differently from `inherited_from` among offload, quantization and frame count; empty when nothing does. Otherwise: the cost drivers with no rule to scale by that moved off the default the figure was measured at, with `low_confidence` true.",
+            "description": "With basis `inherited`: what this workflow sets differently from `inherited_from` among offload, quantization, frame count, attention backend, cache, LoRA and reference count; empty when nothing does. Otherwise: the cost drivers with no rule to scale by that moved off the default the figure was measured at, with `low_confidence` true.",
             "items": {
               "type": "string"
             },
@@ -5274,6 +5274,11 @@
           },
           "partial": {
             "title": "Partial",
+            "type": "boolean"
+          },
+          "per_segment": {
+            "description": "True when an `observed` figure is a matched chain's, read per segment from this box's history.",
+            "title": "Per Segment",
             "type": "boolean"
           },
           "priced_for": {
@@ -5600,6 +5605,14 @@
               }
             ],
             "title": "Access Blocked"
+          },
+          "components": {
+            "description": "A modular step's own `model_name` when its `load_components` moves some components to another repo: the subfolders still fetched from `repo`, counting only those not cached.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Components",
+            "type": "array"
           },
           "filename": {
             "description": "A single weight file within `repo`, for a task that fetches one file rather than the whole repo.",

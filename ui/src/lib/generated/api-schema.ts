@@ -4307,7 +4307,7 @@ export interface components {
             device: string;
             /**
              * Differs
-             * @description With basis `inherited`: what this workflow sets differently from `inherited_from` among offload, quantization and frame count; empty when nothing does. Otherwise: the cost drivers with no rule to scale by that moved off the default the figure was measured at, with `low_confidence` true.
+             * @description With basis `inherited`: what this workflow sets differently from `inherited_from` among offload, quantization, frame count, attention backend, cache, LoRA and reference count; empty when nothing does. Otherwise: the cost drivers with no rule to scale by that moved off the default the figure was measured at, with `low_confidence` true.
              */
             differs?: string[];
             /**
@@ -4325,6 +4325,11 @@ export interface components {
             observed_minutes?: number;
             /** Partial */
             partial: boolean;
+            /**
+             * Per Segment
+             * @description True when an `observed` figure is a matched chain's, read per segment from this box's history.
+             */
+            per_segment?: boolean;
             /**
              * Priced For
              * @description The card the run would be dispatched to, whose history the figure is - as `cuda:1 NVIDIA GeForce RTX 3090`.
@@ -4485,6 +4490,11 @@ export interface components {
         RequiredDownload: {
             /** Access Blocked */
             access_blocked: boolean | null;
+            /**
+             * Components
+             * @description A modular step's own `model_name` when its `load_components` moves some components to another repo: the subfolders still fetched from `repo`, counting only those not cached.
+             */
+            components?: string[];
             /**
              * Filename
              * @description A single weight file within `repo`, for a task that fetches one file rather than the whole repo.

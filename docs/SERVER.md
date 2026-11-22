@@ -776,118 +776,201 @@ The editor's forms come from these; they are just as usable from scripts:
   the file-name rule alone.
 
   A valid answer also carries `plan`, what the run will execute for those
-  arguments: `fingerprint` (`sha256:…` over the realized, expanded
-  definition with the seed and every key that cannot change the output
-  (cost, `cost_drivers`, `vram_estimate`, descriptions, a result's role,
-  subfolder and file name) removed and
-  `output:…/latest/…` left unpinned - the same work hashes the same, a
-  longer list or an edited stored prompt does not); `steps`, the expanded
-  member count; `list_entries`, `{variable: length}` for each `for_each`
-  over a list variable; `cached_steps`, how many of those steps the
-  worker's step cache would serve (`0` for an unseeded workflow, `null`
-  when the worker is busy or did not answer - a workflow with no `seed`
-  also gets a warning saying so, since `0` alone does not distinguish a
-  disabled cache from an empty one);
-  `downloads_required`, each `model_name` the hub cache does not hold, and each repo a task step fetches (`dw/tasks/weights.py`; a repo shared with a pipeline step is listed once, a reference or local-path argument gives none) as
-  `{repo, gb, gated, access_blocked}` (`gb` from the hub, `null` when it
-  could not be asked - `?sizes=false` skips the hub, and then `gated` and
-  `access_blocked` are `null` too); `gated` is the hub's own field for the
-  repo (`false`, `"auto"` or `"manual"`) or `null` when the lookup itself
-  failed for a reason other than the gate; `access_blocked` is `true`
-  when this box's Hugging Face token specifically has not been granted
-  access to a gated repo, `false` when the repo isn't gated or the token is
-  accepted, and `null` when it could not be determined either way. A gated
-  repo's own metadata is served by the hub regardless of this token's
-  access, so `model_info` succeeding proves nothing about the gate; a
-  gated entry gets a second, real check - a HEAD request against one of the
-  repo's own files - and it is *that* request's `GatedRepoError` that sets
-  `access_blocked: true` (the pre-flight signal for what would otherwise be
-  a 403 partway into a run). `access_blocked` is `null` when there is
-  no file to probe or the probe itself fails for an unrelated reason (e.g.
-  offline) - "unknown" is not "not blocked". `validate_workflow`'s
-  `warnings` carries one line per entry with `access_blocked: true`. A repo
-  the hub answers does not exist (a misspelled `model_name`, or a private
-  repo this token cannot see) carries `not_found: true`, and validation
-  fails on it with an error at `model_name`; an unanswered lookup leaves the
-  key out. Each `from_single_file` URL is `{repo: null, url, gb: null, gated: null,
-  access_blocked: null}`, since a direct file URL is never gated.
-  A task that fetches one file rather than a whole repo is listed as a file
-  entry, `{repo, filename, revision, gb, gated, access_blocked}`: `revision`
-  is a 40-character commit pin or `null` for `main`; `gb` is that one file's
-  size, from a HEAD of the file (`null` offline or with `?sizes=false`);
-  `gated` is `null`, since the HEAD that sizes it does not say; and
-  `access_blocked` is `true` when that HEAD is refused by the gate, `false`
-  when it succeeds, `null` when unknown. It is listed when that file at that
-  revision is not in the hub cache (checked per file, so another cached file
-  of the same repo does not count), and a whole-repo entry for the same repo
-  subsumes it. A modular step whose `load_components` loads some
-  components from another repo (`pretrained_model_name_or_path`) lists
-  that repo whole and its own `model_name` by component:
-  `{repo, components, revision, gb, gated, access_blocked}`, where
-  `components` are the subfolders left on `model_name` by its
+  arguments - its fields and rules are under [Validate plan](#validate-plan)
+  below.
+
+#### Validate plan
+
+A valid `POST /api/validate` answer carries `plan`: what the run will execute
+for the arguments given, fingerprinted so an `acknowledged_cost` can be bound
+to it ([Jobs API](#jobs-api)). `plan` is `null` when it could not be built; an
+invalid answer carries no `plan` key.
+
+| Field | Meaning |
+|---|---|
+| `fingerprint` | `sha256:…` over the work the run does (*Fingerprint* below). Send it back in `acknowledged_cost` to bind the run to this plan |
+| `steps` | The expanded member count, after elision |
+| `elided_steps` | `[{step, reason, overridden_by?}]`, in written order: the steps that will not run because nothing after them reads their result and they save no file (the last step always runs). They are already left out of `steps`, the downloads and the fingerprint. `overridden_by` names the supplied variable (or `item:` field) that made the step unread - an elision on purpose; without it nothing ever read the step, so check for a misspelled reference. The run warns `step_elided` for each ([Progress events](#progress-events)) |
+| `list_entries` | `{variable: length}` for each `for_each` over a list variable |
+| `cached_steps` | How many of `steps` the step cache of the card the run would go to would serve: `0` for an unseeded workflow (which also gets a warning, since `0` alone does not tell a disabled cache from an empty one), `null` when that worker is busy or did not answer |
+| `workspace` | The name of the workspace whose step cache was probed, so a `cached_steps: 0` against the wrong workspace's outputs can be seen |
+| `downloads_required` | What the run must fetch first (*Downloads* below); `[]` when nothing |
+| `estimate` | The run's minutes and what they rest on (*Estimate* below) |
+| `host_memory` | `{projected_mb, basis, runs}`, the run's projected host-RAM peak (*Host memory* below); absent when there is no figure |
+
+**Fingerprint.** Taken over the realized, expanded definition after elision,
+with each `prompt:` inlined, the seed and every key that cannot change the
+output (cost, `cost_drivers`, `vram_estimate`, descriptions, a result's role,
+subfolder and file name) removed, and `output:…/latest/…` left unpinned. The
+same work hashes the same; a longer list or an edited stored prompt does not.
+
+**Downloads.** `downloads_required` lists each `model_name` the hub cache does
+not hold and each repo a task step fetches (`dw/tasks/weights.py`; a repo
+shared with a pipeline step is listed once, a reference or local-path argument
+gives none). Acknowledgements compare entries by `repo`. An entry takes one of
+four shapes:
+
+- **Repo** - `{repo, gb, gated, access_blocked}`, a whole repo.
+- **File** - `{repo, filename, revision, gb, gated, access_blocked}`, a task
+  that fetches one file rather than a whole repo. `revision` is a
+  40-character commit pin or `null` for `main`; `gb` is that one file's size,
+  from a HEAD of the file; `gated` is `null`, since that HEAD does not say;
+  `access_blocked` is `true` when the HEAD is refused by the gate, `false`
+  when it succeeds. Listed when that file at that revision is not in the hub
+  cache (checked per file, so another cached file of the same repo does not
+  count); a whole-repo entry for the same repo subsumes it.
+- **Components** - `{repo, components, revision, gb, gated, access_blocked}`,
+  a modular step's own `model_name` when its `load_components` loads some
+  components from another repo (`pretrained_model_name_or_path`, which is
+  listed whole). `components` are the subfolders left on `model_name` by its
   `modular_model_index.json` with the overrides laid over it, `revision` the
   one `load_components` names for them (`null` for `main`), and `gb` only
   their files not cached. Nothing left to fetch gives no entry; an index that
   can't be read (offline, uncached) lists `model_name` whole instead. Its
-  adapter file is then a file entry of its own. Acknowledgements still
-  compare by `repo`. `restore_faces`
-  also lists facexlib's weights as URL entries (`detection_Resnet50_Final.pth`,
-  and `parsing_parsenet.pth` unless `use_parse` is false) while they are
-  missing from facexlib's weights directory; they download outside the
-  Hugging Face cache. And
-  `estimate`, `{minutes, basis,
-  device, measured_on, partial, runs}` from this box's own history when it
-  has one and otherwise from the workflow's `cost` block -
-  `basis` is `observed` (the cold median of this server's own finished runs
-  of this shape, with `runs` saying how many; preferred over a curated
-  figure, and quoted only for the bucket the caller's arguments fall in),
-  `catalog` (the stored total, for a run whose lists are the
-  ones it was measured with), `per_entry` (re-priced from a measured
-  per-entry rate, when the entry carries `per_entry`), `derived` (the
-  stored total extrapolated linearly over a list whose length the caller
-  changed, or scaled in proportion along `num_inference_steps`,
-  `width` x `height` and `num_frames` - per entry in a list, summed - that
-  the caller moved off the variable defaults a `cost` entry is measured at,
-  with `scaled` naming each moved axis; an estimate, not a measurement; a
-  non-numeric value of one of those is `unknown`). A driver a `cost` entry
-  names in `scales_with` scales the same way: Music 3's `audio_duration`,
-  or that field summed over `music-long`'s sections. The ceiling is what is
-  quoted, so a track that ends early costs less. Any other declared
-  driver moved off its default - H3's `weights_dtype` or LoRA - has no rule
-  to scale by: the (scaled) figure is kept
-  under whatever basis it has, with `low_confidence` true and `differs`
-  naming the drivers that moved, because it was measured at another setting
-  of them; `other_device` (no entry for
-  the serving backend; the first entry's figure, which is a warning rather
-  than a quote) or `unknown` (no cost block - a workflow of task steps alone says so in
-  `unpriced_reason`, since it has no pipeline to inherit from - or more than one list changed
-  so there is nothing honest to extrapolate along) or `inherited` (an
-  inline workflow has no catalog name, so its price is this server's
-  `observed` runs of the catalog template that loads the same pipeline -
-  `component_type` + `model_name` + `workflow`, as the VRAM ceiling is
-  inherited - with `inherited_from` naming it and `differs` listing what the
+  adapter file is then a file entry of its own.
+- **URL** - `{repo: null, url, gb: null, gated: null, access_blocked: null}`,
+  each `from_single_file` URL (a direct file URL is never gated).
+  `restore_faces` also lists facexlib's weights this way
+  (`detection_Resnet50_Final.pth`, and `parsing_parsenet.pth` unless
+  `use_parse` is false) while they are missing from facexlib's weights
+  directory; they download outside the Hugging Face cache.
+
+The fields, on every shape that has them:
+
+- `gb` - the size from the hub; `null` when it could not be asked.
+  `?sizes=false` skips the hub, and then `gated` and `access_blocked` are
+  `null` too.
+- `gated` - the hub's own field for the repo (`false`, `"auto"` or
+  `"manual"`), or `null` when the lookup itself failed for a reason other
+  than the gate.
+- `access_blocked` - `true` when this box's Hugging Face token has not been
+  granted access to a gated repo, `false` when the repo isn't gated or the
+  token is accepted, `null` when it could not be determined - "unknown" is
+  not "not blocked". A gated repo's own metadata is served by the hub
+  regardless of this token's access, so `model_info` succeeding proves
+  nothing about the gate: a gated entry gets a second, real check - a HEAD
+  request against one of the repo's own files - and it is *that* request's
+  `GatedRepoError` that sets `true` (the pre-flight signal for what would
+  otherwise be a 403 partway into a run). It is `null` when there is no file
+  to probe or the probe fails for an unrelated reason (e.g. offline).
+  `validate_workflow`'s `warnings` carries one line per entry with
+  `access_blocked: true`.
+- `not_found` - `true` when the hub answers that the repo does not exist (a
+  misspelled `model_name`, or a private repo this token cannot see);
+  validation then fails with an error at `model_name`. An unanswered lookup
+  leaves the key out.
+
+**Estimate.** `estimate` is the run's minutes from this box's own history when
+it has one, otherwise from the workflow's `cost` block. Quote `minutes`;
+`basis` says what it rests on, and the flags say how far to trust it.
+
+| Field | Meaning |
+|---|---|
+| `minutes` | The quote; `null` when there is no figure |
+| `basis` | Where the figure came from (*Bases* below) |
+| `device` | The serving backend (`cuda`, `mps`, `cpu`) the figure is asked for |
+| `measured_on` | The hardware name the figure was measured on - the `cost` entry's `name`, or this box's card for its own history; `null` when there is none, or the composed children it sums disagree |
+| `priced_for` | The card the run would be dispatched to, whose history the figure is ([Dispatch](#dispatch)) |
+| `runs` | How many cold runs an `observed` or `inherited` figure is read from (for `inherited`, the template's); `null` for a curated figure |
+| `partial` | `true` when part of the run added nothing to `minutes`: a composed child with no `cost` block or history, or the workflow's own steps unpriced while a child is priced. The figure then understates the run |
+| `unpriced` | What contributed nothing: the workflow's own id when its own steps went unpriced, else each composed child's path. With `minutes` `null` it still names the composed children that left it unpriced (`partial` is then `false`). `[]` when nothing did |
+| `cached_minutes` | The share of `minutes` the caller would actually wait for once the cached steps are subtracted: `minutes` × (`steps` − `cached_steps`) / `steps`. Equal to `minutes` when nothing is cached, `0.0` when everything is, `null` when either figure is `null` |
+| `tempered` | `true` when a thin `observed` history was blended toward a curated figure (*Thin history* below); absent otherwise |
+| `observed_minutes` | With `tempered`: the raw observed figure before the blend - the same number `list_workflows` reports as `observed_minutes` |
+| `curated_minutes` | With `tempered`: the figure it blended toward |
+| `low_confidence` | `true` when the figure is an approximation: scaled from another setting, measured at another setting of a driver nothing scales (`differs`), inherited from a template with differences, or thin history with nothing to blend toward. Validate warns when an `inherited` figure is, and never refuses; tell the user the figure is rough |
+| `scaled` | What the figure was re-priced along, in words: steps, canvas, frames or a `scales_with` driver moved off the defaults it was measured at; a checked chain's worst case; for `inherited`, more pipeline steps or frames than the template's run |
+| `per_segment` | `true` when an `observed` figure is a matched chain's, read per segment from this box's history |
+| `differs` | The drivers that moved with no rule to scale by, with `low_confidence` true; for `inherited`, what the workflow sets differently from the template (`[]` when nothing) |
+| `inherited_from` | With `inherited`, or a `withheld` figure: the catalog template whose runs priced it |
+| `withheld` | With basis `unknown`, `minutes` `null` and `inherited_from` set: why that template's runs could not be re-priced for this workflow (its size cannot be compared to the template's). Validate warns `cost estimate withheld: …`; the run has history, but no honest figure |
+| `unpriced_reason` | With basis `unknown`: why there is no price - a workflow of task steps alone, when there is no `withheld` (no pipeline to inherit from, and its length follows its input media), or a step under the experimental `experimental_hybrid_windows`, whose minutes and every `*_minutes` are `null` because nothing measures its time |
+
+**Bases.** `basis` is one of:
+
+- `observed` - the cold median of this server's own finished runs of this
+  shape, with `runs` saying how many. Preferred over a curated figure, and
+  quoted only for the bucket the caller's arguments fall in. A composed child
+  is not added to it: an observed run already measured the whole run,
+  children included, so `partial` is `false`.
+- `catalog` - the stored total, for a run whose lists are the ones it was
+  measured with.
+- `per_entry` - re-priced from a measured per-entry rate, when the entry
+  carries `per_entry`.
+- `derived` - an estimate, not a measurement: the stored total extrapolated
+  linearly over a list whose length the caller changed, or scaled in
+  proportion along `num_inference_steps`, `width` x `height` and
+  `num_frames` (per entry in a list, summed) that the caller moved off the
+  variable defaults a `cost` entry is measured at, with `scaled` naming each
+  moved axis. A non-numeric value of one of those is `unknown`. A driver a
+  `cost` entry names in `scales_with` scales the same way: Music 3's
+  `audio_duration`, or that field summed over `music-long`'s sections. The
+  ceiling is what is quoted, so a track that ends early costs less.
+- `other_device` - no entry for the serving backend; the first entry's
+  figure, which is a warning rather than a quote.
+- `inherited` - an inline workflow has no catalog name, so its price is this
+  server's `observed` runs of the catalog template that loads the same
+  pipeline (`component_type` + `model_name` + `workflow`, as the VRAM
+  ceiling is inherited), named in `inherited_from`. `differs` lists what the
   workflow sets differently among offload, quantization, frame count,
-  attention backend, cache and LoRA; more pipeline steps, frames, inference
+  attention backend, cache, LoRA and reference count; more pipeline steps, frames, inference
   steps or canvas pixels than the template's run re-price it in proportion,
-  as the catalog figure is scaled, with `scaled` naming each axis; an
-  inherited figure has `low_confidence` true when `differs` lists anything
-  or the figure was scaled; validate warns when it does, and never
-  refuses); a composed child's
-  cost is added to a curated figure and `partial` is true when a child has
-  none - an `observed` figure already measured the whole run, children
-  included, so nothing is added to it and `partial` is false; and
-  `host_memory`, `{projected_mb, basis, runs}`, the run's projected host-RAM
-  peak - `basis` is `observed` (the largest committed job peak of this
-  machine's successful runs with the same memory key, or the largest job peak
-  RSS where none measured it), `fit` (the list-run projection from the
-  workflow's own history, on the same basis), `declared` (the workflow's
-  `host_ram_gb`, when it is larger than either or there is neither; `runs` is
-  0) or `inherited` (no run of its own memory key, no fit and no
-  declaration: the largest peak among this machine's successful runs of the
-  catalog templates that load the same single pipeline identity, each at its
-  default arguments; `runs` counts the runs of the template that gave it), and the key is absent when
-  there is no figure. `plan` is `null` when
-  it could not be built; an invalid answer carries no `plan` key.
+  as the catalog figure is scaled, with `scaled` naming each axis.
+  `low_confidence` is true when `differs` lists anything or the figure was
+  scaled.
+- `unknown` - no figure: no cost block, more than one list changed so there
+  is nothing honest to extrapolate along, or a `withheld` /
+  `unpriced_reason` case above.
+
+**How the figure is adjusted.**
+
+- *Undeclared drivers.* Any other declared driver moved off its default -
+  H3's `weights_dtype` or LoRA - has no rule to scale by: the (scaled) figure
+  is kept under whatever basis it has, with `low_confidence` true and
+  `differs` naming the drivers that moved, because it was measured at
+  another setting of them.
+- *History not used.* This box's history is passed over for the curated
+  figure when it was another backend's, when every comparable run was warm
+  (the weights already resident, which would under-quote the load), or when
+  a list entry's own cost field moved past what the history covered (a shot
+  lengthened), since history buckets on the list's length.
+- *A tier this box never ran.* A run whose drivers have no history of their
+  own (a preset tier, say) is priced from the same run's history at the
+  default preset, scaled by how far the drivers moved: `derived`,
+  `low_confidence`, with `scaled`.
+- *Checked chains.* A chain that may re-roll or words-check is quoted at its
+  worst case: this box's history is re-priced for the re-rolls and Whisper
+  passes it may pay (`derived`, `scaled` saying so), and the quote is never
+  below the same chain unchecked plus what checking adds (`scaled` says when
+  that floor was taken).
+- *Composed children.* A composed child's cost is added to a curated figure,
+  and `partial` is true when a child has none. A parent with no cost of its
+  own takes its priced children's basis; when every child's share was this
+  box's own history, the total is `observed`.
+
+**Thin history.** Below 3 cold runs an `observed` figure is not quoted at
+full authority. It is blended toward the curated figure scaled to the run
+(or toward this box's default-tier history scaled to it, when a preset tier's
+own bucket is the thin one): one run counts for a third of the blend, two for
+two thirds, three or more not at all. The blend is marked `tempered: true`
+and keeps `basis: observed`, with `observed_minutes` and `curated_minutes`
+beside it so `minutes` can be reconciled against either. With nothing to
+blend toward, `minutes` is left alone and `low_confidence` is set instead.
+
+**Host memory.** `host_memory` is the run's projected host-RAM peak,
+`{projected_mb, basis, runs}`. `basis` is:
+
+- `observed` - the largest committed job peak of this machine's successful
+  runs with the same memory key, or the largest job peak RSS where none
+  measured it.
+- `fit` - the list-run projection from the workflow's own history, on the
+  same basis.
+- `declared` - the workflow's `host_ram_gb`, when it is larger than either or
+  there is neither; `runs` is 0.
+- `inherited` - no run of its own memory key, no fit and no declaration: the
+  largest peak among this machine's successful runs of the catalog templates
+  that load the same single pipeline identity, each at its default
+  arguments; `runs` counts the runs of the template that gave it.
 
 ## Files and models
 
@@ -1087,49 +1170,70 @@ The editor's forms come from these; they are just as usable from scripts:
 - `GET /api/workspaces/{name}/requests[/{id}]`, `PUT
   /api/workspaces/{name}/requests/{id}`, `DELETE
   /api/workspaces/{name}/requests/{id}?revision=N` — the requests ledger
-  ([WORKSPACES.md](WORKSPACES.md#requests) has the rules). `PUT` takes one
-  request's whole plan: `title`, `goal`, `items`, `revision` (the one read,
-  0 to create) and `why`, and optionally `prompt` (create only), `state`
-  (`open`, `done`, `abandoned` - a user's write closes and reopens),
-  `purge` (keys of left-out items to remove for good) and `by`
-  (`user`, the default, or `agent`). A `notes` field, on the request or an
-  item, is ignored on write: notes have their own routes (below), and a
-  whole-plan write keeps the stored ones. `DELETE` removes the ledger entry at
-  that revision and answers `{id, workspace, deleted, revision,
-  linked_jobs}`; the linked jobs keep their rows, link and files. Reads
-  derive from the jobs linked through `POST /api/jobs` `request`/`item`.
-  An item also takes `review_until` on write, an ISO time with an offset 60
-  seconds to 24 hours ahead (422 `invalid_review_until`, `review_too_soon`
-  or `review_too_far` otherwise), and reads back `review_set_at` and a
-  derived `review` (`{until, state, seconds_left}`, `state` one of
-  `holding`, `redirected`, `due`; only while the item is `planned` or `revised` on an
-  open request); the rules are under [WORKSPACES.md](WORKSPACES.md#requests).
-  `review_set_at` and `review` are ignored on write. The server never starts
-  a job at the deadline.
+  ([WORKSPACES.md](WORKSPACES.md#requests) has the rules). Reads derive from
+  the jobs linked through `POST /api/jobs` `request`/`item`.
 
-  Each item carries `status` (`dropped`, `done`, `running`, `queued`,
-  `failed`, `planned`, `revised`), `ready`, `attempts` (`[{job, status, note?,
-  minutes, output}]`, oldest first), `result` (`{job, run_id, output}` or
-  null), `accepted_missing` (only when true), `spent_minutes` and, on a revised item,
-  `revised_because` (`["arguments"]`, may include `workflow` or `prompt:<name>`
-  when a referenced prompt's text changed after the take), where
-  `output` is `{name, kind}` - the gallery name of the one file that stands
-  for the job, and `image`, `video`, `audio` or `text` - or null. The
-  request view and each list row carry `spent_minutes` and
-  `remaining_minutes`; a list row also carries `status_counts` (with a
-  `revised` key when any), `ready`
-  (items a job could be queued for now) and `cover` (up to three `output`s
-  of the latest results), and the list `unreadable` when the file is not a
-  ledger. An item's `accepted` on write takes `{"job": id}` or a bare job
-  id of a succeeded job linked to that request and item, stored as `{job,
-  run_id}`, or null to clear it. A refusal's `detail` is `{code, message}`:
-  400 `invalid_request`, 404 `unknown_request` (delete), 409
-  `stale_revision` (with `current_revision`), `ledger_full`,
-  `too_many_dropped_items`, `request_has_active_jobs` (with `jobs`),
-  `ledger_unreadable` and `no_workspace_root`, 413 `ledger_too_large`, 422
-  `prompt_is_write_once`, 503 `ledger_busy`. `GET
-  /api/gallery?request=<id>[&item=<key>]` lists only files of runs whose
-  jobs are linked to that request (or that item of it).
+  **Writing.** `PUT` takes one request's whole plan:
+
+  - `title`, `goal`, `items`, `revision` (the one read, 0 to create) and
+    `why`.
+  - Optionally `prompt` (create only), `state` (`open`, `done`, `abandoned` -
+    a user's write closes and reopens), `purge` (keys of left-out items to
+    remove for good) and `by` (`user`, the default, or `agent`).
+  - A `notes` field, on the request or an item, is ignored on write: notes
+    have their own routes (below), and a whole-plan write keeps the stored
+    ones.
+  - An item's `accepted` takes `{"job": id}` or a bare job id of a succeeded
+    job linked to that request and item, stored as `{job, run_id}`, or null
+    to clear it.
+  - An item's `review_until` is an ISO time with an offset 60 seconds to 24
+    hours ahead (422 `invalid_review_until`, `review_too_soon` or
+    `review_too_far` otherwise); the hold's rules are under
+    [WORKSPACES.md](WORKSPACES.md#requests). `review_set_at` and `review` are
+    ignored on write. The server never starts a job at the deadline.
+
+  **Deleting.** `DELETE` removes the ledger entry at that revision and
+  answers `{id, workspace, deleted, revision, linked_jobs}`; the linked jobs
+  keep their rows, link and files.
+
+  **Reading an item.** Each item carries:
+
+  - `status` - `dropped`, `done`, `running`, `queued`, `failed`, `planned`
+    or `revised`; on a revised item `revised_because` says what moved
+    (`["arguments"]`, may include `workflow` or `prompt:<name>` when a
+    referenced prompt's text changed after the take).
+  - `ready` - a job could be queued for it now.
+  - `attempts` - `[{job, status, note?, minutes, output}]`, oldest first.
+  - `result` - `{job, run_id, output}` or null.
+  - `accepted_missing` - only when true.
+  - `spent_minutes`.
+  - `review_set_at` and a derived `review` (`{until, state, seconds_left}`,
+    `state` one of `holding`, `redirected`, `due`) - `review` only while the
+    item is `planned` or `revised` on an open request.
+
+  Wherever it appears, `output` is `{name, kind}` - the gallery name of the
+  one file that stands for the job, and `image`, `video`, `audio` or
+  `text` - or null.
+
+  **Reading a request and the list.** The request view and each list row
+  carry `spent_minutes` and `remaining_minutes`. A list row also carries
+  `status_counts` (with a `revised` key when any), `ready` (items a job could
+  be queued for now) and `cover` (up to three `output`s of the latest
+  results); the list carries `unreadable` when the file is not a ledger.
+  `GET /api/gallery?request=<id>[&item=<key>]` lists only files of runs
+  whose jobs are linked to that request (or that item of it).
+
+  **Refusals.** A refusal's `detail` is `{code, message}`:
+
+  | Status | `code` |
+  |---|---|
+  | 400 | `invalid_request` |
+  | 404 | `unknown_request` (delete) |
+  | 409 | `stale_revision` (with `current_revision`), `ledger_full`, `too_many_dropped_items`, `request_has_active_jobs` (with `jobs`), `ledger_unreadable`, `no_workspace_root` |
+  | 413 | `ledger_too_large` |
+  | 422 | `prompt_is_write_once`, and the `review_until` codes above |
+  | 503 | `ledger_busy` |
+
 - `POST`, `PUT` and `DELETE /api/workspaces/{name}/request-notes` — the
   user's notes for the agent ([WORKSPACES.md](WORKSPACES.md#requests) has the
   rules). `POST` takes `{request, item?, text, refs?}` (no `item`: the
