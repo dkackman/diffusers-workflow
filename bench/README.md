@@ -35,6 +35,10 @@ They share no step cache either: an arms file goes to one server (`bench/driver.
 
 lem's firewall passes 8765 but not 8766 (a rule needs sudo: `sudo ufw allow 8766/tcp`, if ufw is the filter). Until then, tunnel: `ssh -f -N -L 18766:127.0.0.1:8766 lem`, then use `http://127.0.0.1:18766`.
 
+## Records
+
+A new `records/*.md` owes its row in a family's `plugins/dw/skills/<family>/references/intents.md` in the same change: the session that lands the record adds the row for the result its verdict settles. `tests/test_plugin_intents.py` fails on a record no row cites, naming the file, unless the test's `EXEMPT` list holds it with a one-line reason (a record for a family with no index, or the bench's own infrastructure).
+
 ## Measures
 
 `python bench/driver.py measure <record>` re-measures a record's succeeded runs; `report` prints them as a table. Each run's `measures`:

@@ -74,6 +74,8 @@ If none fits, compose from `list_tasks` before authoring a new workflow;
 read the `workflows` guide's authoring section first. Other
 LoRAs: `list_loras` first.
 
+Starting from a result rather than a template: `references/intents.md`.
+
 ## Hard rules
 
 - `num_frames` is `8k + 1` (121, 241, 481); `width` and `height` are multiples of 32,
