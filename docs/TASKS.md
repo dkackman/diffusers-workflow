@@ -2684,8 +2684,12 @@ mostly a single repeated frame on a 4-frame spacing, so a few are normal.
 
 When `held_frames` reaches the threshold there is one file-level `held_frames`
 finding, plus one per cluster whose `at` is the cluster's start in seconds and
-whose `range` is `[start, end]`. Remedy for now: reroll the take or re-plan
-the shot.
+whose `range` is `[start, end]`. Remedy: look at the cluster with
+`get_output_frames`; if the stutter shows, repair it with
+[`interpolate_frames`](#frame-interpolation) and `refill: "held"`, which
+replaces each held frame with an interpolated one at the same frame count and
+rate. Reroll the take or re-plan the shot instead when the holds sit against a
+cut or at the clip's end (refill leaves those) or the motion itself is wrong.
 
 ### analyze_face_drift
 
@@ -4167,10 +4171,36 @@ Raise a video's frame rate with RIFE, inserting frames between each pair. The re
 
 | Argument | Required | Description |
 | -------- | -------- | ----------- |
-| `video` | Yes | The frames - a frame list, a frame array, or an audio+video pair from a concat or dissolve step (its audio is dropped) - usually a `previous_result:` reference |
+| `video` | Yes | The frames - a frame list, a frame array, or an audio+video pair from a concat or dissolve step (its audio is dropped, except under `refill`) - usually a `previous_result:` reference |
 | `multiplier` | No | Frame count multiplier: 2, 4, or 8 (default: 2) |
+| `refill` | No | `"held"`: repair held frames instead of raising the rate. Can't be set with `multiplier` |
 | `model_name` | No | HuggingFace repo with RIFE v4.13 weights (default: `imaginairy/rife-interpolation`) |
 | `filename` | No | Weights filename within the repo (default: `rife-flownet-4.13.2.safetensors`) |
+
+### Refilling held frames
+
+`refill: "held"` finds the frames [`analyze_held_frames`](#analyze_held_frames)
+counts - a frame repeating its predecessor in moving footage - and replaces
+each run of them with RIFE frames between the moving frames either side: one
+held frame becomes the midpoint, a run of k becomes k evenly spaced frames.
+Every other frame passes through untouched, and the frame count, fps, shots
+and soundtrack are the source's, so no `pair_audio` is needed (a file `video`
+- `asset:`, `output:` - is read with its soundtrack). A run with no moving
+frame after it before a cut or the clip's end is left as it is.
+
+```json
+{
+    "task": {
+        "command": "interpolate_frames",
+        "arguments": { "video": "output:take.mp4", "refill": "held" }
+    },
+    "result": { "content_type": "video/mp4" }
+}
+```
+
+The step's `log` event in `get_job_events` carries `held_before`,
+`held_after`, `refilled_frames`, `refilled_runs` and `left_held_frames`.
+Re-run `assess_output(probe="analyze_held_frames")` on the result to confirm.
 
 The IFNet v4.13 architecture is vendored; the weights download on first use. A validate's `downloads_required` lists the `model_name` / `filename` file when it is not cached.
 

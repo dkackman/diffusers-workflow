@@ -157,6 +157,17 @@ def realize_args(arg, base_dir=None, apply_key_conventions=True):
                 and arg.get("command") in _LAZY_FRAME_COMMANDS
             ):
                 _realize_lazy_frame_arguments(v, base_dir)
+            # A refill keeps the take's frame count, so its soundtrack stays
+            # in sync and comes through: a file 'video' loads with its audio
+            # (#1527), where the ordinary load reads frames alone
+            elif (
+                apply_key_conventions
+                and k == "arguments"
+                and isinstance(v, dict)
+                and arg.get("command") in _SOUNDTRACK_VIDEO_COMMANDS
+                and v.get("refill") is not None
+            ):
+                _realize_soundtrack_video_arguments(v, base_dir)
             # Handle video loading for keys ending in '_video' or exactly 'video'
             elif apply_key_conventions and (k.endswith("_video") or k == "video"):
                 logger.debug(f"Loading video for key: {k}")
@@ -1012,6 +1023,30 @@ _LAZY_FRAME_COMMANDS = frozenset(
         "replace_cuts",
     }
 )
+
+
+# The commands whose 'video' loads with its soundtrack when they keep the
+# frame count: interpolate_frames' refill (#1527) - see
+# _realize_soundtrack_video_arguments
+_SOUNDTRACK_VIDEO_COMMANDS = frozenset({"interpolate_frames"})
+
+
+def _realize_soundtrack_video_arguments(arguments, base_dir):
+    """Realize a step's arguments with a file-based 'video' read as an
+    AudioVideo, soundtrack and all (load_audio_video), rather than the
+    frames-only load. A deferred reference stays deferred - an earlier
+    step's AudioVideo carries its own audio - and everything but 'video' is
+    realized the ordinary way."""
+    if "video" in arguments:
+        arguments["video"] = fetch_video_with_context(
+            arguments["video"], base_dir, "video", with_audio=True
+        )
+    for k, v in list(arguments.items()):
+        if k == "video":
+            continue
+        single = {k: v}
+        realize_args(single, base_dir)
+        arguments[k] = single[k]
 
 
 def _realize_lazy_frame_arguments(arguments, base_dir):

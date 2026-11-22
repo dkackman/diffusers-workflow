@@ -25,5 +25,10 @@ Run `find_loop_bed` on the `output:` cut, then
 Run `assess_output(name, probe="analyze_held_frames")` on every take. H3 shows
 single repeated frames on a 4-frame spacing, so a few holds are normal. 13 or
 more `held_frames`, or a cluster, means the take visibly stutters there: look
-at the cluster's time with `get_output_frames`, and if it shows, reroll the
-take or re-plan the shot (for example, less fast motion).
+at the cluster's time with `get_output_frames`, and if it shows, repair it:
+`interpolate_frames` with `{"video": "output:<take>", "refill": "held"}`
+replaces the held frames with interpolated ones, keeping the length, fps and
+soundtrack. Its `log` event gives `held_before` and `held_after`; re-assess
+the result. Reroll the take or re-plan the shot (for example, less fast
+motion) instead when the holds sit against a cut or at the clip's end, which
+refill leaves held, or when the motion itself is wrong, not just stuttering.

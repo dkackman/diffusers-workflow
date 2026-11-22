@@ -81,6 +81,8 @@ EXPECTED_SITES = {
     ("dw/tasks/image_ops.py", "per_frame"): ("carries", 1),
     ("dw/tasks/stabilize.py", "stabilize_video"): ("carries", 1),
     ("dw/tasks/interpolate_frames.py", "interpolate_frames"): ("rescales", 1),
+    # refill replaces held frames one for one, so the frame count and shots hold
+    ("dw/tasks/interpolate_frames.py", "refill_held"): ("carries", 1),
     ("dw/tasks/pair_audio.py", "pair_audio"): ("remeasures", 1),
     ("dw/tasks/video_utils.py", "_decode_audio_video"): ("none", 1),
     ("dw/tasks/video_utils.py", "stills_to_video"): ("populates", 1),
