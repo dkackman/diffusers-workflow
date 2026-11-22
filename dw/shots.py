@@ -55,7 +55,8 @@ A shot is a dict:
   carries only what it measured; check off, or a resumed shot, has no key (#1474)
 
 Every other `AudioVideo` constructor either carries the list (same frames),
-rescales it (`interpolate_frames`), re-measures the sample side for a new
+rescales it (`interpolate_frames`; its `refill: "held"` carries it, the
+frame count unchanged), re-measures the sample side for a new
 track (`pair_audio`, and `join_windows`, which builds its frame side from the
 windows and puts the source's track back whole, #601), or builds a video with
 no shots at all (a decode, a face-track crop, or `window_video`'s one window

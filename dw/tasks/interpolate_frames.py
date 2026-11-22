@@ -16,7 +16,7 @@ import logging
 import torch
 
 from ..media_types import AudioVideo
-from ..shots import rescaled_shots
+from ..shots import carried_shots, rescaled_shots
 from .tensor_image import pil_to_float_tensor as _pil_to_tensor, float_tensor_to_pil
 from .video_utils import frames_as_pil_list
 from .weights import argument_or_default, file_entries
@@ -179,7 +179,7 @@ def refill_held(video, load_model):
     from .assess import frames_media, held_measure
 
     source_fps = getattr(video, "fps", None)
-    source_shots = getattr(video, "shots", None)
+    source_shots = carried_shots(video)
     audio = getattr(video, "audio", None)
     sample_rate = getattr(video, "sample_rate", None)
     frames = frames_as_pil_list(video)
@@ -280,7 +280,9 @@ def _make_flow_context(ph, pw, device, timestep=0.5):
         ],
         1,
     )
-    timestep = torch.full((1, 1, ph, pw), float(timestep), dtype=torch.float32, device=device)
+    timestep = torch.full(
+        (1, 1, ph, pw), float(timestep), dtype=torch.float32, device=device
+    )
     return tenFlow_div, backwarp_tenGrid, timestep
 
 

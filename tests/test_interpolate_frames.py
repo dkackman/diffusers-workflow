@@ -201,3 +201,266 @@ class TestBuildInferenceEfficiency:
         # would be 2 conversions per pair == 6 calls. With it, each of the
         # 4 distinct frame objects is converted exactly once.
         assert spy.call_count == len(frames)
+
+
+# --- refill: "held" (#1527 stage C, #1553) ---------------------------------
+
+
+def _pattern(phase, shot=0, width=128, height=72):
+    """A frame of a sliding sinusoid: consecutive phases differ by a few grey
+    levels (moving, no cut); shot 1 recolours it, a hard cut from shot 0."""
+    x = np.arange(width)[None, :, None]
+    y = np.arange(height)[:, None, None]
+    base = 127 + 100 * np.sin((x + phase) / 9.0 + y / 23.0)
+    if shot == 0:
+        rgb = np.concatenate([base, base * 0.8, 255 - base], axis=2)
+    else:
+        rgb = np.concatenate([255 - base, 60 + 0 * base, base * 0.5], axis=2)
+    return Image.fromarray(np.clip(rgb, 0, 255).astype(np.uint8))
+
+
+def _moving(count, shot=0):
+    return [_pattern(3 * i, shot) for i in range(count)]
+
+
+def _take(extra=0):
+    """Two shots (a cut at 12) with a single hold at 5 and a frame shown four
+    times at 15..18 - the measure flags 16 and 18, not the middle 17."""
+    frames = _moving(12) + _moving(12 + extra, shot=1)
+    frames[5] = frames[4]
+    frames[16] = frames[17] = frames[18] = frames[15]
+    return frames
+
+
+class _Recorder:
+    """A stand-in interpolator recording its (a, b, t) calls, answering a
+    new frame that is the blend of a and b at t."""
+
+    def __init__(self):
+        self.calls = []
+        self.loads = 0
+
+    def load(self, *args, **kwargs):
+        self.loads += 1
+        return self
+
+    def __call__(self, a, b, t=0.5):
+        self.calls.append((a, b, t))
+        return Image.blend(a, b, t)
+
+
+def _refill(video, recorder):
+    from dw.tasks.interpolate_frames import interpolate_frames
+
+    with patch(
+        "dw.tasks.interpolate_frames._load_rife_model", side_effect=recorder.load
+    ):
+        return interpolate_frames(video, refill="held")
+
+
+def _same(a, b):
+    return np.array_equal(np.asarray(a), np.asarray(b))
+
+
+class TestHeldRuns:
+    def test_a_frame_shown_four_times_is_one_run_of_three(self):
+        from dw.tasks.assess import frames_media, held_measure
+        from dw.tasks.interpolate_frames import held_runs
+
+        frames = _take()
+        d, held, cuts = held_measure(frames_media(frames))
+        assert held == [5, 16, 18] and cuts == [12]
+        refill, left = held_runs(d, held, cuts, len(frames))
+        assert refill == [(5, 5), (16, 18)]
+        assert left == []
+
+
+class TestRefillHeld:
+    @pytest.mark.parametrize("extra", [0, 1])
+    def test_frame_count_is_the_sources_for_even_and_odd_lengths(self, extra):
+        frames = _take(extra)
+        assert len(frames) % 2 == extra
+        result = _refill(frames, _Recorder())
+        assert len(result.frames) == len(frames)
+
+    def test_single_hold_at_half_and_a_three_frame_run_at_quarters(self):
+        frames = _take()
+        recorder = _Recorder()
+        _refill(frames, recorder)
+        assert recorder.loads == 1
+        got = [(id(a), id(b), t) for a, b, t in recorder.calls]
+        assert got == [
+            (id(frames[4]), id(frames[6]), 0.5),
+            (id(frames[15]), id(frames[19]), 0.25),
+            (id(frames[15]), id(frames[19]), 0.5),
+            (id(frames[15]), id(frames[19]), 0.75),
+        ]
+
+    def test_every_frame_but_the_runs_passes_through_byte_equal(self):
+        frames = _take()
+        source = [np.asarray(f).copy() for f in frames]
+        result = _refill(frames, _Recorder())
+        refilled = {5, 16, 17, 18}
+        for i, frame in enumerate(result.frames):
+            if i in refilled:
+                assert not _same(frame, source[i])
+            else:
+                # The cut frame and its neighbours included
+                assert _same(frame, source[i]), i
+        assert result.held_before == 3
+        assert result.held_after == 0
+
+    def test_a_run_whose_next_moving_frame_is_across_a_cut_stays_held(self):
+        frames = _moving(12) + _moving(12, shot=1)
+        frames[10] = frames[11] = frames[9]
+        recorder = _Recorder()
+        result = _refill(frames, recorder)
+        assert recorder.calls == []
+        assert all(_same(r, f) for r, f in zip(result.frames, frames))
+        assert result.held_before == result.held_after == 1
+
+    def test_a_run_at_the_clips_end_stays_held_and_counts(self):
+        frames = _moving(12)
+        frames[5] = frames[4]
+        frames[11] = frames[10]
+        recorder = _Recorder()
+        result = _refill(frames, recorder)
+        assert [t for _, _, t in recorder.calls] == [0.5]
+        assert _same(result.frames[11], frames[10])
+        assert result.held_before == 2
+        assert result.held_after == 1
+
+    def test_no_holds_comes_back_unchanged_without_loading_rife(self):
+        frames = _moving(10)
+        recorder = _Recorder()
+        result = _refill(frames, recorder)
+        assert recorder.loads == 0
+        assert all(r is f for r, f in zip(result.frames, frames))
+        assert result.held_before == result.held_after == 0
+
+    def test_audio_fps_and_shots_are_the_sources(self):
+        from dw.media_types import AudioVideo
+
+        audio = np.zeros((2, 48000), dtype=np.float32)
+        shots = [{"start_frame": 0, "num_frames": 12}]
+        video = AudioVideo(_take(), audio, 48000, fps=24, shots=shots)
+        result = _refill(video, _Recorder())
+        assert result.audio is audio
+        assert result.sample_rate == 48000
+        assert result.fps == 24
+        assert result.shots == shots
+
+    def test_held_counts_go_out_as_a_log_event(self):
+        with patch("dw.events.emit_log") as emit:
+            _refill(_take(), _Recorder())
+        data = emit.call_args.kwargs
+        assert data["command"] == "interpolate_frames"
+        assert data["held_before"] == 3 and data["held_after"] == 0
+        assert data["refilled_frames"] == 4 and data["refilled_runs"] == 2
+
+    def test_real_path_with_the_net_stubbed_at_the_load_seam(self):
+        """Through interpolate_frames, _load_rife_model and _build_inference,
+        with only the IFNet stood in for: the refilled frame is the net's
+        answer at the run's timestep."""
+        import dw.tasks.interpolate_frames as mod
+
+        class BlendNet:
+            def __call__(self, img0, img1, timestep, *rest):
+                t = timestep[:, 0:1]
+                mid = img0[:, :3] * (1 - t) + img1[:, :3] * t
+                return [], [], [mid, mid, mid, mid]
+
+        frames = _take()
+        with (
+            patch("dw.tasks.model_cache.cached_model", return_value=BlendNet()),
+            patch("huggingface_hub.hf_hub_download") as download,
+        ):
+            result = mod.interpolate_frames(frames, refill="held")
+        download.assert_not_called()
+        expected = Image.blend(frames[15], frames[19], 0.25)
+        diff = np.abs(
+            np.asarray(result.frames[16], dtype=int) - np.asarray(expected, dtype=int)
+        )
+        assert diff.max() <= 1
+        assert result.held_before > result.held_after
+
+
+class TestRefillArguments:
+    def test_refill_with_multiplier_is_refused_at_run_time(self):
+        from dw.tasks.interpolate_frames import interpolate_frames
+
+        with pytest.raises(ValueError, match="'refill' and 'multiplier'"):
+            interpolate_frames(_moving(4), refill="held", multiplier=2)
+
+    @staticmethod
+    def _errors(arguments):
+        from dw.task_domains import task_argument_errors
+
+        return task_argument_errors(
+            {
+                "id": "refill",
+                "steps": [
+                    {
+                        "name": "refill",
+                        "task": {
+                            "command": "interpolate_frames",
+                            "arguments": arguments,
+                        },
+                    }
+                ],
+            }
+        )
+
+    def test_refill_with_multiplier_is_refused_at_validate(self):
+        errors = self._errors(
+            {"video": "asset:take.mp4", "refill": "held", "multiplier": 2}
+        )
+        assert any(
+            "refill" in e["message"] and "multiplier" in e["message"] for e in errors
+        ), errors
+
+    def test_refill_alone_and_multiplier_alone_validate(self):
+        assert self._errors({"video": "asset:take.mp4", "refill": "held"}) == []
+        assert self._errors({"video": "asset:take.mp4", "multiplier": 4}) == []
+
+    def test_an_unknown_refill_mode_is_refused_at_validate(self):
+        errors = self._errors({"video": "asset:take.mp4", "refill": "all"})
+        assert any("refill" in e["message"] for e in errors), errors
+
+    def test_a_file_video_loads_with_its_soundtrack_for_a_refill(self):
+        from dw.arguments import realize_args
+
+        loaded = object()
+        task = {
+            "command": "interpolate_frames",
+            "arguments": {"video": "take.mp4", "refill": "held"},
+        }
+        with patch(
+            "dw.arguments.fetch_video_with_context", return_value=loaded
+        ) as fetch:
+            realize_args(task, "/tmp")
+        assert fetch.call_args.kwargs.get("with_audio") is True
+        assert task["arguments"]["video"] is loaded
+
+
+class TestTimestep:
+    def test_flow_context_timestep_defaults_to_the_midpoint(self):
+        from dw.tasks.interpolate_frames import _make_flow_context
+
+        _, _, plane = _make_flow_context(32, 32, "cpu")
+        assert torch.all(plane == 0.5)
+        _, _, plane = _make_flow_context(32, 32, "cpu", 0.25)
+        assert torch.all(plane == 0.25)
+
+    def test_multiplier_output_runs_the_net_at_half(self):
+        from dw.tasks.interpolate_frames import _build_inference, _interpolate_2x
+
+        seen = []
+
+        class Net(_FakeRifeNet):
+            def __call__(self, img0, img1, timestep, *rest):
+                seen.append(float(timestep.flatten()[0]))
+                return super().__call__(img0, img1, timestep, *rest)
+
+        _interpolate_2x(_make_test_frames(4), _build_inference(Net(), "cpu"))
+        assert seen == [0.5, 0.5, 0.5]

@@ -1241,7 +1241,7 @@ already made: each entry in `videos` is `output:` + the run's
 | `shot_dead_air` | `find_loop_bed` on the cut names a quiet stretch inside one shot and its gain; cut that bed with `slice_audio`, `loop_audio` it to the gap's length, and `mix_audio` it under the line rather than leaving the drop silent | recut |
 | `sync_drift` | regenerate the shot. Drift inside a shot is the model's, not the join's | regenerate |
 | `sync_length` | rerun the mux through `pair_audio` with `fit: "video"`, which cuts or pads the track to the picture | recut |
-| `held_frames` | look at each cluster's time with `get_output_frames`; if the stutter shows, reroll the take or re-plan the shot (less fast motion) | regenerate |
+| `held_frames` | look at each cluster's time with `get_output_frames`; if the stutter shows, run `interpolate_frames` with `refill: "held"` on the take, which interpolates over the held frames at the same length and keeps the soundtrack. Reroll or re-plan the shot (less fast motion) when the holds sit against a cut or the motion itself is wrong | recut, or regenerate |
 
 ## Result Configuration
 

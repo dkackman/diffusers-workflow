@@ -220,11 +220,14 @@ def _handle_remove_object(task, arguments, previous_pipelines):
 
 
 def _interpolate_exclusive_errors(arguments):
-    """`refill` with `multiplier`, refused at validate in the words the run
-    refuses it in"""
+    """A `refill` outside its modes, and `refill` with `multiplier`, refused
+    at validate in the words the run refuses them in"""
+    from ..task_domains import choice_errors
     from .interpolate_frames import exclusive_argument_errors
 
-    return exclusive_argument_errors(arguments)
+    return choice_errors("interpolate_frames", arguments) + exclusive_argument_errors(
+        arguments
+    )
 
 
 @register_command(
