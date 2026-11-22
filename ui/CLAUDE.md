@@ -10,3 +10,6 @@ Checks, from `ui/`: `npm run check`, `npm run lint`, `npm test`, and `npx playwr
 - Show the proof: a list of things that produce images shows the images. Keep views fresh: live state (a job in flight, a download, the server's status) keeps its own short `poll`; every other view of server data reloads quietly - keeping edits, focus and selection - from the change feed, `changes(workspace).watch(kinds, fn)`, never a timer of its own. Every timer pauses while the tab is hidden and fires once on return, except the app shell's status poll (`src/lib/statusPoll.ts`). Which view does which is the table in `src/lib/changes.svelte.ts`.
 - Every token pair should pass WCAG AA in both themes.
 - `--live` marks machine state and `--select` the user's place (focus, the open workspace, the active section), each nothing else; where they may appear is held by `scripts/design-rules.test.ts`.
+- A document editor is a `DocumentEditor` (`src/lib/editorShell.svelte.ts`); every input registers a flush or writes on `oninput`; saves go through `saveDocument` (`src/lib/documentSave.ts`); nothing else writes a workflow, prompt or upload.
+- A route change while dirty is the router's leave guard (`addLeaveGuard`, `src/lib/router.svelte.ts`), never a per-link handler.
+- A dialog is `chooseDialog`/`confirmDialog` (`src/lib/confirm.svelte.ts`); a destructive choice is `danger: true`.
