@@ -65,7 +65,7 @@ whose every forward does too. The upstream change that would replace it is a
 `ConfigSpec("max_duration", 15.0)` on the layout step, read as
 `components.config.max_duration` like `canvas_max_pixels`.
 
-Windowed generation (#1188 S1, EXPERIMENTAL). `experimental_hybrid_windows`
+Windowed generation (#1188, EXPERIMENTAL). `experimental_hybrid_windows`
 - `{frames, overlap, blend, positions, switch_step, handoff}`, the first four
 as `refine_windows`'s - generates a t2va take from noise as the same fused
 windows, on every step, with a held `hold_audio` track as its only audio. It
@@ -77,9 +77,23 @@ device for its forward only, its velocity comes back and is fused on the
 host, and `DwH3HostLoopSchedulerStep` - the stock update, which moves its
 sigmas to the sample's device - steps the whole take there, then puts it back
 on the device after the last step for the release and the streamed decode.
-This stage is the blended arm only (`switch_step: 0`): the ordered windows
-that `switch_step` and `handoff` select come next, and a run asking for them
-says so in a warning and runs every step blended.
+
+It runs in two phases, split at `switch_step` k (default 3; at most the run's
+S = num_inference_steps - 1 denoise steps, refused at validate past that).
+The ordered phase (`_ordered`, all of it at step 0, before the first fused
+forward): window 1 runs every one of the S steps alone and is kept finished;
+each later window runs steps 1..k alone with its overlap pinned to the window
+before it - that window's finished frames (`handoff: "finished"`, the
+default; the window before runs to the last step for it) or its x0 at step k
+(`"x0"`, x + sigma * v) - the pinned rows read at the clean timestep and never
+stepped. Every row keeps the first window's value (keep-first): a window
+writes back only the rows no earlier window covered, at their step-k state.
+The blended phase is steps k+1..S: the fused windows above, with window 1's
+rows held finished (`dw_hybrid_held`) - read at the clean timestep, left out
+of the fusion and restored after each update - so a window wholly inside it
+is not run. Steps 1..k of the outer loop only advance the schedulers. k = 0
+is no ordered phase, every step blended; k = S is plain sequential windows,
+each finished in order with its overlap pinned to its predecessor's frames.
 
 The decode of a long take. The stock video decode keeps every decoded clip
 on the device and converts the whole take to float32, about 36 GB at 120 s
@@ -140,7 +154,6 @@ from .h3_rules import (
     hybrid_windows_enabled,
     lifts_duration_ceiling,
 )
-from ..events import emit_warning
 
 logger = logging.getLogger("dw")
 
@@ -177,8 +190,7 @@ CONFLICTS = (
     LATENT_ANCHOR_INPUT,
 )
 # The windowed generation's own keys (#1188), past the window's four: the step
-# the ordered windows hand over to blended ones at, and what they hand over.
-# S1 runs the blended arm only (switch_step 0); the defaults are S2's
+# the ordered windows hand over to blended ones at, and what they hand over
 _HYBRID_KEYS = _KEYS + ("switch_step", "handoff")
 HYBRID_DEFAULTS = {**WINDOW_DEFAULTS, "switch_step": 3, "handoff": "finished"}
 HANDOFFS = ("finished", "x0")
@@ -194,6 +206,11 @@ HYBRID_REFINE_INPUTS = (
 )
 # The loop's note of the device the take came from, set while it is on the host
 HYBRID_DEVICE = "dw_hybrid_device"
+# The ordered phase's notes for the loop (#1188 S2): the step the blended
+# finish starts at, and the rows the first window left finished, which the
+# blended finish holds where they are
+HYBRID_SWITCH = "dw_hybrid_switch"
+HYBRID_HELD = "dw_hybrid_held"
 # H3's clip grid: a 17-frame clip encodes to 5 latents, the first of them one
 # frame. A rebased window's first latent sits at the take's origin, the slot
 # of a one-frame latent, so it must be one - a start on this grid
@@ -462,9 +479,11 @@ def hybrid_settings(settings):
     return {**HYBRID_DEFAULTS, **settings}
 
 
-def _hybrid_key_problems(settings):
-    """`switch_step` and `handoff`'s shape. Their range against the step
-    count, and what they do, are S2's."""
+def _hybrid_key_problems(settings, arguments=None):
+    """`switch_step` and `handoff`'s rules. `switch_step` is at most the
+    run's denoise steps - H3 runs `num_inference_steps - 1` - when the call
+    names a whole `num_inference_steps`; the run checks it again against the
+    steps it has."""
     name = HYBRID_WINDOWS_INPUT
     resolved = hybrid_settings(settings)
     problems = []
@@ -475,6 +494,18 @@ def _hybrid_key_problems(settings):
         problems.append(
             f"{name} switch_step is a whole number of steps, 0 or more, got {switch!r}"
         )
+    else:
+        steps = (arguments or {}).get("num_inference_steps")
+        if (
+            not _unresolved(switch)
+            and isinstance(steps, int)
+            and not isinstance(steps, bool)
+            and switch > steps - 1
+        ):
+            problems.append(
+                f"{name} switch_step is at most the run's denoise steps - "
+                f"num_inference_steps {steps} runs {max(steps - 1, 0)} - got {switch}"
+            )
     handoff = resolved["handoff"]
     if not _unresolved(handoff) and handoff not in HANDOFFS:
         problems.append(f"{name} handoff is one of {', '.join(HANDOFFS)}")
@@ -499,7 +530,7 @@ def hybrid_problems(arguments, has_cache=False):
         ]
     problems = _settings_problems(
         settings, arguments, name, _HYBRID_KEYS
-    ) + _hybrid_key_problems(settings)
+    ) + _hybrid_key_problems(settings, arguments)
     if not hybrid_windows_enabled():
         problems.append(
             f"{name} is experimental: it runs only on a server started with "
@@ -777,6 +808,23 @@ def window_inputs(fields, plan_entry, window_rows_, rebase_from=None):
     }, (unique_timesteps, timestep_indices[sequence])
 
 
+def clean_timesteps(plan_entry, positions):
+    """A window's `(unique_timesteps, timestep_indices)` with the sequence
+    rows `positions` at the clean timestep, t = 1 - a row the forward reads as
+    finished, the way it reads a held audio row. The clean value is reused when
+    the step already has it (a held track always does), else appended."""
+    unique, indices = plan_entry
+    clean = (unique == 1.0).nonzero()
+    if clean.numel():
+        index = clean[0, 0]
+    else:
+        unique = torch.cat([unique, unique.new_ones(1)])
+        index = unique.numel() - 1
+    indices = indices.clone()
+    indices[positions] = index
+    return unique, indices
+
+
 # 4. The late capstone's gate (#1187, #1199 Task 14 Step 4): EXPERIMENTAL.
 # A guide row marked `enter_below_sigma` is held out of the forward while the
 # step's sigma is at or above its gate - the sequence is the rest, as a window
@@ -917,8 +965,12 @@ class DwH3WindowedLoopDenoiser(MiniMaxH3LoopDenoiser):
 
     def _hybrid(self, components, block_state, i, settings):
         """The windowed generation (#1188): the take's state in host RAM,
-        one window's rows on the device per forward, the fused velocity on
-        the host for `DwH3HostLoopSchedulerStep` to step."""
+        one window's rows on the device per forward. With `switch_step` k > 0
+        step 0 runs the ordered phase (`_ordered`) - every window's steps
+        1..k, the first window's to the end - and steps 1..k-1 have nothing
+        left to run. Steps k+1 onward are the blended finish: the fused
+        velocity on the host for `DwH3HostLoopSchedulerStep` to step, with the
+        first window's finished rows held."""
         name = HYBRID_WINDOWS_INPUT
         if not hybrid_windows_enabled():
             # validate and the run's check refuse it first; this is the floor
@@ -927,16 +979,149 @@ class DwH3WindowedLoopDenoiser(MiniMaxH3LoopDenoiser):
                 f"with {HYBRID_WINDOWS_ENV_VAR}=1"
             )
         settings = hybrid_settings(settings)
+        switch = settings["switch_step"]
         if i == 0:
-            if settings["switch_step"] != 0:
-                emit_warning(
-                    f"{name}: switch_step {settings['switch_step']} asks for "
-                    f"ordered windows, which this build does not run yet - every "
-                    f"step runs as blended windows (switch_step 0)",
-                    switch_step=settings["switch_step"],
+            steps = len(block_state.timesteps)
+            if switch > steps:
+                raise ValueError(
+                    f"{name} switch_step is at most the run's {steps} denoise "
+                    f"steps, got {switch}"
                 )
             self._to_host(block_state)
-        return self._windowed(components, block_state, i, settings, name, host=True)
+            setattr(block_state, HYBRID_SWITCH, switch)
+            setattr(block_state, HYBRID_HELD, None)
+            if switch:
+                self._ordered(components, block_state, settings, switch)
+        if i < switch:
+            # the ordered phase has run this step for every window
+            block_state.noise_pred = None
+            block_state.audio_noise_pred = None
+            return components, block_state
+        return self._windowed(
+            components,
+            block_state,
+            i,
+            settings,
+            HYBRID_WINDOWS_INPUT,
+            host=True,
+            held=getattr(block_state, HYBRID_HELD, None),
+        )
+
+    def _ordered(self, components, block_state, settings, switch):
+        """The ordered phase, in host RAM. Window 1 runs every step and is
+        kept finished. Each later window runs steps 1..`switch` from its own
+        slice of the start noise, with the rows an earlier window covers
+        pinned to that window's handoff - its finished rows (`finished`), or
+        its x0 estimate at step `switch` (`x0`) - and read at the clean
+        timestep; only its other rows are stepped, by the stock scheduler
+        step. Every row keeps the first window's state that covers it:
+        window 1's finished, the later windows' at step `switch`. A window
+        whose handoff a later one needs (`finished`, not the last) runs on to
+        the end for it."""
+        name = HYBRID_WINDOWS_INPUT
+        self._check_rows(block_state, name)
+        fields = block_state.denoiser_input_fields
+        num_latent_frames = block_state.num_latent_frames
+        window = window_settings(settings)
+        plan = window_plan(num_latent_frames, window["frames"], window["overlap"])
+        latents, audio_latents = block_state.latents, block_state.audio_latents
+        timesteps = block_state.timesteps
+        steps = len(timesteps)
+        scheduler = components.scheduler
+        rebase_from = None
+        if window["positions"] == "rebased":
+            problem = rebase_problem(plan, name)
+            if problem:
+                raise ValueError(problem)
+            rebase_from = fields["position_ids"][fields["video_indices"][0], 0]
+        logger.info(
+            f"Generating in {len(plan)} ordered time windows to step {switch} of "
+            f"{steps} ({settings['handoff']} handoff), blended after: {plan}"
+        )
+        handoff = settings["handoff"]
+        num_rows = latents.shape[0]
+        covered = torch.zeros(num_rows, dtype=torch.bool)
+        pins = torch.empty_like(latents)
+        restore = scheduler._step_index
+        for w, span in enumerate(plan):
+            rows = window_rows(fields, num_rows, 0, num_latent_frames, span)
+            video = rows[0].cpu()
+            pinned = covered[video]
+            free = ~pinned
+            x = latents[video].clone()
+            x[pinned] = pins[video][pinned]
+            last = w == len(plan) - 1
+            run_to = steps if w == 0 or (handoff == "finished" and not last) else switch
+            pin, kept = None, None
+            for j in range(run_to):
+                velocity = self._window_velocity(
+                    components,
+                    block_state,
+                    j,
+                    rows,
+                    rebase_from,
+                    x,
+                    audio_latents[rows[1].cpu()],
+                    pinned,
+                )
+                if j == switch - 1 and handoff == "x0":
+                    sigma = float(scheduler.sigmas[j])
+                    pin = (x.float() + sigma * velocity).to(x.dtype)
+                    pin[pinned] = x[pinned]
+                if free.any():
+                    scheduler._step_index = j
+                    x[free] = scheduler.step(
+                        velocity[free], timesteps[j], x[free], return_dict=False
+                    )[0]
+                if j == switch - 1:
+                    kept = x.clone()
+            if w == 0:
+                kept = x
+            if handoff == "finished":
+                pin = x
+            latents[video[free]] = kept[free]
+            if pin is not None and not last:
+                pins[video] = pin
+            covered[video] = True
+            if w == 0:
+                setattr(block_state, HYBRID_HELD, video)
+        scheduler._step_index = restore
+
+    def _window_velocity(
+        self,
+        components,
+        block_state,
+        i,
+        rows,
+        rebase_from,
+        hidden,
+        audio_hidden,
+        clean,
+    ):
+        """One window's forward at step `i` from host `hidden` rows - the
+        rows `clean` (a mask over them) at the clean timestep - its video
+        velocity as float32 on the host."""
+        transformer = getattr(components, self.transformer_name)
+        accepted = inspect.signature(transformer.forward).parameters
+        fields = block_state.denoiser_input_fields
+        device = getattr(block_state, HYBRID_DEVICE)
+        layout, entry = window_inputs(
+            fields, block_state.row_timestep_plan[i], rows, rebase_from
+        )
+        if clean.any():
+            local = layout["video_indices"][clean.to(layout["video_indices"].device)]
+            entry = clean_timesteps(entry, local)
+        noise_pred, _ = transformer(
+            hidden_states=hidden.to(device)[None],
+            audio_hidden_states=audio_hidden.to(device)[None],
+            encoder_hidden_states=block_state.prompt_embeds,
+            timestep=entry[0],
+            timestep_indices=entry[1],
+            attention_kwargs=block_state.attention_kwargs,
+            return_dict=False,
+            **{k: v for k, v in layout.items() if k in accepted},
+        )
+        return noise_pred[0].float().cpu()
 
     @staticmethod
     def _to_host(block_state):
@@ -957,10 +1142,14 @@ class DwH3WindowedLoopDenoiser(MiniMaxH3LoopDenoiser):
         settings,
         name=REFINE_WINDOWS_INPUT,
         host=False,
+        held=None,
     ):
         """The fused windowed forward. With `host`, `latents` and
         `audio_latents` are host tensors: each window's rows go to the
-        device for its forward, and the fused velocity stays on the host."""
+        device for its forward, and the fused velocity stays on the host.
+        `held`, the host rows the ordered phase left finished, are read at the
+        clean timestep, get zero velocity, and a window of only held rows is
+        not run."""
         self._check_rows(block_state, name)
         transformer = getattr(components, self.transformer_name)
         accepted = inspect.signature(transformer.forward).parameters
@@ -983,6 +1172,10 @@ class DwH3WindowedLoopDenoiser(MiniMaxH3LoopDenoiser):
             logger.info(f"{verb} in {len(plan)} time windows: {plan}")
 
         fused, total = None, None
+        is_held = None
+        if held is not None:
+            is_held = torch.zeros(latents.shape[0], dtype=torch.bool)
+            is_held[held] = True
         for (start, stop), window_weights in zip(plan, weights):
             rows = window_rows(
                 fields,
@@ -995,6 +1188,16 @@ class DwH3WindowedLoopDenoiser(MiniMaxH3LoopDenoiser):
                 fields, block_state.row_timestep_plan[i], rows, rebase_from
             )
             video, audio, _ = rows
+            if is_held is not None:
+                local_held = is_held[video.cpu()]
+                if local_held.all():
+                    continue
+                if local_held.any():
+                    positions = layout["video_indices"]
+                    timestep, timestep_indices = clean_timesteps(
+                        (timestep, timestep_indices),
+                        positions[local_held.to(positions.device)],
+                    )
             if host:
                 # the take is on the host: index it there, ship the window
                 video, audio = video.cpu(), audio.cpu()
@@ -1029,7 +1232,11 @@ class DwH3WindowedLoopDenoiser(MiniMaxH3LoopDenoiser):
             fused[0, video] += noise_pred[0].float() * per_row[:, None]
             total[video] += per_row
         # The weights sum to 1 per latent already: this only re-normalizes
-        # float32 rounding, and is exactly 1 for a single window
+        # float32 rounding, and is exactly 1 for a single window. A held row
+        # only the skipped windows cover has no weight, and no velocity
+        if is_held is not None:
+            total[is_held] = 1.0
+            fused[0, is_held] = 0.0
         block_state.noise_pred = fused / total[None, :, None]
         block_state.audio_noise_pred = torch.zeros(
             (1, *audio_latents.shape), dtype=torch.float32, device=fused.device
@@ -1042,17 +1249,30 @@ class DwH3HostLoopSchedulerStep(MiniMaxH3LoopSchedulerStep):
     (#1188) the take is on the host, and so are the fused velocities: the
     scheduler moves its sigmas to the sample's device, so the step runs
     there, and after the last step the take goes back to the device it came
-    from for the release and the decode."""
+    from for the release and the decode. A step before `switch_step` was run
+    by the ordered phase, so it only moves the schedulers on a step; after
+    it, the rows the first window left finished are put back as they were."""
 
     model_name = "minimax-h3"
 
     @torch.no_grad()
     def __call__(self, components, block_state, i, t):
-        components, block_state = super().__call__(components, block_state, i, t)
         device = getattr(block_state, HYBRID_DEVICE, None)
+        if device is not None and i < (getattr(block_state, HYBRID_SWITCH, 0) or 0):
+            components.scheduler._step_index = i + 1
+            components.audio_scheduler._step_index = i + 1
+        else:
+            held = (
+                getattr(block_state, HYBRID_HELD, None) if device is not None else None
+            )
+            kept = block_state.latents[held].clone() if held is not None else None
+            components, block_state = super().__call__(components, block_state, i, t)
+            if held is not None:
+                block_state.latents[held] = kept
         timesteps = getattr(block_state, "timesteps", None)
         if device is not None and timesteps is not None and i == len(timesteps) - 1:
             block_state.latents = block_state.latents.to(device)
             block_state.audio_latents = block_state.audio_latents.to(device)
             setattr(block_state, HYBRID_DEVICE, None)
+            setattr(block_state, HYBRID_HELD, None)
         return components, block_state

@@ -36,7 +36,9 @@ from dw.pipeline_processors.h3_windows import (  # noqa: E402
     hybrid_problems,
     hybrid_refusal,
     insert_refine_windows,
+    window_inputs,
     window_plan,
+    window_rows,
 )
 from tests.test_h3_windows import (  # noqa: E402
     LATENT_FRAMES,
@@ -181,24 +183,242 @@ def test_the_device_sees_one_window_and_the_take_lives_on_the_host(flag_on):
     assert all(c["hidden_states"].shape[1] < rows for c in stub.calls)
 
 
-def test_a_nonzero_switch_step_warns_and_runs_blended(flag_on, monkeypatch):
-    seen = []
-    monkeypatch.setattr(
-        h3_windows, "emit_warning", lambda message, **data: seen.append(data)
+# 1b. The ordered phase (#1188 S2)
+
+STEPS = 5  # num_inference_steps 5: four denoise steps
+ORDERED = {"frames": 7, "overlap": 2, "positions": "true"}  # (0, 7), (5, 12)
+
+
+class CopyingStub(StubTransformer):
+    """The stub, recording a copy of what it is shown: the ordered phase
+    steps a window's rows in place after its forward."""
+
+    def forward(
+        self,
+        hidden_states,
+        audio_hidden_states,
+        encoder_hidden_states,
+        timestep,
+        timestep_indices,
+        token_tags,
+        position_ids,
+        video_indices,
+        audio_indices,
+        text_indices,
+        attention_kwargs=None,
+        return_dict=True,
+    ):
+        out = super().forward(
+            hidden_states.clone(),
+            audio_hidden_states.clone(),
+            encoder_hidden_states,
+            timestep,
+            timestep_indices,
+            token_tags,
+            position_ids,
+            video_indices,
+            audio_indices,
+            text_indices,
+        )
+        self.calls[-1]["timestep"] = timestep.clone()
+        return out
+
+
+def run_stub(settings, steps=STEPS):
+    state, scheduler = hybrid_state(settings, steps)
+    start = state.latents.clone()
+    stub = CopyingStub()
+    components = SimpleNamespace(
+        transformer=stub,
+        scheduler=scheduler,
+        audio_scheduler=MiniMaxH3Scheduler(shift=3.0),
     )
+    components.audio_scheduler.set_timesteps(steps)
+    sigmas = scheduler.sigmas.clone()
+    denoiser, update = DwH3WindowedLoopDenoiser(), DwH3HostLoopSchedulerStep()
+    for i, t in enumerate(scheduler.timesteps):
+        denoiser(components, state, i, t)
+        update(components, state, i, t)
+    return state, stub, start, sigmas
+
+
+def window_video(state, span):
+    fields = state.denoiser_input_fields
+    return window_rows(fields, state.latents.shape[0], 0, LATENT_FRAMES, span)[0]
+
+
+def sequential_windows(settings, steps=STEPS):
+    """Plain sequential windows, written out: each window denoised alone
+    over every step from the start noise, with the rows an earlier window
+    finished held at its finished values and the clean timestep, and the
+    first window's value kept for every row."""
+    state, _ = hybrid_state(settings, steps)
+    fields = state.denoiser_input_fields
+    transformer = tiny_transformer()
+    result = state.latents.clone()
+    done = torch.zeros(result.shape[0], dtype=torch.bool)
+    for span in window_plan(LATENT_FRAMES, settings["frames"], settings["overlap"]):
+        rows = window_rows(fields, result.shape[0], 0, LATENT_FRAMES, span)
+        video = rows[0]
+        frozen = done[video]
+        x = result[video].clone()
+        scheduler = MiniMaxH3Scheduler(shift=12.0)
+        scheduler.set_timesteps(steps)
+        for t, entry in zip(scheduler.timesteps, state.row_timestep_plan):
+            layout, (unique, indices) = window_inputs(fields, entry, rows)
+            indices = indices.clone()
+            indices[layout["video_indices"][frozen]] = int(
+                (unique == 1.0).nonzero()[0, 0]
+            )
+            velocity = transformer(
+                hidden_states=x[None],
+                audio_hidden_states=state.audio_latents[rows[1]][None],
+                encoder_hidden_states=state.prompt_embeds,
+                timestep=unique,
+                timestep_indices=indices,
+                return_dict=False,
+                **layout,
+            )[0][0]
+            stepped = scheduler.step(velocity.float(), t, x, return_dict=False)[0]
+            x = torch.where(frozen[:, None], x, stepped)
+        result[video] = x
+        done[video] = True
+    return result
+
+
+def test_switch_step_at_the_last_step_is_plain_sequential_windows(flag_on):
+    settings = {**ORDERED, "switch_step": STEPS - 1, "handoff": "finished"}
+    ours = run_loop(
+        DwH3WindowedLoopDenoiser(), DwH3HostLoopSchedulerStep(), settings, STEPS
+    )
+    torch.testing.assert_close(ours[0], sequential_windows(settings))
+    stock_audio = run_loop(
+        MiniMaxH3LoopDenoiser(), MiniMaxH3LoopSchedulerStep(), None, STEPS, False
+    )[1]
+    assert torch.equal(ours[1], stock_audio)
+
+
+def test_switch_step_zero_is_the_blended_windows_of_s1(flag_on):
+    """k = 0 has no ordered phase: every step is the fused one, and the
+    default (3) is a different take."""
     blended = run_loop(
         DwH3WindowedLoopDenoiser(),
         DwH3HostLoopSchedulerStep(),
-        {"frames": 7, "overlap": 2, "switch_step": 0},
+        {**ORDERED, "switch_step": 0},
+        STEPS,
     )
-    assert seen == []
-    asked = run_loop(
-        DwH3WindowedLoopDenoiser(),
-        DwH3HostLoopSchedulerStep(),
-        {"frames": 7, "overlap": 2, "switch_step": 2},
+    ordered = run_loop(
+        DwH3WindowedLoopDenoiser(), DwH3HostLoopSchedulerStep(), ORDERED, STEPS
     )
-    assert seen == [{"switch_step": 2}]
-    assert torch.equal(blended[0], asked[0])
+    assert not torch.equal(blended[0], ordered[0])
+    assert torch.isfinite(ordered[0]).all()
+
+
+def split_calls(stub, state, k, steps=STEPS - 1):
+    """The stub's calls by phase for the two-window plan: window 1's
+    `steps`, window 2's k ordered ones, then the blended finish's."""
+    calls = stub.calls
+    assert len(calls) == steps + k + (steps - k)
+    return calls[:steps], calls[steps : steps + k], calls[steps + k :]
+
+
+@pytest.mark.parametrize("k", [1, 2, 3])
+def test_the_overlap_is_pinned_to_the_window_befores_finished_frames(flag_on, k):
+    state, stub, _, _ = run_stub({**ORDERED, "switch_step": k, "handoff": "finished"})
+    first, second, _ = split_calls(stub, state, k)
+    video1, video2 = window_video(state, (0, 7)), window_video(state, (5, 12))
+    overlap = torch.isin(video2, video1)
+    assert overlap.any() and not overlap.all()
+    # window 1 is kept finished, so its finished rows are the take's
+    finished = state.latents[video2[overlap]]
+    for call in second:
+        assert torch.equal(call["hidden_states"][0, overlap], finished)
+        assert_clean(call, overlap)
+
+
+@pytest.mark.parametrize("k", [1, 2, 3])
+def test_the_overlap_is_pinned_to_the_window_befores_x0_at_step_k(flag_on, k):
+    state, stub, _, sigmas = run_stub({**ORDERED, "switch_step": k, "handoff": "x0"})
+    first, second, _ = split_calls(stub, state, k)
+    video1, video2 = window_video(state, (0, 7)), window_video(state, (5, 12))
+    call = first[k - 1]  # window 1's forward at step k
+    x0 = call["hidden_states"][0] + sigmas[k - 1] * stub_velocity(call)[0]
+    in_first = torch.isin(video1, video2)
+    overlap = torch.isin(video2, video1)
+    for call in second:
+        torch.testing.assert_close(call["hidden_states"][0, overlap], x0[in_first])
+        assert_clean(call, overlap)
+    # the take keeps window 1's finished rows there, not the x0
+    assert not torch.allclose(state.latents[video2[overlap]], x0[in_first])
+
+
+def assert_clean(call, rows):
+    """`rows` of the window's video are read at t = 1, the rest not."""
+    unique = call["timestep"]
+    times = unique[call["timestep_indices"][call["video_indices"]]]
+    assert (times[rows] == 1.0).all()
+    assert (times[~rows] < 1.0).all()
+
+
+@pytest.mark.parametrize("handoff", ["finished", "x0"])
+def test_every_row_keeps_the_first_windows_state(flag_on, handoff):
+    """Window 1's rows are its finished ones - the last step of its own
+    loop - through the ordered phase and the blended finish alike."""
+    k = 2
+    state, stub, _, sigmas = run_stub({**ORDERED, "switch_step": k, "handoff": handoff})
+    first, _, blended = split_calls(stub, state, k)
+    video1, video2 = window_video(state, (0, 7)), window_video(state, (5, 12))
+    last = first[-1]
+    finished = last["hidden_states"][0] + sigmas[STEPS - 2] * stub_velocity(last)[0]
+    torch.testing.assert_close(state.latents[video1], finished)
+    # the blended finish runs window 2 only, its overlap held at t = 1
+    overlap = torch.isin(video2, video1)
+    for call in blended:
+        assert call["hidden_states"].shape[1] == video2.numel()
+        assert_clean(call, overlap)
+
+
+def test_a_later_window_pins_to_the_latest_window_that_covers_a_row(flag_on):
+    """Four windows of 5 over 12 frames: (0, 5), (3, 8), (6, 11), (7, 12).
+    The last window's rows 7-10 are pinned to window 3's finished frames."""
+    settings = {"frames": 5, "overlap": 2, "positions": "true", "switch_step": 4}
+    state, stub, _, _ = run_stub(settings)
+    plan = window_plan(LATENT_FRAMES, 5, 2)
+    assert plan == [(0, 5), (3, 8), (6, 11), (7, 12)]
+    videos = [window_video(state, span) for span in plan]
+    calls = stub.calls
+    assert len(calls) == 4 * (STEPS - 1)
+    for w in range(1, 4):
+        covered = torch.isin(videos[w], torch.cat(videos[:w]))
+        for call in calls[w * (STEPS - 1) : (w + 1) * (STEPS - 1)]:
+            assert_clean(call, covered)
+    # window 4 is pinned to window 3's frames: the ones it stepped finished,
+    # the one it held itself (frame 7, from window 2) as it held it
+    third_end = calls[3 * (STEPS - 1) - 1]
+    held3 = torch.isin(videos[2], torch.cat(videos[:2]))
+    third = torch.where(
+        held3[:, None],
+        third_end["hidden_states"][0],
+        third_end["hidden_states"][0] + _last_sigma() * stub_velocity(third_end)[0],
+    )
+    shared3 = torch.isin(videos[2], videos[3])
+    shared4 = torch.isin(videos[3], videos[2])
+    torch.testing.assert_close(
+        calls[3 * (STEPS - 1)]["hidden_states"][0, shared4], third[shared3]
+    )
+
+
+def _last_sigma(steps=STEPS):
+    scheduler = MiniMaxH3Scheduler(shift=12.0)
+    scheduler.set_timesteps(steps)
+    return scheduler.sigmas[-2]
+
+
+def test_a_switch_step_past_the_runs_steps_is_refused_in_the_loop(flag_on):
+    state, scheduler = hybrid_state({**ORDERED, "switch_step": STEPS}, STEPS)
+    components = SimpleNamespace(transformer=tiny_transformer(), scheduler=scheduler)
+    with pytest.raises(ValueError, match="switch_step"):
+        DwH3WindowedLoopDenoiser()(components, state, 0, scheduler.timesteps[0])
 
 
 def test_the_loop_refuses_when_the_flag_is_off(flag_off):
@@ -286,6 +506,56 @@ def test_only_one_turns_the_flag_on(monkeypatch, value):
 def test_a_call_the_windows_cannot_run_is_refused(flag_on, overrides, match):
     problems = hybrid_problems(generate(**overrides))
     assert any(match in p for p in problems), problems
+
+
+def ordered(switch, steps=31, **settings):
+    return generate(
+        num_inference_steps=steps,
+        **{HYBRID_WINDOWS_INPUT: {"switch_step": switch, **settings}},
+    )
+
+
+def test_a_switch_step_past_the_runs_denoise_steps_is_refused(flag_on):
+    """num_inference_steps 31 runs 30 denoise steps: k = 30 is every step
+    ordered (plain sequential windows), 31 has no step to be."""
+    assert hybrid_problems(ordered(30)) == []
+    assert hybrid_problems(ordered(3)) == []
+    problems = hybrid_problems(ordered(31))
+    assert len(problems) == 1 and "switch_step" in problems[0], problems
+    assert "num_inference_steps 31 runs 30" in problems[0]
+
+
+def test_switch_step_range_is_left_to_the_run_without_a_literal_step_count(
+    flag_on,
+):
+    assert (
+        hybrid_problems(generate(**{HYBRID_WINDOWS_INPUT: {"switch_step": 99}})) == []
+    )
+    assert hybrid_problems(ordered(99, steps="variable:steps")) == []
+
+
+@pytest.mark.parametrize(
+    "settings, match",
+    [
+        ({"switch_step": 31}, "switch_step"),
+        ({"switch_step": -1}, "switch_step"),
+        ({"handoff": "sideways"}, "handoff"),
+    ],
+)
+def test_a_bad_switch_step_or_handoff_is_refused_before_the_flag(
+    flag_off, settings, match
+):
+    problems = hybrid_problems(
+        generate(num_inference_steps=31, **{HYBRID_WINDOWS_INPUT: settings})
+    )
+    assert len(problems) == 2, problems
+    assert match in problems[0]
+    assert HYBRID_WINDOWS_ENV_VAR in problems[1]
+
+
+@pytest.mark.parametrize("handoff", ["finished", "x0"])
+def test_both_handoffs_are_accepted(flag_on, handoff):
+    assert hybrid_problems(ordered(3, handoff=handoff)) == []
 
 
 def test_a_step_cache_is_refused(flag_on):
