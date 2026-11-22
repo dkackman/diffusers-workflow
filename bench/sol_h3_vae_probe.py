@@ -440,7 +440,13 @@ def main():
 
     (out / f"{args.label}.json").write_text(json.dumps(results, indent=2))
 
-    rows = [(n, decoded[n]) for n in ("full-fp32", "full-int8", "sol") if n in decoded]
+    # Sol whole OOMs above 544p on 24 GB: show the context-piece decode instead
+    sol_row = next(
+        (n for n in ("sol", "sol-piece-ctx", "sol-piece") if n in decoded), None
+    )
+    rows = [
+        (n, decoded[n]) for n in ("full-fp32", "full-int8", sol_row) if n in decoded
+    ]
     if len(rows) >= 2:
         count = min(v.shape[0] for _, v in rows)
         write_grid(
@@ -449,16 +455,14 @@ def main():
         if args.crop:
             box = [int(v) for v in args.crop.split(",")]
             write_crops(out / f"{args.label}-crop.png", rows, count // 2, box)
-    pieces = [n for n in ("sol", "sol-piece", "sol-piece-ctx") if n in decoded]
+    pieces = [
+        n for n in ("full-int8", "sol", "sol-piece", "sol-piece-ctx") if n in decoded
+    ]
     edge = args.piece_clips * BLOCK_FRAMES
-    if len(pieces) >= 2 and "sol-piece" in decoded and edge < decoded["sol"].shape[0]:
+    count = min((decoded[n].shape[0] for n in pieces), default=0)
+    if len(pieces) >= 2 and "sol-piece" in decoded and edge < count:
         # The frames either side of the first piece boundary
-        edge = args.piece_clips * BLOCK_FRAMES
-        frames = [
-            f
-            for f in (edge - 2, edge - 1, edge, edge + 1)
-            if f < decoded["sol"].shape[0]
-        ]
+        frames = [f for f in (edge - 2, edge - 1, edge, edge + 1) if f < count]
         write_grid(
             out / f"{args.label}-seam.png",
             [(n, decoded[n]) for n in pieces],
