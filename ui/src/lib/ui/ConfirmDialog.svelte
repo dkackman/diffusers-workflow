@@ -1,6 +1,6 @@
 <script lang="ts">
   import { AlertDialog } from 'bits-ui'
-  import { confirmState, resolveConfirm } from '../confirm.svelte'
+  import { confirmState, resolveChoice } from '../confirm.svelte'
   import { holdLayer } from './layers.svelte'
 
   $effect(() => {
@@ -8,33 +8,40 @@
   })
 </script>
 
-<!-- Escape, an outside click and Cancel all answer false; Bits reports
-     each as onOpenChange(false). The confirm button answers true. -->
+<!-- Escape and an outside click answer null (Bits reports each as
+     onOpenChange(false)); the choice whose value is 'cancel' answers
+     'cancel'. Any other choice answers its own value. -->
 <AlertDialog.Root
   open={confirmState.open}
   onOpenChange={(open) => {
-    if (!open) resolveConfirm(false)
+    if (!open) resolveChoice(null)
   }}
 >
   <AlertDialog.Portal>
     <AlertDialog.Overlay class="ui-overlay" />
     <AlertDialog.Content
       class="ui-sheet panel"
-      aria-label="confirm"
+      aria-label={confirmState.title}
       interactOutsideBehavior="close"
     >
       <AlertDialog.Description class="ui-message">
         {confirmState.message}
       </AlertDialog.Description>
       <div class="ui-actions">
-        {#if !confirmState.alert}
-          <AlertDialog.Cancel class="quiet">
-            {confirmState.cancelLabel}
-          </AlertDialog.Cancel>
-        {/if}
-        <AlertDialog.Action onclick={() => resolveConfirm(true)}>
-          {confirmState.confirmLabel}
-        </AlertDialog.Action>
+        {#each confirmState.choices as choice (choice.value)}
+          {#if choice.value === 'cancel'}
+            <AlertDialog.Cancel class="quiet">
+              {choice.label}
+            </AlertDialog.Cancel>
+          {:else}
+            <AlertDialog.Action
+              class={choice.danger ? 'danger' : undefined}
+              onclick={() => resolveChoice(choice.value)}
+            >
+              {choice.label}
+            </AlertDialog.Action>
+          {/if}
+        {/each}
       </div>
     </AlertDialog.Content>
   </AlertDialog.Portal>
