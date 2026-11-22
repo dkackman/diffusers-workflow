@@ -3,9 +3,9 @@ linked jobs derive.
 
 Pure functions over the stored request and the job dicts the caller hands
 over (`{job, item, status, run_id, run_dir, run_exists, note, created_at,
-started_at, finished_at, output}`); nothing here reads the job store or the
+started_at, finished_at, workflow, arguments, output}`); nothing here reads the job store or the
 file. An item's `status`, `ready`, `attempts`, `result` and
-`spent_minutes`, a request's `spent_minutes` and `remaining_minutes`, a list
+`spent_minutes` (and a revised item's `revised_because`), a request's `spent_minutes` and `remaining_minutes`, a list
 row's `cover`, and each note reference's `attempt` and `gone` are derived
 here at read time and never stored. `dw/ledger.py` owns the file, the
 writes and their rules, and answers these views as `ledger.request_view`
@@ -30,15 +30,81 @@ def _minutes(job):
     return round(max(finished - started, 0) / 60, 2)
 
 
+def _epoch(text):
+    """A stored ISO time as epoch seconds, or None when it is not one."""
+    moment = _moment(text)
+    return moment.timestamp() if moment is not None else None
+
+
+def _current(item, job):
+    """Whether succeeded take `job` is current for `item`'s plan: the plan
+    has not changed since the take was created (`changed_at` not later than
+    its `created_at`), or the item's `workflow` and `arguments` equal the
+    take's as submitted (`_same_workflow`)."""
+    changed = _epoch(item.get("changed_at"))
+    created = job.get("created_at")
+    if changed is None or (created is not None and changed <= created):
+        return True
+    return _same_workflow(item, job) and (item.get("arguments") or {}) == (
+        job.get("arguments") or {}
+    )
+
+
+def _same_workflow(item, job):
+    """Whether the item names the workflow the take ran from. A take with no
+    recorded catalog name (an inline definition, an older row) is not
+    counted as a difference: no claim without evidence."""
+    return job.get("workflow") is None or item.get("workflow") == job.get("workflow")
+
+
+def _accepted_since(item):
+    """Whether an acceptance was recorded at or after the plan's last
+    change (`accepted_basis.at` >= `changed_at`)."""
+    basis = item.get("accepted_basis")
+    at = _epoch(basis.get("at")) if isinstance(basis, dict) else None
+    changed = _epoch(item.get("changed_at"))
+    return at is not None and changed is not None and at >= changed
+
+
+def is_revised(item, jobs):
+    """Whether an item with a succeeded take reads `revised`: its plan
+    changed after every succeeded take (none is `_current`) and no
+    acceptance was recorded since. An item with no `changed_at` (stored
+    before the stamp) is never revised."""
+    takes = [job for job in jobs if job.get("status") == "succeeded"]
+    if not takes or _accepted_since(item):
+        return False
+    return not any(_current(item, job) for job in takes)
+
+
+def revised_because(item, jobs, result=None):
+    """What moved on a revised item, as a list (`["arguments"]`,
+    `["workflow", "arguments"]`): the fields that differ from its result
+    take, else from its latest succeeded take."""
+    take = result
+    if take is None:
+        takes = [job for job in jobs if job.get("status") == "succeeded"]
+        take = takes[-1] if takes else {}
+    because = []
+    if not _same_workflow(item, take):
+        because.append("workflow")
+    if (item.get("arguments") or {}) != (take.get("arguments") or {}):
+        because.append("arguments")
+    # changed_at moved past every take but nothing differs from this one:
+    # another take carried the difference; the plan itself is what moved
+    return because or ["arguments"]
+
+
 def _item_status(item, jobs):
     """An item's status, derived from the jobs linked to it: dropped; done
-    (any succeeded); running; queued; failed (every linked job failed or was
-    cancelled); planned (none)."""
+    (any succeeded), or revised when its plan changed after every succeeded
+    take (`is_revised`); running; queued; failed (every linked job failed
+    or was cancelled); planned (none)."""
     if item.get("dropped"):
         return "dropped"
     statuses = {job.get("status") for job in jobs}
     if "succeeded" in statuses:
-        return "done"
+        return "revised" if is_revised(item, jobs) else "done"
     if "running" in statuses:
         return "running"
     if "queued" in statuses:
@@ -79,8 +145,9 @@ def _result(item, jobs):
 
 
 def _ready(request, grouped):
-    """The keys of the items a job could be queued for now: planned, with a
-    stored workflow and every dependency done, in an open request."""
+    """The keys of the items a job could be queued for now: planned or
+    revised, with a stored workflow and every dependency done, in an open
+    request."""
     if request.get("state") != "open":
         return set()
     items = request.get("items", [])
@@ -90,7 +157,7 @@ def _ready(request, grouped):
     return {
         i.get("key")
         for i in items
-        if status[i.get("key")] == "planned"
+        if status[i.get("key")] in ("planned", "revised")
         and i.get("workflow")
         and all(status.get(dep) == "done" for dep in i.get("depends_on") or [])
     }
@@ -187,7 +254,7 @@ def _moment(text):
 
 
 def _review(item, notes, now):
-    """The hold on a planned item of an open request, `{until, state,
+    """The hold on a planned or revised item of an open request, `{until, state,
     seconds_left}`: `redirected` when a note (the item's or the request's,
     in `notes`) is at or after the moment the hold was set (any note, when
     the stamp is missing or unreadable), else `due` once
@@ -215,7 +282,8 @@ def item_view(item, jobs, ready=False, request_notes=(), state="open", now=None)
     note, minutes, output}` - `note` only when set, `minutes` null until it
     has run, `output` its proof or null), `result` (`{job, run_id,
     output}`), `accepted_missing` (only when true), `spent_minutes` and
-    `review` (only on a planned item of an open request with a hold: see
+    `revised_because` (only on a revised item: `revised_because`) and
+    `review` (only on a planned or revised item of an open request with a hold: see
     `_review`; `request_notes` are the request's own notes, `state` its
     state, `now` the aware time to read it at)."""
     attempts = [
@@ -237,7 +305,12 @@ def item_view(item, jobs, ready=False, request_notes=(), state="open", now=None)
     status = _item_status(item, jobs)
     review = (
         _review(item, [*(item.get("notes") or []), *request_notes], now)
-        if status == "planned" and state == "open"
+        if status in ("planned", "revised") and state == "open"
+        else None
+    )
+    because = (
+        revised_because(item, jobs, chosen if chosen in jobs else None)
+        if status == "revised"
         else None
     )
     return {
@@ -247,7 +320,14 @@ def item_view(item, jobs, ready=False, request_notes=(), state="open", now=None)
             for field in ("review_until", "review_set_at")
         },
         "notes": _noted(item.get("notes"), _positions(jobs), _live_keys([item])),
+        "changed_at": item.get("changed_at")
+        if isinstance(item.get("changed_at"), str)
+        else None,
+        "accepted_basis": item.get("accepted_basis")
+        if isinstance(item.get("accepted_basis"), dict)
+        else None,
         "status": status,
+        **({"revised_because": because} if because else {}),
         "ready": ready,
         "attempts": attempts,
         "result": result,
@@ -263,7 +343,7 @@ def _spent(jobs):
 
 def _remaining(request, grouped):
     """What is left to do: the estimates of the items not done and not
-    dropped."""
+    dropped (a revised item counts again)."""
     total = 0
     for item in request.get("items", []):
         if _item_status(item, grouped.get(item.get("key"), [])) in ("done", "dropped"):

@@ -44,13 +44,24 @@ def _jobs_for(request, name):
 
 
 def _linked_jobs_for(request, name):
-    """`(rid, item key) -> [{job, status, run_id}]`: what `accepted` is
-    checked against."""
+    """`(rid, item key) -> [{job, status, run_id, created_at, workflow,
+    arguments}]`: what `accepted` is checked against, and what says whether
+    the stored item reads revised."""
     jobs_for = _jobs_for(request, name)
 
     def linked(rid, key):
         return [
-            {"job": j["job"], "status": j["status"], "run_id": j["run_id"]}
+            {
+                field: j.get(field)
+                for field in (
+                    "job",
+                    "status",
+                    "run_id",
+                    "created_at",
+                    "workflow",
+                    "arguments",
+                )
+            }
             for j in jobs_for(rid)
             if j["item"] == key
         ]

@@ -95,6 +95,18 @@ PROOFS_KEPT = 4096
 CANCEL_GRACE_SECONDS = 30.0
 
 
+def _submitted(arguments):
+    """A linked job's arguments as a dict: a history row's stored JSON text
+    parsed, a live job's dict as is; {} when there are none or the text
+    does not parse to an object."""
+    if isinstance(arguments, str):
+        try:
+            arguments = json.loads(arguments)
+        except ValueError:
+            return {}
+    return arguments if isinstance(arguments, dict) else {}
+
+
 class JobsActive(Exception):
     """A job is running or queued."""
 
@@ -522,7 +534,9 @@ class JobManager(Dispatcher, Reruns):
     def request_jobs(self, workspace, request_id):
         """Every job linked to `request_id` in `workspace`, live queue and
         history, oldest first, as `{job, item, status, run_id, run_dir,
-        run_exists, started_at, finished_at, created_at, note, output}`.
+        run_exists, started_at, finished_at, created_at, note, workflow,
+        arguments, output}` - `workflow` the catalog name the job ran from
+        (None for an inline one), `arguments` as submitted.
 
         `run_exists` is whether the job's run directory is still on disk -
         the directory `delete_job_run` removes. `output` is a callable
@@ -551,6 +565,8 @@ class JobManager(Dispatcher, Reruns):
                     "created_at": job.created_at,
                     "started_at": job.started_at,
                     "finished_at": job.finished_at,
+                    "workflow_name": job.catalog_name,
+                    "arguments": job.spec.get("arguments"),
                 },
                 job.run_dir,
                 job.spec.get("output_dir"),
@@ -576,6 +592,10 @@ class JobManager(Dispatcher, Reruns):
             "finished_at": row["finished_at"],
             "created_at": row["created_at"],
             "note": row["note"],
+            # The take's plan, as submitted: what a ledger item's workflow
+            # and arguments are compared against (`ledger_views._current`)
+            "workflow": row.get("workflow_name"),
+            "arguments": _submitted(row.get("arguments")),
             "output": lambda: self._proof(job_id),
         }
 
