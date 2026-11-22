@@ -43,6 +43,7 @@ EXEMPT = {
     "h3-hybrid.md": "an engine experiment with no template; its look verdict is Don's and pending (#1441)",
     "h3-audio-encode-context.md": "an engine-question probe with no template; its verdict (bar not met) settles #1516 stage A's gate (#1544)",
     "held-frames.md": "a corpus probe with no template; its verdict settles #1527 stage A's gate (#1551)",
+    "place-card.md": "a probe with no template yet; PRELIMINARY until Don views it, and it settles #1577's later stages (#1581)",
 }
 
 
