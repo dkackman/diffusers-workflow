@@ -239,7 +239,9 @@ def _handle_window_video(task, arguments, previous_pipelines):
             "white over the bars and black over the picture), stretch (resize "
             "to fill exactly) or crop (scale to fill, centre-crop). crop is also "
             "how to reframe a clip to another aspect (16:9 to 9:16) - see "
-            'TASKS.md "Reframe to another aspect".'
+            'TASKS.md "Reframe to another aspect". A keeper H3 take can '
+            "instead keep its whole picture, letterboxed, with the border "
+            "generated: templates/minimax/reframe."
         ),
         "downscale": (
             "Fit into width/downscale x height/downscale instead, default 1 - "

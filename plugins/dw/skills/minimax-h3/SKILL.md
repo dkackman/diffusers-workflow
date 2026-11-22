@@ -40,6 +40,7 @@ H3 generates video and audio together. Every template fits a 24 GB card.
   section="H3: holding a clip with `guides`")`.
 - **Fix one region of a good take** (the rest and audio stay):
   `templates/minimax/regional-edit`; first `references/regional-edit.md`.
+- **Reframe a keeper take** to portrait or square: `templates/minimax/reframe`.
 - **Replace a performer**: `replace-performer-cuts`, pick its `cuts`,
   `replace-performer`; the prompt gives each cut's pose and framing. A
   cut's own `prompt`/`seed` wins over the workflow `seed`/`prompt`; re-roll one cut by
@@ -75,8 +76,7 @@ H3 generates video and audio together. Every template fits a 24 GB card.
   (a song, one slice and one lip-synced shot per entry, padded then trimmed
   to its cut - `from_file` reuses an existing cast portrait and skips
   drawing). Render rule: an entry's `num_frames` is
-  `max(124, next 17n+5 ≥ lead + cut)`, the smallest `17n + 5` at or above
-  `lead_frames + cut_frames`, at least 124; past 345, split the span.
+  `max(124, next 17n+5 ≥ lead_frames + cut_frames)`; past 345, split the span.
   Before composing one, read `references/cuts.md`: the `shots` list (a music
   video's six fields), cost per entry, scoring and one voice across cuts.
 - **Dialogue into a song**, not a concat: `slice_audio`, `join_into_song`,

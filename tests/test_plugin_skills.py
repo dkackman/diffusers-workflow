@@ -664,6 +664,36 @@ class TestMiniMaxH3Skill:
         assert "16 px times the patch size" in " ".join(reference.split())
         assert "`16 * patch`" in inspect.getsource(h3_mask_cells)
 
+    def test_the_reframe_branch_is_the_template_s(self):
+        """#1542: "reframe a keeper take" sends an agent to a template that
+        letterboxes on the mask grid, generates the bars from noise, holds the
+        take's soundtrack and pastes its own pixels back."""
+        text = skill_text(H3_SKILL)
+        assert "`templates/minimax/reframe`" in text
+
+        path = os.path.join(
+            REPO_ROOT, "workflows", "templates", "minimax", "reframe.json"
+        )
+        with open(path) as f:
+            template = json.load(f)
+        variables = template["variables"]
+        assert variables["refine_strength"] == 1.0
+        assert variables["mask_grow"] == 0
+        assert variables["align"] == 32
+        assert variables["feather"] == 16
+        fit, edit, paste = template["steps"]
+        assert [fit["name"], edit["name"], paste["name"]] == ["fit", "edit", "paste"]
+        assert fit["task"]["command"] == "fit_to_model"
+        assert fit["task"]["arguments"]["mode"] == "letterbox"
+        assert fit["task"]["arguments"]["align"] == "variable:align"
+        arguments = edit["pipeline"]["arguments"]
+        assert arguments["source_video"] == "previous_result:fit.video"
+        assert arguments["mask_image"] == "previous_result:fit.mask"
+        assert arguments["mask_grow"] == "variable:mask_grow"
+        assert arguments["hold_audio"] == "variable:source_video"
+        assert paste["task"]["command"] == "paste_into_box"
+        assert paste["task"]["arguments"]["content_box"] == "previous_result:fit.fit"
+
 
 LTX_SKILL = os.path.join(PLUGIN_DIR, "skills", "ltx-2.5", "SKILL.md")
 

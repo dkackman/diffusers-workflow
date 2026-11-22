@@ -388,3 +388,41 @@ def test_paste_into_box_is_registered_and_described():
     parameters = {p["name"]: p for p in fit["parameters"]}
     assert parameters["align"]["default"] == 1
     assert "mask" in parameters["mode"]["description"]
+
+
+class TestReframeTemplateGrid:
+    """#1542: templates/minimax/reframe's own defaults put the picture's box on
+    H3's mask cells, so no cell straddles the box edge."""
+
+    @staticmethod
+    def defaults():
+        import json
+
+        with open("workflows/templates/minimax/reframe.json") as f:
+            return json.load(f)["variables"]
+
+    @pytest.mark.parametrize("canvas", [None, (768, 768)])
+    def test_the_box_lands_on_the_cell_grid(self, canvas):
+        from dw.pipeline_processors.h3_rules import TILE_GRID
+
+        variables = self.defaults()
+        assert variables["align"] == TILE_GRID
+        if canvas is None:
+            canvas = (variables["width"], variables["height"])
+            assert canvas == (544, 960)
+        result = fitted((960, 544), canvas, mode="letterbox", align=variables["align"])
+        box = result["fit"]["content_box"]
+        if canvas == (544, 960):
+            assert box == {"x": 0, "y": 320, "w": 544, "h": 320}
+        assert all(box[key] % TILE_GRID == 0 for key in ("x", "y", "w", "h"))
+        # every cell is all bar or all picture
+        pixels = numpy.asarray(result["mask"])
+        width, height = canvas
+        cells = pixels.reshape(
+            height // TILE_GRID, TILE_GRID, width // TILE_GRID, TILE_GRID
+        )
+        assert (cells.min(axis=(1, 3)) == cells.max(axis=(1, 3))).all()
+        if canvas == (544, 960):
+            column = pixels[:, 0]
+            assert column[319] == 255 and column[320] == 0
+            assert column[639] == 0 and column[640] == 255

@@ -1326,7 +1326,13 @@ To turn a 16:9 clip into 9:16, 4:5 or 1:1:
   portrait size. Any H3 template takes any 32-multiple `width`/`height` (for
   example 544x960), and that keeps the audio.
 
-Generative outpaint of video (filling the new sides) is not supported; see #1066.
+- **Generate the border.** For a keeper H3 take whose motion, timing and
+  soundtrack must stay, `templates/minimax/reframe` keeps the whole picture:
+  `fit_to_model` letterboxes it with `align` 32 so the box sits on H3's mask
+  cells, a masked t2va edit at `refine_strength` 1.0 generates the bars with
+  the take's soundtrack held, and `paste_into_box` puts the take's own pixels
+  back inside the box. A 16:9 take on 544x960 keeps a 544x320 picture, so
+  about two thirds of the frame is generated; it costs a full H3 run.
 
 `mode` is `letterbox` (default: scale to fit, centred on black), `stretch`
 (resize to fill exactly) or `crop` (scale to fill, centre-crop). The frame
