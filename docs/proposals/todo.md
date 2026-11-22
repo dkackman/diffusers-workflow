@@ -871,6 +871,13 @@ remaining deferred fix is recorded in
   `dialogue.md` and check-script line say so. Probe record:
   `audits/2026-11-h3-dialogue-pacing-probes.md`; design record:
   `complete/h3-dialogue-pacing-complete.md`. Enhancer follow-up: #1186.
+- **H3 dialogue pacing: split at an existing sentence break** (#1186,
+  stage #1543), probed 2026-11-22. Two lem runs, seeds 1001 and 2002. The
+  control didn't reproduce: one `<d>` block holding two sentences
+  (`I left the light on. It's late, Daniel.`) opened at 0.28–0.40 s. It paused
+  about 2.2 s at its own period, the same as the split arm. Trigger 3 is
+  neither confirmed nor refuted, and the ruling is Don's. No skill text was
+  changed. Probe record: `audits/2026-11-h3-existing-break-split-probe.md`.
 - **Served workers apply dw's PyTorch settings** (#1229, stage #1238),
   shipped 2026-11-07. Before this, `enable_tf32`, `cudnn_benchmark` and
   `cudnn_deterministic` never reached a served job: only `startup()` applied
