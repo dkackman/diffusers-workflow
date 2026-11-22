@@ -9,6 +9,7 @@ already returned, and the checks read only that one file.
 """
 
 import hashlib
+import os
 from typing import Optional
 
 from fastapi import HTTPException, Request
@@ -44,14 +45,15 @@ def check_write_preconditions(request: Request, path: str, label: str) -> None:
     """Refuse a write whose request says what it expects of `path`.
 
     `If-None-Match: *` means "create only": a file already there is a 409
-    `exists`. `If-Match: <etag>` means "replace only what I read": a file
+    `exists`, answered from its existence alone - never by reading it, so
+    a large upload's name collision does not hash it on the event loop. `If-Match: <etag>` means "replace only what I read": a file
     that differs, or is gone, is a 409 `stale_write` carrying the current
     etag (None when gone). Call it inside the write lock, against the
     destination the write will land on.
     """
     if_none_match = request.headers.get("if-none-match")
     if if_none_match is not None and "*" in _tags(if_none_match):
-        if content_etag(path) is not None:
+        if os.path.exists(path):
             raise HTTPException(
                 status_code=409,
                 detail={"code": "exists", "message": f"{label} already exists"},

@@ -282,3 +282,22 @@ def test_upload_without_the_header_still_replaces(asset_server, tmp_path):
         assert post_upload(client, b"second").status_code == 201
         saved = tmp_path / "assets" / "uploads" / "cast" / "priya-voice.wav"
         assert saved.read_bytes() == b"second"
+
+
+def test_if_none_match_never_reads_the_file_it_refuses(
+    asset_server, tmp_path, monkeypatch
+):
+    """Create-only asks only whether the name is taken: a large video already
+    there must not be read and hashed on the event loop to answer it."""
+    from dw.server import preconditions
+
+    with asset_server(success_script) as client:
+        assert post_upload(client, b"original").status_code == 201
+
+        def no_hashing(path):
+            raise AssertionError(f"If-None-Match read {path}")
+
+        monkeypatch.setattr(preconditions, "content_etag", no_hashing)
+        response = post_upload(client, b"second", **{"If-None-Match": "*"})
+        assert response.status_code == 409
+        assert response.json()["detail"]["code"] == "exists"
