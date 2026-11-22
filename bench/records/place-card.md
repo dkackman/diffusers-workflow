@@ -52,6 +52,26 @@ Every arm ran to completion. There was **no OOM**. R4's validate warned of a 23.
 | K-night | ✓ the only light | ✓ | ✓ black night (the look asked for) | - | the same layout as K: works as a look |
 | K-rev | - | - | - | - | **failed**: Klein's edit returned K's own view, not a reverse |
 
+**K-rev's "failed" is a judgement on the image, not a job error.** Job `15077fa2496a` ran to completion and its status is `succeeded`. The output does not show a reverse angle, so it fails as a reverse card.
+
+### R1 against B0 and B2
+
+B0 and B2 are #1398's arms (`bench/records/visual-memory-cut.md`, its marker and face tables). B2 is B0 plus a 22-frame window of E (`4798c34efb07`).
+
+| Arm | Route to the set | Lamp | Shelf | Window | Coat | Markers held | SFace across A's cut |
+|---|---|---|---|---|---|---|---|
+| B0 (R0) | words only | ✗ | ✓ | ✗ | ✗ | 1 of 4 | 0.842 |
+| B2 | 22-frame window of E (a video slot) | ✓ | ✓ | ✓ | ✓ | 4 of 4 | 0.695 |
+| R1 | place card K (a still) | ✓ | ✓ | ✓ | ✗ | 3 of 4 (all 3 the card holds) | 0.673 |
+
+- R1 holds every marker the card carries. B2 also holds the coat, because the frames of E in its window show the coat and K does not.
+- R1's face cost against B0 (-0.169) is about the same as B2's (-0.147). R1 is **0.022 lower than B2**, on one seed per arm.
+- Neither copies the source's framing: B2 is its own reverse from frame 0, and R1 looks toward the window, unlike K's wide front view.
+
+### R2: was the close-up pulled wide?
+
+**No.** R2 stayed a close-up of her, as asked. The card did not pull it toward K's wide framing (the group-picture effect). The lamp sits at the left frame edge and the window behind her, so the set reads through the close-up's background. R2's SFace across A's cut is 0.804, 0.038 below B0. Its low sharpness figure reflects the close-up's shallower focus as well as the angle (see *Face similarity*).
+
 Preliminary reading:
 - The card carried every set marker (lamp, shelf, window) into every H3 arm. That includes R1's reverse, which is not framed like the card, and R2's close-up.
 - N1 against N0 isolates the card: with the same prompt and no card, the lamp and the window both drift.
