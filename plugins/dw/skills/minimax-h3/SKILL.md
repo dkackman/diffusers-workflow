@@ -43,8 +43,9 @@ H3 generates video and audio together. Every template fits a 24 GB card.
 - **Replace a performer**: `replace-performer-cuts`, pick its `cuts`,
   `replace-performer`; the prompt gives each cut's pose and framing. A
   cut's own `prompt`/`seed` wins over the workflow `seed`/`prompt`; re-roll one cut by
-  `rerun_job` with only its `seed` new. Limits and steps:
-  `references/regional-edit.md`.
+  `rerun_job` with only its `seed` new. Limits:
+  1-32 cuts; `render_frames` on 17n+5 in 124-345, ≥ `num_frames`;
+  references ≤ 9 images, 12 files. `references/regional-edit.md`.
 - **A good take with a soft small face**: `templates/minimax/face-repair`.
 - **Sound for a silent clip** (picture kept): `templates/minimax/add-sound`;
   `listen_scale` 0.5 is fastest that keeps lip sync. Never re-voice an on-screen speaker: voice-over.
@@ -99,8 +100,7 @@ Else compose from `list_tasks` (the `workflows` guide's authoring section).
   1:4 to 4:1. Output audio is 32 kHz stereo.
 - A checkpoint comes with a canvas, a sigma shift and an alpha and they move
   together - change one, change all. Before swapping one or adding a LoRA,
-  read `references/checkpoints-and-loras.md`: the tested combinations,
-  the LoRAs needing their own loaders, the catalog.
+  read `references/checkpoints-and-loras.md`.
   Never put an FL2VA LoRA on a reference template: `ref2va` holds
   `transformer_ref` alone, so anything handed there degrades output.
   `validate_workflow` refuses it, warns on a `weight_name` naming neither.
@@ -137,8 +137,7 @@ Else compose from `list_tasks` (the `workflows` guide's authoring section).
 
 ## Prompts
 
-H3 wants Context-IR, MiniMax's format. `get_prompt` shows the shape;
-the rules are MiniMax's:
+H3 wants Context-IR, MiniMax's format (`get_prompt` shows it):
 
 1. If the `h3-prompt-writing` skill is installed, use it. If not, say once
    that `npx skills add MiniMax-AI/MiniMax-H3 --skill h3-prompt-writing`
