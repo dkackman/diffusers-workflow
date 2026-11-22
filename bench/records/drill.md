@@ -700,7 +700,7 @@ Transcripts: `~/testing/drill-1524-runner/ask<n>-turn-<k>.jsonl` and `probe.json
 
 - **Turbo on dialogue (row 4)** is the costliest miss, and it isn't only the client's:
   `dialogue-short`'s defaults keep the turbo LoRA, so even a careful agent following the template
-  breaks the minimax-h3 rule. Either the template or the rule is wrong, so the template changes too.
+  breaks the minimax-h3 rule. Either the template or the rule is wrong, and one of them has to change.
   A validate check on `<d>` with turbo would catch both; whether it refuses or only warns is yours.
 - **Line sizing (row 6) and verbatim voices (row 7)** are computable from arguments, so validation
   carries them to any client. Both are measured tendencies, not failures, so a warning rather than a
