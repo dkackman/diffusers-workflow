@@ -7,6 +7,7 @@ import {
 } from '@testing-library/svelte'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import OverviewPage from './OverviewPage.svelte'
+import { feed } from '../test/feedMock'
 import { invalidateWorkspaces, workspace } from '../workspace.svelte'
 import '../router.svelte'
 
@@ -20,29 +21,40 @@ const data = vi.hoisted(() => ({
   requestsError: null as Error | null,
   requestsFor: null as ((ws: string) => Promise<unknown>) | null,
 }))
+const calls = vi.hoisted(() => ({}) as Record<string, number>)
+const hit = (name: string) => (calls[name] = (calls[name] ?? 0) + 1)
 const deleteWorkspace = vi.hoisted(() => vi.fn())
+vi.mock('../changes.svelte', async () => ({
+  changes: (await import('../test/feedMock')).feed.changes,
+}))
 vi.mock('../api', () => ({
   api: {
-    gallery: () =>
+    gallery: () => (
+      hit('gallery'),
       data.galleryError
         ? Promise.reject(data.galleryError)
-        : Promise.resolve({ files: data.files }),
+        : Promise.resolve({ files: data.files })
+    ),
     // Filters the fixture the way the server does: `status` is one state
     // or a comma-separated set, `limit` keeps the newest (last) N
     listJobs: (_ws?: string, limit?: number, status?: string) => {
+      hit('jobs')
       const states = status?.split(',')
       let jobs = data.jobs as Array<{ status: string }>
       if (states) jobs = jobs.filter((j) => states.includes(j.status))
       if (limit) jobs = jobs.slice(Math.max(0, jobs.length - limit))
       return Promise.resolve({ jobs, total: jobs.length })
     },
-    listRequests: (ws: string) =>
+    listRequests: (ws: string) => (
+      hit('requests'),
       data.requestsFor
         ? data.requestsFor(ws)
         : data.requestsError
           ? Promise.reject(data.requestsError)
-          : Promise.resolve({ workspace: 'studio', requests: data.requests }),
-    listWorkflows: () =>
+          : Promise.resolve({ workspace: 'studio', requests: data.requests })
+    ),
+    listWorkflows: () => (
+      hit('workflows'),
       Promise.resolve({
         libraries: [
           { origin: 'workspace', root: '/ws/workflows', writable: true },
@@ -50,15 +62,18 @@ vi.mock('../api', () => ({
         shadowed: [],
         workflows: data.workflows,
         details: {},
-      }),
-    listAssets: () =>
+      })
+    ),
+    listAssets: () => (
+      hit('assets'),
       Promise.resolve({
         assets: data.assets,
         libraries: [],
         shadowed: [],
         folders: [],
         workspace: 'default',
-      }),
+      })
+    ),
     galleryThumbnailUrl: (n: string) => `/thumb/${n}`,
     listWorkspaces: () =>
       Promise.resolve({
@@ -83,6 +98,7 @@ vi.mock('../confirm.svelte', () => ({
 vi.mock('../toast', () => ({ notify: { error: vi.fn(), success: vi.fn() } }))
 
 beforeEach(async () => {
+  for (const k of Object.keys(calls)) delete calls[k]
   data.files = []
   data.jobs = []
   data.workflows = []
@@ -315,4 +331,62 @@ it("drops another workspace's requests that land after a switch", async () => {
   await new Promise((r) => setTimeout(r, 10))
   expect(screen.queryByText('Launch posters')).toBeNull()
   expect(screen.getByText('Default ask')).toBeTruthy()
+})
+
+const settle = () => new Promise((r) => setTimeout(r, 10))
+
+it('each kind that moves reloads its own panel quietly, and nothing else', async () => {
+  data.workflows = ['shot']
+  render(OverviewPage)
+  await waitFor(() => expect(screen.getByText('shot')).toBeTruthy())
+  await settle()
+  expect(feed.watched('studio').sort()).toEqual(
+    ['assets', 'gallery', 'jobs', 'requests', 'workflows', 'workspaces'].sort(),
+  )
+  const before = { ...calls }
+  feed.move('studio', 'jobs')
+  expect(document.querySelector('[aria-label="loading jobs"]')).toBeNull()
+  await settle()
+  expect(calls.jobs).toBe((before.jobs ?? 0) + 2)
+  expect(calls.gallery).toBe(before.gallery)
+  expect(calls.workflows).toBe(before.workflows)
+
+  data.workflows = ['shot', 'more']
+  feed.move('studio', 'workflows')
+  expect(screen.getByText('shot')).toBeTruthy()
+  await waitFor(() => expect(screen.getByText('more')).toBeTruthy())
+  expect(calls.workflows).toBe((before.workflows ?? 0) + 1)
+
+  feed.move('studio', 'gallery')
+  feed.move('studio', 'requests')
+  feed.move('studio', 'assets')
+  await settle()
+  expect(calls.gallery).toBe((before.gallery ?? 0) + 1)
+  expect(calls.requests).toBe((before.requests ?? 0) + 1)
+  expect(calls.assets).toBe((before.assets ?? 0) + 1)
+})
+
+it("another workspace's move, or an unwatched kind, reloads nothing", async () => {
+  render(OverviewPage)
+  await waitFor(() => expect(screen.getByText(/no jobs yet/i)).toBeTruthy())
+  await settle()
+  const before = { ...calls }
+  feed.move('default', 'jobs')
+  feed.move('default', 'gallery')
+  feed.move('studio', 'prompts')
+  await settle()
+  expect(calls).toEqual(before)
+})
+
+it('a quiet reload that fails keeps the panel and shows no error', async () => {
+  data.files = [{ name: 'a.png', label: 'a', kind: 'image' }]
+  render(OverviewPage)
+  await waitFor(() =>
+    expect(document.querySelectorAll('.tile')).toHaveLength(1),
+  )
+  data.galleryError = new Error('boom')
+  feed.move('studio', 'gallery')
+  await settle()
+  expect(document.querySelectorAll('.tile')).toHaveLength(1)
+  expect(screen.queryByText(/could not load recent outputs/i)).toBeNull()
 })

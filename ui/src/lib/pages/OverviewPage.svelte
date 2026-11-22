@@ -11,6 +11,7 @@
     Trash2,
   } from '@lucide/svelte'
   import { api } from '../api'
+  import { changes } from '../changes.svelte'
   import { attention, doneFigure } from '../request/attention'
   import Empty from '../Empty.svelte'
   import NoteEditor from '../ui/NoteEditor.svelte'
@@ -61,25 +62,34 @@
   const errorMessage = (e: unknown) =>
     e instanceof Error ? e.message : String(e)
 
-  function loadAssetCount() {
+  // Every panel loads through its own function, with its own stale-answer
+  // guard. A quiet load is the change feed's: the panel stays on screen while
+  // it asks, and a failed one keeps what it had and shows no error.
+  const beginAssets = latestOnly()
+  function loadAssetCount({ quiet = false } = {}) {
+    const current = beginAssets()
+    if (!quiet) {
+      assetCount = null
+      assetsError = null
+    }
     api
       .listAssets()
-      .then(
-        (r) =>
-          (assetCount = r.assets.filter(
-            (a) => a.origin === 'workspace',
-          ).length),
-      )
+      .then((r) => {
+        if (!current()) return
+        assetCount = r.assets.filter((a) => a.origin === 'workspace').length
+        assetsError = null
+      })
       .catch((e) => {
+        if (!current() || (quiet && assetCount !== null)) return
         assetCount = 0
         assetsError = errorMessage(e)
       })
   }
 
   const beginRequests = latestOnly()
-  function loadOpenRequests(ws: string) {
+  function loadOpenRequests(ws: string, { quiet = false } = {}) {
     const current = beginRequests()
-    openRequests = []
+    if (!quiet) openRequests = []
     api
       .listRequests(ws)
       .then((r) => {
@@ -87,61 +97,111 @@
           openRequests = r.requests.filter((q) => q.state === 'open')
       })
       .catch(() => {
-        if (current()) openRequests = []
+        if (current() && !quiet) openRequests = []
       })
   }
 
-  $effect(() => {
-    void workspace.current
-    recent = null
-    running = null
-    recentJobs = null
-    workflows = null
-    assetCount = null
-    recentError = null
-    jobsError = null
-    workflowsError = null
-    assetsError = null
-    loadWorkspaces()
+  const beginGallery = latestOnly()
+  function loadGallery({ quiet = false } = {}) {
+    const current = beginGallery()
+    if (!quiet) {
+      recent = null
+      recentError = null
+    }
     api
       .gallery()
       .then((r) => {
+        if (!current()) return
         recent = r.files.slice(0, RECENT)
         proofs = latestProofs(r.files)
+        recentError = null
       })
       .catch((e) => {
+        if (!current() || (quiet && recent !== null)) return
         recent = []
         recentError = errorMessage(e)
       })
+  }
+
+  const beginJobs = latestOnly()
+  function loadJobs(ws: string, { quiet = false } = {}) {
+    const current = beginJobs()
+    if (!quiet) {
+      running = null
+      recentJobs = null
+      jobsError = null
+    }
     Promise.all([
-      api.listJobs(workspace.current, 1, 'running'),
-      api.listJobs(workspace.current, JOBS, 'succeeded,failed,cancelled'),
+      api.listJobs(ws, 1, 'running'),
+      api.listJobs(ws, JOBS, 'succeeded,failed,cancelled'),
     ])
       .then(([live, finished]) => {
+        if (!current()) return
         running = live.jobs[0] ?? null
         recentJobs = finished.jobs.reverse()
+        jobsError = null
       })
       .catch((e) => {
+        if (!current() || (quiet && recentJobs !== null)) return
         running = null
         recentJobs = []
         jobsError = errorMessage(e)
       })
+  }
+
+  const beginWorkflows = latestOnly()
+  function loadWorkflows({ quiet = false } = {}) {
+    const current = beginWorkflows()
+    if (!quiet) {
+      workflows = null
+      workflowsError = null
+    }
     api
       .listWorkflows()
       // The workspace's own, as the Workflows page lists them - the
       // read-only examples have their own page
-      .then(
-        (r) =>
-          (workflows = r.workflows.filter(
-            (wf) => r.details?.[wf]?.writable !== false,
-          )),
-      )
+      .then((r) => {
+        if (!current()) return
+        workflows = r.workflows.filter(
+          (wf) => r.details?.[wf]?.writable !== false,
+        )
+        workflowsError = null
+      })
       .catch((e) => {
+        if (!current() || (quiet && workflows !== null)) return
         workflows = []
         workflowsError = errorMessage(e)
       })
-    loadOpenRequests(workspace.current)
+  }
+
+  $effect(() => {
+    const ws = workspace.current
+    loadWorkspaces()
+    loadGallery()
+    loadJobs(ws)
+    loadWorkflows()
+    loadOpenRequests(ws)
     loadAssetCount()
+  })
+
+  // Each panel reloads quietly when its own kind moves. The note box is fed
+  // by `workspace.notes` alone, which only the workspaces watch touches, and
+  // NoteEditor keeps an open draft when a newer note arrives.
+  $effect(() => {
+    const ws = workspace.current
+    const quiet = { quiet: true }
+    const stops = [
+      changes(ws).watch(['gallery'], () => loadGallery(quiet)),
+      changes(ws).watch(['jobs'], () => loadJobs(ws, quiet)),
+      changes(ws).watch(['workflows'], () => loadWorkflows(quiet)),
+      changes(ws).watch(['requests'], () => loadOpenRequests(ws, quiet)),
+      changes(ws).watch(['assets'], () => loadAssetCount(quiet)),
+      changes(ws).watch(['workspaces'], () => {
+        invalidateWorkspaces()
+        void loadWorkspaces()
+      }),
+    ]
+    return () => stops.forEach((stop) => stop())
   })
 
   // The ones that have produced something first - the same order the catalog

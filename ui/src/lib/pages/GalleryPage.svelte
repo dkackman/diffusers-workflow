@@ -2,6 +2,7 @@
   import { ImageOff, Pencil, Play, Star } from '@lucide/svelte'
   import { outputLibrary } from '../outputlib.svelte'
   import { api } from '../api'
+  import { changes } from '../changes.svelte'
   import Empty from '../Empty.svelte'
   import FolderGroups from '../FolderGroups.svelte'
   import BulkBar from '../BulkBar.svelte'
@@ -63,7 +64,9 @@
   // land over the newer one: the chip would name a request the grid is not
   // narrowed to, and the bulk actions act on what the grid shows
   const beginListing = latestOnly()
-  async function loadListing() {
+  /** Read the listing. A quiet one is the change feed's: it leaves the
+   * picks alone, and one that fails keeps the files on screen, no error */
+  async function loadListing({ quiet = false } = {}) {
     const current = beginListing()
     try {
       const result = await api.gallery(
@@ -77,9 +80,10 @@
       outputLibrary.items = result.files
       outputLibrary.workspace = workspace.current
       error = ''
-      picks.keepOnly(result.files.map((f) => f.name))
+      if (!quiet) picks.keepOnly(result.files.map((f) => f.name))
     } catch (e) {
       if (!current()) return
+      if (quiet && loaded) return
       error = e instanceof Error ? e.message : String(e)
     }
     loaded = true
@@ -91,6 +95,12 @@
     void reqId
     void reqItem
     void loadListing()
+  })
+  // An output landing from outside shows within one feed interval. Only the
+  // listing is read again: the open file and its note box are left as they are
+  $effect(() => {
+    const ws = workspace.current
+    return changes(ws).watch(['gallery'], () => loadListing({ quiet: true }))
   })
 
   let starredOnly = $state(false)
@@ -104,6 +114,7 @@
     const next = !selected.starred
     try {
       await api.setStarred(name, next)
+      beginListing()
       files = files.map((f) => (f.name === name ? { ...f, starred: next } : f))
       if (selected?.name === name) selected = { ...selected, starred: next }
     } catch (e) {
@@ -147,6 +158,7 @@
     busy = true
     const failed = await actOnEach(names, (name) => api.deleteOutput(name))
     const gone = new Set(names.filter((name) => !failed.includes(name)))
+    beginListing()
     files = files.filter((f) => !gone.has(f.name))
     // Whatever could not be deleted stays selected, so a retry needs no
     // re-ticking and the failure is visible rather than silently dropped
@@ -210,7 +222,7 @@
     const name = selected?.name
     if (!name) return
     // A run's note shows on every tile of the run that inherits it
-    if (kind === 'run') await loadListing()
+    if (kind === 'run') await loadListing({ quiet: true })
     try {
       const r = await api.galleryMetadata(name)
       if (selected?.name !== name) return
@@ -219,6 +231,7 @@
         runNote: r.run_note ?? null,
         source: r.note_source ?? null,
       }
+      beginListing()
       files = files.map((f) =>
         f.name === name ? { ...f, note: r.note ?? undefined } : f,
       )
@@ -243,6 +256,7 @@
       neighbor(order, name, -1, selectedAt)
     try {
       await api.deleteOutput(name)
+      beginListing()
       files = files.filter((f) => f.name !== name)
       // A file deleted from here may also be ticked in the grid; leaving it
       // there would make the next bulk action fail on a file that is gone

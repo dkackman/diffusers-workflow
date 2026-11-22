@@ -15,11 +15,23 @@
 //   Sidebar workspace list      -                               workspaces: clears the
 //                                                               cached list, reads again
 //   Requests (RequestsPage)     -                               requests: quiet reload
+//   Gallery (GalleryPage)       -                               gallery: quiet reload,
+//                                                               picks merge
+//   Assets (AssetsPage)         -                               assets: quiet reload,
+//                                                               picks merge
+//   Prompts (PromptsPage)       -                               prompts: quiet reload
+//   Workflows (WorkflowsPage)   -                               workflows: quiet reload;
+//                                                               gallery: the proofs
+//   Overview (OverviewPage)     -                               gallery, jobs, workflows,
+//                                                               requests, assets: that
+//                                                               panel; workspaces
+//   Compare (ComparePage)       -                               gallery: cells keep
+//                                                               their metadata
 //   One request (RequestPage)   5 s while a job of it is        requests, only while
 //                               queued or running, 20 s while   closed; reads keep the
 //                               open (request/refresh.ts)       higher revision (newerOf)
 //   Linked notes                20 s                            -
-//   Jobs (JobsPage)             3 s                             -
+//   Jobs (JobsPage)             3 s, paused while hidden        -
 //   Models (ModelsPage)         2 s while a download or a       -
 //                               diffusers update runs
 //   Server status (ServerPage)  health and memory, 5 s          -

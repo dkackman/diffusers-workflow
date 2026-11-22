@@ -1,6 +1,8 @@
 <script lang="ts">
   import { Film, Image, Layers, Music, Play, Plus } from '@lucide/svelte'
   import { api } from '../api'
+  import { changes } from '../changes.svelte'
+  import { latestOnly } from '../latest'
   import { writableRoot } from '../libraries'
   import Empty from '../Empty.svelte'
   import FolderGroups from '../FolderGroups.svelte'
@@ -41,34 +43,58 @@
    * run id - so a workflow's name matches its folder directly. */
   let proofs = $state<Record<string, GalleryFile>>({})
 
-  $effect(() => {
-    // Read inside the effect so switching workspaces refetches the listing
-    void workspace.current
+  // A reply overtaken by a newer load (a switch, a feed reload) is dropped.
+  // A quiet load is the change feed's: it keeps the listing on screen, and a
+  // failed one keeps what is shown and sets no error.
+  const beginListing = latestOnly()
+  function loadListing({ quiet = false } = {}) {
+    const current = beginListing()
+    if (!quiet) error = ''
     api
       .listWorkflows()
       .then((result) => {
+        if (!current()) return
         workflows = result.workflows
         details = result.details ?? {}
         costBasis = result.cost_basis
         workflowDir = writableRoot(result.libraries)
         loaded = true
+        error = ''
       })
-      .catch((e) => (error = e.message))
-  })
+      .catch((e) => {
+        if (current() && !quiet) error = e.message
+      })
+  }
 
-  $effect(() => {
-    void workspace.current
-    // Deliberately not awaited with the listing: the catalog is useful the
-    // moment names arrive, and the proofs fill in behind it. A workspace
-    // with no outputs yet simply never populates this.
+  const beginProofs = latestOnly()
+  // Deliberately not awaited with the listing: the catalog is useful the
+  // moment names arrive, and the proofs fill in behind it. A workspace
+  // with no outputs yet simply never populates this.
+  function loadProofs() {
+    const current = beginProofs()
     api
       .gallery()
       .then((result) => {
-        proofs = latestProofs(result.files)
+        if (current()) proofs = latestProofs(result.files)
       })
       .catch(() => {
         /* the catalog reads fine without proofs */
       })
+  }
+
+  $effect(() => {
+    // Read inside the effect so switching workspaces refetches the listing
+    void workspace.current
+    loadListing()
+    loadProofs()
+  })
+  $effect(() => {
+    const ws = workspace.current
+    const stops = [
+      changes(ws).watch(['workflows'], () => loadListing({ quiet: true })),
+      changes(ws).watch(['gallery'], () => loadProofs()),
+    ]
+    return () => stops.forEach((stop) => stop())
   })
 
   // The population this page is over: the workspace's own workflows (any
