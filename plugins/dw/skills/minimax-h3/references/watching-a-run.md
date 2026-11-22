@@ -32,3 +32,6 @@ soundtrack. Its `log` event gives `held_before` and `held_after`; re-assess
 the result. Reroll the take or re-plan the shot (for example, less fast
 motion) instead when the holds sit against a cut or at the clip's end, which
 refill leaves held, or when the motion itself is wrong, not just stuttering.
+A long hold in slow motion can survive a refill and still count in
+`held_after`, because the motion it lost is under ε per interpolated step;
+when `held_after` is still 13 or more, reroll.
