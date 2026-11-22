@@ -77,7 +77,8 @@ Framing guidance, not a measured rule (story-forge's lesson 5, unprobed
 on dw: `docs/proposals/audits/2026-11-story-forge-lessons.md`): a face
 small in a wide shot drifts most, so frame a recurring character large.
 
-Cast each recurring set too: a place card, a still of the empty set kept
+Cast each recurring set too: a place card, a still of the set without the cast (its audience
+stays) kept
 as `asset:places/<set>` and passed after the people (PRELIMINARY, #1581):
 `minimax-h3/references/cuts.md`, *A place card holds the set*.
 

@@ -253,8 +253,9 @@ pass and pulled the angle back, so the rule holds on those grounds too.
 
 ## A place card holds the set
 
-A *place card* is one still per recurring set: a wide of the empty set, no
-cast and no text. Make it on FLUX 3 Klein (`templates/flux3/text-to-image`),
+A *place card* is one still per recurring set: a wide of the set empty of
+the cast, with no text. People who belong to the set (an audience, a crowd,
+a jury) stay in it; only the cast is left out. Make it on FLUX 3 Klein (`templates/flux3/text-to-image`),
 naming in its prompt the set's markers (the lamp, the window and its light,
 the shelf), and keep it beside the cast portraits:
 `keep_output(..., asset_name="places/<set>", shared=True)`. Pass it as a
@@ -276,7 +277,7 @@ The card holds the lamp, shelf and window; the coat is not in it.
 | B2 | portrait, 22-frame window of E | held | held | held | held | 0.695 | the reverse |
 | R1 | portrait, card | held | held | held | **lost** | 0.673 | a real reverse, not the card's framing |
 | R2 | portrait, card (a close-up) | held | held | held | lost | 0.804 | stayed a close-up |
-| R4 | two portraits, card (175 frames) | held | held | held | lost | not scored | the two side by side to camera |
+| R4 | two portraits, card (175 frames) | held | held | held | lost | 0.378, unusable (two faces) | the two side by side to camera |
 | N1 | card only (no people) | held | held | held | - | - | the empty set; a slight push-in |
 | N0 | none (t2va, N1's prompt) | lost | held | lost | - | - | the empty set |
 

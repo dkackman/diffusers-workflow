@@ -64,7 +64,8 @@ guard, so it has to be a deliberate, first step rather than an implicit one.
 As guidance, not a measured rule (`script-to-video` step 3;
 `docs/proposals/audits/2026-11-story-forge-lessons.md`): frame a recurring
 character large. Cast each recurring set the same way: one place card (a
-Klein still of the empty set) per location and look, kept as
+Klein still of the set without the cast; an audience that belongs there
+stays) per location and look, kept as
 `asset:places/<set>` and passed after the people in every shot there; it
 held the set across a reverse (PRELIMINARY, #1581;
 `minimax-h3/references/cuts.md`, *A place card holds the set*).
