@@ -35,6 +35,7 @@ from ..task_problems import (
     face_track_errors,
     ingredients_grid_errors,
     paste_face_track_errors,
+    paste_into_box_errors,
     stills_to_video_errors,
 )
 
@@ -218,7 +219,9 @@ def _handle_window_video(task, arguments, previous_pipelines):
     implementation="dw.tasks.fit.fit_to_model",
     summary=(
         "Fit a video into a model's working size and frame count - letterbox, "
-        "stretch or crop - with a record restore_to_source reads to undo it."
+        "stretch or crop - with a record restore_to_source reads to undo it, "
+        "and in letterbox mode a mask of the bars for a masked edit to "
+        "outpaint."
     ),
     parameter_descriptions={
         "video": (
@@ -232,8 +235,9 @@ def _handle_window_video(task, arguments, previous_pipelines):
             "num_frames frames; a shorter one holds its last frame."
         ),
         "mode": (
-            "letterbox (scale to fit, centred on black), stretch (resize to "
-            "fill exactly) or crop (scale to fill, centre-crop). crop is also "
+            "letterbox (scale to fit, centred on black; also returns 'mask', "
+            "white over the bars and black over the picture), stretch (resize "
+            "to fill exactly) or crop (scale to fill, centre-crop). crop is also "
             "how to reframe a clip to another aspect (16:9 to 9:16) - see "
             'TASKS.md "Reframe to another aspect".'
         ),
@@ -242,14 +246,21 @@ def _handle_window_video(task, arguments, previous_pipelines):
             "2 when width/height are a 2x model's output size. Both must be "
             "divisible by it; the fit record's model size is the divided one."
         ),
+        "align": (
+            "Letterbox only: snap the picture's box to multiples of this many "
+            "pixels (a masked model's cell size), default 1 (no snap). The "
+            "source is centre-cropped by the few pixels the snap costs. Width "
+            "and height (after downscale) must be divisible by it."
+        ),
     },
     domains={
         "width": POSITIVE,
         "height": POSITIVE,
         "num_frames": POSITIVE,
         "downscale": POSITIVE,
+        "align": POSITIVE,
     },
-    whole_numbers=("width", "height", "num_frames", "downscale"),
+    whole_numbers=("width", "height", "num_frames", "downscale", "align"),
     choices={"mode": FIT_MODES},
     static_check=fit_to_model_errors,
 )
@@ -539,3 +550,47 @@ def _handle_paste_face_track(task, arguments, previous_pipelines):
     from .face_track import paste_face_track
 
     return paste_face_track(**arguments)
+
+
+@register_command(
+    "paste_into_box",
+    implementation="dw.tasks.paste_box.paste_into_box",
+    summary=(
+        "Put a source clip back inside a box of a generated clip - the "
+        "original pixels inside a letterbox outpaint - feathered at the box's "
+        "edges, keeping the generated clip's audio and fps."
+    ),
+    parameter_descriptions={
+        "generated": (
+            "The generated clip - an earlier step's video, or an asset:/"
+            "output: reference. Kept as it is outside the box; its audio, fps "
+            "and shots are the result's."
+        ),
+        "source": (
+            "The clip to paste back, one frame per generated frame - the "
+            "video fit_to_model was given."
+        ),
+        "content_box": (
+            "Where the source goes: a box {x, y, w, h} in the generated "
+            "clip's pixels, or fit_to_model's record (previous_result:<step>"
+            ".fit, or its saved .json), whose content_box and source_box it "
+            "reads."
+        ),
+        "feather": (
+            "Pixels of linear blend inside the box's edges, default 16; 0 is a "
+            "hard edge. Below half the box's shorter side. An edge on the "
+            "frame's own edge gets no blend."
+        ),
+    },
+    domains={"feather": NON_NEGATIVE},
+    whole_numbers=("feather",),
+    static_check=paste_into_box_errors,
+    media_arguments=("generated", "source", "content_box"),
+    result_content_type="video/mp4",
+)
+def _handle_paste_into_box(task, arguments, previous_pipelines):
+    """Put a source clip back inside a box of a generated clip"""
+    logger.debug("Pasting into a box")
+    from .paste_box import paste_into_box
+
+    return paste_into_box(**arguments)

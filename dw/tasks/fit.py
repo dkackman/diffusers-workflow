@@ -18,6 +18,14 @@ from the output's size, so no `scale` argument is needed.
 `mode: "crop"` also reframes a clip to another aspect (16:9 to 9:16); see
 "Reframe to another aspect" in docs/TASKS.md.
 
+Letterbox mode also returns a `mask` (#1066): a canvas-size "L" image, white
+on the bars and black on the picture, drawn from the same `content_box`, so a
+masked edit can fill the bars. `align` snaps that box to a pixel grid - a
+model's mask-cell size, passed by the template, never known here - by scaling
+the source to fill the snapped box and centre-cropping the few pixels that no
+longer fit; the record's `source_box` says what was kept. `paste_into_box`
+puts the source back inside the box afterwards.
+
 Neither task touches a soundtrack. The fitted video has none (its length is
 the model's), and the restored one has none either - a template pairs the
 source's track with `pair_audio` after the restore.
@@ -37,6 +45,7 @@ from ..task_domains import (
     SOURCE_FPS,
     as_number,
     check_arguments,
+    fit_align_problem,
     fit_downscale_problem,
     fit_mode_problem,
     real_number,
@@ -58,7 +67,7 @@ _RECORD_INTS = (
 )
 
 
-def _float_frames(video, command):
+def float_frames(video, command):
     """The video's frames as one float32 (frames, height, width, 3) array in
     [0, 1], without a round trip through uint8 for frames already float."""
     try:
@@ -79,7 +88,7 @@ def _float_frames(video, command):
     return frames_as_array(frames).astype(numpy.float32) / 255.0
 
 
-def _resize(frames, width, height):
+def resize_frames(frames, width, height):
     """Bicubic, antialiased resize of a (frames, h, w, 3) float array."""
     if frames.shape[1:3] == (height, width):
         return frames
@@ -98,7 +107,36 @@ def _centred(outer, inner):
     return (outer - inner) // 2
 
 
-def fit_to_model(video, width, height, num_frames, mode="letterbox", downscale=1):
+def fill_crop(source_width, source_height, width, height):
+    """The centred part of a source_width x source_height frame that, scaled to
+    fill width x height, covers it exactly - {x, y, w, h} in source pixels.
+    Shared by crop mode, an aligned letterbox and paste_into_box, so the three
+    cut the same pixels."""
+    scale = max(width / source_width, height / source_height)
+    kept_w = min(source_width, max(1, round(width / scale)))
+    kept_h = min(source_height, max(1, round(height / scale)))
+    x, y = _centred(source_width, kept_w), _centred(source_height, kept_h)
+    return {"x": x, "y": y, "w": kept_w, "h": kept_h}
+
+
+def _snap(length, align, limit):
+    """`length` rounded to the nearest multiple of `align`, kept within one
+    `align` and `limit` (itself a multiple)."""
+    return min(limit, max(align, round(length / align) * align))
+
+
+def _letterbox_mask(width, height, box):
+    """The canvas-size "L" mask of a letterbox: 255 outside `box`, 0 inside."""
+    from PIL import Image
+
+    mask = numpy.full((height, width), 255, dtype=numpy.uint8)
+    mask[box["y"] : box["y"] + box["h"], box["x"] : box["x"] + box["w"]] = 0
+    return Image.fromarray(mask, mode="L")
+
+
+def fit_to_model(
+    video, width, height, num_frames, mode="letterbox", downscale=1, align=1
+):
     """Task command: fit a video into a model's working size and frame count.
 
     Every frame is resized into `width`x`height` (bicubic, antialiased) and the
@@ -126,6 +164,11 @@ def fit_to_model(video, width, height, num_frames, mode="letterbox", downscale=1
             to another aspect")
         downscale: Divides `width` and `height` before fitting - 2 for a 2x
             model whose output size they are. Both must be divisible by it
+        align: Letterbox only - snap the content box's position and size to
+            multiples of this many pixels (a model's mask-cell size), filling
+            the snapped box and centre-cropping the few source pixels past it.
+            1 (the default) does not snap. The fitted size must be divisible
+            by it
 
     Returns:
         {"video": the fitted frames as a FittedVideo - one float32 array in
@@ -135,19 +178,22 @@ def fit_to_model(video, width, height, num_frames, mode="letterbox", downscale=1
         (where the source sits in the model frame) and source_box (the part
         of the source kept; all of it unless mode is "crop"), each box
         {x, y, w, h}, and source_fps (the source's frame rate, null when it
-        carries none)}
+        carries none), and in letterbox mode "mask": a width x height PIL "L"
+        image, white (255) outside content_box and black (0) inside it}
     """
     command = "fit_to_model"
     width = whole_number(width, "width", command, required=True)
     height = whole_number(height, "height", command, required=True)
     num_frames = whole_number(num_frames, "num_frames", command, required=True)
     downscale = whole_number(downscale, "downscale", command, required=True)
+    align = whole_number(align, "align", command, required=True)
     check_arguments(
         command,
         width=width,
         height=height,
         num_frames=num_frames,
         downscale=downscale,
+        align=align,
     )
     for problem in (
         fit_mode_problem(mode),
@@ -156,11 +202,14 @@ def fit_to_model(video, width, height, num_frames, mode="letterbox", downscale=1
         if problem is not None:
             raise ValueError(problem)
     width, height = width // downscale, height // downscale
+    problem = fit_align_problem(mode, width, height, align)
+    if problem is not None:
+        raise ValueError(problem)
 
     if isinstance(video, str):
         video = load_audio_video(video)
     fps = getattr(video, "fps", None)
-    frames = _float_frames(video, command)
+    frames = float_frames(video, command)
     total, source_height, source_width = frames.shape[:3]
 
     # Frames first, so only the kept ones are resized
@@ -170,22 +219,27 @@ def fit_to_model(video, width, height, num_frames, mode="letterbox", downscale=1
     source_box = {"x": 0, "y": 0, "w": source_width, "h": source_height}
     content_box = {"x": 0, "y": 0, "w": width, "h": height}
     if mode == "stretch":
-        fitted = _resize(frames, width, height)
+        fitted = resize_frames(frames, width, height)
     elif mode == "crop":
-        scale = max(width / source_width, height / source_height)
-        kept_w = min(source_width, max(1, round(width / scale)))
-        kept_h = min(source_height, max(1, round(height / scale)))
-        x, y = _centred(source_width, kept_w), _centred(source_height, kept_h)
-        source_box = {"x": x, "y": y, "w": kept_w, "h": kept_h}
-        fitted = _resize(frames[:, y : y + kept_h, x : x + kept_w], width, height)
+        source_box = fill_crop(source_width, source_height, width, height)
+        fitted = resize_frames(cut_box(frames, source_box), width, height)
     else:
         scale = min(width / source_width, height / source_height)
         inner_w = min(width, max(1, round(source_width * scale)))
         inner_h = min(height, max(1, round(source_height * scale)))
-        x, y = _centred(width, inner_w), _centred(height, inner_h)
+        if align > 1:
+            inner_w = _snap(inner_w, align, width)
+            inner_h = _snap(inner_h, align, height)
+            source_box = fill_crop(source_width, source_height, inner_w, inner_h)
+            x = _centred(width, inner_w) // align * align
+            y = _centred(height, inner_h) // align * align
+        else:
+            x, y = _centred(width, inner_w), _centred(height, inner_h)
         content_box = {"x": x, "y": y, "w": inner_w, "h": inner_h}
         fitted = numpy.zeros((num_frames, height, width, 3), dtype=numpy.float32)
-        fitted[:, y : y + inner_h, x : x + inner_w] = _resize(frames, inner_w, inner_h)
+        fitted[:, y : y + inner_h, x : x + inner_w] = resize_frames(
+            cut_box(frames, source_box), inner_w, inner_h
+        )
 
     record = JsonRecord(
         {
@@ -205,9 +259,17 @@ def fit_to_model(video, width, height, num_frames, mode="letterbox", downscale=1
     logger.info(
         f"fit_to_model: {source_width}x{source_height}x{total} -> "
         f"{width}x{height}x{num_frames} ({mode}, content {content_box}, "
-        f"{max(0, num_frames - total)} held frames)"
+        f"source {source_box}, {max(0, num_frames - total)} held frames)"
     )
-    return {"video": FittedVideo(fitted, fps=fps), "fit": record}
+    result = {"video": FittedVideo(fitted, fps=fps), "fit": record}
+    if mode == "letterbox":
+        result["mask"] = _letterbox_mask(width, height, content_box)
+    return result
+
+
+def cut_box(frames, box):
+    """`frames` cut to `box`, a view when the box is the whole frame."""
+    return frames[:, box["y"] : box["y"] + box["h"], box["x"] : box["x"] + box["w"]]
 
 
 def _read_fit(fit):
@@ -260,6 +322,20 @@ def _read_fit(fit):
     return fit
 
 
+def _whole_box(box):
+    return (
+        isinstance(box, dict)
+        and all(
+            isinstance(box.get(k), int)
+            and not isinstance(box.get(k), bool)
+            and box[k] >= 0
+            for k in _BOX_KEYS
+        )
+        and box["w"] > 0
+        and box["h"] > 0
+    )
+
+
 def restore_to_source(video, fit, fps=None):
     """Task command: put a model's output back at its source's size and length.
 
@@ -306,7 +382,7 @@ def restore_to_source(video, fit, fps=None):
         fps = fit.get("source_fps") or carried
     else:
         fps = real_number(fps, "fps", command)
-    frames = _float_frames(video, command)
+    frames = float_frames(video, command)
     count, video_height, video_width = frames.shape[:3]
 
     model_width, model_height = fit["model_width"], fit["model_height"]
@@ -330,16 +406,20 @@ def restore_to_source(video, fit, fps=None):
     if mode == "crop":
         box = fit["source_box"]
         out_w, out_h = scaled(box["w"]), scaled(box["h"])
-        restored = _resize(frames, out_w, out_h)
+        restored = resize_frames(frames, out_w, out_h)
     else:
         out_w, out_h = scaled(fit["source_width"]), scaled(fit["source_height"])
+        kept = fit.get("source_box")
+        if mode == "letterbox" and _whole_box(kept):
+            # An aligned letterbox kept a few px less than the whole source
+            out_w, out_h = scaled(kept["w"]), scaled(kept["h"])
         if mode == "letterbox":
             box = fit["content_box"]
             x0, y0 = round(box["x"] * scale), round(box["y"] * scale)
             x1 = min(video_width, round((box["x"] + box["w"]) * scale))
             y1 = min(video_height, round((box["y"] + box["h"]) * scale))
             frames = frames[:, y0:y1, x0:x1]
-        restored = _resize(frames, out_w, out_h)
+        restored = resize_frames(frames, out_w, out_h)
 
     logger.info(
         f"restore_to_source: {video_width}x{video_height}x{count} -> "

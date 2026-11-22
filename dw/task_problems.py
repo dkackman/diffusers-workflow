@@ -26,7 +26,12 @@ import re
 
 from .references import DEFERRED, GATHER, is_ref
 from .script_lines import parse_lines, parse_shots, shot_names_error
-from .task_domains import as_number, choice_errors, source_fps_problems
+from .task_domains import (
+    as_number,
+    choice_errors,
+    number_problem,
+    source_fps_problems,
+)
 
 # ingredients_grid's literal choices, read by its registration and by
 # ingredients_grid_errors below, and its default image cap
@@ -412,6 +417,88 @@ def paste_face_track_errors(arguments):
     if is_ref(DEFERRED, feather):
         return problems
     return paste_feather_problems(feather) + problems
+
+
+def paste_box_of(value):
+    """A {x, y, w, h} dict of ints from a box dict, a list of four, or a fit
+    record (its `content_box`), or None when it is none of those: whole
+    numbers, x and y from 0, w and h from 1."""
+    if isinstance(value, dict) and "content_box" in value:
+        value = value["content_box"]
+    if isinstance(value, dict):
+        try:
+            value = [value[key] for key in ("x", "y", "w", "h")]
+        except KeyError:
+            return None
+    if not isinstance(value, (list, tuple)) or len(value) != 4:
+        return None
+    numbers_of = []
+    for item in value:
+        if isinstance(item, bool) or not isinstance(item, (int, float)):
+            return None
+        if item != int(item):
+            return None
+        numbers_of.append(int(item))
+    x, y, w, h = numbers_of
+    if x < 0 or y < 0 or w < 1 or h < 1:
+        return None
+    return {"x": x, "y": y, "w": w, "h": h}
+
+
+def paste_into_box_problems(feather=None, box=None):
+    """[(argument, message)] for paste_into_box's feather: a whole number from
+    0, and - once the box is known - below half the box's shorter side, so the
+    ramps from opposite edges never meet."""
+    if feather is None:
+        return []
+    problem = number_problem(feather, "feather", "paste_into_box", whole=True)
+    if problem is not None:
+        return [("feather", problem)]
+    number = as_number(feather)
+    if number is None:
+        return []
+    if number < 0:
+        return [
+            (
+                "feather",
+                f"paste_into_box needs 'feather' at 0 or above (pixels of "
+                f"blend inside the box's edges), got {feather!r}",
+            )
+        ]
+    if box is not None and number >= min(box["w"], box["h"]) / 2:
+        return [
+            (
+                "feather",
+                f"paste_into_box needs 'feather' below half the box's shorter "
+                f"side ({min(box['w'], box['h'])} px), got {feather!r}",
+            )
+        ]
+    return []
+
+
+def paste_into_box_errors(arguments):
+    """[(argument, message)] for the paste_into_box rules a literal workflow
+    can break before it runs: a feather that is not a whole number from 0, a
+    literal content_box that is not a box, and a feather at or past half a
+    literal box's shorter side."""
+    problems = []
+    content_box = arguments.get("content_box")
+    box = None
+    if isinstance(content_box, (dict, list, tuple)):
+        box = paste_box_of(content_box)
+        if box is None:
+            problems.append(
+                (
+                    "content_box",
+                    f"paste_into_box needs 'content_box' as a box {{x, y, w, "
+                    f"h}} of whole pixels (x, y from 0, w, h from 1), or the "
+                    f"fit record fit_to_model returned, got {content_box!r}",
+                )
+            )
+    feather = arguments.get("feather")
+    if is_ref(DEFERRED, feather):
+        return problems
+    return problems + paste_into_box_problems(feather, box)
 
 
 def check_face_detector_source(repo, filename):
