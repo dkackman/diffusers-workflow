@@ -8,11 +8,12 @@ name = "diffusers-workflow"
 # runtime (static in TOML because importing dw at build time would drag
 # torch into the build environment). Release tags must match it - see
 # docs/RELEASING.md
-version = "0.21.0"
+version = "0.22.0-alpha.1"
 description = "Declarative workflow engine and web UI for Hugging Face Diffusers"
 readme = "README.md"
 requires-python = ">=3.12"
-license = { text = "Apache-2.0" }
+license = "Apache-2.0"
+license-files = ["LICENSE"]
 authors = [{ name = "dkackman" }]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -83,7 +84,7 @@ dependencies = [
     "facexlib>=0.3.0",
     # Imaging and media
     "numpy>=2.5.4",
-    "Pillow>=12.3.0",
+    "Pillow>=13.0.0",
     "piexif>=1.1.3",
     "imageio>=2.38.1",
     "imageio-ffmpeg>=0.6.0",

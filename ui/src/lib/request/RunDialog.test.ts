@@ -10,8 +10,10 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import RunDialog from './RunDialog.svelte'
 import { attempt, doneItem, item, request } from './fixtures'
 import { planState } from './itemState'
-import { ALL_CACHED, itemPlan, readyPlan } from './runPlan'
-import type { Plan } from '../types'
+import { listening } from './listening.svelte'
+import { clockTime } from './reviewText'
+import { ALL_CACHED, heldPlan, itemPlan, readyPlan } from './runPlan'
+import type { LedgerReview, Plan } from '../types'
 
 const world = vi.hoisted(() => ({
   validate: vi.fn(),
@@ -340,4 +342,57 @@ it('cancelling queues nothing and drops the pricing still out', async () => {
   await waitFor(() => expect(onclose).toHaveBeenCalledWith(0))
   expect(signal?.aborted).toBe(true)
   expect(world.submitJob).not.toHaveBeenCalled()
+})
+
+const UNTIL = '2026-11-21T15:30:00+00:00'
+function openHeld(state: LedgerReview['state'], listens: boolean) {
+  listening('studio').listening = listens
+  const held = planState(
+    request([
+      item('title', {
+        title: 'Title card',
+        ready: true,
+        workflow: 'card',
+        review: { until: UNTIL, state, seconds_left: 0 },
+      }),
+      item('s4', { title: 'Shot 4', ready: true, workflow: 'shot' }),
+    ]),
+  )
+  render(RunDialog, {
+    run: heldPlan(held, ['title']),
+    plan: held,
+    workspace: 'studio',
+    requestId: 'r1',
+    onclose: vi.fn(),
+  })
+}
+
+it('says on a held row that running it now is the go-ahead', async () => {
+  openHeld('holding', true)
+  await screen.findByRole('dialog', { name: 'Run what is ready' })
+  const line = runRow('title').querySelector('.held') as HTMLElement
+  expect(line.textContent?.trim()).toBe(
+    `Held for review until ${clockTime(UNTIL)}. Running it now is your go-ahead.`,
+  )
+  expect(line.classList.contains('warn')).toBe(false)
+  // only the held row is in this run
+  expect(runRow('s4')).toBeNull()
+  listening('studio').listening = false
+})
+
+it('warns on a held row whose review is up while a session listens', async () => {
+  openHeld('due', true)
+  await screen.findByRole('dialog', { name: 'Run what is ready' })
+  const line = runRow('title').querySelector('.held') as HTMLElement
+  expect(line.textContent?.trim()).toBe(
+    'Review time is up and a session is listening: it may be starting this now.',
+  )
+  expect(line.classList.contains('warn')).toBe(true)
+  listening('studio').listening = false
+})
+
+it('has no held line on a row that is not held', async () => {
+  open()
+  await screen.findByRole('dialog', { name: 'Run what is ready' })
+  expect(runRow('s4').querySelector('.held')).toBeNull()
 })

@@ -8,10 +8,33 @@ const same = (a: LedgerNoteRef, b: LedgerNoteRef) =>
   (a.job ?? null) === (b.job ?? null) &&
   (a.output ?? null) === (b.output ?? null)
 
-/** `refs` with `ref` added at the end, unless it names the same item, job
- * and file as one already there: then `refs` as it was */
-export const addRef = (refs: LedgerNoteRef[], ref: LedgerNoteRef) =>
-  refs.some((r) => same(r, ref)) ? refs : [...refs, ref]
+/** Whether `wide` says no more than `narrow` does: the same item, and the
+ * same take where it names one, and the same file where it names one. A
+ * take's file covers the take, and a take covers its item */
+const covers = (narrow: LedgerNoteRef, wide: LedgerNoteRef) =>
+  narrow.item === wide.item &&
+  (!wide.job || narrow.job === wide.job) &&
+  (!wide.output || narrow.output === wide.output)
+
+/** `refs` with `ref` added, unless one already there says as much or more
+ * (then `refs` as it was). What the new one covers - its item alone, its
+ * take without the file - goes, and it takes the first such place */
+export function addRef(refs: LedgerNoteRef[], ref: LedgerNoteRef) {
+  if (refs.some((r) => same(r, ref) || covers(r, ref))) return refs
+  const at = refs.findIndex((r) => covers(ref, r))
+  const kept = refs.filter((r) => !covers(ref, r))
+  if (at < 0) return [...kept, ref]
+  const place = refs.slice(0, at).filter((r) => !covers(ref, r)).length
+  return [...kept.slice(0, place), ref, ...kept.slice(place)]
+}
+
+/** A saved note's references as chips: one for a take and its file, one
+ * for an item and its take, in the order written */
+export const collapseRefs = (refs: LedgerNoteRef[]) =>
+  refs.filter(
+    (r, i) =>
+      !refs.some((other, j) => j !== i && !same(other, r) && covers(other, r)),
+  )
 
 /** The 1-based take a reference names: the server's `attempt`, or the
  * job's place among the item's attempts; null for an item alone or a job

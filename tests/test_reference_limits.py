@@ -65,6 +65,53 @@ class TestLimitsComeFromDiffusers:
         assert messages([{"reference_type": "json.JSONDecoder"}]) == []
 
 
+class TestUnnamedReferenceClass:
+    """An entry naming no loadable reference class is refused (#1512)."""
+
+    def found(self, entry):
+        return reference_limit_errors(workflow_with([entry]))
+
+    def test_the_type_key_is_refused_at_its_index(self):
+        entry = {"type": "MiniMaxH3VideoReference", "from_previous_result": "w"}
+        found = self.found(entry)
+        assert len(found) == 1
+        assert found[0]["path"].endswith("references[0]")
+        assert "reference_type" in found[0]["message"]
+        assert "dotted path" in found[0]["message"]
+
+    def test_a_bare_class_name_is_refused(self):
+        entry = {"reference_type": "MiniMaxH3VideoReference", "from_file": "asset:x"}
+        found = self.found(entry)
+        assert len(found) == 1
+        assert found[0]["path"].endswith("references[0]")
+        assert "MiniMaxH3VideoReference" in found[0]["message"]
+
+    def test_a_dotted_entry_passes(self):
+        assert self.found(reference(VIDEO)) == []
+
+    def test_a_variable_reference_type_is_left_to_its_value(self):
+        entry = {"reference_type": "variable:kind", "from_file": "asset:x.mp4"}
+        assert self.found(entry) == []
+
+    def test_a_string_entry_is_not_reported_twice(self):
+        found = self.found("asset:x.mp4")
+        assert not any("dotted path" in f["message"] for f in found)
+
+    def test_another_families_references_are_left_alone(self):
+        # H3 is known by its from_pretrained `workflow`; without one the
+        # step is another family's, and its references are its own
+        workflow = workflow_with([{"type": "Whatever"}])
+        del workflow["steps"][0]["pipeline"]["from_pretrained_arguments"]["workflow"]
+        assert reference_limit_errors(workflow) == []
+
+    def test_workflow_validation_reports_it(self):
+        entry = {"type": "MiniMaxH3VideoReference", "from_file": "x.mp4"}
+        errors = Workflow(
+            workflow_with([entry]), "outputs", "x.json"
+        ).validation_errors()
+        assert any("reference_type" in str(e) for e in errors)
+
+
 class TestH3ReferenceSets:
     def test_audio_cannot_be_the_only_reference(self):
         found = messages([reference(AUDIO)])

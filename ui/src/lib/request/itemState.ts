@@ -3,7 +3,12 @@
 // is read off one LedgerRequest: what a planned item waits on, whether a
 // failure was a cancel, which items want the user, which take is the result.
 import { formatMinutes, formatSpent } from '../format'
-import type { LedgerAttempt, LedgerItem, LedgerRequest } from '../types'
+import type {
+  LedgerAttempt,
+  LedgerItem,
+  LedgerRequest,
+  LedgerReview,
+} from '../types'
 
 export type ItemDisplay =
   | 'ready'
@@ -42,6 +47,9 @@ export type ItemState = {
   /** Done, and another take could be queued (from its menu only) */
   canRetake: boolean
   needs: NeedsReason[]
+  /** The server's review hold on it, while one applies; null otherwise.
+   * Its `state` is the one shown: the page never derives its own */
+  review: LedgerReview | null
 }
 
 export type PlanState = {
@@ -50,6 +58,8 @@ export type PlanState = {
   dropped: ItemState[]
   counts: Record<ItemDisplay, number>
   needs: Record<NeedsReason, number>
+  /** The live items held for the user's review, in plan order */
+  held: ItemState[]
 }
 
 /** The chip's word, and the `.chip` class in app.css that colours it */
@@ -161,11 +171,13 @@ export function planState(request: LedgerRequest): PlanState {
       runnable: runnableNow(item, display, depsDone(item), open),
       canRetake: display === 'done' && open && item.workflow !== null,
       needs: needsOf(item, display, open),
+      review: (!item.dropped && item.review) || null,
     }
   })
   const live = items.filter((state) => !state.item.dropped)
   const dropped = items.filter((state) => state.item.dropped)
-  return { items, live, dropped, ...tally(live, dropped.length) }
+  const held = live.filter((state) => state.review !== null)
+  return { items, live, dropped, held, ...tally(live, dropped.length) }
 }
 
 /** Whether a row starts expanded: something is happening to it, it went

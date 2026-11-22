@@ -71,8 +71,10 @@
       type="button"
       class="bare more"
       aria-expanded={expanded}
-      onclick={toggle}>{expanded ? 'Show less' : 'Show more'}</button
+      onclick={toggle}
     >
+      {expanded ? 'Show less' : 'Show more'}
+    </button>
   {/if}
 </div>
 

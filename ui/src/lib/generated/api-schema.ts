@@ -1394,6 +1394,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Open Requests
+         * @description Every workspace's open requests, without their items, newest change
+         *     first: the one read a notes channel makes when it watches the whole
+         *     server. Marked `X-DW-Notes-Channel: 1`, it counts as a poll of every
+         *     workspace. `unreadable` names a workspace whose requests.json is there
+         *     but is not a ledger, or that could not be resolved while it was listed;
+         *     the others still list, and a watcher keeps what it knew of the named
+         *     ones rather than taking them for closed.
+         */
+        get: operations["list_open_requests_api_requests_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/schema": {
         parameters: {
             query?: never;
@@ -3297,6 +3323,18 @@ export interface components {
             ready: boolean;
             /** @description The accepted job's run, else the latest succeeded job's run whose directory still exists; null when neither. */
             result: components["schemas"]["LedgerResult"] | null;
+            /** @description The hold as read now; absent unless the item is planned, its request open and a deadline set. */
+            review?: components["schemas"]["LedgerReview"];
+            /**
+             * Review Set At
+             * @description When the current deadline was set, stamped by the server; null when it is not held.
+             */
+            review_set_at: string | null;
+            /**
+             * Review Until
+             * @description When the user's review of the item ends, an ISO time in UTC; null when it is not held.
+             */
+            review_until: string | null;
             /**
              * Spent Minutes
              * @description Minutes the item's linked jobs ran, summed.
@@ -3466,6 +3504,25 @@ export interface components {
             output: components["schemas"]["LedgerOutput"] | null;
             /** Run Id */
             run_id: string | null;
+        };
+        /** LedgerReview */
+        LedgerReview: {
+            /**
+             * Seconds Left
+             * @description Whole seconds to the deadline at read time, 0 once passed.
+             */
+            seconds_left: number;
+            /**
+             * State
+             * @description redirected when a note was left after the hold was set, else due once the deadline has passed, else holding.
+             * @enum {string}
+             */
+            state: "holding" | "redirected" | "due";
+            /**
+             * Until
+             * @description The deadline of the hold, an ISO time in UTC.
+             */
+            until: string;
         };
         /** LedgerSummary */
         LedgerSummary: {
@@ -3993,6 +4050,62 @@ export interface components {
              */
             listening: boolean;
         };
+        /** OpenRequestList */
+        OpenRequestList: {
+            /**
+             * Requests
+             * @description Every workspace's open requests, newest change first.
+             */
+            requests: components["schemas"]["OpenRequestSummary"][];
+            /**
+             * Unreadable
+             * @description Workspace name -> why its requests.json could not be read; its requests are left out.
+             */
+            unreadable?: {
+                [key: string]: string;
+            };
+        };
+        /** OpenRequestSummary */
+        OpenRequestSummary: {
+            /**
+             * Cover
+             * @description Up to three outputs of the latest results, newest first.
+             */
+            cover: components["schemas"]["LedgerOutput"][];
+            /** Id */
+            id: string;
+            /** Items */
+            items: number;
+            /**
+             * Ready
+             * @description Items a job could be queued for now.
+             */
+            ready: number;
+            /** Remaining Minutes */
+            remaining_minutes: number;
+            /** Revision */
+            revision: number;
+            /** Spent Minutes */
+            spent_minutes: number;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "open" | "done" | "abandoned";
+            /** Status Counts */
+            status_counts: {
+                [key: string]: number;
+            };
+            /** Title */
+            title: string;
+            /** Updated At */
+            updated_at: string | null;
+            /**
+             * Workspace
+             * @description The workspace the request is in.
+             */
+            workspace: string;
+        };
         /** OutputDeleted */
         OutputDeleted: {
             /** Deleted */
@@ -4246,7 +4359,7 @@ export interface components {
             goal: string;
             /**
              * Items
-             * @description The ordered plan; each item is key, title, depends_on, estimate_minutes, workflow, arguments, accepted; an item's `notes` are ignored (the request-notes routes write them)
+             * @description The ordered plan; each item is key, title, depends_on, estimate_minutes, workflow, arguments, accepted, review_until (an ISO time with a UTC offset, 60 seconds to 24 hours ahead, holding the item for the user's review; null clears it); an item's `notes` are ignored (the request-notes routes write them)
              */
             items: {
                 [key: string]: unknown;
@@ -6996,6 +7109,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_open_requests_api_requests_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OpenRequestList"];
                 };
             };
         };

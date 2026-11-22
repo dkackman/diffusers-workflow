@@ -25,14 +25,14 @@
         <span class="muted">{w.vram_gb} GB</span>
       {/if}
       {#if w.host_memory_rss_mb != null}
-        <span class="muted" title="resident host memory of the worker process"
-          >{(w.host_memory_rss_mb / 1024).toFixed(1)} GB RSS</span
-        >
+        <span class="muted" title="resident host memory of the worker process">
+          {(w.host_memory_rss_mb / 1024).toFixed(1)} GB RSS
+        </span>
       {/if}
       {#if w.current_job}
-        <a href={'#/jobs/' + w.current_job} onclick={() => onnavigate?.()}
-          >{w.current_job} →</a
-        >
+        <a href={'#/jobs/' + w.current_job} onclick={() => onnavigate?.()}>
+          {w.current_job} →
+        </a>
       {/if}
     </li>
   {/each}

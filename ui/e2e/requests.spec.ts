@@ -152,26 +152,17 @@ test('a done item shows its takes as pictures, the latest marked as the result',
   await page.goto(REQUEST)
   const hero = item(page, 'Hero poster')
   await expect(hero.locator('.row .chip')).toHaveText('done')
-  // the row's proof is the result, and leads to the job that made it
-  const proof = hero.locator('.proofcell').getByRole('img', {
-    name: 'result of Hero poster',
-  })
-  await loaded(proof)
-  await expect(hero.locator('.proofcell a')).toHaveAttribute(
-    'href',
-    '#/ws/default/jobs/e2ereqdone02',
-  )
-  // two good takes and none accepted: it says so, and opens to show them
+  // two good takes and none accepted: it says so, and opens to show them;
+  // open, the row's own picture steps aside for the takes
   await expect(hero.locator('.row')).toContainText('2 takes')
   await expect(hero.locator('.row')).toContainText('latest, none accepted')
   await expect(hero.locator('.title')).toHaveAttribute('aria-expanded', 'true')
+  await expect(hero.locator('.proofcell')).toHaveClass(/under/)
   const takes = hero.locator('.strip .tile')
   await expect(takes).toHaveCount(2)
   await expect(takes.nth(0)).toContainText('take 1')
   await expect(takes.nth(0).locator('.mark')).toHaveCount(0)
-  await expect(takes.nth(1).locator('.mark')).toHaveText(
-    'shown as the result (latest)',
-  )
+  await expect(takes.nth(1).locator('.mark')).toHaveText('result (latest)')
   await loaded(takes.nth(0).getByRole('img'))
   await expect(takes.nth(0).getByRole('link')).toHaveAttribute(
     'href',
@@ -184,6 +175,16 @@ test('a done item shows its takes as pictures, the latest marked as the result',
   await expect(
     hero.getByRole('button', { name: 'Accept take 1 for Hero poster' }),
   ).toHaveAttribute('aria-pressed', 'false')
+  // closed, the row's proof is the result, and leads to the job that made it
+  await hero.locator('.title').click()
+  const proof = hero.locator('.proofcell').getByRole('img', {
+    name: 'result of Hero poster',
+  })
+  await loaded(proof)
+  await expect(hero.locator('.proofcell a')).toHaveAttribute(
+    'href',
+    '#/ws/default/jobs/e2ereqdone02',
+  )
 })
 
 test('a note for the agent says whether a session listens, and is in the ledger after a reload', async ({
@@ -301,8 +302,9 @@ test("an item's jobs link narrows the Jobs page to that item", async ({
 }) => {
   await page.goto(REQUEST)
   const hero = item(page, 'Hero poster')
-  await expand(hero, 'Hero poster')
-  await hero.getByRole('link', { name: 'its jobs' }).click()
+  // the item's menu holds its jobs and outputs, not the take strip
+  await hero.getByRole('button', { name: /^More actions for/ }).click()
+  await page.getByRole('dialog').getByRole('link', { name: 'Its jobs' }).click()
   await expect(page.getByTestId('req-filter')).toContainText(`${ID} › hero`)
   await expect(page.locator('.chip.succeeded')).toHaveCount(2)
   await expect(page.locator('.chip.failed')).toHaveCount(0)
@@ -609,13 +611,56 @@ test('the run dialog prices what is ready, says what will not run, and spends no
   expect(submitted).toBe(0)
 })
 
+test('a held item says so, counts down, runs only when asked, and a note turns it back to the agent', async ({
+  page,
+}) => {
+  let submitted = 0
+  page.on('request', (r) => {
+    if (r.method() === 'POST' && new URL(r.url()).pathname === '/api/jobs')
+      submitted++
+  })
+  await page.goto(BOARD)
+  // the fixture holds `title` for an hour, and no session listens here
+  const banner = page.locator('.reqhead .hold p')
+  await expect(banner).toHaveText(
+    /^1 item held for your review\. No session is listening, so nothing will run at .+\. Run it here, or leave a note\.$/,
+  )
+  const title = boardRow(page, 'title')
+  const chip = title.locator('.chip.held')
+  await expect(chip).toHaveText(/^held · \d\d:\d\d$/)
+  const first = await chip.textContent()
+  await expect(chip).not.toHaveText(first ?? '', { timeout: 5000 })
+
+  await page.getByRole('button', { name: 'Run now…' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Run what is ready' })
+  await expect(
+    dialog.locator('.runrow[data-key="title"] .held span'),
+  ).toHaveText(/^Held for review until .+\. Running it now is your go-ahead\.$/)
+  await dialog.getByRole('button', { name: 'Cancel' }).click()
+  await expect(dialog).toHaveCount(0)
+  expect(submitted).toBe(0)
+
+  await expand(title, 'Title card')
+  await title.getByRole('button', { name: 'Add a note for the agent' }).click()
+  await title
+    .getByRole('textbox', { name: 'Note for the agent on Title card' })
+    .fill('make the title bolder')
+  await title.getByRole('button', { name: 'Save note' }).click()
+  await expect(banner).toHaveText(
+    'You left a note after these were held: the agent will revise before running.',
+  )
+  await expect(chip).toHaveText('held · note left')
+  await expect(page.getByRole('button', { name: 'Run now…' })).toHaveCount(0)
+  expect(submitted).toBe(0)
+})
+
 test('running a ready item queues a job bound to its quote, and the job appears on the item', async ({
   page,
   request,
 }) => {
   await page.goto(BOARD)
   const title = boardRow(page, 'title')
-  await expect(title.locator('.row .chip')).toHaveText('ready')
+  await expect(title.locator('.chipcell .chip')).toHaveText('ready')
   await page.getByRole('button', { name: 'Run 1 ready…' }).click()
   const dialog = page.getByRole('dialog', { name: 'Run what is ready' })
   const submit = page.waitForResponse(
@@ -645,13 +690,15 @@ test('running a ready item queues a job bound to its quote, and the job appears 
   await expect(dialog).toHaveCount(0)
   // read again at once: the item carries the job, in whatever state it
   // has reached, and is no longer something to run
-  await expect(title.locator('.row .chip')).toHaveText(/queued|running|done/)
+  await expect(title.locator('.chipcell .chip')).toHaveText(
+    /queued|running|done/,
+  )
   await expect(page.getByRole('button', { name: /ready…$/ })).toHaveCount(0)
   const stored = await ledger(request)
   const item = stored.items.find((i: Stored) => i.key === 'title')
   expect(item.attempts.map((a: { job: string }) => a.job)).toEqual([job.id])
   // a text task with no model: it finishes, and the page follows it there
-  await expect(title.locator('.row .chip')).toHaveText('done', {
+  await expect(title.locator('.chipcell .chip')).toHaveText('done', {
     timeout: 25_000,
   })
   await expect(title.locator('.proofcell a')).toHaveAttribute(

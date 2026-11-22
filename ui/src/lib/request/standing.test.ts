@@ -1,7 +1,7 @@
 import { expect, it } from 'vitest'
 import { formatDay } from '../format'
 import { planState } from './itemState'
-import { needsLine, standing } from './standing'
+import { agentSaid, needsLine, standing } from './standing'
 import { attempt, doneItem, entry, item, request } from './fixtures'
 import type { LedgerItem, LedgerRequest } from '../types'
 
@@ -136,5 +136,28 @@ it('lists every reason the user is needed, in one line', () => {
   ).toBe('Needs you: 2 takes to choose, 1 accepted take missing.')
   expect(
     needsLine({ ready: 0, failed: 0, choose: 0, accepted_missing: 0 }),
+  ).toBeNull()
+})
+
+it("gives the agent's latest word on an open request, and none on a closed one", () => {
+  const req = (over: Partial<LedgerRequest>) =>
+    request([item('a')], {
+      history: [
+        entry(1, 'agent', 'opened'),
+        entry(2, 'user', 'note added'),
+        entry(3, 'agent', 'board-01 now blue; awaiting go-ahead to draw'),
+        entry(4, 'user', 'note added'),
+      ],
+      ...over,
+    })
+  const said = agentSaid(req({}))
+  expect(said).toEqual({
+    revision: 3,
+    why: 'board-01 now blue; awaiting go-ahead to draw',
+    at: '2026-01-01T00:03:00+00:00',
+  })
+  expect(agentSaid(req({ state: 'done' }))).toBeNull()
+  expect(
+    agentSaid(req({ history: [entry(1, 'user', 'made by hand')] })),
   ).toBeNull()
 })

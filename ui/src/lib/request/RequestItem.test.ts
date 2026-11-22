@@ -193,7 +193,7 @@ it('with several takes and none accepted, opens and marks the latest as the resu
     'take 3',
   ])
   expect(takes[2].querySelector('.mark')?.textContent?.trim()).toBe(
-    'shown as the result (latest)',
+    'result (latest)',
   )
   expect(takes[0].querySelector('.mark')).toBeNull()
   // a take that made nothing is a slot with its status in words
@@ -205,11 +205,6 @@ it('with several takes and none accepted, opens and marks the latest as the resu
   )
   // read-only: there is nothing to accept with yet
   expect(screen.queryByRole('button', { name: /accept/i })).toBeNull()
-  expect(
-    screen
-      .getByRole('link', { name: 'open these in the gallery' })
-      .getAttribute('href'),
-  ).toBe('#/ws/studio/gallery?req=r1%2Fa')
 })
 
 it('marks the accepted take, and stays closed', async () => {
@@ -327,14 +322,13 @@ it('opened, says what it follows, what needs it and what it would run', async ()
   expect(given.ongo).toHaveBeenCalledWith('cut')
 })
 
-it("links an item's jobs through the req filter", async () => {
+it('an open item shows its takes once: the row picture steps aside, and the jobs and outputs links are in its menu', async () => {
   const { container } = render(RequestItem, props([withOutput('a', image)]))
   await fireEvent.click(title('Opening shot'))
-  expect(
-    within(container.querySelector('.more') as HTMLElement)
-      .getByRole('link', { name: 'its jobs' })
-      .getAttribute('href'),
-  ).toBe('#/ws/studio/jobs?req=r1%2Fa')
+  expect(container.querySelector('.proofcell')?.classList).toContain('under')
+  const more = within(container.querySelector('.more') as HTMLElement)
+  expect(more.queryByRole('link', { name: 'its jobs' })).toBeNull()
+  expect(more.queryByRole('link', { name: /gallery/ })).toBeNull()
 })
 
 const noted = (at: string) =>
@@ -561,4 +555,23 @@ it('a dropped item offers no "Note this take"', async () => {
   render(RequestItem, props([goodTakes({ dropped: true, status: 'dropped' })]))
   await fireEvent.click(title('Shot 3'))
   expect(screen.queryByRole('button', { name: /^Note take/ })).toBeNull()
+})
+
+it('marks a held row with a chip: its countdown, a note left, or time up', () => {
+  const hold = (state: 'holding' | 'redirected' | 'due') =>
+    item('a', {
+      ready: true,
+      review: { until: '2026-11-21T12:00:00+00:00', state, seconds_left: 125 },
+    })
+  const chip = (state: 'holding' | 'redirected' | 'due') => {
+    const { container, unmount } = render(RequestItem, props([hold(state)]))
+    const text = container.querySelector('.chip.held')?.textContent
+    unmount()
+    return text
+  }
+  expect(chip('holding')).toBe('held · 02:05')
+  expect(chip('redirected')).toBe('held · note left')
+  expect(chip('due')).toBe('review time up')
+  const { container } = render(RequestItem, props([item('a')]))
+  expect(container.querySelector('.chip.held')).toBeNull()
 })

@@ -45,9 +45,9 @@
         <li class="rule" role="separator"></li>
       {:else if entry.kind === 'link'}
         <li>
-          <a class="plain" href={entry.href} onclick={() => (open = false)}
-            >{entry.label}</a
-          >
+          <a class="plain" href={entry.href} onclick={() => (open = false)}>
+            {entry.label}
+          </a>
         </li>
       {:else}
         <li>
@@ -56,8 +56,10 @@
             class="bare"
             class:danger={entry.danger}
             disabled={entry.disabled}
-            onclick={() => choose(entry.id)}>{entry.label}</button
+            onclick={() => choose(entry.id)}
           >
+            {entry.label}
+          </button>
         </li>
       {/if}
     {/each}

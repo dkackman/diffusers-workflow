@@ -3,7 +3,6 @@
   import ItemProof from './ItemProof.svelte'
   import { takesOf, type Take } from './itemState'
   import { formatSpent } from '../format'
-  import { requestQuery } from '../requestFilter'
   import { wsHref } from '../routes'
   import type { LedgerItem } from '../types'
 
@@ -16,13 +15,11 @@
   let {
     item,
     workspace,
-    requestId,
     onaccept,
     onnote,
   }: {
     item: LedgerItem
     workspace: string
-    requestId: string
     /** Accept this take, or with null clear the one accepted. Left out
      * where the plan would not keep it: a dropped item */
     onaccept?: (take: Take, job: string | null) => void
@@ -43,7 +40,7 @@
   const MARK = {
     accepted: 'accepted',
     'accepted-gone': 'accepted, files gone',
-    latest: 'shown as the result (latest)',
+    latest: 'result (latest)',
   }
 
   // The newest take is the one being looked for: the strip starts at its end
@@ -85,16 +82,17 @@
         {#if attempt.minutes != null}
           <span class="num muted">{formatSpent(attempt.minutes)}</span>
         {/if}
+        <!-- On the caption line, so every take's buttons sit at one height -->
+        {#if take.mark}
+          <span class="mark" class:muted={take.mark === 'accepted-gone'}>
+            {#if take.mark === 'accepted'}<Check
+                size={12}
+                aria-hidden="true"
+              />{/if}
+            {MARK[take.mark]}
+          </span>
+        {/if}
       </span>
-      {#if take.mark}
-        <span class="mark" class:muted={take.mark === 'accepted-gone'}>
-          {#if take.mark === 'accepted'}<Check
-              size={12}
-              aria-hidden="true"
-            />{/if}
-          {MARK[take.mark]}
-        </span>
-      {/if}
       {#if attempt.note}
         <span class="note muted" title={attempt.note}>{attempt.note}</span>
       {/if}
@@ -108,28 +106,23 @@
             ? 'Accepted as the result. Press to clear the choice'
             : 'Make this take the result'}
           onclick={() => onaccept(take, chosen(take) ? null : attempt.job)}
-          >{chosen(take) ? 'Accepted' : 'Accept'}</button
         >
+          {chosen(take) ? 'Accepted' : 'Accept'}
+        </button>
       {/if}
       {#if onnote}
         <button
           type="button"
           class="bare notetake"
           aria-label="Note take {take.n} of {item.title} for the agent"
-          onclick={() => onnote(take)}>Note this take</button
+          onclick={() => onnote(take)}
         >
+          Note this take
+        </button>
       {/if}
     </li>
   {/each}
 </ul>
-<p class="links">
-  <a href={wsHref(workspace, 'gallery') + requestQuery(requestId, item.key)}
-    >open these in the gallery</a
-  >
-  <a href={wsHref(workspace, 'jobs') + requestQuery(requestId, item.key)}
-    >its jobs</a
-  >
-</p>
 
 <style>
   .strip {
@@ -168,8 +161,10 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  /* The strip's tiles are one height: the buttons go to the bottom, so
+     they line up whether or not a take carries the result mark */
   .accept {
-    margin-top: 0.15rem;
+    margin-top: auto;
     padding: 0.2rem 0.5rem;
     font-size: var(--t-xs);
   }
@@ -196,13 +191,6 @@
     align-items: center;
     gap: var(--space-2);
     margin: 0 0 var(--space-2);
-    font-size: var(--t-sm);
-  }
-  .links {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0 var(--space-4);
-    margin: var(--space-1) 0 0;
     font-size: var(--t-sm);
   }
 </style>

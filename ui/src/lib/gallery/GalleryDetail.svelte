@@ -228,20 +228,22 @@
       href={file.url}
       target="_blank"
       class="muted"
-      title="open the file itself in a new tab">open file</a
+      title="open the file itself in a new tab"
     >
+      open file
+    </a>
     {#if file.version}
       <!-- The run this file came from, said in both the form a person is
            quoted ("version 4") and the form every tool takes (the run
            id), so the two can be checked against each other here rather
            than back in the listing -->
-      <span class="num muted"
-        >version {file.version} · <code>{file.run_id}</code></span
-      >
+      <span class="num muted">
+        version {file.version} · <code>{file.run_id}</code>
+      </span>
     {/if}
-    <span class="num muted"
-      >{formatBytes(file.size)} · {formatMtime(file.mtime)}</span
-    >
+    <span class="num muted">
+      {formatBytes(file.size)} · {formatMtime(file.mtime)}
+    </span>
     <DownloadLink href={api.outputDownloadUrl(file.name)} />
     <button
       class="quiet icon"
@@ -249,8 +251,9 @@
       aria-pressed={starred}
       aria-label={starred ? 'unstar this file' : 'star this file'}
       title={starred ? 'starred - press S to unstar' : 'star to keep - press S'}
-      ><Star size={14} fill={starred ? 'currentColor' : 'none'} /></button
     >
+      <Star size={14} fill={starred ? 'currentColor' : 'none'} />
+    </button>
     <button
       class="quiet icon danger"
       onclick={onremove}
@@ -264,8 +267,10 @@
       class="quiet icon"
       onclick={onclose}
       title="close details"
-      aria-label="close details"><X size={14} /></button
+      aria-label="close details"
     >
+      <X size={14} />
+    </button>
   </div>
   <div class="body">
     {#if file.kind === 'image'}
@@ -288,9 +293,9 @@
             label="Run note"
             onsaved={() => onnotesaved?.('run')}
           />
-          <button type="button" class="bare" onclick={() => (ownNote = true)}
-            >Note this file</button
-          >
+          <button type="button" class="bare" onclick={() => (ownNote = true)}>
+            Note this file
+          </button>
         {:else}
           <NoteEditor
             note={ownNote ? null : note}
@@ -368,8 +373,10 @@
                     target={input.kind === 'output' ? '_blank' : undefined}
                     title={input.kind === 'asset'
                       ? 'open the asset library'
-                      : 'open this earlier output'}>{inputName(input)}</a
+                      : 'open this earlier output'}
                   >
+                    {inputName(input)}
+                  </a>
                   <RoleTag role="input" />
                   <span class="muted">{input.kind}</span>
                 </li>

@@ -33,9 +33,9 @@
   <div class="entry" id="plan-change-r{entry.revision}">
     <p class="head">
       <span class="num">r{entry.revision}</span>
-      <span class="muted" title={formatExact(seconds(entry.at))}
-        >{formatMtime(seconds(entry.at))}</span
-      >
+      <span class="muted" title={formatExact(seconds(entry.at))}>
+        {formatMtime(seconds(entry.at))}
+      </span>
       <span class="by">{who(entry)}</span>
       {#if turned}<span class="state">{turned}</span>{/if}
     </p>
@@ -71,8 +71,9 @@
                 (opened = opened.includes(id)
                   ? opened.filter((r) => r !== id)
                   : [...opened, id])}
-              >{opened.includes(id) ? 'hide' : 'show'}</button
             >
+              {opened.includes(id) ? 'hide' : 'show'}
+            </button>
           </p>
           {#if opened.includes(id)}
             <div class="run">
@@ -91,8 +92,9 @@
       class="bare fold"
       aria-expanded={all}
       onclick={() => (all = !all)}
-      >{all ? 'show fewer' : `show all ${changes.length}`}</button
     >
+      {all ? 'show fewer' : `show all ${changes.length}`}
+    </button>
   {/if}
 </section>
 

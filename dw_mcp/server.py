@@ -252,20 +252,22 @@ CHANNEL_NOTIFICATION = "notifications/claude/channel"
 
 NOTES_INSTRUCTIONS = (
     'Events from this channel (<channel source="dw-notes" ...>) are notes '
-    "the user saved on a dw request, or on one of its items, in the dw web "
-    "UI. A note is the user's own instruction for that request or item. "
-    '`kind="note"` is one saved just now: act on it. '
+    "the user saved on a dw request or item in the web UI; a note is "
+    "their own instruction. "
+    '`kind="note"` was saved just now: act on it. '
     '`kind="notes_waiting"` lists notes saved before this session '
-    "connected: say what is waiting and confirm before spending GPU time on "
-    "them.\n"
+    "connected: say what is waiting and confirm before spending GPU time. "
+    '`kind="review_due"` means a hold on planned items reached its '
+    "deadline with no note from the user: run the named items under the "
+    'usual cost gate, but `stale="1"` means the hold was set before this '
+    "session, so confirm with them first.\n"
     "\n"
-    "Before acting, read the current plan with the dw tools' "
-    "`get_request(request, workspace)` - the note may have been edited or "
-    "cleared since. Act through the normal dw tools under their usual cost "
-    "gate, then record what you did in the `why` of `set_request`. That "
-    "write is the answer: the user is watching the request page and sees "
-    "nothing typed in this session, so do not reply here instead of updating "
-    "the plan. This channel is one-way and has no tools of its own."
+    "Before acting, read the plan with `get_request(request, workspace)`: "
+    "it may have been edited or cleared. Act through the dw tools "
+    "under their cost gate, then record what you did in the `why` of "
+    "`set_request`. That write is the answer: the user watches the page, "
+    "not this chat; don't reply here. This channel is one-way, with no "
+    "tools."
 )
 
 
@@ -290,13 +292,14 @@ async def _announce(connection, client, watch, interval, sleep, say):
     reason and retried on a growing delay; it never ends the loop."""
     await connection.initialized.wait()
     await sleep(min(interval, CONNECT_GRACE_SECONDS))
-    failures, reported = 0, None
+    failures, reported, noticed = 0, None, None
     while True:
+        failed = True
         try:
             events = await anyio.to_thread.run_sync(
                 watch.poll, client, abandon_on_cancel=True
             )
-            fault = watch.fault
+            fault, failed = watch.fault, False
         except (DwApiError, httpx.HTTPError) as e:
             events, fault = [], str(e)
         except Exception as e:
@@ -305,11 +308,17 @@ async def _announce(connection, client, watch, interval, sleep, say):
             events, fault = [], f"{type(e).__name__}: {e}"
         for event in events:
             await connection.notify(CHANNEL_NOTIFICATION, event)
+        notice = getattr(watch, "notice", None)
+        if notice and notice != noticed:
+            say(notice)
+        noticed = notice
         if fault is None and reported is not None:
             say("reading the ledger again")
         elif fault is not None and fault != reported:
             say(f"could not read the ledger, will keep trying: {fault}")
-        failures, reported = (failures + 1 if fault else 0), fault
+        # Only a poll that read nothing backs off: a fault in part of the
+        # ledger (one request, one workspace) must not slow the rest
+        failures, reported = (failures + 1 if failed else 0), fault
         await sleep(retry_delay(interval, failures))
 
 
@@ -325,7 +334,9 @@ async def serve_notes_channel(client, interval, workspace=None, sleep=anyio.slee
     what a notification outside any request is sent on.
     """
     server, options = build_notes_channel()
-    watch = NoteWatch(workspace)
+    # No workspace named: every one, so a session that moves with
+    # use_workspace still hears its notes
+    watch = NoteWatch(workspace, everywhere=workspace is None)
     async with stdio_server() as (read_stream, write_stream):
         dispatcher = JSONRPCDispatcher(
             read_stream, write_stream, inline_methods=frozenset({"initialize"})

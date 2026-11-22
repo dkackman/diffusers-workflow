@@ -4,9 +4,12 @@
   import RequestProgress from './RequestProgress.svelte'
   import StateTag from './StateTag.svelte'
   import { CHIP, type PlanState } from './itemState'
+  import { listening } from './listening.svelte'
   import { notesWaiting } from './noteState'
-  import { standing } from './standing'
-  import { formatMinutes, formatSpent } from '../format'
+  import type { ReviewCountdown } from './review.svelte'
+  import { bannerText, holdGroup, runNowKeys } from './reviewText'
+  import { agentSaid, standing } from './standing'
+  import { formatMinutes, formatMtime, formatSpent } from '../format'
   import { requestQuery } from '../requestFilter'
   import { wsHref } from '../routes'
   import type { LedgerRequest } from '../types'
@@ -22,6 +25,8 @@
     onreload,
     actions,
     menu,
+    countdown,
+    onrunheld,
   }: {
     request: LedgerRequest
     plan: PlanState
@@ -33,9 +38,16 @@
     actions?: Snippet
     /** Beside the state: the request's own menu */
     menu?: Snippet
+    /** The page's review countdowns, anchored to its reads */
+    countdown?: ReviewCountdown
+    /** Open the run dialog for these held items: "Run now…" */
+    onrunheld?: (keys: string[]) => void
   } = $props()
 
   const stand = $derived(standing(request, plan))
+  // The agent's latest word: where an answer to a note, or "ready, not
+  // run", is said, so the page does not hide it in Plan changes
+  const said = $derived(agentSaid(request))
   const waiting = $derived(notesWaiting(request))
   const segments = $derived(
     plan.live.map((state) => ({
@@ -46,6 +58,29 @@
     })),
   )
   const open = $derived(request.state === 'open')
+
+  // The review banner: one for the request, worded by its most urgent
+  // hold and by whether a session listens. Its digits tick, so it is not a
+  // live region: the page announces a change of its state once
+  const channel = $derived(listening(workspace))
+  const hold = $derived(holdGroup(plan.held))
+  const counting = $derived(
+    plan.held.some((r) => r.review?.state === 'holding'),
+  )
+  $effect(() => {
+    if (counting && countdown) return countdown.hold()
+  })
+  const left = $derived(
+    hold
+      ? (countdown?.left(hold.first.item.key) ??
+          hold.first.review?.seconds_left ??
+          0)
+      : 0,
+  )
+  const banner = $derived(
+    hold ? bannerText(hold, channel.listening, left) : null,
+  )
+  const runNow = $derived(hold ? runNowKeys(hold, channel.listening) : [])
 </script>
 
 <header class="reqhead">
@@ -58,6 +93,14 @@
 
   <p class="standing">{stand.sentence}</p>
   {#if stand.needs}<p class="needs">{stand.needs}</p>{/if}
+  {#if said}
+    <p class="said" title={said.why}>
+      <span class="who">
+        The agent, r{said.revision} · {formatMtime(Date.parse(said.at) / 1000)}:
+      </span>
+      {said.why}
+    </p>
+  {/if}
   {#if segments.length}
     <RequestProgress {segments} {onselect} />
   {/if}
@@ -75,14 +118,28 @@
     {#if actions}<div class="primary">{@render actions()}</div>{/if}
     <a
       class="plain quiet"
-      href={wsHref(workspace, 'jobs') + requestQuery(request.id)}>its jobs</a
+      href={wsHref(workspace, 'jobs') + requestQuery(request.id)}
     >
+      its jobs
+    </a>
     <a
       class="plain quiet"
       href={wsHref(workspace, 'gallery') + requestQuery(request.id)}
-      >its outputs</a
     >
+      its outputs
+    </a>
   </div>
+
+  {#if banner}
+    <div class="panel hold" data-state={hold?.state}>
+      <p>{banner}</p>
+      {#if runNow.length && onrunheld}
+        <button type="button" class="quiet" onclick={() => onrunheld(runNow)}>
+          Run now…
+        </button>
+      {/if}
+    </div>
+  {/if}
 
   <NoteList
     notes={request.notes}
@@ -137,12 +194,37 @@
   .needs {
     font-weight: 600;
   }
+  /* The agent's latest word, three lines at most; Plan changes has it whole */
+  .said {
+    font-size: var(--t-sm);
+    max-width: 72ch;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .said .who {
+    color: var(--muted);
+  }
   .figures {
     display: flex;
     flex-wrap: wrap;
     gap: 0 var(--space-4);
     font-size: var(--t-sm);
     color: var(--muted);
+  }
+  .hold {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2) var(--space-4);
+    padding: 0.55rem 0.8rem;
+    font-size: var(--t-sm);
+  }
+  .hold p {
+    flex: 1 1 20rem;
   }
   .actions {
     display: flex;

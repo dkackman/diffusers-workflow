@@ -59,6 +59,11 @@ export const LISTENING_LINE =
 export const NOT_LISTENING_LINE =
   'No agent session is listening. It reads this the next time it updates the plan.'
 
+/** A new note that has references but no words yet: the references say
+ * what it is about, never what to change */
+export const NEEDS_WORDS =
+  'Add a few words: the items under About say what the note is about, not what to change.'
+
 /** Where a note is on the request page, for a link to it */
 export const noteAnchor = (id: string) => `request-note-${id}`
 
@@ -93,12 +98,14 @@ export function noteLine(
       text: `${saved} The agent has updated the plan since (${formatMtime(seconds(request.agent_wrote_at as string), now)}).`,
       answered,
     }
+  // What it said is the header's and Plan changes' to show: here, only
+  // that it has answered, and where to look
   const latest = since[since.length - 1]
   const times = since.length === 1 ? 'once' : `${since.length} times`
   return {
     text:
       `${saved} The agent has updated the plan ${times} since ` +
-      `(latest r${latest.revision}, ${formatMtime(seconds(latest.at), now)}: “${latest.why}”).`,
+      `(latest r${latest.revision}, ${formatMtime(seconds(latest.at), now)}).`,
     answered,
   }
 }

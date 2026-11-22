@@ -12,13 +12,15 @@
 {#snippet inline(nodes: Inline[])}
   {#each nodes as node, i (i)}
     {#if node.kind === 'text'}{node.text}{:else if node.kind === 'br'}<br
-      />{:else if node.kind === 'code'}<code>{node.text}</code
-      >{:else if node.kind === 'strong'}<strong
-        >{@render inline(node.children)}</strong
-      >{:else if node.kind === 'em'}<em>{@render inline(node.children)}</em
-      >{:else}<a href={node.href} target="_blank" rel="noopener noreferrer"
-        >{@render inline(node.children)}</a
-      >{/if}
+      />{:else if node.kind === 'code'}<code>
+        {node.text}
+      </code>{:else if node.kind === 'strong'}<strong>
+        {@render inline(node.children)}
+      </strong>{:else if node.kind === 'em'}<em>
+        {@render inline(node.children)}
+      </em>{:else}<a href={node.href} target="_blank" rel="noopener noreferrer">
+        {@render inline(node.children)}
+      </a>{/if}
   {/each}
 {/snippet}
 

@@ -13,13 +13,13 @@
   <ul>
     {#each cards as c, i (c.device ?? i)}
       <li>
-        <span class="card" title={c.name ?? ''}
-          >{c.device ?? c.name ?? 'GPU'}</span
-        >
+        <span class="card" title={c.name ?? ''}>
+          {c.device ?? c.name ?? 'GPU'}
+        </span>
         {#if c.available}
-          <span class="num"
-            >{gb(c.allocatedMb)}{#if c.totalMb}&nbsp;/ {gb(c.totalMb)}{/if} GB</span
-          >
+          <span class="num">
+            {gb(c.allocatedMb)}{#if c.totalMb}&nbsp;/ {gb(c.totalMb)}{/if} GB
+          </span>
           {#if c.freeMb != null}
             <span class="muted">{gb(c.freeMb)} GB free</span>
           {/if}
@@ -30,9 +30,9 @@
             <span class="muted">(this backend reports allocated only)</span>
           {/if}
           {#if !c.live && c.ageSeconds != null}
-            <span class="muted" title="the last reading; the card is busy"
-              >{Math.round(c.ageSeconds)}s ago</span
-            >
+            <span class="muted" title="the last reading; the card is busy">
+              {Math.round(c.ageSeconds)}s ago
+            </span>
           {/if}
         {:else}
           <span class="muted">no reading yet</span>

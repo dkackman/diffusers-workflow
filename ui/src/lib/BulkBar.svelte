@@ -70,8 +70,10 @@
       class="quiet"
       onclick={() => picks.clear()}
       disabled={busy}
-      title="deselect everything">Clear selection</button
+      title="deselect everything"
     >
+      Clear selection
+    </button>
   </div>
 {/if}
 
@@ -80,8 +82,9 @@
     class="quiet"
     onclick={() => picks.selectAll()}
     disabled={visible === 0}
-    >Select all{filterActive ? ' matching' : ''} ({visible})</button
   >
+    Select all{filterActive ? ' matching' : ''} ({visible})
+  </button>
 </div>
 
 <style>

@@ -52,10 +52,11 @@
       class="plain"
       href={wsHref(workspace.current, 'requests', request)}
       title={title ? `${title} - open this request` : 'open this request'}
-      >{#if item}<code>{request} › {item}</code>{:else}request <code
-          >{request}</code
-        >{/if}</a
     >
+      {#if item}<code>{request} › {item}</code>{:else}request <code>
+          {request}
+        </code>{/if}
+    </a>
     <button
       class="quiet icon"
       onclick={() => {
@@ -63,8 +64,10 @@
         item = ''
       }}
       title="remove the request filter"
-      aria-label="remove the request filter"><X size={12} /></button
+      aria-label="remove the request filter"
     >
+      <X size={12} />
+    </button>
   </span>
 {:else if requests.length}
   <select

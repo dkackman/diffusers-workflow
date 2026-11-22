@@ -34,9 +34,9 @@
   <span class="path muted">{section.root}</span>
   <span class="flex"></span>
   {#if !section.writable}
-    <span class="muted" title="read-only: this server cannot write to it"
-      >read-only</span
-    >
+    <span class="muted" title="read-only: this server cannot write to it">
+      read-only
+    </span>
   {:else if section.origin === 'common' && shared}
     <!-- Only on the Shared assets page: a workspace's page shows just the
          shared assets its workflows use, so an upload there would vanish

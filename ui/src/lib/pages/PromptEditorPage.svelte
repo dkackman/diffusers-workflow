@@ -281,9 +281,9 @@
   <span class="dirhint">.json in {promptDir}</span>
   <span class="flex"></span>
   {#if shell.savePath()}
-    <code class="refhint" title="use the stored prompt from any workflow"
-      >prompt:{shell.savePath()}</code
-    >
+    <code class="refhint" title="use the stored prompt from any workflow">
+      prompt:{shell.savePath()}
+    </code>
     <CopyButton
       text={reference(PROMPT, shell.savePath() ?? '')}
       title="copy reference to clipboard"
@@ -318,8 +318,9 @@
               'name'} resolves to"
             onchange={(e) => (shell.doc.text = e.currentTarget.value)}
           ></textarea>
-          <label class="fieldlabel" for="prompt-negative">negative prompt</label
-          >
+          <label class="fieldlabel" for="prompt-negative">
+            negative prompt
+          </label>
           <textarea
             id="prompt-negative"
             rows="2"

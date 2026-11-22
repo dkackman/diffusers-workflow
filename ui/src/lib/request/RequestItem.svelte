@@ -22,6 +22,8 @@
     type Take,
   } from './itemState'
   import { noteWaiting } from './noteState'
+  import type { ReviewCountdown } from './review.svelte'
+  import { chipText } from './reviewText'
   import { addRef } from './noteRefs'
   import { displayValue } from '../editor'
   import { wsHref } from '../routes'
@@ -42,6 +44,7 @@
     menu,
     notice,
     onaccept,
+    countdown,
   }: {
     row: ItemState
     request: LedgerRequest
@@ -61,6 +64,8 @@
     notice?: Snippet<[ItemState]>
     /** Accept a take as the result (null clears the choice) */
     onaccept?: (take: Take, job: string | null) => void
+    /** The page's review countdowns: what a held row's chip counts down */
+    countdown?: ReviewCountdown
   } = $props()
 
   /** What a row's menu can ask of it */
@@ -76,6 +81,9 @@
   let chosen = $state<boolean | null>(null)
   const open = $derived(chosen ?? opensByDefault(row, waitingNote))
 
+  const held = $derived(
+    row.review ? chipText(row.review, countdown?.left(item.key) ?? null) : null,
+  )
   const figure = $derived(figureOf(row))
   const takes = $derived(takesLine(row))
   const mark = $derived(row.display === 'done' ? resultMark(item) : null)
@@ -117,10 +125,12 @@
     {i ? ', ' : ''}<button
       type="button"
       class="bare ref"
-      onclick={() => ongo(dep.key)}>{dep.title}</button
-    ><span class:bad={dep.display === 'failed'}
-      >{` (${CHIP[dep.display].word})`}</span
+      onclick={() => ongo(dep.key)}
     >
+      {dep.title}
+    </button><span class:bad={dep.display === 'failed'}>
+      {` (${CHIP[dep.display].word})`}
+    </span>
   {/each}
 {/snippet}
 
@@ -143,6 +153,7 @@
           <span class="name">{item.title}</span>
         </button>
         <code class="muted key">{item.key}</code>
+        {#if held}<span class="chip idle held">{held}</span>{/if}
       </div>
       {#if row.display === 'waiting'}
         <p class="sub">waits on {@render refs(row.blockers)}</p>
@@ -155,9 +166,9 @@
         <p class="sub">
           <span class="muted">{takes}</span>
           {#if item.attempts.length > 1 && mark === 'accepted'}
-            <span class="mark"
-              ><Check size={12} aria-hidden="true" /> accepted</span
-            >
+            <span class="mark">
+              <Check size={12} aria-hidden="true" /> accepted
+            </span>
           {:else if item.attempts.length > 1 && mark === 'latest'}
             <span class="mark">latest, none accepted</span>
           {/if}
@@ -173,7 +184,13 @@
         </p>
       {/if}
     </div>
-    <span class="proofcell" class:bare={!item.result?.output}>
+    <!-- Open, the takes below show the same picture larger: the cell keeps
+      its width so the row does not move -->
+    <span
+      class="proofcell"
+      class:bare={!item.result?.output}
+      class:under={open && item.attempts.length > 0}
+    >
       <ItemProof
         output={item.result?.output ?? null}
         state={row.display}
@@ -182,23 +199,27 @@
         alt="result of {item.title}"
       />
     </span>
-    <span class="chipcell"
-      ><span class="chip {chip.tone}">{chip.word}</span></span
-    >
+    <span class="chipcell">
+      <span class="chip {chip.tone}">{chip.word}</span>
+    </span>
     <span class="figure num muted">{figure}</span>
     <span class="tail">
       {#if job || action}
         <span class="action">
           {#if job}
-            <a class="plain quiet openjob" href={wsHref(workspace, 'jobs', job)}
-              >Open job</a
+            <a
+              class="plain quiet openjob"
+              href={wsHref(workspace, 'jobs', job)}
             >
+              Open job
+            </a>
           {/if}
           {@render action?.(row)}
         </span>
       {/if}
-      {#if menu}<span class="menu">{@render menu(row, { note: openNote })}</span
-        >{/if}
+      {#if menu}<span class="menu">
+          {@render menu(row, { note: openNote })}
+        </span>{/if}
     </span>
   </div>
   {#if notice}{@render notice(row)}{/if}
@@ -210,7 +231,6 @@
       <AttemptStrip
         {item}
         {workspace}
-        requestId={request.id}
         onaccept={item.dropped || !onaccept ? undefined : accept}
         onnote={item.dropped ? undefined : noteTake}
       />
@@ -220,21 +240,6 @@
     {/if}
     {#if row.neededBy.length}
       <p class="sub">needed by: {@render refs(row.neededBy)}</p>
-    {/if}
-    {#if item.workflow && args.length}
-      <details class="runs">
-        <summary
-          >Runs <code>{item.workflow}</code> with {args.length}
-          {args.length === 1 ? 'argument' : 'arguments'}</summary
-        >
-        <ul class="args">
-          {#each args as [name, value] (name)}
-            <li title={displayValue(value)}>{name} = {displayValue(value)}</li>
-          {/each}
-        </ul>
-      </details>
-    {:else if item.workflow}
-      <p class="sub">Runs <code>{item.workflow}</code> with no arguments</p>
     {/if}
     <NoteList
       bind:this={notes}
@@ -247,6 +252,23 @@
       {ongo}
       onchanged={onreload}
     />
+    <!-- What it runs is detail: after the notes, not between the takes and
+      them -->
+    {#if item.workflow && args.length}
+      <details class="runs">
+        <summary>
+          Runs <code>{item.workflow}</code> with {args.length}
+          {args.length === 1 ? 'argument' : 'arguments'}
+        </summary>
+        <ul class="args">
+          {#each args as [name, value] (name)}
+            <li title={displayValue(value)}>{name} = {displayValue(value)}</li>
+          {/each}
+        </ul>
+      </details>
+    {:else if item.workflow}
+      <p class="sub">Runs <code>{item.workflow}</code> with no arguments</p>
+    {/if}
   </div>
 </li>
 
@@ -290,6 +312,9 @@
   }
   .handle {
     grid-area: handle;
+  }
+  .proofcell.under {
+    visibility: hidden;
   }
   .proofcell {
     grid-area: proof;
@@ -360,6 +385,9 @@
   }
   .key {
     font-size: var(--t-xs);
+  }
+  .held {
+    white-space: nowrap;
   }
   .dropped {
     opacity: 0.72;

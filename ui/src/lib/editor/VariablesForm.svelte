@@ -147,10 +147,10 @@
 
 <div class="vars" class:define={mode === 'define'}>
   {#each keys as key (key)}
-    <label for={idPrefix + key}
-      >{key}{#if requiredVariables.has(key)}
-        <span class="required">required</span>{/if}</label
-    >
+    <label for={idPrefix + key}>
+      {key}{#if requiredVariables.has(key)}
+        <span class="required">required</span>{/if}
+    </label>
     <div class="field">
       {#if isPresetSelect(key)}
         {@const current = shown(key)}

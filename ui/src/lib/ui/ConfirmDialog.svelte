@@ -28,9 +28,9 @@
       </AlertDialog.Description>
       <div class="ui-actions">
         {#if !confirmState.alert}
-          <AlertDialog.Cancel class="quiet"
-            >{confirmState.cancelLabel}</AlertDialog.Cancel
-          >
+          <AlertDialog.Cancel class="quiet">
+            {confirmState.cancelLabel}
+          </AlertDialog.Cancel>
         {/if}
         <AlertDialog.Action onclick={() => resolveConfirm(true)}>
           {confirmState.confirmLabel}

@@ -168,8 +168,9 @@
                 ? wsHref(job.workspace, 'assets')
                 : fileUrl(inputName(input))}
               target={input.kind === 'output' ? '_blank' : undefined}
-              >{inputName(input)}</a
             >
+              {inputName(input)}
+            </a>
             <RoleTag role="input" />
             <span class="muted">{input.kind}</span>
           </li>
@@ -197,8 +198,9 @@
             class="muted"
             title="served from the step cache - an
                  earlier run's files, nothing generated for this step"
-            >· reused</span
           >
+            · reused
+          </span>
         {:else}
           {@const timing = timingOf(group.step)}
           {#if timing}<TimingBar {timing} />{/if}
@@ -217,8 +219,9 @@
             href={fileUrl(file)}
             target="_blank"
             title={file.split('/').pop()}
-            ><img src={fileUrl(file)} alt={file.split('/').pop()} /></a
           >
+            <img src={fileUrl(file)} alt={file.split('/').pop()} />
+          </a>
         {:else if kindOf(file) === 'video'}
           <span class="frame">
             <!-- svelte-ignore a11y_media_has_caption -->
@@ -229,9 +232,9 @@
             <audio src={fileUrl(file)} controls></audio>
           </span>
         {:else}
-          <a class="filelink" href={fileUrl(file)} target="_blank"
-            >{file.split('/').pop()}</a
-          >
+          <a class="filelink" href={fileUrl(file)} target="_blank">
+            {file.split('/').pop()}
+          </a>
         {/if}
         <div class="meta">
           <div class="metabar">
@@ -244,8 +247,10 @@
                 aria-label="Note this file ({file
                   .split('/')
                   .pop()}) for the agent"
-                onclick={() => onnote(file)}>Note this file</button
+                onclick={() => onnote(file)}
               >
+                Note this file
+              </button>
             {/if}
           </div>
           {#if info.model}
@@ -289,8 +294,9 @@
           <span
             class="muted"
             title="this step has for_each: {entry.members.join(', ')}"
-            >× {entry.members.length}</span
           >
+            × {entry.members.length}
+          </span>
         {/if}
         <span class="muted why">
           {#if entry.reason}<code>{entry.reason.key}</code>

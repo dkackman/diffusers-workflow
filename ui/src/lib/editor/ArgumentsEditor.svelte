@@ -200,9 +200,9 @@
             >
               <Plus size={14} />
             </button>
-            <span class="availname"
-              >{parameter.name}{parameter.required ? ' *' : ''}</span
-            >
+            <span class="availname">
+              {parameter.name}{parameter.required ? ' *' : ''}
+            </span>
             {#if parameter.description}
               <div class="muted availdesc">
                 <ClampedText text={parameter.description} lines={2} />

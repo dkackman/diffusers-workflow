@@ -42,12 +42,12 @@
       <span>{changedText(conflict)}</span>
     </p>
     <div class="answers">
-      <button type="button" class="quiet danger" onclick={onagain}
-        >{answers?.[0] ?? 'Do it anyway'}</button
-      >
-      <button type="button" class="quiet" onclick={ondismiss}
-        >{answers?.[1] ?? 'Leave it'}</button
-      >
+      <button type="button" class="quiet danger" onclick={onagain}>
+        {answers?.[0] ?? 'Do it anyway'}
+      </button>
+      <button type="button" class="quiet" onclick={ondismiss}>
+        {answers?.[1] ?? 'Leave it'}
+      </button>
     </div>
   </div>
 {:else if conflict}
@@ -68,16 +68,20 @@
         <button
           type="button"
           class="bare see"
-          onclick={() => onsee(applied.revision)}>See changes</button
+          onclick={() => onsee(applied.revision)}
         >
+          See changes
+        </button>
       {/if}
       <button
         type="button"
         class="bare icon"
         aria-label="Dismiss"
         title="Dismiss"
-        onclick={ondismiss}><X size={14} aria-hidden="true" /></button
+        onclick={ondismiss}
       >
+        <X size={14} aria-hidden="true" />
+      </button>
     </span>
   </div>
 {/if}

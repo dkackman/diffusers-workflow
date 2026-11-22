@@ -82,15 +82,17 @@
       [link](https://…)
     </p>
     <div class="actions">
-      <button type="button" class="quiet" onclick={save} disabled={saving}
-        >Save</button
-      >
+      <button type="button" class="quiet" onclick={save} disabled={saving}>
+        Save
+      </button>
       <button
         type="button"
         class="bare"
         onclick={() => (editing = false)}
-        disabled={saving}>Cancel</button
+        disabled={saving}
       >
+        Cancel
+      </button>
     </div>
     {#if error}<p class="error" role="alert">{error}</p>{/if}
   {:else}
@@ -113,8 +115,10 @@
         class="quiet icon"
         aria-label="Edit note"
         title="edit this note"
-        onclick={edit}><Pencil size={13} /></button
+        onclick={edit}
       >
+        <Pencil size={13} />
+      </button>
     </div>
   {/if}
 </div>

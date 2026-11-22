@@ -22,9 +22,9 @@
      not serve these, so a tile is a dimmed label rather than a
      picture, and nothing bulk can reach it -->
 <div class="grouprow">
-  <span class="group"
-    >shadowed/ <span class="muted">({entries.length})</span></span
-  >
+  <span class="group">
+    shadowed/ <span class="muted">({entries.length})</span>
+  </span>
 </div>
 <div class="grid">
   {#each entries as entry (entry.name)}

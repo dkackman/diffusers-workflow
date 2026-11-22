@@ -49,6 +49,81 @@ A PyPI install gets released `diffusers`, which may lag the newest pipelines; in
 
 GitHub generates notes from commits at tag time. The sections below are the hand-written notes: the newest is drafted at release prep and pasted into the GitHub release body once the tag has published (`gh release edit v<version> --notes-file ...`). Items a branch's author wants the next note to name go in a new section at the top.
 
+### 0.22.0
+
+<!-- Branch notes (feat/review-gate, with fix/notes-1529-1530 merged). Fold into the release-prep draft for 0.22.0 and paste into the GitHub release body once the tag has published: gh release edit v0.22.0 --notes-file ... -->
+
+**The review hold** (#1521)
+
+- An agent that has planned and priced a request can hold its items for you
+  to look at before they run. Each held item carries a deadline,
+  `review_until`; the request page shows how many items are held, counts
+  down to the deadline and says whether an agent session is listening. A
+  note you leave on the request or the item redirects the hold: the agent
+  revises instead of running. **Run now** opens the same priced dialog as
+  any other run, so a held item is never started for you.
+- A hold defers a run you already approved in chat; it does not replace
+  that approval. When the deadline passes with no note, the agent runs
+  exactly what it quoted, and a changed plan or a quote well off the one
+  you were given means no run and no new hold: the agent clears the hold and
+  gives the new figure, and you run it from the priced dialog or say yes. Nothing on the server starts
+  a job at the deadline: the notes channel tells the open session with a new
+  `review_due` event (`stale` when the hold was set before the session
+  connected). With no session listening, which needs Claude Code started
+  with the development-channels flag, nothing runs and the items wait for you.
+- The `script-to-video` skill's request reference says when to hold and how
+  the agent answers each event.
+- REST: a request item takes `review_until` (an ISO time with an offset,
+  60 seconds to 24 hours ahead) and reads back `review_set_at` and a derived
+  `review` (`{until, state, seconds_left}`). The same fields are on the MCP
+  `set_request` and `get_request` items.
+
+**Notes reach the session whichever workspace it is in** (#1529, #1530)
+
+- The notes channel (`dw-mcp --notes-channel`) now watches every workspace
+  on the server unless `--workspace` pins it. Before, it watched only the
+  default workspace (or `DW_MCP_WORKSPACE`), so a session that worked in
+  another workspace never heard its notes and the request page said no
+  session was listening. Each event names its workspace. Against a server
+  older than this release the channel falls back to the default workspace.
+- The note box puts your words first. Under the text, an **About** line
+  holds the items, takes and files the note is about, with a small "+ Add
+  an item" control that lists items by key; before, the item picker sat
+  above the text box and read as a list of suggested notes. A note goes
+  out only with words, and a closed box shows nothing pending, so nothing
+  looks sent that was not.
+- REST: `GET /api/requests` lists every workspace's open requests in one
+  read (each row a request summary with its `workspace`; `unreadable` names
+  a workspace whose ledger cannot be read). Marked `X-DW-Notes-Channel: 1`,
+  it counts as a channel poll of every workspace for
+  `GET /api/workspaces/{name}/notes-channel`.
+
+**The request page, from a first real run** (#1532)
+
+- The header gives the agent's latest word under what needs you, so an
+  answer like "ready for take 2, not run" or "awaiting go-ahead" is on the
+  page, not only in Plan changes. A note's own status line now says when
+  the agent answered rather than quoting it.
+- A done item has **Another take…** on its row. Open, an item shows its
+  takes once, its buttons lined up, and keeps its jobs and outputs links in
+  its menu. A take and its file are one reference chip on a note.
+- The request skill: after a note at the same price the agent holds the
+  revised items again with a fresh countdown, and a note that changes
+  something the whole set shares is carried over to the other items.
+
+**Fixes**
+
+- The worker's trust check no longer decodes each input clip and fetches
+  each URL input a second time on every job; with `--trust-workflows` it
+  does no work at all (#1510).
+- A workflow naming a refused `pre_load_modules` entry is refused at
+  validate and at submit, with no job, instead of being queued and evicting
+  the models warm on the card before the loader refused it (#1511).
+- An H3 `references` entry that names no loadable reference class (a `type`
+  key instead of `reference_type`, or a bare class name) is now a validate
+  error at its path, instead of passing and being skipped by every
+  reference check (#1512).
+
 ### 0.21.0
 
 <!-- Drafted from v0.20.0..develop at release prep (2026-11-20). Paste into the GitHub release body once the tag has published: gh release edit v0.21.0 --notes-file ... -->

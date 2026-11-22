@@ -340,8 +340,9 @@
           title={realized
             ? 'this is the realized copy the run itself wrote - every mutable input pinned to the value it used'
             : 'this is the definition as submitted - no realized copy of this run is on file'}
-          >{realized ? 'realized' : 'as submitted'}</span
         >
+          {realized ? 'realized' : 'as submitted'}
+        </span>
       </div>
       <FlowView
         workflow={definition}

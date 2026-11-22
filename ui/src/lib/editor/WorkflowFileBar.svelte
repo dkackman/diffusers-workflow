@@ -69,9 +69,9 @@
             }}
             title="the workspace this workflow saves into"
           >
-            {#each origin.workspaces as name (name)}<option value={name}
-                >{name}</option
-              >{/each}
+            {#each origin.workspaces as name (name)}<option value={name}>
+                {name}
+              </option>{/each}
           </select>
         </div>
 
@@ -94,17 +94,17 @@
             {#if origin.startFrom && !origin.examples.includes(origin.startFrom)}
               <!-- handed over from elsewhere: an image's metadata, or a copy
                    of one of this workspace's own workflows -->
-              <option value={origin.startFrom} disabled
-                >{origin.startFrom === IMPORTED
+              <option value={origin.startFrom} disabled>
+                {origin.startFrom === IMPORTED
                   ? 'image metadata'
-                  : `copy of ${origin.startFrom}`}</option
-              >
+                  : `copy of ${origin.startFrom}`}
+              </option>
             {/if}
             {#each exampleGroups as [group, names] (group)}
               <optgroup label={group ? `${group}/` : 'examples'}>
-                {#each names as example (example)}<option value={example}
-                    >{example}</option
-                  >{/each}
+                {#each names as example (example)}<option value={example}>
+                    {example}
+                  </option>{/each}
               </optgroup>
             {/each}
           </select>

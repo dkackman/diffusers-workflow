@@ -25,6 +25,7 @@
   import GalleryDetail from '../gallery/GalleryDetail.svelte'
   import { AssessCache } from '../gallery/assess.svelte'
   import RoleTag from '../gallery/RoleTag.svelte'
+  import { gridFiles } from '../gallery/order'
 
   let files = $state<GalleryFile[]>([])
   let loaded = $state(false)
@@ -92,31 +93,11 @@
     void loadListing()
   })
 
-  // A file whose run does not say its role counts as final
-  const roleOf = (f: GalleryFile): OutputRole => f.role ?? 'final'
   let starredOnly = $state(false)
   const filterActive = $derived(
     filter !== '' || roles.length < 2 || starredOnly || reqId !== '',
   )
-  // Finals lead inside a run only: the server's order (newest first) holds
-  // between runs, so runs sit where their newest file put them. The sort is
-  // stable, so it holds inside each role too
-  const runKey = (f: GalleryFile) => `${f.folder}\u0000${f.run_id}`
-  const visible = $derived.by(() => {
-    const shown = files.filter(
-      (f) =>
-        f.name.toLowerCase().includes(filter.toLowerCase()) &&
-        roles.includes(roleOf(f)) &&
-        (!starredOnly || f.starred),
-    )
-    // Each run's place is the index of its first (newest) file. Built
-    // back to front so the first file's index is the one that sticks; a
-    // Map keeps this linear at thousands of files
-    const runs = new Map(shown.map((f, i) => [runKey(f), i] as const).reverse())
-    const place = (f: GalleryFile) => runs.get(runKey(f))!
-    const rank = (f: GalleryFile) => Number(roleOf(f) === 'intermediate')
-    return shown.sort((a, b) => place(a) - place(b) || rank(a) - rank(b))
-  })
+  const visible = $derived(gridFiles(files, filter, roles, starredOnly))
   async function toggleStar() {
     if (!selected) return
     const name = selected.name
@@ -334,16 +315,19 @@
         title={which === 'final'
           ? 'what the runs were for'
           : "the steps' working files, kept along the way"}
-        >{which === 'final' ? 'Final' : 'Intermediate'}</button
       >
+        {which === 'final' ? 'Final' : 'Intermediate'}
+      </button>
     {/each}
     <button
       class="rolechip"
       class:on={starredOnly}
       aria-pressed={starredOnly}
       onclick={() => (starredOnly = !starredOnly)}
-      title="only the files you starred">Starred</button
+      title="only the files you starred"
     >
+      Starred
+    </button>
   </div>
   <RequestFilter bind:request={reqId} bind:item={reqItem} />
 </div>
@@ -416,13 +400,15 @@
               alt={file.name}
               loading="lazy"
             />
-            <span class="videobadge" aria-hidden="true"><Play size={11} /></span
-            >
+            <span class="videobadge" aria-hidden="true">
+              <Play size={11} />
+            </span>
           </span>
         {:else}
-          <span class="audio"
-            >{file.kind === 'text' ? '¶' : '♪'} {file.label}</span
-          >
+          <span class="audio">
+            {file.kind === 'text' ? '¶' : '♪'}
+            {file.label}
+          </span>
         {/if}
         <span class="caption" title={file.name}>
           {#if file.role}
@@ -434,8 +420,9 @@
             <span
               class="version"
               title="version {file.version} of this workflow"
-              >v{file.version}</span
             >
+              v{file.version}
+            </span>
             <!-- A real space rather than a margin, so a screen reader says
                  "v4 film.mp4" instead of running the two together. Explicit:
                  whitespace at the edge of an if block is trimmed -->
@@ -446,13 +433,15 @@
             {' '}<span
               class="note-mark"
               title={file.note.split('\n')[0]}
-              aria-label="Has a note"><Pencil size={11} /></span
-            >{/if}{#if file.starred}
+              aria-label="Has a note"
+            >
+              <Pencil size={11} />
+            </span>{/if}{#if file.starred}
             <!-- eslint-disable-next-line svelte/no-useless-mustaches -->
-            {' '}<span class="note-mark" aria-label="Starred"
-              ><Star size={11} fill="currentColor" /></span
-            >{/if}</span
-        >
+            {' '}<span class="note-mark" aria-label="Starred">
+              <Star size={11} fill="currentColor" />
+            </span>{/if}
+        </span>
       </button>
     </div>
   {/snippet}

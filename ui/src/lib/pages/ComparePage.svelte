@@ -91,9 +91,9 @@
 
 <div class="pagehead baseline">
   <h1>Compare</h1>
-  <a class="plain muted" href={wsHref(workspace.current, 'gallery')}
-    >back to the gallery</a
-  >
+  <a class="plain muted" href={wsHref(workspace.current, 'gallery')}>
+    back to the gallery
+  </a>
 </div>
 
 {#if !loaded}
@@ -148,9 +148,9 @@
         {#if cell.file}
           <figcaption>
             <span class="mono">{cell.file.label}</span>
-            {#if cell.file.version}<span class="num muted"
-                >v{cell.file.version}</span
-              >{/if}
+            {#if cell.file.version}<span class="num muted">
+                v{cell.file.version}
+              </span>{/if}
             <span class="num muted">
               {valueText(argumentOf(cell.meta, 'model'))} · seed {valueText(
                 argumentOf(cell.meta, 'seed'),

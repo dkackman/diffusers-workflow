@@ -60,17 +60,17 @@
       href={asset.url}
       target="_blank"
       class="muted"
-      title="open the file itself in a new tab">open file</a
+      title="open the file itself in a new tab"
     >
-    <span class="num muted"
-      >{asset.kind} · {formatBytes(asset.size)} · {formatMtime(
-        asset.mtime,
-      )}</span
-    >
+      open file
+    </a>
+    <span class="num muted">
+      {asset.kind} · {formatBytes(asset.size)} · {formatMtime(asset.mtime)}
+    </span>
     {#if asset.origin === 'examples'}
-      <span class="muted" title="read-only: an examples library brought it"
-        >read-only</span
-      >
+      <span class="muted" title="read-only: an examples library brought it">
+        read-only
+      </span>
     {:else}
       <button
         class="quiet icon danger"
@@ -87,8 +87,10 @@
       class="quiet icon"
       onclick={onclose}
       title="close details"
-      aria-label="close details"><X size={14} /></button
+      aria-label="close details"
     >
+      <X size={14} />
+    </button>
   </div>
   {#if keptFrom}
     <p class="usedby muted">{keptFrom}</p>
@@ -98,8 +100,9 @@
       used by
       {#each asset.used_by as name, i (name)}{i ? ', ' : ''}<a
           href={wsHref(workspace.current, 'workflows', ...name.split('/'))}
-          >{name}</a
-        >{/each}
+        >
+          {name}
+        </a>{/each}
     </p>
   {/if}
   <NoteEditor

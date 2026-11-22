@@ -3027,6 +3027,34 @@
             ],
             "description": "The accepted job's run, else the latest succeeded job's run whose directory still exists; null when neither."
           },
+          "review": {
+            "$ref": "#/components/schemas/LedgerReview",
+            "description": "The hold as read now; absent unless the item is planned, its request open and a deadline set."
+          },
+          "review_set_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When the current deadline was set, stamped by the server; null when it is not held.",
+            "title": "Review Set At"
+          },
+          "review_until": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When the user's review of the item ends, an ISO time in UTC; null when it is not held.",
+            "title": "Review Until"
+          },
           "spent_minutes": {
             "anyOf": [
               {
@@ -3082,7 +3110,9 @@
           "ready",
           "attempts",
           "result",
-          "spent_minutes"
+          "spent_minutes",
+          "review_until",
+          "review_set_at"
         ],
         "title": "LedgerItem",
         "type": "object"
@@ -3394,6 +3424,38 @@
           "output"
         ],
         "title": "LedgerResult",
+        "type": "object"
+      },
+      "LedgerReview": {
+        "additionalProperties": false,
+        "properties": {
+          "seconds_left": {
+            "description": "Whole seconds to the deadline at read time, 0 once passed.",
+            "title": "Seconds Left",
+            "type": "integer"
+          },
+          "state": {
+            "description": "redirected when a note was left after the hold was set, else due once the deadline has passed, else holding.",
+            "enum": [
+              "holding",
+              "redirected",
+              "due"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "until": {
+            "description": "The deadline of the hold, an ISO time in UTC.",
+            "title": "Until",
+            "type": "string"
+          }
+        },
+        "required": [
+          "until",
+          "state",
+          "seconds_left"
+        ],
+        "title": "LedgerReview",
         "type": "object"
       },
       "LedgerSummary": {
@@ -4651,6 +4713,136 @@
         "title": "NotesChannelState",
         "type": "object"
       },
+      "OpenRequestList": {
+        "additionalProperties": false,
+        "properties": {
+          "requests": {
+            "description": "Every workspace's open requests, newest change first.",
+            "items": {
+              "$ref": "#/components/schemas/OpenRequestSummary"
+            },
+            "title": "Requests",
+            "type": "array"
+          },
+          "unreadable": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Workspace name -> why its requests.json could not be read; its requests are left out.",
+            "title": "Unreadable",
+            "type": "object"
+          }
+        },
+        "required": [
+          "requests"
+        ],
+        "title": "OpenRequestList",
+        "type": "object"
+      },
+      "OpenRequestSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "cover": {
+            "description": "Up to three outputs of the latest results, newest first.",
+            "items": {
+              "$ref": "#/components/schemas/LedgerOutput"
+            },
+            "title": "Cover",
+            "type": "array"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "items": {
+            "title": "Items",
+            "type": "integer"
+          },
+          "ready": {
+            "description": "Items a job could be queued for now.",
+            "title": "Ready",
+            "type": "integer"
+          },
+          "remaining_minutes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "title": "Remaining Minutes"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
+          "spent_minutes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "title": "Spent Minutes"
+          },
+          "state": {
+            "enum": [
+              "open",
+              "done",
+              "abandoned"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "status_counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Status Counts",
+            "type": "object"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "workspace": {
+            "description": "The workspace the request is in.",
+            "title": "Workspace",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "state",
+          "revision",
+          "items",
+          "status_counts",
+          "ready",
+          "cover",
+          "spent_minutes",
+          "remaining_minutes",
+          "updated_at",
+          "workspace"
+        ],
+        "title": "OpenRequestSummary",
+        "type": "object"
+      },
       "OutputDeleted": {
         "additionalProperties": false,
         "properties": {
@@ -5215,7 +5407,7 @@
             "type": "string"
           },
           "items": {
-            "description": "The ordered plan; each item is key, title, depends_on, estimate_minutes, workflow, arguments, accepted; an item's `notes` are ignored (the request-notes routes write them)",
+            "description": "The ordered plan; each item is key, title, depends_on, estimate_minutes, workflow, arguments, accepted, review_until (an ISO time with a UTC offset, 60 seconds to 24 hours ahead, holding the item for the user's review; null clears it); an item's `notes` are ignored (the request-notes routes write them)",
             "items": {
               "additionalProperties": true,
               "type": "object"
@@ -10487,6 +10679,25 @@
           }
         },
         "summary": "Download Prompt"
+      }
+    },
+    "/api/requests": {
+      "get": {
+        "description": "Every workspace's open requests, without their items, newest change\nfirst: the one read a notes channel makes when it watches the whole\nserver. Marked `X-DW-Notes-Channel: 1`, it counts as a poll of every\nworkspace. `unreadable` names a workspace whose requests.json is there\nbut is not a ledger, or that could not be resolved while it was listed;\nthe others still list, and a watcher keeps what it knew of the named\nones rather than taking them for closed.",
+        "operationId": "list_open_requests_api_requests_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpenRequestList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Open Requests"
       }
     },
     "/api/schema": {

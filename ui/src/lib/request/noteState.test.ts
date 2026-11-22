@@ -69,7 +69,7 @@ it('says the agent has written since, never that it read the note', () => {
   })
   const line = noteLine(note, req)
   expect(line.text).toBe(
-    `Saved ${shown(5)}. The agent has updated the plan 2 times since (latest r14, ${shown(14)}: “retook shot 3 warmer”).`,
+    `Saved ${shown(5)}. The agent has updated the plan 2 times since (latest r14, ${shown(14)}).`,
   )
   expect(line.text).not.toMatch(/\bread\b/)
   expect(line.answered).toBe(true)
