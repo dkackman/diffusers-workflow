@@ -1,0 +1,102 @@
+{
+ "P1-three-refs": {
+  "wf": "shot",
+  "args": {
+   "prompt": "subject_definitions:\n<Subject 1> is the older man in <Picture 1>, whose face, grey hair, moustache and khaki short-sleeved shirt define his appearance for the whole video.\n<Subject 2> is the young woman in <Picture 2>, whose face, glasses, dark hair tied up and blue hoodie define her appearance for the whole video.\n<Subject 3> is the man in <Picture 3>, whose face, bald head, build and grey button overshirt over a navy T-shirt define his appearance for the whole video.\n\nsummary:\n[reference generation] The target video shows the three members of a band, <Subject 1>, <Subject 2> and <Subject 3>, standing side by side in their rehearsal room, in one continuous shot.\n\nretention_analysis:\n<Subject 1> (appears in [Shot 1]): fully_preserved - the face, hair, moustache and shirt of <Picture 1> are kept exactly.\n<Subject 2> (appears in [Shot 1]): fully_preserved - the face, glasses, hair and hoodie of <Picture 2> are kept exactly.\n<Subject 3> (appears in [Shot 1]): fully_preserved - the face, bald head, build and clothing of <Picture 3> are kept exactly.\n\ndetailed_description:\nThe target video is in realistic photographic style. [Shot 1] A static medium-wide shot at eye level frames exactly three people standing side by side in a small rehearsal room with foam panels on the walls and a drum kit and amplifiers behind them. <Subject 1> stands on the left of frame, <Subject 2> in the centre, and <Subject 3> on the right of frame. All three face the camera. <Subject 1> folds his arms and gives a small nod, <Subject 2> pushes her glasses up and smiles, and <Subject 3> shifts his weight and rests his hands in his pockets. No one speaks. The camera holds a static medium-wide shot throughout, all three in frame from head to knee.\n\noverall_soundscape:\nThe quiet room tone of a small rehearsal space, the low hum of an idle amplifier, and the soft rustle of clothing as they shift.\n\nnon_diegetic_music:\nN/A",
+   "references": [
+    {
+     "reference_type": "diffusers.modular_pipelines.minimax_h3.MiniMaxH3ImageReference",
+     "from_file": "asset:cast/pat.jpg"
+    },
+    {
+     "reference_type": "diffusers.modular_pipelines.minimax_h3.MiniMaxH3ImageReference",
+     "from_file": "asset:cast/howie.jpg"
+    },
+    {
+     "reference_type": "diffusers.modular_pipelines.minimax_h3.MiniMaxH3ImageReference",
+     "from_file": "asset:qa-cast/hal-portrait.jpg"
+    }
+   ]
+  }
+ },
+ "P1-two-refs": {
+  "wf": "shot",
+  "args": {
+   "prompt": "subject_definitions:\n<Subject 1> is the older man in <Picture 1>, whose face, grey hair, moustache and khaki short-sleeved shirt define his appearance for the whole video.\n<Subject 2> is the young woman in <Picture 2>, whose face, glasses, dark hair tied up and blue hoodie define her appearance for the whole video.\n<Subject 3> is a bald, heavy-set man in his forties in a grey button overshirt over a navy T-shirt; he has no reference picture.\n\nsummary:\n[reference generation] The target video shows the three members of a band, <Subject 1>, <Subject 2> and <Subject 3>, standing side by side in their rehearsal room, in one continuous shot.\n\nretention_analysis:\n<Subject 1> (appears in [Shot 1]): fully_preserved - the face, hair, moustache and shirt of <Picture 1> are kept exactly.\n<Subject 2> (appears in [Shot 1]): fully_preserved - the face, glasses, hair and hoodie of <Picture 2> are kept exactly.\n<Subject 3> (appears in [Shot 1]): newly generated from the description above.\n\ndetailed_description:\nThe target video is in realistic photographic style. [Shot 1] A static medium-wide shot at eye level frames exactly three people standing side by side in a small rehearsal room with foam panels on the walls and a drum kit and amplifiers behind them. <Subject 1> stands on the left of frame, <Subject 2> in the centre, and <Subject 3> on the right of frame. All three face the camera. <Subject 1> folds his arms and gives a small nod, <Subject 2> pushes her glasses up and smiles, and <Subject 3> shifts his weight and rests his hands in his pockets. No one speaks. The camera holds a static medium-wide shot throughout, all three in frame from head to knee.\n\noverall_soundscape:\nThe quiet room tone of a small rehearsal space, the low hum of an idle amplifier, and the soft rustle of clothing as they shift.\n\nnon_diegetic_music:\nN/A",
+   "references": [
+    {
+     "reference_type": "diffusers.modular_pipelines.minimax_h3.MiniMaxH3ImageReference",
+     "from_file": "asset:cast/pat.jpg"
+    },
+    {
+     "reference_type": "diffusers.modular_pipelines.minimax_h3.MiniMaxH3ImageReference",
+     "from_file": "asset:cast/howie.jpg"
+    }
+   ]
+  }
+ },
+ "P2-wet": {
+  "wf": "shot",
+  "args": {
+   "prompt": "subject_definitions:\n<Subject 1> is the man in <Picture 1>, whose face, curly dark hair, white shirt and mustard sweater vest define his appearance for the whole video.\n\nsummary:\n[reference generation] The target video shows <Subject 1> in a close-up, looking toward the camera in a quiet apartment, in one continuous shot.\n\nretention_analysis:\n<Subject 1> (appears in [Shot 1]): fully_preserved - the face, hair, shirt and vest of <Picture 1> are kept exactly, with the head newly animated.\n\ndetailed_description:\nThe target video is in realistic photographic style. [Shot 1] A close-up frames <Subject 1> from the shoulders up, centred and facing the camera, a brick wall soft and out of focus behind him. His hair is rain-soaked and plastered to his forehead, rain-wet skin glistening, water running down his face from the downpour he has just come in out of. He takes a slow breath, glances down, then lifts his eyes back to the lens with a faint, tired smile. No one speaks. The camera holds a static close-up throughout.\n\noverall_soundscape:\nThe quiet room tone of an apartment, his slow breath, and the faint sound of traffic far outside.\n\nnon_diegetic_music:\nN/A",
+   "references": [
+    {
+     "reference_type": "diffusers.modular_pipelines.minimax_h3.MiniMaxH3ImageReference",
+     "from_file": "asset:qa-cast/priya-portrait.jpg"
+    }
+   ]
+  }
+ },
+ "P2-neutral": {
+  "wf": "shot",
+  "args": {
+   "prompt": "subject_definitions:\n<Subject 1> is the man in <Picture 1>, whose face, curly dark hair, white shirt and mustard sweater vest define his appearance for the whole video.\n\nsummary:\n[reference generation] The target video shows <Subject 1> in a close-up, looking toward the camera in a quiet apartment, in one continuous shot.\n\nretention_analysis:\n<Subject 1> (appears in [Shot 1]): fully_preserved - the face, hair, shirt and vest of <Picture 1> are kept exactly, with the head newly animated.\n\ndetailed_description:\nThe target video is in realistic photographic style. [Shot 1] A close-up frames <Subject 1> from the shoulders up, centred and facing the camera, a brick wall soft and out of focus behind him. His hair is dry and tousled, and his face is lit softly from the window. He takes a slow breath, glances down, then lifts his eyes back to the lens with a faint, tired smile. No one speaks. The camera holds a static close-up throughout.\n\noverall_soundscape:\nThe quiet room tone of an apartment, his slow breath, and the faint sound of traffic far outside.\n\nnon_diegetic_music:\nN/A",
+   "references": [
+    {
+     "reference_type": "diffusers.modular_pipelines.minimax_h3.MiniMaxH3ImageReference",
+     "from_file": "asset:qa-cast/priya-portrait.jpg"
+    }
+   ]
+  }
+ },
+ "P3-exit-last": {
+  "wf": "shot",
+  "args": {
+   "prompt": "subject_definitions:\n<Subject 1> is the older man in <Picture 1>, whose face, grey hair, moustache and khaki short-sleeved shirt define his appearance for the whole video.\n\nsummary:\n[reference generation] The target video shows <Subject 1> in a small rehearsal room, leaving the frame, in one continuous shot.\n\nretention_analysis:\n<Subject 1> (appears in [Shot 1]): fully_preserved - the face, hair, moustache and shirt of <Picture 1> are kept exactly.\n\ndetailed_description:\nThe target video is in realistic photographic style. [Shot 1] A static medium-wide shot at eye level frames a small rehearsal room with foam panels on the walls, an amplifier on the floor and a folding table in the centre of frame. <Subject 1> stands behind the table, facing the camera. He stands at the table winding a guitar cable into neat loops and setting it down, then sorting the rest of the cables one by one for most of the shot. As the last action of the shot he turns and walks out of frame to the right, leaving the room empty. No one speaks. The camera holds a static medium-wide shot throughout.\n\noverall_soundscape:\nThe quiet room tone of a small rehearsal space, the rattle of cables on the table, and his footsteps on a hard floor.\n\nnon_diegetic_music:\nN/A",
+   "references": [
+    {
+     "reference_type": "diffusers.modular_pipelines.minimax_h3.MiniMaxH3ImageReference",
+     "from_file": "asset:cast/pat.jpg"
+    }
+   ]
+  }
+ },
+ "P3-exit-early": {
+  "wf": "shot",
+  "args": {
+   "prompt": "subject_definitions:\n<Subject 1> is the older man in <Picture 1>, whose face, grey hair, moustache and khaki short-sleeved shirt define his appearance for the whole video.\n\nsummary:\n[reference generation] The target video shows <Subject 1> in a small rehearsal room, leaving the frame, in one continuous shot.\n\nretention_analysis:\n<Subject 1> (appears in [Shot 1]): fully_preserved - the face, hair, moustache and shirt of <Picture 1> are kept exactly.\n\ndetailed_description:\nThe target video is in realistic photographic style. [Shot 1] A static medium-wide shot at eye level frames a small rehearsal room with foam panels on the walls, an amplifier on the floor and a folding table in the centre of frame. <Subject 1> stands behind the table, facing the camera. In the first half of the shot he turns from the table and walks out of frame to the right. For the rest of the shot the room is empty, the coiled cables lying on the table and the amplifier light glowing. No one speaks. The camera holds a static medium-wide shot throughout.\n\noverall_soundscape:\nThe quiet room tone of a small rehearsal space, the rattle of cables on the table, and his footsteps on a hard floor.\n\nnon_diegetic_music:\nN/A",
+   "references": [
+    {
+     "reference_type": "diffusers.modular_pipelines.minimax_h3.MiniMaxH3ImageReference",
+     "from_file": "asset:cast/pat.jpg"
+    }
+   ]
+  }
+ },
+ "P4-no-lips": {
+  "wf": "held",
+  "args": {
+   "prompt": "subject_definitions:\n<Subject 1> is the drummer in <Picture 1>, whose face, bald head, build and grey button overshirt over a navy T-shirt define his appearance for the whole video.\n<Audio 1> is the song playing in the room: a band with a lead vocal.\n\nsummary:\n[reference generation + audio reuse] The target video shows <Subject 1> playing the drums to the song carried by <Audio 1> in a rehearsal room, in one continuous shot.\n\nretention_analysis:\n<Subject 1> (appears in [Shot 1]): fully_preserved - the face, bald head, build and clothing of <Picture 1> are kept exactly, with the body newly animated to drum.\n<Audio 1>: partially_copy - the piece of the song covering this part of the video is reused as the soundtrack.\n\ndetailed_description:\nThe target video is in realistic photographic style. [Shot 1] A medium shot frames <Subject 1> alone, seated behind a drum kit in a small rehearsal room with foam panels on the walls, his face and shoulders clear above the cymbals. He plays the beat of <Audio 1>, sticks striking the snare and hi-hat in time, his head nodding with the tempo. The camera holds a static medium shot throughout, his face in view the whole time.\n\noverall_soundscape:\nThe song of <Audio 1> carries the shot, with the close crack of the snare and the hiss of the hi-hat in the room.\n\nnon_diegetic_music:\nN/A",
+   "performer": "asset:qa-cast/hal-portrait.jpg",
+   "start_frame": 1020
+  }
+ },
+ "P4-closed-lips": {
+  "wf": "held",
+  "args": {
+   "prompt": "subject_definitions:\n<Subject 1> is the drummer in <Picture 1>, whose face, bald head, build and grey button overshirt over a navy T-shirt define his appearance for the whole video.\n<Audio 1> is the song playing in the room: a band with a lead vocal.\n\nsummary:\n[reference generation + audio reuse] The target video shows <Subject 1> playing the drums to the song carried by <Audio 1> in a rehearsal room, in one continuous shot.\n\nretention_analysis:\n<Subject 1> (appears in [Shot 1]): fully_preserved - the face, bald head, build and clothing of <Picture 1> are kept exactly, with the body newly animated to drum.\n<Audio 1>: partially_copy - the piece of the song covering this part of the video is reused as the soundtrack.\n\ndetailed_description:\nThe target video is in realistic photographic style. [Shot 1] A medium shot frames <Subject 1> alone, seated behind a drum kit in a small rehearsal room with foam panels on the walls, his face and shoulders clear above the cymbals. He plays the beat of <Audio 1>, sticks striking the snare and hi-hat in time, his head nodding with the tempo. His lips stay closed the whole shot; he does not sing. The camera holds a static medium shot throughout, his face in view the whole time.\n\noverall_soundscape:\nThe song of <Audio 1> carries the shot, with the close crack of the snare and the hiss of the hi-hat in the room.\n\nnon_diegetic_music:\nN/A",
+   "performer": "asset:qa-cast/hal-portrait.jpg",
+   "start_frame": 1020
+  }
+ }
+}
