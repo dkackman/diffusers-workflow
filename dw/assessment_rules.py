@@ -29,7 +29,7 @@ inside a shot whose own level is already at or below `HOLE_VOICED_DBFS` - a
 shot that is quiet throughout, on purpose, rather than one holding a gap.
 
 The thresholds were settled against real runs on the server in stage D
-(#386); `docs/WORKFLOW_GUIDE.md` and `docs/TASKS.md` quote every one, and
+(#386), and `held_frames`'s against stage A of #1527; `docs/WORKFLOW_GUIDE.md` and `docs/TASKS.md` quote every one, and
 `tests/test_assessment_rules.py` pins those quotes to this table.
 """
 
@@ -142,6 +142,22 @@ RULES = (
         "severity": "warn",
         "magnitude": True,
         "says": "the soundtrack and the picture differ in length by this much",
+    },
+    {
+        # The lowest held count among the takes #1527 stage A's record
+        # (bench/records/held-frames.md) flags with a cluster, at the
+        # probe's HELD_EPSILON of 1.0
+        "name": "held_frames",
+        "probe": "analyze_held_frames",
+        "field": "held_frames",
+        "comparator": ">=",
+        "threshold": 13,
+        "severity": "warn",
+        "says": (
+            "the take repeats this many frames while its picture moves - it"
+            " stutters; the clusters say where. Reroll the take or re-plan"
+            " the shot"
+        ),
     },
 )
 

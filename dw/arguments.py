@@ -1001,6 +1001,7 @@ _LAZY_FRAME_COMMANDS = frozenset(
         "analyze_shots",
         "analyze_seams",
         "analyze_sync_drift",
+        "analyze_held_frames",
         "analyze_face_drift",
         "export_timeline",
         "window_video",

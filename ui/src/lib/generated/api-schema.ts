@@ -448,16 +448,18 @@ export interface paths {
          * Gallery Assess
          * @description Measure a finished cut and say where to look (#388): every
          *     assessment probe that applies to the file, run here in the server
-         *     process on one decode - a sync route, so it runs beside a GPU job
+         *     process on one decode (a held-frames pass may decode the picture
+         *     again for its cut detector) - a sync route, so it runs beside a GPU job
          *     rather than queueing behind it. Findings are places to look, not
          *     verdicts; nothing acts on one (dw/assessment_rules.py).
          *
          *     The default answer merges the probes' `findings`, `rules_applied`
          *     and `rules_skipped`, and names each probe the file cannot feed in
-         *     `not_applicable` (a still, no soundtrack, no recorded shots);
+         *     `not_applicable` (a still, no soundtrack, no picture, no recorded
+         *     shots);
          *     `detail=true` adds each probe's full answer under `probes`.
-         *     `probe` names one - analyze_shots, analyze_seams or
-         *     analyze_sync_drift - and answers with its full body. It is checked
+         *     `probe` names one - analyze_shots, analyze_seams, analyze_sync_drift
+         *     or analyze_held_frames - and answers with its full body. It is checked
          *     before the name is resolved. `name` may be an `asset:` reference,
          *     and then the shots are the ones keep_output carried beside it.
          */

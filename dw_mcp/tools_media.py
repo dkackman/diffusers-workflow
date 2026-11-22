@@ -200,11 +200,11 @@ class MediaTools:
         detail: bool = False,
         workspace: str | None = None,
     ) -> dict:
-        """Measure a finished cut - seams, shot levels, sync - on the
-        server, without queueing. Findings are places to look, not
+        """Measure a finished cut - seams, shot levels, sync, held frames -
+        on the server, without queueing. Findings are places to look, not
         verdicts: check each with get_output_frames/get_output_audio.
-        `probe` (analyze_shots, analyze_seams, analyze_sync_drift) returns
-        one probe's full body; `detail` adds every probe's. Takes `asset:`."""
+        `probe` (analyze_shots, analyze_seams, analyze_sync_drift,
+        analyze_held_frames) returns one probe's full body; `detail` adds every probe's. Takes `asset:`."""
         return media.assess_output(
             self.client, name, probe=probe, detail=detail, workspace=workspace
         )

@@ -6,7 +6,9 @@ anything: the probes are CPU-only and read a file, so the route is a sync
 `def` FastAPI runs in its threadpool, beside whatever job holds the GPU.
 
 One request is one decode: the file is streamed once into a `Media` and
-every applicable probe reads that. The shot boundaries are the ones the
+every applicable probe reads that - bar `analyze_held_frames`, which decodes
+the picture a second time for its cut detector, and only when the file
+holds a frame for a cut to explain. The shot boundaries are the ones the
 caller's root recorded - the run manifest for an output, the sidecar
 `keep_output` wrote for an asset (#393) - resolved here rather than by the
 probe, which cannot know which workspace the file belongs to.
@@ -20,6 +22,7 @@ import json
 from .. import audio_qc, dsp
 from ..assessment_rules import finding, sort_findings
 from ..tasks.assess import (
+    held_frames_answer,
     read_media,
     seams_answer,
     shots_answer,
@@ -30,7 +33,17 @@ PROBES = {
     "analyze_shots": shots_answer,
     "analyze_seams": seams_answer,
     "analyze_sync_drift": sync_drift_answer,
+    "analyze_held_frames": held_frames_answer,
 }
+
+# The probes whose answer takes `detail` (held_frames' d series)
+DETAILED = ("analyze_held_frames",)
+
+
+def _run(name, media, records, source, detail):
+    if name in DETAILED:
+        return PROBES[name](media, records, source, detail=detail)
+    return PROBES[name](media, records, source)
 
 
 def unknown_probe(probe):
@@ -43,7 +56,7 @@ def unknown_probe(probe):
 def _dedupe_findings(findings):
     """Findings with exact duplicates dropped, order preserved.
 
-    `_shot_span_findings` (`dw/tasks/assess.py`) is shared by all three
+    `_shot_span_findings` (`dw/tasks/assess.py`) is shared by the shot
     probes and raises the identical finding from each one that ran, so a
     file with a span overrun listed it three times in the compact merge
     (#427) - one true finding, not three.
@@ -62,13 +75,16 @@ def _dedupe_findings(findings):
 def _not_applicable(kind, media, records):
     """Why each probe cannot say anything about this file: {probe: why}."""
     if media is None:
-        why = (
-            "a still has no shots, seams or soundtrack to measure"
-            if kind == "image"
-            else "not a video or audio file"
+        if kind != "image":
+            return dict.fromkeys(PROBES, "not a video or audio file")
+        reasons = dict.fromkeys(
+            PROBES, "a still has no shots, seams or soundtrack to measure"
         )
-        return dict.fromkeys(PROBES, why)
+        reasons["analyze_held_frames"] = "a still has no frames to repeat"
+        return reasons
     reasons = {}
+    if media.thumbs is None:
+        reasons["analyze_held_frames"] = "no picture - an audio-only file"
     if media.audio is None:
         reasons["analyze_shots"] = "no audio track"
         reasons["analyze_sync_drift"] = "no audio track"
@@ -116,11 +132,11 @@ def assess(path, kind, shots, probe=None, detail=False):
         blocked = reasons.get(probe)
         if media is None or (blocked and probe != "analyze_seams"):
             return {"probe": probe, "not_applicable": {probe: blocked}}
-        return {"probe": probe, **PROBES[probe](media, records, source)}
+        return {"probe": probe, **_run(probe, media, records, source, detail)}
 
     answers = {
-        name: run(media, records, source)
-        for name, run in PROBES.items()
+        name: _run(name, media, records, source, detail)
+        for name in PROBES
         if name not in reasons
     }
     # The whole-file level rules (full_scale, near_silent) are the gallery's
