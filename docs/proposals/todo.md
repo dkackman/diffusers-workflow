@@ -37,6 +37,14 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **H3 multi-character band-video rules** (#1528, stages #1561-#1562), built
+  2026-11-22. Four outside claims probed on lem: a missing-reference stranger,
+  an exit written last and a silent player mouthing a held sung slice are
+  refuted (so no vocal-free slice); wet words near a face is not settled and
+  waits on Don's playback (`audits/2026-11-vrgdg-band-probes.md`). The rest
+  went into `minimax-h3`'s `staging.md`, `cuts.md` and `intents.md` as a
+  labelled outside-reported, unprobed list, with a head-count line for
+  `get_output_frames`: `complete/h3-band-video-rules-complete.md`.
 - **Requests: a result whose plan or prompt changed after its take reads revised**
   (#1531, stages #1557-#1559), built 2026-11-22. A done item reads `revised`, with
   `revised_because`, when its `workflow`/`arguments` changed after its take (a
