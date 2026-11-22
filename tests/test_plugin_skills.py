@@ -795,6 +795,74 @@ class TestMiniMaxH3Skill:
         assert paste["task"]["command"] == "paste_into_box"
         assert paste["task"]["arguments"]["content_box"] == "previous_result:fit.fit"
 
+    def _h3_reference(self, name):
+        path = os.path.join(os.path.dirname(H3_SKILL), "references", name)
+        return " ".join(open(path, encoding="utf-8").read().split())
+
+    def test_the_band_probes_land_where_their_record_ruled(self):
+        """#1528 stage B: the VRGDG band-video probes (#1561) were refuted
+        (P1, P3, P4) or not settled (P2), so none is written as a rule. Each
+        sits under the file's *Probed* heading and cites the record."""
+        record = "docs/proposals/audits/2026-11-vrgdg-band-probes.md"
+        assert os.path.isfile(os.path.join(REPO_ROOT, record))
+
+        staging = self._h3_reference("staging.md")
+        probed = staging[
+            staging.index("## Probed and not a rule") : staging.index(
+                "## Reported from outside"
+            )
+        ]
+        assert record in probed
+        assert "Refuted (P1)" in probed and "exactly three people" in probed
+        assert "Refuted, with a timing note (P3)" in probed
+        assert "put the exit in its first half" in probed
+        assert "Not settled (P2)" in probed and "Don's playback" in probed
+
+        cuts = self._h3_reference("cuts.md")
+        heading = "## Probed, not a rule: a silent player under a held sung slice"
+        p4 = cuts[cuts.index(heading) : cuts.index("## Probed, not a rule: odd shots")]
+        assert record in p4 and "P4" in p4
+        assert "needs no closed-lips sentence and no vocal-free slice" in p4
+        # P4 didn't hold, so dialogue.md's silent-listener row stands without a
+        # cross-reference and no vocal-free slice reaches the template
+        with open(
+            os.path.join(
+                REPO_ROOT, "workflows", "templates", "minimax", "music-video.json"
+            ),
+            encoding="utf-8",
+        ) as f:
+            variables = json.load(f).get("variables", {})
+        assert not [name for name in variables if "vocal" in name or "stem" in name]
+
+    def test_the_outside_reported_list_names_its_source_and_is_unprobed(self):
+        staging = self._h3_reference("staging.md")
+        outside = staging[staging.index("## Reported from outside, not probed here") :]
+        assert "vrgamegirl19/comfyui-vrgamedevgirl" in outside and "#1528" in outside
+        assert "None of these is probed here" in outside
+        assert "base H3 or a finetune" in outside
+        # Every entry is worded as the outside run's report, never as our result
+        entries = [e for e in outside.split(" - ")[1:]]
+        assert len(entries) == 10
+        assert all("they report" in e for e in entries)
+        # The head-count wording goes beside placement, not instead of it
+        rules = staging[: staging.index("## Probed and not a rule")]
+        assert "beside that placement, never in place of it" in rules
+
+    def test_head_counts_are_read_closer_than_the_staging_sheet(self):
+        quality = self._h3_reference("quality-and-speed.md")
+        judge = quality[
+            quality.index("### 4. How to judge") : quality.index("### 5. Cost")
+        ]
+        assert "`get_output_frames(count=12)`" in judge
+        line = judge[judge.index("Head counts") :]
+        assert "`max_dimension`" in line and "`crop`" in line
+
+    def test_the_lyric_hand_check_is_marked_outside_reported(self):
+        cuts = self._h3_reference("cuts.md")
+        assert "hand-check the plan's last lyric lines and any held note" in cuts
+        start = cuts.index("hand-check the plan's last lyric lines")
+        assert "Not probed here." in cuts[start : start + 400]
+
 
 LTX_SKILL = os.path.join(PLUGIN_DIR, "skills", "ltx-2.5", "SKILL.md")
 

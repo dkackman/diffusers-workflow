@@ -55,6 +55,12 @@ length. Suspect filtering and word alignment don't apply; a long
 phrase split into pieces gives every piece its whole lyric. The song length
 falls back to the phrase result's `duration_seconds`.
 
+Before writing prompts, hand-check the plan's last lyric lines and any held
+note against the song: the outside band-video run in
+`references/staging.md` § Reported from outside, not probed here reports
+that the aligner squeezed long final words, timed on the vocal stem as this
+chain already does. Not probed here.
+
 Write one prompt per shot, a vocal
 shot to its `lyric`, an instrumental one to the mood. Render with
 `music-video`: each entry is the plan's shot with `prompt` added and `lyric`
@@ -76,6 +82,21 @@ the same rule.
 `asset:...` to cut to an existing one and skip writing.
 
 Mouths and the pasted-over song (#795): `pair_audio` lays the original song over shots whose mouths follow H3's own audio. With the slice as a reference alone, H3 was seen re-singing it shifted by whole beats (up to 1.8 s), so the mouth lands off the song. The `hold_audio` variable holds the slice as well, keeping the reference: it defaults to `previous_result:slice` on `music-video` (null for the reference alone) and to null on the `match_audio` chains, where an audio file sets it. Measured on lem (#808, 4 shots, two seeds), the reference alone put shots up to 1.37 s late (0.18 s early on another), while reference plus hold measured 0.00 s on all eight, correlation 0.95 to 1.00. That is the audio against its slice, not the mouth: #619 measured hold with image-only references at 3 of 6 sung onsets, against 6 of 6 reference-only, and mouth onsets with hold plus reference were not counted. Check a cut with `measure_sync`.
+
+## Probed, not a rule: a silent player under a held sung slice
+
+A player who doesn't sing, alone in a shot holding a sung slice of the song,
+didn't mouth the vocal, so a shot like that needs no closed-lips sentence
+and no vocal-free slice. Refuted on our server (#1561, the record is
+`docs/proposals/audits/2026-11-vrgdg-band-probes.md` P4): a drummer-only
+shot, Ref2VA turbo 960x544 on `music-video`'s path (the song sliced, then
+held with `hold_audio`), two seeds. With no lips wording his mouth was
+closed at all six frames read inside the sung phrase, on both seeds.
+Stating "His lips stay closed the whole shot; he does not sing." added
+nothing, and on one seed the lips parted on a late frame anyway. Read from
+stills of one slice of one song with one player face-on; motion wasn't
+watched, and a singer and a silent player in one shot is the wrong-mouth
+rule in `references/staging.md`.
 
 ## Probed, not a rule: odd shots, then bridges
 

@@ -148,6 +148,11 @@ seed against the int4/int8 rule, which stands until it's measured further.
 - Face crops at native resolution, at fixed frames
   (`get_output_frames`), the same frames at both tiers.
 - A contact sheet (`get_output_frames(count=12)`) for staging.
+- Head counts on a wide or group shot: count on a few frames from
+  `get_output_frames` with `max_dimension` raised or a `crop` on the group,
+  not from the sheet. An outside band-video run reports small review frames
+  hid a doubled drummer (`references/staging.md` § Reported from outside,
+  not probed here).
 - `check-script` for the lines.
 - A 1-5 face score, recorded on the run with `set_note`.
 
