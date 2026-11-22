@@ -9,7 +9,24 @@ beforeEach(() => {
   localStorage.clear()
   location.hash = ''
 })
-afterEach(() => vi.resetModules())
+// each test's module keeps its hashchange listener, so its guards are dropped
+const removers: Array<() => void> = []
+afterEach(() => {
+  removers.splice(0).forEach((remove) => remove())
+  vi.resetModules()
+})
+async function loadRouter() {
+  const mod = await import('./router.svelte')
+  const add = mod.addLeaveGuard
+  return {
+    ...mod,
+    addLeaveGuard: (guard: () => boolean | Promise<boolean>) => {
+      const remove = add(guard)
+      removers.push(remove)
+      return remove
+    },
+  }
+}
 
 const tick = () => new Promise((r) => setTimeout(r, 0))
 
@@ -84,4 +101,73 @@ it('setHashQuery replaces the query without a navigation', async () => {
   await tick()
   expect(history.length).toBe(depth)
   expect(route.parts).toBe(parts)
+})
+
+it('asks a guard before a path change and goes on when it allows', async () => {
+  const { route, addLeaveGuard } = await loadRouter()
+  const guard = vi.fn(() => true)
+  addLeaveGuard(guard)
+  const depth = history.length
+  location.hash = '#/ws/studio/jobs/j1'
+  await tick()
+  expect(guard).toHaveBeenCalledTimes(1)
+  expect(location.hash).toBe('#/ws/studio/jobs/j1')
+  expect(route.view).toMatchObject({ section: 'jobs', rest: ['j1'] })
+  expect(history.length).toBe(depth + 1)
+})
+
+it('restores the hash when a guard declines', async () => {
+  const { route, addLeaveGuard } = await loadRouter()
+  const ws = await import('./workspace.svelte')
+  const apply = vi.spyOn(ws, 'applyRouteWorkspace')
+  await tick()
+  addLeaveGuard(() => false)
+  const before = location.hash
+  const parts = route.parts
+  apply.mockClear()
+  location.hash = '#/ws/studio/jobs/j1'
+  await tick()
+  expect(location.hash).toBe(before)
+  expect(route.parts).toEqual(parts)
+  expect(apply).not.toHaveBeenCalled()
+})
+
+it('does not guard a query-only change', async () => {
+  const { route, addLeaveGuard, setHashQuery } = await loadRouter()
+  location.hash = '#/ws/studio/jobs'
+  await tick()
+  const guard = vi.fn(() => false)
+  addLeaveGuard(guard)
+  setHashQuery({ q: 'a' })
+  location.hash = '#/ws/studio/jobs?q=b'
+  await tick()
+  expect(guard).not.toHaveBeenCalled()
+  expect(location.hash).toBe('#/ws/studio/jobs?q=b')
+  expect(route.view).toMatchObject({ section: 'jobs' })
+})
+
+it('a removed guard is not asked', async () => {
+  const { route, addLeaveGuard } = await loadRouter()
+  const guard = vi.fn(() => false)
+  const remove = addLeaveGuard(guard)
+  remove()
+  location.hash = '#/ws/studio/jobs/j1'
+  await tick()
+  expect(guard).not.toHaveBeenCalled()
+  expect(route.view).toMatchObject({ rest: ['j1'] })
+})
+
+it('awaits an async guard', async () => {
+  const { route, addLeaveGuard } = await loadRouter()
+  let answer: (ok: boolean) => void = () => {}
+  addLeaveGuard(() => new Promise<boolean>((r) => (answer = r)))
+  const before = location.hash
+  location.hash = '#/ws/studio/jobs/j1'
+  await tick()
+  expect(location.hash).toBe(before)
+  expect(route.view).not.toMatchObject({ rest: ['j1'] })
+  answer(true)
+  await tick()
+  expect(location.hash).toBe('#/ws/studio/jobs/j1')
+  expect(route.view).toMatchObject({ rest: ['j1'] })
 })

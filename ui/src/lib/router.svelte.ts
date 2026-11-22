@@ -63,6 +63,7 @@ export function setHashQuery(values: Record<string, string>) {
     .join('&')
   const hash = '#/' + hashParts()[0] + (query ? '?' + query : '')
   if (hash !== location.hash) history.replaceState(history.state, '', hash)
+  committed = location.hash
 }
 
 function parse(): { parts: string[]; view: RouteView } {
@@ -79,10 +80,59 @@ function parse(): { parts: string[]; view: RouteView } {
 
 export const route = $state(parse())
 
-window.addEventListener('hashchange', () => {
+/** The hash of the route the app is showing. */
+let committed = location.hash
+
+type LeaveGuard = () => boolean | Promise<boolean>
+// eslint-disable-next-line svelte/prefer-svelte-reactivity -- not reactive state
+const guards = new Set<LeaveGuard>()
+let asking = false
+
+/** Ask before the route leaves its current path (an editor with unsaved
+ * edits). Return true to allow. Guards are asked in registration order and
+ * never for a query-only change. Returns a function that removes the guard. */
+export function addLeaveGuard(guard: LeaveGuard): () => void {
+  const entry: LeaveGuard = () => guard()
+  guards.add(entry)
+  return () => guards.delete(entry)
+}
+
+function pathOf(hash: string): string {
+  return hash.replace(/^#\/?/, '').split('?')[0]
+}
+
+async function allowed(): Promise<boolean> {
+  for (const guard of [...guards]) if (!(await guard())) return false
+  return true
+}
+
+function apply() {
   const next = parse()
+  committed = location.hash
   route.parts = next.parts
   route.view = next.view
+}
+
+window.addEventListener('hashchange', () => {
+  const target = location.hash
+  if (asking || !guards.size || pathOf(target) === pathOf(committed)) {
+    // a hashchange during an ask is put back; the ask decides
+    if (asking) history.replaceState(history.state, '', committed)
+    else apply()
+    return
+  }
+  // hashchange fires after the URL moved: put it back, ask, and on an allow
+  // take the target in place (replaceState adds no entry, fires no event)
+  history.replaceState(history.state, '', committed)
+  asking = true
+  allowed()
+    .catch(() => false)
+    .then((ok) => {
+      asking = false
+      if (!ok) return
+      history.replaceState(history.state, '', target)
+      apply()
+    })
 })
 
 export function go(...parts: string[]) {
