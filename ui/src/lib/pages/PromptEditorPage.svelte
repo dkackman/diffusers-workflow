@@ -295,9 +295,10 @@
 <EditorBody
   view={shell.view}
   jsonDraft={shell.jsonDraft}
-  onjson={(raw) => shell.applyJson(raw)}
+  onjson={(raw, o) => shell.applyJson(raw, o)}
+  register={(f) => shell.registerFlush(f)}
   schema="prompt"
-  hint="Schema-aware: completion, hover docs and validation come from the prompt schema. Changes apply when the editor loses focus."
+  hint="Schema-aware: completion, hover docs and validation come from the prompt schema. Changes apply as you type."
   stickyTop="66px"
 >
   {#snippet form()}

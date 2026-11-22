@@ -429,8 +429,9 @@
   <EditorBody
     view={ed.view}
     jsonDraft={ed.jsonDraft}
-    onjson={(raw) => ed.applyJson(raw)}
-    hint="Schema-aware: completion, hover docs and validation come from the workflow schema. Changes apply when the editor loses focus."
+    onjson={(raw, o) => ed.applyJson(raw, o)}
+    register={(f) => ed.registerFlush(f)}
+    hint="Schema-aware: completion, hover docs and validation come from the workflow schema. Changes apply as you type."
     stickyTop="136px"
   >
     {#snippet form()}
