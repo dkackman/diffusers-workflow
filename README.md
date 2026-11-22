@@ -11,7 +11,7 @@ cost, runs it, and looks at what came back. **You steer from the browser.** Ever
 workflow, run and output the agent made is in the web UI, where you can change a
 variable, run it again, compare takes and keep the one you like.
 
-**Python 3.12-3.14 | CUDA (NVIDIA) | MPS (Apple Silicon) | CPU**
+**Python 3.12-3.14 | CUDA (NVIDIA) | MPS (Apple Silicon) | CPU** ([what runs where](docs/ACCELERATION.md#what-runs-where))
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/img/ui-overview-dark.jpg">

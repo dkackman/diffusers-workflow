@@ -372,6 +372,33 @@ Set at import unless already in the environment. Export your own value to overri
 
 For faster downloads, optionally `pip install hf_transfer` and set `HF_HUB_ENABLE_HF_TRANSFER=1`. It is not enabled automatically: it bypasses the Python HTTP stack and breaks some proxy setups.
 
+## What runs where
+
+One row per model family the catalog ships a workflow for, one column per backend: 24 GB CUDA (lem, RTX 3090), Apple Silicon (mini-ai, M5 Pro 64 GB) and CPU. Every cell is one of **runs** (the catalog's minutes), **runs slowly** (a measured time), **does not run** (measured), **does not run (by rule, untested)** (a skill or doc rule, no run behind it) or **no record**. Each names its source and the condition that makes it run. Families with no catalog workflow (Wan 2.2, HunyuanVideo, Qwen-Image 20B) are not listed.
+
+| Family | 24 GB CUDA | Apple Silicon | CPU |
+| ------ | ---------- | ------------- | --- |
+| MiniMax H3 video | **runs**, 1.5 min (`workflows/templates/minimax/video-with-audio.json`); recipe and `host_ram_gb` in [RECIPES_24GB.md](RECIPES_24GB.md) | **runs slowly**, about 9 min per clip, from pre-quantized folders only (reported in #1526 from the mini-ai runs; no job or bench record in the repo). `sage_hub` fails at run time and `sparse` falls back to dense (`docs/RELEASING.md`). A 24 GB Mac is refused at the `minimax/chained-segments` defaults ([MPS Notes](#mps-notes)) | **no record** |
+| MiniMax H3-Image | **runs**, 2.3 min (`workflows/templates/minimax-h3-image/text-to-image.json`), `host_ram_gb` 64 ([RECIPES_24GB.md](RECIPES_24GB.md)) | **does not run (by rule, untested)**: "CUDA only" (`plugins/dw/skills/minimax-h3-image/SKILL.md`) | **does not run (by rule, untested)**: same rule |
+| MiniMax Music 3 | **runs**, 3.6 min, scales with `audio_duration` (`workflows/templates/minimax/music.json`) | **runs slowly**, 9.2 min, scales with `audio_duration` (`music.json`); `music-video` has never run there (`plugins/dw/skills/minimax-music3/SKILL.md`) | **does not run (by rule, untested)** (`minimax-music3/SKILL.md`: "on cpu stop") |
+| LTX-2.5 | **runs**, 1.8 min (`workflows/templates/ltx2/text-to-video.json`) | **runs slowly**, 6 min, text-to-video only; an MPS-only audio dropout is recorded in `bench/records/ltx.md` | **does not run (by rule, untested)** |
+| Kandinsky 6 | **runs**, 3.5 min (`workflows/templates/kandinsky6/text-to-video.json`) | **does not run**, measured: about 54 s per denoise step, then the VAE decode exhausts memory and the worker is killed (`workflows/templates/kandinsky6/README.md`) | **does not run**, measured: the decode of 3 latent frames had not finished after 10 min (same README) |
+| FLUX 3 Klein | **runs**; the templates carry no cost row, so there is no catalog minutes figure. About 19 GB of bf16 weights, all components on the GPU, 1024x1024 (`workflows/templates/flux3/text-to-image.json`) | **no record**: "unmeasured" (`plugins/dw/skills/flux3-klein/SKILL.md`) | **does not run (by rule, untested)** (`flux3-klein/SKILL.md`: "on cpu stop") |
+| FLUX.1 dev | **runs**, 1.0 min (`workflows/models/flux-dev.json`), with `offload: "model"` or block-level `group_offload` ([RECIPES_24GB.md](RECIPES_24GB.md)) | **no record**; the TorchAO int4 path (`flux-torchao`) has no Mac route ([MPS Notes](#mps-notes)) | **no record** |
+| FLUX.2 dev | **runs**, 3.3 min (`workflows/models/flux2-dev.json`) | **does not run**: it loads a bitsandbytes checkpoint, which has no Mac path ([MPS Notes](#mps-notes), [QUANTIZATION.md](QUANTIZATION.md)) | **does not run**: bitsandbytes is not available on CPU either ([QUANTIZATION.md](QUANTIZATION.md)) |
+| Z-Image Turbo | **runs**, 1.4 min (`workflows/models/z-image.json`); 41 s for 4 images at 960x544 with `offload: "model"` ([RECIPES_24GB.md](RECIPES_24GB.md)) | **no record** | **no record** |
+
+No CPU cell says **runs**: no family has a measured CPU run.
+
+### Cells with no record
+
+Nothing here was measured to fill these in; each is a gap, not a "no":
+
+- MiniMax H3 video: CPU. Apple Silicon has only the reported figure above.
+- FLUX 3 Klein: Apple Silicon; and the 24 GB CUDA minutes.
+- FLUX.1 dev: Apple Silicon and CPU.
+- Z-Image Turbo: Apple Silicon and CPU.
+
 ## MPS Notes
 
 Apple Silicon has narrower acceleration support than CUDA:
