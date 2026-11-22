@@ -468,8 +468,13 @@ again. Because writes are whole plans, writing back a revised item that
 already carries `accepted` counts as re-accepting it. The other ways back
 to `done`: a new take that succeeds, or writing the arguments (and workflow)
 back to equal a take's. A re-accept also records `prompts: {name: digest}` in
-`accepted_basis`, and holds until a prompt's text changes again. The server reads
-each distinct prompt once per view, memoized by (path, mtime). `ready` is true when a job could be queued
+`accepted_basis`, and holds until a prompt's text changes again; that basis
+judges the accepted take only, so a newer take run on the current text still
+makes the item `done` (the accepted take stays its result). A prompt-driven
+revision is no ledger write: `save_prompt` adds no revision or history entry
+and wakes no notes-channel event, so an agent sees it on its next
+`get_request`. The server reads each distinct prompt once per view, memoized
+by (path, mtime). `ready` is true when a job could be queued
 for the item now: it is `planned` or `revised`, stores a `workflow`, every item it
 depends on is `done`, and the request is open. `attempts` lists the jobs
 oldest first as `{job, status, note?, minutes, output}`; `result` is the
