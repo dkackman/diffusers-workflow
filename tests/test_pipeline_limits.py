@@ -165,6 +165,55 @@ class TestWindowedRefine:
         assert lifts_duration_ceiling({"refine_windows": {}, "refine_strength": 0.3})
         assert not lifts_duration_ceiling({"refine_strength": 0.3})
         assert not lifts_duration_ceiling({"refine_windows": {}})
+        # the experimental windowed generation (#1188) lifts it on its own key
+        assert lifts_duration_ceiling({"experimental_hybrid_windows": {}})
+        assert not lifts_duration_ceiling({"experimental_hybrid_windows": None})
+
+
+class TestHybridWindows:
+    """`experimental_hybrid_windows` (#1188 S1) through the real validate
+    path: refused naming its flag when the flag is off, and a long take with
+    its held track when it is on. `refine_windows` and the plain ceiling are
+    unchanged (TestWindowedRefine, TestNumFrames)."""
+
+    HYBRID_PATH = "steps[0].pipeline.arguments.experimental_hybrid_windows"
+
+    def _validate(self, **arguments):
+        step = h3_step(
+            "t2va",
+            experimental_hybrid_windows={},
+            hold_audio="https://example.com/track.wav",
+            num_frames=690,
+            **arguments,
+        )
+        workflow = Workflow(copy.deepcopy(definition(step)), "outputs", "inline.json")
+        return workflow.validation_errors(None)
+
+    def test_the_flag_off_refusal_names_the_flag(self, monkeypatch):
+        monkeypatch.delenv("DW_EXPERIMENTAL_HYBRID_WINDOWS", raising=False)
+        (error,) = self._validate()
+        assert error["path"] == self.HYBRID_PATH
+        assert "DW_EXPERIMENTAL_HYBRID_WINDOWS" in error["message"]
+
+    def test_the_flag_on_takes_a_take_past_fifteen_seconds(self, monkeypatch):
+        monkeypatch.setenv("DW_EXPERIMENTAL_HYBRID_WINDOWS", "1")
+        assert self._validate() == []
+
+    def test_without_the_key_the_ceiling_holds(self, monkeypatch):
+        monkeypatch.setenv("DW_EXPERIMENTAL_HYBRID_WINDOWS", "1")
+        assert paths(h3_step("t2va", num_frames=690)) == [FRAMES_PATH]
+
+    def test_ref2va_is_refused_where_the_key_is(self, monkeypatch):
+        monkeypatch.setenv("DW_EXPERIMENTAL_HYBRID_WINDOWS", "1")
+        step = h3_step(
+            "ref2va",
+            experimental_hybrid_windows={},
+            hold_audio="https://example.com/track.wav",
+            num_frames=690,
+        )
+        workflow = Workflow(copy.deepcopy(definition(step)), "outputs", "inline.json")
+        found = [e["path"] for e in workflow.validation_errors(None)]
+        assert self.HYBRID_PATH in found
 
 
 class TestCanvas:

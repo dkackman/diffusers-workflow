@@ -780,7 +780,8 @@ def selflift_errors(workflow_definition, source_indices=None):
 
 
 def windows_errors(workflow_definition, source_indices=None, written=None, given=None):
-    """Every `refine_windows` refused before the run, as [{path, message}]
+    """Every `refine_windows` and `experimental_hybrid_windows` (#1188,
+    `hybrid_problems`, behind its flag) refused before the run, as [{path, message}]
     (#1230; dw/pipeline_processors/h3_windows.py): the spike-era name
     `experimental_refine_windows`, a step that is not H3 t2va/fl2va, and the
     call rules the run asks too (`window_problems`) - the settings with their
@@ -790,11 +791,12 @@ def windows_errors(workflow_definition, source_indices=None, written=None, given
     the document is checked bare (dw/hold_audio.py `judged_arguments`)."""
     from .hold_audio import judged_arguments
     from .pipeline_processors.h3_rules import (
+        HYBRID_WINDOWS_INPUT,
         OLD_REFINE_WINDOWS_INPUT,
         REFINE_WINDOWS_INPUT,
         renamed_windows_problem,
     )
-    from .pipeline_processors.h3_windows import window_problems
+    from .pipeline_processors.h3_windows import hybrid_problems, window_problems
 
     errors = []
     for _, _, pipeline, source, where in references.iter_steps(
@@ -809,24 +811,27 @@ def windows_errors(workflow_definition, source_indices=None, written=None, given
                 ("steps", source, "pipeline", "arguments", OLD_REFINE_WINDOWS_INPUT)
             )
             errors.append({"path": path, "message": f"{renamed}{where}"})
-        if arguments.get(REFINE_WINDOWS_INPUT) is None:
-            continue
-        path = render_path(
-            ("steps", source, "pipeline", "arguments", REFINE_WINDOWS_INPUT)
-        )
-        step_problem = _takes_guides_problem(pipeline, arguments, REFINE_WINDOWS_INPUT)
-        if step_problem:
-            problems = [step_problem]
-        else:
-            configuration = pipeline.get("configuration")
-            cached = (
-                isinstance(configuration, dict)
-                and configuration.get("cache") is not None
-            )
-            problems = window_problems(
-                judged_arguments(arguments, source, written, given), has_cache=cached
-            )
-        errors += [{"path": path, "message": f"{p}{where}"} for p in problems]
+        for name, rules in (
+            (REFINE_WINDOWS_INPUT, window_problems),
+            (HYBRID_WINDOWS_INPUT, hybrid_problems),
+        ):
+            if arguments.get(name) is None:
+                continue
+            path = render_path(("steps", source, "pipeline", "arguments", name))
+            step_problem = _takes_guides_problem(pipeline, arguments, name)
+            if step_problem:
+                problems = [step_problem]
+            else:
+                configuration = pipeline.get("configuration")
+                cached = (
+                    isinstance(configuration, dict)
+                    and configuration.get("cache") is not None
+                )
+                problems = rules(
+                    judged_arguments(arguments, source, written, given),
+                    has_cache=cached,
+                )
+            errors += [{"path": path, "message": f"{p}{where}"} for p in problems]
     return errors
 
 

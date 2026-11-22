@@ -55,13 +55,31 @@ Past 15 s. diffusers' layout step refuses a take over
 `MiniMaxH3ModularPipeline.max_duration` (15 s, a read-only property).
 `insert_refine_windows` also swaps each t2va/fl2va `prepare_layout` for
 `DwH3LongRefineLayoutStep`, which runs the stock step unchanged unless the
-call carries both `refine_windows` and `refine_strength`; then it
-hands the stock step a view of `components` whose `max_duration` is the take's
-own (`_LongTakeComponents`). Nothing is patched: every other call, and every
-other job in the worker, keeps the ceiling, because a generation over 15 s is
-another model regime. The upstream change that would replace it is a
+call carries both `refine_windows` and `refine_strength`, or
+`experimental_hybrid_windows`; then it hands the stock step a view of
+`components` whose `max_duration` is the take's own (`_LongTakeComponents`).
+Nothing is patched: every other call, and every other job in the worker,
+keeps the ceiling. Past 15 s is a regime only these two reach: a refine
+whose every forward sees one window, and the experimental generation below,
+whose every forward does too. The upstream change that would replace it is a
 `ConfigSpec("max_duration", 15.0)` on the layout step, read as
 `components.config.max_duration` like `canvas_max_pixels`.
+
+Windowed generation (#1188 S1, EXPERIMENTAL). `experimental_hybrid_windows`
+- `{frames, overlap, blend, positions, switch_step, handoff}`, the first four
+as `refine_windows`'s - generates a t2va take from noise as the same fused
+windows, on every step, with a held `hold_audio` track as its only audio. It
+is refused unless the process sets `DW_EXPERIMENTAL_HYBRID_WINDOWS=1`, naming
+the flag (`hybrid_problems`), and is in no schema or tool text. The take's
+full state lives in host RAM (pinned on CUDA): at step 0 the denoiser moves
+`latents` and `audio_latents` off the device, each window's rows go to the
+device for its forward only, its velocity comes back and is fused on the
+host, and `DwH3HostLoopSchedulerStep` - the stock update, which moves its
+sigmas to the sample's device - steps the whole take there, then puts it back
+on the device after the last step for the release and the streamed decode.
+This stage is the blended arm only (`switch_step: 0`): the ordered windows
+that `switch_step` and `handoff` select come next, and a run asking for them
+says so in a warning and runs every step blended.
 
 The decode of a long take. The stock video decode keeps every decoded clip
 on the device and converts the whole take to float32, about 36 GB at 120 s
@@ -86,10 +104,20 @@ from diffusers.modular_pipelines.minimax_h3.before_denoise import (
     align_num_frames,
 )
 from diffusers.modular_pipelines.minimax_h3.decoders import MiniMaxH3VideoDecodeStep
-from diffusers.modular_pipelines.minimax_h3.denoise import MiniMaxH3LoopDenoiser
+from diffusers.modular_pipelines.minimax_h3.denoise import (
+    MiniMaxH3LoopDenoiser,
+    MiniMaxH3LoopSchedulerStep,
+)
 from diffusers.modular_pipelines.modular_pipeline_utils import InputParam
 
-from .. import references
+from .. import get_device_type, references
+from .h3_hold_steps import (  # noqa: F401 - re-exported: the decode's names live here too
+    DECODE_PIECE_CLIPS,
+    DwH3StreamedVideoDecodeStep,
+    _video_decode_slots,
+    streamed_decode,
+    video_decode_steps,
+)
 from .h3_hold import core_denoise_sequences
 from .h3_rules import (
     GATED_GUIDE_ROWS,
@@ -97,6 +125,8 @@ from .h3_rules import (
     GUIDES_INPUT,
     HELD_ROWS,
     HOLD_AUDIO_INPUT,
+    HYBRID_WINDOWS_ENV_VAR,
+    HYBRID_WINDOWS_INPUT,
     LATENT_ANCHOR_INPUT,
     MASK_INPUTS,
     REFINE_BEFORE,
@@ -107,13 +137,17 @@ from .h3_rules import (
     RENDER_GRID,
     SOURCE_VIDEO_INPUT,
     guide_latent_frames,
+    hybrid_windows_enabled,
     lifts_duration_ceiling,
 )
+from ..events import emit_warning
 
 logger = logging.getLogger("dw")
 
 # The denoise loop's forward sub-block, which the windowed one replaces
 DENOISER = "denoiser"
+# Its update sub-block, which the host-RAM one replaces (#1188)
+UPDATE = "update"
 # The core sequence's layout block, whose duration ceiling a windowed refine lifts
 LAYOUT = "prepare_layout"
 # diffusers' ceiling, read off its own property rather than copied
@@ -142,6 +176,24 @@ CONFLICTS = (
     GUIDES_INPUT,
     LATENT_ANCHOR_INPUT,
 )
+# The windowed generation's own keys (#1188), past the window's four: the step
+# the ordered windows hand over to blended ones at, and what they hand over.
+# S1 runs the blended arm only (switch_step 0); the defaults are S2's
+_HYBRID_KEYS = _KEYS + ("switch_step", "handoff")
+HYBRID_DEFAULTS = {**WINDOW_DEFAULTS, "switch_step": 3, "handoff": "finished"}
+HANDOFFS = ("finished", "x0")
+# What the generation refuses beyond CONFLICTS: a refine's inputs (the take is
+# noise), and the refine windows, which are the other branch of the denoiser
+HYBRID_REFINE_INPUTS = (
+    REFINE_WINDOWS_INPUT,
+    REFINE_STRENGTH_INPUT,
+    REFINE_TILES_INPUT,
+    "latents",
+    SOURCE_VIDEO_INPUT,
+    *MASK_INPUTS,
+)
+# The loop's note of the device the take came from, set while it is on the host
+HYBRID_DEVICE = "dw_hybrid_device"
 # H3's clip grid: a 17-frame clip encodes to 5 latents, the first of them one
 # frame. A rebased window's first latent sits at the take's origin, the slot
 # of a one-frame latent, so it must be one - a start on this grid
@@ -229,7 +281,7 @@ def fuse_weights(plan, num_latent_frames, blend="pyramid"):
     return [weights / total[start:stop] for (start, stop), weights in zip(plan, raw)]
 
 
-def rebase_problem(plan):
+def rebase_problem(plan, name=REFINE_WINDOWS_INPUT):
     """Why `positions: "rebased"` cannot move this plan's windows to the
     take's origin, or None: a window that starts off the clip grid starts on a
     four-frame latent, and the origin slot is a one-frame latent's."""
@@ -237,7 +289,7 @@ def rebase_problem(plan):
     if not off:
         return None
     return (
-        f"{REFINE_WINDOWS_INPUT} positions 'rebased' moves each window's first "
+        f"{name} positions 'rebased' moves each window's first "
         f"latent to the take's origin, which is a one-frame latent's slot, so "
         f"every window must start on a multiple of {CLIP_LATENTS} latents (H3's "
         f"clip grid) - windows start at {', '.join(map(str, off))}; pick frames "
@@ -322,14 +374,13 @@ def window_problems(arguments, has_cache=False):
     )
 
 
-def _settings_problems(settings, arguments):
+def _settings_problems(settings, arguments, name=REFINE_WINDOWS_INPUT, keys=_KEYS):
     """The window settings' own problems: their keys, the plan they make, the
     blend and the positions."""
-    name = REFINE_WINDOWS_INPUT
     problems = []
-    extra = sorted(set(settings) - set(_KEYS))
+    extra = sorted(set(settings) - set(keys))
     if extra:
-        problems.append(f"{name} takes {', '.join(_KEYS)}, not {', '.join(extra)}")
+        problems.append(f"{name} takes {', '.join(keys)}, not {', '.join(extra)}")
     resolved = window_settings(settings)
     frames, overlap = resolved["frames"], resolved["overlap"]
     planned = False
@@ -350,13 +401,13 @@ def _settings_problems(settings, arguments):
     if positions not in POSITIONS:
         problems.append(f"{name} positions is one of {', '.join(POSITIONS)}")
     elif positions == "rebased" and planned:
-        problem = _rebased_plan_problem(arguments, frames, overlap)
+        problem = _rebased_plan_problem(arguments, frames, overlap, name)
         if problem:
             problems.append(problem)
     return problems
 
 
-def _rebased_plan_problem(arguments, frames, overlap):
+def _rebased_plan_problem(arguments, frames, overlap, name=REFINE_WINDOWS_INPUT):
     """Why rebased positions cannot hold for this plan, or None."""
     # The stride decides every start but the pulled-back last; that one
     # needs the take's length, when the call already says it. The loop
@@ -366,7 +417,7 @@ def _rebased_plan_problem(arguments, frames, overlap):
         plan = window_plan(take, frames, overlap)
     else:
         plan = [(0, frames), (frames - overlap, 2 * frames - overlap)]
-    return rebase_problem(plan)
+    return rebase_problem(plan, name)
 
 
 def _refine_problems(arguments, has_cache):
@@ -403,6 +454,93 @@ def _refine_problems(arguments, has_cache):
             f"cache would reuse one window's result for another - drop 'cache'"
         )
     return problems
+
+
+def hybrid_settings(settings):
+    """An `experimental_hybrid_windows` value with every absent key at its
+    default (`HYBRID_DEFAULTS`). The settings are not checked here."""
+    return {**HYBRID_DEFAULTS, **settings}
+
+
+def _hybrid_key_problems(settings):
+    """`switch_step` and `handoff`'s shape. Their range against the step
+    count, and what they do, are S2's."""
+    name = HYBRID_WINDOWS_INPUT
+    resolved = hybrid_settings(settings)
+    problems = []
+    switch = resolved["switch_step"]
+    if not _unresolved(switch) and (
+        isinstance(switch, bool) or not isinstance(switch, int) or switch < 0
+    ):
+        problems.append(
+            f"{name} switch_step is a whole number of steps, 0 or more, got {switch!r}"
+        )
+    handoff = resolved["handoff"]
+    if not _unresolved(handoff) and handoff not in HANDOFFS:
+        problems.append(f"{name} handoff is one of {', '.join(HANDOFFS)}")
+    return problems
+
+
+def hybrid_problems(arguments, has_cache=False):
+    """Why this step's `experimental_hybrid_windows` cannot run - a list,
+    empty when it can or cannot be told yet. Pure. The settings' own rules
+    come first, so a caller sees the key's rules before the flag's; then the
+    flag, then the call: a held track, no rows the windows do not split, no
+    refine and no step cache. A setting still an unresolved reference is
+    left to the run, which checks it again."""
+    name = HYBRID_WINDOWS_INPUT
+    settings = arguments.get(name)
+    if settings is None or _unresolved(settings):
+        return []
+    if not isinstance(settings, dict):
+        return [
+            f"{name} is {{{', '.join(_HYBRID_KEYS)}}}, every key optional, "
+            f"got {settings!r}"
+        ]
+    problems = _settings_problems(
+        settings, arguments, name, _HYBRID_KEYS
+    ) + _hybrid_key_problems(settings)
+    if not hybrid_windows_enabled():
+        problems.append(
+            f"{name} is experimental: it runs only on a server started with "
+            f"{HYBRID_WINDOWS_ENV_VAR}=1"
+        )
+    if arguments.get(HOLD_AUDIO_INPUT) is None:
+        problems.append(
+            f"{name} generates the video of a take whose audio is held - add "
+            f"'hold_audio' with the track"
+        )
+    for other in CONFLICTS:
+        if arguments.get(other) is not None:
+            problems.append(
+                f"{name} generates a t2va take whose only audio is the held "
+                f"track, and {other} adds rows the windows do not split - "
+                f"drop {other}"
+            )
+    for other in HYBRID_REFINE_INPUTS:
+        if arguments.get(other) is not None:
+            problems.append(
+                f"{name} generates a take from noise and does not take {other}"
+            )
+    if has_cache:
+        problems.append(
+            f"{name} runs the transformer once per window per step, and a step "
+            f"cache would reuse one window's result for another - drop 'cache'"
+        )
+    return problems
+
+
+def hybrid_refusal(pipeline, arguments, has_cache=False):
+    """The first reason this call cannot generate in windows, or None."""
+    if arguments.get(HYBRID_WINDOWS_INPUT) is None:
+        return None
+    if not windows_refine(pipeline):
+        return (
+            f"{HYBRID_WINDOWS_INPUT} is a MiniMax-H3 t2va argument, and "
+            f"{type(pipeline).__name__} has no denoise loop that windows"
+        )
+    problems = hybrid_problems(arguments, has_cache)
+    return problems[0] if problems else None
 
 
 def windows_refusal(pipeline, arguments, has_cache=False):
@@ -469,7 +607,10 @@ def insert_refine_windows(pipeline):
     place and keeping its transformer, every t2va/fl2va `prepare_layout`
     with the one that lifts the duration ceiling for a windowed refine, and
     the video decode with the one that decodes a piece of the take at a time.
-    Idempotent. Returns whether the pipeline now windows a refine."""
+    Idempotent. Returns whether the pipeline now windows a refine. The
+    loop's `update` becomes `DwH3HostLoopSchedulerStep`, the stock step for
+    every call but a windowed generation, whose take it brings back to the
+    device after the last step."""
     for holder, key in _layout_slots(pipeline):
         if type(_slot(holder, key)) is MiniMaxH3PrepareLayoutStep:
             _set_slot(holder, key, DwH3LongRefineLayoutStep())
@@ -485,6 +626,8 @@ def insert_refine_windows(pipeline):
             loop.sub_blocks[DENOISER] = DwH3WindowedLoopDenoiser(
                 current.transformer_name
             )
+        if type(loop.sub_blocks.get(UPDATE)) is MiniMaxH3LoopSchedulerStep:
+            loop.sub_blocks[UPDATE] = DwH3HostLoopSchedulerStep()
         inserted = True
     return inserted
 
@@ -527,6 +670,7 @@ class DwH3LongRefineLayoutStep(MiniMaxH3PrepareLayoutStep):
         return super().inputs + [
             InputParam(name=REFINE_WINDOWS_INPUT, type_hint=dict, default=None),
             InputParam(name=REFINE_STRENGTH_INPUT, default=None),
+            InputParam(name=HYBRID_WINDOWS_INPUT, type_hint=dict, default=None),
         ]
 
     def __call__(self, components, state):
@@ -534,7 +678,11 @@ class DwH3LongRefineLayoutStep(MiniMaxH3PrepareLayoutStep):
         windowed = lifts_duration_ceiling(
             {
                 name: getattr(block_state, name, None)
-                for name in (REFINE_WINDOWS_INPUT, REFINE_STRENGTH_INPUT)
+                for name in (
+                    REFINE_WINDOWS_INPUT,
+                    REFINE_STRENGTH_INPUT,
+                    HYBRID_WINDOWS_INPUT,
+                )
             }
         )
         if not windowed or block_state.num_frames is None:
@@ -689,6 +837,15 @@ class DwH3WindowedLoopDenoiser(MiniMaxH3LoopDenoiser):
                     "refine_strength and hold_audio."
                 ),
             ),
+            InputParam(
+                name=HYBRID_WINDOWS_INPUT,
+                type_hint=dict,
+                default=None,
+                description=(
+                    "EXPERIMENTAL, behind DW_EXPERIMENTAL_HYBRID_WINDOWS: generate in fused "
+                    "time windows with the take's state in host RAM. Needs hold_audio."
+                ),
+            ),
             InputParam(name="num_latent_frames", type_hint=int, default=None),
             InputParam(name="num_condition_video_rows", type_hint=int, default=0),
             InputParam(name=HELD_ROWS, type_hint=int, default=0),
@@ -697,6 +854,9 @@ class DwH3WindowedLoopDenoiser(MiniMaxH3LoopDenoiser):
 
     @torch.no_grad()
     def __call__(self, components, block_state, i, t):
+        hybrid = getattr(block_state, HYBRID_WINDOWS_INPUT, None)
+        if hybrid is not None:
+            return self._hybrid(components, block_state, i, hybrid)
         settings = getattr(block_state, REFINE_WINDOWS_INPUT, None)
         if settings is not None:
             return self._windowed(components, block_state, i, settings)
@@ -738,25 +898,70 @@ class DwH3WindowedLoopDenoiser(MiniMaxH3LoopDenoiser):
         block_state.noise_pred = full
         return components, block_state
 
-    def _check_rows(self, block_state):
+    def _check_rows(self, block_state, name=REFINE_WINDOWS_INPUT):
         audio_rows = block_state.audio_latents.shape[0]
         held = getattr(block_state, HELD_ROWS, 0) or 0
         if getattr(block_state, GATED_GUIDE_ROWS, None):
             # the windowed forward never reads the gates, so a capstone would
             # be silently ignored (the whole-sequence forward is what gates it)
             raise ValueError(
-                f"{REFINE_WINDOWS_INPUT} does not hold a gated guide row back "
+                f"{name} does not hold a gated guide row back "
                 f"(the experimental capstone): drop one of the two"
             )
         if block_state.num_condition_video_rows or held != audio_rows:
             raise ValueError(
-                f"{REFINE_WINDOWS_INPUT} windows a t2va refine whose every audio row is "
+                f"{name} windows a t2va take whose every audio row is "
                 f"the held track: {block_state.num_condition_video_rows or 0} conditioning "
                 f"video rows and {held} of {audio_rows} audio rows held"
             )
 
-    def _windowed(self, components, block_state, i, settings):
-        self._check_rows(block_state)
+    def _hybrid(self, components, block_state, i, settings):
+        """The windowed generation (#1188): the take's state in host RAM,
+        one window's rows on the device per forward, the fused velocity on
+        the host for `DwH3HostLoopSchedulerStep` to step."""
+        name = HYBRID_WINDOWS_INPUT
+        if not hybrid_windows_enabled():
+            # validate and the run's check refuse it first; this is the floor
+            raise ValueError(
+                f"{name} is experimental: it runs only on a server started "
+                f"with {HYBRID_WINDOWS_ENV_VAR}=1"
+            )
+        settings = hybrid_settings(settings)
+        if i == 0:
+            if settings["switch_step"] != 0:
+                emit_warning(
+                    f"{name}: switch_step {settings['switch_step']} asks for "
+                    f"ordered windows, which this build does not run yet - every "
+                    f"step runs as blended windows (switch_step 0)",
+                    switch_step=settings["switch_step"],
+                )
+            self._to_host(block_state)
+        return self._windowed(components, block_state, i, settings, name, host=True)
+
+    @staticmethod
+    def _to_host(block_state):
+        """Move the take's latents and audio rows to host RAM, pinned on
+        CUDA, and note the device they came from."""
+        device = block_state.latents.device
+        setattr(block_state, HYBRID_DEVICE, device)
+        pin = get_device_type(str(device)) == "cuda"
+        for key in ("latents", "audio_latents"):
+            host = getattr(block_state, key).cpu()
+            setattr(block_state, key, host.pin_memory() if pin else host)
+
+    def _windowed(
+        self,
+        components,
+        block_state,
+        i,
+        settings,
+        name=REFINE_WINDOWS_INPUT,
+        host=False,
+    ):
+        """The fused windowed forward. With `host`, `latents` and
+        `audio_latents` are host tensors: each window's rows go to the
+        device for its forward, and the fused velocity stays on the host."""
+        self._check_rows(block_state, name)
         transformer = getattr(components, self.transformer_name)
         accepted = inspect.signature(transformer.forward).parameters
         fields = block_state.denoiser_input_fields
@@ -765,15 +970,17 @@ class DwH3WindowedLoopDenoiser(MiniMaxH3LoopDenoiser):
         plan = window_plan(num_latent_frames, settings["frames"], settings["overlap"])
         weights = fuse_weights(plan, num_latent_frames, settings["blend"])
         latents, audio_latents = block_state.latents, block_state.audio_latents
+        device = getattr(block_state, HYBRID_DEVICE, None) if host else None
         rebase_from = None
         if settings["positions"] == "rebased":
-            problem = rebase_problem(plan)
+            problem = rebase_problem(plan, name)
             if problem:
                 raise ValueError(problem)
             first = fields["video_indices"][0]
             rebase_from = fields["position_ids"][first, 0]
         if i == 0:
-            logger.info(f"Refining in {len(plan)} time windows: {plan}")
+            verb = "Generating" if host else "Refining"
+            logger.info(f"{verb} in {len(plan)} time windows: {plan}")
 
         fused, total = None, None
         for (start, stop), window_weights in zip(plan, weights):
@@ -788,9 +995,16 @@ class DwH3WindowedLoopDenoiser(MiniMaxH3LoopDenoiser):
                 fields, block_state.row_timestep_plan[i], rows, rebase_from
             )
             video, audio, _ = rows
+            if host:
+                # the take is on the host: index it there, ship the window
+                video, audio = video.cpu(), audio.cpu()
+                hidden = latents[video].to(device)
+                audio_hidden = audio_latents[audio].to(device)
+            else:
+                hidden, audio_hidden = latents[video], audio_latents[audio]
             noise_pred, _ = transformer(
-                hidden_states=latents[video][None],
-                audio_hidden_states=audio_latents[audio][None],
+                hidden_states=hidden[None],
+                audio_hidden_states=audio_hidden[None],
                 encoder_hidden_states=block_state.prompt_embeds,
                 timestep=timestep,
                 timestep_indices=timestep_indices,
@@ -798,6 +1012,8 @@ class DwH3WindowedLoopDenoiser(MiniMaxH3LoopDenoiser):
                 return_dict=False,
                 **{k: v for k, v in layout.items() if k in accepted},
             )
+            if host:
+                noise_pred = noise_pred.float().cpu()
             if fused is None:
                 fused = torch.zeros(
                     (1, latents.shape[0], noise_pred.shape[-1]),
@@ -821,152 +1037,22 @@ class DwH3WindowedLoopDenoiser(MiniMaxH3LoopDenoiser):
         return components, block_state
 
 
-# 5. The long decode: a piece of the take at a time
+class DwH3HostLoopSchedulerStep(MiniMaxH3LoopSchedulerStep):
+    """The stock update, unchanged for every call. For a windowed generation
+    (#1188) the take is on the host, and so are the fused velocities: the
+    scheduler moves its sigmas to the sample's device, so the step runs
+    there, and after the last step the take goes back to the device it came
+    from for the release and the decode."""
 
-# VAE clips per decode piece: 8 clips are 136 frames, about 0.85 GB of float32
-# pixels at 960x544 and 1.7 GB at 1344x768
-DECODE_PIECE_CLIPS = 8
-
-
-def streamed_decode(vae, z, finish, piece_clips=DECODE_PIECE_CLIPS):
-    """Decode H3 video latents `z` a piece at a time, handing each run of
-    finished pixel frames to `finish` in order. The runs, concatenated in
-    time, equal `vae.decode(z)` exactly.
-
-    The stock decode keeps every decoded clip on the device and concatenates
-    them, then the decode block converts the whole take to float32: about
-    9 + 9 + 18 GB for 120 s at 960x544, past a 24 GB card. A take that long
-    exists only through the windowed refine.
-
-    Each piece is `vae.decode` of `piece_clips` whole clips' latents plus the
-    `token_overlap` latents the last clip also reads, so `decode` decodes
-    exactly those clips: the same latents the whole decode gives each clip,
-    and through `decode`, so on-demand placement and offload hooks still run.
-    `decode` leaves a piece's last clip's overlap frames raw at its end, and
-    the whole decode cross-fades them into the next clip's first frames. That
-    tail is held back and blended into the next piece with the VAE's own
-    `_blend`, which is how `_decode` joins two clips. The last piece runs to
-    the end of `z`, so `decode` pads and trims the end as the whole decode
-    does: the padding depends only on the latent count modulo the clip, and
-    every piece starts on a clip.
-
-    A VAE with `token_drop` 0 has no overlap to join: it decodes whole.
-
-    Raises:
-        ValueError: If `piece_clips` is not a whole number of 1 or more
-    """
-    if isinstance(piece_clips, bool) or not isinstance(piece_clips, int):
-        raise ValueError(f"piece_clips is a whole number, got {piece_clips!r}")
-    if piece_clips < 1:
-        raise ValueError(f"piece_clips is 1 or more, got {piece_clips}")
-    clip = vae.tokens_chunk_size
-    overlap = vae.token_overlap
-    if overlap < 1:
-        # No `token_drop`: clips do not overlap, so there is no tail to hold
-        # back and the stock whole decode is already the right one
-        finish(vae.decode(z, return_dict=False)[0])
-        return
-    # Frames each clip contributes before the next clip's cross-fade
-    clip_frames = clip * vae.temporal_compression_ratio - vae.frame_pre_padding
-    total = z.shape[2]
-    piece = piece_clips * clip
-    tail = None
-    start = 0
-    while True:
-        # A piece is not the last while one more clip reads past it: then the
-        # whole decode blends this piece's tail into that clip
-        last = start + piece + overlap >= total
-        stop = total if last else start + piece + overlap
-        pixels = vae.decode(z[:, :, start:stop], return_dict=False)[0]
-        if tail is not None:
-            pixels = vae._blend(tail, pixels, vae.frame_overlap, dim=-3)
-        if last:
-            finish(pixels)
-            return
-        kept = piece_clips * clip_frames
-        tail = pixels[:, :, kept:]
-        finish(pixels[:, :, :kept])
-        del pixels
-        start += piece
-
-
-class DwH3StreamedVideoDecodeStep(MiniMaxH3VideoDecodeStep):
-    """H3's video decode, a piece of the take at a time (`streamed_decode`).
-
-    The frames are the stock block's exactly. Each piece is denormalized,
-    clamped and post-processed to the output type as it is decoded, so the
-    device holds one piece's pixels rather than the whole take's. A `pt`
-    output goes through the stock block."""
-
-    piece_clips = DECODE_PIECE_CLIPS
-
-    @property
-    def description(self):
-        return (
-            "dw: decodes the video latents a piece of the take at a time, so a long take's pixels never sit on "
-            "the device whole - the frames are the stock decode's. "
-            + super().description
-        )
+    model_name = "minimax-h3"
 
     @torch.no_grad()
-    def __call__(self, components, state):
-        block_state = self.get_block_state(state)
-        output_type = block_state.output_type
-        if output_type not in ("pil", "np"):
-            return super().__call__(components, state)
-        device = components._execution_device
-        config = components.vae.config
-        latents_mean = torch.tensor(config.latents_mean, device=device).view(
-            1, -1, 1, 1, 1
-        )
-        latents_std = torch.tensor(config.latents_std, device=device).view(
-            1, -1, 1, 1, 1
-        )
-        latents = block_state.latents * latents_std + latents_mean
-        pixel_mean = torch.tensor(components.pixel_mean, device=device).view(
-            1, -1, 1, 1, 1
-        )
-        pixel_std = torch.tensor(components.pixel_std, device=device).view(
-            1, -1, 1, 1, 1
-        )
-        pieces = []
-
-        def finish(video):
-            video = (video.float() * pixel_std + pixel_mean).clamp(0, 1)
-            pieces.append(
-                components.video_processor.postprocess_video(
-                    video, output_type=output_type
-                )
-            )
-
-        streamed_decode(components.vae, latents, finish, self.piece_clips)
-        if output_type == "np":
-            import numpy
-
-            block_state.videos = numpy.concatenate(pieces, axis=1)
-        else:
-            block_state.videos = [
-                [frame for piece in pieces for frame in piece[batch]]
-                for batch in range(latents.shape[0])
-            ]
-        self.set_block_state(state, block_state)
-        return components, state
-
-
-def _video_decode_slots(block):
-    """[(holder, key)] for every MiniMaxH3VideoDecodeStep under `block`."""
-    slots = []
-    for key, child in (getattr(block, "sub_blocks", None) or {}).items():
-        if isinstance(child, MiniMaxH3VideoDecodeStep):
-            slots.append((block.sub_blocks, key))
-        else:
-            slots.extend(_video_decode_slots(child))
-    return slots
-
-
-def video_decode_steps(pipeline):
-    """The video decode blocks a pipeline runs."""
-    return [
-        holder[key]
-        for holder, key in _video_decode_slots(getattr(pipeline, "_blocks", None))
-    ]
+    def __call__(self, components, block_state, i, t):
+        components, block_state = super().__call__(components, block_state, i, t)
+        device = getattr(block_state, HYBRID_DEVICE, None)
+        timesteps = getattr(block_state, "timesteps", None)
+        if device is not None and timesteps is not None and i == len(timesteps) - 1:
+            block_state.latents = block_state.latents.to(device)
+            block_state.audio_latents = block_state.audio_latents.to(device)
+            setattr(block_state, HYBRID_DEVICE, None)
+        return components, block_state
