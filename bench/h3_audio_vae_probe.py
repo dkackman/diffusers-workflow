@@ -419,7 +419,11 @@ def main(argv=None):
         .tolist()
     )
     at = [int(s * LATENTS_PER_SECOND) for s in args.at] if args.at else None
-    cuts = choose_cuts(rms, slice_tokens, args.cuts, at)
+    try:
+        cuts = choose_cuts(rms, slice_tokens, args.cuts, at)
+    except ValueError as error:
+        print(f"cannot place the cuts: {error}", file=sys.stderr)
+        return 2
     starts = [token_seconds(c) for c in cuts]
     roles = (
         ["0 s"]

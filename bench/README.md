@@ -39,6 +39,8 @@ lem's firewall passes 8765 but not 8766 (a rule needs sudo: `sudo ufw allow 8766
 
 A new `records/*.md` owes its row in a family's `plugins/dw/skills/<family>/references/intents.md` in the same change: the session that lands the record adds the row for the result its verdict settles. `tests/test_plugin_intents.py` fails on a record no row cites, naming the file, unless the test's `EXEMPT` list holds it with a one-line reason (a record for a family with no index, or the bench's own infrastructure).
 
+`h3_audio_vae_probe.py <song>` measures how far a hard-cut held slice's H3 audio-VAE tokens drift from a continuous encode of the whole song, and whether pre- or post-context brings them back; its record is `records/h3-audio-encode-context.md` (#1516).
+
 ## Measures
 
 `python bench/driver.py measure <record>` re-measures a record's succeeded runs; `report` prints them as a table. Each run's `measures`:

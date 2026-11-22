@@ -41,6 +41,7 @@ EXEMPT = {
     "determinism.md": "infrastructure: the server's cuDNN and TF32 settings for reproducible reruns",
     "for-don.md": "a digest of Don's open checks and answers; each result is cited at its own record",
     "h3-hybrid.md": "an engine experiment with no template; its look verdict is Don's and pending (#1441)",
+    "h3-audio-encode-context.md": "an engine-question probe with no template; its verdict (bar not met) settles #1516 stage A's gate (#1544)",
 }
 
 
