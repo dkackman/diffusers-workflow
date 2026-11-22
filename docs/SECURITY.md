@@ -60,13 +60,15 @@ absolute paths. Patterns end in `\Z`, so a trailing newline is refused.
 | `validate_workspace_name` | one segment, not one of the workspace root's own folder names | 100 |
 | `validate_constant_name` | a dotted Python name, identifiers and dots only | 200 |
 | `validate_commit_hash` | 7 to 40 hex characters (the diffusers updater's install pin) | 40 |
-| `validate_file_base_name` | no `/` or `\` | - |
+| `validate_ledger_key` | a request id or item key: `^[a-z0-9][a-z0-9-]{0,63}$` | 64 |
+| `validate_file_base_name` | one name, no `/` or `\`; letters, digits, `_`, `.`, `@`, `-`, so `output:` can name the file | - |
 | `validate_content_type` | a MIME type with exactly one `/` | - |
 
 ### Input Validation
 
-- `validate_string_input(value, max_length=1000)` - Refuses an over-long
-  value, a null byte, and any control character other than tab, newline and
+- `validate_string_input(value, max_length=1000, allow_empty=False)` -
+  Refuses an empty value (unless `allow_empty`), an over-long value, a null
+  byte, and any control character other than tab, newline and
   CR. A caller-supplied variable value (`dw/variables.py`, `dw/run.py`) is held
   to `MAX_VARIABLE_VALUE_LENGTH`, 20,000 characters. A variable's *default* is
   not capped separately; the whole workflow file is.
@@ -168,7 +170,7 @@ triggered it and pointing at `--trust-workflows`:
   diffusers' `load_lora_weights`. Its `weight_name` ends in `.safetensors`
   exactly, it and `subfolder` are relative names inside the repo, and the
   load itself is safetensors only, so a repo holding just a `.bin` is refused
-  rather than unpickled (SE-F066).
+  rather than unpickled.
 - **Remote code in a model's `generate()`**: `custom_generate` (a Hub repo
   whose `custom_generate/generate.py` transformers downloads and runs) and
   `trust_remote_code`, in `text_generation`'s `generate_kwargs` and in
@@ -235,16 +237,16 @@ to fetch, which directory a glob expands over. Untrusted:
 - **A path** must resolve inside a root this installation works in: the
   workflow file's own directory, the asset libraries on the search path, or
   the output root. A relative path that climbs out is refused on its `..`
-  segments, at validation as well as at the loader (#124). Containment is
+  segments, at validation as well as at the loader. Containment is
   checked **before** existence, so a refusal is not a file-existence oracle.
   The remedy for a file outside is an `asset:` reference. Validation finds a
   path by its argument's name (`image`, `*_video`, `location`, ...) or by a
   task's declaration (`@register_command(media_arguments=...)`, read through
-  `TASK_MEDIA_ARGUMENTS`, #692). `apply_lut`'s `lut`, `paste_face_track`'s
+  `TASK_MEDIA_ARGUMENTS`). `apply_lut`'s `lut`, `paste_face_track`'s
   `track` and `restore_to_source`'s `fit` are read only from a server file,
   so a URL there is refused (`LOCAL_ONLY_TASK_ARGUMENTS`).
 - **A URL with any other scheme than http(s)** (`file://`, `s3://`, ...) is
-  refused at validation and at the loader, trusted or not (#618).
+  refused at validation and at the loader, trusted or not.
 - **A glob** is contained on the fixed directory its pattern starts from, and
   every match is re-checked on its real path, so a symlink cannot carry the
   expansion out.
@@ -259,7 +261,7 @@ to fetch, which directory a glob expands over. Untrusted:
   `Location` passing the same scheme and host policy before it is dialed. A
   refused hop is never fetched, and its error begins `Refusing a redirect to
   '<target>' (from '<url>'): ` followed by the rule; an upstream error status
-  keeps the HTTP client's own message (#1055). Each hop's host is resolved
+  keeps the HTTP client's own message. Each hop's host is resolved
   once, by the policy, and dialed at the checked address, so DNS rebinding
   reaches only what was checked; a host that does not resolve or is
   percent-encoded is refused. An untrusted fetch ignores proxy and `~/.netrc`
@@ -272,8 +274,8 @@ to fetch, which directory a glob expands over. Untrusted:
   attached only for `huggingface.co`, `huggingface.cloud` and `hf.space`. A
   redirect that leaves the host, or drops to http, is followed without the
   token.
-- **`model_name`** must be a Hub repo id or a contained path; a URL is refused
-  (#117). So must any other key that names a model: one ending in
+- **`model_name`** must be a Hub repo id or a contained path; a URL is refused.
+  So must any other key that names a model: one ending in
   `_model_name` (`track_people`'s `sam_model_name`), and a modular
   `load_components`' `pretrained_model_name_or_path`, as one name or one per
   component.
@@ -294,7 +296,7 @@ it yields to `--trust-workflows`, except the scheme rule.
   without headers) accepts `?token=`. The marker is matched on the real route,
   not a path suffix.
 - **Not gated by the token:** the web UI's static files, `/outputs`, `/inputs`
-  and `/exports/{id}.zip` (#592). Anyone who can reach the port can read
+  and `/exports/{id}.zip`. Anyone who can reach the port can read
   generated files and input assets by name.
 - **Binding.** The default bind is `127.0.0.1`. A non-loopback bind without a
   token logs a warning and starts; `--mcp` on a non-loopback host without a
@@ -307,7 +309,7 @@ it yields to `--trust-workflows`, except the scheme rule.
 - **Host check.** Unless bound to a wildcard address, a `Host` that is not a
   loopback name or the bind host is a 400.
 - **Response headers.** Every response carries `X-Content-Type-Options:
-  nosniff` and `X-Frame-Options: DENY` (#407).
+  nosniff` and `X-Frame-Options: DENY`.
 
 ## Integration Points
 
@@ -324,23 +326,14 @@ it yields to `--trust-workflows`, except the scheme rule.
 
 ## MCP Server
 
-`dw_mcp/` adds no authentication and no file access of its own, with two
-exceptions below. It is an HTTP client of `dw.serve`: every path a tool sends
-(a workflow name, a gallery file, a job id) is validated by the REST API
-exactly as a browser request from the web UI is. A remote `dw.serve` is
-allowed only with a token ([MCP Server](MCP.md#security),
-[REMOTE.md](REMOTE.md)).
-
-`download_output` writes a local file and `upload_asset(file_path=...)` reads
-one, outside the API. Over a **stdio `dw-mcp`**, "local" is the user's own
-machine, and both act as the user would with a shell redirect. Over
-**`dw.serve --mcp`** it is the operator's box, so both are confined:
-`download_output`'s `destination` to the workspace (#113), and
-`upload_asset`'s `file_path` to the server's workspace, workflows, assets,
-outputs and prompts directories (#138), with the refusal ordered before the
-existence and extension checks so it is not a path-existence oracle. On both
-transports a `..` segment in `destination` is refused and an existing file is
-kept unless `overwrite=True`.
+`dw_mcp/` adds no authentication of its own. It is an HTTP client of
+`dw.serve`: every path a tool sends (a workflow name, a gallery file, a job
+id) is validated by the REST API exactly as a web UI request is, and a remote
+`dw.serve` is allowed only with a token. The two tools that touch a file
+outside the API, `download_output` and `upload_asset(file_path=...)`, act as
+the user's own shell would over a stdio `dw-mcp`, and are confined to the
+server's workspace directories over `dw.serve --mcp`; the detail is in
+[MCP.md](MCP.md#security).
 
 Nothing in `dw_mcp/` inspects what a workflow it saves (`save_workflow`) or
 runs (`run_workflow`) contains. An MCP-authored or MCP-submitted workflow is
@@ -416,7 +409,6 @@ token by anyone who can reach the port, and traffic is plaintext.
 ## Testing
 
 ```bash
-pytest tests/test_security.py tests/test_security_auth.py tests/test_security_trust_gate.py \
-  tests/test_security_symlinks.py tests/test_locations.py tests/test_outbound.py \
+pytest tests/test_security*.py tests/test_locations.py tests/test_outbound.py \
   tests/test_workflow_trust.py -v
 ```

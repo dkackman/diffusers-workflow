@@ -143,7 +143,7 @@ The catalog records LoRAs that were tried on a base model: `proven`, `trial`,
 or `rejected` with the reason. It is a library like the prompt library - the
 server's own `loras/` at the workspace root (writable, shared by every
 workspace), then the `loras/` an examples tree brings (read-only). One JSON
-file per LoRA, under a family folder: `loras/qwen-image/voxel-style.json`.
+file per LoRA, under a family folder: `loras/qwen-image-2.1/voxel.json`.
 
 ```json
 {
@@ -151,7 +151,7 @@ file per LoRA, under a family folder: `loras/qwen-image/voxel-style.json`.
   "weight_name": "h3-realism-people-t2v-i2v-r2v.safetensors",
   "revision": "<sha>",
   "base_models": ["MiniMaxAI/MiniMax-H3"],
-  "workflow": "t2va",
+  "workflow": ["t2va", "fl2va"],
   "description": "Realistic people and faces",
   "use_when": "People, crowds or faces should look photoreal",
   "scale": { "default": 0.7, "range": [0.7, 0.7] },
@@ -169,7 +169,7 @@ exact - an adapter on the wrong base usually loads and is quietly worse.
 `evidence`; a rejected entry's first note is why. The schema is `GET /api/lora-schema`
 (`dw/lora_catalog_schema.json`).
 
-The server's validate enforces that `workflow` (#870): a step whose workflow
+The server's validate enforces that `workflow`: a step whose workflow
 sits in the other partition is refused when the entry is `proven`, and only
 warned when it is `trial` or `rejected`. Without a covering entry the file
 name decides (`ref2v` / `fl2v`), as in `dw/adapter_compatibility.py`.

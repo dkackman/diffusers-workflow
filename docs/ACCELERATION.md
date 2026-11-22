@@ -12,6 +12,7 @@ A `cache` block in the pipeline `configuration` attaches one of diffusers' cache
 - **`cache_unsupported`**: the pipeline class has no `transformer` (a UNet pipeline such as SD 1.5), or its transformer class has no `enable_cache()` (Z-Image's). The step runs uncached and the job warns that the cache was not applied.
 - **`taylorseer_state_unestimated`**: said whenever `taylorseer` is set - see [TaylorSeerCache](#taylorseercache).
 - **`compile_fullgraph_with_cache`**: see [torch.compile](#torchcompile).
+- **`step_list_unsupported`**: a `mag` cache or TST on a pipeline with a fixed `denoising_step_list` - see [MagCache](#magcache).
 
 Leave `cache` null on a guide chain. The held guide rows count toward the skip test (`first_block`) or its calibration (`mag`), and this is unmeasured.
 
@@ -36,7 +37,7 @@ Compares the first block's residual between steps to decide whether to skip the 
 }
 ```
 
-`threshold` defaults to `0.05`. Higher skips more and costs more quality. On MiniMax-H3 (RTX 3090, 1344x768, 4 references) `0.05` took 22% off a 30-step base-model job and nothing off a 12-step or turbo one. On H3 `torch.compile` cost 289 s on the first pass for about 1% per pass, `text_kv` did nothing on Ref2VA, and `taylorseer` ran out of memory. On an H3 template pass `cache={"type": "first_block", "threshold": 0.05}`, at 20 or more base steps and never with a turbo LoRA or on Pika H3 Flex (`templates/pika-h3/`, a fixed 6 passes). `turbo_lead_in` ([WORKFLOW_GUIDE.md](WORKFLOW_GUIDE.md#laying-out-the-composition-without-the-turbo-lora-turbo_lead_in)) is refused with a `first_block` cache: its residual threshold reads the adapter switch as a change, and cached steps skip it.
+`threshold` defaults to `0.05`. Higher skips more and costs more quality. On MiniMax-H3 (RTX 3090, 1344x768, 4 references) it is the one cache that paid off (see `cache_short_schedule` above for the figures): `torch.compile` cost 289 s on the first pass for about 1% per pass, `text_kv` did nothing on Ref2VA, and `taylorseer` ran out of memory. On an H3 template pass `cache={"type": "first_block", "threshold": 0.05}`, at 20 or more base steps and never with a turbo LoRA or on Pika H3 Flex (`templates/pika-h3/`, a fixed 6 passes). `turbo_lead_in` ([WORKFLOW_GUIDE.md](WORKFLOW_GUIDE.md#laying-out-the-composition-without-the-turbo-lora-turbo_lead_in)) is refused with a `first_block` cache: its residual threshold reads the adapter switch as a change, and cached steps skip it.
 
 **Example:** [step-caching.json](../workflows/templates/step-caching.json)
 
@@ -114,7 +115,7 @@ Experimental and video-oriented (CogVideoX, for example); uses FFT frequency dec
 
 | Property | Default | Description |
 | -------- | ------- | ----------- |
-| `is_guidance_distilled` | inferred | `true` for a guidance-distilled model (FLUX.1-dev, FLUX.1-Krea-dev), where `guidance_scale` is an embedding and the transformer sees a batch of 1. Unset, dw sets it `true` when the transformer's config has `guidance_embeds: true`, else diffusers' `false`. Wrong, FasterCache assumes a cond/uncond batch of 2 and fails at the first step with `tuple index out of range` (#895). Validate does not check it |
+| `is_guidance_distilled` | inferred | `true` for a guidance-distilled model (FLUX.1-dev, FLUX.1-Krea-dev), where `guidance_scale` is an embedding and the transformer sees a batch of 1. Unset, dw sets it `true` when the transformer's config has `guidance_embeds: true`, else diffusers' `false`. Wrong, FasterCache assumes a cond/uncond batch of 2 and fails at the first step with `tuple index out of range`. Validate does not check it |
 
 ### TextKVCache
 
@@ -130,7 +131,7 @@ Caches the transformer's key/value projections of the unchanging text embeddings
 
 A step with a `cache` reports `timing.cache` on its manifest entry (fields in [WORKSPACES.md](WORKSPACES.md#step-timing)). `hit_rate` is the fraction of denoiser forwards whose remaining blocks were skipped. It counts forwards, not steps: classifier-free guidance runs two per step, so a 30-step run is 60 forwards. Only `first_block` and `mag` are counted; `taylorseer`, `faster` and `text_kv` report null counts.
 
-Zero skips is not an uncached run. With `first_block` the head block always runs, and any cache wraps the blocks in hooks that recompute the residual in the transformer's dtype, which changes the order and precision of operations; the MiniMax-H3 matrix run P2 changed output with nothing skipped. Judge quality against an uncached run (a `null` cache), not against `skipped == 0`. A threshold sweep (#875) reads `hit_rate` against quality.
+Zero skips is not an uncached run. With `first_block` the head block always runs, and any cache wraps the blocks in hooks that recompute the residual in the transformer's dtype, which changes the order and precision of operations; the MiniMax-H3 matrix run P2 changed output with nothing skipped. Judge quality against an uncached run (a `null` cache), not against `skipped == 0`; a threshold sweep reads `hit_rate` against quality.
 
 ## Attention Backends
 
@@ -161,7 +162,7 @@ Values are diffusers' `AttentionBackendName` enum, plus dw's [`sparse`](#sparse-
 - diffusers refuses a Hub kernel from a publisher it does not list as trusted - `sage_hub` among them (SageAttention 2 from `SageAttention/sage-attention`) - until `DIFFUSERS_TRUST_REMOTE_KERNELS=true` is set in the server's environment (`.env`). That allows remote code from any such publisher.
 - The local `sage` backend needs `sageattention>=2.1.1`, which PyPI does not carry.
 - The flash, flash-3, sage and xformers families need CUDA, `_hub` variants included. On a server whose device is not CUDA, `validate_workflow` warns `attention_backend_unavailable`, naming the backend and the device: the job would fail at load. A `native`-family backend never warns, and a backend diffusers adds later draws no warning until dw's list (`CUDA_ONLY_ATTENTION_BACKENDS`) is updated.
-- The backends the server offers (`/api/health`'s `attention_backends`, the web UI's menu) follow diffusers' own requirement check: a backend whose package is missing here, or older than the installed diffusers needs, is left out (#1315). diffusers 0.43 raised several of those minimums, so an upgrade can shorten the list until the package is updated. dw states none of the minimums itself; they move with diffusers.
+- The backends the server offers (`/api/health`'s `attention_backends`, the web UI's menu) follow diffusers' own requirement check: a backend whose package is missing here, or older than the installed diffusers needs, is left out. diffusers 0.43 raised several of those minimums, so an upgrade can shorten the list until the package is updated. dw states none of the minimums itself; they move with diffusers.
 
 On an RTX 3090 `sage_hub` measured about 30% faster per MiniMax-H3 step than `native` (13.8 s against 19.2 s at 960x544x124, 54.7 s against 81.2 s at 345 frames). LTX-2.5 cannot use sage: its transformer passes an attention mask, which sage refuses ("`attn_mask` is not supported for sage attention", measured 2026-10-10), so the LTX templates expose no backend.
 
@@ -169,7 +170,7 @@ Either form stays on what it names. diffusers' `set_attention_backend` also make
 
 ### `sparse` (MiniMax-H3)
 
-`attention_backend: "sparse"` runs H3's attention through comfy-kitchen's block-sparse kernel (`dw/sparse_attention.py`, #931): each query tile attends only to the key tiles that matter, so the cost of the long video-token sequence falls. Text, references and audio stay dense. comfy-kitchen is a core dependency, so it needs no `kernels` package or `DIFFUSERS_TRUST_REMOTE_KERNELS`. The only backend a bundled workflow sets is `sparse`.
+`attention_backend: "sparse"` runs H3's attention through comfy-kitchen's block-sparse kernel (`dw/sparse_attention.py`): each query tile attends only to the key tiles that matter, so the cost of the long video-token sequence falls. Text, references and audio stay dense. comfy-kitchen is a core dependency, so it needs no `kernels` package or `DIFFUSERS_TRUST_REMOTE_KERNELS`. The only backend a bundled workflow sets is `sparse`.
 
 Every H3 template in [templates/minimax/](../workflows/templates/minimax/) takes it as variables, pinned on the H3 step's transformer (`components.transformer`, or `components.transformer_ref` for a ref2va workflow): `attention_backend` (default `"sparse"`), `sparse_tau` (0.5) and `sparse_topk` (0.15). That covers the shots, chains and episodes (`dialogue-short`, `shots-batch`, `music-video`, `storyboard` among them), and only their H3 steps: a Z-Image still or Music3 song beside an H3 shot keeps the process default. Pass `attention_backend=sage_hub` (or `native`) to override.
 
@@ -178,14 +179,14 @@ Every H3 template in [templates/minimax/](../workflows/templates/minimax/) takes
 - **`sparse_topk`**: a number strictly between 0 and 1, unset by default outside the templates. Switches to top-k routing: each query tile keeps that fraction of key tiles and drops the rest, and `sparse_tau` is ignored. It is the selection lightx2v's Turbo-SLA LoRAs were trained against (85% sparsity, so `0.15`). Pass `sparse_topk=null` to an H3 template to route by `sparse_tau`.
 - Both are runtime settings: changing one reuses the loaded pipeline.
 
-**Top-k 0.15 against tau 0.5** (#932). On `video-with-audio-768p`, seed 42, top-k ran 21.1 s/forward against 23.6 s at tau 0.5, about 11% faster, with no visible difference under the Turbo-SLA LoRA or the default v1.2 turbo (so dw does not adopt the SLA LoRA). On the H3 quality ramp's 4-reference sitcom shot, seeds 42, 7 and 1234, Don judged top-k equal or better: on the turbo L7 rung tau showed blue ghosting at seed 7 and slight smearing at all three, and on the 30-step base-model L5 rung the skin held.
+**Top-k 0.15 against tau 0.5.** On `video-with-audio-768p`, seed 42, top-k ran 21.1 s/forward against 23.6 s at tau 0.5, about 11% faster, with no visible difference under the Turbo-SLA LoRA or the default v1.2 turbo (so dw does not adopt the SLA LoRA). On the H3 quality ramp's 4-reference sitcom shot, seeds 42, 7 and 1234, top-k judged equal or better by eye: on the turbo L7 rung tau showed blue ghosting at seed 7 and slight smearing at all three, and on the 30-step base-model L5 rung the skin held.
 
 | rung (minutes per job, seeds 42 / 7 / 1234) | tau 0.5 | top-k 0.15 |
 |---|---|---|
 | L7: ref2v 4-step turbo, int8 | 6.5 / 6.5 / 6.5 | 6.1 / 6.2 / 5.8 |
 | L5: base model, int8, 30 steps | 26.8 / 26.6 / 26.4 | 23.9 / 25.5 / 23.9 |
 
-**Sparse against `native` and `sage_hub`.** Against `native`, which an H3 template ran before #931 unless `attention_backend` was set, sparse is 2.2-4.4x faster per step. Against `sage_hub` the gain is 6-16% depending on the shape, at equal quality: on the H3 skill's quality-ramp rungs Don judged faces, skin and draft-to-final staging equal under both across three seeds (#931 stage 3). RTX 3090, seed 42, s per transformer forward (one per denoise step):
+**Sparse against `native` and `sage_hub`.** Against `native` sparse is 2.2-4.4x faster per step. Against `sage_hub` the gain is 6-16% depending on the shape, at equal quality: on the H3 skill's quality-ramp rungs faces, skin and draft-to-final staging were judged equal under both across three seeds. RTX 3090, seed 42, s per transformer forward (one per denoise step):
 
 | shape | native | `sage_hub` | sparse | sparse vs native | sparse vs `sage_hub` |
 |---|---|---|---|---|---|
@@ -194,7 +195,7 @@ Every H3 template in [templates/minimax/](../workflows/templates/minimax/) takes
 | Ref2VA 1344x768, 8-step ref2v turbo, tau 1.0 | 108.4 | - | 42.1 | 2.58x | - |
 | Ref2VA 1344x768, 8-step ref2v turbo, tau 0.5 (the default) | 108.4 | 51.0 | 44.1-44.8 | 2.42x | 1.16x |
 
-Wall time, same order: 150 -> 95 s, 457 -> 158 s, 965 -> 430 s, and for the last row 965 s native, 489 s `sage_hub`, 442-450 s sparse. Peak VRAM did not change. By eye, tau 0.5 matched dense and tau 1.0 gave smoother skin; that is one shape and one seed, not a rule that higher tau is always faster or smoother. The native and tau 1.0 figures come from the #931 prototype; the `sage_hub` figure and the 44.1 s come from the engine on lem after the deploy, with a newer diffusers (jobs 94c04976d21d and 593131ca713f), so the sage comparison is between those two jobs only.
+Wall time, same order: 150 -> 95 s, 457 -> 158 s, 965 -> 430 s, and for the last row 965 s native, 489 s `sage_hub`, 442-450 s sparse. Peak VRAM did not change. By eye, tau 0.5 matched dense and tau 1.0 gave smoother skin; that is one shape and one seed, not a rule that higher tau is always faster or smoother. The native and tau 1.0 figures come from a prototype; the `sage_hub` figure and the 44.1 s come from the shipped engine on a newer diffusers, so the sage comparison is between those two runs only.
 
 On the quality-ramp rungs (ep 6 cold open, 4 references, 1344x768, 124 frames; minutes per job, seeds 42 / 7 / 1234, same diffusers):
 
@@ -254,7 +255,7 @@ Typical gains are 1.3-1.5x on diffusion transformers, and compile stacks with th
 - **Pin the attention backend** on a compiled component ([Attention Backends](#attention-backends)).
 - **Don't combine `fullgraph` with a `cache`.** The cache's per-step skip decision is a data-dependent branch diffusers wraps in `torch.compiler.disable`, which needs the graph break `fullgraph: true` forbids. `validate_workflow` warns `compile_fullgraph_with_cache` on such a component.
 - **Composes with offloading**: `group_offload` and `compile` on the same component install the offload hooks first, as required.
-- **`turbo_lead_in` changes a LoRA scale mid-call.** It sets the `turbo` adapter to 0, then back, after N evaluations. Under `torch.compile` peft's scale is a Python float the compiled forward guards on, so the switch can cost a recompile. Measured on lem (RTX 3090, H3 fl2va at 960x544x124, turbo at 5 steps, int4, `repeated_blocks`, `native` attention; #1352): the first call with a lead-in in a warm worker recompiles once for scale 0, and its first evaluation takes 19.2 s against 13.7 s, so the job takes **+5.5 s** (98.0 s against 92.4 s). The switch back to the configured scale does not recompile, and a second lead-in call runs at baseline speed (13.7 s first evaluation, 92.5 s job): each scale value compiles once per worker. For comparison, the cold compile is about +90 s on the first evaluation (103.8 s).
+- **`turbo_lead_in` changes a LoRA scale mid-call.** It sets the `turbo` adapter to 0, then back, after N evaluations. Under `torch.compile` peft's scale is a Python float the compiled forward guards on, so the switch can cost a recompile. Measured on an RTX 3090 (H3 fl2va at 960x544x124, turbo at 5 steps, int4, `repeated_blocks`, `native` attention): the first call with a lead-in in a warm worker recompiles once for scale 0, and its first evaluation takes 19.2 s against 13.7 s, so the job takes **+5.5 s** (98.0 s against 92.4 s). The switch back to the configured scale does not recompile, and a second lead-in call runs at baseline speed (13.7 s first evaluation, 92.5 s job): each scale value compiles once per worker. For comparison, the cold compile is about +90 s on the first evaluation (103.8 s).
 - **Skipped on MPS** with a warning.
 - **Quantize-on-load is a separate cost.** An SDNQ on-the-fly component re-quantizes on every cold load unless `DW_QUANTIZED_CACHE=1` ([QUANTIZATION.md](QUANTIZATION.md#cached-on-the-fly-dw_quantized_cache)).
 - **TorchAO quantization needs compile to be fast** ([QUANTIZATION.md](QUANTIZATION.md#torchao)).
@@ -339,13 +340,13 @@ Measured on an RTX 3090 ([RECIPES_24GB.md](RECIPES_24GB.md)): sequential offload
 
 A workflow that offloads keeps its weights in host memory, so the card can sit near-empty through a generation and the VRAM figures alone say nothing about what a run holds or fails to release. `get_memory` (MCP) and `GET /api/memory` report both: `gpu_*` is the card; `host_memory_rss_mb` is what the worker process holds and `host_memory_peak_rss_mb` the most it has held, beside the machine's `host_memory_total_mb` and `host_memory_available_mb`.
 
-`host_pinned_reserved_mb` / `host_pinned_allocated_mb`, where the platform reports them, are torch's pinned-host cache: the staging buffers group offloading moves weights through. They are part of `host_memory_rss_mb` and invisible in every `gpu_*` figure, so a worker that has released every model and still holds gigabytes is usually holding these; they are returned when the worker switches to a different workflow (#98). A host field is absent, not null, on a platform that cannot measure it.
+`host_pinned_reserved_mb` / `host_pinned_allocated_mb`, where the platform reports them, are torch's pinned-host cache: the staging buffers group offloading moves weights through. They are part of `host_memory_rss_mb` and invisible in every `gpu_*` figure, so a worker that has released every model and still holds gigabytes is usually holding these; they are returned when the worker switches to a different workflow. A host field is absent, not null, on a platform that cannot measure it.
 
 ## TF32 and cuDNN
 
 Device-level settings from `~/.diffusers_helper/settings.json` (the directory moves with `DIFFUSERS_HELPER_ROOT`). They are process-wide torch flags, so every process that runs a pipeline applies them (`configure_torch` in `dw/__init__.py`): the CLI at startup, and each `dw.serve` worker when it starts and again at the start of every job. A settings change reaches served jobs after a server restart. The first job a fresh worker runs narrates what it ran with, read back from torch after the pipelines loaded, as a `log` event: `torch: cudnn benchmark=false deterministic=true, tf32=false`.
 
-The defaults give the same output for the same seed, whatever else the host is doing (#1229; `bench/records/determinism.md`):
+The defaults give the same output for the same seed, whatever else the host is doing (`bench/records/determinism.md`):
 
 | Setting | Default | Effect |
 | ------- | ------- | ------ |
@@ -381,7 +382,7 @@ One row per model family in the scope below, one column per backend: 24 GB CUDA 
 | Family | 24 GB CUDA | Apple Silicon | CPU |
 | ------ | ---------- | ------------- | --- |
 | Stable Diffusion 1.5 | **runs**, 0.2 min (`workflows/templates/text-to-image.json`) | **runs**, 0.21 min observed over 71 runs (`templates/text-to-image`, mini-ai) | **no record** |
-| MiniMax H3 video | **runs**, 1.5 min (`workflows/templates/minimax/video-with-audio.json`); recipe and `host_ram_gb` in [RECIPES_24GB.md](RECIPES_24GB.md) | **runs slowly**, about 9 min per clip, from pre-quantized folders only (reported in #1526 from the mini-ai runs; no job or bench record in the repo). `sage_hub` fails at run time and `sparse` falls back to dense (`docs/RELEASING.md`). A 24 GB Mac is refused at the `minimax/chained-segments` defaults ([MPS Notes](#mps-notes)) | **no record** |
+| MiniMax H3 video | **runs**, 1.5 min (`workflows/templates/minimax/video-with-audio.json`); recipe and `host_ram_gb` in [RECIPES_24GB.md](RECIPES_24GB.md) | **runs slowly**, about 9 min per clip, from pre-quantized folders only (reported from the mini-ai runs; no job or bench record in the repo). `sage_hub` is CUDA-only and fails at load, and `sparse` falls back to dense ([MPS Notes](#mps-notes)). A 24 GB Mac is refused at the `minimax/chained-segments` defaults ([MPS Notes](#mps-notes)) | **no record** |
 | MiniMax H3-Image | **runs**, 2.3 min (`workflows/templates/minimax-h3-image/text-to-image.json`), `host_ram_gb` 64 ([RECIPES_24GB.md](RECIPES_24GB.md)) | **does not run (by rule, untested)**: "CUDA only" (`plugins/dw/skills/minimax-h3-image/SKILL.md`) | **does not run (by rule, untested)**: same rule |
 | MiniMax Music 3 | **runs**, 3.6 min, scales with `audio_duration` (`workflows/templates/minimax/music.json`) | **runs slowly**, 9.2 min, scales with `audio_duration` (`music.json`); `music-video` has never run there (`plugins/dw/skills/minimax-music3/SKILL.md`) | **does not run (by rule, untested)** (`minimax-music3/SKILL.md`: "on cpu stop") |
 | LTX-2.5 | **runs**, 1.8 min (`workflows/templates/ltx2/text-to-video.json`) | **runs slowly**, 6 min, text-to-video only; an MPS-only audio dropout is recorded in `bench/records/ltx.md` | **does not run (by rule, untested)** |

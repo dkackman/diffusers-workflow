@@ -33,8 +33,8 @@ folders. Rules 1-3 are *explicit*; rules 4 and 5 are inferred, which matters
 for the prompt library (below).
 
 Resolving creates nothing. `dw.serve` creates the workspace's `workflows/`
-(unless `--workflow-dir` was given) and `assets/` at start, and a run creates
-its output directory.
+(unless `--workflow-dir` was given), `assets/` and the shared
+`common/assets/` at start, and a run creates its output directory.
 
 `dw.run --workspace NAME` is a different thing: it names one of the server's
 workspaces (the `default` one, or a named one beside it), not a directory. A
@@ -77,7 +77,8 @@ A file the server cannot read is sent to it inline, and its relative paths
 then resolve against the server's `workflows/`.
 
 The server reports what it resolved at `GET /api/server`, under
-`directories.workspace` alongside the three folder paths.
+`directories`: `workspace` alongside the `workflows`, `prompts`, `assets`
+and `outputs` paths.
 
 ## The prompt library
 
@@ -233,11 +234,9 @@ lost run.
 For the same reason, two `dw.serve` processes on the same workspace share no
 cache entries: a run on one server is a cache miss on the other, even though
 both read the same `outputs/`. To avoid recomputing, either use one server
-with `--devices cuda:0,cuda:1`, whose identity affinity sends a rerun back to
-the card that holds it warm (see [SERVER.md](SERVER.md) *Choosing the card*),
-or, with two servers, split the work so each server only reruns what it ran
-itself: submit each arms file (or job set) to one server, and never resubmit
-another server's arms expecting hits.
+with `--devices cuda:0,cuda:1`, whose affinity sends a rerun back to the
+card that holds it warm ([Dispatch](SERVER.md#dispatch)), or, with two
+servers, rerun each job on the server that ran it.
 
 A later workflow names what an earlier run made with an `output:` reference —
 `output:ltx2/Gyre/latest/Gyre-still.0-0.0.png` — so a multi-stage pipeline no
@@ -264,8 +263,8 @@ are the reason to.
 A manifest entry for a pipeline step that ran - in `GET /api/jobs/{id}`, in
 MCP `get_job`, and on that step's `step_end` event - carries `timing`: where
 the step's time went. It is measured in the worker on its monotonic clock, not
-taken from event timestamps, because the job keeps only the last 200 events and
-the load and encode events are gone from a long job. Every `_s` is seconds to
+taken from event timestamps, because a job served from history keeps only its
+last 200 events, and a long job's load and encode events are gone by then. Every `_s` is seconds to
 0.1. A field whose mark never happened is null, never guessed.
 
 | Field | Meaning |
@@ -593,7 +592,7 @@ MCP) makes one; creating does not switch to it (over MCP, unless
 it, so it refuses until acknowledged and answers first with what it would
 remove — file counts and bytes per folder. The default workspace cannot be
 deleted (it holds the shared prompt library, and there has to be somewhere to
-work), nor can one with jobs still queued.
+work), nor can one with jobs still queued or running.
 
 A workspace is a **namespace, not a security boundary**. The API token is
 all-or-nothing: anything that can reach the server can name any workspace on
@@ -684,7 +683,7 @@ dw already has.
    that clips notes still shows which variant is which. Call `wait_for_job`
    until the variant finishes before submitting the next. The server holds a
    second large variant until the host can hold it beside the first (see
-   [SERVER.md](SERVER.md#jobs-api)), so waiting is for ordering, not for memory.
+   [Dispatch](SERVER.md#dispatch)), so waiting is for ordering, not for memory.
 
 5. **Only the latest run of a step is cached.** The step cache holds one
    entry per workflow step: its most recent run. A variant whose step and

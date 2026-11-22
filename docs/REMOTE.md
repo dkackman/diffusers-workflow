@@ -6,9 +6,9 @@ your laptop use it over the network. Nothing is installed on the laptop.
 ## On the GPU box
 
 1. Install as usual (`git clone https://github.com/dkackman/diffusers-workflow.git`,
-   `cd diffusers-workflow`, `bash ./install.sh`), or run the
-   container ([DOCKER.md](DOCKER.md), with `DW_BIND=0.0.0.0`), which makes
-   the token for you; then skip to the clients.
+   `cd diffusers-workflow`, `bash ./install.sh`). Or run the container
+   ([DOCKER.md](DOCKER.md), with `DW_BIND=0.0.0.0`): it makes the token and
+   serves MCP for you, so skip to step 4.
 2. Make a token: `openssl rand -hex 32`. It is the only thing between "on
    your network" and "can run workflows on your GPU".
 3. Run it bound to the network, with the token, with MCP:
@@ -48,7 +48,7 @@ the `public_url` setting) to the server's origin and those responses add
 
 Nothing guesses the origin from request headers, so an unconfigured server
 omits the field. The export zip, like `/outputs` and `/inputs`, needs no
-token (#592), so an agent with HTTP fetches `export_job`'s `open_url`
+token, so an agent with HTTP fetches `export_job`'s `open_url`
 itself, prefixing a relative one with the address it reaches the server at.
 
 ## Browser
@@ -69,7 +69,7 @@ request. The Server → Status page shows the server's addresses and the
       --header "Authorization: Bearer <token>"
 
 Start a new Claude Code session; `/mcp` should list `dw` as connected. Add
-`-s user` to have it in every project.
+`--scope user` to have it in every project.
 
 `/mcp` and `/mcp/` are both answered, and both take the token only as an
 `Authorization: Bearer` header; the `?token=` allowance a few browser GET
@@ -79,14 +79,14 @@ What differs from the local stdio setup:
 
 - `download_output` writes on the GPU box, where the MCP server runs, so an
   omitted destination is refused rather than dropped in the workspace root
-  where nothing on your laptop would find it (#353). Pass an explicit
+  where nothing on your laptop would find it. Pass an explicit
   destination inside the workspace, use `get_output_image` /
   `get_output_text` to see a result, or open
   `http://<box>:8765/outputs/<name>` in the browser.
 - Each tool call is a plain HTTP request; there is no subprocess to restart.
 - The mounted MCP server is one client shared by every agent connected to
   the box, so `use_workspace` (or `create_workspace(use=true)`) moves the
-  workspace for all of them (#298). When two agents share a box, pass
+  workspace for all of them. When two agents share a box, pass
   `workspace=` on each call that takes it (`validate_workflow`,
   `run_workflow`, most read and media tools) instead of relying on the
   session pin.

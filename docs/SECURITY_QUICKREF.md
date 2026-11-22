@@ -104,8 +104,9 @@ Invalid: file:///etc/passwd, ftp://server/file
 
 ## Trust gate (`dw/trust.py`)
 
-Off by default; `dw-serve --trust-workflows` (and `dw-validate`) lifts it for
-the whole process. Untrusted, a workflow may not:
+On by default; `--trust-workflows` on `dw-serve` (or `dw-validate`) lifts it
+for the whole process, and `GET /api/server` reports it as `trust_workflows`.
+Untrusted, a workflow may not:
 
 - import outside `diffusers`, `torch`, `torchvision`, `transformers`,
   `accelerate`, `peft`, `sdnq`, `torchao`, `optimum`, `gguf`, `bitsandbytes`,
@@ -113,15 +114,21 @@ the whole process. Untrusted, a workflow may not:
   `constant:`);
 - name a type that is not a constructible class (a model, pipeline,
   scheduler, tokenizer, processor, quantization config, auto factory,
-  attention processor or reference dataclass), or a `dtype` key that is not
-  a `torch.dtype`;
+  attention processor or reference dataclass); under a `dtype`/`*_dtype` key
+  a `torch.dtype` is accepted too;
 - walk a `constant:` through `_` segments or out of those packages, or reach
   a callable;
 - set `trust_remote_code`, `custom_pipeline` or `custom_generate` anywhere in
-  `from_pretrained_arguments`, `generate_kwargs`, `forward_params` or a task's
-  arguments.
+  `from_pretrained_arguments`, `load_components`, `generate_kwargs`,
+  `forward_params` or a task's arguments;
+- redirect a download with `cache_dir`, `local_dir`, `proxies` or `mirror`;
+- give a `loras` entry any key but `model_name`, `adapter_name`, `scale`,
+  `alpha`, `weight_name`, `subfolder`, `revision` (weights are safetensors
+  only).
 
-`validate_workflow` reports each refusal at its JSON path.
+`validate_workflow` reports each refusal at its JSON path, and the worker
+repeats the import checks before a job runs. Treat an untrusted workflow file
+like an untrusted Python script.
 
 ## HTTP (`dw/server/http_security.py`)
 
@@ -143,7 +150,7 @@ the whole process. Untrusted, a workflow may not:
 | `Path contains dangerous pattern matching \.\.` | Path traversal | Use an absolute or `./` relative path |
 | `Path outside allowed directory: ...` | Resolved path left `base_dir` | Put the file inside the root; for media use an `asset:` reference |
 | `Invalid variable name: my.var` | Special characters | Use `my_var` |
-| `Invalid URL: URL scheme not allowed: file` | Non-http scheme | Use https, or a local path |
+| `Invalid URL: URL scheme not allowed: file` | Non-http scheme | Use https, or an `asset:` reference |
 | `Refusing a redirect to '<target>' (from '<url>'): ...` | A media URL redirected to an internal host or a non-http scheme | Host the media where it is served directly; a refused hop is never fetched |
 | `Refusing to load ...`, ending with a pointer to `--trust-workflows` | The trust gate | Stay inside the allowed packages, or trust the workflow's source |
 | `Argument contains dangerous characters: ...` | Shell metacharacters | Remove `` ` `` `$` `\|` `&` `;` `>` `<` |

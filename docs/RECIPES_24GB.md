@@ -22,7 +22,7 @@ placements, measured on an RTX 3090 (2026-10-10, cold load included):
 | `offload: "model"` | 61 s (1.7 s/step) at **23.3 GB reserved, 491 MB free** | **OOM** at 23.45 GiB | not attempted |
 | **transformer `group_offload`, block-level, streamed, pinned host copies** | 78 s (1.5 s/step), 17.7 GB peak reserved, 6 GB free | 131 s (3.2 s/step) | 152 s denoise (3.0 s/step), 1 s decode |
 
-Model offload is the fastest placement that loads, and the one #580 (9c708a12) retired:
+Model offload has the shortest wall time of the three, and the templates no longer use it:
 at 1024x1024 it runs with a few hundred MB to spare and fails on anything larger -
 a batch, a second encoder resident for prompt weighting, a cache's state. Sequential
 offload is safe everywhere and 6x slower per step. The streamed group offload is both:
@@ -171,7 +171,7 @@ the model's `17n+5` ceiling (345) is reachable at 960x544, not at 1344x768.
 
 A low-VRAM, large-host-RAM recipe: the card holds a few GiB, the host holds the model.
 It is a modular pipeline (`MiniMaxH3ImageModularPipeline`), so everything is per
-component, and it is CUDA-only. Measured on lem (2x RTX 3090 24GB, 128GB host RAM),
+component, and it is CUDA-only. Measured on a host with 2x RTX 3090 24GB and 128GB host RAM,
 2026-11-16 and 17. The recipe, with H3's quantizer arguments:
 
 | Component | Config |
@@ -195,7 +195,7 @@ are multiples of 32.
 | 3-reference edit, 2048x2048 | priced at 2.7 min: 2.68 min on cuda:0 after a load, less its 55.6 s load (job `6c336a3bfba8`: 41.5 s encode, 104.2 s denoise at 15.8 s a pass, 3.8 s decode, ~10 s start-up and save); 2.2 min fully warm on cuda:0 2026-11-18 (32.1 s encode, 94.2 s denoise at 15.6 s a pass, 3.8 s decode; job `29a738225baa`); 1.3 min warm on cuda:1 2026-11-17 (22.1 s encode, 51.7 s denoise at 8.6 s a pass, 3.3 s decode); 3.8 min in the bench with the quantized cache hit on a new card (56.9 s load, 23.6 s encode, 132.1 s denoise: 89.1 s first pass then 8.6 s each, 3.5 s decode); ~5.5 GiB reserved at decode |
 | First download | ~64 GiB (63.93 GiB: transformer and VAE; the text encoder comes from H3's repo, not H3-Image's ~204GB) |
 
-**The card gap.** The templates are priced on the slower of lem's two 3090s, which sits
+**The card gap.** The templates are priced on the slower of that host's two 3090s, which sits
 on a PCIe x4 link; this offload is bus-bound, so a card on an x16 link runs it in about
 half the time. A pass took 15.1 to 15.6 s on cuda:0 (x4) and 4.5 to 8.6 s on cuda:1
 (x16), for both templates (`bench/records/h3-image.md`, *The card gap*). Each price
@@ -238,7 +238,7 @@ encoder is nearly as large as it is. The working 24GB configuration at 960x544:
 
 | Component | Config |
 | --------- | ------ |
-| `transformer` | SDNQ `uint4` (`quantization_device: "cuda"`, `return_device: "cuda"`, `use_quantized_matmul: true`), `group_offload` `block_level` with `num_blocks_per_group: 1000` (more than its block count, so it moves as one group) and `use_stream: true`. A pipeline-level `offload: "model"` conflicts with the other components' group offload hooks (#266) |
+| `transformer` | SDNQ `uint4` (`quantization_device: "cuda"`, `return_device: "cuda"`, `use_quantized_matmul: true`), `group_offload` `block_level` with `num_blocks_per_group: 1000` (more than its block count, so it moves as one group) and `use_stream: true`. A pipeline-level `offload: "model"` conflicts with the other components' group offload hooks |
 | `text_encoder` (Gemma 4, 23GB) | SDNQ `int8`, `return_device: "cpu"`, `group_offload` `leaf_level` with `use_stream: true` |
 | `connectors` (12GB) | `group_offload` `leaf_level` with `use_stream: true` |
 | `vae`, `audio_vae`, `vocoder`, `duration_head` | `device: "cuda"` - small, and used once per generation |
@@ -265,7 +265,7 @@ Two facts about the checkpoint, before tuning anything:
   runs uncompiled `flex_attention`, which falls to the eager reference path. Both
   allocations are quadratic in the output grid, and neither is reduced by tiling (stages
   1-3 always run on the full volume) or by shrinking the clip (the stage-4 grid is near
-  output resolution either way). Measured on an otherwise empty 3090 (#153): 10.05GiB
+  output resolution either way). Measured on an otherwise empty 3090: 10.05GiB
   inside stages 1-3 at 960x544x121, 69.77GiB for one stage-4 attention at 512x288x25
   (17.44GiB just to densify that stage's mask, whichever it reaches first), and ~25.5GiB
   at 224x224x25, which is the smallest canvas its 7x7 kernel accepts at all. Nothing
@@ -276,7 +276,9 @@ Two facts about the checkpoint, before tuning anything:
   torch 2.14 does not exist.
   And a step that returns latents returns *audio* latents too, which nothing outside a
   pipeline call can vocode - the two-stage template below feeds them back into one,
-  which is the only way they become sound. Nothing here ships the diffusion decoder.
+  which is the only way they become sound. The catalog carries the diffusion decoder
+  only as an A/B experiment that needs that NATTEN build,
+  [diffusion-decode.json](../workflows/templates/ltx2/diffusion-decode.json); nothing else uses it.
 
 Spend headroom on the two-stage flow rather than on base resolution: render at 768x448
 on the eight distilled sigmas, double the video latents with the latent upsampler, then

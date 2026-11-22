@@ -7,7 +7,7 @@ section for the family you are about to run, before you write a prompt or
 pick a template.
 
 Each line is one rule. These are the rules a client without the plugin broke
-in a measured drill (#1524), plus the decision rules for long pieces that the
+in a measured drill, plus the decision rules for long pieces that the
 workflows guide's mechanics don't state. Each rule's number is the skill's,
 and a test holds the two copies equal. They don't replace `validate_workflow`:
 validate still refuses what the engine can check.

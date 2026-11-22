@@ -22,7 +22,8 @@ returns each command's arguments, read from its implementation's real
 signature. The web editor builds task forms from it, and validation flags an
 unknown task argument as it flags a pipeline one.
 
-**Numeric arguments.** Domains a signature cannot carry are declared in `dw/task_domains.py`, and
+**Numeric arguments.** Domains a signature cannot carry are declared on each
+command's registration (the domain constants are in `dw/task_domains.py`), and
 validation reports a value outside one as an error at its JSON path: a count of
 frames or seconds and a sample or frame rate must be above zero, an offset zero
 or above. The commands refuse the same values at run time, which catches a value
@@ -45,7 +46,7 @@ declared numeric argument before the command sees it (`coerce_arguments`), so
 A task is a handler registered with `@register_command` (`dw/tasks/registry.py`).
 The function named by `implementation` is the argument schema: its signature is
 what `get_task` reports and validation checks. Every validate-time rule is
-declared on the same decorator, so a task cannot be half-registered (#692):
+declared on the same decorator, so a task cannot be half-registered:
 
 ```python
 from .registry import register_command
@@ -632,7 +633,7 @@ workflow guide).
 | `match_levels` | No | Even the shots' loudness out before joining - `"rms"` for perceived level (the measurement `get_gallery_metadata` reports as `mean_dbfs`), `"peak"` for the loudest sample, `"lufs"` for BS.1770 integrated loudness (the unit editors deliver in; held at -1 dBTP true peak, and a shot under 0.4 s is matched by rms with a `match_levels_short_shot` warning). Off by default |
 | `match_levels_lufs` | No | The loudness `"lufs"` moves every shot to (default -16 LUFS; -23 is EBU R128 broadcast). A shot whose true peak would pass -1 dBTP is held there and reported as `match_levels_held` (measured on H3 shots: the AAC mux leaves a held shot at about -1.2 dBTP, so the hold stands after the mux). `match_levels_dbfs` is refused with `"lufs"` |
 | `match_levels_dbfs` | No | The level `match_levels` moves every shot to (default: -1 dBFS for `peak`, -20 dBFS for `rms`). A shot that would clip at the target is held at -3 dBFS peak instead for `rms` (room for the AAC mux; -0.5 for `peak`), reported as a `match_levels_held` warning with a per-shot log event |
-| `sample_rate` | No | The joined soundtrack's rate. Default: the highest among the inputs, the rest resampled up with a warning (#108) |
+| `sample_rate` | No | The joined soundtrack's rate. Default: the highest among the inputs, the rest resampled up with a warning |
 | `continuous_joins` | No | `true` when the joins continue one take rather than cut between shots, for example pieces of one chain take joined back up. Each seam is recorded without `hard_cut`, so `analyze_seams` measures its frame jump as it measures a chain's own seams, and the audio keeps the default few-ms declick (`seam_fade_ms: 0` butt-joins it). Refused beside `seam_fade_ms` above 0 or `audio_bleed_ms` (default: `false`, every seam a cut) |
 
 Shots an earlier run wrote are joined by path or URL without regenerating them.
@@ -704,10 +705,10 @@ to `join_into_song`).
 - **Frame size.** Every video must be the same size; nothing is resized. A size
   disagreement between `asset:`/`output:`/literal-path entries (wrapped in
   `{"location": ...}` or not) is refused at validate; one involving a
-  `previous_result:` fails at run time (#504, #518). To fit the odd video:
+  `previous_result:` fails at run time. To fit the odd video:
   `video_frames`, then `resize_rescale` to the target size (`resize_center_crop`
   squares then stretches, distorting a non-square target), then
-  `pair_audio(fit="video")` to put its soundtrack back (#551).
+  `pair_audio(fit="video")` to put its soundtrack back.
 - **Levels.** Independent shots land far apart (two shots of one scene measured
   `peak_dbfs` -2.65 and -12.56), a jump either side of the seam that no fade can
   hide. `match_levels` scales each input before the join: `"rms"` for perceived
@@ -942,7 +943,7 @@ these on literal values.
 
 ### detect_cuts
 
-Find a clip's cuts, each laid out for a MiniMax-H3 render (#1194):
+Find a clip's cuts, each laid out for a MiniMax-H3 render:
 
 ```json
 {
@@ -1028,7 +1029,7 @@ than the take.
 
 ### chain_repair_cut
 
-The pieces that re-render one segment of a finished chain in place (#1169),
+The pieces that re-render one segment of a finished chain in place,
 for [templates/minimax/repair-segment](../workflows/templates/minimax/repair-segment.json).
 A chain run with `save_segments` and `keep_segments` leaves each segment as a
 playable mp4 beside the take, and names each file on the take's shots
@@ -1093,7 +1094,7 @@ render), and the take resumes on segment k+1's frame `overrun`.
 
 ### chain_repair_splice
 
-Puts a repair render's span into the take in place (#1169): the second half
+Puts a repair render's span into the take in place: the second half
 of `chain_repair_cut`.
 
 | Argument | Required | Description |
@@ -1170,9 +1171,9 @@ Every window is exactly `num_frames` frames, float32 in `[0, 1]` like
 windows, indexes `0` to `(N - 1) // stride`.
 
 The window's audio is the source's samples for its real frames, cut on frame
-boundaries (`frames_to_samples`, #401); the repeated frames carry silence.
+boundaries (`frames_to_samples`); the repeated frames carry silence.
 
-Memory (#695): a file source (a path, `asset:` or `output:`) is never decoded
+Memory: a file source (a path, `asset:` or `output:`) is never decoded
 whole; the window reads only the frames it covers plus the soundtrack.
 
 One step makes one window, so drive it with `for_each` over `{name, index}`
@@ -1240,7 +1241,7 @@ no seam frame is a bare copy of either side. The windows may be at a
 different size from the source (a 2x upscale); the output is at the windows'
 size.
 
-Memory (#695): the output is built as uint8, with only a seam's `overlap`
+Memory: the output is built as uint8, with only a seam's `overlap`
 frames blended in float32. A local file or `asset:`/`output:` `source` is read
 for its frame count and soundtrack only; a URL source is decoded whole.
 
@@ -1259,7 +1260,7 @@ windows of different sizes, an unknown `curve`, an `overlap` not below
 The output's audio is the source's own track (none when it has none); the
 windows' audio is discarded. Its shot records are one per window over the
 frames it owns, with `overlap_frames` on every seam and cumulative sample
-spans (#401), so `assess_output` reads the seams as dissolves.
+spans, so `assess_output` reads the seams as dissolves.
 
 ### fit_to_model and restore_to_source
 
@@ -1508,10 +1509,6 @@ frame of the segment (since frame 0, the last shot start or cut) showed at most
 one. Otherwise it stays lost until the next shot start or cut, where `select`
 applies again; it never jumps to another face.
 
-Behaviour change: on a clip with several faces the default start face is now the
-`largest`, not the most confident; `select: "confident"` restores the old rule.
-Lost frames keep the source pixels instead of restarting on another face.
-
 A padded square around the smoothed box is cut from every
 frame, resized to `crop_size`, and the crops are padded to
 `modulus * n + remainder` frames with mirrored warm-up and cool-down frames.
@@ -1681,14 +1678,14 @@ interpolator, an upscaler):
 
 | Argument | Required | Description |
 | -------- | -------- | ----------- |
-| `video` | Yes | The frames: a frame list, array or tensor, or an audio+video pair whose soundtrack is replaced. Their own rate is carried through (a file's, or a pipeline's that reports one, #1056); frames that carry none are fitted and written at 8 fps unless `fps` is given |
+| `video` | Yes | The frames: a frame list, array or tensor, or an audio+video pair whose soundtrack is replaced. Their own rate is carried through (a file's, or a pipeline's that reports one); frames that carry none are fitted and written at 8 fps unless `fps` is given |
 | `audio` | Yes | An [audio input](#slice_audio). A mono track is duplicated into two channels on save, with a warning, since an mp4 audio stream takes stereo only |
 | `sample_rate` | No | Rate of a bare waveform; given, it wins |
-| `fps` | No | The rate the frames play at, needed only when they carry none. `fit` and the length check measure against it. `result.fps` is not a substitute: it is applied after the fit, so alone on rate-less frames it writes a 24 fps picture under a track fitted to 8 fps (`video_fps_defaulted`, #1056) |
+| `fps` | No | The rate the frames play at, needed only when they carry none. `fit` and the length check measure against it. `result.fps` is not a substitute: it is applied after the fit, so alone on rate-less frames it writes a 24 fps picture under a track fitted to 8 fps (`video_fps_defaulted`) |
 | `fit` | No | `"video"` cuts or pads the track with silence to the frames' length, warning `audio_padded_to_video` / `audio_trimmed_to_video`. Unset (the default), the track is used as is and a length mismatch warns `audio_video_length_mismatch`. Any other value is refused at run time |
 
 `fit` is exact for the waveform handed to the encoder. The AAC mux can trim or
-pad the written track by a further few dozen samples (#428), which is logged;
+pad the written track by a further few dozen samples, which is logged;
 on a video with recorded `shots` it warns `joined_audio_short_after_mux` only
 if it reaches a frame. `get_gallery_metadata`'s `media.shots` and
 `assess_output`'s `sync_length` measure the written file, so trust them for
@@ -1785,7 +1782,7 @@ end of the track is clipped to it, not zero-padded:
 | `start_frame` / `num_frames` / `fps` | No | The region in video frames; `fps` is required if either is given, start and count may be omitted |
 | `sample_rate` | With a waveform | Rate of a bare waveform |
 
-With no region argument the gain applies to the whole track (#395). A start
+With no region argument the gain applies to the whole track. A start
 with no duration runs to the end of the track.
 
 ### crossfade_audio
@@ -1812,6 +1809,12 @@ logged rather than warned, since the snap was asked for:
     "result": { "content_type": "audio/wav", "sample_rate": 44100 }
 }
 ```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `audios` | Yes | The tracks to join, in order, each an [audio input](#slice_audio) |
+| `crossfade_ms` | No | Length of each seam's crossfade (default: 75). The result is one window per seam shorter than the sum |
+| `sample_rate` | With a waveform | Rate of the joined track. Unset, tracks at different rates are resampled up to the highest, with a warning. Given, it relabels (not resamples) a track whose own rate differs, changing its speed and pitch, and warns; put `resample_audio` ahead of the step to convert instead |
 
 ### fade_audio
 
@@ -1864,7 +1867,7 @@ level. Without `limit` only the gain changes:
 | `audio` | Yes | An [audio input](#slice_audio) |
 | `peak_dbfs` | No | The level the loudest sample is moved to, in dB below full scale (default: -1.0). 0 is full scale. With `limit`, a true-peak (4x oversampled, BS.1770) ceiling the output never crosses |
 | `target_lufs` | No | An integrated loudness (BS.1770) to scale the track to instead, in LUFS (0 or below). Without `limit` the gain is capped so the peak stays under `peak_dbfs`, and `target_lufs_capped` warns when that cap wins. A track shorter than 400 ms (or silent throughout) cannot be measured, warns `target_lufs_unmeasurable`, and falls back to `peak_dbfs` |
-| `limit` | No | Reach `target_lufs` past a transient instead of letting it cap the gain: a true-peak look-ahead limiter (5 ms look-ahead, 20 ms hold, 150 ms release, linked across channels) holds `peak_dbfs`, and the gain is searched for until the limited track lands within 0.1 LU of `target_lufs` - limiting takes some loudness back, more on dense material. The limiter itself never adds gain, and it stops at 12 dB of reduction - past that the gain stops too, and `target_lufs_capped` warns with `limited: true` and `shortfall_lu` (as it does for any track left more than 0.1 LU short). More than 6 dB warns `limiter_heavy` (pumping can be audible). The step's log carries `constraint: "limiter"`, `gain_db`, `max_gain_reduction_db`, `limited_fraction` (0 when the limiter was not needed), `output_true_peak_dbfs` and `output_lufs` On an input that carries shots, `limiter_uneven_across_shots` names a shot the limiter works much harder on than the rest (default: false) |
+| `limit` | No | Reach `target_lufs` past a transient instead of letting it cap the gain: a true-peak look-ahead limiter (5 ms look-ahead, 20 ms hold, 150 ms release, linked across channels) holds `peak_dbfs`, and the gain is searched for until the limited track lands within 0.1 LU of `target_lufs` - limiting takes some loudness back, more on dense material. The limiter itself never adds gain, and it stops at 12 dB of reduction - past that the gain stops too, and `target_lufs_capped` warns with `limited: true` and `shortfall_lu` (as it does for any track left more than 0.1 LU short). More than 6 dB warns `limiter_heavy` (pumping can be audible). The step's log carries `constraint: "limiter"`, `gain_db`, `max_gain_reduction_db`, `limited_fraction` (0 when the limiter was not needed), `output_true_peak_dbfs` and `output_lufs`. On an input that carries shots, `limiter_uneven_across_shots` names a shot the limiter works much harder on than the rest (default: false) |
 | `sample_rate` | With a waveform | Rate of a bare waveform |
 
 A silent track is returned unchanged.
@@ -2031,7 +2034,7 @@ one it fails, so `rejected` is a tally of the whole grid:
   longer than `min_seconds`). A window is tonal when any block in it is, so a
   faint syllable is not diluted by the pauses around it. Flatness is measured
   over the band the source occupies, so an upsampled source's empty top band
-  does not read as tonal (#198). A candidate's `flatness`
+  does not read as tonal. A candidate's `flatness`
   and `harmonicity` are the readings of its blocks closest to failing
   (lowest flatness, highest harmonicity).
 
@@ -2645,7 +2648,7 @@ when the file has no picture.
 
 The answer also carries `segment_looks`, one entry per shot in order, which
 splits a take's drift into what the seams add and what builds up inside the
-shots (#1324):
+shots:
 
 | Field | Meaning |
 | ----- | ------- |
@@ -2794,7 +2797,7 @@ Guards beyond the threshold:
 - `seam_frame_jump` is skipped at a seam whose incoming shot is `hard_cut: true`
   or that got an `audio_bleed_ms` bleed.
 - `shot_dead_air` is skipped inside a shot whose own RMS is at or below
-  -30 dBFS, and for a shot record marked `silent_by_design: true` (#1162). The
+  -30 dBFS, and for a shot record marked `silent_by_design: true`. The
   remedy for a gap it reports is a room-tone bed: `slice_audio` ->
   `loop_audio` -> `mix_audio`.
 
@@ -3116,7 +3119,7 @@ Captioning (`image_to_text`) is the exception - describe a frame, taken with
 `get_first_frame`, rather than a video.
 
 A file path or `asset:`/`output:` reference to a video is not accepted here
-(`grade`, whose input is `media`, is the exception), even though the route above takes a video from a step - route it through
+(the [finishing commands](#grade), whose input is `media`, are the exception), even though the route above takes a video from a step - route it through
 `video_frames` first: an image command's `image` argument must be an
 `AudioVideo`, a frame array, or a still image.
 
@@ -3365,7 +3368,7 @@ Returns a grayscale PIL Image (mode "L"): white (255) for detected objects, blac
 
 ### track_people
 
-Follow each person through a clip as a mask of their own (#1194). [`segment`](#object-segmentation) masks everything its prompt matches, so on a two-person shot `person` is both of them; `track_people` separates them. It splits the clip into cuts (frame 0, every shot the clip records, every cut [`detect_cuts`](#detect_cuts)' detector finds), finds the prompt with Grounding-DINO on each cut's first frame, keeps the `max_people` largest, and propagates each through the cut with SAM2's video predictor. Masks never overlap: where two claim a pixel, the person SAM2 scores higher there keeps it.
+Follow each person through a clip as a mask of their own. [`segment`](#object-segmentation) masks everything its prompt matches, so on a two-person shot `person` is both of them; `track_people` separates them. It splits the clip into cuts (frame 0, every shot the clip records, every cut [`detect_cuts`](#detect_cuts)' detector finds), finds the prompt with Grounding-DINO on each cut's first frame, keeps the `max_people` largest, and propagates each through the cut with SAM2's video predictor. Masks never overlap: where two claim a pixel, the person SAM2 scores higher there keeps it.
 
 ```json
 {
@@ -3411,7 +3414,7 @@ No person in any cut is a run-time error ("no person found"). A cut with nobody,
 
 #### The sam3 backend
 
-`"backend": "sam3"` (#1397, opt-in; `grounding-dino` stays the default) swaps the detector and SAM2 for SAM 3's video model (transformers' `Sam3VideoModel`). It takes the text prompt directly and detects on every frame of each cut, not just the first, so a late entrant (someone absent from a cut's first frame, say through a dissolve) gets a mask of their own.
+`"backend": "sam3"` (opt-in; `grounding-dino` stays the default) swaps the detector and SAM2 for SAM 3's video model (transformers' `Sam3VideoModel`). It takes the text prompt directly and detects on every frame of each cut, not just the first, so a late entrant (someone absent from a cut's first frame, say through a dissolve) gets a mask of their own.
 
 ```json
 {
@@ -3432,11 +3435,11 @@ No person in any cut is a run-time error ("no person found"). A cut with nobody,
 - **`first_frame`:** each `people` entry records the cut-relative frame where that person first appears (always `0` on `grounding-dino`). The contact sheet adds a tile at each late entrant's first frame.
 - **`threshold`:** defaults to `0.5`, SAM 3's own detection-score default. It is not the same scale as Grounding-DINO's `0.3`, so don't carry a tuned value across backends.
 - **Weights:** `facebook/sam3` is gated on Hugging Face (accept the licence, then `hf auth login`) and is under the SAM License, not Apache; see [ATTRIBUTIONS.md](ATTRIBUTIONS.md). A validate's `downloads_required` lists only `facebook/sam3` on this path.
-- **transformers >= 5.21** is required. dw's floor is 5.21 (#1405), so a current install has it; an older venv is refused with a message naming the installed version.
+- **transformers >= 5.21** is required. dw's floor is 5.21, so a current install has it; an older venv is refused with a message naming the installed version.
 
 ## Object Removal
 
-Erase what a mask covers and fill the hole from the surrounding texture, with no prompt (#956). `remove_object` runs [LaMa](https://github.com/advimman/lama) (big-lama) through spandrel: no diffusion, so a warm run takes well under a second on a GPU, and it runs on CUDA, MPS and CPU.
+Erase what a mask covers and fill the hole from the surrounding texture, with no prompt. `remove_object` runs [LaMa](https://github.com/advimman/lama) (big-lama) through spandrel: no diffusion, so a warm run takes well under a second on a GPU, and it runs on CUDA, MPS and CPU.
 
 ```json
 {
@@ -3468,7 +3471,7 @@ Erase what a mask covers and fill the hole from the surrounding texture, with no
 
 **Video.** Frames (e.g. from `video_frames`) are cleaned one at a time with the same still mask, and come back at the same count and fps, with the audio kept. There is no temporal model, so a fill can flicker from frame to frame, and the mask cannot follow a moving object.
 
-**Limits.** LaMa suits small to medium objects: a cup, a sign, a watermark, a passer-by in the distance. A large region, such as a person filling a third of the frame, comes back smeared. For that, a prompted inpainter whose prompt names the background is the remaining route, and it may paint a patch that does not match (#946).
+**Limits.** LaMa suits small to medium objects: a cup, a sign, a watermark, a passer-by in the distance. A large region, such as a person filling a third of the frame, comes back smeared. For that, a prompted inpainter whose prompt names the background is the remaining route, and it may paint a patch that does not match.
 
 **Weights.** `michaelgold/big-lama`, file `big-lama.safetensors` (about 200 MB), read at revision `98ab7cface89a594b381f32fc7a9f2cae3f91ccc` for the default pair (another `model_name` or `weight_name` is read at `main`); `downloads_required` lists it as a file entry while it is not cached. `biali/big-lama` holds a byte-identical copy and is not tried automatically. LaMa (Suvorov et al.) is licensed **Apache-2.0**, whatever the Hub card says. The task reads safetensors only: a `weight_name` that is not `.safetensors` (the common `big-lama.pt` is TorchScript) and a `model_name` that is a local path are refused at validation and at run time, as are weights that do not load as an inpainting model. It runs in fp32 on every device.
 
@@ -3959,6 +3962,7 @@ The result is a waveform carrying the rate its model generated at, so it compose
 | `reference_text` | No | Audio8-TTS only: the words spoken in `reference_audio`, verbatim. Needs `reference_audio` |
 | `forward_params` | No | Passed to the model's forward/generate call; a multi-speaker VITS takes its `speaker_id` int here |
 | `generate_kwargs` | No | Ad-hoc generation settings for a generative model — `temperature`, `do_sample` |
+| `seed` | No | Overrides the step's or workflow's seed. Unseeded (none anywhere), a sampling model is not reproducible |
 
 The command defaults to Bark for its distinct speakers; [`generate-speech.json`](../workflows/templates/generate-speech.json) defaults to `facebook/mms-tts-eng`, a quarter the size, for a single voice.
 
@@ -3987,9 +3991,9 @@ Generated speech is best used as a voice *timbre reference*, not as the track
 a mouth follows. A `MiniMaxH3AudioReference` is audio H3 reads, not plays: a
 few seconds of a voice fix timbre, pitch and delivery while H3 still generates
 the line, and a mouth follows a whole track given only as a reference loosely,
-sometimes shifted by whole beats (#795). To keep a track exact, hold it with
+sometimes shifted by whole beats. To keep a track exact, hold it with
 `hold_audio` (workflow guide, "H3: generating to a held soundtrack");
-`music-video` holds each slice by default (#808). Build the reference with
+`music-video` holds each slice by default. Build the reference with
 `from_previous_result`, and the clip's sample rate comes with it:
 
 ```json
@@ -4040,12 +4044,13 @@ nothing lip-syncs to is muxed with [`pair_audio`](#pair_audio). Set
 | `duration` | No | Seconds. Defaults to the clip's length (capped at 20 s), or 8 s text-only; a given value must be at least 0.64 s (16 sync frames at 25 fps), at most 20 s and no longer than the clip |
 | `steps` | No | Sampler steps (default: 25) |
 | `guidance_scale` | No | Classifier-free guidance (default: 4.5) |
+| `seed` | No | Overrides the step's or workflow's seed, for a reproducible take |
 
 Video-only is the weaker mode; give a `prompt` naming the on-screen sound sources too. A `duration` outside 4-12 s (the model trained around 8 s) warns, as does noise-like output (spectral flatness of 0.3 or more with a centroid of 8 kHz or more).
 
 Every refusal fires before anything loads: neither `video` nor `prompt`; a `duration` under 0.64 s, over 20 s or longer than the clip; an unknown argument; and `trust_remote_code`, `custom_pipeline` or `custom_generate` (the trust gate).
 
-The output runs 7-25 dB hot. Route it through `match_levels` before mixing it with dialogue or music.
+The output runs 7-25 dB hot. Bring it down (`normalize_audio`, or `match_levels` on a join) before mixing it with dialogue or music.
 
 **Licences.** The MMAudio weights (network, Synchformer and the VAE tensors) are CC-BY-NC 4.0: non-commercial use only. The DFN5B CLIP encoder is under the Apple Machine Learning Research Model License Agreement: research purposes only. See [ATTRIBUTIONS.md](ATTRIBUTIONS.md).
 
@@ -4056,9 +4061,7 @@ The output runs 7-25 dB hot. Route it through `match_levels` before mixing it wi
 
 ## Speech Transcription
 
-A validate's `downloads_required` lists `openai/whisper-base`; `model_name` overrides it. `check_script` uses the same model.
-
-Transcribe spoken audio to text with a local Whisper-class model.
+Transcribe spoken audio to text with a local Whisper-class model. A validate's `downloads_required` lists `openai/whisper-base`; `model_name` overrides it. `check_script` uses the same model.
 
 ```json
 {
@@ -4083,12 +4086,12 @@ Audio is downmixed to mono and resampled to 16 kHz for the model; the source is 
 
 Set `timestamps` to `"segment"` or `"word"` to get chunk timings instead. The result becomes `{"text": ..., "chunks": [{"start": ..., "end": ..., "text": ...}, ...]}`, so the step's `result.content_type` must be `"application/json"`, read with MCP's `get_output_text`. Every `start` and `end` is a number of seconds: a chunk the clip ends inside - a song cut mid-line, which Whisper leaves open-ended - ends at the clip's duration, so the transcript drops straight into [`attribute_voices`](#voice-attribution)' `lines`. `"word"` can give a zero-length chunk (`start` = `end`) on a short or clipped word; `attribute_voices` reads it as a line with no voice.
 
-A chunk that is probably not speech carries one more field, `suspect` (#822), and is never removed. The reasons are tried in this order, and the first that holds wins:
+A chunk that is probably not speech carries one more field, `suspect`, and is never removed. The reasons are tried in this order, and the first that holds wins:
 
 - `"no_words"`: its text has no word at all (`—`, `♪`, `...`).
-- `"repetition"`: it holds a word of a repetition loop (`I'm sorry, I'm sorry, ...`), found by the detector and `REPEAT_RUN_MIN`/`REPEAT_MAX_PERIOD` that [`check_script`](#script-check) uses, however loud; or its text and overlapping span repeat an earlier chunk's (#1138).
-- `"silent"`: its loudest window is at or below `GUARD_FLOOR_DBFS`, where Whisper invents text; or the whole clip's mean level is at or below `NEAR_SILENT_CLIP_DBFS` (-40 dBFS), as in a voiceless vocals stem (#1135).
-- `"stock_phrase"`: its whole text is one of Whisper's stock outro lines ("Thank you for watching", "Please subscribe") (#1136).
+- `"repetition"`: it holds a word of a repetition loop (`I'm sorry, I'm sorry, ...`), found by the detector and `REPEAT_RUN_MIN`/`REPEAT_MAX_PERIOD` that [`check_script`](#script-check) uses, however loud; or its text and overlapping span repeat an earlier chunk's.
+- `"silent"`: its loudest window is at or below `GUARD_FLOOR_DBFS`, where Whisper invents text; or the whole clip's mean level is at or below `NEAR_SILENT_CLIP_DBFS` (-40 dBFS), as in a voiceless vocals stem.
+- `"stock_phrase"`: its whole text is one of Whisper's stock outro lines ("Thank you for watching", "Please subscribe").
 - `"long"`: a `"word"` chunk lasting more than `LONG_WORD_SECONDS` (2 s), an instrumental folded into the word. A `"segment"` chunk is never `long`.
 
 Transcribe a song's vocal stem ([`separate_stems`](#stem-separation)) so an instrumental intro is not counted as speech; the marks catch what Whisper still invents over the stem. [`plan_cuts`](#plan_cuts) leaves `no_words`, `repetition`, `stock_phrase` and `silent` chunks out of the lines.
@@ -4135,12 +4138,12 @@ Markup stripped from an expected line: `<d>[Language] ...</d>`, `<scenetrans>`, 
 | ---- | ---------- | --------------------- | ---- |
 | `line_mismatch` | A line's similarity is below `similarity`; a dropped line comes back with `heard: ""` | The line's similarity / `similarity` | `{line, seconds, word}` - the line's first heard word, or where it should have been |
 | `tag_spoken` | A word from the line's stripped markup was heard, and is not also a word of the line's dialogue | The word heard / none | `{line, seconds, word}` |
-| `transcript_loop` | A repetition loop (`REPEAT_RUN_MIN` periods of up to `REPEAT_MAX_PERIOD` words) made only of words the script holds - Whisper stuck on a line it heard, so speech after it can be missing from `heard` and lines read 0.0 without being wrong (#961). The loop's first occurrence is kept as heard when it has real duration and speech level; the rest is under `discarded`, one entry per loop (`count`, `start`..`end`). A line heard nowhere, at or after the loop, reads `heard: null`, `similarity: null`, `not_transcribed: "transcript_loop"` and raises no `line_mismatch`. When the shots are known the cut is then transcribed again one shot at a time and the findings and `lines` come from that pass (`transcription_pass: "per_shot"`, each line `pass: "per_shot"`, #963) | Chunks in the loop / `REPEAT_RUN_MIN` | `{line: null, seconds, end}` |
-| `line_clipped_at_end` | A line's last heard word ends inside the final `CLIP_TAIL_SECONDS` of its shot (when the line has one) or of the file, and that tail is still above `GUARD_FLOOR_DBFS` and within `CLIP_TAIL_BELOW_WORD_DB` of the last word's own loudest window (a quieter tail is a score bed or room tone, not the word - #953) | The tail's level in dBFS / `GUARD_FLOOR_DBFS` | `{line, seconds, word, shot}` - `shot` when the line has one. A line nothing was heard for has no last word: when a `speech_not_transcribed` block credited to it runs to its shot's end and that tail is voiced, it fires at the block's end with no `word` (#1115); otherwise the line is listed in `rules_skipped` with its `line` index |
+| `transcript_loop` | A repetition loop (`REPEAT_RUN_MIN` periods of up to `REPEAT_MAX_PERIOD` words) made only of words the script holds - Whisper stuck on a line it heard, so speech after it can be missing from `heard` and lines read 0.0 without being wrong. The loop's first occurrence is kept as heard when it has real duration and speech level; the rest is under `discarded`, one entry per loop (`count`, `start`..`end`). A line heard nowhere, at or after the loop, reads `heard: null`, `similarity: null`, `not_transcribed: "transcript_loop"` and raises no `line_mismatch`. When the shots are known the cut is then transcribed again one shot at a time and the findings and `lines` come from that pass (`transcription_pass: "per_shot"`, each line `pass: "per_shot"`) | Chunks in the loop / `REPEAT_RUN_MIN` | `{line: null, seconds, end}` |
+| `line_clipped_at_end` | A line's last heard word ends inside the final `CLIP_TAIL_SECONDS` of its shot (when the line has one) or of the file, and that tail is still above `GUARD_FLOOR_DBFS` and within `CLIP_TAIL_BELOW_WORD_DB` of the last word's own loudest window (a quieter tail is a score bed or room tone, not the word) | The tail's level in dBFS / `GUARD_FLOOR_DBFS` | `{line, seconds, word, shot}` - `shot` when the line has one. A line nothing was heard for has no last word: when a `speech_not_transcribed` block credited to it runs to its shot's end and that tail is voiced, it fires at the block's end with no `word`; otherwise the line is listed in `rules_skipped` with its `line` index |
 | `speech_where_silent` | `lines` is `[]` and words were heard above the floor and outside a repetition loop | Number of words heard / 0 | `{line: null, seconds, word}` - the first; `shot` when shots are known |
 | `speech_in_silent_shot` | Shots are known, at least one line names a shot, and words were heard above the floor and outside a repetition loop in a shot no line names. A word is in the shot its midpoint falls in; one a line in another shot matched (a word straddling the cut) is that line's, not counted | Number of words heard in the shot / 0 | `{line: null, seconds, word, shot}` - the shot's first counted word, `seconds` no earlier than the shot's start |
-| `unscripted_speech` | Shots are known and a line names the shot; words were heard inside it that align to no line (a line spoken twice, an ad-lib; a lone hesitation sound such as "Uh," that the script never uses is not one, #1360) | Number of unmatched words in the shot / 0 | `{line: null, seconds, end, word, shot, repeats_line}` - the first such word; `repeats_line` is true when those words repeat or contain one of the shot's lines |
-| `speech_not_transcribed` | Between two words of one matched line, or between one line's last word and the next line's first (#960; the finding sits on the next line, and a gap holding heard-but-unmatched words is `unscripted_speech`'s), there is a gap of `UNHEARD_MIN_SECONDS` or more, or one of its words lasts `UNHEARD_MIN_SECONDS` + 2 `UNHEARD_MARGIN_SECONDS` or more, and the interior (trimmed by `UNHEARD_MARGIN_SECONDS` each side) holds a window above `UNHEARD_FLOOR_DBFS`: audible speech the ASR left out of its text, which the line's timing absorbed (#923). A block that repeats itself sample for sample (`BED_CORRELATION` 0.98 at a lag of 0.3 s or more, 0.5 s compared) is a looped bed from `loop_audio`, not speech, and is no finding (#1118) | The gap's length in seconds / `UNHEARD_FLOOR_DBFS` | `{line, seconds, end, shot}` - `shot` when the line has one |
+| `unscripted_speech` | Shots are known and a line names the shot; words were heard inside it that align to no line (a line spoken twice, an ad-lib; a lone hesitation sound such as "Uh," that the script never uses is not one) | Number of unmatched words in the shot / 0 | `{line: null, seconds, end, word, shot, repeats_line}` - the first such word; `repeats_line` is true when those words repeat or contain one of the shot's lines |
+| `speech_not_transcribed` | Between two words of one matched line, or between one line's last word and the next line's first (the finding sits on the next line, and a gap holding heard-but-unmatched words is `unscripted_speech`'s), there is a gap of `UNHEARD_MIN_SECONDS` or more, or one of its words lasts `UNHEARD_MIN_SECONDS` + 2 `UNHEARD_MARGIN_SECONDS` or more, and the interior (trimmed by `UNHEARD_MARGIN_SECONDS` each side) holds a window above `UNHEARD_FLOOR_DBFS`: audible speech the ASR left out of its text, which the line's timing absorbed. A block that repeats itself sample for sample (`BED_CORRELATION` 0.98 at a lag of 0.3 s or more, 0.5 s compared) is a looped bed from `loop_audio`, not speech, and is no finding | The gap's length in seconds / `UNHEARD_FLOOR_DBFS` | `{line, seconds, end, shot}` - `shot` when the line has one |
 
 Every finding is severity `warn`; `at.shot` is set whenever the shot is known. A rule that does not apply to the call is listed in `rules_skipped` with its reason: `speech_in_silent_shot` and `unscripted_speech` are skipped when the shots carry neither a sample span nor a frame span the take's frame rate can place, or when no line names a shot (no shot is known to be meant silent). When no shots are known at all (no `shots`, none carried by the take, no manifest beside the file) and the lines name at most one shot, the whole file is checked as one implicit shot: `unscripted_speech` runs (a line spoken twice, an ad-lib) and `speech_in_silent_shot` is skipped; `line_clipped_at_end` looks at the file's end only. Lines naming two or more shots with none placed skip both. With shots known there is no minimum word count - one unmatched word inside a named shot fires it.
 
@@ -4158,7 +4161,7 @@ The thresholds are module constants in `dw/tasks/script_findings.py` (the repeti
 | `REPEAT_RUN_MIN` | 6 | Heard words repeating the same unit this many times over, back to back, are a repetition loop: every chunk holding one is discarded (`reason: "repetition"`), however loud |
 | `REPEAT_MAX_PERIOD` | 6 words | The longest repeating unit a loop is looked for in - `pre pre pre` has period 1, `thank you thank you` period 2 |
 
-The result: `findings`, `lines[]` (`expected`, `heard`, `similarity`, `start`, `end`, `shot`; with the shot known, `start` and `end` are kept inside it, and the ASR's own times, when they fall outside - a word stretched across the seam over speech Whisper dropped - are kept as `asr_start` / `asr_end`, #1115), `discarded[]` (`text`, `start`, `end`, `level_dbfs`, `reason` - `below_floor`, `repeated_span` (a chunk repeating the previous one's exact span) or `repetition`, `count` - a repetition loop is one entry spanning its chunks), `unmatched[]` (heard words aligned to no line), `transcript`, `model_name`, `rules_applied`, `rules_skipped[]` (`rule`, `reason`, and `line` for a per-line skip), `thresholds`, and `transcription_pass` (`whole_cut` or `per_shot`; with `per_shot`, a `transcription_note`). A line's `shot` is the shot it names, else the shot its heard words overlap most (null when none is known). `shots` is the map as placed - `[{name, start, end}]` in seconds on the take, or null when none is known - and `shots_source` says where it came from: `argument`, `artifact`, `manifest` or `none`.
+The result: `findings`, `lines[]` (`expected`, `heard`, `similarity`, `start`, `end`, `shot`; with the shot known, `start` and `end` are kept inside it, and the ASR's own times, when they fall outside - a word stretched across the seam over speech Whisper dropped - are kept as `asr_start` / `asr_end`), `discarded[]` (`text`, `start`, `end`, `level_dbfs`, `reason` - `below_floor`, `repeated_span` (a chunk repeating the previous one's exact span) or `repetition`, `count` - a repetition loop is one entry spanning its chunks), `unmatched[]` (heard words aligned to no line), `transcript`, `model_name`, `rules_applied`, `rules_skipped[]` (`rule`, `reason`, and `line` for a per-line skip), `thresholds`, and `transcription_pass` (`whole_cut` or `per_shot`; with `per_shot`, a `transcription_note`). A line's `shot` is the shot it names, else the shot its heard words overlap most (null when none is known). `shots` is the map as placed - `[{name, start, end}]` in seconds on the take, or null when none is known - and `shots_source` says where it came from: `argument`, `artifact`, `manifest` or `none`.
 
 How the alignment reads a take:
 
@@ -4170,7 +4173,7 @@ How the alignment reads a take:
 
 A malformed `lines` - not a list, an entry without text, an unknown key in a line object - is refused at validation, at `steps[i].task.arguments.lines`, as is a `similarity` outside 0..1. A line naming a shot the map lacks is refused, listing the map's shots, and so is a line naming a shot the map holds twice; a literal `shots` and literal lines are checked against each other at validation, and a `shots` or `lines` that is a reference is checked when the step runs.
 
-**Example:** [check-script.json](../workflows/templates/check-script.json) — check a take against its script and save the answer as JSON. Its defaults are `openai/whisper-large-v3-turbo` at `similarity` 0.6, not the task's `openai/whisper-base` at 0.85: turbo scored correct lines 0.71 to 1.00 and wrong or missing ones 0.00, where base scored correct lines as low as 0.43 on mishearings (#609). Number words and digits are read as the same (`twenty one` and `21`, `Amendment Ten` and `Amendment 10`, #1297), so neither Whisper's choice nor the script's costs similarity. A hyphenated compound is split at the hyphen first and then folded, so `twenty-one` is `21` too. Digits written apart stay separate numbers: `2 1` is not `21`, though a year said in halves (`17 87`) is `1787`.
+**Example:** [check-script.json](../workflows/templates/check-script.json) — check a take against its script and save the answer as JSON. Its defaults are `openai/whisper-large-v3-turbo` at `similarity` 0.6, not the task's `openai/whisper-base` at 0.85: turbo scored correct lines 0.71 to 1.00 and wrong or missing ones 0.00, where base scored correct lines as low as 0.43 on mishearings. Number words and digits are read as the same (`twenty one` and `21`, `Amendment Ten` and `Amendment 10`), so neither Whisper's choice nor the script's costs similarity. A hyphenated compound is split at the hyphen first and then folded, so `twenty-one` is `21` too. Digits written apart stay separate numbers: `2 1` is not `21`, though a year said in halves (`17 87`) is `1787`.
 
 ## Frame Interpolation
 

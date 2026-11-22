@@ -16,8 +16,8 @@ what made them - lands in one place, prunable and addressable as a unit, and
 a rerun can no longer interleave its files with an earlier one's.
 
 The old flat-ish layout stays available: DW_OUTPUT_LAYOUT=flat, an
-'output_layout' setting of "flat", or --output-layout flat on dw.run and
-dw.serve, for a caller whose scripts glob the output directory.
+'output_layout' setting of "flat", or --output-layout flat on dw.serve,
+for a caller whose scripts glob the output directory.
 """
 
 import contextvars

@@ -113,10 +113,9 @@ typed **inside Claude Code**, not in the shell:
 prompt 'a lighthouse at dusk'."* The agent quotes the cost and asks before it
 runs. The first run downloads SD 1.5 (a few GB), so it takes minutes rather than
 seconds; later runs reuse it. The agent shows you the
-image, and the file is under the checkout's `outputs/` folder: a `dw-serve` started
-in the checkout uses the checkout as its workspace
-([Workspaces](docs/WORKSPACES.md#which-directory-is-used)). It is also in the web
-UI's gallery.
+image, and it is in the web UI's gallery and under the checkout's `outputs/`
+folder (a `dw-serve` started in the checkout uses it as its workspace;
+[Workspaces](docs/WORKSPACES.md#which-directory-is-used)).
 
 To update the plugin later (`get_server_info` tells the agent when the installed skills are
 older than the server), refresh the marketplace and reinstall, then `/reload-plugins`
@@ -187,8 +186,9 @@ A session sounds like this:
   it as `asset:hero-frame.png`.
 
 The [dw plugin](plugins/dw/README.md) adds what a general-purpose agent can't know
-on its own: one skill per model family (MiniMax H3 and Music 3, LTX-2.5, Kandinsky 6,
-FLUX 3 Klein) that picks the template for a request and states the rules that bite.
+on its own: one skill per model family (MiniMax H3, MiniMax-H3-Image and Music 3,
+LTX-2.5, Kandinsky 6, FLUX 3 Klein) that picks the template for a request and states
+the rules that bite.
 Cross-cutting skills cover script-to-video, series with a consistent cast,
 storyboards and animatics, pieces longer than one clip, and a shared
 camera-and-look vocabulary.
@@ -200,20 +200,19 @@ outputs. Two agents, or an agent and you in the browser, can share one GPU witho
 saving over each other's work.
 
 An ask of more than a couple of jobs gets a **request**: the agent writes its plan
-into the workspace's ledger - the goal and the items it will make - links each job
-to its item, and records which take it kept. The plan outlives the session. The
-Requests page says where each request stands and what needs you, and shows each
-item's result, takes and minutes spent; the notes you leave on an item, or on the
-request, are read by the agent before it writes the plan again. A note can point at a
-take or a file, and you can write it from the request page, a job page or the gallery. See [Requests](docs/WORKSPACES.md#requests).
+(the goal and the items it will make) into the workspace, links each job to its
+item, and records which take it kept, so the plan outlives the session. The
+Requests page shows where each request stands, what needs you, and each item's
+takes and minutes spent. Notes you leave on an item, a take or a file (from the
+request page, a job page or the gallery) are read by the agent before it plans
+again. See [Requests](docs/WORKSPACES.md#requests).
 
-With the **notes channel**, a note reaches the agent as you save it. `dw-mcp
---notes-channel` runs beside an open Claude Code session and tells it "the user
-left this note on Shot 3, take 2, this file": the agent reads the plan, acts - a retake, then the cut
-again - and the page shows what it did. Review on the page, direct in notes, and
-the session does the rest. It rides on Claude Code's channels research preview, so
-it needs an interactive session started with the development-channels flag, and
-its contract may change. Setup: [the notes channel](docs/MCP.md#the-notes-channel).
+With the **notes channel**, a note reaches the agent as you save it: `dw-mcp
+--notes-channel` runs beside an open Claude Code session and tells it which item,
+take or file the note is on, and the agent acts (a retake, then the cut again).
+It uses Claude Code's channels research preview, so it needs an interactive
+session started with the development-channels flag, and may change. Setup:
+[the notes channel](docs/MCP.md#the-notes-channel).
 
 The tool reference, setup for other MCP hosts and the troubleshooting table are in
 [MCP Server](docs/MCP.md).
@@ -316,8 +315,8 @@ templates add the device placement, quantization and size rules each model needs
 
 The engine also covers:
 
-- **Quantization:** BitsAndBytes, TorchAO, GGUF, SDNQ and optimum-quanto, set per
-  component.
+- **Quantization:** BitsAndBytes, TorchAO, GGUF and SDNQ, set per component, and
+  any other backend with a config class (optimum-quanto, say) by import.
 - **Acceleration:** FirstBlockCache, FasterCache, MagCache, TaylorSeerCache,
   `torch.compile` and attention backends.
 - **Adapters and prompts:** LoRA, IP-Adapter and A1111-style prompt weighting.

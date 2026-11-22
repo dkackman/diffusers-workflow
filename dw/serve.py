@@ -68,9 +68,11 @@ def build_parser():
     parser.add_argument(
         "--prompt-dir",
         default=None,
-        help="Directory of stored prompt files (default: discovered the way "
-        "a CLI run discovers it - DW_PROMPT_DIR, else ./prompts if it "
-        "exists, else the nearest prompts/ above the workflow directory)",
+        help="Directory of stored prompt files (default: DW_PROMPT_DIR, "
+        "else the prompts/ of a workspace named by --workspace, "
+        "DW_WORKSPACE or the 'workspace' setting, else ./prompts if it "
+        "exists, else the nearest prompts/ above the workflow directory, "
+        "else the workspace's prompts/)",
     )
     parser.add_argument(
         "--examples-dir",

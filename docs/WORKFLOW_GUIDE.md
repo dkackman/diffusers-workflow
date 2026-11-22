@@ -249,7 +249,8 @@ media is instead of relying on its argument name:
 ```
 
 `media_type` is `"image"` or `"video"`. `location` is a path relative to the workflow
-file, or a URL, exactly like the plain `image`/`video` forms.
+file, a URL, or an `asset:`/`output:` reference, exactly like the plain `image`/`video`
+forms.
 
 ## Authoring a workflow from an agent
 
@@ -258,19 +259,15 @@ produces the shape it needs, and is about to write JSON. `get_schema` says what
 is *well-formed*; this section says what the engine *does* with a well-formed
 document, which is where a draft that validates still fails.
 
-H3 literal `num_frames`, `width` and `height` are checked against the
-pipeline's own limits (5-15 s on the 17n + 5 grid, so 124-345 frames;
-multiples of 32), and `variable_constraints` is still how a template refuses a
-value before substitution.
-
 When exploring variations, pass `note` to `run_workflow` saying what each run
 tests ("video_shift 5 against 3"), and call `set_note` to mark the keeper: the
 note is shown with every file the run made. Each file carries a `role`
 (`final` or `intermediate`) inferred from how a step's output is used - a file
 a later run reads (`output:`, or an `asset:` kept from it) lists as
 intermediate too; set `result.role` on a step to override it when the default
-is wrong, and set `"role": "intermediate"` on a workflow whose deliverable is an
-ingredient a later assembly consumes.
+is wrong - `"role": "intermediate"` on the saving step of a workflow whose
+deliverable is an ingredient a later assembly consumes. `role` belongs in
+`result`; the workflow object has no such key.
 
 ### References
 
@@ -361,10 +358,11 @@ keys are exempt and always stay strings: `content_type` and `offload_type`
 (braces are accepted there too).
 
 On a server without `--trust-workflows`, a dotted name must sit in one of the
-packages `dw/trust.py` allows (`diffusers`, `torch`, `transformers`, `sdnq`,
-`torchao` and the other quantization backends, `dw`), and must resolve to a
-class defined there, or to a `torch.dtype` under a `dtype` key. Anything else is
-refused at load.
+packages `dw/trust.py` allows (`diffusers`, `torch`, `torchvision`,
+`transformers`, `accelerate`, `peft`, `dw`, and the quantization backends
+`sdnq`, `torchao`, `optimum`, `gguf`, `bitsandbytes`), and must resolve to a
+class of a kind it allows (a checkpoint-loading component or plain data), or to
+a `torch.dtype` under a `dtype` key. Anything else is refused at load.
 
 ### Presets
 
@@ -576,11 +574,14 @@ judged by what its guides add rather than passing on the clip alone.
 ### Remote code is refused by default
 
 A server started without `--trust-workflows` refuses any
-`from_pretrained_arguments` that sets `trust_remote_code` or
-`custom_pipeline`, at load time, after validation has passed. Use a
-pipeline diffusers ships: no bundled catalog entry carries either key, and a
-workflow that does runs only on a server whose operator turned trust on,
-which `get_server_info` reports as `trust_workflows`.
+`from_pretrained_arguments` or `load_components` block that sets
+`trust_remote_code` or `custom_pipeline` or redirects the download
+(`cache_dir`, `local_dir`, `proxies`, `mirror`), and a task argument that sets
+`trust_remote_code`, `custom_pipeline` or `custom_generate`. `validate_workflow` reports it at the
+step's path, and the worker refuses it again before loading. Use a pipeline
+diffusers ships: no bundled catalog entry carries those keys, and a workflow
+that does runs only on a server whose operator turned trust on, which
+`get_server_info` reports as `trust_workflows`.
 
 ### Several `previous_result` references multiply
 
@@ -730,9 +731,11 @@ by the source, and `validate_workflow` names the entries to add or drop.
    nothing in this workspace each come back at `arguments.<name>`. Without them
    the verdict is about the stored definition and its defaults;
    `checked_arguments` in the answer says which it was. A literal H3
-   `num_frames`, `width` or `height` the pipeline would refuse is an error too
+   `num_frames`, `width` or `height` the pipeline would refuse (5-15 s on the
+   17n + 5 grid, so 124-345 frames; multiples of 32) is an error too
    (`dw/pipeline_limits.py`), beside the reference-set check
-   (`dw/reference_limits.py`).
+   (`dw/reference_limits.py`); `variable_constraints` is how a template refuses
+   a value before substitution.
 2. Fix everything reported, including the warnings: a typo against a real
    `__call__` shows up only as a warning. Signature warnings are computed only
    for a schema-valid draft (while schema errors remain, `warnings` is `[]`),
@@ -751,10 +754,10 @@ by the source, and `validate_workflow` names the entries to add or drop.
    - `per_entry` - a measured per-entry rate re-priced for your list.
    - `catalog` - a measured total for a run whose lists are the ones it was
      measured with.
-   - `derived` - (a `cost` entry's `fixed_minutes`, the share that does not scale,
-     is held out of the scaling) that total extrapolated over a list of another length, or
+   - `derived` - that total extrapolated over a list of another length, or
      scaled along the steps, canvas or frames you moved off its defaults
-     (`scaled` names each axis): say it is an estimate.
+     (`scaled` names each axis; a `cost` entry's `fixed_minutes`, the share
+     that does not scale, is held out): say it is an estimate.
    - `inherited` - an inline workflow priced from this box's runs of the
      catalog template with the same pipeline (`inherited_from`): say it is an
      approximation, and relay the warning if offload, quantization or frame
@@ -912,7 +915,7 @@ prompt.
 - **Put something new inside a mask** → a prompted inpainter,
   `models/z-image-inpaint` or `templates/inpaint.json`. The prompt names what
   to paint. Do not use one to erase: given a prompt for "empty background" it
-  paints a new object or a patch that does not match (#946).
+  paints a new object or a patch that does not match.
 
 `docs/TASKS.md` *Object Removal* has the task's arguments and its mask rules.
 
@@ -1073,12 +1076,13 @@ scalar variable, or a field of a list driver's entries summed over them
 held out of the scaling: a moved run is quoted `fixed_minutes + (minutes -
 fixed_minutes) x factor`, so a long chain is not charged its load once per
 segment (`minimax/chained-segments` declares 10). Absent, the whole figure
-scales. Its
-`guide_factor` is what a pipeline step that lays in a `guides` clip costs
+scales. Its `guide_factor` is what a pipeline step that lays in a `guides` clip costs
 against the same step without one, on the scaling part: a ref2va guide
 appends a second copy of the target's video rows, so every pass denoises
 twice the rows (`minimax/reference-to-video` declares 2, from a 3.8 and a 7.4
-min run of the same shot). Absent, a guide is not priced. An entry carrying `cost` has been run to completion on the device it names; one
+min run of the same shot). Absent, a guide is not priced.
+
+An entry carrying `cost` has been run to completion on the device it names; one
 without has only been authored, and its first run is the one that finds out
 what its description could not check.
 
@@ -1541,7 +1545,7 @@ later step needing one of them reloads it.
 Before the first step executes, the engine drops any step whose result no later step
 reads and which writes no file, and warns once per dropped step saying which and why.
 That is how a template whose portraits can be supplied as `asset:` files skips the steps
-that would have drawn them (#122). Elision follows from the definition, never from a
+that would have drawn them. Elision follows from the definition, never from a
 value produced during the run, so it is decided at validate time too.
 
 Four things keep a step:
@@ -1857,9 +1861,9 @@ fits audio it is not allowed to change:
     "arguments": {
         "prompt": "a drummer in a lit rehearsal room",
         "num_frames": 125,
-        "hold_audio": "asset:track.wav"
-    },
-    "output": ["videos", "audio", "sampling_rate"]
+        "hold_audio": "asset:track.wav",
+        "output": ["videos", "audio", "sampling_rate"]
+    }
 }
 ```
 
@@ -1884,14 +1888,14 @@ as a `MiniMaxH3AudioReference` and its `hold_audio` variable defaults to
 since a chain has no per-shot slice to name; set it to an audio file to hold. What was
 measured:
 
-- **Reference plus hold keeps the audio in sync** (#808, `music-video`, 4 shots of 124
+- **Reference plus hold keeps the audio in sync** (`music-video`, 4 shots of 124
   frames at two seeds, `measure_sync` against each source slice): 0.00 s offset on all
   eight shots, correlation 0.95 to 1.00. The reference alone put one shot 1.37 s late and
   another 0.18 s early, correlation 0.35 to 0.96. That measured the audio, not the mouth.
 - **Hold with image-only references** keeps the soundtrack exact but weakens the singing
-  (#619, a 10 s sung track): the mouth was open at about 3 of 6 sung-word onsets against 6
+  (a 10 s sung track): the mouth was open at about 3 of 6 sung-word onsets against 6
   of 6 with the audio reference alone, and read as speech to camera.
-- **On `fl2va`, hold is the locked-frame lip-sync route** (#985, a first frame plus a held
+- **On `fl2va`, hold is the locked-frame lip-sync route** (a first frame plus a held
   5.17 s song): frame 0 kept the picture's pixels and the mouth followed the song as in an
   audio-referenced Ref2VA shot, at about a fifth of the denoise time of Ref2VA
   `[keyframe completion + audio reuse]`, which keeps only the framing.
@@ -1967,9 +1971,9 @@ footage, as its frames are.
 A guide holds its span's look as well as its composition and motion: the frames under it
 come out close to a copy of the clip, whatever the prompt says about style. A full-length
 guide at frame 0 reproduces the take rather than restyling it (a 124-frame guide prompted
-as "a hand-painted watercolour animation" came back photoreal, #648). The prompt steers
+as "a hand-painted watercolour animation" came back photoreal). The prompt steers
 only the frames the guides leave free; restyling a whole take needs a LoRA trained on
-guides (#612).
+guides.
 
 With no guides (or `guides: []`) the step runs the stock layout and draws the same noise
 from its seed as an unguided step. Repeat runs at one seed are bit-identical with the
@@ -2028,12 +2032,12 @@ logs one job event: `turbo lead-in: evaluations 1..N with adapter 'turbo' at 0 o
 lead-in call and nothing after it ([ACCELERATION.md](ACCELERATION.md#torchcompile)).
 
 No template turns it on. Measured on 8-segment `chained-segments` and
-`chain-video-continuity` chains (#1326), every lead-in made the per-cut lightness step
+`chain-video-continuity` chains, every lead-in made the per-cut lightness step
 larger, not smaller; on `chain-video-continuity` it held the subject's pose and texture
 better but darkened the chain and raised saturation faster
 (`docs/proposals/complete/h3-turbo-lead-in-complete.md`).
 
-**Experimental**, refused unless `DW_EXPERIMENTAL_REFINE_WINDOWS=1`: `experimental_keystone_attention: {"balance": 20, "blocks": "31-33,36-44,47"}`, an H3 `fl2va` call argument with `image` and `guides`, re-splits on the named blocks the attention each query pays to the keyframe rows (from `image`) against the guide rows (from `guides`), keeping their sum. A `balance` above 1 moves it toward the keyframe and 1 is no change; `blocks` are comma-separated whole numbers and inclusive `a-b` ranges, numbered 0..N-1 down diffusers' `transformer_blocks` (0-49 on H3), the same numbering as ComfyUI's (checked on lem with a brightened keystone, #1394). On the narrated bench chain it visibly changed the take but gave no clear win, so no template uses it (`docs/proposals/complete/h3-keystone-attention-complete.md`). Refused with `experimental_tst`, sparse attention, a capstone or gated guide rows; CUDA needs cuDNN or native flash attention (`dw/pipeline_processors/h3_keystone_attention.py`).
+**Experimental**, refused unless `DW_EXPERIMENTAL_REFINE_WINDOWS=1`: `experimental_keystone_attention: {"balance": 20, "blocks": "31-33,36-44,47"}`, an H3 `fl2va` call argument with `image` and `guides`, re-splits on the named blocks the attention each query pays to the keyframe rows (from `image`) against the guide rows (from `guides`), keeping their sum. A `balance` above 1 moves it toward the keyframe and 1 is no change; `blocks` are comma-separated whole numbers and inclusive `a-b` ranges, numbered 0..N-1 down diffusers' `transformer_blocks` (0-49 on H3), the same numbering as ComfyUI's. On the narrated bench chain it visibly changed the take but gave no clear win, so no template uses it (`docs/proposals/complete/h3-keystone-attention-complete.md`). Refused with `experimental_tst`, sparse attention, a capstone or gated guide rows; CUDA needs cuDNN or native flash attention (`dw/pipeline_processors/h3_keystone_attention.py`).
 
 #### Chaining with a guide: `continuity: "guide"`
 
@@ -2129,8 +2133,9 @@ without flattening a deliberate change in light.
 
 `workflows/templates/minimax/chained-segments.json` takes `continuity` (default
 `guide`, measured best for every shot type; `last_frame` is the uncommon case) and
-`guide_frames` as variables. The `ref2va` chains (`chain-video-continuity` and the
-`match_audio` chains) keep `last_segment`.
+`guide_frames` as variables. The `ref2va` chains cannot take a guide chain:
+`chain-video-continuity` and `chain-matched-and-aligned` carry `last_segment`,
+`chain-matched-to-audio` carries `last_frame`.
 
 ### Promoting an H3 take to 768p in latent space: upscale_h3_latents and decode_h3_latents
 
@@ -2385,7 +2390,7 @@ Refine re-denoises the video only. The audio rows have to be held, so pass the b
 pass's track as `hold_audio` (`previous_result:base.audio`) and the step's `audio` is that
 track. This is a different use of hold from the one above: it keeps the audio the base pass
 generated jointly with that video, rather than fitting picture to supplied audio. For lip
-sync to supplied audio see the hold section above (#619, #795).
+sync to supplied audio see the hold section above.
 
 The workflow is the one above with `decode` and `mux` replaced by a `refine` step.
 `refine` carries a copy of the `base` step's whole `pipeline` block - the same
@@ -2578,7 +2583,7 @@ round trip of them, under the new track. A silent source is the usual case and i
 
 Run it without a distillation LoRA, on the dialogue schedule (`num_inference_steps` 12,
 `video_shift` 12, `audio_shift` 3): the turbo LoRA is what makes H3 voices sound
-digital (#984). `listen_scale` (1, 0.5 or 0.25, default 1) encodes the source at that
+digital. `listen_scale` (1, 0.5 or 0.25, default 1) encodes the source at that
 fraction of its canvas, area-resampled and snapped to 32 px, which is cheaper per step.
 The scale keeps the source's aspect: the shorter side is snapped and the longer derived from
 it. The audio's length still follows the source's duration, and the picture returned is the
@@ -2598,7 +2603,7 @@ instead), a `listen_scale` other than those three, a `listen_scale` on a step th
 an audio pass (on any pipeline, H3 or not), and an audio pass on a chained step or beside `latents`. The template
 is `templates/minimax/add-sound`.
 
-What it is for, by ear (Don, 2026-11-06, `bench/records/audio.md`): at `listen_scale` 1 a
+What it is for, judged by ear (`bench/records/audio.md`): at `listen_scale` 1 a
 line the source's picture was generated with lands on the mouth ("very good lip sync").
 At 0.5 lip sync is still acceptable, about 23% faster: the fastest scale that holds it.
 At 0.25 lip sync is lost, so use it only for a clip with no on-screen speech. It is not a
@@ -3028,9 +3033,7 @@ drift it exists to catch. A static segment's own
 motion is ~0, so the jump is divided by the floor rather than by ~0. Segment 1 has no seam
 and is checked for `audio_dbfs`, when the floor is not null and the audio is
 generated, and for `words`, when `words_similarity_min` is not null and the segment has a
-line. (`check_segment` has a `hard_cut` exemption that skips every measure, audio
-included, but `run_chain` does not pass it: a chain's own seams are never cuts, so every
-later segment is checked.)
+line. A chain's own seams are never treated as cuts, so every later segment is checked.
 A re-roll renders a whole segment again, so re-rolls count in the step's timing segments.
 
 A segment that fails is rendered again from the same carry and the same arguments, at a
@@ -3065,11 +3068,11 @@ may be in the carry, which a fresh seed inherits. A shot of a words-checked chai
 records `words` (`similarity`, `heard`, `findings`, `passed`, `seam_head_dropped`, `first_word_start`) for
 the kept attempt, or `null` with no line. A failed `words` on a segment with a head trim
 (a guide chain's 22 guide frames) also transcribes the audio the trim cut off; if the
-line's first heard word starts inside that span the findings carry `line_clipped_at_head`
-(#1300): the opening words are cut from the delivered video and a fresh seed starts the
+line's first heard word starts inside that span the findings carry `line_clipped_at_head`:
+the opening words are cut from the delivered video and a fresh seed starts the
 line at the same place, so move the line later in the prompt instead of re-rolling. A segment that *passed*
 but whose kept audio opens past the line's first words (a carried segment, or one with a
-head trim) carries a `line_opening_missing` finding (#1308: `missing` names the words,
+head trim) carries a `line_opening_missing` finding (`missing` names the words,
 `at` the first heard one) and fails `words_opening` without failing `words`, so it
 re-rolls while `retries` remain; when every attempt carries it the job gets a
 `chain_check_failed` warning naming the finding, with `every_attempt_failed: true`. For
@@ -3681,7 +3684,7 @@ two and emits a warning saying it did.
 `"fit": "video"` makes the track fit the frames: it is cut to exactly the frames it is
 laid over, or padded with silence and warned about when it is shorter. Use it for a
 soundtrack under a cut whose length is an argument (a `shots` list), since nothing in a
-workflow can multiply a list's length by a frame count (#142). Left unset, the track is
+workflow can multiply a list's length by a frame count. Left unset, the track is
 used as it is and a length mismatch is warned about.
 
 Which shape a pipeline argument wants is the pipeline's business, and the two LTX-2

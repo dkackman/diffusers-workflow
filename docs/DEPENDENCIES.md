@@ -30,8 +30,8 @@ workspace and caches with a native install on the same host:
 python3 -m venv venv
 source venv/bin/activate
 
-pip install torch torchvision torchaudio  # add --index-url https://download.pytorch.org/whl/cu130 for CUDA 13 on Linux; on macOS use "torch<2.15" torchvision torchaudio (#1395)
-pip install -e ".[server,mcp]"            # the server and dw-mcp; requirements.txt is only -e .[server], with no MCP server
+pip install torch torchvision torchaudio  # Linux CUDA 13: add --index-url https://download.pytorch.org/whl/cu130; macOS: "torch<2.15"
+pip install -e ".[server,mcp]"            # the server and dw-mcp (requirements.txt is -e .[server], without dw-mcp)
 pip install --force-reinstall --no-deps git+https://github.com/huggingface/diffusers
 pip install diffusers                     # adds any dependency the git commit needs
 (cd ui && npm ci && npm run build)        # the web UI at /; needs Node.js 24.20 or newer
@@ -52,7 +52,7 @@ The scripts handle what `pyproject.toml` cannot express: the PyTorch index, diff
 The full list is in `pyproject.toml`. These are the ones with behaviour worth knowing:
 
 - **spandrel, facexlib** back the `upscale` and `restore_faces` tasks. On first use, `restore_faces` has facexlib download its face detection and parsing weights (about 110 MB) from facexlib's GitHub releases into the facexlib package directory. It is the one model download that bypasses the Hugging Face cache and dw's download manager; while the weights are missing, a validate's `plan.downloads_required` lists them as URL entries.
-- **comfy-kitchen** (`<0.3`) is Sol-Attn sparse attention for MiniMax H3's generated-video rows (#931). Its compiled CUDA/HIP kernels ship for Linux and Windows; elsewhere it installs an eager-only build.
+- **comfy-kitchen** (`<0.3`) is Sol-Attn sparse attention for MiniMax H3's generated-video rows. Its compiled CUDA/HIP kernels ship for Linux and Windows; elsewhere it installs an eager-only build.
 - **kernels** fetches Hub-hosted compiled kernels at run time, for example NATTEN's `na3d` for LTX-2.5's diffusion decoder.
 - **speechbrain, demucs** back `generate_speech`'s `speaker_embedding` and the `attribute_voices` task. Both are imported lazily, and their weights download only when a call uses them.
 - **piexif** embeds generation metadata as EXIF `UserComment` when a step's `result.embed_metadata` is `true` and the content type is JPEG or WebP. PNG embedding uses Pillow's `PngInfo`.
@@ -64,7 +64,7 @@ The full list is in `pyproject.toml`. These are the ones with behaviour worth kn
 
 **Windows:** `install.ps1` installs bitsandbytes and kernels explicitly.
 
-**macOS (MPS):** `install.sh` adds fp4-fp8-for-torch-mps (FP8/FP4 dtypes for Metal; autoloads on every torch import, overrides mm/linear/copy on the MPS dispatch key and sets `PYTORCH_ENABLE_MPS_FALLBACK=1`) and fluidtop (a GPU/power TUI; needs sudo). On macOS torch is pinned below 2.15 (`install.sh` and `pyproject.toml`, #1395): torch 2.15 with that autoload fails `scalar ** mps_tensor`, which breaks every Grounding-DINO run. bitsandbytes and flash_attn are not available on macOS.
+**macOS (MPS):** `install.sh` adds fp4-fp8-for-torch-mps (FP8/FP4 dtypes for Metal; autoloads on every torch import, overrides mm/linear/copy on the MPS dispatch key and sets `PYTORCH_ENABLE_MPS_FALLBACK=1`) and fluidtop (a GPU/power TUI; needs sudo). On macOS torch is pinned below 2.15 (`install.sh` and `pyproject.toml`): torch 2.15 with that autoload fails `scalar ** mps_tensor`, which breaks every Grounding-DINO run. bitsandbytes and flash_attn are not available on macOS.
 
 ## Optional
 
@@ -85,7 +85,7 @@ Without it, `install.sh` takes the newest of `python3.14`, `python3.13` and `pyt
 
 ## Troubleshooting
 
-**Hugging Face authentication (401/403 downloading a model):** Most workflows under `workflows/` (Flux, LTX-2, MiniMax...) use **gated** models, which need the repo owner to approve your account. A run against one fails with an error naming the repo and `hf auth login` (mapped from the Hub's 401/403 in `load_component()`, `dw/pipeline_processors/components.py`). Request access on the model's page (e.g. [black-forest-labs/FLUX.1-dev](https://huggingface.co/black-forest-labs/FLUX.1-dev)), then log in once:
+**Hugging Face authentication (401/403 downloading a model):** Most workflows under `workflows/` (Flux, LTX-2.5, MiniMax...) use **gated** models, which need the repo owner to approve your account. A run against one fails with an error naming the repo and `hf auth login`. Request access on the model's page (e.g. [black-forest-labs/FLUX.1-dev](https://huggingface.co/black-forest-labs/FLUX.1-dev)), then log in once:
 
 ```bash
 hf auth login
