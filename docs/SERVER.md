@@ -1039,7 +1039,10 @@ blend toward, `minutes` is left alone and `low_confidence` is set instead.
   `PUT`/`PATCH` send the one for the file they wrote. A write is unconditional
   unless it carries `If-None-Match: *` (409 `exists` when the writable file is
   there) or `If-Match: <etag>` (409 `stale_write`, with the current `etag` or null,
-  when the writable file differs or is gone)
+  when the writable file differs or is gone). A `GET` of a name that resolves to a
+  read-only source (an example, a builtin) sends that source's `ETag`, but a save
+  lands as a new copy in the writable source, so a client saving it sends
+  `If-None-Match: *` (create-only), not `If-Match` with that tag
 - `GET /api/workflows/{name:path}/download` — download a workflow file as JSON
 - `GET /api/workflows/{name:path}/variables` — a workflow's variables and what
   they default to, without the definition around them. Long string defaults are
@@ -1360,7 +1363,9 @@ blend toward, `minutes` is left alone and `low_confidence` is set instead.
   confined the way `keep_output`'s name is). Answers 201 with `reference`
   (`asset:uploads/<name>`, which a saved workflow can carry and still resolve
   later) and `url`, the same file under `/inputs` for previews. 409 when the
-  workspace has no asset library. This is how the UI's file pickers get a
+  workspace has no asset library. With `If-None-Match: *` an `asset_name` already
+  taken is a 409 `exists` (answered from the file's existence, never by reading
+  it) and nothing is written; without it the upload replaces the file. This is how the UI's file pickers get a
   local file onto the machine that runs the workflow
 - `GET /api/models`, `DELETE /api/models?repo={repo_id}` — hub cache
   inventory and deletion
