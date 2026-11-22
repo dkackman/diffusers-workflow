@@ -374,9 +374,9 @@ For faster downloads, optionally `pip install hf_transfer` and set `HF_HUB_ENABL
 
 ## What runs where
 
-One row per model family the catalog ships a workflow for, one column per backend: 24 GB CUDA (lem, RTX 3090), Apple Silicon (mini-ai, M5 Pro 64 GB) and CPU. Every cell is one of **runs** (the catalog's minutes), **runs slowly** (a measured time), **does not run** (measured), **does not run (by rule, untested)** (a skill or doc rule, no run behind it) or **no record**. Each names its source and the condition that makes it run. Apple Silicon figures marked "observed" are the mini-ai server's own `observed_minutes` (the cold median of its finished runs, model load included) from `list_workflows`.
+One row per model family in the scope below, one column per backend: 24 GB CUDA (lem, RTX 3090), Apple Silicon (mini-ai, M5 Pro 64 GB) and CPU. Every cell is one of **runs** (the catalog's minutes), **runs slowly** (a measured time), **does not run** (measured), **does not run (by rule, untested)** (a skill or doc rule, no run behind it) or **no record**. Each names its source and the condition that makes it run. Apple Silicon figures marked "observed" are the mini-ai server's own `observed_minutes` (the cold median of its finished runs, model load included) from `list_workflows`.
 
-**Scope.** The table covers the headline families the plugin carries skills for, the `workflows/models/` checkpoints, and Stable Diffusion 1.5 as the small baseline. It is not every catalog family: Pika H3 Flex, SDXL, SD 2.1 ControlNet, FLUX.1 schnell, Mochi, Wan 2.2, HunyuanVideo, Qwen-Image 20B and the audio and utility families (MMAudio, Audio8-TTS, Whisper-class transcription, Marigold) are left out. Marigold depth and normals (about 0.05 min) and MMAudio sound effects (about 0.2 min) have one observed run each on mini-ai.
+**Scope.** The table covers the headline families the plugin carries skills for, every family a `workflows/models/` checkpoint loads, and Stable Diffusion 1.5 as the small baseline. A checkpoint that is a variant of a family with a row is in that row: `flux-gguf`, `flux-torchao` and `flux-dev-compile` under FLUX.1 dev, `z-image-sdnq` and `z-image-inpaint` under Z-Image Turbo, `qwen-image-2.1-edit` under Qwen-Image 2.1, `flux3-klein` and `minimax-h3-image` under their families. It is not every catalog family: Pika H3 Flex, SDXL, SD 2.1 ControlNet, FLUX.1 schnell, Mochi, Wan 2.2, HunyuanVideo, Qwen-Image 20B and the audio and utility families (MMAudio, Audio8-TTS, Whisper-class transcription, Marigold) are left out. Marigold depth and normals (about 0.05 min) and MMAudio sound effects (about 0.2 min) have one observed run each on mini-ai.
 
 | Family | 24 GB CUDA | Apple Silicon | CPU |
 | ------ | ---------- | ------------- | --- |
@@ -390,6 +390,9 @@ One row per model family the catalog ships a workflow for, one column per backen
 | FLUX.1 dev | **runs**, 1.0 min (`workflows/models/flux-dev.json`), with `offload: "model"` or block-level `group_offload` ([RECIPES_24GB.md](RECIPES_24GB.md)) | **no record**; the TorchAO int4 path (`flux-torchao`) has no Mac route ([MPS Notes](#mps-notes)) | **no record** |
 | FLUX.2 dev | **runs**, 3.3 min (`workflows/models/flux2-dev.json`) | **does not run**: it loads a bitsandbytes checkpoint, which has no Mac path ([MPS Notes](#mps-notes), [QUANTIZATION.md](QUANTIZATION.md)) | **does not run**: bitsandbytes is not available on CPU either ([QUANTIZATION.md](QUANTIZATION.md)) |
 | Z-Image Turbo | **runs**, 1.4 min (`workflows/models/z-image.json`); 41 s for 4 images at 960x544 with `offload: "model"` ([RECIPES_24GB.md](RECIPES_24GB.md)) | **no record** | **no record** |
+| FLUX.1 Krea dev | **runs**, 131 s for 4 images at 768x768, 25 steps, with the transformer block-level `group_offload` the entry ships; `offload: "model"` runs out of memory at that size ([RECIPES_24GB.md](RECIPES_24GB.md), *Flux dev*). `workflows/models/flux-krea.json` carries no cost row | **no record** | **no record** |
+| Qwen-Image 2.1 (7B) | **runs**, 4.3 min for text-to-image at 2048x2048 under `offload: "model"` (`workflows/models/qwen-image-2.1.json`); 4.7 min for an edit under `offload: "sequential"` (`workflows/models/qwen-image-2.1-edit.json`) ([RECIPES_24GB.md](RECIPES_24GB.md)) | **no record** | **no record** |
+| Krea 2 Turbo | **no record**: `workflows/models/krea2.json` (`offload: "sequential"`) carries no cost row and no run is recorded | **no record** | **no record** |
 
 No CPU cell says **runs**: no family has a measured CPU run.
 
@@ -402,6 +405,9 @@ Nothing here was measured to fill these in; each is a gap, not a "no":
 - Stable Diffusion 1.5: CPU.
 - FLUX.1 dev: Apple Silicon and CPU.
 - Z-Image Turbo: Apple Silicon and CPU.
+- FLUX.1 Krea dev: Apple Silicon and CPU.
+- Qwen-Image 2.1: Apple Silicon and CPU.
+- Krea 2 Turbo: every column; the entry has been authored but has no recorded run on any backend.
 
 ## MPS Notes
 
