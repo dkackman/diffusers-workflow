@@ -4208,6 +4208,10 @@ frame after it before a cut or the clip's end is left as it is.
 The step's `log` event in `get_job_events` carries `held_before`,
 `held_after`, `refilled_frames`, `refilled_runs` and `left_held_frames`.
 Re-run `assess_output(probe="analyze_held_frames")` on the result to confirm.
+A long hold in slow motion can still count in `held_after` after a refill: the
+motion it lost is less than the held measure's ε per step once spread over
+the run, so the new in-between frames still read as held. When `held_after`
+is still over the mark, reroll the take.
 
 The IFNet v4.13 architecture is vendored; the weights download on first use. A validate's `downloads_required` lists the `model_name` / `filename` file when it is not cached.
 

@@ -228,12 +228,27 @@ def refine_windows_enabled():
     return os.environ.get(REFINE_WINDOWS_ENV_VAR) == "1"
 
 
+# The experimental blended windowed generation (#1188 S1; h3_windows.py
+# `hybrid_problems`): a t2va take from noise run as fused windows, its state in
+# host RAM. Refused unless the process sets the flag, by name
+HYBRID_WINDOWS_INPUT = "experimental_hybrid_windows"
+HYBRID_WINDOWS_ENV_VAR = "DW_EXPERIMENTAL_HYBRID_WINDOWS"
+
+
+def hybrid_windows_enabled():
+    """Whether the blended windowed generation's flag is on in this process."""
+    return os.environ.get(HYBRID_WINDOWS_ENV_VAR) == "1"
+
+
 def lifts_duration_ceiling(arguments):
-    """Whether a call is the windowed refine whose take may run past H3's
-    `max_duration`: it carries both `refine_windows` and `refine_strength`.
-    Asked by the layout step at the call (h3_windows.py
-    `DwH3LongRefineLayoutStep`) and by validate before the load
+    """Whether a call may lay out a take past H3's `max_duration`: the
+    windowed refine (both `refine_windows` and `refine_strength`), or the
+    experimental windowed generation (`experimental_hybrid_windows`, which
+    only runs behind its flag). Asked by the layout step at the call
+    (h3_windows.py `DwH3LongRefineLayoutStep`) and by validate before the load
     (dw/pipeline_limits.py); every other call keeps the ceiling."""
+    if arguments.get(HYBRID_WINDOWS_INPUT) is not None:
+        return True
     return (
         arguments.get(REFINE_WINDOWS_INPUT) is not None
         and arguments.get(REFINE_STRENGTH_INPUT) is not None
@@ -584,6 +599,31 @@ def guide_latent_frames(num_frames):
     if num_frames == 1:
         return 1
     return (num_frames - 5) // GUIDE_FRAMES_PER_CHUNK * GUIDE_LATENTS_PER_CHUNK + 2
+
+
+# A window's default length in latent frames (h3_windows.py WINDOW_DEFAULTS,
+# which imports diffusers; pinned equal by tests/test_h3_hybrid_windows.py)
+HYBRID_DEFAULT_WINDOW_LATENTS = 42
+
+
+def hybrid_window_frames(num_frames, settings):
+    """The pixel frames one window of an `experimental_hybrid_windows` take
+    spans - what its every forward holds on the device - for the VRAM
+    estimate (dw/vram_estimate.py), or None when the call does not say.
+    A window of L latents is priced at the smallest take on the render grid
+    (17m + 5 frames, 5m + 2 latents) that holds it, never more than the take."""
+    if isinstance(num_frames, bool) or not isinstance(num_frames, (int, float)):
+        return None
+    frames = (settings if isinstance(settings, dict) else {}).get(
+        "frames", HYBRID_DEFAULT_WINDOW_LATENTS
+    )
+    if isinstance(frames, bool) or not isinstance(frames, int) or frames < 1:
+        return None
+    if frames < 2:
+        return min(num_frames, 1)
+    chunks = -(-(frames - 2) // GUIDE_LATENTS_PER_CHUNK)
+    window = GUIDE_FRAMES_PER_CHUNK * chunks + RENDER_GRID["remainder"]
+    return min(num_frames, window)
 
 
 def guide_frame_problem(frame):

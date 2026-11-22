@@ -60,6 +60,11 @@ the decode at the canvas's voxel term alone, since the resident base belongs
 to the denoise. A `refine_tiles` that is not a dict of numeric `width` and
 `height` is not tile mode, and the step is priced as before.
 
+A step under `experimental_hybrid_windows` (#1188, EXPERIMENTAL, behind
+its flag) keeps the take in host RAM and holds one window on the device per
+forward, so it is priced at one window's `num_frames` (`hybrid_frames`), not
+the take's. A real cost model for it waits on its promotion.
+
 The entries checked are the serving device's own (see `_entries_for`);
 `bytes_per_voxel` was calibrated on CUDA, so a check against a Mac's capacity
 is an estimate of an estimate.
@@ -72,6 +77,7 @@ from .references import FROM_FILE_KEY, FROM_PREVIOUS_RESULT_KEY, VARIABLE, ref_n
 from .for_each import FOR_EACH_KEY, MEMBER_SEPARATOR, render_path
 from .guides import guide_lengths
 from .reference_limits import video_reference_frames
+from .pipeline_processors.h3_rules import HYBRID_WINDOWS_INPUT, hybrid_window_frames
 
 KEY = "vram_estimate"
 REFERENCES_KEY = "references"
@@ -206,6 +212,19 @@ def tile_size(arguments):
     if width is None or height is None or width <= 0 or height <= 0:
         return None
     return width, height
+
+
+def hybrid_frames(arguments, values):
+    """The `num_frames` a step under `experimental_hybrid_windows` (#1188,
+    EXPERIMENTAL) is priced at - one window's, since every forward holds one
+    window on the device and the take lives in host RAM - or None when the
+    step is not one or its frames are unknown."""
+    if not isinstance(arguments, dict):
+        return None
+    settings = arguments.get(HYBRID_WINDOWS_INPUT)
+    if settings is None:
+        return None
+    return hybrid_window_frames(values.get("num_frames"), settings)
 
 
 def tiled_required_gb(
@@ -403,13 +422,16 @@ def _projections(definition, estimate, arguments, base_dir=None, probe=None):
             if REFERENCE_VOXEL_KEY in estimate
             else []
         )
+        # A windowed generation holds one window on the device per forward
+        window = hybrid_frames(step_arguments, values)
+        priced = values if window is None else {**values, "num_frames": window}
         tile = tile_size(step_arguments)
         if tile is not None:
             projected = tiled_required_gb(
-                estimate, values, tile, references, frames, clips
+                estimate, priced, tile, references, frames, clips
             )
         else:
-            projected = required_gb(estimate, values, references, frames, clips)
+            projected = required_gb(estimate, priced, references, frames, clips)
         if projected is not None:
             yield index, step, values, references, guides, clips, projected
 
@@ -495,6 +517,21 @@ def _formula(estimate):
             f"video reference's frames * {' * '.join(canvas)}"
         )
     return formula
+
+
+def _hybrid_note(step, values):
+    """(priced values, ' (experimental_hybrid_windows: ...)') for a step
+    priced at one window (`hybrid_frames`), or (values, '') when it is not."""
+    pipeline = step.get("pipeline") if isinstance(step, dict) else None
+    arguments = pipeline.get("arguments") if isinstance(pipeline, dict) else None
+    window = hybrid_frames(arguments, values)
+    if window is None:
+        return values, ""
+    note = (
+        f" (experimental_hybrid_windows: priced at one window of {window:g} "
+        f"frames; the {values.get('num_frames')}-frame take is in host RAM)"
+    )
+    return {**values, "num_frames": window}, note
 
 
 def _tiled_note(step, values):
@@ -603,6 +640,8 @@ def vram_estimate_errors(
     )
     where = _where(estimate, index, step, supplied, source_indices, written)
     values, tiled = _tiled_note(step, values)
+    values, windowed = _hybrid_note(step, values)
+    tiled += windowed
     exceeded = [
         entry
         for entry in entries
