@@ -14,6 +14,12 @@ from typing import Optional
 from fastapi import HTTPException, Request
 
 
+def content_etag_of(data: bytes) -> str:
+    """The ETag of exactly these bytes - what a reader that already holds
+    the bytes it serves should send, so body and tag never disagree."""
+    return '"' + hashlib.sha256(data).hexdigest()[:32] + '"'
+
+
 def content_etag(path: str) -> Optional[str]:
     """`"` + the first 32 hex characters of the SHA-256 of the file's
     bytes + `"`, or None when the file does not exist."""
@@ -22,7 +28,7 @@ def content_etag(path: str) -> Optional[str]:
             data = file.read()
     except FileNotFoundError:
         return None
-    return '"' + hashlib.sha256(data).hexdigest()[:32] + '"'
+    return content_etag_of(data)
 
 
 def _tags(header: str):

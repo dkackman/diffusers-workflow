@@ -89,7 +89,11 @@ from ..deps import (
 )
 from ..enhancers import build_enhance_workflow, preset_descriptions
 from ..http_security import query_token_ok
-from ..preconditions import check_write_preconditions, content_etag
+from ..preconditions import (
+    check_write_preconditions,
+    content_etag,
+    content_etag_of,
+)
 from ..job_record import TERMINAL_STATES
 
 logger = logging.getLogger("dw")
@@ -632,9 +636,11 @@ def get_workflow_variables(
     state = request.app.state
     path, source = resolve_readable_workflow(sources_for(state, ws), name)
     try:
-        with open(path, "r") as file:
-            definition = json.load(file)
-    except (OSError, json.JSONDecodeError) as e:
+        # One read: the ETag is the hash of the very bytes parsed below
+        with open(path, "rb") as file:
+            data = file.read()
+        definition = json.loads(data)
+    except (OSError, ValueError) as e:
         raise HTTPException(status_code=500, detail=f"Could not read workflow: {e}")
 
     def preview(value, path):
@@ -689,9 +695,11 @@ def get_workflow(
     state = request.app.state
     path, source = resolve_readable_workflow(sources_for(state, ws), name)
     try:
-        with open(path, "r") as file:
-            definition = json.load(file)
-    except (OSError, json.JSONDecodeError) as e:
+        # One read: the ETag is the hash of the very bytes parsed below
+        with open(path, "rb") as file:
+            data = file.read()
+        definition = json.loads(data)
+    except (OSError, ValueError) as e:
         raise HTTPException(status_code=500, detail=f"Could not read workflow: {e}")
     # Which root it came from and whether a save would land here or
     # copy elsewhere - the editor reads these to offer save-in-place
@@ -701,7 +709,7 @@ def get_workflow(
         headers={
             "X-Workflow-Origin": source.origin,
             "X-Workflow-Writable": "true" if source.writable else "false",
-            "ETag": content_etag(path),
+            "ETag": content_etag_of(data),
         },
     )
 
@@ -883,19 +891,21 @@ def get_prompt(request: Request, name: str):
     state = request.app.state
     path, root = _find_prompt(state, name)
     try:
-        with open(path, "r") as file:
-            # Which library it came from, the way a workflow carries its
-            # source - the editor offers delete only for a prompt this
-            # server owns, and save-a-copy for a read-only one
-            return JSONResponse(
-                json.load(file),
-                headers={
-                    "X-Prompt-Origin": root.origin,
-                    "X-Prompt-Writable": "true" if root.writable else "false",
-                    "ETag": content_etag(path),
-                },
-            )
-    except (OSError, json.JSONDecodeError) as e:
+        # One read: the ETag is the hash of the very bytes parsed here
+        with open(path, "rb") as file:
+            data = file.read()
+        # Which library it came from, the way a workflow carries its
+        # source - the editor offers delete only for a prompt this
+        # server owns, and save-a-copy for a read-only one
+        return JSONResponse(
+            json.loads(data),
+            headers={
+                "X-Prompt-Origin": root.origin,
+                "X-Prompt-Writable": "true" if root.writable else "false",
+                "ETag": content_etag_of(data),
+            },
+        )
+    except (OSError, ValueError) as e:
         raise HTTPException(status_code=500, detail=f"Could not read prompt: {e}")
 
 

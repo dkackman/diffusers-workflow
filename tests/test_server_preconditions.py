@@ -172,3 +172,77 @@ def test_prompt_put_sends_the_written_etag(server, tmp_path):
         response = put_prompt(client, "p1")
         data = (tmp_path / "prompts" / "p1.json").read_bytes()
         assert response.headers["etag"] == etag_of(data)
+
+
+def test_get_etag_hashes_the_bytes_it_served(server, tmp_path, monkeypatch):
+    """A write landing between a second read and the parse must not pair
+    old content with the new ETag: the tag comes from the served bytes."""
+    from dw.server.routes import library
+
+    real = library.content_etag
+
+    def racing_etag(path):
+        # the old two-read code reaches here after parsing; a write lands
+        with open(path, "w") as file:
+            file.write('{"description": "newer"}')
+        return real(path)
+
+    with server(success_script) as client:
+        path = tmp_path / "workflows" / "Basic.json"
+        old = path.read_bytes()
+        if real is not None:
+            monkeypatch.setattr(library, "content_etag", racing_etag)
+        response = client.get("/api/workflows/Basic")
+        assert response.headers["etag"] == etag_of(old)
+        assert "newer" not in response.text
+
+
+def test_prompt_get_etag_hashes_the_bytes_it_served(server, tmp_path, monkeypatch):
+    from dw.server.routes import library
+
+    real = library.content_etag
+
+    def racing_etag(path):
+        with open(path, "w") as file:
+            file.write('{"text": "newer"}')
+        return real(path)
+
+    with server(success_script) as client:
+        put_prompt(client, "Greeting", "older")
+        path = tmp_path / "prompts" / "Greeting.json"
+        old = path.read_bytes()
+        if real is not None:
+            monkeypatch.setattr(library, "content_etag", racing_etag)
+        response = client.get("/api/prompts/Greeting")
+        assert response.headers["etag"] == etag_of(old)
+        assert "newer" not in response.text
+
+
+def test_patch_of_a_read_only_workflow_with_if_none_match_writes_the_copy(
+    examples_server, tmp_path
+):
+    with examples_server(success_script) as client:
+        response = client.patch(
+            "/api/workflows/ltx2/Gyre",
+            json={"description": "mine"},
+            headers={"If-None-Match": "*"},
+        )
+        assert response.status_code == 200
+        assert (tmp_path / "workflows" / "ltx2" / "Gyre.json").exists()
+
+
+def test_patch_of_a_read_only_workflow_with_if_match_is_stale_with_no_etag(
+    examples_server, tmp_path
+):
+    with examples_server(success_script) as client:
+        etag = client.get("/api/workflows/ltx2/Gyre").headers["etag"]
+        response = client.patch(
+            "/api/workflows/ltx2/Gyre",
+            json={"description": "mine"},
+            headers={"If-Match": etag},
+        )
+        assert response.status_code == 409
+        detail = response.json()["detail"]
+        assert detail["code"] == "stale_write"
+        assert detail["etag"] is None
+        assert not (tmp_path / "workflows" / "ltx2" / "Gyre.json").exists()
