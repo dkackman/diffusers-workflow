@@ -63,7 +63,23 @@ a cluster, and none reaches 7 held frames. This is a note for B, not a claim.
   - `no manifest`: a run that has only `workflow.json` (12 `shedding-skin-quartet` trailer shots).
 - **Steps:** `num_inference_steps` of the H3 step, with the run's arguments applied.
 - **Rerun:** a second scan reproduced the first line for line. The only difference was the 12 no-manifest takes, which the
-  second scan added.
+  second scan added. A third scan on the unchanged corpus (lem `develop` @ `4ec3720a`, 2026-11-22, after the #1551 bounce)
+  wrote a JSON byte-identical to `held-frames.json` (sha256 `f8f2745a…c7bb`, 918 rows, 649 H3), so its report is these
+  tables verbatim.
+- **Extra samples:** none. `qa-*`, `regression-*`, `drill-*` and `probe-*` were not scanned, so every H3 count here is demand.
+
+## Sanity check: a decimated take and a static shot
+
+Both were made in `/tmp/hf1551/` on lem with the venv's `imageio_ffmpeg` binary, never in a workspace, and measured with
+`held_frames.py file`:
+
+- **Source:** `acorn-wars` `acorn-wars/shots-batch/20260922-142440-15bd734a/intermediate/H3ShotsBatch-shot@s07-the-melee-r4.1-0.0.mp4`
+  (single, 192 frames at 24 fps, moving share 1.0). It holds **0** at every ε; d p10/p50/p90 3.84/4.99/6.70.
+- **Choppy:** `ffmpeg -i SRC -an -vf "fps=12,fps=24" -c:v libx264 -crf 18 choppy.mp4`, each kept frame shown twice. It holds
+  **96 of 192** frames at ε 0.5, 1.0 and 1.5, in **1 cluster** spanning the take, with 94 runs of length 1 (twos).
+  d p50 0.05, p75 8.09.
+- **Static:** the source's first frame looped for 8 s at 24 fps (192 frames). Every d is 0.0, so it holds **0** and has no
+  cluster: the neighbour rule needs a moving frame beside a hold.
 
 ## Reading the numbers
 
