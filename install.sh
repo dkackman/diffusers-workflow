@@ -189,15 +189,17 @@ if $MACOS; then
   pip install fp4-fp8-for-torch-mps fluidtop
 fi
 
-# Web UI dependencies - optional, only needed to build/run the SPA served by dw-serve
+# Web UI - dw-serve serves the built SPA from ui/dist, so a checkout has no
+# web UI at / until it is built. npm ci installs exactly the lockfile.
 if command -v npm >/dev/null; then
   echo ""
-  echo "Installing web UI dependencies..."
-  (cd ui && npm install)
+  echo "Building the web UI..."
+  (cd ui && npm ci && npm run build)
 else
   echo ""
-  echo "npm was not found - skipping web UI dependency install."
-  echo "Install Node.js/npm and run 'npm install' in the ui/ folder to build the web UI."
+  echo "npm was not found - skipping the web UI build, so dw-serve will have no page at /."
+  echo "Install Node.js (24.20 or newer, which brings npm), then build it:"
+  echo "  cd ui && npm ci && npm run build"
 fi
 
 echo ""

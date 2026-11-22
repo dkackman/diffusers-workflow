@@ -22,7 +22,12 @@ Check the GPU reaches a container:
 
 ## Start it
 
+The compose file and `init-env.sh` live in the repository, so start from a
+clone, even to run the published image:
+
 ```bash
+git clone https://github.com/dkackman/diffusers-workflow.git
+cd diffusers-workflow
 bash docker/init-env.sh                          # writes docker/.env
 docker compose -f docker/compose.yaml up -d --build
 docker compose -f docker/compose.yaml logs -f    # wait for the server to start
@@ -36,6 +41,21 @@ several GB), and the first start installs diffusers from GitHub main into
 its volume (see below), a few more minutes before the server answers.
 `login-url` prints `http://localhost:<DW_HOST_PORT>/?token=...`; opening it
 saves the token in the UI.
+
+### Connect Claude Code on the same host
+
+The container serves MCP over HTTP (`DW_SERVE_ARGS` defaults to `--mcp`).
+Register it with the token, the part of the `login-url` output after
+`?token=`, in place of `<token>`:
+
+```bash
+claude mcp add --scope user --transport http dw http://localhost:8765/mcp \
+  --header "Authorization: Bearer <token>"
+```
+
+That is the default `DW_HOST_PORT`; use yours if you changed it. Start a new
+Claude Code session, and `/mcp` lists `dw` as connected. From another
+machine, see [REMOTE.md](REMOTE.md).
 
 ## Where the data lives: shared with a native install
 

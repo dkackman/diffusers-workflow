@@ -51,34 +51,72 @@ agent starts, not a limit. The full list is in [workflows/](workflows/) and the
 
 ## Getting started
 
-**1. Install.** The script picks the right torch build for your platform, creates a
-virtual environment and installs everything, MCP server included.
+**What you need first.**
+
+- **Everywhere:** git; Python 3.12-3.14; [Node.js](https://nodejs.org) 24.20 or
+  newer, which brings npm (`install.sh` uses it to build the web UI, and without it
+  there is no page at `/`); and [Claude Code](https://code.claude.com/docs/en/setup),
+  the `claude` command.
+- **macOS:** the system `python3` is too old. Install Python from
+  [Homebrew](https://brew.sh) (`brew install python@3.13`) or
+  [python.org](https://www.python.org/downloads/macos/), and git with the Xcode
+  Command Line Tools (`xcode-select --install`). Node also comes from Homebrew
+  (`brew install node`).
+- **Debian / Ubuntu:** the venv module is a separate package: `sudo apt install git
+  python3.12-venv` (match your Python version, for example `python3.13-venv`). On
+  Ubuntu, `install.sh` may ask for your `sudo` password once, to `apt install bc`
+  when it is missing.
+- **NVIDIA:** a driver **580 or newer** gets the CUDA 13 torch build. With an older
+  driver `install.sh` installs PyPI's CUDA 12 build, and with no working driver it
+  installs CPU-only torch, which runs everything slowly.
+- **Disk:** torch and the venv take several GB, and the first run downloads SD 1.5,
+  a few GB more. Most other models are tens of GB each.
+
+**1. Install.** Clone the repository, then run the install script. It picks the
+right torch build for your platform, creates a virtual environment and installs
+everything: the server, the MCP server and the web UI.
 
 ```bash
+git clone https://github.com/dkackman/diffusers-workflow.git
+cd diffusers-workflow
 bash ./install.sh && source ./activate      # Linux / macOS
 .\install.ps1; .\venv\scripts\activate      # Windows
 ```
 
-**2. Start the engine.** Leave it running; the agent and the browser both talk to it.
+**2. Start the engine.** Run it from the checkout and leave it running; the agent and
+the browser both talk to it.
 
 ```bash
 dw-serve        # web UI on http://127.0.0.1:8765
 ```
 
-**3. Connect your agent.** Register the MCP server with the absolute path to `dw-mcp`
-in the venv you just made (a relative path is the setup detail that most often goes
-wrong). Then add the [dw plugin](plugins/dw/README.md):
+**3. Connect your agent.** In a second terminal, from the checkout, register the MCP
+server with the absolute path to `dw-mcp` in the venv you just made (a relative path
+is the setup detail that most often goes wrong). `--scope user` makes it available in
+every directory, not only this one:
 
 ```bash
-claude mcp add dw -- "$(pwd)/venv/bin/dw-mcp"
+claude mcp add --scope user dw -- "$(pwd)/venv/bin/dw-mcp"
 ```
+
+Then start `claude` and add the [dw plugin](plugins/dw/README.md). These lines are
+typed **inside Claude Code**, not in the shell:
 
 ```
 /plugin marketplace add dkackman/diffusers-workflow
 /plugin install dw@diffusers-workflow
 ```
 
-To update it later (`get_server_info` tells the agent when the installed skills are
+**4. Make the first image.** Ask the agent: *"Run `templates/text-to-image` with the
+prompt 'a lighthouse at dusk'."* The agent quotes the cost and asks before it
+runs. The first run downloads SD 1.5 (a few GB), so it takes minutes rather than
+seconds; later runs reuse it. The agent shows you the
+image, and the file is under the checkout's `outputs/` folder: a `dw-serve` started
+in the checkout uses the checkout as its workspace
+([Workspaces](docs/WORKSPACES.md#which-directory-is-used)). It is also in the web
+UI's gallery.
+
+To update the plugin later (`get_server_info` tells the agent when the installed skills are
 older than the server), refresh the marketplace and reinstall, then `/reload-plugins`
 or start a new session:
 
