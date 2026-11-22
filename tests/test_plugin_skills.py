@@ -1785,6 +1785,7 @@ class TestStoryForgeLessons:
             assert "`asset:places/<set>`" in step
             assert "*A place card holds the set*" in step
             assert "#1581" in step and "PRELIMINARY" in step
+            assert "without the cast" in step and "audience" in step
         assert "only the cast portraits and place cards" in " ".join(series.split())
 
     def test_no_rule_lands_for_a_lesson_not_reproduced(self):
@@ -2853,6 +2854,11 @@ class TestPlaceCard:
         assert "**after** the people" in section
         assert 'asset_name="places/<set>", shared=True' in section
         assert "the room of `<Picture K>`" in section
+
+    def test_the_card_keeps_people_who_belong_to_the_set(self):
+        """Plan v1, *The place card*: only the cast is left out; an audience
+        stays (the #1582 bounce)."""
+        assert "only the cast is left out" in self._section()
 
     def test_the_card_holds_only_what_it_shows(self):
         section = self._section()
