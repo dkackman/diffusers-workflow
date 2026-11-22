@@ -57,6 +57,7 @@ import type {
   WorkflowWithOrigin,
   WorkspaceDeleted,
   WorkspaceInfo,
+  WorkspaceChanges,
   WorkspaceList,
 } from './types'
 import { ApiError, errorDetail } from './apiErrors'
@@ -409,6 +410,14 @@ export const api = {
   notesChannel: (workspace: string) =>
     request<NotesChannelState>(
       `/api/workspaces/${encodeURIComponent(workspace)}/notes-channel`,
+      undefined,
+      UNSCOPED,
+    ),
+  /** The workspace's change counters (`GET .../changes`): what moved since
+   * the last read, read by the shared change feed (changes.svelte.ts) */
+  workspaceChanges: (workspace: string) =>
+    request<WorkspaceChanges>(
+      `/api/workspaces/${encodeURIComponent(workspace)}/changes`,
       undefined,
       UNSCOPED,
     ),

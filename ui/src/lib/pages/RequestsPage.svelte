@@ -1,6 +1,7 @@
 <script lang="ts">
   import { ClipboardList } from '@lucide/svelte'
   import { api } from '../api'
+  import { changes } from '../changes.svelte'
   import Empty from '../Empty.svelte'
   import Skeleton from '../ui/Skeleton.svelte'
   import ItemProof from '../request/ItemProof.svelte'
@@ -35,25 +36,36 @@
     return () => window.removeEventListener('hashchange', sync)
   })
 
+  // A reply overtaken by a later load (a switch, a newer reload) is dropped
   const beginList = latestOnly()
-  function load(ws: string) {
+  /** Read the ledger. A quiet load is the change feed's: it keeps the list
+   * on screen while it asks, and a failed one keeps the list it had */
+  function load(ws: string, { quiet = false } = {}) {
     const current = beginList()
-    requests = null
-    error = null
+    if (!quiet) {
+      requests = null
+      error = null
+    }
     api
       .listRequests(ws)
       .then((r) => {
         if (!current()) return
         requests = r.requests
         unreadable = r.unreadable ?? null
+        error = null
       })
       .catch((e) => {
-        if (!current()) return
+        if (!current() || (quiet && requests !== null)) return
         requests = []
         error = e instanceof Error ? e.message : String(e)
       })
   }
   $effect(() => load(workspace.current))
+  // A request an agent writes shows within one feed interval
+  $effect(() => {
+    const ws = workspace.current
+    return changes(ws).watch(['requests'], () => load(ws, { quiet: true }))
+  })
 
   const ordered = $derived(orderRequests(requests ?? []))
   const open = $derived(ordered.filter((req) => req.state === 'open'))

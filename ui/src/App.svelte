@@ -152,7 +152,9 @@
       setAttentionBackends(health?.attention_backends)
       void watchJobs(health)
     }
-    return poll(refreshStatus, 5000)
+    // The one timer that keeps going while the tab is hidden: the tab title
+    // and the job-finished alert it drives are for the hidden tab
+    return poll(refreshStatus, 5000, { whileHidden: true })
   })
 
   type Theme = 'system' | 'light' | 'dark'

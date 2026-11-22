@@ -21,6 +21,7 @@
   import { noteAnchor } from '../request/noteState'
   import { planState, titleId } from '../request/itemState'
   import { PlanStore } from '../request/planStore.svelte'
+  import { changes } from '../changes.svelte'
   import { poll } from '../poll'
   import { refreshInterval } from '../request/refresh'
   import { formatMtime } from '../format'
@@ -130,6 +131,28 @@
   // leaves its queue, so it never undoes an edit; a note's draft lives in
   // its row, which the keyed list keeps - and a refresh never moves focus
   const interval = $derived(refreshInterval(store.read))
+  // A closed request with nothing in flight has no timer: it watches the
+  // feed instead, so an agent reopening it or adding a note shows within
+  // one feed interval. The read it makes goes through the same `take`, and
+  // so through `newerOf`
+  const closed = $derived(store.read !== null && interval === null)
+  $effect(() => {
+    if (!closed) return
+    const [from, id] = [ws, requestId]
+    let live = true
+    const stop = changes(from).watch(['requests'], async () => {
+      try {
+        const found = await api.getRequest(from, id)
+        if (live) take(found)
+      } catch (e) {
+        if (live) failed(e)
+      }
+    })
+    return () => {
+      live = false
+      stop()
+    }
+  })
   $effect(() => {
     if (interval === null) return
     const [from, id] = [ws, requestId]

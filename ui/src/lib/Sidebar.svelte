@@ -31,7 +31,12 @@
     type SharedSection,
     type WsSection,
   } from './routes'
-  import { loadWorkspaces, workspace } from './workspace.svelte'
+  import { changes } from './changes.svelte'
+  import {
+    invalidateWorkspaces,
+    loadWorkspaces,
+    workspace,
+  } from './workspace.svelte'
   import { createWorkspaceAndGo } from './workspaceActions'
   import { formatBytes } from './format'
   import { wsColor } from './wsColor'
@@ -46,6 +51,14 @@
   }: { collapsed: boolean; onToggle: () => void; inert?: boolean } = $props()
 
   onMount(loadWorkspaces)
+  // A workspace an agent creates or deletes shows within one feed interval:
+  // the counter is server-wide, so the open workspace's feed carries it
+  $effect(() =>
+    changes(workspace.current).watch(['workspaces'], () => {
+      invalidateWorkspaces()
+      void loadWorkspaces()
+    }),
+  )
 
   // The workspace whose sections are open: the route's when it names one,
   // else the one the UI is scoped to (a shared or server page still sits
