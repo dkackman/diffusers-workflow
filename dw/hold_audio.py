@@ -360,7 +360,7 @@ def _trim_arguments(steps, value):
 
 def _fitted_source_problems(arguments, steps, base_dir, probe):
     """[(argument, problem)] for a regional edit whose `source_video` is a
-    `fit_to_model` step's video (C-F1154(7), #1066's reframe): that step's own
+    `fit_to_model` step's video (C-F1154(7), #1066): that step's own
     `video`, when it is a file that resolves now, must have the edit's
     `num_frames` frames. The fit would cut or hold frames to make them match,
     and the edit then renders a take of another length than the one it

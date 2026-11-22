@@ -16,9 +16,7 @@ whatever the model did to the fitted frame (2x for the upscalers), inferred
 from the output's size, so no `scale` argument is needed.
 
 `mode: "crop"` also reframes a clip to another aspect (16:9 to 9:16); see
-"Reframe to another aspect" in docs/TASKS.md. A keeper H3 take whose motion
-must stay can instead keep its whole picture and have the border generated:
-`templates/minimax/reframe`.
+"Reframe to another aspect" in docs/TASKS.md.
 
 Letterbox mode also returns a `mask` (#1066): a canvas-size "L" image, white
 on the bars and black on the picture, drawn from the same `content_box`, so a
@@ -220,8 +218,7 @@ def fit_to_model(
     `fit` record to restore_to_source with the model's output to get the
     source's own size and length back. To reframe a clip to another aspect
     (16:9 to 9:16), use `mode: "crop"`; see "Reframe to another aspect" in
-    docs/TASKS.md. For a keeper H3 take, `templates/minimax/reframe` keeps the
-    whole picture letterboxed and generates the bars instead.
+    docs/TASKS.md.
 
     `downscale` fits into `width`/downscale x `height`/downscale instead, so
     a template can keep `width`/`height` as a 2x model's output size and
@@ -237,8 +234,7 @@ def fit_to_model(
         mode: "letterbox" (scale to fit, centred on black), "stretch" (resize
             to fill exactly) or "crop" (scale to fill, centre-crop; also the
             way to reframe a clip to another aspect - see TASKS.md "Reframe
-            to another aspect"; a keeper H3 take can instead keep its whole
-            picture with the border generated: templates/minimax/reframe)
+            to another aspect")
         downscale: Divides `width` and `height` before fitting - 2 for a 2x
             model whose output size they are. Both must be divisible by it
         align: Letterbox only - snap the content box's position and size to
