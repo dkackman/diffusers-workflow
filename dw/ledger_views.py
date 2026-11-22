@@ -115,17 +115,21 @@ def _recorded_digests(job):
 
 def _moved_prompts(item, job, now):
     """Rule 2: the names in `now` (the item's current prompt digests) whose
-    text differs from what take `job` ran with - the acceptance basis's
-    digest for a name when it holds one (a re-accept takes the text as it
-    stood then), else the take's recorded one. A name with no recorded
-    digest (a take from before digests were recorded) counts as equal, and
-    a prompt that no longer resolves is not in `now`: no claim without
-    evidence."""
+    text differs from what take `job` ran with. For the accepted take, the
+    acceptance basis's digest for a name wins when it holds one (a re-accept
+    takes the text as it stood then); every other take is judged by its own
+    recorded digests, so a newer take run on the current text is current
+    even while an older one is accepted. A name with no recorded digest (a
+    take from before digests were recorded) counts as equal, and a prompt
+    that no longer resolves is not in `now`: no claim without evidence."""
     if not now:
         return []
-    basis = item.get("accepted_basis")
-    accepted = basis.get("prompts") if isinstance(basis, dict) else None
-    accepted = accepted if isinstance(accepted, dict) else {}
+    accepted = {}
+    chosen = item.get("accepted")
+    if isinstance(chosen, dict) and chosen.get("job") == job.get("job"):
+        basis = item.get("accepted_basis")
+        prompts = basis.get("prompts") if isinstance(basis, dict) else None
+        accepted = prompts if isinstance(prompts, dict) else {}
     recorded = _recorded_digests(job)
     moved = []
     for name, digest in now.items():
