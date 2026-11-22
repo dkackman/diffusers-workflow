@@ -98,6 +98,19 @@ GitHub generates notes from commits at tag time. The sections below are the hand
   it counts as a channel poll of every workspace for
   `GET /api/workspaces/{name}/notes-channel`.
 
+**Fixes**
+
+- The worker's trust check no longer decodes each input clip and fetches
+  each URL input a second time on every job; with `--trust-workflows` it
+  does no work at all (#1510).
+- A workflow naming a refused `pre_load_modules` entry is refused at
+  validate and at submit, with no job, instead of being queued and evicting
+  the models warm on the card before the loader refused it (#1511).
+- An H3 `references` entry that names no loadable reference class (a `type`
+  key instead of `reference_type`, or a bare class name) is now a validate
+  error at its path, instead of passing and being skipped by every
+  reference check (#1512).
+
 ### 0.21.0
 
 <!-- Drafted from v0.20.0..develop at release prep (2026-11-20). Paste into the GitHub release body once the tag has published: gh release edit v0.21.0 --notes-file ... -->
