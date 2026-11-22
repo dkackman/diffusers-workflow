@@ -760,62 +760,68 @@ def _model_info(name, variant=None, skip=None):
     return gb, gated, access_blocked
 
 
-_WEIGHT_FORMATS = (".safetensors", ".bin", ".ckpt", ".pt", ".pth", ".msgpack", ".h5")
-_VARIANT_TOKENS = ("fp16", "bf16", "fp32", "non_ema", "ema")
-
-
-def _weight_variant(filename):
-    """The variant token in a weight file name (`model.fp16.safetensors` ->
-    `fp16`), or None for a plain one."""
-    parts = filename.rsplit("/", 1)[-1].split(".")
-    for token in parts[1:-1]:
-        if token in _VARIANT_TOKENS:
-            return token
-    return None
-
-
 def _load_bytes(siblings, variant=None, skip=None):
     """Bytes a diffusers `from_pretrained` of a repo fetches, from its file
-    list: a repo with a `model_index.json` is loaded by component folder, so
-    root checkpoints and docs are left out and, per folder, one weight format
-    is kept - safetensors over the rest, the requested `variant` if the folder
-    has it, else the plain files. A folder named in `skip` (a component the
-    step passes as null) is left out. A repo without a `model_index.json`
-    (a modular or single-checkpoint repo) is summed whole, an upper bound
-    (#1580)."""
-    files = [
-        (getattr(s, "rfilename", None) or "", s.size)
-        for s in siblings
-        if getattr(s, "size", None)
-    ]
-    if not any(name == "model_index.json" for name, _ in files):
-        return sum(size for _, size in files)
-    skip = skip or set()
-    total = 0
-    folders = {}
-    for name, size in files:
-        folder, _, leaf = name.rpartition("/")
-        if folder.split("/")[0] in skip:
-            continue
-        if not folder:
-            if name == "model_index.json":
-                total += size
-            continue
-        if name.endswith(_WEIGHT_FORMATS):
-            folders.setdefault(folder, []).append((name, size))
-        else:
-            total += size
-    for weights in folders.values():
-        tagged = [(n, sz, _weight_variant(n)) for n, sz in weights]
-        chosen = [t for t in tagged if variant and t[2] == variant]
-        if not chosen:
-            chosen = [t for t in tagged if t[2] is None] or tagged
-        for ext in _WEIGHT_FORMATS:
-            same = [t for t in chosen if t[0].endswith(ext)]
-            if same:
-                total += sum(sz for _, sz, _ in same)
-                break
-    return total
+    list. A repo with a `model_index.json` is sized by the file set diffusers
+    itself selects (`variant_compatible_siblings` under `_get_ignore_patterns`,
+    the calls `DiffusionPipeline.download` makes): one weight format per
+    component, the requested `variant` with a plain-file fallback, root
+    checkpoints left out, a component named in `skip` (passed as null) left
+    out. A repo without a `model_index.json` (a modular or single-checkpoint
+    repo) is summed whole, an upper bound (#1580). Diffusers is imported
+    here, not at module load, to keep it off the validate import path."""
+    sized = [s for s in siblings if getattr(s, "size", None)]
+    sizes = {getattr(s, "rfilename", None) or "": s.size for s in sized}
+    if "model_index.json" not in sizes:
+        return sum(s.size for s in sized)
+    from diffusers.pipelines.pipeline_loading_utils import (
+        _get_ignore_patterns,
+        filter_model_files,
+        variant_compatible_siblings,
+    )
+
+    skip = set(skip or ())
+    filenames = set(sizes)
+    folders = {f.split("/")[0] for f in filenames if "/" in f}
+    model_folders = {
+        f.rpartition("/")[0] for f in filter_model_files(filenames)
+    } & folders
+    try:
+        ignore = _get_ignore_patterns(
+            list(skip),
+            model_folders,
+            filenames,
+            True,
+            False,
+            False,
+            False,
+            False,
+            variant,
+        )
+    except EnvironmentError:
+        # No complete safetensors set: diffusers falls back to pickled weights
+        ignore = _get_ignore_patterns(
+            list(skip),
+            model_folders,
+            filenames,
+            False,
+            True,
+            False,
+            False,
+            False,
+            variant,
+        )
+    chosen, _ = variant_compatible_siblings(
+        filenames, variant=variant, ignore_patterns=ignore
+    )
+    selected = set(chosen) | {"model_index.json"}
+    selected |= {f for f in filenames if f.split("/")[0] in folders - model_folders}
+    selected |= {f"{k}/config.json" for k in model_folders}
+    return sum(
+        sizes[f]
+        for f in selected & filenames
+        if f.split("/")[0] not in skip or "/" not in f
+    )
 
 
 def _file_info(repo, filename, revision):

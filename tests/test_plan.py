@@ -3448,6 +3448,19 @@ class TestLoadBytes:
         # fp16 unet (2) + the checker, which has no fp16 file, falls back to plain (1)
         assert _load_bytes(self.sd15(), "fp16") == pytest.approx(3 * 10**9, abs=100)
 
+    def test_a_variant_outside_the_common_names_is_matched(self):
+        from types import SimpleNamespace as S
+
+        from dw.plan_downloads import _load_bytes
+
+        files = [
+            S(rfilename="model_index.json", size=1),
+            S(rfilename="unet/config.json", size=1),
+            S(rfilename="unet/diffusion_pytorch_model.safetensors", size=8),
+            S(rfilename="unet/diffusion_pytorch_model.int8.safetensors", size=2),
+        ]
+        assert _load_bytes(files, "int8") == 4
+
     def test_a_component_passed_as_null_is_not_counted(self):
         from dw.plan_downloads import _load_bytes
 
