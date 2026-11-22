@@ -111,7 +111,7 @@ from diffusers.modular_pipelines.minimax_h3.denoise import (
 from diffusers.modular_pipelines.modular_pipeline_utils import InputParam
 
 from .. import get_device_type, references
-from .h3_decode import (  # noqa: F401 - re-exported: the decode's names live here too
+from .h3_hold_steps import (  # noqa: F401 - re-exported: the decode's names live here too
     DECODE_PIECE_CLIPS,
     DwH3StreamedVideoDecodeStep,
     _video_decode_slots,
