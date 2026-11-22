@@ -37,12 +37,13 @@ export async function askDeletion(
     })
     return ok ? names : null
   }
+  const unstarred = names.length - starred.length
+  // Every ticked file starred: there is nothing to spare them from
   const answer = await chooseDialog(message, [
     { label: 'Delete all', value: 'all', danger: true },
-    {
-      label: `Delete the ${names.length - starred.length} unstarred`,
-      value: 'unstarred',
-    },
+    ...(unstarred > 0
+      ? [{ label: `Delete the ${unstarred} unstarred`, value: 'unstarred' }]
+      : []),
     { label: 'Cancel', value: 'cancel' },
   ])
   if (answer === 'all') return names
