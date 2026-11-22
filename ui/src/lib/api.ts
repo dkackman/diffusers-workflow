@@ -88,11 +88,10 @@ export type { JobSubmitBody, RequestWriteBody, ValidateRequest }
 
 // The ledger's routes (request notes, the change counters): workspace in the path
 const UNSCOPED = { scope: false }
-const wsUrl = (workspace: string, rest: string) =>
-  `/api/workspaces/${encodeURIComponent(workspace)}/${rest}`
-const notesUrl = (workspace: string) => wsUrl(workspace, 'request-notes')
-const ledgerRead = <T>(workspace: string, rest: string) =>
-  request<T>(wsUrl(workspace, rest), undefined, UNSCOPED)
+const ws = encodeURIComponent
+const notesUrl = (workspace: string) =>
+  `/api/workspaces/${encodeURIComponent(workspace)}/request-notes`
+const ledgerRead = <T>(url: string) => request<T>(url, undefined, UNSCOPED)
 
 export const api = {
   listWorkflows: () => request<WorkflowList>('/api/workflows'),
@@ -409,11 +408,11 @@ export const api = {
       UNSCOPED,
     ),
   /** Whether an agent session's notes channel polled the workspace lately */
-  notesChannel: (workspace: string) =>
-    ledgerRead<NotesChannelState>(workspace, 'notes-channel'),
+  notesChannel: (w: string) =>
+    ledgerRead<NotesChannelState>(`/api/workspaces/${ws(w)}/notes-channel`),
   /** What moved: the change counters the change feed reads (changes.svelte.ts) */
-  workspaceChanges: (workspace: string) =>
-    ledgerRead<WorkspaceChanges>(workspace, 'changes'),
+  workspaceChanges: (w: string) =>
+    ledgerRead<WorkspaceChanges>(`/api/workspaces/${ws(w)}/changes`),
   listWorkspaces: () => request<WorkspaceList>('/api/workspaces'),
   createWorkspace: (name: string) =>
     request<WorkspaceInfo>('/api/workspaces', {
