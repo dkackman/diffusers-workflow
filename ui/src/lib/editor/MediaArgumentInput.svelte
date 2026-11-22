@@ -2,7 +2,7 @@
   import { onDestroy } from 'svelte'
   import { Images, Upload } from '@lucide/svelte'
   import MediaPicker from '../assets/MediaPicker.svelte'
-  import { uploadAll } from '../assets/uploads'
+  import { reportUploads, uploadAll } from '../assets/uploads'
   import Suggest from '../ui/Suggest.svelte'
   import {
     assetLibrary,
@@ -62,6 +62,10 @@
         : ''),
   )
 
+  function revokeBlob(url: string) {
+    if (url.startsWith('blob:')) URL.revokeObjectURL(url)
+  }
+
   function setLocalPreview(url: string) {
     if (localPreview.startsWith('blob:')) URL.revokeObjectURL(localPreview)
     localPreview = url
@@ -81,10 +85,16 @@
 
   async function uploadFile(file: File) {
     error = ''
-    setLocalPreview(URL.createObjectURL(file))
+    const previous = localPreview
+    localPreview = URL.createObjectURL(file)
     uploading = true
     try {
-      const taken = new Set(assetLibrary.items?.map((a) => a.name))
+      // This uploads to the workspace library, so only its names are taken
+      const taken = new Set(
+        assetLibrary.items
+          ?.filter((a) => a.origin === 'workspace')
+          .map((a) => a.name),
+      )
       const { uploaded, skipped, failed } = await uploadAll([file], {
         shared: false,
         taken,
@@ -92,16 +102,21 @@
       if (failed.length) throw failed[0].error
       const result = uploaded[0]
       if (!result) {
-        // Skipped: an existing asset was left alone, so nothing changes
-        setLocalPreview('')
-        if (!skipped.length) error = 'unsupported file type'
+        // Skipped: the existing asset was left alone, so the field and its
+        // preview stay as they were
+        revokeBlob(localPreview)
+        localPreview = previous
+        if (skipped.length) reportUploads({ uploaded, skipped, failed })
+        else error = 'unsupported file type'
         return
       }
+      revokeBlob(previous)
       onchange(result.reference ?? result.url)
-      setLocalPreview(result.url)
+      localPreview = result.url
       // So the upload is among what an asset: completion offers next
       void loadAssetLibrary()
     } catch (err) {
+      revokeBlob(previous)
       error = err instanceof Error ? err.message : 'upload failed'
     } finally {
       uploading = false

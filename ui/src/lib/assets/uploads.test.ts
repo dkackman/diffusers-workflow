@@ -1,6 +1,6 @@
 import { beforeEach, expect, it, vi } from 'vitest'
 import { ApiError } from '../apiErrors'
-import { isUploadable, uploadAll } from './uploads'
+import { isUploadable, reportUploads, uploadAll } from './uploads'
 
 const uploadMedia = vi.hoisted(() => vi.fn())
 vi.mock('../api', () => ({
@@ -11,7 +11,10 @@ vi.mock('../confirm.svelte', () => ({
   chooseDialog: (...args: unknown[]) => chooseDialog(...args),
 }))
 const notifyError = vi.hoisted(() => vi.fn())
-vi.mock('../toast', () => ({ notify: { error: notifyError } }))
+const notifySuccess = vi.hoisted(() => vi.fn())
+vi.mock('../toast', () => ({
+  notify: { error: notifyError, success: notifySuccess },
+}))
 
 const file = (name: string) => new File(['x'], name)
 const exists = () => new ApiError('exists', 409, 'exists')
@@ -21,6 +24,7 @@ beforeEach(() => {
   uploadMedia.mockReset()
   chooseDialog.mockReset()
   notifyError.mockReset()
+  notifySuccess.mockReset()
   uploadMedia.mockImplementation((f: File, name?: string) =>
     Promise.resolve(ok(name ?? f.name)),
   )
@@ -136,4 +140,46 @@ it('other failures are reported per file', async () => {
   const result = await uploadAll([file('a.png')], { shared: false })
   expect(result.failed).toHaveLength(1)
   expect(result.failed[0].name).toBe('a.png')
+})
+
+it('keep both reads listing names (uploads/ prefixed) as taken', async () => {
+  uploadMedia.mockImplementation((f: File, name: string, _s, pre) =>
+    pre?.createOnly && name === 'photo.jpg'
+      ? Promise.reject(exists())
+      : Promise.resolve(ok(name)),
+  )
+  chooseDialog.mockResolvedValue('keep-both')
+  await uploadAll([file('photo.jpg')], {
+    shared: false,
+    taken: new Set(['uploads/photo.jpg', 'uploads/photo-2.jpg']),
+  })
+  expect(uploadMedia).toHaveBeenCalledTimes(2)
+  expect(uploadMedia).toHaveBeenLastCalledWith(
+    expect.any(File),
+    'photo-3.jpg',
+    false,
+    { createOnly: true },
+  )
+})
+
+it('keep both gives up after 20 taken names and records a failure', async () => {
+  uploadMedia.mockImplementation(() => Promise.reject(exists()))
+  chooseDialog.mockResolvedValue('keep-both')
+  const result = await uploadAll([file('p.jpg')], { shared: false })
+  expect(result.uploaded).toEqual([])
+  expect(result.failed).toHaveLength(1)
+  expect(result.failed[0].name).toBe('p.jpg')
+  // The first create-only send plus 20 keep-both tries
+  expect(uploadMedia).toHaveBeenCalledTimes(21)
+})
+
+it('reports skipped uploads as news, not an error', () => {
+  reportUploads({ uploaded: [], skipped: ['a.png', 'b.png'], failed: [] })
+  expect(notifySuccess).toHaveBeenCalledWith(
+    'Skipped 2 existing files: a.png, b.png',
+  )
+  expect(notifyError).not.toHaveBeenCalled()
+  notifySuccess.mockReset()
+  reportUploads({ uploaded: [], skipped: ['a.png'], failed: [] })
+  expect(notifySuccess).toHaveBeenCalledWith('Skipped 1 existing file: a.png')
 })

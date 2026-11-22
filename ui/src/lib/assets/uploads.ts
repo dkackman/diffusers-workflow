@@ -53,7 +53,11 @@ export async function uploadAll(
     )
   const prefix = opts.folder ? `${opts.folder.replace(/\/+$/, '')}/` : ''
   const sendable = files.filter(isUploadable)
-  const taken = new Set(opts.taken ?? [])
+  // The listing names a library's assets as uploads/<name>; the names sent
+  // and compared here are bare
+  const taken = new Set(
+    [...(opts.taken ?? [])].map((n) => n.replace(/^uploads\//, '')),
+  )
   const existing: Entry[] = []
 
   for (const file of sendable) {
@@ -147,6 +151,10 @@ export function reportUploads(result: UploadResult): void {
     const total = uploaded.length + skipped.length + failed.length
     notify.success(`Uploaded ${uploaded.length} of ${total} files`)
   }
+  if (skipped.length)
+    notify.success(
+      `Skipped ${skipped.length} existing ${skipped.length === 1 ? 'file' : 'files'}: ${skipped.join(', ')}`,
+    )
   if (failed.length)
     notify.error(
       failed

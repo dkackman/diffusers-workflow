@@ -4,6 +4,16 @@ import MediaArgumentInput from './MediaArgumentInput.svelte'
 
 const uploadMedia = vi.fn()
 vi.mock('../api', () => ({ api: { uploadMedia: (f: File) => uploadMedia(f) } }))
+const chooseDialog = vi.hoisted(() => vi.fn())
+vi.mock('../confirm.svelte', async (orig) => ({
+  ...(await orig<object>()),
+  chooseDialog: (...args: unknown[]) => chooseDialog(...args),
+}))
+const notifySuccess = vi.hoisted(() => vi.fn())
+vi.mock('../toast', async (orig) => {
+  const mod = await orig<{ notify: object }>()
+  return { ...mod, notify: { ...mod.notify, success: notifySuccess } }
+})
 
 const originals = {
   create: URL.createObjectURL,
@@ -66,5 +76,36 @@ it('previews the file an asset: reference names', async () => {
   })
   expect(container.querySelector('.preview img')?.getAttribute('src')).toBe(
     '/inputs/cast/priya.png',
+  )
+})
+
+it('a skipped upload keeps the field value and the preview, and says so', async () => {
+  let n = 0
+  URL.createObjectURL = vi.fn(() => `blob:p-${++n}`)
+  URL.revokeObjectURL = vi.fn()
+  const { ApiError } = await import('../apiErrors')
+  uploadMedia.mockRejectedValueOnce(new ApiError('exists', 409, 'exists'))
+  chooseDialog.mockResolvedValueOnce('skip')
+  const onchange = vi.fn()
+  const { container } = render(MediaArgumentInput, {
+    id: 'arg-image',
+    kind: 'image',
+    location: 'asset:old.png',
+    onchange,
+  })
+  const input = container.querySelector(
+    'input[type="file"]',
+  ) as HTMLInputElement
+  Object.defineProperty(input, 'files', {
+    value: [new File(['x'], 'cat.png', { type: 'image/png' })],
+  })
+  await fireEvent.change(input)
+  await new Promise((r) => setTimeout(r, 0))
+  expect(onchange).not.toHaveBeenCalled()
+  expect(notifySuccess).toHaveBeenCalledWith(
+    'Skipped 1 existing file: cat.png',
+  )
+  expect(container.querySelector('.preview img')?.getAttribute('src')).not.toBe(
+    'blob:p-1',
   )
 })
