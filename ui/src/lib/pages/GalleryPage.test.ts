@@ -14,6 +14,7 @@ import GalleryPage from './GalleryPage.svelte'
 import ConfirmDialog from '../ui/ConfirmDialog.svelte'
 import type { GalleryFile } from '../types'
 import { DEFAULT_WORKSPACE, workspace } from '../workspace.svelte'
+import { feed } from '../test/feedMock'
 
 const file = (
   name: string,
@@ -89,6 +90,10 @@ vi.mock('../api', () => ({
   },
 }))
 
+vi.mock('../changes.svelte', async () => ({
+  changes: (await import('../test/feedMock')).feed.changes,
+}))
+
 const notifyError = vi.hoisted(() => vi.fn())
 vi.mock('../toast', () => ({ notify: { error: notifyError } }))
 
@@ -152,11 +157,98 @@ async function answerConfirm(accept: boolean) {
     .click()
 }
 
-it('fetches the gallery listing exactly once on mount', async () => {
-  render(GalleryPage)
-  // Let the request settle and any (wrongly) re-triggered effects run
+const settle = async () => {
   for (let i = 0; i < 5; i++) await new Promise((r) => setTimeout(r, 10))
+}
+
+it('lists once on mount, and again when the gallery moves, with no blanking', async () => {
+  await renderGallery()
+  await settle()
   expect(gallery).toHaveBeenCalledTimes(1)
+  expect(feed.watched(DEFAULT_WORKSPACE)).toEqual(['gallery'])
+
+  listing.files = [...listing.files, file('new.png')]
+  feed.move(DEFAULT_WORKSPACE, 'gallery')
+  // the old grid stays while the answer is awaited
+  expect(screen.getByLabelText('select a.png')).toBeTruthy()
+  await waitFor(() => expect(screen.getByLabelText('select new.png')))
+  expect(gallery).toHaveBeenCalledTimes(2)
+  await settle()
+  expect(gallery).toHaveBeenCalledTimes(2)
+})
+
+it('reloads nothing for another kind, or the gallery of another workspace', async () => {
+  await renderGallery()
+  await settle()
+  feed.move(DEFAULT_WORKSPACE, 'jobs')
+  feed.move('elsewhere', 'gallery')
+  await settle()
+  expect(gallery).toHaveBeenCalledTimes(1)
+})
+
+it('a quiet reload keeps the ticked files and the files when it fails', async () => {
+  await renderGallery()
+  checkbox('a.png').click()
+  await waitFor(() => expect(screen.getByText('1 selected')).toBeTruthy())
+  // a.png is gone from the answer: a quiet reload does not drop the tick
+  listing.files = [file('b.png'), file('demo/c.png')]
+  feed.move(DEFAULT_WORKSPACE, 'gallery')
+  await waitFor(() =>
+    expect(screen.queryByLabelText('select a.png')).toBeNull(),
+  )
+  expect(gallery).toHaveBeenCalledTimes(2)
+  gallery.mockImplementationOnce(() => Promise.reject(new Error('down')))
+  feed.move(DEFAULT_WORKSPACE, 'gallery')
+  await settle()
+  expect(screen.getByLabelText('select b.png')).toBeTruthy()
+  expect(screen.queryByText(/Could not read the gallery/)).toBeNull()
+})
+
+it('a new output landing leaves the open file and the note being typed', async () => {
+  galleryMetadata.mockResolvedValue({
+    metadata: {},
+    job: null,
+    inputs: [],
+    role: null,
+    note: null,
+    run_note: null,
+    note_source: null,
+  })
+  await renderGallery()
+  await openFile('a.png')
+  await fireEvent.click(await screen.findByRole('button', { name: /note/i }))
+  const box = (await screen.findByRole('textbox', {
+    name: /note/i,
+  })) as HTMLTextAreaElement
+  await fireEvent.input(box, { target: { value: 'half a thought' } })
+
+  listing.files = [...listing.files, file('new.png')]
+  feed.move(DEFAULT_WORKSPACE, 'gallery')
+  await waitFor(() => expect(screen.getByLabelText('select new.png')))
+  const still = screen.getByRole('textbox', {
+    name: /note/i,
+  }) as HTMLTextAreaElement
+  expect(still).toBe(box)
+  expect(still.value).toBe('half a thought')
+})
+
+it('a reload begun before a delete does not bring the file back', async () => {
+  await renderGallery()
+  await openFile('a.png')
+  let land: (reply: { files: GalleryFile[] }) => void = () => {}
+  const stale = listing.files
+  gallery.mockImplementationOnce(
+    () => new Promise<{ files: GalleryFile[] }>((resolve) => (land = resolve)),
+  )
+  feed.move(DEFAULT_WORKSPACE, 'gallery')
+  await fireEvent.keyDown(window, { key: 'Delete' })
+  await answerConfirm(true)
+  await waitFor(() =>
+    expect(screen.queryByLabelText('select a.png')).toBeNull(),
+  )
+  land({ files: stale })
+  await settle()
+  expect(screen.queryByLabelText('select a.png')).toBeNull()
 })
 
 it('counts the files ticked in the grid', async () => {

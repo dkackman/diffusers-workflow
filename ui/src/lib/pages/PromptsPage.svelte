@@ -1,6 +1,9 @@
 <script lang="ts">
   import { MessageSquareText, Plus } from '@lucide/svelte'
   import { api } from '../api'
+  import { changes } from '../changes.svelte'
+  import { latestOnly } from '../latest'
+  import { workspace } from '../workspace.svelte'
   import Empty from '../Empty.svelte'
   import FolderGroups from '../FolderGroups.svelte'
   import { leafOf } from '../grouping'
@@ -16,16 +19,37 @@
   let error = $state('')
   let loaded = $state(false)
 
-  $effect(() => {
+  // A reply overtaken by a later load (a switch, a newer reload) is dropped
+  const beginList = latestOnly()
+  /** Read the prompts of the current workspace. A quiet load is the change
+   * feed's: it keeps the list on screen, and a failed one keeps it too */
+  function load({ quiet = false } = {}) {
+    const current = beginList()
+    if (!quiet) error = ''
     api
       .listPrompts()
       .then((result) => {
+        if (!current()) return
         prompts = result.prompts
         details = result.details ?? {}
         promptDir = writableRoot(result.libraries)
+        error = ''
         loaded = true
       })
-      .catch((e) => (error = e.message))
+      .catch((e) => {
+        if (!current() || quiet) return
+        error = e.message
+      })
+  }
+  $effect(() => {
+    // Read so a workspace switch reloads; the api scopes itself to it
+    void workspace.current
+    load()
+  })
+  // A prompt an agent saves shows within one feed interval
+  $effect(() => {
+    const ws = workspace.current
+    return changes(ws).watch(['prompts'], () => load({ quiet: true }))
   })
 
   const visible = $derived(
