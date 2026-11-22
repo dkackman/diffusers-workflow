@@ -1036,10 +1036,15 @@ def _realize_soundtrack_video_arguments(arguments, base_dir):
     AudioVideo, soundtrack and all (load_audio_video), rather than the
     frames-only load. A deferred reference stays deferred - an earlier
     step's AudioVideo carries its own audio - and everything but 'video' is
-    realized the ordinary way."""
+    realized the ordinary way. An 'asset:'/'output:' video resolves to its
+    path first: this dict's values are read here, not by the realize_args
+    loop that resolves them on the way through (#1553)."""
     if "video" in arguments:
+        video = arguments["video"]
+        if is_path_reference(video) or isinstance(video, (list, dict)):
+            video = resolve_path_references(video, base_dir)
         arguments["video"] = fetch_video_with_context(
-            arguments["video"], base_dir, "video", with_audio=True
+            video, base_dir, "video", with_audio=True
         )
     for k, v in list(arguments.items()):
         if k == "video":
