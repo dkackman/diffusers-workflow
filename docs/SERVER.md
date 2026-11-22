@@ -1093,19 +1093,21 @@ The editor's forms come from these; they are just as usable from scripts:
   seconds to 24 hours ahead (422 `invalid_review_until`, `review_too_soon`
   or `review_too_far` otherwise), and reads back `review_set_at` and a
   derived `review` (`{until, state, seconds_left}`, `state` one of
-  `holding`, `redirected`, `due`; only while the item is `planned` on an
+  `holding`, `redirected`, `due`; only while the item is `planned` or `revised` on an
   open request); the rules are under [WORKSPACES.md](WORKSPACES.md#requests).
   `review_set_at` and `review` are ignored on write. The server never starts
   a job at the deadline.
 
   Each item carries `status` (`dropped`, `done`, `running`, `queued`,
-  `failed`, `planned`), `ready`, `attempts` (`[{job, status, note?,
+  `failed`, `planned`, `revised`), `ready`, `attempts` (`[{job, status, note?,
   minutes, output}]`, oldest first), `result` (`{job, run_id, output}` or
-  null), `accepted_missing` (only when true) and `spent_minutes`, where
+  null), `accepted_missing` (only when true), `spent_minutes` and, on a revised item,
+  `revised_because` (`["arguments"]`, may include `workflow`), where
   `output` is `{name, kind}` - the gallery name of the one file that stands
   for the job, and `image`, `video`, `audio` or `text` - or null. The
   request view and each list row carry `spent_minutes` and
-  `remaining_minutes`; a list row also carries `status_counts`, `ready`
+  `remaining_minutes`; a list row also carries `status_counts` (with a
+  `revised` key when any), `ready`
   (items a job could be queued for now) and `cover` (up to three `output`s
   of the latest results), and the list `unreadable` when the file is not a
   ledger. An item's `accepted` on write takes `{"job": id}` or a bare job

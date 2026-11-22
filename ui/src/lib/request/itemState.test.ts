@@ -2,6 +2,7 @@ import { expect, it } from 'vitest'
 import {
   activeJob,
   bandsOf,
+  CHIP,
   figureOf,
   opensByDefault,
   planState,
@@ -277,4 +278,16 @@ it("exposes each live row's review hold, and the held rows, as the server says",
     null,
   ])
   expect(plan.held.map((s) => s.item.key)).toEqual(['a', 'c'])
+})
+
+it('shows a revised item as its own display with the revised chip, and its dependents keep waiting', () => {
+  const revised = doneItem('cast', {
+    status: 'revised',
+    revised_because: ['workflow'],
+  })
+  const plan = planState(
+    request([revised, item('shot', { depends_on: ['cast'] })]),
+  )
+  expect(plan.items.map((s) => s.display)).toEqual(['revised', 'waiting'])
+  expect(CHIP.revised).toEqual({ word: 'revised', tone: 'ready' })
 })

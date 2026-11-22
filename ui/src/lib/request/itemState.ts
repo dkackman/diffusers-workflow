@@ -17,6 +17,7 @@ export type ItemDisplay =
   | 'queued'
   | 'running'
   | 'done'
+  | 'revised'
   | 'failed'
   | 'cancelled'
   | 'dropped'
@@ -70,6 +71,8 @@ export const CHIP: Record<ItemDisplay, { word: string; tone: string }> = {
   queued: { word: 'queued', tone: 'queued' },
   running: { word: 'running', tone: 'running' },
   done: { word: 'done', tone: 'succeeded' },
+  // has a result but its plan changed since: outlined like ready, it waits on the user
+  revised: { word: 'revised', tone: 'ready' },
   failed: { word: 'failed', tone: 'failed' },
   // not .chip.cancelled: its --warn text is the --live hex
   cancelled: { word: 'cancelled', tone: 'idle' },
@@ -167,7 +170,8 @@ export function planState(request: LedgerRequest): PlanState {
       neededBy: request.items
         .filter((o) => !o.dropped && o.depends_on.includes(item.key))
         .map((o) => ref(o.key)),
-      noWorkflow: item.workflow === null && display !== 'done',
+      noWorkflow:
+        item.workflow === null && display !== 'done' && display !== 'revised',
       runnable: runnableNow(item, display, depsDone(item), open),
       canRetake: display === 'done' && open && item.workflow !== null,
       needs: needsOf(item, display, open),

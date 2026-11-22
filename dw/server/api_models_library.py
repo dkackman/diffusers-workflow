@@ -427,6 +427,10 @@ class LedgerReview(ApiModel):
     )
 
 
+class LedgerAcceptedBasis(ApiModel):
+    at: str = Field(description="When the acceptance was recorded, an ISO time.")
+
+
 class LedgerItem(ApiModel):
     key: str
     title: str
@@ -437,16 +441,32 @@ class LedgerItem(ApiModel):
     dropped: bool
     accepted: LedgerAccepted | None
     notes: list[LedgerNote] = Field(description="The user's notes on the item.")
-    status: Literal["dropped", "done", "running", "queued", "failed", "planned"] = (
-        Field(
-            description="Derived from the item's linked jobs, first that holds: "
-            "dropped, done (a result exists), running, queued, failed (every "
-            "linked job failed or was cancelled), planned."
-        )
+    status: Literal[
+        "dropped", "done", "revised", "running", "queued", "failed", "planned"
+    ] = Field(
+        description="Derived from the item's linked jobs, first that holds: "
+        "dropped, done (a result exists) - or revised when its workflow or "
+        "arguments changed after every succeeded take and no take was "
+        "accepted since - running, queued, failed (every linked job failed or "
+        "was cancelled), planned."
+    )
+    revised_because: list[str] = sometimes(
+        "What moved on a revised item: `workflow`, `arguments`. Absent "
+        "unless the item is revised."
+    )
+    changed_at: str | None = Field(
+        description="When the item was created or its workflow or arguments "
+        "last changed, stamped by the server; null on an item stored before "
+        "the stamp."
+    )
+    accepted_basis: "LedgerAcceptedBasis | None" = Field(
+        description="When a take was last accepted while the item read "
+        "revised, stamped by the server; the item reads done until its plan "
+        "changes again. Null when none was."
     )
     ready: bool = Field(
-        description="A job could be queued for it now: planned, with a stored "
-        "workflow and every dependency done, in an open request."
+        description="A job could be queued for it now: planned or revised, "
+        "with a stored workflow and every dependency done, in an open request."
     )
     attempts: list["LedgerAttempt"] = Field(
         description="Every linked job, oldest first."
@@ -471,7 +491,7 @@ class LedgerItem(ApiModel):
         "null when it is not held."
     )
     review: LedgerReview = sometimes(
-        "The hold as read now; absent unless the item is planned, its request "
+        "The hold as read now; absent unless the item is planned or revised, its request "
         "open and a deadline set."
     )
 

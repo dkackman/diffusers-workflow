@@ -2793,6 +2793,21 @@
         "title": "LedgerAccepted",
         "type": "object"
       },
+      "LedgerAcceptedBasis": {
+        "additionalProperties": false,
+        "properties": {
+          "at": {
+            "description": "When the acceptance was recorded, an ISO time.",
+            "title": "At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "at"
+        ],
+        "title": "LedgerAcceptedBasis",
+        "type": "object"
+      },
       "LedgerAttempt": {
         "additionalProperties": false,
         "properties": {
@@ -2956,6 +2971,17 @@
               }
             ]
           },
+          "accepted_basis": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LedgerAcceptedBasis"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When a take was last accepted while the item read revised, stamped by the server; the item reads done until its plan changes again. Null when none was."
+          },
           "accepted_missing": {
             "description": "True when an accepted job's run directory is gone; `result` then falls back to the latest succeeded attempt.",
             "title": "Accepted Missing",
@@ -2973,6 +2999,18 @@
             },
             "title": "Attempts",
             "type": "array"
+          },
+          "changed_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When the item was created or its workflow or arguments last changed, stamped by the server; null on an item stored before the stamp.",
+            "title": "Changed At"
           },
           "depends_on": {
             "items": {
@@ -3012,7 +3050,7 @@
             "type": "array"
           },
           "ready": {
-            "description": "A job could be queued for it now: planned, with a stored workflow and every dependency done, in an open request.",
+            "description": "A job could be queued for it now: planned or revised, with a stored workflow and every dependency done, in an open request.",
             "title": "Ready",
             "type": "boolean"
           },
@@ -3029,7 +3067,7 @@
           },
           "review": {
             "$ref": "#/components/schemas/LedgerReview",
-            "description": "The hold as read now; absent unless the item is planned, its request open and a deadline set."
+            "description": "The hold as read now; absent unless the item is planned or revised, its request open and a deadline set."
           },
           "review_set_at": {
             "anyOf": [
@@ -3055,6 +3093,14 @@
             "description": "When the user's review of the item ends, an ISO time in UTC; null when it is not held.",
             "title": "Review Until"
           },
+          "revised_because": {
+            "description": "What moved on a revised item: `workflow`, `arguments`. Absent unless the item is revised.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Revised Because",
+            "type": "array"
+          },
           "spent_minutes": {
             "anyOf": [
               {
@@ -3068,10 +3114,11 @@
             "title": "Spent Minutes"
           },
           "status": {
-            "description": "Derived from the item's linked jobs, first that holds: dropped, done (a result exists), running, queued, failed (every linked job failed or was cancelled), planned.",
+            "description": "Derived from the item's linked jobs, first that holds: dropped, done (a result exists) - or revised when its workflow or arguments changed after every succeeded take and no take was accepted since - running, queued, failed (every linked job failed or was cancelled), planned.",
             "enum": [
               "dropped",
               "done",
+              "revised",
               "running",
               "queued",
               "failed",
@@ -3107,6 +3154,8 @@
           "accepted",
           "notes",
           "status",
+          "changed_at",
+          "accepted_basis",
           "ready",
           "attempts",
           "result",

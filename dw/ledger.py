@@ -52,6 +52,7 @@ from .ledger_views import (  # noqa: F401 - COVER_* and the views are read as le
     COVER_SCAN,
     COVER_SIZE,
     _live_keys,
+    is_revised,
     item_view,
     request_view,
     summary_view,
@@ -90,8 +91,10 @@ AUTHORS = ("agent", "user")
 _WORKFLOW_NAME_PATTERN = r"^[\w][\w.:-]*(/[\w][\w.:-]*)*\Z"
 
 # What an item may carry on a write. `status`, `ready`, `attempts`,
-# `result`, `accepted_missing`, `spent_minutes`, `review_set_at` and `review`
-# are derived and ignored, so a plan read with GET can be written back.
+# `result`, `accepted_missing`, `spent_minutes`, `review_set_at`, `review`,
+# `revised_because` and the server's stamps `changed_at` and
+# `accepted_basis` are derived or server-set and ignored, so a plan read
+# with GET can be written back.
 _ITEM_FIELDS = frozenset(
     (
         "key",
@@ -112,6 +115,9 @@ _ITEM_FIELDS = frozenset(
         "review_until",
         "review_set_at",
         "review",
+        "changed_at",
+        "accepted_basis",
+        "revised_because",
     )
 )
 
@@ -678,8 +684,25 @@ def _review_error(key, code, must_be):
 
 
 def _item(raw, key, previous, linked, by, at):
-    """One live item as stored."""
+    """One live item as stored, with the server's stamps: `changed_at`, set
+    when the item is created or its `workflow` or `arguments` differ from the
+    stored ones and kept otherwise (so a GET->PUT round trip moves nothing);
+    and `accepted_basis` (`{at}`), recorded when the write names an
+    `accepted` take while the stored item reads revised and the write
+    leaves its plan as it was - the item then reads done until the plan
+    moves again (`ledger_views.is_revised`)."""
     until, set_at = _review_until(raw.get("review_until"), key, previous, at)
+    workflow = _workflow(raw.get("workflow"), key)
+    arguments = _arguments(raw.get("arguments"), key)
+    accepted = _accepted(raw.get("accepted"), key, previous.get("accepted"), linked)
+    unchanged = bool(previous) and (
+        workflow == previous.get("workflow")
+        and arguments == (previous.get("arguments") or {})
+    )
+    changed_at = previous.get("changed_at") if unchanged else at
+    basis = previous.get("accepted_basis")
+    if accepted is not None and unchanged and is_revised(previous, linked):
+        basis = {"at": at}
     return {
         "key": key,
         "title": _text(
@@ -687,15 +710,15 @@ def _item(raw, key, previous, linked, by, at):
         ),
         "depends_on": _depends_on(raw, key),
         "estimate_minutes": _estimate(raw.get("estimate_minutes"), key),
-        "workflow": _workflow(raw.get("workflow"), key),
-        "arguments": _arguments(raw.get("arguments"), key),
+        "workflow": workflow,
+        "arguments": arguments,
         "dropped": False,
-        "accepted": _accepted(
-            raw.get("accepted"), key, previous.get("accepted"), linked
-        ),
+        "accepted": accepted,
         "notes": list(previous.get("notes") or []),
         "review_until": until,
         "review_set_at": set_at,
+        "changed_at": changed_at,
+        **({"accepted_basis": basis} if isinstance(basis, dict) else {}),
     }
 
 
@@ -780,8 +803,9 @@ def put_request(
     `body` holds title, goal, items, revision and why, and optionally
     prompt, state and `purge` (keys of items this plan leaves out,
     removed for good even though jobs link to them). `linked_jobs(request_id, key)` lists the jobs linked
-    to an item as `{job, status, run_id}`; `accepted` must name one of them
-    that succeeded. `jobs_for(request_id)` lists every job linked to the request, for
+    to an item as `{job, status, run_id, created_at, workflow, arguments}`;
+    `accepted` must name one of them that succeeded, and the rest say
+    whether the stored item reads revised (`_item`). `jobs_for(request_id)` lists every job linked to the request, for
     the returned view's derived fields.
 
     Raises LedgerError, or OSError when the file cannot be written.

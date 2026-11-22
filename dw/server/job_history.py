@@ -602,11 +602,13 @@ class JobHistory:
 
     def request_jobs(self, workspace, request):
         """Every closed job linked to `request` in `workspace`, oldest first:
-        one indexed query (`jobs_request`). Open jobs are the live queue's."""
+        one indexed query (`jobs_request`). Open jobs are the live queue's.
+        `arguments` is the stored JSON text; `workflow_name` the catalog
+        name it ran from (NULL for an inline workflow)."""
         with self._lock, self._connect() as connection:
             rows = connection.execute(
                 "SELECT id, item, status, run_id, run_dir, note, created_at,"
-                " started_at, finished_at,"
+                " started_at, finished_at, workflow_name, arguments,"
                 " CASE WHEN json_valid(spec) THEN json_extract(spec, '$.output_dir') END"
                 " AS output_dir FROM jobs WHERE workspace = ? AND request = ?"
                 f" AND status NOT IN ({_OPEN_PLACEHOLDERS}) ORDER BY created_at",
