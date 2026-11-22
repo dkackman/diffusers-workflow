@@ -9,6 +9,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import RequestsPage from './RequestsPage.svelte'
 import { summary } from '../request/fixtures'
 import { workspace } from '../workspaceState.svelte'
+import { feed } from '../test/feedMock'
 
 const data = vi.hoisted(() => ({
   requests: [] as unknown[],
@@ -30,6 +31,10 @@ vi.mock('../api', () => ({
     galleryThumbnailUrl: (name: string, ws?: string) =>
       `/thumb/${name}?ws=${ws}`,
   },
+}))
+
+vi.mock('../changes.svelte', async () => ({
+  changes: (await import('../test/feedMock')).feed.changes,
 }))
 
 beforeEach(() => {
@@ -201,4 +206,64 @@ it("drops another workspace's list that lands after a switch", async () => {
   await new Promise((r) => setTimeout(r, 10))
   expect(screen.queryByText('Studio ask')).toBeNull()
   expect(screen.getByRole('link', { name: /Other ask/ })).toBeTruthy()
+})
+
+it('a request written from outside shows when the feed says requests moved, with no spinner', async () => {
+  data.requests = [summary()]
+  render(RequestsPage)
+  await screen.findByRole('link', { name: /Launch posters/ })
+  expect(feed.watched('studio')).toEqual(['requests'])
+  data.requests = [
+    summary(),
+    summary({
+      id: 'r2',
+      title: 'Second launch',
+      updated_at: '2026-02-02T00:00:00+00:00',
+    }),
+  ]
+  let answer = () => {}
+  data.requestsFor = () =>
+    new Promise((resolve) => {
+      answer = () => resolve({ workspace: 'studio', requests: data.requests })
+    })
+  feed.move('studio', 'requests')
+  // the list stays while it asks: no skeleton, no blanking
+  expect(screen.queryByLabelText('loading requests')).toBeNull()
+  expect(rows()).toHaveLength(1)
+  answer()
+  await waitFor(() => expect(rows()).toHaveLength(2))
+  expect(titles()).toContain('Second launch')
+})
+
+it('a quiet reload that fails keeps the list, and says nothing', async () => {
+  data.requests = [summary()]
+  render(RequestsPage)
+  await screen.findByRole('link', { name: /Launch posters/ })
+  data.error = new Error('503')
+  feed.move('studio', 'requests')
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  expect(rows()).toHaveLength(1)
+  expect(screen.queryByRole('alert')).toBeNull()
+})
+
+it('another kind moving, or another workspace, reloads nothing', async () => {
+  let calls = 0
+  data.requestsFor = () => {
+    calls++
+    return Promise.resolve({ workspace: 'studio', requests: [summary()] })
+  }
+  render(RequestsPage)
+  await screen.findByRole('link', { name: /Launch posters/ })
+  feed.move('studio', 'gallery')
+  feed.move('other', 'requests')
+  expect(calls).toBe(1)
+})
+
+it('watches the workspace it switched to, and only it', async () => {
+  data.requests = [summary()]
+  render(RequestsPage)
+  await screen.findByRole('link', { name: /Launch posters/ })
+  workspace.current = 'other'
+  await waitFor(() => expect(feed.watched('other')).toEqual(['requests']))
+  expect(feed.watched('studio')).toEqual([])
 })

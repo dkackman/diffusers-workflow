@@ -1,5 +1,6 @@
 import { expect, it } from 'vitest'
 import { ACTIVE_MS, IDLE_MS, newerOf, refreshInterval } from './refresh'
+import { CHANGES_POLL_MS } from '../changes.svelte'
 import type { LedgerRequest } from '../types'
 
 const request = (
@@ -26,7 +27,8 @@ it('keeps an idle open request fresh at a slow interval', () => {
   expect(IDLE_MS).toBeGreaterThan(ACTIVE_MS)
 })
 
-it('leaves a closed request with nothing in flight, or none, alone', () => {
+// A closed request is then the change feed's to refresh (RequestPage.test.ts)
+it('keeps no timer for a closed request with nothing in flight, or none', () => {
   expect(refreshInterval(request('done', ['done']))).toBeNull()
   expect(refreshInterval(request('abandoned', ['planned']))).toBeNull()
   expect(refreshInterval(null)).toBeNull()
@@ -45,4 +47,10 @@ it('a refresh at the same or a later revision replaces it', () => {
   const later = request('open', ['planned'], 5)
   expect(newerOf(held, later)).toBe(later)
   expect(newerOf(null, later)).toBe(later)
+})
+
+it('the feed hears a closed request change sooner than the idle timer would', () => {
+  // a reopen shows within one feed read, never later than an open request's
+  expect(CHANGES_POLL_MS).toBeLessThanOrEqual(ACTIVE_MS)
+  expect(CHANGES_POLL_MS).toBeLessThan(IDLE_MS)
 })

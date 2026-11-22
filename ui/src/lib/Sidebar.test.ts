@@ -8,6 +8,7 @@ import {
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import Sidebar from './Sidebar.svelte'
 import { invalidateWorkspaces, workspace } from './workspace.svelte'
+import { feed } from './test/feedMock'
 
 const listWorkspaces = vi.hoisted(() =>
   vi.fn(() =>
@@ -27,6 +28,9 @@ vi.mock('./api', () => ({
     listWorkspaces: () => listWorkspaces(),
     createWorkspace: (n: string) => createWorkspace(n),
   },
+}))
+vi.mock('./changes.svelte', async () => ({
+  changes: (await import('./test/feedMock')).feed.changes,
 }))
 vi.mock('./toast', () => ({ notify: { error: vi.fn(), success: vi.fn() } }))
 
@@ -180,4 +184,29 @@ it('folds a run of same-prefix workspaces into one group row', async () => {
   expect(screen.queryByText('regression-a')).toBeNull()
   await fireEvent.click(group)
   expect(screen.getByText('regression-a')).toBeTruthy()
+})
+
+it('a workspace made or deleted elsewhere shows when the workspaces counter moves', async () => {
+  render(Sidebar, { collapsed: false, onToggle: () => {} })
+  await waitFor(() => expect(screen.getByText('default')).toBeTruthy())
+  expect(feed.watched(workspace.current)).toContain('workspaces')
+  const calls = listWorkspaces.mock.calls.length
+  listWorkspaces.mockImplementationOnce(() =>
+    Promise.resolve({
+      workspace_root: '/ws',
+      default: 'default',
+      workspaces: [
+        { name: 'default', default: true, usage: { files: 2, bytes: 2048 } },
+        { name: 'studio', default: false },
+        { name: 'agent-made', default: false },
+      ],
+    }),
+  )
+  feed.move(workspace.current, 'workspaces')
+  // the cached listing is dropped and read again, once
+  await waitFor(() => expect(screen.getByText('agent-made')).toBeTruthy())
+  expect(listWorkspaces.mock.calls.length).toBe(calls + 1)
+  // another kind moving reads nothing
+  feed.move(workspace.current, 'requests')
+  expect(listWorkspaces.mock.calls.length).toBe(calls + 1)
 })

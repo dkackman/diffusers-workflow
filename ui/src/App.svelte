@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { poll } from './lib/poll'
+  import { pollStatus } from './lib/statusPoll'
   import { cardReadings, meterText, meterTitle } from './lib/cardMemory'
   import {
     BookOpen,
@@ -152,9 +152,8 @@
       setAttentionBackends(health?.attention_backends)
       void watchJobs(health)
     }
-    // The one timer that keeps going while the tab is hidden: the tab title
-    // and the job-finished alert it drives are for the hidden tab
-    return poll(refreshStatus, 5000, { whileHidden: true })
+    // The one timer that keeps going while the tab is hidden (statusPoll.ts)
+    return pollStatus(refreshStatus)
   })
 
   type Theme = 'system' | 'light' | 'dark'
