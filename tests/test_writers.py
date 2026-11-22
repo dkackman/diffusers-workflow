@@ -15,10 +15,16 @@ def test_encoding_a_video_with_audio_leaves_no_encoder_threads_behind(tmp_path):
     process = psutil.Process()
     video = torch.zeros(8, 64, 64, 3, dtype=torch.uint8)
     audio = torch.from_numpy(numpy.zeros((1, 16000), dtype=numpy.float32))
-    encode_video(video, 24, str(tmp_path / "warm.mp4"), audio=audio, audio_sample_rate=16000)
+    encode_video(
+        video, 24, str(tmp_path / "warm.mp4"), audio=audio, audio_sample_rate=16000
+    )
     before = process.num_threads()
     for index in range(4):
         encode_video(
-            video, 24, str(tmp_path / f"{index}.mp4"), audio=audio, audio_sample_rate=16000
+            video,
+            24,
+            str(tmp_path / f"{index}.mp4"),
+            audio=audio,
+            audio_sample_rate=16000,
         )
     assert process.num_threads() - before < 20
