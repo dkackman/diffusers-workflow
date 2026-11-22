@@ -316,7 +316,13 @@ class TestFailure:
             def start(self):
                 raise RuntimeError("can't start new thread")
 
-        monkeypatch.setattr(lora_hub.threading, "Thread", FailingThread)
+        # Swap lora_hub's own `threading` name, never the shared module: patching
+        # threading.Thread itself leaks a Thread whose __init__ is skipped to every
+        # other thread in the xdist worker (#1568).
+        import threading
+
+        stub = SimpleNamespace(Lock=threading.Lock, Thread=FailingThread)
+        monkeypatch.setattr(lora_hub, "threading", stub)
         results, error = search_hub(
             ["Qwen/Qwen-Image-2.1"], "", [], 8, {}, api=FakeApi({})
         )

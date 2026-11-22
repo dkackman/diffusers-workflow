@@ -32,6 +32,23 @@ def pytest_runtest_setup(item):
     gc.freeze()
 
 
+_REAL_THREAD = __import__("threading").Thread
+
+
+@pytest.fixture(autouse=True)
+def _threading_thread_is_real():
+    """A test that replaces threading.Thread on the shared module leaks a stub
+    into every thread of the xdist worker (`thread.__init__() not called`,
+    #1568). Patch the consuming module's own `threading` name instead."""
+    import threading
+
+    assert threading.Thread is _REAL_THREAD, "threading.Thread was left patched"
+    yield
+    leaked = threading.Thread is not _REAL_THREAD
+    threading.Thread = _REAL_THREAD
+    assert not leaked, "this test left threading.Thread patched; scope it to the module"
+
+
 @pytest.fixture(autouse=True)
 def _trust_workflows_by_default(monkeypatch):
     """Most of this suite exercises engine mechanics, not the trust gate
