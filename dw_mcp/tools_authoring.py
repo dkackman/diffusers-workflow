@@ -134,13 +134,13 @@ class AuthoringTools:
         workspace: str | None = None,
         arguments: dict | None = None,
     ) -> dict:
-        """Check a workflow against the schema and against real pipeline
-        signatures. Free and instant - run it before run_workflow.
+        """Check a workflow against the schema and real pipeline
+        signatures. Free and instant: run before run_workflow.
         Give exactly one of `workflow` or `name` (a stored workflow as
         `list_workflows` reports it); `run_workflow`'s `inline_workflow`
-        and `workflow_path` spellings are accepted here too. `workflow` may
-        be a JSON-encoded string. Every error comes back at once, each with
-        its JSON path. `workspace` pins this one call to another workspace
+        and `workflow_path` work too. `workflow` may
+        be a JSON-encoded string. Errors come back at once with
+        JSON paths (VRAM ceiling: a list's largest member only). `workspace` pins this one call to another workspace
         without switching the session.
 
         A valid answer carries `plan`: what will execute for these
