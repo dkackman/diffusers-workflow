@@ -1149,13 +1149,31 @@ Every take is `bench/keystone-probe{,-noarg}/<run>/segments/*-seg02.2-0.0.mp4`: 
 ### Reading
 
 - **The numbering matches.** `0-29` lands near no argument (+0.57% against +0.13%), and
-  `30-39` lifts clearly (+8.39%). That is the shape roycho87 reported (+4.4% / +4.1% /
-  +13.8%). diffusers' indices 0-49 behave as ComfyUI's `diffusion_model.blocks[i]`,
-  so the arms may go ahead on this numbering.
+  `30-39` lifts clearly (+8.39%). That is the shape roycho87 reported in test 19 (+4.4% /
+  +4.1% / +13.8%). His test 21
+  ([block_map.md](https://github.com/roycho87/NerdNotes/blob/main/20261119/block_map.md),
+  CC BY-SA 4.0) corrects those figures: test 19 compared every block set with the normal
+  keystone at balance 20 on all 50 blocks, with an extra LoRA on, and balance alone
+  darkens a clip by up to 3%, so test 19 reads 3 to 4 points high. Test 21, with a
+  same-block control and no extra LoRA, gives none +0.9% (was +4.4%), `0-29`, which
+  test 21 splits by row: 0-9 +1.1%, 10-19 +0.9%, 20-29 +1.4% (test 19 had +4.1% for
+  `0-29`), and `30-39` +13.2% (was +13.8%). The conclusion
+  stands, and test 21 cites our #1394 numbers as confirming the same numbering.
+  diffusers' indices 0-49 behave as ComfyUI's `diffusion_model.blocks[i]`, so the arms
+  may go ahead on this numbering.
 - **Our plain keystone carries less on its own.** With no argument, the bright keystone
-  moves the new frames by +0.13% where roycho87 saw +4.4%. This chain's 22-frame
-  carried guide may dominate the single keyframe row more than his setup's did. The
-  absolute lifts are smaller than his, but the ratio between the groups matches.
+  moves the new frames by +0.13% where roycho87's corrected figure is +0.9%: a gap of
+  about 7x, not the 34x the test 19 figure implied. Hypothesis, untested: this chain's
+  22-frame carried guide may dominate the single keyframe row more than his setup does
+  (his holds 39 frames from clip 1, with 17 freed). The absolute lifts are smaller than
+  his, but the ratio between the groups matches.
+- **Caveat on the baseline.** Our rows are measured against a no-argument normal keystone,
+  not against the normal keystone on the same blocks, so balance's own effect is inside
+  our `0-29` and `30-39` figures. That doesn't change the numbering result.
+- **Candidates for a re-run.** Test 21's per-property block sets (saturation
+  `30-32,34-37,39,42,44`; sharpness `32-35,37,39-40,42,44`; strongest sharpening
+  `30,32-37,39-47`) are the candidates if keystone attention is ever re-run for our
+  saturation and sharpness drift.
 - **The early blocks copy the keystone into frame 0 only.** With `0-29`, frame 0 reaches
   132.6, the bright keystone's own level, and the new frames barely move. With `30-39`,
   the lift spreads over the whole segment: windows 2-8 hold at about 108-110.
@@ -1284,3 +1302,201 @@ How to read it:
 with narrower groups nor the full arms runs, and no more lem time goes to this. Stage A's
 `experimental_keystone_attention` stays experimental and behind the flag. The chain key
 and the moving-shot arm stay cut (plan v4's non-goals): nothing here brings them back.
+
+## Masked keystone: early gate (#1505 stage A, #1506)
+
+Plan v1 of #1505, with Don's defaults: no new surface (Q1), a staged gate (Q2), the
+saturation blocks only (Q3), and the #1394 control `2817a04202ae` as the baseline (Q4;
+lem's build is still `e84bda1c`). Segment 2 of the keystone control is made an unchained
+fl2va regional edit. The keystone is the source's first frame and is held by the mask,
+instead of being only the `image` conditioning. Step 1 checks that the mask holds what
+it should and that the keystone pulls. Step 2 runs the masked segment with the normal
+keystone, without the attention argument (M) and with it (MA). One H3 job ran at a time.
+
+### Setup
+
+- **Build:** diffusers `0.44.0.dev0` @ `e84bda1c` (`e84bda1c0005da3f48cc4c899635438cb0aa13c1`).
+  The build session checked it before the first job, but didn't quote the
+  `get_diffusers_state` output at the time. Re-quoted on 2026-11-20 after the jobs:
+  `"version": "0.44.0.dev0"`, `"commit": "e84bda1c0005da3f48cc4c899635438cb0aa13c1"`,
+  `"status": "idle"`, no update requested or in flight. That is the build #1394's gate ran
+  on (2026-11-18/19, above), and nothing on the record changed it in between.
+- **Baseline: reused, not re-run.** `2817a04202ae` (#1394's gate control) was reused under
+  Q4, because its build, `e84bda1c`, is the build these jobs ran on.
+- Workflows: `bench/workflows/masked-keystone-probe.json` (step 1),
+  `masked-keystone-control-early.json` (M) and `masked-keystone-attention-early.json`
+  (MA). `tests/test_bench_masked_keystone.py` pins how they are built.
+- seg02 is `keystone-probe-noarg.json`'s seg02 unchanged (dense attention, seed 2, the
+  22-frame tail as the guide, `image` the keystone, `hold_audio` aud02), plus
+  `source_video`, `mask_video`, `mask_grow` 0 and `refine_strength` 1.0.
+- seg01 and both keystones come from the shared run `KeystoneProbeSeg01/20261118-124246-9b6fdb6d`.
+- **Source:** the keystone as one frame, then seg01's frames 170-191 (the tail), then seg01's
+  frame 191 held for 169 frames.
+  - **Deviation:** the plan's source was the keystone plus the tail (23 frames). The first
+    run (`da262a1f03dc`) failed: "source_video has 23 frames ... must match" num_frames.
+    A masked source must be num_frames (192) long. The padding frames are all under the
+    white mask, so they are all regenerated, the frames `fit_source_frames` would have repeated.
+- **Mask:** 22 black frames (kept), then 170 white (regenerated). It pools to 6 latent
+  cells, and the log reads "regenerating 51408 of 57456 patch cells (6048 kept)".
+  - **Deviation:** #1322's `mask-22.mp4` asset isn't on lem, so the mask is built in the
+    workflow. The keystone is flattened to one grey by `grade` (contrast 0), then pushed
+    below (blacks -1, luma 112) or above (whites 1, luma 143) the 128 binarize threshold.
+- **Join (M, MA):** seg01's first `head_frames` = 169 + `held` frames, then seg02 with
+  `held` frames trimmed from its head, with an 80 ms crossfade. The held frames are
+  dropped, so no frame appears twice.
+
+### Jobs
+
+All three ran on cuda:0, so the per-pass times compare directly.
+
+| Job | Run | Arm | Wall | Encode | Denoise | Per pass | Decode | Host peak |
+|---|---|---|---|---|---|---|---|---|
+| `71ec47d79e63` | `20261120-111312-de6818d0` | step 1, bright keystone | 1835 s | 137.5 s | 1633.7 s | 86.0 s | 53.0 s | 68 976 MB |
+| `158ff0b20f0c` | `20261120-114624-5252303f` | M | 1836 s | 129.1 s | 1639.5 s | 86.2 s | 53.0 s | 69 825 MB |
+| `9eedaee96617` | `20261120-121710-331c39ff` | MA | 1878 s | 129.3 s | 1682.7 s | 88.5 s | 52.9 s | 69 773 MB |
+
+- Each job ran 19 passes, with the pipeline load cached.
+- The masked edit costs about what the unmasked seg02 did: 85.9 s per pass on cuda:0 in
+  `2817a04202ae`.
+- MA's attention op adds about +2.7% per pass (88.5 s against 86.2 s on the same card).
+  #1394 estimated +5% across two cards.
+
+Takes, in workspace `bench`:
+- M: `masked-keystone-control-early/20261120-114624-5252303f/final/MaskedKeystoneControlEarly-take.11-0.0.mp4`
+- MA: `masked-keystone-attention-early/20261120-121710-331c39ff/final/MaskedKeystoneAttentionEarly-take.11-0.0.mp4`
+- step 1: `masked-keystone-probe/20261120-111312-de6818d0/segments/MaskedKeystoneProbe-seg02.9-0.0.mp4`
+
+### Step 1: does the keystone pull? (bright keystone)
+
+**It passes on its letter.**
+- Frames 22+ of the probe have a mean luma of 102.16.
+- The unmasked bright-keystone probe (`53e01c397101`) had 101.05 there, so the masked
+  edit is +1.10% toward the keystone (luma 132.4), past the +0.5% bar.
+- Frame 0 is the keystone: mean |diff| 3.75 after the encode.
+
+**But read it as a weak pull, perhaps not a pull at all.**
+- The kept frames' luma drifts down from 103 to 95.6 across frames 1-17.
+- Over frames 18-22, where the regenerated region begins, it jumps back to 102.
+- That is the seam lift #1322 measured at a masked hand-off (+11.6 luma there). It can
+  account for the whole +1.1% without the keystone pulling at all.
+- The 1 s window means over frames 0-191 are 100.8 103.2 100.4 101.5 100.5 104.0 102.5 103.1.
+
+**Frames held: H = 18.** Probe frame j matches seg01 frame 169 + j as follows:
+
+| Frames | Mean \|diff\| |
+|---|---|
+| j = 1-17 | 2.7-3.3 (encode noise) |
+| j = 18 | 3.72 |
+| j = 19 | 5.84 |
+| j = 20 | 7.66 |
+| j = 22 | 10.23 |
+
+So the latent mask holds about 18 frames, not 22, and the join uses `held` 18 and
+`head_frames` 187.
+
+**Why `head_frames` is 187 and not 192 (seg01's frame count).** seg02's `source_video` is
+the keystone at frame 0, then seg01's tail (seg01 frames 170-191) at frames 1-22, so seg02
+frame *j* (1 ≤ *j* ≤ 22) is seg01 frame 169 + *j*. With 18 frames held, seg02's first kept
+frame, frame 18, is seg01 frame 187, so the head is seg01 frames 0-186 (`head_frames` =
+169 + 18 = 187). seg02 re-renders seg01 frames 187-191 (its frames 18-22), so the join
+drops them from seg01 so they don't show twice. The take is 187 + (192 − 18) = 361
+frames, which is what `get_gallery_metadata` reports for the MA take `9eedaee96617`
+(shots: head 187, seg02 174).
+
+### Step 2 measures (normal keystone)
+
+How they were measured:
+- The method is #1394's. Every frame was scanned, and YuNet 2023mar found a face on all 361 of each take.
+- Face sharpness is the Laplacian variance of the gray face crop, saturation the HSV
+  mean, and luma BT.601 gray.
+- Each value is a 1 s (24-frame) endpoint mean.
+- The new takes are 361 frames: head 0-186, then seg02 from frame 187 (`analyze_seams`'
+  `between_frames`). They split at 187. The baseline's 362-frame take splits at 192, as
+  #1394 did.
+- The same script reproduces #1394's control row exactly.
+- SFace is the cosine between the 0.5 s face (frame 12) and the mean feature of
+  seg02's first and last 1 s. It is one per-frame feature at frame 12, not #1394's
+  0.25 s-sampled reference. So all three arms are re-measured here, and the baseline's
+  SFace reads .967 / .943 rather than the .908 / .907 recorded in #1394.
+
+| Measure (total / seams / in-segment) | Baseline `2817a04202ae` | M | MA |
+|---|---|---|---|
+| luma | +1.58 / +2.50 / -0.92 | +4.46 / +1.33 / +3.13 | +3.92 / +1.42 / +2.49 |
+| saturation | +1.79 / +1.09 / +0.70 | +3.05 / +3.01 / +0.04 | +3.77 / +3.49 / +0.28 |
+| face saturation | -2.23 / -0.51 / -1.71 | -0.86 / +0.27 / -1.13 | -0.64 / -0.55 / -0.09 |
+| face sharpness | -63.6 / -5.2 / -58.4 | -29.4 / +1.2 / -30.7 | -38.4 / +1.6 / -40.0 |
+
+| Measure | Baseline | M | MA |
+|---|---|---|---|
+| seg02 luma rise (seam + in-segment) | +1.14 | +3.05 | +2.50 |
+| seg02 saturation rise | +2.72 | +4.52 | +5.24 |
+| face sharpness: seg01 last 1 s → seg02 last 1 s | 108.9 → 92.0 (**16.9**) | 96.2 → 116.2 (**19.9**) | 96.6 → 107.2 (**10.6**) |
+| SFace to the 0.5 s face: seg02 first / last 1 s | .967 / .943 | .971 / .942 | .971 / .950 |
+| seam-1 `jump_ratio` | 1.09 | 0.40 | 0.40 |
+| seam-1 `look_ratio` (contrast) | 2.50 | 1.95 | 2.16 |
+
+Face-sharpness medians per 1 s window. In the new takes seg02 starts in window 7 (frame 187):
+
+- baseline: 160 113 111 89 96 92 144 103 100 106 102 99 108 131 82
+- M: 140 105 104 78 89 83 130 88 96 81 92 82 110 93 123
+- MA: 140 105 104 78 89 83 132 87 100 64 104 65 112 96 117
+
+The head reads less sharp than the baseline's seg01 (140 against 160 in the first
+second), so the two seg01s are not the same frames. The head is a `trim_video` of the
+shared run's seg01, one more encode, and that seg01 is a different render from the one
+inside `2817a04202ae`. The totals are each take's own end minus its own start, so this
+doesn't change the verdict below.
+
+Splitting the new takes at 192, as #1394 did, leaves the totals unchanged and doesn't
+change any criterion. The seg02 luma rise reads +3.48 (M) and +2.95 (MA), the saturation
+rise +3.86 and +4.55, and the sharpness distance 28.5 and 19.7.
+
+**Face crops** (`get_output_frames`, crop `[372, 0, 600, 768]`, at 0.5, 8.5, 11.0 and
+14.9 s, `max_dimension` 256):
+
+![Face crops: rows baseline, M, MA; columns 0.5, 8.5, 11.0, 14.9 s](img/masked-keystone-early-face-crops.png)
+
+Rows, top to bottom: baseline `2817a04202ae`, M, MA. Columns: 0.5, 8.5, 11.0 and 14.9 s.
+
+- M and MA look almost the same. Identity holds, and no face is crusted or over-sharpened.
+- After the seam, both arms' speaker drifts left of centre (8.5 s) and comes back
+  toward centre by 14.9 s.
+- By 14.9 s the skin reads warmer and more saturated than at 0.5 s in both, which matches the saturation rise.
+- The baseline's 14.9 s face reads nearer its 0.5 s tone than either masked arm's does.
+
+### Gate (MA against the baseline)
+
+| Criterion | Bar | MA | Result |
+|---|---|---|---|
+| saturation rise ≥25% smaller than the baseline's, and ≤ M's | ≤ +1.34 and ≤ +3.05 | +3.77 | **fails** |
+| \|face-sharpness distance\| from seg01's last 1 s ≤ the baseline's | ≤ 16.9 | 10.6 | passes |
+| luma rise ≤ the baseline's | ≤ +1.58 | +3.92 | **fails** |
+| SFace ≥ baseline − .02 | ≥ .923 (last 1 s) | .950 | passes |
+| `jump_ratio` < 1.5x the baseline's | < 1.64 | 0.40 | passes |
+
+**M fails the same bars.** Its saturation rise is +3.05 against a +1.34 bar, its luma rise
++4.46 against +1.58, and its sharpness distance 19.9 against 16.9. So "the masked keystone
+helps, the attention doesn't" does not apply.
+
+### Outcome
+
+**The gate fails. Neither the masked keystone nor the attention on top of it helps.**
+Per the plan, no full 12-segment run follows.
+
+How to read it:
+- **The masked edit makes the drift worse, not better.** Both arms' seg02s brighten and
+  saturate *through* the segment: luma in-segment slope +1.7 (M), against -1.4 for the
+  baseline's seg02. Their seam steps are larger in saturation (+3.0 and +3.5 against
+  +1.1). That is the masked hand-off's lift that #1322 found and step 1 showed again.
+  Holding the keystone frame in the source doesn't hold the look.
+- **The seam itself is cleaner.** `jump_ratio` falls from 1.09 to 0.40, because the kept
+  frames are seg01's own and the join drops them. That is a property of the mask, not of
+  the keystone.
+- **MA against M:**
+  - MA's face sharpness ends nearer seg01's (10.6 against 19.9 away), and its identity
+    holds a little better (SFace .950 against .942).
+  - But its saturation rises more (+3.77 against +3.05), the opposite of what Q3's
+    saturation blocks were chosen for.
+  - The windows show MA's face sharpness swinging (64-112) where M's is steadier.
+- As in #1394, this is a dense-attention result on one seed and one take, and the
+  shipped templates run sparse.

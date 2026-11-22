@@ -1,258 +1,503 @@
 <script lang="ts">
-  import { api, ApiError, outputUrl } from '../api'
-  import { notify } from '../toast'
-  import { formatExact, formatMinutes } from '../format'
-  import { firstImage } from '../requestResult'
+  import { tick, type Snippet } from 'svelte'
+  import {
+    Check,
+    ChevronDown,
+    ChevronRight,
+    MessageSquare,
+  } from '@lucide/svelte'
+  import AttemptStrip from './AttemptStrip.svelte'
+  import ItemProof from './ItemProof.svelte'
+  import NoteList from './NoteList.svelte'
+  import {
+    activeJob,
+    CHIP,
+    figureOf,
+    opensByDefault,
+    resultMark,
+    takesLine,
+    titleId,
+    type ItemRef,
+    type ItemState,
+    type Take,
+  } from './itemState'
+  import { noteWaiting } from './noteState'
+  import type { ReviewCountdown } from './review.svelte'
+  import { chipText } from './reviewText'
+  import { addRef } from './noteRefs'
+  import { displayValue } from '../editor'
   import { wsHref } from '../routes'
-  import type { LedgerItem } from '../types'
+  import type { LedgerNoteRef, LedgerRequest } from '../types'
 
+  // One item of the plan as a row: what stands for it, what it is called,
+  // its state as a word, one figure - and, opened, its takes, what it waits
+  // on and what waits on it, what it would run, and the notes for the agent.
+  // The snippets are where a row's controls go; none is drawn here
   let {
-    item,
+    row,
+    request,
     workspace,
-    onsave,
     onreload,
+    ongo,
+    handle,
+    action,
+    menu,
+    notice,
+    onaccept,
+    countdown,
   }: {
-    item: LedgerItem
+    row: ItemState
+    request: LedgerRequest
     workspace: string
-    /** Store the comment (null clears it); rejects with the server's error */
-    onsave: (text: string | null) => Promise<void>
-    onreload: () => void
+    /** Read the request again: a note was written, or a save found the
+     * request had moved on */
+    onreload: () => void | Promise<void>
+    /** Go to another item's row: a dependency's name was pressed */
+    ongo: (key: string) => void
+    /** The first cell: the reorder grip */
+    handle?: Snippet<[ItemState]>
+    /** Beside "Open job": the row's own action */
+    action?: Snippet<[ItemState]>
+    /** The last cell: the row's menu, with what it can ask of the row */
+    menu?: Snippet<[ItemState, RowApi]>
+    /** Under the row: what the page has to say about an edit to it */
+    notice?: Snippet<[ItemState]>
+    /** Accept a take as the result (null clears the choice) */
+    onaccept?: (take: Take, job: string | null) => void
+    /** The page's review countdowns: what a held row's chip counts down */
+    countdown?: ReviewCountdown
   } = $props()
 
-  // The thumbnail is the result job's first image, fetched once per job
-  let thumb = $state<{ src: string; job: string } | null>(null)
-  $effect(() => {
-    const job = item.result?.job
-    if (!job) {
-      thumb = null
-      return
-    }
-    if (thumb?.job === job) return
-    let live = true
-    api
-      .getJob(job)
-      .then((detail) => {
-        if (!live) return
-        const file = firstImage(detail)
-        thumb = file
-          ? { job, src: outputUrl(file, detail.id, detail.workspace) }
-          : null
-      })
-      .catch(() => {
-        if (live) thumb = null
-      })
-    return () => (live = false)
-  })
+  /** What a row's menu can ask of it */
+  type RowApi = { note: () => void }
 
-  // A draft is the page's only local edit; a poll replacing `item` leaves it
-  let editing = $state(false)
-  let draft = $state('')
-  let saving = $state(false)
-  let stale = $state<string | null>(null)
+  const item = $derived(row.item)
+  const chip = $derived(CHIP[row.display])
+  const waitingNote = $derived(
+    item.notes.some((note) => noteWaiting(note, request)),
+  )
+  const latestNote = $derived(item.notes.at(-1) ?? null)
+  // The user's own toggle wins for as long as the page holds this row
+  let chosen = $state<boolean | null>(null)
+  const open = $derived(chosen ?? opensByDefault(row, waitingNote))
 
-  function edit() {
-    draft = item.comment?.text ?? ''
-    stale = null
-    editing = true
+  const held = $derived(
+    row.review ? chipText(row.review, countdown?.left(item.key) ?? null) : null,
+  )
+  const figure = $derived(figureOf(row))
+  const takes = $derived(takesLine(row))
+  const mark = $derived(row.display === 'done' ? resultMark(item) : null)
+  const job = $derived(activeJob(item))
+  const args = $derived(Object.entries(item.arguments ?? {}))
+  const moreId = $derived(`req-item-${item.key}-more`)
+  const firstLine = (text: string) => text.trim().split('\n')[0]
+
+  /** The row stays open under the button just pressed: with a take
+   * chosen it would no longer open by default */
+  function accept(take: Take, job: string | null) {
+    chosen = true
+    onaccept?.(take, job)
   }
-  async function save() {
-    saving = true
-    try {
-      await onsave(draft.trim() ? draft : null)
-      editing = false
-      stale = null
-    } catch (e) {
-      if (e instanceof ApiError && e.status === 409) stale = e.message
-      else notify.error(e instanceof Error ? e.message : String(e))
-    } finally {
-      saving = false
-    }
+
+  let notes = $state<ReturnType<typeof NoteList>>()
+  // What the new note is about so far: the takes "Note this take" added
+  let pending = $state<LedgerNoteRef[]>([])
+  /** Open the row and its new note's box: "Add a note" in the menu */
+  async function openNote() {
+    chosen = true
+    await tick()
+    void notes?.add()
+  }
+  /** "Note this take": the take, and its proof file, join the new note */
+  function noteTake(take: Take) {
+    const { job, output } = take.attempt
+    pending = addRef(pending, {
+      item: item.key,
+      job,
+      ...(output ? { output: output.name } : {}),
+    })
+    void openNote()
   }
 </script>
 
-<li class="item panel" class:dropped={item.dropped}>
-  <div class="head">
-    <span
-      class="chip status"
-      class:running={item.status === 'running'}
-      class:queued={item.status === 'queued'}
-      class:succeeded={item.status === 'done'}
-      class:failed={item.status === 'failed'}
-      class:planned={item.status === 'planned'}
-      class:gone={item.status === 'dropped'}>{item.status}</span
+{#snippet refs(list: ItemRef[])}
+  {#each list as dep, i (i)}
+    {i ? ', ' : ''}<button
+      type="button"
+      class="bare ref"
+      onclick={() => ongo(dep.key)}
     >
-    <strong class="title">{item.title}</strong>
-    <code class="muted">{item.key}</code>
-    <span class="flex"></span>
-    <span class="muted num" title="estimate"
-      >est. {item.estimate_minutes == null
-        ? '—'
-        : formatMinutes(item.estimate_minutes)}</span
-    >
-  </div>
+      {dep.title}
+    </button><span class:bad={dep.display === 'failed'}>
+      {` (${CHIP[dep.display].word})`}
+    </span>
+  {/each}
+{/snippet}
 
-  <div class="body">
-    {#if thumb && item.result}
-      <a
-        class="plain frame result"
-        href={wsHref(workspace, 'jobs', item.result.job)}
-        title="open the job"
-      >
-        <img src={thumb.src} alt="result of {item.title}" loading="lazy" />
-      </a>
+<li class="item" class:dropped={item.dropped} data-key={item.key}>
+  <!-- The row alone is the live one: opened, its region is not machine state -->
+  <div class="row" class:row-live={row.display === 'running'}>
+    <span class="handle">{@render handle?.(row)}</span>
+    <div class="main">
+      <div class="titleline">
+        <button
+          type="button"
+          class="bare title"
+          id={titleId(item.key)}
+          aria-expanded={open}
+          aria-controls={moreId}
+          onclick={() => (chosen = !open)}
+        >
+          {#if open}<ChevronDown size={14} aria-hidden="true" />{:else}
+            <ChevronRight size={14} aria-hidden="true" />{/if}
+          <span class="name">{item.title}</span>
+        </button>
+        <code class="muted key">{item.key}</code>
+        {#if held}<span class="chip idle held">{held}</span>{/if}
+      </div>
+      {#if row.display === 'waiting'}
+        <p class="sub">waits on {@render refs(row.blockers)}</p>
+      {:else if row.noWorkflow && !item.dropped}
+        <p class="sub muted">
+          No stored workflow. Only the agent can run this.
+        </p>
+      {/if}
+      {#if takes}
+        <p class="sub">
+          <span class="muted">{takes}</span>
+          {#if item.attempts.length > 1 && mark === 'accepted'}
+            <span class="mark">
+              <Check size={12} aria-hidden="true" /> accepted
+            </span>
+          {:else if item.attempts.length > 1 && mark === 'latest'}
+            <span class="mark">latest, none accepted</span>
+          {/if}
+        </p>
+      {/if}
+      {#if latestNote && !open}
+        <p class="sub peek" title="your latest note for the agent">
+          <MessageSquare size={12} aria-hidden="true" />
+          <span>{firstLine(latestNote.text)}</span>
+          {#if item.notes.length > 1}
+            <span class="more-notes">+{item.notes.length - 1}</span>
+          {/if}
+        </p>
+      {/if}
+    </div>
+    <!-- Open, the takes below show the same picture larger: the cell keeps
+      its width so the row does not move -->
+    <span
+      class="proofcell"
+      class:bare={!item.result?.output}
+      class:under={open && item.attempts.length > 0}
+    >
+      <ItemProof
+        output={item.result?.output ?? null}
+        state={row.display}
+        {workspace}
+        href={item.result ? wsHref(workspace, 'jobs', item.result.job) : null}
+        alt="result of {item.title}"
+      />
+    </span>
+    <span class="chipcell">
+      <span class="chip {chip.tone}">{chip.word}</span>
+    </span>
+    <span class="figure num muted">{figure}</span>
+    <span class="tail">
+      {#if job || action}
+        <span class="action">
+          {#if job}
+            <a
+              class="plain quiet openjob"
+              href={wsHref(workspace, 'jobs', job)}
+            >
+              Open job
+            </a>
+          {/if}
+          {@render action?.(row)}
+        </span>
+      {/if}
+      {#if menu}<span class="menu">
+          {@render menu(row, { note: openNote })}
+        </span>{/if}
+    </span>
+  </div>
+  {#if notice}{@render notice(row)}{/if}
+
+  <!-- Hidden, not removed: the notes' drafts are in here, and closing the
+       row must not lose them -->
+  <div class="more" id={moreId} hidden={!open}>
+    {#if open && item.attempts.length}
+      <AttemptStrip
+        {item}
+        {workspace}
+        onaccept={item.dropped || !onaccept ? undefined : accept}
+        onnote={item.dropped ? undefined : noteTake}
+      />
     {/if}
-    <div class="details">
-      {#if item.depends_on?.length}
-        <p class="muted small">
-          depends on {#each item.depends_on as dep, i (dep)}{#if i},
-            {/if}<code>{dep}</code>{/each}
-        </p>
-      {/if}
-      {#if item.accepted_missing}
-        <p class="warn small">
-          accepted run missing — showing the latest succeeded run instead
-        </p>
-      {/if}
-      {#if item.attempts.length}
-        <ul class="attempts">
-          {#each item.attempts as attempt (attempt.job)}
-            <li>
-              <a class="plain" href={wsHref(workspace, 'jobs', attempt.job)}
-                >{attempt.job}</a
-              >
-              <span class="chip {attempt.status}">{attempt.status}</span>
-              <span class="muted num"
-                >{attempt.minutes == null
-                  ? '—'
-                  : formatMinutes(attempt.minutes)}</span
-              >
-              {#if attempt.note}<span class="muted">{attempt.note}</span>{/if}
-            </li>
+    {#if row.after.length}
+      <p class="sub">after: {@render refs(row.after)}</p>
+    {/if}
+    {#if row.neededBy.length}
+      <p class="sub">needed by: {@render refs(row.neededBy)}</p>
+    {/if}
+    <NoteList
+      bind:this={notes}
+      bind:pendingRefs={pending}
+      notes={item.notes}
+      {request}
+      item={item.key}
+      {workspace}
+      about={item.title}
+      {ongo}
+      onchanged={onreload}
+    />
+    <!-- What it runs is detail: after the notes, not between the takes and
+      them -->
+    {#if item.workflow && args.length}
+      <details class="runs">
+        <summary>
+          Runs <code>{item.workflow}</code> with {args.length}
+          {args.length === 1 ? 'argument' : 'arguments'}
+        </summary>
+        <ul class="args">
+          {#each args as [name, value] (name)}
+            <li title={displayValue(value)}>{name} = {displayValue(value)}</li>
           {/each}
         </ul>
-      {/if}
-
-      <div class="comment">
-        {#if editing}
-          <textarea
-            bind:value={draft}
-            rows="3"
-            aria-label="Comment on {item.key}"
-            placeholder="Add a comment"></textarea>
-          <div class="actions">
-            <button type="button" class="quiet" onclick={save} disabled={saving}
-              >Save</button
-            >
-            <button
-              type="button"
-              class="bare"
-              onclick={() => (editing = false)}
-              disabled={saving}>Cancel</button
-            >
-          </div>
-          {#if stale}
-            <p class="error" role="alert">
-              {stale}
-              <button type="button" class="quiet" onclick={onreload}
-                >Reload</button
-              >
-            </p>
-          {/if}
-        {:else}
-          {#if item.comment}
-            <p class="text">{item.comment.text}</p>
-            <p class="muted small">
-              {formatExact(Date.parse(item.comment.at) / 1000)}
-            </p>
-          {/if}
-          <button type="button" class="quiet" onclick={edit}
-            >{item.comment ? 'Edit comment' : 'Add comment'}</button
-          >
-        {/if}
-      </div>
-    </div>
+      </details>
+    {:else if item.workflow}
+      <p class="sub">Runs <code>{item.workflow}</code> with no arguments</p>
+    {/if}
   </div>
 </li>
 
 <style>
   .item {
     list-style: none;
+    --handle: 24px;
   }
-  .item.dropped .title {
-    color: var(--muted);
-    text-decoration: line-through;
+  /* A finger needs 44px of handle */
+  @media (pointer: coarse) {
+    .item {
+      --handle: 44px;
+    }
   }
-  .head {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    gap: var(--space-2) var(--space-3);
+  /* Where a dragged row would land (reorder.svelte.ts): ink, the
+     pointer's place, as a drop target is */
+  .item:global(.insert-before) {
+    box-shadow: inset 0 2px 0 var(--ink);
   }
-  .status.planned,
-  .status.gone {
-    background: var(--panel-2);
-    color: var(--muted);
+  .item:global(.insert-after) {
+    box-shadow: inset 0 -2px 0 var(--ink);
   }
-  .body {
-    display: flex;
+  .item:global(.dragging) {
+    position: relative;
+    z-index: 1;
+    opacity: 0.85;
+    background: var(--panel);
+  }
+  /* handle, proof, main, chip, figure, actions. The chip's column is
+     fixed, so a change of status never moves what is beside it */
+  .row {
+    display: grid;
+    grid-template-columns: var(--handle) 96px minmax(0, 1fr) 90px 7.5rem minmax(
+        5.5rem,
+        auto
+      );
+    grid-template-areas: 'handle proof main chip figure tail';
     gap: var(--space-3);
-    margin-top: var(--space-2);
+    align-items: center;
+    padding: 0.55rem 0.8rem 0.55rem 0.2rem;
   }
-  .result {
-    flex: none;
-    width: 140px;
-    aspect-ratio: 4 / 3;
+  .handle {
+    grid-area: handle;
   }
-  .result img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    display: block;
+  .proofcell.under {
+    visibility: hidden;
   }
-  .details {
-    flex: 1;
+  .proofcell {
+    grid-area: proof;
+    display: flex;
+  }
+  .main {
+    grid-area: main;
     min-width: 0;
-  }
-  .small {
-    font-size: var(--t-sm);
-    margin: 0 0 var(--space-1);
-  }
-  .warn {
-    color: var(--warn);
-  }
-  .attempts {
-    list-style: none;
-    margin: 0 0 var(--space-2);
-    padding: 0;
     display: flex;
     flex-direction: column;
-    gap: var(--space-1);
-    font-family: var(--font-mono);
-    font-size: var(--t-sm);
+    gap: 0.15rem;
   }
-  .attempts li {
+  .chipcell {
+    grid-area: chip;
+  }
+  .figure {
+    grid-area: figure;
+    font-size: var(--t-xs);
+    text-align: right;
+  }
+  .tail {
+    grid-area: tail;
     display: flex;
-    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--space-2);
+  }
+  .action,
+  .menu {
+    display: flex;
     align-items: center;
     gap: var(--space-2);
   }
-  .text {
-    white-space: pre-wrap;
-    margin: 0;
+  .openjob {
+    padding: 0.25rem 0.6rem;
+    font-size: var(--t-sm);
+    white-space: nowrap;
   }
-  textarea {
-    width: 100%;
-    font: inherit;
-    background: var(--panel-2);
-    color: var(--ink);
-  }
-  .actions {
+  .titleline {
     display: flex;
-    gap: var(--space-2);
-    margin-top: var(--space-1);
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0 var(--space-2);
   }
-  .error {
+  .title {
+    display: inline-flex;
+    align-items: baseline;
+    gap: var(--space-1);
+    padding: 0;
+    color: var(--ink);
+    font-size: var(--t-base);
+    font-weight: 600;
+    text-align: left;
+    min-width: 0;
+  }
+  .title:hover {
+    background: transparent;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .title :global(svg) {
+    flex: none;
+    align-self: center;
+    color: var(--muted);
+  }
+  .name {
+    overflow-wrap: anywhere;
+  }
+  .key {
+    font-size: var(--t-xs);
+  }
+  .held {
+    white-space: nowrap;
+  }
+  .dropped {
+    opacity: 0.72;
+  }
+  .dropped .name {
+    text-decoration: line-through;
+  }
+  .sub {
+    margin: 0;
+    font-size: var(--t-sm);
+  }
+  .mark {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.2rem;
+    font-weight: 600;
+    margin-left: var(--space-2);
+  }
+  .peek {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    color: var(--muted);
+    min-width: 0;
+  }
+  .peek .more-notes {
+    flex: none;
+    overflow: visible;
+  }
+  .peek span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .ref {
+    /* in the line, as a link in a sentence is: a long title wraps with it */
+    display: inline;
+    text-align: left;
+    padding: 0;
+    color: var(--ink);
+    font-size: inherit;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .bad {
     color: var(--bad);
+  }
+  .more {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    /* under the main column: past the handle and the proof */
+    padding: 0 0.8rem var(--space-4)
+      calc(0.2rem + var(--handle) + 96px + 2 * var(--space-3));
+  }
+  .more[hidden] {
+    display: none;
+  }
+  .runs summary {
+    font-size: var(--t-sm);
+    cursor: pointer;
+  }
+  .args {
+    list-style: none;
     margin: var(--space-1) 0 0;
+    padding: 0;
+    font-family: var(--font-mono);
+    font-size: var(--t-xs);
+  }
+  .args li {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* Narrow: the chip and the title, then the proof and the figure, then
+     the row's action across the width */
+  @container (max-width: 640px) {
+    .row {
+      grid-template-columns: var(--handle) 96px minmax(0, 1fr) auto;
+      grid-template-areas:
+        'handle chip main menu'
+        '. proof figure figure'
+        '. action action action';
+      gap: var(--space-2);
+      align-items: start;
+    }
+    .tail {
+      display: contents;
+    }
+    /* With no picture to show, the chip has said it: no empty slot */
+    .proofcell.bare {
+      display: none;
+    }
+    .action {
+      grid-area: action;
+    }
+    .menu {
+      grid-area: menu;
+    }
+    .openjob {
+      flex: 1;
+      text-align: center;
+    }
+    .figure {
+      text-align: left;
+      align-self: center;
+    }
+    .more {
+      padding-left: calc(0.2rem + var(--handle) + var(--space-2));
+    }
   }
 </style>

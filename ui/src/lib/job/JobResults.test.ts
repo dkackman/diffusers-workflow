@@ -1,4 +1,10 @@
-import { cleanup, render, screen, waitFor } from '@testing-library/svelte'
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/svelte'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import JobResults from './JobResults.svelte'
 import { api } from '../api'
@@ -92,4 +98,36 @@ it('fetches an .otioz once and renders its timeline strip', async () => {
     screen.queryByRole('link', { name: 'Download media/b.mp4' }),
   ).toBeNull()
   expect(calls).toEqual(['run1/cut.otioz'])
+})
+
+it('offers "Note this file" on each output only when the page gives onnote', async () => {
+  const onnote = vi.fn()
+  const groups = [
+    {
+      step: 'render',
+      files: ['run1/a.mp4', 'run1/b.wav'],
+      reused: false,
+      subfolder: '',
+      role: null,
+    },
+  ]
+  const kinds = { 'run1/a.mp4': 'video', 'run1/b.wav': 'audio' }
+  const job = { id: 'j1', workspace: 'w' } as JobDetail
+  const args = {
+    job,
+    fileGroups: groups,
+    unsaved: [],
+    kinds,
+    seedVariable: null,
+  }
+  render(JobResults, args)
+  expect(screen.queryByRole('button', { name: /Note this file/ })).toBeNull()
+  cleanup()
+  render(JobResults, { ...args, onnote })
+  await fireEvent.click(
+    screen.getByRole('button', {
+      name: 'Note this file (b.wav) for the agent',
+    }),
+  )
+  expect(onnote).toHaveBeenCalledWith('run1/b.wav')
 })

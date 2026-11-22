@@ -14,7 +14,7 @@ from array import array
 
 from .. import references
 from ..adapter_compatibility import FROM_PRETRAINED_KEY, H3_WORKFLOWS, WORKFLOW_KEY
-from ..variable_constraints import aligned, aligned_down
+from ..variable_constraints import aligned_down
 
 MODULAR_PIPELINE = "ModularPipeline"
 
@@ -226,6 +226,18 @@ REFINE_WINDOWS_ENV_VAR = "DW_EXPERIMENTAL_REFINE_WINDOWS"
 def refine_windows_enabled():
     """Whether the long-form spikes' scratch flag is on in this process."""
     return os.environ.get(REFINE_WINDOWS_ENV_VAR) == "1"
+
+
+def lifts_duration_ceiling(arguments):
+    """Whether a call is the windowed refine whose take may run past H3's
+    `max_duration`: it carries both `refine_windows` and `refine_strength`.
+    Asked by the layout step at the call (h3_windows.py
+    `DwH3LongRefineLayoutStep`) and by validate before the load
+    (dw/pipeline_limits.py); every other call keeps the ceiling."""
+    return (
+        arguments.get(REFINE_WINDOWS_INPUT) is not None
+        and arguments.get(REFINE_STRENGTH_INPUT) is not None
+    )
 
 
 def renamed_windows_problem(arguments):
@@ -1022,96 +1034,5 @@ def _audio_pass_problems(arguments):
             problems.append(
                 f"listen_scale is one of {', '.join(map(str, LISTEN_SCALES))} - "
                 f"the audio pass's canvas against the source's - not {scale!r}"
-            )
-    return problems
-
-
-def listen_canvas(width, height, scale):
-    """The (width, height) an audio pass at `scale` runs its kept rows on: the
-    shorter side scaled and snapped to the nearest TILE_GRID multiple, ties
-    up, the longer derived from the source's aspect and snapped the same way,
-    neither below one cell of the grid. Snapping each side on its own would
-    squeeze 960x544 at 0.25 to 256x128, 13% off its aspect."""
-
-    def snapped(side):
-        return max(TILE_GRID, int(side / TILE_GRID + 0.5) * TILE_GRID)
-
-    short = snapped(min(width, height) * scale)
-    long = snapped(short * max(width, height) / min(width, height))
-    return (long, short) if width >= height else (short, long)
-
-
-def retimed_indices(frame_count, fps):
-    """The source frame each conditioning frame of an audio pass shows: the
-    source's `frame_count` frames at `fps` resampled in time, nearest frame,
-    to H3_FPS over the same duration, the count snapped up onto RENDER_GRID
-    as `num_frames` is (the frames past the end repeat the last). The video
-    rows then encode a 24 fps picture of the same moments, and the audio
-    generated against them covers the source's real duration (R25)."""
-    count = aligned(max(1, round(frame_count / fps * H3_FPS)), RENDER_GRID)
-    return [min(frame_count - 1, int(i * fps / H3_FPS + 0.5)) for i in range(count)]
-
-
-def media_problems(
-    name, shape, width, height, num_frames=None, fps=None, frames_constraint=None
-):
-    """Why a `source_video` or mask of `shape` - (frames, height, width) -
-    does not fit a `width` x `height` canvas, as a list. `num_frames` is the
-    step's frame count, when it is known; a `mask_image` (one frame) fits any.
-    `fps` is an audio pass's source rate: at any rate but H3_FPS the source is
-    retimed onto the grid (`retimed_indices`), so its own count need not be.
-    `frames_constraint` is the workflow's declared `num_frames` constraint
-    (`variable_constraints`, the owner of the ceiling), when the caller has
-    it: a `source_video` past its `max_frames` is then named too long."""
-    ceiling = (frames_constraint or {}).get("max_frames")
-    problems = []
-    if (width, height) != (shape[2], shape[1]):
-        problems.append(
-            f"{name} is {shape[2]}x{shape[1]}, and the step renders "
-            f"{width}x{height} - they must match"
-        )
-    # An audio pass at another rate conditions on the source retimed to H3_FPS,
-    # so it is that count, not the source's own, the step must render
-    expected = shape[0]
-    retimed = name == SOURCE_VIDEO_INPUT and fps not in (None, H3_FPS)
-    if retimed:
-        expected = len(retimed_indices(shape[0], fps))
-    if num_frames is not None and name != MASK_IMAGE_INPUT and expected != num_frames:
-        if retimed:
-            have = (
-                f"{name} has {shape[0]} frames at {fps:g} fps ({expected} once "
-                f"retimed to {H3_FPS} fps)"
-            )
-        else:
-            have = f"{name} has {shape[0]} frames"
-        problem = (
-            f"{have}, and the step renders num_frames={num_frames} - they must match"
-        )
-        if (
-            name == SOURCE_VIDEO_INPUT
-            and isinstance(ceiling, int)
-            and expected > ceiling
-        ):
-            fits = aligned_down(ceiling, frames_constraint)
-            problem += (
-                f". This workflow renders at most {ceiling} frames, so this clip "
-                f"is too long - trim it to {fits if fits is not None else ceiling} "
-                f"frames or fewer"
-            )
-        problems.append(problem)
-    elif (
-        num_frames is not None and name == SOURCE_VIDEO_INPUT and fps in (None, H3_FPS)
-    ):
-        # Off the 17n + 5 grid the pipeline snaps num_frames up and the source
-        # is padded to fit, so the mask drifts in time and the output is longer
-        # than the source: refused here, where the count can still be changed
-        on_grid = aligned(num_frames, RENDER_GRID)
-        if on_grid != num_frames:
-            below = aligned_down(num_frames, RENDER_GRID)
-            problems.append(
-                f"{name} has {shape[0]} frames, off the 17n + 5 grid the step "
-                f"renders on: the pipeline would render {on_grid} and pad the "
-                f"source, drifting the mask - trim the clip to {below} frames or "
-                f"pad it to {on_grid}"
             )
     return problems

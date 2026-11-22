@@ -6,10 +6,11 @@
   import FolderGroups from '../FolderGroups.svelte'
   import { leafOf } from '../grouping'
   import HintBar from '../HintBar.svelte'
-  import { costBasisWords, costFigure, costMeasuredOn } from '../cost'
-  import { observedText, observedTitle } from '../observed'
+  import { costFigure } from '../cost'
+  import { observedText } from '../observed'
   import { latestProofs } from '../proofs'
   import { sharedHref, wsHref } from '../routes'
+  import { cardTitle } from '../workflowCard'
   import { workspace } from '../workspace.svelte'
   import {
     WORKFLOW_SHAPES,
@@ -142,24 +143,6 @@
     return measured ? costFigure(measured) : ''
   }
 
-  /** Everything the card does not have room to print, so hovering it still
-   * answers "what is this and what does it need". */
-  const cardTitle = (name: string, detail?: Detail) => {
-    const lines = [name]
-    if (detail?.description) lines.push(detail.description)
-    if (detail?.traits?.length) lines.push(detail.traits.join(', '))
-    // Who made the figure and the settings it holds for: the card's own
-    // preset-applied driver values, never the raw definition's defaults
-    const measuredOn = costMeasuredOn(detail?.cost, detail?.cost_drivers)
-    const basis = costBasisWords(costBasis)
-    if (measuredOn) lines.push(basis ? `${basis}, ${measuredOn}` : measuredOn)
-    const seen = observedTitle(detail?.observed)
-    if (seen) lines.push(seen)
-    if (detail?.writable === false)
-      lines.push(`read-only, from the ${detail.origin} directory`)
-    return lines.join('\n')
-  }
-
   const href = (name: string) =>
     examples
       ? sharedHref('examples', ...name.split('/'))
@@ -175,8 +158,9 @@
       class="exampleslink plain muted"
       href={sharedHref('examples')}
       title="the read-only templates every workspace can start from"
-      >examples <span class="num">{exampleCount}</span></a
     >
+      examples <span class="num">{exampleCount}</span>
+    </a>
   {/if}
   <input placeholder="filter…" bind:value={filter} class="filter" />
   {#if !examples}
@@ -184,8 +168,10 @@
       class="quiet icon plain"
       href={wsHref(workspace.current, 'edit')}
       title="new workflow"
-      aria-label="new workflow"><Plus size={15} /></a
+      aria-label="new workflow"
     >
+      <Plus size={15} />
+    </a>
   {/if}
 </div>
 
@@ -201,16 +187,20 @@
       class="shapebtn"
       class:on={shape === ''}
       aria-pressed={shape === ''}
-      onclick={() => (shape = '')}>all</button
+      onclick={() => (shape = '')}
     >
+      all
+    </button>
     {#each shapesPresent as value (value)}
       <button
         class="shapebtn"
         class:on={shape === value}
         aria-pressed={shape === value}
         onclick={() => (shape = shape === value ? '' : value)}
-        title="show only workflows that make {value}">{value}</button
+        title="show only workflows that make {value}"
       >
+        {value}
+      </button>
     {/each}
   </div>
 {/if}
@@ -247,7 +237,11 @@
   {#snippet card(name)}
     {@const detail = details[name]}
     {@const proof = proofs[name]}
-    <a class="card" href={href(name)} title={cardTitle(name, detail)}>
+    <a
+      class="card"
+      href={href(name)}
+      title={cardTitle(name, detail, costBasis)}
+    >
       <!-- The proof: what this workflow actually made last time. In a tool
            whose entire output is pictures, the picture is the description.
            A workflow that has never run gets no frame at all rather than a
@@ -271,8 +265,9 @@
               loading="lazy"
               decoding="async"
             />
-            <span class="videobadge" aria-hidden="true"><Play size={11} /></span
-            >
+            <span class="videobadge" aria-hidden="true">
+              <Play size={11} />
+            </span>
           {/if}
         </span>
       {/if}
@@ -300,9 +295,9 @@
           <span class="cost num muted">{observedText(detail?.observed)}</span>
         {/if}
         {#if detail?.summary || detail?.description}
-          <span class="carddesc muted"
-            >{detail.summary || detail.description}</span
-          >
+          <span class="carddesc muted">
+            {detail.summary || detail.description}
+          </span>
         {/if}
         {#if detail?.configures || detail?.writable === false}
           <span class="cardfoot muted">
@@ -325,9 +320,9 @@
       No example workflows — start the server with --examples-dir to list some.
     {:else}
       No workflows yet — the + above creates the first one{#if exampleCount}, or
-        start from one of the <a href={sharedHref('examples')}
-          >{exampleCount} examples</a
-        >{/if}.
+        start from one of the <a href={sharedHref('examples')}>
+          {exampleCount} examples
+        </a>{/if}.
     {/if}
   </Empty>
 {:else if loaded && visible.length === 0}

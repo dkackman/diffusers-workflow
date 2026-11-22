@@ -18,7 +18,14 @@ from typing import Any, Literal
 from pydantic import ConfigDict, Field
 
 from .admission import AcknowledgedCost
-from .api_models_base import STRICT, ApiModel, send_rejected_responses, sometimes
+from .api_models_base import (
+    STRICT,
+    ApiModel,
+    JobStatus,
+    OutputKind,
+    send_rejected_responses,
+    sometimes,
+)
 from .api_models_library import (
     Origin,
     Shape,
@@ -48,6 +55,31 @@ from .api_models_library import (
     LoraRow,
     ResolvedBase,
     LoraList,
+    AssetOrigin,
+    AssetKind,
+    AssetLibraryRoot,
+    AssetFile,
+    ShadowedAsset,
+    AssetList,
+    Uploaded,
+    Kept,
+    AssetDeleted,
+    LedgerAccepted,
+    LedgerNoteRef,
+    LedgerNote,
+    LedgerAttempt,
+    LedgerResult,
+    LedgerItem,
+    LedgerHistoryEntry,
+    LedgerRequest,
+    LedgerSummary,
+    LedgerList,
+    NoteWritten,
+    NoteDeleted,
+    NotesChannelState,
+    GalleryLinkedJob,
+    StarSet,
+    NoteSet,
 )
 
 # The library's models live in api_models_library, and the base in
@@ -55,6 +87,7 @@ from .api_models_library import (
 __all__ = [
     "STRICT",
     "ApiModel",
+    "JobStatus",
     "send_rejected_responses",
     "sometimes",
     "Origin",
@@ -85,6 +118,31 @@ __all__ = [
     "LoraRow",
     "ResolvedBase",
     "LoraList",
+    "AssetOrigin",
+    "AssetKind",
+    "AssetLibraryRoot",
+    "AssetFile",
+    "ShadowedAsset",
+    "AssetList",
+    "Uploaded",
+    "Kept",
+    "AssetDeleted",
+    "LedgerAccepted",
+    "LedgerNoteRef",
+    "LedgerNote",
+    "LedgerAttempt",
+    "LedgerResult",
+    "LedgerItem",
+    "LedgerHistoryEntry",
+    "LedgerRequest",
+    "LedgerSummary",
+    "LedgerList",
+    "NoteWritten",
+    "NoteDeleted",
+    "NotesChannelState",
+    "GalleryLinkedJob",
+    "StarSet",
+    "NoteSet",
 ]
 
 
@@ -383,11 +441,6 @@ class DiffusersStatus(ApiModel):
 
 
 # ------------------------------------------------------------------- jobs
-
-JobStatus = Literal["queued", "running", "succeeded", "failed", "cancelled"]
-OutputKind = Literal["image", "video", "audio", "text"]
-# An asset library entry may also be a .cube colour lookup table
-AssetKind = Literal["image", "video", "audio", "text", "lut"]
 
 
 class JobSummary(ApiModel):
@@ -891,10 +944,7 @@ class ValidationResult(ApiModel):
     )
 
 
-# --------------------------------------------------------- gallery, assets
-
-# Assets have no packaged (builtin) library
-AssetOrigin = Literal["workspace", "common", "examples"]
+# ---------------------------------------------------------------- gallery
 
 
 class GalleryFile(ApiModel):
@@ -996,192 +1046,10 @@ class GalleryMetadata(ApiModel):
     run_note: str = sometimes("The note of the run that wrote the file.")
     note_source: Literal["file", "run"] = sometimes("Whose note `note` is.")
     starred: bool = sometimes("True when the file is starred; absent otherwise.")
-
-
-class AssetLibraryRoot(ApiModel):
-    root: str
-    origin: AssetOrigin
-    writable: bool
-
-
-class AssetFile(ApiModel):
-    name: str
-    reference: str
-    folder: str
-    kind: AssetKind
-    size: int
-    mtime: int | float
-    origin: AssetOrigin = Field(
-        description="Which library it came from: this workspace's own, the `common` "
-        "one every workspace shares, or a read-only examples tree - why a delete "
-        "can answer 403."
+    linked_jobs: list[GalleryLinkedJob] = Field(
+        description="Every job linked to a request whose manifest lists the "
+        "file, a step-cache reuse included, newest first; empty for an asset."
     )
-    writable: bool
-    url: str
-    absolute_url: str = sometimes()
-    used_by: list[str] = sometimes(
-        "This workspace's own workflows that name it in an `asset:` reference, "
-        "when any do"
-    )
-    note: str = sometimes("The asset's note, when it has one.")
-
-
-class ShadowedAsset(ApiModel):
-    name: str
-    reference: str
-    folder: str
-    kind: AssetKind
-    size: int
-    mtime: int | float
-    origin: AssetOrigin
-    writable: bool
-    shadowed_by: AssetOrigin
-
-
-class AssetList(ApiModel):
-    workspace: str
-    libraries: list[AssetLibraryRoot]
-    assets: list[AssetFile]
-    folders: list[str]
-    shadowed: list[ShadowedAsset]
-    total: int = sometimes("Assets matching the prefix, before `limit` cut them")
-    shadowed_total: int = sometimes("Shadowed names matching, before `limit`")
-
-
-class Uploaded(ApiModel):
-    reference: str
-    workspace: str
-    url: str
-    absolute_url: str = sometimes()
-    shared: bool
-
-
-class Kept(ApiModel):
-    reference: str
-    name: str
-    workspace: str
-    linked: bool
-    shared: bool
-
-
-class StarSet(ApiModel):
-    name: str
-    starred: bool
-
-
-class NoteSet(ApiModel):
-    target: str
-    note: str | None = Field(description="The effective note after the write.")
-    note_source: Literal["file", "run"] | None = Field(
-        description="Whose note `note` is; null for a workspace or no note."
-    )
-
-
-class LedgerAccepted(ApiModel):
-    job: str
-    run_id: str | None
-
-
-class LedgerComment(ApiModel):
-    text: str
-    at: str
-
-
-class LedgerAttempt(ApiModel):
-    job: str
-    status: JobStatus
-    note: str = sometimes("The job's note.")
-    minutes: int | float | None = Field(
-        description="Run time; null until the job has started."
-    )
-
-
-class LedgerResult(ApiModel):
-    job: str
-    run_id: str | None
-
-
-class LedgerItem(ApiModel):
-    key: str
-    title: str
-    depends_on: list[str]
-    estimate_minutes: int | float | None
-    workflow: str | None
-    arguments: dict[str, Any]
-    dropped: bool
-    accepted: LedgerAccepted | None
-    comment: LedgerComment | None = Field(
-        description="The user's; an agent never writes it."
-    )
-    status: Literal["dropped", "done", "running", "queued", "failed", "planned"] = (
-        Field(
-            description="Derived from the item's linked jobs, first that holds: "
-            "dropped, done (a result exists), running, queued, failed (every "
-            "linked job failed or was cancelled), planned."
-        )
-    )
-    attempts: list["LedgerAttempt"] = Field(
-        description="Every linked job, oldest first."
-    )
-    result: "LedgerResult | None" = Field(
-        description="The accepted job's run, else the latest succeeded job's "
-        "run whose directory still exists; null when neither."
-    )
-    accepted_missing: bool = sometimes(
-        "True when an accepted job's run directory is gone; `result` then "
-        "falls back to the latest succeeded attempt."
-    )
-    spent_minutes: int | float = Field(
-        description="Minutes the item's linked jobs ran, summed."
-    )
-
-
-class LedgerHistoryEntry(ApiModel):
-    revision: int
-    at: str
-    by: Literal["agent", "user"]
-    why: str
-    goal: str | None = sometimes("The goal, when this revision changed it.")
-
-
-class LedgerRequest(ApiModel):
-    id: str
-    title: str
-    state: Literal["open", "done", "abandoned"]
-    revision: int
-    prompt: str | None = Field(description="The ask that started it; write-once.")
-    goal: str
-    items: list[LedgerItem]
-    history: list[LedgerHistoryEntry]
-    spent_minutes: int | float = Field(description="Minutes every linked job ran.")
-    remaining_minutes: int | float = Field(
-        description="Estimates of the items not done and not dropped."
-    )
-
-
-class LedgerSummary(ApiModel):
-    id: str
-    title: str
-    state: Literal["open", "done", "abandoned"]
-    revision: int
-    items: int
-    status_counts: dict[str, int]
-    spent_minutes: int | float
-    remaining_minutes: int | float
-    updated_at: str | None
-
-
-class LedgerList(ApiModel):
-    workspace: str
-    requests: list[LedgerSummary]
-
-
-class AssetDeleted(ApiModel):
-    name: str
-    workspace: str
-    reference: str
-    deleted: bool
-    origin: AssetOrigin
 
 
 # ---------------------------------------------------------- introspection

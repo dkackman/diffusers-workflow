@@ -83,10 +83,12 @@ EXPECTED_TOOLS = {
     "delete_workspace",
     "get_request",
     "set_request",
+    "delete_request",
 }
 
 READ_ONLY_TOOLS = EXPECTED_TOOLS - {
     "set_request",
+    "delete_request",
     "clear_memory",
     "save_workflow",
     "delete_workflow",
@@ -124,6 +126,7 @@ DESTRUCTIVE_TOOLS = {
     "download_output",
     "delete_output",
     "delete_asset",
+    "delete_request",
 }
 
 # Tools that refuse until the caller passes acknowledged_cost=true. The
@@ -781,6 +784,12 @@ TOOL_WIRING = [
         },
         "PUT",
         "/api/workspaces/default/requests/cats",
+    ),
+    (
+        "delete_request",
+        {"request": "cats", "revision": 3, "workspace": "shots"},
+        "DELETE",
+        "/api/workspaces/shots/requests/cats",
     ),
     (
         "upload_asset",
@@ -1811,3 +1820,103 @@ async def test_run_workflow_shows_the_servers_ledger_refusal():
         )
 
     assert "request 'demo' is done" in str(caught.value)
+
+
+# --- the requests ledger from the agent's side ------------------------------
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "tool,path", [("list_jobs", "/api/jobs"), ("list_gallery", "/api/gallery")]
+)
+@pytest.mark.parametrize(
+    "request_filter,sent",
+    [
+        ("demo-1", {"request": "demo-1"}),
+        ("demo-1/cat", {"request": "demo-1", "item": "cat"}),
+        (None, {}),
+    ],
+)
+async def test_the_listings_filter_by_request_and_item(
+    tool, path, request_filter, sent
+):
+    """REST's `?request=&item=` filter, spelled the way `run_workflow` links
+    a job: the request id, or "<request-id>/<item-key>" for one item."""
+    seen = []
+
+    def handler(request):
+        seen.append((request.url.path, dict(request.url.params)))
+        return httpx.Response(200, json={"jobs": [], "files": [], "total": 0})
+
+    await server_over(handler).call_tool(tool, {"request": request_filter})
+
+    assert [p for p, _ in seen] == [path]
+    params = seen[0][1]
+    assert {k: params.get(k) for k in ("request", "item") if k in params} == sent
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("tool", ["list_jobs", "list_gallery"])
+async def test_a_malformed_request_filter_is_refused_before_any_call(tool):
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        return httpx.Response(200, json={})
+
+    with pytest.raises(Exception) as caught:
+        await server_over(handler).call_tool(tool, {"request": "a/b/c"})
+
+    assert "<request-id>/<item-key>" in str(caught.value)
+    assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_set_request_purges_and_never_writes_the_users_notes():
+    sent = []
+
+    def handler(request):
+        sent.append(json.loads(request.content))
+        return httpx.Response(200, json={"id": "cats", "revision": 1})
+
+    server = server_over(handler)
+    plan = {
+        "request": "cats",
+        "title": "Cats",
+        "goal": "three cats",
+        "items": [],
+        "revision": 0,
+        "why": "first plan",
+    }
+    await server.call_tool("set_request", plan)
+    await server.call_tool("set_request", {**plan, "purge": ["a", "b"]})
+
+    assert "purge" not in sent[0] and sent[1]["purge"] == ["a", "b"]
+    assert all("notes" not in body and body["by"] == "agent" for body in sent)
+    tools = await tools_of(server)
+    assert "notes" not in tools["set_request"].input_schema["properties"]
+    assert "comment" not in tools["set_request"].input_schema["properties"]
+
+
+@pytest.mark.asyncio
+async def test_set_request_names_what_an_agent_reads_and_writes_on_an_item():
+    """`accepted` is how a keeper is recorded and the notes are what the
+    user said: an agent that reads neither in the description never looks."""
+    tools = await tools_of(server_over(ok({})))
+    doc = tools["set_request"].description
+    for word in ("accepted", "notes", "purge", "revision"):
+        assert word in doc, word
+    assert 'get_guide("workspaces", section="Requests")' in doc
+
+
+def test_the_instructions_say_requests_exist_and_where_the_keeper_goes():
+    """An agent that never reads the workspaces guide still has to learn
+    that a multi-job ask gets a request, and that its keeper is the item's
+    `accepted` - the skills say so, and "`set_note` marks the keeper" with
+    nothing beside it said otherwise."""
+    server = server_over(ok({}))
+    text = server.instructions
+    for words in ("`set_request`", 'run_workflow(request="<id>/<item>")', "`accepted`"):
+        assert words in text, words
+    assert text.index("`accepted`") < text.index("`set_note`")
+    assert "`set_note` marks the keeper" not in text

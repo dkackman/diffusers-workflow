@@ -19,6 +19,13 @@
     <dd>delete the open file and show the next (gallery details)</dd>
     <dt><kbd>S</kbd></dt>
     <dd>star / unstar the open file (gallery details)</dd>
+    <dt><kbd>↑</kbd> / <kbd>↓</kbd></dt>
+    <dd>move the item one place (a request item's reorder handle)</dd>
+    <dt><kbd>Home</kbd> / <kbd>End</kbd></dt>
+    <dd>
+      move the item to the top / bottom of the plan (a request item's reorder
+      handle)
+    </dd>
     <dt><kbd>?</kbd></dt>
     <dd>show this help</dd>
   </dl>

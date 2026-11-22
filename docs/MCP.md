@@ -28,6 +28,8 @@ the client needs a command it can find (see below). `dw-mcp` (or
 | `--workspace` | `$DW_MCP_WORKSPACE`, else the server's default | Which of the server's workspaces the session works in. A *name* on the server, not a local directory (`DW_WORKSPACE` means something else to the engine). `use_workspace` switches it mid-session |
 | `--timeout` | `30` | Seconds to wait on any one API request |
 | `--no-probe` | off | Skip the startup `GET /api/health` that confirms the server is reachable and the token is accepted |
+| `--notes-channel` | off | Serve no tools: be [the notes channel](#the-notes-channel), which tells an open Claude Code session when the user saves a note for the agent. It watches every workspace unless `--workspace` is given |
+| `--interval` | `10` | With `--notes-channel`: seconds between reads of the request list, at least 2 |
 
 A non-loopback `--url` with no token makes `dw-mcp` exit 2. The startup probe
 reports a wrong URL or token once, instead of as a 401 on every tool call; it
@@ -155,9 +157,236 @@ free, such as "list my diffusers workflows" (`list_workflows`) or "check the
 diffusers-workflow server health" (`get_health`). "Cannot reach
 diffusers-workflow at ..." means the engine is not running.
 
+## The notes channel
+
+When the user saves a **Note for the agent** on a request or one of its
+items in the web UI ([WORKSPACES.md](WORKSPACES.md#requests)), nothing is
+sent anywhere: the agent reads the note the next time it reads the plan. The
+notes channel closes that gap for an open Claude Code session. It is a
+second, small stdio process, `dw-mcp --notes-channel`, that watches the
+server's requests and tells the session about each note as it is saved.
+
+A note can carry references to the items, takes and files it is about, so the
+event says which. This one was written from the request page and names two
+items, one of them a take and a file:
+
+    <channel source="dw-notes" kind="note" workspace="default" request="lighthouse-short" revision="12" note="n3" created="2026-11-21T13:02:11Z" items="shot3,shot5">
+    Note from the user on request "lighthouse-short", saved 2026-11-21 13:02 UTC, about:
+    - item "shot3" (Shot 3: lamp room), take 2 of 3 (job j_8f2c), file "lighthouse/run_41/final/shot3.mp4" (video)
+    - item "shot5" (Shot 5: the keeper), not rendered yet
+
+    lipsync drifts after 2s - reroll this one
+
+    Read the request with get_request("lighthouse-short", workspace="default") and act on the note; say what you did in the "why" of your next set_request.
+    </channel>
+
+The first line says who, which request (and item, for a note written on an
+item), when it was first saved and, once its text has been edited, `, edited`
+and when. A note with no references ends that line with a colon and has no
+list. Each reference is one line: the item and its title, then either "not
+rendered yet", or the take (its place among the item's jobs, oldest first)
+with its job id and, when it names one, the file as the gallery names it
+(relative to the workspace's outputs, never a path on the server) and its
+kind. A reference that has gone stale since the note was saved says so:
+"(dropped from the plan)" (an item-only reference then drops "not rendered
+yet"), "(no longer a take of this item)" when its job is no longer linked to
+that item, or "(that job's run no longer exists)". A job still queued, or
+running before its run opens, is not stale.
+
+The tag's attributes are the event's `meta`: `kind` (`note`), `workspace`,
+`request`, `revision`, `note` (the note's id, unique within the request),
+`created` (when it was first saved), `item` (only for a note written on an
+item) and `items` (the item keys its references name, comma separated, only
+when it has any). Every value is a string.
+
+A third kind, `review_due`, says a review hold has run out. When the agent
+holds planned items for the user to look at ([WORKSPACES.md](WORKSPACES.md#requests),
+*Review hold*), nothing on the server starts them at the deadline: the
+channel announces them, once for each item and deadline, and the agent runs
+what is still ready under the cost it quoted. The event lists the items
+(`- shot3: Shot 3: lamp room (about 4 min)`) and tells the agent to run only
+those still ready and without a newer note, and not to run one whose plan
+changed or whose quote moved well off what the user was told: it clears the
+hold and puts the new figure in the `why`, so the user runs it from the
+request page or says yes in chat. Its `meta`
+has `kind` (`review_due`), `workspace`, `request`, `revision`, `items` (the
+due item keys, comma separated) and `until` (the earliest deadline among
+them), all strings. A hold that was already on the item the first time
+the channel read a request that the channel's first listing held, whatever its state then, is announced at its
+deadline as the same kind with `stale` set to `1`; only a hold set while the
+channel ran is announced fresh. A channel that connects, or restarts, after a
+hold was set announces it as stale: the agent asks the user before spending.
+If no session is listening at the deadline, nothing is announced and the items
+wait. One poll can carry a stale event and a fresh one. An item held
+behind a dependency is announced when the dependency finishes. A request
+whose revision does not move still produces the event once its deadline
+passes: the channel reads it again then.
+
+It uses Claude Code [channels](https://code.claude.com/docs/en/channels-reference),
+a **research preview**: the flag, the capability and the notification below
+are Claude Code's and may change. It works only in an interactive session
+that is left open. `claude -p` and the Agent SDK ignore channels, and a note
+saved while no session is open waits as it always did.
+
+### What it does
+
+- **No tools.** The process declares the `claude/channel` capability and
+  nothing else, so it adds nothing to the tool listing. The agent acts
+  through the dw tools it already has (the `dw` registration above, or
+  `dw.serve --mcp`); run the channel beside that connection, not instead of
+  it.
+- **Every workspace.** With no `--workspace` it watches the whole server, so
+  a session that moves with `use_workspace`, or works in a workspace other
+  than the default, still hears its notes. Each event names its workspace,
+  and its `get_request` call passes it. `DW_MCP_WORKSPACE` does not narrow
+  the channel: it picks where a session starts, not what it hears.
+  `--workspace` pins the channel to one workspace. On a server older than
+  `GET /api/requests` it watches the default workspace (or
+  `DW_MCP_WORKSPACE`), as before, says so once on stderr, and asks for the
+  route again about every five minutes, so a server updated under a running
+  channel is found without restarting the session.
+- **Two sessions on one server.** A channel that watches everything tells its
+  session about notes on every workspace's requests. Two sessions open on
+  one server both hear each note; the agent acts only on a request it is
+  working on (the event names it). Pin each session's channel with
+  `--workspace` to keep them apart.
+- **Polling.** Every `--interval` seconds (default 10, at least 2) it reads
+  the server's open requests (`GET /api/requests`, one read for every
+  workspace; the workspace's list when pinned), and then only the open
+  requests whose revision moved: an idle server costs one request a tick.
+- **Which notes.** A note *waits* while its request is open, its item is not
+  dropped, and the agent has not written the request since the note was
+  saved - the rule behind the page's "Nothing is sent to the agent" line. A
+  waiting note is announced once, by request, note id and the time of its
+  last text change: edit it and it is announced again; a second note on the
+  same item is a new event, never a replacement of the first. Once the agent
+  has written (`set_request`) it is not announced again.
+- **At connect.** A few seconds after the handshake (one interval, at most
+  5 seconds, so Claude Code is listening), notes already waiting are
+  announced as one `kind="notes_waiting"` event per workspace that lists them (each
+  clipped to 300 characters, its references on the lines under it). Those predate the session, so the agent is told to say what
+  is waiting and to confirm before spending GPU time on them. A note saved
+  after that is a `kind="note"` event, quoted whole (the ledger's 4000
+  characters), which the agent acts on.
+- **What the agent does.** The channel's instructions tell it to read the
+  plan with `get_request` first (the note may have been edited or cleared),
+  act through the normal tools under [the cost gate](#the-cost-gate), and
+  record what it did in `set_request`'s `why`. That write is the answer:
+  the page then says the agent has updated the plan since the note. Nothing
+  is sent back through the channel.
+- **When the server is away.** An unreachable server, a rejected token, a
+  timeout or an unreadable `requests.json` is written to stderr once and
+  retried, the delay doubling up to five minutes; the process stays up. A
+  fault in part of the ledger (one request, or one workspace's unreadable
+  `requests.json`) is named on stderr once but does not slow the poll: the
+  rest is still read every interval, and what the channel knew of the part
+  it could not read is kept, so its notes are not announced twice.
+  Events are not queued across a restart: a note is either still waiting
+  (and in the next session's digest) or answered.
+
+### Is a session listening?
+
+The web UI labels the note's save button by whether a channel is running. The
+channel marks each read of the request list with an `X-DW-Notes-Channel: 1`
+header, and the server remembers, in memory only, when a marked read last
+came for each workspace; a marked `GET /api/requests` counts for every
+workspace, including one made after it. `GET /api/workspaces/{name}/notes-channel` answers
+`{listening, last_seen}`: `listening` is true when a marked read came in the
+last 30 seconds (three intervals at the default 10). A server restart
+forgets it until the next read. The button reads **Send to agent** when a
+session is listening and **Save note** when none is; saving works either way.
+The request page's review-hold banner reads the same answer: it says whether
+a session is listening, and when none is, that nothing will run at the
+deadline.
+
+"Listening" means a session has the channel set up and is polling, nothing
+more. A session started without `--dangerously-load-development-channels`
+still runs the poller, so the page says "listening", but Claude Code drops
+its events and the agent sees the note only when it next reads the plan. The
+server cannot tell the two apart. The header is a hint for the page: anyone
+holding the token can send it, and the worst result is a wrong label.
+
+### Set it up
+
+Channels are stdio only, so this needs a local install of `dw-mcp` even when
+the tools themselves come from a remote `dw.serve --mcp`. Add the process to
+the project's `.mcp.json` under the name `dw-notes`:
+
+```json
+{
+  "mcpServers": {
+    "dw-notes": {
+      "command": "/absolute/path/to/venv/bin/dw-mcp",
+      "args": ["--notes-channel", "--url", "http://127.0.0.1:8765"],
+      "env": { "DW_API_TOKEN": "${DW_API_TOKEN}" }
+    }
+  }
+}
+```
+
+`--url`, `--token`, `--workspace` and their environment variables
+(`DW_MCP_URL`, `DW_API_TOKEN`, `DW_MCP_WORKSPACE`) mean what they do for the
+tool server; drop the `env` line for a loopback server with no token. Then
+start the session with the preview's development flag, naming that server:
+
+```bash
+claude --dangerously-load-development-channels server:dw-notes
+```
+
+Claude Code asks you to confirm the development channel (and, the first
+time, the new `.mcp.json` server), then prints `Channels (experimental)
+messages from server:dw-notes inject directly in this session`. `/mcp` lists
+`dw-notes` as connected with no tools. Save a note on a request page: within
+the interval the terminal shows a one-line `← dw-notes: Note from the user
+on request ...` and the agent starts on it.
+
+If nothing arrives:
+
+- `/mcp` shows `dw-notes` failed: run the `command` and `args` by hand; it
+  prints why (`dw-mcp: ...`) on stderr. `claude --debug` keeps that stderr
+  in `~/.claude/debug/<session-id>.txt`.
+- It is connected but no event comes: the session was started without the
+  flag (Claude Code then drops the events silently), or an organization
+  policy blocks channels.
+- The request page says no session is listening while one is open: the
+  channel is pinned with `--workspace` to a workspace other than the
+  request's, or it is talking to a server older than `GET /api/requests`
+  and so watches only the default workspace. Drop `--workspace`, or update
+  the server.
+- **Protocol revision.** Claude Code does not register a server that
+  negotiates MCP protocol revision 2026-07-28 as a channel. This process
+  declines that revision by itself: it answers the `server/discover` probe
+  with "method not found" and completes the earlier `initialize` handshake,
+  so nothing needs setting. Should a Claude Code version still report it as
+  connected and not a channel, force the earlier handshake from the client
+  side by starting Claude Code with `MCP_PROTOCOL_NEGOTIATION=legacy` in
+  **its own** environment: `MCP_PROTOCOL_NEGOTIATION=legacy claude
+  --dangerously-load-development-channels server:dw-notes`. Claude Code
+  reads the variable, not the server, so the server's `env` block in
+  `.mcp.json` is the wrong place for it.
+
+The `dw` plugin does not declare this server. A plugin's MCP server starts
+in every session the plugin is enabled in, so declaring it there would run
+a poller - and report a failed server wherever `dw-mcp` is not installed -
+for everyone who installed the plugin for its skills.
+
+### Whose text it is
+
+A channel puts text in front of the model as an instruction, so what matters
+is who can write it. A note is written through `POST`, `PUT` and `DELETE
+/api/workspaces/{name}/request-notes`, which only the user's side calls: no
+MCP tool writes a note, and the ledger keeps the stored notes whatever a
+`set_request` sends. The text is from whoever holds that server's token - or
+anyone who can reach it, when it runs without one. **Point the
+channel only at a dw server you control.** Like the tool server it refuses
+to start against a non-loopback `--url` without a token. An event carries
+the workspace's name, the request's id and titles, the note, and the job ids
+and gallery names of the files it references; never a path on the server. The channel declares no permission relay: it cannot
+approve a tool call.
+
 ## Tool reference
 
-67 tools in six groups. Names, arguments and defaults are those registered in
+68 tools in six groups. Names, arguments and defaults are those registered in
 `dw_mcp/tools_*.py` (wired in `dw_mcp/server.py`); each tool's own description
 is the full contract. Every `workspace` argument pins that one call to a
 workspace without moving the session's pin (see
@@ -195,8 +424,8 @@ carries `rerun_of`.
 | `get_memory(device=None)` | VRAM and RAM per card in `workers` (the top level repeats the first card; `device`, e.g. `cuda:1`, asks for one). `gpu_*` is the card. `host_memory_rss_mb` / `host_memory_peak_rss_mb` are the worker's resident and peak host memory, beside the machine's `host_memory_total_mb` / `host_memory_available_mb`; on Linux `host_memory_rss_anon_mb` / `host_memory_rss_file_mb` split resident memory into owned pages and mapped checkpoint pages the kernel can drop (#709). `host_pinned_reserved_mb` / `host_pinned_allocated_mb` are torch's pinned-host cache, part of RSS and invisible to `gpu_*` (#98). A host field the platform cannot measure is absent. `live: true` is a reading taken now; `live: false` with `info: null` means nothing is resident; `live: false` with `info` is a cached reading with `reason` (`job_running`, `worker_stopped`, `worker_busy`, `worker_unreachable`) and `age_seconds`. Compare only live readings |
 | `get_health()` | Liveness and which machine answered: `version`, `device`, `worker_alive`, queue depth, and `workers` (per card: `device`, `name`, `vram_gb`, `alive`, `current_job`, `host_memory_rss_mb`). The top-level `current_job` is the longest-running job. `worker_alive: false` is the normal idle state before the first job (#206); a memory clear frees models but keeps a live worker process (same pid) (#1240) |
 | `get_server_info(cache_entries=False)` | `device`, `version`, this session's `workspace` and its `directories`, the bind address and port, `auth_required`, `trust_workflows`, the MCP mount, and `runtime` (#222: Python, torch, CUDA build, NVIDIA driver, and the diffusers, transformers, accelerate, bitsandbytes, peft, safetensors and sentencepiece versions, `null` when not installed). Check `device` before authoring: CUDA-only choices (bitsandbytes, `torch.compile`, flash attention) fail on `mps` or `cpu`. `caches` sizes dw's disk caches (`inductor`, `triton`, `quantized`); `cache_entries=true` lists the quantized cache's entries. No tool clears a cache; that is `DELETE /api/caches/{name}` ([SERVER.md](SERVER.md)) |
-| `list_jobs(limit=20, status=None, workspace=None)` | Queued, running and recent jobs, **newest first**, with queue position, `device`, `acknowledged` and (when held for host RAM or behind busy cards) `waiting_for`. `status` is one state or a comma-separated set of `queued`, `running`, `succeeded`, `failed`, `cancelled`. `total`, `truncated` and `next` show a cut answer. Without `workspace`, a named workspace lists its own jobs and the default lists every job |
-| `list_gallery(limit=50, subfolder=None, only_orphans=False, workspace=None, folder=None, version=None, media=False, role=None)` | Generated files, newest first, named `<workflow>/<run id>/<file>` (`<file>` may sit in a subfolder: `final/episode.mp4`). Each entry carries `folder`, `subfolder` (`final`, `intermediate`, `''` or any path the workflow wrote), `role` (`final`, `intermediate`, or null; see `dw/roles.py`), `starred` when kept in the web UI, `run_id`, `version` and a workspace-scoped `url` (a hand-built `/outputs/<name>` 404s outside the default workspace). `version` is the run's ordinal (`v5` in the UI): assigned when the run opens, never renumbered, `null` in the flat layout; `output:<folder>/v5/<file>` names a file by it. `folder` with `version` lists one run. `role=["final"]` lists only deliverables. `only_orphans=True` returns run directories with no media (`runs`, each `{name, mtime}`), each a name `delete_output` accepts (#170) |
+| `list_jobs(limit=20, status=None, workspace=None, request=None)` | Queued, running and recent jobs, **newest first**, with queue position, `device`, `acknowledged` and (when held for host RAM or behind busy cards) `waiting_for`. `status` is one state or a comma-separated set of `queued`, `running`, `succeeded`, `failed`, `cancelled`. `request` (`"<id>"`, or `"<id>/<item>"` for one item) keeps the jobs linked to that ledger request. `total`, `truncated` and `next` show a cut answer. Without `workspace`, a named workspace lists its own jobs and the default lists every job |
+| `list_gallery(limit=50, subfolder=None, only_orphans=False, workspace=None, folder=None, version=None, media=False, role=None, request=None)` | Generated files, newest first (`request`: `"<id>"`, or `"<id>/<item>"` for one item, keeps the files of runs whose jobs are linked to that ledger request), named `<workflow>/<run id>/<file>` (`<file>` may sit in a subfolder: `final/episode.mp4`). Each entry carries `folder`, `subfolder` (`final`, `intermediate`, `''` or any path the workflow wrote), `role` (`final`, `intermediate`, or null; see `dw/roles.py`), `starred` when kept in the web UI, `run_id`, `version` and a workspace-scoped `url` (a hand-built `/outputs/<name>` 404s outside the default workspace). `version` is the run's ordinal (`v5` in the UI): assigned when the run opens, never renumbered, `null` in the flat layout; `output:<folder>/v5/<file>` names a file by it. `folder` with `version` lists one run. `role=["final"]` lists only deliverables. `only_orphans=True` returns run directories with no media (`runs`, each `{name, mtime}`), each a name `delete_output` accepts (#170) |
 | `get_gallery_metadata(name, envelope=False, workspace=None, interval_seconds=None, include_workflow=True)` | What produced a file and what it measures. `name` may be an `asset:` reference, for an input's duration, frame count, fps and sample rate before a run (`source` says which; `job` is null). Only an image embeds `metadata`; for audio and video it is null and `next` points at `get_job_workflow(job_id)`. `include_workflow=false` omits the embedded workflow. `media` holds duration, rates, channels, fps, size and peak/mean dBFS; `findings` lists each level problem (`full_scale`, `near_silent`, thresholds in `dw/audio_qc.py`) with its fix. `envelope=true` adds `media.envelope` (`rms_dbfs`, `peak_dbfs`) per second or per `interval_seconds` (0.05 to 3600; over 2400 bins is refused). `media.pcm_sha256` hashes the decoded samples; two hashes compare only when `sample_format`, `frames`, `sample_rate` and `channels` agree. `media.shots` places a joined output's shots (`{name, start_frame, num_frames, start_sample, num_samples}`). For an `.otioz` (`export_timeline`), `media` is the timeline: `tracks` (clips in order with name, frames, seconds and media member), `has_audio_track` and `members` (#1254) |
 
 ### Media
@@ -234,14 +463,15 @@ isolation on a mounted server passes `workspace=` on every call that takes it.
 | `validate_workflow(workflow=None, name=None, inline_workflow=None, workflow_path=None, workspace=None, arguments=None)` | Free and instant: schema, real pipeline signatures, references and arguments. Exactly one of `workflow` (inline, an object or a JSON-encoded string) or `name` (a stored workflow); `run_workflow`'s spellings `inline_workflow` and `workflow_path` are accepted too. By name, the workflow file's own directory is the base directory, as a run sees it. `errors` lists every violation with its JSON path (a `previous_result:` naming no earlier step among them); `warnings` covers what runs but is probably wrong (a signature mismatch, a list entry key no step reads, a value the workflow rounds up). Pass the `arguments` you will run with: an undeclared name, a value that will not coerce, a value outside a declared bound, and an `asset:`/`prompt:`/`output:` reference that reaches nothing are each reported at `arguments.<name>`; `checked_arguments` says what was covered. Also checked: a reference set the model would refuse (too many images, videos or audio clips; for MiniMax-H3, audio as the only reference), an unwritable `result.subfolder` or `file_base_name`, and each sub-workflow step. A valid answer carries `plan`: `fingerprint`, step count, list lengths, `downloads_required`, `estimate` (with `basis`), `host_memory` (`{projected_mb, basis, runs}`) and `elided_steps` (steps nothing reads and that save no file, which do not run). `plan` is null when it could not be built |
 | `list_workspaces(detail=False)` | The workspaces and which one this session uses. Entries carry `name`, `default`, `usage` and any `note` (clipped, `note_truncated`); `detail=true` adds each entry's folder paths |
 | `use_workspace(name)` | Work in that workspace for the rest of the session. Checked against the server, so a typo fails here. On a mounted server the pin is shared (above) |
-| `create_workspace(name, use=False)` | Create a workspace; `use=true` also switches to it. The result names the workspace (`name`, `default`, `current`, `next`), not its folders |
+| `create_workspace(name, use=False)` | Create a workspace; `use=true` also switches to it. A reserved name is refused in any letter case, and so is a name the root already holds as a file or folder. The result names the workspace (`name`, `default`, `current`, `next`), not its folders |
 | `copy_to_workspace(destination, runs=None, assets=None, source=None)` | Copy runs (`<workflow>/<run id>`, or `<workflow>` for all its runs) and assets (a path as after `asset:`, or a folder `proj/`, keeping path, note and kept shots) into another workspace. `source` defaults to the session's workspace. No `acknowledged_cost`. Media is hard-linked (a real copy across devices), JSON sidecars are copied. All or nothing: what the destination already has is skipped as `already_present`, a different file at an asset's path refuses the whole request, a `vN` in use is renumbered (`renumbered`). Warnings: `unresolved_output_refs`, `absolute_paths`, `no_jobs`. A copied run has no job record. A run whose job is queued or running is refused. To move, copy then `delete_output` / `delete_asset`. See [Workspaces](WORKSPACES.md#copying-between-workspaces) |
 | `delete_workspace(name, acknowledged_cost=False)` | Permanently delete a workspace and everything in it. Without the acknowledgement the server refuses (409), reporting what it would remove |
 | `list_assets(detail=False, workspace=None, limit=50, prefix=None)` | Input media on the server, each with its `asset:` reference, newest first. Entries carry `name`, `reference`, `kind`, `size`, `origin` and any `note`; `detail=true` adds `folder`, `mtime`, `url`, `writable`, and `absolute_url`/`used_by` when set. `prefix` keeps names starting with it (`cast/`); `total` counts all matches. `libraries` and `shadowed` are as in `list_workflows` |
 | `keep_output(name, asset_name=None, overwrite=False, shared=False, workspace=None, note=None)` | Keep a generated file as an input asset under a stable `asset:` name, copied on the server. `asset_name` may name a folder and takes the file's extension when it has none; `shared=true` keeps it in the shared library, where a recurring cast belongs. `note` defaults to the source file's note |
 | `set_note(target, note=None, workspace=None)` | Set the note (plain text, up to 4000 characters) on a run (`<workflow>/<run id>`), an output file, `asset:<name>` or `workspace:<name>`; null or `""` clears it. Returns `{target, note, note_source}`. Listings clip notes to 200 characters (`note_truncated`); `get_job` and `get_gallery_metadata` return them whole, and `get_job` shows the current note |
-| `get_request(request=None, workspace=None)` | Read the workspace's requests ledger (`requests.json` at its root). With no `request`, every request newest change first, with item counts by status; with one, its whole plan: every item with its derived `status`, `attempts`, `result` and `spent_minutes` (from the jobs linked by `run_workflow(request=...)`), the request's `spent_minutes` and `remaining_minutes`, and its history |
-| `set_request(request, title, goal, items, revision, why, prompt=None, state=None, workspace=None)` | Write one request's whole plan against the `revision` it was read at (0 creates it); another revision is refused with `stale_revision` and the current one. `prompt` is the user's ask, set on create only. Items match by `key`: one left out is deleted, or kept as dropped when jobs link to it. `why` is one line saying what changed. A user's item `comment` is kept when the write omits it. An item's `accepted` takes `{"job": id}` (or a bare job id): a succeeded job linked to that item. See `get_guide("workspaces", section="Requests")` |
+| `get_request(request=None, workspace=None)` | Read the workspace's requests ledger (`requests.json` at its root). With no `request`, every request newest change first, with item counts by status, `ready` (items a job could be queued for now) and `cover` (up to three outputs of the latest results); with one, its whole plan: the user's `notes` on it, every item with its `notes` and its derived `status`, `ready`, `attempts`, `result` and `spent_minutes` (from the jobs linked by `run_workflow(request=...)`), the request's `spent_minutes` and `remaining_minutes`, and its history. Each attempt and result carries `output`, `{name, kind}` of the one file that stands for the job - a gallery name the output tools take |
+| `set_request(request, title, goal, items, revision, why, prompt=None, state=None, workspace=None, purge=None)` | Write one request's whole plan against the `revision` it was read at (0 creates it); another revision is refused with `stale_revision` and the current one. `prompt` is the user's ask, set on create only. Items match by `key`: one left out is deleted, or kept as dropped when jobs link to it; `purge` lists dropped keys to remove for good. `why` is one line saying what changed. `state` closes (`done`, `abandoned`) or reopens (`open`). The user's `notes`, on the request and on an item, are theirs: read them with `get_request` and act on them; this tool never sends one and the server keeps what is there. A note is `{id, text, created, at, refs?}`; each ref is `{item, job?, output?, kind?, attempt?, gone?}`, naming the item, take (`attempt`, 1-based) and file the note is about, and `gone` marks one that no longer exists. An item's `accepted` takes `{"job": id}` (or a bare job id): a succeeded job linked to that item - how a keeper is recorded in a request, not `set_note`. `ledger_full` means 100 open requests: close or delete one. See `get_guide("workspaces", section="Requests")` |
+| `delete_request(request, revision, workspace=None)` | Remove one request from the ledger at the `revision` it was read at (`stale_revision` otherwise). Only the ledger entry goes: every linked job keeps its history row, its `request`/`item` and its files, and the `request` filters still find them. Refused with `request_has_active_jobs` while a linked job is queued or running. Answers `{id, workspace, deleted, revision, linked_jobs}` |
 | `upload_asset(file_path=None, content=None, asset_name=None, shared=False, workspace=None, note=None)` | Put an image, video, audio file or `.cube` LUT into the asset library and get its `asset:` reference. Exactly one of `file_path` (read on the machine running the MCP server, up to 200MB) or `content` (base64 inline, up to 4MB, #203; `asset_name` required). The file is stored under the library's `uploads/`, named `asset_name` when given (`cast/priya-voice.wav`, folders allowed, the extension matching the file's kind) and randomly otherwise; `shared=true` uses the shared library |
 | `delete_asset(name, workspace=None)` | Permanently remove one asset, by the name `list_assets` reports, from whichever library holds it (the workspace's own before the shared one). One from a read-only examples library is refused. A workflow still carrying the reference stops loading |
 | `save_workflow(name, workflow=None, patch=None, workspace=None)` | Save into the writable workflow directory, overwriting a workflow of that name there; `name` may include folders. Exactly one of `workflow` (the full document) or `patch` (a JSON Merge Patch, RFC 7396, onto the stored definition: `null` deletes a key, a list is replaced whole). Either may be a JSON-encoded string. A name that resolves to a read-only source is not overwritten: the copy lands in the writable directory and shadows it |

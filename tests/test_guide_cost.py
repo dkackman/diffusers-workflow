@@ -10,7 +10,7 @@ import jsonschema
 import pytest
 
 from dw.cost_scaling import declared_guide_factor, guide_scaling
-from dw.plan import _own_price
+from dw.plan_pricing import _own_price
 
 from .test_inherited_cost import PIPELINE, inherited
 from .test_observed_cost import MINUTE, run

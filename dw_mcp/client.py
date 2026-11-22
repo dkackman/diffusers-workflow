@@ -272,9 +272,13 @@ class DwClient:
 
     # ------------------------------------------------------------- requests
 
-    def get_json(self, path, params=None, workspace=None):
+    def get_json(self, path, params=None, workspace=None, headers=None):
+        """`headers` are extra for this one call (the notes channel marks its
+        list poll that way); the session's own always go."""
+        extra = {"headers": headers} if headers else {}
         return self._json(
-            self._request("GET", path, params=params, workspace=workspace), path
+            self._request("GET", path, params=params, workspace=workspace, **extra),
+            path,
         )
 
     def post_json(self, path, payload=None, params=None, workspace=None):

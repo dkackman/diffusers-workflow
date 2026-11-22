@@ -19,9 +19,8 @@ asset is probed afresh by the next request.
 
 Callers use the functions at the end of this module directly
 (`workflow_errors`, `workflow_context`, `run_warning_check`,
-`undeclared_variable_errors`, `sub_workflow_errors`,
-`sub_workflow_argument_warnings`); only `Workflow.validation_errors` and
-`Workflow.validate` remain as methods. The step-value checkers the error
+`undeclared_variable_errors`, `sub_workflow_errors`); only
+`Workflow.validation_errors` and `Workflow.validate` remain as methods. The step-value checkers the error
 registry runs (`fps_errors`, `cache_errors`, `null_media_errors`, `select_errors`) are in
 dw/step_value_checks.py.
 """
@@ -36,7 +35,11 @@ from . import references
 from .acceleration_warnings import acceleration_warnings
 from . import get_device_type, device_capacity_gb
 from .adapter_compatibility import adapter_errors, adapter_warnings
-from .argument_warnings import workflow_argument_warnings
+from .argument_warnings import (
+    null_variable_argument_warnings,
+    sub_workflow_argument_warnings,
+    workflow_argument_warnings,
+)
 from .content_types import content_type_errors
 from .dissolve_frame_errors import dissolve_frame_errors
 from .for_each import ForEachError, entry_field_warnings
@@ -80,7 +83,8 @@ from .reference_names import reference_name_errors
 from .scalar_result_validation import scalar_result_errors, unsaved_json_warnings
 from .schema import load_schema, validate_data_all
 from .security import InvalidInputError, SecurityError
-from .step_cache import step_pipeline_keys
+from .pipeline_ownership import released_reference_warnings
+from .step_cache import unseeded_cache_warnings
 from .shot_span_preflight import script_shot_name_errors, shot_span_warnings
 from .slice_preflight import slice_past_end_warnings
 from .subfolders import subfolder_errors
@@ -670,135 +674,6 @@ ERROR_CHECKS = [
 ]
 
 
-# --- Whether a run gets the step cache (was in dw/plan.py) ----------------
-#
-# unseeded_cache_warnings is a warning source; it and its two helpers live
-# here so the registry need not import dw.plan, which reaches dw.workflow.
-
-
-def unseeded_cache_warnings(definition, arguments=None):
-    """Say once, where a caller is already looking, that an unseeded workflow
-    gets no step cache at all.
-
-    `cached_steps: 0` is indistinguishable from 'probed, nothing hit' out
-    there, and the difference is the one that matters: without a `seed` the
-    cache is off, so nothing is ever reused however many times the same
-    workflow runs (#107).
-
-    Silent for a workflow with no `pipeline`/`pipeline_reference`/`workflow`
-    step: a task-only utility has no generative randomness a `seed` would
-    pin down in the first place, and each of its steps is a pure function of
-    its inputs - a repeat run is already free without one (#247)
-    """
-    if _is_seeded(definition, arguments) or not _has_seedable_step(definition):
-        return []
-    return [
-        "This workflow sets no 'seed', so the step cache is disabled and "
-        "'cached_steps' is 0 without being probed - every step regenerates "
-        "on every run. Set a top-level 'seed': 'variable:seed' with a "
-        "declared default in 'variables' to make a repeat run reuse what it "
-        "already produced"
-    ]
-
-
-def _has_seedable_step(definition):
-    """Whether any step could consume a seed: a pipeline (inline or
-    referenced) or a sub-workflow, which may hold one in turn. A workflow
-    built entirely of `task` steps has nothing a seed would affect."""
-    for step in definition.get("steps") or []:
-        if not isinstance(step, dict):
-            continue
-        if "pipeline" in step or "pipeline_reference" in step or "workflow" in step:
-            return True
-    return False
-
-
-def _is_seeded(definition, arguments):
-    """Whether a run of this workflow has a seed before it draws one - read
-    from the definition as written and the caller's arguments, since
-    realization pins a seed of its own into the copy."""
-    seed = definition.get("seed")
-    if references.is_ref(references.VARIABLE, seed):
-        name = references.ref_name(references.VARIABLE, seed)
-        if name in (arguments or {}):
-            return arguments[name] is not None
-        return (definition.get("variables") or {}).get(name) is not None
-    return seed is not None
-
-
-# --- A pipeline_reference whose pipeline an earlier release dropped ----------
-
-
-def _loaded_keys(workflow, expanded, depth=0):
-    """Every pipeline cache key the steps of `expanded` load: its pipeline
-    steps' own, and those of each composed child (a `workflow:` step loads
-    into the same pipelines dict under the child's keys). A child that
-    cannot be opened or expanded contributes none - the error pass owns it."""
-    keys = set(step_pipeline_keys(expanded.get("steps") or []).values())
-    if depth >= 8:
-        return keys
-    for step in expanded.get("steps") or []:
-        keys |= _child_keys(workflow, step, depth)
-    return keys
-
-
-def _child_keys(workflow, step, depth):
-    reference = step.get("workflow")
-    if not isinstance(reference, dict) or not isinstance(reference.get("path"), str):
-        return set()
-    try:
-        child, _ = workflow.open_sub_workflow(reference["path"])
-        passed = reference.get("arguments")
-        child_expanded = child.expanded_definition(
-            passed if isinstance(passed, dict) else None
-        )
-        return _loaded_keys(child, child_expanded, depth + 1)
-    except Exception:
-        return set()
-
-
-def released_reference_warnings(workflow, expanded, source_indices=None):
-    """A `pipeline_reference` naming a pipeline an earlier step's
-    `release_pipeline` dropped before the reference runs (#1409).
-
-    A release pops the step's own cache key - and, on a `workflow:` step,
-    every key its composed child loaded - so a step sharing that key (the
-    same model loaded twice under different names) is released with it. The
-    run fails at the reference, after the GPU time of every step before it;
-    a pipeline step loading the key again in between puts it back. A warning,
-    not an error: a cached step can leave the run without ever loading."""
-    steps = expanded.get("steps") or []
-    keys = step_pipeline_keys(steps)
-    released = {}
-    warnings = []
-    for index, step in enumerate(steps):
-        name = step.get("name")
-        reference = step.get("pipeline_reference")
-        if isinstance(reference, dict):
-            target = reference.get("reference_name")
-            dropper = released.get(keys.get(target))
-            if dropper is not None:
-                source = references.author_index(source_indices, index)
-                warnings.append(
-                    f"steps[{source}].pipeline_reference.reference_name: "
-                    f"'{target}' was dropped by release_pipeline on step "
-                    f"'{dropper}' (a shared model cache key), so this "
-                    "reference fails at run time with the pipeline released. "
-                    "Drop the release, or reload the model with a pipeline "
-                    "step before the reference"
-                )
-        if "pipeline" in step and name in keys:
-            released.pop(keys[name], None)
-        if step.get("release_pipeline"):
-            if name in keys:
-                dropped = {keys[name]}
-            else:
-                dropped = _child_keys(workflow, step, 0)
-            for key in dropped:
-                released[key] = name
-    return warnings
-
-
 # --- The warning registry ----------------------------------------------------
 #
 # Every warning source admit() reports that does not need the plan, in the
@@ -813,22 +688,6 @@ def released_reference_warnings(workflow, expanded, source_indices=None):
 # source reads the two alike (`arguments or {}`), except
 # null_variable_argument_warnings, which is exactly the one that draws the
 # line.
-
-
-def _null_variable_argument_warnings(context):
-    """A required task argument fed by `variable:name` whose value is null.
-    validation_errors drops that case when the document is checked with no
-    arguments (#364); here it is said, since a run left as-is would fail.
-    Empty once arguments are given - it is a hard error then."""
-    if context.arguments is not None:
-        return []
-    return [
-        f"{entry['path']}: {entry['message']}"
-        for entry in task_signature_errors(
-            context.expanded, context.source_indices, context.definition
-        )
-        if "variable" in entry
-    ]
 
 
 WARNING_CHECKS = [
@@ -873,7 +732,7 @@ WARNING_CHECKS = [
             catalog=c.lora_index,
         ),
     ),
-    Check("null_variable_argument_warnings", _null_variable_argument_warnings),
+    Check("null_variable_argument_warnings", null_variable_argument_warnings),
     # An argument a sub-workflow step passes to a workflow that declares no
     # variable for it - dropped in silence at run time (#89)
     Check(
@@ -1225,32 +1084,3 @@ def sub_workflow_errors(workflow, expanded, source_indices=None, composing=None)
                 }
             )
     return errors
-
-
-def sub_workflow_argument_warnings(workflow, expanded, source_indices=None):
-    """sub_workflow_warnings over an expansion already made - what the
-    registry check calls with the request's own."""
-    warnings = []
-    for index, step in enumerate(expanded.get("steps", []) or []):
-        reference = step.get("workflow")
-        if not isinstance(reference, dict):
-            continue
-        passed = reference.get("arguments")
-        if not isinstance(passed, dict) or not isinstance(reference.get("path"), str):
-            continue
-        try:
-            child, _ = workflow.open_sub_workflow(reference["path"])
-        except Exception:
-            # An unresolvable path is an error, reported by
-            # sub_workflow_errors - not a second complaint here
-            continue
-        declared = child.workflow_definition.get("variables") or {}
-        source = references.author_index(source_indices, index)
-        for name in sorted(set(passed) - set(declared)):
-            warnings.append(
-                f"steps[{source}].workflow.arguments.{name}: "
-                f"'{reference['path']}' declares no variable '{name}' - the "
-                "value is dropped. Declared: "
-                + (", ".join(sorted(declared)) or "<none>")
-            )
-    return warnings

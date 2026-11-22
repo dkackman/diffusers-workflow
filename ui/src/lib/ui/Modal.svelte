@@ -8,6 +8,7 @@
     label,
     wide = false,
     large = false,
+    onopenfocus,
     children,
   }: {
     open?: boolean
@@ -15,6 +16,9 @@
     wide?: boolean
     /** Most of the viewport, for a browsing grid rather than a message */
     large?: boolean
+    /** Where focus goes on open, when not the first control: call
+     * preventDefault and focus it. A dialog that spends starts on Cancel */
+    onopenfocus?: (event: Event) => void
     children: Snippet
   } = $props()
 
@@ -37,6 +41,7 @@
         .filter(Boolean)
         .join(' ')}
       aria-label={label}
+      onOpenAutoFocus={onopenfocus}
     >
       {@render children()}
     </Dialog.Content>

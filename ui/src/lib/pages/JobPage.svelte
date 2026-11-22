@@ -28,7 +28,9 @@
   import JobResults from '../job/JobResults.svelte'
   import EventLog from '../job/EventLog.svelte'
   import ChainSegments from '../job/ChainSegments.svelte'
-  import type { JobDetail, JobEvent } from '../types'
+  import LinkedNotes from '../request/LinkedNotes.svelte'
+  import { LinkedRequest } from '../request/linkedRequest.svelte'
+  import type { JobDetail, JobEvent, LedgerNote } from '../types'
 
   let { jobId }: { jobId: string } = $props()
 
@@ -108,6 +110,28 @@
       stop?.()
     }
   })
+
+  // The request item this job is a take of: one read of the request serves
+  // the header's link and the note box. Keyed on primitives, so a poll that
+  // replaces `job` with an equal one does not read it again
+  const linkWs = $derived(job?.workspace)
+  const linkId = $derived(job?.request)
+  const linkItem = $derived(job?.item ?? null)
+  const linked = $derived(
+    linkWs && linkId ? new LinkedRequest(linkWs, linkId) : null,
+  )
+  $effect(() => {
+    void linked?.read()
+  })
+  const aboutJob = (note: LedgerNote) =>
+    (note.refs ?? []).some((ref) => ref.job === jobId)
+  let agentNotes = $state<ReturnType<typeof LinkedNotes>>()
+  // A file names no output until its job has finished, so only a finished
+  // take's files can be noted
+  function noteFile(file: string) {
+    if (linkItem)
+      void agentNotes?.noteAbout([{ item: linkItem, job: jobId, output: file }])
+  }
 
   async function refresh() {
     try {
@@ -258,7 +282,19 @@
   {cancelPending}
   {seedVariable}
   declared={definition?.variables ?? null}
+  request={linked?.request ?? null}
+  requestGone={linked?.gone ?? false}
 />
+
+{#if linked && linkItem}
+  <LinkedNotes
+    bind:this={agentNotes}
+    {linked}
+    item={linkItem}
+    filter={aboutJob}
+    refs={[{ item: linkItem, job: jobId }]}
+  />
+{/if}
 
 {#if error}<p class="error">{error}</p>{/if}
 
@@ -304,8 +340,9 @@
           title={realized
             ? 'this is the realized copy the run itself wrote - every mutable input pinned to the value it used'
             : 'this is the definition as submitted - no realized copy of this run is on file'}
-          >{realized ? 'realized' : 'as submitted'}</span
         >
+          {realized ? 'realized' : 'as submitted'}
+        </span>
       </div>
       <FlowView
         workflow={definition}
@@ -352,7 +389,16 @@
     <div class="panel">
       <h2>Results</h2>
       {#key job.id}
-        <JobResults {job} {fileGroups} {unsaved} {kinds} {seedVariable} />
+        <JobResults
+          {job}
+          {fileGroups}
+          {unsaved}
+          {kinds}
+          {seedVariable}
+          onnote={linked?.request && linkItem && !running
+            ? noteFile
+            : undefined}
+        />
       {/key}
     </div>
   {/if}

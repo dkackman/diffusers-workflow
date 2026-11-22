@@ -8,12 +8,14 @@
   import { Picks, actOnEach } from '../picks.svelte'
   import { isEditable } from '../editable'
   import { neighbor } from '../neighbor'
+  import { latestOnly } from '../latest'
   import { overlayOpen } from '../ui/layers.svelte'
   import { notify } from '../toast'
   import { confirmDialog } from '../confirm.svelte'
   import type {
     GalleryFile,
     GalleryInput,
+    GalleryLinkedJob,
     LevelFinding,
     OutputRole,
   } from '../types'
@@ -23,6 +25,7 @@
   import GalleryDetail from '../gallery/GalleryDetail.svelte'
   import { AssessCache } from '../gallery/assess.svelte'
   import RoleTag from '../gallery/RoleTag.svelte'
+  import { gridFiles } from '../gallery/order'
 
   let files = $state<GalleryFile[]>([])
   let loaded = $state(false)
@@ -49,25 +52,37 @@
   let findings = $state<LevelFinding[]>([])
   const assessCache = new AssessCache()
   let inputs = $state<GalleryInput[]>([])
+  let linkedJobs = $state<GalleryLinkedJob[]>([])
 
   // The requests-ledger request the gallery is narrowed to (RequestFilter
   // keeps it in step with the hash); the listing asks the server for it
   let reqId = $state('')
   let reqItem = $state('')
 
-  function loadListing() {
-    return api
-      .gallery(undefined, reqId || undefined, reqItem || undefined)
-      .then((result) => {
-        files = result.files
-        // The editors' output: completions read the same listing
-        outputLibrary.items = result.files
-        outputLibrary.workspace = workspace.current
-        error = ''
-        picks.keepOnly(result.files.map((f) => f.name))
-      })
-      .catch((e) => (error = e.message))
-      .finally(() => (loaded = true))
+  // A listing asked for before the filter or workspace changed must not
+  // land over the newer one: the chip would name a request the grid is not
+  // narrowed to, and the bulk actions act on what the grid shows
+  const beginListing = latestOnly()
+  async function loadListing() {
+    const current = beginListing()
+    try {
+      const result = await api.gallery(
+        undefined,
+        reqId || undefined,
+        reqItem || undefined,
+      )
+      if (!current()) return
+      files = result.files
+      // The editors' output: completions read the same listing
+      outputLibrary.items = result.files
+      outputLibrary.workspace = workspace.current
+      error = ''
+      picks.keepOnly(result.files.map((f) => f.name))
+    } catch (e) {
+      if (!current()) return
+      error = e instanceof Error ? e.message : String(e)
+    }
+    loaded = true
   }
 
   $effect(() => {
@@ -78,31 +93,11 @@
     void loadListing()
   })
 
-  // A file whose run does not say its role counts as final
-  const roleOf = (f: GalleryFile): OutputRole => f.role ?? 'final'
   let starredOnly = $state(false)
   const filterActive = $derived(
     filter !== '' || roles.length < 2 || starredOnly || reqId !== '',
   )
-  // Finals lead inside a run only: the server's order (newest first) holds
-  // between runs, so runs sit where their newest file put them. The sort is
-  // stable, so it holds inside each role too
-  const runKey = (f: GalleryFile) => `${f.folder}\u0000${f.run_id}`
-  const visible = $derived.by(() => {
-    const shown = files.filter(
-      (f) =>
-        f.name.toLowerCase().includes(filter.toLowerCase()) &&
-        roles.includes(roleOf(f)) &&
-        (!starredOnly || f.starred),
-    )
-    // Each run's place is the index of its first (newest) file. Built
-    // back to front so the first file's index is the one that sticks; a
-    // Map keeps this linear at thousands of files
-    const runs = new Map(shown.map((f, i) => [runKey(f), i] as const).reverse())
-    const place = (f: GalleryFile) => runs.get(runKey(f))!
-    const rank = (f: GalleryFile) => Number(roleOf(f) === 'intermediate')
-    return shown.sort((a, b) => place(a) - place(b) || rank(a) - rank(b))
-  })
+  const visible = $derived(gridFiles(files, filter, roles, starredOnly))
   async function toggleStar() {
     if (!selected) return
     const name = selected.name
@@ -184,6 +179,7 @@
     role = null
     inputs = []
     findings = []
+    linkedJobs = []
     noteInfo = { note: null, runNote: null, source: null }
     api
       .galleryMetadata(file.name)
@@ -194,6 +190,7 @@
           role = r.role ?? file.role ?? null
           inputs = r.inputs ?? []
           findings = r.findings ?? []
+          linkedJobs = r.linked_jobs
           noteInfo = {
             note: r.note ?? null,
             runNote: r.run_note ?? null,
@@ -318,16 +315,19 @@
         title={which === 'final'
           ? 'what the runs were for'
           : "the steps' working files, kept along the way"}
-        >{which === 'final' ? 'Final' : 'Intermediate'}</button
       >
+        {which === 'final' ? 'Final' : 'Intermediate'}
+      </button>
     {/each}
     <button
       class="rolechip"
       class:on={starredOnly}
       aria-pressed={starredOnly}
       onclick={() => (starredOnly = !starredOnly)}
-      title="only the files you starred">Starred</button
+      title="only the files you starred"
     >
+      Starred
+    </button>
   </div>
   <RequestFilter bind:request={reqId} bind:item={reqItem} />
 </div>
@@ -337,8 +337,8 @@
   <Empty>
     {#snippet icon()}<ImageOff size={36} strokeWidth={1.5} />{/snippet}
     {#if reqId}
-      No outputs for this request{reqItem ? ' item' : ''} yet — remove the
-      request filter to see everything.
+      No outputs for this request{reqItem ? ' item' : ''} yet — remove the request
+      filter to see everything.
     {:else}
       Nothing generated yet — outputs land here as workflows run.
     {/if}
@@ -400,13 +400,15 @@
               alt={file.name}
               loading="lazy"
             />
-            <span class="videobadge" aria-hidden="true"><Play size={11} /></span
-            >
+            <span class="videobadge" aria-hidden="true">
+              <Play size={11} />
+            </span>
           </span>
         {:else}
-          <span class="audio"
-            >{file.kind === 'text' ? '¶' : '♪'} {file.label}</span
-          >
+          <span class="audio">
+            {file.kind === 'text' ? '¶' : '♪'}
+            {file.label}
+          </span>
         {/if}
         <span class="caption" title={file.name}>
           {#if file.role}
@@ -418,8 +420,9 @@
             <span
               class="version"
               title="version {file.version} of this workflow"
-              >v{file.version}</span
             >
+              v{file.version}
+            </span>
             <!-- A real space rather than a margin, so a screen reader says
                  "v4 film.mp4" instead of running the two together. Explicit:
                  whitespace at the edge of an if block is trimmed -->
@@ -430,13 +433,15 @@
             {' '}<span
               class="note-mark"
               title={file.note.split('\n')[0]}
-              aria-label="Has a note"><Pencil size={11} /></span
-            >{/if}{#if file.starred}
+              aria-label="Has a note"
+            >
+              <Pencil size={11} />
+            </span>{/if}{#if file.starred}
             <!-- eslint-disable-next-line svelte/no-useless-mustaches -->
-            {' '}<span class="note-mark" aria-label="Starred"
-              ><Star size={11} fill="currentColor" /></span
-            >{/if}</span
-        >
+            {' '}<span class="note-mark" aria-label="Starred">
+              <Star size={11} fill="currentColor" />
+            </span>{/if}
+        </span>
       </button>
     </div>
   {/snippet}
@@ -451,6 +456,7 @@
     {role}
     {inputs}
     {findings}
+    {linkedJobs}
     {assessCache}
     note={noteInfo.note}
     runNote={noteInfo.runNote}

@@ -194,19 +194,21 @@ class TestAnEscapeIsRefusedAtEverySite:
 
 
 def child_lookup(catalog, monkeypatch):
-    """The `observed_for_child` callback `_validation_plan` hands the planner,
+    """The `observed_for_child` callback `validation_plan` hands the planner,
     with the observed figure stubbed to the catalog name it was asked for."""
     from types import SimpleNamespace
 
-    from dw.server.routes import jobs
+    from dw.server import admission
 
     root, file_spec = catalog
     seen = {}
     monkeypatch.setattr(
-        jobs, "build_plan", lambda *a, **kw: seen.update(kw) or {"plan": True}
+        admission, "build_plan", lambda *a, **kw: seen.update(kw) or {"plan": True}
     )
     monkeypatch.setattr(
-        jobs, "observed_for_name", lambda state, name, *a, **kw: ("observed", name)
+        admission,
+        "observed_for_name",
+        lambda state, name, *a, **kw: ("observed", name),
     )
     candidate = SimpleNamespace(
         file_spec=file_spec, workflow_dir=None, workflow_definition={"steps": []}
@@ -218,7 +220,7 @@ def child_lookup(catalog, monkeypatch):
     # The card the run would be routed to: one card, nothing warm
     card = SimpleNamespace(ordinal=lambda: "cuda:0", label=lambda: "cuda:0")
     manager = SimpleNamespace(identity_of=lambda *a: None, route=lambda *a, **kw: card)
-    jobs._validation_plan(
+    admission.validation_plan(
         SimpleNamespace(job_manager=manager),
         candidate,
         None,

@@ -14,7 +14,7 @@ import pytest
 import dw.media
 import dw.probe_paths
 from dw.cost_scaling import declared_reference_exponent, reference_scaling
-from dw.plan import _own_price
+from dw.plan_pricing import _own_price
 from dw.reference_limits import video_reference_frames
 from dw.vram_estimate import required_vram_gb, vram_estimate_errors
 
@@ -32,7 +32,8 @@ CARD = 24
 @pytest.fixture(autouse=True)
 def readable_clips(monkeypatch):
     """Resolution is not under test: any string is a file, probed to the
-    frame count its name carries (`clip124.mp4`)."""
+    frame count its name carries (`clip124.mp4`) at 24 fps, or at the rate
+    it names too (`clip310at60.mp4`)."""
     monkeypatch.setattr(
         dw.probe_paths,
         "resolve_probe_path",
@@ -40,10 +41,14 @@ def readable_clips(monkeypatch):
     )
 
     def probe(path):
-        found = re.search(r"clip(\d+)", str(path))
+        found = re.search(r"clip(\d+)(?:at(\d+))?", str(path))
         if not found:
             return None
-        return {"kind": "video", "frame_count": int(found.group(1)), "fps": 24.0}
+        return {
+            "kind": "video",
+            "frame_count": int(found.group(1)),
+            "fps": float(found.group(2) or 24),
+        }
 
     monkeypatch.setattr(dw.media, "probe_metadata", probe)
     return probe
@@ -122,6 +127,28 @@ class TestVram:
             step["pipeline"], definition["steps"], None, readable_clips
         ) == [22]
 
+    def test_a_60_fps_clip_is_charged_as_the_frames_h3_resamples_it_to(
+        self, readable_clips
+    ):
+        """0.21.0 review: 5.17 s is 124 frames at the pipeline's 24 fps
+        whatever rate the file carries; 310 raw frames were refused."""
+        fast = with_video("clip310at60.mp4")
+        assert not errors(fast, readable_clips)
+        assert required_vram_gb(fast, probe=readable_clips) == required_vram_gb(
+            with_video("clip124.mp4"), probe=readable_clips
+        )
+
+    def test_the_reader_counts_at_the_pipeline_rate(self, readable_clips):
+        """0.21.0 review: a faster file counts fewer frames, a slower one more."""
+        for source, counted in (("clip310at60.mp4", 124), ("clip62at12.mp4", 124)):
+            definition = with_video(source)
+            assert video_reference_frames(
+                definition["steps"][0]["pipeline"],
+                definition["steps"],
+                None,
+                readable_clips,
+            ) == [counted]
+
 
 def driven():
     """The template with its video reference a variable (null: no reference,
@@ -144,6 +171,13 @@ class TestCost:
     def test_a_whole_clip_prices_near_the_measured_4_4x(self):
         plain = quote(driven())["minutes"]
         price = quote(driven(), "clip124.mp4")
+        assert price["minutes"] / plain == pytest.approx(4.0, abs=0.1)
+        assert "video reference 124 of 124 frames" in price["scaled"]
+
+    def test_a_60_fps_clip_prices_as_the_same_seconds_at_24(self):
+        """0.21.0 review: 310 frames at 60 fps quoted x12.25, not x4."""
+        plain = quote(driven())["minutes"]
+        price = quote(driven(), "clip310at60.mp4")
         assert price["minutes"] / plain == pytest.approx(4.0, abs=0.1)
         assert "video reference 124 of 124 frames" in price["scaled"]
 
@@ -182,10 +216,10 @@ class TestCost:
         assert none == 1.0
 
 
-def with_trim_window(num_frames=22):
+def with_trim_window(num_frames=22, source="clip124.mp4", **trim):
     """The inline copy `cuts.md` recommends: the reference is a `trim_video`
     task step's result, a step `pipeline_steps` does not list."""
-    definition = with_video("clip124.mp4")
+    definition = with_video(source)
     pipeline = definition["steps"][0]
     reference = pipeline["pipeline"]["arguments"]["references"][0]
     del reference["from_file"]
@@ -197,9 +231,10 @@ def with_trim_window(num_frames=22):
             "task": {
                 "command": "trim_video",
                 "arguments": {
-                    "video": "clip124.mp4",
+                    "video": source,
                     "start_frame": 0,
                     "num_frames": num_frames,
+                    **trim,
                 },
             },
         },
@@ -213,6 +248,22 @@ class TestTrimWindow:
             template(), None, with_trim_window(22), None, template()
         )
         assert ratio == pytest.approx(1.39, abs=0.05)
+        assert "22 of 124 frames" in reason
+
+    def test_a_window_of_a_60_fps_file_is_priced_at_the_pipeline_rate(self):
+        """0.21.0 review: 55 frames of a 60 fps file are 22 at 24 fps."""
+        ratio, reason = reference_scaling(
+            template(), None, with_trim_window(55, "clip310at60.mp4"), None, template()
+        )
+        assert ratio == pytest.approx(1.39, abs=0.05)
+        assert "22 of 124 frames" in reason
+
+    def test_the_trims_own_fps_is_the_rate_its_window_is_counted_at(self):
+        """0.21.0 review: `trim_video`'s `fps` is the rate its result
+        carries, whatever the source file says."""
+        _, reason = reference_scaling(
+            template(), None, with_trim_window(11, fps=12), None, template()
+        )
         assert "22 of 124 frames" in reason
 
     def test_a_donor_without_its_own_exponent_is_priced_by_the_steps_donor(self):

@@ -131,6 +131,13 @@ remaining deferred fix is recorded in
   saw no clear win and stopped the bench. The sharpness sweep, the full arms,
   the chain key, the sparse re-split and the moving-shot arm were cut, each
   with a trigger: `complete/h3-keystone-attention-complete.md`.
+- **H3 masked handoff + keystone probe** (#1505, stage #1506), closed
+  2026-11-20 as a bench record. #1322's reopen trigger: the masked carried
+  latent with a keystone, with and without keystone attention on NerdNotes
+  test 21's saturation blocks. The keystone pull passed weakly (+1.10%,
+  confounded with the seam lift), but both arms failed the seg01-02 gate on
+  saturation and luma while keeping #1322's seam win. No full run; the
+  narrated drift stays open: `complete/h3-masked-keystone-complete.md`.
 - **H3 fl2va/ref2va hybrid probe** (#1441, stage #1463), closed 2026-11-19
   as a bench record. The smhfacct-style graft (fl2va weights, ref2va's
   `adaln_proj` for blocks 20-49) was built locally from lem's cached
@@ -194,6 +201,13 @@ remaining deferred fix is recorded in
   the source soundtrack. Each cut can carry its own `seed` and `prompt`, so one
   cut can be re-rolled alone. `mask_grow` stays 1, from the seam bench:
   `complete/performer-replacement-complete.md`.
+- **Maskless whole-shot performer swap** (#1411, stages #1412-#1414; D #1415
+  not planned), closed 2026-11-20 as a negative result. ref2va now takes one
+  whole-render guide, and the regional-edit guidance has h3-recast's caption
+  rules. On seed 1194 the guide plus `head-swap` held the face at 0.543 against
+  `replace-performer`'s 0.747, and the untouched regions at 23.1 against 37.5 dB,
+  so no template shipped and `head-swap` stays `rejected`:
+  `complete/maskless-recast-complete.md`.
 - **SAM 3 `track_people` backend** (#1397, stages #1404-#1405), shipped
   2026-11-18. `track_people` takes `backend: "sam3"` (opt-in, gated, SAM
   License), which detects on every frame of a cut, so a person who enters

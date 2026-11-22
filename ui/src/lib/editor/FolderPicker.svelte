@@ -20,9 +20,9 @@
 
 <select {id} class="folderpick" bind:value={folder} title="folder to save into">
   <option value="">(root)</option>
-  {#each folders as existing (existing)}<option value={existing}
-      >{existing}/</option
-    >{/each}
+  {#each folders as existing (existing)}<option value={existing}>
+      {existing}/
+    </option>{/each}
   <option value={NEW_FOLDER}>new folder…</option>
 </select>
 {#if folder === NEW_FOLDER}

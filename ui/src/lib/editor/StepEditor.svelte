@@ -181,8 +181,10 @@
         role="note"
         onmouseenter={() => onhover?.(producer)}
         onmouseleave={() => onhover?.(null)}
-        title={`consumes previous_result:${producer}`}>← {producer}</span
+        title={`consumes previous_result:${producer}`}
       >
+        ← {producer}
+      </span>
     {/each}
     {#each flow?.consumers ?? [] as consumer (consumer)}
       <span
@@ -191,8 +193,9 @@
         onmouseenter={() => onhover?.(consumer)}
         onmouseleave={() => onhover?.(null)}
         title={`step '${consumer}' consumes this step's result`}
-        >→ {consumer}</span
       >
+        → {consumer}
+      </span>
     {/each}
     {#if mode === 'collapsed'}
       <span class="muted summary" title={digest.summary}>{digest.summary}</span>
@@ -205,14 +208,17 @@
           class:activebtn={mode === 'compact'}
           onclick={() => setModeInternal('compact')}
           title="one-line-per-area digest of what this step sets"
-          >compact</button
         >
+          compact
+        </button>
         <button
           class="quiet"
           class:activebtn={mode === 'full'}
           onclick={() => setModeInternal('full')}
-          title="every field, editable">full</button
+          title="every field, editable"
         >
+          full
+        </button>
       </div>
     {/if}
     <button
@@ -286,9 +292,9 @@
           }}
         >
           <option value="">default</option>
-          {#each optionsWith(TORCH_DTYPES, pretrained.torch_dtype) as dtype (dtype)}<option
-              >{dtype}</option
-            >{/each}
+          {#each optionsWith(TORCH_DTYPES, pretrained.torch_dtype) as dtype (dtype)}<option>
+              {dtype}
+            </option>{/each}
         </select>
 
         <label for={'offload-' + index}>offload</label>
@@ -302,9 +308,9 @@
           }}
         >
           <option value="">none (resident)</option>
-          {#each OFFLOAD_MODES as mode (mode)}<option value={mode}
-              >{mode}</option
-            >{/each}
+          {#each OFFLOAD_MODES as mode (mode)}<option value={mode}>
+              {mode}
+            </option>{/each}
         </select>
 
         <label for={'result-' + index}>save as</label>
@@ -318,9 +324,9 @@
           }}
         >
           <option value="">don't save</option>
-          {#each contentTypeOptions(step.result?.content_type) as contentType (contentType)}<option
-              >{contentType}</option
-            >{/each}
+          {#each contentTypeOptions(step.result?.content_type) as contentType (contentType)}<option>
+              {contentType}
+            </option>{/each}
         </select>
       </div>
 

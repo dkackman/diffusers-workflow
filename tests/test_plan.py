@@ -15,7 +15,7 @@ from dw.plan import (
     missing_repo_errors,
 )
 from dw.cost_scaling import scale_curated
-from dw.validation import unseeded_cache_warnings
+from dw.step_cache import unseeded_cache_warnings
 from dw.runs import new_run_id
 from dw.workflow import workflow_from_definition
 
@@ -3314,6 +3314,16 @@ class TestReplacePerformerPricesRenderFrames:
         many = plan(template, arguments={"cuts": self._cuts(32, 11)})["estimate"]
         few = plan(template, arguments={"cuts": self._cuts(3, 124)})["estimate"]
         assert many["minutes"] > few["minutes"]
+
+    def test_a_cut_left_out_of_the_list_is_not_priced(self, plan):
+        """An untouched cut is left out of `cuts` and replace_cuts keeps the
+        take's frames for it, so the quote is for the listed cuts alone
+        (0.21.0 review)."""
+        template = _repo_json("workflows/templates/minimax/replace-performer.json")
+        cuts = self._cuts(3, 124)
+        whole = plan(template, arguments={"cuts": cuts})["estimate"]
+        gap = plan(template, arguments={"cuts": [cuts[0], cuts[2]]})["estimate"]
+        assert gap["minutes"] < whole["minutes"]
 
 
 class TestACachedComponentFolderIsNotListed:

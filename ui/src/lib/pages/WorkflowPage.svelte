@@ -18,15 +18,13 @@
   import { observedText, observedTitle } from '../observed'
   import { costBasisWords, costFigure, costMeasuredOn } from '../cost'
   import { confirmDialog } from '../confirm.svelte'
-  import type {
-    GalleryFile,
-    ValidationResult,
-    WorkflowDefinition,
-  } from '../types'
+  import type { GalleryFile, WorkflowDefinition } from '../types'
   import ClampedText from '../ui/ClampedText.svelte'
   import { onDestroy } from 'svelte'
   import { describePlan } from '../plan'
   import { placeFindings } from '../findings'
+  import { RunCheck } from '../runCheck.svelte'
+  import RunCheckPanel from '../workflow/RunCheckPanel.svelte'
   import { WORKFLOW_PREFILL_KEY } from '../chainActions'
 
   let { name }: { name: string } = $props()
@@ -143,116 +141,34 @@
     return args
   }
 
-  // The check beside Run: validate on load and after each pause in the
-  // editing, with `sizes=false` so typing never asks the hub; once the form
-  // has sat idle a while, one more check with sizes fills in download GB.
-  // It only informs - Run stays enabled, and the server stays the gate.
-  /** The quiet after the last change before checking again. */
-  const CHECK_AFTER_MS = 600
-  /** The idle time before the one check that asks the hub for sizes. */
-  const SIZES_AFTER_MS = 3000
-
-  let validation = $state<ValidationResult | null>(null)
-  /** A check the server refused outright (an unknown name, a 400). */
-  let checkError = $state('')
-  let checking = $state(false)
-  // Not state: bookkeeping for which answer is still wanted
-  let checkTimer: ReturnType<typeof setTimeout> | undefined
-  let sizesTimer: ReturnType<typeof setTimeout> | undefined
-  let checkController: AbortController | null = null
-  /** Bumped by every change: an answer from before the latest is dropped. */
-  let generation = 0
-  /** The latest call applied within this generation - a quick answer that
-   * lands after the sizes one does not overwrite it. */
-  let appliedCall = 0
-  let callCount = 0
-  let checkedFor = ''
-
-  function stopChecks() {
-    clearTimeout(checkTimer)
-    clearTimeout(sizesTimer)
-    checkController?.abort()
-    checkController = null
-  }
-
-  function scheduleChecks(delay: number) {
-    stopChecks()
-    generation += 1
-    appliedCall = 0
-    checkController = new AbortController()
-    checkTimer = setTimeout(() => check(false), delay)
-    sizesTimer = setTimeout(() => check(true), SIZES_AFTER_MS)
-  }
-
-  async function check(sizes: boolean) {
-    const mine = generation
-    const call = ++callCount
-    const signal = checkController?.signal
-    checking = true
-    try {
-      const answer = await api.validate(
-        { workflow_path: name, arguments: runArguments(), sizes },
-        signal,
-      )
-      if (mine !== generation || call < appliedCall) return
-      appliedCall = call
-      validation = answer
-      checkError = ''
-    } catch (e) {
-      if (mine !== generation || call < appliedCall) return
-      if (e instanceof DOMException && e.name === 'AbortError') return
-      appliedCall = call
-      validation = null
-      checkError = e instanceof Error ? e.message : String(e)
-    } finally {
-      if (mine === generation) checking = false
-    }
-  }
+  /** The check beside Run, asked about exactly what Run would send. */
+  const runCheck = new RunCheck((sizes, signal) =>
+    api.validate(
+      { workflow_path: name, arguments: runArguments(), sizes },
+      signal,
+    ),
+  )
 
   $effect(() => {
     if (!workflow) {
-      // Another workflow is loading: nothing asked about the last one is
-      // wanted any more
-      stopChecks()
-      generation += 1
-      checkedFor = ''
-      checking = false
+      runCheck.clear()
       return
     }
     // Reading every override is what makes this re-run on each change
-    const asked = JSON.stringify(runArguments())
-    const key = `${name}\n${asked}`
-    if (key === checkedFor) return
-    const first = !checkedFor.startsWith(`${name}\n`)
-    checkedFor = key
-    if (first) {
-      validation = null
-      checkError = ''
-    }
-    scheduleChecks(first ? 0 : CHECK_AFTER_MS)
+    runCheck.changed(name, runArguments())
   })
 
-  onDestroy(stopChecks)
+  onDestroy(runCheck.stop)
 
   const placed = $derived(
     placeFindings(
-      validation,
+      runCheck.validation,
       variables.map(([key]) => key),
     ),
   )
   const planLines = $derived(
-    validation?.plan ? describePlan(validation.plan) : [],
+    runCheck.validation?.plan ? describePlan(runCheck.validation.plan) : [],
   )
-  const verdict = $derived.by(() => {
-    if (checkError) return { tone: 'bad', text: 'could not check this run' }
-    if (!validation) return null
-    if (!validation.valid)
-      return { tone: 'bad', text: 'a run would be refused' }
-    if (validation.warnings.length) {
-      return { tone: 'warn', text: 'a run would be admitted, with warnings' }
-    }
-    return { tone: 'good', text: 'a run would be admitted' }
-  })
 
   function newFrom() {
     if (!workflow) return
@@ -306,8 +222,10 @@
   href={route.view.kind === 'shared'
     ? sharedHref('examples')
     : wsHref(workspace.current, 'workflows')}
-  class="back muted">← workflows</a
+  class="back muted"
 >
+  ← workflows
+</a>
 
 <!-- One filled button: Run, the thing you came here to do. Everything else
      is outlined or bare, and Delete is pushed out of reach of Run rather
@@ -370,36 +288,13 @@
 {#if error}<p class="error">{error}</p>{/if}
 
 {#if workflow}
-  <!-- What validate says a Run with these values would do, checked as you
-       edit. It informs; it never gates Run. Every finding is server text,
-       shown as text -->
-  <section class="panel check" aria-label="run check" aria-busy={checking}>
-    <div class="verdict">
-      {#if verdict}
-        <span class={verdict.tone}>{verdict.text}</span>
-      {/if}
-      {#if checking}<span class="muted">checking…</span>{/if}
-    </div>
-    {#if planLines.length}
-      <ul
-        class="plan"
-        aria-label="what a run will do"
-        title="from the workflow's own cost block and this server's model cache - a plan, not a promise"
-      >
-        {#each planLines as line, i (i)}
-          <li class:warn={line.tone === 'warn'}>{line.text}</li>
-        {/each}
-      </ul>
-    {/if}
-    {#if checkError || placed.general.length}
-      <ul class="findings" aria-label="findings">
-        {#if checkError}<li class="bad">{checkError}</li>{/if}
-        {#each placed.general as finding, i (i)}
-          <li class={finding.tone}>{finding.text}</li>
-        {/each}
-      </ul>
-    {/if}
-  </section>
+  <RunCheckPanel
+    verdict={runCheck.verdict}
+    checking={runCheck.checking}
+    {planLines}
+    checkError={runCheck.error}
+    findings={placed.general}
+  />
 
   {#if workflow.description}
     <div class="muted desc prose">
@@ -428,8 +323,9 @@
               alt={proof.label}
               loading="lazy"
             />
-            <span class="videobadge" aria-hidden="true"><Play size={11} /></span
-            >
+            <span class="videobadge" aria-hidden="true">
+              <Play size={11} />
+            </span>
           {/if}
         </a>
       {/each}
@@ -575,46 +471,6 @@
   }
   .error {
     color: var(--bad);
-  }
-  /* The check beside Run: the verdict, then the plan in mono (figures the
-     engine resolves), then what validate said that names no field */
-  .check {
-    margin-bottom: var(--space-4);
-    font-size: var(--t-sm);
-  }
-  .verdict {
-    display: flex;
-    gap: var(--space-3);
-    align-items: baseline;
-  }
-  .good {
-    color: var(--good);
-  }
-  .warn {
-    color: var(--warn);
-  }
-  .bad {
-    color: var(--bad);
-  }
-  .plan {
-    list-style: none;
-    margin: var(--space-2) 0 0;
-    padding: 0;
-    font-family: var(--font-mono);
-    font-size: var(--t-xs);
-    color: var(--muted);
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.2rem var(--space-3);
-  }
-  .plan .warn {
-    color: var(--warn);
-  }
-  .findings {
-    list-style: none;
-    margin: var(--space-2) 0 0;
-    padding: 0;
-    overflow-wrap: anywhere;
   }
   .desc {
     margin: 0 0 var(--space-4);

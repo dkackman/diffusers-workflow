@@ -44,9 +44,10 @@
         class="plain"
         href={crumb.href}
         in:fade={{ duration: prefersReducedMotion.current ? 0 : 150 }}
-        >{#if crumb.dot}<span class="dot" style:background={crumb.dot}
-          ></span>{/if}{crumb.label}</a
       >
+        {#if crumb.dot}<span class="dot" style:background={crumb.dot}
+          ></span>{/if}{crumb.label}
+      </a>
     {/key}
   {/each}
 </nav>

@@ -1,0 +1,89 @@
+/* The contact-sheet frame and the pickable tile: the global rules for
+   wherever the app shows something a workflow produced. Loaded straight
+   after app.css (main.ts), whose tokens these read. */
+
+/* A contact-sheet frame. Every place the app shows something a workflow
+   produced - a catalog card's proof, a workflow's recent outputs, a job's
+   results, a gallery tile - uses this, so a picture reads the same wherever
+   it turns up. The picture fills the frame edge to edge: no inner padding
+   and no rounding on the image itself, which is what makes it read as a
+   proof on a sheet rather than as another rounded card. Set the size on
+   the frame; the media inside always fills it. */
+.frame {
+  display: block;
+  position: relative;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-frame);
+  overflow: hidden;
+}
+.frame > img,
+.frame > video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+/* Marks a still as a video's first frame: grids show a clip as its
+   thumbnail, never as a <video>, and this is what says it plays. Sits in the
+   corner of the nearest positioned ancestor. */
+.videobadge {
+  position: absolute;
+  top: var(--space-2);
+  left: var(--space-2);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--ink) 65%, transparent);
+  color: var(--panel);
+  pointer-events: none;
+}
+
+/* The frame is only ever the picture, so any interactive frame gets its
+   affordance from the border rather than from a colour wash over it */
+a.frame:hover,
+button.frame:hover {
+  border-color: var(--ink);
+  filter: none;
+}
+
+/* A contact sheet whose tiles can be ticked for a bulk action - the gallery
+   and the assets page. The selection logic is picks.svelte.ts and the bar is
+   BulkBar.svelte; these are the two rules that have to reach a tile the page
+   itself lays out, so they live here rather than twice in scoped styles. */
+.cellwrap {
+  position: relative;
+}
+.cellwrap .pick {
+  position: absolute;
+  top: 0.4rem;
+  left: 0.4rem;
+  z-index: 1;
+  margin: 0;
+  width: auto;
+  cursor: pointer;
+  /* It sits over the picture rather than over a padded panel, so it needs
+     its own ground to stay findable against a dark image */
+  outline: 2px solid var(--panel);
+  /* Out of the way until it is wanted: hovering the tile, focusing the box
+     itself, or the tile being ticked at all brings it back */
+  opacity: 0;
+}
+.cellwrap:hover .pick,
+.cellwrap .pick:focus-visible,
+.cellwrap .pick:checked {
+  opacity: 1;
+}
+/* Ticked is the user's own state, not the machine's, so it reads as a
+   heavier ink edge rather than taking the signal colour. A page's own
+   scoped `.cell.active` / `.cell:hover` sits at the same (0,3,0)+hash
+   specificity as this global rule and would win on source order, so the
+   doubled class pushes this one to (0,4,0) to outrank it deliberately
+   rather than by accident of where each stylesheet lands. */
+.cellwrap.picked > .cell.cell {
+  border-color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--ink);
+}

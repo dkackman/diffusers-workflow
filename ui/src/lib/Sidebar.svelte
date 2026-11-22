@@ -161,8 +161,9 @@
             <span
               class="num muted size"
               title="{workspace.usage[name].files} files"
-              >{formatBytes(workspace.usage[name].bytes)}</span
             >
+              {formatBytes(workspace.usage[name].bytes)}
+            </span>
           {/if}
         </span>
       {/if}
@@ -174,9 +175,9 @@
             aria-current={wsSection === item.section ? 'page' : undefined}
             title={item.label}
           >
-            <item.icon size={15} />{#if !collapsed}<span class="label"
-                >{item.label}</span
-              >{/if}
+            <item.icon size={15} />{#if !collapsed}<span class="label">
+                {item.label}
+              </span>{/if}
           </a>
         {/each}
       </div>
@@ -192,9 +193,9 @@
       <span class="dot"></span>
       <span class="name">{name}</span>
       {#if workspace.usage[name]}
-        <span class="num muted size"
-          >{formatBytes(workspace.usage[name].bytes)}</span
-        >
+        <span class="num muted size">
+          {formatBytes(workspace.usage[name].bytes)}
+        </span>
       {/if}
     </a>
   {/if}
@@ -254,8 +255,9 @@
           class="bare muted hiddentoggle"
           aria-expanded={showHidden}
           onclick={() => (showHidden = !showHidden)}
-          ><Eye size={13} />{folded.hidden.length} hidden</button
         >
+          <Eye size={13} />{folded.hidden.length} hidden
+        </button>
         {#if showHidden}
           <div class="groupkids">
             {#each folded.hidden as name (name)}{@render wsRow(name)}{/each}
@@ -309,9 +311,9 @@
           aria-current={sharedActive(item.section) ? 'page' : undefined}
           title={item.label}
         >
-          <item.icon size={15} />{#if !collapsed}<span class="label"
-              >{item.label}</span
-            >{/if}
+          <item.icon size={15} />{#if !collapsed}<span class="label">
+              {item.label}
+            </span>{/if}
         </a>
       {/each}
     </div>
@@ -326,9 +328,9 @@
           aria-current={serverSection === item.section ? 'page' : undefined}
           title={item.label}
         >
-          <item.icon size={15} />{#if !collapsed}<span class="label"
-              >{item.label}</span
-            >{/if}
+          <item.icon size={15} />{#if !collapsed}<span class="label">
+              {item.label}
+            </span>{/if}
         </a>
       {/each}
     </div>

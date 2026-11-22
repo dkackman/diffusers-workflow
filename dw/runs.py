@@ -769,16 +769,24 @@ def identity_run_ids(identity_dir):
 
 def write_json_atomic(path, data):
     """Write `data` as JSON to `path` by a temp file and a rename, so a
-    reader never sees half a file. Raises OSError."""
+    reader never sees half a file. The temp file is synced to disk before
+    the rename, so a crash leaves the old file or the whole new one, and it
+    is removed whatever goes wrong. Raises OSError, or what `json.dump`
+    raises for a value it cannot hold."""
     directory = os.path.dirname(path)
     os.makedirs(directory, exist_ok=True)
     fd, tmp_path = tempfile.mkstemp(dir=directory, prefix=f".{os.path.basename(path)}-")
     try:
         with os.fdopen(fd, "w") as file:
             json.dump(data, file, indent=2, default=str)
+            file.flush()
+            os.fsync(file.fileno())
         os.replace(tmp_path, path)
-    except OSError:
-        os.unlink(tmp_path)
+    except BaseException:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
         raise
 
 

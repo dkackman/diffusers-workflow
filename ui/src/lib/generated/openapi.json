@@ -1356,6 +1356,51 @@
         "title": "GalleryInput",
         "type": "object"
       },
+      "GalleryLinkedJob": {
+        "additionalProperties": false,
+        "description": "A job linked to a request item that published the file - wrote it or\nrepublished it from the step cache.",
+        "properties": {
+          "attempt": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The job's 1-based place among the item's attempts; null when the request no longer lists it.",
+            "title": "Attempt"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "item": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item"
+          },
+          "request": {
+            "title": "Request",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "request",
+          "item",
+          "attempt"
+        ],
+        "title": "GalleryLinkedJob",
+        "type": "object"
+      },
       "GalleryList": {
         "additionalProperties": false,
         "properties": {
@@ -1444,6 +1489,14 @@
                 "type": "null"
               }
             ]
+          },
+          "linked_jobs": {
+            "description": "Every job linked to a request whose manifest lists the file, a step-cache reuse included, newest first; empty for an asset.",
+            "items": {
+              "$ref": "#/components/schemas/GalleryLinkedJob"
+            },
+            "title": "Linked Jobs",
+            "type": "array"
           },
           "media": {
             "anyOf": [
@@ -1547,7 +1600,8 @@
           "run_id",
           "version",
           "media",
-          "findings"
+          "findings",
+          "linked_jobs"
         ],
         "title": "GalleryMetadata",
         "type": "object"
@@ -2766,6 +2820,17 @@
             "title": "Note",
             "type": "string"
           },
+          "output": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LedgerOutput"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The job's first final image or video, else its first sound or text; null when it wrote none or its run is gone."
+          },
           "status": {
             "enum": [
               "queued",
@@ -2781,28 +2846,46 @@
         "required": [
           "job",
           "status",
-          "minutes"
+          "minutes",
+          "output"
         ],
         "title": "LedgerAttempt",
         "type": "object"
       },
-      "LedgerComment": {
+      "LedgerDeleted": {
         "additionalProperties": false,
         "properties": {
-          "at": {
-            "title": "At",
+          "deleted": {
+            "title": "Deleted",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
             "type": "string"
           },
-          "text": {
-            "title": "Text",
+          "linked_jobs": {
+            "description": "Jobs linked to it; each keeps its row, link and files.",
+            "title": "Linked Jobs",
+            "type": "integer"
+          },
+          "revision": {
+            "description": "The revision that was deleted.",
+            "title": "Revision",
+            "type": "integer"
+          },
+          "workspace": {
+            "title": "Workspace",
             "type": "string"
           }
         },
         "required": [
-          "text",
-          "at"
+          "id",
+          "workspace",
+          "deleted",
+          "revision",
+          "linked_jobs"
         ],
-        "title": "LedgerComment",
+        "title": "LedgerDeleted",
         "type": "object"
       },
       "LedgerHistoryEntry": {
@@ -2835,6 +2918,16 @@
           "revision": {
             "title": "Revision",
             "type": "integer"
+          },
+          "state": {
+            "description": "The state, when this revision set or changed it: who closed or reopened the request, when and why.",
+            "enum": [
+              "open",
+              "done",
+              "abandoned"
+            ],
+            "title": "State",
+            "type": "string"
           },
           "why": {
             "title": "Why",
@@ -2881,17 +2974,6 @@
             "title": "Attempts",
             "type": "array"
           },
-          "comment": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/LedgerComment"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "The user's; an agent never writes it."
-          },
           "depends_on": {
             "items": {
               "type": "string"
@@ -2921,6 +3003,19 @@
             "title": "Key",
             "type": "string"
           },
+          "notes": {
+            "description": "The user's notes on the item.",
+            "items": {
+              "$ref": "#/components/schemas/LedgerNote"
+            },
+            "title": "Notes",
+            "type": "array"
+          },
+          "ready": {
+            "description": "A job could be queued for it now: planned, with a stored workflow and every dependency done, in an open request.",
+            "title": "Ready",
+            "type": "boolean"
+          },
           "result": {
             "anyOf": [
               {
@@ -2931,6 +3026,34 @@
               }
             ],
             "description": "The accepted job's run, else the latest succeeded job's run whose directory still exists; null when neither."
+          },
+          "review": {
+            "$ref": "#/components/schemas/LedgerReview",
+            "description": "The hold as read now; absent unless the item is planned, its request open and a deadline set."
+          },
+          "review_set_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When the current deadline was set, stamped by the server; null when it is not held.",
+            "title": "Review Set At"
+          },
+          "review_until": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When the user's review of the item ends, an ISO time in UTC; null when it is not held.",
+            "title": "Review Until"
           },
           "spent_minutes": {
             "anyOf": [
@@ -2982,11 +3105,14 @@
           "arguments",
           "dropped",
           "accepted",
-          "comment",
+          "notes",
           "status",
+          "ready",
           "attempts",
           "result",
-          "spent_minutes"
+          "spent_minutes",
+          "review_until",
+          "review_set_at"
         ],
         "title": "LedgerItem",
         "type": "object"
@@ -3001,6 +3127,11 @@
             "title": "Requests",
             "type": "array"
           },
+          "unreadable": {
+            "description": "Why requests.json could not be read, when it is there but is not a ledger; `requests` is then empty and every write is 409 `ledger_unreadable` until the file is fixed or removed.",
+            "title": "Unreadable",
+            "type": "string"
+          },
           "workspace": {
             "title": "Workspace",
             "type": "string"
@@ -3013,9 +3144,144 @@
         "title": "LedgerList",
         "type": "object"
       },
+      "LedgerNote": {
+        "additionalProperties": false,
+        "description": "One note the user wrote for the agent. Only the request-notes routes\nwrite one.",
+        "properties": {
+          "at": {
+            "description": "When its text last changed.",
+            "title": "At",
+            "type": "string"
+          },
+          "created": {
+            "description": "When the note was first saved.",
+            "title": "Created",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique within the request; never reused.",
+            "title": "Id",
+            "type": "string"
+          },
+          "refs": {
+            "description": "The items, takes or files the note is about.",
+            "items": {
+              "$ref": "#/components/schemas/LedgerNoteRef"
+            },
+            "title": "Refs",
+            "type": "array"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "text",
+          "created",
+          "at"
+        ],
+        "title": "LedgerNote",
+        "type": "object"
+      },
+      "LedgerNoteRef": {
+        "additionalProperties": false,
+        "description": "What a note is about: one item, planned or rendered, and maybe one of\nits linked jobs and one of that job's files.",
+        "properties": {
+          "attempt": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "On a read, when the ref names a job: the job's 1-based place among the item's attempts; null when the job is no longer linked to it.",
+            "title": "Attempt"
+          },
+          "gone": {
+            "description": "On a read: true when the item is dropped or out of the plan, or the job is no longer linked or its run is gone.",
+            "title": "Gone",
+            "type": "boolean"
+          },
+          "item": {
+            "description": "The item key.",
+            "title": "Item",
+            "type": "string"
+          },
+          "job": {
+            "description": "A job linked to the item.",
+            "title": "Job",
+            "type": "string"
+          },
+          "kind": {
+            "description": "The file's kind, set by the server.",
+            "enum": [
+              "image",
+              "video",
+              "audio",
+              "text"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "output": {
+            "description": "One file of the job's manifest, relative to the workspace's outputs.",
+            "title": "Output",
+            "type": "string"
+          }
+        },
+        "required": [
+          "item"
+        ],
+        "title": "LedgerNoteRef",
+        "type": "object"
+      },
+      "LedgerOutput": {
+        "additionalProperties": false,
+        "description": "The one file that stands for a job: what a list shows as its proof.",
+        "properties": {
+          "kind": {
+            "description": "A thumbnail exists for image and video.",
+            "enum": [
+              "image",
+              "video",
+              "audio",
+              "text"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "description": "The file as the job's manifest and the gallery name it, relative to the workspace's outputs: `/api/gallery/{name}/thumbnail`.",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "kind"
+        ],
+        "title": "LedgerOutput",
+        "type": "object"
+      },
       "LedgerRequest": {
         "additionalProperties": false,
         "properties": {
+          "agent_wrote_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When the agent last wrote the plan; null when it never has.",
+            "title": "Agent Wrote At"
+          },
           "goal": {
             "title": "Goal",
             "type": "string"
@@ -3036,6 +3302,19 @@
               "$ref": "#/components/schemas/LedgerItem"
             },
             "title": "Items",
+            "type": "array"
+          },
+          "next_note": {
+            "description": "The number of the next note id.",
+            "title": "Next Note",
+            "type": "integer"
+          },
+          "notes": {
+            "description": "The user's notes on the whole request.",
+            "items": {
+              "$ref": "#/components/schemas/LedgerNote"
+            },
+            "title": "Notes",
             "type": "array"
           },
           "prompt": {
@@ -3099,6 +3378,9 @@
           "revision",
           "prompt",
           "goal",
+          "notes",
+          "next_note",
+          "agent_wrote_at",
           "items",
           "history",
           "spent_minutes",
@@ -3114,6 +3396,16 @@
             "title": "Job",
             "type": "string"
           },
+          "output": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LedgerOutput"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "run_id": {
             "anyOf": [
               {
@@ -3128,20 +3420,66 @@
         },
         "required": [
           "job",
-          "run_id"
+          "run_id",
+          "output"
         ],
         "title": "LedgerResult",
+        "type": "object"
+      },
+      "LedgerReview": {
+        "additionalProperties": false,
+        "properties": {
+          "seconds_left": {
+            "description": "Whole seconds to the deadline at read time, 0 once passed.",
+            "title": "Seconds Left",
+            "type": "integer"
+          },
+          "state": {
+            "description": "redirected when a note was left after the hold was set, else due once the deadline has passed, else holding.",
+            "enum": [
+              "holding",
+              "redirected",
+              "due"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "until": {
+            "description": "The deadline of the hold, an ISO time in UTC.",
+            "title": "Until",
+            "type": "string"
+          }
+        },
+        "required": [
+          "until",
+          "state",
+          "seconds_left"
+        ],
+        "title": "LedgerReview",
         "type": "object"
       },
       "LedgerSummary": {
         "additionalProperties": false,
         "properties": {
+          "cover": {
+            "description": "Up to three outputs of the latest results, newest first.",
+            "items": {
+              "$ref": "#/components/schemas/LedgerOutput"
+            },
+            "title": "Cover",
+            "type": "array"
+          },
           "id": {
             "title": "Id",
             "type": "string"
           },
           "items": {
             "title": "Items",
+            "type": "integer"
+          },
+          "ready": {
+            "description": "Items a job could be queued for now.",
+            "title": "Ready",
             "type": "integer"
           },
           "remaining_minutes": {
@@ -3209,6 +3547,8 @@
           "revision",
           "items",
           "status_counts",
+          "ready",
+          "cover",
           "spent_minutes",
           "remaining_minutes",
           "updated_at"
@@ -4120,6 +4460,142 @@
         "title": "MoveRequest",
         "type": "object"
       },
+      "NoteAdd": {
+        "additionalProperties": false,
+        "description": "One new note for the agent, from the user.",
+        "properties": {
+          "item": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The item key; left out, the request's own notes",
+            "title": "Item"
+          },
+          "refs": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/NoteRefWrite"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The items, takes or files the note is about, at most 16; an item's note references only that item",
+            "title": "Refs"
+          },
+          "request": {
+            "description": "The request id",
+            "title": "Request",
+            "type": "string"
+          },
+          "text": {
+            "description": "The note, at most 4,000 characters",
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request",
+          "text"
+        ],
+        "title": "NoteAdd",
+        "type": "object"
+      },
+      "NoteDeleted": {
+        "additionalProperties": false,
+        "properties": {
+          "revision": {
+            "description": "The request's revision after the write.",
+            "title": "Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "revision"
+        ],
+        "title": "NoteDeleted",
+        "type": "object"
+      },
+      "NoteEdit": {
+        "additionalProperties": false,
+        "description": "A note's new text. Its references never change.",
+        "properties": {
+          "note": {
+            "description": "The note id",
+            "title": "Note",
+            "type": "string"
+          },
+          "request": {
+            "description": "The request id",
+            "title": "Request",
+            "type": "string"
+          },
+          "text": {
+            "description": "The note, at most 4,000 characters",
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request",
+          "note",
+          "text"
+        ],
+        "title": "NoteEdit",
+        "type": "object"
+      },
+      "NoteRefWrite": {
+        "additionalProperties": false,
+        "description": "One reference of a new note. `kind` is the server's to set.",
+        "properties": {
+          "item": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The item key; left out on an item's note, that item. Alone, it names a planned shot that may have no job yet",
+            "title": "Item"
+          },
+          "job": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A job linked to that item",
+            "title": "Job"
+          },
+          "output": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "One file of that finished job's manifest, as the gallery names it (relative to the workspace's outputs); left out, the note is about the take as a whole",
+            "title": "Output"
+          }
+        },
+        "title": "NoteRefWrite",
+        "type": "object"
+      },
       "NoteRequest": {
         "properties": {
           "note": {
@@ -4188,6 +4664,183 @@
           "note_source"
         ],
         "title": "NoteSet",
+        "type": "object"
+      },
+      "NoteWritten": {
+        "additionalProperties": false,
+        "properties": {
+          "note": {
+            "$ref": "#/components/schemas/LedgerNote"
+          },
+          "revision": {
+            "description": "The request's revision after the write.",
+            "title": "Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "note",
+          "revision"
+        ],
+        "title": "NoteWritten",
+        "type": "object"
+      },
+      "NotesChannelState": {
+        "additionalProperties": false,
+        "properties": {
+          "last_seen": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "ISO UTC time of the last such poll, null if none since the server started.",
+            "title": "Last Seen"
+          },
+          "listening": {
+            "description": "True while a notes channel polled this workspace's request list in the last 30 seconds.",
+            "title": "Listening",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "listening",
+          "last_seen"
+        ],
+        "title": "NotesChannelState",
+        "type": "object"
+      },
+      "OpenRequestList": {
+        "additionalProperties": false,
+        "properties": {
+          "requests": {
+            "description": "Every workspace's open requests, newest change first.",
+            "items": {
+              "$ref": "#/components/schemas/OpenRequestSummary"
+            },
+            "title": "Requests",
+            "type": "array"
+          },
+          "unreadable": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Workspace name -> why its requests.json could not be read; its requests are left out.",
+            "title": "Unreadable",
+            "type": "object"
+          }
+        },
+        "required": [
+          "requests"
+        ],
+        "title": "OpenRequestList",
+        "type": "object"
+      },
+      "OpenRequestSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "cover": {
+            "description": "Up to three outputs of the latest results, newest first.",
+            "items": {
+              "$ref": "#/components/schemas/LedgerOutput"
+            },
+            "title": "Cover",
+            "type": "array"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "items": {
+            "title": "Items",
+            "type": "integer"
+          },
+          "ready": {
+            "description": "Items a job could be queued for now.",
+            "title": "Ready",
+            "type": "integer"
+          },
+          "remaining_minutes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "title": "Remaining Minutes"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
+          "spent_minutes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "title": "Spent Minutes"
+          },
+          "state": {
+            "enum": [
+              "open",
+              "done",
+              "abandoned"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "status_counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Status Counts",
+            "type": "object"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "workspace": {
+            "description": "The workspace the request is in.",
+            "title": "Workspace",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "state",
+          "revision",
+          "items",
+          "status_counts",
+          "ready",
+          "cover",
+          "spent_minutes",
+          "remaining_minutes",
+          "updated_at",
+          "workspace"
+        ],
+        "title": "OpenRequestSummary",
         "type": "object"
       },
       "OutputDeleted": {
@@ -4754,7 +5407,7 @@
             "type": "string"
           },
           "items": {
-            "description": "The ordered plan; each item is key, title, depends_on, estimate_minutes, workflow, arguments, accepted, comment",
+            "description": "The ordered plan; each item is key, title, depends_on, estimate_minutes, workflow, arguments, accepted, review_until (an ISO time with a UTC offset, 60 seconds to 24 hours ahead, holding the item for the user's review; null clears it); an item's `notes` are ignored (the request-notes routes write them)",
             "items": {
               "additionalProperties": true,
               "type": "object"
@@ -4773,6 +5426,21 @@
             ],
             "description": "Create only",
             "title": "Prompt"
+          },
+          "purge": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Keys of stored items this plan leaves out, removed for good instead of kept as dropped; their jobs keep their link and files",
+            "title": "Purge"
           },
           "revision": {
             "description": "The revision read, or 0 to create",
@@ -10013,6 +10681,25 @@
         "summary": "Download Prompt"
       }
     },
+    "/api/requests": {
+      "get": {
+        "description": "Every workspace's open requests, without their items, newest change\nfirst: the one read a notes channel makes when it watches the whole\nserver. Marked `X-DW-Notes-Channel: 1`, it counts as a poll of every\nworkspace. `unreadable` names a workspace whose requests.json is there\nbut is not a ledger, or that could not be resolved while it was listed;\nthe others still list, and a watcher keeps what it knew of the named\nones rather than taking them for closed.",
+        "operationId": "list_open_requests_api_requests_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpenRequestList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Open Requests"
+      }
+    },
     "/api/schema": {
       "get": {
         "description": "The workflow JSON schema, for schema-aware JSON editing.\n\n`?section=` answers one part of it - `steps`, `pipelines`, `tasks`,\n`result`, `variables` or `configuration` - as\n`{section, sections, elsewhere, schema}`, for a reader that wants\nthe shape of a result block and not 36 KB of quantization configs\n(#101). Additive: the no-argument call is the whole schema, as it\nwas. An unknown section is a 404 naming the ones that exist.",
@@ -11082,9 +11769,207 @@
         "summary": "Remove Workspace"
       }
     },
+    "/api/workspaces/{name}/notes-channel": {
+      "get": {
+        "description": "Whether a notes channel has polled this workspace's request list in\nthe last 30 seconds, so the UI can say whether a session is listening.",
+        "operationId": "notes_channel_api_workspaces__name__notes_channel_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotesChannelState"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Notes Channel"
+      }
+    },
+    "/api/workspaces/{name}/request-notes": {
+      "delete": {
+        "description": "Remove one note; its id is never handed out again. 404\n`unknown_request` or `unknown_note`.",
+        "operationId": "delete_request_note_api_workspaces__name__request_notes_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          {
+            "description": "The request id",
+            "in": "query",
+            "name": "request",
+            "required": true,
+            "schema": {
+              "description": "The request id",
+              "title": "Request",
+              "type": "string"
+            }
+          },
+          {
+            "description": "The note id",
+            "in": "query",
+            "name": "note",
+            "required": true,
+            "schema": {
+              "description": "The note id",
+              "title": "Note",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NoteDeleted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Request Note"
+      },
+      "post": {
+        "description": "Add one of the user's notes for the agent, on an item or (no `item`)\non the request itself; answers the note and the request's new revision.\nEach of `refs` names an item (the note's own, for an item note; any live\nitem, for a request note) and optionally a job linked to it and one file\nof that job's manifest; the server adds the file's `kind`. 422\n`invalid_note_ref` for a ref that does not hold, `too_many_refs`,\n`unknown_item`, `item_dropped` or `too_many_notes`; 404\n`unknown_request`.",
+        "operationId": "add_request_note_api_workspaces__name__request_notes_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NoteAdd"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NoteWritten"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Add Request Note"
+      },
+      "put": {
+        "description": "Change one note's text; its `refs` and `created` stay, `at` moves to\nnow. The same text writes nothing. 404 `unknown_request` or\n`unknown_note`.",
+        "operationId": "edit_request_note_api_workspaces__name__request_notes_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NoteEdit"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NoteWritten"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Edit Request Note"
+      }
+    },
     "/api/workspaces/{name}/requests": {
       "get": {
-        "description": "A workspace's requests, newest change first, without their items.",
+        "description": "A workspace's requests, newest change first, without their items.\n`unreadable` says why when requests.json is there but is not a ledger.",
         "operationId": "list_requests_api_workspaces__name__requests_get",
         "parameters": [
           {
@@ -11123,8 +12008,66 @@
       }
     },
     "/api/workspaces/{name}/requests/{request_id}": {
+      "delete": {
+        "description": "Remove one request from the ledger. Its linked jobs keep their\nhistory rows, their `request`/`item` and their files. 409\n`stale_revision` at another revision, 409 `request_has_active_jobs`\nwhile a linked job is queued or running, 404 `unknown_request`.",
+        "operationId": "delete_request_api_workspaces__name__requests__request_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "title": "Request Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "The revision the request was read at",
+            "in": "query",
+            "name": "revision",
+            "required": true,
+            "schema": {
+              "description": "The revision the request was read at",
+              "title": "Revision",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LedgerDeleted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Request"
+      },
       "get": {
-        "description": "One request: its plan, every item with its derived status, and its\nhistory.",
+        "description": "One request: its plan, every item with its derived status, and its\nhistory. 409 `ledger_unreadable` when requests.json is not a ledger.",
         "operationId": "get_request_api_workspaces__name__requests__request_id__get",
         "parameters": [
           {

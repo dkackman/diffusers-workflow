@@ -772,6 +772,17 @@ by the source, and `validate_workflow` names the entries to add or drop.
    "minutes": plan.estimate.minutes, "downloads": [...]}`: the server refuses
    with 409 if the run's shape changed since the quote, and the refusal carries
    the new plan. `true` is for a plan that was null.
+
+   A review hold on a request item (`review_until`) defers the run the user
+   approved; it does not replace the approval. Quote the total and get the
+   yes first. A deadline passing with no note permits exactly the run that
+   was quoted and nothing else: a refusal for a changed plan, or a quote
+   well off the one given (more than a quarter), means no run and no new hold:
+   clear the hold (`review_until: null`) and put the new figure in the `why`;
+   the user runs it from the request page or says yes in chat. Silence lets the
+   items run only when a Claude Code session is listening on
+   [the notes channel](MCP.md#the-notes-channel). The rules are under
+   [Requests](WORKSPACES.md#requests).
 5. `wait_for_job` rather than a polling loop, with the job's `plan.estimate`
    (in seconds, plus a margin) as `timeout_seconds`, so one call can cover the
    whole run. The server caps a single call (the tool's description states the

@@ -164,14 +164,18 @@
         class="quiet"
         class:on={tab === 'assets'}
         aria-pressed={tab === 'assets'}
-        onclick={() => (tab = 'assets')}>Assets</button
+        onclick={() => (tab = 'assets')}
       >
+        Assets
+      </button>
       <button
         class="quiet"
         class:on={tab === 'outputs'}
         aria-pressed={tab === 'outputs'}
-        onclick={() => (tab = 'outputs')}>Earlier runs</button
+        onclick={() => (tab = 'outputs')}
       >
+        Earlier runs
+      </button>
     </div>
     <input
       class="search"

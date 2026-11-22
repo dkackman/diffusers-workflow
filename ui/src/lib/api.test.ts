@@ -37,6 +37,26 @@ describe('request error handling', () => {
     await expect(api.listJobs()).rejects.toThrow('Unknown variable')
   })
 
+  it("carries the detail's code, for a caller that branches on it", async () => {
+    stubFetch({
+      ok: false,
+      status: 409,
+      body: {
+        detail: {
+          code: 'stale_revision',
+          message: 'request is at revision 5, not 3',
+          current_revision: 5,
+        },
+      },
+    })
+    const failure = await api.getRequest('default', 'r1').catch((e) => e)
+    expect(failure.message).toBe('request is at revision 5, not 3')
+    expect(failure.status).toBe(409)
+    expect(failure.code).toBe('stale_revision')
+    stubFetch({ ok: false, status: 400, body: { detail: 'Unknown variable' } })
+    expect((await api.listJobs().catch((e) => e)).code).toBeUndefined()
+  })
+
   it('reads the message and counts out of an object-shaped detail', async () => {
     stubFetch({
       ok: false,
@@ -228,6 +248,12 @@ describe('gallery listing and thumbnails', () => {
     expect(calls[1][0]).toBe('/api/gallery?limit=100000')
   })
 
+  it("scopes a thumbnail URL to the file's own workspace when one is named", () => {
+    expect(api.galleryThumbnailUrl('run/clip.mp4', 'studio')).toBe(
+      '/api/gallery/run/clip.mp4/thumbnail?workspace=studio',
+    )
+  })
+
   it('builds a thumbnail URL that keeps folder separators', () => {
     expect(api.galleryThumbnailUrl('ltx/wf-gen.0-0.0.png')).toBe(
       '/api/gallery/ltx/wf-gen.0-0.0.png/thumbnail',
@@ -393,5 +419,37 @@ describe('setNote', () => {
     const calls = stubFetch({ ok: true, body: {} })
     await setNote('wf/run-1', null)
     expect(calls[0][0]).toBe('/api/notes')
+  })
+})
+
+describe('request notes', () => {
+  it('adds, edits and deletes through the request-notes route, unscoped', async () => {
+    const calls = stubFetch({ ok: true, body: { revision: 4 } })
+    await api.addNote('my ws', {
+      request: 'r1',
+      item: 's3',
+      text: 'warmer',
+      refs: [{ item: 's3', job: 'j2' }],
+    })
+    await api.editNote('my ws', { request: 'r1', note: 'n2', text: 'cooler' })
+    await api.deleteNote('my ws', 'r1', 'n2')
+    await api.notesChannel('my ws')
+    expect(calls.map(([url, init]) => [init?.method ?? 'GET', url])).toEqual([
+      ['POST', '/api/workspaces/my%20ws/request-notes'],
+      ['PUT', '/api/workspaces/my%20ws/request-notes'],
+      ['DELETE', '/api/workspaces/my%20ws/request-notes?request=r1&note=n2'],
+      ['GET', '/api/workspaces/my%20ws/notes-channel'],
+    ])
+    expect(JSON.parse(String(calls[0][1]?.body))).toEqual({
+      request: 'r1',
+      item: 's3',
+      text: 'warmer',
+      refs: [{ item: 's3', job: 'j2' }],
+    })
+    expect(JSON.parse(String(calls[1][1]?.body))).toEqual({
+      request: 'r1',
+      note: 'n2',
+      text: 'cooler',
+    })
   })
 })

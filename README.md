@@ -111,7 +111,7 @@ model cache and workspace with a native install on the same box. See
 
 ## Ask the agent
 
-Describe what you want. The agent has 67 tools covering the workflow catalog, the
+Describe what you want. The agent has 68 tools covering the workflow catalog, the
 real diffusers pipeline signatures, the job queue, the gallery and the model cache,
 and it stays with a long render until it finishes:
 
@@ -148,6 +148,22 @@ camera-and-look vocabulary.
 One server holds several **workspaces**, each with its own workflows, assets and
 outputs. Two agents, or an agent and you in the browser, can share one GPU without
 saving over each other's work.
+
+An ask of more than a couple of jobs gets a **request**: the agent writes its plan
+into the workspace's ledger - the goal and the items it will make - links each job
+to its item, and records which take it kept. The plan outlives the session. The
+Requests page says where each request stands and what needs you, and shows each
+item's result, takes and minutes spent; the notes you leave on an item, or on the
+request, are read by the agent before it writes the plan again. A note can point at a
+take or a file, and you can write it from the request page, a job page or the gallery. See [Requests](docs/WORKSPACES.md#requests).
+
+With the **notes channel**, a note reaches the agent as you save it. `dw-mcp
+--notes-channel` runs beside an open Claude Code session and tells it "the user
+left this note on Shot 3, take 2, this file": the agent reads the plan, acts - a retake, then the cut
+again - and the page shows what it did. Review on the page, direct in notes, and
+the session does the rest. It rides on Claude Code's channels research preview, so
+it needs an interactive session started with the development-channels flag, and
+its contract may change. Setup: [the notes channel](docs/MCP.md#the-notes-channel).
 
 The tool reference, setup for other MCP hosts and the troubleshooting table are in
 [MCP Server](docs/MCP.md).

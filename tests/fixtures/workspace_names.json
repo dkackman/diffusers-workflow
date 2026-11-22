@@ -58,5 +58,45 @@
   {
     "name": "𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀",
     "valid": false
+  },
+  {
+    "name": "Requests.json",
+    "valid": false
+  },
+  {
+    "name": "WORKSPACE.JSON",
+    "valid": false
+  },
+  {
+    "name": "Outputs",
+    "valid": false
+  },
+  {
+    "name": "LoRAs",
+    "valid": false
+  },
+  {
+    "name": "Ｒequests.json",
+    "valid": false
+  },
+  {
+    "name": "aßets",
+    "valid": false
+  },
+  {
+    "name": "aſſets",
+    "valid": false
+  },
+  {
+    "name": "requests.jsonl",
+    "valid": true
+  },
+  {
+    "name": "Requests",
+    "valid": true
+  },
+  {
+    "name": "my-outputs",
+    "valid": true
   }
 ]

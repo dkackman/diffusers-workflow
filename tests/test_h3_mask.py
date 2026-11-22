@@ -19,6 +19,7 @@ from dw.pipeline_processors.h3_mask_cells import (
     _pool,
     binarized,
     keep_rows,
+    media_problems,
     regenerate_cells,
 )
 from dw.pipeline_processors.h3_rules import (
@@ -31,7 +32,6 @@ from dw.pipeline_processors.h3_rules import (
     edits_region,
     is_h3_step,
     mask_problems,
-    media_problems,
     refine_problems,
 )
 from dw.workflow import workflow_from_definition
@@ -996,6 +996,128 @@ class TestStaticMedia:
             if any(n in e["path"] for n in ("source_video", "mask_"))
         ]
         assert any("all black" in e["message"] for e in errors), errors
+
+
+def media_errors(tmp_path, trimmed, **arguments):
+    """`mask_errors` for an edit of an 8-fps 22-frame 64x48 source on a
+    literal 64x48 canvas: the file itself, or (`trimmed`) a `trim_video`
+    step's result, whose size is not known before the run."""
+    from dw.media import probe_metadata
+
+    source = write_video(tmp_path / "src.mp4")
+    arguments = {
+        "refine_strength": 0.9,
+        "hold_audio": source,
+        "width": 64,
+        "height": 48,
+        **arguments,
+    }
+    steps = [h3_step(source_video=source, **arguments)]
+    if trimmed:
+        cut = {
+            "command": "trim_video",
+            "arguments": {"video": source, "start_frame": 0, "num_frames": 22},
+        }
+        steps = [
+            {"name": "cut", "task": cut},
+            h3_step(source_video="previous_result:cut", **arguments),
+        ]
+    return mask_errors({"steps": steps}, None, str(tmp_path), probe=probe_metadata)
+
+
+@pytest.mark.parametrize("trimmed", [False, True], ids=["file", "trim_video"])
+class TestMaskOfATrimmedSource:
+    """The mask is checked whether the source is a file or a `trim_video`
+    result (0.21.0 review). 0.20.0 read the mask against the step's literal
+    canvas with the source still unknown; the trimmed-source branch added
+    since returned before the mask was read, so an all-black or mis-sized
+    mask over a trimmed source passed validate and failed after the load."""
+
+    def test_an_all_black_mask_image_is_refused(self, tmp_path, trimmed):
+        mask = write_mask(tmp_path / "m.png", value=0)
+        errors = media_errors(tmp_path, trimmed, mask_image=mask)
+        assert [e["path"].rpartition(".")[2] for e in errors] == ["mask_image"]
+        assert "all black" in errors[0]["message"]
+
+    def test_a_mask_image_off_the_canvas_is_refused(self, tmp_path, trimmed):
+        mask = write_mask(tmp_path / "m.png", size=(32, 32))
+        errors = media_errors(tmp_path, trimmed, mask_image=mask)
+        assert [e["path"].rpartition(".")[2] for e in errors] == ["mask_image"]
+        assert "32x32" in errors[0]["message"] and "64x48" in errors[0]["message"]
+
+    def test_a_black_mask_image_off_the_canvas_gets_both(self, tmp_path, trimmed):
+        mask = write_mask(tmp_path / "m.png", size=(32, 32), value=0)
+        messages = [
+            e["message"] for e in media_errors(tmp_path, trimmed, mask_image=mask)
+        ]
+        assert len(messages) == 2
+        assert "all black" in messages[0] and "32x32" in messages[1]
+
+    def test_an_all_black_mask_video_is_refused(self, tmp_path, trimmed):
+        mask = write_video(tmp_path / "m.mp4", value=0)
+        errors = media_errors(tmp_path, trimmed, mask_video=mask)
+        assert [e["path"].rpartition(".")[2] for e in errors] == ["mask_video"]
+        assert "all black" in errors[0]["message"]
+
+    def test_a_mask_video_off_the_canvas_is_refused(self, tmp_path, trimmed):
+        mask = write_video(tmp_path / "m.mp4", size=(32, 32), value=255)
+        errors = media_errors(tmp_path, trimmed, mask_video=mask)
+        assert [e["path"].rpartition(".")[2] for e in errors] == ["mask_video"]
+        assert "32x32" in errors[0]["message"] and "64x48" in errors[0]["message"]
+
+    def test_a_mask_video_of_another_length_is_refused(self, tmp_path, trimmed):
+        """The step renders the source's count when it names none - the
+        file's, or the count the trim keeps."""
+        mask = write_video(tmp_path / "m.mp4", frames=5, value=255)
+        errors = media_errors(tmp_path, trimmed, mask_video=mask)
+        assert [e["path"].rpartition(".")[2] for e in errors] == ["mask_video"]
+        assert "5 frames" in errors[0]["message"]
+        assert "num_frames=22" in errors[0]["message"]
+
+    @pytest.mark.parametrize("name", ["mask_image", "mask_video"])
+    def test_a_white_mask_that_fits_is_clean(self, tmp_path, trimmed, name):
+        if name == "mask_image":
+            mask = write_mask(tmp_path / "m.png")
+        else:
+            mask = write_video(tmp_path / "m.mp4", value=255)
+        assert media_errors(tmp_path, trimmed, **{name: mask}) == []
+
+    def test_no_literal_canvas_still_reads_the_mask_for_white(self, tmp_path, trimmed):
+        """Without a width and height the canvas is the source's, which a
+        trim's result does not have yet; an empty mask needs no canvas."""
+        mask = write_mask(tmp_path / "m.png", value=0)
+        errors = media_errors(
+            tmp_path, trimmed, mask_image=mask, width=None, height=None
+        )
+        assert ["all black" in e["message"] for e in errors] == [True]
+
+
+def test_regional_edit_over_a_trimmed_source_refuses_a_bad_mask(tmp_path):
+    """The review's repro: regional-edit.json with a `cut` trim_video step
+    feeding `source_video` and an all-black 64x64 mask - both refusals
+    0.20.0 gave, at the mask."""
+    definition = template("minimax/regional-edit.json")
+    cut = {
+        "command": "trim_video",
+        "arguments": {"video": "variable:source_video", "num_frames": 124},
+    }
+    definition["steps"].insert(0, {"name": "cut", "task": cut})
+    edit = definition["steps"][1]["pipeline"]["arguments"]
+    edit["source_video"] = "previous_result:cut"
+    write_video(tmp_path / "take.mp4", frames=124, size=(960, 544), sample_rate=8000)
+    write_mask(tmp_path / "black.png", size=(64, 64), value=0)
+    workflow = workflow_from_definition(
+        definition, str(tmp_path), base_dir=str(tmp_path)
+    )
+    arguments = {"source_video": "take.mp4", "mask_image": "black.png"}
+    messages = [
+        e["message"]
+        for e in workflow.validation_errors(arguments)
+        if e["path"].endswith("mask_image")
+    ]
+    assert len(messages) == 2
+    assert "mask_image is all black, so nothing would regenerate" in messages[0]
+    assert "mask_image is 64x64, and the step renders 960x544" in messages[1]
 
 
 class TestStrengthOne:

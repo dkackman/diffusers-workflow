@@ -23,10 +23,15 @@ import type {
   JobMoved,
   JobWorkflow,
   Kept,
-  LedgerItem,
+  LedgerDeleted,
   LedgerList,
   LedgerRequest,
   LoraList,
+  NoteAdd,
+  NoteDeleted,
+  NoteEdit,
+  NotesChannelState,
+  NoteWritten,
   MemoryInfo,
   ModelCache,
   ModelDeleted,
@@ -54,15 +59,23 @@ import type {
   WorkspaceInfo,
   WorkspaceList,
 } from './types'
-import { getApiToken } from './token'
 import { ApiError, errorDetail } from './apiErrors'
+import {
+  archiveFrom,
+  fetchJson,
+  isValidateRequest,
+  jsonInit,
+  request,
+  type JobSubmitBody,
+  type RequestWriteBody,
+  type ValidateRequest,
+} from './apiRequest'
 import {
   addToken,
   appendQuery,
   encodePath,
   outputUrl,
   scopeTo,
-  scoped,
   withToken,
   galleryThumbnailUrl,
 } from './apiUrls'
@@ -70,119 +83,13 @@ import {
 // Pages and their test mocks import these from here
 export { ApiError, errorDetail, outputUrl }
 
-/** A JSON response together with its headers, for the rare endpoint whose
- * result depends on both - `getWorkflow` reads its origin/writable from
- * headers rather than the body. */
-/** A request with the bearer token, scoped to the picker's workspace
- * unless `scope` is false, failing with an ApiError that carries the
- * server's detail and status. Under every JSON call and file download. */
-async function send(
-  path: string,
-  init: RequestInit = {},
-  scope = true,
-): Promise<Response> {
-  const token = getApiToken()
-  const headers = new Headers(init.headers)
-  if (token) headers.set('Authorization', `Bearer ${token}`)
-  const response = await fetch(scope ? scoped(path) : path, {
-    ...init,
-    headers,
-  })
-  if (!response.ok) {
-    let detail = response.statusText
-    try {
-      detail = errorDetail(await response.json(), detail)
-    } catch {
-      /* not json */
-    }
-    throw new ApiError(detail, response.status)
-  }
-  return response
-}
+export type { JobSubmitBody, RequestWriteBody, ValidateRequest }
 
-async function fetchJson<T>(
-  path: string,
-  init?: RequestInit,
-  options?: { scope?: boolean },
-): Promise<{ body: T; response: Response }> {
-  const response = await send(path, init, options?.scope !== false)
-  return { body: await response.json(), response }
-}
-
-async function request<T>(
-  path: string,
-  init?: RequestInit,
-  options?: { scope?: boolean },
-): Promise<T> {
-  return (await fetchJson<T>(path, init, options)).body
-}
-
-/** Fetch a file-response endpoint and hand the body to the browser as a
- * save, using the name the server put in Content-Disposition. Separate
- * from `request` because the body is a file, not JSON, and separate from
- * the `<a download>` URLs because the request needs a method and a body. */
-async function downloadResponse(
-  path: string,
-  init: RequestInit,
-): Promise<void> {
-  const response = await send(path, init)
-  const disposition = response.headers.get('content-disposition') ?? ''
-  const filename = /filename="?([^"]+)"?/.exec(disposition)?.[1] ?? 'download'
-  const url = URL.createObjectURL(await response.blob())
-  try {
-    const anchor = document.createElement('a')
-    anchor.href = url
-    anchor.download = filename
-    anchor.click()
-  } finally {
-    URL.revokeObjectURL(url)
-  }
-}
-
-/** A bulk-download endpoint: POST the selection, save the zip that comes
- * back. The gallery and the asset library each have one. */
-function archiveFrom(path: string) {
-  return (names: string[]) =>
-    downloadResponse(path, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ names }),
-    })
-}
-
-/** What the validate route is asked: exactly one of an inline `workflow` or a
- * `workflow_path` (a catalog name), the `arguments` a run would carry, and
- * `sizes: false` to skip asking the hub how large a missing model is. */
-export type ValidateRequest = {
-  workflow?: WorkflowDefinition
-  workflow_path?: string
-  arguments?: Record<string, unknown>
-  /** The workspace it resolves in, when not the open one (body first) */
-  workspace?: string
-  sizes?: boolean
-}
-
-/** A definition never carries `workflow` or `workflow_path` at its root -
- * the schema refuses unknown root keys - so either names a request. */
-function isValidateRequest(
-  input: WorkflowDefinition | ValidateRequest,
-): input is ValidateRequest {
-  return (
-    Object.hasOwn(input, 'workflow') || Object.hasOwn(input, 'workflow_path')
-  )
-}
-
-/** A request's plan as PUT sends it: the read view's items go back as they
- * came (the server ignores their derived fields), `prompt` is left out
- * because it is write-once. */
-export type RequestWriteBody = {
-  title: string
-  goal: string
-  items: LedgerItem[]
-  revision: number
-  why: string
-  state?: LedgerRequest['state']
-}
+// The request-notes routes; like the rest of the ledger, the workspace is
+// in the path
+const UNSCOPED = { scope: false }
+const notesUrl = (workspace: string) =>
+  `/api/workspaces/${encodeURIComponent(workspace)}/request-notes`
 
 export const api = {
   listWorkflows: () => request<WorkflowList>('/api/workflows'),
@@ -324,12 +231,12 @@ export const api = {
     request<JobCancelled>(`/api/jobs/${id}/cancel`, {
       method: 'POST',
     }),
-  submitJob: (body: {
-    workflow_path?: string
-    workflow?: WorkflowDefinition
-    arguments?: Record<string, unknown>
-    base_dir?: string
-  }) =>
+  /** Queue a run. With `request` and `item` it is linked to that item of
+   * the requests ledger (422 `request_closed`, `item_dropped`,
+   * `unknown_request`, `unknown_item` before anything queues); with
+   * `acknowledged_cost` bound to a validate plan, a run whose plan has
+   * moved is a 409 carrying the current plan and what to resend. */
+  submitJob: (body: JobSubmitBody) =>
     request<JobDetail>('/api/jobs', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -474,6 +381,36 @@ export const api = {
         body: JSON.stringify({ by: 'user', ...body }),
       },
       { scope: false },
+    ),
+  /** Remove a request from the ledger, at the revision it was read at. Its
+   * jobs and their files stay. 409 `stale_revision`, or
+   * `request_has_active_jobs` while one of its jobs is queued or running. */
+  deleteRequest: (workspace: string, id: string, revision: number) =>
+    request<LedgerDeleted>(
+      `/api/workspaces/${encodeURIComponent(workspace)}/requests/${encodeURIComponent(id)}?revision=${revision}`,
+      { method: 'DELETE' },
+      { scope: false },
+    ),
+  /** Add one of the user's notes for the agent, on an item or (no `item`)
+   * on the request. 422 `invalid_note_ref`, `too_many_refs`,
+   * `too_many_notes`, `unknown_item`, `item_dropped`. */
+  addNote: (workspace: string, body: NoteAdd) =>
+    request<NoteWritten>(notesUrl(workspace), jsonInit('POST', body), UNSCOPED),
+  /** A note's new text; its references stay. 404 `unknown_note`. */
+  editNote: (workspace: string, body: NoteEdit) =>
+    request<NoteWritten>(notesUrl(workspace), jsonInit('PUT', body), UNSCOPED),
+  deleteNote: (workspace: string, requestId: string, note: string) =>
+    request<NoteDeleted>(
+      `${notesUrl(workspace)}?${new URLSearchParams({ request: requestId, note })}`,
+      { method: 'DELETE' },
+      UNSCOPED,
+    ),
+  /** Whether an agent session's notes channel polled the workspace lately */
+  notesChannel: (workspace: string) =>
+    request<NotesChannelState>(
+      `/api/workspaces/${encodeURIComponent(workspace)}/notes-channel`,
+      undefined,
+      UNSCOPED,
     ),
   listWorkspaces: () => request<WorkspaceList>('/api/workspaces'),
   createWorkspace: (name: string) =>

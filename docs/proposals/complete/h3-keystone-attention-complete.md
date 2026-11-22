@@ -117,10 +117,14 @@ the mean luma of the new frames.
 | `b686b8a0a40b` | bright | `0-29` | +0.57% |
 | `ad1e332586f1` | bright | `30-39` | **+8.39%** |
 
-That is roycho87's shape (+4.4% / +4.1% / +13.8%), so diffusers' indices 0-49 are
+That is roycho87's test 19 shape (+4.4% / +4.1% / +13.8%), so diffusers' indices 0-49 are
 ComfyUI's `diffusion_model.blocks[i]`, and Q3's assumption now holds as measured.
-Our plain keystone carries much less on its own (+0.13% against his +4.4%). On this
+Our plain keystone carries much less on its own (+0.13% against his test 19 +4.4%). On this
 chain, the 22-frame carried guide seems to outweigh the single keyframe row.
+His later test 21 corrects the test 19 figures (none +0.9%, `0-29` by row 0-9 +1.1% /
+10-19 +0.9% / 20-29 +1.4%, `30-39` +13.2%): the gap is about 7x, not 34x, and the
+guide-dominance reading is a hypothesis. See `bench/records/narrated.md`, *Keystone
+attention: step 1, the block-numbering check*.
 
 **Step 2 (the sharpness sweep) did not run.** It was cut by Don's ruling.
 
@@ -169,6 +173,9 @@ lem time: about 0.4 h for segment 1, 2.2 h for step 1, and 1.9 h for the gate.
   positive result.
 - **The moving-shot arm.** Comes back only if arm 1 helps. The keystone's pull-back
   to segment 1's view is the risk there.
+- **Keystone attention under a masked carried latent.** Tried in #1505 (2026-11-20):
+  failed its seg01-02 gate on saturation and luma,
+  `complete/h3-masked-keystone-complete.md`.
 
 ## What stays
 

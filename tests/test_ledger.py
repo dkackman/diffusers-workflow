@@ -4,6 +4,7 @@ the file at a workspace root."""
 import json
 import os
 import threading
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi.testclient import TestClient
@@ -263,34 +264,6 @@ class TestDependencies:
         )
 
 
-class TestComments:
-    def test_a_user_comment_survives_an_agent_write_that_omits_it(self, tmp_path):
-        write(tmp_path, plan(items=[item("a")]))
-        view = write(
-            tmp_path, plan(revision=1, items=[item("a", comment="warmer")]), by="user"
-        )
-        assert view["items"][0]["comment"]["text"] == "warmer"
-        view = write(tmp_path, plan(revision=2, items=[item("a", title="new")]))
-        assert view["items"][0]["comment"]["text"] == "warmer"
-        # written back as read, it is unchanged
-        view = write(tmp_path, plan(revision=3, items=view["items"]))
-        assert view["items"][0]["comment"]["text"] == "warmer"
-
-    def test_an_agent_cannot_write_a_comment(self, tmp_path):
-        refused(tmp_path, plan(items=[item("a", comment="mine")]))
-
-    def test_a_comment_is_capped(self, tmp_path):
-        refused(tmp_path, plan(items=[item("a", comment="x" * 4001)]), by="user")
-        write(tmp_path, plan(items=[item("a", comment="x" * 4000)]), by="user")
-
-    def test_a_user_clears_a_comment(self, tmp_path):
-        write(tmp_path, plan(items=[item("a", comment="x")]), by="user")
-        view = write(
-            tmp_path, plan(revision=1, items=[item("a", comment=None)]), by="user"
-        )
-        assert view["items"][0]["comment"] is None
-
-
 # --- caps and values ---------------------------------------------------------
 
 
@@ -490,8 +463,26 @@ class TestRoutes:
             assert client.get(f"{URL}/A").status_code == 400
             assert client.put(f"{URL}/A", json=plan()).status_code == 400
 
+    def test_a_review_hold_round_trips_and_a_short_one_is_refused(self, server):
+        def until(seconds):
+            when = datetime.now(timezone.utc) + timedelta(seconds=seconds)
+            return when.isoformat(timespec="seconds")
+
+        with server() as client:
+            hold = until(3600)
+            body = plan(items=[item("a", review_until=hold)])
+            assert client.put(f"{URL}/cats", json=body).status_code == 200
+            got = client.get(f"{URL}/cats").json()["items"][0]
+            assert got["review_until"] == hold
+            assert got["review_set_at"] is not None
+            assert got["review"]["state"] == "holding"
+            short = plan(revision=1, items=[item("a", review_until=until(59))])
+            refusal = client.put(f"{URL}/cats", json=short)
+            assert refusal.status_code == 422
+            assert refusal.json()["detail"]["code"] == "review_too_soon"
+
     @pytest.mark.parametrize(
-        "request_id", ["", "../x", "a/b", "/etc/hosts", "../../etc/hosts"]
+        "request_id", ["", "../x", "a/b", "/etc/hosts", "../../etc/hosts", "..", "."]
     )
     def test_an_id_with_a_slash_or_none_meets_the_id_rule(self, server, request_id):
         # The MCP client percent-encodes the id (api_path), and the router
@@ -556,6 +547,34 @@ class TestRoutes:
             routes = [
                 r for r in client.app.routes if "/requests" in getattr(r, "path", "")
             ]
-        assert len(routes) == 3
+        # a workspace's list, a request's read, write and delete, and the
+        # server-wide list of open requests (#1529)
+        assert len(routes) == 5
         for route in routes:
             assert not getattr(route.endpoint, "query_token_ok", False), route.path
+
+
+class TestReviewFixes:
+    """0.21.0 review."""
+
+    def test_a_dropped_items_dependency_can_leave_the_plan(self, tmp_path):
+        write(tmp_path, plan(items=[item("a"), item("b", ["a"])]))
+        write(tmp_path, plan(revision=1, items=[item("a")]), linked_jobs=links("b"))
+        view = write(
+            tmp_path, plan(revision=2, items=[item("c")]), linked_jobs=links("b")
+        )
+        assert [(i["key"], i["status"]) for i in view["items"]] == [
+            ("c", "planned"),
+            ("b", "dropped"),
+        ]
+
+    def test_a_live_item_still_needs_its_dependency(self, tmp_path):
+        refused(tmp_path, plan(items=[item("b", ["a"])]))
+
+    def test_an_estimate_too_large_for_a_float_is_refused(self, tmp_path):
+        refused(tmp_path, plan(items=[item("a", estimate_minutes=10**400)]))
+
+    def test_an_unreadable_ledger_does_not_name_its_folder(self, tmp_path):
+        (tmp_path / REQUESTS_FILE_NAME).mkdir()
+        error = refused(tmp_path, plan(), code="ledger_unreadable")
+        assert str(tmp_path) not in str(error)

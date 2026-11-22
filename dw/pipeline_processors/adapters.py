@@ -1,6 +1,7 @@
 import torch
 import logging
 from ..events import emit_phase
+from ..trust import workflows_are_trusted
 
 logger = logging.getLogger("dw")
 
@@ -215,7 +216,12 @@ def load_loras(loras, pipeline):
         for key in ("adapter_name", "scale", "alpha"):
             lora.pop(key, None)
 
-        pipeline.load_lora_weights(model_name, adapter_name=next(names), **lora)
+        # Untrusted, the weights are safetensors whether or not the entry
+        # names a file: without this a repo holding only a .bin is read as a
+        # pickle (SE-F066; trust.require_trusted_lora_entries keeps the
+        # entry from saying otherwise)
+        safe = {} if workflows_are_trusted() else {"use_safetensors": True}
+        pipeline.load_lora_weights(model_name, adapter_name=next(names), **lora, **safe)
 
     apply_adapter_settings(settings, pipeline, activate=True)
 

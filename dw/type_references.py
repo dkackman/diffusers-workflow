@@ -87,7 +87,7 @@ def _type_reference_error(key, value, path):
     try:
         load_type_from_name(value, key)
     except UntrustedWorkflowError as e:
-        return {"path": path, "message": str(e)}
+        return {"path": path, "message": str(e), "refusal": e}
     except (ImportError, AttributeError, ValueError):
         class_name = value.rsplit(".", 1)[-1]
         suggestions = difflib.get_close_matches(
@@ -130,7 +130,7 @@ def _loose_type_reference_error(key, value, path, warnings=None):
     try:
         load_type_from_name(value, key)
     except UntrustedWorkflowError as e:
-        return {"path": path, "message": str(e)}
+        return {"path": path, "message": str(e), "refusal": e}
     except (ImportError, AttributeError, ValueError):
         if warnings is not None and "." not in value:
             warnings.append(
@@ -178,7 +178,7 @@ def _per_component_dtype_error(key, value, path, warnings=None):
         try:
             load_type_from_name(dtype, key)
         except UntrustedWorkflowError as e:
-            return {"path": component_path, "message": str(e)}
+            return {"path": component_path, "message": str(e), "refusal": e}
         except (ImportError, AttributeError, ValueError):
             return {
                 "path": component_path,
@@ -211,7 +211,9 @@ def _constant_reference_error(value, path):
         return None
     try:
         fetch_constant(value)
-    except (ValueError, InvalidInputError, UntrustedWorkflowError) as e:
+    except UntrustedWorkflowError as e:
+        return {"path": path, "message": str(e), "refusal": e}
+    except (ValueError, InvalidInputError) as e:
         return {"path": path, "message": str(e)}
     return None
 
@@ -283,6 +285,24 @@ def component_type_errors(workflow_definition, source_indices=None):
                 }
             )
     return errors
+
+
+def require_trusted_type_references(steps):
+    """component_type_errors' trust refusals over expanded steps, raised: a
+    dotted type or a 'constant:' outside the ecosystem, as the run's realize
+    pass would refuse it. The worker's check before it releases the warm
+    models (workflow_run.require_trusted_steps, #1511); a name that merely
+    fails to resolve is left for the run to report.
+
+    Raises:
+        UntrustedWorkflowError: The first refusal found
+    """
+    for step in steps or []:
+        found = []
+        _walk_type_references(step, (), found)
+        for error in found:
+            if "refusal" in error:
+                raise error["refusal"]
 
 
 def unbraced_type_warnings(workflow_definition, source_indices=None):

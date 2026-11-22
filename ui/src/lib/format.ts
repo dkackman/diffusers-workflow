@@ -72,3 +72,13 @@ export function formatDuration(seconds: number): string {
  * measured value ('~3 min', '~1.5 min') rather than rounding it away. */
 export const formatMinutes = (minutes: number) =>
   minutes < 1 ? '<1 min' : `~${Number(minutes.toFixed(2))} min`
+
+/** Minutes that were measured, not estimated, so with no tilde: '38 min
+ * spent' is a fact where '~38 min' reads as a guess. Under ten keeps one
+ * decimal, past it the whole minute. */
+export function formatSpent(minutes: number): string {
+  if (minutes <= 0) return '0 min'
+  if (minutes < 1) return '<1 min'
+  const shown = minutes < 10 ? Number(minutes.toFixed(1)) : Math.round(minutes)
+  return `${shown} min`
+}

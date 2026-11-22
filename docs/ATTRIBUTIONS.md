@@ -196,6 +196,11 @@ informed `experimental_keystone_attention`
 re-split of the attention a query pays to the keyframe against the guide rows, and
 the default block subset 31-33,36-44,47. No text or data was copied.
 
+Test 21 of the same collection (`20261119/block_map.md`, CC BY-SA 4.0, so concepts only)
+corrected test 19's figures (same-block control, no extra LoRA) and listed per-property
+block sets. The [narrated record](../bench/records/narrated.md) quotes its corrected
+lifts and names its block sets as candidates for a re-run. No text or data was copied.
+
 The way the #1391 bench finds which blocks to use comes from roycho87's comment on
 [#1391](https://github.com/dkackman/diffusers-workflow/issues/1391#issuecomment-6922271175)
 and from NerdNotes test 19 (CC BY-SA 4.0, so concepts only)
@@ -204,6 +209,15 @@ and from NerdNotes test 19 (CC BY-SA 4.0, so concepts only)
 with one trait changed (brightened, or sharpened) serves as the keystone. One block group
 gets the re-split per run, and the groups whose run carries that trait into the new
 frames are the ones the bench keeps. No text or data was copied.
+
+The masked-keystone bench
+([bench/workflows/masked-keystone-probe.json](../bench/workflows/masked-keystone-probe.json);
+[#1505](https://github.com/dkackman/diffusers-workflow/issues/1505)) takes two ideas from
+roycho87's comment on [#1391](https://github.com/dkackman/diffusers-workflow/issues/1391):
+that a keystone fails to pull under guides but holds under a carried context, so the
+first clip's frame 0 is grafted into that context at frame 0; and NerdNotes test 21's saturation block set (30-32,34-37,39,42,44; CC BY-SA 4.0,
+so concepts and data only), which the bench's attention arm uses. No code from
+geiru_context_suite (GPL-3.0) was read, and no text was copied.
 
 ### [roycho87/geiru_context_suite](https://github.com/roycho87/geiru_context_suite)
 

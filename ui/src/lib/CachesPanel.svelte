@@ -144,9 +144,9 @@
                     class="disk"
                     title="disk holding the {cache.name} cache"
                   >
-                    <span class="diskbar"
-                      ><span style="width: {pct}%"></span></span
-                    >
+                    <span class="diskbar">
+                      <span style="width: {pct}%"></span>
+                    </span>
                     {gbFromBytes(cache.disk_free ?? 0)} / {gbFromBytes(
                       cache.disk_total ?? 0,
                     )} GB free
@@ -236,9 +236,9 @@
                                   : '—'}
                               </td>
                               <td>
-                                <code title={entry.id}
-                                  >{entry.id.slice(0, 12)}</code
-                                >
+                                <code title={entry.id}>
+                                  {entry.id.slice(0, 12)}
+                                </code>
                               </td>
                               <td>
                                 <button

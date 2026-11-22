@@ -36,7 +36,7 @@ has the rules). One or two boards need none.
    user's ask, verbatim>, revision=0, why="boards for <scene>", items=[...])`,
    one item per board, in order: `{"key": "board-NN", "title": ...,
    "workflow": <the board's template>, "arguments": {<its text argument>:
-   "prompt:<project>/board-NN"}, "estimate_minutes": <plan.estimate>}`.
+   "prompt:<project>/board-NN"}, "estimate_minutes": <plan.estimate.minutes>}`.
    The request id and keys are lower-case letters, digits and `-`.
 3. Draw each board with `run_workflow(..., request="<project>/board-NN",
    note=...)`.
@@ -44,8 +44,8 @@ has the rules). One or two boards need none.
    attempts, and the request's `spent_minutes`. To keep a board, write the
    plan back with `set_request` at the `revision` it read, every item as
    read, and that board's `accepted: {"job": "<job id>"}`: not `set_note`.
-5. Before redrawing any board, `get_request` and read its `comment`: the
-   user's note from the request page.
+5. Before redrawing any board, `get_request` and read its `notes`: the
+   user's notes from the request page, job page or gallery.
 
 ## 1. Draw the boards (Popcorn shape)
 

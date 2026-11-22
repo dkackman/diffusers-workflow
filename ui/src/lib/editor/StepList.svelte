@@ -64,15 +64,18 @@
   <div class="densityrow">
     <span class="muted">steps</span>
     <span class="flex"></span>
-    <button class="quiet" onclick={() => modes.setAll(steps ?? [], 'collapsed')}
-      >collapse all</button
+    <button
+      class="quiet"
+      onclick={() => modes.setAll(steps ?? [], 'collapsed')}
     >
-    <button class="quiet" onclick={() => modes.setAll(steps ?? [], 'compact')}
-      >compact all</button
-    >
-    <button class="quiet" onclick={() => modes.setAll(steps ?? [], 'full')}
-      >expand all</button
-    >
+      collapse all
+    </button>
+    <button class="quiet" onclick={() => modes.setAll(steps ?? [], 'compact')}>
+      compact all
+    </button>
+    <button class="quiet" onclick={() => modes.setAll(steps ?? [], 'full')}>
+      expand all
+    </button>
   </div>
 {/if}
 
@@ -84,9 +87,9 @@
       class:flowlit={hovered !== null && step.name === hovered}
     >
       <div class="railcell">
-        <span class="ordinal" title={`step ${index + 1} of ${steps!.length}`}
-          >{index + 1}</span
-        >
+        <span class="ordinal" title={`step ${index + 1} of ${steps!.length}`}>
+          {index + 1}
+        </span>
       </div>
       <StepEditor
         bind:step={steps![index]}

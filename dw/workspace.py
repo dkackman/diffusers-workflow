@@ -36,7 +36,7 @@ an entry point that is about to write calls ensure() once it knows it needs to.
 import os
 import time
 from pathlib import Path
-from .security import validate_workspace_name
+from .security import validate_workspace_name, workspace_name_key
 
 # Set by an entry point that resolved a workspace, so a spawned worker
 # subprocess inherits the same answer - multiprocessing's 'spawn' start method
@@ -92,10 +92,26 @@ MARKER_SUBDIRS = (WORKFLOWS_SUBDIR, PROMPTS_SUBDIR, OUTPUTS_SUBDIR)
 # text per workspace would break exactly that
 DEFAULT_WORKSPACE_NAME = "default"
 
-# Names a workspace cannot take, because the root's own folders already
-# use them - its four content folders, and the exports gathered beside them
+# The note a workspace carries at its root (dw/notes.py reads and writes it);
+# defined here so notes can import the name without a cycle through runs
+WORKSPACE_FILE_NAME = "workspace.json"
+# The requests ledger (dw/ledger.py) - named here so the lists below need no
+# import of the module that owns it - and the lock its writes hold. The lock
+# starts with a dot, which no workspace name can, so it needs no reserving
+REQUESTS_FILE_NAME = "requests.json"
+REQUESTS_LOCK_NAME = ".requests.json.lock"
+
+# Names a workspace cannot take, because the root already uses them - its
+# four content folders, the exports gathered beside them, and the two files
+# the default workspace keeps at the root (a workspace is a folder there)
 # loras/ is the root's LoRA library, shared like prompts/ - not created by ensure()
-RESERVED_WORKSPACE_NAMES = SUBDIRS + (EXPORTS_SUBDIR, COMMON_SUBDIR, LORAS_SUBDIR)
+RESERVED_WORKSPACE_NAMES = SUBDIRS + (
+    EXPORTS_SUBDIR,
+    COMMON_SUBDIR,
+    LORAS_SUBDIR,
+    REQUESTS_FILE_NAME,
+    WORKSPACE_FILE_NAME,
+)
 
 # What a named workspace holds - prompts excluded, per above
 NAMED_SUBDIRS = (WORKFLOWS_SUBDIR, ASSETS_SUBDIR, OUTPUTS_SUBDIR)
@@ -371,23 +387,28 @@ def _holds_a_workspace(path):
     return _has_subdirs(path, NAMED_SUBDIRS, all_of=True)
 
 
-# The note a workspace carries at its root (dw/notes.py reads and writes it);
-# defined here so notes can import the name without a cycle through runs
-WORKSPACE_FILE_NAME = "workspace.json"
-# The requests ledger (dw/ledger.py) - named here so the allow-list below
-# needs no import of the module that owns it
-REQUESTS_FILE_NAME = "requests.json"
-
-
 def _foreign_entries(path):
     """What a directory holds besides a workspace's own three folders and
     the exports it may have gathered, its workspace.json note and its
-    requests.json ledger."""
-    ignored = NAMED_SUBDIRS + (EXPORTS_SUBDIR, WORKSPACE_FILE_NAME, REQUESTS_FILE_NAME)
+    requests.json ledger (with the ledger's lock file)."""
+    ignored = NAMED_SUBDIRS + (
+        EXPORTS_SUBDIR,
+        WORKSPACE_FILE_NAME,
+        REQUESTS_FILE_NAME,
+        REQUESTS_LOCK_NAME,
+    )
     try:
         return sorted(entry for entry in os.listdir(path) if entry not in ignored)
     except OSError:
         return []
+
+
+_RESERVED_KEYS = frozenset(workspace_name_key(n) for n in RESERVED_WORKSPACE_NAMES)
+
+
+def _reserved(entry):
+    """Whether a root entry is one of the root's own names, in any case."""
+    return workspace_name_key(entry) in _RESERVED_KEYS
 
 
 def workspace_names(workspace):
@@ -399,7 +420,7 @@ def workspace_names(workspace):
     names = []
     try:
         for entry in sorted(os.listdir(workspace.root)):
-            if entry in RESERVED_WORKSPACE_NAMES or entry.startswith("."):
+            if _reserved(entry) or entry.startswith("."):
                 continue
             path = os.path.join(workspace.root, entry)
             if os.path.isdir(path) and _holds_a_workspace(path):
@@ -436,12 +457,25 @@ def create_workspace(workspace, name, prompts_root=None):
 
     Raises:
         InvalidInputError: If the name is not one a workspace can take
-        FileExistsError: If a workspace of that name is already there
+        FileExistsError: If the root already holds an entry of that name in
+            any letter case - a workspace, or a file or folder that is not
+            one, which is never taken over
     """
 
     name = validate_workspace_name(name, reserved=RESERVED_WORKSPACE_NAMES)
-    if name in workspace_names(workspace):
+    if name == DEFAULT_WORKSPACE_NAME or name in workspace_names(workspace):
         raise FileExistsError(f"Workspace '{name}' already exists")
+    key = workspace_name_key(name)
+    try:
+        entries = os.listdir(workspace.root)
+    except OSError:
+        entries = []
+    for entry in entries:
+        if workspace_name_key(entry) == key:
+            raise FileExistsError(
+                f"The workspace root already holds '{entry}', so '{name}' "
+                "cannot name a new workspace"
+            )
     return named_workspace(workspace, name, prompts_root=prompts_root).ensure()
 
 

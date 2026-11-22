@@ -150,3 +150,90 @@ def test_no_probe_sends_nothing(no_stdio):
     )
     assert code == 0
     assert seen == []
+
+
+# --- --notes-channel ---------------------------------------------------------
+
+
+@pytest.fixture
+def no_channel(monkeypatch):
+    """Stop main() from serving the notes channel once startup checks pass."""
+    ran = {}
+    monkeypatch.setattr(
+        cli,
+        "run_notes_channel",
+        lambda client, interval, workspace=None: ran.update(
+            interval=interval, url=client.base_url, workspace=workspace
+        ),
+    )
+    monkeypatch.setattr(cli, "build_server", lambda client: pytest.fail("tools"))
+    return ran
+
+
+def test_notes_channel_mode_serves_the_channel_and_no_tools(no_channel):
+    code = cli.main(["--notes-channel"], transport=httpx.MockTransport(healthy))
+    assert code == 0
+    assert no_channel == {
+        "interval": 10.0,
+        "url": "http://127.0.0.1:8765",
+        "workspace": None,
+    }
+
+
+def test_a_notes_channel_with_no_workspace_watches_every_one(no_channel, monkeypatch):
+    """$DW_MCP_WORKSPACE picks where a session starts, not what its channel
+    hears: a session can move with use_workspace, so the channel watches
+    the whole server unless --workspace pins it (#1529)."""
+    monkeypatch.setenv("DW_MCP_WORKSPACE", "notes")
+    cli.main(["--notes-channel"], transport=httpx.MockTransport(healthy))
+    assert no_channel["workspace"] is None
+    cli.main(
+        ["--notes-channel", "--workspace", "notes"],
+        transport=httpx.MockTransport(healthy),
+    )
+    assert no_channel["workspace"] == "notes"
+
+
+def test_the_notes_channel_refuses_a_remote_url_without_a_token_too(no_channel, capsys):
+    code = cli.main(
+        ["--notes-channel", "--url", "http://192.168.1.50:8765"],
+        transport=httpx.MockTransport(healthy),
+    )
+    assert code == 2
+    assert no_channel == {}
+    assert "DW_API_TOKEN" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("interval", ["0", "1.9", "-5", "nan"])
+def test_an_interval_under_the_floor_is_refused(interval, no_channel, capsys):
+    code = cli.main(
+        ["--notes-channel", "--interval", interval],
+        transport=httpx.MockTransport(healthy),
+    )
+    assert code == 2
+    assert no_channel == {}
+    assert "--interval must be at least 2 seconds" in capsys.readouterr().err
+
+
+def test_the_notes_channel_starts_even_when_a_remote_server_is_down(no_channel, capsys):
+    """The tool server exits here; a channel that exits cannot be restarted
+    without restarting the Claude Code session, so it serves and retries."""
+
+    def handler(request):
+        raise httpx.ConnectError("refused")
+
+    code = cli.main(
+        [
+            "--notes-channel",
+            "--url",
+            "http://192.168.1.50:8765",
+            "--token",
+            "t",
+            "--interval",
+            "30",
+        ],
+        transport=httpx.MockTransport(handler),
+    )
+    assert code == 0
+    assert no_channel["interval"] == 30.0
+    assert "could not reach" in capsys.readouterr().err

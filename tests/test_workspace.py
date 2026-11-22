@@ -184,6 +184,61 @@ class TestNamedWorkspaces:
         assert not os.path.exists(created.root)
 
 
+class TestNamesThatCollide:
+    """A name is compared as a case-insensitive filesystem compares it
+    (macOS, Windows): `Requests.json` is the ledger file there."""
+
+    @pytest.mark.parametrize(
+        "name",
+        ["Requests.json", "WORKSPACE.JSON", "Outputs", "LoRAs", "\uff32equests.json"],
+    )
+    def test_a_reserved_name_in_any_case_is_refused(self, tmp_path, name):
+        from dw.security import InvalidInputError
+        from dw.workspace import create_workspace, named_workspace
+
+        root = Workspace(tmp_path / "studio", FLAG).ensure()
+        with pytest.raises(InvalidInputError) as raised:
+            create_workspace(root, name)
+        assert str(tmp_path) not in str(raised.value)
+        with pytest.raises(InvalidInputError):
+            named_workspace(root, name)
+        assert sorted(os.listdir(root.root)) == sorted(
+            ["assets", "outputs", "prompts", "workflows"]
+        )
+
+    def test_a_folder_named_like_a_reserved_name_is_not_listed(self, tmp_path):
+        from dw.workspace import workspace_names
+
+        root = Workspace(tmp_path / "studio", FLAG).ensure()
+        # No common/ or loras/ yet, so these are the root's own on a
+        # case-insensitive filesystem and strays on a case-sensitive one
+        for name in ("Common", "LORAS", "shots"):
+            workspace_tree(tmp_path / "studio" / name, "workflows", "assets", "outputs")
+        assert workspace_names(root) == ["default", "shots"]
+
+    @pytest.mark.parametrize("taken", ["shots", "Shots", "SHOTS"])
+    def test_a_name_already_at_the_root_in_any_case_is_refused(self, tmp_path, taken):
+        from dw.workspace import create_workspace
+
+        root = Workspace(tmp_path / "studio", FLAG).ensure()
+        create_workspace(root, "shots")
+        with pytest.raises(FileExistsError) as raised:
+            create_workspace(root, taken)
+        assert str(tmp_path) not in str(raised.value)
+
+    @pytest.mark.parametrize("kind", ["file", "folder"])
+    def test_a_file_or_plain_folder_of_the_name_is_not_taken_over(self, tmp_path, kind):
+        from dw.workspace import create_workspace
+
+        root = Workspace(tmp_path / "studio", FLAG).ensure()
+        path = tmp_path / "studio" / "Notes"
+        path.write_text("mine") if kind == "file" else path.mkdir()
+        for name in ("Notes", "notes"):
+            with pytest.raises(FileExistsError):
+                create_workspace(root, name)
+        assert not (path / "outputs").exists()
+
+
 class TestSharedAssetLibrary:
     """One asset library under the root, reachable from every workspace -
     the prompt library's treatment applied to a recurring cast, which

@@ -148,7 +148,7 @@ in with `concat_videos`: that join is recorded `hard_cut`, so
 shot's budget below.
 Before the keep, run the beat review in `references/beat-review.md` on
 the shot's `get_output_frames` frames. Before a revision pass,
-`get_request` for the user's comments.
+`get_request` for the user's notes.
 Fix a shot in the order and within the caps of `references/fix-ladder.md`: three failed attempts, then ask.
 Face drift (`templates/face-drift-check`): see `references/fix-ladder.md`.
 For H3, lint the prompt first: `minimax-h3/references/prompt-lint.md`.

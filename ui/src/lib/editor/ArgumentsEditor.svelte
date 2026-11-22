@@ -9,11 +9,13 @@
     coerce,
     displayValue,
     isReference,
+    widgetFor,
+  } from '../editor'
+  import {
     mediaKindFor,
     mediaLocation,
-    widgetFor,
     withMediaLocation,
-  } from '../editor'
+  } from '../mediaArguments'
   import { promptLibrary } from '../promptlib.svelte'
   import { promptTooltip } from '../prompts'
   import { referenceCompletions } from '../refcomplete.svelte'
@@ -198,9 +200,9 @@
             >
               <Plus size={14} />
             </button>
-            <span class="availname"
-              >{parameter.name}{parameter.required ? ' *' : ''}</span
-            >
+            <span class="availname">
+              {parameter.name}{parameter.required ? ' *' : ''}
+            </span>
             {#if parameter.description}
               <div class="muted availdesc">
                 <ClampedText text={parameter.description} lines={2} />

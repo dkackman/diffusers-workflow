@@ -46,6 +46,7 @@ unreferenced in turn, so it runs to a fixed point.
 import logging
 
 from . import references
+from .for_each import group_of
 from .step_cache import (
     reference_resolves_to,
     referenced_result_names,
@@ -262,6 +263,40 @@ def _reads_variable(tree, name):
     if isinstance(tree, list):
         return any(_reads_variable(value, name) for value in tree)
     return False
+
+
+def _variable_names(value):
+    """Every 'variable:' name a nested value references, in first-use order."""
+    names = []
+    if isinstance(value, str):
+        name = references.ref_name(references.VARIABLE, value)
+        if name is not None:
+            names.append(name)
+    elif isinstance(value, dict):
+        for item in value.values():
+            names.extend(_variable_names(item))
+    elif isinstance(value, list):
+        for item in value:
+            names.extend(_variable_names(item))
+    return names
+
+
+def surviving_variables(authored_steps, expanded_steps):
+    """The variable names the steps that survived expansion and elision
+    referenced before substitution (#857). A for_each member
+    ('<group>@<entry>') stands for the step it was expanded from."""
+    groups = {
+        group_of(step.get("name"))
+        for step in expanded_steps or []
+        if isinstance(step, dict)
+    }
+    used = []
+    for step in authored_steps or []:
+        if isinstance(step, dict) and step.get("name") in groups:
+            for name in _variable_names(step):
+                if name not in used:
+                    used.append(name)
+    return used
 
 
 def elide_unreferenced_steps(steps, overridden=None):

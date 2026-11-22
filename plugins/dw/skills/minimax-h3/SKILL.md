@@ -40,7 +40,7 @@ H3 generates video and audio together. Every template fits a 24 GB card.
   section="H3: holding a clip with `guides`")`.
 - **Fix one region of a good take** (the rest and audio stay):
   `templates/minimax/regional-edit`; first `references/regional-edit.md`.
-- **Replace a performer**: `replace-performer-cuts`, trim its `cuts`,
+- **Replace a performer**: `replace-performer-cuts`, pick its `cuts`,
   `replace-performer`; the prompt gives each cut's pose and framing. A
   cut's own `prompt`/`seed` wins over the workflow `seed`/`prompt`; re-roll one cut by
   `rerun_job` with only its `seed` new. Limits:

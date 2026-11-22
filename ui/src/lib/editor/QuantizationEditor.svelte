@@ -41,12 +41,12 @@
     onchange={(e) => applyPreset(e.currentTarget.value)}
     title="quantization"
   >
-    {#each Object.keys(QUANT_PRESETS) as name (name)}<option value={name}
-        >{name}</option
-      >{/each}
-    {#if presetName === 'custom'}<option value="custom"
-        >custom ({configType})</option
-      >{/if}
+    {#each Object.keys(QUANT_PRESETS) as name (name)}<option value={name}>
+        {name}
+      </option>{/each}
+    {#if presetName === 'custom'}<option value="custom">
+        custom ({configType})
+      </option>{/if}
   </select>
 
   {#if current}

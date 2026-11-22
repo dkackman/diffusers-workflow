@@ -12,9 +12,9 @@ from dw.previous_results import (
     get_previous_results,
     find_previous_result_refs,
     previous_result_reference_errors,
+    release_unreferenced_results,
 )
 from dw.workflow import workflow_from_definition
-from dw.workflow_run import release_unreferenced_results
 from dw.result import Result
 from PIL import Image
 

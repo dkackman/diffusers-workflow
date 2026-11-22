@@ -11,7 +11,7 @@ import re
 import pytest
 
 from dw import media as dw_media
-from dw import plan, references, run as dw_run, workspace
+from dw import cost_scaling, references, run as dw_run, workspace
 from dw.server import assess, job_record, netinfo
 from dw.server.routes import assets as asset_routes
 from dw_mcp import assets, client, diagnose, media
@@ -129,13 +129,13 @@ def test_the_reserved_workspace_names_are_the_servers():
 
 def test_the_estimate_bases_are_the_planners():
     bases = {
-        plan.OBSERVED,
-        plan.PER_ENTRY,
-        plan.CATALOG,
-        plan.DERIVED,
-        plan.OTHER_DEVICE,
-        plan.UNKNOWN,
-        plan.INHERITED,
+        cost_scaling.OBSERVED,
+        cost_scaling.PER_ENTRY,
+        cost_scaling.CATALOG,
+        cost_scaling.DERIVED,
+        cost_scaling.OTHER_DEVICE,
+        cost_scaling.UNKNOWN,
+        cost_scaling.INHERITED,
     }
     assert _listed(
         _text(AuthoringTools.validate_workflow), r"`basis` \((.*?) - how"

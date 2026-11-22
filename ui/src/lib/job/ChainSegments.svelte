@@ -216,12 +216,13 @@
           onclick={() => continueChain(table, more)}
           title="queue this job again, resuming from segment {table.rows
             .length} and rendering the rest of the plan"
-          >{continuing
+        >
+          {continuing
             ? 'Queueing…'
             : pricing
               ? 'Pricing…'
-              : 'Continue the chain'}</button
-        >
+              : 'Continue the chain'}
+        </button>
       </div>
     {/if}
     <div class="scroll">
@@ -265,18 +266,16 @@
                 <span class="mono">{row.name.replace(' (repaired)', '')}</span>
                 {#if row.repaired}<span class="mark">(repaired)</span>{/if}
                 {#if row.resumed}<span class="mark">resumed</span>{/if}
-                <span class="frames mono"
-                  >frames {row.startFrame}–{row.startFrame +
-                    row.numFrames -
-                    1}</span
-                >
+                <span class="frames mono">
+                  frames {row.startFrame}–{row.startFrame + row.numFrames - 1}
+                </span>
               </td>
               <td class="attempts">
                 <span class="mono">{attemptsText(row)}</span>
                 {#if row.keptSeed !== null}
-                  <span class="seed"
-                    >kept seed <span class="mono">{row.keptSeed}</span></span
-                  >
+                  <span class="seed">
+                    kept seed <span class="mono">{row.keptSeed}</span>
+                  </span>
                 {/if}
               </td>
               {#if row.measureState === 'recorded' && Object.keys(row.measures).length}
@@ -295,8 +294,9 @@
                 <td
                   class="muted not-recorded"
                   colspan={Math.max(columns(table).length, 1)}
-                  >{measureLabel(row)}</td
                 >
+                  {measureLabel(row)}
+                </td>
               {:else if columns(table).length || anyChecked(table)}
                 <td colspan={Math.max(columns(table).length, 1)}></td>
               {/if}
@@ -307,11 +307,13 @@
                   title={action.enabled
                     ? `open ${action.workflow} with this segment filled in - nothing runs until you press Run`
                     : action.reason}
-                  onclick={() => repair(table, row)}>Repair this segment</button
+                  onclick={() => repair(table, row)}
                 >
-                {#if !action.enabled}<span class="reason muted"
-                    >{action.reason}</span
-                  >{/if}
+                  Repair this segment
+                </button>
+                {#if !action.enabled}<span class="reason muted">
+                    {action.reason}
+                  </span>{/if}
               </td>
             </tr>
           {/each}
@@ -424,13 +426,5 @@
     display: block;
     max-width: 16rem;
     font-size: 0.75rem;
-  }
-  .sr-only {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip: rect(0 0 0 0);
-    white-space: nowrap;
   }
 </style>

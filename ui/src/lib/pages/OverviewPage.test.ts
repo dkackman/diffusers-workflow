@@ -18,6 +18,7 @@ const data = vi.hoisted(() => ({
   galleryError: null as Error | null,
   requests: [] as unknown[],
   requestsError: null as Error | null,
+  requestsFor: null as ((ws: string) => Promise<unknown>) | null,
 }))
 const deleteWorkspace = vi.hoisted(() => vi.fn())
 vi.mock('../api', () => ({
@@ -35,10 +36,12 @@ vi.mock('../api', () => ({
       if (limit) jobs = jobs.slice(Math.max(0, jobs.length - limit))
       return Promise.resolve({ jobs, total: jobs.length })
     },
-    listRequests: () =>
-      data.requestsError
-        ? Promise.reject(data.requestsError)
-        : Promise.resolve({ workspace: 'studio', requests: data.requests }),
+    listRequests: (ws: string) =>
+      data.requestsFor
+        ? data.requestsFor(ws)
+        : data.requestsError
+          ? Promise.reject(data.requestsError)
+          : Promise.resolve({ workspace: 'studio', requests: data.requests }),
     listWorkflows: () =>
       Promise.resolve({
         libraries: [
@@ -87,6 +90,7 @@ beforeEach(async () => {
   data.galleryError = null
   data.requests = []
   data.requestsError = null
+  data.requestsFor = null
   deleteWorkspace.mockReset()
   localStorage.clear()
   location.hash = '#/ws/studio/overview'
@@ -279,7 +283,8 @@ it('lists open requests with their counts, and links to them all', async () => {
   expect(
     screen.getByRole('link', { name: 'Launch posters' }).getAttribute('href'),
   ).toBe('#/ws/studio/requests/r1')
-  expect(screen.getByText('2 done · 1 planned')).toBeTruthy()
+  expect(screen.getByText('idle: 1 planned, nothing running')).toBeTruthy()
+  expect(screen.getByText('2/3')).toBeTruthy()
   expect(screen.queryByText('Old ask')).toBeNull()
   expect(
     screen.getByRole('link', { name: 'all requests' }).getAttribute('href'),
@@ -291,4 +296,23 @@ it('hides the requests panel when there are none or the call fails', async () =>
   render(OverviewPage)
   await waitFor(() => expect(screen.getByText(/no jobs yet/i)).toBeTruthy())
   expect(screen.queryByText('all requests')).toBeNull()
+})
+
+it("drops another workspace's requests that land after a switch", async () => {
+  let land: (reply: unknown) => void = () => {}
+  data.requestsFor = (ws) =>
+    ws === 'studio'
+      ? new Promise((resolve) => (land = resolve))
+      : Promise.resolve({
+          workspace: ws,
+          requests: [summary({ id: 'd1', title: 'Default ask' })],
+        })
+  render(OverviewPage)
+  location.hash = '#/ws/default/overview'
+  window.dispatchEvent(new HashChangeEvent('hashchange'))
+  await waitFor(() => expect(screen.getByText('Default ask')).toBeTruthy())
+  land({ workspace: 'studio', requests: [summary({})] })
+  await new Promise((r) => setTimeout(r, 10))
+  expect(screen.queryByText('Launch posters')).toBeNull()
+  expect(screen.getByText('Default ask')).toBeTruthy()
 })

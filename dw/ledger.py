@@ -19,9 +19,12 @@ leaves it out); else `done` when any linked job succeeded, `running`,
 the request `spent_minutes` and `remaining_minutes`; this module reads only
 the job dicts it is handed, never the job store.
 
-Written with `write_json_atomic` under a per-directory lock (the notes.py
-pattern), read without one: a rename is atomic, so a reader sees the old
-file or the new one. Callers resolve and validate the workspace root; this
+Written with `write_json_atomic` under a file lock beside it
+(`.requests.json.lock`, the model_use.py pattern), so two servers on one
+workspace read, check the revision and replace the file one at a time; a
+per-directory thread lock in front keeps one process's threads from
+queueing on the file. Read without a lock: a rename is atomic, so a reader
+sees the old file or the new one. Callers resolve and validate the workspace root; this
 module joins only its own fixed file name onto it.
 """
 
@@ -30,7 +33,10 @@ import math
 import os
 import re
 import threading
+from contextlib import contextmanager
 from datetime import datetime, timezone
+
+from filelock import FileLock, Timeout
 
 from .notes import NoteTooLong, clean_note
 from .runs import write_json_atomic
@@ -41,19 +47,39 @@ from .security import (
     validate_string_input,
     validate_variable_name,
 )
-from .workspace import REQUESTS_FILE_NAME
+from .workspace import REQUESTS_FILE_NAME, REQUESTS_LOCK_NAME
+from .ledger_views import (  # noqa: F401 - COVER_* and the views are read as ledger.*
+    COVER_SCAN,
+    COVER_SIZE,
+    _live_keys,
+    item_view,
+    request_view,
+    summary_view,
+)
 
 MAX_TITLE_LENGTH = 200
 MAX_WHY_LENGTH = 200
 MAX_TEXT_LENGTH = MAX_VARIABLE_VALUE_LENGTH  # prompt, goal
-MAX_ITEMS = 200
-MAX_REQUESTS = 100
+# Caps that never wedge a workspace: only what is still in play counts
+# toward the working caps (live items, open requests), and what is finished
+# has a far higher cap of its own with a way out - a closed request is
+# deleted, a dropped item is purged. MAX_FILE_BYTES bounds the whole file.
+MAX_ITEMS = 200  # live items of one request
+MAX_DROPPED_ITEMS = 200  # dropped items of one request
+MAX_REQUESTS = 100  # open requests of one workspace
+MAX_CLOSED_REQUESTS = 1000  # done and abandoned ones
 MAX_DEPENDS_ON = 16
 MAX_ESTIMATE_MINUTES = 10_000
 MAX_ARGUMENTS = 64
 MAX_WORKFLOW_NAME_LENGTH = 200
 MAX_FILE_BYTES = 2 * 1024 * 1024
 MAX_HISTORY = 100
+MAX_NOTES = 20  # live notes of one target: an item, or the request itself
+MAX_NOTE_REFS = 16  # references in one note
+MIN_REVIEW_SECONDS = 60  # a review hold's shortest span
+MAX_REVIEW_HOURS = 24  # and its longest
+# Seconds a write waits for another server's write to the same file
+LOCK_TIMEOUT = 10
 
 STATES = ("open", "done", "abandoned")
 AUTHORS = ("agent", "user")
@@ -63,9 +89,9 @@ AUTHORS = ("agent", "user")
 # here - but held to name characters so a later stage can.
 _WORKFLOW_NAME_PATTERN = r"^[\w][\w.:-]*(/[\w][\w.:-]*)*\Z"
 
-# What an item may carry on a write. `status`, `attempts`, `result`,
-# `accepted_missing` and `spent_minutes` are derived and ignored, so a plan
-# read with GET can be written back as it came.
+# What an item may carry on a write. `status`, `ready`, `attempts`,
+# `result`, `accepted_missing`, `spent_minutes`, `review_set_at` and `review`
+# are derived and ignored, so a plan read with GET can be written back.
 _ITEM_FIELDS = frozenset(
     (
         "key",
@@ -76,12 +102,16 @@ _ITEM_FIELDS = frozenset(
         "arguments",
         "dropped",
         "accepted",
-        "comment",
+        "notes",
         "status",
+        "ready",
         "attempts",
         "result",
         "accepted_missing",
         "spent_minutes",
+        "review_until",
+        "review_set_at",
+        "review",
     )
 )
 
@@ -109,6 +139,32 @@ def _lock(directory):
         return _locks.setdefault(key, threading.Lock())
 
 
+@contextmanager
+def _writing(root):
+    """Hold the ledger at `root` for one read-check-replace: this process's
+    threads first, then every other process on the file lock. Raises
+    LedgerError (503 `ledger_busy`) when another process keeps it past
+    `LOCK_TIMEOUT`."""
+    with _lock(root):
+        held = FileLock(
+            os.path.join(root, REQUESTS_LOCK_NAME),
+            timeout=LOCK_TIMEOUT,
+            thread_local=False,
+        )
+        try:
+            held.acquire()
+        except Timeout as e:
+            raise LedgerError(
+                f"{REQUESTS_FILE_NAME} is being written by another server; try again",
+                status=503,
+                code="ledger_busy",
+            ) from e
+        try:
+            yield
+        finally:
+            held.release()
+
+
 def _now():
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
@@ -117,10 +173,43 @@ def ledger_path(root):
     return os.path.join(root, REQUESTS_FILE_NAME)
 
 
+def _unreadable(why):
+    return LedgerError(
+        f"{REQUESTS_FILE_NAME} could not be read ({why}); fix or remove it "
+        "before writing",
+        status=409,
+        code="ledger_unreadable",
+    )
+
+
+def _request_fault(request_id, request):
+    """What is wrong with one stored request's shape, or None: the fields
+    the views read without checking."""
+    if not isinstance(request, dict):
+        return "is not an object"
+    if request.get("id") != request_id:
+        return "is stored under another id"
+    if request.get("state") not in STATES:
+        return "has no known state"
+    revision = request.get("revision")
+    if isinstance(revision, bool) or not isinstance(revision, int):
+        return "has no revision"
+    items = request.get("items")
+    if not isinstance(items, list) or not all(
+        isinstance(item, dict) and isinstance(item.get("key"), str) for item in items
+    ):
+        return "has items that are not a list of keyed objects"
+    history = request.get("history", [])
+    if not isinstance(history, list) or not all(isinstance(h, dict) for h in history):
+        return "has a history that is not a list of objects"
+    return None
+
+
 def _load(root):
     """The stored ledger, `{}` when there is no file. Raises LedgerError
-    when the file is there but unreadable, so a write never replaces a
-    ledger it could not read."""
+    (`ledger_unreadable`) when the file is there but is not a ledger - not
+    readable, not JSON, or JSON of another shape - so a write never
+    replaces a file it could not read. The message never names the folder."""
     path = ledger_path(root)
     try:
         with open(path) as handle:
@@ -128,16 +217,49 @@ def _load(root):
     except FileNotFoundError:
         return {}
     except (OSError, ValueError) as e:
-        raise LedgerError(
-            f"{REQUESTS_FILE_NAME} could not be read ({e}); fix or remove it "
-            "before writing",
-            status=409,
-            code="ledger_unreadable",
-        ) from e
+        # An OSError's text carries the file's absolute path; its strerror
+        # does not
+        why = (e.strerror or type(e).__name__) if isinstance(e, OSError) else e
+        raise _unreadable(why) from e
     requests = data.get("requests") if isinstance(data, dict) else None
     if not isinstance(requests, dict):
-        return {}
-    return {k: v for k, v in requests.items() if isinstance(v, dict)}
+        raise _unreadable('it is not {"requests": {...}}')
+    for request_id, request in requests.items():
+        fault = _request_fault(request_id, request)
+        if fault:
+            raise _unreadable(f"request {str(request_id)[:64]!r} {fault}")
+        _upgrade(request)
+    return requests
+
+
+def _upgrade(request):
+    """Bring a stored request to the notes shape, in place, and return it.
+    A stored `comment {text, at}` (the request's, then each item's in plan
+    order) becomes one note `{id, text, created, at}` with `created = at`;
+    `next_note` counts past the ids handed out; `agent_wrote_at` is filled
+    from the latest agent entry in the history when it was never stored.
+    Idempotent, and `comment` is never written again."""
+    request.setdefault("next_note", 1)
+    for owner in (request, *request["items"]):
+        comment = owner.pop("comment", None)
+        owner.setdefault("notes", [])
+        if isinstance(comment, dict) and comment.get("text"):
+            at = comment.get("at")
+            owner["notes"].append(
+                {
+                    "id": f"n{request['next_note']}",
+                    "text": comment["text"],
+                    "created": at,
+                    "at": at,
+                }
+            )
+            request["next_note"] += 1
+    if "agent_wrote_at" not in request:
+        agent = [
+            h.get("at") for h in request.get("history") or [] if h.get("by") == "agent"
+        ]
+        request["agent_wrote_at"] = agent[-1] if agent else None
+    return request
 
 
 def read_requests(root):
@@ -151,146 +273,23 @@ def read_requests(root):
         return {}
 
 
-# --- views ---------------------------------------------------------------
+def unreadable(root):
+    """The `ledger_unreadable` LedgerError for a file that is there but is
+    not a ledger, or None."""
+    if root is None:
+        return None
+    try:
+        _load(root)
+    except LedgerError as e:
+        return e
+    return None
+
+
+# --- views (dw/ledger_views.py derives them) -----------------------------
 
 
 def _no_jobs(_request_id):
     return []
-
-
-def _minutes(job):
-    """How long a linked job ran, in minutes to two places, or None when it
-    has not both started and finished."""
-    started, finished = job.get("started_at"), job.get("finished_at")
-    if started is None or finished is None:
-        return None
-    return round(max(finished - started, 0) / 60, 2)
-
-
-def _item_status(item, jobs):
-    """An item's status, derived from the jobs linked to it: dropped; done
-    (any succeeded); running; queued; failed (every linked job failed or was
-    cancelled); planned (none)."""
-    if item.get("dropped"):
-        return "dropped"
-    statuses = {job.get("status") for job in jobs}
-    if "succeeded" in statuses:
-        return "done"
-    if "running" in statuses:
-        return "running"
-    if "queued" in statuses:
-        return "queued"
-    if statuses:
-        return "failed"
-    return "planned"
-
-
-def _result(item, jobs):
-    """`(result, accepted_missing)`: the accepted job's run when it is set
-    and its run still exists, else the latest-finished succeeded job whose
-    run exists, else None."""
-    accepted = item.get("accepted")
-    missing = False
-    if accepted:
-        for job in jobs:
-            if job.get("job") == accepted.get("job") and job.get("run_exists"):
-                return {"job": job["job"], "run_id": job.get("run_id")}, False
-        missing = True
-    kept = [
-        job
-        for job in jobs
-        if job.get("status") == "succeeded" and job.get("run_exists")
-    ]
-    if not kept:
-        return None, missing
-    latest = max(kept, key=lambda job: job.get("finished_at") or 0)
-    return {"job": latest["job"], "run_id": latest.get("run_id")}, missing
-
-
-def _jobs_by_item(jobs):
-    grouped = {}
-    for job in jobs:
-        grouped.setdefault(job.get("item"), []).append(job)
-    for group in grouped.values():
-        group.sort(key=lambda job: job.get("created_at") or 0)
-    return grouped
-
-
-def item_view(item, jobs):
-    """One item as read, with what its linked `jobs` derive: `status`,
-    `attempts` (every linked job, oldest first, as `{job, status, note,
-    minutes}` - `note` only when set, `minutes` null until it has run),
-    `result`, `accepted_missing` (only when true) and `spent_minutes`."""
-    attempts = [
-        {
-            "job": job.get("job"),
-            "status": job.get("status"),
-            **({"note": job["note"]} if job.get("note") else {}),
-            "minutes": _minutes(job),
-        }
-        for job in jobs
-    ]
-    result, missing = _result(item, jobs)
-    return {
-        **item,
-        "status": _item_status(item, jobs),
-        "attempts": attempts,
-        "result": result,
-        **({"accepted_missing": True} if missing else {}),
-        "spent_minutes": _spent(jobs),
-    }
-
-
-def _spent(jobs):
-    return round(sum(_minutes(job) or 0 for job in jobs), 2)
-
-
-def _remaining(request, grouped):
-    """What is left to do: the estimates of the items not done and not
-    dropped."""
-    total = 0
-    for item in request.get("items", []):
-        if _item_status(item, grouped.get(item.get("key"), [])) in ("done", "dropped"):
-            continue
-        total += item.get("estimate_minutes") or 0
-    return round(total, 2)
-
-
-def request_view(request, jobs=()):
-    """A stored request as read: every item with its derived fields
-    (`item_view`) and the request's `spent_minutes` and `remaining_minutes`.
-    `jobs` are the linked jobs (`{job, item, status, run_id, run_exists,
-    note, created_at, started_at, finished_at}`)."""
-    grouped = _jobs_by_item(jobs)
-    view = dict(request)
-    view["items"] = [
-        item_view(item, grouped.get(item.get("key"), []))
-        for item in request.get("items", [])
-    ]
-    view["spent_minutes"] = _spent(jobs)
-    view["remaining_minutes"] = _remaining(request, grouped)
-    return view
-
-
-def summary_view(request, jobs=()):
-    """One row of the list: what a request is, without its items."""
-    grouped = _jobs_by_item(jobs)
-    counts = {}
-    for item in request.get("items", []):
-        status = _item_status(item, grouped.get(item.get("key"), []))
-        counts[status] = counts.get(status, 0) + 1
-    history = request.get("history") or []
-    return {
-        "id": request.get("id"),
-        "title": request.get("title"),
-        "state": request.get("state"),
-        "revision": request.get("revision"),
-        "items": len(request.get("items", [])),
-        "status_counts": counts,
-        "spent_minutes": _spent(jobs),
-        "remaining_minutes": _remaining(request, grouped),
-        "updated_at": history[-1].get("at") if history else None,
-    }
 
 
 def list_requests(root, jobs_for=_no_jobs):
@@ -303,10 +302,20 @@ def list_requests(root, jobs_for=_no_jobs):
     return rows
 
 
+def listing(root, jobs_for=_no_jobs):
+    """What the list route answers: `requests` (`list_requests`), and
+    `unreadable` - why - when the file is there but is not a ledger."""
+    problem = unreadable(root)
+    if problem is not None:
+        return {"requests": [], "unreadable": str(problem)}
+    return {"requests": list_requests(root, jobs_for)}
+
+
 def get_request(root, request_id, jobs_for=_no_jobs):
-    """One request's view, or None."""
+    """One request's view, or None. Raises LedgerError when the file is
+    there but is not a ledger."""
     validate_ledger_key(request_id, "Request id")
-    request = read_requests(root).get(request_id)
+    request = (_load(root) if root is not None else {}).get(request_id)
     if request is None:
         return None
     return request_view(request, jobs_for(request_id))
@@ -316,10 +325,13 @@ def link_problem(root, request_id, item_key):
     """The LedgerError that says why a job cannot be linked to
     `request_id`/`item_key` in the workspace at `root`, or None when it can:
     `unknown_request` (no such request, or no root), `request_closed`,
-    `unknown_item`, `item_dropped`. Both keys are checked as keys first
+    `unknown_item`, `item_dropped`, or `ledger_unreadable` (409). Both keys are checked as keys first
     (InvalidInputError otherwise). Takes no lock."""
     validate_ledger_key(request_id, "Request")
     validate_ledger_key(item_key, "Item")
+    problem = unreadable(root)
+    if problem is not None:
+        return problem
     request = read_requests(root).get(request_id)
     if request is None:
         return LedgerError(
@@ -378,7 +390,8 @@ def _estimate(value, key):
         return None
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise LedgerError(f"item {key!r}: estimate_minutes must be a number or null")
-    if not math.isfinite(value) or not 0 <= value <= MAX_ESTIMATE_MINUTES:
+    # The range first: isfinite raises on an integer too large for a float
+    if not 0 <= value <= MAX_ESTIMATE_MINUTES or not math.isfinite(value):
         raise LedgerError(
             f"item {key!r}: estimate_minutes must be between 0 and "
             f"{MAX_ESTIMATE_MINUTES}, got {value}"
@@ -438,42 +451,6 @@ def _arguments(value, key):
     return out
 
 
-def _comment(value, key, existing, by, at):
-    """The comment to store. A user writes it; an agent's write keeps what
-    is there (omitting it, or sending it back unchanged)."""
-    if by != "user":
-        if value is _MISSING or value == existing:
-            return existing
-        if (
-            isinstance(value, dict)
-            and existing
-            and value.get("text") == existing.get("text")
-        ):
-            return existing
-        raise LedgerError(
-            f"item {key!r}: the comment is the user's - an agent's write omits it"
-        )
-    if value is _MISSING:
-        return existing
-    if isinstance(value, dict):
-        unknown = set(value) - {"text", "at"}
-        if unknown:
-            raise LedgerError(
-                f"item {key!r}: comment carries unknown fields {sorted(unknown)}"
-            )
-        value = value.get("text")
-    try:
-        text = clean_note(value)
-    except (NoteTooLong, TypeError) as e:
-        raise LedgerError(f"item {key!r} comment: {e}") from e
-    if text is None:
-        return None
-    _text(text, f"item {key!r} comment", len(text) or 1)
-    if existing and existing.get("text") == text:
-        return existing
-    return {"text": text, "at": at}
-
-
 def _accepted(value, key, existing, linked):
     if value is None:
         return None
@@ -498,9 +475,6 @@ def _accepted(value, key, existing, linked):
         f"item {key!r}: job {job!r} is not linked to this request and item, "
         "so it cannot be accepted"
     )
-
-
-_MISSING = object()
 
 
 def _check_dependencies(items):
@@ -549,7 +523,19 @@ def _no_links(_request_id, _key):
 
 
 _BODY_FIELDS = frozenset(
-    ("title", "goal", "items", "revision", "why", "prompt", "state")
+    (
+        "title",
+        "goal",
+        "items",
+        "revision",
+        "why",
+        "prompt",
+        "state",
+        "purge",
+        "notes",
+        "next_note",
+        "agent_wrote_at",
+    )
 )
 
 
@@ -575,9 +561,13 @@ def _check_body(body):
     raw_items = body.get("items")
     if not isinstance(raw_items, list):
         raise LedgerError("items must be a list")
-    if len(raw_items) > MAX_ITEMS:
+    if len(raw_items) > MAX_ITEMS + MAX_DROPPED_ITEMS:
         raise LedgerError(f"at most {MAX_ITEMS} items, got {len(raw_items)}")
+    purge = body.get("purge") or []
+    if not isinstance(purge, list) or len(purge) > MAX_ITEMS + MAX_DROPPED_ITEMS:
+        raise LedgerError("purge must be a list of item keys")
     return {
+        "purge": [_key(key, "purge key") for key in purge],
         "revision": revision,
         "title": _text(body.get("title"), "title", MAX_TITLE_LENGTH, one_line=True),
         "goal": _text(body.get("goal"), "goal", MAX_TEXT_LENGTH, allow_empty=True),
@@ -602,14 +592,12 @@ def _check_against(requests, request_id, write):
             code="stale_revision",
             current_revision=current_revision,
         )
-    if current is None:
-        if len(requests) >= MAX_REQUESTS:
-            raise LedgerError(
-                f"a workspace holds at most {MAX_REQUESTS} requests",
-                status=409,
-                code="ledger_full",
-            )
-    elif write["prompt"] is not None and write["prompt"] != current.get("prompt"):
+    _check_room(requests, current, write["state"])
+    if (
+        current is not None
+        and write["prompt"] is not None
+        and write["prompt"] != current.get("prompt")
+    ):
         raise LedgerError(
             "prompt is write-once: it is the ask that started the request "
             "and was set when it was created",
@@ -617,6 +605,33 @@ def _check_against(requests, request_id, write):
             code="prompt_is_write_once",
         )
     return current
+
+
+def _check_room(requests, current, state):
+    """Refuse (409 `ledger_full`) a write that would add an open request
+    past MAX_REQUESTS or a closed one past MAX_CLOSED_REQUESTS. Only a
+    request entering a side counts - creating, closing, reopening - so one
+    already there stays writable at the cap."""
+    was = current.get("state") if current else None
+    state = state or was or "open"
+    is_open = state == "open"
+    if was is not None and (was == "open") == is_open:
+        return
+    held = sum((r.get("state") == "open") == is_open for r in requests.values())
+    if is_open and held >= MAX_REQUESTS:
+        raise LedgerError(
+            f"a workspace holds at most {MAX_REQUESTS} open requests - close "
+            "one (state done or abandoned) or delete one to make room",
+            status=409,
+            code="ledger_full",
+        )
+    if not is_open and held >= MAX_CLOSED_REQUESTS:
+        raise LedgerError(
+            f"a workspace holds at most {MAX_CLOSED_REQUESTS} done or "
+            "abandoned requests - delete one to make room",
+            status=409,
+            code="ledger_full",
+        )
 
 
 def _depends_on(raw, key):
@@ -632,8 +647,39 @@ def _depends_on(raw, key):
     return list(dict.fromkeys(keys))
 
 
+def _review_until(value, key, previous, at):
+    """`(review_until, review_set_at)` as stored, in UTC. A value equal to the
+    stored one keeps its stamp, so a plan written back unchanged does not
+    restart the hold; a new one falls MIN_REVIEW_SECONDS..MAX_REVIEW_HOURS out."""
+    if value is None:
+        return None, None
+    try:
+        when = datetime.fromisoformat(value)
+    except (TypeError, ValueError):
+        when = None
+    if when is None or when.utcoffset() is None:
+        raise _review_error(key, "invalid_review_until", "an ISO time with an offset")
+    when = when.astimezone(timezone.utc).replace(microsecond=0)
+    if when.isoformat() == previous.get("review_until"):
+        return previous["review_until"], previous.get("review_set_at")
+    ahead = (when - datetime.fromisoformat(at)).total_seconds()
+    if ahead < MIN_REVIEW_SECONDS:
+        bound = f"at least {MIN_REVIEW_SECONDS} seconds from now"
+        raise _review_error(key, "review_too_soon", bound)
+    if ahead > MAX_REVIEW_HOURS * 3600:
+        raise _review_error(key, "review_too_far", f"within {MAX_REVIEW_HOURS} hours")
+    return when.isoformat(), at
+
+
+def _review_error(key, code, must_be):
+    return LedgerError(
+        f"item {key!r} review_until must be {must_be}", status=422, code=code
+    )
+
+
 def _item(raw, key, previous, linked, by, at):
     """One live item as stored."""
+    until, set_at = _review_until(raw.get("review_until"), key, previous, at)
     return {
         "key": key,
         "title": _text(
@@ -647,15 +693,27 @@ def _item(raw, key, previous, linked, by, at):
         "accepted": _accepted(
             raw.get("accepted"), key, previous.get("accepted"), linked
         ),
-        "comment": _comment(
-            raw.get("comment", _MISSING), key, previous.get("comment"), by, at
-        ),
+        "notes": list(previous.get("notes") or []),
+        "review_until": until,
+        "review_set_at": set_at,
     }
 
 
-def _merge_items(raw_items, current, request_id, linked_jobs, by, at):
+def _check_purge(purge, stored, listed):
+    for key in purge:
+        if key in listed:
+            raise LedgerError(
+                f"purge names {key!r}, which this plan still lists - leave it "
+                "out of items to purge it"
+            )
+        if key not in stored:
+            raise LedgerError(f"purge names {key!r}, which is not an item")
+
+
+def _merge_items(raw_items, current, request_id, linked_jobs, by, at, purge=()):
     """The plan's items in its order, then every stored item it no longer
-    lists that jobs link to, as dropped; one no job links to is deleted."""
+    lists that jobs link to, as dropped; one no job links to, or named in
+    `purge`, is deleted. Live and dropped items are capped apart."""
     stored = {item.get("key"): item for item in (current or {}).get("items", [])}
     live, seen = [], set()
     for raw in raw_items:
@@ -675,24 +733,39 @@ def _merge_items(raw_items, current, request_id, linked_jobs, by, at):
         previous = stored.get(key) or {}
         live.append(_item(raw, key, previous, linked_jobs(request_id, key), by, at))
     listed = {item["key"] for item in live}
+    _check_purge(purge, stored, listed)
     dropped = [
         {**item, "dropped": True}
         for key, item in stored.items()
-        if key not in listed and linked_jobs(request_id, key)
+        if key not in listed and key not in purge and linked_jobs(request_id, key)
     ]
-    items = live + dropped
-    if len(items) > MAX_ITEMS:
+    if len(live) > MAX_ITEMS:
         raise LedgerError(
-            f"at most {MAX_ITEMS} items, counting dropped ones; got {len(items)}"
+            f"at most {MAX_ITEMS} items, not counting dropped ones; got {len(live)}"
         )
-    _check_dependencies(items)
-    return items
+    if len(dropped) > MAX_DROPPED_ITEMS:
+        raise LedgerError(
+            f"at most {MAX_DROPPED_ITEMS} dropped items, got {len(dropped)} - "
+            "name the ones to remove for good in `purge` (their jobs keep "
+            "their history, link and files)",
+            status=409,
+            code="too_many_dropped_items",
+        )
+    # The live plan only: a dropped item keeps the depends_on it was stored
+    # with and no write can edit it, so checking it would hold its
+    # dependency in the plan for good
+    _check_dependencies(live)
+    return live + dropped
 
 
-def _history(current, write, revision, by, at):
+def _history(current, write, state, revision, by, at):
+    """The history with this write's entry: who, when and why, with the
+    goal and the state when it set or changed them."""
     entry = {"revision": revision, "at": at, "by": by, "why": write["why"]}
     if current is None or write["goal"] != current.get("goal"):
         entry["goal"] = write["goal"]
+    if current is None or state != current.get("state"):
+        entry["state"] = state
     history = list((current or {}).get("history", [])) + [entry]
     if len(history) > MAX_HISTORY:
         history = history[:1] + history[-(MAX_HISTORY - 1) :]
@@ -705,7 +778,8 @@ def put_request(
     """Write one request's whole plan and return its view.
 
     `body` holds title, goal, items, revision and why, and optionally
-    prompt and state. `linked_jobs(request_id, key)` lists the jobs linked
+    prompt, state and `purge` (keys of items this plan leaves out,
+    removed for good even though jobs link to them). `linked_jobs(request_id, key)` lists the jobs linked
     to an item as `{job, status, run_id}`; `accepted` must name one of them
     that succeeded. `jobs_for(request_id)` lists every job linked to the request, for
     the returned view's derived fields.
@@ -723,22 +797,34 @@ def put_request(
         raise LedgerError(f"by must be one of {', '.join(AUTHORS)}")
     write = _check_body(body)
 
-    with _lock(root):
+    with _writing(root):
         requests = _load(root)
         current = _check_against(requests, request_id, write)
         at = _now()
         revision = write["revision"] + 1
+        state = write["state"] or (current or {}).get("state") or "open"
         request = {
             "id": request_id,
             "title": write["title"],
-            "state": write["state"] or (current or {}).get("state") or "open",
+            "state": state,
             "revision": revision,
             "prompt": current.get("prompt") if current else write["prompt"],
             "goal": write["goal"],
+            "notes": list((current or {}).get("notes") or []),
+            "next_note": (current or {}).get("next_note", 1),
+            "agent_wrote_at": at
+            if by == "agent"
+            else (current or {}).get("agent_wrote_at"),
             "items": _merge_items(
-                write["items"], current, request_id, linked_jobs, by, at
+                write["items"],
+                current,
+                request_id,
+                linked_jobs,
+                by,
+                at,
+                write["purge"],
             ),
-            "history": _history(current, write, revision, by, at),
+            "history": _history(current, write, state, revision, by, at),
         }
         requests[request_id] = request
         document = {"requests": requests}
@@ -746,10 +832,269 @@ def put_request(
         if size > MAX_FILE_BYTES:
             raise LedgerError(
                 f"{REQUESTS_FILE_NAME} would be {size} bytes, past its "
-                f"{MAX_FILE_BYTES}-byte cap - shorten the plan's text "
-                "or arguments",
+                f"{MAX_FILE_BYTES}-byte cap - shorten the plan's text or "
+                "arguments, purge dropped items or delete a closed request",
                 status=413,
                 code="ledger_too_large",
             )
         write_json_atomic(ledger_path(root), document)
     return request_view(request, jobs_for(request_id))
+
+
+def _note_target(requests, request_id, item):
+    """The stored request and the note list a note belongs on: the item's
+    when `item` is given, else the request's."""
+    request = requests.get(request_id)
+    if request is None:
+        raise LedgerError(
+            f"no request {request_id!r} in this workspace",
+            status=404,
+            code="unknown_request",
+        )
+    if item is None:
+        request["notes"] = request.get("notes") or []
+        return request, request["notes"]
+    for stored in request["items"]:
+        if stored.get("key") == item:
+            if stored.get("dropped"):
+                raise LedgerError(
+                    f"item {item!r} of request {request_id!r} was dropped",
+                    status=422,
+                    code="item_dropped",
+                )
+            stored["notes"] = stored.get("notes") or []
+            return request, stored["notes"]
+    raise LedgerError(
+        f"request {request_id!r} has no item {item!r}",
+        status=422,
+        code="unknown_item",
+    )
+
+
+def _find_note(request, note_id):
+    """The note list holding `note_id` and the note, in the request or in
+    any of its items."""
+    for notes in (request.get("notes"), *(i.get("notes") for i in request["items"])):
+        for note in notes or []:
+            if note.get("id") == note_id:
+                return notes, note
+    raise LedgerError(
+        f"request {request['id']!r} has no note {note_id!r}",
+        status=404,
+        code="unknown_note",
+    )
+
+
+def _note_text(text):
+    try:
+        cleaned = clean_note(text)
+    except (TypeError, NoteTooLong) as e:
+        raise LedgerError(str(e)) from e
+    if cleaned is None:
+        raise LedgerError("a note needs text - delete it to remove it")
+    return cleaned
+
+
+def _noted_write(root, requests, request, why):
+    """Record a note write by the user: bump the revision, add its history
+    entry, check the file's size and save. Returns the new revision."""
+    at = _now()
+    request["revision"] += 1
+    history = (request.get("history") or []) + [
+        {"revision": request["revision"], "at": at, "by": "user", "why": why}
+    ]
+    if len(history) > MAX_HISTORY:
+        history = history[:1] + history[-(MAX_HISTORY - 1) :]
+    request["history"] = history
+    document = {"requests": requests}
+    size = len(json.dumps(document, indent=2).encode("utf-8"))
+    if size > MAX_FILE_BYTES:
+        raise LedgerError(
+            f"{REQUESTS_FILE_NAME} would be {size} bytes, past its "
+            f"{MAX_FILE_BYTES}-byte cap - shorten the note or delete a closed "
+            "request",
+            status=413,
+            code="ledger_too_large",
+        )
+    write_json_atomic(ledger_path(root), document)
+    return request["revision"]
+
+
+def _need_root(root):
+    if root is None:
+        raise LedgerError(
+            "this workspace has no root folder, so it cannot hold requests",
+            status=409,
+            code="no_workspace_root",
+        )
+
+
+def _note_refs(request, item, refs):
+    """A new note's references as `{item, job?, output?}`, checked against
+    the plan and with duplicates collapsed in first order. An item note's
+    references default to and must name its item; each item must be in the
+    plan and not dropped; `output` needs `job`. Raises LedgerError
+    (`too_many_refs`, `invalid_note_ref`)."""
+    refs = list(refs or [])
+    if len(refs) > MAX_NOTE_REFS:
+        raise LedgerError(
+            f"at most {MAX_NOTE_REFS} references fit in one note, not {len(refs)}",
+            status=422,
+            code="too_many_refs",
+        )
+    live = _live_keys(request["items"])
+    out = []
+    for ref in refs:
+        given = {k: ref[k] for k in ("item", "job", "output") if ref.get(k) is not None}
+        ref = {"item": item, **given}
+        where = ref["item"]
+        if not isinstance(where, str):
+            raise _bad_ref("a request note's reference names its item")
+        if item is not None and where != item:
+            raise _bad_ref(
+                f"a note on item {item!r} references only that item, not {where!r}"
+            )
+        if where not in live:
+            raise _bad_ref(
+                f"item {where!r} of request {request['id']!r} is not in the plan "
+                "or was dropped"
+            )
+        if "output" in ref and "job" not in ref:
+            raise _bad_ref("a reference names `output` only with its `job`")
+        if ref not in out:
+            out.append(ref)
+    return out
+
+
+def _bad_ref(why):
+    return LedgerError(why, status=422, code="invalid_note_ref")
+
+
+def add_note(root, request_id, *, item, text, refs, check_ref):
+    """Add one user note to an item (or to the request when `item` is None)
+    and answer `{note, revision}`. `refs` is a list of `{item?, job?,
+    output?}` (see `_note_refs`); `check_ref(request_id, ref)` is called
+    once per reference, after its item is filled in, and answers the
+    reference to store or raises LedgerError (`invalid_note_ref`); the
+    ledger reads no jobs itself. One refused reference refuses the note.
+
+    Raises LedgerError (`unknown_request`, `unknown_item`, `item_dropped`,
+    `too_many_notes`, `too_many_refs`, `invalid_note_ref`), or OSError when
+    the file cannot be written."""
+    _need_root(root)
+    _key(request_id, "Request id")
+    text = _note_text(text)
+    with _writing(root):
+        requests = _load(root)
+        request, notes = _note_target(requests, request_id, item)
+        if len(notes) >= MAX_NOTES:
+            raise LedgerError(
+                f"at most {MAX_NOTES} notes fit on one request or item - "
+                "delete one first",
+                status=422,
+                code="too_many_notes",
+            )
+        stored = [check_ref(request_id, ref) for ref in _note_refs(request, item, refs)]
+        at = _now()
+        note = {
+            "id": f"n{request['next_note']}",
+            "text": text,
+            "created": at,
+            "at": at,
+            **({"refs": stored} if stored else {}),
+        }
+        request["next_note"] += 1
+        notes.append(note)
+        revision = _noted_write(root, requests, request, "note added")
+    return {"note": note, "revision": revision}
+
+
+def edit_note(root, request_id, note_id, text):
+    """Change one note's text and answer `{note, revision}`. `at` moves to
+    now, `created` and `refs` stay. The same text is a no-op: the note and the
+    current revision come back and nothing is written."""
+    _need_root(root)
+    _key(request_id, "Request id")
+    text = _note_text(text)
+    with _writing(root):
+        requests = _load(root)
+        request, _ = _note_target(requests, request_id, None)
+        _, note = _find_note(request, note_id)
+        if note["text"] == text:
+            return {"note": note, "revision": request["revision"]}
+        note["text"] = text
+        note["at"] = _now()
+        revision = _noted_write(root, requests, request, "note edited")
+    return {"note": note, "revision": revision}
+
+
+def delete_note(root, request_id, note_id):
+    """Remove one note and answer `{revision}`. Its id is not handed out
+    again."""
+    _need_root(root)
+    _key(request_id, "Request id")
+    with _writing(root):
+        requests = _load(root)
+        request, _ = _note_target(requests, request_id, None)
+        notes, note = _find_note(request, note_id)
+        notes.remove(note)
+        revision = _noted_write(root, requests, request, "note removed")
+    return {"revision": revision}
+
+
+def delete_request(root, request_id, revision, *, jobs_for=_no_jobs):
+    """Remove one request from the ledger, at the revision it was read at,
+    and answer `{id, deleted, revision, linked_jobs}`.
+
+    Only the ledger entry goes. Every job linked to it keeps its history
+    row, its `request` and `item`, and its files, so the job and gallery
+    filters still find them; a request written again under the same id
+    reads those jobs as its own. Refused (409 `request_has_active_jobs`,
+    with their ids as `jobs`) while a linked job is queued or running:
+    cancel them or let them finish.
+
+    Raises LedgerError, or OSError when the file cannot be written."""
+    if root is None:
+        raise LedgerError(
+            "this workspace has no root folder, so it holds no requests",
+            status=409,
+            code="no_workspace_root",
+        )
+    _key(request_id, "Request id")
+    if isinstance(revision, bool) or not isinstance(revision, int):
+        raise LedgerError("revision must be the revision you read")
+    with _writing(root):
+        requests = _load(root)
+        current = requests.get(request_id)
+        if current is None:
+            raise LedgerError(
+                f"no request {request_id!r} in this workspace",
+                status=404,
+                code="unknown_request",
+            )
+        if revision != current["revision"]:
+            raise LedgerError(
+                f"request {request_id!r} is at revision {current['revision']}, "
+                f"not {revision} - read it again before deleting it",
+                status=409,
+                code="stale_revision",
+                current_revision=current["revision"],
+            )
+        jobs = jobs_for(request_id)
+        active = [j["job"] for j in jobs if j.get("status") in ("queued", "running")]
+        if active:
+            raise LedgerError(
+                f"request {request_id!r} has {len(active)} queued or running "
+                "job(s) linked to it - cancel them or let them finish first",
+                status=409,
+                code="request_has_active_jobs",
+                jobs=active,
+            )
+        del requests[request_id]
+        write_json_atomic(ledger_path(root), {"requests": requests})
+    return {
+        "id": request_id,
+        "deleted": True,
+        "revision": revision,
+        "linked_jobs": len(jobs),
+    }

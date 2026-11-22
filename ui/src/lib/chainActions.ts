@@ -112,15 +112,21 @@ function declaredVariable(value: unknown, definition: Definition) {
     : null
 }
 
+/** Whether a take stopped before its planned length with every segment it
+ * made on file */
+function stoppedShort({ rows, planned }: ChainTable): boolean {
+  if (!rows.length || planned === null || rows.length >= planned) return false
+  return rows.every((row) => row.segmentFile)
+}
+
 /** The rerun arguments that continue a stopped take from its last segment,
  * or null when it is not offered */
 export function continueAction(
   table: ChainTable,
   definition: Definition,
 ): ContinueAction | null {
-  const { rows, planned } = table
-  if (!rows.length || planned === null || rows.length >= planned) return null
-  if (rows.some((row) => !row.segmentFile)) return null
+  const { rows } = table
+  if (!stoppedShort(table)) return null
   const chain = definitionStep(definition, table.step)?.pipeline?.chain
   if (!chain || typeof chain !== 'object') return null
   const stopAfter = declaredVariable(chain.stop_after, definition)

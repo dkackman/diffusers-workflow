@@ -11,13 +11,14 @@
     Trash2,
   } from '@lucide/svelte'
   import { api } from '../api'
-  import { statusCounts } from '../requestResult'
+  import { attention, doneFigure } from '../request/attention'
   import Empty from '../Empty.svelte'
   import NoteEditor from '../ui/NoteEditor.svelte'
   import Skeleton from '../ui/Skeleton.svelte'
   import { WORKSPACE } from '../references'
   import { formatBytes } from '../format'
   import { hiddenWorkspaces, setHidden } from '../hiddenWorkspaces.svelte'
+  import { latestOnly } from '../latest'
   import { latestProofs } from '../proofs'
   import { wsHref } from '../routes'
   import type { GalleryFile, JobSummary, LedgerSummary } from '../types'
@@ -75,14 +76,19 @@
       })
   }
 
+  const beginRequests = latestOnly()
   function loadOpenRequests(ws: string) {
+    const current = beginRequests()
     openRequests = []
     api
       .listRequests(ws)
-      .then(
-        (r) => (openRequests = r.requests.filter((q) => q.state === 'open')),
-      )
-      .catch(() => (openRequests = []))
+      .then((r) => {
+        if (current())
+          openRequests = r.requests.filter((q) => q.state === 'open')
+      })
+      .catch(() => {
+        if (current()) openRequests = []
+      })
   }
 
   $effect(() => {
@@ -175,19 +181,19 @@
 
 <section class="panel">
   <h2>
-    <a class="plain" href={wsHref(name, 'gallery')}
-      ><Images size={15} /> Recent outputs</a
-    >
+    <a class="plain" href={wsHref(name, 'gallery')}>
+      <Images size={15} /> Recent outputs
+    </a>
   </h2>
   {#if recentError}
     <p class="muted">Could not load recent outputs: {recentError}</p>
   {:else if recent === null}
     <Skeleton tiles={RECENT} label="loading recent outputs" />
   {:else if recent.length === 0}
-    <Empty
-      >{#snippet icon()}<Images size={36} strokeWidth={1.5} />{/snippet}Nothing
-      generated yet — run a workflow.</Empty
-    >
+    <Empty>
+      {#snippet icon()}<Images size={36} strokeWidth={1.5} />{/snippet}Nothing
+      generated yet — run a workflow.
+    </Empty>
   {:else}
     <div class="strip">
       {#each recent as file (file.name)}
@@ -205,9 +211,9 @@
               src={api.galleryThumbnailUrl(file.name)}
               alt={file.label}
               loading="lazy"
-            /><span class="videobadge" aria-hidden="true"
-              ><Play size={11} /></span
-            >
+            /><span class="videobadge" aria-hidden="true">
+              <Play size={11} />
+            </span>
           {:else}<span class="muted">{file.label}</span>{/if}
         </a>
       {/each}
@@ -218,19 +224,22 @@
 {#if openRequests.length}
   <section class="panel">
     <h2>
-      <a class="plain" href={wsHref(name, 'requests')}
-        ><ClipboardList size={15} /> Requests</a
-      >
+      <a class="plain" href={wsHref(name, 'requests')}>
+        <ClipboardList size={15} /> Requests
+      </a>
       <span class="flex"></span>
       <a class="plain more" href={wsHref(name, 'requests')}>all requests</a>
     </h2>
     <ul class="jobs">
       {#each openRequests as req (req.id)}
         <li>
-          <a class="plain wf" href={wsHref(name, 'requests', req.id)}
-            >{req.title}</a
-          >
-          <span class="muted">{statusCounts(req.status_counts)}</span>
+          <a class="plain wf" href={wsHref(name, 'requests', req.id)}>
+            {req.title}
+          </a>
+          <span class="muted">{attention(req).text}</span>
+          <span class="muted num" title="items done, of those in the plan">
+            {doneFigure(req)}
+          </span>
         </li>
       {/each}
     </ul>
@@ -245,19 +254,19 @@
     {:else if recentJobs === null}
       <Skeleton lines={JOBS} label="loading jobs" />
     {:else if recentJobs.length === 0 && !running}
-      <Empty
-        >{#snippet icon()}<Inbox size={36} strokeWidth={1.5} />{/snippet}No jobs
-        yet.</Empty
-      >
+      <Empty>
+        {#snippet icon()}<Inbox size={36} strokeWidth={1.5} />{/snippet}No jobs
+        yet.
+      </Empty>
     {:else}
       <ul class="jobs">
         {#if running}
           <li class="runningnow">
             <span class="chip running">running</span>
             <span class="wf">{running.workflow}</span>
-            <a class="plain" href={wsHref(name, 'jobs', running.id)}
-              >{running.id}</a
-            >
+            <a class="plain" href={wsHref(name, 'jobs', running.id)}>
+              {running.id}
+            </a>
           </li>
         {/if}
         {#each recentJobs as job (job.id)}
@@ -273,27 +282,29 @@
 
   <section class="panel">
     <h2>
-      <a class="plain" href={wsHref(name, 'workflows')}
-        ><Layers size={15} /> Workflows</a
-      >
+      <a class="plain" href={wsHref(name, 'workflows')}>
+        <Layers size={15} /> Workflows
+      </a>
       {#if workflows}<span class="num muted">{workflows.length}</span>{/if}
       <span class="flex"></span>
       <a
         class="quiet icon plain"
         href={wsHref(name, 'edit')}
         title="new workflow"
-        aria-label="new workflow"><Plus size={15} /></a
+        aria-label="new workflow"
       >
+        <Plus size={15} />
+      </a>
     </h2>
     {#if workflowsError}
       <p class="muted">Could not load workflows: {workflowsError}</p>
     {:else if workflows === null}
       <Skeleton lines={3} label="loading workflows" />
     {:else if workflows.length === 0}
-      <Empty
-        >{#snippet icon()}<Layers size={36} strokeWidth={1.5} />{/snippet}No
-        workflows yet — create one in the editor, or run an example.</Empty
-      >
+      <Empty>
+        {#snippet icon()}<Layers size={36} strokeWidth={1.5} />{/snippet}No
+        workflows yet — create one in the editor, or run an example.
+      </Empty>
     {:else}
       <div class="cards">
         {#each featured as wf (wf)}
@@ -312,9 +323,9 @@
                     src={api.galleryThumbnailUrl(proofs[wf].name)}
                     alt=""
                     loading="lazy"
-                  /><span class="videobadge" aria-hidden="true"
-                    ><Play size={11} /></span
-                  >{/if}
+                  /><span class="videobadge" aria-hidden="true">
+                    <Play size={11} />
+                  </span>{/if}
               </span>
             {/if}
             <span class="cardname">{leaf(wf)}</span>

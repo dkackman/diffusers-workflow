@@ -49,20 +49,104 @@ A PyPI install gets released `diffusers`, which may lag the newest pipelines; in
 
 GitHub generates notes from commits at tag time. The sections below are the hand-written notes: the newest is drafted at release prep and pasted into the GitHub release body once the tag has published (`gh release edit v<version> --notes-file ...`). Items a branch's author wants the next note to name go in a new section at the top.
 
-### Unreleased
+### 0.22.0
 
-- **Job list rows say why a job ended (#1449).** `GET /api/jobs` and MCP
-  `list_jobs` rows of failed and cancelled jobs carry `reason`, the first
-  line of the error (clipped to 160 characters), so a list can be triaged
-  without a `get_job` per row. A restart tombstone also carries
-  `restart_batch`, the key its batch groups by, for
-  `rerun_job(restart_batch=true)`. Both are optional and additive.
-- **The jobs page shows the reason, and offers a restart's jobs back
-  (#1449).** Each failed or cancelled row shows its reason under the
-  workflow name. Jobs a server restart cancelled raise a banner per restart,
-  "N jobs were cancelled by a server restart", whose **Rerun…** previews what
-  would be queued, with each estimate and a total, and queues only on
-  confirm.
+<!-- Branch notes (feat/review-gate, with fix/notes-1529-1530 merged). Fold into the release-prep draft for 0.22.0 and paste into the GitHub release body once the tag has published: gh release edit v0.22.0 --notes-file ... -->
+
+**The review hold** (#1521)
+
+- An agent that has planned and priced a request can hold its items for you
+  to look at before they run. Each held item carries a deadline,
+  `review_until`; the request page shows how many items are held, counts
+  down to the deadline and says whether an agent session is listening. A
+  note you leave on the request or the item redirects the hold: the agent
+  revises instead of running. **Run now** opens the same priced dialog as
+  any other run, so a held item is never started for you.
+- A hold defers a run you already approved in chat; it does not replace
+  that approval. When the deadline passes with no note, the agent runs
+  exactly what it quoted, and a changed plan or a quote well off the one
+  you were given means no run and no new hold: the agent clears the hold and
+  gives the new figure, and you run it from the priced dialog or say yes. Nothing on the server starts
+  a job at the deadline: the notes channel tells the open session with a new
+  `review_due` event (`stale` when the hold was set before the session
+  connected). With no session listening, which needs Claude Code started
+  with the development-channels flag, nothing runs and the items wait for you.
+- The `script-to-video` skill's request reference says when to hold and how
+  the agent answers each event.
+- REST: a request item takes `review_until` (an ISO time with an offset,
+  60 seconds to 24 hours ahead) and reads back `review_set_at` and a derived
+  `review` (`{until, state, seconds_left}`). The same fields are on the MCP
+  `set_request` and `get_request` items.
+
+**Notes reach the session whichever workspace it is in** (#1529, #1530)
+
+- The notes channel (`dw-mcp --notes-channel`) now watches every workspace
+  on the server unless `--workspace` pins it. Before, it watched only the
+  default workspace (or `DW_MCP_WORKSPACE`), so a session that worked in
+  another workspace never heard its notes and the request page said no
+  session was listening. Each event names its workspace. Against a server
+  older than this release the channel falls back to the default workspace.
+- The note box puts your words first. Under the text, an **About** line
+  holds the items, takes and files the note is about, with a small "+ Add
+  an item" control that lists items by key; before, the item picker sat
+  above the text box and read as a list of suggested notes. A note goes
+  out only with words, and a closed box shows nothing pending, so nothing
+  looks sent that was not.
+- REST: `GET /api/requests` lists every workspace's open requests in one
+  read (each row a request summary with its `workspace`; `unreadable` names
+  a workspace whose ledger cannot be read). Marked `X-DW-Notes-Channel: 1`,
+  it counts as a channel poll of every workspace for
+  `GET /api/workspaces/{name}/notes-channel`.
+
+**The request page, from a first real run** (#1532)
+
+- The header gives the agent's latest word under what needs you, so an
+  answer like "ready for take 2, not run" or "awaiting go-ahead" is on the
+  page, not only in Plan changes. A note's own status line now says when
+  the agent answered rather than quoting it.
+- A done item has **Another take…** on its row. Open, an item shows its
+  takes once, its buttons lined up, and keeps its jobs and outputs links in
+  its menu. A take and its file are one reference chip on a note.
+- The request skill: after a note at the same price the agent holds the
+  revised items again with a fresh countdown, and a note that changes
+  something the whole set shares is carried over to the other items.
+
+**Fixes**
+
+- The worker's trust check no longer decodes each input clip and fetches
+  each URL input a second time on every job; with `--trust-workflows` it
+  does no work at all (#1510).
+- A workflow naming a refused `pre_load_modules` entry is refused at
+  validate and at submit, with no job, instead of being queued and evicting
+  the models warm on the card before the loader refused it (#1511).
+- An H3 `references` entry that names no loadable reference class (a `type`
+  key instead of `reference_type`, or a bare class name) is now a validate
+  error at its path, instead of passing and being skipped by every
+  reference check (#1512).
+
+### 0.21.0
+
+<!-- Drafted from v0.20.0..develop at release prep (2026-11-20). Paste into the GitHub release body once the tag has published: gh release edit v0.21.0 --notes-file ... -->
+
+This release gives an ask a record and the web UI most of what an agent
+could already see. A workspace now keeps a ledger of requests: what was
+asked, the plan of items, and the jobs made for each (#1458). A performer
+can be replaced across a cut take (#1194). Two model families arrive, Pika
+H3 Flex (#1316) and MiniMax-H3-Image (#1317). The UI validates a run as you
+edit it, shows a chain's segments with repair and continue, reruns a job
+with changes, and shows findings, the event log, step timing and the
+server's runtime (#1445-#1456).
+
+The Requests page is where a piece is now directed. It says where each ask
+stands and what needs you, and from it you accept a take, drop or reorder
+items, and run what is ready at a quoted price. A note left on an item is
+the instruction: with the new **notes channel** (`dw-mcp --notes-channel`,
+on Claude Code's channels research preview) an open session is told the
+moment you save one - "off lipsync, reroll this and recut" - and the plan
+change it writes back is the answer.
+
+**Breaking and behaviour changes**
+
 - **diffusers floor raised to 0.43.0 (#1315).** `pyproject.toml` now
   requires `diffusers>=0.43.0` (was `>=0.42.0`), the release develop's code
   needs. The Models page / REST "revert to a known-good release" now
@@ -70,11 +154,140 @@ GitHub generates notes from commits at tag time. The sections below are the hand
   latent upsampler at `diffusers.models.latent_upscaler`, its 0.43 home; the
   old `diffusers.pipelines.ltx2.latent_upsampler` path still loads until
   diffusers 1.0.
+- **transformers floor raised to 5.21** (was 5.19.0), the first release with
+  SAM 3's video classes, which `track_people(backend="sam3")` needs (#1405).
 - **macOS: torch pinned below 2.15 (#1395).** torch 2.15 with the
   fp4-fp8-for-torch-mps autoload fails `scalar ** mps_tensor`, which breaks
   every Grounding-DINO run (`segment`, `track_people`,
   `replace-performer-cuts`). The pin is lifted when fp4-fp8-for-torch-mps or
   torch fixes the `_to_copy`/`copy_` override interaction.
+- **A plain rerun repeats the original's drawn seed (#1492).** `rerun_job` /
+  **Run again** on a workflow whose seed is null now reproduces the job;
+  pass `new_seed=true` / **New seed** for a different take. In 0.20.0 a
+  plain rerun drew a new seed.
+- **A boolean is refused for a float variable (#1354).**
+- **`experimental_refine_windows` is now `refine_windows` (#1376)**, on by
+  argument with no environment flag. The old name is refused, and the
+  refusal names the new one.
+- **More is refused at validate rather than after the load:** an H3
+  `num_frames`, `width` or `height` the pipeline would refuse (#1364); an H3
+  refine whose `trim_video` source is off the 17n+5 grid (#1372); an H3
+  video reference shorter than the conditioner's minimum (#1422); a Pika
+  audio reference outside 2 to 15 s (#1427); an empty list for a variable
+  with a `min_length`, such as `images: []` (#1424).
+- **A mag cache on a fixed step-list sampler warns at validate and is
+  dropped at load (#1430).**
+- **A scheduler's `from_config_args` string options are literals, not type
+  references (#1491).**
+- **Host-RAM admission.** A workflow with no run of its own and no
+  declaration inherits its catalog template's host-RAM peak
+  (`plan.host_memory.basis: "inherited"`, #1436), and a warm idle worker on
+  another card is released when the gate needs its memory (#1407).
+- **`narration-long` and `narration-retime` are catalog shape `audio`
+  (#1338).**
+- **A checked chain quotes at least the unchecked chain's worst case
+  (#1334).**
+
+**The notes channel** (new; Claude Code research preview)
+
+- `dw-mcp --notes-channel` is a tool-less stdio process that watches a
+  workspace's open requests on a dw server and tells an open interactive
+  Claude Code session when the user saves a note for the agent, quoting it
+  and naming its request and item. When the session connects it lists the
+  notes already waiting, once, and asks before spending on those.
+- The agent reads the plan with `get_request`, acts through the normal
+  tools under the cost gate, and says what it did in the `why` of its next
+  `set_request`; the page's note line then reads "The agent has updated the
+  plan since". Nothing is typed back: the plan change is the reply.
+- Setup is an `.mcp.json` entry named `dw-notes` and a session started with
+  `claude --dangerously-load-development-channels server:dw-notes`
+  ([MCP.md](MCP.md#the-notes-channel)). It works in an interactive session
+  only, not `claude -p`; without one, a note is still read on the agent's
+  next write, as the page says.
+- A note can reference what it is about: an item, a take (a job) and one of
+  its files, several at once on the request's own note. You write notes from
+  the request page, a job page or the gallery, an item holds a list of them,
+  and the event and `get_request` name each reference. The save button reads
+  "Send to agent" when the server has seen a channel poll in the last 30
+  seconds and "Save note" when not; "listening" cannot know a session
+  started without the development-channels flag drops the events.
+- REST: `POST`/`PUT`/`DELETE /api/workspaces/{name}/request-notes` writes
+  one note (the user's only; no MCP tool calls it),
+  `GET /api/workspaces/{name}/notes-channel` says whether a channel is
+  polling, and a gallery file's metadata lists the request-linked jobs that
+  made it (`linked_jobs`).
+- It relays text written by whoever holds the dw server's token, into a
+  session that can spend GPU time: point it only at a server you control.
+- The channels contract is Anthropic's research preview and may change.
+  Not yet exercised against a live Claude Code session at release.
+
+**Requests** (#1458)
+
+- A workspace ledger of what was asked: a request holds a goal and a plan
+  of items, and each item links the jobs made for it. MCP `get_request`,
+  `set_request` and `delete_request`; `run_workflow(request="<id>/<item>")`
+  links a job; REST `GET`/`PUT`/`DELETE
+  /api/workspaces/{name}/requests[/{id}]`; `?request=` and `&item=` filter
+  the jobs and gallery lists, and `list_jobs` and `list_gallery` take the
+  same filter as `request="<id>"` or `"<id>/<item>"`.
+- A read shows its proof: each attempt and each item's result names the one
+  output that stands for the job (`output: {name, kind}`), an item says
+  whether it is `ready` to run, and a list row carries `ready` and a
+  `cover` of up to three latest results - no job read per attempt.
+- The user closes and reopens a request and leaves notes on the whole of it as
+  well as on an item; the agent reads them before its next write and never
+  changes them. The item's `accepted` names the keeper.
+- A ledger does not fill for good: only open requests (100) and live items
+  (200) count against the working caps, a request can be deleted, and
+  dropped items can be purged. Two servers on one workspace cannot lose
+  each other's write, and a `requests.json` that is not a ledger is
+  reported and never replaced.
+- A workspace cannot be named `requests.json` or `workspace.json`, and a
+  reserved name is refused in any letter case.
+- Requests pages in the UI: where each request stands and what needs you,
+  each item's result, takes and minutes spent, and a note for the agent
+  that it reads on its next write.
+- The request page edits the plan: accept a take as an item's result, drop
+  and restore items, reorder them by drag or keyboard, with undo. An edit
+  made while the agent rewrites the plan is applied on top when its item is
+  unchanged, asked about when it changed, and never sent as a stale plan.
+- The request page runs items: what is ready, one item, or another take of
+  a done one, each priced first in a dialog that says what will not run and
+  what becomes ready next; every job is linked to its item and bound to the
+  quoted plan. A request is marked done, abandoned, reopened or deleted
+  from its header.
+- The `script-to-video`, `storyboard`, `series-episodes` and `long-form`
+  skills open a request for an ask of three or more jobs.
+
+**Performer replacement** (#1194)
+
+- `templates/minimax/replace-performer-cuts` prepares a take: `detect_cuts`
+  lists its shots on H3's grid and `track_people` writes one mask video per
+  person. `templates/minimax/replace-performer` re-renders the masked
+  performer cut by cut from references and puts each cut back over the
+  take's own frames (`replace_cuts`), so the result is the whole take under
+  its own sound. Pass only the cuts to re-render, in the take's order: a
+  cut left out stays as the take has it, unrendered and unpriced.
+- `track_people` takes `backend: "sam3"` (opt-in; gated weights under the
+  SAM License). `trim_video` takes `pad_to`. `replace_cuts` is new.
+
+**New model families**
+
+- **Pika H3 Flex (#1316).** `templates/pika-h3/` text-to-video,
+  first-and-last-frame and reference-to-video: six fixed passes over
+  MiniMax-H3's weights, single clips only.
+- **MiniMax-H3-Image (#1317).** `templates/minimax-h3-image/` text-to-image
+  and multi-reference, a `models/` entry and the `minimax-h3-image` skill.
+  CUDA only, with about 70 GB of host RAM.
+
+**H3**
+
+- `templates/minimax/h3-seam-pass` and `refine_windows` refine a long take
+  in time windows (#1376, #1378), and a refine skips the decodes its output
+  does not ask for (#1377).
+- One whole-render guide on ref2va (#1413). `turbo_lead_in` (#1352) and
+  keystone attention (#1393, behind `DW_EXPERIMENTAL_REFINE_WINDOWS`) are
+  in the engine with no clear win measured; no template uses either.
 - **H3 camera moves, measured on two seeds (#1379).** All 13 move ids in the
   `cinematography` vocabulary now carry an H3 verdict on seeds 42 and 7 in
   `compile-h3.md`, where seven read "not measured" before. The axial and
@@ -92,6 +305,69 @@ GitHub generates notes from commits at tag time. The sections below are the hand
   `truck-right`, `crane-down` and `tracking` vary by seed. `handheld` was
   ignored on both seeds and on a reworded rerun, so its row reads "hint
   only, rarely honoured". Same record.
+
+**Jobs**
+
+- **Job list rows say why a job ended (#1449).** `GET /api/jobs` and MCP
+  `list_jobs` rows of failed and cancelled jobs carry `reason`, the first
+  line of the error (clipped to 160 characters), so a list can be triaged
+  without a `get_job` per row. A restart tombstone also carries
+  `restart_batch`, the key its batch groups by, for
+  `rerun_job(restart_batch=true)`. Both are optional and additive.
+- **The jobs page shows the reason, and offers a restart's jobs back
+  (#1449).** Each failed or cancelled row shows its reason under the
+  workflow name. Jobs a server restart cancelled raise a banner per restart,
+  "N jobs were cancelled by a server restart", whose **Rerun…** previews what
+  would be queued, with each estimate and a total, and queues only on
+  confirm.
+- `rerun_job(restart_batch=true)` and its REST form queue a restart's jobs
+  again (#1370, #1371). A queued job says what it is waiting for
+  (`queue_wait: gpu_busy`, `waiting_for`, #1355). `list_jobs` `total` is
+  exact (#1466).
+
+**Measures**
+
+- `crop_face_track` `select` (#1348); `scored_from` on `analyze_face_drift`
+  (#1421); `high_share` and `noise_floor_dbfs` per shot (#1464);
+  `segment_looks` on `analyze_seams` (#1349); chain shot records carry
+  their measures (#1474); `boundary_slack_seconds` (#1336).
+- `match_levels` warns when a clip-held shot leaves the others above it
+  (#1368), in the measure's own unit and naming `match_levels_lufs` for a
+  LUFS match.
+
+**Web UI** (#1445-#1456)
+
+- The run page validates as you edit and shows the plan (#1446); a
+  variable's declared rules sit under its field, and presets are a dropdown
+  (#1447).
+- Run again with changes (#1448); a chain's segment table with repair and
+  continue (#1451).
+- Findings and Assess in the gallery, and a job's event log (#1452); a
+  per-step timing bar and peak host RAM (#1453); curated cost states its
+  basis (#1454).
+- A Runtime panel on the server page (#1455); catalog LoRA suggestions
+  (#1456); a model's last job use (#1445); queue holds, phase stalls and
+  live warnings (#1450).
+
+**Security**
+
+- A modular pipeline's `load_components` block is gated as
+  `from_pretrained_arguments` is: `trust_remote_code` and `custom_pipeline`
+  are refused there for an untrusted workflow, at validate and at run.
+- `cache_dir`, `local_dir`, `proxies` and `mirror` are refused in both
+  blocks for an untrusted workflow.
+- A `loras` entry may set only `model_name`, `adapter_name`, `scale`,
+  `alpha`, `weight_name`, `subfolder` and `revision` when untrusted; its
+  weight file is `.safetensors` in every shape and the load is safetensors
+  only, so a repo holding just a `.bin` no longer loads
+  (GHSA-jmhv-58g4-fw8c).
+- A second model a step names (`track_people`'s `sam_model_name` and
+  `sam3_model_name`, a `load_components` repo override) is checked as
+  `model_name` is.
+- A job recorded before 0.20.0 no longer serves a shot's `file` by the
+  server's absolute path from history (GHSA-5m72-m9g5-q8vp,
+  GHSA-g84m-9567-rvmm), and an unreadable `requests.json` is reported
+  without its folder.
 
 ### 0.20.0
 

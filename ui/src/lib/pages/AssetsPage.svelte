@@ -346,8 +346,9 @@
         class="sharedlink plain muted"
         href={sharedHref('assets')}
         title="the shared library every workspace under this root can use"
-        >shared <span class="num">{elsewhereCount}</span></a
       >
+        shared <span class="num">{elsewhereCount}</span>
+      </a>
     {/if}
     <input class="filter" placeholder="filter…" bind:value={filter} />
     <!-- One input for every section: which library the file lands in is
@@ -446,14 +447,14 @@
               {:else if asset.kind === 'video'}
                 <video src={asset.url} preload="metadata" muted></video>
               {:else}
-                <span class="audio"
-                  >{asset.kind === 'audio' ? '♪' : '¶'}
-                  {leafName(asset.name)}</span
-                >
+                <span class="audio">
+                  {asset.kind === 'audio' ? '♪' : '¶'}
+                  {leafName(asset.name)}
+                </span>
               {/if}
-              <span class="caption" title={asset.reference}
-                >{leafName(asset.name)}</span
-              >
+              <span class="caption" title={asset.reference}>
+                {leafName(asset.name)}
+              </span>
             </button>
           </div>
         {/snippet}

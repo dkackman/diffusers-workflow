@@ -27,13 +27,14 @@ from ..security import SecurityError, validate_path
 from ..workspace import DEFAULT_WORKSPACE_NAME
 from .host_ram_need import memory_key
 from .observed_cost import EVENT_CAP, LOADING_MARKER
+from .job_results import stored_manifest
 from .job_record import (
     ACK_NONE,
     CANCELLED,
     MAX_PERSISTED_EVENTS,
     QUEUED,
     RERUN_SPEC_KEYS,
-    RESTART_PREFIX,
+    RESTART_LIKE,
     RUNNING,
     SUCCEEDED,
     row_reason_fields,
@@ -207,11 +208,18 @@ RESTART_RUNNING = (
     "partial outputs may be in {run_dir}"
 )
 # The prefix every tombstone's error starts with - what a batch is matched
-# on - is RESTART_PREFIX, defined in job_record beside the row-reason helper
+# on - is job_record's RESTART_PREFIX, beside the row-reason helper
 # A row that was dispatched but had not reported its run directory yet
 RESTART_RUNNING_NO_RUN = (
     "server restart: running when the server stopped, before it opened a run"
 )
+
+
+def _like_escaped(text):
+    """`text` with LIKE's metacharacters escaped (ESCAPE '\\'): generated
+    names routinely hold '_', which would otherwise match any character."""
+    return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
 
 # The states a row is open in: written live, closed at the job's end or by
 # the next startup's sweep. Readers skip them - an open row is this server's
@@ -389,7 +397,7 @@ class JobHistory:
         before #1245). Its own SQL with no row cap, not the 200-row listing.
         A retired workspace's rows are members too, `workspace` still
         carrying DELETED_SUFFIX, so the caller can say why it skips one."""
-        pattern = RESTART_PREFIX + "%"
+        pattern = RESTART_LIKE
         with self._lock, self._connect() as connection:
             row = connection.execute(
                 "SELECT server_instance FROM jobs WHERE id = ? AND status = ?"
@@ -606,6 +614,18 @@ class JobHistory:
             ).fetchall()
         return [dict(row) for row in rows]
 
+    def manifest_of(self, job_id):
+        """One closed job's stored manifest, or None: a primary-key read of
+        the one column. A row is written once, when its job ends."""
+        with self._lock, self._connect() as connection:
+            row = connection.execute(
+                "SELECT manifest FROM jobs WHERE id = ?", (job_id,)
+            ).fetchone()
+        try:
+            return stored_manifest(json.loads(row["manifest"])) if row else None
+        except (TypeError, ValueError):
+            return None
+
     def run_ids_for_request(self, workspace, request, item=None):
         """The run ids of `workspace`'s jobs linked to `request` (and, with
         `item`, to that item of it) - what the run-based gallery filters by."""
@@ -763,7 +783,7 @@ class JobHistory:
         if not row["events"]:
             return []
         try:
-            return json.loads(row["events"])
+            return stored_manifest(json.loads(row["events"]))
         except json.JSONDecodeError:
             return []
 
@@ -782,9 +802,7 @@ class JobHistory:
         each produce a file with the same relative name, and without this a
         later job in another workspace could wrongly claim the match.
         """
-        escaped = (
-            file_name.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-        )
+        escaped = _like_escaped(file_name)
         # Unbounded on purpose: every later fixed-seed rerun republishes the
         # file with 'reused', so a LIMIT would let the writing job fall out of
         # the window after that many reruns and leave the file unattributed.
@@ -804,9 +822,32 @@ class JobHistory:
                 return {"id": row["id"], "status": row["status"]}
         return None
 
+    def jobs_publishing_file(self, file_name, workspace):
+        """Every job of `workspace` linked to a request whose manifest lists
+        this output file - the one that wrote it and every later one that
+        republished it from the step cache ('reused') - as `{id, request,
+        item}`, newest first. The same match as `job_for_file`; an open row
+        (a job still queued or running) is skipped."""
+        query = (
+            "SELECT id, request, item, manifest FROM jobs"
+            " WHERE manifest LIKE ? ESCAPE '\\' AND workspace = ?"
+            " AND request IS NOT NULL"
+            f" AND status NOT IN ({_OPEN_PLACEHOLDERS})"
+            " ORDER BY finished_at DESC, created_at DESC"
+        )
+        params = (f"%{_like_escaped(file_name)}%", workspace, *_OPEN_STATES)
+        with self._lock, self._connect() as connection:
+            rows = connection.execute(query, params).fetchall()
+        return [
+            {"id": row["id"], "request": row["request"], "item": row["item"]}
+            for row in rows
+            if self._manifest_wrote(row["manifest"], file_name, reused=True)
+        ]
+
     @staticmethod
-    def _manifest_wrote(manifest_text, file_name):
-        """Whether this manifest names the file in an entry it wrote itself.
+    def _manifest_wrote(manifest_text, file_name, reused=False):
+        """Whether this manifest names the file in an entry it wrote itself
+        (or, with `reused`, in any entry).
 
         A manifest that will not parse falls back to the LIKE match that
         found it - a row recorded before entries carried 'reused' cannot
@@ -831,7 +872,7 @@ class JobHistory:
             return normalized == wanted or normalized.endswith("/" + wanted)
 
         return any(
-            not entry.get("reused")
+            (reused or not entry.get("reused"))
             and any(names_file(path) for path in entry.get("files") or [])
             for entry in manifest
             if isinstance(entry, dict)
@@ -860,7 +901,7 @@ class JobHistory:
             "finished_at": row["finished_at"],
             "arguments": parse(row["arguments"], {}),
             "spec": spec,
-            "manifest": parse(row["manifest"], []),
+            "manifest": stored_manifest(parse(row["manifest"], [])),
             "warnings": parse(row["warnings"], []),
             "error": row["error"],
             "workspace": row["workspace"] or DEFAULT_WORKSPACE_NAME,

@@ -23,7 +23,11 @@ Only what the run would refuse is refused. An off-grid count the pipeline
 rounds up and accepts - 130 runs as 141 - is left alone, and a value whose
 written argument is a `variable:` (or `item:` field) the workflow constrains
 is the declared constraint's to refuse, so it is reported once, where
-constraint_errors puts it.
+constraint_errors puts it. A windowed refine - a step with both
+`refine_windows` and `refine_strength` - runs a take of any length, since
+dw's layout step lifts `max_duration` for that call
+(`h3_rules.lifts_duration_ceiling`, the rule both ask), so its `num_frames`
+keeps the floor and loses the ceiling.
 """
 
 import importlib
@@ -31,7 +35,11 @@ import logging
 
 from . import references
 from .for_each import render_path
-from .pipeline_processors.h3_rules import RENDER_GRID, is_h3_step
+from .pipeline_processors.h3_rules import (
+    RENDER_GRID,
+    is_h3_step,
+    lifts_duration_ceiling,
+)
 from .variable_constraints import aligned, aligned_down, declared_constraints
 
 logger = logging.getLogger("dw")
@@ -107,14 +115,18 @@ def _literal_int(value):
     return isinstance(value, int) and not isinstance(value, bool)
 
 
-def frames_problem(value, limits):
+def frames_problem(value, limits, lifted=False):
     """Why a literal `num_frames` is outside the pipeline's duration window,
-    or None."""
+    or None. `lifted` is a windowed refine (`h3_rules.lifts_duration_ceiling`),
+    whose take the layout step lays out past `max_duration`: only the floor is
+    asked of it."""
     grid = _grid(limits)
     rounded = aligned(value, grid)
     fps = limits["fps"]
     seconds = rounded / fps
-    if limits["min_duration"] <= seconds <= limits["max_duration"]:
+    if limits["min_duration"] <= seconds and (
+        lifted or seconds <= limits["max_duration"]
+    ):
         return None
     low, high = accepted_frames(limits)
     nearest = low if seconds < limits["min_duration"] else high
@@ -200,7 +212,9 @@ def pipeline_limit_errors(workflow_definition, source_indices=None, written=None
             if _owned_by_constraint(written, source, key, constrained):
                 continue
             if key == FRAMES_ARGUMENT:
-                message = frames_problem(value, limits)
+                message = frames_problem(
+                    value, limits, lifts_duration_ceiling(arguments)
+                )
             else:
                 message = canvas_problem(key, value, limits)
             if message is None:

@@ -27,8 +27,8 @@
     attentionBackendVariables,
     constraintHints,
     emptyWorkflow,
-    referenceSuggestions,
   } from '../editor'
+  import { referenceSuggestions } from '../referenceSuggestions'
   import { danglingReferenceDetails, flowGraph } from '../flow'
   import { groupOf, leafOf } from '../grouping'
   import { loadPromptLibrary, promptLibrary } from '../promptlib.svelte'
@@ -352,9 +352,9 @@
 
 <div class="head">
   <nav class="crumbs muted" aria-label="breadcrumb">
-    <a href={wsHref(workspace.current, 'workflows')} onclick={confirmLeave}
-      >← workflows</a
-    >
+    <a href={wsHref(workspace.current, 'workflows')} onclick={confirmLeave}>
+      ← workflows
+    </a>
     {#each crumbFolders as part (part)}
       <span class="sep">/</span><span>{part}</span>
     {/each}
@@ -382,8 +382,10 @@
   {#if ed.dirty}
     <span
       class="chip unsaved"
-      title="this definition differs from the last save">unsaved</span
+      title="this definition differs from the last save"
     >
+      unsaved
+    </span>
   {/if}
   <span class="flex"></span>
   <ViewSwitch
