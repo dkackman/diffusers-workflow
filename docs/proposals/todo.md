@@ -37,6 +37,13 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **A no-plugin MCP client, drilled cold** (#1524, stages #1546-#1547), built
+  2026-11-22. Three headless Sonnet sessions with the plugin and skills withheld
+  ran an image, an H3 dialogue clip and a 60 s piece on lem from the served tools
+  alone, and broke six family rules (`bench/records/drill.md`, *Cold drill without
+  the plugin*). Those rules are served as guide `agent-rules`, the MCP instructions
+  point at it, and `docs/MCP.md` *Clients* holds the tested claim:
+  `complete/no-plugin-client-complete.md`.
 - **H3 Ref2VA environment swap that keeps the motion** (#1518, stage #1545), probed
   2026-11-22. With the clip as the only video reference and a CHANGE/PRESERVE prompt,
   the setting is replaced and the walk, camera track and clothing hold at both seeds.
