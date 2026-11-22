@@ -400,6 +400,52 @@
         "title": "CardMemory",
         "type": "object"
       },
+      "ChangeCounts": {
+        "additionalProperties": false,
+        "description": "One counter per kind of data a page lists; each only grows.",
+        "properties": {
+          "assets": {
+            "description": "Asset uploads, keeps, deletes and notes.",
+            "title": "Assets",
+            "type": "integer"
+          },
+          "gallery": {
+            "description": "Outputs landing from a finished job, and star, note or delete of an output.",
+            "title": "Gallery",
+            "type": "integer"
+          },
+          "jobs": {
+            "description": "Job queue, start, finish, cancel and move, and a run deleted.",
+            "title": "Jobs",
+            "type": "integer"
+          },
+          "prompts": {
+            "description": "Prompt library saves and deletes.",
+            "title": "Prompts",
+            "type": "integer"
+          },
+          "requests": {
+            "description": "Request ledger writes: requests and notes.",
+            "title": "Requests",
+            "type": "integer"
+          },
+          "workflows": {
+            "description": "Workflow saves, patches and deletes.",
+            "title": "Workflows",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "requests",
+          "prompts",
+          "workflows",
+          "assets",
+          "gallery",
+          "jobs"
+        ],
+        "title": "ChangeCounts",
+        "type": "object"
+      },
       "ClassList": {
         "additionalProperties": false,
         "properties": {
@@ -7221,6 +7267,32 @@
         "title": "WorkflowSaved",
         "type": "object"
       },
+      "WorkspaceChanges": {
+        "additionalProperties": false,
+        "properties": {
+          "epoch": {
+            "description": "Random id of this workspace's counters: new on a server restart and when the workspace is created again. A different epoch means everything changed.",
+            "title": "Epoch",
+            "type": "string"
+          },
+          "kinds": {
+            "$ref": "#/components/schemas/ChangeCounts",
+            "description": "This workspace's counters, by kind."
+          },
+          "workspaces": {
+            "description": "Server-wide counter of workspace create, delete and note writes.",
+            "title": "Workspaces",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "epoch",
+          "workspaces",
+          "kinds"
+        ],
+        "title": "WorkspaceChanges",
+        "type": "object"
+      },
       "WorkspaceCopied": {
         "additionalProperties": false,
         "description": "What a copy between workspaces did (`POST /api/workspaces/{name}/copy`).",
@@ -11824,6 +11896,46 @@
           }
         },
         "summary": "Remove Workspace"
+      }
+    },
+    "/api/workspaces/{name}/changes": {
+      "get": {
+        "description": "This workspace's change counters, for a page to notice a write it\ndid not make: one counter per kind of data, each only growing, and\n`epoch`, which changes when the counters start again. A page reloads\nwhen the counter of what it shows moves. Read-only and cheap: one\nlock, no disk. 404 for an unknown workspace.",
+        "operationId": "workspace_changes_api_workspaces__name__changes_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceChanges"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Workspace Changes"
       }
     },
     "/api/workspaces/{name}/notes-channel": {
