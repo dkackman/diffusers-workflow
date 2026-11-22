@@ -5,7 +5,8 @@ your laptop use it over the network. Nothing is installed on the laptop.
 
 ## On the GPU box
 
-1. Install as usual (`git clone …`, `bash ./install.sh`), or run the
+1. Install as usual (`git clone https://github.com/dkackman/diffusers-workflow.git`,
+   `cd diffusers-workflow`, `bash ./install.sh`), or run the
    container ([DOCKER.md](DOCKER.md), with `DW_BIND=0.0.0.0`), which makes
    the token for you; then skip to the clients.
 2. Make a token: `openssl rand -hex 32`. It is the only thing between "on

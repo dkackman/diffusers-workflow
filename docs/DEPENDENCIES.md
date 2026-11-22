@@ -16,7 +16,7 @@ source ./activate
 .\venv\scripts\activate
 ```
 
-The install scripts need Python 3.12-3.14. Each deletes and recreates `venv/`, installs PyTorch for the detected GPU, then dw with the `server` and `dev` extras (`pip install -e ".[server,dev]"`), diffusers from git HEAD, the platform extras below, and the web UI's npm packages when `npm` is on the `PATH`.
+The install scripts need Python 3.12-3.14. Each deletes and recreates `venv/`, installs PyTorch for the detected GPU, then dw with the `server` and `dev` extras (`pip install -e ".[server,dev]"`), diffusers from git HEAD, the platform extras below, and, when `npm` is on the `PATH`, builds the web UI (`npm ci && npm run build` in `ui/`). Without npm the server has no page at `/`; install Node.js 24.20 or newer and run those two commands in `ui/`.
 
 ### Docker (Linux, NVIDIA)
 
@@ -31,9 +31,10 @@ python3 -m venv venv
 source venv/bin/activate
 
 pip install torch torchvision torchaudio  # add --index-url https://download.pytorch.org/whl/cu130 for CUDA 13 on Linux; on macOS use "torch<2.15" torchvision torchaudio (#1395)
-pip install -r requirements.txt           # -e .[server]; requirements-test.txt is -e .[dev]
+pip install -e ".[server,mcp]"            # the server and dw-mcp; requirements.txt is only -e .[server], with no MCP server
 pip install --force-reinstall --no-deps git+https://github.com/huggingface/diffusers
 pip install diffusers                     # adds any dependency the git commit needs
+(cd ui && npm ci && npm run build)        # the web UI at /; needs Node.js 24.20 or newer
 ```
 
 dw does not import torchaudio, but diffusers' MiniMax H3 blocks need it to resample an audio reference, so install it from the same index as torch.
