@@ -317,6 +317,64 @@ class TestValidate:
         )
 
 
+def _bad_records(record):
+    """A fit record broken one way at a time, each a case the shared rule
+    (`task_domains.fit_record_problem`) refuses."""
+    record = dict(record)
+    float_box = {**record, "content_box": {**record["content_box"], "y": 320.0}}
+    kept_outside = {**record, "source_box": {"x": 0, "y": 0, "w": 2000, "h": 768}}
+    box_outside = {**record, "content_box": {"x": 0, "y": 900, "w": 544, "h": 320}}
+    bad_size = {**record, "model_width": 0}
+    bad_mode = {**record, "mode": "zoom"}
+    return [float_box, kept_outside, box_outside, bad_size, bad_mode]
+
+
+class TestOneRecordRule:
+    """restore_to_source, paste_into_box and paste_into_box_errors read
+    fit_to_model's record by one rule, so they refuse the same records."""
+
+    def setup_method(self):
+        self.source = clip(*SOURCE)
+        self.fit = fit_to_model(
+            self.source, width=CANVAS[0], height=CANVAS[1], num_frames=COUNT, align=32
+        )
+        self.generated = generated()
+
+    def test_the_real_record_is_read_by_all_three(self):
+        from dw.tasks.fit import restore_to_source
+
+        record = dict(self.fit["fit"])
+        assert _validate({**GOOD, "content_box": record}) == []
+        paste_into_box(self.generated, self.source, record)
+        restore_to_source(self.fit["video"], record)
+
+    @pytest.mark.parametrize("case", range(5))
+    def test_a_bad_record_is_refused_by_all_three(self, case):
+        from dw.tasks.fit import restore_to_source
+
+        bad = _bad_records(self.fit["fit"])[case]
+        assert any(
+            name == "content_box" for name, _ in _validate({**GOOD, "content_box": bad})
+        )
+        with pytest.raises(ValueError, match="content_box"):
+            paste_into_box(self.generated, self.source, bad)
+        with pytest.raises(ValueError, match="fit record|record fit_to_model"):
+            restore_to_source(self.fit["video"], bad)
+
+    def test_a_float_bare_box_is_refused_at_run_and_validate(self):
+        box = {"x": 0, "y": 320.0, "w": 544, "h": 320}
+        with pytest.raises(ValueError, match="content_box"):
+            paste_into_box(self.generated, self.source, box)
+        assert any(
+            name == "content_box" for name, _ in _validate({**GOOD, "content_box": box})
+        )
+
+    def test_a_whole_float_feather_is_coerced_by_whole_number(self):
+        out = paste_into_box(self.generated, self.source, self.fit["fit"], 8.0)
+        exact = paste_into_box(self.generated, self.source, self.fit["fit"], 8)
+        assert numpy.array_equal(numpy.asarray(out.frames), numpy.asarray(exact.frames))
+
+
 def test_paste_into_box_is_registered_and_described():
     from dw.introspection import describe_task
     from dw.tasks.task import _COMMAND_REGISTRY

@@ -696,6 +696,77 @@ def fit_align_problem(mode, width, height, align):
     return None
 
 
+FIT_BOX_KEYS = ("x", "y", "w", "h")
+FIT_RECORD_SIZES = (
+    "source_width",
+    "source_height",
+    "source_frames",
+    "model_width",
+    "model_height",
+    "model_frames",
+)
+
+
+def whole_box(value):
+    """A {x, y, w, h} dict of ints from a box dict or a list of four, or None
+    when it is not one: each an int (not 320.0, not True), x and y from 0, w
+    and h from 1. The one box rule for fit_to_model's record and for every
+    task that reads a box from it - restore_to_source and paste_into_box at
+    run time, paste_into_box_errors at validate (#1066)."""
+    if isinstance(value, dict):
+        if any(key not in value for key in FIT_BOX_KEYS):
+            return None
+        value = [value[key] for key in FIT_BOX_KEYS]
+    if not isinstance(value, (list, tuple)) or len(value) != 4:
+        return None
+    if any(isinstance(n, bool) or not isinstance(n, int) for n in value):
+        return None
+    x, y, w, h = value
+    if x < 0 or y < 0 or w < 1 or h < 1:
+        return None
+    return {"x": x, "y": y, "w": w, "h": h}
+
+
+def fit_record_problem(fit):
+    """What is wrong with a fit_to_model record, as a clause, or None.
+
+    The record's one reader rule, shared by restore_to_source, paste_into_box
+    and paste_into_box_errors so they accept and refuse the same records: a
+    known `mode`; whole sizes above zero; `content_box` (letterbox, stretch)
+    a whole box inside the model frame; `source_box` (crop; optional
+    otherwise, written since #1066's `align`) a whole box inside the source;
+    and a `source_fps`, when present, a rate above zero."""
+    if not isinstance(fit, dict):
+        return f"got a {type(fit).__name__}"
+    if fit_mode_problem(fit.get("mode")) is not None:
+        return f"its 'mode' is {fit.get('mode')!r}"
+    for key in FIT_RECORD_SIZES:
+        value = fit.get(key)
+        if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+            return f"its '{key}' is {value!r}, not a whole number above zero"
+    bounds = {
+        "content_box": (fit["model_width"], fit["model_height"]),
+        "source_box": (fit["source_width"], fit["source_height"]),
+    }
+    required = "source_box" if fit["mode"] == "crop" else "content_box"
+    for name, (bound_w, bound_h) in bounds.items():
+        raw = fit.get(name)
+        if raw is None and name != required:
+            continue
+        box = whole_box(raw)
+        if box is None:
+            return f"its '{name}' is {raw!r}, not a box of whole x, y, w, h"
+        if box["x"] + box["w"] > bound_w or box["y"] + box["h"] > bound_h:
+            return f"its '{name}' {box} runs outside the {bound_w}x{bound_h} frame"
+    # Absent from a record saved before #1079, which is still read
+    source_fps = fit.get("source_fps")
+    if source_fps is not None:
+        number = as_number(source_fps)
+        if isinstance(source_fps, str) or number is None or number <= 0:
+            return f"its 'source_fps' is {source_fps!r}, not a rate above zero"
+    return None
+
+
 def fit_to_model_errors(arguments):
     """[(argument, message)] for the fit_to_model rules a literal workflow
     can break before it runs: an unknown `mode`, a size the downscale does

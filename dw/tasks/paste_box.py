@@ -20,7 +20,8 @@ import numpy
 from ..events import emit_log
 from ..media_types import AudioVideo
 from ..shots import carried_shots
-from ..task_problems import paste_box_of, paste_into_box_problems
+from ..task_domains import whole_number
+from ..task_problems import paste_into_box_problems, read_paste_box
 from .fit import cut_box, float_frames, resize_frames, fill_crop
 from .video_utils import frames_of, load_audio_video
 
@@ -58,22 +59,16 @@ def box_weights(box, frame_width, frame_height, feather):
 
 def _read_box(content_box):
     """(box, source_box or None, fit record or None) from a box, a fit
-    record, or a fit record's saved .json."""
+    record, or a fit record's saved .json - by `task_problems.read_paste_box`,
+    the rule the validate check uses too."""
     if isinstance(content_box, str):
         from ..locations import load_json_record
 
         content_box = load_json_record(content_box, None, "a content_box argument")
-    box = paste_box_of(content_box)
-    if box is None:
-        raise ValueError(
-            f"{COMMAND} needs 'content_box' as a box {{x, y, w, h}} of whole "
-            f"pixels (x, y from 0, w, h from 1), or the fit record "
-            f"fit_to_model returned (previous_result:<step>.fit), got "
-            f"{content_box!r}"
-        )
-    record = content_box if "content_box" in content_box else None
-    kept = paste_box_of(record.get("source_box")) if record else None
-    return box, kept, record
+    parts, problem = read_paste_box(content_box)
+    if problem is not None:
+        raise ValueError(problem)
+    return parts
 
 
 def paste_into_box(generated, source, content_box, feather=16):
@@ -107,7 +102,7 @@ def paste_into_box(generated, source, content_box, feather=16):
     problems = paste_into_box_problems(feather, box)
     if problems:
         raise ValueError("; ".join(message for _, message in problems))
-    feather = int(float(feather))
+    feather = whole_number(feather, "feather", COMMAND, required=True)
 
     if isinstance(generated, str):
         generated = load_audio_video(generated)
@@ -142,9 +137,7 @@ def paste_into_box(generated, source, content_box, feather=16):
             f"{record.get('source_height')}, 'source' is "
             f"{source_width}x{source_height}"
         )
-    if kept is None or (
-        kept["x"] + kept["w"] > source_width or kept["y"] + kept["h"] > source_height
-    ):
+    if kept is None:
         kept = fill_crop(source_width, source_height, box["w"], box["h"])
 
     weight = box_weights(box, frame_width, frame_height, feather)

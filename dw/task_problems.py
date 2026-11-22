@@ -29,8 +29,10 @@ from .script_lines import parse_lines, parse_shots, shot_names_error
 from .task_domains import (
     as_number,
     choice_errors,
+    fit_record_problem,
     number_problem,
     source_fps_problems,
+    whole_box,
 )
 
 # ingredients_grid's literal choices, read by its registration and by
@@ -419,30 +421,34 @@ def paste_face_track_errors(arguments):
     return paste_feather_problems(feather) + problems
 
 
-def paste_box_of(value):
-    """A {x, y, w, h} dict of ints from a box dict, a list of four, or a fit
-    record (its `content_box`), or None when it is none of those: whole
-    numbers, x and y from 0, w and h from 1."""
+_PASTE_BOX_TEXT = (
+    "paste_into_box needs 'content_box' as a box {x, y, w, h} of whole pixels "
+    "(x, y from 0, w, h from 1), or the fit record fit_to_model returned "
+    "(previous_result:<step>.fit)"
+)
+
+
+def read_paste_box(value):
+    """((box, source_box or None, record or None), None) from a box or a fit
+    record, or (None, refusal) when it is neither. A dict carrying
+    `content_box` is a fit record and is held to
+    `task_domains.fit_record_problem`, the rule restore_to_source reads it by;
+    anything else is held to `task_domains.whole_box`. Shared by
+    paste_into_box and its validate check, so both take the same values."""
     if isinstance(value, dict) and "content_box" in value:
-        value = value["content_box"]
-    if isinstance(value, dict):
-        try:
-            value = [value[key] for key in ("x", "y", "w", "h")]
-        except KeyError:
-            return None
-    if not isinstance(value, (list, tuple)) or len(value) != 4:
-        return None
-    numbers_of = []
-    for item in value:
-        if isinstance(item, bool) or not isinstance(item, (int, float)):
-            return None
-        if item != int(item):
-            return None
-        numbers_of.append(int(item))
-    x, y, w, h = numbers_of
-    if x < 0 or y < 0 or w < 1 or h < 1:
-        return None
-    return {"x": x, "y": y, "w": w, "h": h}
+        problem = fit_record_problem(value)
+        if problem is not None:
+            return None, f"{_PASTE_BOX_TEXT}: {problem}"
+        kept = value.get("source_box")
+        return (
+            whole_box(value["content_box"]),
+            whole_box(kept) if kept else None,
+            value,
+        ), None
+    box = whole_box(value)
+    if box is None:
+        return None, f"{_PASTE_BOX_TEXT}, got {value!r}"
+    return (box, None, None), None
 
 
 def paste_into_box_problems(feather=None, box=None):
@@ -485,16 +491,11 @@ def paste_into_box_errors(arguments):
     content_box = arguments.get("content_box")
     box = None
     if isinstance(content_box, (dict, list, tuple)):
-        box = paste_box_of(content_box)
-        if box is None:
-            problems.append(
-                (
-                    "content_box",
-                    f"paste_into_box needs 'content_box' as a box {{x, y, w, "
-                    f"h}} of whole pixels (x, y from 0, w, h from 1), or the "
-                    f"fit record fit_to_model returned, got {content_box!r}",
-                )
-            )
+        parts, problem = read_paste_box(content_box)
+        if problem is not None:
+            problems.append(("content_box", problem))
+        else:
+            box = parts[0]
     feather = arguments.get("feather")
     if is_ref(DEFERRED, feather):
         return problems
