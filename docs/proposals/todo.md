@@ -37,6 +37,14 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **Requests: a result whose plan or prompt changed after its take reads revised**
+  (#1531, stages #1557-#1559), built 2026-11-22. A done item reads `revised`, with
+  `revised_because`, when its `workflow`/`arguments` changed after its take (a
+  server-stamped `changed_at`) or a `prompt:` reference now resolves to text other
+  than the take recorded (per-take digests in the run manifest). It keeps its result,
+  is ready, and its dependents wait; a new take or a re-accept makes it done. The
+  page shows **Revised**, why, **Run take N** and **Keep this take**. The cascade to
+  done dependents was cut: `complete/revised-result-complete.md`.
 - **A no-plugin MCP client, drilled cold** (#1524, stages #1546-#1547), built
   2026-11-22. Three headless Sonnet sessions with the plugin and skills withheld
   ran an image, an H3 dialogue clip and a 60 s piece on lem from the served tools
