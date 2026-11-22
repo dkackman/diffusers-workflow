@@ -2844,7 +2844,7 @@ class TestAnAdapterIsADownloadToo:
         monkeypatch.setattr(
             dw.plan_downloads,
             "_model_info",
-            lambda name: (104.7, False, None),
+            lambda name, *a: (104.7, False, None),
         )
         monkeypatch.setattr(
             dw.plan_downloads,
@@ -3410,3 +3410,66 @@ class TestACachedComponentFolderIsNotListed:
             BASE, None, ["vae"], None, True, classes={"vae": "AutoencoderKL"}
         )
         assert entry["components"] == ["vae"] and entry["gb"] == 1.0
+
+
+class TestLoadBytes:
+    """#1580: a whole-repo estimate counts what `from_pretrained` fetches."""
+
+    @staticmethod
+    def sd15():
+        from types import SimpleNamespace as S
+
+        gb = 10**9
+        rows = {
+            "model_index.json": 1,
+            "README.md": 14,
+            "v1-5-pruned.safetensors": 7 * gb,
+            "v1-5-pruned.ckpt": 7 * gb,
+            "safety_checker/config.json": 1,
+            "safety_checker/model.safetensors": 1 * gb,
+            "safety_checker/pytorch_model.bin": 1 * gb,
+            "unet/config.json": 1,
+            "unet/diffusion_pytorch_model.safetensors": 3 * gb,
+            "unet/diffusion_pytorch_model.non_ema.safetensors": 3 * gb,
+            "unet/diffusion_pytorch_model.fp16.safetensors": 2 * gb,
+            "unet/diffusion_pytorch_model.bin": 3 * gb,
+            "unet/diffusion_pytorch_model.fp16.bin": 2 * gb,
+        }
+        return [S(rfilename=n, size=sz) for n, sz in rows.items()]
+
+    def test_one_format_per_component_and_no_root_checkpoints(self):
+        from dw.plan_downloads import _load_bytes
+
+        assert _load_bytes(self.sd15()) == pytest.approx(4 * 10**9, abs=100)
+
+    def test_the_requested_variant_is_the_one_counted(self):
+        from dw.plan_downloads import _load_bytes
+
+        # fp16 unet (2) + the checker, which has no fp16 file, falls back to plain (1)
+        assert _load_bytes(self.sd15(), "fp16") == pytest.approx(3 * 10**9, abs=100)
+
+    def test_a_component_passed_as_null_is_not_counted(self):
+        from dw.plan_downloads import _load_bytes
+
+        assert _load_bytes(self.sd15(), None, {"safety_checker"}) == pytest.approx(
+            3 * 10**9, abs=100
+        )
+
+    def test_a_repo_without_a_model_index_is_summed_whole(self):
+        from types import SimpleNamespace as S
+
+        from dw.plan_downloads import _load_bytes
+
+        files = [S(rfilename="a.safetensors", size=5), S(rfilename="a.ckpt", size=5)]
+        assert _load_bytes(files) == 10
+
+    def test_the_template_pairs_its_null_component_with_the_repo(self):
+        import json
+
+        from dw.plan_downloads import _walk
+
+        definition = json.load(open("workflows/templates/text-to-image.json"))
+        names, _v, _u, _f, _p, _w, skips = _walk(definition, None, None)
+        assert skips["stable-diffusion-v1-5/stable-diffusion-v1-5"] == {
+            "safety_checker"
+        }
