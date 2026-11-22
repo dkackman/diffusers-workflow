@@ -29,6 +29,7 @@ from ..deps import (
     workspace_for,
     workspace_root,
 )
+from ..changes import REQUESTS, changed
 from ..outputs import shown_outputs
 
 router = APIRouter()
@@ -210,7 +211,7 @@ def put_request(request: Request, name: str, request_id: str, body: RequestWrite
     root = _ledger_root(request.app.state, name)
     payload = body.model_dump(exclude={"by"}, exclude_unset=True)
     try:
-        return ledger.put_request(
+        written = ledger.put_request(
             root,
             request_id,
             payload,
@@ -223,6 +224,8 @@ def put_request(request: Request, name: str, request_id: str, body: RequestWrite
         raise HTTPException(status_code=e.status, detail=e.detail())
     except OSError:
         raise internal_error(f"Could not write request {request_id!r}")
+    changed(request, name, REQUESTS)
+    return written
 
 
 # --- a user's notes for the agent, on a request or one of its items ---
@@ -281,14 +284,17 @@ def _note_ref_check(request, name):
     return check
 
 
-def _note_write(write, what):
-    """Run one note write, its LedgerError as the HTTP error it carries."""
+def _note_write(request, name, write, what):
+    """Run one note write, its LedgerError as the HTTP error it carries;
+    a write that held moves the workspace's `requests` counter."""
     try:
-        return write()
+        written = write()
     except ledger.LedgerError as e:
         raise HTTPException(status_code=e.status, detail=e.detail())
     except OSError:
         raise internal_error(f"Could not {what}")
+    changed(request, name, REQUESTS)
+    return written
 
 
 @router.post(NOTES_URL, response_model=NoteWritten, response_model_exclude_unset=True)
@@ -303,6 +309,8 @@ def add_request_note(request: Request, name: str, body: NoteAdd):
     `unknown_request`."""
     root = _ledger_root(request.app.state, name)
     return _note_write(
+        request,
+        name,
         lambda: ledger.add_note(
             root,
             body.request,
@@ -322,6 +330,8 @@ def edit_request_note(request: Request, name: str, body: NoteEdit):
     `unknown_note`."""
     root = _ledger_root(request.app.state, name)
     return _note_write(
+        request,
+        name,
         lambda: ledger.edit_note(root, body.request, body.note, body.text),
         f"edit a note of request {body.request!r}",
     )
@@ -338,6 +348,8 @@ def delete_request_note(
     `unknown_request` or `unknown_note`."""
     root = _ledger_root(request.app.state, name)
     return _note_write(
+        request,
+        name,
         lambda: ledger.delete_note(root, request_id, note),
         f"remove a note of request {request_id!r}",
     )
@@ -367,4 +379,5 @@ def delete_request(
         raise HTTPException(status_code=e.status, detail=e.detail())
     except OSError:
         raise internal_error(f"Could not delete request {request_id!r}")
+    changed(request, name, REQUESTS)
     return {"workspace": name, **deleted}

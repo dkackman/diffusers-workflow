@@ -1877,6 +1877,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/workspaces/{name}/changes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Workspace Changes
+         * @description This workspace's change counters, for a page to notice a write it
+         *     did not make: one counter per kind of data, each only growing, and
+         *     `epoch`, which changes when the counters start again. A page reloads
+         *     when the counter of what it shows moves. Read-only and cheap: one
+         *     lock, no disk. 404 for an unknown workspace.
+         */
+        get: operations["workspace_changes_api_workspaces__name__changes_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/workspaces/{name}/notes-channel": {
         parameters: {
             query?: never;
@@ -2240,6 +2264,42 @@ export interface components {
              * @description `info` is an earlier reading: compare only `live` readings.
              */
             stale: boolean;
+        };
+        /**
+         * ChangeCounts
+         * @description One counter per kind of data a page lists; each only grows.
+         */
+        ChangeCounts: {
+            /**
+             * Assets
+             * @description Asset uploads, keeps, deletes and notes.
+             */
+            assets: number;
+            /**
+             * Gallery
+             * @description Outputs landing from a finished job, and star, note or delete of an output.
+             */
+            gallery: number;
+            /**
+             * Jobs
+             * @description Job queue, start, finish, cancel and move, and a run deleted.
+             */
+            jobs: number;
+            /**
+             * Prompts
+             * @description Prompt library saves and deletes.
+             */
+            prompts: number;
+            /**
+             * Requests
+             * @description Request ledger writes: requests and notes.
+             */
+            requests: number;
+            /**
+             * Workflows
+             * @description Workflow saves, patches and deletes.
+             */
+            workflows: number;
         };
         /** ClassList */
         ClassList: {
@@ -5138,6 +5198,21 @@ export interface components {
             /** Workspace */
             workspace: string;
         };
+        /** WorkspaceChanges */
+        WorkspaceChanges: {
+            /**
+             * Epoch
+             * @description Random id of this workspace's counters: new on a server restart and when the workspace is created again. A different epoch means everything changed.
+             */
+            epoch: string;
+            /** @description This workspace's counters, by kind. */
+            kinds: components["schemas"]["ChangeCounts"];
+            /**
+             * Workspaces
+             * @description Server-wide counter of workspace create, delete and note writes.
+             */
+            workspaces: number;
+        };
         /**
          * WorkspaceCopied
          * @description What a copy between workspaces did (`POST /api/workspaces/{name}/copy`).
@@ -7789,6 +7864,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WorkspaceDeleted"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    workspace_changes_api_workspaces__name__changes_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceChanges"];
                 };
             };
             /** @description Validation Error */

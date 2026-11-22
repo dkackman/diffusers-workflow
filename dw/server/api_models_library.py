@@ -675,6 +675,34 @@ class NotesChannelState(ApiModel):
     )
 
 
+class ChangeCounts(ApiModel):
+    """One counter per kind of data a page lists; each only grows."""
+
+    requests: int = Field(description="Request ledger writes: requests and notes.")
+    prompts: int = Field(description="Prompt library saves and deletes.")
+    workflows: int = Field(description="Workflow saves, patches and deletes.")
+    assets: int = Field(description="Asset uploads, keeps, deletes and notes.")
+    gallery: int = Field(
+        description="Outputs landing from a finished job, and star, note or "
+        "delete of an output."
+    )
+    jobs: int = Field(
+        description="Job queue, start, finish, cancel and move, and a run deleted."
+    )
+
+
+class WorkspaceChanges(ApiModel):
+    epoch: str = Field(
+        description="Random id of this workspace's counters: new on a server "
+        "restart and when the workspace is created again. A different epoch "
+        "means everything changed."
+    )
+    workspaces: int = Field(
+        description="Server-wide counter of workspace create, delete and note writes."
+    )
+    kinds: ChangeCounts = Field(description="This workspace's counters, by kind.")
+
+
 class NoteDeleted(ApiModel):
     revision: int = Field(description="The request's revision after the write.")
 

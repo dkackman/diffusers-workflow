@@ -1148,6 +1148,19 @@ The editor's forms come from these; they are just as usable from scripts:
   header, and the server keeps the time in memory only. It means a session
   has the channel set up, not that Claude Code is passing its events on
   ([MCP.md](MCP.md#is-a-session-listening)).
+- `GET /api/workspaces/{name}/changes` — `{epoch, workspaces, kinds}`: the
+  workspace's change counters, how the UI notices a write it did not make
+  (an agent over MCP, `dw.run`, a job finishing). `kinds` holds one counter
+  each for `requests`, `prompts`, `workflows`, `assets`, `gallery` and `jobs`;
+  every server write that changes what a page lists bumps its kind after it
+  succeeds, and a failed write bumps nothing. The prompt library and the
+  shared asset library are shared, so a write to either moves that kind in
+  every workspace. `workspaces` is one server-wide counter (a workspace
+  created or deleted, or its note changed). Counters only grow and live in
+  memory: `epoch` is a random id that changes on a server restart, or when a
+  workspace is deleted and made again under the same name, so a client that
+  sees a new epoch reloads everything. An unknown workspace is 404. Not an
+  MCP tool: an agent reads what it changed from its own calls.
 - `GET /api/workspaces`, `POST /api/workspaces` (`{"name": ...}`),
   `DELETE /api/workspaces/{name}?acknowledged=true` — the workspaces on this
   server ([layout](WORKSPACES.md#several-workspaces-on-one-server)). Delete

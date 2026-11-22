@@ -60,6 +60,9 @@ from ..runs import MANIFEST_FILE_NAME, REALIZED_FILE_NAME
 from ..settings import resolve_path
 from ..workspace import DEFAULT_WORKSPACE_NAME
 from . import dispatch, job_results, pool, worker_memory
+from .changes import GALLERY as GALLERY_KIND
+from .changes import JOBS as JOBS_KIND
+from .changes import REQUESTS as REQUESTS_KIND
 from .dispatch import Dispatcher
 from .job_history import JobHistory, close_dead_servers
 from .job_history import hold_server_lock
@@ -164,6 +167,9 @@ class JobManager(Dispatcher, Reruns):
         # set by the app, which knows the workspaces. Unset, a rerun does
         # not check the link it inherits
         self.ledger_root_for = None
+        # The app's workspace change counters (dw/server/changes.py), or
+        # None for a manager built without an app
+        self.changes = None
         # Pending job ids in run order - a list, not a Queue, so the queue
         # can be reordered while jobs wait
         self._pending = []
@@ -430,7 +436,22 @@ class JobManager(Dispatcher, Reruns):
             self._pending.append(job.id)
             self._wake.notify()
         logger.info(f"Queued job {job.id} for workflow {job.workflow_name}")
+        self._changed(job)
         return job
+
+    def _changed(self, job, *kinds):
+        """A job's status moved: bump `jobs` (and `kinds`) in its workspace,
+        and `requests` too when it is linked to a request item, since the
+        ledger shows each item's jobs. Never raises: a counter is a hint."""
+        if self.changes is None:
+            return
+        try:
+            kinds = (JOBS_KIND, *kinds)
+            if getattr(job, "request", None):
+                kinds = (*kinds, REQUESTS_KIND)
+            self.changes.bump(job.spec.get("workspace"), *kinds)
+        except Exception as e:
+            logger.warning(f"Could not bump change counters for job {job.id}: {e}")
 
     def get(self, job_id):
         """A live Job, or a historical detail dict for a finished past run."""
@@ -840,7 +861,9 @@ class JobManager(Dispatcher, Reruns):
             # The order decides which job the next pass tries first, a held
             # one included (#869)
             self._wake.notify()
-            return list(self._pending)
+            order = list(self._pending)
+        self._changed(self.jobs[job_id])
+        return order
 
     def shutdown(self):
         self._stop.set()
@@ -891,6 +914,7 @@ class JobManager(Dispatcher, Reruns):
             job.add_event({"event": "job_status", "status": RUNNING})
             # Before the job's thread exists, so _finish always writes last
             self._record_open(job)
+            self._changed(job)
             thread = threading.Thread(
                 target=self._run_job,
                 args=(slot, job),
@@ -917,6 +941,10 @@ class JobManager(Dispatcher, Reruns):
         except Exception as e:
             logger.warning(f"Could not persist job {job.id}: {e}")
         self._trim_terminal_jobs()
+        if job.manifest:
+            self._changed(job, GALLERY_KIND)
+        else:
+            self._changed(job)
 
     def _stamp_roles(self, job):
         """Put each manifest entry's role on the job while its run directory
