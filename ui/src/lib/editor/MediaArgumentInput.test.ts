@@ -102,9 +102,7 @@ it('a skipped upload keeps the field value and the preview, and says so', async 
   await fireEvent.change(input)
   await new Promise((r) => setTimeout(r, 0))
   expect(onchange).not.toHaveBeenCalled()
-  expect(notifySuccess).toHaveBeenCalledWith(
-    'Skipped 1 existing file: cat.png',
-  )
+  expect(notifySuccess).toHaveBeenCalledWith('Skipped 1 existing file: cat.png')
   expect(container.querySelector('.preview img')?.getAttribute('src')).not.toBe(
     'blob:p-1',
   )

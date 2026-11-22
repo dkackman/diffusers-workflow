@@ -29,7 +29,13 @@
 </script>
 
 {#if view === 'json'}
-  <JsonEditor value={jsonDraft} onchange={onjson} {register} height="560px" {schema} />
+  <JsonEditor
+    value={jsonDraft}
+    onchange={onjson}
+    {register}
+    height="560px"
+    {schema}
+  />
   <p class="muted hint">{hint}</p>
 {:else}
   <div class="editwrap" class:splitcols={view === 'split'}>

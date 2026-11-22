@@ -24,7 +24,11 @@
   import { sharedHref } from '../routes'
   import { assetLibrary } from '../assetlib.svelte'
   import { leafName } from '../names'
-  import { UPLOAD_EXTENSIONS, reportUploads, uploadAll } from '../assets/uploads'
+  import {
+    UPLOAD_EXTENSIONS,
+    reportUploads,
+    uploadAll,
+  } from '../assets/uploads'
   import AssetDetail from '../assets/AssetDetail.svelte'
   import LibraryRow from '../assets/LibraryRow.svelte'
   import ShadowedAssets from '../assets/ShadowedAssets.svelte'
