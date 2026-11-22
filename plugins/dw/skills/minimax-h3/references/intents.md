@@ -15,7 +15,7 @@ pattern heading that exists.
 
 | intent | template | pattern | evidence | status |
 |---|---|---|---|---|
-| Swap a clip's environment or weather and keep its motion, through a video reference | `templates/minimax/composable-references` | `SKILL.md` § Which shape is the request | community: Reddit, via #1518 | untested |
+| Swap a clip's environment or weather and keep its motion, through a video reference | `templates/minimax/composable-references` | `SKILL.md` § Which shape is the request | `bench/records/env-swap-ref2va.md` | confirmed |
 | A full-length guide plus a style prompt restyles a clip | | `SKILL.md` § Which shape is the request | `docs/proposals/complete/h3-guides-complete.md` | refuted |
 | Hold a set's furniture and clothes across a cut with the earlier shot as a video reference | `templates/minimax/composable-references` | `references/cuts.md` § Visual memory at a cut | `bench/records/visual-memory-cut.md` | confirmed |
 | A locked first frame lip-syncs to a held song and keeps its pixels (FL2VA with `hold_audio`) | `templates/minimax/image-to-video` | `SKILL.md` § Which shape is the request | `docs/proposals/audits/2026-10-h3-wangp-probes.md` | confirmed |
