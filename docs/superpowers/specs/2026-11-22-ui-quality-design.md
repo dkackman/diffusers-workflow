@@ -2,7 +2,7 @@
 
 **Date:** 2026-11-22
 **Source:** the six-reviewer Playwright UX audit of 2026-11-22 (`docs/superpowers/specs/2026-11-22-ui-audit.md`). Its findings are listed in the appendix under the IDs below.
-**Status:** draft for Don's review
+**Status:** approved by Don 2026-11-22, including every ★ vocabulary row and decisions 1-6 below as proposed
 
 ## Why
 
@@ -100,7 +100,7 @@ New metrics are added to `ui/scripts/arch-metrics.mjs`, so the ratchet tightens 
 
 Playwright **journey specs** pin the end-user stories the audit used, as regression gates: `e2e/journeys/*.spec.ts`. There is one per phase: editor safety, outage and token, first run, find-and-reuse, chain a step, review a request.
 
-## Vocabulary (decisions for Don, marked ★)
+## Vocabulary (★ rows approved by Don 2026-11-22)
 
 | Concept | Term | Notes |
 |---|---|---|
@@ -160,7 +160,7 @@ Each phase is its own plan: `docs/superpowers/plans/2026-11-22-ui-quality-phase-
   - the kind-to-glyph map, status colours and segmented selected style come only from their owning module.
 - `ui/CLAUDE.md` gets a "before you write markup" table: concept → the component to use.
 
-## Decisions for Don
+## Decisions for Don (all approved as proposed, 2026-11-22)
 
 1. ★ The vocabulary rows above.
 2. **The hold and notes (RQ-1).** Today any note cancels a held item's auto-run (`dw/ledger_views.py:_review`, the #1521 design). Proposal: keep the rule, warn before saving, and keep **Run now…** in the banner. Narrowing the rule to notes about the held item would change the agent contract and is a separate ruling.
