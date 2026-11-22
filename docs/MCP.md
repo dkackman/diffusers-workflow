@@ -177,7 +177,7 @@ items, one of them a take and a file:
 
     lipsync drifts after 2s - reroll this one
 
-    Read the request with get_request("lighthouse-short", workspace="default") and act on the note; say what you did in the "why" of your next set_request.
+    Read the request with get_request("lighthouse-short", workspace="default") and act on the note; say what you did in the "why" of your next set_request, naming the note id you answer ("n3: rerolled shot3 as take 3").
     </channel>
 
 The first line says who, which request (and item, for a note written on an

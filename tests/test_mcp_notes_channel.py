@@ -146,7 +146,8 @@ def test_a_note_saved_while_listening_is_one_event(client, clock):
         "off lipsync - reroll it and recreate the final piece\n\n"
         f'Read the request with get_request("lighthouse", workspace="{WORKSPACE}") '
         'and act on the note; say what you did in the "why" of your next '
-        "set_request."
+        "set_request, "
+        'naming the note id you answer ("n3: rerolled shot3 as take 3").'
     )
     assert event["meta"] == {
         "kind": "note",

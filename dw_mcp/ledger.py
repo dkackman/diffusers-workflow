@@ -276,7 +276,8 @@ def note_event(note, workspace):
         )
     lines.append(
         f"Read the request with {_read_call(note, workspace)} and act on the "
-        'note; say what you did in the "why" of your next set_request.'
+        'note; say what you did in the "why" of your next set_request, '
+        'naming the note id you answer ("n3: rerolled shot3 as take 3").'
     )
     meta = {
         "kind": "note",
@@ -318,7 +319,7 @@ def waiting_event(notes, workspace):
         f'each request with get_request("<request>", workspace="{workspace}"), '
         "tell the user what is waiting, and confirm with them before spending "
         'GPU time on one; say what you did in the "why" of your next '
-        "set_request."
+        'set_request, naming the note ids you answer ("n3: rerolled shot3").'
     )
     meta = {"kind": "notes_waiting", "workspace": str(workspace), "count": str(count)}
     return {"content": "\n\n".join([head, "\n".join(lines), tail]), "meta": meta}

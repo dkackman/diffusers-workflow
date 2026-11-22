@@ -140,7 +140,8 @@ look), it is about more than the item it was written on: say in the `why`
 which other items it affects, and carry it over to them in the same plan
 write unless that would change what is already accepted; then ask in chat
 before rendering them. Finish with a `set_request`
-whose `why` says what you did - the user watches the request page, not this
+whose `why` names the note id you answer and says what you did
+(`n3: rerolled shot3 as take 3`) - the user watches the request page, not this
 session, and that write is what marks the note answered. A
 `kind="notes_waiting"` event lists notes from before the session: say what
 is waiting and confirm before spending on them. A `kind="review_due"` event

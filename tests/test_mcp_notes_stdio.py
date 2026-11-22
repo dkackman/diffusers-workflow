@@ -299,7 +299,8 @@ def test_a_saved_note_reaches_the_client_as_a_channel_notification(dw_server, ch
         f"{text}\n\n"
         'Read the request with get_request("lighthouse", workspace="default") '
         'and act on the note; say what you did in the "why" of your next '
-        "set_request."
+        "set_request, "
+        'naming the note id you answer ("n3: rerolled shot3 as take 3").'
     )
 
     # no tools: a second copy of dw's tool surface is what this mode avoids

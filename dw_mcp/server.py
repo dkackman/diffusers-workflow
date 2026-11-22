@@ -260,13 +260,13 @@ NOTES_INSTRUCTIONS = (
     '`kind="review_due"` means a hold on planned items reached its '
     "deadline with no note from the user: run the named items under the "
     'usual cost gate, but `stale="1"` means the hold was set before this '
-    "session, so confirm with them first.\n"
+    "session, so confirm first.\n"
     "\n"
     "Before acting, read the plan with `get_request(request, workspace)`: "
-    "it may have been edited or cleared. Act through the dw tools "
+    "it may have changed. Act through the dw tools "
     "under their cost gate, then record what you did in the `why` of "
-    "`set_request`. That write is the answer: the user watches the page, "
-    "not this chat; don't reply here. This channel is one-way, with no "
+    "`set_request`, naming the note ids it answers. That write "
+    "is the answer: the user watches the page, not this chat. This channel is one-way, with no "
     "tools."
 )
 
