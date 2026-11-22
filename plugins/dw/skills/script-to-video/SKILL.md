@@ -127,8 +127,7 @@ Wait with `wait_for_job`, asking for the plan's estimate plus a margin as
 a `still_running` reply means call again. If the call dies client-side ("timed out") first, call again with `timeout_seconds` 60 and loop; a running job lists `finished_steps`. After the job completes, read `get_job_events` / `get_gallery_metadata` for
 the warnings the engine already emits (`audio_no_headroom`, `audio_clipped`,
 an elision diagnostic) and `rerun_job(new_seed=True)` a shot that reads
-wrong - not by inventing a new heuristic, by reading what is already
-surfaced. On an H3 shot with dialogue a new seed also redraws the voice: in
+wrong, reading what the engine already surfaces. On an H3 shot with dialogue a new seed also redraws the voice: in
 a lem probe (#610) three seeds of one line gave a different speaker each
 time without an audio reference, and only a narrower spread with one
 (`voice` / `voice-timbre-reference`). So when the voice is right and the
@@ -148,14 +147,15 @@ joined by `templates/assemble-and-score`). Never splice a re-rolled segment
 in with `concat_videos`: that join is recorded `hard_cut`, so
 `seam_frame_jump` stops checking it. A seam re-roll counts against the
 shot's budget below.
+Run `analyze_held_frames` on every take (see `minimax-h3`).
 Before the keep, run the beat review in `references/beat-review.md` on
 the shot's `get_output_frames` frames. Before a revision pass,
 `get_request` for the user's notes.
 Fix a shot in the order and within the caps of `references/fix-ladder.md`: three failed attempts, then ask.
 Face drift (`templates/face-drift-check`): see `references/fix-ladder.md`.
 For H3, lint the prompt first: `minimax-h3/references/prompt-lint.md`.
-Each shot's files are sorted by `subfolder`: `final` for the deliverable,
-`intermediate` for test frames (the manifest says which).
+Shot files sort by `subfolder`: `final` is the deliverable, `intermediate`
+test frames.
 
 ## 6. Cut, score, deliver
 

@@ -29,7 +29,12 @@ from dw.assessment_rules import (
 from dw.introspection import list_tasks
 from dw.media_types import AudioVideo
 from dw.shots import shot_record
-from dw.tasks.assess import analyze_seams, analyze_shots, analyze_sync_drift
+from dw.tasks.assess import (
+    analyze_held_frames,
+    analyze_seams,
+    analyze_shots,
+    analyze_sync_drift,
+)
 from dw.tasks.joins import LEVEL_SPREAD_WARN_DB
 from dw.tasks.task import task_command_info
 
@@ -80,6 +85,7 @@ PROBES = {
     "analyze_shots": analyze_shots,
     "analyze_seams": analyze_seams,
     "analyze_sync_drift": analyze_sync_drift,
+    "analyze_held_frames": analyze_held_frames,
 }
 
 
@@ -106,9 +112,14 @@ class TestRuleProbesAreRealCommands:
             info = task_command_info(rule["probe"])
             assert info["returns"] == "json"
 
-    def test_assessment_is_exactly_the_three_probes(self):
+    def test_assessment_is_exactly_the_four_probes(self):
         assert list_tasks()["assessment"] == sorted(
-            ["analyze_shots", "analyze_seams", "analyze_sync_drift"]
+            [
+                "analyze_shots",
+                "analyze_seams",
+                "analyze_sync_drift",
+                "analyze_held_frames",
+            ]
         )
 
     def test_probes_stay_in_commands_too(self):

@@ -154,7 +154,7 @@ H3 wants Context-IR, MiniMax's format (`get_prompt` shows it):
    built-in enhancer writes the format from those guides. Its `idea` is
    framed as `Task: T2VA. Duration: 5.17 seconds. Idea: ...`.
 
-Write the whole script before the first shot. Repeat a speaker's voice description verbatim across shots.
+Write the whole script first. Repeat a speaker's voice description verbatim across shots.
 Several characters: one cropped reference each, never a group picture (`references/per-character.md`).
 Lines: `references/dialogue.md` (length, what not to name, a line per chain segment). Check a draft: `references/prompt-lint.md`.
 A wanted look (clay, paper): `references/style.md`. Film-term camera or look: the `cinematography` skill.
@@ -162,12 +162,12 @@ A wanted look (clay, paper): `references/style.md`. Film-term camera or look: th
 ## Run and judge
 
 1. `validate_workflow` first: free, catches rejected arguments.
-2. Quote `plan.estimate` from the validate answer (warm minutes; a first
-   load or `downloads_required` is longer). When `basis` is `unknown`,
+2. Quote `plan.estimate` (warm minutes; a first load or
+   `downloads_required` adds). When `basis` is `unknown`,
    give the shape: a 124-frame turbo clip is a few minutes
    on 24 GB, 345 frames three times that, an image reference twice a
    turbo clip, a video reference ~4x again, a chain times its segments.
-   Get the go-ahead, then `run_workflow` with `acknowledged_cost` = the
+   Once approved, `run_workflow` with `acknowledged_cost` = the
    plan's `{fingerprint, minutes, downloads}`.
 3. `wait_for_job` with `timeout_seconds` = the estimate plus a margin,
    `get_job`. Silence is no hang (encode ~6 s img, ~50 s video; 1st
@@ -180,12 +180,13 @@ A wanted look (clay, paper): `references/style.md`. Film-term camera or look: th
    character changing between shots (same portraits everywhere), a
    portrait's framing imposed on every shot - `at` late in
    a chain for drift sharpening to noise, and `get_output_audio` for a
-   voice-over without affect. It returns sound, not text; to confirm a
-   take's lines, run `templates/check-script` with them as `lines` (each
+   voice-over without affect. It returns sound, not text; to confirm
+   lines, run `templates/check-script` with them as `lines` (each
    `<d>` block's contents, markup and all, never the prose between blocks,
-   which H3 doesn't speak) and read its `findings` with `get_output_text`. Dialogue gaps (`shot_dead_air`) need room tone,
-   in that reference. Then `get_gallery_metadata` for duration/audio and hand the
-   user the gallery `url`.
+   which H3 doesn't speak) and read its `findings` with `get_output_text`. Dialogue gaps (`shot_dead_air`) need room tone
+   (that reference). Per take, `assess_output(name,
+   probe="analyze_held_frames")` (same reference). Then `get_gallery_metadata`
+   and hand over the gallery `url`.
 5. After a run worth keeping, `get_job_workflow` and `save_workflow` it;
    `export_job` bundles it: fetch `open_url` into `exports/` (never a temp
    dir), or with `auth_required: true` hand it to the person.

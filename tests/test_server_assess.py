@@ -177,6 +177,7 @@ def test_detail_adds_every_probes_full_body(server, tmp_path):
         "analyze_shots",
         "analyze_seams",
         "analyze_sync_drift",
+        "analyze_held_frames",
     }
     assert len(body["probes"]["analyze_seams"]["seams"]) == 2
 
@@ -199,7 +200,12 @@ def test_an_unknown_probe_is_refused_before_the_name_is_read(server):
 
     assert answer.status_code == 400
     detail = answer.json()["detail"]
-    for probe in ("analyze_shots", "analyze_seams", "analyze_sync_drift"):
+    for probe in (
+        "analyze_shots",
+        "analyze_seams",
+        "analyze_sync_drift",
+        "analyze_held_frames",
+    ):
         assert probe in detail
 
 
@@ -216,8 +222,10 @@ def test_a_still_is_not_applicable_to_any_probe(server, tmp_path):
         "analyze_shots",
         "analyze_seams",
         "analyze_sync_drift",
+        "analyze_held_frames",
     }
     assert "still" in body["not_applicable"]["analyze_seams"]
+    assert "still" in body["not_applicable"]["analyze_held_frames"]
 
 
 def test_a_file_with_no_recorded_shots_says_seams_do_not_apply(server, tmp_path):
@@ -363,3 +371,105 @@ class TestMetadataLevelFindings:
             name = "loud/20260923-120000-abcdef01/a.wav"
             body = client.get(f"/api/gallery/{name}/metadata").json()
         assert [f["rule"] for f in body["findings"]] == ["full_scale"]
+
+
+def write_picture_only(path, frames=48):
+    """A real mp4 with a panning picture, a repeat every 4th frame and no
+    audio track."""
+    import av
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    container = av.open(str(path), "w")
+    video = container.add_stream(
+        "libx264", rate=FPS, options={"crf": "8", "preset": "ultrafast"}
+    )
+    video.width, video.height, video.pix_fmt = 128, 72, "yuv420p"
+    rng = numpy.random.default_rng(3)
+    field = rng.normal(0, 1, (72, 256))
+    kx = numpy.fft.fftfreq(256)[None, :]
+    ky = numpy.fft.fftfreq(72)[:, None]
+    field = numpy.real(
+        numpy.fft.ifft2(numpy.fft.fft2(field) * numpy.exp(-(kx**2 + ky**2) * 300))
+    )
+    field = 128 + 50 * (field - field.mean()) / field.std()
+    previous = None
+    for index in range(frames):
+        grey = numpy.roll(field, -index * 3, axis=1)[:, :128]
+        if index % 4 == 2 and previous is not None:
+            grey = previous
+        previous = grey
+        arr = numpy.stack([numpy.clip(grey, 0, 255).astype(numpy.uint8)] * 3, -1)
+        for packet in video.encode(av.VideoFrame.from_ndarray(arr, "rgb24")):
+            container.mux(packet)
+    for packet in video.encode():
+        container.mux(packet)
+    container.close()
+
+
+def write_audio_only(path, seconds=1.0):
+    import wave
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    t = numpy.arange(int(SAMPLE_RATE * seconds)) / SAMPLE_RATE
+    samples = (0.2 * 32767 * numpy.sin(2 * numpy.pi * 440.0 * t)).astype("<i2")
+    with wave.open(str(path), "wb") as out:
+        out.setnchannels(1)
+        out.setsampwidth(2)
+        out.setframerate(SAMPLE_RATE)
+        out.writeframes(samples.tobytes())
+
+
+def test_one_probe_held_frames_answers_its_full_body(server, tmp_path):
+    with server() as client:
+        write_picture_only(tmp_path / "outputs" / "held.mp4", frames=96)
+        body = client.get(
+            "/api/gallery/held.mp4/assess?probe=analyze_held_frames"
+        ).json()
+
+    assert body["probe"] == "analyze_held_frames"
+    assert body["held_frames"] == 24
+    assert body["clusters"]
+    assert [f["rule"] for f in body["findings"]][0] == "held_frames"
+    assert "series" not in body
+
+
+def test_a_default_call_applies_held_frames_to_a_video(server, tmp_path):
+    with server() as client:
+        write_cut(tmp_path / "outputs" / "loose.mp4", (0.1, 0.4))
+        body = client.get("/api/gallery/loose.mp4/assess").json()
+
+    assert "held_frames" in body["rules_applied"]
+    assert "analyze_held_frames" not in body["not_applicable"]
+
+
+def test_held_frames_detail_includes_the_series(server, tmp_path):
+    with server() as client:
+        write_picture_only(tmp_path / "outputs" / "held.mp4", frames=48)
+        body = client.get(
+            "/api/gallery/held.mp4/assess?probe=analyze_held_frames&detail=true"
+        ).json()
+
+    assert body["series"]
+    assert set(body["series"][0]) == {"frame", "d"}
+
+
+def test_an_audio_only_file_is_not_applicable_to_held_frames(server, tmp_path):
+    with server() as client:
+        write_audio_only(tmp_path / "outputs" / "tone.wav")
+        answer = client.get("/api/gallery/tone.wav/assess")
+
+    assert answer.status_code == 200
+    body = answer.json()
+    assert "error" not in body
+    assert "audio-only" in body["not_applicable"]["analyze_held_frames"]
+    assert "held_frames" not in body["rules_applied"]
+
+
+def test_a_video_without_audio_is_still_assessed_for_held_frames(server, tmp_path):
+    with server() as client:
+        write_picture_only(tmp_path / "outputs" / "silent.mp4", frames=96)
+        body = client.get("/api/gallery/silent.mp4/assess").json()
+
+    assert "analyze_held_frames" not in body["not_applicable"]
+    assert "held_frames" in body["rules_applied"]
+    assert [f for f in body["findings"] if f["rule"] == "held_frames"]

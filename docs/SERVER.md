@@ -1027,7 +1027,7 @@ The editor's forms come from these; they are just as usable from scripts:
   soundtrack (MCP `get_output_audio`)
 - `GET /api/gallery/{name}/assess?probe=&detail=` — every assessment probe
   that applies to a finished cut (`analyze_shots`, `analyze_seams`,
-  `analyze_sync_drift`), run in the server process on one decode: merged
+  `analyze_sync_drift`, `analyze_held_frames`), run in the server process on one decode: merged
   `findings`, `rules_applied`, `rules_skipped`, and `not_applicable` per probe
   the file cannot feed. `detail=true` adds each probe's answer under
   `probes`; `probe` names one and answers with its full body. Findings are

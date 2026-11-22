@@ -2527,8 +2527,8 @@ list as `shots`.
 
 ## Assessment Probes
 
-Three read-only commands measure a finished cut and say where to look:
-`analyze_shots`, `analyze_seams`, `analyze_sync_drift`. A probe is a command
+Four read-only commands measure a finished cut and say where to look:
+`analyze_shots`, `analyze_seams`, `analyze_sync_drift`, `analyze_held_frames`. A probe is a command
 registered with `assessment=True` (`register_command`, `dw/tasks/registry.py`;
 the probes register in `dw/tasks/audio_handlers.py`); other JSON-answering
 tasks such as [`attribute_voices`](#voice-attribution) and
@@ -2658,6 +2658,35 @@ measured; with none, `shots` is empty, `max_offset_ms` is null, and only
 | `video_seconds` / `audio_seconds` | Each stream's own duration |
 | `length_delta_ms` | `audio_seconds` minus `video_seconds` |
 
+### analyze_held_frames
+
+Frames the picture repeats: a take that stutters where the model emitted one
+frame several times. It reads the same 64x36 grey thumbnails as the other
+probes and needs a picture, so a still or an audio-only file is listed under
+`not_applicable` by `assess_output`. Arguments: `video` (as the other probes
+take it), `shots` (shot records, for the hard cuts), and `detail` (adds
+`series`).
+
+Let `d_i` be the mean absolute difference between thumbnail `i` and `i - 1`
+(0-255). Frame `i` is *held* when `d_i` is below 1.0 and a neighbouring `d` is
+2.0 or more, so a static shot holds nothing. Frame 0 and frames within one
+frame of a hard cut (`content_cuts`) are excluded. A *cluster* is a run of
+holds with gaps of at most 4 frames and at least 2 holds. On H3 the holds are
+mostly a single repeated frame on a 4-frame spacing, so a few are normal.
+
+| Field | Meaning |
+| ----- | ------- |
+| `held_frames` | The count of held frames in the file |
+| `held_ratio` | `held_frames` over `frames` |
+| `frames` | The frames read |
+| `clusters[]` | `{start, end, held}`: each cluster's span in seconds and its count of holds |
+| `series` | With `detail` only: `[{frame, d}]`, downsampled |
+
+When `held_frames` reaches the threshold there is one file-level `held_frames`
+finding, plus one per cluster whose `at` is the cluster's start in seconds and
+whose `range` is `[start, end]`. Remedy for now: reroll the take or re-plan
+the shot.
+
 ### analyze_face_drift
 
 Whether a recurring character still looks like their cast portrait. It is not
@@ -2730,6 +2759,7 @@ its threshold, and the severity of a crossing:
 | `shot_dead_air` | `analyze_shots` | `dead_air_seconds` | > 0.4 s | warn |
 | `sync_drift` | `analyze_sync_drift` | `end_offset_ms` | > 40.0 ms (magnitude) | warn |
 | `sync_length` | `analyze_sync_drift` | `length_delta_ms` | > 40.0 ms (magnitude) | warn |
+| `held_frames` | `analyze_held_frames` | `held_frames` | >= 13 | warn |
 
 Guards beyond the threshold:
 
@@ -2745,7 +2775,7 @@ Guards beyond the threshold:
   `loop_audio` -> `mix_audio`.
 
 A `shots` record reaching past the file's own length is a separate finding,
-`shot_span_overrun` (severity `warn`), on all three probes; the record is
+`shot_span_overrun` (severity `warn`), on the shot probes (`analyze_shots`, `analyze_seams`, `analyze_sync_drift`); the record is
 clipped to the file before the rules above run.
 `validate_workflow` reports the same mistake ahead of the run when the
 video's length is already knowable (a `shots` argument against an

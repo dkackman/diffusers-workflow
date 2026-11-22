@@ -194,19 +194,19 @@ from `validate_workflow`, never these.
    1 + (N - 1)(1 + `retries`).
    A saved copy has no `cost` row (`basis: unknown`): validate the template
    with the same arguments and scale by the worst case over N. For passages
-   joined as cuts, validate each passage and sum the `plan.estimate`s; the
-   H3 chain estimate runs high (18.3 min quoted, 7 run: `bench/records/drill.md`).
+   joined as cuts, sum the `plan.estimate`s; the H3 chain estimate
+   runs high (18.3 min quoted, 7 run: `bench/records/drill.md`).
    Get the go-ahead, then `run_workflow` with `acknowledged_cost`.
-2. `wait_for_job`, then `get_job`. Each entry carries `subfolder`: `final`
-   is the take or the cut, and `intermediate` is the scratch. Kept segment
-   files sit beside the take. Read the job's `warnings` for
-   `chain_check_failed`. A warning names the segment, the measures and the
-   kept attempt.
+2. `wait_for_job`, then `get_job`. `subfolder`: `final` is the take or
+   the cut, `intermediate` the scratch; kept segment files sit beside the
+   take. Read the job's `warnings` for
+   `chain_check_failed`, which names the segment, measures and kept attempt.
 3. Judge seams with `assess_output(probe="analyze_seams")` and
    `get_output_frames(seams=true)`. Judge drift with `get_output_frames(at=...)`
    late in the take, and `compare_outputs(texture_bands=true)` on a patch
-   the subject never enters, against segment 1. Listen with
+   the subject never enters, against segment 1. Listen:
    `get_output_audio`. Hand the user the gallery `url`.
+   Run `analyze_held_frames` on every take (`minimax-h3`).
 4. For an editor, `export_timeline` writes the cut as an OTIO `.otioz` that
    DaVinci Resolve 18.5+ imports with one clip per shot
    (`references/run-and-repair.md`).
