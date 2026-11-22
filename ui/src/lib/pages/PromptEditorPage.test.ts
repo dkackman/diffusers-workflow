@@ -277,3 +277,33 @@ it('the tags field keeps what is being typed while it applies', async () => {
     tags: ['hero', 'dawn'],
   })
 })
+
+it('going back to a prompt after another failed to open shows the prompt', async () => {
+  const { rerender } = render(PromptEditorPage, { name: 'portraits/hero' })
+  await waitFor(() => expect(promptText().value).toBe('a hero at dawn'))
+  vi.mocked(api.getPrompt).mockRejectedValueOnce(
+    new ApiError('server exploded', 500),
+  )
+  await rerender({ name: 'portraits/other' })
+  await screen.findByText("Couldn't open portraits/other: server exploded")
+  await rerender({ name: 'portraits/hero' })
+  await waitFor(() => expect(promptText().value).toBe('a hero at dawn'))
+  expect(screen.queryByText(/Couldn't open/)).toBeNull()
+  expect(saveButton().disabled).toBe(false)
+})
+
+it('going back to a prompt while another is still being read shows the prompt', async () => {
+  const { rerender } = render(PromptEditorPage, { name: 'portraits/hero' })
+  await waitFor(() => expect(promptText().value).toBe('a hero at dawn'))
+  let finishOther: (v: unknown) => void = () => {}
+  vi.mocked(api.getPrompt).mockImplementationOnce(
+    () => new Promise((r) => (finishOther = r)) as never,
+  )
+  await rerender({ name: 'portraits/other' })
+  await rerender({ name: 'portraits/hero' })
+  await waitFor(() => expect(saveButton().disabled).toBe(false))
+  finishOther({ prompt: { text: 'late' }, writable: true, etag: '"p9"' })
+  await new Promise((r) => setTimeout(r, 0))
+  expect(promptText().value).toBe('a hero at dawn')
+  expect(saveButton().disabled).toBe(false)
+})

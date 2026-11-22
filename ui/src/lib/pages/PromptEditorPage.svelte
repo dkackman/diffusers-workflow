@@ -138,6 +138,8 @@
    * read-only examples library can be edited and saved (the copy lands
    * here) but not deleted. */
   async function open(path: string) {
+    // a new read has begun: until it lands nothing is opened
+    opened = ''
     const prompt = await openPrompt(shell, path, () => path !== name)
     if (!prompt) return
     opened = path

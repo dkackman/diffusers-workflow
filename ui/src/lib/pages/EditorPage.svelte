@@ -208,6 +208,9 @@
   /** Read `path` into the editor; a failure leaves nothing to save. */
   async function open(path: string) {
     const where = `${workspace.current}:${path}`
+    // a new read has begun: until it lands nothing is opened, so a return
+    // to the previous file reads it again instead of trusting the key
+    opened = ''
     if (!(await openWorkflow(ed, path, () => path !== name))) return
     opened = where
     modes.restore()

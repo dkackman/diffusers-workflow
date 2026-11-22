@@ -449,4 +449,42 @@ describe('EditorPage saving', () => {
     await waitFor(() => expect(api.saveWorkflow).toHaveBeenCalledTimes(1))
     expect(vi.mocked(api.saveWorkflow).mock.calls[0][1]).toEqual(typed)
   })
+
+  it('going back to a file after another failed to open shows the file', async () => {
+    const { rerender } = render(EditorPage, { name: 'a' })
+    await waitFor(() => expect(saveButton().disabled).toBe(false))
+    vi.mocked(api.getWorkflow).mockRejectedValueOnce(
+      new ApiError('server exploded', 500),
+    )
+    await rerender({ name: 'b' })
+    await screen.findByText("Couldn't open b: server exploded")
+    await rerender({ name: 'a' })
+    await waitFor(() => expect(saveButton().disabled).toBe(false))
+    expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull()
+    expect(screen.queryByText(/Couldn't open/)).toBeNull()
+  })
+
+  it('going back to a file while another is still being read shows the file', async () => {
+    const { rerender } = render(EditorPage, { name: 'a' })
+    await waitFor(() => expect(saveButton().disabled).toBe(false))
+    let finishB: (v: unknown) => void = () => {}
+    vi.mocked(api.getWorkflow).mockImplementationOnce(
+      () => new Promise((r) => (finishB = r)) as never,
+    )
+    await rerender({ name: 'b' })
+    await rerender({ name: 'a' })
+    await waitFor(() => expect(saveButton().disabled).toBe(false))
+    // b's read lands late and must change nothing
+    finishB({
+      definition: { id: 'Other', steps: [{ name: 'generate', pipeline: {} }] },
+      origin: 'workspace',
+      writable: true,
+      etag: '"e9"',
+    })
+    await new Promise((r) => setTimeout(r, 0))
+    expect(
+      (screen.getByLabelText('workflow id') as HTMLInputElement).value,
+    ).toBe('ZImage')
+    expect(saveButton().disabled).toBe(false)
+  })
 })
