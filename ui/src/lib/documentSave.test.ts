@@ -5,6 +5,8 @@ import { ApiError } from './apiErrors'
 import { chooseDialog } from './confirm.svelte'
 
 vi.mock('./api', () => ({ api: {} }))
+const notifyError = vi.hoisted(() => vi.fn())
+vi.mock('./toast', () => ({ notify: { error: notifyError } }))
 vi.mock('./confirm.svelte', () => ({ chooseDialog: vi.fn() }))
 
 function fakeEditor(overrides: Partial<DocumentEditor> = {}) {
@@ -126,4 +128,17 @@ it('freeName counts past taken names', () => {
   )
   expect(freeName('notes', new Set(['notes']))).toBe('notes-2')
   expect(freeName('a.b/clip', new Set(['a.b/clip']))).toBe('a.b/clip-2')
+})
+
+it('refuses to save while the JSON does not parse', async () => {
+  const ed = fakeEditor({ jsonParseFailed: true })
+  const write = vi.fn(async () => ({ etag: '"new"' }))
+  const outcome = await saveDocument(ed, { path: 'hero', label: 'hero', write })
+  expect(outcome).toBe('cancelled')
+  expect(notifyError).toHaveBeenCalledWith(
+    'Fix the JSON before saving',
+    'json-parse',
+  )
+  expect(write).not.toHaveBeenCalled()
+  expect(ed.markSaved).not.toHaveBeenCalled()
 })

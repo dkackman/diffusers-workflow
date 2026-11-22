@@ -115,7 +115,26 @@ describe('JsonEditor apply as you type', () => {
     vi.advanceTimersByTime(300)
     fake.state.blur.forEach((f) => f())
     flush()
-    expect(onchange).toHaveBeenCalledTimes(1)
+    // the quiet apply, then one real apply on blur; flush adds nothing
+    expect(onchange).toHaveBeenCalledTimes(2)
+    expect(onchange).toHaveBeenLastCalledWith('{"c":3}')
+  })
+
+  it('reports broken JSON on blur after a quiet apply', async () => {
+    const onchange = vi.fn<Change>()
+    const { flush } = await mount(onchange)
+    vi.useFakeTimers()
+    type('{"a":')
+    vi.advanceTimersByTime(300)
+    expect(onchange).toHaveBeenLastCalledWith('{"a":', { quiet: true })
+    fake.state.blur.forEach((f) => f())
+    expect(onchange).toHaveBeenLastCalledWith('{"a":')
+    expect(onchange).toHaveBeenCalledTimes(2)
+    type('{"a":,')
+    vi.advanceTimersByTime(300)
+    flush()
+    expect(onchange).toHaveBeenLastCalledWith('{"a":,')
+    expect(onchange).toHaveBeenCalledTimes(4)
   })
 
   it('unregisters the flush on teardown', async () => {

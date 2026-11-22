@@ -6,6 +6,7 @@ import { ApiError } from './apiErrors'
 import type { WritePreconditions } from './apiRequest'
 import { chooseDialog } from './confirm.svelte'
 import type { DocumentEditor } from './editorShell.svelte'
+import { notify } from './toast'
 
 export type SaveOutcome = 'saved' | 'cancelled'
 
@@ -43,6 +44,11 @@ export async function saveDocument(
   opts: { path: string; label: string; write: Write },
 ): Promise<SaveOutcome> {
   ed.flush()
+  // Broken JSON on screen: the last valid document is not what the user sees
+  if (ed.jsonParseFailed) {
+    notify.error('Fix the JSON before saving', 'json-parse')
+    return 'cancelled'
+  }
   if (!ed.canWrite) throw new Error('not loaded')
   // The baseline is what was sent, not what the document holds once the
   // write returns: an edit made meanwhile must stay dirty

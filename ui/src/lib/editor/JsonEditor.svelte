@@ -29,14 +29,18 @@
   // The last text handed to onchange (or received from outside): an
   // unchanged value is never applied again
   let applied = ''
+  // Whether that text went out quietly: a quiet apply of broken JSON shows
+  // no toast, so the real apply on blur or flush must still run
+  let appliedQuiet = false
 
   function apply(quiet: boolean) {
     if (timer) clearTimeout(timer)
     timer = null
     if (readonly || !onchange || !editor) return
     const text = editor.getValue()
-    if (text === applied) return
+    if (text === applied && (quiet || !appliedQuiet)) return
     applied = text
+    appliedQuiet = quiet
     if (quiet) onchange(text, { quiet: true })
     else onchange(text)
   }
@@ -93,6 +97,7 @@
         fixedOverflowWidgets: true,
       })
       applied = value
+      appliedQuiet = false
       // Changes apply quietly once typing pauses, and for real on blur or a
       // flush (save, view switch)
       editor.onDidChangeModelContent(() => {
@@ -122,6 +127,7 @@
       const viewState = editor.saveViewState()
       editor.setValue(value)
       applied = value
+      appliedQuiet = false
       if (viewState) editor.restoreViewState(viewState)
     }
   })
