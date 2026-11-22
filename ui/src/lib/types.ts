@@ -182,6 +182,8 @@ export interface WorkflowWithOrigin {
   /** 'workspace' | 'examples' | 'builtin'. */
   origin: string
   writable: boolean
+  /** The ETag of the bytes read, for a save's `If-Match`; null without one */
+  etag: string | null
 }
 
 export interface PromptDefinition {
@@ -203,6 +205,8 @@ export interface StoredPrompt {
   /** 'workspace' | 'examples'. */
   origin: string
   writable: boolean
+  /** The ETag of the bytes read, for a save's `If-Match`; null without one */
+  etag: string | null
 }
 
 /** An asset a nearer library hides: same shape as `AssetFile` except there

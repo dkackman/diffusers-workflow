@@ -35,6 +35,7 @@
   const shell = new DocumentEditor({
     viewKey: 'dw-prompt-editor-view',
     views: ['form', 'split', 'json'],
+    label: (): string => shell.savePath() ?? 'this prompt',
   })
   shell.doc = emptyPrompt()
   let promptDir = $state('')

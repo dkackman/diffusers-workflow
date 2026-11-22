@@ -7,14 +7,16 @@
     viewKey,
     views,
     legacyView = undefined,
+    label,
     onready,
   }: {
     viewKey: string
     views: readonly EditorView[]
     legacyView?: () => EditorView | null
+    label: () => string
     onready: (shell: DocumentEditor) => void
   } = $props()
 
   // svelte-ignore state_referenced_locally
-  onready(new DocumentEditor({ viewKey, views, legacyView }))
+  onready(new DocumentEditor({ viewKey, views, legacyView, label }))
 </script>

@@ -44,6 +44,7 @@
     // migrate the old boolean split preference
     legacyView: () =>
       localStorage.getItem('dw-editor-split') === '1' ? 'split' : null,
+    label: (): string => ed.savePath() ?? 'this workflow',
   })
   ed.doc = emptyWorkflow()
   let workflowDir = $state('')
@@ -110,22 +111,6 @@
   const workflowHref = $derived(
     wsHref(workspace.current, 'workflows', ...name.split('/')),
   )
-
-  // Leaving with unsaved edits used to drop them without a word. The
-  // confirm is async, so the default navigation is always prevented first
-  // and replayed by hand once the answer comes back.
-  async function confirmLeave(event: MouseEvent) {
-    if (!ed.dirty) return
-    event.preventDefault()
-    const target = (event.currentTarget as HTMLAnchorElement).href
-    if (
-      await confirmDialog('Discard unsaved changes?', {
-        confirmLabel: 'Discard',
-      })
-    ) {
-      window.location.href = target
-    }
-  }
 
   // The data-flow graph and per-step reference problems drive the rail's
   // producer/consumer chips and inline warnings - promptLibrary.names stays
@@ -352,9 +337,7 @@
 
 <div class="head">
   <nav class="crumbs muted" aria-label="breadcrumb">
-    <a href={wsHref(workspace.current, 'workflows')} onclick={confirmLeave}>
-      ← workflows
-    </a>
+    <a href={wsHref(workspace.current, 'workflows')}>← workflows</a>
     {#each crumbFolders as part (part)}
       <span class="sep">/</span><span>{part}</span>
     {/each}
@@ -362,7 +345,6 @@
       <span class="sep">/</span>
       <a
         href={workflowHref}
-        onclick={confirmLeave}
         title="back to the read-only view of this workflow"
       >
         {crumbName}
