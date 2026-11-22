@@ -269,3 +269,35 @@ it('keeps the history stamp through setHashQuery', async () => {
   expect(history.state).toEqual(stamped)
   expect(stamped).toHaveProperty('dwIndex')
 })
+
+it('renameRoute renames the entry in place and asks the guards for the new path', async () => {
+  const { route, renameRoute, addLeaveGuard } = await loadRouter()
+  location.hash = '#/ws/studio/edit'
+  await settleHistory()
+  const depth = history.length
+  const stamped = history.state
+  const parts = route.parts
+  let asked = 0
+  addLeaveGuard(() => {
+    asked++
+    return false
+  })
+
+  renameRoute('#/ws/studio/edit/mine')
+  await settleHistory()
+  expect(location.hash).toBe('#/ws/studio/edit/mine')
+  expect(history.length).toBe(depth)
+  expect(history.state).toEqual(stamped)
+  expect(asked).toBe(0)
+  expect(route.view).toMatchObject({ section: 'edit', rest: ['mine'] })
+  // the same array, so the shell does not take it as a navigation
+  expect(route.parts).toBe(parts)
+  expect(route.parts).toEqual(['ws', 'studio', 'edit', 'mine'])
+
+  // the renamed path is the committed one: a link to the bare editor is a
+  // change of path, which the guard is asked about and can decline
+  location.hash = '#/ws/studio/edit'
+  await settleHistory()
+  expect(asked).toBe(1)
+  expect(location.hash).toBe('#/ws/studio/edit/mine')
+})

@@ -17,10 +17,13 @@
     Workflow,
   } from '@lucide/svelte'
   import { api } from '../api'
+  import { ApiError } from '../apiErrors'
+  import { openWorkflow, saveWorkflowAt } from '../editor/workflowFile'
+  import LoadFailed from '../ui/LoadFailed.svelte'
   import { writableRoot } from '../libraries'
   import { notify } from '../toast'
   import { confirmDialog } from '../confirm.svelte'
-  import { go, goWs } from '../router.svelte'
+  import { go, goWs, renameRoute } from '../router.svelte'
   import { wsHref } from '../routes'
   import { loadWorkspaces, workspace } from '../workspace.svelte'
   import {
@@ -51,8 +54,18 @@
   // The file fields collapse behind the path chip once the workflow has a
   // name - they are settings, not something you retouch on every edit
   let fileOpen = $state(false)
+  // The path being edited: the route's, until a save gives the document
+  // another (or its first) - the URL follows a beat later
+  const current = $derived(
+    ed.loadState === 'loading' || ed.loadState === 'failed'
+      ? name
+      : (ed.loadedPath ?? name),
+  )
+  // Which workspace and file the document on screen came from or went to,
+  // so the route catching up with a save does not read it again
+  let opened = ''
 
-  const modesKey = $derived(`step-modes:${name || '(unsaved)'}`)
+  const modesKey = $derived(`step-modes:${current || '(unsaved)'}`)
   // Keyed by step name; existing steps open compact, new ones full
   const modes = new StepModes(() => modesKey)
 
@@ -105,11 +118,11 @@
   // usually starts, and until now the only exit landed on the list - so
   // the last crumb links back to the workflow itself, when one is saved.
   const crumbFolders = $derived(
-    name ? groupOf(name).split('/').filter(Boolean) : [],
+    current ? groupOf(current).split('/').filter(Boolean) : [],
   )
-  const crumbName = $derived(name ? leafOf(name) : '')
+  const crumbName = $derived(current ? leafOf(current) : '')
   const workflowHref = $derived(
-    wsHref(workspace.current, 'workflows', ...name.split('/')),
+    wsHref(workspace.current, 'workflows', ...current.split('/')),
   )
 
   // The data-flow graph and per-step reference problems drive the rail's
@@ -155,40 +168,58 @@
       examples = r.workflows.filter((wf) => r.details?.[wf]?.writable === false)
     })
     loadPromptLibrary()
+    // the route catching up with a save: this is the document already
+    if (name && opened === `${workspace.current}:${name}`) return
     validation = null
     if (name) {
       ed.saveName = leafOf(name)
       ed.folder = groupOf(name)
       fileOpen = false
-      api
-        .getWorkflow(name)
-        .then((fetched) => {
-          ed.load(fetched.definition as WorkflowDefinition)
-          modes.restore()
-        })
-        .catch((e) => notify.error(e.message))
+      open(name)
     } else {
-      // A gallery "open as workflow" hands the definition over in
-      // sessionStorage - one-shot, so a plain "New" stays a blank slate
-      const imported = ed.takeImport('dw-editor-import', 'dw-editor-folder')
-      // Built as a plain local object and assigned once: reading the
-      // workflow proxy here would subscribe this effect to every edit and
-      // re-fire all the listing calls on each keystroke
-      const fresh = imported ?? (emptyWorkflow() as Record<string, any>)
-      const from = sessionStorage.getItem(FROM_KEY)
-      startFrom = from ?? (imported ? IMPORTED : '')
-      if (imported && from === null)
-        notify.success('Imported from image metadata')
-      ed.load(fresh)
-      ed.saveName = sessionStorage.getItem(NAME_KEY) ?? ''
-      sessionStorage.removeItem(FROM_KEY)
-      sessionStorage.removeItem(NAME_KEY)
-      // A new workflow has nowhere to save to yet - show the fields
-      fileOpen = true
-      if (imported) modes.restore()
-      else modes.reset({ [fresh.steps[0].name]: 'full' })
+      startDraft()
     }
   })
+
+  /** A new workflow: a hand-off's definition, else the blank starter. */
+  function startDraft() {
+    opened = ''
+    // A gallery "open as workflow" hands the definition over in
+    // sessionStorage - one-shot, so a plain "New" stays a blank slate
+    const imported = ed.takeImport('dw-editor-import', 'dw-editor-folder')
+    // Built as a plain local object and assigned once: reading the
+    // workflow proxy here would subscribe this effect to every edit and
+    // re-fire all the listing calls on each keystroke
+    const fresh = imported ?? (emptyWorkflow() as Record<string, any>)
+    const from = sessionStorage.getItem(FROM_KEY)
+    startFrom = from ?? (imported ? IMPORTED : '')
+    if (imported && from === null)
+      notify.success('Imported from image metadata')
+    ed.startNew(fresh)
+    ed.saveName = sessionStorage.getItem(NAME_KEY) ?? ''
+    sessionStorage.removeItem(FROM_KEY)
+    sessionStorage.removeItem(NAME_KEY)
+    // A new workflow has nowhere to save to yet - show the fields
+    fileOpen = true
+    if (imported) modes.restore()
+    else modes.reset({ [fresh.steps[0].name]: 'full' })
+  }
+
+  /** Read `path` into the editor; a failure leaves nothing to save. */
+  async function open(path: string) {
+    const where = `${workspace.current}:${path}`
+    if (!(await openWorkflow(ed, path, () => path !== name))) return
+    opened = where
+    modes.restore()
+  }
+
+  /** The missing file `name`, begun as a blank workflow. */
+  function startMissing() {
+    const fresh = emptyWorkflow() as Record<string, any>
+    ed.startNew(fresh)
+    fileOpen = true
+    modes.reset({ [fresh.steps[0].name]: 'full' })
+  }
 
   /** Hand the draft to another workspace's editor - nothing is saved yet,
    * so where it saves is only which workspace the route names. */
@@ -224,7 +255,7 @@
       return
     try {
       const fresh = await startingDoc(example)
-      ed.load(fresh)
+      ed.startNew(fresh)
       modes.reset(example ? {} : { [fresh.steps[0].name]: 'full' })
       followName(example)
       startFrom = example
@@ -234,7 +265,7 @@
   }
 
   function onKeydown(event: KeyboardEvent) {
-    if (!(event.ctrlKey || event.metaKey)) return
+    if (!(event.ctrlKey || event.metaKey) || !ed.canWrite) return
     if (event.key === 's') {
       event.preventDefault()
       save()
@@ -245,6 +276,13 @@
   }
 
   async function validate(): Promise<boolean> {
+    // Validate, save and run all see what is on screen, typed or not
+    ed.flush()
+    if (!ed.canWrite) return false
+    if (ed.jsonParseFailed) {
+      notify.error('Fix the JSON first', 'json-parse')
+      return false
+    }
     ed.busy = true
     try {
       validation = await api.validate(
@@ -260,6 +298,7 @@
   }
 
   async function save() {
+    ed.flush()
     const path = ed.savePath()
     if (!path) {
       if (!ed.saveName) notify.error('Give the workflow a file name first')
@@ -272,10 +311,8 @@
     if (!(await validate())) return
     ed.busy = true
     try {
-      await api.saveWorkflow(
-        path,
-        $state.snapshot(ed.doc) as WorkflowDefinition,
-      )
+      const outcome = await saveWorkflowAt(ed, path)
+      if (outcome === 'cancelled') return
       ed.commitNewFolder()
       // The folder picker's options come from the listing - a folder this
       // save just created must appear there, or the select falls back to
@@ -286,8 +323,11 @@
           `${path}.json`,
         ]
       }
-      ed.markSaved()
       notify.success(`Saved to ${path}`)
+      // The URL names the file now on screen: a first save, or a save as
+      opened = `${workspace.current}:${path}`
+      if (path !== name)
+        renameRoute(wsHref(workspace.current, 'edit', ...path.split('/')))
     } catch (e) {
       notify.error(e instanceof Error ? e.message : String(e))
     } finally {
@@ -378,7 +418,7 @@
   <button
     class="quiet withicon"
     onclick={validate}
-    disabled={ed.busy}
+    disabled={ed.busy || !ed.canWrite}
     title="check against the schema and real pipeline signatures, without running"
   >
     <CircleCheck size={14} />Validate
@@ -387,7 +427,7 @@
     class="quiet withicon"
     class:dirtybtn={ed.dirty}
     onclick={save}
-    disabled={ed.busy}
+    disabled={ed.busy || !ed.canWrite}
     title="validate, then write to the workflow directory under the name below (Ctrl+S)"
   >
     <Save size={14} />Save{#if ed.dirty}<span class="dirtydot"></span>{/if}
@@ -395,69 +435,80 @@
   <button
     class="withicon"
     onclick={run}
-    disabled={ed.busy}
+    disabled={ed.busy || !ed.canWrite}
     title="validate, then queue this definition as a job - no save needed (Ctrl+Enter)"
   >
     <Play size={14} />Run
   </button>
 </div>
 
-<WorkflowFileBar
-  {ed}
-  {workflowDir}
-  {folders}
-  bind:fileOpen
-  origin={name
-    ? undefined
-    : {
-        workspace: workspace.current,
-        workspaces: workspace.names ?? [workspace.current],
-        startFrom,
-        examples,
-        onworkspace: moveToWorkspace,
-        onstartfrom: chooseStart,
-      }}
-/>
-
-{#if validation}
-  <ValidationPanel {validation} ondismiss={() => (validation = null)} />
-{/if}
-
-{#if ed.view === 'flow'}
-  <FlowView workflow={$state.snapshot(ed.doc)} onselect={focusStep} />
+{#if ed.loadState === 'failed'}
+  <LoadFailed
+    label={name}
+    error={ed.loadError}
+    onretry={() => open(name)}
+    oncreate={ed.loadError instanceof ApiError && ed.loadError.status === 404
+      ? startMissing
+      : undefined}
+  />
 {:else}
-  <EditorBody
-    view={ed.view}
-    jsonDraft={ed.jsonDraft}
-    onjson={(raw, o) => ed.applyJson(raw, o)}
-    register={(f) => ed.registerFlush(f)}
-    hint="Schema-aware: completion, hover docs and validation come from the workflow schema. Changes apply as you type."
-    stickyTop="136px"
-  >
-    {#snippet form()}
-      <div class="panel">
-        <h2>Variables</h2>
-        <VariablesForm
-          mode="define"
-          bind:variables={ed.doc.variables}
-          idPrefix="wfvar-"
-          backendVariables={attentionBackendVariables(ed.doc)}
-          constraints={constraintHints(ed.doc)}
-          presets={ed.doc.presets}
-        />
-      </div>
+  <WorkflowFileBar
+    {ed}
+    {workflowDir}
+    {folders}
+    bind:fileOpen
+    origin={current
+      ? undefined
+      : {
+          workspace: workspace.current,
+          workspaces: workspace.names ?? [workspace.current],
+          startFrom,
+          examples,
+          onworkspace: moveToWorkspace,
+          onstartfrom: chooseStart,
+        }}
+  />
 
-      <StepList
-        bind:steps={ed.doc.steps}
-        {modes}
-        folder={ed.folder === NEW_FOLDER ? '' : ed.folder}
-        {flow}
-        {problemsByStep}
-        {stepReferences}
-        bind:hovered
-      />
-    {/snippet}
-  </EditorBody>
+  {#if validation}
+    <ValidationPanel {validation} ondismiss={() => (validation = null)} />
+  {/if}
+
+  {#if ed.view === 'flow'}
+    <FlowView workflow={$state.snapshot(ed.doc)} onselect={focusStep} />
+  {:else}
+    <EditorBody
+      view={ed.view}
+      jsonDraft={ed.jsonDraft}
+      onjson={(raw, o) => ed.applyJson(raw, o)}
+      register={(f) => ed.registerFlush(f)}
+      hint="Schema-aware: completion, hover docs and validation come from the workflow schema. Changes apply as you type."
+      stickyTop="136px"
+    >
+      {#snippet form()}
+        <div class="panel">
+          <h2>Variables</h2>
+          <VariablesForm
+            mode="define"
+            bind:variables={ed.doc.variables}
+            idPrefix="wfvar-"
+            backendVariables={attentionBackendVariables(ed.doc)}
+            constraints={constraintHints(ed.doc)}
+            presets={ed.doc.presets}
+          />
+        </div>
+
+        <StepList
+          bind:steps={ed.doc.steps}
+          {modes}
+          folder={ed.folder === NEW_FOLDER ? '' : ed.folder}
+          {flow}
+          {problemsByStep}
+          {stepReferences}
+          bind:hovered
+        />
+      {/snippet}
+    </EditorBody>
+  {/if}
 {/if}
 
 <style>

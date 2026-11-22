@@ -167,6 +167,19 @@ window.addEventListener('hashchange', () => {
     })
 })
 
+/** Rename the entry the app is on - an editor's first save gives its
+ * document a path - with no history entry, no hashchange and no guard: the
+ * page stays, only what the route calls it changes. `route.parts` is
+ * updated in place, so the shell does not take it as a navigation (which
+ * scrolls to the top); `route.view` is replaced, which renames the page. */
+export function renameRoute(hash: string) {
+  history.replaceState(history.state, '', hash)
+  committed = location.hash
+  const next = parse()
+  route.parts.splice(0, route.parts.length, ...next.parts)
+  route.view = next.view
+}
+
 export function go(...parts: string[]) {
   location.hash = '/' + parts.map(encodeURIComponent).join('/')
 }

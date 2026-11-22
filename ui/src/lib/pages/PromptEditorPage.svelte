@@ -18,9 +18,12 @@
     Trash2,
   } from '@lucide/svelte'
   import { api } from '../api'
+  import { ApiError } from '../apiErrors'
+  import { openPrompt, savePromptAt } from '../promptFile'
+  import LoadFailed from '../ui/LoadFailed.svelte'
   import { writableRoot } from '../libraries'
   import DownloadLink from '../DownloadLink.svelte'
-  import { go } from '../router.svelte'
+  import { go, renameRoute } from '../router.svelte'
   import { sharedHref } from '../routes'
   import { notify } from '../toast'
   import { confirmDialog } from '../confirm.svelte'
@@ -28,7 +31,7 @@
   import { groupOf, leafOf } from '../grouping'
   import { emptyPrompt, parseTags, workflowsReferencing } from '../prompts'
   import CopyButton from '../CopyButton.svelte'
-  import type { PromptDefinition, PromptDetail } from '../types'
+  import type { PromptDetail } from '../types'
 
   let { name = '' }: { name?: string } = $props()
 
@@ -44,7 +47,17 @@
   // A prompt from a read-only examples library: it can be edited and saved
   // (the save lands in this workspace's library, shadowing it) but not
   // deleted, the way a read-only workflow behaves
-  let readOnly = $state(false)
+  const readOnly = $derived(!shell.writable)
+  // The prompt being edited: the route's, until a save names another (or
+  // its first) - the URL follows a beat later
+  const current = $derived(
+    shell.loadState === 'loading' || shell.loadState === 'failed'
+      ? name
+      : (shell.loadedPath ?? name),
+  )
+  // The file on screen, so the route catching up with a save does not
+  // read it again
+  let opened = ''
 
   // Existing folders, from the listing - one level is the designed depth
   const folders = $derived(
@@ -94,36 +107,46 @@
         promptDetails = r.details ?? {}
       })
       .catch((e) => notify.error(e.message))
-    enhancer.refreshModels()
-    if (name) {
+    if (name && opened === name) {
+      // the route catching up with a save: this is the prompt already
+    } else if (name) {
       shell.saveName = leafOf(name)
       shell.folder = groupOf(name)
-      api
-        .getPrompt(name)
-        // the definition comes back beside where it was found: a prompt
-        // from a read-only examples library can be edited and saved (the
-        // copy lands here) but not deleted
-        .then(({ prompt, writable }) => {
-          readOnly = !writable
-          shell.load(prompt)
-          enhancer.idea = prompt.enhanced?.idea ?? ''
-          enhancer.preselect(shell.doc.intended_model)
-        })
-        .catch((e) => notify.error(e.message))
+      open(name)
     } else {
+      opened = ''
       const imported = shell.takeImport(
         'dw-prompt-editor-import',
         'dw-prompt-editor-folder',
       )
       if (imported) notify.success('Duplicated - save under a new name')
-      shell.load(imported ?? emptyPrompt())
+      shell.startNew(imported ?? emptyPrompt())
       shell.saveName = ''
     }
+  })
+
+  // Apart from the route: the URL following a save must not stop an
+  // enhancement in flight
+  $effect(() => {
+    enhancer.refreshModels()
     enhancer.load().then(() => enhancer.preselect(shell.doc.intended_model))
     return () => enhancer.stop()
   })
 
+  /** Read `path` into the editor; a failure leaves nothing to save. The
+   * definition comes back beside where it was found: a prompt from a
+   * read-only examples library can be edited and saved (the copy lands
+   * here) but not deleted. */
+  async function open(path: string) {
+    const prompt = await openPrompt(shell, path, () => path !== name)
+    if (!prompt) return
+    opened = path
+    enhancer.idea = prompt.enhanced?.idea ?? ''
+    enhancer.preselect(shell.doc.intended_model)
+  }
+
   function onKeydown(event: KeyboardEvent) {
+    if (!shell.canWrite) return
     if ((event.ctrlKey || event.metaKey) && event.key === 's') {
       event.preventDefault()
       save()
@@ -137,7 +160,12 @@
     else delete shell.doc[key]
   }
 
+  // The tags as typed, while the field has focus: the list they parse to
+  // drops a trailing comma, which would otherwise vanish mid-word
+  let tagsText = $state<string | null>(null)
+
   function setTags(raw: string) {
+    tagsText = raw
     const tags = parseTags(raw)
     if (tags.length) shell.doc.tags = tags
     else delete shell.doc.tags
@@ -159,6 +187,8 @@
   }
 
   async function save() {
+    if (!shell.canWrite) return
+    shell.flush()
     const blocker = saveBlocker()
     if (blocker) {
       notify.error(blocker)
@@ -167,14 +197,18 @@
     const path = shell.savePath()!
     shell.busy = true
     try {
-      await api.savePrompt(path, $state.snapshot(shell.doc) as PromptDefinition)
+      const outcome = await savePromptAt(shell, path)
+      if (outcome === 'cancelled') return
       shell.commitNewFolder()
       // Same as the workflow editor: the picker lists folders from the
       // listing, so a newly created one must be added or the select resets
       if (!promptFiles.includes(path)) promptFiles = [...promptFiles, path]
-      shell.markSaved()
       notify.success(`Saved to ${path}`)
       loadPromptLibrary()
+      // The URL names the prompt now on screen: a first save, or a save as
+      opened = path
+      if (path !== name)
+        renameRoute(sharedHref('prompt-edit', ...path.split('/')))
     } catch (e) {
       notify.error(e instanceof Error ? e.message : String(e))
     } finally {
@@ -183,6 +217,7 @@
   }
 
   async function remove() {
+    const name = current
     if (!name) return
     // Say what the delete is about to break: any workflow holding a
     // prompt:name reference fails at run time once the file is gone
@@ -232,14 +267,14 @@
 
 <div class="head">
   <a href={sharedHref('prompts')} class="muted">← prompts</a>
-  <h1>{name || 'New prompt'}</h1>
+  <h1>{current || 'New prompt'}</h1>
   <span class="flex"></span>
   <ViewSwitch
     view={shell.view}
     options={[...VIEWS]}
     onselect={(view) => shell.setView(view)}
   />
-  {#if name}
+  {#if current}
     <button
       class="quiet withicon"
       onclick={duplicate}
@@ -247,7 +282,7 @@
     >
       <Copy size={14} />Duplicate
     </button>
-    <DownloadLink href={api.promptDownloadUrl(name)} />
+    <DownloadLink href={api.promptDownloadUrl(current)} />
     {#if !readOnly}
       <button
         class="quiet icon danger"
@@ -262,115 +297,133 @@
   <button
     class="withicon"
     onclick={save}
-    disabled={shell.busy}
+    disabled={shell.busy || !shell.canWrite}
     title="write to the prompt directory under the name below (Ctrl+S)"
   >
     <Save size={14} />Save{#if shell.dirty}<span class="dirtydot"></span>{/if}
   </button>
 </div>
 
-<div class="savebar muted">
-  saving as
-  <FolderPicker
-    bind:folder={shell.folder}
-    bind:newFolder={shell.newFolder}
-    {folders}
-    newFolderTitle="name for the new folder at the root of the prompt directory"
+{#if shell.loadState === 'failed'}
+  <LoadFailed
+    label={name}
+    error={shell.loadError}
+    onretry={() => open(name)}
+    oncreate={shell.loadError instanceof ApiError &&
+    shell.loadError.status === 404
+      ? () => shell.startNew(emptyPrompt())
+      : undefined}
   />
-  {#if shell.folder === NEW_FOLDER}<span>/</span>{/if}
-  <input class="savename" bind:value={shell.saveName} placeholder="MyPrompt" />
-  <span class="dirhint">.json in {promptDir}</span>
-  <span class="flex"></span>
-  {#if shell.savePath()}
-    <code class="refhint" title="use the stored prompt from any workflow">
-      prompt:{shell.savePath()}
-    </code>
-    <CopyButton
-      text={reference(PROMPT, shell.savePath() ?? '')}
-      title="copy reference to clipboard"
+{:else}
+  <div class="savebar muted">
+    saving as
+    <FolderPicker
+      bind:folder={shell.folder}
+      bind:newFolder={shell.newFolder}
+      {folders}
+      newFolderTitle="name for the new folder at the root of the prompt directory"
     />
-  {/if}
-</div>
+    {#if shell.folder === NEW_FOLDER}<span>/</span>{/if}
+    <input
+      class="savename"
+      bind:value={shell.saveName}
+      placeholder="MyPrompt"
+    />
+    <span class="dirhint">.json in {promptDir}</span>
+    <span class="flex"></span>
+    {#if shell.savePath()}
+      <code class="refhint" title="use the stored prompt from any workflow">
+        prompt:{shell.savePath()}
+      </code>
+      <CopyButton
+        text={reference(PROMPT, shell.savePath() ?? '')}
+        title="copy reference to clipboard"
+      />
+    {/if}
+  </div>
 
-<EditorBody
-  view={shell.view}
-  jsonDraft={shell.jsonDraft}
-  onjson={(raw, o) => shell.applyJson(raw, o)}
-  register={(f) => shell.registerFlush(f)}
-  schema="prompt"
-  hint="Schema-aware: completion, hover docs and validation come from the prompt schema. Changes apply as you type."
-  stickyTop="66px"
->
-  {#snippet form()}
-    <!-- Queried by .panelgrid below, so the panels stack on their own
+  <EditorBody
+    view={shell.view}
+    jsonDraft={shell.jsonDraft}
+    onjson={(raw, o) => shell.applyJson(raw, o)}
+    register={(f) => shell.registerFlush(f)}
+    schema="prompt"
+    hint="Schema-aware: completion, hover docs and validation come from the prompt schema. Changes apply as you type."
+    stickyTop="66px"
+  >
+    {#snippet form()}
+      <!-- Queried by .panelgrid below, so the panels stack on their own
          column's width - the split view narrows the form well before the
          viewport -->
-    <div class="promptform">
-      <div class="panelgrid">
-        <div class="panel">
-          <h2>Prompt</h2>
-          <label class="fieldlabel" for="prompt-text">text</label>
-          <textarea
-            id="prompt-text"
-            class="prompttext"
-            rows="8"
-            spellcheck="true"
-            value={shell.doc.text ?? ''}
-            placeholder="the prompt itself - what prompt:{shell.savePath() ??
-              'name'} resolves to"
-            onchange={(e) => (shell.doc.text = e.currentTarget.value)}
-          ></textarea>
-          <label class="fieldlabel" for="prompt-negative">
-            negative prompt
-          </label>
-          <textarea
-            id="prompt-negative"
-            rows="2"
-            spellcheck="true"
-            value={shell.doc.negative_prompt ?? ''}
-            placeholder="optional - for models that take one"
-            onchange={(e) => setField('negative_prompt', e.currentTarget.value)}
-          ></textarea>
-          <div class="metagrid">
-            <label for="prompt-desc">description</label>
-            <input
-              id="prompt-desc"
+      <div class="promptform">
+        <div class="panelgrid">
+          <div class="panel">
+            <h2>Prompt</h2>
+            <label class="fieldlabel" for="prompt-text">text</label>
+            <textarea
+              id="prompt-text"
+              class="prompttext"
+              rows="8"
               spellcheck="true"
-              value={shell.doc.description ?? ''}
-              placeholder="shown on the prompt's library card"
-              onchange={(e) => setField('description', e.currentTarget.value)}
-            />
-            <label for="prompt-model">intended model</label>
-            <Suggest
-              id="prompt-model"
-              suggestions={intendedModels}
-              value={shell.doc.intended_model ?? ''}
-              placeholder="e.g. minimax-h3 - badges the card, preselects the enhancer"
-              onchange={(value) => {
-                setField('intended_model', value)
-                enhancer.preselect(shell.doc.intended_model)
-              }}
-            />
-            <label for="prompt-tags">tags</label>
-            <input
-              id="prompt-tags"
-              value={(shell.doc.tags ?? []).join(', ')}
-              placeholder="comma-separated, for filtering the library"
-              onchange={(e) => setTags(e.currentTarget.value)}
-            />
+              value={shell.doc.text ?? ''}
+              placeholder="the prompt itself - what prompt:{shell.savePath() ??
+                'name'} resolves to"
+              oninput={(e) => (shell.doc.text = e.currentTarget.value)}
+            ></textarea>
+            <label class="fieldlabel" for="prompt-negative">
+              negative prompt
+            </label>
+            <textarea
+              id="prompt-negative"
+              rows="2"
+              spellcheck="true"
+              value={shell.doc.negative_prompt ?? ''}
+              placeholder="optional - for models that take one"
+              oninput={(e) =>
+                setField('negative_prompt', e.currentTarget.value)}></textarea>
+            <div class="metagrid">
+              <label for="prompt-desc">description</label>
+              <input
+                id="prompt-desc"
+                spellcheck="true"
+                value={shell.doc.description ?? ''}
+                placeholder="shown on the prompt's library card"
+                oninput={(e) => setField('description', e.currentTarget.value)}
+              />
+              <label for="prompt-model">intended model</label>
+              <Suggest
+                id="prompt-model"
+                suggestions={intendedModels}
+                value={shell.doc.intended_model ?? ''}
+                placeholder="e.g. minimax-h3 - badges the card, preselects the enhancer"
+                oninput={(value) => setField('intended_model', value)}
+                onchange={(value) => {
+                  setField('intended_model', value)
+                  enhancer.preselect(shell.doc.intended_model)
+                }}
+              />
+              <label for="prompt-tags">tags</label>
+              <input
+                id="prompt-tags"
+                value={tagsText ?? (shell.doc.tags ?? []).join(', ')}
+                placeholder="comma-separated, for filtering the library"
+                oninput={(e) => setTags(e.currentTarget.value)}
+                onblur={() => (tagsText = null)}
+              />
+            </div>
+            {#if shell.doc.enhanced?.model}
+              <p class="muted provenance" title={shell.doc.enhanced.idea}>
+                <Sparkles size={13} /> enhanced by {shell.doc.enhanced.model}
+              </p>
+            {/if}
           </div>
-          {#if shell.doc.enhanced?.model}
-            <p class="muted provenance" title={shell.doc.enhanced.idea}>
-              <Sparkles size={13} /> enhanced by {shell.doc.enhanced.model}
-            </p>
-          {/if}
-        </div>
 
-        <EnhancePanel {enhancer} onuse={useResult} />
+          <EnhancePanel {enhancer} onuse={useResult} />
+        </div>
       </div>
-    </div>
-  {/snippet}
-</EditorBody>
+    {/snippet}
+  </EditorBody>
+{/if}
 
 <style>
   .head {

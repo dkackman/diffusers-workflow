@@ -874,7 +874,8 @@
                 },
                 "component_type": {
                     "description": "The python type of pipeline to use in the format 'module.typename' module defaults to diffusers",
-                    "type": "string"
+                    "type": "string",
+                    "minLength": 1
                 },
                 "no_generator": {
                     "description": "Whether to use a generator for the pipeline. Some pipelines do not support generators.",
@@ -1415,7 +1416,8 @@
             "properties": {
                 "model_name": {
                     "description": "The huggingface hub name of the pretrained model to load",
-                    "type": "string"
+                    "type": "string",
+                    "minLength": 1
                 },
                 "from_single_file": {
                     "description": "Location of a checkpoint model from a single file",

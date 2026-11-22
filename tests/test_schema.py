@@ -125,6 +125,24 @@ def test_release_models_step_flag_is_typed():
     assert status is False
 
 
+def test_a_pipeline_step_with_an_empty_component_type_is_invalid():
+    """The editor's blank starter leaves the pipeline and model empty; a
+    save or run of it must be refused, not loaded as nothing."""
+    schema = load_schema("workflow")
+    workflow = _pipeline_step({"component_type": ""})
+    status, message = validate_data(workflow, schema)
+    assert status is False
+    assert "component_type" in message
+
+
+def test_a_pipeline_step_with_an_empty_model_name_is_invalid():
+    schema = load_schema("workflow")
+    workflow = _pipeline_step({})
+    workflow["steps"][0]["pipeline"]["from_pretrained_arguments"]["model_name"] = ""
+    status, _ = validate_data(workflow, schema)
+    assert status is False
+
+
 def _chained_workflow(chain):
     workflow = _pipeline_step({})
     workflow["steps"][0]["pipeline"]["chain"] = chain
