@@ -523,3 +523,55 @@ class TestParenthesisedHeadingSuffix:
         )
 
         assert body["section"] == "Trust gate (`dw/trust.py`)"
+
+
+class TestAgentRules:
+    """#1547: the hard rules a client without the dw plugin reads, served as a
+    guide and named by the MCP instructions."""
+
+    def test_it_is_listed_with_its_summary_and_sections(self):
+        listed = next(
+            g for g in guides.list_guides()["guides"] if g["name"] == "agent-rules"
+        )
+        assert listed["summary"] == (
+            "Hard rules per model family and for pieces longer than one clip, "
+            "for a client without the dw plugin."
+        )
+        assert listed["sections"] == [
+            "FLUX 3 Klein",
+            "MiniMax H3",
+            "Longer than one clip",
+        ]
+
+    def test_a_section_matches_loosely(self):
+        guide = guides.get_guide("agent-rules", section="minimax-h3")
+        assert guide["section"] == "MiniMax H3"
+        assert "`audio_shift: 3.0`" in guide["content"]
+
+    def test_an_unknown_section_names_its_sections(self):
+        with pytest.raises(
+            GuideError, match="FLUX 3 Klein, MiniMax H3, Longer than one clip"
+        ):
+            guides.get_guide("agent-rules", section="ltx")
+
+    def test_its_pointers_resolve(self):
+        import re
+
+        text = guides.read_guide("agent-rules")
+        pointers = re.findall(r'get_guide\("([\w-]+)", section="([^"]+)"\)', text)
+        assert pointers
+        for name, section in pointers:
+            assert guides.get_guide(name, section=section)["content"].strip()
+
+    def test_the_mcp_instructions_name_it(self):
+        from dw_mcp.server import INSTRUCTIONS
+
+        assert 'get_guide("agent-rules")' in INSTRUCTIONS
+
+    def test_the_mcp_guide_states_the_client_claim(self):
+        content = " ".join(
+            guides.get_guide("mcp", section="Clients")["content"].split()
+        )
+        assert "Claude Code with the `dw` plugin is the tested path" in content
+        assert "no-plugin Claude Sonnet session" in content
+        assert "Other MCP clients and models are untested" in content
