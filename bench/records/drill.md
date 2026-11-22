@@ -549,3 +549,166 @@ etched. Attempt 1's `dialogue` passages reached 0.187.
 | `48c68b1e1c72` | passage A, `narrated-take` `standing`, 6 segments, 984 frames (run `20261114-225505-45d023c8`), 107.5 min |
 | `50b48953037f` | passage B, `narrated-take` `standing`, 10 segments, 1574 frames (run `20261115-004231-5760a9e4`), 170.7 min |
 | `86e43a45af77` | the join: `GettysburgJoin/20261115-033327-be80b3c3/final/gettysburg-address-0.0.mp4` |
+
+# Cold drill without the plugin (#1524)
+
+Three asks, each handed to a headless Claude Sonnet session (`claude-sonnet-5-5`) that had only the
+dw MCP server: the plugin and every skill were withheld. The question is what an MCP client gets
+from the tool surface and served guides alone, measured against the rules `plugins/dw/skills/`
+carries. Run on lem (0.23.0-alpha.1, cuda, 2x RTX 3090, `develop` @ 87ac105b), 2026-11-22.
+
+**Setup.** Runner `~/testing/drill-1524-runner/run.py` on Don's Mac:
+`claude -p <ask> --model sonnet --output-format stream-json --verbose --mcp-config mcp.json
+--strict-mcp-config --setting-sources project,local --disable-slash-commands --permission-mode auto
+--max-budget-usd 8 --disallowedTools Bash Skill`, with no `--plugin-dir`. `--setting-sources` with no
+`user` scope keeps the user-installed `dw@diffusers-workflow` plugin and the user skills out. Each
+session's `init` event, and the probe session's before them (`probe.jsonl`), shows `skills: []`,
+no `Skill` tool, only builtin plugins, and `mcp: [dw]`. No session called `Read`, `Glob`, `Grep`,
+`WebFetch`, `WebSearch` or `Task`, so none read a skill file off disk. Each agent ran in its own empty
+cwd `~/testing/drill-1524-<n>`.
+
+Turns per session: turn 1 is the ask, turn 2 is "go ahead", and turn 3 is "check on the job and
+finish up", sent once the workspace was idle (`--resume` between turns).
+
+**The asks, verbatim:**
+1. "Work in a new dw workspace `drill-1524-1`. I want one image: a product photo of a ceramic teapot
+   on linen, morning light."
+2. "Work in a new dw workspace `drill-1524-2`. Make me one MiniMax H3 video clip, about 8 seconds, of
+   two people talking at a kitchen table in the evening. A woman in her thirties says "Did you leave
+   the back door open?" and an older man answers "No, I locked it an hour ago.""
+3. "Work in a new dw workspace `drill-1524-3`. I want a short piece, about 60 seconds long, in two
+   scenes with a musical score under both. Scene 1: a lighthouse keeper and a young sailor on a stormy
+   night in the lamp room; the sailor asks "How long have you kept this light?" and the keeper says
+   "Forty years, and it has never once gone dark." Scene 2: the next morning on the calm beach, the
+   sailor says "I almost didn't make it last night." and the keeper answers "But you did. The light saw
+   to that." The score is a slow, warm piano and strings piece."
+
+Asks 1 and 2 ran to completion. Ask 3's turn 1 was a plan-only check: it quoted about 28 minutes,
+under the 30-minute bar Don set, so turns 2 and 3 were resumed.
+
+**Outcome:** every ask produced its deliverable, and every one ran from the catalog and served
+guides without a skill. The losses are family rules the skills carry and the server doesn't: the
+dialogue settings, Context-IR, line sizing, staging, the FLUX upsampler route, and the go-ahead.
+
+## Scorecard per ask
+
+| | Ask 1: one image | Ask 2: one H3 dialogue clip | Ask 3: 60 s two-scene piece |
+|---|---|---|---|
+| Session | `fb97a2a2-f8b5-4092-9d8a-17d8aaf01809` | `2603d74c-8a41-4b5c-85ec-c4e6796c12d0` | `09020f0d-09a4-4c03-ba20-833d9a461550` |
+| Workflow | `templates/flux3/text-to-image` | `templates/minimax/video-with-audio` | `templates/minimax/music`, `templates/minimax/dialogue-short` (tier `draft`), then a hand-authored `lighthouse-final` |
+| Job ids | `76a848eb3ee8` | `e37acfc896c8` | `cae69d51a4ec` (score), `67571fdbe0d2` (four shots), `f5c2b6ff77da` (assembly) |
+| Quoted / actual | 0.5 min / 28 s | 2.3 min / ~2 min | 28 min total (music 2.2 + dialogue-short 25.5, low confidence + assembly 0.2) / 182 s + 35.1 min + 13 s |
+| Asked for a go-ahead | no: ran in turn 1 | no: ran in turn 1 | yes: quoted, offered draft or standard, waited |
+| Result | 1024x1024, seed 42; looked at it, set a note | 192 frames (8.0 s), turbo kept (4 denoise passes); looked at frames and audio | 57.5 s, 960x544, four 345-frame shots cut over one score bed; ran `assess_output` |
+| Session cost (cumulative) | $0.149 | $0.223 | $0.728 |
+
+## Call order per session
+
+No `Skill` call appears in any session; the tool was not on the surface. `ToolSearch` is the
+client loading deferred MCP schemas.
+
+**Ask 1.**
+- Turn 1: `ToolSearch`, `create_workspace(use=true)`, `list_workflows(shape=image)`,
+  `get_server_info`, `ToolSearch`, `validate_workflow`, `run_workflow`, `get_output_image`.
+- Turn 2: no calls; asked which option "go ahead" meant.
+- Turn 3: `ToolSearch`, `get_job`, `set_note`.
+
+**Ask 2.**
+- Turn 1: `ToolSearch`, `create_workspace`, `list_workflows(shape=shot, traits=has-audio)`,
+  `validate_workflow`, `run_workflow`, `get_output_frames`, `get_output_audio`.
+- Turn 2: `validate_workflow` and `run_workflow` on a 768p variant (it read "go ahead" as the 768p
+  option it had offered); the run was denied by the client's auto-mode permission classifier.
+- Turn 3: no calls.
+
+**Ask 3.**
+- Turn 1: `ToolSearch`, `create_workspace`, `get_server_info`, `list_guides`,
+  `list_workflows(shape=sequence)`, `get_workflow(dialogue-short)`, `get_guide(recipes, MiniMax-Music3)`,
+  `list_workflows(shape=audio)`, `get_workflow(assemble-and-score)`,
+  `get_guide(workflows, "Authoring a workflow from an agent")`, `get_workflow(music)`,
+  `validate_workflow(music)`, `validate_workflow(dialogue-short)`.
+- Turn 2: `ToolSearch`, `run_workflow(music)`, `run_workflow(dialogue-short)`, `wait_for_job`,
+  `get_output_audio`, `wait_for_job`, `wait_for_job`, `ToolSearch`, `get_output_frames(episode, 16)`,
+  `get_output_audio(score, 30 s)` (errored as over 4 MB; not retried), `get_gallery_metadata`,
+  `keep_output` x5 (the shots to `lighthouse/shot_1..4.mp4`, the score to `lighthouse/score.mp3`),
+  `validate_workflow(lighthouse-final)`, `run_workflow(lighthouse-final)`, `get_gallery_metadata`.
+- Turn 3: `ToolSearch`, `list_jobs`, `assess_output` (reported a 3.6 dB `seam_level_step` at seam 2).
+
+## Rules broken
+
+| # | Ask | What it did (quote) | Rule and where the skill holds it | Placement |
+|---|---|---|---|---|
+| 1 | 1 | Ran `templates/flux3/text-to-image` on a caption it expanded by hand from the short request | "A short request ... `templates/flux3/upsample-then-generate`": `plugins/dw/skills/flux3-klein/SKILL.md` *Which shape is the request* | A served guide can carry it: the catalog entry for `text-to-image` can say a short request goes through `upsample-then-generate` |
+| 2 | 1, 2 | Validated and ran in turn 1 with no go-ahead; built `acknowledged_cost` itself from validate's fingerprint | "Get the go-ahead, then `run_workflow`": `plugins/dw/skills/minimax-h3/SKILL.md` *Run and judge* (same step in every family skill) | Model knowledge, no fix: the served instructions already say "get the user's go-ahead", and `acknowledged_cost` can't tell a user's yes from the agent's |
+| 3 | 2 | Prompt in prose with no `<d>` tags and no Context-IR: "The woman, looking concerned, says: \"Did you leave the back door open?\" ..." | "H3 wants Context-IR": `plugins/dw/skills/minimax-h3/SKILL.md` *Prompts* | A served guide can carry it: the catalog entry and validate can point an H3 prompt at `get_prompt` / `templates/minimax/enhance-prompt` |
+| 4 | 2, 3 | Kept the turbo LoRA on dialogue shots: ask 2 at 4 passes, ask 3 on `dialogue-short`'s defaults (`lightx2v/Minimax-h3-Turbo`; `draft` is 5 steps) | "Dialogue shots (any `<d>` line) drop the turbo LoRA ...: `lora_model_name: null`, `num_inference_steps: 12`, `video_shift: 12.0`, `audio_shift: 3.0`": `plugins/dw/skills/minimax-h3/SKILL.md` *Hard rules* | The tool or validation should refuse it, or at least warn: a `<d>` line with the turbo LoRA is checkable. `dialogue-short`'s own defaults contradict the rule, so the template changes too |
+| 5 | 2, 3 | Two people in frame with no staging step: both asks prompted two-shots straight from the ask | "A crowd, two people in frame, or a three-reference shot: read `references/staging.md` before the prompt": `plugins/dw/skills/minimax-h3/SKILL.md` *Hard rules* | A served guide can carry it: staging is prose, not a check |
+| 6 | 3 | 6-9-word lines in 345-frame (14.4 s) shots, about 0.4-0.6 words/s; ask 2 was 15 words over 8 s, about 1.9 words/s | "A line at about 2.5–4 written words/s fills the clip ... at 345 frames (14.4 s), about 36–57" words; "A short line is not stretched to fill the clip": `plugins/dw/skills/minimax-h3/references/dialogue.md` *How long a line can be* | Validation can warn: words per second against `num_frames` is computable from the arguments |
+| 7 | 3 | The sailor's voice changed between shots: "a young, soft, slightly shaky male voice" (shot 1), "a young, soft, quiet male voice, subdued and a little shaken" (shot 3); the keeper's stayed verbatim | "Repeat a speaker's voice description verbatim across shots.": `plugins/dw/skills/minimax-h3/SKILL.md` *Prompts* | Validation can warn across a `for_each`'s entries when one speaker's description differs; otherwise a served guide |
+| 8 | 3 | Read `assemble-and-score` in turn 1, then wrote its own `lighthouse-final` mix in turn 2 without saying it had changed the plan | "Under cut scenes, use one bed: `templates/assemble-and-score`": `plugins/dw/skills/long-form/SKILL.md` *5. Per piece: the soundtrack* | Model knowledge, no fix: it found the template, and dropped it silently |
+| 9 | 3 | Didn't listen to the score after the 30 s `get_output_audio` errored, and didn't check the dialogue or seams by ear | "Listen with `get_output_audio`" and judge seams with `assess_output(probe="analyze_seams")` and `get_output_frames(seams=true)`: `plugins/dw/skills/long-form/SKILL.md` *Run and judge* | Model knowledge, no fix: the tools were there, and the error named the size limit |
+
+Not the agent's: ask 3's `dialogue-short` ran 35.1 min against the 25.5 it quoted, a low-confidence
+estimate (first passes 411 s and 343 s with a warm-up warning). That belongs to the estimate, not to
+a rule.
+
+## What it did right on the tool surface alone
+
+- **Found the right shape every time from `list_workflows(shape=...)`**: `image` for ask 1,
+  `shot` + `has-audio` for ask 2, `sequence` and `audio` for ask 3. It never authored JSON where the
+  catalog had a template.
+- **Validated before every run** and passed `acknowledged_cost` from the plan's fingerprint.
+- **Looked at what it made**: the image (ask 1), frames and audio (ask 2), the episode frames and
+  `assess_output` (ask 3), and said plainly what it couldn't verify, such as the speech in ask 2.
+- **Ask 3 quoted the plan's estimate and waited for a go-ahead**, offering `draft` or `standard`.
+- **Ask 3 read the authoring guide** (`get_guide(workflows, "Authoring a workflow from an agent")`)
+  before writing JSON, and its custom workflow validated on the first try.
+- **Ask 3 cut, not chained** (long-form *2. Per scene: the rendering shape*, "Prefer cuts"), put one
+  score bed under both scenes, and gave each character a portrait referenced in every shot.
+- **Ask 3 wrote Context-IR-shaped prompts with `<d>[English] ...</d>`** after reading
+  `dialogue-short`, and kept the keeper's voice description verbatim across shots.
+- **Ask 3 acted on the server's warnings**: on the speech-like bleed tail it set `audio_bleed_ms: 0`
+  and `match_levels: "rms"`. That matches
+  `plugins/dw/skills/series-episodes/references/cinema-path.md` without the agent having read it, so
+  the warning text carried the rule.
+- **Ask 3 kept the shots and score** (`keep_output`) so the mix can be redone without the GPU.
+- Asks 1 and 2 used no guidance and no negative prompt on Klein, and kept frames on the 17n+5 grid.
+- Ask 1 noticed the shared workspace pin and passed `workspace=` from then on.
+
+**Harness artifacts, not dw text:**
+- The three asks ran at once on one MCP mount, and the mount shares one workspace pin across
+  clients, so each `create_workspace` moved the others' pin. Ask 1's validate reported `drill-1524-3`.
+  The agents mostly passed `workspace=`; ask 3's turn-2 calls mostly didn't, but its jobs landed in
+  `drill-1524-3`.
+- Turn 2's bare "go ahead" was ambiguous for asks 1 and 2, which had already finished in turn 1.
+- Ask 2's turn-2 `run_workflow` was denied by Claude Code's auto-mode permission classifier, not
+  by dw.
+- The agents' own spend claims were wrong (ask 3 said "$0.28"; the session cost $0.728).
+
+## Paths and job ids
+
+| Job | What |
+|---|---|
+| `76a848eb3ee8` | ask 1: `drill-1524-1`, `templates/flux3/text-to-image/20261122-092421-38b03d34/final/Flux3KleinT2I-text_to_image.0-0.0.jpg` |
+| `e37acfc896c8` | ask 2: `drill-1524-2`, `templates/minimax/video-with-audio/20261122-092422-fdfb6a5a/final/MiniMaxH3-text_to_video_audio.0-0.0.mp4` |
+| `cae69d51a4ec` | ask 3 score: `templates/minimax/music`, `audio_duration` 75, tag-only lyrics, seed 7, kept as `lighthouse/score.mp3` |
+| `67571fdbe0d2` | ask 3 shots: `templates/minimax/dialogue-short` `draft`, `lamp_question`, `lamp_answer`, `beach_confession`, `beach_answer`; episode `templates/minimax/dialogue-short/20261122-092700-0f4bd00c/final/MiniMaxH3SitcomShort-episode.6-0.0.mp4`; shots kept as `lighthouse/shot_1..4.mp4` |
+| `f5c2b6ff77da` | ask 3 final: `lighthouse-final/20261122-100230-a94c5e7f/final/lighthouse-final-film.7-0.0.mp4`, 57.5 s |
+
+Transcripts: `~/testing/drill-1524-runner/ask<n>-turn-<k>.jsonl` and `probe.jsonl`.
+
+## For Don
+
+- **Turbo on dialogue (row 4)** is the costliest miss, and it isn't only the client's:
+  `dialogue-short`'s defaults keep the turbo LoRA, so even a careful agent following the template
+  breaks the minimax-h3 rule. Either the template or the rule is wrong; a validate warning on `<d>`
+  with turbo would catch both.
+- **Line sizing (row 6) and verbatim voices (row 7)** are computable from arguments: validate
+  warnings would carry them to any client.
+- **Routing (row 1), Context-IR (row 3) and staging (row 5)** can ride in catalog and guide text.
+- **The go-ahead (row 2), the silent template swap (row 8) and not listening (row 9)** are model
+  behaviour; the served instructions already say the first, and the tools for the others were there.
+- Ask 3's quote ran 37% short (35.1 vs 25.5 min) for `dialogue-short` at 345 frames.
+- **Supported clients:** the evidence supports any MCP client for finding, running and checking
+  catalog work from the served tools and guides alone, and supports only Claude Code with the dw
+  plugin for composing to the family rules (dialogue settings, Context-IR, line sizing, staging),
+  until rows 1 and 3-7 move into served guides and validation.
