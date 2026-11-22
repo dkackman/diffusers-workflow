@@ -616,7 +616,7 @@ def delete_asset(
         except OSError as e:
             logger.warning(f"Could not clear what {path} left beside it: {e}")
         forget_workspace_usage()
-        changed_assets(request, ws, path)
+        changed_assets(request, ws, root)
         return {
             "name": relative,
             "workspace": ws.name,

@@ -399,3 +399,58 @@ def test_starring_a_missing_file_moves_nothing(client, run):
     r = client.put("/api/stars", json={"name": f"{run}/nope.png", "starred": True})
     assert 400 <= r.status_code < 500
     assert counters(client) == before
+
+
+# ------------------------------------- which asset library a write moved
+# Shared or not is the `LibraryRoot.origin` that `AssetLibrary.find` answered
+# (dw/library.py, LibraryPath), never a path comparison of the counter's own.
+
+
+def _keep(client, run, shared):
+    r = client.post("/api/assets/keep", json={"name": f"{run}/a.png", "shared": shared})
+    assert 200 <= r.status_code < 300, r.text
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        lambda c: c.delete("/api/assets/a.png"),
+        lambda c: c.put("/api/notes", json={"target": "asset:a.png", "note": "n"}),
+    ],
+    ids=["delete", "note"],
+)
+@pytest.mark.parametrize("shared", [True, False], ids=["shared", "own"])
+def test_an_asset_write_moves_every_workspace_only_when_shared(
+    client, run, call, shared
+):
+    assert client.post("/api/workspaces", json={"name": "shots"}).status_code < 300
+    _keep(client, run, shared)
+    here, there = counters(client), counters(client, "shots")
+    response = call(client)
+    assert 200 <= response.status_code < 300, response.text
+    assert moved(here, counters(client)) == {"assets": 1}
+    assert moved(there, counters(client, "shots")) == ({"assets": 1} if shared else {})
+
+
+class _App:
+    def __init__(self, changes):
+        self.state = type("State", (), {"changes": changes})()
+
+
+class _Request:
+    def __init__(self, changes):
+        self.app = _App(changes)
+
+
+@pytest.mark.parametrize("origin, everywhere", [("common", True), ("workspace", False)])
+def test_changed_assets_decides_from_the_roots_origin(origin, everywhere):
+    from dw.library import LibraryRoot
+    from dw.server.changes import changed_assets
+
+    changes = Changes()
+    ws = type("Ws", (), {"name": "shots", "common_assets": "/elsewhere/assets"})()
+    # The root's directory is nowhere near ws.common_assets (a symlinked or
+    # differently normalised shared library): only its origin decides
+    changed_assets(_Request(changes), ws, LibraryRoot("/linked/common", origin, True))
+    assert changes.snapshot("shots")["kinds"]["assets"] == 1
+    assert changes.snapshot("other")["kinds"]["assets"] == (1 if everywhere else 0)

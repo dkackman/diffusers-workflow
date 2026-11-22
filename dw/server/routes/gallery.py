@@ -500,8 +500,9 @@ def _workspace_note_target(state, name):
 
 
 def _asset_note_target(state, ws, name):
-    """(directory, file name) of the asset an `asset:<name>` target names -
-    resolved the way the asset delete resolves it, read-only roots refused."""
+    """(directory, file name, library root) of the asset an `asset:<name>`
+    target names - resolved the way the asset delete resolves it, read-only
+    roots refused. The root says which library holds it (`changed_assets`)."""
     library = workspace_asset_library(state, ws)
     if not library.roots():
         raise asset_library_missing()
@@ -517,26 +518,27 @@ def _asset_note_target(state, ws, name):
         library.require_writable(root, relative)
     except ReadOnlyLibraryError as refusal:
         raise HTTPException(status_code=403, detail=str(refusal))
-    return os.path.dirname(path), os.path.basename(path)
+    return os.path.dirname(path), os.path.basename(path), root
 
 
 def resolve_note_target(state, ws, target):
-    """(directory, name, kind) for a note target, kind one of "workspace",
-    "run" and "file" (an asset is a file in its library directory). Every
+    """(directory, name, kind, root) for a note target, kind one of
+    "workspace", "run", "file" and "asset" (a file in its library directory,
+    `root` being the `LibraryRoot` that holds it; None for any other). Every
     directory is a validator's return value against a non-None root, or the
     server's own configured default root. Raises the route's 400/403/404/409.
     """
     if is_ref(WORKSPACE, target):
         name = ref_name(WORKSPACE, target).strip()
-        return _workspace_note_target(state, name), None, "workspace"
+        return _workspace_note_target(state, name), None, "workspace", None
     if is_asset_reference(target):
         name = ref_name(ASSET, target).strip()
-        directory, file_name = _asset_note_target(state, ws, name)
-        return directory, file_name, "file"
+        directory, file_name, root = _asset_note_target(state, ws, name)
+        return directory, file_name, "asset", root
     name = strip_output_prefix(target)
     run_dir = run_directory(name, ws.outputs)
     if run_dir is not None:
-        return run_dir, None, "run"
+        return run_dir, None, "run", None
     path = resolve_output_file(state, name, ws.outputs)
     split = validated_run_split(ws.outputs, path)
     if split is None:
@@ -544,7 +546,7 @@ def resolve_note_target(state, ws, target):
             status_code=409,
             detail=f"{name} is not in a run directory, and notes need a run directory",
         )
-    return split[0], split[1], "file"
+    return split[0], split[1], "file", None
 
 
 @router.put("/api/notes", response_model=NoteSet, response_model_exclude_unset=True)
@@ -563,7 +565,9 @@ def put_note(
         note = clean_note(body.note)
     except (NoteTooLong, TypeError) as e:
         raise HTTPException(status_code=400, detail=str(e))
-    directory, name, kind = resolve_note_target(request.app.state, ws, body.target)
+    directory, name, kind, root = resolve_note_target(
+        request.app.state, ws, body.target
+    )
     try:
         if kind == "workspace":
             stored, source = set_workspace_note(directory, note), None
@@ -577,8 +581,8 @@ def put_note(
     if kind == "workspace":
         # The sidebar lists workspace notes: the server-wide counter
         request.app.state.changes.bump_workspaces()
-    elif is_asset_reference(body.target):
-        changed_assets(request, ws, directory)
+    elif kind == "asset":
+        changed_assets(request, ws, root)
     else:
         changed(request, ws.name, GALLERY)
     return {
@@ -605,7 +609,7 @@ def put_star(
         raise HTTPException(
             status_code=400, detail="Only an output file can be starred"
         )
-    directory, name, kind = resolve_note_target(request.app.state, ws, body.name)
+    directory, name, kind, _root = resolve_note_target(request.app.state, ws, body.name)
     if kind != "file":
         raise HTTPException(
             status_code=400, detail="Only an output file can be starred"

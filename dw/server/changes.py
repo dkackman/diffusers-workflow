@@ -28,6 +28,7 @@ lock, the `dw/server/listening.py` pattern.
 import threading
 import uuid
 
+from ..library import COMMON_ORIGIN
 from ..workspace import DEFAULT_WORKSPACE_NAME
 
 REQUESTS = "requests"
@@ -112,15 +113,12 @@ def changed_everywhere(request, *kinds) -> None:
     request.app.state.changes.bump_all(*kinds)
 
 
-def changed_assets(request, ws, path) -> None:
-    """An asset file at `path` changed: the shared library's moves every
-    workspace's `assets`, any other only `ws`'s."""
-    import os
-
-    shared = getattr(ws, "common_assets", None)
-    if shared and os.path.commonpath(
-        [os.path.abspath(path), os.path.abspath(shared)]
-    ) == os.path.abspath(shared):
+def changed_assets(request, ws, root) -> None:
+    """An asset in library `root` (the `LibraryRoot` that `AssetLibrary.find`
+    or `writable_root` answered) changed: the shared library's moves every
+    workspace's `assets`, any other only `ws`'s. Which library holds a file
+    is `LibraryPath`'s answer (`origin`), never re-derived from the path."""
+    if root.origin == COMMON_ORIGIN:
         changed_everywhere(request, ASSETS)
     else:
         changed(request, ws.name, ASSETS)
