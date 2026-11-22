@@ -50,6 +50,7 @@ This skill is written for dw `0.23.0-alpha.1`; `get_server_info`'s `plugin` says
   1-32 cuts; `render_frames` on 17n+5 in 124-345, ≥ `num_frames`;
   references ≤ 9 images, 12 files. `references/regional-edit.md`.
 - **A good take with a soft small face**: `templates/minimax/face-repair`.
+- **New setting, same action**: the clip as sole video reference, a CHANGE/PRESERVE prompt; confirmed, `bench/records/env-swap-ref2va.md`.
 - **Sound for a silent clip** (picture kept): `templates/minimax/add-sound`;
   `listen_scale` 0.5 is fastest that keeps lip sync. Never re-voice an on-screen speaker: voice-over.
 - **A consistent subject**: `templates/minimax/reference-to-video`
@@ -168,9 +169,7 @@ A wanted look (clay, paper): `references/style.md`. Film-term camera or look: th
    turbo clip, a video reference ~4x again, a chain times its segments.
    Get the go-ahead, then `run_workflow` with `acknowledged_cost` = the
    plan's `{fingerprint, minutes, downloads}`.
-3. `wait_for_job` with `timeout_seconds` = the estimate plus a margin
-   (`timeout_capped` says the server's cap cut it; call again while
-   `still_running`; on a client "timed out", retry at `timeout_seconds` 60),
+3. `wait_for_job` with `timeout_seconds` = the estimate plus a margin,
    `get_job`. Silence is no hang (encode ~6 s img, ~50 s video; 1st
    pass 165-508 s); judge by `denoise_step`
    (`references/watching-a-run.md`). Each entry carries `subfolder`:
