@@ -63,7 +63,9 @@ agent starts, not a limit. The full list is in [workflows/](workflows/) and the
   Command Line Tools (`xcode-select --install`). Node also comes from Homebrew
   (`brew install node`).
 - **Debian / Ubuntu:** the venv module is a separate package: `sudo apt install git
-  python3.12-venv` (match your Python version, for example `python3.13-venv`). On
+  curl python3.12-venv` (match your Python version, for example `python3.13-venv`).
+  apt's `nodejs` is older than 24.20, so take Node from
+  [nodejs.org](https://nodejs.org/en/download) (its nvm line needs that `curl`). On
   Ubuntu, `install.sh` may ask for your `sudo` password once, to `apt install bc`
   when it is missing.
 - **NVIDIA:** a driver **580 or newer** gets the CUDA 13 torch build. With an older
