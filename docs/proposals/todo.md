@@ -37,6 +37,12 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **Tell the user when the installed dw plugin is older than the server** (#1535,
+  stage #1560), built 2026-11-22. `get_server_info` (MCP only) carries
+  `plugin.current_from`, the server version's floor, and the `plugin.update` commands.
+  Each of the 10 server-first skills states the release it was written for. A skill
+  that states no release, or an older one, tells the user once:
+  `complete/plugin-staleness-complete.md`.
 - **An intent-keyed index for H3 and LTX-2.5** (#1519, stages #1555-#1556), built
   2026-11-22. Each family skill has a `references/intents.md` table: intent,
   template, a pointer to the pattern's skill section, its bench evidence, and a
