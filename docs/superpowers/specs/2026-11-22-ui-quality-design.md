@@ -130,6 +130,36 @@ Each phase is its own plan: `docs/superpowers/plans/2026-11-22-ui-quality-phase-
 | 6 | **Requests and agent collaboration** | the server's take error and summary fields | RQ-1..4, RQ-7..11, RQ-13..21 | `review-a-request.spec.ts` |
 | 7 | **Shell, first run, performance** | the first-run card, gzip/caching, a loading shell, monaco trim, paged job history | SH-3, SH-4, SH-6..9, SH-16, SH-17, SH-19, SH-S*, XC-8, XC-14, JB-8, JB-9, JB-12, JB-17 | `first-run.spec.ts` |
 
+## Shared pieces from the duplication survey
+
+`docs/superpowers/specs/2026-11-22-ui-duplication-survey.md` has a file:line for every occurrence, plus the props each piece needs. A 6-line hash scan found little copy-paste; the largest clone is 33 lines. The duplication is the **same concept built 3 to 9 times**, with the copies drifting apart in ways users can see. That is principle P7–P9's problem at component level. About 1,500 lines are removable: about 800 by the pieces already planned above, and about 700 by the new ones below. "Absorbed" means a building block above already covers the item, and its phase plan must name these occurrences.
+
+| # | Concept (copies) | Piece | What users see diverge today | Phase |
+|---|---|---|---|---|
+| D1 | Media tile and thumbnail (9) | `OutputTile` (absorbed) | The asset grid opens a `<video>` per tile and ignores `assetThumbnailUrl`. Clips in the picker have no play badge. The kind-to-glyph map is written 5 times. | 4 |
+| D2 | Recipe and detail panel (3) | `RecipePanel` + `MediaViewer` (absorbed), `ReferenceChip` (new) | Assets can copy their reference and outputs can't; only outputs can download. GalleryDetail takes 17 props. | 4 |
+| D3 | Label/field form grid (9) | `.formgrid` in `app.css` (new) | Label columns of 170, 150, 120 and 40% are nested in one step editor, so fields don't line up. | 3 |
+| D4 | Segmented switches and filter chips (7) | `Segmented.svelte` + `.togglechip` (new) | StepEditor re-implements ViewSwitch. The selected state is an outline in some and a fill in others, and only 3 of 6 expose `aria-pressed` (XC-10). | 3 |
+| D5 | Note editors (2) | a shared draft and keys module under `NoteEditor` (new) | Escape keeps the draft, Ctrl+Enter, reload persistence and the discard confirm exist only on request notes. | 3 |
+| D6 | Request filter chip (2) | `RequestFilter` gains a clear-only mode (new props) | On Jobs you can clear the request filter but not pick one. | 3 |
+| D7 | Filter state in the hash (3, plus 4 that don't keep it) | `hashState()` in `router.svelte.ts` (new) | Gallery, Workflows, Prompts and Assets lose their filters on Back; Jobs and Requests keep them (XC-11). | 3 |
+| D8 | Server status rows (2) | `ServerHealthList` (new), fed by `connection` | "Unreachable" is red in one and amber in the other, and the popover says "not started" when the server is unreachable (SH-2, SH-14). | 2 |
+| D9 | Validate plan and verdict (2) | `PlanLines` (new) | ValidationPanel and RunCheckPanel phrase the same plan differently. | 5 |
+| D10 | Job status chip (5) | `StatusChip` (new) | A cancelled job is amber on Jobs and grey as a request take. | 3 |
+| D11 | `window.prompt` name dialogs (2) | `nameDialog()` beside `chooseDialog` (new) | Only "Save as asset" offers replace-if-exists (GA-10). | 3 |
+| D12 | Page heads that bypass `.pagehead` (7) | `PageHeader` (absorbed) | Three back-link styles. | 3 |
+| D13 | Loaders and load/error/empty states (9 pages, 4 effects) | `resource` + `LoadState` (absorbed) | Four phrasings for an error; a skeleton on some pages and blank on others. | 2 |
+| D14 | Editor save bars (2) | `DocumentFileBar`, a shared views list and the Ctrl+S handler (new) | The prompt editor's inline bar and WorkflowFileBar offer different save affordances. Builds on phase 1's `saveDocument`. | 3 |
+| D15 | Data tables (6), tone text classes (about 20 files), panel h2 (6), collapsible group headings (4, none with `aria-expanded`), disk meter (2), list rows (3) | global `table.datatable`, `.error`/`.warn`/`.bad`/`.hint`, `.panel h2`, `Disclosure`, `DiskMeter` (new) | ModelsPage uses `--danger`, which is not a token, so its warnings are hard-coded `#c33` in both themes. That is a real bug. | 3 |
+| D16 | Shared pieces that pages bypass | use `.frame`, `RequestFilter`, `ViewSwitch`, the FolderGroups collapse, `.row-live` and `gbFromMb`; remove the legacy `#/jobs/<id>` links | The copies `.cardframe` (Workflows, Overview) drift from `.frame`. | 3 |
+
+**Keeping it from coming back** (mechanical, P11-style):
+- A new arch metric, `duplicate_blocks`, is the same 6-line normalised hash scan the survey ran, counting blocks repeated across `.svelte` files. It is ratcheted downward with each phase.
+- `ui/scripts/design-rules.test.ts` gains:
+  - every `var(--…)` names a token defined in `app.css`, which catches the `--danger` bug class;
+  - the kind-to-glyph map, status colours and segmented selected style come only from their owning module.
+- `ui/CLAUDE.md` gets a "before you write markup" table: concept → the component to use.
+
 ## Decisions for Don
 
 1. ★ The vocabulary rows above.
