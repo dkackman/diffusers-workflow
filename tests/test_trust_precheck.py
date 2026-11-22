@@ -152,7 +152,7 @@ def test_a_refused_job_keeps_the_warm_models(tmp_path, monkeypatch, kind):
     from dw import worker as worker_module
 
     monkeypatch.setenv("DW_TRUST_WORKFLOWS", "0")
-    with patch("dw.worker.setup_logging"):
+    with patch.object(worker_module, "setup_logging"):
         worker = worker_module.WorkflowWorker(queue.Queue(), queue.Queue())
     worker.workflow_identity = ("path", "/w/warm.json")
     worker.loaded_pipelines["warm"] = object()

@@ -25,6 +25,7 @@
   import GalleryDetail from '../gallery/GalleryDetail.svelte'
   import { AssessCache } from '../gallery/assess.svelte'
   import RoleTag from '../gallery/RoleTag.svelte'
+  import { gridFiles } from '../gallery/order'
 
   let files = $state<GalleryFile[]>([])
   let loaded = $state(false)
@@ -92,31 +93,11 @@
     void loadListing()
   })
 
-  // A file whose run does not say its role counts as final
-  const roleOf = (f: GalleryFile): OutputRole => f.role ?? 'final'
   let starredOnly = $state(false)
   const filterActive = $derived(
     filter !== '' || roles.length < 2 || starredOnly || reqId !== '',
   )
-  // Finals lead inside a run only: the server's order (newest first) holds
-  // between runs, so runs sit where their newest file put them. The sort is
-  // stable, so it holds inside each role too
-  const runKey = (f: GalleryFile) => `${f.folder}\u0000${f.run_id}`
-  const visible = $derived.by(() => {
-    const shown = files.filter(
-      (f) =>
-        f.name.toLowerCase().includes(filter.toLowerCase()) &&
-        roles.includes(roleOf(f)) &&
-        (!starredOnly || f.starred),
-    )
-    // Each run's place is the index of its first (newest) file. Built
-    // back to front so the first file's index is the one that sticks; a
-    // Map keeps this linear at thousands of files
-    const runs = new Map(shown.map((f, i) => [runKey(f), i] as const).reverse())
-    const place = (f: GalleryFile) => runs.get(runKey(f))!
-    const rank = (f: GalleryFile) => Number(roleOf(f) === 'intermediate')
-    return shown.sort((a, b) => place(a) - place(b) || rank(a) - rank(b))
-  })
+  const visible = $derived(gridFiles(files, filter, roles, starredOnly))
   async function toggleStar() {
     if (!selected) return
     const name = selected.name
