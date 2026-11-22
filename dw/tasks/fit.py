@@ -43,6 +43,7 @@ validation's 32n and 8n+1 rules and the cost quote still see them.
 import logging
 
 import numpy
+import scipy.ndimage
 import torch
 import torch.nn.functional as F
 
@@ -143,11 +144,9 @@ def _box_blur_rows(rows, radius):
     """`rows` (frames, n, 3) box-blurred along n with `radius`, edges held."""
     if radius < 1:
         return rows
-    padded = numpy.pad(rows, ((0, 0), (radius + 1, radius), (0, 0)), mode="edge")
-    sums = numpy.cumsum(padded, axis=1, dtype=numpy.float64)
-    window = 2 * radius + 1
-    n = rows.shape[1]
-    return ((sums[:, window : window + n] - sums[:, :n]) / window).astype(numpy.float32)
+    return scipy.ndimage.uniform_filter1d(
+        rows, 2 * radius + 1, axis=1, mode="nearest"
+    ).astype(numpy.float32)
 
 
 def _paint_edge(fitted, box):
@@ -188,11 +187,10 @@ def _paint_blur(fitted, frames, box):
         small_w,
         small_h,
     )
-    # A box blur along each axis of the small copy, then a smooth upscale
-    small = _box_blur_rows(small.reshape(count * small_h, small_w, 3), 2)
-    small = small.reshape(count, small_h, small_w, 3).transpose(0, 2, 1, 3)
-    small = _box_blur_rows(small.reshape(count * small_w, small_h, 3), 2)
-    small = small.reshape(count, small_w, small_h, 3).transpose(0, 2, 1, 3)
+    # A box blur along both axes of the small copy, then a smooth upscale
+    small = scipy.ndimage.uniform_filter(
+        small, size=(1, 5, 5, 1), mode="nearest"
+    ).astype(numpy.float32)
     tensor = torch.from_numpy(numpy.ascontiguousarray(small)).permute(0, 3, 1, 2)
     backdrop = F.interpolate(
         tensor, size=(height, width), mode="bilinear", align_corners=False
