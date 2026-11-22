@@ -200,7 +200,10 @@ counter rather than sharing a directory.
 
 `workflow.json` is the realized workflow — the definition with this run's
 arguments, seed and stored prompts pinned into it, so the directory reproduces
-itself. `manifest.json` points at it and lists which prompts were inlined.
+itself. `manifest.json` points at it and lists which prompts were inlined, with
+`workflow.prompt_digests` beside them: `{prompt name: sha256 of the text it
+inlined}`, the text actually run even if the prompt was saved again while the job
+waited in the queue.
 
 `manifest.json` records the run beside what it made — status, seed, arguments,
 device, dw version, and each step's files, named relative to the directory so
@@ -440,8 +443,15 @@ cancelled), `planned` (none). `revised` replaces `done` when the plan moved
 after the take: no succeeded take is current and no acceptance was recorded
 since. A take is current when the item's `changed_at` is not later than the
 take's `created_at`, or the item's `workflow` and `arguments` equal the
-take's as submitted. A revised item keeps its `result` and `attempts`,
-derives `revised_because` (`["arguments"]`, may include `workflow`), counts in
+take's as submitted, and every `prompt:` reference in the item's current
+`arguments` resolves to text whose digest equals the take's recorded
+`workflow.prompt_digests` entry. Only a prompt's text counts: saving the same
+text, or changing only its description or tags, changes nothing. A take from
+before digests were recorded is never revised by a prompt edit, a prompt that no
+longer resolves counts as unchanged, and references inside the saved workflow's
+definition do not count. A revised item keeps its `result` and `attempts`,
+derives `revised_because` (`["arguments"]`, may include `workflow`, or
+`prompt:<name>`), counts in
 `remaining_minutes` again, and is held and run like a planned one; its
 dependents are not ready, since revised is not done. A dropped item is never
 revised, and a take run with other arguments but no plan write does not
@@ -457,7 +467,9 @@ reads `done` again, keeping that take as its result, until the plan changes
 again. Because writes are whole plans, writing back a revised item that
 already carries `accepted` counts as re-accepting it. The other ways back
 to `done`: a new take that succeeds, or writing the arguments (and workflow)
-back to equal a take's. `ready` is true when a job could be queued
+back to equal a take's. A re-accept also records `prompts: {name: digest}` in
+`accepted_basis`, and holds until a prompt's text changes again. The server reads
+each distinct prompt once per view, memoized by (path, mtime). `ready` is true when a job could be queued
 for the item now: it is `planned` or `revised`, stores a `workflow`, every item it
 depends on is `done`, and the request is open. `attempts` lists the jobs
 oldest first as `{job, status, note?, minutes, output}`; `result` is the

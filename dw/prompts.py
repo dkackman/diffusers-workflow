@@ -7,8 +7,12 @@ the file's text at run time, so the prompt is shared by reference rather
 than copied into every workflow that uses it.
 """
 
+import hashlib
 import json
 import logging
+import os
+import threading
+from collections import OrderedDict
 
 from . import references
 from .schema import load_schema, validate_data
@@ -17,7 +21,7 @@ from .library import (
     PROMPTS_KIND,
     library_path_from_env,
 )
-from .security import validate_prompt_reference
+from .security import SecurityError, validate_prompt_reference
 from .workspace import PROMPTS_SUBDIR, discover_library
 
 logger = logging.getLogger("dw")
@@ -152,3 +156,60 @@ def fetch_prompt(reference, prompt_dir=None, base_dir=None):
 
     logger.info(f"Loaded prompt {reference} from {path}")
     return text
+
+
+def prompt_text_digest(text):
+    """sha256 of a prompt's text: the one form the run manifest records for
+    each prompt it inlined (dw/realize.py) and the request ledger's views
+    compare against (dw/ledger_views.py). Only the text counts - a prompt's
+    description or tags changing leaves its digest as it was."""
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+# Digests of prompt files, by (path, mtime_ns, size): a file read once is
+# not read again until it changes, across views. Bounded, oldest out
+_DIGESTS_KEPT = 1024
+_digests = OrderedDict()
+_digests_lock = threading.Lock()
+
+
+class PromptDigests:
+    """`name -> sha256 of that prompt's text now`, or None when the name no
+    longer resolves (deleted, invalid, unreadable). One per view: a name is
+    resolved once however many items reference it, and a file's digest is
+    read once per (path, mtime) - a request with prompt references costs a
+    stat per distinct prompt, not a read per item.
+
+    Args:
+        library: The `LibraryPath` to resolve names over (the server's)
+    """
+
+    def __init__(self, library):
+        self.library = library
+        self._names = {}
+
+    def __call__(self, name):
+        if name not in self._names:
+            self._names[name] = self._digest(name)
+        return self._names[name]
+
+    def _digest(self, name):
+        try:
+            path = resolve_prompt_reference(name, library=self.library)
+            stat = os.stat(path)
+        except (SecurityError, OSError, ValueError):
+            return None
+        key = (path, stat.st_mtime_ns, stat.st_size)
+        with _digests_lock:
+            if key in _digests:
+                _digests.move_to_end(key)
+                return _digests[key]
+        try:
+            digest = prompt_text_digest(load_prompt(path)["text"])
+        except (OSError, ValueError, KeyError, TypeError, AttributeError):
+            return None
+        with _digests_lock:
+            _digests[key] = digest
+            while len(_digests) > _DIGESTS_KEPT:
+                _digests.popitem(last=False)
+        return digest

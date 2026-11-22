@@ -2800,6 +2800,14 @@
             "description": "When the acceptance was recorded, an ISO time.",
             "title": "At",
             "type": "string"
+          },
+          "prompts": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "The sha256 of each referenced prompt's text when the acceptance was recorded: it holds until that text changes again.",
+            "title": "Prompts",
+            "type": "object"
           }
         },
         "required": [
@@ -3094,7 +3102,7 @@
             "title": "Review Until"
           },
           "revised_because": {
-            "description": "What moved on a revised item: `workflow`, `arguments`. Absent unless the item is revised.",
+            "description": "What moved on a revised item: `workflow`, `arguments`, `prompt:<name>` (a referenced prompt's text changed). Absent unless the item is revised.",
             "items": {
               "type": "string"
             },
