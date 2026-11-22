@@ -88,6 +88,7 @@
      agent working the request */
   .agentnotes {
     border-left: 3px solid var(--ink);
+    scroll-margin-top: 70px;
     margin-bottom: 1rem;
   }
 </style>

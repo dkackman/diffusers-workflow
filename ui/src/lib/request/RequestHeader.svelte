@@ -150,7 +150,7 @@
     </div>
   {/if}
 
-  <div bind:this={box}>
+  <div class="notebox" bind:this={box}>
     <NoteList
       bind:this={list}
       notes={request.notes}
@@ -166,6 +166,10 @@
 </header>
 
 <style>
+  /* scrollIntoView lands below the sticky app header */
+  .notebox {
+    scroll-margin-top: 70px;
+  }
   .reqhead {
     display: flex;
     flex-direction: column;
