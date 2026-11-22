@@ -8,6 +8,7 @@ code is `exists` or `stale_write`."""
 import hashlib
 
 from tests.test_server import (  # noqa: F401  (fixtures)
+    asset_server,
     examples_server,
     server,
     success_script,
@@ -246,3 +247,38 @@ def test_patch_of_a_read_only_workflow_with_if_match_is_stale_with_no_etag(
         assert detail["code"] == "stale_write"
         assert detail["etag"] is None
         assert not (tmp_path / "workflows" / "ltx2" / "Gyre.json").exists()
+
+
+def post_upload(client, content, **headers):
+    return client.post(
+        "/api/uploads",
+        params={"filename": "voice.wav", "asset_name": "cast/priya-voice.wav"},
+        content=content,
+        headers=headers,
+    )
+
+
+def test_upload_if_none_match_refuses_an_existing_asset_name(asset_server, tmp_path):
+    with asset_server(success_script) as client:
+        assert post_upload(client, b"original").status_code == 201
+        saved = tmp_path / "assets" / "uploads" / "cast" / "priya-voice.wav"
+        response = post_upload(client, b"second", **{"If-None-Match": "*"})
+        assert response.status_code == 409
+        detail = response.json()["detail"]
+        assert detail["code"] == "exists"
+        assert "asset:uploads/cast/priya-voice.wav" in detail["message"]
+        assert saved.read_bytes() == b"original"
+
+
+def test_upload_if_none_match_creates_a_fresh_name(asset_server, tmp_path):
+    with asset_server(success_script) as client:
+        response = post_upload(client, b"first", **{"If-None-Match": "*"})
+        assert response.status_code == 201
+
+
+def test_upload_without_the_header_still_replaces(asset_server, tmp_path):
+    with asset_server(success_script) as client:
+        assert post_upload(client, b"original").status_code == 201
+        assert post_upload(client, b"second").status_code == 201
+        saved = tmp_path / "assets" / "uploads" / "cast" / "priya-voice.wav"
+        assert saved.read_bytes() == b"second"
