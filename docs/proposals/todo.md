@@ -37,6 +37,14 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **UI live updates by one rule** (#1536, stages #1563-#1565), built
+  2026-11-22. Per-workspace change counters on the server
+  (`GET /api/workspaces/{ws}/changes`), a 5 s `ChangeFeed` in the UI, and every
+  list page (Requests, sidebar, a closed request, Gallery, Assets, Prompts,
+  Workflows, Overview, Compare) reloads quietly when its kind moves. Every
+  timer pauses while the tab is hidden except the app shell's status poll.
+  C-F1237 (hidden tab) waits on `ui-check` steps:
+  `complete/ui-change-feed-complete.md`.
 - **H3 multi-character band-video rules** (#1528, stages #1561-#1562), built
   2026-11-22. Four outside claims probed on lem: a missing-reference stranger,
   an exit written last and a silent player mouthing a held sung slice are
