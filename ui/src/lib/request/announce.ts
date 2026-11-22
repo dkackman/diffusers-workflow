@@ -10,6 +10,7 @@ const MAX_SENTENCES = 3
 
 const BECAME: Partial<Record<ItemDisplay, string>> = {
   done: 'finished',
+  revised: 'was revised since its take',
   failed: 'failed',
   cancelled: 'was cancelled',
   running: 'started rendering',

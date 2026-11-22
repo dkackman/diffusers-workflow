@@ -64,7 +64,8 @@ function settle(request: LedgerRequest, items: LedgerItem[]): LedgerItem[] {
   )
   const open = request.state === 'open'
   return items.map((item) => {
-    if (item.dropped || item.status !== 'planned') return item
+    const waits = item.status === 'planned' || item.status === 'revised'
+    if (item.dropped || !waits) return item
     const ready =
       open &&
       item.workflow !== null &&
@@ -109,7 +110,10 @@ function accept(
 ): Change | Refused {
   const item = liveItem(request, key)
   if (isRefused(item)) return item
-  if ((item.accepted?.job ?? null) === job) return no('no_change')
+  // Accepting a revised item's take again is the "keep this take" write:
+  // the server records the basis it was kept against and the item is done
+  const keep = item.status === 'revised' && job !== null
+  if (!keep && (item.accepted?.job ?? null) === job) return no('no_change')
   const taken = item.attempts.some(
     (a) => a.job === job && a.status === 'succeeded',
   )
@@ -119,13 +123,18 @@ function accept(
     accepted: job === null ? null : { job, run_id: null },
     accepted_missing: false,
     result: resultFor(item, job),
+    ...(keep
+      ? { status: 'done' as const, revised_because: [], ready: false }
+      : {}),
   }
   return {
     request: replace(request, next),
     why: why(
       job === null
         ? `clear the accepted take of ${key}`
-        : `accept ${job} for ${key}`,
+        : keep
+          ? `keep ${job} for ${key}`
+          : `accept ${job} for ${key}`,
     ),
     stripped: [],
   }

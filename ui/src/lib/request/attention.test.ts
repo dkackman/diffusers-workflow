@@ -93,3 +93,22 @@ it('orders what needs the user first, then what is in flight, then the newest', 
   ])
   expect(rows.map(needsYou)).toEqual([false, false, false, true, true, false])
 })
+
+it('counts revised items: idle, and needing the user', () => {
+  expect(line({ revised: 1, done: 2 }, { ready: 1 })).toEqual({
+    kind: 'idle',
+    text: 'idle: 1 revised (1 ready), nothing running',
+    live: false,
+  })
+  expect(line({ revised: 1, planned: 2 }).text).toBe(
+    'idle: 1 revised, 2 planned, nothing running',
+  )
+  expect(needsYou(summary({ status_counts: { revised: 1, done: 1 } }))).toBe(
+    true,
+  )
+  expect(
+    needsYou(
+      summary({ state: 'done', status_counts: { revised: 1, done: 1 } }),
+    ),
+  ).toBe(false)
+})

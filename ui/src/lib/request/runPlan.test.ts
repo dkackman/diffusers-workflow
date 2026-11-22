@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest'
 import type { Plan } from '../types'
-import { attempt, doneItem, item, request } from './fixtures'
+import { attempt, doneItem, item, request, revisedItem } from './fixtures'
 import { planState } from './itemState'
 import { clockTime } from './reviewText'
 import {
@@ -229,4 +229,32 @@ it("gives a held item's dialog row its line, warning when a session may be start
     text: 'Review time is up and a session is listening: it may be starting this now.',
     tone: 'warn',
   })
+})
+
+it('runs what is ready with a revised item among them, and skips one that waits', () => {
+  const req = request([
+    revisedItem('a', { workflow: 'board', arguments: { seed: 1 } }),
+    item('b', { depends_on: ['a'] }),
+    item('c', { ready: true }),
+    revisedItem('d', { depends_on: ['b'] }),
+  ])
+  const run = readyPlan(planState(req))
+  expect(run.candidates.map((c) => c.key)).toEqual(['a', 'c'])
+  expect(run.candidates[0]).toMatchObject({
+    workflow: 'board',
+    arguments: { seed: 1 },
+  })
+  expect(run.skipped.map((s) => [s.key, s.reason])).toEqual([
+    ['b', 'waits on Item a (revised)'],
+    ['d', 'waits on Item b (waiting)'],
+  ])
+})
+
+it('one revised item runs a new take, and says what stands meanwhile', () => {
+  const req = request([revisedItem('a', { workflow: 'board' })])
+  const run = itemPlan(planState(req), 'a')
+  expect(run.candidates.map((c) => c.workflow)).toEqual(['board'])
+  expect(run.retake).toBe(
+    'Take 1 stays the accepted result until you accept another.',
+  )
 })

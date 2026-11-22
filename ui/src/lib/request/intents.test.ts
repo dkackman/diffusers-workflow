@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest'
-import { attempt, doneItem, item, request } from './fixtures'
+import { attempt, doneItem, item, request, revisedItem } from './fixtures'
 import {
   apply,
   fold,
@@ -326,4 +326,31 @@ it('every page write sends a held item hold back exactly as read', () => {
     { ...heldPlan(), state: 'done' },
   )
   expect(reopened.items[0].review_until).toBe(HELD)
+})
+
+it("keeps a revised item's take: the same job accepted again, and the item done", () => {
+  const kept = request([
+    revisedItem('a', { workflow: 'board', arguments: { seed: 1 } }),
+    item('b', { depends_on: ['a'], workflow: 'shot' }),
+  ])
+  const applied = apply({ kind: 'accept', key: 'a', job: 'job-a' }, kept)
+  if (isRefused(applied)) throw new Error(applied.refusal)
+  expect(applied.body.why).toBe('keep job-a for a')
+  const a = applied.body.items.find((i) => i.key === 'a')
+  // what the server compares is written as it was: only the take is named
+  expect(a).toMatchObject({
+    accepted: { job: 'job-a', run_id: null },
+    workflow: 'board',
+    arguments: { seed: 1 },
+  })
+  const shown = fold(kept, [{ kind: 'accept', key: 'a', job: 'job-a' }])
+  expect(shown.items[0].status).toBe('done')
+  expect(shown.items[1].ready).toBe(true)
+  // a done item's accepted take accepted again is still no change
+  expect(
+    refusal(
+      { kind: 'accept', key: 'a', job: 'job-a' },
+      request([doneItem('a', { accepted: { job: 'job-a', run_id: 'r' } })]),
+    ),
+  ).toBe('no_change')
 })

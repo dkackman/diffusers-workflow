@@ -2,7 +2,14 @@ import { expect, it } from 'vitest'
 import { formatDay } from '../format'
 import { planState } from './itemState'
 import { agentSaid, needsLine, standing } from './standing'
-import { attempt, doneItem, entry, item, request } from './fixtures'
+import {
+  attempt,
+  doneItem,
+  entry,
+  item,
+  request,
+  revisedItem,
+} from './fixtures'
 import type { LedgerItem, LedgerRequest } from '../types'
 
 const say = (items: LedgerItem[], over: Partial<LedgerRequest> = {}) => {
@@ -129,13 +136,31 @@ it('has a sentence for a plan with nothing to do, and for no plan', () => {
 
 it('lists every reason the user is needed, in one line', () => {
   expect(
-    needsLine({ ready: 2, failed: 1, choose: 1, accepted_missing: 0 }),
+    needsLine({
+      ready: 2,
+      revised: 0,
+      failed: 1,
+      choose: 1,
+      accepted_missing: 0,
+    }),
   ).toBe('Needs you: 2 ready to run, 1 failed, 1 take to choose.')
   expect(
-    needsLine({ ready: 0, failed: 0, choose: 2, accepted_missing: 1 }),
+    needsLine({
+      ready: 0,
+      revised: 0,
+      failed: 0,
+      choose: 2,
+      accepted_missing: 1,
+    }),
   ).toBe('Needs you: 2 takes to choose, 1 accepted take missing.')
   expect(
-    needsLine({ ready: 0, failed: 0, choose: 0, accepted_missing: 0 }),
+    needsLine({
+      ready: 0,
+      revised: 0,
+      failed: 0,
+      choose: 0,
+      accepted_missing: 0,
+    }),
   ).toBeNull()
 })
 
@@ -160,4 +185,20 @@ it("gives the agent's latest word on an open request, and none on a closed one",
   expect(
     agentSaid(req({ history: [entry(1, 'user', 'made by hand')] })),
   ).toBeNull()
+})
+
+it('counts a revised item as ready to run, and as needing the user', () => {
+  expect(say([revisedItem('a'), item('b', { depends_on: ['a'] })])).toEqual({
+    sentence: 'Nothing is running. 1 ready to run. 0 of 2 done.',
+    needs: 'Needs you: 1 revised since its take.',
+  })
+  expect(
+    needsLine({
+      ready: 1,
+      revised: 2,
+      failed: 0,
+      choose: 0,
+      accepted_missing: 0,
+    }),
+  ).toBe('Needs you: 1 ready to run, 2 revised since their takes.')
 })

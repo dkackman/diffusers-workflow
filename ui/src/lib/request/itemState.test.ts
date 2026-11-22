@@ -4,14 +4,17 @@ import {
   bandsOf,
   CHIP,
   figureOf,
+  nextTake,
   opensByDefault,
   planState,
   resultMark,
+  revisedLine,
+  shownTake,
   takesLine,
   takesOf,
   toneOf,
 } from './itemState'
-import { attempt, doneItem, item, request } from './fixtures'
+import { attempt, doneItem, item, request, revisedItem } from './fixtures'
 import type { LedgerItem } from '../types'
 
 const stateOf = (req: ReturnType<typeof request>, key: string) => {
@@ -290,4 +293,65 @@ it('shows a revised item as its own display with the revised chip, and its depen
   )
   expect(plan.items.map((s) => s.display)).toEqual(['revised', 'waiting'])
   expect(CHIP.revised).toEqual({ word: 'revised', tone: 'ready' })
+})
+
+it('a revised item runs again from its row, and its dependents wait', () => {
+  const req = request([
+    revisedItem('a'),
+    item('b', { depends_on: ['a'], workflow: 'shot' }),
+  ])
+  const plan = planState(req)
+  const [a, b] = plan.items
+  expect(a.display).toBe('revised')
+  expect(a.runnable).toBe(true)
+  expect(a.runsNow).toBe(true)
+  expect(a.canRetake).toBe(false)
+  expect(a.needs).toEqual(['revised'])
+  // the dependency stays "done": a revised one is not done
+  expect(b.display).toBe('waiting')
+  expect(b.blockers.map((dep) => dep.key)).toEqual(['a'])
+  expect(plan.toRun).toBe(1)
+  expect(plan.needs.revised).toBe(1)
+})
+
+it('a revised item with a take out shows that take, and is not offered again', () => {
+  const out = revisedItem('a', {
+    attempts: [attempt('job-a'), attempt('job-2', 'queued')],
+  })
+  const state = planState(request([out])).items[0]
+  expect(state.display).toBe('queued')
+  expect(state.runsNow).toBe(false)
+  expect(state.needs).toEqual([])
+  const running = revisedItem('a', {
+    attempts: [attempt('job-a'), attempt('job-2', 'running')],
+  })
+  expect(planState(request([running])).items[0].display).toBe('running')
+})
+
+it('a revised item waits to run on a dependency that is not done, and not at all when closed', () => {
+  const req = request([item('a'), revisedItem('b', { depends_on: ['a'] })])
+  expect(planState(req).items[1].runnable).toBe(false)
+  expect(planState(req).toRun).toBe(0)
+  const closed = request([revisedItem('a')], { state: 'done' })
+  expect(planState(closed).items[0].runnable).toBe(false)
+  expect(planState(closed).items[0].needs).toEqual([])
+})
+
+it('says why a revised item was revised, in words, against the take it shows', () => {
+  const a = revisedItem('a')
+  expect(shownTake(a)?.n).toBe(1)
+  expect(revisedLine(a, shownTake(a))).toBe(
+    'The prompt board-01 changed since take 1.',
+  )
+  const both = revisedItem('a', {
+    revised_because: ['arguments', 'prompt:board-01', 'workflow'],
+  })
+  expect(revisedLine(both, shownTake(both))).toBe(
+    'Its arguments, the prompt board-01 and its workflow changed since take 1.',
+  )
+  expect(revisedLine(revisedItem('a', { revised_because: [] }), null)).toBe(
+    'Its plan changed since its result was made.',
+  )
+  expect(revisedLine(doneItem('a'), null)).toBeNull()
+  expect(nextTake(a)).toBe(2)
 })

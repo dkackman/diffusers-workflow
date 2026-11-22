@@ -155,7 +155,7 @@
   // The priced run dialog, for what is ready or for one item. The page
   // never starts anything itself: a newly ready item waits to be asked for
   let running = $state<RunPlan | null>(null)
-  const ready = $derived(request?.state === 'open' ? plan?.counts.ready : 0)
+  const ready = $derived(request?.state === 'open' ? plan?.toRun : 0)
   /** Jobs were queued: show them at once, not at the next refresh */
   function ran(queued: number) {
     running = null

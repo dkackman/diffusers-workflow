@@ -10,7 +10,14 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import RequestPage from './RequestPage.svelte'
 import { workspace } from '../workspaceState.svelte'
 import { fakeLedger } from '../request/fakeLedger'
-import { attempt, doneItem, entry, item, request } from '../request/fixtures'
+import {
+  attempt,
+  doneItem,
+  entry,
+  item,
+  request,
+  revisedItem,
+} from '../request/fixtures'
 import type { LedgerRequest } from '../types'
 
 // The page's edits against a ledger that keeps the server's rules: a stale
@@ -656,4 +663,87 @@ it('a delete refused while a job is in flight says so and stays', async () => {
     ),
   )
   expect(location.hash).toBe('#/ws/studio/requests/r1')
+})
+
+// A revised item: its kept take stands, its prompt changed since, and the
+// shot after it waits
+const revisedPlan = (): LedgerRequest =>
+  request(
+    [
+      revisedItem('a', {
+        title: 'Board A',
+        workflow: 'board',
+        arguments: { seed: 7 },
+        result: {
+          job: 'job-a',
+          run_id: 'run-a',
+          output: { name: 'run/a.png', kind: 'image' },
+        },
+      }),
+      item('b', {
+        title: 'Shot B',
+        depends_on: ['a'],
+        workflow: 'shot',
+      }),
+    ],
+    { history: [entry(3, 'agent', 'opened')] },
+  )
+
+it('a revised item shows its result, why, and Run take 2 beside it; its dependent waits', async () => {
+  world.ledger = fakeLedger(revisedPlan())
+  priced()
+  await start()
+  const a = row('a')
+  expect(a.querySelector('.chip')?.textContent).toBe('revised')
+  expect(a.querySelector('img')).toBeTruthy()
+  expect(
+    within(a).getByText('The prompt board-01 changed since take 1.'),
+  ).toBeTruthy()
+  expect(row('b').querySelector('.chip')?.textContent).toBe('waiting')
+  await fireEvent.click(within(a).getByRole('button', { name: 'Run take 2…' }))
+  const dialog = await screen.findByRole('dialog', {
+    name: 'Run another take of Board A',
+  })
+  await within(dialog).findByText(/~6 min on cuda/)
+  await fireEvent.click(within(dialog).getByRole('button', { name: 'Run 1' }))
+  await waitFor(() =>
+    expect(world.submitJob).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workflow_path: 'board',
+        arguments: { seed: 7 },
+        request: 'r1',
+        item: 'a',
+      }),
+    ),
+  )
+})
+
+it('Run what is ready lists a revised item, and Keep this take makes it done', async () => {
+  world.ledger = fakeLedger(revisedPlan())
+  priced()
+  await start()
+  await fireEvent.click(screen.getByRole('button', { name: 'Run 1 ready…' }))
+  const dialog = await screen.findByRole('dialog', {
+    name: 'Run what is ready',
+  })
+  expect(within(dialog).getByText('Board A')).toBeTruthy()
+  await fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+  await fireEvent.click(
+    within(row('a')).getByRole('button', { name: 'Keep this take' }),
+  )
+  await saved(4)
+  expect(whys()).toEqual(['keep job-a for a'])
+  const sent = world.ledger.puts[0].items.find((i) => i.key === 'a')
+  expect(sent).toMatchObject({
+    accepted: { job: 'job-a', run_id: null },
+    workflow: 'board',
+    arguments: { seed: 7 },
+  })
+  await waitFor(() =>
+    expect(row('a').querySelector('.chip')?.textContent).toBe('done'),
+  )
+  expect(
+    within(row('a')).queryByRole('button', { name: 'Keep this take' }),
+  ).toBeNull()
 })

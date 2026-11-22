@@ -44,6 +44,8 @@ const waitsOn = (row: ItemState) =>
 
 /** Why "run what is ready" passes over a live item that is not done */
 function skipReason(row: ItemState): string {
+  if (row.display === 'revised' && !row.blockers.length && !row.item.workflow)
+    return 'no stored workflow: ask the agent to run it'
   if (row.display === 'queued') return 'already queued'
   if (row.display === 'running') return 'already running'
   if (row.blockers.length) return waitsOn(row)
@@ -51,13 +53,12 @@ function skipReason(row: ItemState): string {
   return `${CHIP[row.display].word}: run it again from its row`
 }
 
-/** The run of everything ready, in plan order. Done items are not listed:
- * there is nothing to say about them. */
+/** The run of everything ready, in plan order: ready items, and revised
+ * ones whose dependencies are done. Done items are not listed: there is
+ * nothing to say about them. */
 export function readyPlan(plan: PlanState): RunPlan {
-  const ready = plan.live.filter((row) => row.display === 'ready')
-  const rest = plan.live.filter(
-    (row) => row.display !== 'ready' && row.display !== 'done',
-  )
+  const ready = plan.live.filter((row) => row.runsNow)
+  const rest = plan.live.filter((row) => !row.runsNow && row.display !== 'done')
   return {
     candidates: ready.map(candidate),
     skipped: rest.map((row) => ({
@@ -74,7 +75,7 @@ export function readyPlan(plan: PlanState): RunPlan {
  * order, ticked as a run of what is ready is */
 export function heldPlan(plan: PlanState, keys: readonly string[]): RunPlan {
   const rows = plan.live.filter(
-    (row) => keys.includes(row.item.key) && row.display === 'ready',
+    (row) => keys.includes(row.item.key) && row.runsNow,
   )
   return {
     candidates: rows.map(candidate),
@@ -103,9 +104,10 @@ export function heldLine(
   }
 }
 
-/** What stands as a done item's result while another take is made */
+/** What stands as a done or revised item's result while another take is
+ * made */
 export function retakeLine(row: ItemState): string | null {
-  if (row.display !== 'done') return null
+  if (row.display !== 'done' && row.display !== 'revised') return null
   const accepted = takesOf(row.item).find((take) => take.mark === 'accepted')
   return accepted
     ? `Take ${accepted.n} stays the accepted result until you accept another.`
