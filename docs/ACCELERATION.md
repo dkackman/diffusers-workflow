@@ -206,6 +206,8 @@ On the quality-ramp rungs (ep 6 cold open, 4 references, 1344x768, 124 frames; m
 | B3: base model, int8, 12 steps | 13.0 / 12.9 / 12.9 | 12.3 / 12.0 / 12.1 | 1.06-1.07x |
 | L5: base model, int8, 30 steps | 29.7 / 29.7 / 29.7 | 26.8 / 26.6 / 26.4 | 1.11-1.12x |
 
+Those sparse columns route by tau 0.5. With the default top-k 0.15 routing L5 runs 23.9-25.5 min (the table under *Top-k 0.15 against tau 0.5*), 1.16-1.24x against `sage_hub`'s 29.7.
+
 The `first_block` cache on `sage_hub` (23.1 min at L5's settings) is still faster than sparse alone there; sparse with that cache is not measured.
 
 **Where it cannot run.** It needs CUDA with compute capability 8.0 or higher. Anywhere else (MPS, CPU, an older card, an unsupported dtype or head size) the run goes dense instead of failing, and says so twice: `validate_workflow` warns `sparse_attention_fallback` when the server's device is not CUDA, and the run reports `<label>: sparse attention ran dense - <reason>` once per pipeline call, so a chained, `shots-batch` or `dialogue-short` job warns once per segment or shot, under its label. Whether a call runs sparse is decided once, before its first forward: a comfy-kitchen kernel that fails on its first invocation runs that call dense (`sparse kernel failed: <error>`), and one that fails after it has run fails the run.
