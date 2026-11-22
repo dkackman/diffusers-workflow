@@ -57,6 +57,7 @@ from ...security import (
     validate_path,
 )
 from ...workspace import DEFAULT_WORKSPACE_NAME, Workspace, forget_workspace_usage
+from ..changes import GALLERY, changed, changed_assets
 from ..deps import (
     asset_library_missing,
     internal_error,
@@ -438,11 +439,9 @@ def delete_output(
     name = strip_output_prefix(name)
     run_dir = run_directory(name, ws.outputs)
     if run_dir is not None:
-        return {
-            "name": name,
-            "deleted": True,
-            "run_swept": delete_run_directory(run_dir, ws.outputs),
-        }
+        swept = delete_run_directory(run_dir, ws.outputs)
+        changed(request, ws.name, GALLERY)
+        return {"name": name, "deleted": True, "run_swept": swept}
 
     path = resolve_output_file(request.app.state, name, ws.outputs)
     os.remove(path)
@@ -460,6 +459,7 @@ def delete_output(
             logger.warning(f"Could not drop the note for {name}: {e}")
     swept = _prune_empty_run_directory(name, ws.outputs)
     forget_workspace_usage()
+    changed(request, ws.name, GALLERY)
     return {"name": name, "deleted": True, "run_swept": swept}
 
 
@@ -574,6 +574,13 @@ def put_note(
             stored, source = effective_note(read_notes(directory), name)
     except OSError:
         raise internal_error(f"Could not write the note on {body.target!r}")
+    if kind == "workspace":
+        # The sidebar lists workspace notes: the server-wide counter
+        request.app.state.changes.bump_workspaces()
+    elif is_asset_reference(body.target):
+        changed_assets(request, ws, directory)
+    else:
+        changed(request, ws.name, GALLERY)
     return {
         "target": body.target,
         "note": stored,
@@ -607,4 +614,5 @@ def put_star(
         starred = set_file_starred(directory, name, body.starred)
     except OSError:
         raise internal_error(f"Could not write the star on {body.name!r}")
+    changed(request, ws.name, GALLERY)
     return {"name": body.name, "starred": starred}

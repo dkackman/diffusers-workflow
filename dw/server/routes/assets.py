@@ -45,6 +45,7 @@ from ...security import (
 )
 from ...library import ReadOnlyLibraryError, shadowed_listing
 from ...workspace import Workspace, forget_workspace_usage
+from ..changes import ASSETS, changed, changed_assets, changed_everywhere
 from ..deps import (
     asset_library_missing,
     asset_users,
@@ -262,6 +263,10 @@ async def upload_media(
     absolute_url = absolute_served_url(path, ws)
     if absolute_url is not None:
         result["absolute_url"] = absolute_url
+    if shared:
+        changed_everywhere(request, ASSETS)
+    else:
+        changed(request, ws.name, ASSETS)
     return result
 
 
@@ -524,6 +529,10 @@ def keep_output_as_asset(
     _describe_new_asset(destination, note)
 
     logger.info(f"Kept output {body.name} as {make_ref(ASSET, asset_name)}")
+    if body.shared:
+        changed_everywhere(request, ASSETS)
+    else:
+        changed(request, ws.name, ASSETS)
     return {
         "reference": make_ref(ASSET, asset_name),
         "name": asset_name,
@@ -607,6 +616,7 @@ def delete_asset(
         except OSError as e:
             logger.warning(f"Could not clear what {path} left beside it: {e}")
         forget_workspace_usage()
+        changed_assets(request, ws, path)
         return {
             "name": relative,
             "workspace": ws.name,

@@ -26,6 +26,7 @@ from ..workspace import (
 from . import api_models
 from .http_security import install_middleware
 from .jobs import JobManager
+from .changes import Changes
 from .listening import Listening
 from .netinfo import LOOPBACK_HOSTS, WILDCARD_HOSTS
 from .observed_cost import ObservedCosts
@@ -262,6 +263,9 @@ def create_app(
     )
     app.state.mcp_mounted = mcp_asgi is not None
     app.state.listening = Listening()
+    # One registry the routes and the job manager both bump (dw/server/changes.py)
+    app.state.changes = Changes()
+    manager.changes = app.state.changes
     _store_serving(
         app.state,
         host,

@@ -33,6 +33,8 @@ from ..api_models import (
     WorkspaceList,
 )
 
+from ..api_models_library import WorkspaceChanges
+from ..changes import ASSETS, GALLERY, PROMPTS, WORKFLOWS, changed, changed_everywhere
 from ...argument_warnings import workflow_argument_warnings
 from ...schema import format_validation_errors, load_schema, validate_data
 from ... import references, validation
@@ -77,6 +79,7 @@ from ..catalog_shape import derive_catalog_metadata, project_listing
 from ..deps import (
     internal_error,
     lora_index,
+    workspace_for,
     observed_for_name,
     server_prompt_library,
     writable_prompt_directory,
@@ -134,6 +137,22 @@ def list_workspaces(request: Request):
     }
 
 
+@router.get(
+    "/api/workspaces/{name}/changes",
+    response_model=WorkspaceChanges,
+    response_model_exclude_unset=True,
+)
+def workspace_changes(request: Request, name: str):
+    """This workspace's change counters, for a page to notice a write it
+    did not make: one counter per kind of data, each only growing, and
+    `epoch`, which changes when the counters start again. A page reloads
+    when the counter of what it shows moves. Read-only and cheap: one
+    lock, no disk. 404 for an unknown workspace."""
+    state = request.app.state
+    ws = workspace_for(state, name)
+    return state.changes.snapshot(ws.name)
+
+
 @router.post(
     "/api/workspaces",
     status_code=201,
@@ -152,6 +171,8 @@ def add_workspace(http_request: Request, request: WorkspaceRequest):
     except FileExistsError as e:
         raise HTTPException(status_code=409, detail=str(e))
     forget_workspace_usage()
+    state.changes.forget(created.name)
+    state.changes.bump_workspaces()
     logger.info(f"Created workspace {request.name} at {created.root}")
     return created.describe()
 
@@ -233,7 +254,7 @@ def copy_into_workspace(
             and getattr(job, "run_dir", None)
         ]
     try:
-        return copy_between(
+        copied = copy_between(
             source, target, request.runs, request.assets, active_runs=active
         )
     except CopyRefused as e:
@@ -243,6 +264,9 @@ def copy_into_workspace(
         raise HTTPException(status_code=e.status, detail=detail)
     except (SecurityError, InvalidInputError, ValueError) as e:
         raise HTTPException(status_code=400, detail=str(e))
+    kinds = ((GALLERY,) if request.runs else ()) + ((ASSETS,) if request.assets else ())
+    changed(http_request, target.name, *kinds)
+    return copied
 
 
 @router.delete(
@@ -308,6 +332,8 @@ def remove_workspace(request: Request, name: str, acknowledged: bool = False):
         raise HTTPException(status_code=400, detail=str(e))
     forget_workspace_usage()
     manager.forget_workspace(name)
+    state.changes.forget(name)
+    state.changes.bump_workspaces()
     logger.info(f"Deleted workspace {name}")
     return {"name": name, "deleted": True, "contents": contents}
 
@@ -480,7 +506,9 @@ def save_workflow(
             detail='Provide the definition as {"workflow": {...}}',
         )
     with _WORKFLOW_WRITE_LOCK:
-        return _write_validated(http_request.app.state, ws, name, request.workflow)
+        saved = _write_validated(http_request.app.state, ws, name, request.workflow)
+    changed(http_request, ws.name, WORKFLOWS)
+    return saved
 
 
 @router.patch(
@@ -507,7 +535,9 @@ def patch_workflow(
                 current = json.load(file)
         except (OSError, json.JSONDecodeError) as e:
             raise HTTPException(status_code=500, detail=f"Could not read workflow: {e}")
-        return _write_validated(state, ws, name, merge_patch(current, patch))
+        saved = _write_validated(state, ws, name, merge_patch(current, patch))
+    changed(http_request, ws.name, WORKFLOWS)
+    return saved
 
 
 @router.delete(
@@ -540,6 +570,7 @@ def delete_workflow(
     # deletes and recreates the same workflow, would inherit the deleted
     # copy's observed figures and host-memory history
     manager.history.orphan_workflow_history(ws.name, name)
+    changed(request, ws.name, WORKFLOWS)
     return {
         "name": name,
         "workspace": ws.name,
@@ -787,6 +818,8 @@ def save_prompt(http_request: Request, name: str, request: PromptRequest):
         json.dump(request.prompt, file, indent=2)
         file.write("\n")
     logger.info(f"Saved prompt {name} to {path}")
+    # One library every workspace reads
+    changed_everywhere(http_request, PROMPTS)
     return {"name": name}
 
 
@@ -809,6 +842,7 @@ def delete_prompt(request: Request, name: str):
     os.remove(path)
     logger.info(f"Deleted prompt {name} ({path})")
     forget_workspace_usage()
+    changed_everywhere(request, PROMPTS)
     return {"name": name, "deleted": True}
 
 

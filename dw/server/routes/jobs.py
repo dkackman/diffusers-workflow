@@ -18,6 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
+from ..changes import GALLERY, JOBS, changed
 from ..api_models import (
     JobCancelled,
     JobDetail,
@@ -365,12 +366,13 @@ def delete_job_run(request: Request, job_id: str):
         raise HTTPException(
             status_code=404, detail=f"Job {job_id}'s run directory is already gone"
         )
-    return {
-        "job_id": job_id,
-        "run_dir": run_dir,
-        "deleted": True,
-        "run_swept": delete_run_directory(path, root),
-    }
+    swept = delete_run_directory(path, root)
+    workspace = (
+        job.get("workspace") if isinstance(job, dict) else job.spec.get("workspace")
+    )
+    # The job page shows its files, the gallery the run
+    changed(request, workspace, GALLERY, JOBS)
+    return {"job_id": job_id, "run_dir": run_dir, "deleted": True, "run_swept": swept}
 
 
 @router.get(
