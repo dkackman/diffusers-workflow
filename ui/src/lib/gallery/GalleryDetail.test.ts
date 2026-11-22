@@ -371,12 +371,15 @@ describe('the note for the agent', () => {
   })
 })
 
+// keep_output's exists refusal carries no code, only this wording
+// (dw/server/routes/assets.py)
+const TAKEN =
+  'asset:face.png already exists - pass overwrite=true to replace it'
+
 it('cancelling Replace on keep-as-asset shows no error', async () => {
   const { ApiError } = await import('../apiErrors')
   vi.spyOn(window, 'prompt').mockReturnValue('face.png')
-  keepOutput.mockRejectedValueOnce(
-    new ApiError('that name is taken', 409, 'exists'),
-  )
+  keepOutput.mockRejectedValueOnce(new ApiError(TAKEN, 409))
   render(ConfirmDialog)
   render(GalleryDetail, props)
   await fireEvent.click(screen.getByRole('button', { name: /keep as asset/i }))
@@ -397,7 +400,7 @@ it('accepting Replace on keep-as-asset retries with overwrite', async () => {
   const { ApiError } = await import('../apiErrors')
   vi.spyOn(window, 'prompt').mockReturnValue('face.png')
   keepOutput
-    .mockRejectedValueOnce(new ApiError('taken', 409))
+    .mockRejectedValueOnce(new ApiError(TAKEN, 409))
     .mockResolvedValueOnce({ reference: 'asset:face.png' })
   render(ConfirmDialog)
   render(GalleryDetail, props)
@@ -408,4 +411,22 @@ it('accepting Replace on keep-as-asset retries with overwrite', async () => {
   )
   await waitFor(() => expect(keepOutput).toHaveBeenCalledTimes(2))
   expect(keepOutput).toHaveBeenLastCalledWith(file.name, 'face.png', true)
+})
+
+it('a keep refused for another reason shows the reason, not Replace', async () => {
+  const { ApiError } = await import('../apiErrors')
+  vi.spyOn(window, 'prompt').mockReturnValue('face.png')
+  keepOutput.mockRejectedValueOnce(
+    new ApiError('This workspace has no asset library', 409),
+  )
+  render(ConfirmDialog)
+  render(GalleryDetail, props)
+  await fireEvent.click(screen.getByRole('button', { name: /keep as asset/i }))
+  await waitFor(() =>
+    expect(notifyMock.error).toHaveBeenCalledWith(
+      'This workspace has no asset library',
+    ),
+  )
+  expect(screen.queryByRole('alertdialog')).toBeNull()
+  expect(keepOutput).toHaveBeenCalledTimes(1)
 })

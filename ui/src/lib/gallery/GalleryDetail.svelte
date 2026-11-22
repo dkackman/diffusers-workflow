@@ -94,6 +94,14 @@
     }
   })
 
+  /** keep_output's 409 for a name already in the library. Its 409 also
+   * means "no asset library", and neither refusal carries a code, so the
+   * taken one is told apart by its wording. */
+  function nameTaken(e: unknown): boolean {
+    if (!(e instanceof ApiError) || e.status !== 409) return false
+    return e.code === 'exists' || e.message.includes('already exists')
+  }
+
   /** Keep this file as an input asset, so a later workflow can name it
    * without depending on the run that made it. */
   async function keepAsAsset() {
@@ -109,7 +117,7 @@
     } catch (e) {
       // The server refuses an existing name rather than replacing it; the
       // choice to replace belongs to the person, not the button
-      if (e instanceof ApiError && e.status === 409) {
+      if (nameTaken(e)) {
         const replace = await confirmDialog(
           `${ASSET}${assetName} already exists. Replace it?`,
           { confirmLabel: 'Replace', title: 'Replace asset' },
