@@ -149,6 +149,27 @@ def test_reaccept_records_prompt_digests(tmp_path):
     assert read(digests({"p": D2}))["status"] == "done"
     assert read(digests({"p": D3}))["status"] == "revised"
 
+    # a new take on the current text makes it done although j1 stays
+    # accepted: the basis judges the accepted take only (C-F1217 step 3)
+    jobs.append(ptake({"p": D3}, job="j2", created=500))
+    a = read(digests({"p": D3}))
+    assert a["status"] == "done" and "revised_because" not in a
+    assert a["result"]["job"] == "j1"
+
+
+def test_basis_judges_only_the_accepted_take():
+    a = prompt_item(
+        accepted={"job": "j1"},
+        accepted_basis={"at": stamp(T0), "prompts": {"p": D2}},
+    )
+    old = ptake({"p": D1})
+    assert not is_revised(a, [old], digests({"p": D2}))
+    # j2 ran on D1: the accepted basis (D2) must not make it look current
+    other = ptake({"p": D1}, job="j2", created=500)
+    a_other = {**a, "accepted": {"job": "j9"}}
+    assert is_revised(a_other, [other], digests({"p": D2}))
+    assert not is_revised(a_other, [ptake({"p": D2}, job="j2")], digests({"p": D2}))
+
 
 # --- 7: PromptDigests --------------------------------------------------------
 
