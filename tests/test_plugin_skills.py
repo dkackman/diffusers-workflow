@@ -2484,6 +2484,8 @@ class TestSkillRequests:
             "`dropped`",
             "watches every workspace on the server",
             "belongs to another session",
+            "hold the revised items again with a fresh",
+            "the whole set shares",
         ):
             assert claim in text, claim
 

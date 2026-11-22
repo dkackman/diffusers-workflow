@@ -527,7 +527,7 @@ it('the one filled button runs what is ready, through the priced dialog', async 
   expect(row('s4').querySelector('.chip')?.textContent).toBe('ready')
 })
 
-it('a ready row has Run…, a done one another take in its menu; a waiting one neither', async () => {
+it('a ready row has Run…, a done one Another take… on the row and in its menu; a waiting one neither', async () => {
   world.ledger = fakeLedger(runnable())
   priced()
   await start()
@@ -536,6 +536,21 @@ it('a ready row has Run…, a done one another take in its menu; a waiting one n
   const single = await screen.findByRole('dialog', { name: 'Run Shot 4' })
   expect(within(single).queryByRole('checkbox')).toBeNull()
   await fireEvent.click(within(single).getByRole('button', { name: 'Cancel' }))
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+  // in plain view on the row: the next take is the usual step after a note
+  await fireEvent.click(
+    within(row('cast')).getByRole('button', {
+      name: 'Run another take of Cast sheet',
+    }),
+  )
+  expect(
+    await screen.findByRole('dialog', {
+      name: 'Run another take of Cast sheet',
+    }),
+  ).toBeTruthy()
+  await fireEvent.click(
+    within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancel' }),
+  )
   await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
   await choose('cast', 'Run another take…')
   const again = await screen.findByRole('dialog', {

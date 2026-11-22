@@ -152,26 +152,17 @@ test('a done item shows its takes as pictures, the latest marked as the result',
   await page.goto(REQUEST)
   const hero = item(page, 'Hero poster')
   await expect(hero.locator('.row .chip')).toHaveText('done')
-  // the row's proof is the result, and leads to the job that made it
-  const proof = hero.locator('.proofcell').getByRole('img', {
-    name: 'result of Hero poster',
-  })
-  await loaded(proof)
-  await expect(hero.locator('.proofcell a')).toHaveAttribute(
-    'href',
-    '#/ws/default/jobs/e2ereqdone02',
-  )
-  // two good takes and none accepted: it says so, and opens to show them
+  // two good takes and none accepted: it says so, and opens to show them;
+  // open, the row's own picture steps aside for the takes
   await expect(hero.locator('.row')).toContainText('2 takes')
   await expect(hero.locator('.row')).toContainText('latest, none accepted')
   await expect(hero.locator('.title')).toHaveAttribute('aria-expanded', 'true')
+  await expect(hero.locator('.proofcell')).toHaveClass(/under/)
   const takes = hero.locator('.strip .tile')
   await expect(takes).toHaveCount(2)
   await expect(takes.nth(0)).toContainText('take 1')
   await expect(takes.nth(0).locator('.mark')).toHaveCount(0)
-  await expect(takes.nth(1).locator('.mark')).toHaveText(
-    'shown as the result (latest)',
-  )
+  await expect(takes.nth(1).locator('.mark')).toHaveText('result (latest)')
   await loaded(takes.nth(0).getByRole('img'))
   await expect(takes.nth(0).getByRole('link')).toHaveAttribute(
     'href',
@@ -184,6 +175,16 @@ test('a done item shows its takes as pictures, the latest marked as the result',
   await expect(
     hero.getByRole('button', { name: 'Accept take 1 for Hero poster' }),
   ).toHaveAttribute('aria-pressed', 'false')
+  // closed, the row's proof is the result, and leads to the job that made it
+  await hero.locator('.title').click()
+  const proof = hero.locator('.proofcell').getByRole('img', {
+    name: 'result of Hero poster',
+  })
+  await loaded(proof)
+  await expect(hero.locator('.proofcell a')).toHaveAttribute(
+    'href',
+    '#/ws/default/jobs/e2ereqdone02',
+  )
 })
 
 test('a note for the agent says whether a session listens, and is in the ledger after a reload', async ({
@@ -301,8 +302,9 @@ test("an item's jobs link narrows the Jobs page to that item", async ({
 }) => {
   await page.goto(REQUEST)
   const hero = item(page, 'Hero poster')
-  await expand(hero, 'Hero poster')
-  await hero.getByRole('link', { name: 'its jobs' }).click()
+  // the item's menu holds its jobs and outputs, not the take strip
+  await hero.getByRole('button', { name: /^More actions for/ }).click()
+  await page.getByRole('dialog').getByRole('link', { name: 'Its jobs' }).click()
   await expect(page.getByTestId('req-filter')).toContainText(`${ID} › hero`)
   await expect(page.locator('.chip.succeeded')).toHaveCount(2)
   await expect(page.locator('.chip.failed')).toHaveCount(0)

@@ -8,8 +8,8 @@
   import { notesWaiting } from './noteState'
   import type { ReviewCountdown } from './review.svelte'
   import { bannerText, holdGroup, runNowKeys } from './reviewText'
-  import { standing } from './standing'
-  import { formatMinutes, formatSpent } from '../format'
+  import { agentSaid, standing } from './standing'
+  import { formatMinutes, formatMtime, formatSpent } from '../format'
   import { requestQuery } from '../requestFilter'
   import { wsHref } from '../routes'
   import type { LedgerRequest } from '../types'
@@ -45,6 +45,9 @@
   } = $props()
 
   const stand = $derived(standing(request, plan))
+  // The agent's latest word: where an answer to a note, or "ready, not
+  // run", is said, so the page does not hide it in Plan changes
+  const said = $derived(agentSaid(request))
   const waiting = $derived(notesWaiting(request))
   const segments = $derived(
     plan.live.map((state) => ({
@@ -90,6 +93,14 @@
 
   <p class="standing">{stand.sentence}</p>
   {#if stand.needs}<p class="needs">{stand.needs}</p>{/if}
+  {#if said}
+    <p class="said" title={said.why}>
+      <span class="who">
+        The agent, r{said.revision} · {formatMtime(Date.parse(said.at) / 1000)}:
+      </span>
+      {said.why}
+    </p>
+  {/if}
   {#if segments.length}
     <RequestProgress {segments} {onselect} />
   {/if}
@@ -182,6 +193,19 @@
   }
   .needs {
     font-weight: 600;
+  }
+  /* The agent's latest word, three lines at most; Plan changes has it whole */
+  .said {
+    font-size: var(--t-sm);
+    max-width: 72ch;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .said .who {
+    color: var(--muted);
   }
   .figures {
     display: flex;
