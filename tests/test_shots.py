@@ -94,6 +94,8 @@ EXPECTED_SITES = {
     # a guide chain's carried tail - a conditioning input, not a joined output
     ("dw/pipeline_processors/chain_continuity.py", "inject"): ("none", 1),
     ("dw/tasks/face_track.py", "paste_face_track"): ("carries", 1),
+    # the generated clip's frames one for one, so its shots hold
+    ("dw/tasks/paste_box.py", "paste_into_box"): ("carries", 1),
     ("dw/tasks/trim.py", "trim_video"): ("trims", 1),
     # the take's own frame count, so its shots hold as they were
     ("dw/tasks/trim.py", "replace_cuts"): ("carries", 1),

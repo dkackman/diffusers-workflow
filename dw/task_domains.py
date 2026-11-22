@@ -673,20 +673,58 @@ def fit_downscale_problem(width, height, downscale):
     return None
 
 
+def fit_align_problem(mode, width, height, align):
+    """The refusal sentence for an `align` that letterbox cannot honour, or
+    None: it is letterbox's alone, and the canvas has to sit on its grid."""
+    if align == 1:
+        return None
+    if mode != "letterbox":
+        return (
+            f"fit_to_model takes 'align' {align} only with mode 'letterbox' "
+            f"(it snaps the letterbox's content box), got mode {mode!r}"
+        )
+    failing = [
+        f"'{name}' {value}"
+        for name, value in (("width", width), ("height", height))
+        if value % align
+    ]
+    if failing:
+        return (
+            f"fit_to_model needs {' and '.join(failing)} (after downscale) to "
+            f"be divisible by 'align' {align}, so the box can sit on its grid"
+        )
+    return None
+
+
 def fit_to_model_errors(arguments):
     """[(argument, message)] for the fit_to_model rules a literal workflow
-    can break before it runs: an unknown `mode` and a size the downscale does
-    not divide. A size, frame count or downscale that is not a whole number
-    is the shared whole-number check's (`domain_violation`) to refuse."""
+    can break before it runs: an unknown `mode`, a size the downscale does
+    not divide, and an `align` off letterbox or not dividing the fitted size.
+    A size, frame count, downscale or align that is not a whole number is the
+    shared whole-number check's (`domain_violation`) to refuse."""
     errors = choice_errors("fit_to_model", arguments)
     sizes = [as_number(arguments.get(name)) for name in ("width", "height")]
     downscale = as_number(arguments.get("downscale", 1))
+    align = as_number(arguments.get("align", 1))
+    mode = arguments.get("mode", "letterbox")
     if not errors and all(
         n is not None and n > 0 and n.is_integer() for n in [*sizes, downscale]
     ):
-        problem = fit_downscale_problem(int(sizes[0]), int(sizes[1]), int(downscale))
+        width, height, downscale = int(sizes[0]), int(sizes[1]), int(downscale)
+        problem = fit_downscale_problem(width, height, downscale)
         if problem is not None:
             errors.append(("downscale", problem))
+        elif (
+            align is not None
+            and align > 0
+            and align.is_integer()
+            and not (isinstance(mode, str) and is_ref(DEFERRED, mode))
+        ):
+            problem = fit_align_problem(
+                mode, width // downscale, height // downscale, int(align)
+            )
+            if problem is not None:
+                errors.append(("align", problem))
     return errors
 
 
