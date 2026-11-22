@@ -41,6 +41,8 @@ A new `records/*.md` owes its row in a family's `plugins/dw/skills/<family>/refe
 
 `h3_audio_vae_probe.py <song>` measures how far a hard-cut held slice's H3 audio-VAE tokens drift from a continuous encode of the whole song, and whether pre- or post-context brings them back; its record is `records/h3-audio-encode-context.md` (#1516).
 
+`held_frames.py scan <workspace root>` lists every video in Don's workspaces (read-only; the JSON goes to `/tmp`), finds the H3 ones from each run's `workflow.json`, and counts held frames - a frame repeating its predecessor while the picture around it moves, the 12-shown-as-24 judder; `report` prints the tables and `file` measures loose clips. Its record is `records/held-frames.md` (#1527, #1551).
+
 ## Measures
 
 `python bench/driver.py measure <record>` re-measures a record's succeeded runs; `report` prints them as a table. Each run's `measures`:
