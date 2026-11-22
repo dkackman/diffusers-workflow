@@ -198,19 +198,55 @@ def build_plan(
         "downloads_required": downloads_required(
             expanded, base_dir, candidate.workflow_dir, cache_dir, lookup_sizes
         ),
-        "estimate": _checked_estimate(
-            candidate,
-            arguments,
-            definition,
+        "estimate": _hybrid_unpriced(
             expanded,
-            entries,
-            device,
-            base_dir,
-            measured_entries=measured_entries,
-            observed=observed,
-            cached_steps=cache_hits,
-            total_steps=step_count,
-            observed_for_child=observed_for_child,
+            _checked_estimate(
+                candidate,
+                arguments,
+                definition,
+                expanded,
+                entries,
+                device,
+                base_dir,
+                measured_entries=measured_entries,
+                observed=observed,
+                cached_steps=cache_hits,
+                total_steps=step_count,
+                observed_for_child=observed_for_child,
+            ),
+        ),
+    }
+
+
+def _hybrid_unpriced(expanded, estimate):
+    """`estimate` with its minutes withdrawn when a step generates under
+    `experimental_hybrid_windows` (#1188, EXPERIMENTAL): its time is windows
+    times steps of forwards plus host transfers, which no template's history
+    or scaling measures, so any figure would be a guess. A real cost model
+    waits on its promotion."""
+    from .pipeline_processors.h3_rules import HYBRID_WINDOWS_INPUT
+
+    hybrid = any(
+        isinstance(step.get("arguments"), dict)
+        and step["arguments"].get(HYBRID_WINDOWS_INPUT) is not None
+        for _, _, step, _, _ in references.iter_steps(
+            expanded.get("steps"), key="pipeline"
+        )
+        if isinstance(step, dict)
+    )
+    if not hybrid or not isinstance(estimate, dict):
+        return estimate
+    unpriced = {
+        key: None for key in estimate if key == "minutes" or key.endswith("_minutes")
+    }
+    return {
+        **estimate,
+        **unpriced,
+        "basis": UNKNOWN,
+        "unpriced_reason": (
+            f"{HYBRID_WINDOWS_INPUT} is experimental: its time is one forward "
+            f"per window per step plus the host-RAM transfers, which no "
+            f"template's history or scaling measures"
         ),
     }
 

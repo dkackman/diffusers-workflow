@@ -24,8 +24,9 @@ rounds up and accepts - 130 runs as 141 - is left alone, and a value whose
 written argument is a `variable:` (or `item:` field) the workflow constrains
 is the declared constraint's to refuse, so it is reported once, where
 constraint_errors puts it. A windowed refine - a step with both
-`refine_windows` and `refine_strength` - runs a take of any length, since
-dw's layout step lifts `max_duration` for that call
+`refine_windows` and `refine_strength` - or the experimental windowed
+generation (`experimental_hybrid_windows`, behind its flag) runs a take of
+any length, since dw's layout step lifts `max_duration` for that call
 (`h3_rules.lifts_duration_ceiling`, the rule both ask), so its `num_frames`
 keeps the floor and loses the ceiling.
 """

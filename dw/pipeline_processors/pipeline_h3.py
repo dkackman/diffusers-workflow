@@ -21,6 +21,7 @@ from .h3_mask import binarized, edits_regions, listen_frames, passes_audio
 from .h3_mask_cells import listen_canvas, media_problems, retimed_indices
 from .h3_rules import (
     REFINE_WINDOWS_INPUT,
+    HYBRID_WINDOWS_INPUT,
     renamed_windows_problem,
     GUIDES_INPUT,
     GUIDE_LIMIT,
@@ -544,6 +545,17 @@ class H3Arguments:
             from .h3_windows import windows_refusal
 
             refusal = windows_refusal(
+                self.pipeline,
+                arguments,
+                has_cache=self.configuration.get("cache") is not None,
+            )
+            if refusal is not None:
+                raise ValueError(f"Step '{self.name}': {refusal}")
+        if arguments.get(HYBRID_WINDOWS_INPUT) is not None:
+            # The experimental windowed generation (#1188), behind its flag
+            from .h3_windows import hybrid_refusal
+
+            refusal = hybrid_refusal(
                 self.pipeline,
                 arguments,
                 has_cache=self.configuration.get("cache") is not None,
