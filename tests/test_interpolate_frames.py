@@ -250,12 +250,10 @@ class _Recorder:
 
 
 def _refill(video, recorder):
-    from dw.tasks.interpolate_frames import interpolate_frames
+    import dw.tasks.interpolate_frames as mod
 
-    with patch(
-        "dw.tasks.interpolate_frames._load_rife_model", side_effect=recorder.load
-    ):
-        return interpolate_frames(video, refill="held")
+    with patch.object(mod, "_load_rife_model", side_effect=recorder.load):
+        return mod.interpolate_frames(video, refill="held")
 
 
 def _same(a, b):
@@ -351,7 +349,9 @@ class TestRefillHeld:
         assert result.shots == shots
 
     def test_held_counts_go_out_as_a_log_event(self):
-        with patch("dw.events.emit_log") as emit:
+        import dw.events
+
+        with patch.object(dw.events, "emit_log") as emit:
             _refill(_take(), _Recorder())
         data = emit.call_args.kwargs
         assert data["command"] == "interpolate_frames"
@@ -363,6 +363,7 @@ class TestRefillHeld:
         with only the IFNet stood in for: the refilled frame is the net's
         answer at the run's timestep."""
         import dw.tasks.interpolate_frames as mod
+        from dw.tasks import model_cache
 
         class BlendNet:
             def __call__(self, img0, img1, timestep, *rest):
@@ -372,7 +373,7 @@ class TestRefillHeld:
 
         frames = _take()
         with (
-            patch("dw.tasks.model_cache.cached_model", return_value=BlendNet()),
+            patch.object(model_cache, "cached_model", return_value=BlendNet()),
             patch("huggingface_hub.hf_hub_download") as download,
         ):
             result = mod.interpolate_frames(frames, refill="held")
@@ -428,6 +429,7 @@ class TestRefillArguments:
         assert any("refill" in e["message"] for e in errors), errors
 
     def test_a_file_video_loads_with_its_soundtrack_for_a_refill(self):
+        import dw.arguments
         from dw.arguments import realize_args
 
         loaded = object()
@@ -435,8 +437,8 @@ class TestRefillArguments:
             "command": "interpolate_frames",
             "arguments": {"video": "take.mp4", "refill": "held"},
         }
-        with patch(
-            "dw.arguments.fetch_video_with_context", return_value=loaded
+        with patch.object(
+            dw.arguments, "fetch_video_with_context", return_value=loaded
         ) as fetch:
             realize_args(task, "/tmp")
         assert fetch.call_args.kwargs.get("with_audio") is True
