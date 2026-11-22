@@ -10,6 +10,8 @@ where it mattered.
 
 import logging
 
+from packaging.version import InvalidVersion, Version
+
 from dw_mcp.client import DEFAULT_WORKSPACE, DwApiError, api_path, clip_note, project
 from dw_mcp import catalog
 
@@ -213,7 +215,52 @@ def server_info(client, cache_entries=False):
     caches = _cache_sizes(client, cache_entries)
     if caches is not None:
         info["caches"] = caches
+    plugin = plugin_status(info.get("version"))
+    if plugin is not None:
+        info["plugin"] = plugin
     return info
+
+
+# How a user brings the dw Claude Code plugin up to date (#1535). Claude Code
+# has no `/plugin update` slash command (only the shell's `claude plugin
+# update`, and the /plugin panel's "Update now"), so the in-session commands
+# are a marketplace refresh then a reinstall - a wrong command is worse than
+# none (Don's ruling on #1535's Q2)
+PLUGIN_UPDATE_COMMANDS = (
+    "/plugin marketplace update diffusers-workflow",
+    "/plugin uninstall dw@diffusers-workflow",
+    "/plugin install dw@diffusers-workflow",
+)
+
+
+def plugin_current_from(version):
+    """The oldest dw plugin release that counts as current against a server
+    at `version`, or None when `version` won't parse.
+
+    A release X.Y.Z gives X.Y.0. A pre-release X.Y.Z-... gives X.(Y-1).0,
+    the last minor that could have shipped - otherwise every session against
+    a develop server would flag the latest released plugin - or X.Y.0 when Y
+    is 0."""
+    if not isinstance(version, str):
+        return None
+    try:
+        parsed = Version(version)
+    except InvalidVersion:
+        return None
+    major, minor = parsed.major, parsed.minor
+    if parsed.is_prerelease and minor > 0:
+        minor -= 1
+    return f"{major}.{minor}.0"
+
+
+def plugin_status(version):
+    """The `plugin` block get_server_info carries: the floor a loaded dw
+    skill's stated release is compared with, and the commands that update
+    the plugin. None when the server's version won't parse."""
+    current_from = plugin_current_from(version)
+    if current_from is None:
+        return None
+    return {"current_from": current_from, "update": list(PLUGIN_UPDATE_COMMANDS)}
 
 
 # What get_server_info carries of each cache: enough to see what dw's disk use

@@ -18,6 +18,8 @@ and the one step (0 below) that keeps the cast fixed; everything past it is
 
 ## Before anything
 
+This skill is written for dw `0.23.0-alpha.1`; `get_server_info`'s `plugin` says whether that is current.
+
 1. `get_server_info` for the device and workspace.
 2. `list_workflows(shape="sequence")` for the H3 templates and for
    `assemble-and-score` - both `dialogue-short`/`music-video` and

@@ -44,7 +44,13 @@ H3, MiniMax Music 3, LTX-2.5, Kandinsky 6, FLUX 3 Klein, MiniMax-H3-Image) plus 
 skills for scripts, series, cinematography and storyboards. See
 `plugins/dw/README.md`, which also gives the optional
 `npx skills add` lines for MiniMax's own prompt skills. Every tool works
-without the plugin.
+without the plugin. To update it, run `/plugin marketplace update
+diffusers-workflow`, `/plugin uninstall dw@diffusers-workflow` and
+`/plugin install dw@diffusers-workflow`, then `/reload-plugins`.
+`get_server_info`'s `plugin` block carries those commands and
+`current_from`, the oldest plugin release that counts as current; each skill
+states the release it was written for, so a session with an older or
+unversioned skill says once that the plugin is out of date.
 
 ### Use the absolute path to `dw-mcp`
 

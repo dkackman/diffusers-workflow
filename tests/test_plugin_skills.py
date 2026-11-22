@@ -98,6 +98,104 @@ def test_there_are_skills():
     assert SKILLS, "the plugin ships at least one skill"
 
 
+# The line a skill states the dw release it was written for with, compared by
+# the agent against get_server_info's `plugin.current_from` (#1535)
+WRITTEN_FOR = re.compile(r"This skill is written for dw `([^`]+)`")
+WRITTEN_FOR_LINE = (
+    "This skill is written for dw `{version}`; `get_server_info`'s `plugin` "
+    "says whether that is current."
+)
+
+
+def _plugin_version():
+    with open(
+        os.path.join(PLUGIN_DIR, ".claude-plugin", "plugin.json"), encoding="utf-8"
+    ) as f:
+        return json.load(f)["version"]
+
+
+def _starts_at_get_server_info(text):
+    """A skill whose first step calls get_server_info: its first numbered
+    step under *Before anything*, or its first section's first sentence,
+    read past the written-for line itself."""
+    text = re.sub(r"^This skill is written for dw .*\n\n", "", text, flags=re.M)
+    first_step = re.search(r"^(?:1\. |## 1\. .*\n\n)(.*)$", text, re.M)
+    return bool(first_step) and first_step.group(1).startswith("`get_server_info`")
+
+
+SERVER_FIRST_SKILLS = [
+    path
+    for path in SKILLS
+    if _starts_at_get_server_info(open(path, encoding="utf-8").read())
+]
+
+
+def test_ten_skills_start_at_get_server_info():
+    """Every skill but cinematography, which makes no server call. A skill
+    added without the first step, or with it, moves this count on purpose."""
+    names = sorted(os.path.basename(os.path.dirname(p)) for p in SERVER_FIRST_SKILLS)
+    assert len(names) == 10, names
+    assert "cinematography" not in names
+
+
+@pytest.mark.parametrize(
+    "path", SERVER_FIRST_SKILLS, ids=lambda p: os.path.basename(os.path.dirname(p))
+)
+def test_a_server_first_skill_states_the_plugin_version(path):
+    text = open(path, encoding="utf-8").read()
+
+    assert WRITTEN_FOR_LINE.format(version=_plugin_version()) in text
+    assert WRITTEN_FOR.findall(text) == [_plugin_version()]
+
+
+@pytest.mark.parametrize(
+    "path", SKILLS, ids=lambda p: os.path.basename(os.path.dirname(p))
+)
+def test_a_stated_version_is_the_plugin_version(path):
+    """No skill states a release other than plugin.json's."""
+    stated = set(WRITTEN_FOR.findall(open(path, encoding="utf-8").read()))
+    assert stated <= {_plugin_version()}
+
+
+def test_release_sh_rewrites_the_written_for_lines(tmp_path):
+    """The heredoc scripts/release.sh runs over the skills moves each line
+    to the release being cut, and leaves the rest of the file alone."""
+    import subprocess
+    import sys
+
+    script = open(
+        os.path.join(REPO_ROOT, "scripts", "release.sh"), encoding="utf-8"
+    ).read()
+    heredoc = re.search(
+        r'python3 - "\$version" \$skill_paths <<\'EOF\'\n(.*?)\nEOF\n', script, re.S
+    )
+    assert heredoc, "release.sh rewrites the skills' written-for lines"
+    assert re.search(
+        r"^skill_paths=\$\(ls plugins/dw/skills/\*/SKILL\.md\)$", script, re.M
+    )
+    # Both commits carry the skills along with the other two version files
+    assert script.count('"$plugin_path" $skill_paths') == 3
+
+    skill = tmp_path / "SKILL.md"
+    before = "# x\n\n" + WRITTEN_FOR_LINE.format(version="0.9.0") + "\n\nrest `0.9.0`\n"
+    skill.write_text(before, encoding="utf-8")
+    untouched = tmp_path / "OTHER.md"
+    untouched.write_text("no line here\n", encoding="utf-8")
+
+    subprocess.run(
+        [sys.executable, "-", "0.24.0", str(skill), str(untouched)],
+        input=heredoc.group(1),
+        text=True,
+        check=True,
+        capture_output=True,
+    )
+
+    assert skill.read_text(encoding="utf-8") == before.replace(
+        "dw `0.9.0`", "dw `0.24.0`"
+    )
+    assert untouched.read_text(encoding="utf-8") == "no line here\n"
+
+
 @pytest.mark.parametrize(
     "path", SKILLS, ids=lambda p: os.path.basename(os.path.dirname(p))
 )

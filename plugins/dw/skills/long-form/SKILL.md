@@ -5,25 +5,26 @@ description: Use when a dw MCP server is connected and the request is longer tha
 
 # Long-form pieces on a dw server
 
-A model renders one clip at a time (the *One clip* row). A longer
-piece is planned per piece, then per scene, then per seam, then per run.
-This skill is that plan. The family skills
-(`minimax-h3`, `ltx-2.5`, `minimax-music3`) still own their templates'
-rules and prompt formats, and their rules win. `script-to-video`,
+A model renders one clip at a time (the *One clip* row). This skill
+plans a longer piece per piece, scene, seam and run. The family skills
+(`minimax-h3`, `ltx-2.5`, `minimax-music3`) own their templates' rules and
+prompt formats, and win. `script-to-video`,
 `storyboard` and `series-episodes` own the shot list, the boards and the
 episode cut.
 
 Each rule names its bench record (`bench/records/<name>.md` in the repo;
-`get_guide` serves the guides, not the records). A rule marked
-*community* is another user's report, not a dw measurement. A line marked
-*pending measurement* has no verdict yet. Don't quote a number for it.
+`get_guide` serves the guides, not the records). *community*
+marks another user's report, not a dw measurement; *pending measurement*
+has no verdict yet: quote no number for it.
 
 ## Before anything
 
+This skill is written for dw `0.23.0-alpha.1`; `get_server_info`'s `plugin` says whether that is current.
+
 1. `get_server_info`: the device. H3 is CUDA-first. On a 24 GB Mac,
    `templates/minimax/chained-segments` at its defaults is refused
-   (about 18.3 GB projected against about 17.8 GB; the device reports the real limit). Lower the
-   canvas to 768x448, which fits under guide continuity. `num_frames`
+   (about 18.3 GB projected against 17.8 GB; the device reports the real limit). Lower the
+   canvas to 768x448; it fits under guide continuity. `num_frames`
    cannot drop below 124 (`docs/ACCELERATION.md`, *MPS*).
 2. `list_workflows(shape="sequence")` and `list_workflows(traits="chained")`:
    the long-form templates with their `cost` rows.

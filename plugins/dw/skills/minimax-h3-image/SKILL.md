@@ -14,6 +14,8 @@ short request, a layout by boxes, or a host that is too small goes to the
 
 ## Before anything
 
+This skill is written for dw `0.23.0-alpha.1`; `get_server_info`'s `plugin` says whether that is current.
+
 1. `get_server_info`: the device and the workspace. The recipe is CUDA only.
    On `mps` or `cpu`, stop and use the `flux3-klein` skill.
 2. Host RAM: the host needs about 70 GB or more, and the warm run holds
