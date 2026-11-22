@@ -1759,7 +1759,8 @@ class TestStoryForgeLessons:
         body = " ".join(skill_body(path).split())
         assert "not a measured rule" in body
         assert "frame a recurring character large" in body
-        assert "keep a wide master too" in body
+        # the wide master gave way to the place card (#1582)
+        assert "keep a wide master too" not in body
         assert STORY_FORGE_FINDINGS in body
 
     def test_lesson_5_sits_in_the_casting_steps(self):
@@ -1769,6 +1770,22 @@ class TestStoryForgeLessons:
         series = skill_body(SERIES_SKILL)
         step0 = series[series.index("## 0.") : series.index("## 1-5.")]
         assert "frame a recurring character large" in " ".join(step0.split())
+
+    def test_the_casting_steps_cast_a_place_card(self):
+        """#1577 stage B (#1582): the wide master gives way to a place card,
+        cast beside the portraits and pointing at the probe's pattern."""
+        script = skill_body(SCRIPT_SKILL)
+        step3 = " ".join(script[script.index("## 3.") : script.index("## 4.")].split())
+        series = skill_body(SERIES_SKILL)
+        step0 = " ".join(
+            series[series.index("## 0.") : series.index("## 1-5.")].split()
+        )
+        for step in (step3, step0):
+            assert "place card" in step
+            assert "`asset:places/<set>`" in step
+            assert "*A place card holds the set*" in step
+            assert "#1581" in step and "PRELIMINARY" in step
+        assert "only the cast portraits and place cards" in " ".join(series.split())
 
     def test_no_rule_lands_for_a_lesson_not_reproduced(self):
         ltx_dir = os.path.dirname(LTX_SKILL)
@@ -2807,3 +2824,61 @@ class TestAgentRulesGuide:
         skill = set(NUMBER.findall(_flat(skill_text(AGENT_RULES_SKILLS[section]))))
         missing = sorted(set(NUMBER.findall(_flat(guide))) - skill)
         assert not missing, f"agent-rules {section!r}: {missing} not in its skill"
+
+
+H3_CUTS = os.path.join(PLUGIN_DIR, "skills", "minimax-h3", "references", "cuts.md")
+PLACE_CARD_RECORD = "bench/records/place-card.md"
+
+
+class TestPlaceCard:
+    """#1577 stage B (#1582): stage A's place-card result (#1581) lands in
+    the skills: the pattern in `cuts.md`, tried before the video window, and
+    pointed at from the casting steps and the storyboard."""
+
+    def _section(self):
+        text = open(H3_CUTS, encoding="utf-8").read()
+        start = text.index("## A place card holds the set")
+        rest = text[start + 3 :]
+        end = rest.find("\n## ")
+        return " ".join((rest if end < 0 else rest[:end]).split())
+
+    def test_the_section_cites_the_preliminary_record(self):
+        section = self._section()
+        assert PLACE_CARD_RECORD in section and "#1581" in section
+        assert "PRELIMINARY" in section
+        assert os.path.isfile(os.path.join(REPO_ROOT, PLACE_CARD_RECORD))
+
+    def test_the_card_comes_after_the_people(self):
+        section = self._section()
+        assert "**after** the people" in section
+        assert 'asset_name="places/<set>", shared=True' in section
+        assert "the room of `<Picture K>`" in section
+
+    def test_the_card_holds_only_what_it_shows(self):
+        section = self._section()
+        assert "The card holds what it shows, and nothing else." in section
+        assert "A shot with no people can take the card alone." in section
+        assert "A new look is a new card." in section
+        assert "Don't ask Klein's edit for a reverse card." in section
+
+    def test_the_card_is_tried_before_the_window(self):
+        section = self._section()
+        assert "**Which to try at a cut:** the card first." in section
+        assert "A card and a window together were not probed." in section
+        text = " ".join(open(H3_CUTS, encoding="utf-8").read().split())
+        memory = text[text.index("## Visual memory at a cut") :]
+        assert "Try a place card first" in memory[:400]
+
+    def test_the_example_entry_parses_with_the_card_after_the_person(self):
+        text = open(H3_CUTS, encoding="utf-8").read()
+        start = text.index("## A place card holds the set")
+        block = text[start:].split("```json", 1)[1].split("```", 1)[0]
+        entry = json.loads(block)
+        files = [ref["from_file"] for ref in entry["references"]]
+        assert files[0].startswith("asset:cast/")
+        assert files[1] == "asset:places/<set>.jpg"
+        assert "the room of <Picture 2>" in entry["prompt"]
+
+    def test_the_storyboard_draws_the_same_room(self):
+        body = " ".join(skill_body(STORYBOARD_SKILL).split())
+        assert "place card (`asset:places/<set>`" in body

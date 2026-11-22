@@ -154,7 +154,9 @@ energy by band; see the workflows guide, *Comparing outputs*, *Texture bands*.
 ## Visual memory at a cut
 
 After a hard cut, H3 sees only the new prompt and its references, so the
-room, props and wardrobe of the shots before can change. An earlier shot
+room, props and wardrobe of the shots before can change. Try a place card
+first (*A place card holds the set*, below), then the window this section
+describes. An earlier shot
 passed as a `MiniMaxH3VideoReference` can carry them across. That makes the
 shot ref2va, which refuses guides, anchors and latent carry, so the
 narrated-take shape (fl2va with guides) can't take one. This works for the
@@ -248,3 +250,83 @@ makes the new shot copy its mouth motion. The probe did not show a copy
 (S1s, the whole of A′ at 960x544, spoke its own line on its own timing, as
 viewed), but it was one sample, and the whole clip also cost 4.4x a
 pass and pulled the angle back, so the rule holds on those grounds too.
+
+## A place card holds the set
+
+A *place card* is one still per recurring set: a wide of the empty set, no
+cast and no text. Make it on FLUX 3 Klein (`templates/flux3/text-to-image`),
+naming in its prompt the set's markers (the lamp, the window and its light,
+the shelf), and keep it beside the cast portraits:
+`keep_output(..., asset_name="places/<set>", shared=True)`. Pass it as a
+`MiniMaxH3ImageReference` **after** the people in a ref2va shot's
+`references`, so the cast's `<Picture N>` numbers don't move, and name it in
+the prompt as the room of `<Picture K>`. It is cheap (a still, about 30 s on
+lem) and needs no earlier clip, so it is the first thing to try at a cut; the
+window of *Visual memory at a cut*, above, comes next.
+
+**Probed, PRELIMINARY (lem, turbo, int4, sparse, 1344x768, 124 frames, seed
+1398; November 2026; one seed per arm; #1581, record
+`bench/records/place-card.md`; marker reads are the lead's until Don has
+viewed the clips).** The same scene as #1398: B0 and B2 are its arms, above.
+The card holds the lamp, shelf and window; the coat is not in it.
+
+| Arm | References | Lamp | Shelf | Window | Coat | SFace across A's cut | Framing |
+|---|---|---|---|---|---|---|---|
+| B0 | portrait | lost | held | lost | lost | 0.842 | the reverse |
+| B2 | portrait, 22-frame window of E | held | held | held | held | 0.695 | the reverse |
+| R1 | portrait, card | held | held | held | **lost** | 0.673 | a real reverse, not the card's framing |
+| R2 | portrait, card (a close-up) | held | held | held | lost | 0.804 | stayed a close-up |
+| R4 | two portraits, card (175 frames) | held | held | held | lost | not scored | the two side by side to camera |
+| N1 | card only (no people) | held | held | held | - | - | the empty set; a slight push-in |
+| N0 | none (t2va, N1's prompt) | lost | held | lost | - | - | the empty set |
+
+- **The card holds what it shows, and nothing else.** R1 held all three of
+  its markers on a reverse the card does not frame; the coat, which only the
+  window's frames show, stayed lost. Hold wardrobe or a prop with the window,
+  or by putting it in the portrait.
+- **Its face cost is about the window's.** R1 sits 0.022 below B2 across the
+  cut, within one seed's spread; both sit well below no reference at all.
+- **A close-up carries it.** R2 was not pulled wide: the lamp at the frame
+  edge and the window behind her read the set. Its face score held (0.804),
+  but the close-up's focus is soft, so look at the face.
+- **Two people and a card fit a 24 GB card at 175 frames** (validate projected
+  23.83 GB; it ran). The two stood side by side to camera rather than across
+  the desk, and a prop from one portrait (an accordion) showed in the first
+  frames and went. Stage the blocking in the prompt, and keep props out of the
+  portraits you don't want in the shot.
+- **A shot with no people can take the card alone.** N1 (ref2va, the card as
+  its only reference; in `dialogue-short`, an entry whose `references` lists
+  only the card) held all three markers; N0, the same prompt on t2va,
+  lost the lamp and the window. N1 pushed in slightly despite "Static camera",
+  and its audio was near-silent (-71.9 dBFS; the server warns), so lay its
+  sound on in the mix.
+- **A new look is a new card.** A night version from the same Klein seed and
+  prompt, its light changed, kept the layout. Make one card per look, and
+  keep each under its own name (`places/<set>-night`).
+- **Don't ask Klein's edit for a reverse card.** `templates/flux3/image-edit`
+  asked to turn the card around returned the card's own view. It wasn't
+  needed: one front card carried the reverse (R1).
+
+**Which to try at a cut:** the card first. Use the 22-frame window when the
+card loses what the shot must hold (wardrobe, a prop, a light state the card
+lacks), and when an earlier clip that shows the place exists. A card and a
+window together were not probed. The card takes one of the 9 image slots
+(12 files in all), the window one of the 3 video slots.
+
+A `dialogue-short` shot with one person, the card and her voice:
+
+```json
+{
+    "name": "reverse",
+    "num_frames": 124,
+    "references": [
+        {"reference_type": "diffusers.modular_pipelines.minimax_h3.MiniMaxH3ImageReference",
+         "from_file": "asset:cast/<name>.jpg"},
+        {"reference_type": "diffusers.modular_pipelines.minimax_h3.MiniMaxH3ImageReference",
+         "from_file": "asset:places/<set>.jpg"},
+        {"reference_type": "diffusers.modular_pipelines.minimax_h3.MiniMaxH3AudioReference",
+         "from_file": "asset:cast/<name>-voice.wav"}
+    ],
+    "prompt": "Reverse angle. <Picture 1> sits at the desk in the room of <Picture 2>, facing the window ..."
+}
+```

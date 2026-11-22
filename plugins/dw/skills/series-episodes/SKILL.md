@@ -63,7 +63,11 @@ looks the same" across separate runs; the fixed-asset reference is the only
 guard, so it has to be a deliberate, first step rather than an implicit one.
 As guidance, not a measured rule (`script-to-video` step 3;
 `docs/proposals/audits/2026-11-story-forge-lessons.md`): frame a recurring
-character large, and if the piece needs wides, keep a wide master too.
+character large. Cast each recurring set the same way: one place card (a
+Klein still of the empty set) per location and look, kept as
+`asset:places/<set>` and passed after the people in every shot there; it
+held the set across a reverse (PRELIMINARY, #1581;
+`minimax-h3/references/cuts.md`, *A place card holds the set*).
 
 Save each portrait prompt with `save_prompt` under one folder for the series
 and reference it as `prompt:<series>/<character>` from every episode.
@@ -156,8 +160,8 @@ room-tone bed recipe (`find_loop_bed`, then `slice_audio` -> `loop_audio` ->
 than treating it as a cut to fix.
 
 `output:` a shot straight from its generation run rather than downloading
-and re-uploading it as an asset - only the cast portraits from step 0 need
-to be assets, since they are the one thing that must outlive a single
+and re-uploading it as an asset - only the cast portraits and place cards from
+step 0 need to be assets, since they are the one thing that must outlive a single
 episode's run directory. For `dialogue-short`/`music-video` the per-shot
 clips are the `shot` step's own files, and that step's `subfolder` is
 `intermediate` - `final` there holds only the already-concatenated episode,
