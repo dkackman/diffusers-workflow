@@ -204,6 +204,7 @@
   // Under 640px the rail's sections fold: what the page is for comes first.
   // The page's own width, not the viewport's - the sidebar takes its share
   let page = $state<HTMLElement>()
+  let header = $state<ReturnType<typeof RequestHeader>>()
   let width = $state(0)
   $effect(() => {
     // jsdom has no ResizeObserver; the page then stays unfolded
@@ -267,6 +268,7 @@
     <div class="layout">
       <div class="maincol">
         <RequestHeader
+          bind:this={header}
           {request}
           {plan}
           workspace={ws}
@@ -303,6 +305,7 @@
           onsee={seeChanges}
           onrun={(key) => (running = itemPlan(plan, key))}
           {countdown}
+          onmove={(text, refs) => header?.takeNote(text, refs)}
         />
       </div>
 

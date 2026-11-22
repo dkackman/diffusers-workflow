@@ -45,6 +45,7 @@
     notice,
     onaccept,
     countdown,
+    onmove,
   }: {
     row: ItemState
     request: LedgerRequest
@@ -66,6 +67,8 @@
     onaccept?: (take: Take, job: string | null) => void
     /** The page's review countdowns: what a held row's chip counts down */
     countdown?: ReviewCountdown
+    /** "For the whole request instead" on this item's new note */
+    onmove?: (text: string, refs: LedgerNoteRef[]) => void
   } = $props()
 
   /** What a row's menu can ask of it */
@@ -250,6 +253,7 @@
       {workspace}
       about={item.title}
       {ongo}
+      {onmove}
       onchanged={onreload}
     />
     <!-- What it runs is detail: after the notes, not between the takes and

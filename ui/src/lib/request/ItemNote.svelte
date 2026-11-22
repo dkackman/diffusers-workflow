@@ -40,6 +40,7 @@
     onsaved,
     ondelete,
     onreload,
+    onmove,
   }: {
     /** The saved note; null for the box a new one is written in */
     note: LedgerNote | null
@@ -71,6 +72,9 @@
     ondelete?: () => Promise<void>
     /** Read the request again, after a save found it had moved on */
     onreload: () => void
+    /** An item's new-note box only: hand the draft to the request's own
+     * note box ("For the whole request instead") */
+    onmove?: (text: string) => void
   } = $props()
 
   const MAX = 4000
@@ -106,13 +110,15 @@
 
   /** Open the box: the row's menu and "Note this take" ask for it too. An
    * open box keeps what is in it */
-  export async function edit() {
+  export async function edit(text?: string) {
     if (!editing) {
       if (!kept) draft = saved ?? ''
       kept = false
       refused = null
       editing = true
     }
+    // Moved-in words follow a draft already there, after a blank line
+    if (text) draft = draft.trim() ? `${draft.trimEnd()}\n\n${text}` : text
     await tick()
     box?.focus()
   }
@@ -177,6 +183,13 @@
     )
       return
     if (ondelete) await store(ondelete)
+  }
+  function move() {
+    if (!onmove || wordless) return
+    onmove(draft)
+    kept = false
+    draft = ''
+    void shut()
   }
   function keys(event: KeyboardEvent) {
     if (event.key === 'Escape') {
@@ -258,6 +271,16 @@
         <button type="button" class="bare" onclick={cancel} disabled={saving}>
           Cancel
         </button>
+        {#if onmove && note === null}
+          <button
+            type="button"
+            class="bare"
+            onclick={move}
+            disabled={saving || wordless}
+          >
+            For the whole request instead
+          </button>
+        {/if}
       </div>
     {:else}
       <!-- A new note's references show only in its open box: closed, a
@@ -279,7 +302,7 @@
             type="button"
             class="quiet"
             bind:this={opener}
-            onclick={edit}
+            onclick={() => edit()}
             disabled={saving}
           >
             {kept

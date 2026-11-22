@@ -26,6 +26,7 @@
     pickItems = false,
     ongo,
     onadded,
+    onmove,
     onchanged,
   }: {
     notes: LedgerNote[]
@@ -46,6 +47,9 @@
     /** A new note was stored and its box is empty again; the box's
      * references have been emptied just before */
     onadded?: (note: LedgerNote) => void
+    /** An item's box offers "For the whole request instead": the draft and
+     * what it is about, for the page to take to the request's own box */
+    onmove?: (text: string, refs: LedgerNoteRef[]) => void
     onchanged: () => void | Promise<void>
   } = $props()
 
@@ -67,8 +71,15 @@
 
   let fresh = $state<ReturnType<typeof ItemNote>>()
   /** Open the new note's box */
-  export function add() {
-    return fresh?.edit()
+  export function add(seed?: { text: string; refs: LedgerNoteRef[] }) {
+    if (seed)
+      for (const ref of seed.refs) pendingRefs = addRef(pendingRefs, ref)
+    return fresh?.edit(seed?.text)
+  }
+  function move(text: string) {
+    const refs = writtenRefs(pendingRefs)
+    onmove?.(text, refs.length ? refs : [{ item: item as string }])
+    pendingRefs = []
   }
 
   // The stored note, held until the box has emptied its draft: the
@@ -169,6 +180,7 @@
         extra={pickItems && live.length ? picker : undefined}
         onsave={added}
         onsaved={sent}
+        onmove={item !== null && onmove ? move : undefined}
         onreload={onchanged}
       />
     {/if}

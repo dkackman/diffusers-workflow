@@ -6,7 +6,7 @@
   import { requestQuery } from '../requestFilter'
   import { wsHref } from '../routes'
   import { notify } from '../toast'
-  import type { LedgerRequest } from '../types'
+  import type { LedgerNoteRef, LedgerRequest } from '../types'
   import ConflictNotice from './ConflictNotice.svelte'
   import { dropWarnings, restoredText } from './dropConfirm'
   import ItemMenu from './ItemMenu.svelte'
@@ -38,6 +38,7 @@
     onsee,
     onrun,
     countdown,
+    onmove,
   }: {
     store: PlanStore
     /** The request as the page shows it: the store's view */
@@ -57,6 +58,8 @@
     onrun?: (key: string) => void
     /** The page's review countdowns, for a held row's chip */
     countdown?: ReviewCountdown
+    /** An item's note moved to the request's own box */
+    onmove?: (text: string, refs: LedgerNoteRef[]) => void
   } = $props()
 
   let list = $state<HTMLElement>()
@@ -262,6 +265,7 @@
     {notice}
     onaccept={(take, job) => accept(row, take, job)}
     {countdown}
+    {onmove}
   />
 {/snippet}
 

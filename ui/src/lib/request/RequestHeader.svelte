@@ -12,7 +12,7 @@
   import { formatMinutes, formatMtime, formatSpent } from '../format'
   import { requestQuery } from '../requestFilter'
   import { wsHref } from '../routes'
-  import type { LedgerRequest } from '../types'
+  import type { LedgerNoteRef, LedgerRequest } from '../types'
 
   // Where the ask stands, before anything else on the page: what is
   // happening, what wants the user, how far along it is and what it cost.
@@ -43,6 +43,15 @@
     /** Open the run dialog for these held items: "Run now…" */
     onrunheld?: (keys: string[]) => void
   } = $props()
+
+  let list = $state<ReturnType<typeof NoteList>>()
+  let box = $state<HTMLElement>()
+  /** Take an item's draft into the request's note box, about the item,
+   * and bring the box into view */
+  export async function takeNote(text: string, refs: LedgerNoteRef[]) {
+    await list?.add({ text, refs })
+    box?.scrollIntoView?.({ block: 'nearest' })
+  }
 
   const stand = $derived(standing(request, plan))
   // The agent's latest word: where an answer to a note, or "ready, not
@@ -141,16 +150,19 @@
     </div>
   {/if}
 
-  <NoteList
-    notes={request.notes}
-    {request}
-    item={null}
-    {workspace}
-    about="this request"
-    pickItems
-    ongo={onselect}
-    onchanged={onreload}
-  />
+  <div bind:this={box}>
+    <NoteList
+      bind:this={list}
+      notes={request.notes}
+      {request}
+      item={null}
+      {workspace}
+      about="this request"
+      pickItems
+      ongo={onselect}
+      onchanged={onreload}
+    />
+  </div>
 </header>
 
 <style>

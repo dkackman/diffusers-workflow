@@ -265,3 +265,80 @@ it('tells the page of a stored note once, and keeps the sent draft out of the ta
   const kept = Object.keys(sessionStorage).map((k) => sessionStorage.getItem(k))
   expect(kept.join('')).not.toContain('reroll this one')
 })
+
+const MOVE = 'For the whole request instead'
+
+it('offers the move only on an item’s new-note box, and not while it is empty', async () => {
+  const onmove = vi.fn()
+  render(NoteList, props({ onmove }))
+  expect(screen.queryByRole('button', { name: MOVE })).toBeNull()
+  await fireEvent.click(
+    screen.getByRole('button', { name: 'Add a note for the agent' }),
+  )
+  const button = screen.getByRole('button', { name: MOVE }) as HTMLButtonElement
+  expect(button.disabled).toBe(true)
+  await fireEvent.input(box(), { target: { value: 'all warmer' } })
+  expect(button.disabled).toBe(false)
+  // a saved note's edit box has none
+  expect(screen.getAllByRole('button', { name: MOVE })).toHaveLength(1)
+})
+
+it('has no move on the request’s own box', async () => {
+  render(
+    NoteList,
+    props({
+      item: null,
+      about: 'this request',
+      onmove: vi.fn(),
+      notes: [],
+    }),
+  )
+  await fireEvent.click(
+    screen.getByRole('button', { name: 'Add a note for the agent' }),
+  )
+  expect(screen.queryByRole('button', { name: MOVE })).toBeNull()
+})
+
+it('moves the draft with the item, or the take it was about, and empties the box', async () => {
+  const onmove = vi.fn()
+  render(NoteList, props({ onmove }))
+  await write('all warmer')
+  await fireEvent.click(screen.getByRole('button', { name: MOVE }))
+  expect(onmove).toHaveBeenCalledWith('all warmer', [{ item: 's3' }])
+  expect(api.addNote).not.toHaveBeenCalled()
+  expect(screen.queryByLabelText('Note for the agent on Shot 3')).toBeNull()
+  await fireEvent.click(
+    screen.getByRole('button', { name: 'Add a note for the agent' }),
+  )
+  expect(box().value).toBe('')
+})
+
+it('moves a take the box was about along with the words', async () => {
+  const onmove = vi.fn()
+  render(NoteList, props({ onmove, pendingRefs: [take2] }))
+  await write('all warmer')
+  await fireEvent.click(screen.getByRole('button', { name: MOVE }))
+  expect(onmove.mock.calls[0][1]).toEqual([
+    expect.objectContaining({ item: 's3', job: 'j2' }),
+  ])
+})
+
+it('a seeded add merges refs and appends to a draft already there', async () => {
+  const view = render(NoteList, {
+    ...props({ item: null, about: 'this request', notes: [] }),
+    pickItems: true,
+  } as never)
+  const request = () =>
+    screen.getByLabelText(
+      'Note for the agent on this request',
+    ) as HTMLTextAreaElement
+  await view.component.add({ text: 'first', refs: [{ item: 's3' }] })
+  await waitFor(() => expect(request().value).toBe('first'))
+  await view.component.add({
+    text: 'second',
+    refs: [{ item: 's3' }, { item: 's5' }],
+  })
+  await waitFor(() => expect(request().value).toBe('first\n\nsecond'))
+  const about = screen.getByRole('list', { name: 'What the note is about' })
+  expect(within(about).getAllByRole('listitem')).toHaveLength(2)
+})
