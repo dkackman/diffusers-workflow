@@ -2,9 +2,10 @@
   import { onDestroy } from 'svelte'
   import { Images, Upload } from '@lucide/svelte'
   import MediaPicker from '../assets/MediaPicker.svelte'
-  import { api } from '../api'
+  import { uploadAll } from '../assets/uploads'
   import Suggest from '../ui/Suggest.svelte'
   import {
+    assetLibrary,
     assetNamed,
     ensureAssetLibrary,
     loadAssetLibrary,
@@ -83,7 +84,19 @@
     setLocalPreview(URL.createObjectURL(file))
     uploading = true
     try {
-      const result = await api.uploadMedia(file)
+      const taken = new Set(assetLibrary.items?.map((a) => a.name))
+      const { uploaded, skipped, failed } = await uploadAll([file], {
+        shared: false,
+        taken,
+      })
+      if (failed.length) throw failed[0].error
+      const result = uploaded[0]
+      if (!result) {
+        // Skipped: an existing asset was left alone, so nothing changes
+        setLocalPreview('')
+        if (!skipped.length) error = 'unsupported file type'
+        return
+      }
       onchange(result.reference ?? result.url)
       setLocalPreview(result.url)
       // So the upload is among what an asset: completion offers next

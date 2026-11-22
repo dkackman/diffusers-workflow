@@ -24,6 +24,7 @@
   import { sharedHref } from '../routes'
   import { assetLibrary } from '../assetlib.svelte'
   import { leafName } from '../names'
+  import { UPLOAD_EXTENSIONS, reportUploads, uploadAll } from '../assets/uploads'
   import AssetDetail from '../assets/AssetDetail.svelte'
   import LibraryRow from '../assets/LibraryRow.svelte'
   import ShadowedAssets from '../assets/ShadowedAssets.svelte'
@@ -261,58 +262,23 @@
     await uploadFiles(files, uploadTarget)
   }
 
-  // One file asks for its library name; a dropped batch keeps each file's
-  // own, since a prompt per file would be a dialog storm. Null is a cancel
-  function askNames(
-    files: File[],
-    target: 'workspace' | 'shared',
-  ): (string | undefined)[] | null {
-    if (files.length !== 1) return files.map(() => undefined)
-    const assetName = window.prompt(
-      `Upload — name in the ${target} asset library:`,
-      files[0].name,
-    )
-    return assetName === null ? null : [assetName || undefined]
-  }
-
-  // Each file in turn, so one failing does not stop the rest; what failed
-  // comes back as "name: reason" lines
-  async function sendAll(
-    files: File[],
-    names: (string | undefined)[],
-    target: 'workspace' | 'shared',
-  ): Promise<string[]> {
-    const failed: string[] = []
-    for (const [i, file] of files.entries()) {
-      try {
-        const result = await api.uploadMedia(
-          file,
-          names[i],
-          target === 'shared',
-        )
-        if (files.length === 1)
-          notify.success(`Uploaded as ${result.reference ?? result.url}`)
-      } catch (e) {
-        failed.push(
-          `${file.name}: ${e instanceof Error ? e.message : String(e)}`,
-        )
-      }
-    }
-    return failed
-  }
-
   async function uploadFiles(files: File[], target: 'workspace' | 'shared') {
     if (!files.length) return
-    const names = askNames(files, target)
-    if (!names) return
     busy = true
-    const failed = await sendAll(files, names, target)
-    if (files.length > 1 && failed.length < files.length)
-      notify.success(
-        `Uploaded ${files.length - failed.length} of ${files.length} files`,
+    try {
+      const isShared = target === 'shared'
+      // The names the target library already holds, so Keep both starts
+      // from a free one
+      const taken = new Set(
+        assets
+          .filter((a) => (a.origin === 'workspace') !== isShared)
+          .map((a) => a.name),
       )
-    if (failed.length) notify.error(failed.join('\n'))
-    busy = false
+      const result = await uploadAll(files, { shared: isShared, taken })
+      reportUploads(result)
+    } finally {
+      busy = false
+    }
     await load()
   }
 
@@ -377,7 +343,7 @@
       class="hiddenfile"
       type="file"
       multiple
-      accept="image/*,video/*,audio/*"
+      accept={UPLOAD_EXTENSIONS.join(',')}
       bind:this={fileInput}
       onchange={upload}
     />

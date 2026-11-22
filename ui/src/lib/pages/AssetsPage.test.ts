@@ -85,9 +85,14 @@ const archiveAssets = vi.hoisted(() =>
   vi.fn<(names: string[]) => Promise<void>>(() => Promise.resolve()),
 )
 const uploadMedia = vi.hoisted(() =>
-  vi.fn<(file: File, assetName?: string, shared?: boolean) => Promise<unknown>>(
-    () => Promise.resolve({ reference: 'asset:uploads/x.png' }),
-  ),
+  vi.fn<
+    (
+      file: File,
+      assetName?: string,
+      shared?: boolean,
+      pre?: unknown,
+    ) => Promise<unknown>
+  >(() => Promise.resolve({ reference: 'asset:uploads/x.png' })),
 )
 const setNote = vi.hoisted(() => vi.fn())
 vi.mock('../api', () => ({
@@ -97,8 +102,12 @@ vi.mock('../api', () => ({
     galleryMetadata: () => new Promise(() => {}),
     deleteAsset: (name: string) => deleteAsset(name),
     archiveAssets: (names: string[]) => archiveAssets(names),
-    uploadMedia: (file: File, assetName?: string, shared?: boolean) =>
-      uploadMedia(file, assetName, shared),
+    uploadMedia: (
+      file: File,
+      assetName?: string,
+      shared?: boolean,
+      pre?: unknown,
+    ) => uploadMedia(file, assetName, shared, pre),
   },
 }))
 
@@ -523,10 +532,6 @@ it('selects all matching when a filter is on', async () => {
 // pick that can be left pointing anywhere
 
 function chooseFile(name = 'kept.png') {
-  vi.stubGlobal(
-    'prompt',
-    vi.fn(() => name),
-  )
   const input = document.querySelector('input[type="file"]') as HTMLInputElement
   const file = new File(['x'], name, { type: 'image/png' })
   Object.defineProperty(input, 'files', { value: [file], configurable: true })
@@ -541,7 +546,9 @@ it('uploads into the workspace from the workspace section', async () => {
   const file = chooseFile()
 
   await waitFor(() => expect(uploadMedia).toHaveBeenCalledTimes(1))
-  expect(uploadMedia).toHaveBeenCalledWith(file, 'kept.png', false)
+  expect(uploadMedia).toHaveBeenCalledWith(file, 'kept.png', false, {
+    createOnly: true,
+  })
 })
 
 it('uploads into the shared library from the shared section', async () => {
@@ -553,7 +560,9 @@ it('uploads into the shared library from the shared section', async () => {
   const file = chooseFile()
 
   await waitFor(() => expect(uploadMedia).toHaveBeenCalledTimes(1))
-  expect(uploadMedia).toHaveBeenCalledWith(file, 'kept.png', true)
+  expect(uploadMedia).toHaveBeenCalledWith(file, 'kept.png', true, {
+    createOnly: true,
+  })
 })
 
 // Deleting a shared asset is not deleting a workspace one: it goes for
@@ -724,10 +733,6 @@ it('a drop on the shared page uploads to the shared library without a button cli
   listing.assets = [asset('shared/logo.png', 'common')]
   await renderAssets('logo.png', true)
 
-  vi.stubGlobal(
-    'prompt',
-    vi.fn(() => 'dropped.png'),
-  )
   const file = new File(['x'], 'dropped.png', { type: 'image/png' })
   const drop = new Event('drop', { bubbles: true, cancelable: true })
   Object.defineProperty(drop, 'dataTransfer', {
@@ -736,5 +741,26 @@ it('a drop on the shared page uploads to the shared library without a button cli
   document.querySelector('.dropzone')!.dispatchEvent(drop)
 
   await waitFor(() => expect(uploadMedia).toHaveBeenCalledTimes(1))
-  expect(uploadMedia).toHaveBeenCalledWith(file, 'dropped.png', true)
+  expect(uploadMedia).toHaveBeenCalledWith(file, 'dropped.png', true, {
+    createOnly: true,
+  })
+})
+
+it("a dropped batch is uploaded under the files' names", async () => {
+  await renderAssets()
+  const a = new File(['x'], 'one.png', { type: 'image/png' })
+  const b = new File(['x'], 'two.png', { type: 'image/png' })
+  const drop = new Event('drop', { bubbles: true, cancelable: true })
+  Object.defineProperty(drop, 'dataTransfer', {
+    value: { types: ['Files'], files: [a, b] },
+  })
+  document.querySelector('.dropzone')!.dispatchEvent(drop)
+
+  await waitFor(() => expect(uploadMedia).toHaveBeenCalledTimes(2))
+  expect(uploadMedia).toHaveBeenCalledWith(a, 'one.png', false, {
+    createOnly: true,
+  })
+  expect(uploadMedia).toHaveBeenCalledWith(b, 'two.png', false, {
+    createOnly: true,
+  })
 })
