@@ -43,11 +43,11 @@ import torch.nn.functional as F
 from ..media_types import AudioVideo, FittedVideo, JsonRecord
 from ..task_domains import (
     SOURCE_FPS,
-    as_number,
     check_arguments,
     fit_align_problem,
     fit_downscale_problem,
     fit_mode_problem,
+    fit_record_problem,
     real_number,
     source_fps_problem,
     whole_number,
@@ -55,16 +55,6 @@ from ..task_domains import (
 from .video_utils import frames_of, frames_as_array, load_audio_video
 
 logger = logging.getLogger("dw")
-
-_BOX_KEYS = ("x", "y", "w", "h")
-_RECORD_INTS = (
-    "source_width",
-    "source_height",
-    "source_frames",
-    "model_width",
-    "model_height",
-    "model_frames",
-)
 
 
 def float_frames(video, command):
@@ -272,68 +262,21 @@ def cut_box(frames, box):
     return frames[:, box["y"] : box["y"] + box["h"], box["x"] : box["x"] + box["w"]]
 
 
-def _read_fit(fit):
+def read_fit_record(fit, command="restore_to_source", argument="fit"):
     """The fit record, from the dict a step handed on or its saved .json,
-    checked field by field."""
+    checked by `task_domains.fit_record_problem` - the one rule every reader
+    of the record shares (#1066)."""
     if isinstance(fit, str):
         from ..locations import load_json_record
 
-        fit = load_json_record(fit, None, "a fit argument")
-
-    def refuse(detail):
-        return ValueError(
-            f"restore_to_source needs 'fit' as the record fit_to_model returned "
-            f"(previous_result:<step>.fit, or its saved .json): {detail}"
-        )
-
-    if not isinstance(fit, dict):
-        raise refuse(f"got a {type(fit).__name__}")
-    problem = fit_mode_problem(fit.get("mode"))
+        fit = load_json_record(fit, None, f"a {argument} argument")
+    problem = fit_record_problem(fit)
     if problem is not None:
-        raise refuse(f"its 'mode' is {fit.get('mode')!r}")
-    for key in _RECORD_INTS:
-        value = fit.get(key)
-        if isinstance(value, bool) or not isinstance(value, int) or value < 1:
-            raise refuse(f"its '{key}' is {value!r}, not a whole number above zero")
-    box_name = "source_box" if fit["mode"] == "crop" else "content_box"
-    box = fit.get(box_name)
-    if not isinstance(box, dict) or any(
-        isinstance(box.get(k), bool) or not isinstance(box.get(k), int)
-        for k in _BOX_KEYS
-    ):
-        raise refuse(f"its '{box_name}' is {box!r}, not a box of whole x, y, w, h")
-    if box["x"] < 0 or box["y"] < 0 or box["w"] < 1 or box["h"] < 1:
-        raise refuse(f"its '{box_name}' {box} is not a box inside the frame")
-    bound_w, bound_h = (
-        (fit["source_width"], fit["source_height"])
-        if box_name == "source_box"
-        else (fit["model_width"], fit["model_height"])
-    )
-    if box["x"] + box["w"] > bound_w or box["y"] + box["h"] > bound_h:
-        raise refuse(
-            f"its '{box_name}' {box} runs outside the {bound_w}x{bound_h} frame"
+        raise ValueError(
+            f"{command} needs '{argument}' as the record fit_to_model returned "
+            f"(previous_result:<step>.fit, or its saved .json): {problem}"
         )
-    # Absent from a record saved before #1079, which still restores
-    source_fps = fit.get("source_fps")
-    if source_fps is not None:
-        number = as_number(source_fps)
-        if isinstance(source_fps, str) or number is None or number <= 0:
-            raise refuse(f"its 'source_fps' is {source_fps!r}, not a rate above zero")
     return fit
-
-
-def _whole_box(box):
-    return (
-        isinstance(box, dict)
-        and all(
-            isinstance(box.get(k), int)
-            and not isinstance(box.get(k), bool)
-            and box[k] >= 0
-            for k in _BOX_KEYS
-        )
-        and box["w"] > 0
-        and box["h"] > 0
-    )
 
 
 def restore_to_source(video, fit, fps=None):
@@ -372,7 +315,7 @@ def restore_to_source(video, fit, fps=None):
     problem = source_fps_problem(fps)
     if problem is not None:
         raise ValueError(problem)
-    fit = _read_fit(fit)
+    fit = read_fit_record(fit)
     if isinstance(video, str):
         video = load_audio_video(video)
     carried = getattr(video, "fps", None)
@@ -410,7 +353,7 @@ def restore_to_source(video, fit, fps=None):
     else:
         out_w, out_h = scaled(fit["source_width"]), scaled(fit["source_height"])
         kept = fit.get("source_box")
-        if mode == "letterbox" and _whole_box(kept):
+        if mode == "letterbox" and kept is not None:
             # An aligned letterbox kept a few px less than the whole source
             out_w, out_h = scaled(kept["w"]), scaled(kept["h"])
         if mode == "letterbox":
