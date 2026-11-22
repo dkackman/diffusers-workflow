@@ -938,6 +938,16 @@ remaining deferred fix is recorded in
   defaults are benchmark off, deterministic on, TF32 off. On lem, a seeded
   SD 1.5 image was byte-identical under two-card load, with no slowdown and
   no cost row moved. Design record: `complete/torch-settings-complete.md`.
+- **Held frames in H3 takes** (#1527, stages #1551-#1553), shipped
+  2026-11-22. A CPU probe over 649 of Don's H3 takes found base H3 repeats
+  frames: 79 takes have a cluster, mostly one frame shown twice every 4
+  frames, worst in 5-step takes (`bench/records/held-frames.md`).
+  `assess_output` gains a fourth probe, `analyze_held_frames` (warn at 13),
+  and `interpolate_frames` gains `refill: "held"`, which RIFE-refills only
+  the held runs between their anchors and passes every other frame through.
+  The skills run the probe on every take. Record, including what was
+  deferred (slow-run widening, chain near-stops, #1327's gate):
+  `complete/h3-held-frames-complete.md`.
 
 ## Declined
 
