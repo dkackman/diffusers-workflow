@@ -161,13 +161,111 @@ it('awaits an async guard', async () => {
   const { route, addLeaveGuard } = await loadRouter()
   let answer: (ok: boolean) => void = () => {}
   addLeaveGuard(() => new Promise<boolean>((r) => (answer = r)))
-  const before = location.hash
   location.hash = '#/ws/studio/jobs/j1'
   await tick()
-  expect(location.hash).toBe(before)
+  // the page keeps showing the committed route until the answer arrives
   expect(route.view).not.toMatchObject({ rest: ['j1'] })
   answer(true)
   await tick()
   expect(location.hash).toBe('#/ws/studio/jobs/j1')
   expect(route.view).toMatchObject({ rest: ['j1'] })
+})
+
+// real history: a declined navigation leaves no duplicate or rewritten entry
+const settleHistory = () => new Promise((r) => setTimeout(r, 20))
+
+it('a declined link click undoes its push and Back/Forward still work', async () => {
+  const { route, addLeaveGuard } = await loadRouter()
+  location.hash = '#/ws/studio/overview'
+  await settleHistory()
+  let ok = false
+  addLeaveGuard(() => ok)
+  const depth = history.length
+  location.hash = '#/ws/studio/jobs/j1'
+  await settleHistory()
+  expect(location.hash).toBe('#/ws/studio/overview')
+  expect(route.view).toMatchObject({ section: 'overview' })
+  // the pushed entry is a forward entry, not a duplicate of the current one
+  expect(history.length).toBe(depth + 1)
+  ok = true
+  history.forward()
+  await settleHistory()
+  expect(location.hash).toBe('#/ws/studio/jobs/j1')
+  expect(route.view).toMatchObject({ rest: ['j1'] })
+  history.back()
+  await settleHistory()
+  expect(location.hash).toBe('#/ws/studio/overview')
+  expect(route.view).toMatchObject({ section: 'overview' })
+})
+
+it('a declined link click leaves Back a real step, not a dead press', async () => {
+  const { route, addLeaveGuard } = await loadRouter()
+  location.hash = '#/ws/studio/overview'
+  await settleHistory()
+  location.hash = '#/ws/studio/gallery'
+  await settleHistory()
+  let ok = false
+  addLeaveGuard(() => ok)
+  location.hash = '#/ws/studio/jobs'
+  await settleHistory()
+  expect(location.hash).toBe('#/ws/studio/gallery')
+  ok = true
+  history.back()
+  await settleHistory()
+  expect(location.hash).toBe('#/ws/studio/overview')
+  expect(route.view).toMatchObject({ section: 'overview' })
+})
+
+it('a declined Back keeps the older entry and Forward intact', async () => {
+  const { route, addLeaveGuard } = await loadRouter()
+  location.hash = '#/ws/studio/overview'
+  await settleHistory()
+  location.hash = '#/ws/studio/gallery'
+  await settleHistory()
+  const depth = history.length
+  let ok = false
+  addLeaveGuard(() => ok)
+  history.back()
+  await settleHistory()
+  expect(location.hash).toBe('#/ws/studio/gallery')
+  expect(route.view).toMatchObject({ section: 'gallery' })
+  expect(history.length).toBe(depth)
+  // the entry behind is still overview: an allowed Back lands on it
+  ok = true
+  history.back()
+  await settleHistory()
+  expect(location.hash).toBe('#/ws/studio/overview')
+  expect(route.view).toMatchObject({ section: 'overview' })
+})
+
+it('a declined Forward is undone and a later allowed Forward goes through', async () => {
+  const { route, addLeaveGuard } = await loadRouter()
+  location.hash = '#/ws/studio/overview'
+  await settleHistory()
+  location.hash = '#/ws/studio/gallery'
+  await settleHistory()
+  history.back()
+  await settleHistory()
+  expect(location.hash).toBe('#/ws/studio/overview')
+  let ok = false
+  addLeaveGuard(() => ok)
+  history.forward()
+  await settleHistory()
+  expect(location.hash).toBe('#/ws/studio/overview')
+  expect(route.view).toMatchObject({ section: 'overview' })
+  ok = true
+  history.forward()
+  await settleHistory()
+  expect(location.hash).toBe('#/ws/studio/gallery')
+  expect(route.view).toMatchObject({ section: 'gallery' })
+})
+
+it('keeps the history stamp through setHashQuery', async () => {
+  const { setHashQuery } = await loadRouter()
+  location.hash = '#/ws/studio/jobs'
+  await settleHistory()
+  const stamped = history.state
+  setHashQuery({ q: 'a' })
+  expect(history.state).toEqual(stamped)
+  expect(stamped).toHaveProperty('dwIndex')
 })

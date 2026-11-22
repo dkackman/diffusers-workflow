@@ -87,6 +87,24 @@ type LeaveGuard = () => boolean | Promise<boolean>
 // eslint-disable-next-line svelte/prefer-svelte-reactivity -- not reactive state
 const guards = new Set<LeaveGuard>()
 let asking = false
+let undoing = false
+
+/** Every entry the app commits carries its position in `history.state`, so a
+ * declined navigation can tell a pushed link from a Back or Forward
+ * traversal and walk the history back to the committed entry. */
+function indexOf(): number | undefined {
+  const at = (history.state as { dwIndex?: unknown } | null)?.dwIndex
+  return typeof at === 'number' ? at : undefined
+}
+
+function stamp(at: number) {
+  const state = history.state
+  const kept = state && typeof state === 'object' ? state : {}
+  history.replaceState({ ...kept, dwIndex: at }, '')
+}
+
+let committedIndex = indexOf() ?? 0
+stamp(committedIndex)
 
 /** Ask before the route leaves its current path (an editor with unsaved
  * edits). Return true to allow. Guards are asked in registration order and
@@ -106,32 +124,46 @@ async function allowed(): Promise<boolean> {
   return true
 }
 
-function apply() {
+/** Take the entry the browser is on as the route. */
+function settle() {
+  const at = indexOf() ?? committedIndex + 1
   const next = parse()
   committed = location.hash
   route.parts = next.parts
   route.view = next.view
+  committedIndex = at
+  stamp(at)
+}
+
+/** Walk the history back to the committed entry. A pushed entry (no stamp)
+ * is one step ahead; a traversal is the index difference, either way. The
+ * entry left behind keeps its own URL, so Back and Forward still work. */
+function undo() {
+  const at = indexOf()
+  const delta = at === undefined ? -1 : committedIndex - at
+  if (!delta) return
+  undoing = true
+  history.go(delta)
 }
 
 window.addEventListener('hashchange', () => {
-  const target = location.hash
-  if (asking || !guards.size || pathOf(target) === pathOf(committed)) {
-    // a hashchange during an ask is put back; the ask decides
-    if (asking) history.replaceState(history.state, '', committed)
-    else apply()
+  if (undoing) {
+    // the hashchange of our own history.go
+    undoing = false
     return
   }
-  // hashchange fires after the URL moved: put it back, ask, and on an allow
-  // take the target in place (replaceState adds no entry, fires no event)
-  history.replaceState(history.state, '', committed)
+  if (asking) return
+  if (!guards.size || pathOf(location.hash) === pathOf(committed)) {
+    settle()
+    return
+  }
   asking = true
   allowed()
     .catch(() => false)
     .then((ok) => {
       asking = false
-      if (!ok) return
-      history.replaceState(history.state, '', target)
-      apply()
+      if (ok) settle()
+      else undo()
     })
 })
 
