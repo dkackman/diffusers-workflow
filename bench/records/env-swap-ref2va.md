@@ -206,6 +206,18 @@ length, and the picture keeps the source's timing frame for frame (motion
 table above), so any event in the source track would land where it did in
 the source. A real sync test needs a source clip with audible footsteps.
 
+The other four judged arms got the same mux after the tester's bounce: job
+`a77cff54e534`, run `EnvSwapMux2/20261122-091249-69d5fb11`, four `pair_audio`
+steps (`fit: "video"`, the same source asset). They put the track on C 1001
+(`EnvSwapMux2-mux_c_1001.0-0.0.mp4`), A 2002 (`-mux_a_2002.1-0.0.mp4`), B 2002
+(`-mux_b_2002.2-0.0.mp4`) and C 2002 (`-mux_c_2002.3-0.0.mp4`). Each is 124
+frames / 5.167 s at 24 fps with a 5.167 s, 32 kHz stereo audio stream. The
+levels are the source's (mean -55.35 dBFS, peak -34.5 dBFS, -53.0 LUFS), and
+the decoded audio has the same `pcm_sha256` (`80168a8f…`) on the outputs
+checked (C 1001, B 2002). Each step warned near-silent, which is the source
+track's own level. The sync reading is the same as for A and B: there is no
+event to land, and the length and timing are exact.
+
 The generated outputs' own tracks: A mean -51.93 dBFS, peak -28.96 dBFS
 (warned "quiet overall, not empty"); B mean -56.04 dBFS (warned near-silent).
 The "preserve the original paired soundtrack" lines produce a quiet ambience
