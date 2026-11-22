@@ -37,6 +37,12 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **H3 Ref2VA environment swap that keeps the motion** (#1518, stage #1545), probed
+  2026-11-22. With the clip as the only video reference and a CHANGE/PRESERVE prompt,
+  the setting is replaced and the walk, camera track and clothing hold at both seeds.
+  `retention_analysis` wasn't shown to matter, falling snow wasn't legible, and the
+  soundtrack comes back only through `pair_audio`. The H3 skill line and intents row
+  read `confirmed`: `complete/env-swap-ref2va-complete.md`.
 - **Tell the user when the installed dw plugin is older than the server** (#1535,
   stage #1560), built 2026-11-22. `get_server_info` (MCP only) carries
   `plugin.current_from`, the server version's floor, and the `plugin.update` commands.
