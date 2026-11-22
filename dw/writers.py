@@ -7,6 +7,7 @@ writes (`export_to_video`, `encode_video`) stay in `Result`, where their
 patch targets are looked up.
 """
 
+import gc
 import json
 import logging
 import os
@@ -91,6 +92,11 @@ def encode_video(video, fps, *args, **kwargs):
         return export_utils.encode_video(video, int(fps), *args, **kwargs)
     finally:
         export_utils._import_av = original
+        # diffusers' audio path leaves the encoder in a reference cycle, and
+        # libx264's worker threads live until it is collected: ~65 native
+        # threads per video, enough to exhaust a long-lived process (a test
+        # worker, a persistent job worker) before the cyclic GC next runs.
+        gc.collect()
 
 
 def _artifact_size(artifact):
