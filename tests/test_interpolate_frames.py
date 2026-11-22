@@ -444,6 +444,43 @@ class TestRefillArguments:
         assert fetch.call_args.kwargs.get("with_audio") is True
         assert task["arguments"]["video"] is loaded
 
+    @pytest.mark.parametrize(
+        "reference, resolver",
+        [
+            ("asset:take.mp4", "fetch_asset"),
+            ("output:job/run/take.mp4", "fetch_output"),
+            ({"location": "asset:take.mp4"}, "fetch_asset"),
+        ],
+    )
+    def test_a_path_reference_video_resolves_before_the_soundtrack_load(
+        self, reference, resolver
+    ):
+        """#1553 bounce: an 'asset:'/'output:' video reached load_audio_video
+        as the reference string and failed 'Path does not exist'."""
+        import dw.arguments
+        import dw.tasks.video_utils
+        from dw.arguments import realize_args
+
+        loaded = object()
+        task = {
+            "command": "interpolate_frames",
+            "arguments": {"video": reference, "refill": "held"},
+        }
+        with (
+            patch.object(
+                dw.arguments, resolver, return_value="/srv/take.mp4"
+            ) as resolve,
+            patch.object(
+                dw.tasks.video_utils, "load_audio_video", return_value=loaded
+            ) as load,
+        ):
+            realize_args(task, "/tmp")
+        resolve.assert_called_once()
+        spec = load.call_args.args[0]
+        location = spec["location"] if isinstance(spec, dict) else spec
+        assert location == "/srv/take.mp4"
+        assert task["arguments"]["video"] is loaded
+
 
 class TestTimestep:
     def test_flow_context_timestep_defaults_to_the_midpoint(self):
