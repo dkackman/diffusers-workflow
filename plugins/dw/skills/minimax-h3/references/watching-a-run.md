@@ -19,3 +19,11 @@ running, and the dead-air fix after it finishes.
 A `shot_dead_air` finding means a gap in a voiced shot is digital silence.
 Run `find_loop_bed` on the `output:` cut, then
 `slice_audio`->`loop_audio`->`mix_audio` its pick at its `gain`.
+
+## Held frames
+
+Run `assess_output(name, probe="analyze_held_frames")` on every take. H3 shows
+single repeated frames on a 4-frame spacing, so a few holds are normal. 13 or
+more `held_frames`, or a cluster, means the take visibly stutters there: look
+at the cluster's time with `get_output_frames`, and if it shows, reroll the
+take or re-plan the shot (for example, less fast motion).

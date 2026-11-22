@@ -703,10 +703,17 @@ class TestMissingPackages(unittest.TestCase):
 
 
 class TestRegistration(unittest.TestCase):
-    def test_assessment_is_still_exactly_the_three_probes(self):
+    def test_assessment_is_still_exactly_the_four_probes(self):
         self.assertEqual(
             list_tasks()["assessment"],
-            sorted(["analyze_shots", "analyze_seams", "analyze_sync_drift"]),
+            sorted(
+                [
+                    "analyze_shots",
+                    "analyze_seams",
+                    "analyze_sync_drift",
+                    "analyze_held_frames",
+                ]
+            ),
         )
 
     def test_attribute_voices_is_a_command_but_not_an_assessment_probe(self):

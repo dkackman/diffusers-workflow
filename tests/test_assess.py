@@ -22,6 +22,7 @@ from dw.tasks.assess import (
     THUMB_WIDTH,
     _dead_air,
     _window_levels,
+    analyze_held_frames,
     analyze_seams,
     analyze_shots,
     analyze_sync_drift,
@@ -1182,3 +1183,199 @@ class TestMediaFromFrameArray:
 
         with pytest.raises(ValueError, match="video_frames"):
             media_from(object())
+
+
+# ---------------------------------------------------------------------------
+# analyze_held_frames
+# ---------------------------------------------------------------------------
+
+HELD_H, HELD_W = 72, 128
+
+
+def _texture(seed):
+    """A smooth, textured grey field twice the frame size, so a shift of a few
+    pixels moves every thumbnail pixel by well over the 2.0 floor."""
+    rng = numpy.random.default_rng(seed)
+    field = rng.normal(0, 1, (HELD_H * 2, HELD_W * 2))
+    ky = numpy.fft.fftfreq(HELD_H * 2)[:, None]
+    kx = numpy.fft.fftfreq(HELD_W * 2)[None, :]
+    field = numpy.real(
+        numpy.fft.ifft2(numpy.fft.fft2(field) * numpy.exp(-(kx**2 + ky**2) * 300))
+    )
+    return 128 + 50 * (field - field.mean()) / field.std()
+
+
+def moving_grey(frames, seed=0, speed=3):
+    """`frames` grey frames of a texture panning `speed` pixels a frame."""
+    texture = _texture(seed)
+    return numpy.array(
+        [
+            numpy.roll(texture, -i * speed, axis=1)[:HELD_H, :HELD_W]
+            for i in range(frames)
+        ]
+    )
+
+
+def with_repeats(grey, every=4, offset=2):
+    """Frame i repeats frame i-1 for every `every`th frame, as an H3 take at
+    half rate does."""
+    out = grey.copy()
+    for i in range(offset, len(out), every):
+        out[i] = out[i - 1]
+    return out
+
+
+def held_video(grey, noise=0.0, seed=5):
+    grey = numpy.asarray(grey, dtype=float)
+    if noise:
+        grey = grey + numpy.random.default_rng(seed).normal(0, noise, grey.shape)
+    grey = numpy.clip(grey, 0, 255).astype(numpy.uint8)
+    frames = [Image.fromarray(numpy.stack([g] * 3, -1)) for g in grey]
+    return AudioVideo(frames, None, None, fps=24)
+
+
+def write_grey_mp4(path, grey, fps=24):
+    import av
+
+    container = av.open(str(path), "w")
+    video = container.add_stream(
+        "libx264", rate=fps, options={"crf": "8", "preset": "ultrafast"}
+    )
+    video.width, video.height, video.pix_fmt = HELD_W, HELD_H, "yuv420p"
+    for g in numpy.clip(grey, 0, 255).astype(numpy.uint8):
+        frame = av.VideoFrame.from_ndarray(numpy.stack([g] * 3, -1), "rgb24")
+        for packet in video.encode(frame):
+            container.mux(packet)
+    for packet in video.encode():
+        container.mux(packet)
+    container.close()
+
+
+def held_findings(answer):
+    return [f for f in answer["findings"] if f["rule"] == "held_frames"]
+
+
+class TestHeldFrames:
+    def test_repeats_in_moving_content_are_held_and_clustered(self):
+        answer = analyze_held_frames(held_video(with_repeats(moving_grey(96))))
+
+        # one repeat every 4th frame from frame 2: 24 of 96
+        assert answer["held_frames"] == 24
+        assert answer["frames"] == 96
+        assert answer["clusters"]
+        for cluster in answer["clusters"]:
+            assert cluster["start"] <= cluster["end"]
+        assert answer["clusters"][0]["held"] == 24
+        json.dumps(answer)
+
+    def test_a_count_at_the_threshold_raises_a_file_and_cluster_finding(self):
+        answer = analyze_held_frames(held_video(with_repeats(moving_grey(96))))
+
+        assert "held_frames" in answer["rules_applied"]
+        findings = held_findings(answer)
+        file_level = [f for f in findings if f["at"] == {"file": True}]
+        assert len(file_level) == 1
+        assert file_level[0]["severity"] == "warn"
+        assert file_level[0]["value"] == 24
+        per_cluster = [f for f in findings if f["at"] != {"file": True}]
+        assert len(per_cluster) == len(answer["clusters"])
+        for finding in per_cluster:
+            assert isinstance(finding["at"], float)
+            start, end = finding["range"]
+            assert start <= finding["at"] <= end
+
+    def test_exactly_thirteen_holds_still_warns(self):
+        answer = analyze_held_frames(held_video(with_repeats(moving_grey(96))[:52]))
+
+        assert answer["held_frames"] == 13
+        assert held_findings(answer)
+
+    def test_a_count_below_the_threshold_raises_nothing(self):
+        answer = analyze_held_frames(held_video(with_repeats(moving_grey(96))[:48]))
+
+        assert answer["held_frames"] == 12
+        assert answer["clusters"]
+        assert held_findings(answer) == []
+        assert "held_frames" in answer["rules_applied"]
+
+    def test_a_clean_moving_take_holds_nothing(self):
+        answer = analyze_held_frames(held_video(moving_grey(96)))
+
+        assert answer["held_frames"] == 0
+        assert answer["held_ratio"] == 0.0
+        assert answer["clusters"] == []
+        assert held_findings(answer) == []
+
+    def test_a_static_shot_holds_nothing(self):
+        grey = numpy.repeat(moving_grey(1), 96, axis=0)
+        answer = analyze_held_frames(held_video(grey))
+
+        assert answer["held_frames"] == 0
+        assert held_findings(answer) == []
+
+    def test_a_hard_cut_is_not_a_hold(self):
+        # two low-contrast moving shots, one dark and one bright: a cut the
+        # detector sees (grey frames share a hue histogram, so the change
+        # itself must be large)
+        dark = 0.4 * moving_grey(48, seed=0) - 12.8
+        bright = 0.4 * moving_grey(48, seed=9) + 130
+        grey = numpy.concatenate([dark, bright])
+        # the incoming frame is followed by a near-identical one: without the
+        # cut guard frame 49 reads as a hold
+        grey[49] = grey[48]
+        video = held_video(grey)
+
+        from dw.tasks.assess import _frame_deltas, _held_frames, media_from
+
+        unguarded = _held_frames(_frame_deltas(media_from(video).thumbs), {0})
+        assert unguarded == [49]
+
+        answer = analyze_held_frames(video)
+        assert answer["held_frames"] == 0
+        assert held_findings(answer) == []
+
+    def test_codec_style_noise_does_not_hide_the_repeats(self):
+        grey = with_repeats(moving_grey(96))
+        answer = analyze_held_frames(held_video(grey, noise=0.7))
+
+        assert answer["held_frames"] == 24
+
+    def test_noise_alone_on_a_clean_take_finds_none(self):
+        answer = analyze_held_frames(held_video(moving_grey(96), noise=0.7))
+
+        assert answer["held_frames"] == 0
+        assert held_findings(answer) == []
+
+    def test_detail_adds_a_bounded_series(self):
+        from dw.tasks.assess import HELD_SERIES_POINTS
+
+        grey = with_repeats(moving_grey(1000))
+        plain = analyze_held_frames(held_video(grey))
+        detailed = analyze_held_frames(held_video(grey), detail=True)
+
+        assert "series" not in plain
+        assert 0 < len(detailed["series"]) <= HELD_SERIES_POINTS
+        assert set(detailed["series"][0]) == {"frame", "d"}
+        # the smallest d of each stretch is kept, so holds stay visible
+        assert min(point["d"] for point in detailed["series"]) < 1.0
+
+    def test_held_ratio_is_held_over_frames(self):
+        answer = analyze_held_frames(held_video(with_repeats(moving_grey(96))))
+
+        assert answer["held_ratio"] == answer["held_frames"] / answer["frames"]
+        assert answer["held_ratio"] == 0.25
+
+    def test_a_real_mp4_with_repeats_is_read_through_the_file_path(self, tmp_path):
+        held = tmp_path / "held.mp4"
+        clean = tmp_path / "clean.mp4"
+        grey = moving_grey(96)
+        write_grey_mp4(held, with_repeats(grey))
+        write_grey_mp4(clean, grey)
+
+        answer = analyze_held_frames(str(held))
+        assert answer["frames"] == 96
+        assert answer["held_frames"] == 24
+        assert answer["clusters"]
+        assert held_findings(answer)
+
+        assert analyze_held_frames(str(clean))["held_frames"] == 0

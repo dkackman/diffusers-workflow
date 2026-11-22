@@ -1102,7 +1102,8 @@ A cut joined from shots can succeed and still be wrong at a seam, and the
 whole-file numbers `get_gallery_metadata` reports cannot see inside a join.
 `assess_output(name)` (`GET /api/gallery/{name}/assess`) measures that
 file on the server. It decodes the file once, runs every assessment probe
-that applies to it (`analyze_shots`, `analyze_seams`, `analyze_sync_drift`),
+that applies to it (`analyze_shots`, `analyze_seams`, `analyze_sync_drift`,
+`analyze_held_frames`),
 and returns where to look. It queues nothing: the probes use only the CPU
 and run in the server process, beside whatever job holds the GPU. `name` is
 a gallery name, `output:` or `asset:`. The shot boundaries come from what
@@ -1126,11 +1127,11 @@ Video Processing section for why.
    For a shot, look at that shot's span. Judge it against the request.
 4. Fix what you confirmed (see the table below), then assess the new cut.
 
-Pass `probe="analyze_seams"` (or either of the other two probe names) to
+Pass `probe="analyze_seams"` (or any of the other three probe names) to
 get that one probe's full body: every seam's or shot's measurements, not
 just the ones that crossed a rule. `detail=true` adds every applicable
 probe's full body under `probes`. An unknown probe is refused before
-anything is read, and the error names the three probes. Each seam's full
+anything is read, and the error names the four probes. Each seam's full
 record also carries look measures - saturation, lightness and contrast
 steps, `look_ratio` and `detail_ratio` - that catch a colour or brightness
 shift `jump_ratio` misses; no rule reads them (the tasks guide's
@@ -1143,7 +1144,7 @@ shift `jump_ratio` misses; no rule reads them (the tasks guide's
 | `findings` | Every rule a measurement crossed, each `{rule, severity, at, value, threshold, says}`. `severity` is `warn` or `info`. `at` names the shot or seam. |
 | `rules_applied` | The rules that were checked, so an empty `findings` list says which checks came back clean. |
 | `rules_skipped` | `{probe, rule, reason}` for each rule that could not be measured on this file. |
-| `not_applicable` | `{probe: why}` for each probe that does not apply to this file. A still has no shots, seams or soundtrack. A mute file has no levels. A file with no recorded shots has no seams. |
+| `not_applicable` | `{probe: why}` for each probe that does not apply to this file. A still has no shots, seams, soundtrack or held frames. A mute file has no levels. A file with no recorded shots has no seams. |
 | `shots_source` | Where the boundaries came from: `manifest` (the run's manifest, or an asset's sidecar), or `none`. |
 
 The thresholds live in one table, `dw/assessment_rules.py`:
@@ -1158,11 +1159,12 @@ The thresholds live in one table, `dw/assessment_rules.py`:
 | `shot_dead_air` | `analyze_shots` | the shot holds a gap more than 0.4 seconds long below its dead-air floor (skipped inside a shot that is quiet throughout) |
 | `sync_drift` | `analyze_sync_drift` | by a shot's end, the audio sits more than 40 ms off the picture |
 | `sync_length` | `analyze_sync_drift` | the soundtrack and the picture differ in length by more than 40 ms |
+| `held_frames` | `analyze_held_frames` | the picture holds a repeated frame, 13 or more times in the file (a few are normal; a static shot holds none) |
 
 A `shots` record whose `start_frame`/`num_frames` already reaches past the
 file's own length is not measured against a threshold - it is clipped to the
 file before any of the above run, and that clip is itself a `shot_span_overrun`
-finding on all three probes (`analyze_shots`, `analyze_seams`,
+finding on the three shot probes (`analyze_shots`, `analyze_seams`,
 `analyze_sync_drift`), with `value` naming how far past the end it reached.
 `validate_workflow` catches the same mistake before the run for a `shots`
 argument and an `asset:`/literal video whose length is knowable ahead of
@@ -1239,6 +1241,7 @@ already made: each entry in `videos` is `output:` + the run's
 | `shot_dead_air` | `find_loop_bed` on the cut names a quiet stretch inside one shot and its gain; cut that bed with `slice_audio`, `loop_audio` it to the gap's length, and `mix_audio` it under the line rather than leaving the drop silent | recut |
 | `sync_drift` | regenerate the shot. Drift inside a shot is the model's, not the join's | regenerate |
 | `sync_length` | rerun the mux through `pair_audio` with `fit: "video"`, which cuts or pads the track to the picture | recut |
+| `held_frames` | look at each cluster's time with `get_output_frames`; if the stutter shows, reroll the take or re-plan the shot (less fast motion) | regenerate |
 
 ## Result Configuration
 

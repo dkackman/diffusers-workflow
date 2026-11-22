@@ -1,7 +1,7 @@
 """Assessment probes: measure a finished cut and say where to look (#387).
 
-Three read-only task commands - `analyze_shots`, `analyze_seams` and
-`analyze_sync_drift` - each take a video (a path, or the AudioVideo an
+Four read-only task commands - `analyze_shots`, `analyze_seams`,
+`analyze_sync_drift` and `analyze_held_frames` - each take a video (a path, or the AudioVideo an
 earlier step returned) and answer a JSON-safe dict: every measurement it
 took, the `findings` its rules raised (`dw/assessment_rules.py`), the names
 of the rules it read the measurements against and where the shot
@@ -37,9 +37,9 @@ from ..assessment_rules import (
     sort_findings,
 )
 from .. import dsp
-from ..media import read_thumbnails_and_track
+from ..media import iter_rgb_frames, read_thumbnails_and_track
 from ..events import emit_warning
-from .image_ops import look_stats, thumbs_and_looks
+from .image_ops import as_image, look_stats, thumbs_and_looks
 
 logger = logging.getLogger("dw")
 
@@ -75,6 +75,18 @@ CLICK_NEIGHBOUR_WINDOW = 0.01
 # dividing a seam's change by it would call any change at all a jump.
 # Grey levels on the 0-255 scale.
 TYPICAL_DELTA_FLOOR = 2.0
+
+# The held-frame measure (#1527): a frame is held when its thumbnail differs
+# from its predecessor's by less than HELD_EPSILON (0-255 grey) while a
+# neighbouring frame moves by TYPICAL_DELTA_FLOOR or more. Frames within
+# HELD_CUT_GUARD of a hard cut never count. Holds whose gaps are at most
+# HELD_CLUSTER_GAP frames form a cluster when there are HELD_CLUSTER_MIN or
+# more of them. The d series `detail` returns is cut to HELD_SERIES_POINTS.
+HELD_EPSILON = 1.0
+HELD_CUT_GUARD = 1
+HELD_CLUSTER_GAP = 4
+HELD_CLUSTER_MIN = 2
+HELD_SERIES_POINTS = 240
 
 # The window a dead-air run inside a shot is measured in, seconds - fine
 # enough that a half-second gap the rule cares about still spans several
@@ -115,9 +127,14 @@ class Media:
         audio_seconds=None,
         shots=None,
         looks=None,
+        rgb_frames=None,
     ):
         self.thumbs = thumbs
         self.looks = looks
+        # A zero-argument callable yielding the picture as (H, W, 3) uint8
+        # frames, for the cut detector analyze_held_frames runs; None when
+        # the picture is not to be had again
+        self.rgb_frames = rgb_frames
         self.audio = audio
         self.sample_rate = sample_rate
         self.fps = fps
@@ -165,6 +182,7 @@ def read_media(path):
         video_seconds,
         audio_seconds,
         looks=numpy.stack(looks) if looks else None,
+        rgb_frames=(lambda: iter_rgb_frames(path)) if thumbs else None,
     )
 
 
@@ -245,7 +263,18 @@ def media_from(video):
         ),
         shots=shots,
         looks=looks,
+        rgb_frames=None if frames is None else (lambda: _in_memory_rgb(frames)),
     )
+
+
+def _in_memory_rgb(frames):
+    """In-memory frames as (H, W, 3) uint8 arrays, one at a time."""
+    from ..pipeline_processors.chain_spill import SegmentedFrames
+
+    if isinstance(frames, SegmentedFrames):
+        frames = (frame for chunk in frames for frame in chunk)
+    for frame in frames:
+        yield numpy.asarray(as_image(frame).convert("RGB"), dtype=numpy.uint8)
 
 
 def resolve_shots(video, media, shots=None):
@@ -1077,11 +1106,158 @@ def sync_drift_answer(media, records, source):
     return _answer("analyze_sync_drift", answer, findings, source)
 
 
+def _frame_deltas(thumbs):
+    """d[i] = mean |thumbs[i] - thumbs[i-1]| (0-255 grey) for i >= 1; d[0]
+    is nan - frame 0 has no predecessor."""
+    thumbs = numpy.asarray(thumbs, dtype=numpy.float32)
+    d = numpy.full(len(thumbs), numpy.nan, dtype=numpy.float64)
+    if len(thumbs) > 1:
+        d[1:] = numpy.mean(numpy.abs(numpy.diff(thumbs, axis=0)), axis=(1, 2))
+    return d
+
+
+def _held_frames(d, skip, epsilon=HELD_EPSILON, moving=TYPICAL_DELTA_FLOOR):
+    """The held frame indices: d[i] < epsilon with a neighbouring d at least
+    `moving`. A missing neighbour (either end) is not moving, so a still
+    shot holds nothing."""
+    out = []
+    n = len(d)
+    for i in range(1, n):
+        if i in skip or not d[i] < epsilon:
+            continue
+        before = d[i - 1] if i - 1 >= 1 else numpy.nan
+        after = d[i + 1] if i + 1 < n else numpy.nan
+        if numpy.nanmax([before, after, -1.0]) >= moving:
+            out.append(i)
+    return out
+
+
+def _held_clusters(frames, fps):
+    """Runs of held frames whose gaps are at most HELD_CLUSTER_GAP frames, of
+    at least HELD_CLUSTER_MIN holds: [{start, end, held}] in seconds."""
+    runs, current = [], []
+    for frame in sorted(frames):
+        if current and frame - current[-1] - 1 > HELD_CLUSTER_GAP:
+            runs.append(current)
+            current = []
+        current.append(frame)
+    if current:
+        runs.append(current)
+    rate = fps or 24.0
+    return [
+        {
+            "start": round(run[0] / rate, 3),
+            "end": round(run[-1] / rate, 3),
+            "held": len(run),
+        }
+        for run in runs
+        if len(run) >= HELD_CLUSTER_MIN
+    ]
+
+
+def _cut_frames(media):
+    """The frames a hard cut lands on (`scene_cuts.content_cuts`), or [] when
+    the picture can't be read again."""
+    if media.rgb_frames is None:
+        return []
+    from .scene_cuts import content_cuts
+
+    return [frame for frame, _ in content_cuts(media.rgb_frames())]
+
+
+def _downsampled(d, points=HELD_SERIES_POINTS):
+    """The d series as [{frame, d}], at most `points` of them: each kept
+    point is the smallest d of its stretch, so a hold still shows."""
+    n = len(d)
+    if n <= 1:
+        return []
+    indices = numpy.arange(1, n)
+    step = max(1, math.ceil(len(indices) / points))
+    series = []
+    for start in range(0, len(indices), step):
+        chunk = indices[start : start + step]
+        values = d[chunk]
+        pick = int(chunk[int(numpy.argmin(values))]) if step > 1 else int(chunk[0])
+        series.append({"frame": pick, "d": _round(float(d[pick]), 3)})
+    return series
+
+
+def analyze_held_frames(video, shots=None, detail=False):
+    """Task command: the frames a video repeats while its picture moves - a
+    held frame shown twice, the stutter of a take rendered at half its rate.
+
+    Args:
+        video: A video file's path, or the video an earlier step returned
+        shots: Shot records, accepted for the probes' common signature; the
+            measure reads the picture's own hard cuts, not shot boundaries
+        detail: Also return the frame-to-frame difference series, downsampled
+
+    Returns:
+        {held_frames, held_ratio, frames, clusters: [{start, end, held}],
+        findings, rules_applied, rules_skipped, shots_source} - with detail,
+        also series: [{frame, d}]
+    """
+    media = media_from(video)
+    return held_frames_answer(media, *resolve_shots(video, media, shots), detail=detail)
+
+
+def held_frames_answer(media, records, source, detail=False):
+    """`analyze_held_frames` over an already-read Media. A frame held next
+    to a hard cut is the cut's own, so frames within HELD_CUT_GUARD of one
+    (and frame 0, which has no predecessor) never count."""
+    frames = media.frame_count
+    d = _frame_deltas(media.thumbs) if frames else numpy.full(0, numpy.nan)
+    skip = {0}
+    held = _held_frames(d, skip)
+    if held:
+        # The cut detector decodes the picture again, so it runs only when
+        # there is a hold for a cut to explain away
+        for cut in _cut_frames(media):
+            skip.update(
+                range(
+                    max(0, cut - HELD_CUT_GUARD),
+                    min(frames, cut + HELD_CUT_GUARD + 1),
+                )
+            )
+        held = _held_frames(d, skip)
+    clusters = _held_clusters(held, media.fps)
+    answer = {
+        "held_frames": len(held),
+        "held_ratio": _round(len(held) / frames, 4) if frames else 0.0,
+        "frames": frames,
+        "clusters": clusters,
+    }
+    if detail:
+        answer["series"] = _downsampled(d)
+    findings = _findings(
+        "analyze_held_frames", {"held_frames": len(held)}, {"file": True}
+    )
+    if findings:
+        for cluster in clusters:
+            findings.append(
+                {
+                    "rule": "held_frames",
+                    "severity": findings[0]["severity"],
+                    "at": cluster["start"],
+                    "range": [cluster["start"], cluster["end"]],
+                    "value": cluster["held"],
+                    "threshold": findings[0]["threshold"],
+                    "says": (
+                        f"{cluster['held']} held frames between "
+                        f"{cluster['start']:g}s and {cluster['end']:g}s"
+                    ),
+                }
+            )
+    return _answer("analyze_held_frames", answer, findings, source)
+
+
 __all__ = [
     "Media",
+    "analyze_held_frames",
     "analyze_seams",
     "analyze_shots",
     "analyze_sync_drift",
+    "held_frames_answer",
     "media_from",
     "read_media",
     "resolve_shots",

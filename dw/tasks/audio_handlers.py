@@ -292,3 +292,16 @@ def _handle_analyze_sync_drift(task, arguments, previous_pipelines):
     from .assess import analyze_sync_drift
 
     return analyze_sync_drift(**arguments)
+
+
+@register_command(
+    "analyze_held_frames",
+    implementation="dw.tasks.assess.analyze_held_frames",
+    returns="json",
+    assessment=True,
+)
+def _handle_analyze_held_frames(task, arguments, previous_pipelines):
+    """Count the frames a video repeats while its picture moves"""
+    from .assess import analyze_held_frames
+
+    return analyze_held_frames(**arguments)
