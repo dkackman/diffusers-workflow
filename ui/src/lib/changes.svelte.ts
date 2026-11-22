@@ -3,10 +3,26 @@
 // CHANGES_POLL_MS while something watching it is on screen and the tab is
 // visible (poll.ts pauses it while hidden and asks once on return). A view
 // of server data that is not live state reloads from `watch` - never on a
-// timer of its own (ui/CLAUDE.md, *Keeping views fresh*). Modelled on the
+// timer of its own (the table below; ui/CLAUDE.md). Modelled on the
 // notes channel (request/listening.svelte.ts): counted holders, a reply
 // overtaken by a later ask dropped, and a failed read keeps the counters
 // it had, so the next good read catches up.
+//
+// Which view keeps itself fresh how:
+//   view                        live poll                       feed watch
+//   App shell (App.svelte)      status, 5 s, also while hidden  -
+//                               (statusPoll.ts)
+//   Sidebar workspace list      -                               workspaces: clears the
+//                                                               cached list, reads again
+//   Requests (RequestsPage)     -                               requests: quiet reload
+//   One request (RequestPage)   5 s while a job of it is        requests, only while
+//                               queued or running, 20 s while   closed; reads keep the
+//                               open (request/refresh.ts)       higher revision (newerOf)
+//   Linked notes                20 s                            -
+//   Jobs (JobsPage)             3 s                             -
+//   Models (ModelsPage)         2 s while a download or a       -
+//                               diffusers update runs
+//   Server status (ServerPage)  health and memory, 5 s          -
 import { api } from './api'
 import { poll } from './poll'
 import type { ChangeCounts, WorkspaceChanges } from './types'

@@ -1,5 +1,5 @@
 // Every UI timer goes through here, so every one keeps the same three
-// promises (ui/CLAUDE.md, *Keeping views fresh*):
+// promises (the table in changes.svelte.ts):
 // - while the tab is hidden it does not tick, and on the tab's return it
 //   fires once at once - unless the caller opts out with `whileHidden`
 //   (only the app shell's status poll does: it drives the tab title and the
