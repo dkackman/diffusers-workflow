@@ -32,7 +32,8 @@ Fill in this shape before writing any prompt:
 
 - **Cast**: per character, a voice description, sex, and the reference
   asset (`asset:cast/<name>`; step 3).
-- **Locations**: each place a shot happens, named once and reused.
+- **Locations**: each place a shot happens, named once and reused,
+  with its place card (step 3).
 - **Per shot**: the above, plus `opening_state` (what is on screen, who
   stands where, what is held, at frame one) and `ending_state` (the same at
   the last frame). A shot's `opening_state` is the `ending_state` of its
@@ -69,15 +70,16 @@ Read `dw:series-episodes` step 0 before drawing anything: every character
 appearing in more than one shot gets a portrait (and voice clip, if they
 speak) drawn once and `keep_output`'d as `asset:cast/<name>`, referenced
 from every later shot with `from_file`, never `from_previous_result`. A
-script with one continuous scene and no recurring cast can skip this and
-let the family template draw its own portrait. This is the step that goes
-missing silently - nothing validates "the same character looks the same"
-across separately generated shots, so it has to be deliberate.
+one-scene script with no recurring cast can skip this. Nothing validates that a
+character looks the same across separate shots, so do it deliberately.
 
 Framing guidance, not a measured rule (story-forge's lesson 5, unprobed
 on dw: `docs/proposals/audits/2026-11-story-forge-lessons.md`): a face
-small in a wide shot drifts most, so frame a recurring character large,
-and if the piece needs wides, keep a wide master too.
+small in a wide shot drifts most, so frame a recurring character large.
+
+Cast each recurring set too: a place card, a still of the empty set kept
+as `asset:places/<set>` and passed after the people (PRELIMINARY, #1581):
+`minimax-h3/references/cuts.md`, *A place card holds the set*.
 
 Pass shot prompts as `prompt:<project>/shot-NN` references, not text;
 they resolve in nested arguments.
@@ -86,14 +88,14 @@ they resolve in nested arguments.
 
 Silent action or establishing shots go through a `dw:ltx-2.5` template
 (`templates/ltx2/text-to-video`, `templates/ltx2/image-to-video`, or a
-chained one for a longer take). Anything with dialogue, a held voice, or a
+chained one for a longer take); one with no people in a carded set can
+take `dialogue-short` with the card alone (same section). Anything with dialogue, a held voice, or a
 scored montage goes through `dw:minimax-h3`'s `templates/minimax/dialogue-short`
 or `templates/minimax/music-video`, prompted with `h3-prompt-writing`'s
 structure (`subject_definitions`, `retention_analysis`,
 `detailed_description`, `overall_soundscape`, `non_diegetic_music`) rather
 than the raw script line, checking `list_prompts` first for a working
-example from the library that already uses these structures rather than
-drafting one from nothing. A shot that calls for generating several
+example. A shot that calls for generating several
 candidates and keeping the sharpest one deterministically, with no agent
 judgment call at run time, goes through `templates/best-of-n-to-video`
 instead of a single draw. Read the chosen family's own skill before writing
@@ -109,9 +111,8 @@ For H3 shots, `dw:minimax-h3`'s quality-and-speed reference (*Ramp*) has the dra
 `validate_workflow` against the chosen template with the assembled `shots`
 argument, read `plan.estimate` and `plan.downloads_required`, and state the
 cost before calling `run_workflow`. Only pass `acknowledged_cost` once a
-human (or an explicit pre-authorization) has signed off - this is a real
-gate, not a formality, and skipping it here is the one thing this skill
-must not do even when running unattended.
+human (or an explicit pre-authorization) has signed off - a real gate,
+which holds even when running unattended.
 
 Render in source order, not story order: a `lead_in`'s target first, and a
 re-roll quotes every shot taken off it (`references/joins.md`).

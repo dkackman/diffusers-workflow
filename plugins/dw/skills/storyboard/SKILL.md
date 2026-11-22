@@ -59,6 +59,8 @@ one" the character, "image two" the location. It draws up to eight boards
 per scene. Call the template once per board and keep the same references and
 `seed` so the cast and place hold; the instruction changes the camera and the
 action only, in `cinematography`'s `shot_size`, `move` and `light` words.
+Use the set's place card (`asset:places/<set>`, `script-to-video` step 3)
+as the location image, so the boards and the shots draw the same room.
 
 - One idea per board: the single state a frame can show, as in the shot list.
 - Past eight boards, split the scene. A scene that needs more has several
