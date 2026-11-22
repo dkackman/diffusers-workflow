@@ -1102,7 +1102,8 @@ The editor's forms come from these; they are just as usable from scripts:
   `failed`, `planned`, `revised`), `ready`, `attempts` (`[{job, status, note?,
   minutes, output}]`, oldest first), `result` (`{job, run_id, output}` or
   null), `accepted_missing` (only when true), `spent_minutes` and, on a revised item,
-  `revised_because` (`["arguments"]`, may include `workflow`), where
+  `revised_because` (`["arguments"]`, may include `workflow` or `prompt:<name>`
+  when a referenced prompt's text changed after the take), where
   `output` is `{name, kind}` - the gallery name of the one file that stands
   for the job, and `image`, `video`, `audio` or `text` - or null. The
   request view and each list row carry `spent_minutes` and

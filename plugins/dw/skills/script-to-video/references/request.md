@@ -65,6 +65,11 @@ keep it (the old take stays the result). A revised item is `ready` again and
 counts in `remaining_minutes`. Do not animate dependents from a revised
 item's result: they are not ready until it reads `done`.
 
+If you edit a saved prompt with `save_prompt`, items whose arguments use it
+(`prompt:<name>`) go `revised` with `prompt:<name>` in `revised_because`. Re-run
+them, or re-accept the old take if the edit does not matter. Saving the same
+text, or changing only the description or tags, revises nothing.
+
 ## Hold items for the user's review
 
 Use this when the plan is written and priced and the user wants to look at it
