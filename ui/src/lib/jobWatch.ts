@@ -39,17 +39,30 @@ export type Watch = {
 /** One health poll's step: what is running now and which watched jobs ended.
  * The first poll (`watched` null) only learns what is running - a job
  * already going when the page opened has not "just finished" when the next
- * poll misses it. A failed poll (`info` null) says nothing about the jobs:
+ * poll misses it - unless its id was adopted. A failed poll (`info` null) says nothing about the jobs:
  * reading it as "none running" would announce every running job as
  * finished, so it leaves the state as it was. */
 export function nextWatch(
   watched: string[] | null,
   info: HealthInfo | null,
+  adopted: ReadonlySet<string> = new Set(),
 ): Watch {
   if (!info) return { watched, ended: [], running: watched ?? [] }
   const running = runningIds(info)
-  const ended = watched === null ? [] : endedSince(watched, running)
+  const before = [...new Set([...(watched ?? []), ...adopted])]
+  const ended =
+    watched === null && !adopted.size ? [] : endedSince(before, running)
   return { watched: running, ended, running }
+}
+
+/** Ids a submit, rerun or enhance returned. A job that starts and ends
+ * between two polls is never in `running`, so the id the server handed back
+ * is what makes it watched from the moment it was submitted. Dropped by
+ * `followJobs` once announced, or once a poll sees it running. */
+export const adopted = new Set<string>()
+
+export function adoptJob(id: string): void {
+  adopted.add(id)
 }
 
 /** 0-99: steps behind it plus how far the current step's denoise loop is.

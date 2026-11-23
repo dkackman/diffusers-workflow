@@ -16,8 +16,12 @@ export const notify = {
   success(message: string) {
     toast.success(message)
   },
-  error(message: string, id?: string) {
-    toast.error(message, { duration: Number.POSITIVE_INFINITY, id })
+  error(
+    message: string,
+    id?: string,
+    action?: { label: string; onClick: () => void },
+  ) {
+    toast.error(message, { duration: Number.POSITIVE_INFINITY, id, action })
   },
   /** A failed action: what was being done, why not, and what to do. The
    * full message is one click away for pasting into a report */

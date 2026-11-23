@@ -16,21 +16,16 @@
   import { Toaster } from 'svelte-sonner'
   import { untrack } from 'svelte'
   import { route } from './lib/router.svelte'
-  import { api, TERMINAL_STATUSES } from './lib/api'
   import { isEditable } from './lib/editable'
-  import { notify } from './lib/toast'
-  import { wsHref } from './lib/routes'
+  import { runningIds } from './lib/jobWatch'
   import {
-    endedTitle,
-    finishedText,
-    nextWatch,
-    runningIds,
-    tabTitle,
-  } from './lib/jobWatch'
-  import { alertFinished, alertMode, unlockChime } from './lib/finishAlert'
+    alertMode,
+    clearEndedMark,
+    followJobs,
+    unlockChime,
+  } from './lib/finishAlert'
   import { alerts } from './lib/alerts.svelte'
   import { storageGet, storageSet } from './lib/storage'
-  import type { HealthInfo, JobDetail } from './lib/types'
   import Sidebar from './lib/Sidebar.svelte'
   import Breadcrumb from './lib/Breadcrumb.svelte'
   import KeyboardHelp from './lib/KeyboardHelp.svelte'
@@ -74,49 +69,12 @@
   )
   const view = $derived(route.view)
 
-  // The tab title and the finish alert (jobWatch.ts, finishAlert.ts); what
-  // a poll means for the watched jobs is nextWatch's to decide
-  let watched: string[] | null = null
-  let runningJob = $state<JobDetail | null>(null)
-  let othersRunning = $state(0)
-  let endedMark = $state<string | null>(null)
-
-  async function watchJobs(info: HealthInfo | null) {
-    const next = nextWatch(watched, info)
-    watched = next.watched
-    // A failed poll leaves the title showing what it last knew
-    if (info) {
-      const now = next.running
-      othersRunning = Math.max(0, now.length - 1)
-      runningJob = now[0] ? await api.getJob(now[0]).catch(() => null) : null
-    }
-    for (const id of next.ended) {
-      const job = await api.getJob(id).catch(() => null)
-      if (job && TERMINAL_STATUSES.includes(job.status)) announce(job)
-    }
-  }
-
-  function announce(job: JobDetail) {
-    const text = finishedText(job)
-    if (document.hidden) endedMark = endedTitle(job)
-    // The job's own page already shows its outcome
-    const onItsPage =
-      view.kind === 'ws' && view.section === 'jobs' && view.rest[0] === job.id
-    if (!onItsPage) {
-      if (job.status === 'succeeded') notify.success(text)
-      else notify.error(text)
-    }
-    if (alerts.on && document.hidden)
-      alertFinished(text, wsHref(job.workspace, 'jobs', job.id))
-  }
+  // The tab title and the finish alert (finishAlert.ts)
+  const onItsPage = (id: string) =>
+    view.kind === 'ws' && view.section === 'jobs' && view.rest[0] === id
 
   $effect(() => {
-    document.title = endedMark ?? tabTitle(runningJob, othersRunning)
-  })
-  $effect(() => {
-    const back = () => {
-      if (!document.hidden) endedMark = null
-    }
+    const back = clearEndedMark
     // A chime may only play after a gesture; after a reload the first
     // click anywhere is that gesture
     const unlock = () => {
@@ -145,7 +103,9 @@
   $effect(() => startStatusPoll())
   $effect(() => {
     const info = health
-    untrack(() => void watchJobs(info))
+    untrack(
+      () => void followJobs(info, { onItsPage, alertsOn: () => alerts.on }),
+    )
   })
 
   type Theme = 'system' | 'light' | 'dark'
