@@ -279,6 +279,87 @@ describe('the consistency metrics', () => {
     ])
   })
 
+  it('unguarded_mutations counts a helper an action names when a button also binds it bare', async () => {
+    const { metrics, detail } = await measured({
+      'a.svelte': `<script lang="ts">
+  import { api } from '../api'
+  declare const action: any
+  async function bare() {
+    await api.deleteOutput('x')
+  }
+  const remove = action(() => bare())
+</script>
+<button onclick={bare}>Delete</button>
+<button onclick={remove.run}>Delete</button>
+`,
+    })
+    expect(metrics.unguarded_mutations).toBe(1)
+    expect(detail.unguarded_mutations).toEqual([
+      expect.stringMatching(/a\.svelte:5 deleteOutput$/),
+    ])
+  })
+
+  it('unguarded_mutations: a property or a shadowing local named like the helper does not guard it', async () => {
+    const { metrics, detail } = await measured({
+      'a.svelte': `<script lang="ts">
+  import { api } from '../api'
+  declare const action: any
+  declare const x: any
+  async function helper() {
+    await api.cancelJob('j')
+  }
+  async function other() {
+    await api.deleteOutput('x')
+  }
+  const a = action(() => x.helper())
+  const b = action(({ other }: any) => other())
+  const c = action(() => ({ helper: 1 }))
+</script>
+<button onclick={helper}>Cancel</button>
+<button onclick={other}>Delete</button>
+`,
+    })
+    expect(metrics.unguarded_mutations).toBe(2)
+    expect(detail.unguarded_mutations).toEqual([
+      expect.stringMatching(/a\.svelte:6 cancelJob$/),
+      expect.stringMatching(/a\.svelte:9 deleteOutput$/),
+    ])
+  })
+
+  it('unguarded_mutations counts a use of an imported .ts helper that writes, outside action()', async () => {
+    const { metrics, detail } = await measured({
+      'helpers.ts': `import { api } from './api'
+export async function removeIt(name: string) {
+  await inner(name)
+}
+async function inner(name: string) {
+  await api.deleteOutput(name)
+}
+export function label(name: string) {
+  return name
+}
+export { inner as removeInner }
+`,
+      'a.svelte': `<script lang="ts">
+  import { removeIt, label, removeInner } from './helpers'
+  import * as h from './helpers'
+  declare const action: any
+  const guarded = action(() => removeIt('x'))
+  const passed = action(removeInner, { doing: 'remove' })
+</script>
+<button onclick={() => removeIt('y')}>{label('y')}</button>
+<button onclick={removeInner}>Remove</button>
+<button onclick={() => h.removeIt('z')}>{h.label('z')}</button>
+`,
+    })
+    expect(metrics.unguarded_mutations).toBe(3)
+    expect(detail.unguarded_mutations).toEqual([
+      expect.stringMatching(/a\.svelte:8 removeIt$/),
+      expect.stringMatching(/a\.svelte:9 removeInner$/),
+      expect.stringMatching(/a\.svelte:10 removeIt$/),
+    ])
+  })
+
   it('banned_terms skips style text and terms.ts', async () => {
     const { metrics, detail } = await measured(
       {

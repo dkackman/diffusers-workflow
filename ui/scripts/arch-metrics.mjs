@@ -52,10 +52,16 @@
 // - window_dialogs: calls to `window.confirm`, `window.prompt`,
 //   `window.alert`, or a bare `alert`, `confirm` or `prompt` - a dialog is
 //   `confirmDialog`/`chooseDialog` (src/lib/confirm.svelte.ts).
-// - unguarded_mutations: in a .svelte file, an `api.<write>` call (WRITES)
-//   lexically inside no `action(` call and inside no function declaration
-//   whose name an `action(` call's arguments reference in the same file -
-//   one level, so a helper an action calls counts as guarded.
+// - unguarded_mutations: in a .svelte file, an `api.<write>` call (WRITES),
+//   or a use of an imported plain .ts function whose code calls one, lexically
+//   inside no `action(` call's arguments and inside no guarded function
+//   declaration. A function declaration is guarded when it is used and every
+//   use of it outside its own body (a scope reference, so neither a property
+//   key nor a shadowing local) is inside an `action(` call's arguments: a
+//   helper also bound to `onclick={helper}` is not. A .ts function writes
+//   when its code calls an `api` write directly or through another of its
+//   module's own top-level declarations - one import level, as
+//   src/lib/freshness.test.ts follows reads.
 // - banned_terms: user-facing copy matching a BANNED pattern
 //   (src/lib/terms.ts), outside COPY_OWNERS. Copy is a string literal with
 //   whitespace in it, a template literal whose parts joined with "0" have
@@ -66,8 +72,15 @@
 //   window whose sha1 occurs in two or more files is shared, and each
 //   file's maximal runs of consecutive shared windows are counted.
 // Known limits of those four rules:
-// - a write made in a .ts helper (workspaceActions.ts, uploads.ts,
-//   promptFile.ts) or through a named import (`setNote`) is not counted.
+// - a write two or more imports away (a .ts helper that writes through
+//   another module) is not counted, nor a write through a `.svelte.ts`
+//   store (enhancer, planStore, runQueue): their exports are classes and
+//   factories whose methods write, so a use is not a write.
+// - a write api.ts exports outside the `api` object (`setNote`) is not
+//   counted.
+// - only `function` declarations can be guarded helpers; a write inside an
+//   arrow helper (`const f = () => api.x()`) counts even when an action
+//   names it - name it in the action, don't rename it to `function`.
 // - copy assembled from single words, or across `{...}` in markup, can slip
 //   through banned_terms.
 import { ESLint } from 'eslint'
@@ -283,49 +296,190 @@ const isActionCall = (node) =>
   node.callee.type === 'Identifier' &&
   node.callee.name === 'action'
 
-/** `api.<write>` calls in a .svelte file that no `action(` guards */
-function unguardedRule(found) {
+const isWrite = (node) =>
+  node.type === 'CallExpression' &&
+  isMember(node.callee, 'api', null) &&
+  WRITES.includes(node.callee.property.name)
+
+const within = (range, [s, e]) => range[0] >= s && range[1] <= e
+
+/** A module's top-level declarations (local name to node) and its exports
+ * (exported name to local name) */
+function topLevel(program) {
+  const tops = new Map()
+  const exported = new Map()
+  const declare = (id, node, isExport) => {
+    tops.set(id.name, node)
+    if (isExport) exported.set(id.name, id.name)
+  }
+  const declareAll = (decl, isExport) =>
+    decl.declarations
+      .filter((d) => d.id.type === 'Identifier')
+      .forEach((d) => declare(d.id, d, isExport))
+  for (const statement of program.body) {
+    const isExport = statement.type === 'ExportNamedDeclaration'
+    const decl = isExport ? statement.declaration : statement
+    if (decl?.type === 'FunctionDeclaration' && decl.id)
+      declare(decl.id, decl, isExport)
+    else if (decl?.type === 'VariableDeclaration') declareAll(decl, isExport)
+    else if (isExport && !statement.source)
+      for (const sp of statement.specifiers)
+        exported.set(sp.exported.name, sp.local.name)
+  }
+  return { tops, exported }
+}
+
+/** Grow `hit` (top-level names) by every top-level declaration whose code
+ * references one of them, until nothing changes */
+function closeOver(hit, tops, scopeManager) {
+  const usedBy = new Map()
+  const moduleScope = scopeManager.scopes.find((sc) => sc.type === 'module')
+  for (const variable of moduleScope?.variables ?? [])
+    usedBy.set(
+      variable.name,
+      [...tops]
+        .filter(([, n]) =>
+          variable.references.some((r) => within(r.identifier.range, n.range)),
+        )
+        .map(([name]) => name),
+    )
+  const queue = [...hit]
+  while (queue.length)
+    for (const user of usedBy.get(queue.pop()) ?? [])
+      if (!hit.has(user)) {
+        hit.add(user)
+        queue.push(user)
+      }
+  return hit
+}
+
+/** The names a plain .ts module exports whose code calls an `api` write:
+ * directly, or through another of the module's own top-level declarations
+ * that does (src/lib/freshness.test.ts's `readingExports`, for writes). A
+ * write made through another module is a second level, out of reach */
+function writingExports(program, scopeManager, writeRanges) {
+  const { tops, exported } = topLevel(program)
+  const direct = [...tops]
+    .filter(([, n]) => writeRanges.some((r) => within(r, n.range)))
+    .map(([name]) => name)
+  const writes = closeOver(new Set(direct), tops, scopeManager)
+  return new Set(
+    [...exported].filter(([, l]) => writes.has(l)).map(([name]) => name),
+  )
+}
+
+/** The function declarations that are guarded: used, and every use outside
+ * their own body inside an `action(` call's arguments. A use is a scope
+ * reference, so a property key or a shadowing local is none */
+function guardedFunctions(functions, sourceCode, inAction) {
+  return new Set(
+    functions.filter((fn) => {
+      const uses = sourceCode
+        .getDeclaredVariables(fn)
+        .flatMap((v) => v.references)
+        .filter((r) => !within(r.identifier.range, fn.range))
+      return uses.length > 0 && uses.every((r) => inAction(r.identifier.range))
+    }),
+  )
+}
+
+const importedName = (spec) =>
+  spec.type === 'ImportSpecifier'
+    ? (spec.imported.name ?? spec.imported.value)
+    : 'default'
+
+/** The member a reference reads, `ns.name`, if it reads one */
+function memberOf(id, sourceCode) {
+  const parent = sourceCode.getAncestors(id).at(-1)
+  return parent?.type === 'MemberExpression' &&
+    parent.object === id &&
+    !parent.computed
+    ? parent
+    : null
+}
+
+/** Each unguarded use of an import: the node and the exported name it
+ * stands for. A namespace import is used through `ns.name` */
+function importUses(spec, sourceCode, guarded) {
+  if (spec.importKind === 'type') return []
+  const namespace = spec.type === 'ImportNamespaceSpecifier'
+  const uses = sourceCode
+    .getDeclaredVariables(spec)
+    .flatMap((v) => v.references)
+    .map(({ identifier: id }) => {
+      if (!namespace) return { site: id, name: importedName(spec) }
+      const member = memberOf(id, sourceCode)
+      return member && { site: member, name: member.property.name }
+    })
+  return uses.filter((u) => u && !guarded(u.site))
+}
+
+/** In a plain .ts module, record its writing exports in `writers` */
+function writersRule(file, sourceCode, writers) {
+  const writeRanges = []
+  return {
+    CallExpression(node) {
+      if (isWrite(node)) writeRanges.push(node.range)
+    },
+    'Program:exit'(program) {
+      writers.set(
+        file,
+        writingExports(program, sourceCode.scopeManager, writeRanges),
+      )
+    },
+  }
+}
+
+/** `api.<write>` calls in a .svelte file that no `action(` guards go into
+ * `found`, and unguarded uses of imports into `helperSites`, which measure
+ * resolves after the lint against `writers` - the writing exports of every
+ * plain .ts module */
+function unguardedRule(found, helperSites, writers) {
   return {
     create(context) {
-      if (!context.filename.endsWith('.svelte')) return {}
+      const file = context.filename
+      const sourceCode = context.sourceCode
+      if (file.endsWith('.ts') && !file.endsWith('.svelte.ts'))
+        return writersRule(file, sourceCode, writers)
+      if (!file.endsWith('.svelte')) return {}
       const writes = []
       const actionRanges = []
-      const identifiers = []
+      const functions = []
+      const imports = []
+      const at = (node) => `${relative(UI, file)}:${node.loc.start.line}`
       return {
         CallExpression(node) {
           if (isActionCall(node))
             for (const a of node.arguments) actionRanges.push(a.range)
-          const callee = node.callee
-          if (
-            isMember(callee, 'api', null) &&
-            WRITES.includes(callee.property.name)
-          )
-            writes.push({
-              node,
-              ancestors: context.sourceCode.getAncestors(node),
-            })
+          if (isWrite(node)) writes.push(node)
         },
-        Identifier(node) {
-          identifiers.push(node)
+        FunctionDeclaration(node) {
+          if (node.id) functions.push(node)
+        },
+        ImportDeclaration(node) {
+          if (node.importKind !== 'type') imports.push(node)
         },
         'Program:exit'() {
-          const inAction = (range) =>
-            actionRanges.some(([s, e]) => range[0] >= s && range[1] <= e)
-          const named = new Set(
-            identifiers.filter((i) => inAction(i.range)).map((i) => i.name),
-          )
-          for (const { node, ancestors } of writes) {
-            const guarded =
-              inAction(node.range) ||
-              ancestors.some(
-                (a) =>
-                  a.type === 'FunctionDeclaration' && named.has(a.id?.name),
-              )
-            if (!guarded)
-              found.push(
-                `${relative(UI, context.filename)}:${node.loc.start.line} ${node.callee.property.name}`,
-              )
-          }
+          const inAction = (range) => actionRanges.some((r) => within(range, r))
+          const safe = guardedFunctions(functions, sourceCode, inAction)
+          const guarded = (node) =>
+            inAction(node.range) ||
+            sourceCode.getAncestors(node).some((a) => safe.has(a))
+          for (const node of writes.filter((n) => !guarded(n)))
+            found.push(`${at(node)} ${node.callee.property.name}`)
+          for (const declaration of imports)
+            for (const spec of declaration.specifiers)
+              for (const { site, name } of importUses(
+                spec,
+                sourceCode,
+                guarded,
+              ))
+                helperSites.push({
+                  from: file,
+                  specifier: declaration.source.value,
+                  name,
+                  site: `${at(site)} ${name}`,
+                })
         },
       }
     },
@@ -416,6 +570,8 @@ export async function measure(
   const unwatched = []
   const dialogs = []
   const unguarded = []
+  const helperSites = []
+  const writers = new Map()
   const banned = []
   const collector = {
     rules: {
@@ -431,7 +587,7 @@ export async function measure(
           }
         },
       },
-      mutations: unguardedRule(unguarded),
+      mutations: unguardedRule(unguarded, helperSites, writers),
       copy: copyRule(banned),
       toasts: {
         create(context) {
@@ -562,6 +718,12 @@ export async function measure(
       (n, r) => n + r.messages.filter((m) => m.ruleId === rule).length,
       0,
     )
+
+  for (const { from, specifier, name, site } of helperSites) {
+    const target = resolveImport(from, specifier, known)
+    if (target && writers.get(target)?.has(name)) unguarded.push(site)
+  }
+  unguarded.sort((a, b) => a.localeCompare(b, 'en', { numeric: true }))
 
   const graph = {}
   for (const file of scripts) graph[file] = [...new Set(imports[file] ?? [])]
