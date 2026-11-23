@@ -7,10 +7,15 @@
   // The entries a library holds under a name a nearer library has taken -
   // a dimmed label per entry rather than a picture, since the server serves
   // the file that won
-  let { entries }: { entries: ShadowedAsset[] } = $props()
+  let {
+    entries,
+    filterActive = false,
+  }: { entries: ShadowedAsset[]; filterActive?: boolean } = $props()
 
   const collapsed = collapsedState('collapsed-asset-shadowed')
   const library = $derived(entries[0]?.origin ?? '')
+  // While filtering everything stays open: a shut section would hide matches
+  const shut = $derived(!filterActive && collapsed.has(library))
 
   // The same libraries in the possessive, for "shadowed by ...". Built by
   // hand rather than off the labels: "the examples's" is not English
@@ -30,14 +35,14 @@
   <GroupHeading
     label="shadowed/"
     count={entries.length}
-    collapsed={collapsed.has(library)}
+    collapsed={shut}
     ontoggle={() => collapsed.toggle(library)}
-    title={collapsed.has(library)
+    title={shut
       ? 'expand the shadowed entries'
       : 'collapse the shadowed entries'}
   />
 </div>
-{#if !collapsed.has(library)}
+{#if !shut}
   <div class="grid">
     {#each entries as entry (entry.name)}
       <div class="cellwrap">

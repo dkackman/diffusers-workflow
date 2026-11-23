@@ -352,6 +352,24 @@ it('shows what a nearer library is hiding, dimmed and inert', async () => {
   expect(screen.getAllByLabelText(/^select /).length).toBe(1)
 })
 
+it('opens a shut shadowed section while a filter matches inside it', async () => {
+  listing.libraries = [WORKSPACE_LIBRARY, SHARED_LIBRARY]
+  listing.assets = [asset('iris.png')]
+  listing.shadowed = [shadowedAsset('iris.png', 'common', 'workspace')]
+  render(AssetsPage)
+  const label =
+    "shadowed by this workspace's iris.png - asset:iris.png resolves to that file"
+  await waitFor(() => screen.getByTitle(label))
+
+  screen.getByTitle('collapse the shadowed entries').click()
+  await waitFor(() => expect(screen.queryByTitle(label)).toBeNull())
+
+  const filter = screen.getByPlaceholderText('filter…') as HTMLInputElement
+  filter.value = 'iris'
+  filter.dispatchEvent(new Event('input', { bubbles: true }))
+  await waitFor(() => expect(screen.getByTitle(label)).toBeTruthy())
+})
+
 it('collapses a library section, and remembers it', async () => {
   listing.libraries = [WORKSPACE_LIBRARY, SHARED_LIBRARY]
   listing.assets = [asset('iris.png'), asset('shared/logo.png', 'common')]

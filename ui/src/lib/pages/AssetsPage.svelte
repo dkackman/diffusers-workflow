@@ -432,7 +432,7 @@
       </FolderGroups>
 
       {#if section.shadowed.length}
-        <ShadowedAssets entries={section.shadowed} />
+        <ShadowedAssets entries={section.shadowed} {filterActive} />
       {/if}
     {/if}
   {/each}
