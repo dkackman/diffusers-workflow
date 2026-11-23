@@ -370,3 +370,10 @@ it('Load theirs replaces the edits', async () => {
   await waitFor(() => expect(promptText().value).toBe('their version'))
   expect(screen.queryByRole('button', { name: 'Load theirs' })).toBeNull()
 })
+
+it('shows the unsaved chip like the workflow editor', async () => {
+  await openHero()
+  expect(screen.queryByText('unsaved')).toBeNull()
+  await fireEvent.input(promptText(), { target: { value: 'changed' } })
+  expect(screen.getByText('unsaved')).toBeTruthy()
+})

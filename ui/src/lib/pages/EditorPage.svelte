@@ -2,7 +2,9 @@
   import { editorLists, loadEditorLists } from '../editorLists.svelte'
   import {
     DocumentEditor,
+    EDITOR_VIEWS,
     NEW_FOLDER,
+    editorKeys,
     type EditorView,
   } from '../editorShell.svelte'
   import Segmented from '../ui/Segmented.svelte'
@@ -10,16 +12,9 @@
   import StepList from '../editor/StepList.svelte'
   import { StepModes } from '../stepModes.svelte'
   import ValidationPanel from '../editor/ValidationPanel.svelte'
-  import WorkflowFileBar, { IMPORTED } from '../editor/WorkflowFileBar.svelte'
-  import {
-    CircleCheck,
-    Columns2,
-    Braces,
-    LayoutList,
-    Play,
-    Save,
-    Workflow,
-  } from '@lucide/svelte'
+  import DocumentFileBar from '../editor/DocumentFileBar.svelte'
+  import WorkflowOrigin, { IMPORTED } from '../editor/WorkflowOrigin.svelte'
+  import { CircleCheck, Play, Save } from '@lucide/svelte'
   import { api } from '../api'
   import { ApiError } from '../apiErrors'
   import {
@@ -110,33 +105,6 @@
   // the workspace picker's names - outside the load effect, so the listing
   // landing cannot re-run it and reset the draft
   loadWorkspaces()
-  const VIEWS = [
-    {
-      view: 'form',
-      label: 'form',
-      title: 'edit with introspection-driven forms',
-      icon: LayoutList,
-    },
-    {
-      view: 'split',
-      label: 'split',
-      title: 'form beside the JSON - both editable, blur applies',
-      icon: Columns2,
-    },
-    {
-      view: 'json',
-      label: 'JSON',
-      title: 'edit the raw JSON, schema-aware',
-      icon: Braces,
-    },
-    {
-      view: 'flow',
-      label: 'flow',
-      title:
-        'read-only data-flow diagram: steps as boxes, previous_result as edges',
-      icon: Workflow,
-    },
-  ] as const
 
   // The way out: a saved workflow's own page, else the Workflows list
   const back = $derived(
@@ -282,17 +250,6 @@
     }
   }
 
-  function onKeydown(event: KeyboardEvent) {
-    if (!(event.ctrlKey || event.metaKey) || !ed.canWrite) return
-    if (event.key === 's') {
-      event.preventDefault()
-      save()
-    } else if (event.key === 'Enter') {
-      event.preventDefault()
-      run()
-    }
-  }
-
   async function validate(): Promise<boolean> {
     // Validate, save and run all see what is on screen, typed or not
     ed.flush()
@@ -349,6 +306,7 @@
     { doing: 'run the workflow' },
   )
   const run = () => void running.run()
+  const onKeydown = editorKeys(ed, { save: () => void save(), run })
 
   // The flow view's click-to-navigate: land back on the form view with the
   // step's row scrolled into place and briefly lit, the same highlight the
@@ -396,7 +354,7 @@
         <Segmented
           label="editor view"
           value={ed.view}
-          options={VIEWS.map((v) => ({ ...v, value: v.view }))}
+          options={EDITOR_VIEWS}
           onselect={(view) => ed.setView(view as EditorView)}
         />
         <button
@@ -408,8 +366,7 @@
           <CircleCheck size={14} />Validate
         </button>
         <button
-          class="quiet withicon"
-          class:dirtybtn={ed.dirty}
+          class="withicon"
           onclick={save}
           disabled={ed.busy || !ed.canWrite}
           title="validate, then write to the workflow directory under the name below (Ctrl+S)"
@@ -439,22 +396,20 @@
         : undefined}
     />
   {:else}
-    <WorkflowFileBar
-      {ed}
-      workflowDir={listed.dir}
-      {folders}
-      bind:fileOpen
-      origin={current
-        ? undefined
-        : {
-            workspace: workspace.current,
-            workspaces: workspace.names ?? [workspace.current],
-            startFrom,
-            examples: listed.examples,
-            onworkspace: moveToWorkspace,
-            onstartfrom: chooseStart,
-          }}
-    />
+    <DocumentFileBar {ed} dir={listed.dir} {folders} bind:fileOpen>
+      {#snippet extra()}
+        {#if !current}
+          <WorkflowOrigin
+            workspace={workspace.current}
+            workspaces={workspace.names ?? [workspace.current]}
+            {startFrom}
+            examples={listed.examples}
+            onworkspace={moveToWorkspace}
+            onstartfrom={chooseStart}
+          />
+        {/if}
+      {/snippet}
+    </DocumentFileBar>
 
     {#if validation}
       <ValidationPanel {validation} ondismiss={() => (validation = null)} />
@@ -548,17 +503,7 @@
   .wfid:focus {
     background: var(--panel-2);
   }
-  .chip.unsaved {
-    background: color-mix(in srgb, var(--warn) 22%, transparent);
-    color: var(--warn);
-  }
   .panel {
     margin-bottom: 1rem;
-  }
-  /* Unsaved work makes Save the thing to do next, so it stops looking
-     like the two quiet buttons beside it */
-  .dirtybtn {
-    border-color: var(--warn);
-    color: var(--warn);
   }
 </style>

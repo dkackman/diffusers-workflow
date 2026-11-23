@@ -147,3 +147,9 @@ table.datatable.dense td {
   gap: 0.15rem;
   min-width: 0;
 }
+
+/* The editors' "unsaved" marker, beside the Save button's dirty dot */
+.chip.unsaved {
+  background: color-mix(in srgb, var(--warn) 22%, transparent);
+  color: var(--warn);
+}

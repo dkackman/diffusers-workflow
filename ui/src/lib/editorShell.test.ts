@@ -3,7 +3,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render } from '@testing-library/svelte'
 import { flushSync, tick } from 'svelte'
 import EditorShellHarness from './EditorShellHarness.svelte'
-import type { DocumentEditor, EditorView } from './editorShell.svelte'
+import {
+  editorKeys,
+  type DocumentEditor,
+  type EditorView,
+} from './editorShell.svelte'
+import { holdLayer } from './ui/layers.svelte'
 import { notify } from './toast'
 import { addLeaveGuard } from './router.svelte'
 import { confirmDialog } from './confirm.svelte'
@@ -651,5 +656,54 @@ describe('watchRemote', () => {
     expect(shell.remote).toBe('same')
     expect(shell.doc).toEqual({ text: 'edited again' })
     expect(notify.success).not.toHaveBeenCalled()
+  })
+})
+
+describe('editorKeys', () => {
+  const press = (init: KeyboardEventInit) =>
+    new KeyboardEvent('keydown', { cancelable: true, ...init })
+
+  it('saves on Ctrl+S and on Caps-Lock S, and runs on Ctrl+Enter', () => {
+    const ed = mount()
+    ed.startNew({})
+    const save = vi.fn()
+    const run = vi.fn()
+    const onkey = editorKeys(ed, { save, run })
+    const ctrlS = press({ key: 's', ctrlKey: true })
+    onkey(ctrlS)
+    onkey(press({ key: 'S', metaKey: true }))
+    expect(save).toHaveBeenCalledTimes(2)
+    expect(ctrlS.defaultPrevented).toBe(true)
+    onkey(press({ key: 'Enter', ctrlKey: true }))
+    expect(run).toHaveBeenCalledTimes(1)
+    onkey(press({ key: 's' }))
+    expect(save).toHaveBeenCalledTimes(2)
+  })
+
+  it('ignores keys under an overlay, mid-composition and while busy', () => {
+    const ed = mount()
+    ed.startNew({})
+    const save = vi.fn()
+    const onkey = editorKeys(ed, { save })
+    const release = holdLayer()
+    onkey(press({ key: 's', ctrlKey: true }))
+    release()
+    onkey(press({ key: 's', ctrlKey: true, isComposing: true }))
+    ed.busy = true
+    onkey(press({ key: 's', ctrlKey: true }))
+    ed.busy = false
+    onkey(press({ key: 'Enter', ctrlKey: true }))
+    expect(save).not.toHaveBeenCalled()
+  })
+
+  it('flushes before saving', () => {
+    const ed = mount()
+    ed.startNew({})
+    const order: string[] = []
+    ed.registerFlush(() => order.push('flush'))
+    editorKeys(ed, { save: () => order.push('save') })(
+      press({ key: 's', ctrlKey: true }),
+    )
+    expect(order).toEqual(['flush', 'save'])
   })
 })
