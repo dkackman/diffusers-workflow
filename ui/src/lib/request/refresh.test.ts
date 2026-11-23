@@ -1,5 +1,12 @@
 import { expect, it } from 'vitest'
-import { ACTIVE_MS, IDLE_MS, newerOf, refreshInterval } from './refresh'
+import {
+  ACTIVE_MS,
+  IDLE_MS,
+  itemRows,
+  newerOf,
+  refreshInterval,
+} from './refresh'
+import { changedKeys } from '../resource.svelte'
 import { CHANGES_POLL_MS } from '../changes.svelte'
 import type { LedgerRequest } from '../types'
 
@@ -53,4 +60,26 @@ it('the feed hears a closed request change sooner than the idle timer would', ()
   // a reopen shows within one feed read, never later than an open request's
   expect(CHANGES_POLL_MS).toBeLessThanOrEqual(ACTIVE_MS)
   expect(CHANGES_POLL_MS).toBeLessThan(IDLE_MS)
+})
+
+it("a held item's countdown alone is not a change, its deadline moving is", () => {
+  const held = (until: string, seconds_left: number) =>
+    ({
+      ...request('open', ['done', 'done']),
+      items: [
+        { key: 'a', status: 'done' },
+        {
+          key: 'b',
+          status: 'done',
+          review: { until, state: 'holding', seconds_left },
+        },
+      ],
+    }) as unknown as LedgerRequest
+  const first = held('2026-01-01T00:10:00Z', 600)
+  expect(
+    changedKeys(itemRows, first, held('2026-01-01T00:10:00Z', 594)),
+  ).toEqual(new Set())
+  expect(
+    changedKeys(itemRows, first, held('2026-01-01T00:20:00Z', 1194)),
+  ).toEqual(new Set(['b']))
 })

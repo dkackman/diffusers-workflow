@@ -1,6 +1,6 @@
 <script lang="ts">
   import { tick, untrack } from 'svelte'
-  import { api, ApiError } from '../api'
+  import { ApiError } from '../api'
   import Skeleton from '../ui/Skeleton.svelte'
   import ClampedText from '../ui/ClampedText.svelte'
   import PlanChanges from '../request/PlanChanges.svelte'
@@ -20,12 +20,10 @@
   import { answeredNow, answeredText, noteItem } from '../request/answered'
   import { noteAnchor } from '../request/noteState'
   import { planState, titleId } from '../request/itemState'
-  import { PlanStore } from '../request/planStore.svelte'
-  import { changes } from '../changes.svelte'
-  import { poll } from '../poll'
-  import { refreshInterval } from '../request/refresh'
+  import { PlanStore, requestRoutes } from '../request/planStore.svelte'
+  import { itemRows, newerOf, refreshInterval } from '../request/refresh'
+  import { resource } from '../resource.svelte'
   import { formatMtime } from '../format'
-  import { latestOnly } from '../latest'
   import { wsHref } from '../routes'
   import { notify } from '../toast'
   import type { LedgerRequest } from '../types'
@@ -33,12 +31,9 @@
 
   let { requestId }: { requestId: string } = $props()
 
-  let missing = $state(false)
-  let error = $state<string | null>(null)
-  // When the request held was read, and why the read after it failed: a
-  // failed refresh keeps what is on the page and says how old it is
+  // When the request held was read: a failed refresh keeps what is on the
+  // page and says how old it is
   let readAt = $state(0)
-  let stale = $state<string | null>(null)
   // What the one live region says: a refresh's changes in a sentence, or
   // what an edit of the user's own did
   let said = $state('')
@@ -46,14 +41,15 @@
 
   // Held items count down from each read the store keeps; one reaching
   // zero reads the request again (review.svelte.ts)
-  const countdown = new ReviewCountdown(() => void load())
+  const countdown = new ReviewCountdown(() => void reads.reload())
 
   // What the server last said, and the edits not yet written over it
   // (planStore.svelte.ts). The page draws the store's view; every edit is
   // an intent handed to it, applied to the read only when it is sent
+  const routes = $derived(requestRoutes(ws, requestId))
   const store = new PlanStore({
-    get: () => api.getRequest(ws, requestId),
-    put: (body) => api.putRequest(ws, requestId, body),
+    get: () => routes.get(),
+    put: (body) => routes.put(body),
     onread(previous, next) {
       const news = announce(previous, next)
       if (news) said = news
@@ -77,103 +73,53 @@
       onClick: () => void showNote(key, id),
     })
   }
+  const messageOf = (e: unknown) => (e instanceof Error ? e.message : String(e))
   const request = $derived(store.view)
   const plan = $derived(request ? planState(request) : null)
 
-  // A reply older than what is held (a read sent before a save and
-  // answered after it) does not replace it: the store keeps the newer
-  function take(found: LedgerRequest) {
-    store.take(found)
-    missing = false
-    error = null
-    stale = null
-  }
-  // A read that fails over a request the page holds keeps it - and with it
-  // the note drafts in its rows - unless the request is gone
-  function failed(e: unknown) {
-    const message = e instanceof Error ? e.message : String(e)
-    if (e instanceof ApiError && e.status === 404) {
-      store.reset()
-      missing = true
-    } else if (store.read) stale = message
-    else error = message
-  }
-
-  // A reply for a request the page has since left is dropped
-  const beginLoad = latestOnly()
-  async function load() {
-    const current = beginLoad()
-    try {
-      const found = await api.getRequest(ws, requestId)
-      if (current()) take(found)
-    } catch (e) {
-      if (current()) failed(e)
-    }
-  }
-
+  // A switch to another request forgets the one held; replies still on
+  // their way for it are dropped (the store's reset, and latestOnly). Made
+  // before `reads`, so it runs before the read for the new request
   $effect(() => {
     void ws
     void requestId
     untrack(() => {
       store.reset()
       toldOf = {}
+      said = ''
     })
-    missing = false
-    error = null
-    stale = null
-    said = ''
-    void load()
   })
 
   // The plan and its machine state move without this page: an agent rewrites
-  // the plan, a job is queued, runs, ends. Follow it for as long as it can
-  // change (refreshInterval). A refresh replaces the store's read and
-  // leaves its queue, so it never undoes an edit; a note's draft lives in
-  // its row, which the keyed list keeps - and a refresh never moves focus
-  const interval = $derived(refreshInterval(store.read))
-  // A closed request with nothing in flight has no timer: it watches the
-  // feed instead, so an agent reopening it or adding a note shows within
-  // one feed interval. The read it makes goes through the same `take`, and
-  // so through `newerOf`
-  const closed = $derived(store.read !== null && interval === null)
-  $effect(() => {
-    if (!closed) return
-    const [from, id] = [ws, requestId]
-    let live = true
-    const stop = changes(from).watch(['requests'], async () => {
-      try {
-        const found = await api.getRequest(from, id)
-        if (live) take(found)
-      } catch (e) {
-        if (live) failed(e)
-      }
-    })
-    return () => {
-      live = false
-      stop()
-    }
+  // the plan, a job is queued, runs, ends. The feed's `requests` kind says
+  // so within one CHANGES_POLL_MS, and while the request can change on its
+  // own (refreshInterval) a timer reads it too. A read replaces the store's
+  // read through `take` - so through `newerOf`, and a reply sent before a
+  // save never puts the old revision back - and leaves its queue, so it
+  // never undoes an edit; a note's draft lives in its row, which the keyed
+  // list keeps, and a refresh never moves focus. An item a quiet read
+  // changed is marked (`changed`)
+  const reads = resource(() => store.refresh(), {
+    watch: ['requests'],
+    alsoLive: () => refreshInterval(store.read),
+    merge: newerOf,
+    rows: itemRows,
   })
+  // A request that is gone is said so, and nothing of it is kept; a read
+  // that fails over one the page holds keeps it - and with it the note
+  // drafts in its rows - and says how old it is
+  const missing = $derived(
+    reads.error instanceof ApiError && reads.error.status === 404,
+  )
   $effect(() => {
-    if (interval === null) return
-    const [from, id] = [ws, requestId]
-    let live = true
-    const stop = poll(
-      async () => {
-        try {
-          const found = await api.getRequest(from, id)
-          if (live) take(found)
-        } catch (e) {
-          if (live) failed(e)
-        }
-      },
-      interval,
-      { immediate: false },
-    )
-    return () => {
-      live = false
-      stop()
-    }
+    if (missing) untrack(() => store.reset())
   })
+  const failure = $derived(
+    reads.error === undefined || missing ? null : messageOf(reads.error),
+  )
+  const error = $derived(store.read ? null : failure)
+  const stale = $derived(store.read ? failure : null)
+  const load = () => reads.reload()
 
   // The priced run dialog, for what is ready or for one item. The page
   // never starts anything itself: a newly ready item waits to be asked for
@@ -324,6 +270,7 @@
           workspace={ws}
           ongo={goTo}
           onreload={load}
+          changed={reads.changed}
           onsay={(text) => (said = text)}
           onsee={seeChanges}
           onrun={(key) => (running = itemPlan(plan, key))}

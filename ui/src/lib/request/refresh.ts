@@ -25,8 +25,22 @@ export function refreshInterval(request: LedgerRequest | null): number | null {
  * replaced, and must not put it back; one at the same revision still
  * brings the items' newer derived state. */
 export function newerOf(
-  held: LedgerRequest | null,
+  held: LedgerRequest | null | undefined,
   incoming: LedgerRequest,
 ): LedgerRequest {
   return held && incoming.revision < held.revision ? held : incoming
+}
+
+/** The request's items as keyed rows, for a resource's `changed`: what
+ * each says, less its review's `seconds_left`, which counts down between
+ * any two reads of a held item without the item changing */
+export function itemRows(
+  request: LedgerRequest,
+): [key: string, value: unknown][] {
+  return request.items.map((item) => [
+    item.key,
+    item.review
+      ? { ...item, review: { ...item.review, seconds_left: 0 } }
+      : item,
+  ])
 }

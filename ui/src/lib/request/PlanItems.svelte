@@ -40,6 +40,7 @@
     onrun,
     countdown,
     onmove,
+    changed,
   }: {
     store: PlanStore
     /** The request as the page shows it: the store's view */
@@ -61,6 +62,8 @@
     countdown?: ReviewCountdown
     /** An item's note moved to the request's own box */
     onmove?: (text: string, refs: LedgerNoteRef[]) => void
+    /** The items a quiet read changed, by key: marked (`.row-changed`) */
+    changed?: ReadonlySet<string>
   } = $props()
 
   let list = $state<HTMLElement>()
@@ -280,6 +283,7 @@
     onkeep={(take) => keep(row, take)}
     {countdown}
     {onmove}
+    changed={changed?.has(row.item.key) ?? false}
   />
 {/snippet}
 

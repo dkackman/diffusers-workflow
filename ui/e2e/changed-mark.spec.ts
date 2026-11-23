@@ -61,3 +61,19 @@ test('a changed workflow card shows the bar over its picture', async ({
     clip: (await card.boundingBox())!,
   })
 })
+
+test("a changed request item shows the row's inset bar, uncovered", async ({
+  page,
+}) => {
+  await page.goto('/#/ws/default/requests/e2e-launch')
+  const item = page.locator('li.item').first()
+  await expect(item).toBeVisible()
+  await item.evaluate((node) => node.classList.add('row-changed'))
+  const seen = await item.evaluate((li) => ({
+    shadow: getComputedStyle(li).boxShadow,
+    // the row inside it paints nothing over the bar
+    row: getComputedStyle(li.querySelector('.row')!).backgroundColor,
+  }))
+  expect(seen.shadow).toMatch(/3px 0px 0px 0px inset/)
+  expect(seen.row).toBe('rgba(0, 0, 0, 0)')
+})

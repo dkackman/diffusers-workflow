@@ -399,37 +399,39 @@ it('tells a screen reader what a refresh changed, and nothing on first load', as
   await waitFor(() => expect(live()).toBe('Second poster finished.'))
 })
 
-it('a closed request with nothing in flight keeps no timer: it watches the feed', async () => {
+// One resource reads the request: the feed's `requests` kind always, and a
+// timer beside it while the request can change on its own (refreshInterval)
+it('an open request refreshes on its interval and a closed one on the feed', async () => {
   fakeInterval()
   const { api } = await import('../api')
-  data.request = { ...make(), state: 'done' }
-  render(RequestPage, { requestId: 'r1' })
-  await loaded()
-  const calls = vi.mocked(api.getRequest).mock.calls.length
-  vi.advanceTimersByTime(IDLE_MS * 3)
-  expect(vi.mocked(api.getRequest).mock.calls.length).toBe(calls)
-  await waitFor(() => expect(feed.watched('studio')).toEqual(['requests']))
-})
-
-it('a closed request an agent reopens shows open when the feed says requests moved', async () => {
-  fakeInterval()
-  const { api } = await import('../api')
+  const reads = () => vi.mocked(api.getRequest).mock.calls.length
   data.request = { ...make(), state: 'done', revision: 4 }
   render(RequestPage, { requestId: 'r1' })
   await loaded()
   await waitFor(() => expect(feed.watched('studio')).toEqual(['requests']))
+  // closed with nothing in flight: no timer
+  let calls = reads()
+  vi.advanceTimersByTime(IDLE_MS * 3)
+  expect(reads()).toBe(calls)
   // another kind moving asks nothing
-  const calls = vi.mocked(api.getRequest).mock.calls.length
   feed.move('studio', 'gallery')
-  expect(vi.mocked(api.getRequest).mock.calls.length).toBe(calls)
+  expect(reads()).toBe(calls)
+  // an agent reopens it: the feed says requests moved
   data.request = { ...make(), state: 'open', revision: 5 }
   feed.move('studio', 'requests')
   await atRevision(5)
-  // open again, it is back on its own idle timer and off the feed
-  await waitFor(() => expect(feed.watched('studio')).toEqual([]))
-  const reads = vi.mocked(api.getRequest).mock.calls.length
+  // open again, it is on its idle timer, and still on the feed
+  calls = reads()
   vi.advanceTimersByTime(IDLE_MS)
-  expect(vi.mocked(api.getRequest).mock.calls.length).toBe(reads + 1)
+  expect(reads()).toBe(calls + 1)
+  expect(feed.watched('studio')).toEqual(['requests'])
+  // a job in flight: the active interval
+  data.request = { ...queued(), revision: 6 }
+  feed.move('studio', 'requests')
+  await atRevision(6)
+  calls = reads()
+  vi.advanceTimersByTime(ACTIVE_MS)
+  expect(reads()).toBe(calls + 1)
 })
 
 it('a feed read of a closed request at an older revision does not replace it', async () => {
@@ -444,11 +446,46 @@ it('a feed read of a closed request at an older revision does not replace it', a
   expect(revision()).toBe('now at r6')
 })
 
-it('an open request keeps its own timer and does not watch the feed', async () => {
-  fakeInterval()
+it('a refresh answered after a save does not put the old revision back', async () => {
+  const { api } = await import('../api')
+  render(RequestPage, { requestId: 'r1' })
+  const box = await openNote('Second poster')
+  // The feed's read goes out and hangs
+  let land: (reply: unknown) => void = () => {}
+  vi.mocked(api.getRequest).mockImplementationOnce(
+    () => new Promise((resolve) => (land = resolve)) as never,
+  )
+  feed.move('studio', 'requests')
+  // The save lands first, and the read after it is at revision 4
+  data.addNote.mockImplementation(async () => {
+    data.request = noted('b', 'more red')
+    return { revision: 4 }
+  })
+  await fireEvent.input(box, { target: { value: 'more red' } })
+  await saveNote('Second poster')
+  await atRevision(4)
+  // then the feed's read, still carrying revision 3 and no note
+  land(make())
+  await new Promise((r) => setTimeout(r, 10))
+  expect(revision()).toBe('now at r4')
+  expect(within(row('Second poster')).getByText('more red')).toBeTruthy()
+})
+
+it('an item an agent edited is marked', async () => {
   render(RequestPage, { requestId: 'r1' })
   await loaded()
-  expect(feed.watched('studio')).toEqual([])
+  // nothing is marked on the first read
+  expect(document.querySelector('li.row-changed')).toBeNull()
+  const next = make()
+  next.revision = 4
+  next.items[1] = { ...next.items[1], title: 'Second poster, in red' }
+  data.request = next
+  feed.move('studio', 'requests')
+  await atRevision(4)
+  await waitFor(() =>
+    expect(row('Second poster, in red').classList).toContain('row-changed'),
+  )
+  expect(row('First poster').classList).not.toContain('row-changed')
 })
 
 it('a refresh sent before a save and answered after it does not undo the save', async () => {

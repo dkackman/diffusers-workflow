@@ -4,6 +4,7 @@
 // queue folded over the read, so a refresh replaces the read without
 // undoing an edit the user has just made. An intent is applied to the read
 // only at the moment it is sent: a plan read earlier is never sent again.
+import { api } from '../api'
 import { ApiError } from '../apiErrors'
 import type { RequestWriteBody } from '../apiRequest'
 import type { LedgerItem, LedgerRequest } from '../types'
@@ -51,6 +52,17 @@ export type PlanIo = {
   put: (body: RequestWriteBody) => Promise<LedgerRequest>
   /** Every time the read is replaced, with what it replaced */
   onread?: (previous: LedgerRequest | null, next: LedgerRequest) => void
+}
+
+/** The two calls a store makes for request `id` of workspace `ws` */
+export function requestRoutes(
+  ws: string,
+  id: string,
+): Pick<PlanIo, 'get' | 'put'> {
+  return {
+    get: () => api.getRequest(ws, id),
+    put: (body) => api.putRequest(ws, id, body),
+  }
 }
 
 const done = (status: Outcome['status'], stripped: string[] = []): Outcome => ({
@@ -118,6 +130,18 @@ export class PlanStore {
     if (next === previous) return
     this.read = next
     this.#io.onread?.(previous, next)
+  }
+
+  /** Read the request again and keep it unless what is held is newer
+   * (`take`). Resolves with what is then held; a reply for a request the
+   * store has since been reset from is not taken. `get` is called before
+   * any await, so a resource loading through this tracks what it reads */
+  async refresh(): Promise<LedgerRequest> {
+    const epoch = this.#epoch
+    const found = await this.#io.get()
+    if (epoch !== this.#epoch) return found
+    this.take(found)
+    return this.read ?? found
   }
 
   /** Queue an edit. Resolves with how it ended; rejects with the server's

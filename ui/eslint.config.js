@@ -67,6 +67,23 @@ export default ts.config(
       'no-restricted-imports': ['error', { patterns: [emptyPattern] }],
     },
   },
+  // The change feed has one subscriber: resource(), whose quiet reloads
+  // keep edits, focus and selection, and whose latestOnly drops a reply
+  // overtaken by a later read. A view watching a kind declares `watch`
+  {
+    files: ['src/**/*.{ts,svelte}'],
+    ignores: ['src/lib/resource.svelte.ts', 'src/lib/test/**', '**/*.test.ts'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector:
+            "CallExpression[callee.property.name='watch'][callee.object.callee.name='changes']",
+          message: 'Subscribe through resource() (src/lib/resource.svelte.ts)',
+        },
+      ],
+    },
+  },
   {
     ignores: ['dist/', 'node_modules/', 'playwright-report/', 'test-results/'],
   },

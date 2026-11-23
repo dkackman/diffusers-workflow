@@ -3,7 +3,8 @@
 // CHANGES_POLL_MS while something watching it is on screen and the tab is
 // visible (poll.ts pauses it while hidden and asks once on return). A view
 // of server data that is not live state reloads from `watch` - never on a
-// timer of its own (the table below; ui/CLAUDE.md). Modelled on the
+// timer of its own (the table below; ui/CLAUDE.md), and only through a
+// `resource` (resource.svelte.ts), as an ESLint rule holds. Modelled on the
 // notes channel (request/listening.svelte.ts): counted holders, a reply
 // overtaken by a later ask dropped, and a failed read keeps the counters
 // it had, so the next good read catches up.
@@ -27,9 +28,9 @@
 //                                                               panel; workspaces
 //   Compare (ComparePage)       -                               gallery: cells keep
 //                                                               their metadata
-//   One request (RequestPage)   5 s while a job of it is        requests, only while
-//                               queued or running, 20 s while   closed; reads keep the
-//                               open (request/refresh.ts)       higher revision (newerOf)
+//   One request (RequestPage)   5 s while a job of it is        requests, always; reads
+//                               queued or running, 20 s while   keep the higher revision
+//                               open (request/refresh.ts)       (newerOf), items marked
 //   Linked notes                20 s                            -
 //   Jobs (JobsPage)             3 s, paused while hidden        -
 //   One job (JobPage)           its event stream; read again    jobs, gallery

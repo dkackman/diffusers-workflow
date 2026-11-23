@@ -49,6 +49,7 @@
     onkeep,
     countdown,
     onmove,
+    changed = false,
   }: {
     row: ItemState
     request: LedgerRequest
@@ -74,6 +75,8 @@
     countdown?: ReviewCountdown
     /** "For the whole request instead" on this item's new note */
     onmove?: (text: string, refs: LedgerNoteRef[]) => void
+    /** A quiet read changed this item: marked until CHANGED_MARK_MS */
+    changed?: boolean
   } = $props()
 
   /** What a row's menu can ask of it */
@@ -150,7 +153,12 @@
   {/each}
 {/snippet}
 
-<li class="item" class:dropped={item.dropped} data-key={item.key}>
+<li
+  class="item"
+  class:dropped={item.dropped}
+  class:row-changed={changed}
+  data-key={item.key}
+>
   <!-- The row alone is the live one: opened, its region is not machine state -->
   <div class="row" class:row-live={row.display === 'running'}>
     <span class="handle">{@render handle?.(row)}</span>

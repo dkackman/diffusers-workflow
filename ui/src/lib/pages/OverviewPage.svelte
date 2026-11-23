@@ -11,9 +11,7 @@
     Trash2,
   } from '@lucide/svelte'
   import { api } from '../api'
-  import { changes } from '../changes.svelte'
   import { attention, doneFigure } from '../request/attention'
-  import { untrack } from 'svelte'
   import { resource } from '../resource.svelte'
   import LoadState from '../ui/LoadState.svelte'
   import NoteEditor from '../ui/NoteEditor.svelte'
@@ -27,6 +25,7 @@
     DEFAULT_WORKSPACE,
     invalidateWorkspaces,
     loadWorkspaces,
+    relistWorkspaces,
     workspace,
   } from '../workspace.svelte'
   import { deleteWorkspaceWithConfirm } from '../workspaceActions'
@@ -89,19 +88,11 @@
     (requests.data?.requests ?? []).filter((q) => q.state === 'open'),
   )
 
-  $effect(() => {
-    void workspace.current
-    untrack(() => void loadWorkspaces())
-  })
   // The note box is fed by `workspace.notes` alone, which only the
   // workspaces watch touches, and NoteEditor keeps an open draft when a
-  // newer note arrives
-  $effect(() =>
-    changes(workspace.current).watch(['workspaces'], () => {
-      invalidateWorkspaces()
-      void loadWorkspaces()
-    }),
-  )
+  // newer note arrives. The listing is module state (workspace.svelte.ts):
+  // this is how it stays fresh, not where it is held
+  resource(() => relistWorkspaces(), { watch: ['workspaces'] })
 
   // The ones that have produced something first - the same order the catalog
   // uses, so the overview and the catalog agree on what is "recent"
