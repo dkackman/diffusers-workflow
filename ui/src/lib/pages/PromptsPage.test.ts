@@ -184,6 +184,28 @@ it('an empty library with a filter typed says there are no prompts yet', async (
   expect(screen.getByText('/srv/prompts')).toBeTruthy()
 })
 
+it('a tag chip sets the filter on a press and clears it on a second press', async () => {
+  listPrompts.mockResolvedValue({
+    ...answer(['mine', 'theirs']),
+    details: {
+      mine: { ...detail('workspace', true), tags: ['anime'] },
+      theirs: detail('workspace', true),
+    },
+  })
+  render(PromptsPage)
+  await waitFor(() => expect(screen.getByText('theirs')).toBeTruthy())
+  const input = screen.getByPlaceholderText('filter…') as HTMLInputElement
+  const chip = screen.getByRole('button', { name: 'anime' })
+
+  await fireEvent.click(chip)
+  expect(input.value).toBe('anime')
+  expect(chip.getAttribute('aria-pressed')).toBe('true')
+
+  await fireEvent.click(chip)
+  expect(input.value).toBe('')
+  expect(chip.getAttribute('aria-pressed')).toBe('false')
+})
+
 it('a quiet reload keeps focus, filter and selection', async () => {
   listPrompts.mockResolvedValue(answer(['food', 'fog', 'bar']))
   render(PromptsPage)

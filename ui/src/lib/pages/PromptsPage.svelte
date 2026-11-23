@@ -105,7 +105,9 @@
               class="togglechip modelchip"
               class:on={filter === detail.intended_model}
               aria-pressed={filter === detail.intended_model}
-              onclick={() => (filter = detail.intended_model)}
+              onclick={() =>
+                (filter =
+                  filter === detail.intended_model ? '' : detail.intended_model)}
               title="written for {detail.intended_model} - click to filter"
             >
               {detail.intended_model}
@@ -124,7 +126,7 @@
                 class="togglechip"
                 class:on={filter === tag}
                 aria-pressed={filter === tag}
-                onclick={() => (filter = tag)}
+                onclick={() => (filter = filter === tag ? '' : tag)}
                 title="click to filter by this tag"
               >
                 {tag}
