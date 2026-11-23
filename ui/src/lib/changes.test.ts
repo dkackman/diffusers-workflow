@@ -20,6 +20,8 @@ const snapshot = (
     assets: 0,
     gallery: 0,
     jobs: 0,
+    models: 0,
+    loras: 0,
     ...kinds,
   },
 })

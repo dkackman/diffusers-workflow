@@ -8,6 +8,7 @@ GET /api/workspaces/{name}/changes must show exactly the right kind move,
 each by one."""
 
 import threading
+import time
 
 import pytest
 
@@ -32,10 +33,19 @@ from .test_ledger import item, plan
 from .test_ledger_job_link import client, root  # noqa: F401 - fixtures (F811: tests take them by name)
 from .test_ledger_job_link import finish, submit, view, write_plan
 from .test_server import valid_workflow, wait_for_status
+from fastapi.testclient import TestClient
 
 RUN_ID = "20261012-120000-aabbccdd"
 PNG = b"\x89PNG\r\n\x1a\n" + b"0" * 64
 PROMPT = {"prompt": {"text": "a red fox"}}
+LORA = {
+    "model_name": "acme/lora",
+    "base_models": ["acme/base"],
+    "description": "A look",
+    "use_when": "always",
+    "status": "trial",
+    "evidence": [{"note": "seen once"}],
+}
 
 
 # ------------------------------------------------------------------ registry
@@ -129,6 +139,7 @@ def test_the_route_answers_a_default_workspace(client):
     body = counters(client)
     assert isinstance(body["epoch"], str)
     assert set(body["kinds"]) == set(KINDS)
+    assert {"models", "loras"} <= set(body["kinds"])
     assert all(isinstance(v, int) for v in body["kinds"].values())
     assert isinstance(body["workspaces"], int)
 
@@ -321,6 +332,26 @@ CASES = {
         lambda c, run: c.delete(f"/api/jobs/{c.job['id']}/run"),
         {"gallery": 1, "jobs": 1},
     ),
+    "delete_cached_model": (
+        lambda c, run: None,
+        lambda c, run: c.delete("/api/models", params={"repo": "acme/tiny"}),
+        {"models": 1},
+    ),
+    "clear_cache": (
+        lambda c, run: None,
+        lambda c, run: c.delete("/api/caches/inductor"),
+        {"models": 1},
+    ),
+    "save_lora": (
+        lambda c, run: None,
+        lambda c, run: c.put("/api/loras/mine", json={"entry": LORA}),
+        {"loras": 1},
+    ),
+    "delete_lora": (
+        lambda c, run: c.put("/api/loras/mine", json={"entry": LORA}),
+        lambda c, run: c.delete("/api/loras/mine"),
+        {"loras": 1},
+    ),
     "copy_into_workspace": (
         _run_only_in_shots,
         lambda c, run: c.post(
@@ -331,20 +362,152 @@ CASES = {
 }
 
 # Routes that declare kinds but have no case above: {route name: why}
-UNCASED = {}
+UNCASED = {
+    "start_download": "reaches the network, and the thread it starts bumps again "
+    "when the download ends: test_a_finished_download_moves_models",
+    "cancel_download": "needs a download in flight, which ends on a thread that "
+    "bumps again: test_a_cancelled_download_moves_models",
+    "delete_cache_entry": "needs a quantized entry on disk: the same route "
+    "code as clear_cache, declared the same way",
+    "update_diffusers": "runs pip: test_a_finished_update_moves_models",
+}
 
 
 WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
 
 @pytest.mark.parametrize("case", list(CASES))
-def test_each_write_moves_exactly_its_kind(client, run, case):
+def test_each_write_moves_exactly_its_kind(client, run, case, monkeypatch):
+    from dw.server.routes import system
+
+    monkeypatch.setattr(system, "delete_model", lambda repo: 0)
+    monkeypatch.setattr(system.disk_caches, "get", lambda name: None)
+    monkeypatch.setattr(
+        system.disk_caches, "clear", lambda name: {"freed": 0, "files": 0}
+    )
     setup, call, expected = CASES[case]
     setup(client, run)
+    server_wide = set(expected) <= {"models", "loras"}
+    if server_wide:
+        assert client.post("/api/workspaces", json={"name": "shots"}).status_code < 300
+        other = counters(client, "shots")
     before = counters(client)
     response = call(client, run)
     assert 200 <= response.status_code < 300, response.text
     assert moved(before, counters(client)) == expected
+    if server_wide:
+        # No workspace owns the hub cache or the LoRA catalog: both move
+        assert moved(other, counters(client, "shots")) == expected
+
+
+def _download_manager(changes):
+    from dw.hub_cache import DownloadManager
+
+    def instant(repo_id, tqdm_class=None):
+        tqdm_class(total=1).update(1)
+
+    class Info:
+        siblings = []
+
+    manager = DownloadManager(download_fn=instant, info_fn=lambda repo_id: Info())
+    manager.changes = changes
+    return manager
+
+
+def _wait_download_ends(manager, download_id):
+    deadline = time.time() + 5
+    while time.time() < deadline:
+        if manager.status(download_id)["status"] != "downloading":
+            return
+        time.sleep(0.02)
+    raise AssertionError("the download did not end")
+
+
+def test_a_finished_download_moves_models(tmp_path):
+    from dw.server.app import create_app
+
+    manager = _download_manager(None)
+    app = create_app(
+        workflow_dir=str(tmp_path),
+        output_dir=str(tmp_path / "outputs"),
+        download_manager=manager,
+    )
+    with TestClient(app, base_url="http://localhost") as http:
+        assert app.state.downloads.changes is app.state.changes
+        before = counters(http)["kinds"]["models"]
+        started = http.post("/api/models/download", json={"repo_id": "acme/tiny"})
+        assert started.status_code == 202
+        _wait_download_ends(manager, started.json()["id"])
+        # The route's own bump, then the thread's when the download ended
+        wait_until(lambda: counters(http)["kinds"]["models"] == before + 2)
+
+
+def test_a_failed_download_moves_models():
+    from dw.hub_cache import DownloadManager
+
+    def broken(repo_id, tqdm_class=None):
+        raise RuntimeError("no network")
+
+    changes = Changes()
+    manager = DownloadManager(download_fn=broken, info_fn=lambda repo_id: None)
+    manager.changes = changes
+    entry = manager.start("acme/tiny")
+    _wait_download_ends(manager, entry["id"])
+    assert manager.status(entry["id"])["status"] == "failed"
+    assert changes.snapshot("any")["kinds"]["models"] == 1
+
+
+def test_a_cancelled_download_moves_models():
+    from dw.hub_cache import DownloadManager
+
+    started, release = threading.Event(), threading.Event()
+
+    def slow(repo_id, tqdm_class=None):
+        tracker = tqdm_class(total=10)
+        started.set()
+        release.wait(timeout=5)
+        tracker.update(1)  # the tick that raises out of a cancelled download
+
+    changes = Changes()
+    manager = DownloadManager(download_fn=slow, info_fn=lambda repo_id: None)
+    manager.changes = changes
+    entry = manager.start("acme/tiny")
+    assert started.wait(5)
+    manager.cancel(entry["id"])
+    release.set()
+    _wait_download_ends(manager, entry["id"])
+    assert manager.status(entry["id"])["status"] == "cancelled"
+    assert changes.snapshot("any")["kinds"]["models"] == 1
+
+
+def test_a_finished_update_moves_models():
+    from types import SimpleNamespace
+
+    from dw.server.updater import DiffusersUpdater
+
+    changes = Changes()
+    ok = SimpleNamespace(returncode=0, stdout="", stderr="")
+    updater = DiffusersUpdater(run_fn=lambda commit=None, revert=False: ok)
+    updater.changes = changes
+    updater.start()
+    wait_until(lambda: updater.status()["status"] == "succeeded")
+    wait_until(lambda: changes.snapshot("any")["kinds"]["models"] == 1)
+
+
+def test_a_background_bump_that_raises_is_swallowed():
+    from dw.hub_cache import DownloadManager
+    from dw.server.updater import DiffusersUpdater
+
+    class Broken:
+        def bump_all(self, *kinds):
+            raise RuntimeError("boom")
+
+    manager = DownloadManager(download_fn=lambda *a, **k: None, info_fn=lambda r: None)
+    manager.changes = Broken()
+    manager._finish({"status": "downloading", "cancel_requested": False}, "completed")
+    updater = DiffusersUpdater()
+    updater.changes = Broken()
+    updater._changed()
 
 
 # ---------------------------------------------------------------------- jobs

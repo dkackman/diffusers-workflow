@@ -419,6 +419,16 @@
             "title": "Jobs",
             "type": "integer"
           },
+          "loras": {
+            "description": "LoRA catalog saves and deletes. Server-wide.",
+            "title": "Loras",
+            "type": "integer"
+          },
+          "models": {
+            "description": "Model downloads, cancels and deletes, cache clears, and a diffusers update. Server-wide.",
+            "title": "Models",
+            "type": "integer"
+          },
           "prompts": {
             "description": "Prompt library saves and deletes.",
             "title": "Prompts",
@@ -441,7 +451,9 @@
           "workflows",
           "assets",
           "gallery",
-          "jobs"
+          "jobs",
+          "models",
+          "loras"
         ],
         "title": "ChangeCounts",
         "type": "object"

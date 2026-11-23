@@ -323,6 +323,8 @@ class DownloadManager:
         self._info_fn = info_fn
         self._lock = threading.Lock()
         self._downloads = {}
+        # The server's `Changes`, set by create_app; a terminal download bumps it
+        self.changes = None
 
     def start(self, repo_id):
         """Begin downloading repo_id; returns the download's status dict.
@@ -396,6 +398,17 @@ class DownloadManager:
             entry["error"] = error
             entry["finished_at"] = time.time()
             entry["cancel_requested"] = False
+        self._changed()
+
+    def _changed(self):
+        """A download ended (done, failed or cancelled): the hub cache and
+        the downloads list moved. Never raises: a counter is a hint."""
+        if self.changes is None:
+            return
+        try:
+            self.changes.bump_all("models")
+        except Exception as e:
+            logger.warning(f"Could not bump change counters for a download: {e}")
 
     def _add_progress(self, entry, n):
         with self._lock:

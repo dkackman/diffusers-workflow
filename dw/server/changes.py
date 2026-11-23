@@ -16,7 +16,7 @@ job manager), so the counters see every write but a hand edit on disk.
 - `workspaces` is one server-wide counter (create, delete, a workspace's
   note), carried in every snapshot so the sidebar needs no second read.
 - A library every workspace shares (the prompt library, the shared asset
-  library) is bumped with `bump_all`: a server-wide count added to each
+  library, and the server's models and LoRAs) is bumped with `bump_all`: a server-wide count added to each
   workspace's own, so every workspace's page of that kind reloads.
 
 A route never bumps by hand. Every write route declares what it changes,
@@ -54,7 +54,12 @@ WORKFLOWS = "workflows"
 ASSETS = "assets"
 GALLERY = "gallery"
 JOBS = "jobs"
-KINDS = (REQUESTS, PROMPTS, WORKFLOWS, ASSETS, GALLERY, JOBS)
+MODELS = "models"
+LORAS = "loras"
+KINDS = (REQUESTS, PROMPTS, WORKFLOWS, ASSETS, GALLERY, JOBS, MODELS, LORAS)
+# Kinds with no workspace: the hub cache and the LoRA library belong to the
+# server, so a write to one is always applied with `bump_all`
+SERVER_WIDE = (MODELS, LORAS)
 # The server-wide counter, declarable on a route; not one of `KINDS`
 WORKSPACES = "workspaces"
 
@@ -209,8 +214,11 @@ class Change:
         kinds = tuple(kind for kind in self.kinds if kind != WORKSPACES)
         if not kinds:
             return
-        if self.shared:
-            changes.bump_all(*kinds)
+        wide = kinds if self.shared else tuple(k for k in kinds if k in SERVER_WIDE)
+        if wide:
+            changes.bump_all(*wide)
+        kinds = tuple(kind for kind in kinds if kind not in wide)
+        if not kinds:
             return
         target = self.workspace if self.named else recorded
         if target is _UNSET:

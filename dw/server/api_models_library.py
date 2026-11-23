@@ -689,6 +689,11 @@ class ChangeCounts(ApiModel):
     jobs: int = Field(
         description="Job queue, start, finish, cancel and move, and a run deleted."
     )
+    models: int = Field(
+        description="Model downloads, cancels and deletes, cache clears, and "
+        "a diffusers update. Server-wide."
+    )
+    loras: int = Field(description="LoRA catalog saves and deletes. Server-wide.")
 
 
 class WorkspaceChanges(ApiModel):

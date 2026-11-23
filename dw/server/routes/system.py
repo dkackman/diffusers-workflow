@@ -48,7 +48,7 @@ from ...security import InvalidInputError, validate_commit_hash
 from ...trust import workflows_are_trusted
 from ...workspace import Workspace
 from .. import guides
-from ..changes import NO_CHANGE, ChangeRoute
+from ..changes import MODELS, NO_CHANGE, ChangeRoute, writes
 from ..deps import selected_workspace
 from ..guides import GuideError
 from ..jobs import JobsActive, WorkerBusy
@@ -204,7 +204,7 @@ class DownloadRequest(BaseModel):
     response_model=ModelDownload,
     response_model_exclude_unset=True,
 )
-@NO_CHANGE("until the models and loras kinds (2b Task 2)")
+@writes(MODELS)
 def start_download(request: Request, body: DownloadRequest):
     """Start a background snapshot download into the hub cache."""
     state = request.app.state
@@ -229,7 +229,7 @@ def list_downloads(request: Request):
     response_model=ModelDownload,
     response_model_exclude_unset=True,
 )
-@NO_CHANGE("until the models and loras kinds (2b Task 2)")
+@writes(MODELS)
 def cancel_download(request: Request, download_id: str):
     """Request cancellation; `cancel_requested` shows until it is terminal.
     Partial files stay in the cache and resume on a retry."""
@@ -243,7 +243,7 @@ def cancel_download(request: Request, download_id: str):
 @router.delete(
     "/api/models", response_model=ModelDeleted, response_model_exclude_unset=True
 )
-@NO_CHANGE("until the models and loras kinds (2b Task 2)")
+@writes(MODELS)
 def delete_cached_model(request: Request, repo: str):
     """Delete every cached revision of one repo from the hub cache.
 
@@ -290,7 +290,7 @@ def list_caches():
     response_model=DiskCacheCleared,
     response_model_exclude_unset=True,
 )
-@NO_CHANGE("until the models and loras kinds (2b Task 2)")
+@writes(MODELS)
 def clear_cache(request: Request, name: str):
     """Empty one cache's root, keeping the root and its marker. Refused
     while anything may be writing into it (`_hold_writers_off`)."""
@@ -311,7 +311,7 @@ def clear_cache(request: Request, name: str):
     response_model=DiskCacheEntryDeleted,
     response_model_exclude_unset=True,
 )
-@NO_CHANGE("until the models and loras kinds (2b Task 2)")
+@writes(MODELS)
 def delete_cache_entry(request: Request, name: str, entry: str):
     """Delete one entry of a cache that has entries (quantized). The id is
     checked to be 64 hex before any path is built from it."""
@@ -398,7 +398,7 @@ class UpdateDiffusersRequest(BaseModel):
     response_model=DiffusersStatus,
     response_model_exclude_unset=True,
 )
-@NO_CHANGE("until the models and loras kinds (2b Task 2)")
+@writes(MODELS)
 def update_diffusers(
     request: Request, body: UpdateDiffusersRequest = UpdateDiffusersRequest()
 ):
