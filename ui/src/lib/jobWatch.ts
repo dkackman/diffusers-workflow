@@ -44,18 +44,22 @@ export type Watch = {
  * The health reading counts queued jobs but does not name them, so an
  * adopted id that is not running can only be called ended when nothing is
  * queued; with a queue it may still be waiting, and is held rather than
- * re-read every poll. A failed poll (`info` null) says nothing about the
+ * re-read every poll - except on a `recheck` reading, which reads them all
+ * (a still-queued one is adopted again by the caller). A failed poll (`info` null) says nothing about the
  * jobs: reading it as "none running" would announce every running job as
  * finished, so it leaves the state as it was. */
+const holdsAdopted = (info: HealthInfo, recheck: boolean) =>
+  !recheck && (info.queued ?? 0) > 0
+
 export function nextWatch(
   watched: string[] | null,
   info: HealthInfo | null,
   adopted: ReadonlySet<string> = new Set(),
+  recheck = false,
 ): Watch {
   if (!info) return { watched, ended: [], running: watched ?? [] }
   const running = runningIds(info)
-  const held = (info.queued ?? 0) > 0
-  const mine = held ? [] : [...adopted]
+  const mine = holdsAdopted(info, recheck) ? [] : [...adopted]
   const before = [...new Set([...(watched ?? []), ...mine])]
   const ended =
     watched === null && !mine.length ? [] : endedSince(before, running)

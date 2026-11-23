@@ -149,6 +149,40 @@ describe('adopted jobs end once and stay bounded', () => {
     await Promise.all([followJobs(hz([]), ctx), followJobs(hz([]), ctx)])
     expect(news).toHaveBeenCalledTimes(1)
   })
+  it('a reading that overlaps a slow title read announces once', async () => {
+    vi.spyOn(api, 'getJob').mockImplementation(async (id) => {
+      if (id === 'r') await new Promise((r) => setTimeout(r, 20))
+      return done(id)
+    })
+    await followJobs(hz(['r']), ctx)
+    adoptJob('o')
+    const first = followJobs(hz(['r']), ctx)
+    const second = followJobs(hz(['r']), ctx)
+    await Promise.all([first, second])
+    expect(news).toHaveBeenCalledTimes(1)
+  })
+  it('a held adopted job that finished is announced on the sixth reading', async () => {
+    const get = vi
+      .spyOn(api, 'getJob')
+      .mockImplementation(async (id) => done(id))
+    await followJobs(hz([]), ctx)
+    adoptJob('q')
+    for (let i = 0; i < 4; i++) await followJobs(queuedHealth([], 1), ctx)
+    expect(get).not.toHaveBeenCalled()
+    await followJobs(queuedHealth([], 1), ctx)
+    expect(news).toHaveBeenCalledTimes(1)
+    expect(adoptedIds().has('q')).toBe(false)
+  })
+  it('a recheck that finds the job still queued keeps it adopted', async () => {
+    vi.spyOn(api, 'getJob').mockImplementation(
+      async (id) => ({ ...done(id), status: 'queued' }) as JobDetail,
+    )
+    await followJobs(hz([]), ctx)
+    adoptJob('q')
+    for (let i = 0; i < 5; i++) await followJobs(queuedHealth([], 1), ctx)
+    expect(news).not.toHaveBeenCalled()
+    expect(adoptedIds().has('q')).toBe(true)
+  })
   it('the adopted set is bounded, oldest dropped first', () => {
     for (let i = 0; i < 60; i++) adoptJob(`j${i}`)
     expect(adoptedIds().size).toBe(50)

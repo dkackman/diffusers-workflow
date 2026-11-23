@@ -107,6 +107,7 @@ export function resetFollow(): void {
   watched = null
   endedMark = titleJob = null
   others = 0
+  readings = 0
   clearAdopted()
 }
 
@@ -126,13 +127,16 @@ function announce(job: JobDetail, ctx: FollowContext): void {
     alertFinished(text, wsHref(job.workspace, 'jobs', job.id))
 }
 
-/** Reads one ended job and announces it. An adopted id leaves the set before
- * the read, so an overlapping reading cannot announce it twice; it goes back
- * only when the read failed transiently or the job is not finished yet. A
- * 404 means the job is gone: it stays dropped. */
-async function settle(id: string, ctx: FollowContext): Promise<void> {
-  const wasAdopted = adoptedIds().has(id)
-  dropAdopted(id)
+/** Reads one ended job and announces it. The caller has already taken an
+ * adopted id out of the set (before any await, so an overlapping reading
+ * cannot see it again); it goes back only when the read failed transiently
+ * or the job is not finished yet. A 404 means the job is gone: it stays
+ * dropped. */
+async function settle(
+  id: string,
+  ctx: FollowContext,
+  wasAdopted: boolean,
+): Promise<void> {
   let job: JobDetail
   try {
     job = await api.getJob(id)
@@ -147,14 +151,26 @@ async function settle(id: string, ctx: FollowContext): Promise<void> {
   announce(job, ctx)
 }
 
+/** Every RECHECK_EVERY-th reading re-reads the adopted ids a queue holds, so
+ * a short job that ran between two polls on a busy box is announced within
+ * half a minute, not only once the queue drains. */
+const RECHECK_EVERY = 6
+let readings = 0
+
 /** One health reading's worth of watching: the title, and a finish toast
  * (and alert) for each watched job that ended. */
 export async function followJobs(
   info: HealthInfo | null,
   ctx: FollowContext,
 ): Promise<void> {
-  const next = nextWatch(watched, info, adoptedIds())
+  readings += 1
+  const recheck = readings % RECHECK_EVERY === 0
+  const next = nextWatch(watched, info, adoptedIds(), recheck)
   watched = next.watched
+  // Claimed now, before any await: a reading that overlaps this one (the
+  // title read below can outlast a poll) must not see these ids again
+  const claimed = next.ended.map((id) => [id, adoptedIds().has(id)] as const)
+  for (const [id] of claimed) dropAdopted(id)
   // A failed poll leaves the title showing what it last knew
   if (info) {
     for (const id of next.running) dropAdopted(id)
@@ -164,6 +180,6 @@ export async function followJobs(
       : null
     showTitle()
   }
-  for (const id of next.ended) await settle(id, ctx)
+  for (const [id, wasAdopted] of claimed) await settle(id, ctx, wasAdopted)
   showTitle()
 }
