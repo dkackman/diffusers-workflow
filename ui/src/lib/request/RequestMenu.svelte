@@ -6,7 +6,7 @@
   import type { LedgerRequest } from '../types'
   import ItemMenu from './ItemMenu.svelte'
   import { requestMenu } from './menuEntries'
-  import type { PlanStore } from './planStore.svelte'
+  import { onThisRequest, type PlanStore } from './planStore.svelte'
 
   // The request's own actions, in its header: mark it done, abandon it,
   // reopen it - each a write of its state through the store, as any edit
@@ -58,13 +58,6 @@
       abandoned: (title) => `Abandoned "${title}"`,
     }
 
-  // The store is the page's, and the page is reused for the next request:
-  // an Undo is held to the request it was made on
-  const ON_THIS_REQUEST = {
-    now: () => store.read?.id ?? null,
-    away: 'Nothing undone: another request is open now.',
-  }
-
   /** Mark done and Abandon act at once and offer Undo, which writes the
    * state it had back through the same store path - only over the state
    * this wrote, so a change the agent made since stays; Reopen just writes */
@@ -72,7 +65,11 @@
     const { title, state: previous } = request
     const said = UNDONE[state]
     if (!(await pushState(state)) || !said) return
-    undoToast(said(title), () => pushState(previous, state), ON_THIS_REQUEST)
+    undoToast(
+      said(title),
+      () => pushState(previous, state),
+      onThisRequest(store),
+    )
   }
 
   const REFUSED: Record<string, string> = {

@@ -7,6 +7,7 @@
 import { api } from '../api'
 import { ApiError } from '../apiErrors'
 import type { RequestWriteBody } from '../apiRequest'
+import type { UndoTarget } from '../destructive'
 import type { LedgerItem, LedgerRequest } from '../types'
 import { culprit, itemDiff, type Conflict } from './conflict'
 import {
@@ -81,6 +82,13 @@ const keyOf = (intent: Intent) => ('key' in intent ? intent.key : null)
  * rest (a move, a restore) mean the same whatever it now holds */
 const decides = (intent: Intent) =>
   intent.kind === 'drop' || intent.kind === 'accept'
+
+/** The page and its store are reused for the next request: an Undo made
+ * here is held to the request it was made on (`undoToast`'s target) */
+export const onThisRequest = (store: PlanStore): UndoTarget => ({
+  now: () => store.read?.id ?? null,
+  away: 'Nothing undone: another request is open now.',
+})
 
 export class PlanStore {
   read = $state.raw<LedgerRequest | null>(null)

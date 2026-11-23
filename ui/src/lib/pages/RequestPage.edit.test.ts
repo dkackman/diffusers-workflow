@@ -10,6 +10,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import RequestPage from './RequestPage.svelte'
 import { workspace } from '../workspaceState.svelte'
 import { fakeLedger } from '../request/fakeLedger'
+import { PlanStore } from '../request/planStore.svelte'
 import {
   attempt,
   doneItem,
@@ -137,6 +138,53 @@ it('accepts a take at once, and the toast takes it back', async () => {
   await saved(5)
   expect(world.ledger.current.items[0].accepted).toBeNull()
   await waitFor(() => expect(first.getAttribute('aria-pressed')).toBe('false'))
+})
+
+it("an accept's Undo pressed twice while its toast fades takes it back once", async () => {
+  await start()
+  await fireEvent.click(
+    within(row('cast')).getByRole('button', {
+      name: 'Accept take 1 for Cast sheet',
+    }),
+  )
+  await saved(4)
+  const push = vi.spyOn(PlanStore.prototype, 'push')
+  undo()
+  undo()
+  await saved(5)
+  // the second press found the toast used: one write back, not two
+  expect(push).toHaveBeenCalledTimes(1)
+  push.mockRestore()
+  await new Promise((r) => setTimeout(r, 20))
+  expect(whys()).toEqual([
+    'accept j1 for cast',
+    'clear the accepted take of cast',
+  ])
+  expect(world.ledger.current.revision).toBe(5)
+})
+
+it("a drop's Undo pressed once another request is open does nothing to it", async () => {
+  const view = render(RequestPage, { requestId: 'r1' })
+  await screen.findByRole('heading', { name: 'Launch posters' })
+  await choose('s3', 'Drop from plan')
+  await saved(4)
+  // the page goes on to another request that has an item of the same key
+  world.ledger = fakeLedger(
+    request(
+      [item('s3', { title: 'Other shot' }), item('x', { title: 'Extra' })],
+      { id: 'r2', title: 'Other request' },
+    ),
+  )
+  await view.rerender({ requestId: 'r2' })
+  await screen.findByRole('heading', { name: 'Other request' })
+  undo()
+  await waitFor(() =>
+    expect(world.notify.error).toHaveBeenCalledWith(
+      'Nothing undone: another request is open now.',
+    ),
+  )
+  await new Promise((r) => setTimeout(r, 20))
+  expect(world.ledger.puts).toHaveLength(0)
 })
 
 it("the user's own accept is not marked as an agent's change", async () => {

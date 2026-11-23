@@ -26,22 +26,26 @@ export type UndoTarget = { now: () => unknown; away: string }
 /** A reversible action done at once: the toast that takes it back for
  * UNDO_MS. It runs at most once - a dismissed toast's button still takes a
  * second click while it fades - and only on the thing it was made for. A
- * revert that fails is reported, never thrown */
+ * revert that fails is reported, never thrown. `id` names the toast, so the
+ * caller can dismiss it (`notify.dismiss`) */
 export function undoToast(
   message: string,
   revert: () => void | Promise<unknown>,
   target?: UndoTarget,
+  id?: string,
 ): void {
   const was = target?.now()
   let used = false
-  notify.undo(message, () => {
+  const run = () => {
     if (used) return
     used = true
     if (target && target.now() !== was) return notify.error(target.away)
     Promise.resolve()
       .then(revert)
       .catch((e) => notify.failure('undo that', e))
-  })
+  }
+  if (id === undefined) notify.undo(message, run)
+  else notify.undo(message, run, id)
 }
 
 export type DestroySubject = {

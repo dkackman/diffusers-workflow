@@ -153,3 +153,15 @@ it('an undo is refused, with a notice, once its target is no longer open', async
   notify.undo.mock.calls[1][1]()
   await vi.waitFor(() => expect(revert).toHaveBeenCalledTimes(1))
 })
+
+it('an undo toast given an id is shown under it, for the caller to dismiss', () => {
+  notify.undo.mockClear()
+  undoToast('Dropped Shot 3', vi.fn(), undefined, 'request-undo-1')
+  expect(notify.undo).toHaveBeenCalledWith(
+    'Dropped Shot 3',
+    expect.any(Function),
+    'request-undo-1',
+  )
+  undoToast('Removed step b', vi.fn())
+  expect(notify.undo.mock.calls[1]).toHaveLength(2)
+})

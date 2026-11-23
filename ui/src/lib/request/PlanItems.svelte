@@ -3,6 +3,7 @@
   import { GripVertical } from '@lucide/svelte'
   import { ApiError } from '../apiErrors'
   import { confirmDialog } from '../confirm.svelte'
+  import { undoToast } from '../destructive'
   import { requestQuery } from '../requestFilter'
   import { wsHref } from '../routes'
   import { notify } from '../toast'
@@ -18,7 +19,11 @@
     type PlanState,
     type Take,
   } from './itemState'
-  import type { Outcome, PlanStore } from './planStore.svelte'
+  import {
+    onThisRequest,
+    type Outcome,
+    type PlanStore,
+  } from './planStore.svelte'
   import { handleId, Reorder } from './reorder.svelte'
   import { moveTarget, type Direction, type Move } from './reorderMath'
   import RequestItem from './RequestItem.svelte'
@@ -82,16 +87,16 @@
   const quietly = (write: Promise<Outcome>) => void write.catch(failed)
 
   let toasts = 0
-  /** An edit shown at once, with the toast that takes it back. The toast
-   * goes if the edit was not written after all: held back to ask, no
-   * longer applying, or refused */
+  /** An edit shown at once, with the toast that takes it back - once, and
+   * only on this request. The toast goes if the edit was not written after
+   * all: held back to ask, no longer applying, or refused */
   function undoable(
     write: Promise<Outcome>,
     message: string,
     back: () => void,
   ) {
     const id = `request-undo-${++toasts}`
-    notify.undo(message, back, id)
+    undoToast(message, back, onThisRequest(store), id)
     write
       .then((outcome) => {
         if (outcome.status !== 'saved') notify.dismiss(id)
