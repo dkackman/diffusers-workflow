@@ -30,7 +30,10 @@
   let shape = $state('')
   let traits = $state<WorkflowTrait[]>([])
 
-  const list = resource(() => api.listWorkflows(), { watch: ['workflows'] })
+  const list = resource(() => api.listWorkflows(), {
+    watch: ['workflows'],
+    rows: (data) => data.workflows.map((name) => [name, data.details[name]]),
+  })
   const workflows = $derived(list.data?.workflows ?? [])
   const details = $derived<Record<string, Detail>>(list.data?.details ?? {})
   /** What the listing says a card's `cost` is - "curated" today. */
@@ -237,6 +240,7 @@
       {@const proof = proofs[name]}
       <a
         class="card"
+        class:row-changed={list.changed.has(name)}
         href={href(name)}
         title={cardTitle(name, detail, costBasis)}
       >

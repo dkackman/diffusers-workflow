@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { flushSync } from 'svelte'
 import { feed } from './test/feedMock'
 import {
+  CHANGED_MARK_MS,
   resource,
   type Resource,
   type ResourceOptions,
@@ -289,4 +290,64 @@ it('watch and live exclude each other, and one is required', () => {
   mount(f, { live: { everyMs: 1 }, alsoLive: () => 1 })
   teardown?.()
   teardown = null
+})
+
+type Row = { id: string; v: number }
+const byId = (rows: Row[]) => rows.map((r) => [r.id, r] as const)
+
+it('a quiet reload reports the changed and new keys and clears them', async () => {
+  vi.useFakeTimers()
+  const load = vi
+    .fn<() => Promise<Row[]>>()
+    .mockResolvedValueOnce([
+      { id: 'a', v: 1 },
+      { id: 'b', v: 1 },
+    ])
+    .mockResolvedValueOnce([
+      { id: 'a', v: 1 },
+      { id: 'b', v: 2 },
+      { id: 'c', v: 1 },
+    ])
+  const r = mount(load, { watch: ['jobs'], rows: byId })
+  await vi.advanceTimersByTimeAsync(0)
+  expect(r.status).toBe('ready')
+  expect([...r.changed]).toEqual([])
+  feed.move('default', 'jobs')
+  await vi.advanceTimersByTimeAsync(0)
+  expect([...r.changed].sort()).toEqual(['b', 'c'])
+  await vi.advanceTimersByTimeAsync(CHANGED_MARK_MS - 1)
+  expect(r.changed.size).toBe(2)
+  await vi.advanceTimersByTimeAsync(1)
+  expect(r.changed.size).toBe(0)
+})
+
+it('a non-quiet load marks nothing', async () => {
+  const load = vi
+    .fn<() => Promise<Row[]>>()
+    .mockResolvedValueOnce([{ id: 'a', v: 1 }])
+    .mockResolvedValueOnce([{ id: 'a', v: 2 }])
+    .mockResolvedValueOnce([{ id: 'a', v: 3 }])
+  const r = mount(load, { watch: ['jobs'], rows: byId })
+  await vi.waitFor(() => expect(r.status).toBe('ready'))
+  expect(r.changed.size).toBe(0)
+  feed.move('default', 'jobs')
+  await vi.waitFor(() => expect(r.changed.has('a')).toBe(true))
+  // A loud reload (Retry) is a fresh look: it takes the marks away
+  await r.reload()
+  expect(r.data).toEqual([{ id: 'a', v: 3 }])
+  expect(r.changed.size).toBe(0)
+})
+
+it('a lazy resource does not load until a watched kind moves', async () => {
+  const load = vi.fn(() => Promise.resolve('rows'))
+  const r = mount(load, { watch: ['prompts'], lazy: true })
+  await settle()
+  expect(load).not.toHaveBeenCalled()
+  expect(r.data).toBeUndefined()
+  feed.move('default', 'prompts')
+  await vi.waitFor(() => expect(r.data).toBe('rows'))
+  expect(load).toHaveBeenCalledTimes(1)
+  connection.epoch++
+  flushSync()
+  await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(2))
 })

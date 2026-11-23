@@ -60,6 +60,7 @@
     },
     {
       watch: ['assets'],
+      rows: (data) => data.assets.map((asset) => [asset.name, asset]),
       merge: (_held, incoming) => {
         noteEdits = settleEdits(incoming.assets, incoming.began, noteEdits)
         return incoming
@@ -410,7 +411,11 @@
       >
         {#snippet card(name)}
           {@const asset = byName.get(name)!}
-          <div class="cellwrap" class:picked={picks.has(name)}>
+          <div
+            class="cellwrap"
+            class:picked={picks.has(name)}
+            class:row-changed={list.changed.has(name)}
+          >
             <!-- A sibling of the cell rather than a child: a checkbox nested in
                a button is invalid, and keeping them apart is what lets a plain
                click still open the details it always has -->

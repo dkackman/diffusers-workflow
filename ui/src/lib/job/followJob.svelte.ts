@@ -55,6 +55,9 @@ export function jobRecord(jobId: () => string): Resource<JobDetail> {
     get stale() {
       return read.stale
     },
+    get changed() {
+      return read.changed
+    },
     reload: read.reload,
   }
 }

@@ -25,6 +25,7 @@
     applyEdits,
     gridFiles,
     keepPicks,
+    listingRows,
     noEdits,
     settleEdits,
     withGone,
@@ -64,6 +65,7 @@
     },
     {
       watch: ['gallery'],
+      rows: listingRows,
       merge: (held, incoming) => {
         edits = settleEdits(incoming.files, incoming.began, edits)
         return keepPicks(picks, held, incoming)
@@ -321,7 +323,11 @@
   >
     {#snippet card(name)}
       {@const file = byName.get(name)!}
-      <div class="cellwrap" class:picked={picks.has(name)}>
+      <div
+        class="cellwrap"
+        class:picked={picks.has(name)}
+        class:row-changed={list.changed.has(name)}
+      >
         <!-- A sibling of the cell rather than a child: a checkbox nested in
            a button is invalid, and keeping them apart is what lets a plain
            click still open the details it always has -->

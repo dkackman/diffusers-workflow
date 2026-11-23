@@ -35,6 +35,18 @@ function itemChange(before: ItemState | undefined, now: ItemState) {
   return null
 }
 
+/** What changed about one item: a rename first, so what follows reads
+ * under the new name */
+function itemChanges(before: ItemState | undefined, now: ItemState) {
+  const said: string[] = []
+  const was = before?.item.title
+  if (was !== undefined && was !== now.item.title)
+    said.push(`The agent renamed ${was} to ${now.item.title}.`)
+  const change = itemChange(before, now)
+  if (change) said.push(change)
+  return said
+}
+
 const STATE: Record<LedgerRequest['state'], string> = {
   open: 'The request was reopened.',
   done: 'The request was marked done.',
@@ -51,9 +63,9 @@ export function announce(
   const was = planState(previous)
   const now = planState(next)
   const before = new Map(was.items.map((state) => [state.item.key, state]))
-  const said = now.items
-    .map((state) => itemChange(before.get(state.item.key), state))
-    .filter((sentence): sentence is string => sentence !== null)
+  const said = now.items.flatMap((state) =>
+    itemChanges(before.get(state.item.key), state),
+  )
   // The review banner's state, said once when it changes (ahead of the
   // item changes, so a busy refresh does not count it away); its
   // countdown ticks on the page, never here
