@@ -33,6 +33,8 @@ const cache = vi.hoisted(() => ({
   repos: [] as ModelRepo[],
   // what the cache listing fails with, while it fails
   error: null as Error | null,
+  // how many times the diffusers status was read
+  diffusersReads: 0,
 }))
 
 vi.mock('../api', () => ({
@@ -52,8 +54,10 @@ vi.mock('../api', () => ({
       cache.error
         ? Promise.reject(cache.error)
         : Promise.resolve({ downloads: [] }),
-    diffusersStatus: () =>
-      cache.error ? Promise.reject(cache.error) : new Promise(() => {}),
+    diffusersStatus: () => {
+      cache.diffusersReads++
+      return cache.error ? Promise.reject(cache.error) : new Promise(() => {})
+    },
   },
 }))
 vi.mock('../changes.svelte', async () => ({
@@ -65,6 +69,7 @@ afterEach(() => {
   cleanup()
   cache.repos = []
   cache.error = null
+  cache.diffusersReads = 0
 })
 
 async function lastUsedCell(repoId: string): Promise<HTMLElement> {
@@ -142,4 +147,12 @@ it('ModelsPage reloads its cache list on a models move', async () => {
   await screen.findByText('org/fetched')
   // Quiet: the list never went back to loading
   expect(screen.getByText('org/first')).toBeTruthy()
+})
+
+it('a models move reads the diffusers status again', async () => {
+  render(ModelsPage)
+  await waitFor(() => expect(cache.diffusersReads).toBe(1))
+  // An update started by another tab or an agent bumps models
+  feed.move(workspace.current, 'models')
+  await waitFor(() => expect(cache.diffusersReads).toBe(2))
 })

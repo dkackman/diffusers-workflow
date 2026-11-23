@@ -44,8 +44,10 @@
     if (now < wasActive) void cacheRead.reload()
     wasActive = now
   })
+  // An update started or finished elsewhere (another tab, an agent) moves
+  // models too
   const diffusersRead = resource(() => api.diffusersStatus(), {
-    watch: [],
+    watch: ['models'],
     alsoLive: (): number | null => (updating ? 2000 : null),
   })
   const diffusers = $derived(diffusersRead.data)

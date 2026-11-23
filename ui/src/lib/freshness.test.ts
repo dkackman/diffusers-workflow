@@ -11,7 +11,11 @@
 // Reads made through a helper: a .svelte file that imports a plain src/lib
 // .ts module whose code calls an `api` read (arch-metrics.mjs's `isRead`)
 // reads the server too. It must have a `resource(`, be a document page, or
-// be in HELPER_EXCEPTIONS with the reason beside it. One import level is
+// be in HELPER_EXCEPTIONS with the reason beside it. A file that has a
+// `resource(` calls each reading helper inside a resource's load, or the
+// call is in HELPER_CALL_EXCEPTIONS by file and name, so a second read
+// beside a watched one fails too. Only the script is read: a helper called
+// from the markup (an `onclick`) is out of reach. One import level is
 // followed: a helper that reaches the api through another module (two or
 // more levels) is out of reach here and of the metric, as are `.svelte.ts`
 // stores, which keep their own freshness (below).
@@ -65,7 +69,7 @@ const PAGE_TABLE: Record<string, Freshness[]> = {
   'pages/ModelsPage.svelte': [
     { watch: ['models'] },
     { watch: ['models'], alsoLive: true },
-    { watch: [], alsoLive: true },
+    { watch: ['models'], alsoLive: true },
   ],
   'pages/OverviewPage.svelte': [
     { watch: ['gallery'] },
@@ -344,6 +348,97 @@ export function bareHelperReaders(
     .map(([k]) => k)
 }
 
+type Helpers = { reading: Map<string, Set<string>>; known: Set<string> }
+
+/** The reading helpers a file imports: local name to exported name, and
+ * each namespace import's reading names */
+function readingLocals(
+  k: string,
+  script: unknown,
+  { reading, known }: Helpers,
+) {
+  const named = new Map<string, string>()
+  const spaces = new Map<string, Set<string>>()
+  for (const n of nodes(script)) {
+    if (n.type !== 'ImportDeclaration' || n.importKind === 'type') continue
+    const found = reading.get(
+      resolved(k, (n.source as Node).value as string, known) ?? '',
+    )
+    if (!found?.size) continue
+    for (const spec of n.specifiers as Node[]) {
+      const local = (spec.local as Node).name as string
+      if (spec.type === 'ImportNamespaceSpecifier') spaces.set(local, found)
+      const imported = spec.imported as Node | undefined
+      const name = imported && ((imported.name ?? imported.value) as string)
+      if (name && spec.importKind !== 'type' && found.has(name))
+        named.set(local, name)
+    }
+  }
+  return { named, spaces }
+}
+
+/** The reading helper a call names, if it names one */
+function helperCalled(
+  call: Node,
+  { named, spaces }: ReturnType<typeof readingLocals>,
+): string | null {
+  const callee = call.callee as Node
+  if (callee.type === 'Identifier')
+    return named.get(callee.name as string) ?? null
+  const object = callee.object as Node | undefined
+  const prop = callee.property as Node | undefined
+  if (callee.type !== 'MemberExpression' || object?.type !== 'Identifier')
+    return null
+  const found = spaces.get(object.name as string)
+  return found?.has(prop?.name as string) ? (prop?.name as string) : null
+}
+
+/** The reading helpers a file with a `resource(` calls outside every
+ * resource's load: a read nothing keeps fresh, beside one that is */
+function strayHelperReads(k: string, source: string, helpers: Helpers) {
+  const script = parse(source, { modern: true }).instance?.content
+  const calls = [...nodes(script)].filter((n) => n.type === 'CallExpression')
+  const loads = calls
+    .filter((c) => calleeName(c) === 'resource')
+    .map((c) => (c.arguments as Node[])[0])
+    .filter(Boolean)
+  if (!loads.length) return []
+  const locals = readingLocals(k, script, helpers)
+  const inLoad = (c: Node) =>
+    loads.some(
+      (l) =>
+        (c.start as number) >= (l.start as number) &&
+        (c.end as number) <= (l.end as number),
+    )
+  const stray = calls
+    .filter((c) => !inLoad(c))
+    .map((c) => helperCalled(c, locals))
+  return [...new Set(stray.filter((n) => n !== null))]
+}
+
+/** `file: helper` for each reading helper a file with a resource calls
+ * outside every resource's load - outside the document pages, which keep
+ * their document fresh another way, and `exceptions` */
+export function helperReadsOutsideResources(
+  svelte: Record<string, string>,
+  helperSources: Record<string, string>,
+  exceptions: Record<string, Record<string, string>> = {},
+): string[] {
+  const helpers: Helpers = {
+    reading: new Map(
+      Object.entries(helperSources).map(([k, src]) => [k, readingExports(src)]),
+    ),
+    known: new Set(Object.keys(helperSources)),
+  }
+  return Object.entries(svelte)
+    .filter(([k]) => !DOCUMENT_PAGES.includes(k))
+    .flatMap(([k, source]) =>
+      strayHelperReads(k, source, helpers)
+        .filter((name) => !exceptions[k]?.[name])
+        .map((name) => `${k}: ${name}`),
+    )
+}
+
 /** The document pages whose open document nothing watches: neither the
  * page nor a helper function it imports and calls reaches `watchRemote` */
 export function unwatchedDocuments(
@@ -417,6 +512,15 @@ it('a page that reads the server does so through a resource', () => {
     .map(([k]) => k)
   expect(bare).toEqual([])
 })
+/** Reading-helper calls outside every resource's load in a file that has
+ * one, by file and helper name, each with why it is not a second read */
+const HELPER_CALL_EXCEPTIONS: Record<string, Record<string, string>> = {
+  'job/JobResults.svelte': {
+    runMetadataReader:
+      'a factory, called once at init: the reader it returns is what the ' +
+      'resource calls',
+  },
+}
 
 it('a document page opens its document through its opener', () => {
   const missing = DOCUMENT_PAGES.filter(
@@ -521,4 +625,61 @@ export { viaLocal as latestJob }`,
     bareHelperReaders(svelte, helpers, { 'pages/Clicks.svelte': 'a click' }),
   ).toEqual(['job/Bare.svelte', 'job/Latest.svelte'])
   expect(bareHelperReaders(svelte, {})).toEqual([])
+})
+
+it('a view with a resource makes its helper reads inside one', () => {
+  expect(
+    helperReadsOutsideResources(
+      svelteSources,
+      helperSources,
+      HELPER_CALL_EXCEPTIONS,
+    ),
+  ).toEqual([])
+})
+
+it('each helper-call exception is still a call outside a resource', () => {
+  const found = helperReadsOutsideResources(svelteSources, helperSources)
+  const stale = Object.entries(HELPER_CALL_EXCEPTIONS)
+    .flatMap(([k, names]) => Object.keys(names).map((n) => `${k}: ${n}`))
+    .filter((entry) => !found.includes(entry))
+  expect(stale).toEqual([])
+})
+
+it('names a second read beside a watched one', () => {
+  const helpers = {
+    'job/probe.ts': `import { api } from '../api'
+export const jobsFor = (w: string) => api.listJobs(w)
+export const jobFor = (id: string) => api.getJob(id)`,
+  }
+  const watched = `const jobs = resource(() => jobsFor('w'), { watch: ['jobs'] })`
+  const svelte = {
+    'job/Inside.svelte': `<script lang="ts">
+  import { jobsFor } from './probe'
+  ${watched}
+</script>`,
+    'job/Beside.svelte': `<script lang="ts">
+  import { jobsFor, jobFor as one } from './probe'
+  ${watched}
+  let job = $state()
+  $effect(() => { one('a').then((j) => (job = j)) })
+</script>`,
+    'job/Spaced.svelte': `<script lang="ts">
+  import * as probe from './probe'
+  const jobs = resource(() => probe.jobsFor('w'), { watch: ['jobs'] })
+  void probe.jobFor('a')
+</script>`,
+    'job/Bare.svelte': `<script lang="ts">
+  import { jobsFor } from './probe'
+  void jobsFor('w')
+</script>`,
+  }
+  expect(helperReadsOutsideResources(svelte, helpers)).toEqual([
+    'job/Beside.svelte: jobFor',
+    'job/Spaced.svelte: jobFor',
+  ])
+  expect(
+    helperReadsOutsideResources(svelte, helpers, {
+      'job/Beside.svelte': { jobFor: 'a click' },
+    }),
+  ).toEqual(['job/Spaced.svelte: jobFor'])
 })
