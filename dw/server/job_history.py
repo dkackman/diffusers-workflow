@@ -91,10 +91,9 @@ _ADDED_COLUMNS = (
     ("host_memory_job_peak_rss_mb", "REAL"),
     # The largest committed reading of the run (RssAnon + RssShmem + the
     # driver's pinned pages, host_memory.committed_mb) - its RSS without the
-    # mapped checkpoint pages, which are page cache (#869). An absolute
-    # process reading, where host_memory_job_peak_rss_mb is job-scoped
-    # growth. NULL for a row predating the column and where the platform
-    # has no split
+    # mapped checkpoint pages, which are page cache (#869). An absolute process
+    # reading, where host_memory_job_peak_rss_mb is job-scoped growth. NULL
+    # for a row predating the column and where the platform has no split
     ("host_memory_job_peak_committed_mb", "REAL"),
     # The card the job ran on - "cuda:1 NVIDIA GeForce RTX 3090" (#462).
     # NULL for a row predating the column: which card that was is not
@@ -133,10 +132,9 @@ _ADDED_COLUMNS = (
     # all of which are terminal
     ("server_instance", "TEXT"),
     # A database may hold a column no longer declared here (`kept`, #917,
-    # retired once #944 made a workspace delete retire every row rather
-    # than keep the ones an asset named): the migration only adds what is
-    # missing (`_add_missing_columns`), so a stray physical column is left
-    # alone and never read
+    # retired once #944 made a workspace delete retire every row, not keep
+    # the ones an asset named): the migration only adds what is missing
+    # (`_add_missing_columns`), so a stray column is left alone and unread
 )
 
 
@@ -149,9 +147,13 @@ def _rerun_spec(job):
     return {key: job.spec[key] for key in RERUN_SPEC_KEYS if key in job.spec}
 
 
+def _attr(name):
+    return name, lambda job: getattr(job, name, None)
+
+
 # What `JobHistory.record` writes: one (column, getter) per recorded column, so
 # a new job field is one entry here (plus its `_ADDED_COLUMNS` DDL), not a
-# placeholder and a positional value. `getattr(..., None)` is for a test double
+# placeholder and a positional value. `_attr` reads None for a test double
 # or an older in-memory Job predating a column: absent means unknown, which the
 # column itself allows (#243)
 _RECORDED = (
@@ -172,32 +174,23 @@ _RECORDED = (
     ("run_id", lambda job: job.run_id),
     ("run_dir", lambda job: job.run_dir),
     ("acknowledged", lambda job: job.acknowledged),
-    (
-        "host_memory_peak_rss_mb",
-        lambda job: getattr(job, "host_memory_peak_rss_mb", None),
-    ),
-    (
-        "host_memory_job_peak_rss_mb",
-        lambda job: getattr(job, "host_memory_job_peak_rss_mb", None),
-    ),
-    (
-        "host_memory_job_peak_committed_mb",
-        lambda job: getattr(job, "host_memory_job_peak_committed_mb", None),
-    ),
-    ("run_version", lambda job: getattr(job, "run_version", None)),
-    ("device", lambda job: getattr(job, "device", None)),
-    ("device_ordinal", lambda job: getattr(job, "device_ordinal", None)),
-    ("device_card", lambda job: getattr(job, "device_card", None)),
-    ("note", lambda job: getattr(job, "note", None)),
+    _attr("host_memory_peak_rss_mb"),
+    _attr("host_memory_job_peak_rss_mb"),
+    _attr("host_memory_job_peak_committed_mb"),
+    _attr("run_version"),
+    _attr("device"),
+    _attr("device_ordinal"),
+    _attr("device_card"),
+    _attr("note"),
     ("memory_key", _memory_key_of),
-    ("rerun_of", lambda job: getattr(job, "rerun_of", None)),
-    ("request", lambda job: getattr(job, "request", None)),
-    ("item", lambda job: getattr(job, "item", None)),
+    _attr("rerun_of"),
+    _attr("request"),
+    _attr("item"),
     (
         "overrides",
         lambda job: _json(job.spec["overrides"]) if job.spec.get("overrides") else None,
     ),
-    ("server_instance", lambda job: getattr(job, "server_instance", None)),
+    _attr("server_instance"),
 )
 
 # What the startup sweep writes into a dead server's open rows (#1220). Both
@@ -207,9 +200,8 @@ RESTART_RUNNING = (
     "server restart: running when the server stopped; "
     "partial outputs may be in {run_dir}"
 )
-# The prefix every tombstone's error starts with - what a batch is matched
-# on - is job_record's RESTART_PREFIX, beside the row-reason helper
-# A row that was dispatched but had not reported its run directory yet
+# A dispatched row that had not reported its run directory yet. A batch is
+# matched on job_record's RESTART_PREFIX, beside the row-reason helper
 RESTART_RUNNING_NO_RUN = (
     "server restart: running when the server stopped, before it opened a run"
 )

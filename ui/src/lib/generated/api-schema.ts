@@ -4576,7 +4576,7 @@ export interface components {
             workflow: string | null;
             /**
              * Workflow Name
-             * @description The catalog name it was run by - the file the UI names it by.
+             * @description The catalog name it ran by.
              */
             workflow_name?: string | null;
             /** Workspace */

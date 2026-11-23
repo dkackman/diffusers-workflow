@@ -82,8 +82,7 @@ from .api_models_library import (
     NoteSet,
 )
 
-# The library's models live in api_models_library, and the base in
-# api_models_base; every route and test imports them from here
+# Re-exported from api_models_library and api_models_base: import them here
 __all__ = [
     "STRICT",
     "ApiModel",
@@ -767,10 +766,7 @@ class RestartBatchQueued(ApiModel):
 class RestartBatchCandidate(ApiModel):
     id: str = Field(description="The tombstone's id.")
     workflow: str | None
-    workflow_name: str | None = Field(
-        default=None,
-        description="The catalog name it was run by - the file the UI names it by.",
-    )
+    workflow_name: str | None = Field(None, description="The catalog name it ran by.")
     workspace: str
     estimate: "PlanEstimate | None" = Field(
         description="The plan's estimate of the rerun; null when none was built."
