@@ -14,7 +14,6 @@
   import { SECTION_LABELS, sharedHref, wsHref } from '../routes'
   import { workspace } from '../workspace.svelte'
   import { loadPromptLibrary } from '../promptlib.svelte'
-  import { notify } from '../toast'
   import { observedText, observedTitle } from '../observed'
   import { costBasisWords, costFigure, costMeasuredOn } from '../cost'
   import { action } from '../action.svelte'
@@ -35,7 +34,6 @@
   let { name }: { name: string } = $props()
 
   let overrides = $state<Record<string, string>>({})
-  let submitting = $state(false)
   /** Collapsed by default: this page is where you set variables and run,
    * and a 520px read-only editor between the form and the rest of the page
    * pushed the actual work off the screen. The editor is one click away,
@@ -189,9 +187,8 @@
   )
   const remove = () => removing.run()
 
-  async function run() {
-    submitting = true
-    try {
+  const running = action(
+    async () => {
       const job = await api.submitJob({
         // By name, not by composed path: the server resolves a name across
         // every source it can read, so an example runs where it lives
@@ -199,12 +196,10 @@
         arguments: runArguments(),
       })
       goWs('jobs', job.id)
-    } catch (e) {
-      notify.failure(`run ${name}`, e)
-    } finally {
-      submitting = false
-    }
-  }
+      return job
+    },
+    { doing: () => `run ${name}` },
+  )
 </script>
 
 <!-- One filled button: Run, the thing you came here to do. Everything else
@@ -244,11 +239,12 @@
     </button>
     <button
       class="withicon run"
-      onclick={run}
-      disabled={submitting || !workflow}
+      onclick={() => void running.run()}
+      disabled={running.busy || !workflow}
+      aria-busy={running.busy}
       title="queue this workflow with the variables below"
     >
-      <Play size={14} />{submitting ? 'Submitting…' : 'Run'}
+      <Play size={14} />{running.busy ? 'Submitting…' : 'Run'}
     </button>{/snippet}
 </PageHeader>
 

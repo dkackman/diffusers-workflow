@@ -347,6 +347,21 @@ it('archives every selected file in one request', async () => {
   )
 })
 
+it('a double click on Download sends one request', async () => {
+  await renderGallery()
+
+  checkbox('a.png').click()
+  await waitFor(() => expect(screen.getByText('1 selected')).toBeTruthy())
+  const download = screen.getByRole('button', { name: /download/i })
+  // Both clicks land before the page renders the first one's busy state
+  download.click()
+  download.click()
+
+  await waitFor(() => expect(archiveOutputs).toHaveBeenCalled())
+  await new Promise((r) => setTimeout(r, 20))
+  expect(archiveOutputs).toHaveBeenCalledTimes(1)
+})
+
 it('drops deleted files from the grid and the selection', async () => {
   await renderGallery()
 

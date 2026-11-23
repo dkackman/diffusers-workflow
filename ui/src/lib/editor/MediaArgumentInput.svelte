@@ -16,6 +16,7 @@
   import { ensureOutputLibrary, outputNamed } from '../outputlib.svelte'
   import type { MediaKind } from '../mediaArguments'
   import { dropFiles } from '../dropFiles'
+  import { action } from '../action.svelte'
 
   let {
     id,
@@ -32,7 +33,6 @@
   } = $props()
 
   let fileInput: HTMLInputElement | undefined = $state()
-  let uploading = $state(false)
   let browsing = $state(false)
   /** Our own word on an upload that did not land */
   let error = $state('')
@@ -81,18 +81,20 @@
     if (localPreview.startsWith('blob:')) URL.revokeObjectURL(localPreview)
   })
 
-  async function pick(e: Event & { currentTarget: HTMLInputElement }) {
+  function pick(e: Event & { currentTarget: HTMLInputElement }) {
     const file = e.currentTarget.files?.[0]
     e.currentTarget.value = ''
-    if (file) await uploadFile(file)
+    if (file) void uploading.run(file)
   }
 
+  // A failed upload is said beside the field (ErrorLine), so the action
+  // has nothing to announce: it is the busy guard
+  const uploading = action(uploadFile, { doing: 'upload that file' })
   async function uploadFile(file: File) {
     error = ''
     failure = null
     const previous = localPreview
     localPreview = URL.createObjectURL(file)
-    uploading = true
     try {
       // This uploads to the workspace library, so only its names are taken
       const taken = new Set(
@@ -123,8 +125,6 @@
     } catch (err) {
       revokeBlob(previous)
       failure = err
-    } finally {
-      uploading = false
     }
   }
 </script>
@@ -142,9 +142,9 @@
 <div
   class="media"
   use:dropFiles={{
-    ondrop: (files) => uploadFile(files[0]),
+    ondrop: (files) => void uploading.run(files[0]),
     accept: (f) => f.type.startsWith(`${kind}/`),
-    disabled: uploading,
+    disabled: uploading.busy,
   }}
 >
   <div class="row1">
@@ -173,7 +173,7 @@
       class="quiet icon"
       title={`browse for a local ${kind} file, or drop a file here`}
       aria-label={`browse for a local ${kind} file`}
-      disabled={uploading}
+      disabled={uploading.busy}
       onclick={() => fileInput?.click()}
     >
       <Upload size={14} />
@@ -186,7 +186,7 @@
       onchange={pick}
     />
   </div>
-  {#if uploading}
+  {#if uploading.busy}
     <div class="muted status">uploading…</div>
   {:else if failure != null}
     <div class="status">

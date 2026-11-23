@@ -101,6 +101,17 @@ it('sends only the changed keys and opens the new job', async () => {
   })
 })
 
+it('a double click sends one request', async () => {
+  render(RerunWithChanges, { job: job(), declared })
+  await openForm()
+  await fireEvent.input(field('prompt'), { target: { value: 'a fox' } })
+  // Both clicks land before the page renders the first one's busy state
+  queueButton().click()
+  queueButton().click()
+  await waitFor(() => expect(go).toHaveBeenCalled())
+  expect(api.rerunJob).toHaveBeenCalledTimes(1)
+})
+
 it('sends nothing when the only typed value equals the run', async () => {
   render(RerunWithChanges, { job: job(), declared })
   await openForm()

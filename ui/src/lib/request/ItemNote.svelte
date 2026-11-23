@@ -156,6 +156,8 @@
     onreload()
   }
   async function store(write: () => Promise<void>) {
+    // Ctrl+Enter is not a disabled button: a second press waits for none
+    if (saving) return
     saving = true
     try {
       await write()

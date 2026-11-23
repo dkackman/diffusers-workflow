@@ -200,7 +200,7 @@
     return null
   }
 
-  async function save() {
+  function save() {
     if (!shell.canWrite) return
     shell.flush()
     const blocker = saveBlocker()
@@ -208,27 +208,34 @@
       notify.error(blocker)
       return
     }
-    const path = shell.savePath()!
-    shell.busy = true
-    try {
-      const outcome = await savePromptAt(shell, path)
-      if (outcome === 'cancelled') return
-      shell.commitNewFolder()
+    void saving.run(shell.savePath()!)
+  }
+  // An action: Save twice (or Ctrl+S twice) writes once
+  const saving = action(
+    async (path: string) => {
+      shell.busy = true
+      try {
+        const outcome = await savePromptAt(shell, path)
+        if (outcome === 'cancelled') return null
+        shell.commitNewFolder()
+      } finally {
+        shell.busy = false
+      }
       // Same as the workflow editor: the picker lists folders from the
       // listing, so a newly created one must be added or the select resets
       if (listing.data) listing.adopt(withSavedPrompt(listing.data, path))
-      notify.success(`Saved to ${path}`)
       loadPromptLibrary()
       // The URL names the prompt now on screen: a first save, or a save as
       opened = path
       if (path !== name)
         renameRoute(sharedHref('prompt-edit', ...path.split('/')))
-    } catch (e) {
-      notify.failure(`save ${path}`, e)
-    } finally {
-      shell.busy = false
-    }
-  }
+      return path
+    },
+    {
+      doing: (path) => `save ${path}`,
+      success: (path) => `Saved to ${path}`,
+    },
+  )
 
   // The workflows a delete would break are read on the click that asks
   const removing = action<[name: string, warning: string], void>(

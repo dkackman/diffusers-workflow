@@ -18,7 +18,12 @@
   import { action } from '../action.svelte'
   import { assetConfirm, assetsConfirm } from '../assets/deletion'
   import BulkBar from '../BulkBar.svelte'
-  import { Picks, actOnEach, reportFailures } from '../picks.svelte'
+  import {
+    actOnEach,
+    downloadArchive,
+    Picks,
+    reportFailures,
+  } from '../picks.svelte'
   import { overlayOpen } from '../ui/layers.svelte'
   import { notify } from '../toast'
   import { storageGet, storageSet } from '../storage'
@@ -79,7 +84,6 @@
   const shadowed = $derived<ShadowedAsset[]>(list.data?.shadowed ?? [])
   let filter = $state('')
   let selected = $state<AssetFile | null>(null)
-  let busy = $state(false)
   // Which library the next upload lands in, set by whichever section's
   // button was clicked. The one thing about an upload that cannot be
   // changed afterwards, so it is the destination's own button rather than
@@ -212,17 +216,11 @@
     fileInput?.click()
   }
 
-  async function downloadPicked() {
-    if (picks.names.length === 0) return
-    busy = true
-    try {
-      await api.archiveAssets(picks.names)
-    } catch (e) {
-      notify.failure('download the picked assets', e)
-    } finally {
-      busy = false
-    }
-  }
+  const downloading = downloadArchive(
+    () => picks.names,
+    api.archiveAssets,
+    'assets',
+  )
 
   const removingPicked = action(
     async (names: string[]) => {
@@ -248,18 +246,17 @@
   const removePicked = () =>
     picks.names.length && removingPicked.run(picks.names)
 
-  async function upload(event: Event) {
+  function upload(event: Event) {
     const input = event.target as HTMLInputElement
     const files = Array.from(input.files ?? [])
     // Clear it either way, so picking the same file twice still fires
     input.value = ''
-    await uploadFiles(files, uploadTarget)
+    uploadFiles(files, uploadTarget)
   }
 
-  async function uploadFiles(files: File[], target: 'workspace' | 'shared') {
-    if (!files.length) return
-    busy = true
-    try {
+  // Each file's own failure is reportUploads'; the action reports the rest
+  const uploading = action(
+    async (files: File[], target: 'workspace' | 'shared') => {
       const isShared = target === 'shared'
       // The names the target library already holds, so Keep both starts
       // from a free one
@@ -268,12 +265,13 @@
           .filter((a) => (a.origin === 'workspace') !== isShared)
           .map((a) => a.name),
       )
-      const result = await uploadAll(files, { shared: isShared, taken })
-      reportUploads(result)
-    } finally {
-      busy = false
-    }
-    await list.reload()
+      reportUploads(await uploadAll(files, { shared: isShared, taken }))
+      await list.reload()
+    },
+    { doing: 'upload the files' },
+  )
+  function uploadFiles(files: File[], target: 'workspace' | 'shared') {
+    if (files.length) void uploading.run(files, target)
   }
 
   const removing = action(
@@ -286,7 +284,9 @@
     { doing: (asset) => `delete ${asset.name}`, confirm: assetConfirm },
   )
   const remove = (asset: AssetFile) => removing.run(asset)
-  const working = $derived(busy || removing.busy || removingPicked.busy)
+  const working = $derived(
+    uploading.busy || downloading.busy || removing.busy || removingPicked.busy,
+  )
 </script>
 
 <svelte:window
@@ -379,7 +379,7 @@
     {filterActive}
     busy={working}
     noun="asset"
-    ondownload={downloadPicked}
+    ondownload={downloading.run}
     ondelete={removePicked}
   />
 

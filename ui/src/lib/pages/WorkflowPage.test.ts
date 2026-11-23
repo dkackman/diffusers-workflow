@@ -152,6 +152,17 @@ describe('WorkflowPage run check', () => {
     })
   })
 
+  it('a double click sends one request', async () => {
+    vi.mocked(api.submitJob).mockResolvedValue({ id: 'job-1' } as never)
+    await openPage()
+    const runButton = screen.getByRole('button', { name: /Run/ })
+    // Both clicks land before the page renders the first one's busy state
+    runButton.click()
+    runButton.click()
+    await advance()
+    expect(api.submitJob).toHaveBeenCalledTimes(1)
+  })
+
   it('checks once per pause, and asks for sizes only after 3 s idle', async () => {
     await openPage()
     vi.mocked(api.validate).mockClear()

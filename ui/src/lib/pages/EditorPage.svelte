@@ -21,8 +21,9 @@
   import {
     openWorkflow,
     listedWorkflows,
-    saveWorkflowAt,
     startingWorkflow,
+    validatedRun,
+    validatedSave,
     watchWorkflow,
     withSaved,
   } from '../editor/workflowFile'
@@ -31,6 +32,7 @@
   import PageHeader from '../ui/PageHeader.svelte'
   import { notify } from '../toast'
   import { confirmDialog } from '../confirm.svelte'
+  import { action } from '../action.svelte'
   import { go, goWs, renameRoute } from '../router.svelte'
   import { SECTION_LABELS, wsHref } from '../routes'
   import { loadWorkspaces, workspace } from '../workspace.svelte'
@@ -320,46 +322,29 @@
       fileOpen = true
       return
     }
-    if (!(await validate())) return
-    ed.busy = true
-    try {
-      const outcome = await saveWorkflowAt(ed, path)
-      if (outcome === 'cancelled') return
-      ed.commitNewFolder()
-      // A folder this save created must be in the picker at once, or the
-      // select falls back to "(root)" while the state still names it
-      if (catalog.data) catalog.adopt(withSaved(catalog.data, path))
-      notify.success(`Saved to ${path}`)
-      // The URL names the file now on screen: a first save, or a save as
-      opened = `${workspace.current}:${path}`
-      if (path !== name)
-        renameRoute(wsHref(workspace.current, 'edit', ...path.split('/')))
-    } catch (e) {
-      notify.failure(`save ${path}`, e)
-    } finally {
-      ed.busy = false
-    }
+    if (!(await saving.run(path))) return
+    // A folder this save created must be in the picker at once, or the
+    // select falls back to "(root)" while the state still names it
+    if (catalog.data) catalog.adopt(withSaved(catalog.data, path))
+    // The URL names the file now on screen: a first save, or a save as
+    opened = `${workspace.current}:${path}`
+    if (path !== name)
+      renameRoute(wsHref(workspace.current, 'edit', ...path.split('/')))
   }
-
-  async function run() {
-    if (!(await validate())) return
-    ed.busy = true
-    try {
-      // base_dir anchors relative paths (images, sub-workflow files) the
-      // way running the saved file would - at the workflow's own folder
-      const directory =
-        ed.folder && ed.folder !== NEW_FOLDER ? `/${ed.folder}` : ''
-      const job = await api.submitJob({
-        workflow: $state.snapshot(ed.doc) as WorkflowDefinition,
-        base_dir: `${listed.dir}${directory}`,
-      })
-      goWs('jobs', job.id)
-    } catch (e) {
-      notify.failure('run the workflow', e)
-    } finally {
-      ed.busy = false
-    }
-  }
+  // Save and Run are actions: pressed twice, each does one thing
+  const saving = action((path: string) => validatedSave(ed, path, validate), {
+    doing: (path) => `save ${path}`,
+    success: (path) => `Saved to ${path}`,
+  })
+  const running = action(
+    async () => {
+      const job = await validatedRun(ed, listed.dir, validate)
+      if (job) goWs('jobs', job.id)
+      return job
+    },
+    { doing: 'run the workflow' },
+  )
+  const run = () => void running.run()
 
   // The flow view's click-to-navigate: land back on the form view with the
   // step's row scrolled into place and briefly lit, the same highlight the

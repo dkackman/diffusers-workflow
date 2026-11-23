@@ -36,7 +36,6 @@
   let open = $state(false)
   let overrides = $state<Record<string, string>>({})
   let error = $state<unknown>(null)
-  let submitting = $state(false)
 
   // Only what differs from the run goes: the server stores the overrides
   // exactly as sent, so retyping a value the run already used (30 over 30)
@@ -57,21 +56,24 @@
     open = true
   }
 
-  async function queue() {
-    if (!changedCount || submitting) return
-    submitting = true
-    error = null
-    try {
-      const next = await api.rerunJob(job.id, { arguments: { ...changed } })
+  const queueing = action(
+    async () => {
+      if (!changedCount) return null
+      error = null
+      let next
+      try {
+        next = await api.rerunJob(job.id, { arguments: { ...changed } })
+      } catch (e) {
+        // A refused value is the user's to fix: the modal stays open on it
+        error = e
+        return null
+      }
       open = false
       go('ws', job.workspace, 'jobs', next.id)
-    } catch (e) {
-      // A refused value is the user's to fix: the modal stays open on it
-      error = e
-    } finally {
-      submitting = false
-    }
-  }
+      return next
+    },
+    { doing: 'rerun it' },
+  )
 
   // The selectors come from the workflow file as it is now (rerun.ts), read
   // again when a workflow is saved anywhere
@@ -134,13 +136,14 @@
     {#if !changedCount}<span class="muted">nothing changed</span>{/if}
     <button class="quiet" onclick={() => (open = false)}>Cancel</button>
     <button
-      onclick={queue}
-      disabled={!changedCount || submitting}
+      onclick={() => void queueing.run()}
+      disabled={!changedCount || queueing.busy}
+      aria-busy={queueing.busy}
       title={changedCount
         ? `queue a rerun changing ${Object.keys(changed).join(', ')}`
         : 'nothing changed - type a value that differs from this run'}
     >
-      {submitting ? 'Queueing…' : 'Queue'}
+      {queueing.busy ? 'Queueing…' : 'Queue'}
     </button>
   </div>
 </Modal>

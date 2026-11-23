@@ -15,6 +15,7 @@ import type { JobSummary } from '../types'
 const data = vi.hoisted(() => ({
   jobs: [] as unknown[],
   rerunRestartBatch: vi.fn(),
+  moveJob: vi.fn(),
   confirm: vi.fn(),
   // Every listing asked for, as [workspace, limit, status, request, item]
   listed: [] as unknown[][],
@@ -27,6 +28,7 @@ vi.mock('../api', async () => ({
   ApiError: (await import('../apiErrors')).ApiError,
   api: {
     rerunRestartBatch: data.rerunRestartBatch,
+    moveJob: data.moveJob,
     // Filters by request/item the way the server does
     listJobs: (
       ws?: string,
@@ -67,6 +69,7 @@ afterEach(() => {
   data.queued = 0
   workspace.current = 'default'
   data.rerunRestartBatch.mockReset()
+  data.moveJob.mockReset()
   data.confirm.mockReset()
 })
 
@@ -538,6 +541,26 @@ it("a request's queued job mid-queue can move both ways, though it is the only r
   render(JobsPage)
   await waitFor(() => expect(screen.getByText('#3')).toBeTruthy())
   await waitFor(() => expect(moves('q3')).toEqual(['front', 'up', 'down']))
+})
+
+it('a double click on a move sends one request', async () => {
+  location.hash = '#/ws/default/jobs'
+  data.queued = 2
+  data.moveJob.mockResolvedValue({})
+  data.jobs = [
+    summary({ id: 'q1', status: 'queued', queue_position: 0 }),
+    summary({ id: 'q2', status: 'queued', queue_position: 1 }),
+  ]
+  render(JobsPage)
+  await waitFor(() => expect(moves('q2')).toEqual(['front', 'up']))
+  const up = screen.getByLabelText('move q2 up one place') as HTMLButtonElement
+  // Both clicks land before the page renders the first one's busy state
+  up.click()
+  up.click()
+  await waitFor(() => expect(data.moveJob).toHaveBeenCalled())
+  await new Promise((r) => setTimeout(r, 20))
+  expect(data.moveJob).toHaveBeenCalledTimes(1)
+  expect(data.moveJob).toHaveBeenCalledWith('q2', 'up')
 })
 
 it('the last job of the whole queue offers no down', async () => {

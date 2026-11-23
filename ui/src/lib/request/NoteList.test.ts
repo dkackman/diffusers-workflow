@@ -121,6 +121,19 @@ it('adds a note with the box’s references, then asks the page to read again', 
   expect(screen.queryByRole('button', { name: /^Remove/ })).toBeNull()
 })
 
+it('a double click sends one request', async () => {
+  const given = props()
+  render(NoteList, given)
+  await write('reroll this one')
+  const save = screen.getByRole('button', { name: 'Save note' })
+  // Both clicks land before the box renders the first one's busy state
+  save.click()
+  save.click()
+  await waitFor(() => expect(given.onchanged).toHaveBeenCalledTimes(1))
+  await new Promise((r) => setTimeout(r, 20))
+  expect(api.addNote).toHaveBeenCalledTimes(1)
+})
+
 it('a box with every reference taken off sends none', async () => {
   render(NoteList, props({ pendingRefs: [take2, { item: 's3', job: 'j1' }] }))
   await write('just the item')

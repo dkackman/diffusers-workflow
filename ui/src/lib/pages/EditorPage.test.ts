@@ -38,6 +38,7 @@ vi.mock('../changes.svelte', async () => ({
 vi.mock('../api', () => ({
   api: {
     saveWorkflow: vi.fn().mockResolvedValue({ saved: {}, etag: '"e2"' }),
+    submitJob: vi.fn().mockResolvedValue({ id: 'job-1' }),
     listPipelines: vi.fn().mockResolvedValue({ pipelines: [] }),
     listClasses: vi.fn().mockResolvedValue({ classes: [] }),
     listTasks: vi.fn().mockResolvedValue({
@@ -441,6 +442,17 @@ describe('EditorPage saving', () => {
     expect(api.validate).not.toHaveBeenCalled()
   })
 
+  it('a double Save writes once', async () => {
+    render(EditorPage, { name: 'models/z-image' })
+    await waitFor(() => expect(saveButton().disabled).toBe(false))
+    // Both presses land before the page renders the first one's busy state
+    saveButton().click()
+    saveButton().click()
+    await waitFor(() => expect(api.saveWorkflow).toHaveBeenCalled())
+    await new Promise((r) => setTimeout(r, 20))
+    expect(api.saveWorkflow).toHaveBeenCalledTimes(1)
+  })
+
   it('re-saves an opened workflow at the version it was read', async () => {
     render(EditorPage, { name: 'models/z-image' })
     await waitFor(() => expect(saveButton().disabled).toBe(false))
@@ -578,6 +590,26 @@ describe('EditorPage saving', () => {
       (screen.getByLabelText('workflow id') as HTMLInputElement).value,
     ).toBe('ZImage')
     expect(saveButton().disabled).toBe(false)
+  })
+})
+
+describe('EditorPage run', () => {
+  const runButton = () =>
+    screen.getByRole('button', { name: /^run/i }) as HTMLButtonElement
+
+  afterEach(() => {
+    vi.mocked(api.submitJob).mockClear()
+    location.hash = ''
+  })
+
+  it('a double click sends one request', async () => {
+    render(EditorPage, { name: 'models/z-image' })
+    await waitFor(() => expect(runButton().disabled).toBe(false))
+    // Both clicks land before the page renders the first one's busy state
+    runButton().click()
+    runButton().click()
+    await waitFor(() => expect(location.hash).toContain('/jobs/job-1'))
+    expect(api.submitJob).toHaveBeenCalledTimes(1)
   })
 })
 

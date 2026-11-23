@@ -467,6 +467,25 @@ it('downloads the ticked assets as one zip', async () => {
   expect(archiveAssets).toHaveBeenCalledWith(['iris.png', 'cast/priya.jpg'])
 })
 
+it('a double click on Download sends one request', async () => {
+  await renderAssets()
+
+  screen.getByLabelText('select iris.png').click()
+  await waitFor(() =>
+    screen.getByRole('button', { name: /download the selected/i }),
+  )
+  const download = screen.getByRole('button', {
+    name: /download the selected/i,
+  })
+  // Both clicks land before the page renders the first one's busy state
+  download.click()
+  download.click()
+
+  await waitFor(() => expect(archiveAssets).toHaveBeenCalled())
+  await new Promise((r) => setTimeout(r, 20))
+  expect(archiveAssets).toHaveBeenCalledTimes(1)
+})
+
 it('deletes every ticked asset and refetches once', async () => {
   await renderAssets()
 

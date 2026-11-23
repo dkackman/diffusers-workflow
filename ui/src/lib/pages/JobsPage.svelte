@@ -8,7 +8,7 @@
   import { onMount } from 'svelte'
   import { ChevronDown, ChevronUp, ChevronsUp, Inbox, X } from '@lucide/svelte'
   import { api } from '../api'
-  import { notify } from '../toast'
+  import { action } from '../action.svelte'
   import type { JobSummary } from '../types'
   import { wsHref } from '../routes'
   import { hashQuery, setHashQuery } from '../router.svelte'
@@ -134,7 +134,6 @@
   // hidden for the rest of the session, in memory only - the client's
   // count is an estimate and the preview corrected it
   let dismissedBatches = $state(new Set<string>())
-  let previewing = $state('')
   // All of a scope's rows, not the name-filtered ones: a batch spans
   // workflows. A status filter that hides cancelled rows hides it too
   const banners = $derived(
@@ -144,33 +143,32 @@
   )
 
   // Only a click previews: the preview prices every member of the batch,
-  // which the 3 s poll must never pay for
-  async function rerunBatch(banner: RestartBanner) {
-    previewing = banner.batch
-    try {
+  // which the 3 s poll must never pay for. Its question and its failures
+  // are rerunRestartBatchWithConfirm's
+  const rerunning = action(
+    async (banner: RestartBanner) => {
       const outcome = await rerunRestartBatchWithConfirm(banner.id)
       if (outcome === 'empty')
         dismissedBatches = new Set([...dismissedBatches, banner.batch])
-    } finally {
-      previewing = ''
-    }
-  }
+      return outcome
+    },
+    { doing: 'rerun the jobs' },
+  )
 
-  async function move(
-    event: MouseEvent,
-    id: string,
-    direction: 'up' | 'down' | 'front',
-  ) {
-    event.preventDefault()
-    try {
+  const moving = action(
+    async (id: string, direction: 'up' | 'down' | 'front') => {
       await api.moveJob(id, direction)
-    } catch (e) {
-      notify.failure('move the job', e)
-      return
-    }
-    // Same listing the poll asks for - refreshing without its filters would
-    // flash every workspace's jobs into a view the user had narrowed to one
-    await list.reload()
+      // Same listing the poll asks for - refreshing without its filters
+      // would flash every workspace's jobs into a view the user had
+      // narrowed to one
+      await list.reload()
+    },
+    { doing: 'move the job' },
+  )
+  // The buttons sit inside the row's link, so a click must not follow it
+  function move(event: MouseEvent, id: string, way: 'up' | 'down' | 'front') {
+    event.preventDefault()
+    void moving.run(id, way)
   }
 
   const requestLabel = (f: { request: string; item: string }) =>
@@ -262,8 +260,9 @@
       {`${banner.count} ${banner.count === 1 ? 'job was' : 'jobs were'} cancelled by a server restart`}
     </span>
     <button
-      onclick={() => rerunBatch(banner)}
-      disabled={previewing === banner.batch}
+      onclick={() => void rerunning.run(banner)}
+      disabled={rerunning.busy}
+      aria-busy={rerunning.busy}
       title="preview what a rerun would queue, with its cost, before anything is queued"
     >
       Rerun…

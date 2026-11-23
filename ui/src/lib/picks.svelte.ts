@@ -1,4 +1,5 @@
 import { SvelteSet } from 'svelte/reactivity'
+import { action } from './action.svelte'
 import { describeError } from './apiErrors'
 import { notify } from './toast'
 
@@ -135,4 +136,26 @@ export function reportFailures(
     undefined,
     failed.map((f) => `${f.name}: ${describeError(f.error).title}`).join('\n'),
   )
+}
+
+/** The bulk bar's Download: the picked `names` as one zip from `archive`
+ * (the gallery's or the asset library's route). An action, so a double
+ * click fetches one; with nothing picked it asks for nothing */
+export function downloadArchive(
+  names: () => string[],
+  archive: (names: string[]) => Promise<unknown>,
+  noun: string,
+) {
+  const downloading = action((picked: string[]) => archive(picked), {
+    doing: `download the picked ${noun}`,
+  })
+  return {
+    get busy() {
+      return downloading.busy
+    },
+    run() {
+      const picked = names()
+      if (picked.length) void downloading.run(picked)
+    },
+  }
 }

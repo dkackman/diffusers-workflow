@@ -35,6 +35,7 @@
   import { resource } from './resource.svelte'
   import { relistWorkspaces, workspace } from './workspace.svelte'
   import { createWorkspaceAndGo } from './workspaceActions'
+  import { action } from './action.svelte'
   import { formatBytes } from './format'
   import { wsColor } from './wsColor'
   import { groupWorkspaces } from './wsGroups'
@@ -167,11 +168,17 @@
     // the input mounts on the next tick
     queueMicrotask(() => nameInput?.focus())
   }
-  async function submitAdd() {
-    const failure = await createWorkspaceAndGo(newName.trim())
-    if (failure) addError = failure
-    else adding = false
-  }
+  // A refused name is said beside the field; Enter twice creates it once
+  const creating = action(
+    async (name: string) => {
+      const failure = await createWorkspaceAndGo(name)
+      if (failure) addError = failure
+      else adding = false
+      return failure
+    },
+    { doing: (name) => `create workspace ${name}` },
+  )
+  const submitAdd = () => void creating.run(newName.trim())
 </script>
 
 {#snippet wsRow(name: string)}
@@ -298,6 +305,7 @@
         {#if adding}
           <form
             class="newws"
+            aria-busy={creating.busy}
             onsubmit={(e) => {
               e.preventDefault()
               submitAdd()

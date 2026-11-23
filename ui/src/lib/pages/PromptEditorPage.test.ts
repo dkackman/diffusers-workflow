@@ -158,6 +158,25 @@ it('saves to the folder and name shown on Ctrl+S', async () => {
   })
 })
 
+it('a double Ctrl+S writes once', async () => {
+  await openHero()
+  await waitFor(() =>
+    expect(
+      (document.querySelector('.folderpick') as HTMLSelectElement).value,
+    ).toBe('portraits'),
+  )
+  // Both presses land before the page renders the first one's busy state
+  window.dispatchEvent(
+    new KeyboardEvent('keydown', { key: 's', ctrlKey: true }),
+  )
+  window.dispatchEvent(
+    new KeyboardEvent('keydown', { key: 's', ctrlKey: true }),
+  )
+  await waitFor(() => expect(api.savePrompt).toHaveBeenCalled())
+  await new Promise((r) => setTimeout(r, 20))
+  expect(api.savePrompt).toHaveBeenCalledTimes(1)
+})
+
 it('guards a tab close only while there are unsaved edits', async () => {
   await openHero()
   expect(unloadPrevented()).toBe(false)
