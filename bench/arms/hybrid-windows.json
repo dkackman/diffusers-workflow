@@ -1,0 +1,98 @@
+[
+  {
+    "name": "hybrid-a-blended-s1166",
+    "scene": "s3-dialogue-walk",
+    "workflow": "hybrid-windows.json",
+    "arguments": {
+      "switch_step": 0,
+      "handoff": "finished"
+    },
+    "seed": 1166,
+    "workflow_id_suffix": "-a-blended",
+    "moments": [
+      "frame:12",
+      "frame:720",
+      "frame:1440"
+    ]
+  },
+  {
+    "name": "hybrid-a-blended-s2",
+    "scene": "s3-dialogue-walk",
+    "workflow": "hybrid-windows.json",
+    "arguments": {
+      "switch_step": 0,
+      "handoff": "finished"
+    },
+    "seed": 2,
+    "workflow_id_suffix": "-a-blended",
+    "moments": [
+      "frame:12",
+      "frame:720",
+      "frame:1440"
+    ]
+  },
+  {
+    "name": "hybrid-b-finished-k3-s1166",
+    "scene": "s3-dialogue-walk",
+    "workflow": "hybrid-windows.json",
+    "arguments": {
+      "switch_step": 3,
+      "handoff": "finished"
+    },
+    "seed": 1166,
+    "workflow_id_suffix": "-b-finished-k3",
+    "moments": [
+      "frame:12",
+      "frame:720",
+      "frame:1440"
+    ]
+  },
+  {
+    "name": "hybrid-b-finished-k3-s2",
+    "scene": "s3-dialogue-walk",
+    "workflow": "hybrid-windows.json",
+    "arguments": {
+      "switch_step": 3,
+      "handoff": "finished"
+    },
+    "seed": 2,
+    "workflow_id_suffix": "-b-finished-k3",
+    "moments": [
+      "frame:12",
+      "frame:720",
+      "frame:1440"
+    ]
+  },
+  {
+    "name": "hybrid-c-x0-k3-s1166",
+    "scene": "s3-dialogue-walk",
+    "workflow": "hybrid-windows.json",
+    "arguments": {
+      "switch_step": 3,
+      "handoff": "x0"
+    },
+    "seed": 1166,
+    "workflow_id_suffix": "-c-x0-k3",
+    "moments": [
+      "frame:12",
+      "frame:720",
+      "frame:1440"
+    ]
+  },
+  {
+    "name": "hybrid-c-x0-k3-s2",
+    "scene": "s3-dialogue-walk",
+    "workflow": "hybrid-windows.json",
+    "arguments": {
+      "switch_step": 3,
+      "handoff": "x0"
+    },
+    "seed": 2,
+    "workflow_id_suffix": "-c-x0-k3",
+    "moments": [
+      "frame:12",
+      "frame:720",
+      "frame:1440"
+    ]
+  }
+]
