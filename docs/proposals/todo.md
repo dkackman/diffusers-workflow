@@ -37,6 +37,14 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **H3 DMAD step-distillation LoRA probe** (#1579, stage #1584), closed at
+  the load check 2026-11-23: don't adopt. `ZhengmingYu/DMAD`'s 4-step H3
+  file (pinned `b08c2bf`) loads 0 of its 624 tensors in diffusers. Its keys
+  carry no `transformer.` prefix and mix `.lora.down/up` with
+  `lora_A/B`, so `set_adapters` finds no adapter. The dialogue, seed and
+  non-dialogue arms didn't run, and the 8-step file wasn't fetched. Taking
+  it further needs a key conversion or a standard-format re-save, which is
+  a new issue for Don: `bench/records/h3-dmad.md`.
 - **Place card for H3 cuts** (#1577, stages #1581-#1582), built
   2026-11-22. A Klein still of the set without the cast, kept as `asset:places/<set>` and
   passed after the people in a ref2va shot, held the set's lamp, shelf and
