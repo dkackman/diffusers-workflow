@@ -83,8 +83,7 @@ from .api_models_library import (
     NoteRead,
 )
 
-# Re-exported from api_models_library and api_models_base: import them here
-__all__ = [
+__all__ = [  # re-exported from api_models_library/_base: import them from here
     "STRICT",
     "ApiModel",
     "JobStatus",
@@ -1103,5 +1102,4 @@ class ClassList(ApiModel):
     classes: list[str]
 
 
-# Read PlanEstimate, declared after it
-RestartBatchCandidate.model_rebuild()
+RestartBatchCandidate.model_rebuild()  # reads PlanEstimate, declared after it
