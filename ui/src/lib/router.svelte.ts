@@ -92,11 +92,12 @@ type LeaveGuard = () => boolean | Promise<boolean>
 const guards = new Set<LeaveGuard>()
 let asking = false
 let undoing = false
-// Set by replaceRoute until its hashchange is answered: the arriving entry
-// is the committed one renamed, so it keeps the committed index, and a
-// decline renames it back rather than walking the history
+// Set by replaceRoute until its own hashchange arrives: that entry is the
+// committed one renamed, so it keeps the committed index. Only that arrival:
+// a push while the replace is asked about is still a push
 let replacing = false
-// The committed entry's state, as replaceRoute found it
+// The committed entry's state, as replaceRoute found it, kept until the
+// answer so a decline can rename the entry back
 let replacedState: unknown = null
 
 /** Every entry the app commits carries its position in `history.state`, so a
@@ -124,8 +125,14 @@ let lastSeenIndex = committedIndex
  * guard was asking. */
 function arrive() {
   const at = indexOf() ?? (replacing ? lastSeenIndex : lastSeenIndex + 1)
+  replacing = false
   stamp(at)
   lastSeenIndex = at
+}
+
+/** The browser is on the committed entry, under the committed URL. */
+function home(): boolean {
+  return indexOf() === committedIndex && location.hash === committed
 }
 
 /** Ask before the route leaves its current path (an editor with unsaved
@@ -194,20 +201,27 @@ function ask() {
     .catch(() => false)
     .then((ok) => {
       asking = false
-      if (ok) settle()
+      // allowed but back on the committed entry is no navigation: the
+      // route keeps its arrays, as a decline there would
+      if (ok && !home()) settle()
       else undo()
     })
 }
 
+// The landing of our own history.go. popstate, not hashchange: a walk
+// between two entries of the same hash raises no hashchange, and a flag
+// waiting for one would swallow the next navigation
+window.addEventListener('popstate', () => {
+  if (!undoing) return
+  undoing = false
+  restore()
+})
+
 window.addEventListener('hashchange', () => {
-  if (undoing) {
-    // the hashchange of our own history.go
-    undoing = false
-    restore()
-    return
-  }
   arrive()
-  if (asking) return
+  // asking, it only records where the browser is; on the committed entry
+  // (our own walk back, already restored) there is nothing to do
+  if (asking || home()) return
   if (!guards.size || pathOf(location.hash) === pathOf(committed)) settle()
   else ask()
 })

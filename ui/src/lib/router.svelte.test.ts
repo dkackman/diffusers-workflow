@@ -6,9 +6,9 @@ vi.mock('./api', () => ({
 vi.mock('./toast', () => ({ notify: { error: vi.fn(), success: vi.fn() } }))
 
 // Each test loads its own router, and an earlier test's would still hear
-// every hashchange and stamp the shared history with its own count - so the
-// hashchange listeners a test adds are removed after it
-const listeners: EventListenerOrEventListenerObject[] = []
+// every hashchange and popstate and stamp the shared history with its own
+// count - so the history listeners a test adds are removed after it
+const listeners: Array<[string, EventListenerOrEventListenerObject]> = []
 const addListener = window.addEventListener.bind(window)
 beforeEach(() => {
   localStorage.clear()
@@ -16,7 +16,8 @@ beforeEach(() => {
   history.replaceState(null, '', location.pathname + location.search)
   vi.spyOn(window, 'addEventListener').mockImplementation(
     (type: string, listener: EventListenerOrEventListenerObject, options) => {
-      if (type === 'hashchange') listeners.push(listener)
+      if (type === 'hashchange' || type === 'popstate')
+        listeners.push([type, listener])
       addListener(type, listener, options)
     },
   )
@@ -24,8 +25,8 @@ beforeEach(() => {
 const removers: Array<() => void> = []
 afterEach(() => {
   removers.splice(0).forEach((remove) => remove())
-  for (const listener of listeners.splice(0))
-    window.removeEventListener('hashchange', listener)
+  for (const [type, listener] of listeners.splice(0))
+    window.removeEventListener(type, listener)
   vi.restoreAllMocks()
   vi.resetModules()
 })
@@ -47,17 +48,18 @@ async function loadRouter() {
 // navigation is `nav(change, n)`: run `change`, wait for its `n` hashchange
 // events (a declined one is two: the change, then the router's undo), then for
 // the router's promise chain, which is all microtasks and so drained before
-// the next timer.
+// the next timer. A traversal between two entries of the same hash raises
+// no hashchange, only a popstate: `nav(change, n, 'popstate')` waits for that.
 const flush = () => new Promise((r) => setTimeout(r, 0))
-function nav(change: () => void, events = 1) {
+function nav(change: () => void, events = 1, type = 'hashchange') {
   return new Promise<void>((resolve) => {
     let left = events
     const on = () => {
       if (--left > 0) return
-      window.removeEventListener('hashchange', on)
+      window.removeEventListener(type, on)
       void flush().then(() => resolve())
     }
-    window.addEventListener('hashchange', on)
+    window.addEventListener(type, on)
     change()
   })
 }
@@ -377,6 +379,68 @@ it('a replaceRoute to the current hash leaves the next push a push', async () =>
   addLeaveGuard(() => false)
   const walk = vi.spyOn(history, 'go')
   await go('#/ws/studio/jobs/j1', 2)
+  expect(walk).toHaveBeenCalledTimes(1)
   expect(walk).toHaveBeenCalledWith(-1)
   expect(location.hash).toBe('#/ws/studio/overview')
+})
+
+it('a push while a replace is asked about is a push, and a decline walks it back', async () => {
+  const { route, addLeaveGuard, replaceRoute } = await loadRouter()
+  await go('#/ws/studio/overview')
+  const stamped = history.state
+  const depth = history.length
+  let answer: (ok: boolean) => void = () => {}
+  const remove = addLeaveGuard(() => new Promise<boolean>((r) => (answer = r)))
+  await nav(() => replaceRoute('#/ws/studio/jobs/r'))
+  await go('#/ws/studio/jobs/c')
+  const walk = vi.spyOn(history, 'go')
+  await nav(() => answer(false))
+  expect(walk).toHaveBeenCalledTimes(1)
+  expect(walk).toHaveBeenCalledWith(-1)
+  walk.mockRestore()
+  remove()
+  // the replaced entry is the committed one again, and c is its forward entry
+  expect(location.hash).toBe('#/ws/studio/overview')
+  expect(history.state).toEqual(stamped)
+  expect(history.length).toBe(depth + 1)
+  expect(route.view).toMatchObject({ section: 'overview' })
+  await nav(() => history.forward())
+  expect(route.parts).toEqual(['ws', 'studio', 'jobs', 'c'])
+  await nav(() => history.back())
+  expect(route.parts).toEqual(['ws', 'studio', 'overview'])
+})
+
+it('a declined walk back onto a same-hash entry does not swallow the next link', async () => {
+  const { route, addLeaveGuard } = await loadRouter()
+  await go('#/ws/studio/edit')
+  await go('#/ws/studio/overview')
+  await go('#/ws/studio/edit')
+  let answer: (ok: boolean) => void = () => {}
+  const remove = addLeaveGuard(() => new Promise<boolean>((r) => (answer = r)))
+  await nav(() => history.back())
+  await nav(() => history.back())
+  // the walk is +2 between two entries of the same hash: no hashchange
+  const walk = vi.spyOn(history, 'go')
+  await nav(() => answer(false), 1, 'popstate')
+  expect(walk).toHaveBeenCalledWith(2)
+  walk.mockRestore()
+  remove()
+  expect(location.hash).toBe('#/ws/studio/edit')
+  await go('#/ws/studio/jobs/x')
+  expect(location.hash).toBe('#/ws/studio/jobs/x')
+  expect(route.parts).toEqual(['ws', 'studio', 'jobs', 'x'])
+})
+
+it('an allowed answer that ends back on the committed entry is no navigation', async () => {
+  const { route, addLeaveGuard } = await loadRouter()
+  await go('#/ws/studio/overview')
+  const parts = route.parts
+  let answer: (ok: boolean) => void = () => {}
+  addLeaveGuard(() => new Promise<boolean>((r) => (answer = r)))
+  await go('#/ws/studio/jobs/a')
+  await nav(() => history.back())
+  answer(true)
+  await flush()
+  expect(location.hash).toBe('#/ws/studio/overview')
+  expect(route.parts).toBe(parts)
 })
