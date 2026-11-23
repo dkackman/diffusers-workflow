@@ -12,6 +12,7 @@ import { api, setNote } from '../api'
 import { ApiError, NetworkError } from '../apiErrors'
 import { connection } from '../connection.svelte'
 import type { JobDetail, JobEvent } from '../types'
+import { feed } from '../test/feedMock'
 
 const detail = vi.hoisted(() => ({ job: null as JobDetail | null }))
 // The live stream's callback, captured so a test can push step_end events
@@ -681,6 +682,102 @@ it("saves the run note in the job's own workspace", async () => {
     'third pass',
     'studio',
   )
+})
+
+describe('data changed underneath the page', () => {
+  const notice = () => screen.queryByText('Updated by an agent or another tab')
+  /** The feed moves `kind`, and the page's quiet re-reads land */
+  async function moved(kind: 'jobs' | 'gallery') {
+    feed.move('default', kind)
+    for (let i = 0; i < 6; i++) await Promise.resolve()
+  }
+  const noted = (note: string) => {
+    detail.job = { ...job([]), run_dir: 'wf/run-1', note }
+  }
+
+  it('a run note written elsewhere says so', async () => {
+    noted('second pass')
+    render(JobPage, { jobId: 'j1' })
+    await waitFor(() => expect(screen.getByText('second pass')).toBeTruthy())
+    noted('from the agent')
+    await moved('gallery')
+    await waitFor(() => expect(notice()).toBeTruthy())
+    expect(screen.getByText('from the agent')).toBeTruthy()
+  })
+
+  it('a note being edited keeps its draft when a newer one lands', async () => {
+    noted('second pass')
+    render(JobPage, { jobId: 'j1' })
+    await waitFor(() => expect(screen.getByText('second pass')).toBeTruthy())
+    await fireEvent.click(screen.getByRole('button', { name: /edit note/i }))
+    await fireEvent.input(screen.getByRole('textbox'), {
+      target: { value: 'my third pass' },
+    })
+    noted('from the agent')
+    await moved('gallery')
+    await waitFor(() => expect(notice()).toBeTruthy())
+    const box = screen.getByRole('textbox') as HTMLTextAreaElement
+    expect(box.value).toBe('my third pass')
+  })
+
+  it("the page's own note save says nothing", async () => {
+    noted('second pass')
+    render(JobPage, { jobId: 'j1' })
+    await waitFor(() => expect(screen.getByText('second pass')).toBeTruthy())
+    await fireEvent.click(screen.getByRole('button', { name: /edit note/i }))
+    await fireEvent.input(screen.getByRole('textbox'), {
+      target: { value: 'third pass' },
+    })
+    await fireEvent.click(screen.getByRole('button', { name: /save/i }))
+    await waitFor(() => expect(screen.getByText('third pass')).toBeTruthy())
+    // The save's own write moves the feed; the re-read holds that note
+    noted('third pass')
+    const reads = vi.mocked(api.getJob).mock.calls.length
+    await moved('gallery')
+    await waitFor(() =>
+      expect(vi.mocked(api.getJob).mock.calls.length).toBeGreaterThan(reads),
+    )
+    expect(notice()).toBeNull()
+  })
+
+  it('a definition changed elsewhere says so', async () => {
+    detail.job = job([])
+    ran.definition = { steps: [{ name: 'base', pipeline: {} }] }
+    render(JobPage, { jobId: 'j1' })
+    await waitFor(() => expect(screen.getByText('realized')).toBeTruthy())
+    ran.definition = { steps: [{ name: 'edited', pipeline: {} }] }
+    await moved('jobs')
+    await waitFor(() => expect(notice()).toBeTruthy())
+  })
+
+  it("the run's own realized copy replacing the submitted one says nothing", async () => {
+    detail.job = job([])
+    ran.definition = { steps: [{ name: 'base', pipeline: {} }] }
+    ran.realized = false
+    render(JobPage, { jobId: 'j1' })
+    await waitFor(() => expect(screen.getByText('as submitted')).toBeTruthy())
+    ran.definition = { steps: [{ name: 'base', pipeline: { seed: 7 } }] }
+    ran.realized = true
+    await moved('jobs')
+    await waitFor(() => expect(screen.getByText('realized')).toBeTruthy())
+    expect(notice()).toBeNull()
+  })
+
+  it('a move that leaves the note and definition alone says nothing', async () => {
+    noted('second pass')
+    ran.definition = { steps: [{ name: 'base', pipeline: {} }] }
+    render(JobPage, { jobId: 'j1' })
+    await waitFor(() => expect(screen.getByText('realized')).toBeTruthy())
+    const reads = vi.mocked(api.getJobWorkflow).mock.calls.length
+    await moved('jobs')
+    await waitFor(() =>
+      expect(vi.mocked(api.getJobWorkflow).mock.calls.length).toBeGreaterThan(
+        reads,
+      ),
+    )
+    await moved('gallery')
+    expect(notice()).toBeNull()
+  })
 })
 
 it('refetches the detail on queue_wait and on a live warning, not on a stall', async () => {

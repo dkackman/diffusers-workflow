@@ -33,6 +33,7 @@
   import ChainSegments from '../job/ChainSegments.svelte'
   import LinkedNotes from '../request/LinkedNotes.svelte'
   import { LinkedRequest } from '../request/linkedRequest.svelte'
+  import { REMOTE_RELOADED } from '../editorShell.svelte'
   import type { JobEvent, LedgerNote } from '../types'
 
   let { jobId }: { jobId: string } = $props()
@@ -53,9 +54,22 @@
       const id = jobId
       return { ...(await api.getJobWorkflow(id)), of: id }
     },
-    { watch: [] },
+    // A re-read that only swaps the submitted copy for the run's realized
+    // one is the run's own doing, not news: it moves 'realized' too
+    {
+      watch: ['jobs'],
+      rows: (d) => [
+        ['realized', d.realized],
+        [d.of, d.definition],
+      ],
+    },
   )
   const ran = $derived(ranRead.data?.of === jobId ? ranRead.data : null)
+  // Another writer changed what this page shows: the inline notice
+  const definitionMoved = $derived(
+    ranRead.changed.has(jobId) && !ranRead.changed.has('realized'),
+  )
+  const noteMoved = $derived(record.changed.has('note'))
   const definition = $derived<Record<string, any> | null>(
     ran?.definition ?? null,
   )
@@ -302,11 +316,18 @@
     {/if}
 
     {#if job.run_dir}
+      {#if noteMoved}
+        <p class="remotenote row-changed" role="status">{REMOTE_RELOADED}</p>
+      {/if}
+      <!-- An edit in progress keeps its draft when a newer note lands; the
+           page's own save is adopted, so it marks nothing -->
       <NoteEditor
         note={job.note}
         target={job.run_dir}
         workspace={job.workspace}
         label="Run note"
+        onsaved={(note) =>
+          job && record.adopt({ ...job, note: note ?? undefined })}
       />
     {/if}
 
@@ -322,6 +343,11 @@
           >
             {realized ? 'realized' : 'as submitted'}
           </span>
+          {#if definitionMoved}
+            <span class="remotenote row-changed" role="status">
+              {REMOTE_RELOADED}
+            </span>
+          {/if}
         </div>
         <FlowView
           workflow={definition}
@@ -404,6 +430,10 @@
 </LoadState>
 
 <style>
+  .remotenote {
+    margin: 0.4rem 0;
+    padding-left: 0.6rem;
+  }
   .panel {
     margin-bottom: 1rem;
   }

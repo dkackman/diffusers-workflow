@@ -7,7 +7,8 @@
 // and a job that has ended or is gone stops it. EventSource repairs a
 // dropped connection itself, resuming by seq, but gives up on an HTTP error,
 // so an epoch rise reopens the stream of a job still running from the last
-// seq it delivered. Call both during component init.
+// seq it delivered. Call both during component init. Its `changed` holds
+// 'note' when a quiet re-read brought another writer's run note.
 import { untrack } from 'svelte'
 import { TERMINAL_STATUSES, api, streamJobEvents } from '../api'
 import { ApiError } from '../apiErrors'
@@ -36,7 +37,8 @@ export function jobRecord(jobId: () => string): Resource<JobDetail> {
         throw e
       }
     },
-    { watch: ['jobs', 'gallery'] },
+    // The run note is the row another writer changes under the page
+    { watch: ['jobs', 'gallery'], rows: (job) => [['note', job.note ?? null]] },
   )
   const gone = $derived(goneId === jobId())
   const held = $derived(
