@@ -16,7 +16,7 @@
   import { askDeletion, fileConfirm } from '../gallery/deletion'
   import type { GalleryFile, OutputRole } from '../types'
   import { workspace } from '../workspace.svelte'
-  import { go } from '../router.svelte'
+  import { codec, go, hashState, type HashCodec } from '../router.svelte'
   import RequestFilter from '../gallery/RequestFilter.svelte'
   import RoleChips from '../gallery/RoleChips.svelte'
   import GalleryDetail from '../gallery/GalleryDetail.svelte'
@@ -35,10 +35,16 @@
     type Listing,
   } from '../gallery/order'
 
-  let filter = $state('')
+  // The filters live in the hash, so opening a file and pressing Back - or
+  // sharing the link - keeps the narrowed view
+  const text = hashState('q', '')
   // The roles to show. Finals are what a run was for, so the gallery opens
   // on them; Intermediate adds the steps' working files
-  let roles = $state<OutputRole[]>(['final'])
+  const roles = hashState<OutputRole[]>(
+    'roles',
+    ['final'],
+    codec.list as HashCodec<OutputRole[]>,
+  )
   let selected = $state<GalleryFile | null>(null)
   // Names ticked in the grid, for the bulk actions. The grid order it is
   // given is what a shift-range spans and the order the actions act in
@@ -99,18 +105,23 @@
     })
   })
 
-  let starredOnly = $state(false)
+  const starredOnly = hashState('starred', false, codec.flag)
   const filterActive = $derived(
-    filter !== '' || roles.length < 2 || starredOnly || reqId !== '',
+    text.value !== '' ||
+      roles.value.length < 2 ||
+      starredOnly.value ||
+      reqId !== '',
   )
   function clearFilters() {
-    filter = ''
-    roles = ['final', 'intermediate']
-    starredOnly = false
+    text.value = ''
+    roles.value = ['final', 'intermediate']
+    starredOnly.value = false
     reqId = ''
     reqItem = ''
   }
-  const visible = $derived(gridFiles(files, filter, roles, starredOnly))
+  const visible = $derived(
+    gridFiles(files, text.value, roles.value, starredOnly.value),
+  )
   // A star is undone, not asked about: held here at once (`patch`), as is
   // the Undo that takes it back
   async function setStar(name: string, next: boolean) {
@@ -253,7 +264,7 @@
 <svelte:window onkeydown={onKeydown} />
 
 {#snippet search()}
-  <input class="filter" placeholder="filter…" bind:value={filter} />
+  <input class="filter" placeholder="filter…" bind:value={text.value} />
 {/snippet}
 <PageHeader
   title="Gallery"
@@ -262,7 +273,7 @@
   filter={search}
 >
   {#snippet actions()}
-    <RoleChips bind:roles bind:starredOnly />
+    <RoleChips bind:roles={roles.value} bind:starredOnly={starredOnly.value} />
     <RequestFilter bind:request={reqId} bind:item={reqItem} />
   {/snippet}
 </PageHeader>
@@ -359,10 +370,7 @@
               {' '}
             {/if}
             {#if file.version}
-              <span
-                class="version"
-                title={versionTitle(file.version)}
-              >
+              <span class="version" title={versionTitle(file.version)}>
                 v{file.version}
               </span>
               <!-- A real space rather than a margin, so a screen reader says

@@ -10,8 +10,10 @@
   import { sharedHref } from '../routes'
   import { writableRoot } from '../libraries'
   import type { PromptDetail } from '../types'
+  import { hashState } from '../router.svelte'
 
-  let filter = $state('')
+  // In the hash, so Back from a prompt - or a shared link - keeps it
+  const filter = hashState('q', '')
 
   // A prompt an agent saves shows within one feed interval, marked
   const list = resource(() => api.listPrompts(), {
@@ -26,7 +28,7 @@
 
   const visible = $derived(
     prompts.filter((name) => {
-      const needle = filter.toLowerCase()
+      const needle = filter.value.toLowerCase()
       const detail = details[name]
       return (
         name.toLowerCase().includes(needle) ||
@@ -41,7 +43,7 @@
 </script>
 
 {#snippet search()}
-  <input placeholder="filter…" bind:value={filter} class="filter" />
+  <input placeholder="filter…" bind:value={filter.value} class="filter" />
 {/snippet}
 <PageHeader title="Prompts" filter={search}>
   {#snippet actions()}<a
@@ -63,8 +65,8 @@
   of={list}
   label="prompts"
   empty={visible.length === 0}
-  filtered={filter !== '' && prompts.length > 0}
-  onclear={() => (filter = '')}
+  filtered={filter.value !== '' && prompts.length > 0}
+  onclear={() => (filter.value = '')}
 >
   {#snippet emptyIcon()}<MessageSquareText
       size={36}
@@ -74,7 +76,7 @@
   <FolderGroups
     names={visible}
     collapseKey="collapsed-prompt-folders"
-    filterActive={filter !== ''}
+    filterActive={filter.value !== ''}
     newHref="#/prompt-edit"
     onnewingroup={(group) =>
       sessionStorage.setItem('dw-prompt-editor-folder', group)}
@@ -103,11 +105,13 @@
           {#if detail?.intended_model}
             <button
               class="togglechip modelchip"
-              class:on={filter === detail.intended_model}
-              aria-pressed={filter === detail.intended_model}
+              class:on={filter.value === detail.intended_model}
+              aria-pressed={filter.value === detail.intended_model}
               onclick={() =>
-                (filter =
-                  filter === detail.intended_model ? '' : detail.intended_model)}
+                (filter.value =
+                  filter.value === detail.intended_model
+                    ? ''
+                    : detail.intended_model)}
               title="written for {detail.intended_model} - click to filter"
             >
               {detail.intended_model}
@@ -124,9 +128,9 @@
             {#each detail.tags as tag (tag)}
               <button
                 class="togglechip"
-                class:on={filter === tag}
-                aria-pressed={filter === tag}
-                onclick={() => (filter = filter === tag ? '' : tag)}
+                class:on={filter.value === tag}
+                aria-pressed={filter.value === tag}
+                onclick={() => (filter.value = filter.value === tag ? '' : tag)}
                 title="click to filter by this tag"
               >
                 {tag}

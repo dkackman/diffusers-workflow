@@ -25,6 +25,7 @@
   import type { AssetFile, AssetLibrary, ShadowedAsset } from '../types'
   import { workspace } from '../workspace.svelte'
   import { sharedHref } from '../routes'
+  import { hashState } from '../router.svelte'
   import { assetLibrary } from '../assetlib.svelte'
   import { leafName } from '../names'
   import {
@@ -77,7 +78,8 @@
   const assets = $derived(applyEdits(list.data?.assets ?? [], noteEdits))
   const libraries = $derived<AssetLibrary[]>(list.data?.libraries ?? [])
   const shadowed = $derived<ShadowedAsset[]>(list.data?.shadowed ?? [])
-  let filter = $state('')
+  // In the hash, so Back from an asset - or a shared link - keeps it
+  const filter = hashState('q', '')
   let selected = $state<AssetFile | null>(null)
   // Which library the next upload lands in, set by whichever section's
   // button was clicked. The one thing about an upload that cannot be
@@ -102,9 +104,9 @@
       list.adopt({ ...held, assets: applyEdits(held.assets, noteEdits) })
   }
 
-  const filterActive = $derived(filter !== '')
+  const filterActive = $derived(filter.value !== '')
   const matches = (name: string) =>
-    name.toLowerCase().includes(filter.toLowerCase())
+    name.toLowerCase().includes(filter.value.toLowerCase())
   const visible = $derived(assets.filter((a) => matches(a.name)))
   const byName = $derived(new Map(visible.map((a) => [a.name, a])))
   const folderByName = $derived(new Map(assets.map((a) => [a.name, a.folder])))
@@ -293,7 +295,7 @@
   }}
 >
   {#snippet search()}
-    <input class="filter" placeholder="filter…" bind:value={filter} />
+    <input class="filter" placeholder="filter…" bind:value={filter.value} />
   {/snippet}
   <PageHeader
     title={shared ? 'Shared assets' : 'Assets'}
@@ -343,7 +345,7 @@
     label="the asset library"
     empty={shownCount === 0 || (filterActive && !sections.some(shows))}
     filtered={filterActive && shownCount > 0}
-    onclear={() => (filter = '')}
+    onclear={() => (filter.value = '')}
   >
     {#snippet emptyIcon()}<FolderOpen size={36} strokeWidth={1.5} />{/snippet}
     {#snippet emptyText()}

@@ -49,6 +49,12 @@ vi.mock('../api', async () => ({
       )
       return Promise.resolve({ jobs, total: jobs.length })
     },
+    // The request picker's list, in whichever workspace it is asked for
+    listRequests: (ws: string) =>
+      Promise.resolve({
+        workspace: ws,
+        requests: [{ id: 'r1', title: 'Launch posters' }],
+      }),
     // The listing names the default workspace, as the server's always does:
     // a route parse that found it missing would redirect to overview
     listWorkspaces: () =>
@@ -57,6 +63,9 @@ vi.mock('../api', async () => ({
         workspaces: [{ name: 'default', default: true }],
       }),
   },
+}))
+vi.mock('../changes.svelte', async () => ({
+  changes: (await import('../test/feedMock')).feed.changes,
 }))
 vi.mock('../confirm.svelte', () => ({ confirmDialog: data.confirm }))
 vi.mock('../toast', () => ({ notify: { error: vi.fn(), success: vi.fn() } }))
@@ -495,6 +504,25 @@ it('narrows to a request, then to one item, and clearing restores the list', asy
   await waitFor(() => expect(screen.getByText('wf-c')).toBeTruthy())
   expect(screen.getByText('wf-b')).toBeTruthy()
   expect(screen.queryByTestId('req-filter')).toBeNull()
+})
+
+it('the request filter can be picked as well as cleared', async () => {
+  location.hash = '#/ws/default/jobs'
+  data.jobs = linked()
+  render(JobsPage)
+  await waitFor(() => expect(screen.getByText('wf-c')).toBeTruthy())
+  const picker = await screen.findByRole('combobox', {
+    name: 'filter by request',
+  })
+  await fireEvent.change(picker, { target: { value: 'r1' } })
+  await waitFor(() => expect(screen.queryByText('wf-c')).toBeNull())
+  expect(screen.getByText('wf-a')).toBeTruthy()
+  expect(location.hash).toBe('#/ws/default/jobs?req=r1')
+  expect(data.listed.at(-1)?.[3]).toBe('r1')
+  await fireEvent.click(screen.getByLabelText('remove the request filter'))
+  await waitFor(() => expect(screen.getByText('wf-c')).toBeTruthy())
+  expect(location.hash).toBe('#/ws/default/jobs')
+  location.hash = ''
 })
 
 it('a req that arrives on the hash refetches at once, not on the next tick', async () => {

@@ -444,3 +444,151 @@ it('an allowed answer that ends back on the committed entry is no navigation', a
   expect(location.hash).toBe('#/ws/studio/overview')
   expect(route.parts).toBe(parts)
 })
+
+// hashState: a list's filters live in the hash's query, one box per key
+
+/** Make boxes inside an effect root, as a component's init would. The
+ * helper is loaded after the reset, with the router's own copy of Svelte;
+ * `settleBoxes` settles the boxes' effects in that copy */
+let settleBoxes = () => {}
+async function boxes<T>(make: () => T): Promise<T> {
+  const { inEffectRoot } = await import('./test/effectRoot.svelte')
+  const root = inEffectRoot(make)
+  removers.push(root.stop)
+  settleBoxes = root.flush
+  return root.made
+}
+
+it('hashState writes its key and keeps the others', async () => {
+  const { hashState, hashQuery, codec } = await loadRouter()
+  await go('#/ws/studio/gallery?req=r1&q=cat')
+  const { q, starred } = await boxes(() => ({
+    q: hashState('q', ''),
+    starred: hashState('starred', false, codec.flag),
+  }))
+  expect(q.value).toBe('cat')
+  expect(starred.value).toBe(false)
+  starred.value = true
+  settleBoxes()
+  expect(hashQuery()).toEqual({ req: 'r1', q: 'cat', starred: '1' })
+  q.value = ''
+  settleBoxes()
+  expect(location.hash).toBe('#/ws/studio/gallery?req=r1&starred=1')
+})
+
+it('hashState follows Back', async () => {
+  const { hashState } = await loadRouter()
+  await go('#/ws/studio/gallery')
+  const { q } = await boxes(() => ({ q: hashState('q', '') }))
+  q.value = 'cat'
+  settleBoxes()
+  expect(location.hash).toBe('#/ws/studio/gallery?q=cat')
+  await go('#/ws/studio/gallery/a.png')
+  expect(q.value).toBe('')
+  await nav(() => history.back())
+  settleBoxes()
+  expect(location.hash).toBe('#/ws/studio/gallery?q=cat')
+  expect(q.value).toBe('cat')
+})
+
+it('a hash with no query resets every box', async () => {
+  const { hashState, codec } = await loadRouter()
+  await go('#/ws/studio/gallery?q=cat&roles=final,intermediate&starred=1')
+  const box = await boxes(() => ({
+    q: hashState('q', ''),
+    roles: hashState<string[]>('roles', ['final'], codec.list),
+    starred: hashState('starred', false, codec.flag),
+  }))
+  expect(box.roles.value).toEqual(['final', 'intermediate'])
+  expect(box.starred.value).toBe(true)
+  await go('#/ws/studio/gallery')
+  settleBoxes()
+  expect(box.q.value).toBe('')
+  expect(box.roles.value).toEqual(['final'])
+  expect(box.starred.value).toBe(false)
+  // a box at its initial value writes nothing, so the link stays bare
+  expect(location.hash).toBe('#/ws/studio/gallery')
+})
+
+// Scroll: a new path starts at the top, Back and Forward go back to where
+// the page was left, and a query-only change never moves the page
+
+const frame = () =>
+  new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+function scrolled(y: number) {
+  Object.defineProperty(window, 'scrollY', { value: y, configurable: true })
+}
+function pageHeight(px: number) {
+  Object.defineProperty(document.documentElement, 'scrollHeight', {
+    value: px,
+    configurable: true,
+  })
+}
+afterEach(() => {
+  scrolled(0)
+  pageHeight(0)
+})
+
+it('restoreScroll waits for the page to be tall enough, and stops on a user scroll', async () => {
+  const { restoreScroll } = await loadRouter()
+  await go('#/ws/studio/jobs')
+  const at = (history.state as { dwIndex: number }).dwIndex
+  scrolled(900)
+  await go('#/ws/studio/jobs/j1')
+  const scrollTo = vi.spyOn(window, 'scrollTo').mockImplementation(() => {})
+  // the list is still loading: as far down as the page goes, never the top
+  pageHeight(innerHeight + 300)
+  restoreScroll(at, { frames: 10 })
+  await frame()
+  expect(scrollTo).toHaveBeenLastCalledWith(0, 300)
+  pageHeight(innerHeight + 2000)
+  await frame()
+  expect(scrollTo).toHaveBeenLastCalledWith(0, 900)
+  const calls = scrollTo.mock.calls.length
+  await frame()
+  expect(scrollTo.mock.calls.length).toBe(calls)
+
+  // a wheel turned while it waits is the user's: the restore lets go
+  pageHeight(innerHeight + 300)
+  scrollTo.mockClear()
+  restoreScroll(at, { frames: 10 })
+  await frame()
+  window.dispatchEvent(new WheelEvent('wheel'))
+  pageHeight(innerHeight + 2000)
+  await frame()
+  await frame()
+  expect(scrollTo).not.toHaveBeenCalledWith(0, 900)
+})
+
+it('a query-only change never moves the page; a new path starts at the top and Back goes back to where it was', async () => {
+  const { placeScroll, setHashQuery, renameRoute } = await loadRouter()
+  await go('#/ws/studio/jobs')
+  const scrollTo = vi.spyOn(window, 'scrollTo').mockImplementation(() => {})
+  placeScroll()
+  scrollTo.mockClear()
+  // typing a filter, and a pushed query on the same path (Back between two
+  // queries too): the page stays where it is
+  scrolled(900)
+  setHashQuery({ status: 'failed' })
+  placeScroll()
+  await go('#/ws/studio/jobs?status=queued')
+  placeScroll()
+  await nav(() => history.back())
+  placeScroll()
+  expect(scrollTo).not.toHaveBeenCalled()
+  // a rename (an editor's first save) is the same page under a new name
+  renameRoute('#/ws/studio/edit/a.json')
+  placeScroll()
+  expect(scrollTo).not.toHaveBeenCalled()
+  // a pushed new path starts at the top
+  await go('#/ws/studio/jobs/j1')
+  placeScroll()
+  expect(scrollTo).toHaveBeenLastCalledWith(0, 0)
+  // Back: where the page was left, once the page is tall enough
+  pageHeight(innerHeight + 2000)
+  scrolled(0)
+  await nav(() => history.back())
+  placeScroll()
+  await frame()
+  expect(scrollTo).toHaveBeenLastCalledWith(0, 900)
+})

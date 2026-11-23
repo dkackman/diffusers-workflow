@@ -7,14 +7,14 @@
   import LoadState from '../ui/LoadState.svelte'
   import PageHeader from '../ui/PageHeader.svelte'
   import { onMount } from 'svelte'
-  import { ChevronDown, ChevronUp, ChevronsUp, Inbox, X } from '@lucide/svelte'
+  import { ChevronDown, ChevronUp, ChevronsUp, Inbox } from '@lucide/svelte'
   import { api } from '../api'
   import { action } from '../action.svelte'
   import type { JobSummary } from '../types'
   import { versionTitle, workflowName } from '../terms'
   import { wsHref } from '../routes'
-  import { hashQuery, setHashQuery } from '../router.svelte'
-  import { parseRequestFilter } from '../requestFilter'
+  import { hashState } from '../router.svelte'
+  import RequestFilter from '../gallery/RequestFilter.svelte'
   import {
     listJobs,
     listingRefused,
@@ -33,53 +33,30 @@
 
   // The filters live in the hash's query, so opening a job and coming back
   // - or sharing the link - keeps the narrowed view
-  const initial = hashQuery()
-  let statusFilter = $state(initial.status ?? '')
-  let nameFilter = $state(initial.q ?? '')
+  const statusFilter = hashState('status', '')
+  const nameFilter = hashState('q', '')
   // Server-side, unlike the two filters above: it changes which jobs are
   // fetched at all, not just which of the fetched ones are shown. Only read
   // under scope 'all' - empty there means every workspace, which is the
   // point of that view; a workspace's own Jobs page filters by
   // `workspace.current` instead.
-  let workspaceFilter = $state(initial.ws ?? '')
-  // Server-side too: `req=<id>` or `req=<id>/<item>` asks the server for
-  // the jobs linked to that requests-ledger request (or one item of it)
-  let reqFilter = $state(initial.req ?? '')
-  const requestScope = $derived(parseRequestFilter(reqFilter))
+  const workspaceFilter = hashState('ws', '')
+  // Server-side too: the request (or one item of it) the jobs were linked
+  // to. RequestFilter keeps it in the hash (`req`) and reads it at init
+  const requestScope = $state({ request: '', item: '' })
 
-  $effect(() =>
-    setHashQuery({
-      status: statusFilter,
-      q: nameFilter,
-      ws: scope === 'all' ? workspaceFilter : '',
-      req: reqFilter,
-    }),
-  )
-  // The route's view is unchanged when the Jobs nav link lands on the bare
-  // route from a narrowed one, so the page is not re-created: the filters
-  // follow the hash too, and a hash with no query clears them
-  $effect(() => {
-    const sync = () => {
-      const query = hashQuery()
-      statusFilter = query.status ?? ''
-      nameFilter = query.q ?? ''
-      workspaceFilter = query.ws ?? ''
-      reqFilter = query.req ?? ''
-    }
-    window.addEventListener('hashchange', sync)
-    return () => window.removeEventListener('hashchange', sync)
-  })
   // The server-side filters narrow what is fetched, so an empty answer is
   // "nothing matches"; the client-side ones only mean that when there were
   // rows to filter (on an empty listing the answer is "no jobs yet")
   const narrowed = $derived(
-    !!requestScope.request || (scope === 'all' && !!workspaceFilter),
+    !!requestScope.request || (scope === 'all' && !!workspaceFilter.value),
   )
   function clearFilters() {
-    statusFilter = ''
-    nameFilter = ''
-    workspaceFilter = ''
-    reqFilter = ''
+    statusFilter.value = ''
+    nameFilter.value = ''
+    workspaceFilter.value = ''
+    requestScope.request = ''
+    requestScope.item = ''
   }
   // A request lives in one workspace, so its filter is never read across
   // them (listingWorkspace): on the all-jobs view it pins the picker to the
@@ -87,13 +64,14 @@
   const listed = $derived(
     listingWorkspace(
       scope,
-      workspaceFilter,
+      workspaceFilter.value,
       workspace.current,
       requestScope.request,
     ),
   )
   $effect(() => {
-    if (scope === 'all' && listed !== workspaceFilter) workspaceFilter = listed
+    if (scope === 'all' && listed !== workspaceFilter.value)
+      workspaceFilter.value = listed
   })
 
   // Only worth a picker once there is a choice - a single-workspace server
@@ -106,7 +84,7 @@
   // never shows another question's rows
   const list = resource(
     async () => {
-      const [ws, scoped] = [listed, requestScope]
+      const [ws, scoped] = [listed, { ...requestScope }]
       const rows = (await listJobs(ws, scoped)).jobs.reverse()
       const queued = await queuedEverywhere(rows, !!(ws || scoped.request))
       return { rows, queueSize: queueLength(rows, queued) }
@@ -122,14 +100,17 @@
   )
   const jobs = $derived(refused ? [] : (list.data?.rows ?? []))
   const filtered = $derived(
-    narrowed || ((!!statusFilter || !!nameFilter) && jobs.length > 0),
+    narrowed ||
+      ((!!statusFilter.value || !!nameFilter.value) && jobs.length > 0),
   )
   const queueSize = $derived(list.data?.queueSize ?? 0)
   const visible = $derived(
     jobs.filter(
       (job) =>
-        (!statusFilter || job.status === statusFilter) &&
-        workflowName(job).toLowerCase().includes(nameFilter.toLowerCase()),
+        (!statusFilter.value || job.status === statusFilter.value) &&
+        workflowName(job)
+          .toLowerCase()
+          .includes(nameFilter.value.toLowerCase()),
     ),
   )
   // Batches a preview found nothing left to rerun in: their banner stays
@@ -139,7 +120,7 @@
   // All of a scope's rows, not the name-filtered ones: a batch spans
   // workflows. A status filter that hides cancelled rows hides it too
   const banners = $derived(
-    statusFilter && statusFilter !== 'cancelled'
+    statusFilter.value && statusFilter.value !== 'cancelled'
       ? []
       : restartBanners(jobs, dismissedBatches),
   )
@@ -199,7 +180,7 @@
 </script>
 
 {#snippet filters()}
-  <select bind:value={statusFilter} title="filter by status">
+  <select bind:value={statusFilter.value} title="filter by status">
     <option value="">all statuses</option>
     <option value="running">running</option>
     <option value="queued">queued</option>
@@ -209,9 +190,9 @@
   </select>
   {#if scope === 'all' && (workspace.names?.length ?? 0) > 1}
     <select
-      bind:value={workspaceFilter}
+      bind:value={workspaceFilter.value}
       onchange={() => {
-        if (!workspaceFilter) reqFilter = ''
+        if (!workspaceFilter.value) requestScope.request = ''
       }}
       title="filter by workspace"
     >
@@ -224,7 +205,7 @@
   <input
     class="filter"
     placeholder="filter by workflow…"
-    bind:value={nameFilter}
+    bind:value={nameFilter.value}
   />
 {/snippet}
 <!-- Under the status page, the queue is a section of the server's page -->
@@ -234,25 +215,11 @@
   filter={filters}
 >
   {#snippet actions()}
-    {#if requestScope.request}
-      <span class="wschip active-filter" data-testid="req-filter">
-        <a
-          class="plain"
-          href={wsHref(listed, 'requests', requestScope.request)}
-          title="open this request"
-        >
-          {requestLabel(requestScope)}
-        </a>
-        <button
-          class="quiet icon"
-          onclick={() => (reqFilter = '')}
-          title="remove the request filter"
-          aria-label="remove the request filter"
-        >
-          <X size={12} />
-        </button>
-      </span>
-    {/if}
+    <RequestFilter
+      bind:request={requestScope.request}
+      bind:item={requestScope.item}
+      workspace={listed}
+    />
   {/snippet}
 </PageHeader>
 
@@ -496,11 +463,6 @@
     border: 1px solid var(--line);
     border-radius: 4px;
     padding: 0 0.3rem;
-  }
-  .active-filter {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.25rem;
   }
   .qmove {
     display: inline-flex;

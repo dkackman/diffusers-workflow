@@ -155,6 +155,9 @@ afterEach(() => {
   // would otherwise hand it to whatever renders next
   localStorage.clear()
   workspace.current = DEFAULT_WORKSPACE
+  // The text filter lives in the hash: a test that typed one would hand
+  // it to whatever renders next
+  history.replaceState(null, '', location.pathname)
 })
 
 async function renderAssets(first = 'iris.png', shared = false) {

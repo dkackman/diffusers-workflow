@@ -15,7 +15,7 @@
   } from '@lucide/svelte'
   import { Toaster } from 'svelte-sonner'
   import { tick, untrack } from 'svelte'
-  import { route } from './lib/router.svelte'
+  import { placeScroll, route } from './lib/router.svelte'
   import { isEditable } from './lib/editable'
   import { runningIds } from './lib/jobWatch'
   import { jobHref } from './lib/routes'
@@ -159,10 +159,11 @@
     document.getElementById('main')?.focus()
   }
   $effect(() => {
-    // any navigation closes the drawer and scrolls back to the top
+    // any navigation closes the drawer; the router places the page - the
+    // top for a new path, where it was left on Back, unmoved by a query
     void route.parts
     drawerOpen = false
-    window.scrollTo(0, 0)
+    untrack(placeScroll)
   })
   const wide = $derived(
     (view.kind === 'ws' && view.section === 'edit') ||

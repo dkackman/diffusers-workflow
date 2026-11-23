@@ -14,7 +14,7 @@
     summaryBands,
   } from '../request/attention'
   import { formatMinutes, formatMtime, formatSpent } from '../format'
-  import { hashQuery, setHashQuery } from '../router.svelte'
+  import { hashState } from '../router.svelte'
   import { wsHref } from '../routes'
   import { workspace } from '../workspace.svelte'
 
@@ -22,12 +22,9 @@
 
   // Open requests are what the page is for; `show=all` in the hash's query
   // brings the closed ones back, and survives opening one and coming back
-  let show = $state(hashQuery().show === 'all' ? 'all' : 'open')
-  $effect(() => setHashQuery({ show: show === 'all' ? 'all' : '' }))
-  $effect(() => {
-    const sync = () => (show = hashQuery().show === 'all' ? 'all' : 'open')
-    window.addEventListener('hashchange', sync)
-    return () => window.removeEventListener('hashchange', sync)
+  const show = hashState('show', 'open', {
+    parse: (raw) => (raw === 'all' ? 'all' : 'open'),
+    format: (value) => value,
   })
 
   // A request an agent writes shows within one feed interval, marked
@@ -40,14 +37,14 @@
 
   const ordered = $derived(orderRequests(list.data?.requests ?? []))
   const open = $derived(ordered.filter((req) => req.state === 'open'))
-  const visible = $derived(show === 'all' ? ordered : open)
+  const visible = $derived(show.value === 'all' ? ordered : open)
   const closed = $derived(ordered.length - open.length)
   const written = (at: string) => formatMtime(Date.parse(at) / 1000)
 </script>
 
 <PageHeader title="Requests">
   {#snippet actions()}<select
-      bind:value={show}
+      bind:value={show.value}
       title="which requests to list"
       aria-label="show"
     >
@@ -71,7 +68,7 @@
   {:else if visible.length === 0}
     <p class="muted">
       No open requests.
-      <button type="button" class="quiet" onclick={() => (show = 'all')}>
+      <button type="button" class="quiet" onclick={() => (show.value = 'all')}>
         show closed ({closed})
       </button>
     </p>

@@ -15,6 +15,7 @@
   import { sharedHref, wsHref } from '../routes'
   import { cardTitle } from '../workflowCard'
   import { workspace } from '../workspace.svelte'
+  import { codec, hashState, type HashCodec } from '../router.svelte'
   import {
     WORKFLOW_SHAPES,
     WORKFLOW_TRAITS,
@@ -28,9 +29,15 @@
 
   let { examples = false }: { examples?: boolean } = $props()
 
-  let filter = $state('')
-  let shape = $state('')
-  let traits = $state<WorkflowTrait[]>([])
+  // The filters live in the hash, so opening a workflow and pressing Back -
+  // or sharing the link - keeps the narrowed view
+  const filter = hashState('q', '')
+  const shape = hashState('shape', '')
+  const traits = hashState<WorkflowTrait[]>(
+    'traits',
+    [],
+    codec.list as HashCodec<WorkflowTrait[]>,
+  )
 
   const list = resource(() => api.listWorkflows(), {
     watch: ['workflows'],
@@ -79,9 +86,9 @@
   )
 
   const toggleTrait = (trait: WorkflowTrait) => {
-    traits = traits.includes(trait)
-      ? traits.filter((value) => value !== trait)
-      : [...traits, trait]
+    traits.value = traits.value.includes(trait)
+      ? traits.value.filter((value) => value !== trait)
+      : [...traits.value, trait]
   }
 
   // Client-side over the listing the page already holds - shape, then every
@@ -89,10 +96,10 @@
   const visible = $derived(
     listed.filter((name) => {
       const detail = details[name]
-      if (shape && detail?.shape !== shape) return false
+      if (shape.value && detail?.shape !== shape.value) return false
       const has = detail?.traits ?? []
-      if (!traits.every((trait) => has.includes(trait))) return false
-      const needle = filter.toLowerCase()
+      if (!traits.value.every((trait) => has.includes(trait))) return false
+      const needle = filter.value.toLowerCase()
       return (
         name.toLowerCase().includes(needle) ||
         (detail?.description ?? '').toLowerCase().includes(needle)
@@ -114,13 +121,13 @@
   )
 
   const filterActive = $derived(
-    filter !== '' || shape !== '' || traits.length > 0,
+    filter.value !== '' || shape.value !== '' || traits.value.length > 0,
   )
 
   const clearFilters = () => {
-    filter = ''
-    shape = ''
-    traits = []
+    filter.value = ''
+    shape.value = ''
+    traits.value = []
   }
 
   /** The one measurement a card shows: the first the maintainer recorded.
@@ -138,7 +145,7 @@
 </script>
 
 {#snippet search()}
-  <input placeholder="filter…" bind:value={filter} class="filter" />
+  <input placeholder="filter…" bind:value={filter.value} class="filter" />
 {/snippet}
 <PageHeader
   title={examples ? 'Examples' : 'Workflows'}
@@ -174,7 +181,7 @@
   <div class="shapes">
     <Segmented
       label="filter by shape"
-      value={shape}
+      value={shape.value}
       options={[
         { value: '', label: 'all' },
         ...shapesPresent.map((value) => ({
@@ -183,7 +190,7 @@
           title: `show only workflows that make ${value}`,
         })),
       ]}
-      onselect={(value) => (shape = value === shape ? '' : value)}
+      onselect={(value) => (shape.value = value === shape.value ? '' : value)}
     />
   </div>
 {/if}
@@ -193,8 +200,8 @@
     {#each traitsPresent as trait (trait)}
       <button
         class="togglechip"
-        class:on={traits.includes(trait)}
-        aria-pressed={traits.includes(trait)}
+        class:on={traits.value.includes(trait)}
+        aria-pressed={traits.value.includes(trait)}
         onclick={() => toggleTrait(trait)}
         title="show only workflows that are {trait}"
       >

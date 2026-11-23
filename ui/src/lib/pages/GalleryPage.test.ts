@@ -1041,3 +1041,34 @@ it('a double click deletes once', async () => {
   expect(deleteOutput).toHaveBeenCalledTimes(1)
   expect(screen.queryByRole('alertdialog')).toBeNull()
 })
+
+const hashEvent = (change: () => void) =>
+  new Promise<void>((resolve) => {
+    window.addEventListener('hashchange', () => resolve(), { once: true })
+    change()
+  })
+
+it('the text, role and Starred filters survive leaving and coming back', async () => {
+  await hashEvent(() => (location.hash = '#/ws/default/gallery?x=1'))
+  await renderGallery()
+  const filter = screen.getByPlaceholderText('filter…') as HTMLInputElement
+  await fireEvent.input(filter, { target: { value: 'c' } })
+  await fireEvent.click(screen.getByRole('button', { name: 'Intermediate' }))
+  await fireEvent.click(screen.getByRole('button', { name: 'Starred' }))
+  expect(location.hash).toBe(
+    '#/ws/default/gallery?x=1&q=c&roles=final%2Cintermediate&starred=1',
+  )
+  // open something else, then press Back
+  cleanup()
+  await hashEvent(() => (location.hash = '#/ws/default/jobs'))
+  await hashEvent(() => history.back())
+  render(GalleryPage)
+  const again = (await screen.findByPlaceholderText(
+    'filter…',
+  )) as HTMLInputElement
+  expect(again.value).toBe('c')
+  const pressed = (name: string) =>
+    screen.getByRole('button', { name }).getAttribute('aria-pressed')
+  expect(pressed('Intermediate')).toBe('true')
+  expect(pressed('Starred')).toBe('true')
+})

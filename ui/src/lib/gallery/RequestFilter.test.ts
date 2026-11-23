@@ -8,13 +8,16 @@ import { workspace } from '../workspaceState.svelte'
 const data = vi.hoisted(() => ({
   requests: [] as unknown[],
   error: null as Error | null,
+  asked: [] as string[],
 }))
 vi.mock('../api', () => ({
   api: {
-    listRequests: () =>
-      data.error
+    listRequests: (ws: string) => {
+      data.asked.push(ws)
+      return data.error
         ? Promise.reject(data.error)
-        : Promise.resolve({ workspace: 'studio', requests: data.requests }),
+        : Promise.resolve({ workspace: ws, requests: data.requests })
+    },
   },
 }))
 vi.mock('../changes.svelte', async () => ({
@@ -25,6 +28,7 @@ beforeEach(() => {
   workspace.current = 'studio'
   data.error = null
   data.requests = []
+  data.asked = []
   history.replaceState(null, '', '#/ws/studio/gallery')
 })
 afterEach(cleanup)
@@ -55,4 +59,26 @@ it('a request written from outside appears when the feed says requests moved', a
   data.requests = [summary()]
   feed.move('studio', 'requests')
   await waitFor(() => expect(picker()).toBeTruthy())
+})
+
+it("with a workspace prop, it lists that workspace's requests", async () => {
+  data.requests = [summary()]
+  render(RequestFilter, { request: '', item: '', workspace: 'shots' })
+  await waitFor(() => expect(picker()).toBeTruthy())
+  expect(data.asked).toEqual(['shots'])
+  cleanup()
+  // and a chosen request links into that workspace
+  history.replaceState(null, '', '#/status?req=r1')
+  render(RequestFilter, { request: '', item: '', workspace: 'shots' })
+  const chip = await screen.findByTestId('req-filter')
+  expect(chip.querySelector('a')?.getAttribute('href')).toBe(
+    '#/ws/shots/requests/r1',
+  )
+})
+
+it('offers no picker when it is not pickable', async () => {
+  data.requests = [summary()]
+  render(RequestFilter, { request: '', item: '', pickable: false })
+  await new Promise((r) => setTimeout(r, 10))
+  expect(picker()).toBeNull()
 })
