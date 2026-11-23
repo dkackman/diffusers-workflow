@@ -1,4 +1,10 @@
-import { cleanup, render, screen, waitFor } from '@testing-library/svelte'
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/svelte'
 import { afterEach, expect, it, vi } from 'vitest'
 import AssetDetail from './AssetDetail.svelte'
 import type { AssetFile } from '../types'
@@ -13,6 +19,10 @@ const galleryMetadata = vi.hoisted(() =>
 )
 vi.mock('../api', () => ({
   api: { galleryMetadata: (name: string) => galleryMetadata(name) },
+}))
+
+vi.mock('../changes.svelte', async () => ({
+  changes: (await import('../test/feedMock')).feed.changes,
 }))
 
 afterEach(() => {
@@ -58,4 +68,13 @@ it('says nothing for an asset with no recorded provenance', async () => {
 it('shows the asset note', () => {
   render(AssetDetail, { ...props, asset: { ...asset, note: 'the hero face' } })
   expect(screen.getByText('the hero face')).toBeTruthy()
+})
+
+it('a failed provenance read says so, with Retry, rather than nothing', async () => {
+  galleryMetadata.mockRejectedValueOnce(new Error('boom'))
+  render(AssetDetail, props)
+  await screen.findByText(/Couldn't load where this asset came from/)
+  provenance.response = { job: { id: 'j1', status: 'ok', workflow: 'p' } }
+  await fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+  await waitFor(() => expect(screen.getByText(/kept from p/)).toBeTruthy())
 })

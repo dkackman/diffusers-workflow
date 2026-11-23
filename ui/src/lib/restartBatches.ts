@@ -58,7 +58,7 @@ export async function rerunRestartBatchWithConfirm(
   try {
     preview = await api.rerunRestartBatch(id)
   } catch (e) {
-    notify.error(e instanceof Error ? e.message : String(e))
+    notify.failure('preview the rerun', e)
     return 'cancelled'
   }
   const would = preview.would_queue ?? []
@@ -96,7 +96,7 @@ export async function rerunRestartBatchWithConfirm(
       : ''
     notify.success(`Queued ${answer.queued.length}${skippedNote}`)
   } catch (e) {
-    notify.error(e instanceof Error ? e.message : String(e))
+    notify.failure('rerun the jobs', e)
     return 'cancelled'
   }
   return 'queued'

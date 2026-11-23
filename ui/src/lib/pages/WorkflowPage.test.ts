@@ -5,6 +5,8 @@ import { tick } from 'svelte'
 import WorkflowPage from './WorkflowPage.svelte'
 import { api } from '../api'
 import { notify } from '../toast'
+import { connection } from '../connection.svelte'
+import { ApiError, NetworkError } from '../apiErrors'
 import type { ValidationResult } from '../types'
 
 // Monaco cannot boot in jsdom, and this page only mounts it on "show JSON"
@@ -13,7 +15,12 @@ vi.mock('../editor/JsonEditor.svelte', async () => ({
 }))
 
 vi.mock('../toast', () => ({
-  notify: { error: vi.fn(), success: vi.fn(), dismiss: vi.fn() },
+  notify: {
+    error: vi.fn(),
+    failure: vi.fn(),
+    success: vi.fn(),
+    dismiss: vi.fn(),
+  },
 }))
 
 const valid: ValidationResult = {
@@ -53,6 +60,10 @@ vi.mock('../api', () => ({
     workflowDownloadUrl: vi.fn().mockReturnValue('/download'),
     galleryThumbnailUrl: vi.fn().mockReturnValue('/thumb'),
   },
+}))
+
+vi.mock('../changes.svelte', async () => ({
+  changes: (await import('../test/feedMock')).feed.changes,
 }))
 
 const definition = {
@@ -255,7 +266,10 @@ describe('WorkflowPage run check', () => {
     expect((runButton as HTMLButtonElement).disabled).toBe(false)
     await fireEvent.click(runButton)
     await advance()
-    expect(notify.error).toHaveBeenCalledWith('seed: not an integer')
+    expect(notify.failure).toHaveBeenCalledWith(
+      expect.stringMatching(/^run /),
+      expect.objectContaining({ message: 'seed: not an integer' }),
+    )
   })
 
   it('keeps Run enabled while a check is in flight', async () => {
@@ -326,5 +340,65 @@ describe('WorkflowPage curated cost', () => {
     await openPage()
     expect(screen.queryByLabelText('curated cost')).toBeNull()
     expect(document.body.textContent).not.toContain("maintainer's figure")
+  })
+})
+
+describe('WorkflowPage recovery', () => {
+  it('a failed load offers Retry and recovers on reconnect', async () => {
+    vi.mocked(api.getWorkflow).mockRejectedValueOnce(
+      new NetworkError('fetch failed'),
+    )
+    await openPage()
+    expect(
+      screen.getByText(
+        "Couldn't load templates/text-to-image: Can't reach the server",
+      ),
+    ).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeTruthy()
+    // The raw message never reaches the page
+    expect(screen.queryByText('fetch failed')).toBeNull()
+    // The heading and the way back stay above the failure
+    expect(
+      screen.getByRole('heading', { name: 'templates/text-to-image' }),
+    ).toBeTruthy()
+    connection.epoch++
+    await advance()
+    await advance()
+    expect(screen.queryByText(/Couldn't load/)).toBeNull()
+    expect(screen.getByText('a run would be admitted')).toBeTruthy()
+  })
+
+  it('a missing workflow is named in its 404', async () => {
+    vi.mocked(api.getWorkflow).mockRejectedValueOnce(
+      new ApiError('Workflow not found', 404),
+    )
+    await openPage()
+    expect(
+      screen.getByText(
+        "Couldn't load templates/text-to-image: templates/text-to-image wasn't found",
+      ),
+    ).toBeTruthy()
+  })
+
+  it('a failed proofs read leaves the form alone', async () => {
+    vi.mocked(api.gallery).mockRejectedValueOnce(
+      new NetworkError('fetch failed'),
+    )
+    await openPage()
+    expect(screen.queryByText(/Couldn't load/)).toBeNull()
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(document.getElementById('var-prompt')).not.toBeNull()
+  })
+
+  it('Retry reads the definition again', async () => {
+    vi.mocked(api.getWorkflow).mockRejectedValueOnce(
+      new NetworkError('fetch failed'),
+    )
+    await openPage()
+    await fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+    await advance()
+    await advance()
+    expect(screen.queryByText(/Couldn't load/)).toBeNull()
+    expect(document.getElementById('var-prompt')).not.toBeNull()
   })
 })

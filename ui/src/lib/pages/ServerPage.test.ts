@@ -3,7 +3,9 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 // Hoisted above the component import so its static (hoisted) import sees an
 // initialized mock - the same shape the other page tests use
 import ServerPage from './ServerPage.svelte'
-import type { ServerInfo } from '../types'
+import { connection } from '../connection.svelte'
+import { ApiError } from '../apiErrors'
+import type { HealthInfo, MemoryInfo, ServerInfo } from '../types'
 
 const SECRET = 'super-secret-token-value'
 
@@ -37,28 +39,18 @@ const base: ServerInfo = {
 const state = vi.hoisted(() => ({
   info: null as unknown,
   fail: '' as string,
+  status: 0,
 }))
 const server = vi.hoisted(() =>
   vi.fn(() =>
     state.fail
-      ? Promise.reject(new Error(state.fail))
+      ? Promise.reject(
+          state.status
+            ? new ApiError(state.fail, state.status)
+            : new Error(state.fail),
+        )
       : Promise.resolve(state.info),
   ),
-)
-const health = vi.hoisted(() =>
-  vi.fn(() =>
-    Promise.resolve({
-      status: 'ok',
-      worker_alive: true,
-      current_job: null as string | null,
-      queued: 0,
-      workers: [] as unknown[],
-    }),
-  ),
-)
-// the worker answers 503 for memory until it has started
-const memory = vi.hoisted(() =>
-  vi.fn((): Promise<unknown> => Promise.reject(new Error('503'))),
 )
 const TRITON_COST =
   'The next first step of each SDNQ or compiled shape re-autotunes. ' +
@@ -112,8 +104,6 @@ const deleteCacheEntry = vi.hoisted(() =>
 vi.mock('../api', () => ({
   api: {
     server: () => server(),
-    health: () => health(),
-    memory: () => memory(),
     listCaches: () => listCaches(),
     clearCache: (name: string) => clearCache(name),
     deleteCacheEntry: (name: string, entry: string) =>
@@ -130,9 +120,14 @@ vi.mock('../confirm.svelte', () => ({
  * a raw textContent match would depend on where the lines break. There is no
  * automatic cleanup here (vitest globals are off), so each test reads its own
  * container rather than document.body. */
-async function show(overrides: Partial<ServerInfo> = {}, fail = '') {
+async function show(
+  overrides: Partial<ServerInfo> = {},
+  fail = '',
+  status = 0,
+) {
   state.info = { ...base, ...overrides }
   state.fail = fail
+  state.status = status
   const { container } = render(ServerPage)
   for (let i = 0; i < 5; i++) await new Promise((r) => setTimeout(r, 0))
   return (container.textContent ?? '').replace(/\s+/g, ' ')
@@ -144,7 +139,8 @@ beforeEach(() => {
 })
 afterEach(() => {
   server.mockClear()
-  health.mockClear()
+  connection.health = null
+  connection.memory = null
   listCaches.mockReset()
   listCaches.mockResolvedValue({ caches: [] })
   clearCache.mockClear()
@@ -202,14 +198,19 @@ it('does not warn when auth is off on a loopback bind', async () => {
   expect(text).toContain('reachable only from this machine')
 })
 
-it('reports a failed request instead of an empty page', async () => {
-  const text = await show({}, 'Not authenticated')
-  expect(text).toContain('Not authenticated')
+it('reports a 401 with the token remedy', async () => {
+  const text = await show({}, 'Not authenticated', 401)
   expect(text).toContain('API token')
 })
 
+it('a 500 does not blame the token', async () => {
+  const text = await show({}, 'boom', 500)
+  expect(text).not.toContain('API token')
+  expect(text).toContain('The server hit an error')
+})
+
 it('lists each worker with its card, VRAM and a link to its job', async () => {
-  health.mockResolvedValueOnce({
+  connection.health = {
     status: 'ok',
     worker_alive: true,
     current_job: 'job-a',
@@ -231,7 +232,8 @@ it('lists each worker with its card, VRAM and a link to its job', async () => {
         alive: true,
       },
     ],
-  })
+  } as unknown as HealthInfo
+  connection.state = 'ok'
   state.info = base
   state.fail = ''
   const { container } = render(ServerPage)
@@ -261,10 +263,10 @@ it('shows memory for every card, not just the first', async () => {
     },
   })
   const first = card('cuda:0', 1024)
-  memory.mockResolvedValueOnce({
+  connection.memory = {
     ...first,
     workers: [first, card('cuda:1', 18636.8)],
-  })
+  } as unknown as MemoryInfo
   const text = await show()
   expect(text).toContain('cuda:0 1.0 / 24.0 GB')
   expect(text).toContain('cuda:1 18.2 / 24.0 GB 12s ago')
@@ -290,7 +292,7 @@ it('shows the runtime versions, with null as none / not installed', async () => 
 })
 
 it('shows each worker pid and per-card free and reserved memory', async () => {
-  health.mockResolvedValueOnce({
+  connection.health = {
     status: 'ok',
     worker_alive: true,
     current_job: null,
@@ -299,7 +301,8 @@ it('shows each worker pid and per-card free and reserved memory', async () => {
       { device: 'cuda:0', name: 'cuda:0', alive: true, pid: 4242 },
       { device: 'cuda:1', name: 'cuda:1', alive: false },
     ],
-  })
+  } as unknown as HealthInfo
+  connection.state = 'ok'
   const entry = {
     device: 'cuda:0',
     live: true,
@@ -314,7 +317,7 @@ it('shows each worker pid and per-card free and reserved memory', async () => {
       gpu_memory_reserved_mb: 2048,
     },
   }
-  memory.mockResolvedValueOnce({ ...entry, workers: [entry] })
+  connection.memory = { ...entry, workers: [entry] } as unknown as MemoryInfo
   const text = await show()
   expect(text).toContain('pid 4242')
   expect(text.match(/pid /g)).toHaveLength(1)

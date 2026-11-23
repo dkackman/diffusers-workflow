@@ -6,6 +6,10 @@ const createWorkspace = vi.hoisted(() => vi.fn())
 const deleteWorkspace = vi.hoisted(() => vi.fn())
 const confirm = vi.hoisted(() => vi.fn())
 const errorToast = vi.hoisted(() => vi.fn())
+const failureToast = vi.hoisted(() => vi.fn())
+// Modules are reset between tests, so the class is read fresh each time
+const apiError = async (message: string, status: number) =>
+  new (await import('./apiErrors')).ApiError(message, status)
 vi.mock('./api', () => ({
   api: {
     createWorkspace: (n: string) => createWorkspace(n),
@@ -23,7 +27,7 @@ vi.mock('./confirm.svelte', () => ({
   confirmDialog: (...a: unknown[]) => confirm(...a),
 }))
 vi.mock('./toast', () => ({
-  notify: { error: errorToast, success: vi.fn() },
+  notify: { error: errorToast, success: vi.fn(), failure: failureToast },
 }))
 
 beforeEach(() => {
@@ -31,6 +35,7 @@ beforeEach(() => {
   deleteWorkspace.mockReset()
   confirm.mockReset()
   errorToast.mockReset()
+  failureToast.mockReset()
   localStorage.clear()
   location.hash = '#/ws/default/overview'
 })
@@ -54,7 +59,7 @@ it('creates, then navigates to the new overview', async () => {
 })
 
 it('returns the server detail on failure and stays put', async () => {
-  createWorkspace.mockRejectedValue(new Error('already exists'))
+  createWorkspace.mockRejectedValue(await apiError('already exists', 409))
   const { createWorkspaceAndGo } = await import('./workspaceActions')
   expect(await createWorkspaceAndGo('studio')).toBe('already exists')
   expect(location.hash).toBe('#/ws/default/overview')
@@ -62,7 +67,7 @@ it('returns the server detail on failure and stays put', async () => {
 
 it('asks with the server detail, then deletes acknowledged and goes to default', async () => {
   deleteWorkspace
-    .mockRejectedValueOnce(new Error('holds 3 files'))
+    .mockRejectedValueOnce(await apiError('holds 3 files', 409))
     .mockResolvedValueOnce({ name: 'studio', deleted: true })
   confirm.mockResolvedValue(true)
   location.hash = '#/ws/studio/overview'
@@ -83,7 +88,7 @@ it('asks with the server detail, then deletes acknowledged and goes to default',
 })
 
 it('a declined confirm deletes nothing', async () => {
-  deleteWorkspace.mockRejectedValueOnce(new Error('holds 3 files'))
+  deleteWorkspace.mockRejectedValueOnce(await apiError('holds 3 files', 409))
   confirm.mockResolvedValue(false)
   const { deleteWorkspaceWithConfirm } = await import('./workspaceActions')
   expect(await deleteWorkspaceWithConfirm('studio')).toBe(false)
@@ -93,4 +98,45 @@ it('a declined confirm deletes nothing', async () => {
 it.each(cases)('decides $name as the engine does', async ({ name, valid }) => {
   const { workspaceNameError } = await import('./workspaceActions')
   expect(workspaceNameError(name) === null).toBe(valid)
+})
+
+it('an unreachable server is reported, not put in a confirm dialog', async () => {
+  deleteWorkspace.mockRejectedValueOnce(
+    new (await import('./apiErrors')).NetworkError('Failed to fetch'),
+  )
+  const { deleteWorkspaceWithConfirm } = await import('./workspaceActions')
+  expect(await deleteWorkspaceWithConfirm('studio')).toBe(false)
+  expect(confirm).not.toHaveBeenCalled()
+  expect(failureToast).toHaveBeenCalled()
+})
+
+it('a failed create returns the described title, not the raw message', async () => {
+  createWorkspace.mockRejectedValueOnce(
+    new (await import('./apiErrors')).NetworkError('Failed to fetch'),
+  )
+  const { createWorkspaceAndGo } = await import('./workspaceActions')
+  expect(await createWorkspaceAndGo('studio')).toBe("Can't reach the server")
+})
+
+it('keeps the contents the server lists in the delete confirm', async () => {
+  const { errorDetail } = await import('./apiErrors')
+  const message = errorDetail(
+    {
+      detail: {
+        message: "Deleting workspace 'studio' removes these files permanently.",
+        contents: { outputs: { files: 3, bytes: 5 * 1024 * 1024 } },
+      },
+    },
+    'refused',
+  )
+  deleteWorkspace
+    .mockRejectedValueOnce(await apiError(message, 409))
+    .mockResolvedValueOnce({ name: 'studio', deleted: true })
+  confirm.mockResolvedValue(true)
+  const { deleteWorkspaceWithConfirm } = await import('./workspaceActions')
+  await deleteWorkspaceWithConfirm('studio')
+  expect(confirm).toHaveBeenCalledWith(
+    expect.stringContaining('outputs: 3 files'),
+    expect.anything(),
+  )
 })

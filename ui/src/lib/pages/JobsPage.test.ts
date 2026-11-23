@@ -7,7 +7,7 @@ import {
 } from '@testing-library/svelte'
 import { afterEach, expect, it, vi } from 'vitest'
 import JobsPage from './JobsPage.svelte'
-import { ApiError } from '../apiErrors'
+import { ApiError, NetworkError } from '../apiErrors'
 import { formatExact } from '../format'
 import { workspace } from '../workspaceState.svelte'
 import type { JobSummary } from '../types'
@@ -19,6 +19,7 @@ const data = vi.hoisted(() => ({
   // Every listing asked for, as [workspace, limit, status, request, item]
   listed: [] as unknown[][],
   listError: null as Error | null,
+  gate: null as Promise<void> | null,
   // What the server answers for "how many jobs are queued, anywhere"
   queued: 0,
 }))
@@ -35,6 +36,8 @@ vi.mock('../api', async () => ({
       item?: string,
     ) => {
       data.listed.push([ws, limit, status, request, item])
+      if (data.gate && limit !== 1)
+        return data.gate.then(() => ({ jobs: [], total: 0 }))
       if (status === 'queued' && limit === 1)
         return Promise.resolve({ jobs: [], total: data.queued })
       if (data.listError) return Promise.reject(data.listError)
@@ -60,6 +63,7 @@ afterEach(() => {
   cleanup()
   data.listed = []
   data.listError = null
+  data.gate = null
   data.queued = 0
   workspace.current = 'default'
   data.rerunRestartBatch.mockReset()
@@ -163,7 +167,7 @@ it('reads its filters from the link and writes them back to it', async () => {
   const input = screen.getByPlaceholderText('filter by workflow…')
   await fireEvent.input(input, { target: { value: 'zzz' } })
   expect(location.hash).toBe('#/ws/default/jobs?status=failed&q=zzz')
-  await fireEvent.click(screen.getByText('clear filters'))
+  await fireEvent.click(screen.getByRole('button', { name: 'Clear filters' }))
   expect(location.hash).toBe('#/ws/default/jobs')
   expect(screen.getByText('fine')).toBeTruthy()
   location.hash = ''
@@ -553,3 +557,49 @@ it('asks for the queue length only while a queued job is on screen', async () =>
   await waitFor(() => expect(screen.getByText('wf-c')).toBeTruthy())
   expect(data.listed.some(([, , status]) => status === 'queued')).toBe(false)
 })
+
+it('loading shows a skeleton, not "No jobs yet"', async () => {
+  let open: () => void = () => {}
+  data.gate = new Promise<void>((resolve) => (open = resolve))
+  render(JobsPage)
+  expect(screen.getByLabelText('loading jobs')).toBeTruthy()
+  expect(screen.queryByText(/No jobs yet/)).toBeNull()
+  open()
+  await screen.findByText(/No jobs yet/)
+  expect(screen.queryByLabelText('loading jobs')).toBeNull()
+})
+
+it('a listing that fails on first load is a load failure with Retry', async () => {
+  data.listError = new NetworkError('Failed to fetch')
+  render(JobsPage)
+  await screen.findByText(/Couldn't load jobs: Can't reach the server/)
+  expect(screen.queryByText(/No jobs yet/)).toBeNull()
+  data.listError = null
+  data.jobs = [summary({ id: 'x', workflow: 'back-again' })]
+  await fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+  await screen.findByText('back-again')
+})
+
+it('a status filter that matches nothing says so, and Clear filters brings the rows back', async () => {
+  data.jobs = [summary({ id: 'a', workflow: 'wf-a' })]
+  render(JobsPage)
+  await screen.findByText('wf-a')
+  await fireEvent.change(screen.getByTitle('filter by status'), {
+    target: { value: 'failed' },
+  })
+  await screen.findByText('Nothing matches those filters.')
+  await fireEvent.click(screen.getByRole('button', { name: 'Clear filters' }))
+  await screen.findByText('wf-a')
+})
+
+it('a refusal from a quiet poll clears the rows, not just a loud load', async () => {
+  location.hash = '#/ws/default/jobs'
+  data.jobs = [summary({ id: 'x', workflow: 'still-here' })]
+  render(JobsPage)
+  await screen.findByText('still-here')
+  data.listError = new ApiError('no_workspace', 404)
+  // The 3 s poll finds it, with no reload in between
+  await waitFor(() => expect(screen.queryByText('still-here')).toBeNull(), {
+    timeout: 6000,
+  })
+}, 10000)

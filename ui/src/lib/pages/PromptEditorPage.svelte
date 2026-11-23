@@ -106,7 +106,7 @@
         promptDir = writableRoot(r.libraries)
         promptDetails = r.details ?? {}
       })
-      .catch((e) => notify.error(e.message))
+      .catch((e) => notify.failure('load the prompt list', e))
     if (name && opened === name) {
       // the route catching up with a save: this is the prompt already
     } else if (name) {
@@ -212,7 +212,7 @@
       if (path !== name)
         renameRoute(sharedHref('prompt-edit', ...path.split('/')))
     } catch (e) {
-      notify.error(e instanceof Error ? e.message : String(e))
+      notify.failure(`save ${path}`, e)
     } finally {
       shell.busy = false
     }
@@ -250,7 +250,7 @@
       loadPromptLibrary()
       go('shared', 'prompts')
     } catch (e) {
-      notify.error(e instanceof Error ? e.message : String(e))
+      notify.failure(`delete ${name}`, e)
     }
   }
 

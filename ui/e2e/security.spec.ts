@@ -235,7 +235,8 @@ test.describe('an html file in outputs', () => {
     await page.getByRole('button', { name: 'API token' }).click()
     await page.getByPlaceholder('API token').fill('secret-probe')
     await page.getByRole('button', { name: 'Save' }).click()
-    await expect(page.getByRole('button', { name: 'Saved' })).toBeVisible()
+    // the fixture server runs without a token, so it accepts any
+    await expect(page.getByText('Token accepted')).toBeVisible()
     await page.goto(`/outputs/${htmlOutput}?workspace=${WS}`)
     await page.waitForLoadState('load')
     const title = await page.title()

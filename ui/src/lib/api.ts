@@ -77,6 +77,14 @@ import {
   galleryThumbnailUrl,
 } from './apiUrls'
 import { documentRoutes } from './apiDocuments'
+import { adoptJob } from './jobWatch'
+
+/** A job the server accepted is watched from now, so one that ends before
+ * the next status poll still raises its finish toast (jobWatch.ts). */
+function adopting(job: JobDetail): JobDetail {
+  if (job.id) adoptJob(job.id)
+  return job
+}
 
 // Pages and their test mocks import these from here
 export { ApiError, errorDetail, outputUrl }
@@ -157,22 +165,24 @@ export const api = {
    * `arguments` override the run's own, and are sent only when there are
    * some - the server stores them as the rerun's `overrides` exactly as
    * sent, so they must be only what changed. */
-  rerunJob: (
+  rerunJob: async (
     id: string,
     {
       newSeed = false,
       arguments: overrides,
     }: { newSeed?: boolean; arguments?: Record<string, unknown> } = {},
   ) =>
-    request<JobDetail>(`/api/jobs/${id}/rerun`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(
-        overrides && Object.keys(overrides).length
-          ? { new_seed: newSeed, arguments: overrides }
-          : { new_seed: newSeed },
-      ),
-    }),
+    adopting(
+      await request<JobDetail>(`/api/jobs/${id}/rerun`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(
+          overrides && Object.keys(overrides).length
+            ? { new_seed: newSeed, arguments: overrides }
+            : { new_seed: newSeed },
+        ),
+      }),
+    ),
   /** Rerun every job one dead server's restart cancelled, naming any one of
    * them. Without `acknowledged` it is a priced preview - `would_queue` and
    * `skipped` - and queues nothing; with it the batch is queued. Every
@@ -229,12 +239,14 @@ export const api = {
    * `unknown_request`, `unknown_item` before anything queues); with
    * `acknowledged_cost` bound to a validate plan, a run whose plan has
    * moved is a 409 carrying the current plan and what to resend. */
-  submitJob: (body: JobSubmitBody) =>
-    request<JobDetail>('/api/jobs', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    }),
+  submitJob: async (body: JobSubmitBody) =>
+    adopting(
+      await request<JobDetail>('/api/jobs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }),
+    ),
   memory: () => request<MemoryInfo>('/api/memory'),
   listModels: () => request<ModelCache>('/api/models'),
   startDownload: (repoId: string) =>
@@ -411,6 +423,10 @@ export const api = {
   workspaceChanges: (w: string) =>
     ledgerRead<WorkspaceChanges>(`/api/workspaces/${ws(w)}/changes`),
   listWorkspaces: () => request<WorkspaceList>('/api/workspaces'),
+  /** Whether the server lets the saved token in: a read any token opens */
+  checkToken: async (): Promise<void> => {
+    await request<unknown>('/api/workspaces', undefined, UNSCOPED)
+  },
   createWorkspace: (name: string) =>
     request<WorkspaceInfo>('/api/workspaces', {
       method: 'POST',
@@ -492,17 +508,19 @@ export const api = {
     withToken(`/api/prompts/${encodePath(name)}/download`),
   getPromptSchema: () => request<Record<string, unknown>>('/api/prompt-schema'),
   listEnhancers: () => request<EnhancerPresets>('/api/enhancers'),
-  enhance: (body: {
+  enhance: async (body: {
     idea: string
     preset: string
     model_name?: string
     device?: string
   }) =>
-    request<JobDetail>('/api/enhance', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    }),
+    adopting(
+      await request<JobDetail>('/api/enhance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }),
+    ),
 }
 
 /** Fetch the text of a saved output file - how an enhancement's result
@@ -551,6 +569,7 @@ export function streamJobEvents(
   after: number,
   onEvent: (event: JobEvent) => void,
   onEnd: () => void,
+  onDrop?: () => void,
 ): () => void {
   // EventSource cannot set custom headers, so a configured token rides
   // along as a query parameter for this one route - see docs/SERVER.md.
@@ -568,7 +587,10 @@ export function streamJobEvents(
       onEnd()
     }
   }
-  // No onerror handling: a dropped connection is EventSource's own job to
-  // repair. Closing here froze live progress on any transient hiccup.
+  // A dropped connection is EventSource's own to repair, so it is not closed
+  // here - closing froze live progress on any transient hiccup. `onDrop`
+  // lets the caller read the job again: after a restart it may have ended,
+  // or be gone, and no event will ever say so.
+  source.onerror = () => onDrop?.()
   return () => source.close()
 }

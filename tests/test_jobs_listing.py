@@ -130,7 +130,7 @@ def test_unknown_workspace_is_not_found_not_an_empty_listing(server, tmp_path):
         response = client.get("/api/jobs", params={"workspace": "qa-typo"})
 
         assert response.status_code == 404
-        assert "No such workspace: qa-typo" in response.json()["detail"]
+        assert "No such workspace: qa-typo" in response.json()["detail"]["message"]
         assert (
             client.get("/api/jobs", params={"workspace": "default"}).status_code == 200
         )

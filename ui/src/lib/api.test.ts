@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { api, fetchOutputText, setNote } from './api'
+import { api, fetchOutputText, setNote, streamJobEvents } from './api'
 
 type Stub = {
   ok: boolean
@@ -500,5 +500,38 @@ describe('write preconditions', () => {
     expect((await api.getPrompt('fox')).etag).toBe('"p"')
     stubFetch({ ok: true, body: {}, headers: { ETag: '"w"' } })
     expect((await api.getWorkflow('hero')).etag).toBe('"w"')
+  })
+})
+
+describe('job event stream', () => {
+  /** A stand-in EventSource that records itself, so a test can fail it */
+  class FakeSource {
+    static last: FakeSource | null = null
+    onmessage: ((message: { data: string }) => void) | null = null
+    onerror: (() => void) | null = null
+    closed = false
+    constructor(readonly url: string) {
+      FakeSource.last = this
+    }
+    close() {
+      this.closed = true
+    }
+  }
+
+  it('onDrop is called on a stream error and the stream is left open', () => {
+    vi.stubGlobal('EventSource', FakeSource)
+    const onDrop = vi.fn()
+    streamJobEvents(
+      'j1',
+      -1,
+      () => {},
+      () => {},
+      onDrop,
+    )
+    const source = FakeSource.last!
+    source.onerror?.()
+    expect(onDrop).toHaveBeenCalledTimes(1)
+    // EventSource repairs a dropped connection itself; closing would stop it
+    expect(source.closed).toBe(false)
   })
 })

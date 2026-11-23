@@ -6,6 +6,7 @@ import { api } from '../api'
 import { UPLOAD_EXTENSIONS } from '../assetlib.svelte'
 import { chooseDialog } from '../confirm.svelte'
 import { freeName } from '../documentSave'
+import { describeError } from '../apiErrors'
 import { notify } from '../toast'
 import type { Uploaded } from '../types'
 
@@ -158,10 +159,7 @@ export function reportUploads(result: UploadResult): void {
   if (failed.length)
     notify.error(
       failed
-        .map(
-          (f) =>
-            `${f.name}: ${f.error instanceof Error ? f.error.message : String(f.error)}`,
-        )
+        .map((f) => `${f.name}: ${describeError(f.error).title}`)
         .join('\n'),
     )
 }

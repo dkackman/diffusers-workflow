@@ -763,7 +763,9 @@ class TestRoute:
                 json={"source": "src", "runs": [f"wf/{R1}"]},
             )
         assert response.status_code == 404, response.text
-        assert response.json()["detail"] == f"No such workspace: {destination}"
+        assert (
+            response.json()["detail"]["message"] == f"No such workspace: {destination}"
+        )
         assert sorted(os.listdir(root.root)) == before
         assert nothing_written(dst)
 

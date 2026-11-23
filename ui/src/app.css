@@ -565,3 +565,26 @@ a.row-live.row-live.row-live:hover {
   min-width: 11rem;
   padding: 0.3rem;
 }
+
+/* The label/value grid of the status and detail panels: the popover's rows
+   and the Server page's panels share it. min-width:0 lets a long value (an
+   unbroken path or address) shrink to the 1fr track and break instead of
+   pushing the document wider */
+dl.kv {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-2) var(--space-4);
+  margin: 0;
+  align-items: baseline;
+}
+dl.kv dt {
+  font-weight: 600;
+  color: var(--muted);
+  font-size: 0.75rem;
+  text-transform: none;
+}
+dl.kv dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}

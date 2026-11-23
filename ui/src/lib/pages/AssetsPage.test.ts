@@ -95,11 +95,14 @@ const uploadMedia = vi.hoisted(() =>
   >(() => Promise.resolve({ reference: 'asset:uploads/x.png' })),
 )
 const setNote = vi.hoisted(() => vi.fn())
+const galleryMetadata = vi.hoisted(() =>
+  vi.fn<(reference: string) => Promise<unknown>>(() => new Promise(() => {})),
+)
 vi.mock('../api', () => ({
   setNote: (t: string, n: string | null) => setNote(t, n),
   api: {
     listAssets: () => listAssets(),
-    galleryMetadata: () => new Promise(() => {}),
+    galleryMetadata: (reference: string) => galleryMetadata(reference),
     deleteAsset: (name: string) => deleteAsset(name),
     archiveAssets: (names: string[]) => archiveAssets(names),
     uploadMedia: (
@@ -136,6 +139,9 @@ afterEach(() => {
   deleteAsset.mockReset()
   archiveAssets.mockReset()
   uploadMedia.mockClear()
+  galleryMetadata.mockReset()
+  galleryMetadata.mockImplementation(() => new Promise(() => {}))
+  setNote.mockReset()
   notifyError.mockClear()
   notifySuccess.mockClear()
   vi.unstubAllGlobals()
@@ -763,4 +769,123 @@ it("a dropped batch is uploaded under the files' names", async () => {
   expect(uploadMedia).toHaveBeenCalledWith(b, 'two.png', false, {
     createOnly: true,
   })
+})
+
+it('shows a skeleton while loading, not the empty state', async () => {
+  listAssets.mockImplementationOnce(() => new Promise(() => {}))
+  render(AssetsPage, { shared: false })
+  expect(
+    screen.getByRole('status', { name: 'loading the asset library' }),
+  ).toBeTruthy()
+  expect(screen.queryByText(/Nothing in the asset library/)).toBeNull()
+})
+
+it('a failed first load offers Retry and Retry loads', async () => {
+  listAssets.mockImplementationOnce(() => Promise.reject(new Error('boom')))
+  render(AssetsPage, { shared: false })
+  await screen.findByText(/Couldn't load the asset library/)
+  await fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+  await waitFor(() => expect(screen.getByText('iris.png')).toBeTruthy())
+})
+
+// Where an asset came from, as the detail shows it
+const keptFrom = (workflow: string) => ({
+  metadata: null,
+  job: { id: 'j1', workflow },
+  version: null,
+})
+
+it('switching assets never shows the previous asset provenance', async () => {
+  galleryMetadata.mockImplementation((reference) =>
+    reference === 'asset:iris.png'
+      ? Promise.resolve(keptFrom('paint'))
+      : new Promise(() => {}),
+  )
+  await renderAssets()
+  screen.getByLabelText('show details for iris.png').click()
+  await screen.findByText('kept from paint')
+  screen.getByLabelText('show details for cast/priya.jpg').click()
+  await waitFor(() =>
+    expect(screen.getByText('asset:cast/priya.jpg')).toBeTruthy(),
+  )
+  expect(screen.queryByText('kept from paint')).toBeNull()
+})
+
+it("a failed provenance read for the next asset is a load failure, not a refresh line over the last one's", async () => {
+  galleryMetadata.mockImplementation((reference) =>
+    reference === 'asset:iris.png'
+      ? Promise.resolve(keptFrom('paint'))
+      : Promise.reject(new Error('boom')),
+  )
+  await renderAssets()
+  screen.getByLabelText('show details for iris.png').click()
+  await screen.findByText('kept from paint')
+  screen.getByLabelText('show details for cast/priya.jpg').click()
+  await screen.findByText(/Couldn't load where this asset came from/)
+  expect(screen.queryByText(/Couldn't refresh/)).toBeNull()
+  expect(screen.queryByText('kept from paint')).toBeNull()
+})
+
+async function saveIrisNote(note: string) {
+  setNote.mockResolvedValue({
+    target: 'asset:iris.png',
+    note,
+    note_source: null,
+  })
+  await fireEvent.click(
+    await screen.findByRole('button', { name: /edit note/i }),
+  )
+  await fireEvent.input(screen.getByLabelText('Note'), {
+    target: { value: note },
+  })
+  await fireEvent.click(screen.getByRole('button', { name: /save/i }))
+  await waitFor(() => expect(screen.getByText(note)).toBeTruthy())
+}
+
+it('saving a note does not read the provenance again', async () => {
+  galleryMetadata.mockImplementation(() => Promise.resolve(keptFrom('paint')))
+  await renderAssets()
+  screen.getByLabelText('show details for iris.png').click()
+  await screen.findByText('kept from paint')
+  const reads = galleryMetadata.mock.calls.length
+  await saveIrisNote('hero shot')
+  for (let i = 0; i < 3; i++) await new Promise((r) => setTimeout(r, 10))
+  expect(galleryMetadata.mock.calls.length).toBe(reads)
+})
+
+it('a listing asked for before a note save cannot drop the note', async () => {
+  await renderAssets()
+  screen.getByLabelText('show details for iris.png').click()
+  // A read starts, and is held until after the save
+  let answer: (value: unknown) => void = () => {}
+  listAssets.mockImplementationOnce(
+    () => new Promise((resolve) => (answer = resolve as never)),
+  )
+  feed.move('default', 'assets')
+  await waitFor(() => expect(listAssets).toHaveBeenCalledTimes(2))
+  await saveIrisNote('hero shot')
+  // It lands carrying the note from before the save
+  answer({ ...listing, folders: [] })
+  for (let i = 0; i < 3; i++) await new Promise((r) => setTimeout(r, 10))
+  screen.getByLabelText('show details for cast/priya.jpg').click()
+  await waitFor(() => expect(screen.queryByText('hero shot')).toBeNull())
+  screen.getByLabelText('show details for iris.png').click()
+  await waitFor(() => expect(screen.getByText('hero shot')).toBeTruthy())
+})
+
+it('a listing asked for after a note save shows a note changed elsewhere', async () => {
+  await renderAssets()
+  screen.getByLabelText('show details for iris.png').click()
+  await saveIrisNote('hero shot')
+  listing.assets = [
+    { ...asset('iris.png'), note: 'from an agent' },
+    asset('cast/priya.jpg'),
+  ]
+  feed.move('default', 'assets')
+  await waitFor(() => expect(listAssets).toHaveBeenCalledTimes(2))
+  for (let i = 0; i < 3; i++) await new Promise((r) => setTimeout(r, 10))
+  screen.getByLabelText('show details for cast/priya.jpg').click()
+  await waitFor(() => expect(screen.queryByText('hero shot')).toBeNull())
+  screen.getByLabelText('show details for iris.png').click()
+  await waitFor(() => expect(screen.getByText('from an agent')).toBeTruthy())
 })

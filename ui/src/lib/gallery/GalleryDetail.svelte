@@ -6,13 +6,9 @@
   import { notify } from '../toast'
   import { confirmDialog } from '../confirm.svelte'
   import { describeOutputMeta } from '../outputMeta'
-  import type {
-    GalleryFile,
-    GalleryInput,
-    GalleryLinkedJob,
-    LevelFinding,
-    OutputRole,
-  } from '../types'
+  import type { GalleryFile, GalleryInput } from '../types'
+  import { resource } from '../resource.svelte'
+  import LoadState from '../ui/LoadState.svelte'
   import GalleryFindings from './GalleryFindings.svelte'
   import FileAgentNotes from './FileAgentNotes.svelte'
   import { AssessCache } from './assess.svelte'
@@ -25,21 +21,11 @@
   import { formatBytes, formatMtime } from '../format'
 
   // The detail panel under the grid for the one file picked. The page owns
-  // the pick and the metadata fetch, so a re-click refetches; this owns
-  // what the panel does with them
+  // the pick (and keys this panel by it, so a new pick starts a new read);
+  // this reads what made the file and owns what the panel does with it
   let {
     file,
-    metadata,
-    metadataLoading,
-    sourceJob,
-    role = null,
-    inputs = [],
-    findings = [],
-    linkedJobs = [],
     assessCache = new AssessCache(),
-    note = null,
-    runNote = null,
-    noteSource = null,
     onnotesaved,
     starred = false,
     onstar,
@@ -47,32 +33,35 @@
     onclose,
   }: {
     file: GalleryFile
-    metadata: Record<string, unknown> | null
-    metadataLoading: boolean
-    sourceJob: { id: string; status: string } | null
-    /** The file's role in its run; null when the run does not say */
-    role?: OutputRole | null
-    /** The assets and outputs the run read */
-    inputs?: GalleryInput[]
-    /** The level findings the metadata reply carries, warn first */
-    findings?: LevelFinding[]
-    /** The takes of request items that published the file */
-    linkedJobs?: GalleryLinkedJob[]
     /** Assess results by output for the page's life; the page passes its
      * own so one survives the panel closing */
     assessCache?: AssessCache
-    /** The file's effective note, its run's note, and whose the effective one is */
-    note?: string | null
-    runNote?: string | null
-    noteSource?: 'file' | 'run' | null
-    /** A note changed, so the page can refetch what it shows */
-    onnotesaved?: (kind: 'run' | 'file') => void | Promise<void>
+    /** A note changed, and the file's effective note now, so the page can
+     * carry it to the tile */
+    onnotesaved?: (
+      kind: 'run' | 'file',
+      note: string | null,
+    ) => void | Promise<void>
     /** Whether the file is starred, and the toggle */
     starred?: boolean
     onstar?: () => void
     onremove: () => void
     onclose: () => void
   } = $props()
+
+  const meta = resource(() => api.galleryMetadata(file.name), {
+    watch: ['gallery'],
+  })
+  const metadata = $derived(meta.data?.metadata ?? null)
+  const sourceJob = $derived(meta.data?.job ?? null)
+  /** The file's role in its run; null when the run does not say */
+  const role = $derived(meta.data?.role ?? file.role ?? null)
+  const inputs = $derived(meta.data?.inputs ?? [])
+  const findings = $derived(meta.data?.findings ?? [])
+  const linkedJobs = $derived(meta.data?.linked_jobs ?? [])
+  const note = $derived(meta.data?.note ?? null)
+  const runNote = $derived(meta.data?.run_note ?? null)
+  const noteSource = $derived(meta.data?.note_source ?? null)
 
   // A text file's contents, fetched when the pick changes
   let textBody = $state<string | null>(null)
@@ -128,12 +117,10 @@
           const result = await api.keepOutput(file.name, assetName, true)
           notify.success(`Kept as ${result.reference}`)
         } catch (failure) {
-          notify.error(
-            failure instanceof Error ? failure.message : String(failure),
-          )
+          notify.failure(`keep ${file.name} as an asset`, failure)
         }
       } else {
-        notify.error(e instanceof Error ? e.message : String(e))
+        notify.failure(`keep ${file.name} as an asset`, e)
       }
     }
   }
@@ -188,8 +175,16 @@
 
   // Back to what the server says once it has answered: a cleared file note
   // returns the run's, a saved one is the file's own
+  // A read that failed, or one a feed reload overtook (still loading),
+  // leaves the note from before the save: not handed on. The listing's own
+  // feed reload carries the note to the tile
+  async function noteSaved(kind: 'run' | 'file') {
+    await meta.reload()
+    if (meta.status !== 'ready') return
+    await onnotesaved?.(kind, meta.data?.note ?? null)
+  }
   async function saveFileNote() {
-    await onnotesaved?.('file')
+    await noteSaved('file')
     ownNote = false
   }
 
@@ -291,121 +286,121 @@
     {:else if file.kind === 'text'}
       <pre class="text">{textBody ?? 'loading…'}</pre>
     {/if}
-    {#if metadata || role || inputs.length || findings.length || assessed || linkedJobs.length}
-      <div class="meta">
-        <div><RoleTag {role} /></div>
-        {#if inherited}
-          <NoteEditor
-            note={runNote}
-            target={runDir}
-            label="Run note"
-            onsaved={() => onnotesaved?.('run')}
+    <LoadState of={meta} label="what made this file">
+      {#if metadata || role || inputs.length || findings.length || assessed || linkedJobs.length}
+        <div class="meta">
+          <div><RoleTag {role} /></div>
+          {#if inherited}
+            <NoteEditor
+              note={runNote}
+              target={runDir}
+              label="Run note"
+              onsaved={() => noteSaved('run')}
+            />
+            <button type="button" class="bare" onclick={() => (ownNote = true)}>
+              Note this file
+            </button>
+          {:else}
+            <NoteEditor
+              note={ownNote ? null : note}
+              target={file.name}
+              label={ownNote || noteSource === 'file' ? 'File note' : 'Note'}
+              onsaved={saveFileNote}
+            />
+          {/if}
+          <GalleryFindings {findings} {assessed} />
+          <FileAgentNotes
+            file={file.name}
+            {linkedJobs}
+            workspace={workspace.current}
           />
-          <button type="button" class="bare" onclick={() => (ownNote = true)}>
-            Note this file
-          </button>
-        {:else}
-          <NoteEditor
-            note={ownNote ? null : note}
-            target={file.name}
-            label={ownNote || noteSource === 'file' ? 'File note' : 'Note'}
-            onsaved={saveFileNote}
-          />
-        {/if}
-        <GalleryFindings {findings} {assessed} />
-        <FileAgentNotes
-          file={file.name}
-          {linkedJobs}
-          workspace={workspace.current}
-        />
-        {#if metadata}
-          <details class="settings">
-            <summary>Settings</summary>
-            {#if metadata.step_name}<div>
-                <span class="muted">step</span>
-                {metadata.step_name}
-              </div>{/if}
-            {#if metadata.model_name}<div>
-                <span class="muted">model</span>
-                <code>{metadata.model_name}</code>
-              </div>{/if}
-            {#if seed !== undefined}
-              <div>
-                <span class="muted">seed</span> <code>{seed}</code>
-              </div>
-            {/if}
-            {#if prompt}
-              <div class="prompt">
-                <span class="muted">prompt</span>
-                <p>{prompt}</p>
-              </div>
-            {/if}
-            {#if negativePrompt}
-              <div class="prompt">
-                <span class="muted">negative prompt</span>
-                <p>{negativePrompt}</p>
-              </div>
-            {/if}
-            {#if sourceJob}
-              <div>
-                <span class="muted">job</span>
-                <a
-                  href={'#/jobs/' + sourceJob.id}
-                  title="open the job that produced this file"
-                >
-                  {sourceJob.id}
-                </a>
-              </div>
-            {/if}
-            {#if embeddedWorkflow}
-              <div>
-                <span class="muted">workflow</span>
-                {embeddedWorkflow.id}
-              </div>
-            {:else}
-              <div class="muted">
-                no embedded workflow - enable embed_metadata in the step's
-                result
-              </div>
-            {/if}
-          </details>
-        {/if}
-        {#if inputs.length}
-          <div class="madefrom">
-            <span class="muted">Made from</span>
-            <ul>
-              {#each inputs as input (input.kind + input.reference)}
-                <li>
+          {#if metadata}
+            <details class="settings">
+              <summary>Settings</summary>
+              {#if metadata.step_name}<div>
+                  <span class="muted">step</span>
+                  {metadata.step_name}
+                </div>{/if}
+              {#if metadata.model_name}<div>
+                  <span class="muted">model</span>
+                  <code>{metadata.model_name}</code>
+                </div>{/if}
+              {#if seed !== undefined}
+                <div>
+                  <span class="muted">seed</span> <code>{seed}</code>
+                </div>
+              {/if}
+              {#if prompt}
+                <div class="prompt">
+                  <span class="muted">prompt</span>
+                  <p>{prompt}</p>
+                </div>
+              {/if}
+              {#if negativePrompt}
+                <div class="prompt">
+                  <span class="muted">negative prompt</span>
+                  <p>{negativePrompt}</p>
+                </div>
+              {/if}
+              {#if sourceJob}
+                <div>
+                  <span class="muted">job</span>
                   <a
-                    href={inputHref(input)}
-                    target={input.kind === 'output' ? '_blank' : undefined}
-                    title={input.kind === 'asset'
-                      ? 'open the asset library'
-                      : 'open this earlier output'}
+                    href={'#/jobs/' + sourceJob.id}
+                    title="open the job that produced this file"
                   >
-                    {inputName(input)}
+                    {sourceJob.id}
                   </a>
-                  <RoleTag role="input" />
-                  <span class="muted">{input.kind}</span>
-                </li>
-              {/each}
-            </ul>
-          </div>
-        {/if}
-        {#if location}
-          <div class="location">
-            <span class="muted">Location</span>
-            <code>{location}/</code>
-          </div>
-        {/if}
-      </div>
-    {:else if file.kind === 'image' && metadataLoading}
-      <div class="meta muted">reading metadata…</div>
-    {:else if file.kind === 'image'}
-      <div class="meta muted">
-        no embedded metadata - enable embed_metadata in the step's result
-      </div>
-    {/if}
+                </div>
+              {/if}
+              {#if embeddedWorkflow}
+                <div>
+                  <span class="muted">workflow</span>
+                  {embeddedWorkflow.id}
+                </div>
+              {:else}
+                <div class="muted">
+                  no embedded workflow - enable embed_metadata in the step's
+                  result
+                </div>
+              {/if}
+            </details>
+          {/if}
+          {#if inputs.length}
+            <div class="madefrom">
+              <span class="muted">Made from</span>
+              <ul>
+                {#each inputs as input (input.kind + input.reference)}
+                  <li>
+                    <a
+                      href={inputHref(input)}
+                      target={input.kind === 'output' ? '_blank' : undefined}
+                      title={input.kind === 'asset'
+                        ? 'open the asset library'
+                        : 'open this earlier output'}
+                    >
+                      {inputName(input)}
+                    </a>
+                    <RoleTag role="input" />
+                    <span class="muted">{input.kind}</span>
+                  </li>
+                {/each}
+              </ul>
+            </div>
+          {/if}
+          {#if location}
+            <div class="location">
+              <span class="muted">Location</span>
+              <code>{location}/</code>
+            </div>
+          {/if}
+        </div>
+      {:else if file.kind === 'image'}
+        <div class="meta muted">
+          no embedded metadata - enable embed_metadata in the step's result
+        </div>
+      {/if}
+    </LoadState>
   </div>
 </div>
 

@@ -14,8 +14,13 @@ import type { GalleryFile, GalleryLinkedJob } from '../types'
 
 const setNote = vi.hoisted(() => vi.fn())
 const keepOutput = vi.hoisted(() => vi.fn())
-const notifyMock = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }))
+const notifyMock = vi.hoisted(() => ({
+  success: vi.fn(),
+  error: vi.fn(),
+  failure: vi.fn(),
+}))
 const assess = vi.hoisted(() => vi.fn<(name: string) => Promise<unknown>>())
+const galleryMetadata = vi.hoisted(() => vi.fn())
 // The request-notes calls the file's note for the agent makes
 const ledger = vi.hoisted(() => ({
   getRequest: vi.fn(),
@@ -28,17 +33,22 @@ vi.mock('../api', async () => ({
   api: {
     outputDownloadUrl: (name: string) => `/download/${name}`,
     assess: (name: string) => assess(name),
+    galleryMetadata: (name: string) => galleryMetadata(name),
     keepOutput: (...a: unknown[]) => keepOutput(...a),
     ...ledger,
   },
 }))
 
 vi.mock('../toast', () => ({ notify: notifyMock }))
+vi.mock('../changes.svelte', async () => ({
+  changes: (await import('../test/feedMock')).feed.changes,
+}))
 
 afterEach(() => {
   keepOutput.mockReset()
   notifyMock.success.mockReset()
   notifyMock.error.mockReset()
+  notifyMock.failure.mockReset()
   vi.restoreAllMocks()
   cleanup()
   assess.mockReset()
@@ -58,22 +68,41 @@ const file: GalleryFile = {
   role: 'final',
 }
 
-const props = {
-  file,
+const props = { file, onremove: () => {}, onclose: () => {} }
+
+/** What the metadata route answers, the run having read two inputs */
+const metaReply = (over: Record<string, unknown> = {}) => ({
   metadata: { model_name: 'org/model', seed: 7 },
-  metadataLoading: false,
-  sourceJob: null,
-  role: 'final' as const,
+  job: null,
+  version: 1,
+  role: 'final',
   inputs: [
-    { reference: 'asset:face.png', kind: 'asset' as const },
-    { reference: 'output:wf/run-0/b.png', kind: 'output' as const },
+    { reference: 'asset:face.png', kind: 'asset' },
+    { reference: 'output:wf/run-0/b.png', kind: 'output' },
   ],
-  onremove: () => {},
-  onclose: () => {},
+  findings: [],
+  linked_jobs: [],
+  note: null,
+  run_note: null,
+  note_source: null,
+  ...over,
+})
+
+beforeEach(() => {
+  galleryMetadata.mockReset()
+  galleryMetadata.mockResolvedValue(metaReply())
+})
+
+/** Render the panel and wait for its metadata to land */
+async function view(over: Record<string, unknown> = {}, extra = {}) {
+  galleryMetadata.mockResolvedValue(metaReply(over))
+  const shown = render(GalleryDetail, { ...props, ...extra })
+  await screen.findByRole('region', { name: 'Findings' })
+  return shown
 }
 
-it('orders the panel role, Settings, Made from, Location', () => {
-  const { container } = render(GalleryDetail, props)
+it('orders the panel role, Settings, Made from, Location', async () => {
+  const { container } = await view()
   const meta = container.querySelector('.meta') as HTMLElement
   const order = [...meta.children].map(
     (el) =>
@@ -97,8 +126,8 @@ it('orders the panel role, Settings, Made from, Location', () => {
   )
 })
 
-it('lists each run input as a link', () => {
-  const { container } = render(GalleryDetail, props)
+it('lists each run input as a link', async () => {
+  const { container } = await view()
   const links = [...container.querySelectorAll('.madefrom a')]
   expect(links.map((a) => a.textContent)).toEqual([
     'face.png',
@@ -112,17 +141,16 @@ it('lists each run input as a link', () => {
   expect(links[1].getAttribute('href')).toContain('wf/run-0/b.png')
 })
 
-it('omits Made from when the run read nothing', () => {
-  const { container } = render(GalleryDetail, { ...props, inputs: [] })
+it('omits Made from when the run read nothing', async () => {
+  const { container } = await view({ inputs: [] })
   expect(container.querySelector('.madefrom')).toBeNull()
 })
 
 it('shows an inherited run note as the run note and offers to note the file', async () => {
-  render(GalleryDetail, {
-    ...props,
+  await view({
     note: 'for the client',
-    runNote: 'for the client',
-    noteSource: 'run' as const,
+    run_note: 'for the client',
+    note_source: 'run',
   })
   expect(screen.getByText('Run note')).toBeTruthy()
   expect(screen.getByText('for the client')).toBeTruthy()
@@ -131,35 +159,29 @@ it('shows an inherited run note as the run note and offers to note the file', as
   expect(screen.queryByText('for the client')).toBeNull()
 })
 
-it("shows the file's own note", () => {
-  render(GalleryDetail, {
-    ...props,
-    note: 'keeper',
-    noteSource: 'file' as const,
-  })
+it("shows the file's own note", async () => {
+  await view({ note: 'keeper', note_source: 'file' })
   expect(screen.getByText('keeper')).toBeTruthy()
   expect(screen.queryByRole('button', { name: 'Note this file' })).toBeNull()
 })
 
 it("labels a saved file note as the file's own, and a cleared one returns the run note", async () => {
   const run = {
-    ...props,
     note: 'for the client',
-    runNote: 'for the client',
-    noteSource: 'run' as const,
+    run_note: 'for the client',
+    note_source: 'run',
   }
-  const spy = setNote
   const onnotesaved = vi.fn(async () => {})
-  const { rerender } = render(GalleryDetail, { ...run, onnotesaved })
+  await view(run, { onnotesaved })
   await fireEvent.click(screen.getByRole('button', { name: 'Note this file' }))
-  spy.mockResolvedValue({
+  setNote.mockResolvedValue({
     target: file.name,
     note: 'mine',
     note_source: 'file',
   })
-  onnotesaved.mockImplementation(async () => {
-    await rerender({ ...run, note: 'mine', noteSource: 'file', onnotesaved })
-  })
+  galleryMetadata.mockResolvedValue(
+    metaReply({ ...run, note: 'mine', note_source: 'file' }),
+  )
   await fireEvent.click(screen.getByRole('button', { name: /edit note/i }))
   await fireEvent.input(screen.getByRole('textbox'), {
     target: { value: 'mine' },
@@ -167,20 +189,92 @@ it("labels a saved file note as the file's own, and a cleared one returns the ru
   await fireEvent.click(screen.getByRole('button', { name: /save/i }))
   await waitFor(() => expect(screen.getByText('File note')).toBeTruthy())
   expect(screen.getByText('mine')).toBeTruthy()
+  expect(onnotesaved).toHaveBeenCalledWith('file', 'mine')
 
-  spy.mockResolvedValue({
+  setNote.mockResolvedValue({
     target: file.name,
     note: 'for the client',
     note_source: 'run',
   })
-  onnotesaved.mockImplementation(async () => {
-    await rerender({ ...run, onnotesaved })
-  })
+  galleryMetadata.mockResolvedValue(metaReply(run))
   await fireEvent.click(screen.getByRole('button', { name: /edit note/i }))
   await fireEvent.input(screen.getByRole('textbox'), { target: { value: '' } })
   await fireEvent.click(screen.getByRole('button', { name: /save/i }))
   await waitFor(() => expect(screen.getByText('Run note')).toBeTruthy())
   expect(screen.getByText('for the client')).toBeTruthy()
+})
+
+it('a note saved while the metadata will not read again tells the page nothing', async () => {
+  const onnotesaved = vi.fn(async () => {})
+  await view({ note: 'old', note_source: 'file' }, { onnotesaved })
+  setNote.mockResolvedValue({
+    target: file.name,
+    note: 'new',
+    note_source: 'file',
+  })
+  galleryMetadata.mockRejectedValue(new Error('boom'))
+  await fireEvent.click(screen.getByRole('button', { name: /edit note/i }))
+  await fireEvent.input(screen.getByRole('textbox'), {
+    target: { value: 'new' },
+  })
+  await fireEvent.click(screen.getByRole('button', { name: /save/i }))
+  await waitFor(() => expect(setNote).toHaveBeenCalledWith(file.name, 'new'))
+  await waitFor(() => expect(galleryMetadata).toHaveBeenCalledTimes(2))
+  for (let i = 0; i < 3; i++) await new Promise((r) => setTimeout(r, 10))
+  // The pre-save note would be all the panel holds to hand on
+  expect(onnotesaved).not.toHaveBeenCalled()
+})
+
+it('a note save whose reread is overtaken hands on nothing from before it', async () => {
+  const { feed } = await import('../test/feedMock')
+  const onnotesaved = vi.fn(async () => {})
+  await view({ note: 'old', note_source: 'file' }, { onnotesaved })
+  setNote.mockResolvedValue({
+    target: file.name,
+    note: 'new',
+    note_source: 'file',
+  })
+  // The save's own reread, then a feed reload that overtakes it
+  let loud: (v: unknown) => void = () => {}
+  let quiet: (v: unknown) => void = () => {}
+  galleryMetadata
+    .mockImplementationOnce(() => new Promise((r) => (loud = r)))
+    .mockImplementationOnce(() => new Promise((r) => (quiet = r)))
+  await fireEvent.click(screen.getByRole('button', { name: /edit note/i }))
+  await fireEvent.input(screen.getByRole('textbox'), {
+    target: { value: 'new' },
+  })
+  await fireEvent.click(screen.getByRole('button', { name: /save/i }))
+  await waitFor(() => expect(galleryMetadata).toHaveBeenCalledTimes(2))
+  for (const w of [...feed.watches])
+    if (w.kinds.includes('gallery')) void w.fn()
+  await waitFor(() => expect(galleryMetadata).toHaveBeenCalledTimes(3))
+  loud(metaReply({ note: 'old', note_source: 'file' }))
+  for (let i = 0; i < 3; i++) await new Promise((r) => setTimeout(r, 10))
+  expect(onnotesaved).not.toHaveBeenCalled()
+  quiet(metaReply({ note: 'new', note_source: 'file' }))
+  await waitFor(() => expect(screen.getByText('new')).toBeTruthy())
+})
+
+it('a failed metadata read is not "no embedded metadata"', async () => {
+  galleryMetadata.mockRejectedValue(new Error('boom'))
+  render(GalleryDetail, props)
+  await screen.findByText(/Couldn't load what made this file/)
+  expect(screen.queryByText(/no embedded metadata/)).toBeNull()
+  galleryMetadata.mockResolvedValue(metaReply())
+  await fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+  await screen.findByRole('region', { name: 'Findings' })
+})
+
+it('reads the metadata as a skeleton, then says when an image has none', async () => {
+  galleryMetadata.mockResolvedValue(
+    metaReply({ metadata: null, role: null, inputs: [] }),
+  )
+  render(GalleryDetail, { ...props, file: { ...file, role: undefined } })
+  expect(
+    screen.getByRole('status', { name: 'loading what made this file' }),
+  ).toBeTruthy()
+  await screen.findByText(/no embedded metadata/)
 })
 
 const finding = (
@@ -216,9 +310,8 @@ const reply = (findings: ReturnType<typeof finding>[]) => ({
 
 const findingsRegion = () => screen.getByRole('region', { name: 'Findings' })
 
-it("lists the metadata's findings warn first", () => {
-  render(GalleryDetail, {
-    ...props,
+it("lists the metadata's findings warn first", async () => {
+  await view({
     findings: [finding('info', 'quiet note'), finding('warn', 'too loud')],
   })
   const rows = [...findingsRegion().querySelectorAll('li')]
@@ -229,13 +322,13 @@ it("lists the metadata's findings warn first", () => {
   expect(rows[0].textContent).toContain('too loud')
 })
 
-it('says No findings when there are none', () => {
-  render(GalleryDetail, props)
+it('says No findings when there are none', async () => {
+  await view()
   expect(findingsRegion().textContent).toContain('No findings')
 })
 
-it("disables an image's Assess and says why", () => {
-  render(GalleryDetail, props)
+it("disables an image's Assess and says why", async () => {
+  await view()
   const button = screen.getByRole('button', { name: 'Assess' })
   expect((button as HTMLButtonElement).disabled).toBe(true)
   expect(button.getAttribute('title')).toBe(
@@ -248,7 +341,7 @@ it("Assess shows the reply's findings, their time and what did not apply", async
   assess.mockResolvedValue(
     reply([finding('info', 'picture jumps', 64.25), finding('warn', 'silent')]),
   )
-  render(GalleryDetail, { ...props, file: video })
+  await view({}, { file: video })
   await fireEvent.click(screen.getByRole('button', { name: 'Assess' }))
   expect(assess).toHaveBeenCalledWith(video.name)
   await waitFor(() =>
@@ -264,7 +357,7 @@ it("Assess shows the reply's findings, their time and what did not apply", async
 
 it('shows Assessing… while the request runs', async () => {
   assess.mockImplementation(() => new Promise(() => {}))
-  render(GalleryDetail, { ...props, file: video })
+  await view({}, { file: video })
   await fireEvent.click(screen.getByRole('button', { name: 'Assess' }))
   const busy = await screen.findByRole('button', { name: /Assessing/ })
   expect((busy as HTMLButtonElement).disabled).toBe(true)
@@ -272,7 +365,7 @@ it('shows Assessing… while the request runs', async () => {
 
 it('a failed Assess keeps the earlier list and shows the error', async () => {
   assess.mockResolvedValueOnce(reply([finding('warn', 'silent')]))
-  render(GalleryDetail, { ...props, file: video })
+  await view({}, { file: video })
   await fireEvent.click(screen.getByRole('button', { name: 'Assess' }))
   await waitFor(() => expect(findingsRegion().textContent).toContain('silent'))
   assess.mockRejectedValueOnce(new Error('cannot read this file'))
@@ -330,14 +423,14 @@ describe('the note for the agent', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'Save note' }))
   }
 
-  it('is not there for a file no take of a request item published', () => {
-    render(GalleryDetail, { ...props, linkedJobs: [] })
+  it('is not there for a file no take of a request item published', async () => {
+    await view({ linked_jobs: [] })
     expect(screen.queryByText('Note for the agent')).toBeNull()
     expect(ledger.getRequest).not.toHaveBeenCalled()
   })
 
   it("with one take, shows the file's notes and a new one is about it", async () => {
-    render(GalleryDetail, { ...props, linkedJobs: [take('j1', 1)] })
+    await view({ linked_jobs: [take('j1', 1)] })
     await screen.findByText('about this file')
     expect(screen.queryByText('about another file')).toBeNull()
     expect(screen.queryByRole('combobox')).toBeNull()
@@ -352,10 +445,7 @@ describe('the note for the agent', () => {
   })
 
   it('with two takes, asks which one first and notes the one chosen', async () => {
-    render(GalleryDetail, {
-      ...props,
-      linkedJobs: [take('j2', 2), take('j1', 1)],
-    })
+    await view({ linked_jobs: [take('j2', 2), take('j1', 1)] })
     const picker = screen.getByRole('combobox') as HTMLSelectElement
     expect(
       [...picker.options].slice(1).map((option) => option.textContent),
@@ -381,7 +471,7 @@ it('cancelling Replace on keep-as-asset shows no error', async () => {
   vi.spyOn(window, 'prompt').mockReturnValue('face.png')
   keepOutput.mockRejectedValueOnce(new ApiError(TAKEN, 409))
   render(ConfirmDialog)
-  render(GalleryDetail, props)
+  await view()
   await fireEvent.click(screen.getByRole('button', { name: /keep as asset/i }))
   const dialog = await waitFor(() => screen.getByRole('alertdialog'))
   expect(dialog.textContent).toContain(
@@ -403,7 +493,7 @@ it('accepting Replace on keep-as-asset retries with overwrite', async () => {
     .mockRejectedValueOnce(new ApiError(TAKEN, 409))
     .mockResolvedValueOnce({ reference: 'asset:face.png' })
   render(ConfirmDialog)
-  render(GalleryDetail, props)
+  await view()
   await fireEvent.click(screen.getByRole('button', { name: /keep as asset/i }))
   const dialog = await waitFor(() => screen.getByRole('alertdialog'))
   await fireEvent.click(
@@ -420,11 +510,14 @@ it('a keep refused for another reason shows the reason, not Replace', async () =
     new ApiError('This workspace has no asset library', 409),
   )
   render(ConfirmDialog)
-  render(GalleryDetail, props)
+  await view()
   await fireEvent.click(screen.getByRole('button', { name: /keep as asset/i }))
   await waitFor(() =>
-    expect(notifyMock.error).toHaveBeenCalledWith(
-      'This workspace has no asset library',
+    expect(notifyMock.failure).toHaveBeenCalledWith(
+      expect.stringContaining('keep'),
+      expect.objectContaining({
+        message: 'This workspace has no asset library',
+      }),
     ),
   )
   expect(screen.queryByRole('alertdialog')).toBeNull()

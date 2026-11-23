@@ -2,6 +2,8 @@ import { cleanup, render, screen, waitFor } from '@testing-library/svelte'
 import { afterEach, expect, it, vi } from 'vitest'
 import ModelsPage from './ModelsPage.svelte'
 import { formatDay } from '../format'
+import { connection } from '../connection.svelte'
+import { NetworkError } from '../apiErrors'
 import type { ModelCache, ModelRepo } from '../types'
 
 // The "last used" column (#1445 stage B): a dw job's start time when the
@@ -25,21 +27,31 @@ const repo = (
   revisions: [],
 })
 
-const cache = vi.hoisted(() => ({ repos: [] as ModelRepo[] }))
+const cache = vi.hoisted(() => ({
+  repos: [] as ModelRepo[],
+  // what the cache listing fails with, while it fails
+  error: null as Error | null,
+}))
 
 vi.mock('../api', () => ({
   api: {
     listModels: () =>
-      Promise.resolve({
-        cache_dir: '/hub',
-        disk_free: null,
-        disk_total: null,
-        size_on_disk: 0,
-        warnings: [],
-        repos: cache.repos,
-      } satisfies ModelCache),
-    listDownloads: () => Promise.resolve({ downloads: [] }),
-    diffusersStatus: () => new Promise(() => {}),
+      cache.error
+        ? Promise.reject(cache.error)
+        : Promise.resolve({
+            cache_dir: '/hub',
+            disk_free: null,
+            disk_total: null,
+            size_on_disk: 0,
+            warnings: [],
+            repos: cache.repos,
+          } satisfies ModelCache),
+    listDownloads: () =>
+      cache.error
+        ? Promise.reject(cache.error)
+        : Promise.resolve({ downloads: [] }),
+    diffusersStatus: () =>
+      cache.error ? Promise.reject(cache.error) : new Promise(() => {}),
   },
 }))
 vi.mock('../toast', () => ({ notify: { error: vi.fn(), success: vi.fn() } }))
@@ -47,6 +59,7 @@ vi.mock('../toast', () => ({ notify: { error: vi.fn(), success: vi.fn() } }))
 afterEach(() => {
   cleanup()
   cache.repos = []
+  cache.error = null
 })
 
 async function lastUsedCell(repoId: string): Promise<HTMLElement> {
@@ -88,4 +101,25 @@ it('explains the column in the header tooltip', async () => {
   const header = screen.getByText('last used')
   expect(header.getAttribute('title')).toMatch(/dw job/)
   expect(header.getAttribute('title')).toMatch(/\(disk\)/)
+})
+
+it('recovers on reconnect', async () => {
+  cache.error = new NetworkError('fetch failed')
+  render(ModelsPage)
+  await screen.findByText("Couldn't load the hub cache: Can't reach the server")
+  // Offline, only the cache list says so: downloads and the diffusers
+  // version fail quietly beside it
+  expect(screen.getAllByText(/Couldn't load/)).toHaveLength(1)
+  expect(screen.getAllByRole('alert')).toHaveLength(1)
+  expect(screen.getByRole('button', { name: 'Retry' })).toBeTruthy()
+  expect(screen.queryByText('fetch failed')).toBeNull()
+  // The download form stays usable while the listing is down
+  expect(
+    screen.getByPlaceholderText('download a model… (org/name)'),
+  ).toBeTruthy()
+  cache.error = null
+  cache.repos = [repo('org/back', DW_USE, null)]
+  connection.epoch++
+  await screen.findByText('org/back')
+  expect(screen.queryByText(/Couldn't load/)).toBeNull()
 })

@@ -20,7 +20,9 @@
   import { confirmDialog } from '../confirm.svelte'
   import type { GalleryFile, WorkflowDefinition } from '../types'
   import ClampedText from '../ui/ClampedText.svelte'
-  import { onDestroy } from 'svelte'
+  import { onDestroy, untrack } from 'svelte'
+  import { resource } from '../resource.svelte'
+  import LoadState from '../ui/LoadState.svelte'
   import { describePlan } from '../plan'
   import { placeFindings } from '../findings'
   import { RunCheck } from '../runCheck.svelte'
@@ -29,31 +31,67 @@
 
   let { name }: { name: string } = $props()
 
-  let workflow = $state<WorkflowDefinition | null>(null)
-  /** Where this workflow was read from, and whether it is the user's to
-   * change - an examples or builtin source is read-only. Both come back on
-   * `getWorkflow` itself, off the response headers, so there is no separate
-   * `listWorkflows` round trip just to learn them. */
-  let origin = $state('')
-  let writable = $state(true)
   let overrides = $state<Record<string, string>>({})
-  let error = $state('')
   let submitting = $state(false)
   /** Collapsed by default: this page is where you set variables and run,
    * and a 520px read-only editor between the form and the rest of the page
    * pushed the actual work off the screen. The editor is one click away,
    * and Edit opens the real one. */
   let showJson = $state(false)
+
+  /** The definition, with where it was read from and whether it is the
+   * user's to change - an examples or builtin source is read-only. Both
+   * come back on `getWorkflow` itself, off the response headers, so there
+   * is no separate `listWorkflows` round trip just to learn them. Held only
+   * while it is this name's. */
+  const read = resource(
+    async () => {
+      const wanted = name
+      return { name: wanted, ...(await api.getWorkflow(wanted)) }
+    },
+    { watch: ['workflows'] },
+  )
+  const fetched = $derived(read.data?.name === name ? read.data : null)
+  const workflow = $derived<WorkflowDefinition | null>(
+    fetched?.definition ?? null,
+  )
+  const origin = $derived(fetched?.origin ?? '')
+  const writable = $derived(fetched?.writable ?? true)
   /** What this workflow has already made, newest first - the same proof the
    * catalog card shows, in the place where you decide whether to run it
-   * again. */
-  let proofs = $state<GalleryFile[]>([])
-  /** This server's own measured run time for the workflow, if it has one. */
-  let observed = $state<Record<string, unknown> | null>(null)
-  /** The maintainer's figure for this workflow, from the same catalog card:
-   * "a maintainer's figure: ~3 min · 22 GB VRAM, measured on <card> at
-   * steps=30". Null when the card has no cost - never "unknown cost". */
-  let curated = $state<string | null>(null)
+   * again. A run writes to <outputs>/<identity>/<run id>/, and the gallery
+   * reports that identity as `folder`, so this workflow's name matches its
+   * outputs directly. */
+  const proofRead = resource(
+    async () => {
+      const wanted = name
+      const result = await api.gallery()
+      const files = result.files.filter(
+        (file: GalleryFile) => file.folder === wanted,
+      )
+      return { name: wanted, files: files.slice(0, 6) }
+    },
+    { watch: ['gallery'] },
+  )
+  const proofs = $derived(
+    proofRead.data?.name === name ? proofRead.data.files : [],
+  )
+  /** The catalog card: this server's own measured run time for the
+   * workflow, and the maintainer's figure - "a maintainer's figure: ~3 min
+   * · 22 GB VRAM, measured on <card> at steps=30". Null when the card has
+   * no cost - never "unknown cost". */
+  const catalog = resource(() => api.listWorkflows(), { watch: ['workflows'] })
+  const card = $derived(catalog.data?.details?.[name])
+  const observed = $derived(
+    (card?.observed as Record<string, unknown> | undefined) ?? null,
+  )
+  const curated = $derived.by(() => {
+    const measured = card?.cost?.[0]
+    if (!measured || !card) return null
+    const basis = costBasisWords(catalog.data?.cost_basis)
+    const figure = `${costFigure(measured)}, ${costMeasuredOn(card.cost, card.cost_drivers)}`
+    return basis ? `${basis}: ${figure}` : figure
+  })
 
   /** Values another page asked this one to open with (Repair this
    * segment, #1476): read once, and only when they name this workflow.
@@ -76,56 +114,12 @@
   }
 
   $effect(() => {
-    overrides = takePrefill()
-    workflow = null
-    origin = ''
-    writable = true
-    loadPromptLibrary()
-    api
-      .getWorkflow(name)
-      .then((fetched) => {
-        workflow = fetched.definition
-        origin = fetched.origin
-        writable = fetched.writable
-      })
-      .catch((e) => (error = e.message))
-    observed = null
-    curated = null
-    const wanted = name
-    api
-      .listWorkflows()
-      .then((r) => {
-        if (wanted !== name) return
-        const card = r.details?.[name]
-        observed = (card?.observed as Record<string, unknown>) ?? null
-        const measured = card?.cost?.[0]
-        if (measured) {
-          const basis = costBasisWords(r.cost_basis)
-          const figure = `${costFigure(measured)}, ${costMeasuredOn(card.cost, card.cost_drivers)}`
-          curated = basis ? `${basis}: ${figure}` : figure
-        }
-      })
-      .catch(() => {})
-  })
-
-  $effect(() => {
-    // A run writes to <outputs>/<identity>/<run id>/, and the gallery
-    // reports that identity as `folder`, so this workflow's name matches
-    // its outputs directly. Loaded separately from the definition so the
-    // page is usable before it answers.
-    const wanted = name
-    proofs = []
-    api
-      .gallery()
-      .then((result) => {
-        if (wanted !== name) return
-        proofs = result.files
-          .filter((file) => file.folder === wanted)
-          .slice(0, 6)
-      })
-      .catch(() => {
-        /* the page reads fine without them */
-      })
+    void name
+    untrack(() => {
+      overrides = takePrefill()
+      showJson = false
+      loadPromptLibrary()
+    })
   })
 
   const variables = $derived(Object.entries(workflow?.variables ?? {}))
@@ -193,14 +187,12 @@
       await api.deleteWorkflow(name)
       goWs('workflows')
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e)
-      notify.error(msg)
+      notify.failure(`delete ${name}`, e)
     }
   }
 
   async function run() {
     submitting = true
-    error = ''
     try {
       const job = await api.submitJob({
         // By name, not by composed path: the server resolves a name across
@@ -210,8 +202,7 @@
       })
       goWs('jobs', job.id)
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e)
-      notify.error(msg)
+      notify.failure(`run ${name}`, e)
     } finally {
       submitting = false
     }
@@ -285,117 +276,119 @@
   </div>
 {/if}
 
-{#if error}<p class="error">{error}</p>{/if}
+<LoadState of={read} label={name} what={name}>
+  {#if workflow}
+    <RunCheckPanel
+      verdict={runCheck.verdict}
+      checking={runCheck.checking}
+      {planLines}
+      checkError={runCheck.error}
+      findings={placed.general}
+    />
 
-{#if workflow}
-  <RunCheckPanel
-    verdict={runCheck.verdict}
-    checking={runCheck.checking}
-    {planLines}
-    checkError={runCheck.error}
-    findings={placed.general}
-  />
-
-  {#if workflow.description}
-    <div class="muted desc prose">
-      <ClampedText text={String(workflow.description)} />
-    </div>
-  {/if}
-
-  <!-- What it made last time, before you decide to make another -->
-  {#if proofs.length}
-    <div class="proofs">
-      {#each proofs as proof (proof.name)}
-        <a
-          class="plain frame proof"
-          href={wsHref(workspace.current, 'gallery')}
-          title="{proof.label} — open the gallery"
-        >
-          {#if proof.kind === 'image'}
-            <img
-              src={api.galleryThumbnailUrl(proof.name)}
-              alt={proof.label}
-              loading="lazy"
-            />
-          {:else}
-            <img
-              src={api.galleryThumbnailUrl(proof.name)}
-              alt={proof.label}
-              loading="lazy"
-            />
-            <span class="videobadge" aria-hidden="true">
-              <Play size={11} />
-            </span>
-          {/if}
-        </a>
-      {/each}
-    </div>
-  {/if}
-
-  {#if variables.length}
-    <div class="panel">
-      <!-- The heading names a thing the engine resolves, so it is mono; the
-           hint is written for a person, so it is not -->
-      <h2>Variables</h2>
-      <p class="hint muted">
-        Leave a field blank to use the workflow's own default. Type
-        <code>prompt:</code>, <code>asset:</code> or <code>output:</code> to pick
-        a stored prompt, an asset or an earlier run's file - or press ↓ in an empty
-        field to see them.
-      </p>
-      <VariablesForm
-        mode="override"
-        variables={workflow.variables ?? {}}
-        bind:overrides
-        idPrefix="var-"
-        backendVariables={attentionBackendVariables(workflow)}
-        requiredVariables={requiredVariables(workflow)}
-        constraints={constraintHints(workflow)}
-        presets={workflow.presets}
-        findings={placed.byVariable}
-      />
-    </div>
-  {:else}
-    <p class="muted">This workflow defines no variables.</p>
-  {/if}
-
-  <!-- The definition, the file and the destructive action all live below
-       the work, in that order of how often anyone wants them -->
-  <div class="foot">
-    <button
-      class="bare"
-      onclick={() => (showJson = !showJson)}
-      aria-expanded={showJson}
-      title={showJson
-        ? 'hide the workflow definition'
-        : 'show the workflow definition'}
-    >
-      {showJson ? 'hide' : 'show'} JSON
-    </button>
-    <DownloadLink href={api.workflowDownloadUrl(name)} />
-    <span class="flex"></span>
-    {#if writable}
-      <button
-        class="quiet icon danger"
-        onclick={remove}
-        title="delete this workflow file from disk"
-        aria-label="delete this workflow file from disk"
-      >
-        <Trash2 size={14} />
-      </button>
+    {#if workflow.description}
+      <div class="muted desc prose">
+        <ClampedText text={String(workflow.description)} />
+      </div>
     {/if}
-  </div>
 
-  {#if showJson}
-    <div class="json">
-      <JsonEditor
-        value={JSON.stringify(workflow, null, 2)}
-        readonly
-        height="520px"
-      />
+    <!-- What it made last time, before you decide to make another -->
+    <LoadState of={proofRead} label="what {name} made" quiet>
+      {#if proofs.length}
+        <div class="proofs">
+          {#each proofs as proof (proof.name)}
+            <a
+              class="plain frame proof"
+              href={wsHref(workspace.current, 'gallery')}
+              title="{proof.label} — open the gallery"
+            >
+              {#if proof.kind === 'image'}
+                <img
+                  src={api.galleryThumbnailUrl(proof.name)}
+                  alt={proof.label}
+                  loading="lazy"
+                />
+              {:else}
+                <img
+                  src={api.galleryThumbnailUrl(proof.name)}
+                  alt={proof.label}
+                  loading="lazy"
+                />
+                <span class="videobadge" aria-hidden="true">
+                  <Play size={11} />
+                </span>
+              {/if}
+            </a>
+          {/each}
+        </div>
+      {/if}
+    </LoadState>
+
+    {#if variables.length}
+      <div class="panel">
+        <!-- The heading names a thing the engine resolves, so it is mono; the
+           hint is written for a person, so it is not -->
+        <h2>Variables</h2>
+        <p class="hint muted">
+          Leave a field blank to use the workflow's own default. Type
+          <code>prompt:</code>, <code>asset:</code> or <code>output:</code> to pick
+          a stored prompt, an asset or an earlier run's file - or press ↓ in an empty
+          field to see them.
+        </p>
+        <VariablesForm
+          mode="override"
+          variables={workflow.variables ?? {}}
+          bind:overrides
+          idPrefix="var-"
+          backendVariables={attentionBackendVariables(workflow)}
+          requiredVariables={requiredVariables(workflow)}
+          constraints={constraintHints(workflow)}
+          presets={workflow.presets}
+          findings={placed.byVariable}
+        />
+      </div>
+    {:else}
+      <p class="muted">This workflow defines no variables.</p>
+    {/if}
+
+    <!-- The definition, the file and the destructive action all live below
+       the work, in that order of how often anyone wants them -->
+    <div class="foot">
+      <button
+        class="bare"
+        onclick={() => (showJson = !showJson)}
+        aria-expanded={showJson}
+        title={showJson
+          ? 'hide the workflow definition'
+          : 'show the workflow definition'}
+      >
+        {showJson ? 'hide' : 'show'} JSON
+      </button>
+      <DownloadLink href={api.workflowDownloadUrl(name)} />
+      <span class="flex"></span>
+      {#if writable}
+        <button
+          class="quiet icon danger"
+          onclick={remove}
+          title="delete this workflow file from disk"
+          aria-label="delete this workflow file from disk"
+        >
+          <Trash2 size={14} />
+        </button>
+      {/if}
     </div>
+
+    {#if showJson}
+      <div class="json">
+        <JsonEditor
+          value={JSON.stringify(workflow, null, 2)}
+          readonly
+          height="520px"
+        />
+      </div>
+    {/if}
   {/if}
-{/if}
+</LoadState>
 
 <style>
   .back {
@@ -468,9 +461,6 @@
   }
   .costs p {
     margin: var(--space-1) 0;
-  }
-  .error {
-    color: var(--bad);
   }
   .desc {
     margin: 0 0 var(--space-4);

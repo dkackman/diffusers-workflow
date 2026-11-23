@@ -7,6 +7,7 @@ import {
 import {
   applyRouteWorkspace,
   lastUsedWorkspace,
+  setRouteReplacer,
   workspace,
 } from './workspace.svelte'
 
@@ -70,7 +71,10 @@ function parse(): { parts: string[]; view: RouteView } {
   let parts = split()
   const redirect = legacyRedirect(parts, lastUsedWorkspace())
   if (redirect) {
-    location.replace('#/' + redirect.map(encodeURIComponent).join('/'))
+    // replaceState raises no second hashchange: the settle that called this
+    // (or the module's load) commits the redirected entry
+    const hash = '#/' + redirect.map(encodeURIComponent).join('/')
+    history.replaceState(history.state, '', hash)
     parts = redirect
   }
   const view = parseView(parts)!
@@ -88,6 +92,13 @@ type LeaveGuard = () => boolean | Promise<boolean>
 const guards = new Set<LeaveGuard>()
 let asking = false
 let undoing = false
+// Set by replaceRoute until its own hashchange arrives: that entry is the
+// committed one renamed, so it keeps the committed index. Only that arrival:
+// a push while the replace is asked about is still a push
+let replacing = false
+// The committed entry's state, as replaceRoute found it, kept until the
+// answer so a decline can rename the entry back
+let replacedState: unknown = null
 
 /** Every entry the app commits carries its position in `history.state`, so a
  * declined navigation can tell a pushed link from a Back or Forward
@@ -105,6 +116,24 @@ function stamp(at: number) {
 
 let committedIndex = indexOf() ?? 0
 stamp(committedIndex)
+/** The index of the entry the browser was last seen on. */
+let lastSeenIndex = committedIndex
+
+/** Stamp the entry a hashchange arrived on, guarded or not: a pushed entry
+ * is one past the last one seen, a replaced one keeps its index. So the
+ * walk back always knows how far, however many entries arrived while a
+ * guard was asking. */
+function arrive() {
+  const at = indexOf() ?? (replacing ? lastSeenIndex : lastSeenIndex + 1)
+  replacing = false
+  stamp(at)
+  lastSeenIndex = at
+}
+
+/** The browser is on the committed entry, under the committed URL. */
+function home(): boolean {
+  return indexOf() === committedIndex && location.hash === committed
+}
 
 /** Ask before the route leaves its current path (an editor with unsaved
  * edits). Return true to allow. Guards are asked in registration order and
@@ -126,46 +155,92 @@ async function allowed(): Promise<boolean> {
 
 /** Take the entry the browser is on as the route. */
 function settle() {
+  replacing = false
+  replacedState = null
   const at = indexOf() ?? committedIndex + 1
   const next = parse()
   committed = location.hash
   route.parts = next.parts
   route.view = next.view
   committedIndex = at
+  lastSeenIndex = at
   stamp(at)
 }
 
-/** Walk the history back to the committed entry. A pushed entry (no stamp)
- * is one step ahead; a traversal is the index difference, either way. The
- * entry left behind keeps its own URL, so Back and Forward still work. */
+/** Back on the committed entry: a replace that renamed it while a guard was
+ * asking is renamed back, so the URL matches the route. */
+function restore() {
+  if (location.hash !== committed)
+    history.replaceState(replacedState ?? history.state, '', committed)
+  replacing = false
+  replacedState = null
+  lastSeenIndex = committedIndex
+}
+
+/** Walk the history back to the committed entry: the index difference,
+ * whether the entries were pushed links or a traversal. The entries left
+ * behind keep their own URLs, so Back and Forward still work. A declined
+ * replace is no walk at all, only the committed URL put back. */
 function undo() {
   const at = indexOf()
   const delta = at === undefined ? -1 : committedIndex - at
-  if (!delta) return
+  if (!delta) {
+    restore()
+    return
+  }
   undoing = true
   history.go(delta)
 }
 
-window.addEventListener('hashchange', () => {
-  if (undoing) {
-    // the hashchange of our own history.go
-    undoing = false
-    return
-  }
-  if (asking) return
-  if (!guards.size || pathOf(location.hash) === pathOf(committed)) {
-    settle()
-    return
-  }
+/** Ask the guards; meanwhile every hashchange only records where the
+ * browser is. Allowed, the route settles on that entry, the user's latest
+ * choice; declined, the history walks back to the committed one. */
+function ask() {
   asking = true
   allowed()
     .catch(() => false)
     .then((ok) => {
       asking = false
-      if (ok) settle()
+      // allowed but back on the committed entry is no navigation: the
+      // route keeps its arrays, as a decline there would
+      if (ok && !home()) settle()
       else undo()
     })
+}
+
+// The landing of our own history.go. popstate, not hashchange: a walk
+// between two entries of the same hash raises no hashchange, and a flag
+// waiting for one would swallow the next navigation
+window.addEventListener('popstate', () => {
+  if (!undoing) return
+  undoing = false
+  restore()
 })
+
+window.addEventListener('hashchange', () => {
+  arrive()
+  // asking, it only records where the browser is; on the committed entry
+  // (our own walk back, already restored) there is nothing to do
+  if (asking || home()) return
+  if (!guards.size || pathOf(location.hash) === pathOf(committed)) settle()
+  else ask()
+})
+
+/** Replace the entry the app is on with `hash`, through the guards - a
+ * page correcting its own URL. Declined, the committed URL is put back in
+ * place with no history traversal; allowed, the route settles on the same
+ * entry, at the same index. */
+export function replaceRoute(hash: string) {
+  const before = location.hash
+  replacing = true
+  replacedState = history.state
+  location.replace(hash)
+  // the same hash raises no hashchange, so nothing will answer the flag
+  if (location.hash === before) {
+    replacing = false
+    replacedState = null
+  }
+}
 
 /** Rename the entry the app is on - an editor's first save gives its
  * document a path - with no history entry, no hashchange and no guard: the
@@ -188,3 +263,5 @@ export function go(...parts: string[]) {
 export function goWs(section: WsSection, ...rest: string[]) {
   go('ws', workspace.current, section, ...rest)
 }
+
+setRouteReplacer(replaceRoute)

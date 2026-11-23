@@ -10,7 +10,7 @@ import {
 import EditorPage from './EditorPage.svelte'
 import { api } from '../api'
 import { ApiError } from '../apiErrors'
-import { chooseDialog } from '../confirm.svelte'
+import { chooseDialog, confirmDialog } from '../confirm.svelte'
 import { changeOnBlur } from '../test/changeOnBlur'
 
 // EditorPage talks to the server on mount (pipeline/class/task catalogs,
@@ -260,6 +260,29 @@ describe('EditorPage new workflow origin', () => {
     ).toBe('ZImage')
   })
 
+  it('Start from asks before discarding a JSON draft that does not parse', async () => {
+    vi.mocked(api.listWorkflows).mockResolvedValue(withExample as never)
+    vi.mocked(confirmDialog).mockClear()
+    vi.mocked(confirmDialog).mockResolvedValueOnce(false)
+    render(EditorPage, { name: '' })
+    await waitFor(() => expect(startFrom().options.length).toBe(2))
+    await fireEvent.click(screen.getByTitle('edit the raw JSON, schema-aware'))
+    await fireEvent.input(await screen.findByTestId('json-input'), {
+      target: { value: '{ not json' },
+    })
+    vi.mocked(api.getWorkflow).mockClear()
+
+    await fireEvent.change(startFrom(), { target: { value: 'templates/tti' } })
+
+    await waitFor(() => expect(confirmDialog).toHaveBeenCalledTimes(1))
+    expect(vi.mocked(confirmDialog).mock.calls[0][1]).toMatchObject({
+      danger: true,
+    })
+    // Cancel keeps the draft: nothing was fetched or replaced
+    expect(api.getWorkflow).not.toHaveBeenCalled()
+    expect(startFrom().value).toBe('')
+  })
+
   it('takes up what a New from handed over', async () => {
     vi.mocked(api.listWorkflows).mockResolvedValue(withExample as never)
     sessionStorage.setItem(
@@ -326,7 +349,7 @@ describe('EditorPage saving', () => {
     render(EditorPage, { name: 'models/z-image' })
     await screen.findByRole('button', { name: 'Retry' })
     expect(
-      screen.getByText("Couldn't open models/z-image: server exploded"),
+      screen.getByText("Couldn't open models/z-image: The server hit an error"),
     ).toBeTruthy()
     // a 500 is not a missing file: there is nothing to start in its place
     expect(
@@ -353,7 +376,9 @@ describe('EditorPage saving', () => {
     vi.mocked(api.getWorkflow).mockRejectedValueOnce(notFound())
     render(EditorPage, { name: 'models/missing' })
     expect(
-      await screen.findByText("Couldn't open models/missing: not found"),
+      await screen.findByText(
+        "Couldn't open models/missing: That wasn't found",
+      ),
     ).toBeTruthy()
     await fireEvent.click(
       screen.getByRole('button', {
@@ -488,7 +513,7 @@ describe('EditorPage saving', () => {
       new ApiError('server exploded', 500),
     )
     await rerender({ name: 'b' })
-    await screen.findByText("Couldn't open b: server exploded")
+    await screen.findByText("Couldn't open b: The server hit an error")
     await rerender({ name: 'a' })
     await waitFor(() => expect(saveButton().disabled).toBe(false))
     expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull()

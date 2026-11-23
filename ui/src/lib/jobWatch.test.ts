@@ -66,6 +66,20 @@ describe('nextWatch', () => {
   })
 })
 
+describe('adopted jobs', () => {
+  it('an adopted job that finished before the next poll ends once', () => {
+    const adopted = new Set(['x'])
+    const next = nextWatch(['a'], health(['a']), adopted)
+    expect(next.ended).toEqual(['x'])
+    expect(nextWatch(null, health([]), adopted).ended).toEqual(['x'])
+    expect(nextWatch(['x'], health([]), adopted).ended).toEqual(['x'])
+  })
+  it('an adopted job is held while anything is queued', () => {
+    const queued = { ...health([]), queued: 1 } as HealthInfo
+    expect(nextWatch(null, queued, new Set(['x'])).ended).toEqual([])
+  })
+})
+
 describe('percentDone', () => {
   it('counts finished steps plus the denoise fraction of the current one', () => {
     expect(

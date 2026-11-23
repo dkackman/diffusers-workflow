@@ -13,16 +13,16 @@
   import { api } from '../api'
   import { changes } from '../changes.svelte'
   import { attention, doneFigure } from '../request/attention'
-  import Empty from '../Empty.svelte'
+  import { untrack } from 'svelte'
+  import { resource } from '../resource.svelte'
+  import LoadState from '../ui/LoadState.svelte'
   import NoteEditor from '../ui/NoteEditor.svelte'
   import Skeleton from '../ui/Skeleton.svelte'
   import { WORKSPACE } from '../references'
   import { formatBytes } from '../format'
   import { hiddenWorkspaces, setHidden } from '../hiddenWorkspaces.svelte'
-  import { latestOnly } from '../latest'
   import { latestProofs } from '../proofs'
   import { wsHref } from '../routes'
-  import type { GalleryFile, JobSummary, LedgerSummary } from '../types'
   import {
     DEFAULT_WORKSPACE,
     invalidateWorkspaces,
@@ -31,183 +31,83 @@
   } from '../workspace.svelte'
   import { deleteWorkspaceWithConfirm } from '../workspaceActions'
 
-  // Each panel loads on its own: the page is a glance at the workspace, and
-  // a slow gallery must not hold the jobs list back
-  let recent = $state<GalleryFile[] | null>(null)
-  // The running job and the last finished ones are two requests, not one
-  // cut of the queue: queued jobs are newer than the running one, so a deep
-  // queue would push it out of a single newest-N answer and fill the panel
-  // with jobs that have done nothing yet
-  let running = $state<JobSummary | null>(null)
-  let recentJobs = $state<JobSummary[] | null>(null)
-  let workflows = $state<string[] | null>(null)
-  let proofs = $state<Record<string, GalleryFile>>({})
-  let assetCount = $state<number | null>(null)
-  // Open requests only, and nothing at all when there are none or the call
-  // fails: the panel is a pointer, not a place for an error
-  let openRequests = $state<LedgerSummary[]>([])
-  // A failed fetch is not the same thing as a workspace that genuinely has
-  // nothing - each panel gets its own error, shown in place of its content,
-  // so a 500 reads as a 500 rather than as an empty workspace
-  let recentError = $state<string | null>(null)
-  let jobsError = $state<string | null>(null)
-  let workflowsError = $state<string | null>(null)
-  let assetsError = $state<string | null>(null)
-
   const name = $derived(workspace.current)
   const RECENT = 8
   const WORKFLOWS = 6
   const JOBS = 5
 
-  const errorMessage = (e: unknown) =>
-    e instanceof Error ? e.message : String(e)
-
-  // Every panel loads through its own function, with its own stale-answer
-  // guard. A quiet load is the change feed's: the panel stays on screen while
-  // it asks, and a failed one keeps what it had and shows no error.
-  const beginAssets = latestOnly()
-  function loadAssetCount({ quiet = false } = {}) {
-    const current = beginAssets()
-    if (!quiet) {
-      assetCount = null
-      assetsError = null
-    }
-    api
-      .listAssets()
-      .then((r) => {
-        if (!current()) return
-        assetCount = r.assets.filter((a) => a.origin === 'workspace').length
-        assetsError = null
-      })
-      .catch((e) => {
-        if (!current() || (quiet && assetCount !== null)) return
-        assetCount = 0
-        assetsError = errorMessage(e)
-      })
-  }
-
-  const beginRequests = latestOnly()
-  function loadOpenRequests(ws: string, { quiet = false } = {}) {
-    const current = beginRequests()
-    if (!quiet) openRequests = []
-    api
-      .listRequests(ws)
-      .then((r) => {
-        if (current())
-          openRequests = r.requests.filter((q) => q.state === 'open')
-      })
-      .catch(() => {
-        if (current() && !quiet) openRequests = []
-      })
-  }
-
-  const beginGallery = latestOnly()
-  function loadGallery({ quiet = false } = {}) {
-    const current = beginGallery()
-    if (!quiet) {
-      recent = null
-      recentError = null
-    }
-    api
-      .gallery()
-      .then((r) => {
-        if (!current()) return
-        recent = r.files.slice(0, RECENT)
-        proofs = latestProofs(r.files)
-        recentError = null
-      })
-      .catch((e) => {
-        if (!current() || (quiet && recent !== null)) return
-        recent = []
-        recentError = errorMessage(e)
-      })
-  }
-
-  const beginJobs = latestOnly()
-  function loadJobs(ws: string, { quiet = false } = {}) {
-    const current = beginJobs()
-    if (!quiet) {
-      running = null
-      recentJobs = null
-      jobsError = null
-    }
-    Promise.all([
-      api.listJobs(ws, 1, 'running'),
-      api.listJobs(ws, JOBS, 'succeeded,failed,cancelled'),
-    ])
-      .then(([live, finished]) => {
-        if (!current()) return
-        running = live.jobs[0] ?? null
-        recentJobs = finished.jobs.reverse()
-        jobsError = null
-      })
-      .catch((e) => {
-        if (!current() || (quiet && recentJobs !== null)) return
-        running = null
-        recentJobs = []
-        jobsError = errorMessage(e)
-      })
-  }
-
-  const beginWorkflows = latestOnly()
-  function loadWorkflows({ quiet = false } = {}) {
-    const current = beginWorkflows()
-    if (!quiet) {
-      workflows = null
-      workflowsError = null
-    }
-    api
-      .listWorkflows()
-      // The workspace's own, as the Workflows page lists them - the
-      // read-only examples have their own page
-      .then((r) => {
-        if (!current()) return
-        workflows = r.workflows.filter(
-          (wf) => r.details?.[wf]?.writable !== false,
-        )
-        workflowsError = null
-      })
-      .catch((e) => {
-        if (!current() || (quiet && workflows !== null)) return
-        workflows = []
-        workflowsError = errorMessage(e)
-      })
-  }
+  // Each panel is its own resource and its own LoadState: the page is a
+  // glance at the workspace, a slow gallery must not hold the jobs list
+  // back, and one failing panel says so in place without blanking the rest.
+  // Each reloads quietly when its own kind moves
+  const gallery = resource(
+    async () => {
+      const { files } = await api.gallery()
+      return { recent: files.slice(0, RECENT), proofs: latestProofs(files) }
+    },
+    { watch: ['gallery'] },
+  )
+  // The running job and the last finished ones are two requests, not one
+  // cut of the queue: queued jobs are newer than the running one, so a deep
+  // queue would push it out of a single newest-N answer and fill the panel
+  // with jobs that have done nothing yet
+  const jobs = resource(
+    async () => {
+      const ws = workspace.current
+      const [live, finished] = await Promise.all([
+        api.listJobs(ws, 1, 'running'),
+        api.listJobs(ws, JOBS, 'succeeded,failed,cancelled'),
+      ])
+      return {
+        running: live.jobs[0] ?? null,
+        finished: finished.jobs.reverse(),
+      }
+    },
+    { watch: ['jobs'] },
+  )
+  // The workspace's own, as the Workflows page lists them - the read-only
+  // examples have their own page
+  const workflows = resource(
+    async () => {
+      const r = await api.listWorkflows()
+      return r.workflows.filter((wf) => r.details?.[wf]?.writable !== false)
+    },
+    { watch: ['workflows'] },
+  )
+  const assets = resource(
+    async () =>
+      (await api.listAssets()).assets.filter((a) => a.origin === 'workspace')
+        .length,
+    { watch: ['assets'] },
+  )
+  // Open requests only, and nothing at all when there are none or the call
+  // fails: that panel is a pointer, not a place for an error
+  const requests = resource(() => api.listRequests(workspace.current), {
+    watch: ['requests'],
+  })
+  const openRequests = $derived(
+    (requests.data?.requests ?? []).filter((q) => q.state === 'open'),
+  )
 
   $effect(() => {
-    const ws = workspace.current
-    loadWorkspaces()
-    loadGallery()
-    loadJobs(ws)
-    loadWorkflows()
-    loadOpenRequests(ws)
-    loadAssetCount()
+    void workspace.current
+    untrack(() => void loadWorkspaces())
   })
-
-  // Each panel reloads quietly when its own kind moves. The note box is fed
-  // by `workspace.notes` alone, which only the workspaces watch touches, and
-  // NoteEditor keeps an open draft when a newer note arrives.
-  $effect(() => {
-    const ws = workspace.current
-    const quiet = { quiet: true }
-    const stops = [
-      changes(ws).watch(['gallery'], () => loadGallery(quiet)),
-      changes(ws).watch(['jobs'], () => loadJobs(ws, quiet)),
-      changes(ws).watch(['workflows'], () => loadWorkflows(quiet)),
-      changes(ws).watch(['requests'], () => loadOpenRequests(ws, quiet)),
-      changes(ws).watch(['assets'], () => loadAssetCount(quiet)),
-      changes(ws).watch(['workspaces'], () => {
-        invalidateWorkspaces()
-        void loadWorkspaces()
-      }),
-    ]
-    return () => stops.forEach((stop) => stop())
-  })
+  // The note box is fed by `workspace.notes` alone, which only the
+  // workspaces watch touches, and NoteEditor keeps an open draft when a
+  // newer note arrives
+  $effect(() =>
+    changes(workspace.current).watch(['workspaces'], () => {
+      invalidateWorkspaces()
+      void loadWorkspaces()
+    }),
+  )
 
   // The ones that have produced something first - the same order the catalog
   // uses, so the overview and the catalog agree on what is "recent"
+  const proofs = $derived(gallery.data?.proofs ?? {})
   const featured = $derived(
-    [...(workflows ?? [])]
+    [...(workflows.data ?? [])]
       .sort(
         (l, r) =>
           (proofs[l] ? 0 : 1) - (proofs[r] ? 0 : 1) || l.localeCompare(r),
@@ -245,40 +145,41 @@
       <Images size={15} /> Recent outputs
     </a>
   </h2>
-  {#if recentError}
-    <p class="muted">Could not load recent outputs: {recentError}</p>
-  {:else if recent === null}
-    <Skeleton tiles={RECENT} label="loading recent outputs" />
-  {:else if recent.length === 0}
-    <Empty>
-      {#snippet icon()}<Images size={36} strokeWidth={1.5} />{/snippet}Nothing
-      generated yet — run a workflow.
-    </Empty>
-  {:else}
-    <div class="strip">
-      {#each recent as file (file.name)}
-        <a
-          class="plain frame tile"
-          href={wsHref(name, 'gallery')}
-          title={file.label}
-        >
-          {#if file.kind === 'image'}<img
-              src={api.galleryThumbnailUrl(file.name)}
-              alt={file.label}
-              loading="lazy"
-            />
-          {:else if file.kind === 'video'}<img
-              src={api.galleryThumbnailUrl(file.name)}
-              alt={file.label}
-              loading="lazy"
-            /><span class="videobadge" aria-hidden="true">
-              <Play size={11} />
-            </span>
-          {:else}<span class="muted">{file.label}</span>{/if}
-        </a>
-      {/each}
-    </div>
-  {/if}
+  <LoadState
+    of={gallery}
+    label="recent outputs"
+    empty={gallery.data?.recent.length === 0}
+  >
+    {#snippet skeleton()}<Skeleton
+        tiles={RECENT}
+        label="loading recent outputs"
+      />{/snippet}
+    {#snippet emptyIcon()}<Images size={36} strokeWidth={1.5} />{/snippet}
+    {#snippet emptyText()}Nothing generated yet — run a workflow.{/snippet}
+    {#snippet children({ recent })}
+      <div class="strip">
+        {#each recent as file (file.name)}
+          <a
+            class="plain frame tile"
+            href={wsHref(name, 'gallery')}
+            title={file.label}
+          >
+            {#if file.kind === 'image' || file.kind === 'video'}<img
+                src={api.galleryThumbnailUrl(file.name)}
+                alt={file.label}
+                loading="lazy"
+              />{#if file.kind === 'video'}<span
+                  class="videobadge"
+                  aria-hidden="true"
+                >
+                  <Play size={11} />
+                </span>{/if}
+            {:else}<span class="muted">{file.label}</span>{/if}
+          </a>
+        {/each}
+      </div>
+    {/snippet}
+  </LoadState>
 </section>
 
 {#if openRequests.length}
@@ -309,35 +210,36 @@
 <div class="two">
   <section class="panel">
     <h2><a class="plain" href={wsHref(name, 'jobs')}>Jobs</a></h2>
-    {#if jobsError}
-      <p class="muted">Could not load jobs: {jobsError}</p>
-    {:else if recentJobs === null}
-      <Skeleton lines={JOBS} label="loading jobs" />
-    {:else if recentJobs.length === 0 && !running}
-      <Empty>
-        {#snippet icon()}<Inbox size={36} strokeWidth={1.5} />{/snippet}No jobs
-        yet.
-      </Empty>
-    {:else}
-      <ul class="jobs">
-        {#if running}
-          <li class="runningnow">
-            <span class="chip running">running</span>
-            <span class="wf">{running.workflow}</span>
-            <a class="plain" href={wsHref(name, 'jobs', running.id)}>
-              {running.id}
-            </a>
-          </li>
-        {/if}
-        {#each recentJobs as job (job.id)}
-          <li>
-            <span class="chip {job.status}">{job.status}</span>
-            <span class="wf">{job.workflow}</span>
-            <a class="plain" href={wsHref(name, 'jobs', job.id)}>{job.id}</a>
-          </li>
-        {/each}
-      </ul>
-    {/if}
+    <LoadState
+      of={jobs}
+      label="jobs"
+      empty={!!jobs.data &&
+        jobs.data.finished.length === 0 &&
+        !jobs.data.running}
+    >
+      {#snippet emptyIcon()}<Inbox size={36} strokeWidth={1.5} />{/snippet}
+      {#snippet emptyText()}No jobs yet.{/snippet}
+      {#snippet children({ running, finished })}
+        <ul class="jobs">
+          {#if running}
+            <li class="runningnow">
+              <span class="chip running">running</span>
+              <span class="wf">{running.workflow}</span>
+              <a class="plain" href={wsHref(name, 'jobs', running.id)}>
+                {running.id}
+              </a>
+            </li>
+          {/if}
+          {#each finished as job (job.id)}
+            <li>
+              <span class="chip {job.status}">{job.status}</span>
+              <span class="wf">{job.workflow}</span>
+              <a class="plain" href={wsHref(name, 'jobs', job.id)}>{job.id}</a>
+            </li>
+          {/each}
+        </ul>
+      {/snippet}
+    </LoadState>
   </section>
 
   <section class="panel">
@@ -345,7 +247,9 @@
       <a class="plain" href={wsHref(name, 'workflows')}>
         <Layers size={15} /> Workflows
       </a>
-      {#if workflows}<span class="num muted">{workflows.length}</span>{/if}
+      {#if workflows.data}<span class="num muted">
+          {workflows.data.length}
+        </span>{/if}
       <span class="flex"></span>
       <a
         class="quiet icon plain"
@@ -356,16 +260,14 @@
         <Plus size={15} />
       </a>
     </h2>
-    {#if workflowsError}
-      <p class="muted">Could not load workflows: {workflowsError}</p>
-    {:else if workflows === null}
-      <Skeleton lines={3} label="loading workflows" />
-    {:else if workflows.length === 0}
-      <Empty>
-        {#snippet icon()}<Layers size={36} strokeWidth={1.5} />{/snippet}No
-        workflows yet — create one in the editor, or run an example.
-      </Empty>
-    {:else}
+    <LoadState
+      of={workflows}
+      label="workflows"
+      empty={workflows.data?.length === 0}
+    >
+      {#snippet emptyIcon()}<Layers size={36} strokeWidth={1.5} />{/snippet}
+      {#snippet emptyText()}No workflows yet — create one in the editor, or run
+        an example.{/snippet}
       <div class="cards">
         {#each featured as wf (wf)}
           <a
@@ -374,16 +276,15 @@
           >
             {#if proofs[wf]}
               <span class="cardframe">
-                {#if proofs[wf].kind === 'image'}<img
-                    src={api.galleryThumbnailUrl(proofs[wf].name)}
-                    alt=""
-                    loading="lazy"
-                  />
-                {:else}<img
-                    src={api.galleryThumbnailUrl(proofs[wf].name)}
-                    alt=""
-                    loading="lazy"
-                  /><span class="videobadge" aria-hidden="true">
+                <img
+                  src={api.galleryThumbnailUrl(proofs[wf].name)}
+                  alt=""
+                  loading="lazy"
+                />
+                {#if proofs[wf].kind !== 'image'}<span
+                    class="videobadge"
+                    aria-hidden="true"
+                  >
                     <Play size={11} />
                   </span>{/if}
               </span>
@@ -392,29 +293,27 @@
           </a>
         {/each}
       </div>
-    {/if}
+    </LoadState>
   </section>
 </div>
 
 <div class="two">
   <section class="panel">
     <h2><a class="plain" href={wsHref(name, 'assets')}>Assets and disk</a></h2>
-    {#if assetsError}
-      <p class="muted">Could not load assets: {assetsError}</p>
-    {:else}
-      <dl>
-        <dt>assets</dt>
-        <dd>
-          {#if assetCount === null}…{:else}{`${assetCount} ${assetCount === 1 ? 'asset' : 'assets'}`}{/if}
-        </dd>
-        {#if usage}
-          <dt>on disk</dt>
-          <dd class="num" title="{usage.files} files">
-            {formatBytes(usage.bytes)}
-          </dd>
-        {/if}
-      </dl>
-    {/if}
+    <LoadState of={assets} label="the asset count">
+      {#snippet children(count)}
+        <dl>
+          <dt>assets</dt>
+          <dd>{`${count} ${count === 1 ? 'asset' : 'assets'}`}</dd>
+          {#if usage}
+            <dt>on disk</dt>
+            <dd class="num" title="{usage.files} files">
+              {formatBytes(usage.bytes)}
+            </dd>
+          {/if}
+        </dl>
+      {/snippet}
+    </LoadState>
   </section>
   <section class="panel">
     <h2>Manage</h2>

@@ -1,7 +1,10 @@
 <script lang="ts">
   import { Braces, TriangleAlert } from '@lucide/svelte'
-  import { TERMINAL_STATUSES, api, streamJobEvents } from '../api'
-  import { route } from '../router.svelte'
+  import { TERMINAL_STATUSES, api } from '../api'
+  import { resource } from '../resource.svelte'
+  import { followJob, jobRecord } from '../job/followJob.svelte'
+  import LoadState from '../ui/LoadState.svelte'
+  import { replaceRoute, route } from '../router.svelte'
   import { wsHref } from '../routes'
   import { groupResultFiles, unsavedSteps } from '../results'
   import {
@@ -30,85 +33,70 @@
   import ChainSegments from '../job/ChainSegments.svelte'
   import LinkedNotes from '../request/LinkedNotes.svelte'
   import { LinkedRequest } from '../request/linkedRequest.svelte'
-  import type { JobDetail, JobEvent, LedgerNote } from '../types'
+  import type { JobEvent, LedgerNote } from '../types'
 
   let { jobId }: { jobId: string } = $props()
 
-  let job = $state<JobDetail | null>(null)
-  // The definition this job ran, for the read-only flow view. Null while it
-  // loads and when the job named a file that is no longer readable - the
-  // graph is a nicety, so it simply stays absent rather than erroring.
-  let definition = $state<Record<string, any> | null>(null)
-  // The variable a new-seed rerun would draw into, per the server. Null for
-  // a workflow that pins its seed to a literal or names none at all -
-  // neither can be handed a different one, so the button stays away.
-  let seedVariable = $state<string | null>(null)
-  // Whether `definition` is the realized copy the run itself wrote (every
-  // mutable input pinned) or the definition as submitted - the run predates
-  // run tracking, or its run directory is gone. Named beside the JSON view.
-  let realized = $state(false)
+  // The record, kept fresh by the feed and read again when its stream
+  // drops (job/followJob.svelte.ts)
+  const record = jobRecord(() => jobId)
+  const job = $derived(record.data ?? null)
+  // The definition this job ran, for the read-only flow view: absent while
+  // it loads and when the job named a file that is no longer readable - the
+  // graph is a nicety, so it simply stays away rather than erroring. Its
+  // `seed_variable` is what a new-seed rerun would draw into (null for a
+  // seed pinned to a literal, or none), and `realized` says whether it is
+  // the copy the run itself wrote, every mutable input pinned, or the
+  // definition as submitted - named beside the JSON view.
+  const ranRead = resource(
+    async () => {
+      const id = jobId
+      return { ...(await api.getJobWorkflow(id)), of: id }
+    },
+    { watch: [] },
+  )
+  const ran = $derived(ranRead.data?.of === jobId ? ranRead.data : null)
+  const definition = $derived<Record<string, any> | null>(
+    ran?.definition ?? null,
+  )
+  const seedVariable = $derived(ran?.seed_variable ?? null)
+  const realized = $derived(ran?.realized ?? false)
   // The JSON view of that definition - off until asked, since the flow graph
   // already answers "what did this run do" for most readers
   let showJson = $state(false)
   let events = $state<JobEvent[]>([])
-  let error = $state('')
   // arrival clocks for pipeline_step events, for the ETA estimate
   let stepTimes = $state<number[]>([])
 
+  followJob(
+    () => jobId,
+    record,
+    (event) => {
+      events.push(event)
+      stepTimes = nextStepTimes(stepTimes, event, performance.now())
+      if (
+        event.event === 'job_status' ||
+        event.event === 'queue_wait' ||
+        (event.event === 'warning' && event.kind !== 'phase_stall')
+      )
+        void record.reload()
+    },
+    () => {
+      events = []
+      stepTimes = []
+      showJson = false
+    },
+  )
+
+  // A legacy '#/jobs/<id>' lands under the last-used workspace as a first
+  // guess; the job knows its own, so the URL is corrected once it answers
   $effect(() => {
-    job = null
-    events = []
-    definition = null
-    seedVariable = null
-    realized = false
-    showJson = false
-    error = ''
-    // stopped guards the async gap: navigating away mid-fetch must not let
-    // a late-resolving getJob open a stream nothing will ever stop
-    let stopped = false
-    let stop: (() => void) | null = null
-    api
-      .getJobWorkflow(jobId)
-      .then((result) => {
-        if (stopped) return
-        definition = result.definition
-        seedVariable = result.seed_variable
-        realized = result.realized
-      })
-      .catch(() => {
-        /* no definition on file - the graph just does not appear */
-      })
-    api
-      .getJob(jobId)
-      .then((detail) => {
-        if (stopped) return
-        job = detail
-        // A legacy '#/jobs/<id>' lands under the last-used workspace as a first
-        // guess; the job knows its own, so the URL is corrected once it answers
-        if (route.view.kind === 'ws' && route.view.workspace !== job.workspace)
-          location.replace(wsHref(job.workspace, 'jobs', jobId))
-        if (detail.historical) return // no event log to stream
-        stop = streamJobEvents(
-          jobId,
-          -1,
-          (event) => {
-            events.push(event)
-            stepTimes = nextStepTimes(stepTimes, event, performance.now())
-            if (
-              event.event === 'job_status' ||
-              event.event === 'queue_wait' ||
-              (event.event === 'warning' && event.kind !== 'phase_stall')
-            )
-              refresh()
-          },
-          () => refresh(),
-        )
-      })
-      .catch((e) => (error = e.message))
-    return () => {
-      stopped = true
-      stop?.()
-    }
+    if (
+      job &&
+      route.view.kind === 'ws' &&
+      route.view.workspace !== job.workspace
+    )
+      replaceRoute(wsHref(job.workspace, 'jobs', jobId))
   })
 
   // The request item this job is a take of: one read of the request serves
@@ -131,14 +119,6 @@
   function noteFile(file: string) {
     if (linkItem)
       void agentNotes?.noteAbout([{ item: linkItem, job: jobId, output: file }])
-  }
-
-  async function refresh() {
-    try {
-      job = await api.getJob(jobId)
-    } catch {
-      /* transient */
-    }
   }
 
   const steps = $derived(
@@ -296,132 +276,132 @@
   />
 {/if}
 
-{#if error}<p class="error">{error}</p>{/if}
-
-{#if job}
-  {#if job.warnings.length}
-    <div class="panel warnings warn-edge">
-      {#each job.warnings as warning, i (i)}
-        <div class="warnrow"><TriangleAlert size={14} /> {warning}</div>
-      {/each}
-    </div>
-  {/if}
-
-  {#if steps.length}
-    <div class="panel">
-      <h2>Progress</h2>
-      <JobProgress
-        {steps}
-        {finishedSteps}
-        {listStep}
-        {running}
-        {progress}
-        {etaSeconds}
-        {stall}
-      />
-    </div>
-  {/if}
-
-  {#if job.run_dir}
-    <NoteEditor
-      note={job.note}
-      target={job.run_dir}
-      workspace={job.workspace}
-      label="Run note"
-    />
-  {/if}
-
-  {#if definition}
-    <section class="flowsection">
-      <div class="flowhead">
-        <h2>Workflow</h2>
-        <span
-          class="muted jsonmark"
-          title={realized
-            ? 'this is the realized copy the run itself wrote - every mutable input pinned to the value it used'
-            : 'this is the definition as submitted - no realized copy of this run is on file'}
-        >
-          {realized ? 'realized' : 'as submitted'}
-        </span>
+<LoadState of={record} label="job {jobId}" what="job {jobId}">
+  {#if job}
+    {#if job.warnings.length}
+      <div class="panel warnings warn-edge">
+        {#each job.warnings as warning, i (i)}
+          <div class="warnrow"><TriangleAlert size={14} /> {warning}</div>
+        {/each}
       </div>
-      <FlowView
-        workflow={definition}
-        activeStep={running ? activeNode : undefined}
-        doneSteps={finishedSteps}
-        failedStep={failedNode}
-        activeMember={activeMemberStep}
-        failedMember={failedMemberStep}
-        onselect={openResult}
-        selectable={hasResult}
-        selectHint="click a step to see its results"
-        doneMembers={finishedMemberSteps}
-        activeSegments={segments}
-        {nodeTimes}
-        {memberTimes}
-      />
-      <!-- The JSON toggle sits where the JSON opens, beneath the graph -->
-      <div class="jsontoggle">
-        <button
-          class="quiet icon"
-          onclick={() => (showJson = !showJson)}
-          aria-expanded={showJson}
-          aria-label={showJson ? 'hide JSON' : 'show JSON'}
-          title={showJson
-            ? 'hide the workflow this job ran'
-            : 'show the workflow this job ran, as JSON'}
-        >
-          <Braces size={14} />
-        </button>
-      </div>
-      {#if showJson}
-        <div class="json">
-          <JsonEditor
-            value={JSON.stringify(definition, null, 2)}
-            readonly
-            height="520px"
-          />
-        </div>
-      {/if}
-    </section>
-  {/if}
+    {/if}
 
-  {#if fileGroups.length || unsaved.length}
-    <div class="panel">
-      <h2>Results</h2>
-      {#key job.id}
-        <JobResults
-          {job}
-          {fileGroups}
-          {unsaved}
-          {kinds}
-          {seedVariable}
-          onnote={linked?.request && linkItem && !running
-            ? noteFile
-            : undefined}
+    {#if steps.length}
+      <div class="panel">
+        <h2>Progress</h2>
+        <JobProgress
+          {steps}
+          {finishedSteps}
+          {listStep}
+          {running}
+          {progress}
+          {etaSeconds}
+          {stall}
         />
-      {/key}
-    </div>
+      </div>
+    {/if}
+
+    {#if job.run_dir}
+      <NoteEditor
+        note={job.note}
+        target={job.run_dir}
+        workspace={job.workspace}
+        label="Run note"
+      />
+    {/if}
+
+    {#if definition}
+      <section class="flowsection">
+        <div class="flowhead">
+          <h2>Workflow</h2>
+          <span
+            class="muted jsonmark"
+            title={realized
+              ? 'this is the realized copy the run itself wrote - every mutable input pinned to the value it used'
+              : 'this is the definition as submitted - no realized copy of this run is on file'}
+          >
+            {realized ? 'realized' : 'as submitted'}
+          </span>
+        </div>
+        <FlowView
+          workflow={definition}
+          activeStep={running ? activeNode : undefined}
+          doneSteps={finishedSteps}
+          failedStep={failedNode}
+          activeMember={activeMemberStep}
+          failedMember={failedMemberStep}
+          onselect={openResult}
+          selectable={hasResult}
+          selectHint="click a step to see its results"
+          doneMembers={finishedMemberSteps}
+          activeSegments={segments}
+          {nodeTimes}
+          {memberTimes}
+        />
+        <!-- The JSON toggle sits where the JSON opens, beneath the graph -->
+        <div class="jsontoggle">
+          <button
+            class="quiet icon"
+            onclick={() => (showJson = !showJson)}
+            aria-expanded={showJson}
+            aria-label={showJson ? 'hide JSON' : 'show JSON'}
+            title={showJson
+              ? 'hide the workflow this job ran'
+              : 'show the workflow this job ran, as JSON'}
+          >
+            <Braces size={14} />
+          </button>
+        </div>
+        {#if showJson}
+          <div class="json">
+            <JsonEditor
+              value={JSON.stringify(definition, null, 2)}
+              readonly
+              height="520px"
+            />
+          </div>
+        {/if}
+      </section>
+    {/if}
+
+    {#if fileGroups.length || unsaved.length}
+      <div class="panel">
+        <h2>Results</h2>
+        {#key job.id}
+          <JobResults
+            {job}
+            {fileGroups}
+            {unsaved}
+            {kinds}
+            {seedVariable}
+            onnote={linked?.request && linkItem && !running
+              ? noteFile
+              : undefined}
+          />
+        {/key}
+      </div>
+    {/if}
+
+    <ChainSegments {job} {definition} />
+
+    {#if job.error}
+      <div class="panel error-edge">
+        <h2 class="error">Error</h2>
+        <p>{job.error}</p>
+        {#if job.traceback}<pre>{job.traceback}</pre>{/if}
+      </div>
+    {/if}
+
+    {#if logs.length}
+      <div class="panel">
+        <h2>Log</h2>
+        <pre>{logs.join('\n')}</pre>
+      </div>
+    {/if}
+
+    <EventLog {jobId} live={running} />
   {/if}
-
-  <ChainSegments {job} {definition} />
-
-  {#if job.error}
-    <div class="panel error-edge">
-      <h2 class="error">Error</h2>
-      <p>{job.error}</p>
-      {#if job.traceback}<pre>{job.traceback}</pre>{/if}
-    </div>
-  {/if}
-
-  {#if logs.length}
-    <div class="panel">
-      <h2>Log</h2>
-      <pre>{logs.join('\n')}</pre>
-    </div>
-  {/if}
-
-  <EventLog {jobId} live={running} />
-{/if}
+</LoadState>
 
 <style>
   .panel {

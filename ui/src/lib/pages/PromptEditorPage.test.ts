@@ -212,7 +212,9 @@ it('a failed load shows Retry, disables Save and never saves', async () => {
   )
   render(PromptEditorPage, { name: 'portraits/hero' })
   expect(
-    await screen.findByText("Couldn't open portraits/hero: server exploded"),
+    await screen.findByText(
+      "Couldn't open portraits/hero: The server hit an error",
+    ),
   ).toBeTruthy()
   expect(saveButton().disabled).toBe(true)
   await fireEvent.keyDown(window, { key: 's', ctrlKey: true })
@@ -230,7 +232,9 @@ it('a 404 offers to start a new prompt with that name', async () => {
   )
   render(PromptEditorPage, { name: 'portraits/missing' })
   expect(
-    await screen.findByText("Couldn't open portraits/missing: not found"),
+    await screen.findByText(
+      "Couldn't open portraits/missing: That wasn't found",
+    ),
   ).toBeTruthy()
   await fireEvent.click(
     screen.getByRole('button', {
@@ -285,7 +289,9 @@ it('going back to a prompt after another failed to open shows the prompt', async
     new ApiError('server exploded', 500),
   )
   await rerender({ name: 'portraits/other' })
-  await screen.findByText("Couldn't open portraits/other: server exploded")
+  await screen.findByText(
+    "Couldn't open portraits/other: The server hit an error",
+  )
   await rerender({ name: 'portraits/hero' })
   await waitFor(() => expect(promptText().value).toBe('a hero at dawn'))
   expect(screen.queryByText(/Couldn't open/)).toBeNull()

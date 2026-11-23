@@ -342,7 +342,12 @@ test('an unknown job renders an error rather than a blank page', async ({
   page,
 }) => {
   await page.goto('/#/jobs/does-not-exist')
-  await expect(page.getByText('Unknown job')).toBeVisible()
+  await expect(
+    page.getByText(
+      "Couldn't load job does-not-exist: job does-not-exist wasn't found",
+    ),
+  ).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Retry' })).toBeVisible()
 })
 
 test('the workflow page checks a run as you edit, and places each finding', async ({

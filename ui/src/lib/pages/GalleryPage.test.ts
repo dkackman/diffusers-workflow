@@ -165,7 +165,11 @@ it('lists once on mount, and again when the gallery moves, with no blanking', as
   await renderGallery()
   await settle()
   expect(gallery).toHaveBeenCalledTimes(1)
-  expect(feed.watched(DEFAULT_WORKSPACE)).toEqual(['gallery'])
+  // the page's gallery, and the request picker's requests
+  expect(feed.watched(DEFAULT_WORKSPACE).sort()).toEqual([
+    'gallery',
+    'requests',
+  ])
 
   listing.files = [...listing.files, file('new.png')]
   feed.move(DEFAULT_WORKSPACE, 'gallery')
@@ -249,6 +253,37 @@ it('a reload begun before a delete does not bring the file back', async () => {
   land({ files: stale })
   await settle()
   expect(screen.queryByLabelText('select a.png')).toBeNull()
+})
+
+/** Whether a tile shows the star mark */
+const starMark = (name: string) =>
+  within(screen.getByTitle(name)).queryByLabelText('Starred')
+
+it('a listing that began after a star shows an unstar made elsewhere', async () => {
+  await renderGallery()
+  await openFile('a.png')
+  await fireEvent.click(screen.getByRole('button', { name: 'star this file' }))
+  await waitFor(() => expect(starMark('a.png')).toBeTruthy())
+  // The listing still says unstarred: someone unstarred it since
+  feed.move(DEFAULT_WORKSPACE, 'gallery')
+  await settle()
+  expect(gallery).toHaveBeenCalledTimes(2)
+  expect(starMark('a.png')).toBeNull()
+})
+
+it('a listing that began before a star cannot undo it', async () => {
+  await renderGallery()
+  await openFile('a.png')
+  let land: (reply: { files: GalleryFile[] }) => void = () => {}
+  gallery.mockImplementationOnce(
+    () => new Promise<{ files: GalleryFile[] }>((resolve) => (land = resolve)),
+  )
+  feed.move(DEFAULT_WORKSPACE, 'gallery')
+  await fireEvent.click(screen.getByRole('button', { name: 'star this file' }))
+  await waitFor(() => expect(starMark('a.png')).toBeTruthy())
+  land({ files: listing.files })
+  await settle()
+  expect(starMark('a.png')).toBeTruthy()
 })
 
 it('counts the files ticked in the grid', async () => {
@@ -828,4 +863,35 @@ it('deleting a selection with starred files says how many and can spare them', a
   within(dialog).getByRole('button', { name: 'Delete the 1 unstarred' }).click()
   await waitFor(() => expect(deleteOutput).toHaveBeenCalledTimes(1))
   expect(deleteOutput).toHaveBeenCalledWith('a.png')
+})
+
+it('shows a skeleton while loading, not the empty state', async () => {
+  gallery.mockImplementationOnce(() => new Promise(() => {}))
+  render(GalleryPage)
+  expect(
+    screen.getByRole('status', { name: 'loading the gallery' }),
+  ).toBeTruthy()
+  expect(screen.queryByText(/Nothing generated yet/)).toBeNull()
+})
+
+it('a failed first load offers Retry and Retry loads', async () => {
+  gallery.mockImplementationOnce(() => Promise.reject(new Error('boom')))
+  render(GalleryPage)
+  await screen.findByText(/Couldn't load the gallery/)
+  await fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+  await waitFor(() =>
+    expect(screen.getByLabelText('select a.png')).toBeTruthy(),
+  )
+})
+
+it('filtered to nothing offers Clear filters', async () => {
+  await renderGallery()
+  await fireEvent.input(screen.getByPlaceholderText('filter…'), {
+    target: { value: 'zzz' },
+  })
+  expect(screen.getByText('Nothing matches those filters.')).toBeTruthy()
+  await fireEvent.click(screen.getByRole('button', { name: 'Clear filters' }))
+  await waitFor(() =>
+    expect(screen.getByLabelText('select a.png')).toBeTruthy(),
+  )
 })

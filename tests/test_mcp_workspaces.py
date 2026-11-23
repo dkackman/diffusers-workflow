@@ -168,6 +168,18 @@ class TestLifecycle:
         assert "acknowledged_cost" not in message
         assert seen[-1].url.params.get("acknowledged") is None
 
+    def test_a_coded_no_workspace_keeps_the_recovery_hint(self):
+        client, _seen = recording(
+            {"detail": {"code": "no_workspace", "message": "No such workspace: ghost"}},
+            status=404,
+        )
+        with pytest.raises(DwApiError) as refusal:
+            delete_workspace(client, "ghost")
+        assert str(refusal.value) == (
+            "No such workspace: ghost - list_workspaces shows what exists; "
+            "use_workspace switches."
+        )
+
     def test_deleting_the_default_workspace_carries_no_acknowledgement_instruction(
         self,
     ):

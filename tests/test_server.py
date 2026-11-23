@@ -7079,3 +7079,18 @@ def test_unrealized_job_workflow_folds_the_chosen_preset(server):
 
     assert body["realized"] is False
     assert body["definition"]["variables"]["steps"] == 4
+
+
+def test_an_unknown_workspace_is_a_named_404(server, tmp_path):
+    from dw.workspace import Workspace
+
+    with server(success_script) as client:
+        (tmp_path / "ws").mkdir()
+        client.app.state.workspace_root = Workspace(str(tmp_path / "ws"), "flag")
+        response = client.get("/api/jobs", params={"workspace": "ghost"})
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == {
+            "code": "no_workspace",
+            "message": "No such workspace: ghost",
+        }

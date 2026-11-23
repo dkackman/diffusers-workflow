@@ -2,6 +2,7 @@ import { api } from './api'
 import { notify } from './toast'
 import { wsHref, type RouteView } from './routes'
 import { DEFAULT_WORKSPACE, workspace } from './workspaceState.svelte'
+import { onReconnect } from './connection.svelte'
 
 // The state lives in its own module so api.ts can scope requests by it
 // without importing this one, which imports api.ts to load the listing
@@ -43,6 +44,13 @@ let listed = false
 // a name the cache lacks is refetched once before it is called missing.
 let fresh = false
 let refetching = false
+// How a missing workspace's route is replaced: the router hands over its
+// replaceRoute at load, since it imports this module and so cannot be imported
+let replaceRoute: (hash: string) => void = () => {}
+
+export function setRouteReplacer(replace: (hash: string) => void): void {
+  replaceRoute = replace
+}
 
 export function applyRouteWorkspace(view: RouteView | null): void {
   lastView = view
@@ -79,7 +87,7 @@ export function checkWorkspaceExists(view: RouteView | null): void {
   rememberWorkspace(DEFAULT_WORKSPACE)
   if (view?.kind === 'ws') {
     notify.error(`No workspace named ${missing} - showing default`)
-    location.replace(wsHref(DEFAULT_WORKSPACE, 'overview'))
+    replaceRoute(wsHref(DEFAULT_WORKSPACE, 'overview'))
   }
 }
 
@@ -140,3 +148,10 @@ export function loadWorkspaces(): Promise<void> {
 export function invalidateWorkspaces(): void {
   workspacesPromise = null
 }
+
+// A listing read while the server was down or locked is the default-only
+// fallback; once it lets this browser in again, read the real one
+onReconnect(() => {
+  invalidateWorkspaces()
+  void loadWorkspaces()
+})

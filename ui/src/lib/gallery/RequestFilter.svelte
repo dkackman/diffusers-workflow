@@ -4,7 +4,7 @@
   import { formatRequestFilter, parseRequestFilter } from '../requestFilter'
   import { hashQuery, setHashQuery } from '../router.svelte'
   import { wsHref } from '../routes'
-  import type { LedgerSummary } from '../types'
+  import { resource } from '../resource.svelte'
   import { workspace } from '../workspace.svelte'
 
   // The gallery's request filter: `req=<id>` in the hash narrows it to that
@@ -29,20 +29,12 @@
     return () => window.removeEventListener('hashchange', fromHash)
   })
 
-  let requests = $state<LedgerSummary[]>([])
-  $effect(() => {
-    const ws = workspace.current
-    let live = true
-    void (async () => {
-      try {
-        const list = await api.listRequests(ws)
-        if (live) requests = list.requests
-      } catch {
-        if (live) requests = []
-      }
-    })()
-    return () => (live = false)
+  // The picker is a convenience, so a failed read hides it rather than
+  // showing an error; a request an agent writes shows within one feed interval
+  const list = resource(() => api.listRequests(workspace.current), {
+    watch: ['requests'],
   })
+  const requests = $derived(list.data?.requests ?? [])
   const title = $derived(requests.find((r) => r.id === request)?.title)
 </script>
 

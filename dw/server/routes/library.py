@@ -79,6 +79,7 @@ from ..catalog_shape import derive_catalog_metadata, project_listing
 from ..deps import (
     internal_error,
     lora_index,
+    no_such_workspace,
     workspace_for,
     observed_for_name,
     server_prompt_library,
@@ -209,7 +210,7 @@ def _copy_side(state, root, name):
     except SecurityError as e:
         raise HTTPException(status_code=400, detail=str(e))
     if not known:
-        raise HTTPException(status_code=404, detail=f"No such workspace: {name}")
+        raise no_such_workspace(name)
     try:
         return named_workspace(root, name, prompts_root=state.prompt_dir)
     except SecurityError as e:
@@ -299,7 +300,7 @@ def remove_workspace(request: Request, name: str, acknowledged: bool = False):
             "workspace root itself, and holds the shared prompt library",
         )
     if name not in workspace_names(root):
-        raise HTTPException(status_code=404, detail=f"No such workspace: {name}")
+        raise no_such_workspace(name)
 
     contents = workspace_contents(
         named_workspace(root, name, prompts_root=state.prompt_dir)

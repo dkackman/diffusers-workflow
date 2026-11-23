@@ -1,5 +1,7 @@
 <script lang="ts">
-  import { pollStatus } from './lib/statusPoll'
+  import { startStatusPoll } from './lib/statusPoll'
+  import { connection, quietWord } from './lib/connection.svelte'
+  import ConnectionBanner from './lib/ui/ConnectionBanner.svelte'
   import { cardReadings, meterText, meterTitle } from './lib/cardMemory'
   import {
     BookOpen,
@@ -12,22 +14,18 @@
     Sun,
   } from '@lucide/svelte'
   import { Toaster } from 'svelte-sonner'
+  import { untrack } from 'svelte'
   import { route } from './lib/router.svelte'
-  import { api, TERMINAL_STATUSES } from './lib/api'
   import { isEditable } from './lib/editable'
-  import { notify } from './lib/toast'
-  import { wsHref } from './lib/routes'
+  import { runningIds } from './lib/jobWatch'
   import {
-    endedTitle,
-    finishedText,
-    nextWatch,
-    runningIds,
-    tabTitle,
-  } from './lib/jobWatch'
-  import { alertFinished, alertMode, unlockChime } from './lib/finishAlert'
+    alertMode,
+    clearEndedMark,
+    followJobs,
+    unlockChime,
+  } from './lib/finishAlert'
   import { alerts } from './lib/alerts.svelte'
   import { storageGet, storageSet } from './lib/storage'
-  import type { HealthInfo, JobDetail, MemoryInfo } from './lib/types'
   import Sidebar from './lib/Sidebar.svelte'
   import Breadcrumb from './lib/Breadcrumb.svelte'
   import KeyboardHelp from './lib/KeyboardHelp.svelte'
@@ -51,10 +49,8 @@
   import ModelsPage from './lib/pages/ModelsPage.svelte'
   import SchemaPage from './lib/pages/SchemaPage.svelte'
   import StatusPage from './lib/pages/StatusPage.svelte'
-  import { setAttentionBackends } from './lib/attentionBackends.svelte'
 
-  let memory = $state<MemoryInfo | null>(null)
-  let health = $state<HealthInfo | null>(null)
+  const health = $derived(connection.health)
   let helpOpen = $state(false)
   let statusOpen = $state(false)
   let tokenOpen = $state(false)
@@ -73,49 +69,12 @@
   )
   const view = $derived(route.view)
 
-  // The tab title and the finish alert (jobWatch.ts, finishAlert.ts); what
-  // a poll means for the watched jobs is nextWatch's to decide
-  let watched: string[] | null = null
-  let runningJob = $state<JobDetail | null>(null)
-  let othersRunning = $state(0)
-  let endedMark = $state<string | null>(null)
-
-  async function watchJobs(info: HealthInfo | null) {
-    const next = nextWatch(watched, info)
-    watched = next.watched
-    // A failed poll leaves the title showing what it last knew
-    if (info) {
-      const now = next.running
-      othersRunning = Math.max(0, now.length - 1)
-      runningJob = now[0] ? await api.getJob(now[0]).catch(() => null) : null
-    }
-    for (const id of next.ended) {
-      const job = await api.getJob(id).catch(() => null)
-      if (job && TERMINAL_STATUSES.includes(job.status)) announce(job)
-    }
-  }
-
-  function announce(job: JobDetail) {
-    const text = finishedText(job)
-    if (document.hidden) endedMark = endedTitle(job)
-    // The job's own page already shows its outcome
-    const onItsPage =
-      view.kind === 'ws' && view.section === 'jobs' && view.rest[0] === job.id
-    if (!onItsPage) {
-      if (job.status === 'succeeded') notify.success(text)
-      else notify.error(text)
-    }
-    if (alerts.on && document.hidden)
-      alertFinished(text, wsHref(job.workspace, 'jobs', job.id))
-  }
+  // The tab title and the finish alert (finishAlert.ts)
+  const onItsPage = (id: string) =>
+    view.kind === 'ws' && view.section === 'jobs' && view.rest[0] === id
 
   $effect(() => {
-    document.title = endedMark ?? tabTitle(runningJob, othersRunning)
-  })
-  $effect(() => {
-    const back = () => {
-      if (!document.hidden) endedMark = null
-    }
+    const back = clearEndedMark
     // A chime may only play after a gesture; after a reload the first
     // click anywhere is that gesture
     const unlock = () => {
@@ -139,21 +98,14 @@
     }
   }
 
+  // The one timer that keeps going while the tab is hidden (statusPoll.ts);
+  // each reading it lands moves the watched jobs on
+  $effect(() => startStatusPoll())
   $effect(() => {
-    const refreshStatus = async () => {
-      // Settled independently: memory answers 503 while the worker is
-      // unreachable, and that must not blank the "running" indicator too
-      const [memoryInfo, healthInfo] = await Promise.allSettled([
-        api.memory(),
-        api.health(),
-      ])
-      memory = memoryInfo.status === 'fulfilled' ? memoryInfo.value : null
-      health = healthInfo.status === 'fulfilled' ? healthInfo.value : null
-      setAttentionBackends(health?.attention_backends)
-      void watchJobs(health)
-    }
-    // The one timer that keeps going while the tab is hidden (statusPoll.ts)
-    return pollStatus(refreshStatus)
+    const info = health
+    untrack(
+      () => void followJobs(info, { onItsPage, alertsOn: () => alerts.on }),
+    )
   })
 
   type Theme = 'system' | 'light' | 'dark'
@@ -182,7 +134,9 @@
   // one meter bar per card, from the per-card readings; the top level of
   // /api/memory is only the first card's
   const metered = $derived(
-    cardReadings(memory).filter((c) => c.available && c.pct !== null),
+    cardReadings(connection.memory).filter(
+      (c) => c.available && c.pct !== null,
+    ),
   )
 
   // storage.ts namespaces the key: this is localStorage 'dw-sidebar'
@@ -303,15 +257,10 @@
               aria-expanded={statusOpen}
             >
               {#if running.length > 1}{@render busy()}
-              {:else}{currentJob ? 'status' : 'idle'}{/if}
+              {:else}{currentJob ? 'status' : quietWord(connection.state)}{/if}
             </button>
           {/if}
-          <StatusPopover
-            bind:open={statusOpen}
-            anchor={statusTrigger}
-            {health}
-            {memory}
-          />
+          <StatusPopover bind:open={statusOpen} anchor={statusTrigger} />
           <button
             class="bare icon"
             bind:this={tokenTrigger}
@@ -359,6 +308,7 @@
         </div>
       </div>
     </header>
+    <ConnectionBanner ontoken={() => (tokenOpen = true)} />
 
     <main class:wide>
       {#if view.kind === 'server'}

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render } from '@testing-library/svelte'
-import { flushSync } from 'svelte'
+import { flushSync, tick } from 'svelte'
 import EditorShellHarness from './EditorShellHarness.svelte'
 import type { DocumentEditor, EditorView } from './editorShell.svelte'
 import { notify } from './toast'
@@ -273,14 +273,86 @@ describe('flush and the leave guard see every edit', () => {
     document.body.replaceChildren()
   })
 
-  it('flush commits the field still focused inside the editor', () => {
+  it('flush commits the field still focused inside the editor', async () => {
     const shell = mount()
     shell.load({ text: 'a' })
     const { field } = typedField(shell, 'typed')
     shell.flush()
     expect(shell.doc.text).toBe('typed')
     // the caret stays where the user was typing
-    expect(document.activeElement).toBe(field)
+    await vi.waitFor(() => expect(document.activeElement).toBe(field))
+  })
+
+  it('flush does not blur a field mid-composition', () => {
+    const shell = mount()
+    shell.load({ text: 'a' })
+    const { field } = typedField(shell, 'typed')
+    const flusher = vi.fn()
+    shell.registerFlush(flusher)
+    const blurred = vi.fn()
+    field.addEventListener('blur', blurred)
+    field.dispatchEvent(new Event('compositionstart', { bubbles: true }))
+    shell.flush()
+    expect(blurred).not.toHaveBeenCalled()
+    expect(flusher).toHaveBeenCalledTimes(1)
+    field.dispatchEvent(new Event('compositionend', { bubbles: true }))
+    shell.flush()
+    expect(blurred).toHaveBeenCalledTimes(1)
+  })
+
+  it('flush restores focus to a field the commit re-rendered', async () => {
+    const shell = mount()
+    shell.load({ text: 'a' })
+    const root = document.createElement('div')
+    const field = document.createElement('input')
+    field.id = 'title'
+    // the blur commit re-renders the field as a new node with the same id
+    field.addEventListener('blur', () => {
+      const next = document.createElement('input')
+      next.id = 'title'
+      next.value = field.value
+      field.replaceWith(next)
+    })
+    root.append(field)
+    document.body.append(root)
+    shell.root = root
+    field.focus()
+    field.value = 'typed'
+    field.setSelectionRange(2, 4)
+
+    shell.flush()
+
+    const now = root.querySelector('input') as HTMLInputElement
+    expect(now).not.toBe(field)
+    await vi.waitFor(() => expect(document.activeElement).toBe(now))
+    expect([now.selectionStart, now.selectionEnd]).toEqual([2, 4])
+  })
+
+  it('a late refocus never takes focus from where it moved', async () => {
+    const shell = mount()
+    shell.load({ text: 'a' })
+    const { field } = typedField(shell, 'typed')
+    const elsewhere = document.createElement('button')
+    document.body.append(elsewhere)
+    shell.flush()
+    elsewhere.focus()
+    await tick()
+    await tick()
+    expect(document.activeElement).toBe(elsewhere)
+    expect(document.activeElement).not.toBe(field)
+  })
+
+  it('a composition cut short by the field leaving does not stick', () => {
+    const shell = mount()
+    shell.load({ text: 'a' })
+    const { field } = typedField(shell, 'typed')
+    const blurred = vi.fn()
+    field.addEventListener('blur', blurred)
+    field.dispatchEvent(new Event('compositionstart', { bubbles: true }))
+    field.dispatchEvent(new Event('focusout', { bubbles: true }))
+    field.focus()
+    shell.flush()
+    expect(blurred).toHaveBeenCalledTimes(1)
   })
 
   it('flush leaves a field outside the editor focused and alone', () => {

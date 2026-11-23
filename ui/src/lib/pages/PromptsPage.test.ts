@@ -1,4 +1,10 @@
-import { cleanup, render, screen, waitFor } from '@testing-library/svelte'
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/svelte'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import PromptsPage from './PromptsPage.svelte'
 import '../router.svelte'
@@ -128,4 +134,52 @@ it('another kind moving, or another workspace, reloads nothing', async () => {
   feed.move('other', 'prompts')
   await settle()
   expect(listPrompts).toHaveBeenCalledTimes(1)
+})
+
+it('shows a skeleton while loading, not the empty state', async () => {
+  listPrompts.mockReturnValue(new Promise(() => {}))
+  render(PromptsPage)
+  expect(screen.getByRole('status', { name: 'loading prompts' })).toBeTruthy()
+  expect(screen.queryByText(/No prompts yet/)).toBeNull()
+})
+
+it('a failed first load offers Retry and Retry loads', async () => {
+  listPrompts.mockRejectedValueOnce(new Error('boom'))
+  render(PromptsPage)
+  await screen.findByText(/Couldn't load prompts/)
+  await fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+  await waitFor(() => expect(screen.getByText('theirs')).toBeTruthy())
+  expect(listPrompts).toHaveBeenCalledTimes(2)
+})
+
+it('filtered to nothing offers Clear filters', async () => {
+  render(PromptsPage)
+  await waitFor(() => expect(screen.getByText('theirs')).toBeTruthy())
+  await fireEvent.input(screen.getByPlaceholderText('filter…'), {
+    target: { value: 'zzz' },
+  })
+  expect(screen.getByText('Nothing matches those filters.')).toBeTruthy()
+  await fireEvent.click(screen.getByRole('button', { name: 'Clear filters' }))
+  await waitFor(() => expect(screen.getByText('theirs')).toBeTruthy())
+})
+
+it('filtered to nothing still says where prompts are read from', async () => {
+  render(PromptsPage)
+  await waitFor(() => expect(screen.getByText('theirs')).toBeTruthy())
+  await fireEvent.input(screen.getByPlaceholderText('filter…'), {
+    target: { value: 'zzz' },
+  })
+  await screen.findByText('Nothing matches those filters.')
+  expect(screen.getByText('/srv/prompts')).toBeTruthy()
+})
+
+it('an empty library with a filter typed says there are no prompts yet', async () => {
+  listPrompts.mockResolvedValue(answer([]))
+  render(PromptsPage)
+  await fireEvent.input(screen.getByPlaceholderText('filter…'), {
+    target: { value: 'zzz' },
+  })
+  await screen.findByText(/No prompts yet/)
+  expect(screen.queryByText('Nothing matches those filters.')).toBeNull()
+  expect(screen.getByText('/srv/prompts')).toBeTruthy()
 })

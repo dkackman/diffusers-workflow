@@ -67,6 +67,18 @@ it('refetches only after invalidateWorkspaces()', async () => {
   expect(listWorkspaces).toHaveBeenCalledTimes(2)
 })
 
+it('a reconnect replaces the fallback a locked start left', async () => {
+  const { loadWorkspaces, workspace } = await import('./workspace.svelte')
+  const { reportResponse } = await import('./connection.svelte')
+  listWorkspaces.mockImplementationOnce(() => Promise.reject(new Error('401')))
+  reportResponse(401)
+  await loadWorkspaces()
+  expect(workspace.names).toEqual(['default'])
+  reportResponse(200)
+  await vi.waitFor(() => expect(workspace.names).toEqual(['default', 'studio']))
+  expect(listWorkspaces).toHaveBeenCalledTimes(2)
+})
+
 it('a ws route sets current and is remembered as last used', async () => {
   const { applyRouteWorkspace, lastUsedWorkspace, workspace } =
     await import('./workspace.svelte')
@@ -185,9 +197,12 @@ it('a failed listing does not read as every other workspace being gone', async (
 
 it('a refetch that fails keeps the listing and still redirects the missing name', async () => {
   // Driven through applyRouteWorkspace rather than a hashchange: the routers
-  // earlier tests imported still listen, and one would take the rejection
-  const { applyRouteWorkspace, loadWorkspaces, workspace } =
+  // earlier tests imported still listen, and one would take the rejection.
+  // With no router loaded, the replace it would hand over is a spy
+  const { applyRouteWorkspace, loadWorkspaces, setRouteReplacer, workspace } =
     await import('./workspace.svelte')
+  const replace = vi.fn()
+  setRouteReplacer(replace)
   applyRouteWorkspace({
     kind: 'ws',
     workspace: 'studio',
@@ -206,7 +221,7 @@ it('a refetch that fails keeps the listing and still redirects the missing name'
   })
   await loadWorkspaces()
   expect(workspace.names).toEqual(['default', 'studio'])
-  expect(location.hash).toBe('#/ws/default/overview')
+  expect(replace).toHaveBeenCalledWith('#/ws/default/overview')
   expect(workspace.current).toBe('default')
   expect(errorToast).toHaveBeenCalledWith(expect.stringContaining('typo'))
 })

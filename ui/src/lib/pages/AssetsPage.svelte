@@ -7,9 +7,10 @@
   // folder groups, a contact-sheet grid, a detail popout.
   import { FolderOpen } from '@lucide/svelte'
   import { api } from '../api'
-  import { changes } from '../changes.svelte'
-  import { latestOnly } from '../latest'
-  import Empty from '../Empty.svelte'
+  import { untrack } from 'svelte'
+  import { resource } from '../resource.svelte'
+  import { applyEdits, noEdits, settleEdits, withPatch } from '../gallery/order'
+  import LoadState from '../ui/LoadState.svelte'
   import FolderGroups from '../FolderGroups.svelte'
   import { dropFiles } from '../dropFiles'
   import HintBar from '../HintBar.svelte'
@@ -48,13 +49,29 @@
     examples: 'Examples',
   }
 
-  let assets = $state<AssetFile[]>([])
-  // The search path itself, in order, and the entries a nearer library on
-  // it hides. Both come from the server: the page never builds a path
-  let libraries = $state<AssetLibrary[]>([])
-  let shadowed = $state<ShadowedAsset[]>([])
-  let loaded = $state(false)
-  let error = $state('')
+  // An asset an agent adds or removes shows within one feed interval. The
+  // search path itself, in order, and the entries a nearer library on it
+  // hides, come from the server: the page never builds a path
+  const list = resource(
+    async () => {
+      // The note saves this read can have seen: those made before it began
+      const began = untrack(() => noteEdits.made)
+      return { ...(await api.listAssets()), began }
+    },
+    {
+      watch: ['assets'],
+      merge: (_held, incoming) => {
+        noteEdits = settleEdits(incoming.assets, incoming.began, noteEdits)
+        return incoming
+      },
+    },
+  )
+  // A note saved here, until a listing begun after the save lands (the
+  // gallery's edits, gallery/order.ts)
+  let noteEdits = $state(noEdits<AssetFile>())
+  const assets = $derived(applyEdits(list.data?.assets ?? [], noteEdits))
+  const libraries = $derived<AssetLibrary[]>(list.data?.libraries ?? [])
+  const shadowed = $derived<ShadowedAsset[]>(list.data?.shadowed ?? [])
   let filter = $state('')
   let selected = $state<AssetFile | null>(null)
   let busy = $state(false)
@@ -75,55 +92,9 @@
   function saveNote(note: string | null) {
     if (!selected) return
     const name = selected.name
-    const patch = (a: AssetFile) =>
-      a.name === name ? { ...a, note: note ?? undefined } : a
-    // A background reload already in flight predates this edit
-    beginList()
-    assets = assets.map(patch)
-    selected = patch(selected)
+    noteEdits = withPatch(noteEdits, name, { note: note ?? undefined })
+    selected = { ...selected, note: note ?? undefined }
   }
-
-  // A reply overtaken by a later load or a local edit is dropped
-  const beginList = latestOnly()
-  /** Read the library. A quiet load is the change feed's: picks merge
-   * rather than reset, and a failure keeps the list and shows no error */
-  function load({ quiet = false } = {}) {
-    const current = beginList()
-    return api
-      .listAssets()
-      .then((result) => {
-        if (!current()) return
-        assets = result.assets
-        // The editors' asset: completions read the same listing; an
-        // upload or delete here is what they offer next
-        assetLibrary.items = result.assets
-        assetLibrary.workspace = workspace.current
-        libraries = result.libraries
-        shadowed = result.shadowed
-        error = ''
-        if (selected && !result.assets.some((a) => a.name === selected?.name))
-          selected = null
-        if (!quiet) picks.keepOnly(result.assets.map((a) => a.name))
-      })
-      .catch((e) => {
-        if (!current() || quiet) return
-        error = e.message
-      })
-      .finally(() => {
-        if (current()) loaded = true
-      })
-  }
-
-  $effect(() => {
-    // Read inside the effect so switching workspaces refetches the library
-    void workspace.current
-    void load()
-  })
-  // An asset an agent adds or removes shows within one feed interval
-  $effect(() => {
-    const ws = workspace.current
-    return changes(ws).watch(['assets'], () => void load({ quiet: true }))
-  })
 
   const filterActive = $derived(filter !== '')
   const matches = (name: string) =>
@@ -165,6 +136,8 @@
   // library still shows its header, so an empty workspace says where an
   // upload would land; while a filter is on, a section with nothing to
   // show is skipped instead
+  const shows = (section: { assets: unknown[]; shadowed: unknown[] }) =>
+    section.assets.length > 0 || section.shadowed.length > 0
   const sections = $derived(
     libraries
       .map((library) => ({
@@ -206,6 +179,25 @@
   // Names ticked in the grid, for the bulk actions
   const picks = new Picks(() => ordered.map((a) => a.name))
 
+  // What a landed listing means to the page. No listing is a new workspace
+  // (or the first read): nothing ticked. The editors' asset: completions
+  // read the same listing; an upload or delete here is what they offer next
+  $effect(() => {
+    const data = list.data
+    untrack(() => {
+      if (!data) {
+        // Another workspace's names; the count goes on, as reads in flight
+        // carry it
+        noteEdits = { ...noEdits(), made: noteEdits.made }
+        return picks.clear()
+      }
+      assetLibrary.items = data.assets
+      assetLibrary.workspace = workspace.current
+      if (selected && !data.assets.some((a) => a.name === selected?.name))
+        selected = null
+    })
+  })
+
   function startUpload(target: 'workspace' | 'shared') {
     uploadTarget = target
     fileInput?.click()
@@ -217,7 +209,7 @@
     try {
       await api.archiveAssets(picks.names)
     } catch (e) {
-      notify.error(e instanceof Error ? e.message : String(e))
+      notify.failure('download the picked assets', e)
     } finally {
       busy = false
     }
@@ -255,7 +247,7 @@
         `Could not delete ${failed.length} of ${names.length} assets: ${failed.join(', ')}`,
       )
     busy = false
-    await load()
+    await list.reload()
   }
 
   async function upload(event: Event) {
@@ -283,7 +275,7 @@
     } finally {
       busy = false
     }
-    await load()
+    await list.reload()
   }
 
   async function remove(asset: AssetFile) {
@@ -300,9 +292,9 @@
       await api.deleteAsset(asset.name)
       notify.success(`Deleted ${asset.reference}`)
       if (selected?.name === asset.name) selected = null
-      await load()
+      await list.reload()
     } catch (e) {
-      notify.error(e instanceof Error ? e.message : String(e))
+      notify.failure(`delete ${asset.name}`, e)
     } finally {
       busy = false
     }
@@ -353,8 +345,6 @@
     />
   </div>
 
-  {#if error}<p class="muted">Could not read the asset library: {error}</p>{/if}
-
   <HintBar storageKey="assets-hint-dismissed">
     An asset is input a workflow names by reference: an argument set to
     asset:name loads this file at run time, whatever run produced it. Drop files
@@ -370,16 +360,25 @@
     {/if}
   </HintBar>
 
-  {#if loaded && !error && shownCount === 0}
-    <Empty>
-      {#snippet icon()}<FolderOpen size={36} strokeWidth={1.5} />{/snippet}
-      Nothing in the asset library yet — upload a file, or keep one from the gallery.
+  <LoadState
+    of={list}
+    label="the asset library"
+    empty={shownCount === 0 || (filterActive && !sections.some(shows))}
+    filtered={filterActive && shownCount > 0}
+    onclear={() => (filter = '')}
+  >
+    {#snippet emptyIcon()}<FolderOpen size={36} strokeWidth={1.5} />{/snippet}
+    {#snippet emptyText()}
+      Nothing in the asset library yet — upload a file, or keep one from the
+      gallery.
       {#if !shared && elsewhereCount}
         The <a href={sharedHref('assets')}>shared library</a> has {elsewhereCount}
         more.
       {/if}
-    </Empty>
-  {/if}
+    {/snippet}
+    <!-- No children: the grid is the library sections below, which need
+         the empty library's headers too, so they sit outside this -->
+  </LoadState>
 
   <BulkBar
     {picks}
@@ -457,18 +456,18 @@
   {/each}
 </div>
 
-{#if loaded && assets.length > 0 && ordered.length === 0}
-  <p class="muted">Nothing matches "{filter}".</p>
-{/if}
-
 {#if selected}
-  <AssetDetail
-    asset={selected}
-    {busy}
-    onremove={remove}
-    onclose={() => (selected = null)}
-    onnotesaved={saveNote}
-  />
+  <!-- Keyed by the pick, so each asset's panel starts its own read and never
+       shows the last one's -->
+  {#key selected.name}
+    <AssetDetail
+      asset={selected}
+      {busy}
+      onremove={remove}
+      onclose={() => (selected = null)}
+      onnotesaved={saveNote}
+    />
+  {/key}
 {/if}
 
 <style>
