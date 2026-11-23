@@ -26,10 +26,58 @@ export type SharedSection = (typeof SHARED_SECTIONS)[number]
 export const SERVER_SECTIONS = ['models', 'schema', 'status'] as const
 export type ServerSection = (typeof SERVER_SECTIONS)[number]
 
+/** The one set of section names: the sidebar's items and the breadcrumb
+ * both read it, so they cannot drift. */
+export const SECTION_LABELS: {
+  ws: Record<WsSection, string>
+  shared: Record<SharedSection, string>
+  server: Record<ServerSection, string>
+  groups: { shared: string; server: string }
+} = {
+  ws: {
+    overview: 'Overview',
+    workflows: 'Workflows',
+    jobs: 'Jobs',
+    requests: 'Requests',
+    gallery: 'Gallery',
+    compare: 'Compare',
+    assets: 'Assets',
+    edit: 'Editor',
+  },
+  shared: {
+    prompts: 'Prompts',
+    'prompt-edit': 'Prompt editor',
+    assets: 'Assets',
+    examples: 'Examples',
+  },
+  server: { models: 'Models', schema: 'Schema', status: 'Status' },
+  groups: { shared: 'Shared', server: 'Server' },
+}
+
 export type RouteView =
   | { kind: 'ws'; workspace: string; section: WsSection; rest: string[] }
   | { kind: 'shared'; section: SharedSection; rest: string[] }
   | { kind: 'server'; section: ServerSection }
+  | { kind: 'missing'; path: string }
+
+/** The name a view goes by in the breadcrumb. */
+export function sectionLabel(view: RouteView): string {
+  if (view.kind === 'ws') return SECTION_LABELS.ws[view.section]
+  if (view.kind === 'shared') return SECTION_LABELS.shared[view.section]
+  if (view.kind === 'server') return SECTION_LABELS.server[view.section]
+  return 'Not found'
+}
+
+const missing = (parts: string[]): RouteView => ({
+  kind: 'missing',
+  path: '/' + parts.join('/'),
+})
+
+/** What the router shows for a hash: its view, or `missing` for one no
+ * route (and no legacy redirect) names. */
+export function resolveView(parts: string[]): RouteView {
+  return parseView(parts) ?? missing(parts)
+}
 
 const isWs = (s: string): s is WsSection =>
   (WS_SECTIONS as readonly string[]).includes(s)
@@ -41,31 +89,34 @@ const isServer = (s: string): s is ServerSection =>
 export function parseView(parts: string[]): RouteView | null {
   const [group, second, third, ...rest] = parts
   if (group === 'ws' && second) {
-    // An unknown section is the overview rather than a 404: the workspace
-    // is the thing the link names, and the overview is where it starts
+    // No section is the overview; an unknown one is missing, so the URL
+    // stays as typed and the page says so
     if (third === undefined) {
       return { kind: 'ws', workspace: second, section: 'overview', rest: [] }
     }
     if (isWs(third))
       return { kind: 'ws', workspace: second, section: third, rest }
-    return { kind: 'ws', workspace: second, section: 'overview', rest: [] }
+    return missing(parts)
   }
-  if (group === 'shared' && second && isShared(second)) {
+  if (group === 'shared' && second) {
+    if (!isShared(second)) return missing(parts)
     return {
       kind: 'shared',
       section: second,
       rest: third ? [third, ...rest] : [],
     }
   }
-  if (group === 'server' && second && isServer(second)) {
-    return { kind: 'server', section: second }
+  if (group === 'server' && second) {
+    return isServer(second)
+      ? { kind: 'server', section: second }
+      : missing(parts)
   }
   return null
 }
 
 /** Where a hash that `parseView` refuses should go. `lastUsed` is the
  * workspace the scoped legacy routes land in. Null when nothing needs
- * redirecting. */
+ * redirecting, an unknown path included (it is a missing route). */
 export function legacyRedirect(
   parts: string[],
   lastUsed: string,
@@ -109,7 +160,7 @@ export function legacyRedirect(
     case 'server':
       return ['server', 'status']
     default:
-      return ws('overview')
+      return null
   }
 }
 

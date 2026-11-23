@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import {
+  SECTION_LABELS,
+  SERVER_SECTIONS,
+  SHARED_SECTIONS,
+  WS_SECTIONS,
   legacyRedirect,
+  resolveView,
+  sectionLabel,
   parseView,
   serverHref,
   sharedHref,
@@ -31,12 +37,34 @@ describe('parseView', () => {
     })
     expect(wsHref('studio', 'requests', 'r-1')).toBe('#/ws/studio/requests/r-1')
   })
-  it('defaults a bare workspace, or an unknown section, to overview', () => {
+  it('defaults a bare workspace to the overview', () => {
     expect(parseView(['ws', 'studio'])).toMatchObject({ section: 'overview' })
-    expect(parseView(['ws', 'studio', 'nope'])).toMatchObject({
-      section: 'overview',
-      rest: [],
+  })
+  it('an unknown workspace section is missing, not the overview', () => {
+    expect(parseView(['ws', 'studio', 'nope'])).toEqual({
+      kind: 'missing',
+      path: '/ws/studio/nope',
     })
+    expect(legacyRedirect(['ws', 'studio', 'nope'], 'studio')).toBeNull()
+  })
+  it('an unknown shared or server section is missing', () => {
+    expect(parseView(['shared', 'nope'])).toMatchObject({ kind: 'missing' })
+    expect(parseView(['server', 'nope'])).toMatchObject({ kind: 'missing' })
+  })
+  it('an unknown top-level path is missing', () => {
+    expect(legacyRedirect(['whatever'], 'studio')).toBeNull()
+    expect(resolveView(['whatever'])).toEqual({
+      kind: 'missing',
+      path: '/whatever',
+    })
+  })
+  it('every section has a label', () => {
+    for (const s of WS_SECTIONS) expect(SECTION_LABELS.ws[s]).toBeTruthy()
+    for (const s of SHARED_SECTIONS)
+      expect(SECTION_LABELS.shared[s]).toBeTruthy()
+    for (const s of SERVER_SECTIONS)
+      expect(SECTION_LABELS.server[s]).toBeTruthy()
+    expect(sectionLabel({ kind: 'missing', path: '/x' })).toBe('Not found')
   })
   it('keeps a slash-joined name in rest', () => {
     expect(
@@ -58,7 +86,6 @@ describe('parseView', () => {
     expect(parseView([])).toBeNull()
     expect(parseView(['gallery'])).toBeNull()
     expect(parseView(['ws'])).toBeNull()
-    expect(parseView(['shared', 'nope'])).toBeNull()
     expect(parseView(['server'])).toBeNull()
   })
 })
@@ -94,10 +121,6 @@ describe('legacyRedirect', () => {
     [['server'], ['server', 'status']],
     [['ws'], ['ws', 'studio', 'overview']],
     [['shared'], ['shared', 'prompts']],
-    [
-      ['server', 'nope'],
-      ['server', 'status'],
-    ],
   ])('%j -> %j', (from, to) => {
     expect(legacyRedirect(from, last)).toEqual(to)
   })
@@ -105,12 +128,8 @@ describe('legacyRedirect', () => {
     expect(legacyRedirect(['ws', 'x', 'gallery'], last)).toBeNull()
     expect(legacyRedirect(['shared', 'assets'], last)).toBeNull()
   })
-  it('sends an unknown top level to the overview', () => {
-    expect(legacyRedirect(['whatever'], last)).toEqual([
-      'ws',
-      'studio',
-      'overview',
-    ])
+  it('leaves an unknown top level alone: it is a missing route', () => {
+    expect(legacyRedirect(['whatever'], last)).toBeNull()
   })
 })
 

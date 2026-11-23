@@ -1,6 +1,6 @@
 import {
   legacyRedirect,
-  parseView,
+  resolveView,
   type RouteView,
   type WsSection,
 } from './routes'
@@ -77,7 +77,7 @@ function parse(): { parts: string[]; view: RouteView } {
     history.replaceState(history.state, '', hash)
     parts = redirect
   }
-  const view = parseView(parts)!
+  const view = resolveView(parts)
   applyRouteWorkspace(view)
   return { parts, view }
 }

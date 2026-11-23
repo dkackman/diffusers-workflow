@@ -35,6 +35,7 @@
   import ConfirmDialog from './lib/ui/ConfirmDialog.svelte'
   import WorkflowsPage from './lib/pages/WorkflowsPage.svelte'
   import WorkflowPage from './lib/pages/WorkflowPage.svelte'
+  import NotFoundPage from './lib/pages/NotFoundPage.svelte'
   import JobsPage from './lib/pages/JobsPage.svelte'
   import JobPage from './lib/pages/JobPage.svelte'
   import RequestsPage from './lib/pages/RequestsPage.svelte'
@@ -311,7 +312,8 @@
     <ConnectionBanner ontoken={() => (tokenOpen = true)} />
 
     <main class:wide>
-      {#if view.kind === 'server'}
+      {#if view.kind === 'missing'}<NotFoundPage />
+      {:else if view.kind === 'server'}
         {#if view.section === 'schema'}<SchemaPage />
         {:else if view.section === 'models'}<ModelsPage />
         {:else}<StatusPage />{/if}

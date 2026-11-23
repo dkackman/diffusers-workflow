@@ -24,6 +24,7 @@
   import { prefersReducedMotion } from 'svelte/motion'
   import { route } from './router.svelte'
   import {
+    SECTION_LABELS,
     serverHref,
     sharedHref,
     wsHref,
@@ -85,31 +86,55 @@
 
   const WS_ITEMS: { section: WsSection; label: string; icon: typeof Layers }[] =
     [
-      { section: 'overview', label: 'Overview', icon: LayoutDashboard },
-      { section: 'workflows', label: 'Workflows', icon: Layers },
-      { section: 'jobs', label: 'Jobs', icon: ListTodo },
-      { section: 'requests', label: 'Requests', icon: ClipboardList },
-      { section: 'gallery', label: 'Gallery', icon: Images },
-      { section: 'assets', label: 'Assets', icon: FolderOpen },
-      { section: 'edit', label: 'Editor', icon: SquarePen },
+      {
+        section: 'overview',
+        label: SECTION_LABELS.ws.overview,
+        icon: LayoutDashboard,
+      },
+      {
+        section: 'workflows',
+        label: SECTION_LABELS.ws.workflows,
+        icon: Layers,
+      },
+      { section: 'jobs', label: SECTION_LABELS.ws.jobs, icon: ListTodo },
+      {
+        section: 'requests',
+        label: SECTION_LABELS.ws.requests,
+        icon: ClipboardList,
+      },
+      { section: 'gallery', label: SECTION_LABELS.ws.gallery, icon: Images },
+      { section: 'assets', label: SECTION_LABELS.ws.assets, icon: FolderOpen },
+      { section: 'edit', label: SECTION_LABELS.ws.edit, icon: SquarePen },
     ]
   const SHARED_ITEMS: {
     section: SharedSection
     label: string
     icon: typeof Layers
   }[] = [
-    { section: 'prompts', label: 'Prompts', icon: MessageSquareText },
-    { section: 'assets', label: 'Assets', icon: FolderOpen },
-    { section: 'examples', label: 'Examples', icon: BookCopy },
+    {
+      section: 'prompts',
+      label: SECTION_LABELS.shared.prompts,
+      icon: MessageSquareText,
+    },
+    {
+      section: 'assets',
+      label: SECTION_LABELS.shared.assets,
+      icon: FolderOpen,
+    },
+    {
+      section: 'examples',
+      label: SECTION_LABELS.shared.examples,
+      icon: BookCopy,
+    },
   ]
   const SERVER_ITEMS: {
     section: ServerSection
     label: string
     icon: typeof Layers
   }[] = [
-    { section: 'models', label: 'Models', icon: Database },
-    { section: 'schema', label: 'Schema', icon: ListTree },
-    { section: 'status', label: 'Status', icon: Server },
+    { section: 'models', label: SECTION_LABELS.server.models, icon: Database },
+    { section: 'schema', label: SECTION_LABELS.server.schema, icon: ListTree },
+    { section: 'status', label: SECTION_LABELS.server.status, icon: Server },
   ]
   // prompt-edit sits under Prompts in the nav
   const sharedActive = (s: SharedSection) =>
@@ -308,7 +333,9 @@
 
     <div class="rule" aria-hidden="true"></div>
     <div class="group" role="group" aria-label="shared">
-      {#if !collapsed}<span class="grouplabel muted">Shared</span>{/if}
+      {#if !collapsed}<span class="grouplabel muted">
+          {SECTION_LABELS.groups.shared}
+        </span>{/if}
       {#each SHARED_ITEMS as item (item.section)}
         <a
           class="plain item"
@@ -325,7 +352,9 @@
 
     <div class="rule" aria-hidden="true"></div>
     <div class="group" role="group" aria-label="server">
-      {#if !collapsed}<span class="grouplabel muted">Server</span>{/if}
+      {#if !collapsed}<span class="grouplabel muted">
+          {SECTION_LABELS.groups.server}
+        </span>{/if}
       {#each SERVER_ITEMS as item (item.section)}
         <a
           class="plain item"

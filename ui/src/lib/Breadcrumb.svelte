@@ -2,7 +2,13 @@
   import { fade } from 'svelte/transition'
   import { prefersReducedMotion } from 'svelte/motion'
   import { route } from './router.svelte'
-  import { serverHref, sharedHref, wsHref } from './routes'
+  import {
+    SECTION_LABELS,
+    sectionLabel,
+    serverHref,
+    sharedHref,
+    wsHref,
+  } from './routes'
   import { wsColor } from './wsColor'
 
   // group / section, each a link; the section's rest (a workflow or job
@@ -17,17 +23,22 @@
             href: wsHref(view.workspace, 'overview'),
             dot: wsColor(view.workspace),
           },
-          { label: view.section, href: wsHref(view.workspace, view.section) },
+          {
+            label: sectionLabel(view),
+            href: wsHref(view.workspace, view.section),
+          },
         ]
       if (view.kind === 'shared')
         return [
-          { label: 'shared', href: sharedHref('prompts') },
-          { label: view.section, href: sharedHref(view.section) },
+          { label: SECTION_LABELS.groups.shared, href: sharedHref('prompts') },
+          { label: sectionLabel(view), href: sharedHref(view.section) },
         ]
-      return [
-        { label: 'server', href: serverHref('status') },
-        { label: view.section, href: serverHref(view.section) },
-      ]
+      if (view.kind === 'server')
+        return [
+          { label: SECTION_LABELS.groups.server, href: serverHref('status') },
+          { label: sectionLabel(view), href: serverHref(view.section) },
+        ]
+      return [{ label: sectionLabel(view), href: '#' + view.path }]
     },
   )
 </script>
