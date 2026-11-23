@@ -109,8 +109,9 @@ def downloads_required(expanded, base_dir, workflow_dir, cache_dir, lookup_sizes
                 names.extend(repo for repo in elsewhere if repo not in names)
                 continue
         listed_whole.add(name)
+        extra = {"skip": skips[name]} if skips.get(name) else {}
         if name in present and not repo_download_incomplete(
-            name, cache_dir, variant=variants.get(name)
+            name, cache_dir, variant=variants.get(name), **extra
         ):
             continue
         entry = {"repo": name, "gb": None, "gated": None, "access_blocked": None}

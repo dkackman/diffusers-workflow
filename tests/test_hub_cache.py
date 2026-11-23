@@ -589,3 +589,44 @@ class TestDownloadRepoMainRef:
         with pytest.raises(DownloadCancelled):
             self.run(tmp_path, self.fake_writer(tmp_path, on_fetch), cancel=cancel)
         assert not (tmp_path / "models--acme--tiny" / "refs" / "main").exists()
+
+
+class TestSkippedComponentsInDownloadsRequired:
+    """#1588: a component the workflow loads as null is never fetched, so its
+    missing folder is not an interrupted pull."""
+
+    SD15 = {
+        "unet": ["diffusion_pytorch_model.safetensors"],
+        "vae": ["diffusion_pytorch_model.safetensors"],
+        "text_encoder": ["model.safetensors"],
+        "tokenizer": ["vocab.json"],
+        "scheduler": ["scheduler_config.json"],
+    }
+
+    def _required(self, tmp_path, components, skipped):
+        from dw.plan_downloads import downloads_required
+
+        # SD 1.5's index names safety_checker whether or not it was fetched
+        repo = make_pipeline_repo(tmp_path, components=components)
+        snapshot = repo / "snapshots" / "aaaa1111"
+        index = json.loads((snapshot / "model_index.json").read_text())
+        index["unet"] = ["diffusers", "UNet2DConditionModel"]
+        index["safety_checker"] = ["stable_diffusion", "StableDiffusionSafetyChecker"]
+        (snapshot / "model_index.json").write_text(json.dumps(index))
+        source = {"model_name": "acme/pipe"}
+        if skipped:
+            source["safety_checker"] = None
+        definition = {"steps": [{"pipeline": {"from_pretrained_arguments": source}}]}
+        return downloads_required(definition, None, None, str(tmp_path), False)
+
+    def test_a_missing_skipped_component_is_not_a_download(self, tmp_path):
+        assert self._required(tmp_path, self.SD15, skipped=True) == []
+
+    def test_the_same_repo_is_a_download_when_the_load_needs_it(self, tmp_path):
+        required = self._required(tmp_path, self.SD15, skipped=False)
+        assert [e["repo"] for e in required] == ["acme/pipe"]
+
+    def test_a_missing_needed_component_is_still_a_download(self, tmp_path):
+        components = {k: v for k, v in self.SD15.items() if k != "unet"}
+        required = self._required(tmp_path, components, skipped=True)
+        assert [e["repo"] for e in required] == ["acme/pipe"]

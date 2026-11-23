@@ -198,7 +198,7 @@ def _component_incomplete(folder, variant, class_name=None):
     return not any(f".{variant}." in name for name in weight_files)
 
 
-def repo_download_incomplete(repo_id, cache_dir=None, variant=None):
+def repo_download_incomplete(repo_id, cache_dir=None, variant=None, skip=()):
     """Whether repo_id, though listed by `scan_models`, is left over from an
     interrupted pull rather than fully fetched (#382): a cancelled
     `snapshot_download` leaves the revision folder in place - the repo still
@@ -216,6 +216,9 @@ def repo_download_incomplete(repo_id, cache_dir=None, variant=None):
     a file that was never attempted at all on an otherwise-untouched repo
     (nothing downloaded, no blobs, no snapshot) is caught by the "no snapshot"
     case, not enumerated.
+
+    `skip` names components the load passes as None (`"safety_checker":
+    null`): diffusers never fetches their folders, so they are not checked.
     """
     resolved = _resolved_cache_dir(cache_dir)
     try:
@@ -260,6 +263,8 @@ def repo_download_incomplete(repo_id, cache_dir=None, variant=None):
         # point this listdir anywhere and make validate_workflow's
         # downloads_required a yes/no oracle for directories on the box
         if os.path.basename(key) != key or key in (".", ".."):
+            continue
+        if key in skip:
             continue
         class_name = value[1] if len(value) > 1 else None
         if _component_incomplete(os.path.join(snapshot, key), variant, class_name):
