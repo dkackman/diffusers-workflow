@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 
 test('worker state and docs sit on the nav row, in one header row', async ({
   page,
@@ -199,10 +199,45 @@ test('opening the drawer at 390px focuses its first link, and Escape returns foc
   await expect(menu).toBeFocused()
 })
 
-test('the meter says idle or running', async ({ page }) => {
+// The real meter needs a GPU reading, which the fixture server lacks: mock
+// the memory read, and patch the live health read for the running case
+async function meterPage(page: Page, running: boolean) {
+  await page.route('**/api/memory', (route) =>
+    route.fulfill({
+      json: {
+        info: {
+          gpu_available: true,
+          gpu_device_name: 'Test GPU',
+          gpu_memory_total_mb: 24000,
+          gpu_memory_allocated_mb: 6000,
+          gpu_memory_free_mb: 18000,
+          gpu_memory_reserved_mb: 7000,
+        },
+      },
+    }),
+  )
+  await page.route('**/api/health', async (route) => {
+    const response = await route.fetch()
+    const body = await response.json()
+    await route.fulfill({
+      response,
+      json: { ...body, current_job: running ? 'j-meter' : null },
+    })
+  })
   await page.goto('/')
-  // The fixture has no GPU reading, so the status button stands in for the
-  // meter: it names the state in words either way
-  const meter = page.getByRole('button', { name: /^server & worker status/ })
-  await expect(meter).toContainText(/idle|running/)
+  return page.locator('button.vram')
+}
+
+test('the meter names idle in words with nothing running', async ({ page }) => {
+  const meter = await meterPage(page, false)
+  await expect(meter.locator('.stateword')).toHaveText('idle')
+  await expect(meter).toHaveAttribute('aria-label', /^server & worker status, /)
+})
+
+test('the meter names running in words with a job in flight', async ({
+  page,
+}) => {
+  const meter = await meterPage(page, true)
+  await expect(meter.locator('.stateword')).toHaveText('running')
+  await expect(meter).toHaveAttribute('aria-label', /^server & worker status, /)
 })
