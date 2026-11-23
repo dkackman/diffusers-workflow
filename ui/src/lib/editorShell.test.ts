@@ -452,6 +452,12 @@ describe('watchRemote', () => {
   /** The feed moves `prompts`, and the re-read lands */
   async function moved() {
     feed.move('default', 'prompts')
+    await settled()
+  }
+
+  /** Effects run, and any re-read they began lands */
+  async function settled() {
+    flushSync()
     for (let i = 0; i < 5; i++) await tick()
     flushSync()
   }
@@ -509,16 +515,12 @@ describe('watchRemote', () => {
   })
 
   it('no reload while a save is in flight', async () => {
-    const read = vi.fn().mockResolvedValue(theirs)
-    const shell = watching(read)
-    shell.busy = true
-    await moved()
-    expect(read).not.toHaveBeenCalled()
-    expect(shell.doc).toEqual({ text: 'mine' })
-    // Nor one read before the save began that lands after it started
-    shell.busy = false
     let land: (r: Read) => void = () => {}
-    read.mockReturnValueOnce(new Promise<Read>((r) => (land = r)))
+    const read = vi
+      .fn()
+      .mockReturnValueOnce(new Promise<Read>((r) => (land = r)))
+    const shell = watching(read)
+    // A read begun before the save began, landing after it started
     feed.move('default', 'prompts')
     await tick()
     shell.busy = true
@@ -526,6 +528,64 @@ describe('watchRemote', () => {
     for (let i = 0; i < 5; i++) await tick()
     expect(shell.doc).toEqual({ text: 'mine' })
     expect(shell.remote).toBe('same')
+  })
+
+  it('a move while busy is read once busy clears', async () => {
+    const read = vi.fn().mockResolvedValue(theirs)
+    const shell = watching(read)
+    shell.doc.text = 'edited'
+    shell.busy = true
+    await moved()
+    expect(read).not.toHaveBeenCalled()
+    expect(shell.remote).toBe('same')
+    shell.busy = false
+    await settled()
+    expect(read).toHaveBeenCalledTimes(1)
+    expect(shell.remote).toBe('diverged')
+    expect(shell.doc).toEqual({ text: 'edited' })
+  })
+
+  it('an unedited document skipped while busy reloads once busy clears', async () => {
+    const read = vi.fn().mockResolvedValue(theirs)
+    const shell = watching(read)
+    shell.busy = true
+    await moved()
+    shell.busy = false
+    await settled()
+    expect(shell.doc).toEqual({ text: 'theirs' })
+    expect(notify.success).toHaveBeenCalledWith(
+      'Updated by an agent or another tab',
+    )
+  })
+
+  it("a save's own move, re-read after busy clears, raises nothing", async () => {
+    const read = vi.fn().mockResolvedValue({ ...theirs, etag: '"e2"' })
+    const shell = watching(read)
+    shell.doc.text = 'edited'
+    shell.busy = true
+    // The save's write moves the feed while it is still in flight
+    await moved()
+    shell.markSaved()
+    shell.etag = '"e2"'
+    shell.busy = false
+    await settled()
+    expect(read).toHaveBeenCalledTimes(1)
+    expect(shell.remote).toBe('same')
+    expect(shell.doc).toEqual({ text: 'edited' })
+    expect(notify.success).not.toHaveBeenCalled()
+  })
+
+  it('text mid-composition is held as an edit, never loaded over', async () => {
+    const shell = watching(vi.fn().mockResolvedValue(theirs))
+    const root = document.createElement('div')
+    document.body.append(root)
+    shell.root = root
+    root.dispatchEvent(new CompositionEvent('compositionstart'))
+    await moved()
+    expect(shell.remote).toBe('diverged')
+    expect(shell.doc).toEqual({ text: 'mine' })
+    expect(notify.success).not.toHaveBeenCalled()
+    root.remove()
   })
 
   it('nothing is read until a document is loaded', async () => {

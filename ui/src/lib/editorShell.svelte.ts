@@ -15,6 +15,8 @@
 // Load theirs takes the held read, Keep mine leaves the ETag alone so the
 // next save meets the `stale_write` question. A read begun before a load
 // or a save is not news, nor one at the ETag the user already declined.
+// A move seen while `busy` is read again once it clears, and text still
+// mid-IME-composition counts as an edit, so it is never loaded over.
 import { tick, untrack } from 'svelte'
 import type { WritePreconditions } from './apiRequest'
 import type { ChangeKind } from './changes.svelte'
@@ -156,6 +158,9 @@ export class DocumentEditor {
   #declined: string | null = null
   // Moved by every load and save, so a re-read begun before one is dropped
   #version = 0
+  // A feed move skipped (or a re-read dropped) while `busy`: read once it
+  // clears, since no later move comes for that write
+  #missed = false
 
   constructor({
     viewKey,
@@ -337,10 +342,20 @@ export class DocumentEditor {
       const arrived = reread.data
       if (arrived) untrack(() => this.#arrived(arrived))
     })
+    // A save's own move lands here too; its etag matches, so it is no news
+    $effect(() => {
+      if (this.busy || this.loadState !== 'loaded') return
+      untrack(() => {
+        if (!this.#missed) return
+        this.#missed = false
+        void reread.reload()
+      })
+    })
   }
 
   /** Nothing to compare while no document is open or a save is writing */
   async #reread(read: () => Promise<RemoteRead>): Promise<Arrival | null> {
+    if (this.busy) this.#missed = true
     if (this.loadState !== 'loaded' || this.busy) return null
     const version = this.#version
     const path = this.loadedPath
@@ -348,6 +363,7 @@ export class DocumentEditor {
   }
 
   #arrived(read: Arrival) {
+    if (this.busy) this.#missed = true
     const news =
       read.version === this.#version &&
       read.path === this.loadedPath &&
@@ -356,7 +372,8 @@ export class DocumentEditor {
       read.etag !== this.etag &&
       read.etag !== this.#declined
     if (!news) return
-    if (this.unsaved()) {
+    // Text mid-composition never reaches `doc`, so it counts as an edit
+    if (this.#composing || this.unsaved()) {
       this.#theirs = read
       this.remote = 'diverged'
       return
