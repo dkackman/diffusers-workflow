@@ -1,10 +1,19 @@
-import { describe, expect, it, afterEach } from 'vitest'
+import { describe, expect, it, afterEach, vi } from 'vitest'
 import { render, screen, fireEvent, cleanup } from '@testing-library/svelte'
+import { tick } from 'svelte'
 import VariablesForm from './VariablesForm.svelte'
 import { attentionBackends } from '../attentionBackends.svelte'
 
+const notify = vi.hoisted(() => ({
+  undo: vi.fn(),
+  failure: vi.fn(),
+  success: vi.fn(),
+}))
+vi.mock('../toast', () => ({ notify }))
+
 afterEach(() => {
   cleanup()
+  vi.clearAllMocks()
   attentionBackends.list = []
 })
 
@@ -272,5 +281,56 @@ describe('VariablesForm preset selectors', () => {
       'native',
       'sparse',
     ])
+  })
+})
+
+describe('VariablesForm removing a variable', () => {
+  /** The variable names the form lists, in order */
+  const listed = () =>
+    Array.from(document.querySelectorAll('.vars > label')).map((l) =>
+      l.textContent?.trim(),
+    )
+
+  it('removing a variable offers Undo; a key added again meanwhile is kept', async () => {
+    render(
+      VariablesForm,
+      props({
+        variables: { a: 1, b: 'two', c: true },
+        backendVariables: new Set(),
+      }),
+    )
+    const removes = screen.getAllByRole('button', {
+      name: 'remove this variable',
+    })
+    await fireEvent.click(removes[1])
+    expect(listed()).toEqual(['a', 'c'])
+    expect(notify.undo).toHaveBeenCalledTimes(1)
+    expect(notify.undo.mock.calls[0][0]).toBe('Removed variable b')
+    // Undo puts it back at its place, with its value
+    notify.undo.mock.calls[0][1]()
+    await tick()
+    expect(listed()).toEqual(['a', 'b', 'c'])
+    expect(
+      (document.getElementById('v-b') as HTMLTextAreaElement).value,
+    ).toBe('two')
+
+    // Removed again, then added again by hand before Undo is pressed
+    await fireEvent.click(
+      screen.getAllByRole('button', { name: 'remove this variable' })[0],
+    )
+    const name = screen.getByPlaceholderText('new variable name…')
+    await fireEvent.input(name, { target: { value: 'a' } })
+    await fireEvent.click(
+      screen.getByRole('button', { name: 'add this variable to the workflow' }),
+    )
+    expect(listed()).toEqual(['b', 'c', 'a'])
+    notify.undo.mock.calls[1][1]()
+    await tick()
+    // The key added again is left as it is, and the toast says so
+    expect(listed()).toEqual(['b', 'c', 'a'])
+    expect(
+      (document.getElementById('v-a') as HTMLTextAreaElement).value,
+    ).toBe('')
+    expect(notify.success).toHaveBeenCalledWith('a is already back')
   })
 })

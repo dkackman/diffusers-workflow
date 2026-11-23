@@ -4,9 +4,24 @@
 // keep - and puts the button in danger. Pages pass a subject, never their
 // own sentence; ESLint holds it (a Delete or Remove confirmLabel outside
 // this module fails lint). A caller runs the spec through action()'s
-// `confirm`, or confirmDialog(spec.message, spec).
+// `confirm`, or confirmDialog(spec.message, spec). What can be put back
+// is not asked about: it acts at once and offers Undo (`undoToast`).
 import type { ConfirmSpec } from './action.svelte'
 import { formatBytes } from './format'
+import { notify } from './toast'
+
+/** A reversible action done at once: the toast that takes it back for
+ * UNDO_MS. A revert that fails is reported, never thrown */
+export function undoToast(
+  message: string,
+  revert: () => void | Promise<unknown>,
+): void {
+  notify.undo(message, () => {
+    Promise.resolve()
+      .then(revert)
+      .catch((e) => notify.failure('undo that', e))
+  })
+}
 
 export type DestroySubject = {
   /** One thing, by the name it shows under */

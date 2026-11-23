@@ -1,10 +1,14 @@
-import { expect, it } from 'vitest'
+import { expect, it, vi } from 'vitest'
 import {
   destroyConfirm,
   modelDeleteConfirm,
   serverConfirm,
+  undoToast,
   workspaceConfirm,
 } from './destructive'
+
+const notify = vi.hoisted(() => ({ undo: vi.fn(), failure: vi.fn() }))
+vi.mock('./toast', () => ({ notify }))
 
 it('one file, one starred, several', () => {
   expect(destroyConfirm({ name: 'a.png', noun: 'file' })).toEqual({
@@ -96,4 +100,23 @@ it('a server change asks in the plain style, never danger', () => {
     confirmLabel: 'Delete model',
     danger: false,
   })
+})
+
+it('an undo toast reverts, and a revert that fails is reported', async () => {
+  const revert = vi.fn()
+  undoToast('Removed step b', revert)
+  expect(notify.undo.mock.calls[0][0]).toBe('Removed step b')
+  notify.undo.mock.calls[0][1]()
+  await vi.waitFor(() => expect(revert).toHaveBeenCalledTimes(1))
+  const bad = new Error('gone')
+  undoToast('Starred a.png', () => Promise.reject(bad))
+  notify.undo.mock.calls[1][1]()
+  await vi.waitFor(() =>
+    expect(notify.failure).toHaveBeenCalledWith('undo that', bad),
+  )
+  undoToast('Removed variable x', () => {
+    throw bad
+  })
+  notify.undo.mock.calls[2][1]()
+  await vi.waitFor(() => expect(notify.failure).toHaveBeenCalledTimes(2))
 })

@@ -16,6 +16,8 @@
   import BrowseButton from '../assets/BrowseButton.svelte'
   import { attentionBackends } from '../attentionBackends.svelte'
   import type { Finding } from '../findings'
+  import { undoToast } from '../destructive'
+  import { notify } from '../toast'
 
   let {
     mode,
@@ -140,8 +142,25 @@
     newVariable = ''
   }
 
+  /** Removed at once, with an Undo that puts it back at its place - before
+   * the first key that followed it and is still there. A key added again
+   * meanwhile is the person's newer word, so it is left as it is */
   function removeVariable(key: string) {
-    delete variables[key]
+    const order = Object.keys(variables)
+    const value = $state.snapshot(variables[key])
+    variables = Object.fromEntries(
+      Object.entries(variables).filter(([k]) => k !== key),
+    )
+    undoToast(`Removed variable ${key}`, () => {
+      if (Object.hasOwn(variables, key))
+        return notify.success(`${key} is already back`)
+      const entries = Object.entries(variables)
+      const after = new Set(order.slice(order.indexOf(key) + 1))
+      const found = entries.findIndex(([k]) => after.has(k))
+      const at = found < 0 ? entries.length : found
+      entries.splice(at, 0, [key, value])
+      variables = Object.fromEntries(entries)
+    })
   }
 </script>
 

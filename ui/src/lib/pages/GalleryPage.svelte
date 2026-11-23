@@ -12,7 +12,6 @@
   import { isEditable } from '../editable'
   import { neighbor } from '../neighbor'
   import { overlayOpen } from '../ui/layers.svelte'
-  import { notify } from '../toast'
   import { action } from '../action.svelte'
   import { askDeletion, fileConfirm } from '../gallery/deletion'
   import type { GalleryFile, OutputRole } from '../types'
@@ -43,7 +42,6 @@
   // Names ticked in the grid, for the bulk actions. The grid order it is
   // given is what a shift-range spans and the order the actions act in
   const picks: Picks = new Picks(() => visible.map((f) => f.name))
-  let busy = $state(false)
   const assessCache = new AssessCache()
 
   // The requests-ledger request the gallery is narrowed to (RequestFilter
@@ -112,34 +110,34 @@
     reqItem = ''
   }
   const visible = $derived(gridFiles(files, filter, roles, starredOnly))
-  async function toggleStar() {
-    if (!selected) return
-    const name = selected.name
-    const next = !selected.starred
-    try {
-      await api.setStarred(name, next)
-      patch(name, { starred: next })
-      if (selected?.name === name) selected = { ...selected, starred: next }
-    } catch (e) {
-      notify.failure('star that file', e)
-    }
+  // A star is undone, not asked about: held here at once (`patch`), as is
+  // the Undo that takes it back
+  async function setStar(name: string, next: boolean) {
+    await api.setStarred(name, next)
+    patch(name, { starred: next })
+    if (selected?.name === name) selected = { ...selected, starred: next }
+    return { name, next }
   }
+  const starring = action(setStar, {
+    doing: 'star that file',
+    undo: ({ name, next }) => ({
+      message: `${next ? 'Starred' : 'Unstarred'} ${name.split('/').pop()}`,
+      revert: () => setStar(name, !next),
+    }),
+  })
+  const toggleStar = () =>
+    selected && starring.run(selected.name, !selected.starred)
   const byName = $derived(new Map(visible.map((f) => [f.name, f])))
   // The server folds each run id into `folder`; group by that, since the
   // name alone reads the run directory as one more folder
   const folderByName = $derived(new Map(visible.map((f) => [f.name, f.folder])))
 
-  async function downloadPicked() {
-    if (picks.names.length === 0) return
-    busy = true
-    try {
-      await api.archiveOutputs(picks.names)
-    } catch (e) {
-      notify.failure('download the picked files', e)
-    } finally {
-      busy = false
-    }
-  }
+  const downloading = action(
+    (names: string[]) => api.archiveOutputs(names),
+    { doing: 'download the picked files' },
+  )
+  const downloadPicked = () =>
+    picks.names.length > 0 && downloading.run(picks.names)
 
   // The question is askDeletion's: it can spare the starred files
   const removingPicked = action(
@@ -271,7 +269,7 @@
   {picks}
   visible={visible.length}
   {filterActive}
-  busy={busy || removingPicked.busy}
+  busy={downloading.busy || removingPicked.busy}
   noun="file"
   ondownload={downloadPicked}
   ondelete={removePicked}

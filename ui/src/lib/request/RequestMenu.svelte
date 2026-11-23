@@ -1,7 +1,7 @@
 <script lang="ts">
   import { api, ApiError } from '../api'
   import { action } from '../action.svelte'
-  import { destroyConfirm } from '../destructive'
+  import { destroyConfirm, undoToast } from '../destructive'
   import { notify } from '../toast'
   import type { LedgerRequest } from '../types'
   import ItemMenu from './ItemMenu.svelte'
@@ -27,9 +27,13 @@
     ondeleted: () => void
   } = $props()
 
-  async function setState(state: LedgerRequest['state']) {
+  /** A state write through the store, which reads again and re-applies it
+   * when the plan moved on; whether it was written. Refused for good, it
+   * says why here and is never thrown */
+  async function pushState(state: LedgerRequest['state']): Promise<boolean> {
     try {
-      await store.push({ kind: 'state', state })
+      const outcome = await store.push({ kind: 'state', state })
+      return outcome.status === 'saved'
     } catch (error) {
       if (error instanceof ApiError && error.code === 'stale_revision') {
         notify.error(
@@ -38,7 +42,23 @@
       } else {
         notify.failure('save that', error)
       }
+      return false
     }
+  }
+
+  const UNDONE: Partial<Record<LedgerRequest['state'], (t: string) => string>> =
+    {
+      done: (title) => `Marked "${title}" done`,
+      abandoned: (title) => `Abandoned "${title}"`,
+    }
+
+  /** Mark done and Abandon act at once and offer Undo, which writes the
+   * state it had back through the same store path; Reopen just writes */
+  async function setState(state: LedgerRequest['state']) {
+    const { title, state: previous } = request
+    const said = UNDONE[state]
+    if (!(await pushState(state)) || !said) return
+    undoToast(said(title), () => pushState(previous))
   }
 
   const REFUSED: Record<string, string> = {

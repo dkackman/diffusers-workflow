@@ -96,8 +96,14 @@ vi.mock('../changes.svelte', async () => ({
 
 const notifyError = vi.hoisted(() => vi.fn())
 const notifyFailure = vi.hoisted(() => vi.fn())
+const notifyUndo = vi.hoisted(() => vi.fn())
 vi.mock('../toast', () => ({
-  notify: { error: notifyError, failure: notifyFailure },
+  notify: {
+    error: notifyError,
+    failure: notifyFailure,
+    undo: notifyUndo,
+    success: vi.fn(),
+  },
 }))
 
 beforeEach(() => {
@@ -114,6 +120,7 @@ afterEach(() => {
   archiveOutputs.mockClear()
   notifyError.mockClear()
   notifyFailure.mockClear()
+  notifyUndo.mockClear()
   galleryMetadata.mockReset()
   galleryMetadata.mockImplementation(() => new Promise(() => {}))
   vi.unstubAllGlobals()
@@ -766,6 +773,46 @@ it('stars the open file and can filter to starred files', async () => {
   await fireEvent.click(screen.getByRole('button', { name: 'Starred' }))
   expect(screen.queryByTitle('b.png')).toBeNull()
   expect(screen.getByTitle('a.png')).toBeTruthy()
+})
+
+it('starring offers Undo, which unstars', async () => {
+  listing.files = [file('demo/c.png'), file('a.png')]
+  await renderGallery('demo/c.png')
+  await openFile('demo/c.png')
+  await fireEvent.click(screen.getByRole('button', { name: 'star this file' }))
+  await waitFor(() => expect(notifyUndo).toHaveBeenCalledTimes(1))
+  expect(notifyUndo.mock.calls[0][0]).toBe('Starred c.png')
+  await waitFor(() => expect(starMark('demo/c.png')).toBeTruthy())
+  notifyUndo.mock.calls[0][1]()
+  await waitFor(() =>
+    expect(setStarred).toHaveBeenLastCalledWith('demo/c.png', false),
+  )
+  // Undone here at once, as the star was: no listing has to land first
+  await waitFor(() => expect(starMark('demo/c.png')).toBeNull())
+  expect(
+    screen.getByRole('button', { name: 'star this file' }),
+  ).toBeTruthy()
+})
+
+it('an undo that fails is reported, not thrown', async () => {
+  listing.files = [{ ...file('a.png'), starred: true }, file('b.png')]
+  await renderGallery()
+  await openFile('a.png')
+  await fireEvent.click(
+    screen.getByRole('button', { name: 'unstar this file' }),
+  )
+  await waitFor(() => expect(notifyUndo).toHaveBeenCalledTimes(1))
+  expect(notifyUndo.mock.calls[0][0]).toBe('Unstarred a.png')
+  // The file was deleted elsewhere before Undo was pressed
+  const gone = new Error('no output a.png')
+  setStarred.mockImplementationOnce(() => Promise.reject(gone))
+  // An unhandled rejection fails the vitest run, so reaching the end of
+  // this test with the failure reported is the whole claim
+  notifyUndo.mock.calls[0][1]()
+  await waitFor(() => expect(notifyFailure).toHaveBeenCalled())
+  expect(notifyFailure.mock.calls[0][1]).toBe(gone)
+  await settle()
+  expect(starMark('a.png')).toBeNull()
 })
 
 it('the S key stars the open file', async () => {
