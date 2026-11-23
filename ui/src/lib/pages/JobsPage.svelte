@@ -2,18 +2,17 @@
   import { formatDuration, formatExact, formatMtime } from '../format'
   import { holdKind } from '../progress'
   import { queueWait } from '../jobTimes'
-  import { poll } from '../poll'
+  import { resource } from '../resource.svelte'
+  import LoadState from '../ui/LoadState.svelte'
   import { onMount } from 'svelte'
   import { ChevronDown, ChevronUp, ChevronsUp, Inbox, X } from '@lucide/svelte'
   import { api } from '../api'
-  import Empty from '../Empty.svelte'
   import { notify } from '../toast'
   import type { JobSummary } from '../types'
   import { wsHref } from '../routes'
   import { hashQuery, setHashQuery } from '../router.svelte'
   import { parseRequestFilter, type RequestFilter } from '../requestFilter'
-  import { latestOnly } from '../latest'
-  import { listingFailure, listingWorkspace, queueLength } from '../jobsListing'
+  import { listingRefused, listingWorkspace, queueLength } from '../jobsListing'
   import { loadWorkspaces, workspace } from '../workspace.svelte'
   import {
     rerunRestartBatchWithConfirm,
@@ -23,8 +22,6 @@
 
   let { scope = 'workspace' }: { scope?: 'workspace' | 'all' } = $props()
 
-  let jobs = $state<JobSummary[]>([])
-  let error = $state('')
   // The filters live in the hash's query, so opening a job and coming back
   // - or sharing the link - keeps the narrowed view
   const initial = hashQuery()
@@ -63,11 +60,11 @@
     window.addEventListener('hashchange', sync)
     return () => window.removeEventListener('hashchange', sync)
   })
-  const filtered = $derived(
-    !!statusFilter ||
-      !!nameFilter ||
-      !!requestScope.request ||
-      (scope === 'all' && !!workspaceFilter),
+  // The server-side filters narrow what is fetched, so an empty answer is
+  // "nothing matches"; the client-side ones only mean that when there were
+  // rows to filter (on an empty listing the answer is "no jobs yet")
+  const narrowed = $derived(
+    !!requestScope.request || (scope === 'all' && !!workspaceFilter),
   )
   function clearFilters() {
     statusFilter = ''
@@ -94,6 +91,29 @@
   // has nothing to filter by
   onMount(loadWorkspaces)
 
+  // Live state, as it was: the listing the filters name, read every 3 s.
+  // What load reads before its first await (the scope's workspace and the
+  // request filter) restarts the read when it changes, so a narrowed view
+  // never shows another question's rows
+  const list = resource(
+    async () => {
+      const [ws, scoped] = [listed, requestScope]
+      const rows = (await listJobs(ws, scoped)).jobs.reverse()
+      const queued = await queuedEverywhere(rows, !!(ws || scoped.request))
+      return { rows, queueSize: queueLength(rows, queued) }
+    },
+    { live: { everyMs: 3000 } },
+  )
+  // The server turning the question down: its message is the explanation,
+  // and the rows of an earlier question must not stay under this one's
+  const refused = $derived(
+    list.status === 'error' && listingRefused(list.error),
+  )
+  const jobs = $derived(refused ? [] : (list.data?.rows ?? []))
+  const filtered = $derived(
+    narrowed || ((!!statusFilter || !!nameFilter) && jobs.length > 0),
+  )
+  const queueSize = $derived(list.data?.queueSize ?? 0)
   const visible = $derived(
     jobs.filter(
       (job) =>
@@ -101,28 +121,6 @@
         (job.workflow ?? '').toLowerCase().includes(nameFilter.toLowerCase()),
     ),
   )
-
-  // The waiting queue's length, for the move buttons (queueLength)
-  let queueSize = $state(0)
-  const beginListing = latestOnly()
-  /** Load the listing the filters name. A reply a later call superseded is
-   * dropped, so a narrowed view never shows another question's rows. */
-  async function refresh(ws: string, scoped: RequestFilter) {
-    const current = beginListing()
-    try {
-      const rows = (await listJobs(ws, scoped)).jobs.reverse()
-      const queued = await queuedEverywhere(rows, !!(ws || scoped.request))
-      if (!current()) return
-      jobs = rows
-      queueSize = queueLength(rows, queued)
-      error = ''
-    } catch (e) {
-      if (!current()) return
-      const failure = listingFailure(e)
-      error = failure.message
-      if (failure.refused) jobs = []
-    }
-  }
   const listJobs = (ws: string, scoped: RequestFilter) =>
     api.listJobs(
       ws || undefined,
@@ -139,14 +137,6 @@
       return 0
     return (await api.listJobs(undefined, 1, 'queued')).total
   }
-
-  $effect(() => {
-    // Read synchronously so the effect reruns (and restarts the poll) when
-    // the filter (or the scope's own workspace) changes, rather than the
-    // interval quietly polling stale
-    const [ws, scoped] = [listed, requestScope]
-    return poll(() => refresh(ws, scoped), 3000)
-  })
 
   // Batches a preview found nothing left to rerun in: their banner stays
   // hidden for the rest of the session, in memory only - the client's
@@ -188,7 +178,7 @@
     }
     // Same listing the poll asks for - refreshing without its filters would
     // flash every workspace's jobs into a view the user had narrowed to one
-    await refresh(listed, requestScope)
+    await list.reload()
   }
 
   const requestLabel = (f: { request: string; item: string }) =>
@@ -266,8 +256,6 @@
   {/if}
 </div>
 
-{#if error}<p class="muted" role="alert">{error}</p>{/if}
-
 {#each banners as banner (banner.batch)}
   <div class="panel restart" role="status" data-batch={banner.batch}>
     <span>
@@ -283,149 +271,149 @@
   </div>
 {/each}
 
-{#if jobs.length === 0 && !filtered}
-  <Empty>
-    {#snippet icon()}<Inbox size={36} strokeWidth={1.5} />{/snippet}
-    No jobs yet — pick a workflow and run it.
-  </Empty>
-{:else if visible.length === 0}
-  <p class="muted">
-    No jobs match the filter.
-    <button class="quiet" onclick={clearFilters}>clear filters</button>
-  </p>
-{:else}
-  <div class="panel list">
-    {#each visible as job (job.id)}
-      <a
-        class="row plain"
-        class:historical={job.historical}
-        class:row-live={job.status === 'running'}
-        href={wsHref(job.workspace, 'jobs', job.id)}
-        title={job.historical
-          ? 'finished before this server started - loaded from history'
-          : ''}
-      >
-        <span class="chip {job.status}">{job.status}</span>
-        <span class="namecol">
-          <span class="name">
-            {job.workflow}
-            {#if job.run_version}
-              <span
-                class="wschip muted"
-                title="version {job.run_version} of this workflow - the gallery labels its files the same way"
-              >
-                v{job.run_version}
-              </span>
-            {/if}
-            {#if job.rerun_of}
-              <span class="wschip muted" title="a rerun of {job.rerun_of}">
-                rerun
-              </span>
-            {/if}
-            {#if job.request}
-              <span
-                class="wschip muted"
-                title="request {job.request}{job.item
-                  ? `, item ${job.item}`
-                  : ''}"
-              >
-                {requestLabel({
-                  request: job.request,
-                  item: job.item ?? '',
-                })}
-              </span>
-            {/if}
-            {#if scope === 'all' && (workspace.names?.length ?? 0) > 1}
-              <span class="wschip muted" title="workspace">
-                {job.workspace}
-              </span>
-            {/if}
-            {#if job.device}
-              <span class="wschip muted" title="the card this job ran on">
-                {job.device}
-              </span>
-            {/if}
-            {#if job.acknowledged === 'bound'}
-              <span
-                class="wschip muted"
-                title="queued with a cost acknowledgement bound to the validated plan"
-              >
-                acknowledged
-              </span>
-            {/if}
-            {#if job.queue_position !== undefined}
-              <span class="qpos" title="position in the waiting queue">
-                #{job.queue_position + 1}
-              </span>
-              {#if queueSize > 1}
-                <span class="qmove">
-                  {#if job.queue_position > 0}
-                    <button
-                      class="quiet icon"
-                      onclick={(e) => move(e, job.id, 'front')}
-                      title="run this job next"
-                      aria-label="move {job.id} to the front of the queue"
-                    >
-                      <ChevronsUp size={13} />
-                    </button>
-                    <button
-                      class="quiet icon"
-                      onclick={(e) => move(e, job.id, 'up')}
-                      title="move up one place"
-                      aria-label="move {job.id} up one place"
-                    >
-                      <ChevronUp size={13} />
-                    </button>
-                  {/if}
-                  {#if job.queue_position < queueSize - 1}
-                    <button
-                      class="quiet icon"
-                      onclick={(e) => move(e, job.id, 'down')}
-                      title="move down one place"
-                      aria-label="move {job.id} down one place"
-                    >
-                      <ChevronDown size={13} />
-                    </button>
-                  {/if}
+<LoadState
+  of={list}
+  label="jobs"
+  empty={!refused && visible.length === 0}
+  {filtered}
+  onclear={clearFilters}
+>
+  {#snippet emptyIcon()}<Inbox size={36} strokeWidth={1.5} />{/snippet}
+  {#snippet emptyText()}No jobs yet — pick a workflow and run it.{/snippet}
+  {#if visible.length > 0}
+    <div class="panel list">
+      {#each visible as job (job.id)}
+        <a
+          class="row plain"
+          class:historical={job.historical}
+          class:row-live={job.status === 'running'}
+          href={wsHref(job.workspace, 'jobs', job.id)}
+          title={job.historical
+            ? 'finished before this server started - loaded from history'
+            : ''}
+        >
+          <span class="chip {job.status}">{job.status}</span>
+          <span class="namecol">
+            <span class="name">
+              {job.workflow}
+              {#if job.run_version}
+                <span
+                  class="wschip muted"
+                  title="version {job.run_version} of this workflow - the gallery labels its files the same way"
+                >
+                  v{job.run_version}
                 </span>
               {/if}
+              {#if job.rerun_of}
+                <span class="wschip muted" title="a rerun of {job.rerun_of}">
+                  rerun
+                </span>
+              {/if}
+              {#if job.request}
+                <span
+                  class="wschip muted"
+                  title="request {job.request}{job.item
+                    ? `, item ${job.item}`
+                    : ''}"
+                >
+                  {requestLabel({
+                    request: job.request,
+                    item: job.item ?? '',
+                  })}
+                </span>
+              {/if}
+              {#if scope === 'all' && (workspace.names?.length ?? 0) > 1}
+                <span class="wschip muted" title="workspace">
+                  {job.workspace}
+                </span>
+              {/if}
+              {#if job.device}
+                <span class="wschip muted" title="the card this job ran on">
+                  {job.device}
+                </span>
+              {/if}
+              {#if job.acknowledged === 'bound'}
+                <span
+                  class="wschip muted"
+                  title="queued with a cost acknowledgement bound to the validated plan"
+                >
+                  acknowledged
+                </span>
+              {/if}
+              {#if job.queue_position !== undefined}
+                <span class="qpos" title="position in the waiting queue">
+                  #{job.queue_position + 1}
+                </span>
+                {#if queueSize > 1}
+                  <span class="qmove">
+                    {#if job.queue_position > 0}
+                      <button
+                        class="quiet icon"
+                        onclick={(e) => move(e, job.id, 'front')}
+                        title="run this job next"
+                        aria-label="move {job.id} to the front of the queue"
+                      >
+                        <ChevronsUp size={13} />
+                      </button>
+                      <button
+                        class="quiet icon"
+                        onclick={(e) => move(e, job.id, 'up')}
+                        title="move up one place"
+                        aria-label="move {job.id} up one place"
+                      >
+                        <ChevronUp size={13} />
+                      </button>
+                    {/if}
+                    {#if job.queue_position < queueSize - 1}
+                      <button
+                        class="quiet icon"
+                        onclick={(e) => move(e, job.id, 'down')}
+                        title="move down one place"
+                        aria-label="move {job.id} down one place"
+                      >
+                        <ChevronDown size={13} />
+                      </button>
+                    {/if}
+                  </span>
+                {/if}
+              {/if}
+            </span>
+            {#if job.reason}
+              <span class="reason muted" title={job.reason}>{job.reason}</span>
             {/if}
           </span>
-          {#if job.reason}
-            <span class="reason muted" title={job.reason}>{job.reason}</span>
-          {/if}
-        </span>
-        {#if job.status === 'queued'}
-          {@const wait = waitOf(job)}
-          <span
-            class="muted started"
-            title={job.created_at
-              ? `queued ${formatExact(job.created_at)} - time spent waiting for a card`
-              : 'time spent waiting for a card'}
-          >
-            waiting {wait === null ? '' : formatDuration(wait)}
-          </span>
-          {#if job.waiting_for}
-            {@const kind = holdKind(job.waiting_for)}
-            <span class="muted" title={job.waiting_for}>
-              · {kind === 'host_ram'
-                ? 'host RAM'
-                : kind === 'cards_busy'
-                  ? 'cards busy'
-                  : 'held'}
+          {#if job.status === 'queued'}
+            {@const wait = waitOf(job)}
+            <span
+              class="muted started"
+              title={job.created_at
+                ? `queued ${formatExact(job.created_at)} - time spent waiting for a card`
+                : 'time spent waiting for a card'}
+            >
+              waiting {wait === null ? '' : formatDuration(wait)}
+            </span>
+            {#if job.waiting_for}
+              {@const kind = holdKind(job.waiting_for)}
+              <span class="muted" title={job.waiting_for}>
+                · {kind === 'host_ram'
+                  ? 'host RAM'
+                  : kind === 'cards_busy'
+                    ? 'cards busy'
+                    : 'held'}
+              </span>
+            {/if}
+          {:else}
+            <span class="muted started" title={timesOf(job)}>
+              {when(job.started_at)}
             </span>
           {/if}
-        {:else}
-          <span class="muted started" title={timesOf(job)}>
-            {when(job.started_at)}
-          </span>
-        {/if}
-        <span class="muted dur">{duration(job)}</span>
-        <code class="muted jobid">{job.id}</code>
-      </a>
-    {/each}
-  </div>
-{/if}
+          <span class="muted dur">{duration(job)}</span>
+          <code class="muted jobid">{job.id}</code>
+        </a>
+      {/each}
+    </div>
+  {/if}
+</LoadState>
 
 <style>
   .pagehead h1 {

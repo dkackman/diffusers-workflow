@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest'
 import { ApiError } from './apiErrors'
-import { listingFailure, listingWorkspace, queueLength } from './jobsListing'
+import { listingRefused, listingWorkspace, queueLength } from './jobsListing'
 import type { JobSummary } from './types'
 
 it("a workspace's Jobs page lists that workspace", () => {
@@ -18,25 +18,13 @@ it('a request filter never spans workspaces: with none picked it is read in the 
   expect(listingWorkspace('all', 'shots', 'studio', 'r1')).toBe('shots')
 })
 
-it("a refusal is shown as the server's own message, and empties the list", () => {
+it('a refusal empties the list; a server fault or an unreachable server keeps the rows', () => {
   expect(
-    listingFailure(new ApiError("Request 'R 1' must match ^[a-z0-9]", 422)),
-  ).toEqual({ message: "Request 'R 1' must match ^[a-z0-9]", refused: true })
-  expect(listingFailure(new ApiError('Unknown workspace nope', 404))).toEqual({
-    message: 'Unknown workspace nope',
-    refused: true,
-  })
-})
-
-it('a server fault or an unreachable server keeps the rows and says which', () => {
-  expect(listingFailure(new ApiError('Internal Server Error', 500))).toEqual({
-    message: 'The server could not list the jobs: Internal Server Error',
-    refused: false,
-  })
-  expect(listingFailure(new TypeError('Failed to fetch'))).toEqual({
-    message: 'Could not reach the server: Failed to fetch',
-    refused: false,
-  })
+    listingRefused(new ApiError("Request 'R 1' must match ^[a-z0-9]", 422)),
+  ).toBe(true)
+  expect(listingRefused(new ApiError('Unknown workspace nope', 404))).toBe(true)
+  expect(listingRefused(new ApiError('Internal Server Error', 500))).toBe(false)
+  expect(listingRefused(new TypeError('Failed to fetch'))).toBe(false)
 })
 
 const at = (...positions: Array<number | undefined>) =>

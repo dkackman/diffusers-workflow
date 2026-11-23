@@ -135,7 +135,7 @@ it('shows the workspace note', async () => {
   )
 })
 
-it('a failed panel shows its own error, and the rest still load', async () => {
+it('one panel failing leaves the others', async () => {
   data.galleryError = new Error('boom')
   data.jobs = [
     {
@@ -151,10 +151,9 @@ it('a failed panel shows its own error, and the rest still load', async () => {
   data.workflows = ['shot']
   render(OverviewPage)
   await waitFor(() =>
-    expect(
-      screen.getByText(/could not load recent outputs: boom/i),
-    ).toBeTruthy(),
+    expect(screen.getByText(/couldn't load recent outputs/i)).toBeTruthy(),
   )
+  expect(screen.getAllByRole('button', { name: 'Retry' })).toHaveLength(1)
   expect(screen.getByRole('link', { name: 'j1' }).getAttribute('href')).toBe(
     '#/ws/studio/jobs/j1',
   )
@@ -378,7 +377,7 @@ it("another workspace's move, or an unwatched kind, reloads nothing", async () =
   expect(calls).toEqual(before)
 })
 
-it('a quiet reload that fails keeps the panel and shows no error', async () => {
+it('a quiet reload that fails keeps the panel under a refresh line', async () => {
   data.files = [{ name: 'a.png', label: 'a', kind: 'image' }]
   render(OverviewPage)
   await waitFor(() =>
@@ -388,5 +387,5 @@ it('a quiet reload that fails keeps the panel and shows no error', async () => {
   feed.move('studio', 'gallery')
   await settle()
   expect(document.querySelectorAll('.tile')).toHaveLength(1)
-  expect(screen.queryByText(/could not load recent outputs/i)).toBeNull()
+  expect(screen.getByText(/couldn't refresh recent outputs/i)).toBeTruthy()
 })

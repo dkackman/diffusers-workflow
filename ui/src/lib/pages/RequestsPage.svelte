@@ -1,9 +1,8 @@
 <script lang="ts">
   import { ClipboardList } from '@lucide/svelte'
   import { api } from '../api'
-  import { changes } from '../changes.svelte'
-  import Empty from '../Empty.svelte'
-  import Skeleton from '../ui/Skeleton.svelte'
+  import { resource } from '../resource.svelte'
+  import LoadState from '../ui/LoadState.svelte'
   import ItemProof from '../request/ItemProof.svelte'
   import RequestProgress from '../request/RequestProgress.svelte'
   import StateTag from '../request/StateTag.svelte'
@@ -14,16 +13,10 @@
     summaryBands,
   } from '../request/attention'
   import { formatMinutes, formatMtime, formatSpent } from '../format'
-  import { latestOnly } from '../latest'
   import { hashQuery, setHashQuery } from '../router.svelte'
   import { wsHref } from '../routes'
-  import type { LedgerSummary } from '../types'
   import { workspace } from '../workspace.svelte'
 
-  let requests = $state<LedgerSummary[] | null>(null)
-  let error = $state<string | null>(null)
-  // Why requests.json could not be read, when it is there and is no ledger
-  let unreadable = $state<string | null>(null)
   const name = $derived(workspace.current)
 
   // Open requests are what the page is for; `show=all` in the hash's query
@@ -36,38 +29,14 @@
     return () => window.removeEventListener('hashchange', sync)
   })
 
-  // A reply overtaken by a later load (a switch, a newer reload) is dropped
-  const beginList = latestOnly()
-  /** Read the ledger. A quiet load is the change feed's: it keeps the list
-   * on screen while it asks, and a failed one keeps the list it had */
-  function load(ws: string, { quiet = false } = {}) {
-    const current = beginList()
-    if (!quiet) {
-      requests = null
-      error = null
-    }
-    api
-      .listRequests(ws)
-      .then((r) => {
-        if (!current()) return
-        requests = r.requests
-        unreadable = r.unreadable ?? null
-        error = null
-      })
-      .catch((e) => {
-        if (!current() || (quiet && requests !== null)) return
-        requests = []
-        error = e instanceof Error ? e.message : String(e)
-      })
-  }
-  $effect(() => load(workspace.current))
   // A request an agent writes shows within one feed interval
-  $effect(() => {
-    const ws = workspace.current
-    return changes(ws).watch(['requests'], () => load(ws, { quiet: true }))
+  const list = resource(() => api.listRequests(workspace.current), {
+    watch: ['requests'],
   })
+  // Why requests.json could not be read, when it is there and is no ledger
+  const unreadable = $derived(list.data?.unreadable ?? null)
 
-  const ordered = $derived(orderRequests(requests ?? []))
+  const ordered = $derived(orderRequests(list.data?.requests ?? []))
   const open = $derived(ordered.filter((req) => req.state === 'open'))
   const visible = $derived(show === 'all' ? ordered : open)
   const closed = $derived(ordered.length - open.length)
@@ -82,84 +51,78 @@
   </select>
 </div>
 
-{#if error}
-  <p role="alert">
-    Could not load requests: {error}
-    <button type="button" class="quiet" onclick={() => load(name)}>
-      Retry
-    </button>
-  </p>
-{:else if requests === null}
-  <Skeleton lines={4} label="loading requests" />
-{:else if unreadable}
-  <p class="panel warn-edge" role="alert">
-    This workspace's requests file could not be read: {unreadable}
-  </p>
-{:else if ordered.length === 0}
-  <Empty>
-    {#snippet icon()}<ClipboardList size={36} strokeWidth={1.5} />{/snippet}No
-    requests in this workspace yet. One appears when you ask your agent for
-    something and it writes its plan here.
-  </Empty>
-{:else if visible.length === 0}
-  <p class="muted">
-    No open requests.
-    <button type="button" class="quiet" onclick={() => (show = 'all')}>
-      show closed ({closed})
-    </button>
-  </p>
-{:else}
-  <div class="panel list">
-    {#each visible as req (req.id)}
-      {@const line = attention(req)}
-      <a
-        class="row plain"
-        class:row-live={line.live}
-        href={wsHref(name, 'requests', req.id)}
-      >
-        <span class="cover">
-          {#each req.cover as output, i (i)}
-            <ItemProof
-              {output}
-              state="done"
-              workspace={name}
-              alt=""
-              size="cover"
-            />
-          {/each}
-        </span>
-        <span class="namecol">
-          <span class="title">{req.title}</span>
-          <span class="idline">
-            <code class="muted">{req.id}</code>
-            <StateTag value={req.state} />
+<LoadState
+  of={list}
+  label="requests"
+  empty={!unreadable && ordered.length === 0}
+>
+  {#snippet emptyIcon()}<ClipboardList size={36} strokeWidth={1.5} />{/snippet}
+  {#snippet emptyText()}No requests in this workspace yet. One appears when you
+    ask your agent for something and it writes its plan here.{/snippet}
+  {#if unreadable}
+    <p class="panel warn-edge" role="alert">
+      This workspace's requests file could not be read: {unreadable}
+    </p>
+  {:else if visible.length === 0}
+    <p class="muted">
+      No open requests.
+      <button type="button" class="quiet" onclick={() => (show = 'all')}>
+        show closed ({closed})
+      </button>
+    </p>
+  {:else}
+    <div class="panel list">
+      {#each visible as req (req.id)}
+        {@const line = attention(req)}
+        <a
+          class="row plain"
+          class:row-live={line.live}
+          href={wsHref(name, 'requests', req.id)}
+        >
+          <span class="cover">
+            {#each req.cover as output, i (i)}
+              <ItemProof
+                {output}
+                state="done"
+                workspace={name}
+                alt=""
+                size="cover"
+              />
+            {/each}
           </span>
-        </span>
-        <span class="attention {line.kind}">
-          {#if line.kind === 'running'}
-            <span class="pulse-dot" aria-hidden="true"></span>
-          {/if}
-          {line.text}
-        </span>
-        <span class="progress">
-          <RequestProgress bands={summaryBands(req)} mini />
-          <span class="num" title="items done, of those in the plan">
-            {doneFigure(req)}
+          <span class="namecol">
+            <span class="title">{req.title}</span>
+            <span class="idline">
+              <code class="muted">{req.id}</code>
+              <StateTag value={req.state} />
+            </span>
           </span>
-        </span>
-        <span class="figures num muted">
-          <span>{formatSpent(req.spent_minutes)} spent</span>
-          {#if req.state === 'open' && req.remaining_minutes > 0}
-            <span>{formatMinutes(req.remaining_minutes)} left</span>
-          {/if}
-        </span>
-        <span class="updated num muted" title="last written">
-          {req.updated_at ? written(req.updated_at) : ''}
-        </span>
-      </a>
-    {/each}
-  </div>
-{/if}
+          <span class="attention {line.kind}">
+            {#if line.kind === 'running'}
+              <span class="pulse-dot" aria-hidden="true"></span>
+            {/if}
+            {line.text}
+          </span>
+          <span class="progress">
+            <RequestProgress bands={summaryBands(req)} mini />
+            <span class="num" title="items done, of those in the plan">
+              {doneFigure(req)}
+            </span>
+          </span>
+          <span class="figures num muted">
+            <span>{formatSpent(req.spent_minutes)} spent</span>
+            {#if req.state === 'open' && req.remaining_minutes > 0}
+              <span>{formatMinutes(req.remaining_minutes)} left</span>
+            {/if}
+          </span>
+          <span class="updated num muted" title="last written">
+            {req.updated_at ? written(req.updated_at) : ''}
+          </span>
+        </a>
+      {/each}
+    </div>
+  {/if}
+</LoadState>
 
 <style>
   .pagehead h1 {

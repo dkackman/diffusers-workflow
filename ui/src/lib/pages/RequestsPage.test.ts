@@ -10,6 +10,7 @@ import RequestsPage from './RequestsPage.svelte'
 import { summary } from '../request/fixtures'
 import { workspace } from '../workspaceState.svelte'
 import { feed } from '../test/feedMock'
+import { connection } from '../connection.svelte'
 
 const data = vi.hoisted(() => ({
   requests: [] as unknown[],
@@ -170,12 +171,23 @@ it('a list that fails to load says why, and Retry asks again', async () => {
   data.error = new Error('boom')
   render(RequestsPage)
   expect((await screen.findByRole('alert')).textContent).toContain(
-    'Could not load requests: boom',
+    "Couldn't load requests",
   )
   data.error = null
   data.requests = [summary()]
   await fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
   await screen.findByRole('link', { name: /Launch posters/ })
+})
+
+it('recovers when the server returns, by the connection epoch rising', async () => {
+  data.error = new Error('down')
+  render(RequestsPage)
+  await screen.findByText(/Couldn't load requests/)
+  data.error = null
+  data.requests = [summary()]
+  connection.epoch++
+  await screen.findByRole('link', { name: /Launch posters/ })
+  expect(screen.queryByText(/Couldn't load requests/)).toBeNull()
 })
 
 it('says when the requests file is there and cannot be read', async () => {
@@ -235,7 +247,7 @@ it('a request written from outside shows when the feed says requests moved, with
   expect(titles()).toContain('Second launch')
 })
 
-it('a quiet reload that fails keeps the list, and says nothing', async () => {
+it('a quiet reload that fails keeps the list under a refresh line', async () => {
   data.requests = [summary()]
   render(RequestsPage)
   await screen.findByRole('link', { name: /Launch posters/ })
@@ -243,7 +255,9 @@ it('a quiet reload that fails keeps the list, and says nothing', async () => {
   feed.move('studio', 'requests')
   await new Promise((resolve) => setTimeout(resolve, 0))
   expect(rows()).toHaveLength(1)
-  expect(screen.queryByRole('alert')).toBeNull()
+  expect((await screen.findByRole('alert')).textContent).toContain(
+    "Couldn't refresh requests",
+  )
 })
 
 it('another kind moving, or another workspace, reloads nothing', async () => {

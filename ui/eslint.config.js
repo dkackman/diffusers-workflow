@@ -5,11 +5,10 @@ import prettier from 'eslint-config-prettier'
 import globals from 'globals'
 
 // Empty.svelte is imported only by src/lib/ui/LoadState.svelte, so an empty
-// list can never stand in for one still loading or one that failed. Off
-// until Task 12 moves the last page onto LoadState; Task 12 sets it true.
+// list can never stand in for one still loading or one that failed.
 // Flat config replaces a rule's options rather than merging them, so the
 // pattern rides in the bits-ui block and again, alone, for src/lib/ui/**
-const EMPTY_OUTSIDE_LOADSTATE = false
+const EMPTY_OUTSIDE_LOADSTATE = true
 const emptyPattern = {
   group: ['**/Empty.svelte'],
   message:

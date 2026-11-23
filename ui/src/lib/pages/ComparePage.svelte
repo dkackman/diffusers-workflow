@@ -5,8 +5,9 @@
   // the same frame rather than remembered across two players
   import { Pause, Play } from '@lucide/svelte'
   import { api } from '../api'
-  import { changes } from '../changes.svelte'
-  import { latestOnly } from '../latest'
+  import { untrack } from 'svelte'
+  import { resource, type Resource } from '../resource.svelte'
+  import LoadState from '../ui/LoadState.svelte'
   import { differingArguments, argumentOf, valueText } from '../compare'
   import { formatDuration } from '../format'
   import { wsHref } from '../routes'
@@ -23,9 +24,6 @@
     meta: Record<string, unknown> | null
     took: number | null
   }
-  let cells = $state<Cell[]>([])
-  let loaded = $state(false)
-
   // How long the run took, from the job that made the file - unknown when
   // the job is gone or never finished
   async function runTime(jobId: string | null | undefined) {
@@ -49,52 +47,37 @@
     }
   }
 
-  // A read overtaken by a newer one (new names, a feed reload) is dropped
-  const beginLoad = latestOnly()
-  /** Read the gallery for `wanted`. A quiet load is the change feed's: the
-   * transport and the cells on screen stay, and a cell that already had its
-   * file keeps the metadata and run time it has - only a cell that was
-   * missing its file, or is new, asks for them */
-  async function load(wanted: string[], { quiet = false } = {}) {
-    const current = beginLoad()
-    const before = quiet ? new Map(cells.map((c) => [c.name, c])) : new Map()
-    if (!quiet) {
-      length = 0
-      time = 0
-      playing = false
-      loaded = false
-    }
-    try {
+  // A file's note or a new run shows within one feed interval. A cell that
+  // already had its file keeps the metadata and run time it has - only a
+  // cell that was missing its file, or is new, asks for them. `names` is read
+  // before the first await, so new names reload loudly
+  const comparison: Resource<Cell[]> = resource(
+    async () => {
+      const wanted = [...names]
+      const held = new Map(
+        untrack(() => comparison.data ?? []).map((c) => [c.name, c]),
+      )
       const { files } = await api.gallery()
       const byName = new Map(files.map((f) => [f.name, f]))
-      const next = await Promise.all(
+      return Promise.all(
         wanted.map((name) => {
           const file = byName.get(name) ?? null
-          const had: Cell | undefined = before.get(name)
+          const had = held.get(name)
           return had?.file && file
             ? Promise.resolve({ ...had, file })
             : cellFor(name, file)
         }),
       )
-      if (!current()) return
-      cells = next
-    } catch {
-      if (!current() || quiet) return
-      cells = []
-    }
-    if (current()) loaded = true
-  }
-
+    },
+    { watch: ['gallery'] },
+  )
+  const cells = $derived(comparison.data ?? [])
+  // New names start the transport over
   $effect(() => {
-    const wanted = [...names]
-    void load(wanted)
-  })
-  // A file's note or a new run shows within one feed interval
-  $effect(() => {
-    const ws = workspace.current
-    return changes(ws).watch(['gallery'], () =>
-      load([...names], { quiet: true }),
-    )
+    void names.join('\n')
+    length = 0
+    time = 0
+    playing = false
   })
 
   const differing = $derived(differingArguments(cells.map((c) => c.meta)))
@@ -127,9 +110,11 @@
   </a>
 </div>
 
-{#if !loaded}
-  <Skeleton tiles={names.length} label="loading the comparison" />
-{:else}
+<LoadState of={comparison} label="the comparison">
+  {#snippet skeleton()}<Skeleton
+      tiles={names.length}
+      label="loading the comparison"
+    />{/snippet}
   {#if cells.some((c) => c.file?.kind === 'video')}
     <div class="transport">
       <button
@@ -218,7 +203,7 @@
       did.
     </p>
   {/if}
-{/if}
+</LoadState>
 
 <style>
   .grid {

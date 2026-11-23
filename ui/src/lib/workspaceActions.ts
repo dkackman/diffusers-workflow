@@ -1,4 +1,5 @@
 import { api } from './api'
+import { describeError } from './apiErrors'
 import { confirmDialog } from './confirm.svelte'
 import { wsHref } from './routes'
 import { notify } from './toast'
@@ -61,7 +62,7 @@ export async function createWorkspaceAndGo(
   try {
     await api.createWorkspace(name)
   } catch (e) {
-    return e instanceof Error ? e.message : String(e)
+    return describeError(e).title
   }
   invalidateWorkspaces()
   await loadWorkspaces()
@@ -82,7 +83,15 @@ export async function deleteWorkspaceWithConfirm(
     // which is what makes the confirmation an informed one
     await api.deleteWorkspace(name)
   } catch (e) {
-    detail = e instanceof Error ? e.message : String(e)
+    // The server's refusal says what the workspace holds, and is the point
+    // of the confirm. Any other failure (offline, a fault) is not something
+    // to confirm over: it is reported, with its detail disclosed
+    const described = describeError(e)
+    if (described.kind !== 'refused') {
+      notify.failure(`delete ${name}`, e)
+      return false
+    }
+    detail = described.title
   }
   if (
     !(await confirmDialog(`${detail}\n\nDelete workspace "${name}"?`.trim(), {

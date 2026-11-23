@@ -7,6 +7,6 @@
   "prefix_literals": 0,
   "a11y_suppressions": 3,
   "raw_error_toasts": 0,
-  "empty_outside_loadstate": 3,
-  "unwatched_reads": 40
+  "empty_outside_loadstate": 0,
+  "unwatched_reads": 31
 }

@@ -19,23 +19,13 @@ export function listingWorkspace(
   return picked || (request ? current : '')
 }
 
-/** What the page says when a listing fails. `refused` is the server
- * turning the question down (a `req` that is not a request id, a workspace
- * that does not exist): its message is the explanation, and the rows of an
- * earlier question must not stay under this one's filters. */
-export function listingFailure(error: unknown): {
-  message: string
-  refused: boolean
-} {
-  const text = error instanceof Error ? error.message : String(error)
-  if (!(error instanceof ApiError))
-    return { message: `Could not reach the server: ${text}`, refused: false }
-  if (error.status >= 500)
-    return {
-      message: `The server could not list the jobs: ${text}`,
-      refused: false,
-    }
-  return { message: text, refused: true }
+/** Whether a failed listing is the server turning the question down (a
+ * `req` that is not a request id, a workspace that does not exist) rather
+ * than a fault or an unreachable server. A refusal's message is the
+ * explanation, and the rows of an earlier question must not stay under this
+ * one's filters; a fault keeps the rows it had. */
+export function listingRefused(error: unknown): boolean {
+  return error instanceof ApiError && error.status < 500
 }
 
 /** How many jobs are waiting. `queue_position` is a job's place in the
