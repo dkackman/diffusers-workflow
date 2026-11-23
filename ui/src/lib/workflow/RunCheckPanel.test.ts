@@ -10,7 +10,7 @@ it('a check that failed leads with plain words, the engine text folded behind De
   const raw = 'Traceback (most recent call last): ValidationWorkerDied'
   const { container } = render(RunCheckPanel, {
     props: {
-      verdict: { tone: 'bad', text: 'could not check this run' },
+      verdict: { tone: 'bad', text: 'could not check this workflow' },
       checking: false,
       planLines: [],
       checkError: new ApiError(raw, 500),

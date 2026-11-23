@@ -74,7 +74,7 @@ it('names a refused check, and says nothing of an aborted one', async () => {
   expect(check.error).toBe(refused)
   expect(check.verdict).toEqual({
     tone: 'bad',
-    text: 'could not check this job',
+    text: 'could not check this workflow',
   })
 
   ask.mockRejectedValue(new DOMException('aborted', 'AbortError'))

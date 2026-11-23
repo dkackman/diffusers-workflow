@@ -73,7 +73,7 @@ export class RunCheck {
 
   get verdict(): Verdict | null {
     if (this.error !== null)
-      return { tone: 'bad', text: 'could not check this job' }
+      return { tone: 'bad', text: 'could not check this workflow' }
     if (!this.validation) return null
     if (!this.validation.valid)
       return { tone: 'bad', text: 'a job would be refused' }
