@@ -185,6 +185,33 @@ def apply_adapter_settings(loras, pipeline, activate=False):
         set_adapter_scales(pipeline, names, weights)
 
 
+def _require_adapter_loaded(pipeline, adapter, model_name, weight_name):
+    """Fail at the load, naming the file, when no layer carries the adapter.
+
+    diffusers drops a state dict whose keys it cannot map (an unprefixed or
+    mixed-style file) with at most a log line, and the run then dies at
+    set_adapters() with "not in the list of present adapters", which never
+    says the file was the problem. A pipeline with no peft-aware component to
+    inspect is skipped: there is nothing to look at.
+    """
+    inspectable = getattr(pipeline, "_lora_loadable_modules", None) or isinstance(
+        getattr(pipeline, "components", None), dict
+    )
+    if not inspectable:
+        return
+    for module in _lora_layers(pipeline):
+        if adapter in (getattr(module, "scaling", None) or {}):
+            return
+    source = f"{model_name}/{weight_name}" if weight_name else str(model_name)
+    raise ValueError(
+        f"LoRA '{adapter}' ({source}) matched 0 keys: no module of the "
+        "pipeline carries it after loading, so the file's key format was not "
+        "recognised (diffusers expects keys prefixed with the component, e.g. "
+        "'transformer.', in one consistent naming style) and applying it "
+        "would do nothing."
+    )
+
+
 def load_loras(loras, pipeline):
     """Load and configure LoRA models.
 
@@ -221,7 +248,9 @@ def load_loras(loras, pipeline):
         # pickle (SE-F066; trust.require_trusted_lora_entries keeps the
         # entry from saying otherwise)
         safe = {} if workflows_are_trusted() else {"use_safetensors": True}
-        pipeline.load_lora_weights(model_name, adapter_name=next(names), **lora, **safe)
+        adapter = next(names)
+        pipeline.load_lora_weights(model_name, adapter_name=adapter, **lora, **safe)
+        _require_adapter_loaded(pipeline, adapter, model_name, lora.get("weight_name"))
 
     apply_adapter_settings(settings, pipeline, activate=True)
 
