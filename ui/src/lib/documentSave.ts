@@ -1,7 +1,9 @@
 // The one save path the editors share: flush pending edits, refuse a
 // document whose load failed, write under the editor's preconditions, and
 // turn a 409 write conflict into one question - Replace or Cancel - rather
-// than a toast. A Replace writes again with no precondition.
+// than a toast. A Replace writes again with no precondition. A saved
+// document is a loaded one - a new document's first save included - so
+// watchRemote follows the server's copy of it from then on.
 import { ApiError } from './apiErrors'
 import type { WritePreconditions } from './apiRequest'
 import { chooseDialog } from './confirm.svelte'
@@ -66,6 +68,7 @@ export async function saveDocument(
   ed.loadedPath = opts.path
   // Saved to the workspace: the next save overwrites this copy in place
   ed.writable = true
+  ed.loadState = 'loaded'
   return 'saved'
 }
 

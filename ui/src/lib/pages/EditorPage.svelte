@@ -82,6 +82,10 @@
     [...new Set(editorLists.workflowFiles.map(groupOf).filter(Boolean))].sort(),
   )
   let validation = $state<ValidationResult | null>(null)
+  // A verdict on the copy the server's replaced is not one on this copy
+  $effect(() => {
+    if (ed.remoteLoads) validation = null
+  })
   // A new workflow's starting point: '' for blank, an example's name, or
   // IMPORTED for a definition handed over from an image's metadata
   let startFrom = $state('')

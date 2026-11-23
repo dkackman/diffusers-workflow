@@ -2,7 +2,9 @@
   // Above an editor whose document changed on the server under unsaved
   // edits (DocumentEditor.watchRemote): say so, and offer both ways on.
   // Not a dialog - the edits stay in reach, and Keep mine leaves the
-  // conflict to Save's stale_write question
+  // conflict to Save's stale_write question. Keep mine is the filled
+  // button: Load theirs throws the unsaved edits away, so it is the quiet
+  // one, and turns the danger colour under the pointer
   let {
     label,
     ontheirs,
@@ -17,8 +19,8 @@
 <div class="panel remotechanged" role="status">
   <p>{label} changed since you opened it, in another tab or by an agent</p>
   <div class="actions">
-    <button onclick={ontheirs}>Load theirs</button>
-    <button class="quiet" onclick={onmine}>Keep mine</button>
+    <button class="quiet danger" onclick={ontheirs}>Load theirs</button>
+    <button onclick={onmine}>Keep mine</button>
   </div>
 </div>
 

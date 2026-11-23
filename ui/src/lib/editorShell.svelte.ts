@@ -17,6 +17,9 @@
 // or a save is not news, nor one at the ETag the user already declined.
 // A move seen while `busy` is read again once it clears, and text still
 // mid-IME-composition counts as an edit, so it is never loaded over.
+// `remoteLoads` counts the loads the server's copy caused (a reload, Load
+// theirs), so a page can drop what it said about the copy replaced - a
+// validation verdict.
 import { tick, untrack } from 'svelte'
 import type { WritePreconditions } from './apiRequest'
 import type { ChangeKind } from './changes.svelte'
@@ -114,6 +117,8 @@ export class DocumentEditor {
   writable = $state(true)
   // Whether the server's copy moved on under unsaved edits (watchRemote)
   remote = $state<'same' | 'diverged'>('same')
+  // How many times the server's copy replaced the document on screen
+  remoteLoads = $state(0)
 
   readonly canWrite = $derived(
     this.loadState === 'new' || this.loadState === 'loaded',
@@ -379,13 +384,17 @@ export class DocumentEditor {
       return
     }
     this.load(read.doc, read)
+    this.remoteLoads++
     notify.success(REMOTE_RELOADED)
   }
 
   /** Load theirs: the newer read replaces the edits. */
   takeTheirs() {
     const theirs = this.#theirs
-    if (theirs) this.load(theirs.doc, theirs)
+    if (theirs) {
+      this.load(theirs.doc, theirs)
+      this.remoteLoads++
+    }
     this.remote = 'same'
   }
 

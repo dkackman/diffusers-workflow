@@ -553,6 +553,43 @@ describe('EditorPage saving', () => {
 describe('EditorPage remote change', () => {
   const idField = () => screen.getByLabelText('workflow id') as HTMLInputElement
 
+  const verdict = () =>
+    screen.queryByRole('button', { name: 'dismiss validation results' })
+  const theirs = () =>
+    vi.mocked(api.getWorkflow).mockResolvedValueOnce({
+      definition: { id: 'Theirs', steps: [{ name: 'generate', pipeline: {} }] },
+      origin: 'workspace',
+      writable: true,
+      etag: '"e9"',
+    } as never)
+
+  it('a reload from the server drops the verdict on the replaced copy', async () => {
+    render(EditorPage, { name: 'models/z-image' })
+    await waitFor(() => expect(idField().value).toBe('ZImage'))
+    await fireEvent.click(screen.getByRole('button', { name: /^validate/i }))
+    await waitFor(() => expect(verdict()).toBeTruthy())
+    theirs()
+    feed.move('default', 'workflows')
+    await waitFor(() => expect(idField().value).toBe('Theirs'))
+    expect(verdict()).toBeNull()
+  })
+
+  it('Load theirs drops the verdict on the edits it replaced', async () => {
+    render(EditorPage, { name: 'models/z-image' })
+    await waitFor(() => expect(idField().value).toBe('ZImage'))
+    await fireEvent.input(idField(), { target: { value: 'Mine' } })
+    await fireEvent.change(idField())
+    await fireEvent.click(screen.getByRole('button', { name: /^validate/i }))
+    await waitFor(() => expect(verdict()).toBeTruthy())
+    theirs()
+    feed.move('default', 'workflows')
+    await fireEvent.click(
+      await screen.findByRole('button', { name: 'Load theirs' }),
+    )
+    await waitFor(() => expect(idField().value).toBe('Theirs'))
+    expect(verdict()).toBeNull()
+  })
+
   it('Load theirs replaces the edits', async () => {
     render(EditorPage, { name: 'models/z-image' })
     await waitFor(() => expect(idField().value).toBe('ZImage'))

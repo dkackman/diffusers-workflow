@@ -9,6 +9,7 @@ import { addLeaveGuard } from './router.svelte'
 import { confirmDialog } from './confirm.svelte'
 import { changeOnBlur } from './test/changeOnBlur'
 import { feed } from './test/feedMock'
+import { saveDocument } from './documentSave'
 
 vi.mock('./toast', () => ({
   notify: { error: vi.fn(), success: vi.fn(), dismiss: vi.fn() },
@@ -586,6 +587,38 @@ describe('watchRemote', () => {
     expect(shell.doc).toEqual({ text: 'mine' })
     expect(notify.success).not.toHaveBeenCalled()
     root.remove()
+  })
+
+  it("a new document, once saved, follows the server's copy", async () => {
+    const read = vi.fn().mockResolvedValue(theirs)
+    const shell = watching(read)
+    shell.startNew({ text: 'fresh' })
+    await saveDocument(shell, {
+      path: 'hero',
+      label: 'hero',
+      write: async () => ({ etag: '"e1"' }),
+    })
+    // Unedited since the save: the agent's write reloads it, with the toast
+    await moved()
+    expect(read).toHaveBeenCalledTimes(1)
+    expect(shell.doc).toEqual({ text: 'theirs' })
+    expect(notify.success).toHaveBeenCalledWith(
+      'Updated by an agent or another tab',
+    )
+  })
+
+  it('a new document saved then edited gets the banner on a remote write', async () => {
+    const shell = watching(vi.fn().mockResolvedValue(theirs))
+    shell.startNew({ text: 'fresh' })
+    await saveDocument(shell, {
+      path: 'hero',
+      label: 'hero',
+      write: async () => ({ etag: '"e1"' }),
+    })
+    shell.doc.text = 'edited after the save'
+    await moved()
+    expect(shell.remote).toBe('diverged')
+    expect(shell.doc).toEqual({ text: 'edited after the save' })
   })
 
   it('nothing is read until a document is loaded', async () => {
