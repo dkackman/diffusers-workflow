@@ -151,6 +151,34 @@ describe('the page-quality metrics', () => {
     expect(m.raw_error_toasts).toBe(2)
   })
 
+  it('counts a raw error passed through a const', async () => {
+    const m = await measured({
+      'a.svelte': `<script lang="ts">
+  declare const notify: any
+  function a(e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e)
+    notify.error(msg)
+  }
+  function b(e: unknown) {
+    let m = String(e)
+    notify.error(m)
+  }
+  function c(e: unknown) {
+    let m = 'x'
+    m = String(e)
+    notify.error(m)
+  }
+  function d() {
+    const ok = 'fine'
+    notify.error(ok)
+    notify.error('failed: ' + ok)
+  }
+</script>
+`,
+    })
+    expect(m.raw_error_toasts).toBe(2)
+  })
+
   it('counts an Empty import outside LoadState only', async () => {
     const m = await measured({
       'a.svelte': `<script lang="ts">\n  import Empty from '../ui/Empty.svelte'\n</script>\n<Empty />\n`,

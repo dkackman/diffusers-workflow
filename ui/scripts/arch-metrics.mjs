@@ -27,12 +27,21 @@
 //   dw/references.py, the engine's owner.
 // - a11y_suppressions: `svelte-ignore a11y_*` comments.
 // - raw_error_toasts: `notify.error(` calls whose first argument reads
-//   `.message` or `String(x)` - an error shown raw, not described.
+//   `.message` or `String(x)` - an error shown raw, not described. An
+//   identifier argument is followed to its const (or single-assignment let)
+//   initializer.
 // - empty_outside_loadstate: imports of `*/Empty.svelte` anywhere but
 //   LOAD_STATE; a page states an empty list through LoadState.
 // - unwatched_reads: in a .svelte file, `api.<read>(...)` calls with no
 //   `resource(` or `poll(` call around them. A read is `get*`, `list*` or a
 //   name in READ_ALIASES; a new read named otherwise must be added there.
+// Known limits of those three rules:
+// - `resource` and `poll` are matched by callee name.
+// - `api` is matched by identifier name, so an alias or destructuring is
+//   invisible.
+// - `.svelte.ts` stores are not measured for reads.
+// - an `Empty` re-exported through a barrel is not counted.
+// - `String(...)` matches a single identifier only.
 import { ESLint } from 'eslint'
 import { readFileSync, writeFileSync, readdirSync, statSync } from 'node:fs'
 import { dirname, join, relative, resolve, extname } from 'node:path'
@@ -65,6 +74,23 @@ export const isLoadState = (file) =>
   relative(UI, file).replaceAll('\\', '/') === LOAD_STATE
 
 const RAW_ERROR = /\.message\b|String\(\s*\w+\s*\)/
+// The text a toast argument stands for: an identifier is followed to its
+// `const` (or single-assignment `let`) initializer, through enclosing scopes.
+function isRawError(sourceCode, call, arg) {
+  if (RAW_ERROR.test(sourceCode.getText(arg))) return true
+  if (arg.type !== 'Identifier') return false
+  for (let s = sourceCode.getScope(call); s; s = s.upper) {
+    const v = s.set.get(arg.name)
+    if (!v) continue
+    const def = v.defs.length === 1 ? v.defs[0] : null
+    const decl = def?.node
+    if (def?.type !== 'Variable' || !decl?.init) return false
+    const writes = v.references.filter((r) => r.isWrite()).length
+    if (def.parent?.kind !== 'const' && writes !== 1) return false
+    return RAW_ERROR.test(sourceCode.getText(decl.init))
+  }
+  return false
+}
 const isRead = (name) => /^(get|list)/.test(name) || READ_ALIASES.includes(name)
 const isMember = (node, object, property) =>
   node?.type === 'MemberExpression' &&
@@ -159,8 +185,10 @@ export async function measure(
             CallExpression(node) {
               if (!isMember(node.callee, 'notify', 'error')) return
               const first = node.arguments[0]
-              if (first && RAW_ERROR.test(context.sourceCode.getText(first)))
-                rawToasts.push(relative(UI, context.filename))
+              if (first && isRawError(context.sourceCode, node, first))
+                rawToasts.push(
+                  `${relative(UI, context.filename)}:${node.loc.start.line}`,
+                )
             },
           }
         },
