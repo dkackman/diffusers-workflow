@@ -3,10 +3,11 @@
 
   // The path the last focus answered. At load it is the path the app opened
   // on, so the first render never takes focus; a page mounted by a
-  // navigation (a new path) does. Only `route.parts` being replaced counts:
-  // a query change (`setHashQuery`) and a rename (`renameRoute`, in place)
-  // never replace it, and a quiet reload never touches the route
-  let seen = route.parts
+  // navigation (a new path) does. Only the path changing counts: the router
+  // replaces `route.parts` on any same-path hashchange too (a sidebar link, a
+  // hand-edited query, Back between two queries), and a rename
+  // (`renameRoute`) edits it in place; a quiet reload never touches the route
+  let seen = route.parts.join('/')
   // The header that named the tab last: one leaving clears the title only
   // while it is still that one, so a page with no header is not left under
   // the name of the page before it
@@ -60,12 +61,13 @@
 
   $effect(() => {
     const parts = route.parts
-    if (parts === seen) return
+    const path = parts.join('/')
+    if (path === seen) return
     // After the DOM settles: the page this navigation left may still be
     // mounted when its header sees the new path, and must not take focus
     void tick().then(() => {
-      if (!h1?.isConnected || parts !== route.parts || parts === seen) return
-      seen = parts
+      if (!h1?.isConnected || parts !== route.parts || path === seen) return
+      seen = path
       h1.focus()
     })
   })

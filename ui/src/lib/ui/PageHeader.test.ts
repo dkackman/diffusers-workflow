@@ -42,6 +42,40 @@ it('PageHeader focuses its h1 on a path change, never on a query change or the f
   expect(heading('Jobs')).toHaveAttribute('tabindex', '-1')
 })
 
+it('PageHeader keeps focus where it is on a real same-path hashchange, forward or Back', async () => {
+  render(PageHeader, { props: { title: 'Jobs' } })
+  location.hash = '#/ws/other/jobs'
+  await waitFor(() => expect(document.activeElement).toBe(heading('Jobs')))
+  ;(document.activeElement as HTMLElement).blur()
+
+  const changed = () =>
+    new Promise<void>((r) =>
+      window.addEventListener('hashchange', () => r(), { once: true }),
+    )
+  // a hand-edited query: the hash really changes, the path does not
+  let done = changed()
+  location.hash = '#/ws/other/jobs?status=failed'
+  await done
+  await tick()
+  await tick()
+  expect(document.activeElement).not.toBe(heading('Jobs'))
+
+  done = changed()
+  location.hash = '#/ws/other/jobs?status=running'
+  await done
+  await tick()
+  await tick()
+  expect(document.activeElement).not.toBe(heading('Jobs'))
+
+  // Back to the first query: still the same path
+  done = changed()
+  history.back()
+  await done
+  await tick()
+  await tick()
+  expect(document.activeElement).not.toBe(heading('Jobs'))
+})
+
 it('renders the count with its noun', () => {
   render(PageHeader, {
     props: { title: 'Gallery', count: { n: 3, noun: 'file' } },
