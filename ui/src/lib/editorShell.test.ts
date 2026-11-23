@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render } from '@testing-library/svelte'
-import { flushSync } from 'svelte'
+import { flushSync, tick } from 'svelte'
 import EditorShellHarness from './EditorShellHarness.svelte'
 import type { DocumentEditor, EditorView } from './editorShell.svelte'
 import { notify } from './toast'
@@ -326,6 +326,33 @@ describe('flush and the leave guard see every edit', () => {
     expect(now).not.toBe(field)
     await vi.waitFor(() => expect(document.activeElement).toBe(now))
     expect([now.selectionStart, now.selectionEnd]).toEqual([2, 4])
+  })
+
+  it('a late refocus never takes focus from where it moved', async () => {
+    const shell = mount()
+    shell.load({ text: 'a' })
+    const { field } = typedField(shell, 'typed')
+    const elsewhere = document.createElement('button')
+    document.body.append(elsewhere)
+    shell.flush()
+    elsewhere.focus()
+    await tick()
+    await tick()
+    expect(document.activeElement).toBe(elsewhere)
+    expect(document.activeElement).not.toBe(field)
+  })
+
+  it('a composition cut short by the field leaving does not stick', () => {
+    const shell = mount()
+    shell.load({ text: 'a' })
+    const { field } = typedField(shell, 'typed')
+    const blurred = vi.fn()
+    field.addEventListener('blur', blurred)
+    field.dispatchEvent(new Event('compositionstart', { bubbles: true }))
+    field.dispatchEvent(new Event('focusout', { bubbles: true }))
+    field.focus()
+    shell.flush()
+    expect(blurred).toHaveBeenCalledTimes(1)
   })
 
   it('flush leaves a field outside the editor focused and alone', () => {

@@ -109,10 +109,13 @@ export class DocumentEditor {
   set root(el: HTMLElement | null) {
     this.#root?.removeEventListener('compositionstart', this.#compose)
     this.#root?.removeEventListener('compositionend', this.#compose)
+    this.#root?.removeEventListener('focusout', this.#compose)
     this.#root = el
     this.#composing = false
     el?.addEventListener('compositionstart', this.#compose)
     el?.addEventListener('compositionend', this.#compose)
+    // A field that leaves mid-composition (removed, or tabbed away) ends it
+    el?.addEventListener('focusout', this.#compose)
   }
 
   #compose = (event: Event) => {
@@ -200,6 +203,9 @@ export class DocumentEditor {
     await tick()
     const node = was.isConnected ? was : successorOf(was, this.#root)
     if (!node) return
+    // Focus that moved on meanwhile (a dialog, a click) is not ours to take
+    const now = document.activeElement
+    if (now && now !== document.body && now !== was) return
     node.focus({ preventScroll: true })
     if (caret && isTextField(node)) {
       try {
