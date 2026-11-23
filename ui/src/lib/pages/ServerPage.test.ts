@@ -1,4 +1,4 @@
-import { render, waitFor } from '@testing-library/svelte'
+import { render, screen, waitFor } from '@testing-library/svelte'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 // Hoisted above the component import so its static (hoisted) import sees an
 // initialized mock - the same shape the other page tests use
@@ -150,6 +150,17 @@ afterEach(() => {
   deleteCacheEntry.mockClear()
   confirmDialog.mockClear()
   localStorage.clear()
+})
+
+it('sets the tab title to Status, with the host and version beside it', async () => {
+  await show()
+  expect(document.title).toBe('Status · diffusers-workflow')
+  expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Status')
+  expect(
+    screen.getByText(`${base.hostname} · v${base.version}`, {
+      selector: '.secondary',
+    }),
+  ).toBeTruthy()
 })
 
 it('composes the browser URL and the MCP command from the address', async () => {

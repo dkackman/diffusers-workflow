@@ -175,6 +175,16 @@ it('leads with where the request stands, then the plan, the ask and its changes'
   expect(rail.querySelector('.now')?.textContent).toBe('now at r3')
 })
 
+it('sets the tab title to the request, with Requests as its back link', async () => {
+  render(RequestPage, { requestId: 'r1' })
+  await loaded()
+  expect(document.title).toBe('Launch posters · diffusers-workflow')
+  expect(
+    screen.getByRole('link', { name: '← Requests' }).getAttribute('href'),
+  ).toMatch(/\/requests$/)
+  expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
+})
+
 it('keeps dropped items in a closed group under the plan', async () => {
   const { container } = render(RequestPage, { requestId: 'r1' })
   await loaded()

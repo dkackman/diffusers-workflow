@@ -11,7 +11,7 @@
   import { api } from '../api'
   import { goWs, route } from '../router.svelte'
   import { leafOf } from '../grouping'
-  import { sharedHref, wsHref } from '../routes'
+  import { SECTION_LABELS, sharedHref, wsHref } from '../routes'
   import { workspace } from '../workspace.svelte'
   import { loadPromptLibrary } from '../promptlib.svelte'
   import { notify } from '../toast'
@@ -23,6 +23,7 @@
   import { onDestroy, untrack } from 'svelte'
   import { resource } from '../resource.svelte'
   import LoadState from '../ui/LoadState.svelte'
+  import PageHeader from '../ui/PageHeader.svelte'
   import { describePlan } from '../plan'
   import { placeFindings } from '../findings'
   import { RunCheck } from '../runCheck.svelte'
@@ -211,20 +212,18 @@
   }
 </script>
 
-<a
-  href={route.view.kind === 'shared'
-    ? sharedHref('examples')
-    : wsHref(workspace.current, 'workflows')}
-  class="back muted"
->
-  ← workflows
-</a>
-
 <!-- One filled button: Run, the thing you came here to do. Everything else
      is outlined or bare, and Delete is pushed out of reach of Run rather
      than sitting beside it. -->
-<div class="head">
-  <h1>{name}</h1>
+<PageHeader
+  title={name}
+  back={route.view.kind === 'shared'
+    ? { href: sharedHref('examples'), label: SECTION_LABELS.shared.examples }
+    : {
+        href: wsHref(workspace.current, 'workflows'),
+        label: SECTION_LABELS.ws.workflows,
+      }}
+>
   {#if !writable}
     <span
       class="readonly muted"
@@ -233,31 +232,30 @@
       {origin || 'read-only'}, read-only
     </span>
   {/if}
-  <span class="flex"></span>
-  <a
-    class="plain editlink"
-    href={wsHref(workspace.current, 'edit', ...name.split('/'))}
-    title="open this workflow in the editor"
-  >
-    <SquarePen size={14} />Edit
-  </a>
-  <button
-    class="quiet withicon"
-    onclick={newFrom}
-    disabled={!workflow}
-    title="open a copy in the editor to save under a new name"
-  >
-    <Copy size={14} />Duplicate
-  </button>
-  <button
-    class="withicon run"
-    onclick={run}
-    disabled={submitting || !workflow}
-    title="queue this workflow with the variables below"
-  >
-    <Play size={14} />{submitting ? 'Submitting…' : 'Run'}
-  </button>
-</div>
+  {#snippet actions()}<a
+      class="plain editlink"
+      href={wsHref(workspace.current, 'edit', ...name.split('/'))}
+      title="open this workflow in the editor"
+    >
+      <SquarePen size={14} />Edit
+    </a>
+    <button
+      class="quiet withicon"
+      onclick={newFrom}
+      disabled={!workflow}
+      title="open a copy in the editor to save under a new name"
+    >
+      <Copy size={14} />Duplicate
+    </button>
+    <button
+      class="withicon run"
+      onclick={run}
+      disabled={submitting || !workflow}
+      title="queue this workflow with the variables below"
+    >
+      <Play size={14} />{submitting ? 'Submitting…' : 'Run'}
+    </button>{/snippet}
+</PageHeader>
 
 <!-- The template's own figure, then what this server measured: two claims,
      each saying whose it is. The per-run figure for the values below is the
@@ -394,28 +392,10 @@
 </LoadState>
 
 <style>
-  .back {
-    display: inline-block;
-    font-size: var(--t-sm);
-    margin-bottom: var(--space-3);
-  }
   .readonly {
     font-family: var(--font-mono);
     font-size: var(--t-xs);
     align-self: center;
-  }
-  .head {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.4rem 0.6rem;
-    margin-bottom: var(--space-4);
-  }
-  .head h1 {
-    word-break: break-word;
-  }
-  .head .flex {
-    flex: 1;
   }
   .editlink {
     display: inline-flex;

@@ -123,6 +123,33 @@ describe('EditorPage view switch', () => {
   })
 })
 
+describe('EditorPage header', () => {
+  it('sets the tab title to the open workflow, and its back link to its own page', async () => {
+    render(EditorPage, { name: 'e2e-card' })
+    await waitFor(() =>
+      expect(document.title).toBe('e2e-card · diffusers-workflow'),
+    )
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe(
+      'e2e-card',
+    )
+    expect(screen.getByRole('link', { name: '← e2e-card' })).toHaveAttribute(
+      'href',
+      '#/ws/default/workflows/e2e-card',
+    )
+  })
+
+  it('sets the tab title to New workflow, and its back link to Workflows', async () => {
+    render(EditorPage, { name: '' })
+    await waitFor(() =>
+      expect(document.title).toBe('New workflow · diffusers-workflow'),
+    )
+    expect(screen.getByRole('link', { name: '← Workflows' })).toHaveAttribute(
+      'href',
+      '#/ws/default/workflows',
+    )
+  })
+})
+
 describe('EditorPage validation plan', () => {
   it('validates the definition it opened, without the transport metadata', async () => {
     render(EditorPage, { name: 'models/z-image' })
@@ -453,8 +480,11 @@ describe('EditorPage saving', () => {
     await waitFor(() => expect(location.hash).toBe('#/ws/default/edit/mine'))
     // replaced in place: Back still leaves the editor, not the unsaved draft
     expect(history.length).toBe(entries)
-    const crumbs = screen.getByRole('navigation', { name: 'breadcrumb' })
-    await waitFor(() => expect(crumbs.textContent).toContain('mine'))
+    await waitFor(() =>
+      expect(screen.getByRole('heading', { level: 1 }).textContent).toBe(
+        'mine',
+      ),
+    )
   })
 
   it('Cmd+S saves text typed into the JSON view without a blur', async () => {

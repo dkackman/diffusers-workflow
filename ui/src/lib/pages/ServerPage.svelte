@@ -5,6 +5,8 @@
   import ServerHealthList from '../ServerHealthList.svelte'
   import { resource } from '../resource.svelte'
   import LoadState from '../ui/LoadState.svelte'
+  import PageHeader from '../ui/PageHeader.svelte'
+  import { SECTION_LABELS } from '../routes'
   import CachesPanel from '../CachesPanel.svelte'
   import {
     addressLabel,
@@ -35,12 +37,12 @@
   const mcpPath = $derived(info?.mcp.path ?? '/mcp')
 </script>
 
-<div class="head">
-  <h1>Server</h1>
-  {#if info}
-    <span class="muted">{info.hostname} · v{info.version}</span>
-  {/if}
-</div>
+<!-- The status page's header: the queue below it is a section of this page -->
+<PageHeader
+  title={SECTION_LABELS.server.status}
+  secondary={info ? `${info.hostname} · v${info.version}` : undefined}
+  baseline
+/>
 
 <LoadState of={read} label="the server details" />
 
@@ -290,12 +292,6 @@
 {/if}
 
 <style>
-  .head {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    gap: 0.4rem 0.8rem;
-  }
   .panel {
     margin-bottom: 0.8rem;
   }

@@ -17,7 +17,10 @@
 <script lang="ts">
   // The row a page opens with: the back link, the h1 (which names the tab,
   // and takes focus after a navigation so a screen reader starts at the new
-  // page), the secondary line, the count, the filter and the actions
+  // page), the secondary line, the count, the page's own details
+  // (`children`), the filter and the actions. A `nested` header is a
+  // section of a page that has its own: an h2 that neither names the tab
+  // nor takes focus
   import { tick, untrack, type Snippet } from 'svelte'
   import { refreshTitle } from '../finishAlert'
   import { pageFrame } from '../pageFrame.svelte'
@@ -29,7 +32,9 @@
     back,
     actions,
     filter,
+    children,
     baseline = false,
+    nested = false,
   }: {
     title: string
     secondary?: string
@@ -37,7 +42,9 @@
     back?: { href: string; label: string }
     actions?: Snippet
     filter?: Snippet
+    children?: Snippet
     baseline?: boolean
+    nested?: boolean
   } = $props()
 
   let h1: HTMLHeadingElement | undefined = $state()
@@ -50,6 +57,7 @@
       refreshTitle()
     })
   $effect(() => {
+    if (nested) return
     name(title)
     naming = me
     return () => {
@@ -62,7 +70,7 @@
   $effect(() => {
     const parts = route.parts
     const path = parts.join('/')
-    if (path === seen) return
+    if (nested || path === seen) return
     // After the DOM settles: the page this navigation left may still be
     // mounted when its header sees the new path, and must not take focus
     void tick().then(() => {
@@ -81,9 +89,12 @@
 
 <div class="pagehead" class:baseline>
   {#if back}<a class="back plain muted" href={back.href}>← {back.label}</a>{/if}
-  <h1 tabindex="-1" bind:this={h1}>{title}</h1>
+  {#if nested}<h2>{title}</h2>{:else}<h1 tabindex="-1" bind:this={h1}>
+      {title}
+    </h1>{/if}
   {#if secondary}<span class="secondary muted">{secondary}</span>{/if}
   {#if count}<span class="count num muted">{counted}</span>{/if}
+  {#if children}{@render children()}{/if}
   <span class="flex"></span>
   {#if filter}{@render filter()}{/if}
   {#if actions}{@render actions()}{/if}
@@ -92,6 +103,11 @@
 <style>
   h1:focus {
     outline: none;
+  }
+  /* A long workflow path wraps rather than pushing a phone sideways */
+  h1 {
+    min-width: 0;
+    overflow-wrap: break-word;
   }
   .secondary {
     font-family: var(--font-mono);

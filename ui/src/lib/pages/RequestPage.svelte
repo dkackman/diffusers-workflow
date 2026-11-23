@@ -219,8 +219,6 @@
 {/if}
 
 <div class="reqpage" bind:this={page}>
-  <p class="muted back"><a href={wsHref(ws, 'requests')}>all requests</a></p>
-
   {#if missing}
     <p>
       This request no longer exists. The agent may have removed it.
@@ -230,6 +228,7 @@
     <p role="alert">
       Could not load this request: {error}
       <button type="button" class="quiet" onclick={load}>Retry</button>
+      <a href={wsHref(ws, 'requests')}>See all requests</a>
     </p>
   {:else if request === null || plan === null}
     <Skeleton lines={4} label="loading request" />
@@ -319,10 +318,6 @@
 <style>
   .reqpage {
     container-type: inline-size;
-  }
-  .back {
-    font-size: var(--t-sm);
-    margin: 0 0 var(--space-3);
   }
   .stale {
     display: flex;

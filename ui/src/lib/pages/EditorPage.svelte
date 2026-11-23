@@ -28,10 +28,11 @@
   } from '../editor/workflowFile'
   import { resource } from '../resource.svelte'
   import LoadFailed from '../ui/LoadFailed.svelte'
+  import PageHeader from '../ui/PageHeader.svelte'
   import { notify } from '../toast'
   import { confirmDialog } from '../confirm.svelte'
   import { go, goWs, renameRoute } from '../router.svelte'
-  import { wsHref } from '../routes'
+  import { SECTION_LABELS, wsHref } from '../routes'
   import { loadWorkspaces, workspace } from '../workspace.svelte'
   import {
     attentionBackendVariables,
@@ -131,13 +132,17 @@
     },
   ] as const
 
-  // Crumbs out of the editor, the last to the saved workflow's own page
-  const crumbFolders = $derived(
-    current ? groupOf(current).split('/').filter(Boolean) : [],
-  )
-  const crumbName = $derived(current ? leafOf(current) : '')
-  const workflowHref = $derived(
-    wsHref(workspace.current, 'workflows', ...current.split('/')),
+  // The way out: a saved workflow's own page, else the Workflows list
+  const back = $derived(
+    current
+      ? {
+          href: wsHref(workspace.current, 'workflows', ...current.split('/')),
+          label: leafOf(current),
+        }
+      : {
+          href: wsHref(workspace.current, 'workflows'),
+          label: SECTION_LABELS.ws.workflows,
+        },
   )
 
   // The data-flow graph and per-step reference problems drive the rail's
@@ -379,70 +384,59 @@
 <!-- The editing surface: a flush commits the field focused in it -->
 <div class="editing" bind:this={ed.root}>
   <div class="head">
-    <nav class="crumbs muted" aria-label="breadcrumb">
-      <a href={wsHref(workspace.current, 'workflows')}>← workflows</a>
-      {#each crumbFolders as part (part)}
-        <span class="sep">/</span><span>{part}</span>
-      {/each}
-      {#if crumbName}
-        <span class="sep">/</span>
-        <a
-          href={workflowHref}
-          title="back to the read-only view of this workflow"
+    <PageHeader title={current || 'New workflow'} {back}>
+      <label class="wfidwrap">
+        <span class="wfidlabel">id</span>
+        <input
+          class="wfid"
+          bind:value={ed.doc.id}
+          placeholder="workflow id"
+          aria-label="workflow id"
+          title="the workflow's id - how it names itself, independent of the file name"
+        />
+      </label>
+      {#if ed.dirty}
+        <span
+          class="chip unsaved"
+          title="this definition differs from the last save"
         >
-          {crumbName}
-        </a>
+          unsaved
+        </span>
       {/if}
-    </nav>
-    <label class="wfidwrap">
-      <span class="wfidlabel">id</span>
-      <input
-        class="wfid"
-        bind:value={ed.doc.id}
-        placeholder="workflow id"
-        aria-label="workflow id"
-        title="the workflow's id - how it names itself, independent of the file name"
-      />
-    </label>
-    {#if ed.dirty}
-      <span
-        class="chip unsaved"
-        title="this definition differs from the last save"
-      >
-        unsaved
-      </span>
-    {/if}
-    <span class="flex"></span>
-    <ViewSwitch
-      view={ed.view}
-      options={[...VIEWS]}
-      onselect={(view) => ed.setView(view)}
-    />
-    <button
-      class="quiet withicon"
-      onclick={validate}
-      disabled={ed.busy || !ed.canWrite}
-      title="check against the schema and real pipeline signatures, without running"
-    >
-      <CircleCheck size={14} />Validate
-    </button>
-    <button
-      class="quiet withicon"
-      class:dirtybtn={ed.dirty}
-      onclick={save}
-      disabled={ed.busy || !ed.canWrite}
-      title="validate, then write to the workflow directory under the name below (Ctrl+S)"
-    >
-      <Save size={14} />Save{#if ed.dirty}<span class="dirtydot"></span>{/if}
-    </button>
-    <button
-      class="withicon"
-      onclick={run}
-      disabled={ed.busy || !ed.canWrite}
-      title="validate, then queue this definition as a job - no save needed (Ctrl+Enter)"
-    >
-      <Play size={14} />Run
-    </button>
+      {#snippet actions()}
+        <ViewSwitch
+          view={ed.view}
+          options={[...VIEWS]}
+          onselect={(view) => ed.setView(view)}
+        />
+        <button
+          class="quiet withicon"
+          onclick={validate}
+          disabled={ed.busy || !ed.canWrite}
+          title="check against the schema and real pipeline signatures, without running"
+        >
+          <CircleCheck size={14} />Validate
+        </button>
+        <button
+          class="quiet withicon"
+          class:dirtybtn={ed.dirty}
+          onclick={save}
+          disabled={ed.busy || !ed.canWrite}
+          title="validate, then write to the workflow directory under the name below (Ctrl+S)"
+        >
+          <Save size={14} />Save{#if ed.dirty}<span class="dirtydot"
+            ></span>{/if}
+        </button>
+        <button
+          class="withicon"
+          onclick={run}
+          disabled={ed.busy || !ed.canWrite}
+          title="validate, then queue this definition as a job - no save needed (Ctrl+Enter)"
+        >
+          <Play size={14} />Run
+        </button>
+      {/snippet}
+    </PageHeader>
   </div>
 
   {#if ed.loadState === 'failed'}
@@ -524,10 +518,6 @@
      scrolls. Below 900px the app header wraps to a second row and its
      height stops being predictable, so the pinning is dropped there. */
   .head {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.4rem 0.6rem;
     position: sticky;
     top: 76px;
     z-index: 5;
@@ -541,15 +531,8 @@
       position: static;
     }
   }
-  .crumbs {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.3rem;
-    font-size: 0.85rem;
-    min-width: 0;
-  }
-  .crumbs .sep {
-    opacity: 0.5;
+  .head :global(.pagehead) {
+    margin-bottom: 0;
   }
   .wfidwrap {
     display: inline-flex;
@@ -563,7 +546,7 @@
     text-transform: none;
   }
   /* Reads as a title until you reach for it, rather than as an unexplained
-     text box sitting next to a breadcrumb */
+     text box sitting next to the title */
   .wfid {
     font-weight: 700;
     background: transparent;

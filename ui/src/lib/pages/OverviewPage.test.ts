@@ -118,6 +118,14 @@ beforeEach(async () => {
 })
 afterEach(cleanup)
 
+it('sets the tab title to the workspace name', async () => {
+  render(OverviewPage)
+  await waitFor(() =>
+    expect(document.title).toBe('studio · diffusers-workflow'),
+  )
+  expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('studio')
+})
+
 it('an empty workspace shows empty states, not empty frames', async () => {
   render(OverviewPage)
   await waitFor(() =>

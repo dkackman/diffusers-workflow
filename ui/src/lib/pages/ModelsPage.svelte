@@ -1,6 +1,7 @@
 <script lang="ts">
   import { resource } from '../resource.svelte'
   import LoadState from '../ui/LoadState.svelte'
+  import PageHeader from '../ui/PageHeader.svelte'
   import { formatBytes, formatDay, gbFromBytes } from '../format'
   import {
     ChevronDown,
@@ -129,21 +130,22 @@
   })
 </script>
 
-<div class="head">
-  <h1>Models</h1>
+<PageHeader title="Models" baseline>
   {#if cache}
     <span class="muted" title={cache.cache_dir}>
       {cache.repos.length} cached · {gb(cache.size_on_disk)} GB
     </span>
-    {#if usedPct != null}
+  {/if}
+  {#snippet actions()}
+    {#if cache && usedPct != null}
       <span class="disk" title="disk holding the hub cache">
         <HardDrive size={14} />
         <span class="diskbar"><span style="width: {usedPct}%"></span></span>
         {gb(cache.disk_free ?? 0)} GB free
       </span>
     {/if}
-  {/if}
-</div>
+  {/snippet}
+</PageHeader>
 
 <div class="toolrow">
   <form
@@ -353,13 +355,6 @@
 </LoadState>
 
 <style>
-  .head {
-    display: flex;
-    align-items: baseline;
-    flex-wrap: wrap;
-    gap: 0.4rem 1rem;
-    margin-bottom: 1rem;
-  }
   /* Six columns of repo ids and sizes have a floor well above a phone -
      scroll the table itself rather than the whole document */
   .tablewrap {

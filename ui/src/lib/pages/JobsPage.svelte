@@ -227,7 +227,12 @@
     bind:value={nameFilter}
   />
 {/snippet}
-<PageHeader title={scope === 'all' ? 'All jobs' : 'Jobs'} filter={filters}>
+<!-- Under the status page, the queue is a section of the server's page -->
+<PageHeader
+  title={scope === 'all' ? 'All jobs' : 'Jobs'}
+  nested={scope === 'all'}
+  filter={filters}
+>
   {#snippet actions()}
     {#if requestScope.request}
       <span class="wschip active-filter" data-testid="req-filter">

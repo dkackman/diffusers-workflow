@@ -15,6 +15,7 @@
   import { resource } from '../resource.svelte'
   import LoadState from '../ui/LoadState.svelte'
   import NoteEditor from '../ui/NoteEditor.svelte'
+  import PageHeader from '../ui/PageHeader.svelte'
   import Skeleton from '../ui/Skeleton.svelte'
   import { WORKSPACE } from '../references'
   import { formatBytes } from '../format'
@@ -120,10 +121,7 @@
   const leaf = (n: string) => n.split('/').pop() ?? n
 </script>
 
-<div class="head">
-  <h1>{name}</h1>
-  {#if directory}<code class="muted dir">{directory}</code>{/if}
-</div>
+<PageHeader title={name} secondary={directory ?? undefined} baseline />
 <NoteEditor
   note={workspace.notes[name]}
   target={`${WORKSPACE}${name}`}
@@ -336,15 +334,6 @@
 </div>
 
 <style>
-  .head {
-    display: flex;
-    align-items: baseline;
-    gap: var(--space-3);
-    margin-bottom: var(--space-4);
-  }
-  .dir {
-    font-size: var(--t-xs);
-  }
   section {
     margin-bottom: var(--space-4);
   }

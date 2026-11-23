@@ -50,6 +50,24 @@ const header = (
     ...opts,
   })
 
+it('titles the job with its workflow file, and the JSON id beside it when it differs', () => {
+  header(job({ workflow: 'ZImage', workflow_name: 'models/z-image' }))
+  expect(screen.getByRole('heading', { level: 1 }).textContent).toBe(
+    'models/z-image',
+  )
+  expect(screen.getByText('ZImage', { selector: '.secondary' })).toBeTruthy()
+  expect(screen.getByRole('link', { name: '← Jobs' })).toHaveAttribute(
+    'href',
+    '#/ws/default/jobs',
+  )
+  cleanup()
+  // a job with no file name (an inline definition) is titled by its id,
+  // which is then not repeated
+  header(job({ workflow: 'tiny', workflow_name: null }))
+  expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('tiny')
+  expect(document.querySelector('.secondary')).toBeNull()
+})
+
 it('links request › item to the request page, titled with the request', () => {
   header(job({ request: 'r1', item: 'hero' }), {
     request: { id: 'r1', title: 'Spring campaign' } as LedgerRequest,

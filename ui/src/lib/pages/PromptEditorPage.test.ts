@@ -100,6 +100,20 @@ function unloadPrevented() {
   return event.defaultPrevented
 }
 
+it('sets the tab title to the open prompt, with Prompts as its back link', async () => {
+  await openHero()
+  expect(document.title).toBe('portraits/hero · diffusers-workflow')
+  expect(screen.getByRole('link', { name: '← Prompts' })).toHaveAttribute(
+    'href',
+    '#/shared/prompts',
+  )
+  cleanup()
+  render(PromptEditorPage, { name: '' })
+  await waitFor(() =>
+    expect(document.title).toBe('New prompt · diffusers-workflow'),
+  )
+})
+
 it('mounts a stored prompt under the folder and name it was saved as', async () => {
   await openHero()
   expect((document.querySelector('.savename') as HTMLInputElement).value).toBe(

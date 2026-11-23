@@ -29,11 +29,12 @@
   import { resource } from '../resource.svelte'
   import LoadState from '../ui/LoadState.svelte'
   import LoadFailed from '../ui/LoadFailed.svelte'
+  import PageHeader from '../ui/PageHeader.svelte'
   import RemoteChanged from '../ui/RemoteChanged.svelte'
   import { writableRoot } from '../libraries'
   import DownloadLink from '../DownloadLink.svelte'
   import { go, renameRoute } from '../router.svelte'
-  import { sharedHref } from '../routes'
+  import { SECTION_LABELS, sharedHref } from '../routes'
   import { notify } from '../toast'
   import { confirmDialog } from '../confirm.svelte'
   import { loadPromptLibrary } from '../promptlib.svelte'
@@ -263,44 +264,47 @@
 
 <!-- The editing surface: a flush commits the field focused in it -->
 <div class="editing" bind:this={shell.root}>
-  <div class="head">
-    <a href={sharedHref('prompts')} class="muted">← prompts</a>
-    <h1>{current || 'New prompt'}</h1>
-    <span class="flex"></span>
-    <ViewSwitch
-      view={shell.view}
-      options={[...VIEWS]}
-      onselect={(view) => shell.setView(view)}
-    />
-    {#if current}
-      <button
-        class="quiet withicon"
-        onclick={duplicate}
-        title="open a copy in the editor to save under a new name"
-      >
-        <Copy size={14} />Duplicate
-      </button>
-      <DownloadLink href={api.promptDownloadUrl(current)} />
-      {#if !readOnly}
+  <PageHeader
+    title={current || 'New prompt'}
+    back={{ href: sharedHref('prompts'), label: SECTION_LABELS.shared.prompts }}
+  >
+    {#snippet actions()}
+      <ViewSwitch
+        view={shell.view}
+        options={[...VIEWS]}
+        onselect={(view) => shell.setView(view)}
+      />
+      {#if current}
         <button
-          class="quiet icon danger"
-          onclick={remove}
-          title="delete this prompt from the library"
-          aria-label="delete this prompt from the library"
+          class="quiet withicon"
+          onclick={duplicate}
+          title="open a copy in the editor to save under a new name"
         >
-          <Trash2 size={14} />
+          <Copy size={14} />Duplicate
         </button>
+        <DownloadLink href={api.promptDownloadUrl(current)} />
+        {#if !readOnly}
+          <button
+            class="quiet icon danger"
+            onclick={remove}
+            title="delete this prompt from the library"
+            aria-label="delete this prompt from the library"
+          >
+            <Trash2 size={14} />
+          </button>
+        {/if}
       {/if}
-    {/if}
-    <button
-      class="withicon"
-      onclick={save}
-      disabled={shell.busy || !shell.canWrite}
-      title="write to the prompt directory under the name below (Ctrl+S)"
-    >
-      <Save size={14} />Save{#if shell.dirty}<span class="dirtydot"></span>{/if}
-    </button>
-  </div>
+      <button
+        class="withicon"
+        onclick={save}
+        disabled={shell.busy || !shell.canWrite}
+        title="write to the prompt directory under the name below (Ctrl+S)"
+      >
+        <Save size={14} />Save{#if shell.dirty}<span class="dirtydot"
+          ></span>{/if}
+      </button>
+    {/snippet}
+  </PageHeader>
 
   {#if shell.loadState === 'failed'}
     <LoadFailed
@@ -441,17 +445,6 @@
   /* No box of its own: the sticky head keeps its containing block */
   .editing {
     display: contents;
-  }
-  .head {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.4rem 0.6rem;
-    margin-bottom: 0.4rem;
-  }
-  .head h1 {
-    font-size: 1.1rem;
-    margin: 0;
   }
   .savebar {
     display: flex;

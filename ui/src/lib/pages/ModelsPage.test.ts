@@ -79,6 +79,14 @@ async function lastUsedCell(repoId: string): Promise<HTMLElement> {
   return row.querySelector('td.lastused') as HTMLElement
 }
 
+it('sets the tab title to Models', async () => {
+  render(ModelsPage)
+  await waitFor(() =>
+    expect(document.title).toBe('Models · diffusers-workflow'),
+  )
+  expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Models')
+})
+
 it('shows the dw job date with no disk mark when last_job_use is set', async () => {
   cache.repos = [repo('org/used', DW_USE, ATIME)]
   const cell = await lastUsedCell('org/used')

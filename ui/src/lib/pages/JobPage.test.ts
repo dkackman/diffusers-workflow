@@ -206,6 +206,21 @@ it('shows each image beside what made it, with a download link, and never probes
   ])
 })
 
+it('sets the tab title to the workflow file the job ran', async () => {
+  detail.job = {
+    ...job([]),
+    workflow: 'Storyboard',
+    workflow_name: 'templates/minimax/storyboard',
+  }
+  render(JobPage, { jobId: 'j1' })
+  await waitFor(() =>
+    expect(document.title).toBe(
+      'templates/minimax/storyboard · diffusers-workflow',
+    ),
+  )
+  expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
+})
+
 it("drops one job's image metadata when the page switches to another", async () => {
   // Under the flat output layout two runs write the same file name, so a
   // lookup kept across the switch would show job A's recipe under job B

@@ -1,4 +1,5 @@
 import { cleanup, render, screen } from '@testing-library/svelte'
+import { tick } from 'svelte'
 import { afterEach, expect, it, vi } from 'vitest'
 import NotFoundPage from './NotFoundPage.svelte'
 import { route } from '../router.svelte'
@@ -10,6 +11,13 @@ vi.mock('../api', () => ({
 vi.mock('../toast', () => ({ notify: { error: vi.fn(), success: vi.fn() } }))
 
 afterEach(cleanup)
+
+it('sets the tab title to Page not found', async () => {
+  route.view = { kind: 'missing', path: '/nope' }
+  render(NotFoundPage)
+  await tick()
+  expect(document.title).toBe('Page not found · diffusers-workflow')
+})
 
 it('names the path and links the overview', () => {
   workspace.current = 'studio'

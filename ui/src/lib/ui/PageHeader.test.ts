@@ -107,3 +107,18 @@ it('renders one back-link form', () => {
   expect(back).toHaveAttribute('href', '#/ws/studio/gallery')
   expect(document.querySelectorAll('.pagehead a').length).toBe(1)
 })
+
+it('a nested header is an h2 that never names the tab or takes focus', async () => {
+  pageFrame.title = 'Status'
+  render(PageHeader, { props: { title: 'All jobs', nested: true } })
+  location.hash = '#/server/status-nested'
+  window.dispatchEvent(new HashChangeEvent('hashchange'))
+  await tick()
+  await tick()
+  expect(
+    screen.getByRole('heading', { level: 2, name: 'All jobs' }),
+  ).toBeTruthy()
+  expect(screen.queryByRole('heading', { level: 1 })).toBeNull()
+  expect(pageFrame.title).toBe('Status')
+  expect(document.activeElement).toBe(document.body)
+})

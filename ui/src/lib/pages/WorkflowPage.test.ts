@@ -113,6 +113,14 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
+it('sets the tab title to the workflow, with Workflows as its back link', async () => {
+  await openPage()
+  expect(document.title).toBe('templates/text-to-image · diffusers-workflow')
+  expect(
+    screen.getByRole('link', { name: /^← (Workflows|Examples)$/ }),
+  ).toBeTruthy()
+})
+
 describe('WorkflowPage run check', () => {
   it('validates on load by name, without sizes, and shows the plan', async () => {
     await openPage()

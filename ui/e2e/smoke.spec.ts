@@ -83,6 +83,18 @@ test('split view shows editable JSON beside the form', async ({ page }) => {
   await expect(page.locator('.jsoncol')).toHaveCount(0)
 })
 
+test('the status page has one h1, with the queue as a section under it', async ({
+  page,
+}) => {
+  await page.goto('/#/server/status')
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Status')
+  await expect(page.getByRole('heading', { level: 1 })).toHaveCount(1)
+  await expect(
+    page.getByRole('heading', { level: 2, name: 'All jobs' }),
+  ).toBeVisible()
+  await expect(page).toHaveTitle('Status · diffusers-workflow')
+})
+
 test('schema page renders a browsable tree from the live schema', async ({
   page,
 }) => {
@@ -90,6 +102,7 @@ test('schema page renders a browsable tree from the live schema', async ({
   await expect(
     page.getByRole('heading', { name: 'Workflow Schema' }),
   ).toBeVisible()
+  await expect(page).toHaveTitle('Workflow Schema · diffusers-workflow')
   // the document root is open and shows the top-level properties
   await expect(page.getByText('steps', { exact: true })).toBeVisible()
   // expanding a definition reveals its properties
@@ -156,7 +169,7 @@ test('editor validates, saves into a new folder, and deletes', async ({
   await expect(page.getByRole('link', { name: /E2EScratch/ })).toHaveCount(0)
 })
 
-test('the editor breadcrumb walks back to the workflow it opened', async ({
+test('the editor back link walks back to the workflow it opened', async ({
   page,
 }) => {
   await page.goto('/#/workflows/models/z-image')
@@ -164,7 +177,7 @@ test('the editor breadcrumb walks back to the workflow it opened', async ({
   await expect(page).toHaveURL(/#\/ws\/default\/edit\/models\/z-image$/)
   // the way back to the read-only page, which the bare "← workflows"
   // link never offered
-  await page.getByRole('link', { name: 'z-image', exact: true }).click()
+  await page.getByRole('link', { name: '← z-image', exact: true }).click()
   await expect(page).toHaveURL(/#\/ws\/default\/workflows\/models\/z-image$/)
   await expect(
     page.getByRole('heading', { name: 'models/z-image' }),
@@ -281,7 +294,7 @@ test('models page inventories the hub cache', async ({ page }) => {
   // Read-only: this runs against the developer's real hub cache
   await page.goto('/#/models')
   await expect(page.locator('h1')).toHaveText('Models')
-  await expect(page.locator('.head .muted')).toContainText('cached', {
+  await expect(page.locator('.pagehead .muted')).toContainText('cached', {
     timeout: 30_000,
   })
   // The download form is present but never submitted here
