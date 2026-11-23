@@ -167,8 +167,7 @@
     </button>
   </form>
 
-  <LoadState of={diffusersRead} label="the diffusers version">
-    {#snippet skeleton()}{/snippet}
+  <LoadState of={diffusersRead} label="the diffusers version" quiet>
     {#if diffusers}
       <div class="engine">
         <span class="enginename">diffusers</span>
@@ -206,8 +205,7 @@
   </LoadState>
 </div>
 
-<LoadState of={downloadsRead} label="downloads">
-  {#snippet skeleton()}{/snippet}
+<LoadState of={downloadsRead} label="downloads" quiet>
   {#each downloads.filter((d) => d.status === 'downloading' || (d.finished_at && Date.now() / 1000 - d.finished_at < 300)) as download (download.id)}
     <div class="dl" class:failed={download.status === 'failed'}>
       <span class="dlrepo">{download.repo_id}</span>

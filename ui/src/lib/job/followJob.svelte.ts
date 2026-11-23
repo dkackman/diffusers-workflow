@@ -20,12 +20,25 @@ const isGone = (e: unknown) => e instanceof ApiError && e.status === 404
 /** The record of job `jobId()`, held only while it is that job's and the
  * server has not said it is gone */
 export function jobRecord(jobId: () => string): Resource<JobDetail> {
-  const read = resource(() => api.getJob(jobId()), {
-    watch: ['jobs', 'gallery'],
-  })
-  const gone = $derived(
-    (read.status === 'error' || read.stale) && isGone(read.error),
+  // Gone is per job: latched by a 404 for that id and lifted only when a
+  // record for it lands, so neither the next job's read nor a Retry of
+  // this one is judged by the last job's answer
+  let goneId = $state<string | undefined>(undefined)
+  const read = resource(
+    async () => {
+      const id = jobId()
+      try {
+        const job = await api.getJob(id)
+        if (goneId === id) goneId = undefined
+        return job
+      } catch (e) {
+        if (isGone(e)) goneId = id
+        throw e
+      }
+    },
+    { watch: ['jobs', 'gallery'] },
   )
+  const gone = $derived(goneId === jobId())
   const held = $derived(
     !gone && read.data?.id === jobId() ? read.data : undefined,
   )
@@ -69,6 +82,10 @@ function jobStream(
     state.done = true
   }
   async function dropped(asked: number) {
+    // EventSource retries every few seconds through an outage; the first
+    // drop's read marked the connection offline, and the epoch rise on
+    // recovery reads the record again and reopens the stream
+    if (connection.state === 'offline') return
     await record.reload()
     if (asked === generation && ended(record.data)) close()
   }

@@ -293,7 +293,7 @@
     {/if}
 
     <!-- What it made last time, before you decide to make another -->
-    <LoadState of={proofRead} label="what {name} made">
+    <LoadState of={proofRead} label="what {name} made" quiet>
       {#if proofs.length}
         <div class="proofs">
           {#each proofs as proof (proof.name)}

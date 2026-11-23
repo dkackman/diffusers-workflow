@@ -45,8 +45,12 @@ vi.mock('../api', () => ({
             warnings: [],
             repos: cache.repos,
           } satisfies ModelCache),
-    listDownloads: () => Promise.resolve({ downloads: [] }),
-    diffusersStatus: () => new Promise(() => {}),
+    listDownloads: () =>
+      cache.error
+        ? Promise.reject(cache.error)
+        : Promise.resolve({ downloads: [] }),
+    diffusersStatus: () =>
+      cache.error ? Promise.reject(cache.error) : new Promise(() => {}),
   },
 }))
 vi.mock('../toast', () => ({ notify: { error: vi.fn(), success: vi.fn() } }))
@@ -102,6 +106,10 @@ it('recovers on reconnect', async () => {
   cache.error = new TypeError('fetch failed')
   render(ModelsPage)
   await screen.findByText("Couldn't load the hub cache: Can't reach the server")
+  // Offline, only the cache list says so: downloads and the diffusers
+  // version fail quietly beside it
+  expect(screen.getAllByText(/Couldn't load/)).toHaveLength(1)
+  expect(screen.getAllByRole('alert')).toHaveLength(1)
   expect(screen.getByRole('button', { name: 'Retry' })).toBeTruthy()
   expect(screen.queryByText('fetch failed')).toBeNull()
   // The download form stays usable while the listing is down

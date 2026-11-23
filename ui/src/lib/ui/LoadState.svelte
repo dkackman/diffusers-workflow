@@ -4,6 +4,8 @@
   // nothing held (the failure and Retry); filtered to nothing (Clear
   // filters); nothing at all (Empty); otherwise the content, under a line
   // saying a refresh failed when the data held is the last good read.
+  // `quiet` is a secondary panel the page reads fine without: it shows
+  // nothing while loading or failed, as the offline banner already speaks.
   // The one place Empty.svelte is imported (eslint.config.js)
   import type { Snippet } from 'svelte'
   import { describeError } from '../apiErrors'
@@ -15,6 +17,7 @@
     of,
     label,
     what,
+    quiet = false,
     empty = false,
     filtered = false,
     onclear,
@@ -28,6 +31,8 @@
     label: string
     /** What a 404 is about, as in "<what> wasn't found"; "That" by default */
     what?: string
+    /** A secondary panel: no skeleton, no failure panel, no refresh line */
+    quiet?: boolean
     empty?: boolean
     filtered?: boolean
     onclear?: () => void
@@ -47,7 +52,9 @@
 
 {#snippet nothing()}{/snippet}
 
-{#if of.status === 'loading' && !held}
+{#if quiet && !held && of.status !== 'ready'}
+  <!-- nothing: loading or failed, the page reads fine without it -->
+{:else if of.status === 'loading' && !held}
   {#if skeleton}{@render skeleton()}{:else}<Skeleton
       label="loading {label}"
     />{/if}
@@ -67,7 +74,7 @@
     {#if emptyText}{@render emptyText()}{/if}
   </Empty>
 {:else}
-  {#if held && described && (of.stale || of.status === 'error')}
+  {#if !quiet && held && described && (of.stale || of.status === 'error')}
     <div class="refresh-failed" role="alert">
       <span>Couldn't refresh {label}: {described.title}</span>
       <button class="quiet" onclick={retry}>Retry</button>

@@ -367,6 +367,14 @@ describe('WorkflowPage recovery', () => {
     expect(screen.getByText('a run would be admitted')).toBeTruthy()
   })
 
+  it('a failed proofs read leaves the form alone', async () => {
+    vi.mocked(api.gallery).mockRejectedValueOnce(new TypeError('fetch failed'))
+    await openPage()
+    expect(screen.queryByText(/Couldn't load/)).toBeNull()
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(document.getElementById('var-prompt')).not.toBeNull()
+  })
+
   it('Retry reads the definition again', async () => {
     vi.mocked(api.getWorkflow).mockRejectedValueOnce(
       new TypeError('fetch failed'),

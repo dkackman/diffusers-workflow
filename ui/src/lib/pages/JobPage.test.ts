@@ -1013,6 +1013,72 @@ describe('after an outage', () => {
     expect(stream.stopped).toBe(1)
   })
 
+  it('a drop while offline reads nothing until the server is back', async () => {
+    detail.job = running()
+    render(JobPage, { jobId: 'j1' })
+    await waitFor(() => expect(stream.onDrop).not.toBeNull())
+    await screen.findByText('Event log')
+    const before = vi.mocked(api.getJob).mock.calls.length
+    connection.state = 'offline'
+    try {
+      // EventSource retries every few seconds while the server is down
+      stream.onDrop!()
+      stream.onDrop!()
+      await new Promise((r) => setTimeout(r, 20))
+      expect(vi.mocked(api.getJob).mock.calls.length).toBe(before)
+      expect(screen.queryByText(/Couldn't refresh job/)).toBeNull()
+      connection.state = 'ok'
+      connection.epoch++
+      await waitFor(() => expect(stream.opened).toEqual([-1, -1]))
+      expect(vi.mocked(api.getJob).mock.calls.length).toBe(before + 1)
+    } finally {
+      connection.state = 'unknown'
+    }
+  })
+
+  it('a job found gone says nothing about the next job it moves to', async () => {
+    detail.job = running()
+    const { rerender } = render(JobPage, { jobId: 'j1' })
+    await screen.findByText('Event log')
+    vi.mocked(api.getJob).mockRejectedValueOnce(
+      new ApiError('Unknown job', 404),
+    )
+    connection.epoch++
+    await screen.findByText("Couldn't load job j1: job j1 wasn't found")
+    let answer: (job: JobDetail) => void = () => {}
+    vi.mocked(api.getJob).mockImplementationOnce(
+      () => new Promise<JobDetail>((r) => (answer = r)),
+    )
+    await rerender({ jobId: 'j2' })
+    await waitFor(() =>
+      expect(screen.queryByText(/Couldn't load job j1/)).toBeNull(),
+    )
+    expect(screen.queryByText(/Couldn't load job j2/)).toBeNull()
+    answer({ ...running(), id: 'j2' })
+    await screen.findByText('Event log')
+  })
+
+  it('a Retry on a gone job never brings back its last record', async () => {
+    detail.job = running()
+    render(JobPage, { jobId: 'j1' })
+    await waitFor(() => expect(stream.onDrop).not.toBeNull())
+    await screen.findByText('Event log')
+    vi.mocked(api.getJob).mockRejectedValueOnce(
+      new ApiError('Unknown job', 404),
+    )
+    stream.onDrop!()
+    await screen.findByText("Couldn't load job j1: job j1 wasn't found")
+    let answer: (job: JobDetail) => void = () => {}
+    vi.mocked(api.getJob).mockImplementationOnce(
+      () => new Promise<JobDetail>((r) => (answer = r)),
+    )
+    await fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+    await new Promise((r) => setTimeout(r, 20))
+    expect(screen.queryByText('Event log')).toBeNull()
+    answer(running())
+    await screen.findByText('Event log')
+  })
+
   it('an epoch rise leaves a finished job alone', async () => {
     detail.job = job([])
     render(JobPage, { jobId: 'j1' })

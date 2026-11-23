@@ -100,3 +100,32 @@ it('ready with rows shows only the rows', () => {
   expect(container.textContent).not.toContain("Couldn't")
   expect(queryByRole('button')).toBeNull()
 })
+
+it('quiet: a secondary panel shows nothing loading or failed', () => {
+  for (const state of [
+    fake({ status: 'loading' }),
+    fake({ status: 'error', error: new TypeError('Failed to fetch') }),
+  ]) {
+    const { container, queryByRole } = show(state, {
+      quiet: true,
+      empty: false,
+    })
+    expect(queryByRole('status')).toBeNull()
+    expect(queryByRole('alert')).toBeNull()
+    expect(container.textContent?.trim()).toBe('')
+    cleanup()
+  }
+})
+
+it('quiet: a failed refresh keeps the data without a line', () => {
+  const { container, queryByRole } = show(
+    fake({
+      data: ['a'],
+      stale: true,
+      error: new TypeError('Failed to fetch'),
+    }),
+    { quiet: true },
+  )
+  expect(queryByRole('alert')).toBeNull()
+  expect(container.querySelectorAll('li')).toHaveLength(1)
+})
