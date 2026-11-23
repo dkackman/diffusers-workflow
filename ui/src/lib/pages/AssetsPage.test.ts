@@ -120,8 +120,13 @@ vi.mock('../changes.svelte', async () => ({
 
 const notifyError = vi.hoisted(() => vi.fn())
 const notifySuccess = vi.hoisted(() => vi.fn())
+const notifyFailure = vi.hoisted(() => vi.fn())
 vi.mock('../toast', () => ({
-  notify: { error: notifyError, success: notifySuccess },
+  notify: {
+    error: notifyError,
+    success: notifySuccess,
+    failure: notifyFailure,
+  },
 }))
 
 beforeEach(() => {
@@ -144,6 +149,7 @@ afterEach(() => {
   setNote.mockReset()
   notifyError.mockClear()
   notifySuccess.mockClear()
+  notifyFailure.mockClear()
   vi.unstubAllGlobals()
   // The collapse state is persisted, so a test that collapses a section
   // would otherwise hand it to whatever renders next
@@ -497,7 +503,14 @@ it('keeps an asset that would not delete in the selection', async () => {
   screen.getByRole('button', { name: /^delete the selected/i }).click()
   await answerConfirm(true)
 
-  await waitFor(() => expect(notifyError).toHaveBeenCalled())
+  await waitFor(() => expect(notifyFailure).toHaveBeenCalled())
+  // Why, through describeError's copy, with the names in Copy details
+  const [doing, error, id, detail] = notifyFailure.mock.calls[0]
+  expect(doing).toBe('delete 1 of 2 assets')
+  expect((error as Error).message).toBe('read-only')
+  expect(id).toBeUndefined()
+  expect(detail).toBe('iris.png: Something went wrong')
+  expect(notifyError).not.toHaveBeenCalled()
   expect(screen.getByText('1 selected')).toBeTruthy()
   expect(
     (screen.getByLabelText('select iris.png') as HTMLInputElement).checked,

@@ -7,7 +7,7 @@
   import LoadState from '../ui/LoadState.svelte'
   import FolderGroups from '../FolderGroups.svelte'
   import BulkBar from '../BulkBar.svelte'
-  import { Picks, actOnEach } from '../picks.svelte'
+  import { Picks, actOnEach, reportFailures } from '../picks.svelte'
   import { isEditable } from '../editable'
   import { neighbor } from '../neighbor'
   import { overlayOpen } from '../ui/layers.svelte'
@@ -143,17 +143,15 @@
     const names = await askDeletion(files, picks.names)
     if (!names) return
     busy = true
-    const failed = await actOnEach(names, (name) => api.deleteOutput(name))
+    const failures = await actOnEach(names, (name) => api.deleteOutput(name))
+    const failed = failures.map((f) => f.name)
     const gone = new Set(names.filter((name) => !failed.includes(name)))
     drop(gone)
     // Whatever could not be deleted stays selected, so a retry needs no
     // re-ticking and the failure is visible rather than silently dropped
     picks.keepFailed(names, failed)
     if (selected && gone.has(selected.name)) selected = null
-    if (failed.length)
-      notify.error(
-        `Could not delete ${failed.length} of ${names.length} files: ${failed.join(', ')}`,
-      )
+    reportFailures('delete', failures, names.length, 'files')
     busy = false
   }
 

@@ -95,7 +95,10 @@ vi.mock('../changes.svelte', async () => ({
 }))
 
 const notifyError = vi.hoisted(() => vi.fn())
-vi.mock('../toast', () => ({ notify: { error: notifyError } }))
+const notifyFailure = vi.hoisted(() => vi.fn())
+vi.mock('../toast', () => ({
+  notify: { error: notifyError, failure: notifyFailure },
+}))
 
 beforeEach(() => {
   listing.files = ['a.png', 'b.png', 'demo/c.png'].map((name) => file(name))
@@ -110,6 +113,7 @@ afterEach(() => {
   setStarred.mockClear()
   archiveOutputs.mockClear()
   notifyError.mockClear()
+  notifyFailure.mockClear()
   galleryMetadata.mockReset()
   galleryMetadata.mockImplementation(() => new Promise(() => {}))
   vi.unstubAllGlobals()
@@ -368,7 +372,15 @@ it('keeps a file that failed to delete selected and reports it', async () => {
   await waitFor(() => expect(screen.getByText('1 selected')).toBeTruthy())
   expect(screen.queryByLabelText('select a.png')).toBeNull()
   expect(screen.getByLabelText('select b.png')).toBeTruthy()
-  expect(notifyError).toHaveBeenCalled()
+  // Why, through describeError's copy, with the names in Copy details
+  const busy = deleteOutput.mock.results[1].value
+  expect(notifyFailure).toHaveBeenCalledWith(
+    'delete 1 of 2 files',
+    await busy.catch((e: unknown) => e),
+    undefined,
+    'b.png: Something went wrong',
+  )
+  expect(notifyError).not.toHaveBeenCalled()
 })
 
 it('does not delete anything when the confirmation is declined', async () => {

@@ -16,7 +16,7 @@
   import HintBar from '../HintBar.svelte'
   import { confirmDialog } from '../confirm.svelte'
   import BulkBar from '../BulkBar.svelte'
-  import { Picks, actOnEach } from '../picks.svelte'
+  import { Picks, actOnEach, reportFailures } from '../picks.svelte'
   import { overlayOpen } from '../ui/layers.svelte'
   import { notify } from '../toast'
   import { storageGet, storageSet } from '../storage'
@@ -242,11 +242,11 @@
     const failed = await actOnEach(names, (name) => api.deleteAsset(name))
     // A read-only examples asset answers 403; whatever could not go stays
     // ticked, so a retry needs no re-ticking
-    picks.keepFailed(names, failed)
-    if (failed.length)
-      notify.error(
-        `Could not delete ${failed.length} of ${names.length} assets: ${failed.join(', ')}`,
-      )
+    picks.keepFailed(
+      names,
+      failed.map((f) => f.name),
+    )
+    reportFailures('delete', failed, names.length, 'assets')
     busy = false
     await list.reload()
   }
