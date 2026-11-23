@@ -320,15 +320,14 @@
         sidebar{:else}<EyeOff size={14} />Hide from sidebar{/if}
     </button>
     <button
-      class="quiet icon danger"
+      class="quiet withicon danger"
       onclick={() => deleteWorkspaceWithConfirm(name)}
       disabled={name === DEFAULT_WORKSPACE}
       title={name === DEFAULT_WORKSPACE
         ? 'the default workspace is the root itself and cannot be deleted'
         : 'delete this workspace and everything in it'}
-      aria-label="delete workspace {name}"
     >
-      <Trash2 size={14} />
+      <Trash2 size={14} />Delete workspace
     </button>
   </section>
 </div>

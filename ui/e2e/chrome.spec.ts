@@ -94,6 +94,10 @@ test('tab order walks the sidebar nav in reading order', async ({ page }) => {
   // now walks the sidebar rather than the header row. The wordmark is
   // still the first stop: it is a link home.
   await page.keyboard.press('Tab')
+  await expect(
+    page.getByRole('link', { name: 'Skip to content' }),
+  ).toBeFocused()
+  await page.keyboard.press('Tab')
   await expect(page.locator('aside .brand')).toBeFocused()
   await page.keyboard.press('Tab')
   await expect(
@@ -166,4 +170,39 @@ test('a class field suggests as you type, and keeps text it does not list', asyn
   await expect(page.getByRole('listbox')).toHaveCount(0)
   await field.press('Tab')
   await expect(field).toHaveValue('MyOwnPipelineXyz')
+})
+
+test('the first Tab reaches Skip to content, which moves focus to main', async ({
+  page,
+}) => {
+  await page.goto('/#/ws/default/workflows')
+  await page.keyboard.press('Tab')
+  const skip = page.getByRole('link', { name: 'Skip to content' })
+  await expect(skip).toBeFocused()
+  await expect(skip).toBeVisible()
+  await page.keyboard.press('Enter')
+  await expect(page.locator('main#main')).toBeFocused()
+  // the router is hash-based: the skip link must not have navigated
+  await expect(page).toHaveURL(/#\/ws\/default\/workflows$/)
+})
+
+test('opening the drawer at 390px focuses its first link, and Escape returns focus to the menu button', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 800 })
+  await page.goto('/')
+  const menu = page.getByRole('button', { name: 'open navigation' })
+  await menu.click()
+  const nav = page.getByRole('complementary', { name: 'navigation' })
+  await expect(nav.getByRole('link').first()).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(menu).toBeFocused()
+})
+
+test('the meter says idle or running', async ({ page }) => {
+  await page.goto('/')
+  // The fixture has no GPU reading, so the status button stands in for the
+  // meter: it names the state in words either way
+  const meter = page.getByRole('button', { name: /^server & worker status/ })
+  await expect(meter).toContainText(/idle|running/)
 })

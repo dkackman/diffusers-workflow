@@ -19,11 +19,10 @@
 >
   <AlertDialog.Portal>
     <AlertDialog.Overlay class="ui-overlay" />
-    <AlertDialog.Content
-      class="ui-sheet panel"
-      aria-label={confirmState.title}
-      interactOutsideBehavior="close"
-    >
+    <AlertDialog.Content class="ui-sheet panel" interactOutsideBehavior="close">
+      <AlertDialog.Title class="ui-title">
+        {confirmState.title}
+      </AlertDialog.Title>
       <AlertDialog.Description class="ui-message">
         {confirmState.message}
       </AlertDialog.Description>
@@ -46,3 +45,11 @@
     </AlertDialog.Content>
   </AlertDialog.Portal>
 </AlertDialog.Root>
+
+<style>
+  :global(.ui-title) {
+    margin: 0 0 var(--space-2);
+    font-size: var(--t-md, 1rem);
+    font-weight: 600;
+  }
+</style>

@@ -117,3 +117,14 @@ it('is named by the first sentence of the message by default', async () => {
     await screen.findByRole('alertdialog', { name: 'Discard changes?' }),
   ).toBeTruthy()
 })
+
+it('the dialog is named by its visible title', async () => {
+  render(ConfirmDialog)
+  void confirmDialog('This removes it on disk.', { title: 'Delete a.png?' })
+  const dialog = await screen.findByRole('alertdialog', {
+    name: 'Delete a.png?',
+  })
+  expect(dialog.hasAttribute('aria-label')).toBe(false)
+  const heading = screen.getByRole('heading', { name: 'Delete a.png?' })
+  expect(dialog.getAttribute('aria-labelledby')).toBe(heading.id)
+})
