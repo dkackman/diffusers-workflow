@@ -15,11 +15,11 @@
   import { resource } from './resource.svelte'
   import LoadState from './ui/LoadState.svelte'
   import ErrorLine from './ui/ErrorLine.svelte'
-  import { confirmDialog } from './confirm.svelte'
+  import { action } from './action.svelte'
+  import { cacheEntryConfirm, serverConfirm } from './destructive'
   import { formatBytes, formatMtime, gbFromBytes } from './format'
   import type { DiskCacheEntry, DiskCacheInfo } from './types'
 
-  let clearing = $state<string | null>(null)
   let clearError = $state<unknown>(null)
 
   const read = resource(() => api.listCaches(), { watch: ['models'] })
@@ -29,27 +29,31 @@
   // formatBytes floors at 1 KB, so an empty cache would read as 1 KB
   const cacheSize = (bytes: number) => (bytes ? formatBytes(bytes) : '0 bytes')
 
-  async function clear(cache: DiskCacheInfo) {
-    if (
-      !(await confirmDialog(
-        `Clear the ${cache.name} cache (${cacheSize(cache.bytes)}, ` +
-          `${cache.files} files) at ${cache.root}?\n${cache.cost_of_clearing}`,
-        { confirmLabel: 'Clear' },
-      ))
-    )
-      return
-    clearing = cache.name
+  // A refusal (a 409: a job running or queued) carries the server's reason,
+  // which ErrorLine shows; the cache list is read again either way
+  async function settle(run: () => Promise<unknown>) {
     clearError = null
     try {
-      await api.clearCache(cache.name)
+      await run()
     } catch (e) {
-      // a 409 (a job running or queued) carries the server's reason
       clearError = e
     } finally {
-      clearing = null
       await refreshCaches()
     }
   }
+
+  const clear = action(
+    (cache: DiskCacheInfo) => settle(() => api.clearCache(cache.name)),
+    {
+      doing: (cache) => `clear the ${cache.name} cache`,
+      confirm: (cache) =>
+        serverConfirm({
+          title: `Clear the ${cache.name} cache at ${cache.root}?`,
+          message: `Clear the ${cache.name} cache (${cacheSize(cache.bytes)}, ${cache.files} files). ${cache.cost_of_clearing}`,
+          confirmLabel: 'Clear',
+        }),
+    },
+  )
 
   // caches whose entry table is expanded, by name
   let expanded = $state<string[]>([])
@@ -61,30 +65,26 @@
   const entryLabel = (e: DiskCacheEntry) =>
     e.unreadable ? 'unreadable' : e.component || e.model || e.id.slice(0, 12)
 
-  async function deleteEntry(cache: DiskCacheInfo, entry: DiskCacheEntry) {
-    const what = entry.unreadable
-      ? `unreadable entry ${entry.id.slice(0, 12)}`
-      : `${entry.component} of ${entry.model}`
-    if (
-      !(await confirmDialog(
-        `Delete the ${cache.name} cache entry ${what} ` +
-          `(${cacheSize(entry.bytes)})?\n${cache.cost_of_clearing}`,
-        { confirmLabel: 'Delete' },
-      ))
-    )
-      return
-    clearing = `${cache.name}/${entry.id}`
-    clearError = null
-    try {
-      await api.deleteCacheEntry(cache.name, entry.id)
-    } catch (e) {
-      // a 409 (a job or download active) carries the server's reason
-      clearError = e
-    } finally {
-      clearing = null
-      await refreshCaches()
-    }
-  }
+  const entryWhat = (e: DiskCacheEntry) =>
+    e.unreadable
+      ? `unreadable entry ${e.id.slice(0, 12)}`
+      : `${e.component} of ${e.model}`
+
+  const deleteEntry = action(
+    (cache: DiskCacheInfo, entry: DiskCacheEntry) =>
+      settle(() => api.deleteCacheEntry(cache.name, entry.id)),
+    {
+      doing: (cache, entry) => `delete ${entryLabel(entry)} from ${cache.name}`,
+      confirm: (cache, entry) =>
+        cacheEntryConfirm(
+          cache.name,
+          entryWhat(entry),
+          cacheSize(entry.bytes),
+          cache.cost_of_clearing,
+        ),
+    },
+  )
+  const working = $derived(clear.busy || deleteEntry.busy)
 
   const usedPct = (cache: DiskCacheInfo) =>
     cache.disk_total && cache.disk_free != null
@@ -145,12 +145,12 @@
               <td>
                 <button
                   class="quiet icon danger"
-                  disabled={!cache.clearable || clearing !== null}
+                  disabled={!cache.clearable || working}
                   title={cache.clearable
                     ? `clear the ${cache.name} cache`
                     : (cache.not_clearable_reason ?? 'not clearable')}
                   aria-label="clear the {cache.name} cache"
-                  onclick={() => clear(cache)}
+                  onclick={() => clear.run(cache)}
                 >
                   <Trash2 size={14} />
                 </button>
@@ -230,8 +230,7 @@
                               <td>
                                 <button
                                   class="quiet icon danger"
-                                  disabled={!cache.clearable ||
-                                    clearing !== null}
+                                  disabled={!cache.clearable || working}
                                   title={cache.clearable
                                     ? `delete ${entryLabel(entry)} from the ${cache.name} cache`
                                     : (cache.not_clearable_reason ??
@@ -239,7 +238,7 @@
                                   aria-label="delete {entryLabel(
                                     entry,
                                   )} from the {cache.name} cache"
-                                  onclick={() => deleteEntry(cache, entry)}
+                                  onclick={() => deleteEntry.run(cache, entry)}
                                 >
                                   <Trash2 size={14} />
                                 </button>

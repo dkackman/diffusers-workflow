@@ -83,14 +83,8 @@ const MESSAGE_OWNERS = [
   'src/lib/test/**',
   'src/**/*.test.ts',
 ]
-// The module that words a delete. ModelsPage and CachesPanel ask about the
-// server's caches, which Task 8 moves to destructive.ts's serverConfirm;
-// until then they keep their own Delete
-const DESTROY_OWNERS = [
-  'src/lib/destructive.ts',
-  'src/lib/pages/ModelsPage.svelte',
-  'src/lib/CachesPanel.svelte',
-]
+// The module that words a delete
+const DESTROY_OWNERS = ['src/lib/destructive.ts']
 // The feed's own module, the one subscriber and the tests that drive it
 const FEED_OWNERS = [
   'src/lib/changes.svelte.ts',

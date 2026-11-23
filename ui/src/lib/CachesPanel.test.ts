@@ -63,3 +63,27 @@ it("a refused clear shows the server's reason in one line, the detail folded", a
   expect(alert.textContent).toContain("Couldn't clear that: A job is running.")
   expect(container.querySelector('details')?.hasAttribute('open')).toBe(false)
 })
+
+it('clear asks with the cost and runs once', async () => {
+  const { confirmDialog } = await import('./confirm.svelte')
+  listing.caches = [cache('triton')]
+  clearCache.mockReset()
+  clearCache.mockResolvedValue({})
+  vi.mocked(confirmDialog).mockReset()
+  vi.mocked(confirmDialog).mockResolvedValue(true)
+  render(CachesPanel)
+  await screen.findByText('triton')
+  const button = screen.getByRole('button', { name: /clear the triton/i })
+  await fireEvent.click(button)
+  await fireEvent.click(button)
+  await vi.waitFor(() => expect(clearCache).toHaveBeenCalledTimes(1))
+  expect(vi.mocked(confirmDialog).mock.calls[0]).toEqual([
+    'Clear the triton cache (1 KB, 1 files). It is read again.',
+    {
+      title: 'Clear the triton cache at /cache/triton?',
+      confirmLabel: 'Clear',
+      cancelLabel: undefined,
+      danger: false,
+    },
+  ])
+})

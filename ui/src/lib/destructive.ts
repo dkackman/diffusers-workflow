@@ -102,3 +102,46 @@ export function workspaceConfirm(
     danger: true,
   }
 }
+
+export type ServerSpec = {
+  title: string
+  message: string
+  confirmLabel: string
+}
+
+/** The confirm for something that changes the server rather than destroying
+ * a person's file: it says what changes and is never in danger (P5 row 3) */
+export function serverConfirm(spec: ServerSpec): ConfirmSpec {
+  return { ...spec, danger: false }
+}
+
+/** Deleting a repo from the hub cache: its size, and that it comes back */
+export function modelDeleteConfirm(repoId: string, gb: string): ConfirmSpec {
+  return serverConfirm({
+    title: `Delete ${repoId} (${gb} GB) from the model cache?`,
+    message: 'The next workflow that needs it downloads it again.',
+    confirmLabel: 'Delete model',
+  })
+}
+
+/** Deleting one entry of a dw disk cache; the cache says what it costs */
+export function cacheEntryConfirm(
+  cache: string,
+  what: string,
+  size: string,
+  cost: string,
+): ConfirmSpec {
+  return serverConfirm({
+    title: `Delete the ${cache} cache entry?`,
+    message: `Delete the ${cache} cache entry ${what} (${size}). ${cost}`,
+    confirmLabel: 'Delete entry',
+  })
+}
+
+/** Update diffusers from GitHub: it changes the server's environment */
+export const UPDATE_DIFFUSERS_CONFIRM: ConfirmSpec = serverConfirm({
+  title: 'Update diffusers from GitHub?',
+  message:
+    "This changes the server's Python environment and restarts the idle worker.",
+  confirmLabel: 'Update diffusers',
+})

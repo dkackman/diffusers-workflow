@@ -1,5 +1,10 @@
 import { expect, it } from 'vitest'
-import { destroyConfirm, workspaceConfirm } from './destructive'
+import {
+  destroyConfirm,
+  modelDeleteConfirm,
+  serverConfirm,
+  workspaceConfirm,
+} from './destructive'
 
 it('one file, one starred, several', () => {
   expect(destroyConfirm({ name: 'a.png', noun: 'file' })).toEqual({
@@ -79,4 +84,16 @@ it('a folder with no files is left out', () => {
     'This permanently removes 2 assets (1.0 MB). The prompt library and ' +
       'the shared asset library are kept.',
   )
+})
+
+it('a server change asks in the plain style, never danger', () => {
+  expect(
+    serverConfirm({ title: 'T?', message: 'M.', confirmLabel: 'Go' }),
+  ).toEqual({ title: 'T?', message: 'M.', confirmLabel: 'Go', danger: false })
+  expect(modelDeleteConfirm('org/m', '2.5')).toEqual({
+    title: 'Delete org/m (2.5 GB) from the model cache?',
+    message: 'The next workflow that needs it downloads it again.',
+    confirmLabel: 'Delete model',
+    danger: false,
+  })
 })

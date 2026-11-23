@@ -14,13 +14,12 @@
     X,
   } from '@lucide/svelte'
   import { api } from '../api'
-  import { notify } from '../toast'
-  import { confirmDialog } from '../confirm.svelte'
+  import { action } from '../action.svelte'
+  import { modelDeleteConfirm, UPDATE_DIFFUSERS_CONFIRM } from '../destructive'
   import CopyButton from '../CopyButton.svelte'
   import LastUsedCell, { LAST_USED_TIP } from '../LastUsedCell.svelte'
   import type { ModelDownload, ModelRepo } from '../types'
 
-  let deleting = $state<string | null>(null)
   let expanded = $state<Record<string, boolean>>({})
   let repoInput = $state('')
 
@@ -55,60 +54,50 @@
   // Polled while pip runs so the badge flips when it finishes
   const updating = $derived(diffusers?.status === 'running')
 
-  async function startDiffusersUpdate() {
-    try {
+  const update = action(
+    async () => {
       await api.updateDiffusers()
       await diffusersRead.reload()
-    } catch (e) {
-      notify.failure('start the diffusers update', e)
-    }
-  }
+    },
+    {
+      doing: 'start the diffusers update',
+      confirm: () => UPDATE_DIFFUSERS_CONFIRM,
+    },
+  )
 
-  async function startDownload() {
-    const repo = repoInput.trim()
-    if (!repo) return
-    try {
+  const startDownload = action(
+    async (repo: string) => {
       await api.startDownload(repo)
       repoInput = ''
       await downloadsRead.reload()
-    } catch (e) {
-      notify.failure(`download ${repo}`, e)
-    }
-  }
+    },
+    { doing: (repo) => `download ${repo}` },
+  )
 
-  async function cancelDownload(id: string) {
-    try {
+  const cancelDownload = action(
+    async (id: string) => {
       await api.cancelDownload(id)
       await downloadsRead.reload()
-    } catch (e) {
-      notify.failure('cancel the download', e)
-    }
-  }
+    },
+    { doing: 'cancel the download' },
+  )
 
   const pct = (download: ModelDownload) =>
     download.total
       ? Math.min(100, Math.round((100 * download.downloaded) / download.total))
       : null
 
-  async function remove(repo: ModelRepo) {
-    if (
-      !(await confirmDialog(
-        `Delete ${repo.repo_id} (${gb(repo.size_on_disk)} GB) from the hub cache?\n` +
-          'The next workflow that needs it will download it again.',
-        { confirmLabel: 'Delete' },
-      ))
-    )
-      return
-    deleting = repo.repo_id
-    try {
+  const remove = action(
+    async (repo: ModelRepo) => {
       await api.deleteModel(repo.repo_id)
       await cacheRead.reload()
-    } catch (e) {
-      notify.failure(`delete ${repo.repo_id}`, e)
-    } finally {
-      deleting = null
-    }
-  }
+    },
+    {
+      doing: (repo) => `delete ${repo.repo_id}`,
+      confirm: (repo) =>
+        modelDeleteConfirm(repo.repo_id, gbFromBytes(repo.size_on_disk)),
+    },
+  )
 
   const gb = gbFromBytes
   const day = (stamp: number | null) => (stamp ? formatDay(stamp) : '—')
@@ -152,7 +141,8 @@
     class="dlform"
     onsubmit={(e) => {
       e.preventDefault()
-      startDownload()
+      const repo = repoInput.trim()
+      if (repo) void startDownload.run(repo)
     }}
   >
     <input
@@ -163,7 +153,7 @@
     <button
       class="withicon"
       type="submit"
-      disabled={!repoInput.trim()}
+      disabled={!repoInput.trim() || startDownload.busy}
       title="download this repo into the hub cache"
     >
       <Download size={14} />Download
@@ -190,7 +180,8 @@
         {:else}
           <button
             class="quiet withicon"
-            onclick={startDiffusersUpdate}
+            onclick={() => update.run()}
+            disabled={update.busy}
             title="install the latest diffusers from GitHub - new model pipelines usually land there before a release. The worker restarts when idle so the next job uses it"
           >
             <RefreshCw size={14} />Update from GitHub
@@ -225,7 +216,8 @@
         {/if}
         <button
           class="quiet icon"
-          onclick={() => cancelDownload(download.id)}
+          onclick={() => cancelDownload.run(download.id)}
+          disabled={cancelDownload.busy}
           title="cancel this download - partial files resume on retry"
           aria-label="cancel downloading {download.repo_id}"
         >
@@ -321,8 +313,8 @@
               <td>
                 <button
                   class="quiet icon danger"
-                  onclick={() => remove(repo)}
-                  disabled={deleting !== null}
+                  onclick={() => remove.run(repo)}
+                  disabled={remove.busy}
                   title="delete every cached revision of this repo"
                   aria-label="delete {repo.repo_id} from the cache"
                 >
