@@ -11,6 +11,7 @@
   import { resource } from '../resource.svelte'
   import { applyEdits, noEdits, settleEdits, withPatch } from '../gallery/order'
   import LoadState from '../ui/LoadState.svelte'
+  import PageHeader from '../ui/PageHeader.svelte'
   import FolderGroups from '../FolderGroups.svelte'
   import { dropFiles } from '../dropFiles'
   import HintBar from '../HintBar.svelte'
@@ -326,31 +327,36 @@
     disabled: busy,
   }}
 >
-  <div class="pagehead">
-    <h1>{shared ? 'Shared assets' : 'Assets'}</h1>
-    <span class="num muted">{shownCount} files</span>
-    <span class="flex"></span>
-    {#if !shared && elsewhereCount}
-      <a
-        class="sharedlink plain muted"
-        href={sharedHref('assets')}
-        title="the shared library every workspace under this root can use"
-      >
-        shared <span class="num">{elsewhereCount}</span>
-      </a>
-    {/if}
+  {#snippet search()}
     <input class="filter" placeholder="filter…" bind:value={filter} />
-    <!-- One input for every section: which library the file lands in is
+  {/snippet}
+  <PageHeader
+    title={shared ? 'Shared assets' : 'Assets'}
+    count={{ n: shownCount, noun: 'file' }}
+    filter={search}
+  >
+    {#snippet actions()}
+      {#if !shared && elsewhereCount}
+        <a
+          class="sidelink plain muted"
+          href={sharedHref('assets')}
+          title="the shared library every workspace under this root can use"
+        >
+          shared <span class="num">{elsewhereCount}</span>
+        </a>
+      {/if}
+      <!-- One input for every section: which library the file lands in is
        uploadTarget, set by whichever button opened it -->
-    <input
-      class="hiddenfile"
-      type="file"
-      multiple
-      accept={UPLOAD_EXTENSIONS.join(',')}
-      bind:this={fileInput}
-      onchange={upload}
-    />
-  </div>
+      <input
+        class="hiddenfile"
+        type="file"
+        multiple
+        accept={UPLOAD_EXTENSIONS.join(',')}
+        bind:this={fileInput}
+        onchange={upload}
+      />
+    {/snippet}
+  </PageHeader>
 
   <HintBar storageKey="assets-hint-dismissed">
     An asset is input a workflow names by reference: an argument set to
@@ -484,16 +490,6 @@
 <style>
   .dropzone {
     min-height: 60vh;
-  }
-  .pagehead .filter {
-    max-width: 220px;
-  }
-  .sharedlink {
-    font-size: 0.82rem;
-    white-space: nowrap;
-  }
-  .sharedlink:hover {
-    color: var(--ink);
   }
   .hiddenfile {
     display: none;

@@ -2,9 +2,10 @@
  * poll. A job runs for minutes to half an hour, usually in a tab nobody is
  * looking at, so the title is where its state has to be. */
 import { formatDuration } from './format'
+import { BASE_TITLE, pageTitle } from './pageFrame.svelte'
 import type { HealthInfo, JobDetail } from './types'
 
-export const BASE_TITLE = 'diffusers-workflow'
+export { BASE_TITLE }
 
 export type TitleJob = Pick<
   JobDetail,
@@ -107,11 +108,17 @@ export function percentDone(progress: JobDetail['progress']): number | null {
 const leaf = (job: TitleJob) =>
   (job.workflow ?? job.workflow_name ?? 'job').split('/').pop() || 'job'
 
-export function tabTitle(job: TitleJob | null, othersRunning = 0): string {
-  if (!job) return BASE_TITLE
+/** `base` is the page's own title (`pageTitle`): the job's state goes in
+ * front of it, so the tab still says which page it is. */
+export function tabTitle(
+  job: TitleJob | null,
+  othersRunning = 0,
+  base = pageTitle(),
+): string {
+  if (!job) return base
   const pct = percentDone(job.progress)
   const more = othersRunning > 0 ? ` +${othersRunning}` : ''
-  return `▶ ${pct === null ? '' : `${pct}% · `}${leaf(job)}${more} — ${BASE_TITLE}`
+  return `▶ ${pct === null ? '' : `${pct}% · `}${leaf(job)}${more} — ${base}`
 }
 
 const MARKS: Record<string, string> = {
@@ -120,8 +127,11 @@ const MARKS: Record<string, string> = {
   cancelled: '⊘',
 }
 
-export function endedTitle(job: TitleJob & { status: string }): string {
-  return `${MARKS[job.status] ?? '•'} ${leaf(job)} — ${BASE_TITLE}`
+export function endedTitle(
+  job: TitleJob & { status: string },
+  base = pageTitle(),
+): string {
+  return `${MARKS[job.status] ?? '•'} ${leaf(job)} — ${base}`
 }
 
 /** "ref-to-video succeeded in 12m 54s" - the toast and the alert body. */

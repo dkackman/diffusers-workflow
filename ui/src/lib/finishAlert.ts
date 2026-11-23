@@ -92,7 +92,10 @@ let endedMark: string | null = null
 let titleJob: JobDetail | null = null
 let others = 0
 
-const showTitle = () => {
+/** The one writer of `document.title`: the ended mark, else the running
+ * job in front of the page's title. `PageHeader` calls it when the page's
+ * title changes. */
+export function refreshTitle(): void {
   document.title = endedMark ?? tabTitle(titleJob, others)
 }
 
@@ -100,7 +103,7 @@ const showTitle = () => {
 export function clearEndedMark(): void {
   if (document.hidden) return
   endedMark = null
-  showTitle()
+  refreshTitle()
 }
 
 export function resetFollow(): void {
@@ -178,8 +181,8 @@ export async function followJobs(
     titleJob = next.running[0]
       ? await api.getJob(next.running[0]).catch(() => null)
       : null
-    showTitle()
+    refreshTitle()
   }
   for (const [id, wasAdopted] of claimed) await settle(id, ctx, wasAdopted)
-  showTitle()
+  refreshTitle()
 }

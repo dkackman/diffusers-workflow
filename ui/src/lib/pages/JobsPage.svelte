@@ -4,6 +4,7 @@
   import { queueWait } from '../jobTimes'
   import { resource } from '../resource.svelte'
   import LoadState from '../ui/LoadState.svelte'
+  import PageHeader from '../ui/PageHeader.svelte'
   import { onMount } from 'svelte'
   import { ChevronDown, ChevronUp, ChevronsUp, Inbox, X } from '@lucide/svelte'
   import { api } from '../api'
@@ -197,8 +198,7 @@
   }
 </script>
 
-<div class="pagehead">
-  <h1>{scope === 'all' ? 'All jobs' : 'Jobs'}</h1>
+{#snippet filters()}
   <select bind:value={statusFilter} title="filter by status">
     <option value="">all statuses</option>
     <option value="running">running</option>
@@ -226,26 +226,30 @@
     placeholder="filter by workflow…"
     bind:value={nameFilter}
   />
-  {#if requestScope.request}
-    <span class="wschip active-filter" data-testid="req-filter">
-      <a
-        class="plain"
-        href={wsHref(listed, 'requests', requestScope.request)}
-        title="open this request"
-      >
-        {requestLabel(requestScope)}
-      </a>
-      <button
-        class="quiet icon"
-        onclick={() => (reqFilter = '')}
-        title="remove the request filter"
-        aria-label="remove the request filter"
-      >
-        <X size={12} />
-      </button>
-    </span>
-  {/if}
-</div>
+{/snippet}
+<PageHeader title={scope === 'all' ? 'All jobs' : 'Jobs'} filter={filters}>
+  {#snippet actions()}
+    {#if requestScope.request}
+      <span class="wschip active-filter" data-testid="req-filter">
+        <a
+          class="plain"
+          href={wsHref(listed, 'requests', requestScope.request)}
+          title="open this request"
+        >
+          {requestLabel(requestScope)}
+        </a>
+        <button
+          class="quiet icon"
+          onclick={() => (reqFilter = '')}
+          title="remove the request filter"
+          aria-label="remove the request filter"
+        >
+          <X size={12} />
+        </button>
+      </span>
+    {/if}
+  {/snippet}
+</PageHeader>
 
 {#each banners as banner (banner.batch)}
   <div class="panel restart" role="status" data-batch={banner.batch}>
@@ -407,15 +411,8 @@
 </LoadState>
 
 <style>
-  .pagehead h1 {
-    margin: 0;
-    flex: 1;
-  }
-  .pagehead select {
+  select {
     max-width: 150px;
-  }
-  .filter {
-    max-width: 220px;
   }
   .list {
     padding: 0.3rem;

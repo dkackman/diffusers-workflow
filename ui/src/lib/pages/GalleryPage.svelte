@@ -5,6 +5,7 @@
   import { untrack } from 'svelte'
   import { resource, type Resource } from '../resource.svelte'
   import LoadState from '../ui/LoadState.svelte'
+  import PageHeader from '../ui/PageHeader.svelte'
   import FolderGroups from '../FolderGroups.svelte'
   import BulkBar from '../BulkBar.svelte'
   import { Picks, actOnEach, reportFailures } from '../picks.svelte'
@@ -18,6 +19,7 @@
   import { workspace } from '../workspace.svelte'
   import { go } from '../router.svelte'
   import RequestFilter from '../gallery/RequestFilter.svelte'
+  import RoleChips from '../gallery/RoleChips.svelte'
   import GalleryDetail from '../gallery/GalleryDetail.svelte'
   import { AssessCache } from '../gallery/assess.svelte'
   import RoleTag from '../gallery/RoleTag.svelte'
@@ -121,13 +123,6 @@
     } catch (e) {
       notify.failure('star that file', e)
     }
-  }
-  // Never both off: an empty grid is not a state worth offering
-  function toggleRole(which: OutputRole) {
-    const next = roles.includes(which)
-      ? roles.filter((r) => r !== which)
-      : [...roles, which]
-    roles = next.length ? next : [which === 'final' ? 'intermediate' : 'final']
   }
   const byName = $derived(new Map(visible.map((f) => [f.name, f])))
   // The server folds each run id into `folder`; group by that, since the
@@ -262,36 +257,20 @@
 
 <svelte:window onkeydown={onKeydown} />
 
-<div class="pagehead baseline">
-  <h1>Gallery</h1>
-  <span class="num muted">{files.length} files</span>
+{#snippet search()}
   <input class="filter" placeholder="filter…" bind:value={filter} />
-  <div class="rolechips" role="group" aria-label="filter by role">
-    {#each ['final', 'intermediate'] as const as which (which)}
-      <button
-        class="rolechip"
-        class:on={roles.includes(which)}
-        aria-pressed={roles.includes(which)}
-        onclick={() => toggleRole(which)}
-        title={which === 'final'
-          ? 'what the runs were for'
-          : "the steps' working files, kept along the way"}
-      >
-        {which === 'final' ? 'Final' : 'Intermediate'}
-      </button>
-    {/each}
-    <button
-      class="rolechip"
-      class:on={starredOnly}
-      aria-pressed={starredOnly}
-      onclick={() => (starredOnly = !starredOnly)}
-      title="only the files you starred"
-    >
-      Starred
-    </button>
-  </div>
-  <RequestFilter bind:request={reqId} bind:item={reqItem} />
-</div>
+{/snippet}
+<PageHeader
+  title="Gallery"
+  baseline
+  count={{ n: files.length, noun: 'file' }}
+  filter={search}
+>
+  {#snippet actions()}
+    <RoleChips bind:roles bind:starredOnly />
+    <RequestFilter bind:request={reqId} bind:item={reqItem} />
+  {/snippet}
+</PageHeader>
 
 <BulkBar
   {picks}
@@ -432,34 +411,6 @@
 {/if}
 
 <style>
-  .filter {
-    max-width: 220px;
-    margin-left: auto;
-  }
-  .rolechips {
-    display: flex;
-    gap: 0.3rem;
-  }
-  .rolechip {
-    background: none;
-    border: 1px solid var(--line);
-    border-radius: 999px;
-    color: var(--muted);
-    font-size: var(--t-xs);
-    font-weight: 500;
-    padding: 0.05rem 0.6rem;
-    cursor: pointer;
-  }
-  .rolechip:hover {
-    color: var(--ink);
-    border-color: var(--muted);
-    filter: none;
-  }
-  .rolechip.on {
-    background: var(--ink);
-    border-color: var(--ink);
-    color: var(--panel);
-  }
   .note-mark {
     color: var(--muted);
     vertical-align: -1px;

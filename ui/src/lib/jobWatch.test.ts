@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { HealthInfo, JobDetail } from './types'
+import { pageFrame } from './pageFrame.svelte'
 import {
   BASE_TITLE,
   endedSince,
@@ -122,6 +123,24 @@ describe('tabTitle', () => {
       progress: progress({ step_index: 0, total_steps: 2 }),
     }
     expect(tabTitle(job, 1)).toBe(`▶ 0% · ref-to-video +1 — ${BASE_TITLE}`)
+  })
+  it("the running title keeps the page's name", () => {
+    const job = {
+      workflow: 'minimax/ref-to-video',
+      workflow_name: 'templates/minimax/ref-to-video',
+      progress: progress({ step_index: 0, total_steps: 2 }),
+    }
+    pageFrame.title = 'Gallery'
+    try {
+      expect(tabTitle(job, 1)).toBe(
+        '▶ 0% · ref-to-video +1 — Gallery · diffusers-workflow',
+      )
+      expect(endedTitle({ ...job, status: 'succeeded' })).toBe(
+        '✓ ref-to-video — Gallery · diffusers-workflow',
+      )
+    } finally {
+      pageFrame.title = ''
+    }
   })
   it('leaves the percent out when there is none', () => {
     expect(

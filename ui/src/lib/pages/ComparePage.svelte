@@ -3,11 +3,12 @@
   // pair, the 12 vs 30 steps - with the arguments that differ called out
   // and every video on one transport, so a difference in motion is seen at
   // the same frame rather than remembered across two players
-  import { Pause, Play } from '@lucide/svelte'
+  import { Columns2, Pause, Play } from '@lucide/svelte'
   import { api } from '../api'
   import { untrack } from 'svelte'
   import { resource, type Resource } from '../resource.svelte'
   import LoadState from '../ui/LoadState.svelte'
+  import PageHeader from '../ui/PageHeader.svelte'
   import {
     argumentOf,
     cellFor,
@@ -16,7 +17,7 @@
     type Cell,
   } from '../compare'
   import { formatDuration } from '../format'
-  import { wsHref } from '../routes'
+  import { SECTION_LABELS, wsHref } from '../routes'
   import { workspace } from '../workspace.svelte'
   import Markdown from '../ui/Markdown.svelte'
   import Skeleton from '../ui/Skeleton.svelte'
@@ -73,20 +74,24 @@
       else void Promise.resolve(v.play()).catch(() => (playing = false))
     }
   }
+  const galleryHref = $derived(wsHref(workspace.current, 'gallery'))
   function seek(to: number) {
     time = to
     for (const v of present()) v.currentTime = to
   }
 </script>
 
-<div class="pagehead baseline">
-  <h1>Compare</h1>
-  <a class="plain muted" href={wsHref(workspace.current, 'gallery')}>
-    back to the gallery
-  </a>
-</div>
+<PageHeader
+  title="Compare"
+  baseline
+  back={{ href: galleryHref, label: SECTION_LABELS.ws.gallery }}
+/>
 
-<LoadState of={comparison} label="the comparison">
+<LoadState of={comparison} label="the comparison" empty={names.length < 2}>
+  {#snippet emptyIcon()}<Columns2 size={36} strokeWidth={1.5} />{/snippet}
+  {#snippet emptyText()}<span>Nothing to compare yet.</span><br /><span>
+      Tick two or more files in the Gallery, then press Compare.
+    </span><br /><a href={galleryHref}>Open the Gallery</a>{/snippet}
   {#snippet skeleton()}<Skeleton
       tiles={names.length}
       label="loading the comparison"

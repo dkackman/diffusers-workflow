@@ -3,6 +3,7 @@
   import { api } from '../api'
   import { resource } from '../resource.svelte'
   import LoadState from '../ui/LoadState.svelte'
+  import PageHeader from '../ui/PageHeader.svelte'
   import FolderGroups from '../FolderGroups.svelte'
   import { leafOf } from '../grouping'
   import HintBar from '../HintBar.svelte'
@@ -39,19 +40,19 @@
   const href = (name: string) => sharedHref('prompt-edit', ...name.split('/'))
 </script>
 
-<div class="pagehead">
-  <h1>Prompts</h1>
-  <span class="flex"></span>
+{#snippet search()}
   <input placeholder="filter…" bind:value={filter} class="filter" />
-  <a
-    class="quiet icon plain"
-    href={sharedHref('prompt-edit')}
-    title="new prompt"
-    aria-label="new prompt"
-  >
-    <Plus size={15} />
-  </a>
-</div>
+{/snippet}
+<PageHeader title="Prompts" filter={search}>
+  {#snippet actions()}<a
+      class="quiet icon plain"
+      href={sharedHref('prompt-edit')}
+      title="new prompt"
+      aria-label="new prompt"
+    >
+      <Plus size={15} />
+    </a>{/snippet}
+</PageHeader>
 
 <HintBar storageKey="prompt-hint-dismissed">
   Write a prompt once, reuse it anywhere: a workflow argument set to prompt:name
@@ -143,9 +144,6 @@
   .origin {
     font-size: 0.75rem;
   }
-  .pagehead .flex {
-    flex: 1;
-  }
   /* An absolute path is worth knowing and not worth the slot beside the
      title - and as one unbreakable token it was pushing the page sideways
      on a phone */
@@ -156,10 +154,6 @@
   .path {
     font-family: var(--font-mono);
     word-break: break-all;
-  }
-  .filter {
-    max-width: 220px;
-    margin-left: auto;
   }
   .card {
     position: relative;

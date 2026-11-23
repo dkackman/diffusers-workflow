@@ -1,0 +1,115 @@
+<script module lang="ts">
+  import { route } from '../router.svelte'
+
+  // The path the last focus answered. At load it is the path the app opened
+  // on, so the first render never takes focus; a page mounted by a
+  // navigation (a new path) does. Only `route.parts` being replaced counts:
+  // a query change (`setHashQuery`) and a rename (`renameRoute`, in place)
+  // never replace it, and a quiet reload never touches the route
+  let seen = route.parts
+  // The header that named the tab last: one leaving clears the title only
+  // while it is still that one, so a page with no header is not left under
+  // the name of the page before it
+  let naming: object | null = null
+</script>
+
+<script lang="ts">
+  // The row a page opens with: the back link, the h1 (which names the tab,
+  // and takes focus after a navigation so a screen reader starts at the new
+  // page), the secondary line, the count, the filter and the actions
+  import { tick, untrack, type Snippet } from 'svelte'
+  import { refreshTitle } from '../finishAlert'
+  import { pageFrame } from '../pageFrame.svelte'
+
+  let {
+    title,
+    secondary,
+    count,
+    back,
+    actions,
+    filter,
+    baseline = false,
+  }: {
+    title: string
+    secondary?: string
+    count?: { n: number; noun: string; plural?: string }
+    back?: { href: string; label: string }
+    actions?: Snippet
+    filter?: Snippet
+    baseline?: boolean
+  } = $props()
+
+  let h1: HTMLHeadingElement | undefined = $state()
+
+  const me = {}
+  // Tracks `title` only: the title it writes is read back by refreshTitle
+  const name = (to: string) =>
+    untrack(() => {
+      pageFrame.title = to
+      refreshTitle()
+    })
+  $effect(() => {
+    name(title)
+    naming = me
+    return () => {
+      if (naming !== me) return
+      naming = null
+      name('')
+    }
+  })
+
+  $effect(() => {
+    const parts = route.parts
+    if (parts === seen) return
+    // After the DOM settles: the page this navigation left may still be
+    // mounted when its header sees the new path, and must not take focus
+    void tick().then(() => {
+      if (!h1?.isConnected || parts !== route.parts || parts === seen) return
+      seen = parts
+      h1.focus()
+    })
+  })
+
+  const counted = $derived(
+    count
+      ? `${count.n} ${count.n === 1 ? count.noun : (count.plural ?? count.noun + 's')}`
+      : '',
+  )
+</script>
+
+<div class="pagehead" class:baseline>
+  {#if back}<a class="back plain muted" href={back.href}>← {back.label}</a>{/if}
+  <h1 tabindex="-1" bind:this={h1}>{title}</h1>
+  {#if secondary}<span class="secondary muted">{secondary}</span>{/if}
+  {#if count}<span class="count num muted">{counted}</span>{/if}
+  <span class="flex"></span>
+  {#if filter}{@render filter()}{/if}
+  {#if actions}{@render actions()}{/if}
+</div>
+
+<style>
+  h1:focus {
+    outline: none;
+  }
+  .secondary {
+    font-family: var(--font-mono);
+    font-size: var(--t-sm);
+  }
+  .count {
+    font-size: var(--t-sm);
+  }
+  .back {
+    font-size: var(--t-sm);
+  }
+  .pagehead :global(.filter) {
+    max-width: 220px;
+  }
+  /* A link to the page's sibling list, counted ("examples 12") */
+  .pagehead :global(.sidelink) {
+    font-size: 0.82rem;
+    white-space: nowrap;
+  }
+  .pagehead :global(.sidelink:hover) {
+    color: var(--ink);
+  }
+</style>

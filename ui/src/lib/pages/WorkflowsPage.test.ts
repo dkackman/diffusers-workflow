@@ -251,10 +251,20 @@ it('the examples view counts and offers chips for only the read-only population'
   }
   render(WorkflowsPage, { examples: true })
   await waitFor(() => expect(card('flux-dev')).toBeTruthy())
-  expect(screen.getByText('1', { selector: '.count' })).toBeTruthy()
+  expect(screen.getByText('1 example', { selector: '.count' })).toBeTruthy()
   const shapes = screen.getByRole('group', { name: 'filter by shape' })
   expect(within(shapes).queryByRole('button', { name: 'shot' })).toBeNull()
   expect(within(shapes).getByRole('button', { name: 'image' })).toBeTruthy()
+})
+
+it('with no examples says how to add them', async () => {
+  render(WorkflowsPage, { examples: true })
+  expect(await screen.findByText('No examples on this server.')).toBeTruthy()
+  expect(
+    screen.getByText(
+      'Start dw.serve with --examples-dir <folder> to list some.',
+    ),
+  ).toBeTruthy()
 })
 
 it('the workspace view leaves the examples out and links to them', async () => {

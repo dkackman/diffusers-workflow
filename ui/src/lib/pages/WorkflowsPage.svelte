@@ -3,6 +3,7 @@
   import { api } from '../api'
   import { resource } from '../resource.svelte'
   import LoadState from '../ui/LoadState.svelte'
+  import PageHeader from '../ui/PageHeader.svelte'
   import { writableRoot } from '../libraries'
   import FolderGroups from '../FolderGroups.svelte'
   import { leafOf } from '../grouping'
@@ -135,31 +136,36 @@
       : wsHref(workspace.current, 'workflows', ...name.split('/'))
 </script>
 
-<div class="pagehead">
-  <h1>{examples ? 'Examples' : 'Workflows'}</h1>
-  <span class="count num muted">{listed.length}</span>
-  <span class="flex"></span>
-  {#if !examples && exampleCount}
-    <a
-      class="exampleslink plain muted"
-      href={sharedHref('examples')}
-      title="the read-only templates every workspace can start from"
-    >
-      examples <span class="num">{exampleCount}</span>
-    </a>
-  {/if}
+{#snippet search()}
   <input placeholder="filter…" bind:value={filter} class="filter" />
-  {#if !examples}
-    <a
-      class="quiet icon plain"
-      href={wsHref(workspace.current, 'edit')}
-      title="new workflow"
-      aria-label="new workflow"
-    >
-      <Plus size={15} />
-    </a>
-  {/if}
-</div>
+{/snippet}
+<PageHeader
+  title={examples ? 'Examples' : 'Workflows'}
+  count={{ n: listed.length, noun: examples ? 'example' : 'workflow' }}
+  filter={search}
+>
+  {#snippet actions()}
+    {#if !examples && exampleCount}
+      <a
+        class="sidelink plain muted"
+        href={sharedHref('examples')}
+        title="the read-only templates every workspace can start from"
+      >
+        examples <span class="num">{exampleCount}</span>
+      </a>
+    {/if}
+    {#if !examples}
+      <a
+        class="quiet icon plain"
+        href={wsHref(workspace.current, 'edit')}
+        title="new workflow"
+        aria-label="new workflow"
+      >
+        <Plus size={15} />
+      </a>
+    {/if}
+  {/snippet}
+</PageHeader>
 
 <!-- Shape is what people choose by, so the vocabulary is visible rather
    than folded into a select nobody opens -->
@@ -219,7 +225,9 @@
   {#snippet emptyIcon()}<Layers size={36} strokeWidth={1.5} />{/snippet}
   {#snippet emptyText()}
     {#if examples}
-      No example workflows — start the server with --examples-dir to list some.
+      <span>No examples on this server.</span><br /><span>
+        Start dw.serve with --examples-dir &lt;folder&gt; to list some.
+      </span>
     {:else}
       No workflows yet — the + above creates the first one{#if exampleCount}, or
         start from one of the <a href={sharedHref('examples')}>
@@ -326,23 +334,6 @@
 {/if}
 
 <style>
-  .pagehead .flex {
-    flex: 1;
-  }
-  .count {
-    font-size: var(--t-sm);
-  }
-  .filter {
-    max-width: 220px;
-  }
-  .exampleslink {
-    font-size: 0.82rem;
-    white-space: nowrap;
-  }
-  .exampleslink:hover {
-    color: var(--ink);
-  }
-
   /* Shape: the primary cut through the catalog, so it reads as a row of
      choices rather than a set of tags */
   .shapes {

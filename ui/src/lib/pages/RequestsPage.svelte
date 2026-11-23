@@ -3,6 +3,7 @@
   import { api } from '../api'
   import { resource } from '../resource.svelte'
   import LoadState from '../ui/LoadState.svelte'
+  import PageHeader from '../ui/PageHeader.svelte'
   import ItemProof from '../request/ItemProof.svelte'
   import RequestProgress from '../request/RequestProgress.svelte'
   import StateTag from '../request/StateTag.svelte'
@@ -44,13 +45,16 @@
   const written = (at: string) => formatMtime(Date.parse(at) / 1000)
 </script>
 
-<div class="pagehead">
-  <h1>Requests</h1>
-  <select bind:value={show} title="which requests to list" aria-label="show">
-    <option value="open">open</option>
-    <option value="all">all</option>
-  </select>
-</div>
+<PageHeader title="Requests">
+  {#snippet actions()}<select
+      bind:value={show}
+      title="which requests to list"
+      aria-label="show"
+    >
+      <option value="open">open</option>
+      <option value="all">all</option>
+    </select>{/snippet}
+</PageHeader>
 
 <LoadState
   of={list}
@@ -127,13 +131,6 @@
 </LoadState>
 
 <style>
-  .pagehead h1 {
-    margin: 0;
-    flex: 1;
-  }
-  .pagehead select {
-    max-width: 110px;
-  }
   .list {
     padding: 0.3rem;
   }
