@@ -37,6 +37,15 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **Costume-change guidance** (#1591, stage #1594), built 2026-11-22. Text
+  only. A character who changes clothes keeps the one cast portrait, and
+  every shot's prompt names the new clothes and says they aren't taken from
+  the picture (measured, #1193). Wardrobe across cuts needs the portrait or
+  a 22-frame window. One portrait per outfit, edited from the first and kept
+  as `cast/<name>-<outfit>`, is marked untested. `minimax-h3/references/
+  per-character.md`, *A costume change*. The probe and a ledger outfit field
+  were cut. The probe comes back on a field report of a costume change that
+  lost the face or the outfit, or a planned costume-change series.
 - **Cold install drill** (#1525, stages #1548-#1550), built 2026-11-23.
   README *Getting started* gained per-platform prerequisites, the clone URL,
   `--scope user`, a labelled `/plugin` block and a first-run line;

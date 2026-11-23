@@ -2891,3 +2891,96 @@ class TestPlaceCard:
     def test_the_storyboard_draws_the_same_room(self):
         body = " ".join(skill_body(STORYBOARD_SKILL).split())
         assert "place card (`asset:places/<set>`" in body
+
+
+H3_PER_CHARACTER = os.path.join(
+    PLUGIN_DIR, "skills", "minimax-h3", "references", "per-character.md"
+)
+COSTUME_LINK = re.compile(
+    r"\*([^*]+)\* in `(minimax-h3/references/[A-Za-z0-9_.-]+\.md)`"
+)
+
+
+class TestCostumeChange:
+    """#1591 stage A (#1594): a costume change keeps the one portrait and
+    names the clothes (measured, #1193); one portrait per outfit is untested;
+    the casting and storyboard skills and the drift check point at it."""
+
+    def _section(self):
+        text = open(H3_PER_CHARACTER, encoding="utf-8").read()
+        start = text.index("## A costume change")
+        rest = text[start + 3 :]
+        end = rest.find("\n## ")
+        return " ".join((rest if end < 0 else rest[:end]).split())
+
+    def test_the_measured_path_comes_first(self):
+        section = self._section()
+        assert "#1193" in section
+        assert section.index("#1193") < section.index("Untested")
+        assert "keeps the one cast portrait" in section
+        assert "not taken from the picture" in section
+
+    def test_wardrobe_across_cuts_quotes_the_place_card_rule(self):
+        section = self._section()
+        quote = (
+            "Hold wardrobe or a prop with the window, or by putting it in the portrait."
+        )
+        assert f'"{quote}"' in section
+        assert "*A place card holds the set*" in section
+        cuts = " ".join(open(H3_CUTS, encoding="utf-8").read().split())
+        assert quote in cuts
+
+    def test_the_outfit_portrait_is_untested_and_named(self):
+        section = self._section()
+        assert "**Untested (#1591):**" in section
+        assert 'asset_name="cast/<name>-<outfit>", shared=True' in section
+        assert "`cast-<name>-<outfit>`" in section
+        assert "On `mps` it is unmeasured" in section
+        assert "say so before spending" in section
+        for name in (
+            "templates/flux3/multi-reference",
+            "templates/minimax-h3-image/multi-reference",
+        ):
+            assert f"`{name}`" in section
+            assert os.path.isfile(os.path.join(REPO_ROOT, "workflows", name + ".json"))
+        assert os.path.isfile(
+            os.path.join(REPO_ROOT, "bench", "records", "h3-image.md")
+        )
+
+    def test_drift_is_checked_against_the_portrait_the_shot_used(self):
+        assert "the reference is the portrait the shot used" in self._section()
+        ladder = " ".join(_read(FIX_LADDER).split())
+        drift = ladder[ladder.index("## Face drift") :]
+        assert "the cast portrait the shot was conditioned on (per outfit" in drift
+
+    @pytest.mark.parametrize("path", [SERIES_SKILL, STORYBOARD_SKILL])
+    def test_the_casting_and_storyboard_lines_link_a_heading_that_exists(self, path):
+        body = " ".join(skill_body(path).split())
+        if path == SERIES_SKILL:
+            body = body[body.index("## 0. Draw the cast once") : body.index("## 1-5.")]
+        links = [
+            m for m in COSTUME_LINK.finditer(body) if m.group(1) == "A costume change"
+        ]
+        assert len(links) == 1
+        target = os.path.join(PLUGIN_DIR, "skills", links[0].group(2))
+        headings = re.findall(r"^## (.+)$", open(target, encoding="utf-8").read(), re.M)
+        assert "A costume change" in headings
+        assert "`cast-<name>-<outfit>`" in body
+
+    def test_no_skill_puts_an_outfit_key_on_a_ledger_item(self):
+        """The ledger refuses unknown item fields (`dw/ledger.py`), so the
+        outfit rides in the item id and the asset name, never a field."""
+        for path in (H3_PER_CHARACTER, SERIES_SKILL, STORYBOARD_SKILL, FIX_LADDER):
+            text = open(path, encoding="utf-8").read()
+            assert not re.search(r"\boutfit\b[\"'`]?\s*:", text), path
+            assert '"outfit"' not in text and "`outfit`" not in text, path
+
+    def test_the_intents_row_is_untested(self):
+        intents = os.path.join(os.path.dirname(H3_PER_CHARACTER), "intents.md")
+        rows = [
+            line
+            for line in open(intents, encoding="utf-8").read().splitlines()
+            if "§ A costume change" in line
+        ]
+        assert len(rows) == 1
+        assert rows[0].rstrip().endswith("| untested |") and "#1591" in rows[0]

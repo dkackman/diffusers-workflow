@@ -42,7 +42,9 @@ beat review in `references/beat-review.md`.
 ## Face drift
 
 `templates/face-drift-check` takes as its `reference` the character's cast
-portrait from casting, the one the shots were conditioned on. A `face_drift`
+portrait from casting: the cast portrait the shot was conditioned on (per
+outfit, if the cast has more than one; `minimax-h3/references/per-character.md`,
+*A costume change*). A `face_drift`
 finding is a flag to look at with `get_output_frames`, not a verdict. On a
 confirmed drift, re-roll the shot on this ladder, conditioned on the cast
 reference; the re-roll counts against the shot's budget.

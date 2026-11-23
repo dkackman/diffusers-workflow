@@ -69,6 +69,8 @@ stays) per location and look, kept as
 `asset:places/<set>` and passed after the people in every shot there; it
 held the set across a reverse (PRELIMINARY, #1581;
 `minimax-h3/references/cuts.md`, *A place card holds the set*).
+A costume change: see *A costume change* in `minimax-h3/references/per-character.md`
+(an outfit portrait's item id is `cast-<name>-<outfit>`).
 
 Save each portrait prompt with `save_prompt` under one folder for the series
 and reference it as `prompt:<series>/<character>` from every episode.
