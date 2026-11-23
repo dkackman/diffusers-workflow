@@ -81,8 +81,10 @@ revision with an HTTP range request. Nothing else was downloaded for this.
     `.lora.up.weight` (208 + 208 tensors).
   - The feed-forward (`ff.net.0.proj`, `ff.net.2`) uses `.lora_A.weight` /
     `.lora_B.weight` (104 + 104 tensors).
-- **Partition.** By its metadata it targets the T2VA `transformer`, the one an fl2va step
-  denoises against, not `transformer_ref`. So the partition wasn't the problem. The key
+- **Partition.** Nothing loaded, so no load could show it; this is read from the header.
+  By its `model` and `key_format` metadata it targets the T2VA `transformer`
+  (`MiniMaxH3Transformer3DModel`), the one an fl2va step denoises against, not
+  `transformer_ref`. So the partition wasn't the problem. The key
   format was.
 
 dw can't fix this from a workflow. `LORA_ENTRY_KEYS` (`dw/trust.py`) has no prefix or
@@ -106,15 +108,34 @@ covered the published file at a pinned revision.
 
 ## Calls per arm
 
-| Arm | Ran | Call | Why |
+A0 is a gate, not an arm. Its result is **unclean load**, which sets the stage's verdict,
+**don't adopt**. Each arm gets exactly one call, `candidate` or `drop`:
+
+| Arm | Job | Call | Why |
 |---|---|---|---|
-| A0 load check (dmad4, prompt 1, seed 1001) | yes, failed | **don't adopt** | 0 of 624 tensors mapped (key format) |
-| A1 base | no | drop | stopped at A0 |
-| A1 dmad4 | no (A0 was its first job) | drop | stopped at A0 |
-| A1 dmad8 | no | drop | stopped at A0; file not downloaded |
-| A1 turbo control | no | drop | no DMAD arm to compare against |
-| A2 seed spread | no | drop | stopped at A0 |
-| A3 non-dialogue pair | no | drop | stopped at A0 |
+| A1 dmad4 | `860478669a1e` (the A0 job; prompt 1, seed 1001), failed in loading | **drop** | 0 of 624 tensors mapped (key format); no output |
+| A1 base | none | **drop** | not run: stopped at A0 |
+| A1 dmad8 | none | **drop** | not run: stopped at A0; file not downloaded |
+| A1 turbo control | none | **drop** | not run: stopped at A0, so no DMAD arm to compare against |
+| A2 seed spread (dmad4 rerun) | none | **drop** | not run: stopped at A0 |
+| A3 non-dialogue pair (dmad4 vs lightx2v) | none | **drop** | not run: stopped at A0 |
+
+No arm is a candidate, so neither adoption gate (Don's ear, a seeded re-noise path) comes
+into play. Because nothing produced output, no `analyze_shots`, `transcribe_audio` or
+`compare_outputs` numbers exist to reproduce.
+
+## Left on lem
+
+- **One file:** `ZhengmingYu/DMAD` @ `b08c2bf3be8e67039c363781e6eaacc9713340cd`,
+  `minimax_h3/dmad_minimax_h3_4step_full_critic.safetensors`, 1.29 GB, in the server's hub
+  cache. That is about half the plan's ~2.8 GB estimate, since the 8-step file was never
+  fetched.
+- **The workspace** `probe-1579`: the saved workflow `probe-1579-image-to-video` and the
+  failed job `860478669a1e`. It has no outputs.
+- **To remove them:** `delete_model(repo="ZhengmingYu/DMAD", acknowledged_cost=true)` frees
+  the 1.29 GB (it is the only cached revision of that repo), and
+  `delete_workspace("probe-1579", acknowledged_cost=true)` removes the workspace. Neither is
+  done here: the record stays reproducible until Don closes #1579.
 
 ## Deviations from the plan
 
