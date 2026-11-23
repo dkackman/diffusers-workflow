@@ -162,3 +162,24 @@ it('filtered to nothing offers Clear filters', async () => {
   await fireEvent.click(screen.getByRole('button', { name: 'Clear filters' }))
   await waitFor(() => expect(screen.getByText('theirs')).toBeTruthy())
 })
+
+it('filtered to nothing still says where prompts are read from', async () => {
+  render(PromptsPage)
+  await waitFor(() => expect(screen.getByText('theirs')).toBeTruthy())
+  await fireEvent.input(screen.getByPlaceholderText('filter…'), {
+    target: { value: 'zzz' },
+  })
+  await screen.findByText('Nothing matches those filters.')
+  expect(screen.getByText('/srv/prompts')).toBeTruthy()
+})
+
+it('an empty library with a filter typed says there are no prompts yet', async () => {
+  listPrompts.mockResolvedValue(answer([]))
+  render(PromptsPage)
+  await fireEvent.input(screen.getByPlaceholderText('filter…'), {
+    target: { value: 'zzz' },
+  })
+  await screen.findByText(/No prompts yet/)
+  expect(screen.queryByText('Nothing matches those filters.')).toBeNull()
+  expect(screen.getByText('/srv/prompts')).toBeTruthy()
+})

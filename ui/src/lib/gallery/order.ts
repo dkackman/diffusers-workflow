@@ -35,44 +35,92 @@ export function gridFiles(
   return shown.sort((a, b) => place(a) - place(b) || rank(a) - rank(b))
 }
 
-/** What a listing read holds: the files, and the request filter it was
- * asked under, so a reply for another filter is told from a reload */
+/** What a listing read holds: the files, the request filter it was asked
+ * under, so a reply for another filter is told from a reload, and the edit
+ * count when its read began (`Edits.made`) */
 export interface Listing {
   files: GalleryFile[]
   key: string
+  began: number
 }
 
-/** Edits this page made that a listing may not carry yet: files deleted,
- * and fields changed (a star, a note) */
-export interface Edits {
+type Named = { name: string }
+
+/** Edits a page made that a listing may not carry yet: names deleted, and
+ * fields changed (a star, a note), each stamped with `made` as it stood
+ * after it. A listing whose read began at or after that stamp has seen it */
+export interface Edits<T extends Named = GalleryFile> {
+  made: number
   gone: string[]
-  patched: Record<string, Partial<GalleryFile>>
+  patched: Record<string, { fields: Partial<T>; at: number }>
 }
+
+export const noEdits = <T extends Named = GalleryFile>(): Edits<T> => ({
+  made: 0,
+  gone: [],
+  patched: {},
+})
+
+/** `edits` with `fields` changed on `name`, stamped as the newest edit */
+export function withPatch<T extends Named>(
+  edits: Edits<T>,
+  name: string,
+  fields: Partial<T>,
+): Edits<T> {
+  const at = edits.made + 1
+  const held = edits.patched[name]?.fields
+  return {
+    ...edits,
+    made: at,
+    patched: {
+      ...edits.patched,
+      [name]: { fields: { ...held, ...fields }, at },
+    },
+  }
+}
+
+/** `edits` with `names` deleted */
+export const withGone = <T extends Named>(
+  edits: Edits<T>,
+  names: Iterable<string>,
+): Edits<T> => ({ ...edits, gone: [...edits.gone, ...names] })
 
 /** The listing with the page's edits on it, so a reply that was asked for
  * before an edit cannot undo it */
-export function applyEdits(files: GalleryFile[], edits: Edits): GalleryFile[] {
+export function applyEdits<T extends Named>(files: T[], edits: Edits<T>): T[] {
   const { gone, patched } = edits
   return files
     .filter((f) => !gone.includes(f.name))
-    .map((f) => (f.name in patched ? { ...f, ...patched[f.name] } : f))
+    .map((f) => (f.name in patched ? { ...f, ...patched[f.name].fields } : f))
 }
 
 const same = (a: unknown, b: unknown) => (a || undefined) === (b || undefined)
 
-/** The edits a landed listing has not caught up with: a deleted file is
- * settled once it is gone, a field once the listing says the same */
-export function settleEdits(incoming: GalleryFile[], edits: Edits): Edits {
+/** The edits a listing whose read began at `began` has not caught up with.
+ * A field edit is settled by a listing begun after it, whatever it says (a
+ * change made elsewhere since is the newer truth), or by one that already
+ * says the same. A deleted name is settled once a listing lacks it */
+export function settleEdits<T extends Named>(
+  incoming: T[],
+  began: number,
+  edits: Edits<T>,
+): Edits<T> {
   const byName = new Map(incoming.map((f) => [f.name, f]))
-  const patched: Edits['patched'] = {}
+  const patched: Edits<T>['patched'] = {}
   for (const [name, patch] of Object.entries(edits.patched)) {
     const file = byName.get(name)
-    const open = Object.entries(patch).some(
-      ([key, value]) => file && !same(file[key as keyof GalleryFile], value),
-    )
+    const open =
+      began < patch.at &&
+      Object.entries(patch.fields).some(
+        ([key, value]) => file && !same(file[key as keyof T], value),
+      )
     if (open) patched[name] = patch
   }
-  return { gone: edits.gone.filter((name) => byName.has(name)), patched }
+  return {
+    ...edits,
+    gone: edits.gone.filter((name) => byName.has(name)),
+    patched,
+  }
 }
 
 /** What is held when a listing lands: the picks stay across a reload of the

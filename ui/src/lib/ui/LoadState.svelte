@@ -31,7 +31,8 @@
     emptyIcon?: Snippet
     emptyText?: Snippet
     skeleton?: Snippet
-    children: Snippet<[T]>
+    /** None when the content sits outside, beside the states this shows */
+    children?: Snippet<[T]>
   } = $props()
 
   const held = $derived(of.data !== undefined)
@@ -69,7 +70,7 @@
       <button class="quiet" onclick={retry}>Retry</button>
     </div>
   {/if}
-  {@render children(of.data as T)}
+  {@render children?.(of.data as T)}
 {/if}
 
 <style>

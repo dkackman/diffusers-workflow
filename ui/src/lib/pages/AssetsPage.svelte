@@ -9,6 +9,7 @@
   import { api } from '../api'
   import { untrack } from 'svelte'
   import { resource } from '../resource.svelte'
+  import { applyEdits, noEdits, settleEdits, withPatch } from '../gallery/order'
   import LoadState from '../ui/LoadState.svelte'
   import FolderGroups from '../FolderGroups.svelte'
   import { dropFiles } from '../dropFiles'
@@ -51,14 +52,24 @@
   // An asset an agent adds or removes shows within one feed interval. The
   // search path itself, in order, and the entries a nearer library on it
   // hides, come from the server: the page never builds a path
-  const list = resource(() => api.listAssets(), { watch: ['assets'] })
-  // A note saved here, until the next listing lands and carries it
-  let noteEdits = $state<Record<string, string | undefined>>({})
-  const assets = $derived(
-    (list.data?.assets ?? []).map((a) =>
-      a.name in noteEdits ? { ...a, note: noteEdits[a.name] } : a,
-    ),
+  const list = resource(
+    async () => {
+      // The note saves this read can have seen: those made before it began
+      const began = untrack(() => noteEdits.made)
+      return { ...(await api.listAssets()), began }
+    },
+    {
+      watch: ['assets'],
+      merge: (_held, incoming) => {
+        noteEdits = settleEdits(incoming.assets, incoming.began, noteEdits)
+        return incoming
+      },
+    },
   )
+  // A note saved here, until a listing begun after the save lands (the
+  // gallery's edits, gallery/order.ts)
+  let noteEdits = $state(noEdits<AssetFile>())
+  const assets = $derived(applyEdits(list.data?.assets ?? [], noteEdits))
   const libraries = $derived<AssetLibrary[]>(list.data?.libraries ?? [])
   const shadowed = $derived<ShadowedAsset[]>(list.data?.shadowed ?? [])
   let filter = $state('')
@@ -81,7 +92,7 @@
   function saveNote(note: string | null) {
     if (!selected) return
     const name = selected.name
-    noteEdits[name] = note ?? undefined
+    noteEdits = withPatch(noteEdits, name, { note: note ?? undefined })
     selected = { ...selected, note: note ?? undefined }
   }
 
@@ -174,8 +185,12 @@
   $effect(() => {
     const data = list.data
     untrack(() => {
-      if (!data) return picks.clear()
-      noteEdits = {}
+      if (!data) {
+        // Another workspace's names; the count goes on, as reads in flight
+        // carry it
+        noteEdits = { ...noEdits(), made: noteEdits.made }
+        return picks.clear()
+      }
       assetLibrary.items = data.assets
       assetLibrary.workspace = workspace.current
       if (selected && !data.assets.some((a) => a.name === selected?.name))
@@ -361,10 +376,8 @@
         more.
       {/if}
     {/snippet}
-    <!-- The grid is the library sections below: they need the empty
-         library's headers too, so they sit outside this -->
-    <!-- eslint-disable-next-line svelte/no-useless-children-snippet -->
-    {#snippet children()}{/snippet}
+    <!-- No children: the grid is the library sections below, which need
+         the empty library's headers too, so they sit outside this -->
   </LoadState>
 
   <BulkBar
@@ -444,13 +457,17 @@
 </div>
 
 {#if selected}
-  <AssetDetail
-    asset={selected}
-    {busy}
-    onremove={remove}
-    onclose={() => (selected = null)}
-    onnotesaved={saveNote}
-  />
+  <!-- Keyed by the pick, so each asset's panel starts its own read and never
+       shows the last one's -->
+  {#key selected.name}
+    <AssetDetail
+      asset={selected}
+      {busy}
+      onremove={remove}
+      onclose={() => (selected = null)}
+      onnotesaved={saveNote}
+    />
+  {/key}
 {/if}
 
 <style>

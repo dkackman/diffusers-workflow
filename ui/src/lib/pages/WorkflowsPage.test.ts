@@ -323,21 +323,31 @@ it("another workspace's move, or an unwatched kind, reloads nothing", async () =
   expect(gallery.mock.calls.length).toBe(proofs)
 })
 
-it('a quiet reload that fails keeps the cards and shows no error', async () => {
+it('a quiet reload that fails keeps the cards under a refresh line', async () => {
   await renderPage('tti')
   listWorkflows.mockImplementationOnce(() => Promise.reject(new Error('boom')))
   feed.move('default', 'workflows')
   await settle()
   expect(card('tti')).toBeTruthy()
-  expect(screen.queryByText(/boom/)).toBeNull()
+  expect(screen.getByText(/Couldn't refresh workflows/)).toBeTruthy()
+})
+
+it('filtered to nothing keeps the shape and trait chips, and the library path', async () => {
+  await renderPage('tti')
+  const shapes = screen.getByRole('group', { name: 'filter by shape' })
+  // image has no workflow that has audio: the grid empties
+  await fireEvent.click(within(shapes).getByRole('button', { name: 'image' }))
+  await fireEvent.click(screen.getByRole('button', { name: 'has-audio' }))
+  await screen.findByText('Nothing matches those filters.')
+  expect(screen.getByRole('group', { name: 'filter by shape' })).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'has-audio' })).toBeTruthy()
+  expect(screen.getByText('/workspace/workflows')).toBeTruthy()
 })
 
 it('shows a skeleton while loading, not the empty state', async () => {
   listWorkflows.mockReturnValueOnce(new Promise(() => {}))
   render(WorkflowsPage)
-  expect(
-    screen.getByRole('status', { name: 'loading workflows' }),
-  ).toBeTruthy()
+  expect(screen.getByRole('status', { name: 'loading workflows' })).toBeTruthy()
   expect(screen.queryByText(/No workflows yet/)).toBeNull()
 })
 

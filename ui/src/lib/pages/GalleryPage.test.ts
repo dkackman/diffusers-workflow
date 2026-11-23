@@ -251,6 +251,37 @@ it('a reload begun before a delete does not bring the file back', async () => {
   expect(screen.queryByLabelText('select a.png')).toBeNull()
 })
 
+/** Whether a tile shows the star mark */
+const starMark = (name: string) =>
+  within(screen.getByTitle(name)).queryByLabelText('Starred')
+
+it('a listing that began after a star shows an unstar made elsewhere', async () => {
+  await renderGallery()
+  await openFile('a.png')
+  await fireEvent.click(screen.getByRole('button', { name: 'star this file' }))
+  await waitFor(() => expect(starMark('a.png')).toBeTruthy())
+  // The listing still says unstarred: someone unstarred it since
+  feed.move(DEFAULT_WORKSPACE, 'gallery')
+  await settle()
+  expect(gallery).toHaveBeenCalledTimes(2)
+  expect(starMark('a.png')).toBeNull()
+})
+
+it('a listing that began before a star cannot undo it', async () => {
+  await renderGallery()
+  await openFile('a.png')
+  let land: (reply: { files: GalleryFile[] }) => void = () => {}
+  gallery.mockImplementationOnce(
+    () => new Promise<{ files: GalleryFile[] }>((resolve) => (land = resolve)),
+  )
+  feed.move(DEFAULT_WORKSPACE, 'gallery')
+  await fireEvent.click(screen.getByRole('button', { name: 'star this file' }))
+  await waitFor(() => expect(starMark('a.png')).toBeTruthy())
+  land({ files: listing.files })
+  await settle()
+  expect(starMark('a.png')).toBeTruthy()
+})
+
 it('counts the files ticked in the grid', async () => {
   await renderGallery()
 

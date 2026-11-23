@@ -158,6 +158,54 @@
   {/if}
 </div>
 
+<!-- Shape is what people choose by, so the vocabulary is visible rather
+   than folded into a select nobody opens -->
+{#if shapesPresent.length}
+  <div class="shapes" role="group" aria-label="filter by shape">
+    <button
+      class="shapebtn"
+      class:on={shape === ''}
+      aria-pressed={shape === ''}
+      onclick={() => (shape = '')}
+    >
+      all
+    </button>
+    {#each shapesPresent as value (value)}
+      <button
+        class="shapebtn"
+        class:on={shape === value}
+        aria-pressed={shape === value}
+        onclick={() => (shape = shape === value ? '' : value)}
+        title="show only workflows that make {value}"
+      >
+        {value}
+      </button>
+    {/each}
+  </div>
+{/if}
+
+{#if traitsPresent.length}
+  <div class="chips">
+    {#each traitsPresent as trait (trait)}
+      <button
+        class="traitchip"
+        class:on={traits.includes(trait)}
+        aria-pressed={traits.includes(trait)}
+        onclick={() => toggleTrait(trait)}
+        title="show only workflows that are {trait}"
+      >
+        {trait}
+      </button>
+    {/each}
+  </div>
+{/if}
+
+<HintBar storageKey="hint-dismissed">
+  Pick a workflow → tweak its variables → Run. Every image saves its recipe —
+  reopen it from the Gallery.
+</HintBar>
+
+<!-- The controls above stay put when they filter the grid to nothing -->
 <LoadState
   of={list}
   label="workflows"
@@ -176,53 +224,6 @@
         </a>{/if}.
     {/if}
   {/snippet}
-  <!-- Shape is what people choose by, so the vocabulary is visible rather
-     than folded into a select nobody opens -->
-  {#if shapesPresent.length}
-    <div class="shapes" role="group" aria-label="filter by shape">
-      <button
-        class="shapebtn"
-        class:on={shape === ''}
-        aria-pressed={shape === ''}
-        onclick={() => (shape = '')}
-      >
-        all
-      </button>
-      {#each shapesPresent as value (value)}
-        <button
-          class="shapebtn"
-          class:on={shape === value}
-          aria-pressed={shape === value}
-          onclick={() => (shape = shape === value ? '' : value)}
-          title="show only workflows that make {value}"
-        >
-          {value}
-        </button>
-      {/each}
-    </div>
-  {/if}
-
-  {#if traitsPresent.length}
-    <div class="chips">
-      {#each traitsPresent as trait (trait)}
-        <button
-          class="traitchip"
-          class:on={traits.includes(trait)}
-          aria-pressed={traits.includes(trait)}
-          onclick={() => toggleTrait(trait)}
-          title="show only workflows that are {trait}"
-        >
-          {trait}
-        </button>
-      {/each}
-    </div>
-  {/if}
-
-  <HintBar storageKey="hint-dismissed">
-    Pick a workflow → tweak its variables → Run. Every image saves its recipe —
-    reopen it from the Gallery.
-  </HintBar>
-
   <FolderGroups
     names={ordered}
     collapseKey="collapsed-folders"
@@ -309,15 +310,16 @@
       </a>
     {/snippet}
   </FolderGroups>
-
-  <!-- Where the files live is worth knowing and not worth the subtitle slot
-     beside the title, which is the best position on the page -->
-  {#if workflowDir}
-    <p class="dir muted">
-      read from <span class="path">{workflowDir}</span>
-    </p>
-  {/if}
 </LoadState>
+
+<!-- Where the files live is worth knowing and not worth the subtitle slot
+   beside the title, which is the best position on the page. Outside
+   LoadState, so an empty, filtered or failed page still says it -->
+{#if workflowDir}
+  <p class="dir muted">
+    read from <span class="path">{workflowDir}</span>
+  </p>
+{/if}
 
 <style>
   .pagehead .flex {

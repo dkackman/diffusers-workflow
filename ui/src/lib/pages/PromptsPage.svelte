@@ -59,7 +59,7 @@
   of={list}
   label="prompts"
   empty={visible.length === 0}
-  filtered={filter !== ''}
+  filtered={filter !== '' && prompts.length > 0}
   onclear={() => (filter = '')}
 >
   {#snippet emptyIcon()}<MessageSquareText
@@ -127,13 +127,14 @@
       </div>
     {/snippet}
   </FolderGroups>
-
-  {#if promptDir}
-    <p class="dir muted">
-      read from <span class="path">{promptDir}</span>
-    </p>
-  {/if}
 </LoadState>
+
+<!-- Outside LoadState, so an empty, filtered or failed page still says it -->
+{#if promptDir}
+  <p class="dir muted">
+    read from <span class="path">{promptDir}</span>
+  </p>
+{/if}
 
 <style>
   .origin {

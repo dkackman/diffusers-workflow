@@ -31,7 +31,10 @@
 
   // Where a kept asset came from, when keep_output recorded it: the
   // workflow and run version of the job that wrote the file
-  const source = resource(() => api.galleryMetadata(asset.reference), {
+  // Read through the reference alone, so a note saved (a new `asset`, the
+  // same file) does not read it again
+  const reference = $derived(asset.reference)
+  const source = resource(() => api.galleryMetadata(reference), {
     watch: ['assets'],
   })
   const keptFrom = (r: GalleryMetadata) => {

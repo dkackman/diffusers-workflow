@@ -25,8 +25,10 @@
     applyEdits,
     gridFiles,
     keepPicks,
+    noEdits,
     settleEdits,
-    type Edits,
+    withGone,
+    withPatch,
     type Listing,
   } from '../gallery/order'
 
@@ -51,35 +53,31 @@
   const list: Resource<Listing> = resource(
     async (): Promise<Listing> => {
       const key = `${reqId}\u0000${reqItem}`
+      // The edits this read can have seen: those made before it began
+      const began = untrack(() => edits.made)
       const result = await api.gallery(
         undefined,
         reqId || undefined,
         reqItem || undefined,
       )
-      return { files: result.files, key }
+      return { files: result.files, key, began }
     },
     {
       watch: ['gallery'],
       merge: (held, incoming) => {
-        edits = settleEdits(incoming.files, edits)
+        edits = settleEdits(incoming.files, incoming.began, edits)
         return keepPicks(picks, held, incoming)
       },
     },
   )
-  // What this page changed (a star, a delete, a note) rides on the listing,
-  // so a read asked for before the change cannot undo it
-  let edits = $state<Edits>({ gone: [], patched: {} })
+  // What this page changed (a star, a delete, a note) rides on the listing
+  // until a read begun after the change lands, so one asked for before it
+  // cannot undo it
+  let edits = $state(noEdits())
   const files = $derived(applyEdits(list.data?.files ?? [], edits))
   const patch = (name: string, fields: Partial<GalleryFile>) =>
-    (edits = {
-      ...edits,
-      patched: {
-        ...edits.patched,
-        [name]: { ...edits.patched[name], ...fields },
-      },
-    })
-  const drop = (names: Iterable<string>) =>
-    (edits = { ...edits, gone: [...edits.gone, ...names] })
+    (edits = withPatch(edits, name, fields))
+  const drop = (names: Iterable<string>) => (edits = withGone(edits, names))
   // The editors' output: completions read the same listing
   $effect(() => {
     const data = list.data

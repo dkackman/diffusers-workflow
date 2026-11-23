@@ -204,6 +204,27 @@ it("labels a saved file note as the file's own, and a cleared one returns the ru
   expect(screen.getByText('for the client')).toBeTruthy()
 })
 
+it('a note saved while the metadata will not read again tells the page nothing', async () => {
+  const onnotesaved = vi.fn(async () => {})
+  await view({ note: 'old', note_source: 'file' }, { onnotesaved })
+  setNote.mockResolvedValue({
+    target: file.name,
+    note: 'new',
+    note_source: 'file',
+  })
+  galleryMetadata.mockRejectedValue(new Error('boom'))
+  await fireEvent.click(screen.getByRole('button', { name: /edit note/i }))
+  await fireEvent.input(screen.getByRole('textbox'), {
+    target: { value: 'new' },
+  })
+  await fireEvent.click(screen.getByRole('button', { name: /save/i }))
+  await waitFor(() => expect(setNote).toHaveBeenCalledWith(file.name, 'new'))
+  await waitFor(() => expect(galleryMetadata).toHaveBeenCalledTimes(2))
+  for (let i = 0; i < 3; i++) await new Promise((r) => setTimeout(r, 10))
+  // The pre-save note would be all the panel holds to hand on
+  expect(onnotesaved).not.toHaveBeenCalled()
+})
+
 it('a failed metadata read is not "no embedded metadata"', async () => {
   galleryMetadata.mockRejectedValue(new Error('boom'))
   render(GalleryDetail, props)
