@@ -56,6 +56,12 @@ it('a refresh at the same or a later revision replaces it', () => {
   expect(newerOf(null, later)).toBe(later)
 })
 
+it('another request is never older than the one held, whatever its revision', () => {
+  const held = request('open', ['planned'], 6)
+  const other = { ...request('open', ['planned'], 1), id: 'r2' }
+  expect(newerOf(held, other)).toBe(other)
+})
+
 it('the feed hears a closed request change sooner than the idle timer would', () => {
   // a reopen shows within one feed read, never later than an open request's
   expect(CHANGES_POLL_MS).toBeLessThanOrEqual(ACTIVE_MS)

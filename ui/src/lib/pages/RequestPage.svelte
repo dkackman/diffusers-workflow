@@ -58,6 +58,9 @@
       if (previous)
         for (const note of answeredNow(previous, next)) told(next, note.id)
     },
+    // The user's own edit is never marked as an agent's: the next quiet
+    // read diffs against what the save read back
+    onsaved: (held) => reads.adopt(held),
   })
 
   // The agent wrote after one of the user's waiting notes: said once per
@@ -108,14 +111,19 @@
   // A request that is gone is said so, and nothing of it is kept; a read
   // that fails over one the page holds keeps it - and with it the note
   // drafts in its rows - and says how old it is
+  // A loud read (a switch, Retry) shows the skeleton, never the failure of
+  // the request it is leaving
+  const settled = $derived(reads.status !== 'loading')
   const missing = $derived(
-    reads.error instanceof ApiError && reads.error.status === 404,
+    settled && reads.error instanceof ApiError && reads.error.status === 404,
   )
   $effect(() => {
     if (missing) untrack(() => store.reset())
   })
   const failure = $derived(
-    reads.error === undefined || missing ? null : messageOf(reads.error),
+    !settled || reads.error === undefined || missing
+      ? null
+      : messageOf(reads.error),
   )
   const error = $derived(store.read ? null : failure)
   const stale = $derived(store.read ? failure : null)

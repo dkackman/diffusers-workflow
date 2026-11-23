@@ -59,6 +59,7 @@ export function jobRecord(jobId: () => string): Resource<JobDetail> {
       return read.changed
     },
     reload: read.reload,
+    adopt: read.adopt,
   }
 }
 

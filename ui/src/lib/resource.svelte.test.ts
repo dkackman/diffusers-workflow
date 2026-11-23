@@ -338,6 +338,64 @@ it('a non-quiet load marks nothing', async () => {
   expect(r.changed.size).toBe(0)
 })
 
+it("adopting the user's own saved read marks nothing on the next quiet reload", async () => {
+  const load = vi
+    .fn<() => Promise<Row[]>>()
+    .mockResolvedValueOnce([
+      { id: 'a', v: 1 },
+      { id: 'b', v: 1 },
+    ])
+    // the read after the user's write, and after an agent's on b
+    .mockResolvedValueOnce([
+      { id: 'a', v: 2 },
+      { id: 'b', v: 2 },
+    ])
+  const r = mount(load, { watch: ['jobs'], rows: byId })
+  await vi.waitFor(() => expect(r.status).toBe('ready'))
+  // the user's own write to a, as its save read it back
+  const saved = [
+    { id: 'a', v: 2 },
+    { id: 'b', v: 1 },
+  ]
+  r.adopt(saved)
+  expect(r.data).toBe(saved)
+  expect(r.changed.size).toBe(0)
+  feed.move('default', 'jobs')
+  await vi.waitFor(() =>
+    expect(r.data).toEqual([
+      { id: 'a', v: 2 },
+      { id: 'b', v: 2 },
+    ]),
+  )
+  // only the other writer's change is marked
+  expect([...r.changed]).toEqual(['b'])
+})
+
+it("a new question clears the marks: the old question's rows are not its own", async () => {
+  const filter = $state({ q: 'x' })
+  let gate = deferred<Row[]>()
+  const load = vi.fn(() => {
+    void filter.q
+    return gate.promise
+  })
+  const r = mount(load, { watch: ['jobs'], rows: byId })
+  gate.resolve([{ id: 'a', v: 1 }])
+  await vi.waitFor(() => expect(r.status).toBe('ready'))
+  gate = deferred<Row[]>()
+  feed.move('default', 'jobs')
+  gate.resolve([{ id: 'a', v: 2 }])
+  await vi.waitFor(() => expect(r.changed.has('a')).toBe(true))
+  // another question: its first read is not here yet, and nothing is marked
+  gate = deferred<Row[]>()
+  filter.q = 'y'
+  flushSync()
+  expect(r.status).toBe('loading')
+  expect(r.changed.size).toBe(0)
+  gate.resolve([{ id: 'a', v: 9 }])
+  await vi.waitFor(() => expect(r.status).toBe('ready'))
+  expect(r.changed.size).toBe(0)
+})
+
 it('a lazy resource does not load until a watched kind moves', async () => {
   const load = vi.fn(() => Promise.resolve('rows'))
   const r = mount(load, { watch: ['prompts'], lazy: true })

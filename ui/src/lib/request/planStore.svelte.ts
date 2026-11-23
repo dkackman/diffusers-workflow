@@ -52,6 +52,9 @@ export type PlanIo = {
   put: (body: RequestWriteBody) => Promise<LedgerRequest>
   /** Every time the read is replaced, with what it replaced */
   onread?: (previous: LedgerRequest | null, next: LedgerRequest) => void
+  /** A write of the user's was saved: what is held after it, for a
+   * resource to `adopt` so the edit is never marked as someone else's */
+  onsaved?: (held: LedgerRequest) => void
 }
 
 /** The two calls a store makes for request `id` of workspace `ws` */
@@ -343,6 +346,7 @@ export class PlanStore {
     }
     if (epoch !== this.#epoch) return
     this.take(saved)
+    this.#io.onsaved?.(this.read ?? saved)
     if (entry.tries > 0)
       this.notice = {
         entry: culprit(saved.history, entry.since, saved.revision),

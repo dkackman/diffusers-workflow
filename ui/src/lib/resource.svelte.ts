@@ -16,7 +16,14 @@
 // kind moves or the epoch rises. With `rows`, a quiet reload sets
 // `changed` to the keys whose value is new or differs from the held read,
 // for a page to mark them (`.row-changed`) until CHANGED_MARK_MS has
-// passed. A reply overtaken by a later run is dropped (latestOnly). Timers
+// passed; a new question clears the marks, so its first read is the
+// baseline. The page's own write is never a change to mark: `adopt` hands
+// the resource what that write read back (a saved request, a listing with
+// the page's star on it) as the held data, marking nothing and keeping any
+// marks still fading, so the next quiet reload diffs against it and marks
+// only what another writer did - an agent, another tab, `dw.run`. It goes
+// round `merge`, and it neither cancels nor waits for a run in flight.
+// A reply overtaken by a later run is dropped (latestOnly). Timers
 // go through `poll`, the feed through `changes(workspace).watch`. LoadState
 // (ui/LoadState.svelte) renders one.
 import { untrack } from 'svelte'
@@ -58,6 +65,9 @@ export interface Resource<T> {
   readonly changed: ReadonlySet<string>
   /** A loud reload: Retry */
   reload(): Promise<void>
+  /** Hold `data`, what the page's own write read back, marking nothing:
+   * the next quiet reload diffs against it (above) */
+  adopt(data: T): void
 }
 
 /** How long a changed row stays marked; `.row-changed` fades over it */
@@ -193,6 +203,12 @@ class Held<T> {
     this.data = undefined
     this.marks.clear()
   }
+
+  /** A new question: the workspace's data is forgotten when it changed, and
+   * every question's marks are, so its first read is the baseline */
+  asking(workspaceChanged: boolean) {
+    untrack(() => (workspaceChanged ? this.forget() : this.marks.clear()))
+  }
 }
 
 /** Load `load` now and whenever it should be read again (above). Call it
@@ -227,7 +243,7 @@ export function resource<T>(
   let loadedIn: string | undefined
   $effect(() => {
     const ws = workspaceOf()
-    if (loadedIn !== undefined && ws !== loadedIn) held.forget()
+    held.asking(loadedIn !== undefined && ws !== loadedIn)
     loadedIn = ws
     asked++
     if (!options.lazy) void run(false)
@@ -251,5 +267,6 @@ export function resource<T>(
       return held.marks.changed
     },
     reload: () => untrack(() => run(false)),
+    adopt: (data) => void (held.data = data),
   }
 }

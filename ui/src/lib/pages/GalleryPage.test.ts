@@ -722,6 +722,42 @@ it('Delete removes the open file and opens the next', async () => {
   await waitFor(() => expect(galleryMetadata).toHaveBeenLastCalledWith('b.png'))
 })
 
+/** Whether a tile carries the changed mark */
+const marked = (name: string) =>
+  !!screen
+    .getByTitle(name)
+    .closest('.cellwrap')
+    ?.classList.contains('row-changed')
+
+it("the user's own star is not marked as another writer's change", async () => {
+  await renderGallery()
+  await openFile('a.png')
+  // a listing begun before the star, landing after it
+  let land: (reply: { files: GalleryFile[] }) => void = () => {}
+  gallery.mockImplementationOnce(
+    () => new Promise<{ files: GalleryFile[] }>((resolve) => (land = resolve)),
+  )
+  feed.move(DEFAULT_WORKSPACE, 'gallery')
+  await fireEvent.click(screen.getByRole('button', { name: 'star this file' }))
+  await waitFor(() => expect(starMark('a.png')).toBeTruthy())
+  land({ files: listing.files })
+  await settle()
+  expect(marked('a.png')).toBe(false)
+  // the star's own move of the feed: the server now says starred, and
+  // someone else retitled b
+  listing.files = listing.files.map((f) =>
+    f.name === 'a.png'
+      ? { ...f, starred: true }
+      : f.name === 'b.png'
+        ? { ...f, label: 'b, retitled' }
+        : f,
+  )
+  feed.move(DEFAULT_WORKSPACE, 'gallery')
+  await waitFor(() => expect(marked('b.png')).toBe(true))
+  expect(marked('a.png')).toBe(false)
+  expect(starMark('a.png')).toBeTruthy()
+})
+
 it('stars the open file and can filter to starred files', async () => {
   await renderGallery()
   await openFile('a.png')

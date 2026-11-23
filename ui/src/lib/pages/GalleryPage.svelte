@@ -66,9 +66,12 @@
     {
       watch: ['gallery'],
       rows: listingRows,
+      // What is held carries the page's edits still open, so a quiet reload
+      // diffs against them and never marks the page's own star or note
       merge: (held, incoming) => {
         edits = settleEdits(incoming.files, incoming.began, edits)
-        return keepPicks(picks, held, incoming)
+        const files = applyEdits(incoming.files, edits)
+        return keepPicks(picks, held, { ...incoming, files })
       },
     },
   )
@@ -77,8 +80,13 @@
   // cannot undo it
   let edits = $state(noEdits())
   const files = $derived(applyEdits(list.data?.files ?? [], edits))
-  const patch = (name: string, fields: Partial<GalleryFile>) =>
-    (edits = withPatch(edits, name, fields))
+  // A star or a note saved here is held as read (resource's `adopt`), so it
+  // is never marked as another writer's change
+  function patch(name: string, fields: Partial<GalleryFile>) {
+    edits = withPatch(edits, name, fields)
+    const held = list.data
+    if (held) list.adopt({ ...held, files: applyEdits(held.files, edits) })
+  }
   const drop = (names: Iterable<string>) => (edits = withGone(edits, names))
   // The editors' output: completions read the same listing
   $effect(() => {

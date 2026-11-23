@@ -488,6 +488,49 @@ it('an item an agent edited is marked', async () => {
   expect(row('First poster').classList).not.toContain('row-changed')
 })
 
+it('a switch to another request marks against that request, never the one left', async () => {
+  const first = make()
+  first.revision = 6
+  data.request = first
+  const view = render(RequestPage, { requestId: 'r1' })
+  await atRevision(6)
+  // another request, younger: its revision is below the one left
+  const second = { ...make(), id: 'r2', title: 'Second ask', revision: 1 }
+  data.request = second
+  await view.rerender({ requestId: 'r2' })
+  await screen.findByText('Second ask')
+  await atRevision(1)
+  // nothing is marked by the switch itself
+  expect(document.querySelector('li.row-changed')).toBeNull()
+  const edited = structuredClone(second)
+  edited.revision = 2
+  edited.items[1] = { ...edited.items[1], title: 'Second poster, in red' }
+  data.request = edited
+  feed.move('studio', 'requests')
+  await atRevision(2)
+  await waitFor(() =>
+    expect(row('Second poster, in red').classList).toContain('row-changed'),
+  )
+  expect(document.querySelectorAll('li.row-changed')).toHaveLength(1)
+})
+
+it('a switch away from a request that failed shows the skeleton, not its failure', async () => {
+  data.getError = { status: 404, message: 'no such request' }
+  const view = render(RequestPage, { requestId: 'gone' })
+  await screen.findByText(/This request no longer exists/)
+  data.getError = null
+  const { api } = await import('../api')
+  let land: (reply: unknown) => void = () => {}
+  vi.mocked(api.getRequest).mockImplementationOnce(
+    () => new Promise((resolve) => (land = resolve)) as never,
+  )
+  await view.rerender({ requestId: 'r1' })
+  expect(screen.queryByText(/This request no longer exists/)).toBeNull()
+  expect(screen.getByLabelText('loading request')).toBeTruthy()
+  land(make())
+  await loaded()
+})
+
 it('a refresh sent before a save and answered after it does not undo the save', async () => {
   fakeInterval()
   const { api } = await import('../api')

@@ -902,3 +902,24 @@ it('a listing asked for after a note save shows a note changed elsewhere', async
   screen.getByLabelText('show details for iris.png').click()
   await waitFor(() => expect(screen.getByText('from an agent')).toBeTruthy())
 })
+
+it("the user's own note is not marked as another writer's change", async () => {
+  await renderAssets()
+  const tile = (name: string) =>
+    screen
+      .getByLabelText(`show details for ${name}`)
+      .closest('.cellwrap') as HTMLElement
+  screen.getByLabelText('show details for iris.png').click()
+  await saveIrisNote('hero shot')
+  // the save's own move of the feed: the server now carries the note, and
+  // an agent changed priya's
+  listing.assets = [
+    { ...asset('iris.png'), note: 'hero shot' },
+    { ...asset('cast/priya.jpg'), note: 'from an agent' },
+  ]
+  feed.move('default', 'assets')
+  await waitFor(() =>
+    expect(tile('cast/priya.jpg').classList).toContain('row-changed'),
+  )
+  expect(tile('iris.png').classList).not.toContain('row-changed')
+})

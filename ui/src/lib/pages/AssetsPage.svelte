@@ -61,9 +61,11 @@
     {
       watch: ['assets'],
       rows: (data) => data.assets.map((asset) => [asset.name, asset]),
+      // What is held carries the notes saved here still open, so a quiet
+      // reload never marks the page's own note (the gallery's merge)
       merge: (_held, incoming) => {
         noteEdits = settleEdits(incoming.assets, incoming.began, noteEdits)
-        return incoming
+        return { ...incoming, assets: applyEdits(incoming.assets, noteEdits) }
       },
     },
   )
@@ -95,6 +97,10 @@
     const name = selected.name
     noteEdits = withPatch(noteEdits, name, { note: note ?? undefined })
     selected = { ...selected, note: note ?? undefined }
+    // Held as read (resource's `adopt`): never marked as another writer's
+    const held = list.data
+    if (held)
+      list.adopt({ ...held, assets: applyEdits(held.assets, noteEdits) })
   }
 
   const filterActive = $derived(filter !== '')
