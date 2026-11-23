@@ -53,7 +53,8 @@ remaining deferred fix is recorded in
   `lora_A/B`, so `set_adapters` finds no adapter. The dialogue, seed and
   non-dialogue arms didn't run, and the 8-step file wasn't fetched. Taking
   it further needs a key conversion or a standard-format re-save, which is
-  a new issue for Don: `bench/records/h3-dmad.md`.
+  a new issue for Don: `bench/records/h3-dmad.md`;
+  `complete/h3-dmad-complete.md`.
 - **Place card for H3 cuts** (#1577, stages #1581-#1582), built
   2026-11-22. A Klein still of the set without the cast, kept as `asset:places/<set>` and
   passed after the people in a ref2va shot, held the set's lamp, shelf and
