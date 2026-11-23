@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import {
   cycles,
+  isLoadState,
   measure,
   referencePrefixes,
   regressions,
@@ -72,11 +73,14 @@ describe('the real tree', () => {
     expect(Object.keys(metrics).sort()).toEqual([
       'a11y_suppressions',
       'complex_functions',
+      'empty_outside_loadstate',
       'files_over_size_ceiling',
       'import_cycles',
       'long_functions',
       'modules_in_import_cycles',
       'prefix_literals',
+      'raw_error_toasts',
+      'unwatched_reads',
     ])
     for (const value of Object.values(metrics))
       expect(Number.isInteger(value)).toBe(true)
@@ -119,5 +123,61 @@ describe('what a branch cannot hide', () => {
     )
     expect(run.status).toBe(2)
     expect(run.stdout.trim()).toBe('')
+  })
+})
+
+describe('the page-quality metrics', () => {
+  async function measured(files: Record<string, string>) {
+    const dir = mkdtempSync(join(UI, '.metrics-probe-'))
+    try {
+      const paths = Object.entries(files).map(([name, text]) => {
+        const file = join(dir, name)
+        writeFileSync(file, text)
+        return file
+      })
+      return (await measure(paths, ['asset:'])).metrics
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  }
+
+  it('counts a raw error toast and not a described one', async () => {
+    const m = await measured({
+      'a.ts':
+        `declare const notify: any\ndeclare const e: any\n` +
+        `notify.error(e.message)\nnotify.error(String(e))\n` +
+        `notify.failure('save', e)\nnotify.error('plain')\n`,
+    })
+    expect(m.raw_error_toasts).toBe(2)
+  })
+
+  it('counts an Empty import outside LoadState only', async () => {
+    const m = await measured({
+      'a.svelte': `<script lang="ts">\n  import Empty from '../ui/Empty.svelte'\n</script>\n<Empty />\n`,
+      'LoadState.svelte': `<script lang="ts">\n  import Empty from './Empty.svelte'\n</script>\n<Empty />\n`,
+    })
+    // LoadState is matched by its path, which a probe dir cannot imitate
+    expect(m.empty_outside_loadstate).toBe(2)
+    expect(isLoadState(join(UI, 'src/lib/ui/LoadState.svelte'))).toBe(true)
+    expect(isLoadState(join(UI, 'src/lib/ui/Empty.svelte'))).toBe(false)
+  })
+
+  it('counts a read outside resource and poll, not inside', async () => {
+    const svelte = `<script lang="ts">
+  import { api } from '../api'
+  async function go() {
+    await api.listJobs()
+  }
+  const r = resource(() => api.listJobs(), 'jobs')
+  const p = poll(() => api.health(), 5000)
+  const q = api.health()
+  const w = api.saveWorkflow({})
+</script>
+`
+    const m = await measured({
+      'a.svelte': svelte,
+      'b.ts': `declare const api: any\napi.listJobs()\n`,
+    })
+    expect(m.unwatched_reads).toBe(2)
   })
 })

@@ -26,6 +26,13 @@
 //   reference prefix, outside PREFIX_OWNERS. The prefixes are read from
 //   dw/references.py, the engine's owner.
 // - a11y_suppressions: `svelte-ignore a11y_*` comments.
+// - raw_error_toasts: `notify.error(` calls whose first argument reads
+//   `.message` or `String(x)` - an error shown raw, not described.
+// - empty_outside_loadstate: imports of `*/Empty.svelte` anywhere but
+//   LOAD_STATE; a page states an empty list through LoadState.
+// - unwatched_reads: in a .svelte file, `api.<read>(...)` calls with no
+//   `resource(` or `poll(` call around them. A read is `get*`, `list*` or a
+//   name in READ_ALIASES; a new read named otherwise must be added there.
 import { ESLint } from 'eslint'
 import { readFileSync, writeFileSync, readdirSync, statSync } from 'node:fs'
 import { dirname, join, relative, resolve, extname } from 'node:path'
@@ -39,6 +46,31 @@ export const SIZE_CEILING = 600
 export const COMPLEXITY_LIMIT = 10
 export const FUNCTION_LINE_LIMIT = 60
 export const PREFIX_OWNERS = new Set(['src/lib/references.ts'])
+
+export const LOAD_STATE = 'src/lib/ui/LoadState.svelte'
+export const READ_ALIASES = [
+  'gallery',
+  'galleryMetadata',
+  'health',
+  'memory',
+  'diffusersStatus',
+  'server',
+  'eventLog',
+  'describeTask',
+  'describePipeline',
+  'describeClass',
+]
+
+export const isLoadState = (file) =>
+  relative(UI, file).replaceAll('\\', '/') === LOAD_STATE
+
+const RAW_ERROR = /\.message\b|String\(\s*\w+\s*\)/
+const isRead = (name) => /^(get|list)/.test(name) || READ_ALIASES.includes(name)
+const isMember = (node, object, property) =>
+  node?.type === 'MemberExpression' &&
+  node.object.type === 'Identifier' &&
+  node.object.name === object &&
+  (property === null || node.property.name === property)
 
 const SOURCE_SUFFIXES = new Set(['.ts', '.svelte', '.css'])
 
@@ -116,8 +148,58 @@ export async function measure(
   const known = new Set(files)
   const imports = {}
   const prefixHits = []
+  const rawToasts = []
+  const emptyImports = []
+  const unwatched = []
   const collector = {
     rules: {
+      toasts: {
+        create(context) {
+          return {
+            CallExpression(node) {
+              if (!isMember(node.callee, 'notify', 'error')) return
+              const first = node.arguments[0]
+              if (first && RAW_ERROR.test(context.sourceCode.getText(first)))
+                rawToasts.push(relative(UI, context.filename))
+            },
+          }
+        },
+      },
+      empty: {
+        create(context) {
+          if (isLoadState(context.filename)) return {}
+          return {
+            ImportDeclaration(node) {
+              if (String(node.source.value).endsWith('/Empty.svelte'))
+                emptyImports.push(relative(UI, context.filename))
+            },
+          }
+        },
+      },
+      reads: {
+        create(context) {
+          if (!context.filename.endsWith('.svelte')) return {}
+          return {
+            CallExpression(node) {
+              const callee = node.callee
+              if (
+                !isMember(callee, 'api', null) ||
+                !isRead(callee.property.name)
+              )
+                return
+              const watched = context.sourceCode
+                .getAncestors(node)
+                .some(
+                  (a) =>
+                    a.type === 'CallExpression' &&
+                    a.callee.type === 'Identifier' &&
+                    (a.callee.name === 'resource' || a.callee.name === 'poll'),
+                )
+              if (!watched) unwatched.push(relative(UI, context.filename))
+            },
+          }
+        },
+      },
       imports: {
         create(context) {
           const from = context.filename
@@ -174,6 +256,9 @@ export async function measure(
           ],
           'arch/imports': 'error',
           'arch/prefixes': 'error',
+          'arch/toasts': 'error',
+          'arch/empty': 'error',
+          'arch/reads': 'error',
         },
       },
     ],
@@ -214,10 +299,16 @@ export async function measure(
       modules_in_import_cycles: components.reduce((n, c) => n + c.length, 0),
       prefix_literals: prefixHits.length,
       a11y_suppressions: suppressions,
+      raw_error_toasts: rawToasts.length,
+      empty_outside_loadstate: emptyImports.length,
+      unwatched_reads: unwatched.length,
     },
     detail: {
       cycles: components.map((c) => c.map((f) => relative(UI, f))),
       prefix_literals: prefixHits,
+      raw_error_toasts: rawToasts,
+      empty_outside_loadstate: emptyImports,
+      unwatched_reads: unwatched,
     },
   }
 }
