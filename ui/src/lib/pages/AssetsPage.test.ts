@@ -764,3 +764,20 @@ it("a dropped batch is uploaded under the files' names", async () => {
     createOnly: true,
   })
 })
+
+it('shows a skeleton while loading, not the empty state', async () => {
+  listAssets.mockImplementationOnce(() => new Promise(() => {}))
+  render(AssetsPage, { shared: false })
+  expect(
+    screen.getByRole('status', { name: 'loading the asset library' }),
+  ).toBeTruthy()
+  expect(screen.queryByText(/Nothing in the asset library/)).toBeNull()
+})
+
+it('a failed first load offers Retry and Retry loads', async () => {
+  listAssets.mockImplementationOnce(() => Promise.reject(new Error('boom')))
+  render(AssetsPage, { shared: false })
+  await screen.findByText(/Couldn't load the asset library/)
+  await fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+  await waitFor(() => expect(screen.getByText('iris.png')).toBeTruthy())
+})

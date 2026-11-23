@@ -1,10 +1,9 @@
 <script lang="ts">
   import { Film, Image, Layers, Music, Play, Plus } from '@lucide/svelte'
   import { api } from '../api'
-  import { changes } from '../changes.svelte'
-  import { latestOnly } from '../latest'
+  import { resource } from '../resource.svelte'
+  import LoadState from '../ui/LoadState.svelte'
   import { writableRoot } from '../libraries'
-  import Empty from '../Empty.svelte'
   import FolderGroups from '../FolderGroups.svelte'
   import { leafOf } from '../grouping'
   import HintBar from '../HintBar.svelte'
@@ -27,75 +26,27 @@
 
   let { examples = false }: { examples?: boolean } = $props()
 
-  let workflows = $state<string[]>([])
-  let details = $state<Record<string, Detail>>({})
-  let workflowDir = $state('')
-  /** What the listing says a card's `cost` is - "curated" today. */
-  let costBasis = $state('')
   let filter = $state('')
   let shape = $state('')
   let traits = $state<WorkflowTrait[]>([])
-  let error = $state('')
-  let loaded = $state(false)
-  /** The newest output each workflow has produced, by workflow identity.
-   * A run writes to <outputs>/<identity>/<run id>/, and the gallery listing
-   * reports that identity as an entry's `folder` already stripped of the
-   * run id - so a workflow's name matches its folder directly. */
-  let proofs = $state<Record<string, GalleryFile>>({})
 
-  // A reply overtaken by a newer load (a switch, a feed reload) is dropped.
-  // A quiet load is the change feed's: it keeps the listing on screen, and a
-  // failed one keeps what is shown and sets no error.
-  const beginListing = latestOnly()
-  function loadListing({ quiet = false } = {}) {
-    const current = beginListing()
-    if (!quiet) error = ''
-    api
-      .listWorkflows()
-      .then((result) => {
-        if (!current()) return
-        workflows = result.workflows
-        details = result.details ?? {}
-        costBasis = result.cost_basis
-        workflowDir = writableRoot(result.libraries)
-        loaded = true
-        error = ''
-      })
-      .catch((e) => {
-        if (current() && !quiet) error = e.message
-      })
-  }
-
-  const beginProofs = latestOnly()
-  // Deliberately not awaited with the listing: the catalog is useful the
-  // moment names arrive, and the proofs fill in behind it. A workspace
-  // with no outputs yet simply never populates this.
-  function loadProofs() {
-    const current = beginProofs()
-    api
-      .gallery()
-      .then((result) => {
-        if (current()) proofs = latestProofs(result.files)
-      })
-      .catch(() => {
-        /* the catalog reads fine without proofs */
-      })
-  }
-
-  $effect(() => {
-    // Read inside the effect so switching workspaces refetches the listing
-    void workspace.current
-    loadListing()
-    loadProofs()
-  })
-  $effect(() => {
-    const ws = workspace.current
-    const stops = [
-      changes(ws).watch(['workflows'], () => loadListing({ quiet: true })),
-      changes(ws).watch(['gallery'], () => loadProofs()),
-    ]
-    return () => stops.forEach((stop) => stop())
-  })
+  const list = resource(() => api.listWorkflows(), { watch: ['workflows'] })
+  const workflows = $derived(list.data?.workflows ?? [])
+  const details = $derived<Record<string, Detail>>(list.data?.details ?? {})
+  /** What the listing says a card's `cost` is - "curated" today. */
+  const costBasis = $derived(list.data?.cost_basis ?? '')
+  const workflowDir = $derived(writableRoot(list.data?.libraries ?? []))
+  // The newest output each workflow has produced, by workflow identity. A
+  // run writes to <outputs>/<identity>/<run id>/, and the gallery listing
+  // reports that identity as an entry's `folder` already stripped of the run
+  // id - so a workflow's name matches its folder directly. Not rendered
+  // through LoadState: the catalog reads fine without proofs, so a failed
+  // read shows none
+  const proofing = resource(
+    async () => latestProofs((await api.gallery()).files),
+    { watch: ['gallery'] },
+  )
+  const proofs = $derived<Record<string, GalleryFile>>(proofing.data ?? {})
 
   // The population this page is over: the workspace's own workflows (any
   // writable library), or - under `examples` - only the read-only ones. The
@@ -161,6 +112,12 @@
     filter !== '' || shape !== '' || traits.length > 0,
   )
 
+  const clearFilters = () => {
+    filter = ''
+    shape = ''
+    traits = []
+  }
+
   /** The one measurement a card shows: the first the maintainer recorded.
    * '~3 min · 22 GB', with the accelerator moved to the tooltip - the card
    * has room for the numbers, not for the hardware they came from. */
@@ -201,147 +158,15 @@
   {/if}
 </div>
 
-{#if error}
-  <p class="muted">Could not load workflows: {error}</p>
-{/if}
-
-<!-- Shape is what people choose by, so the vocabulary is visible rather
-     than folded into a select nobody opens -->
-{#if shapesPresent.length}
-  <div class="shapes" role="group" aria-label="filter by shape">
-    <button
-      class="shapebtn"
-      class:on={shape === ''}
-      aria-pressed={shape === ''}
-      onclick={() => (shape = '')}
-    >
-      all
-    </button>
-    {#each shapesPresent as value (value)}
-      <button
-        class="shapebtn"
-        class:on={shape === value}
-        aria-pressed={shape === value}
-        onclick={() => (shape = shape === value ? '' : value)}
-        title="show only workflows that make {value}"
-      >
-        {value}
-      </button>
-    {/each}
-  </div>
-{/if}
-
-{#if traitsPresent.length}
-  <div class="chips">
-    {#each traitsPresent as trait (trait)}
-      <button
-        class="traitchip"
-        class:on={traits.includes(trait)}
-        aria-pressed={traits.includes(trait)}
-        onclick={() => toggleTrait(trait)}
-        title="show only workflows that are {trait}"
-      >
-        {trait}
-      </button>
-    {/each}
-  </div>
-{/if}
-
-<HintBar storageKey="hint-dismissed">
-  Pick a workflow → tweak its variables → Run. Every image saves its recipe —
-  reopen it from the Gallery.
-</HintBar>
-
-<FolderGroups
-  names={ordered}
-  collapseKey="collapsed-folders"
-  {filterActive}
-  newHref={examples ? undefined : wsHref(workspace.current, 'edit')}
-  minColumn="200px"
-  onnewingroup={(group) => sessionStorage.setItem('dw-editor-folder', group)}
+<LoadState
+  of={list}
+  label="workflows"
+  empty={visible.length === 0}
+  filtered={filterActive && listed.length > 0}
+  onclear={clearFilters}
 >
-  {#snippet card(name)}
-    {@const detail = details[name]}
-    {@const proof = proofs[name]}
-    <a
-      class="card"
-      href={href(name)}
-      title={cardTitle(name, detail, costBasis)}
-    >
-      <!-- The proof: what this workflow actually made last time. In a tool
-           whose entire output is pictures, the picture is the description.
-           A workflow that has never run gets no frame at all rather than a
-           grey placeholder - a fresh workspace would otherwise be a wall of
-           empty plates, and the extra height is worth spending only where
-           there is something to look at. Card height ends up saying which
-           workflows you have actually used. -->
-      {#if proof}
-        <span class="cardframe">
-          {#if proof.kind === 'image'}
-            <img
-              src={api.galleryThumbnailUrl(proof.name)}
-              alt=""
-              loading="lazy"
-              decoding="async"
-            />
-          {:else}
-            <img
-              src={api.galleryThumbnailUrl(proof.name)}
-              alt=""
-              loading="lazy"
-              decoding="async"
-            />
-            <span class="videobadge" aria-hidden="true">
-              <Play size={11} />
-            </span>
-          {/if}
-        </span>
-      {/if}
-      <span class="caption">
-        <span class="cardname">{leafOf(name)}</span>
-        <span class="cardmeta muted">
-          {#if detail?.shape}<span class="shape">{detail.shape}</span>{/if}
-          {#if detail?.kinds.includes('image')}<Image size={12} />{/if}
-          {#if detail?.kinds.includes('video')}<Film size={12} />{/if}
-          {#if detail?.kinds.includes('audio')}<Music size={12} />{/if}
-          <span class="flex"></span>
-          {#if (detail?.steps ?? 0) > 1}
-            <span class="num">{detail?.steps} steps</span>
-          {:else if detail?.variables}
-            <span class="num">{detail.variables} vars</span>
-          {/if}
-        </span>
-        <!-- A measured run is the most concrete thing on the card - what it
-             will cost you to press Run - so it gets its own line instead of
-             competing for the meta row's leftovers -->
-        {#if detail?.cost?.length}
-          <span class="cost num muted">{formatCost(detail.cost)}</span>
-        {/if}
-        {#if !detail?.cost?.length && observedText(detail?.observed)}
-          <span class="cost num muted">{observedText(detail?.observed)}</span>
-        {/if}
-        {#if detail?.summary || detail?.description}
-          <span class="carddesc muted">
-            {detail.summary || detail.description}
-          </span>
-        {/if}
-        {#if detail?.configures || detail?.writable === false}
-          <span class="cardfoot muted">
-            {#if detail?.configures}configures {leafOf(
-                detail.configures,
-              )}{/if}{#if detail?.configures && detail?.writable === false}
-              ·
-            {/if}{#if detail?.writable === false}{detail.origin}, read-only{/if}
-          </span>
-        {/if}
-      </span>
-    </a>
-  {/snippet}
-</FolderGroups>
-
-{#if loaded && listed.length === 0}
-  <Empty>
-    {#snippet icon()}<Layers size={36} strokeWidth={1.5} />{/snippet}
+  {#snippet emptyIcon()}<Layers size={36} strokeWidth={1.5} />{/snippet}
+  {#snippet emptyText()}
     {#if examples}
       No example workflows — start the server with --examples-dir to list some.
     {:else}
@@ -350,18 +175,149 @@
           {exampleCount} examples
         </a>{/if}.
     {/if}
-  </Empty>
-{:else if loaded && visible.length === 0}
-  <p class="muted">Nothing matches those filters.</p>
-{/if}
+  {/snippet}
+  <!-- Shape is what people choose by, so the vocabulary is visible rather
+     than folded into a select nobody opens -->
+  {#if shapesPresent.length}
+    <div class="shapes" role="group" aria-label="filter by shape">
+      <button
+        class="shapebtn"
+        class:on={shape === ''}
+        aria-pressed={shape === ''}
+        onclick={() => (shape = '')}
+      >
+        all
+      </button>
+      {#each shapesPresent as value (value)}
+        <button
+          class="shapebtn"
+          class:on={shape === value}
+          aria-pressed={shape === value}
+          onclick={() => (shape = shape === value ? '' : value)}
+          title="show only workflows that make {value}"
+        >
+          {value}
+        </button>
+      {/each}
+    </div>
+  {/if}
 
-<!-- Where the files live is worth knowing and not worth the subtitle slot
+  {#if traitsPresent.length}
+    <div class="chips">
+      {#each traitsPresent as trait (trait)}
+        <button
+          class="traitchip"
+          class:on={traits.includes(trait)}
+          aria-pressed={traits.includes(trait)}
+          onclick={() => toggleTrait(trait)}
+          title="show only workflows that are {trait}"
+        >
+          {trait}
+        </button>
+      {/each}
+    </div>
+  {/if}
+
+  <HintBar storageKey="hint-dismissed">
+    Pick a workflow → tweak its variables → Run. Every image saves its recipe —
+    reopen it from the Gallery.
+  </HintBar>
+
+  <FolderGroups
+    names={ordered}
+    collapseKey="collapsed-folders"
+    {filterActive}
+    newHref={examples ? undefined : wsHref(workspace.current, 'edit')}
+    minColumn="200px"
+    onnewingroup={(group) => sessionStorage.setItem('dw-editor-folder', group)}
+  >
+    {#snippet card(name)}
+      {@const detail = details[name]}
+      {@const proof = proofs[name]}
+      <a
+        class="card"
+        href={href(name)}
+        title={cardTitle(name, detail, costBasis)}
+      >
+        <!-- The proof: what this workflow actually made last time. In a tool
+           whose entire output is pictures, the picture is the description.
+           A workflow that has never run gets no frame at all rather than a
+           grey placeholder - a fresh workspace would otherwise be a wall of
+           empty plates, and the extra height is worth spending only where
+           there is something to look at. Card height ends up saying which
+           workflows you have actually used. -->
+        {#if proof}
+          <span class="cardframe">
+            {#if proof.kind === 'image'}
+              <img
+                src={api.galleryThumbnailUrl(proof.name)}
+                alt=""
+                loading="lazy"
+                decoding="async"
+              />
+            {:else}
+              <img
+                src={api.galleryThumbnailUrl(proof.name)}
+                alt=""
+                loading="lazy"
+                decoding="async"
+              />
+              <span class="videobadge" aria-hidden="true">
+                <Play size={11} />
+              </span>
+            {/if}
+          </span>
+        {/if}
+        <span class="caption">
+          <span class="cardname">{leafOf(name)}</span>
+          <span class="cardmeta muted">
+            {#if detail?.shape}<span class="shape">{detail.shape}</span>{/if}
+            {#if detail?.kinds.includes('image')}<Image size={12} />{/if}
+            {#if detail?.kinds.includes('video')}<Film size={12} />{/if}
+            {#if detail?.kinds.includes('audio')}<Music size={12} />{/if}
+            <span class="flex"></span>
+            {#if (detail?.steps ?? 0) > 1}
+              <span class="num">{detail?.steps} steps</span>
+            {:else if detail?.variables}
+              <span class="num">{detail.variables} vars</span>
+            {/if}
+          </span>
+          <!-- A measured run is the most concrete thing on the card - what it
+             will cost you to press Run - so it gets its own line instead of
+             competing for the meta row's leftovers -->
+          {#if detail?.cost?.length}
+            <span class="cost num muted">{formatCost(detail.cost)}</span>
+          {/if}
+          {#if !detail?.cost?.length && observedText(detail?.observed)}
+            <span class="cost num muted">{observedText(detail?.observed)}</span>
+          {/if}
+          {#if detail?.summary || detail?.description}
+            <span class="carddesc muted">
+              {detail.summary || detail.description}
+            </span>
+          {/if}
+          {#if detail?.configures || detail?.writable === false}
+            <span class="cardfoot muted">
+              {#if detail?.configures}configures {leafOf(
+                  detail.configures,
+                )}{/if}{#if detail?.configures && detail?.writable === false}
+                ·
+              {/if}{#if detail?.writable === false}{detail.origin}, read-only{/if}
+            </span>
+          {/if}
+        </span>
+      </a>
+    {/snippet}
+  </FolderGroups>
+
+  <!-- Where the files live is worth knowing and not worth the subtitle slot
      beside the title, which is the best position on the page -->
-{#if workflowDir}
-  <p class="dir muted">
-    read from <span class="path">{workflowDir}</span>
-  </p>
-{/if}
+  {#if workflowDir}
+    <p class="dir muted">
+      read from <span class="path">{workflowDir}</span>
+    </p>
+  {/if}
+</LoadState>
 
 <style>
   .pagehead .flex {

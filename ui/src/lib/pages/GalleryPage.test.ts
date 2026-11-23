@@ -829,3 +829,34 @@ it('deleting a selection with starred files says how many and can spare them', a
   await waitFor(() => expect(deleteOutput).toHaveBeenCalledTimes(1))
   expect(deleteOutput).toHaveBeenCalledWith('a.png')
 })
+
+it('shows a skeleton while loading, not the empty state', async () => {
+  gallery.mockImplementationOnce(() => new Promise(() => {}))
+  render(GalleryPage)
+  expect(
+    screen.getByRole('status', { name: 'loading the gallery' }),
+  ).toBeTruthy()
+  expect(screen.queryByText(/Nothing generated yet/)).toBeNull()
+})
+
+it('a failed first load offers Retry and Retry loads', async () => {
+  gallery.mockImplementationOnce(() => Promise.reject(new Error('boom')))
+  render(GalleryPage)
+  await screen.findByText(/Couldn't load the gallery/)
+  await fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+  await waitFor(() =>
+    expect(screen.getByLabelText('select a.png')).toBeTruthy(),
+  )
+})
+
+it('filtered to nothing offers Clear filters', async () => {
+  await renderGallery()
+  await fireEvent.input(screen.getByPlaceholderText('filter…'), {
+    target: { value: 'zzz' },
+  })
+  expect(screen.getByText('Nothing matches those filters.')).toBeTruthy()
+  await fireEvent.click(screen.getByRole('button', { name: 'Clear filters' }))
+  await waitFor(() =>
+    expect(screen.getByLabelText('select a.png')).toBeTruthy(),
+  )
+})

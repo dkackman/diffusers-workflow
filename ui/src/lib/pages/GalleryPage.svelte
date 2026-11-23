@@ -2,112 +2,105 @@
   import { ImageOff, Pencil, Play, Star } from '@lucide/svelte'
   import { outputLibrary } from '../outputlib.svelte'
   import { api } from '../api'
-  import { changes } from '../changes.svelte'
-  import Empty from '../Empty.svelte'
+  import { untrack } from 'svelte'
+  import { resource, type Resource } from '../resource.svelte'
+  import LoadState from '../ui/LoadState.svelte'
   import FolderGroups from '../FolderGroups.svelte'
   import BulkBar from '../BulkBar.svelte'
   import { Picks, actOnEach } from '../picks.svelte'
   import { isEditable } from '../editable'
   import { neighbor } from '../neighbor'
-  import { latestOnly } from '../latest'
   import { overlayOpen } from '../ui/layers.svelte'
   import { notify } from '../toast'
   import { confirmDialog } from '../confirm.svelte'
   import { askDeletion } from '../gallery/deletion'
-  import type {
-    GalleryFile,
-    GalleryInput,
-    GalleryLinkedJob,
-    LevelFinding,
-    OutputRole,
-  } from '../types'
+  import type { GalleryFile, OutputRole } from '../types'
   import { workspace } from '../workspace.svelte'
   import { go } from '../router.svelte'
   import RequestFilter from '../gallery/RequestFilter.svelte'
   import GalleryDetail from '../gallery/GalleryDetail.svelte'
   import { AssessCache } from '../gallery/assess.svelte'
   import RoleTag from '../gallery/RoleTag.svelte'
-  import { gridFiles } from '../gallery/order'
+  import {
+    applyEdits,
+    gridFiles,
+    keepPicks,
+    settleEdits,
+    type Edits,
+    type Listing,
+  } from '../gallery/order'
 
-  let files = $state<GalleryFile[]>([])
-  let loaded = $state(false)
   let filter = $state('')
   // The roles to show. Finals are what a run was for, so the gallery opens
   // on them; Intermediate adds the steps' working files
   let roles = $state<OutputRole[]>(['final'])
-  let error = $state('')
   let selected = $state<GalleryFile | null>(null)
   // Names ticked in the grid, for the bulk actions. The grid order it is
   // given is what a shift-range spans and the order the actions act in
-  const picks = new Picks(() => visible.map((f) => f.name))
+  const picks: Picks = new Picks(() => visible.map((f) => f.name))
   let busy = $state(false)
-  let metadata = $state<Record<string, unknown> | null>(null)
-  let metadataLoading = $state(false)
-  let noteInfo = $state<{
-    note: string | null
-    runNote: string | null
-    source: 'file' | 'run' | null
-  }>({ note: null, runNote: null, source: null })
-  let sourceJob = $state<{ id: string; status: string } | null>(null)
-  let role = $state<OutputRole | null>(null)
-  // The selected file's level findings, and every Assess this page has run
-  let findings = $state<LevelFinding[]>([])
   const assessCache = new AssessCache()
-  let inputs = $state<GalleryInput[]>([])
-  let linkedJobs = $state<GalleryLinkedJob[]>([])
 
   // The requests-ledger request the gallery is narrowed to (RequestFilter
   // keeps it in step with the hash); the listing asks the server for it
   let reqId = $state('')
   let reqItem = $state('')
 
-  // A listing asked for before the filter or workspace changed must not
-  // land over the newer one: the chip would name a request the grid is not
-  // narrowed to, and the bulk actions act on what the grid shows
-  const beginListing = latestOnly()
-  /** Read the listing. A quiet one is the change feed's: it leaves the
-   * picks alone, and one that fails keeps the files on screen, no error */
-  async function loadListing({ quiet = false } = {}) {
-    const current = beginListing()
-    try {
+  // An output landing from outside shows within one feed interval. Only the
+  // listing is read again: the open file and its note box are left as they are
+  const list: Resource<Listing> = resource(
+    async (): Promise<Listing> => {
+      const key = `${reqId}\u0000${reqItem}`
       const result = await api.gallery(
         undefined,
         reqId || undefined,
         reqItem || undefined,
       )
-      if (!current()) return
-      files = result.files
-      // The editors' output: completions read the same listing
-      outputLibrary.items = result.files
+      return { files: result.files, key }
+    },
+    {
+      watch: ['gallery'],
+      merge: (held, incoming) => {
+        edits = settleEdits(incoming.files, edits)
+        return keepPicks(picks, held, incoming)
+      },
+    },
+  )
+  // What this page changed (a star, a delete, a note) rides on the listing,
+  // so a read asked for before the change cannot undo it
+  let edits = $state<Edits>({ gone: [], patched: {} })
+  const files = $derived(applyEdits(list.data?.files ?? [], edits))
+  const patch = (name: string, fields: Partial<GalleryFile>) =>
+    (edits = {
+      ...edits,
+      patched: {
+        ...edits.patched,
+        [name]: { ...edits.patched[name], ...fields },
+      },
+    })
+  const drop = (names: Iterable<string>) =>
+    (edits = { ...edits, gone: [...edits.gone, ...names] })
+  // The editors' output: completions read the same listing
+  $effect(() => {
+    const data = list.data
+    untrack(() => {
+      if (!data) return
+      outputLibrary.items = data.files
       outputLibrary.workspace = workspace.current
-      error = ''
-      if (!quiet) picks.keepOnly(result.files.map((f) => f.name))
-    } catch (e) {
-      if (!current()) return
-      if (quiet && loaded) return
-      error = e instanceof Error ? e.message : String(e)
-    }
-    loaded = true
-  }
-
-  $effect(() => {
-    // Read inside the effect so switching workspaces refetches the gallery
-    void workspace.current
-    void reqId
-    void reqItem
-    void loadListing()
-  })
-  // An output landing from outside shows within one feed interval. Only the
-  // listing is read again: the open file and its note box are left as they are
-  $effect(() => {
-    const ws = workspace.current
-    return changes(ws).watch(['gallery'], () => loadListing({ quiet: true }))
+    })
   })
 
   let starredOnly = $state(false)
   const filterActive = $derived(
     filter !== '' || roles.length < 2 || starredOnly || reqId !== '',
   )
+  function clearFilters() {
+    filter = ''
+    roles = ['final', 'intermediate']
+    starredOnly = false
+    reqId = ''
+    reqItem = ''
+  }
   const visible = $derived(gridFiles(files, filter, roles, starredOnly))
   async function toggleStar() {
     if (!selected) return
@@ -115,8 +108,7 @@
     const next = !selected.starred
     try {
       await api.setStarred(name, next)
-      beginListing()
-      files = files.map((f) => (f.name === name ? { ...f, starred: next } : f))
+      patch(name, { starred: next })
       if (selected?.name === name) selected = { ...selected, starred: next }
     } catch (e) {
       notify.failure('star that file', e)
@@ -153,8 +145,7 @@
     busy = true
     const failed = await actOnEach(names, (name) => api.deleteOutput(name))
     const gone = new Set(names.filter((name) => !failed.includes(name)))
-    beginListing()
-    files = files.filter((f) => !gone.has(f.name))
+    drop(gone)
     // Whatever could not be deleted stays selected, so a retry needs no
     // re-ticking and the failure is visible rather than silently dropped
     picks.keepFailed(names, failed)
@@ -180,59 +171,16 @@
   function select(file: GalleryFile) {
     selected = file
     selectedAt = visible.findIndex((f) => f.name === file.name)
-    metadata = null
-    metadataLoading = true
-    sourceJob = null
-    role = null
-    inputs = []
-    findings = []
-    linkedJobs = []
-    noteInfo = { note: null, runNote: null, source: null }
-    api
-      .galleryMetadata(file.name)
-      .then((r) => {
-        if (selected?.name === file.name) {
-          metadata = r.metadata
-          sourceJob = r.job
-          role = r.role ?? file.role ?? null
-          inputs = r.inputs ?? []
-          findings = r.findings ?? []
-          linkedJobs = r.linked_jobs
-          noteInfo = {
-            note: r.note ?? null,
-            runNote: r.run_note ?? null,
-            source: r.note_source ?? null,
-          }
-        }
-      })
-      .catch(() => {})
-      .finally(() => {
-        if (selected?.name === file.name) metadataLoading = false
-      })
   }
 
-  // A note changed: refetch what the panel shows and carry the file's
-  // effective note to its tile, which is what the grid marks
-  async function refreshNote(kind: 'run' | 'file') {
-    const name = selected?.name
-    if (!name) return
-    // A run's note shows on every tile of the run that inherits it
-    if (kind === 'run') await loadListing({ quiet: true })
-    try {
-      const r = await api.galleryMetadata(name)
-      if (selected?.name !== name) return
-      noteInfo = {
-        note: r.note ?? null,
-        runNote: r.run_note ?? null,
-        source: r.note_source ?? null,
-      }
-      beginListing()
-      files = files.map((f) =>
-        f.name === name ? { ...f, note: r.note ?? undefined } : f,
-      )
-    } catch {
-      /* the editor already shows what was saved */
-    }
+  // A note changed: carry the file's effective note to its tile, which is
+  // what the grid marks. A run's note shows on every tile of the run that
+  // inherits it, so that one reads the listing again
+  async function noteSaved(kind: 'run' | 'file', note: string | null) {
+    if (!selected) return
+    const name = selected.name
+    if (kind === 'run') await list.reload()
+    patch(name, { note: note ?? undefined })
   }
 
   async function removeFile() {
@@ -251,8 +199,7 @@
       neighbor(order, name, -1, selectedAt)
     try {
       await api.deleteOutput(name)
-      beginListing()
-      files = files.filter((f) => f.name !== name)
+      drop([name])
       // A file deleted from here may also be ticked in the grid; leaving it
       // there would make the next bulk action fail on a file that is gone
       picks.drop(name)
@@ -340,19 +287,6 @@
   <RequestFilter bind:request={reqId} bind:item={reqItem} />
 </div>
 
-{#if error}<p class="muted">Could not read the gallery: {error}</p>{/if}
-{#if loaded && !error && files.length === 0}
-  <Empty>
-    {#snippet icon()}<ImageOff size={36} strokeWidth={1.5} />{/snippet}
-    {#if reqId}
-      No outputs for this request{reqItem ? ' item' : ''} yet — remove the request
-      filter to see everything.
-    {:else}
-      Nothing generated yet — outputs land here as workflows run.
-    {/if}
-  </Empty>
-{/if}
-
 <BulkBar
   {picks}
   visible={visible.length}
@@ -364,117 +298,127 @@
   oncompare={() => go('ws', workspace.current, 'compare', ...picks.names)}
 />
 
-<FolderGroups
-  names={visible.map((f) => f.name)}
-  groupOf={(name) => folderByName.get(name) ?? ''}
-  collapseKey="collapsed-gallery-folders"
-  {filterActive}
-  minColumn="150px"
+<LoadState
+  of={list}
+  label="the gallery"
+  empty={visible.length === 0}
+  filtered={filterActive && files.length > 0}
+  onclear={clearFilters}
 >
-  {#snippet card(name)}
-    {@const file = byName.get(name)!}
-    <div class="cellwrap" class:picked={picks.has(name)}>
-      <!-- A sibling of the cell rather than a child: a checkbox nested in
+  {#snippet emptyIcon()}<ImageOff size={36} strokeWidth={1.5} />{/snippet}
+  {#snippet emptyText()}
+    {#if reqId}
+      No outputs for this request{reqItem ? ' item' : ''} yet — remove the request
+      filter to see everything.
+    {:else}
+      Nothing generated yet — outputs land here as workflows run.
+    {/if}
+  {/snippet}
+  <FolderGroups
+    names={visible.map((f) => f.name)}
+    groupOf={(name) => folderByName.get(name) ?? ''}
+    collapseKey="collapsed-gallery-folders"
+    {filterActive}
+    minColumn="150px"
+  >
+    {#snippet card(name)}
+      {@const file = byName.get(name)!}
+      <div class="cellwrap" class:picked={picks.has(name)}>
+        <!-- A sibling of the cell rather than a child: a checkbox nested in
            a button is invalid, and keeping them apart is what lets a plain
            click still open the details it always has -->
-      <input
-        class="pick"
-        type="checkbox"
-        checked={picks.has(name)}
-        aria-label="select {name}"
-        title="select this file for a bulk action"
-        onclick={(e) => picks.toggle(name, e.shiftKey)}
-      />
-      <button
-        class="cell"
-        class:active={selected?.name === name}
-        onclick={() => select(file)}
-        title="show details{file.kind === 'image'
-          ? ' and generation metadata'
-          : ''}"
-      >
-        {#if file.kind === 'image'}
-          <img
-            src={api.galleryThumbnailUrl(file.name)}
-            alt={file.name}
-            loading="lazy"
-          />
-        {:else if file.kind === 'video'}
-          <!-- a poster, never a <video>: a grid of clips opening a stream
-               per tile hung the page -->
-          <span class="poster">
+        <input
+          class="pick"
+          type="checkbox"
+          checked={picks.has(name)}
+          aria-label="select {name}"
+          title="select this file for a bulk action"
+          onclick={(e) => picks.toggle(name, e.shiftKey)}
+        />
+        <button
+          class="cell"
+          class:active={selected?.name === name}
+          onclick={() => select(file)}
+          title="show details{file.kind === 'image'
+            ? ' and generation metadata'
+            : ''}"
+        >
+          {#if file.kind === 'image'}
             <img
               src={api.galleryThumbnailUrl(file.name)}
               alt={file.name}
               loading="lazy"
             />
-            <span class="videobadge" aria-hidden="true">
-              <Play size={11} />
+          {:else if file.kind === 'video'}
+            <!-- a poster, never a <video>: a grid of clips opening a stream
+               per tile hung the page -->
+            <span class="poster">
+              <img
+                src={api.galleryThumbnailUrl(file.name)}
+                alt={file.name}
+                loading="lazy"
+              />
+              <span class="videobadge" aria-hidden="true">
+                <Play size={11} />
+              </span>
             </span>
-          </span>
-        {:else}
-          <span class="audio">
-            {file.kind === 'text' ? '¶' : '♪'}
-            {file.label}
-          </span>
-        {/if}
-        <span class="caption" title={file.name}>
-          {#if file.role}
-            <RoleTag role={file.role} />
-            <!-- eslint-disable-next-line svelte/no-useless-mustaches -->
-            {' '}
+          {:else}
+            <span class="audio">
+              {file.kind === 'text' ? '¶' : '♪'}
+              {file.label}
+            </span>
           {/if}
-          {#if file.version}
-            <span
-              class="version"
-              title="version {file.version} of this workflow"
-            >
-              v{file.version}
-            </span>
-            <!-- A real space rather than a margin, so a screen reader says
+          <span class="caption" title={file.name}>
+            {#if file.role}
+              <RoleTag role={file.role} />
+              <!-- eslint-disable-next-line svelte/no-useless-mustaches -->
+              {' '}
+            {/if}
+            {#if file.version}
+              <span
+                class="version"
+                title="version {file.version} of this workflow"
+              >
+                v{file.version}
+              </span>
+              <!-- A real space rather than a margin, so a screen reader says
                  "v4 film.mp4" instead of running the two together. Explicit:
                  whitespace at the edge of an if block is trimmed -->
-            <!-- eslint-disable-next-line svelte/no-useless-mustaches -->
-            {' '}
-          {/if}{file.label}{#if file.note}
-            <!-- eslint-disable-next-line svelte/no-useless-mustaches -->
-            {' '}<span
-              class="note-mark"
-              title={file.note.split('\n')[0]}
-              aria-label="Has a note"
-            >
-              <Pencil size={11} />
-            </span>{/if}{#if file.starred}
-            <!-- eslint-disable-next-line svelte/no-useless-mustaches -->
-            {' '}<span class="note-mark" aria-label="Starred">
-              <Star size={11} fill="currentColor" />
-            </span>{/if}
-        </span>
-      </button>
-    </div>
-  {/snippet}
-</FolderGroups>
+              <!-- eslint-disable-next-line svelte/no-useless-mustaches -->
+              {' '}
+            {/if}{file.label}{#if file.note}
+              <!-- eslint-disable-next-line svelte/no-useless-mustaches -->
+              {' '}<span
+                class="note-mark"
+                title={file.note.split('\n')[0]}
+                aria-label="Has a note"
+              >
+                <Pencil size={11} />
+              </span>{/if}{#if file.starred}
+              <!-- eslint-disable-next-line svelte/no-useless-mustaches -->
+              {' '}<span class="note-mark" aria-label="Starred">
+                <Star size={11} fill="currentColor" />
+              </span>{/if}
+          </span>
+        </button>
+      </div>
+    {/snippet}
+  </FolderGroups>
+</LoadState>
 
 {#if selected}
-  <GalleryDetail
-    file={selected}
-    {metadata}
-    {metadataLoading}
-    {sourceJob}
-    {role}
-    {inputs}
-    {findings}
-    {linkedJobs}
-    {assessCache}
-    note={noteInfo.note}
-    runNote={noteInfo.runNote}
-    noteSource={noteInfo.source}
-    onnotesaved={refreshNote}
-    starred={!!selected.starred}
-    onstar={toggleStar}
-    onremove={removeFile}
-    onclose={() => (selected = null)}
-  />
+  <!-- Keyed by the pick, so each file's panel starts its own read -->
+  {#key selected.name}
+    <GalleryDetail
+      file={selected}
+      {assessCache}
+      onnotesaved={noteSaved}
+      starred={!!selected.starred}
+      onstar={toggleStar}
+      onremove={removeFile}
+      onclose={() => (selected = null)}
+    />
+  {/key}
 {/if}
 
 <style>

@@ -4,7 +4,10 @@
   import { api } from '../api'
   import NoteEditor from '../ui/NoteEditor.svelte'
   import { ASSET } from '../references'
-  import type { AssetFile } from '../types'
+  import type { AssetFile, GalleryMetadata } from '../types'
+  import { resource } from '../resource.svelte'
+  import LoadState from '../ui/LoadState.svelte'
+  import Skeleton from '../ui/Skeleton.svelte'
   import { formatBytes, formatMtime } from '../format'
   import { wsHref } from '../routes'
   import { workspace } from '../workspace.svelte'
@@ -28,24 +31,15 @@
 
   // Where a kept asset came from, when keep_output recorded it: the
   // workflow and run version of the job that wrote the file
-  let keptFrom = $state('')
-  $effect(() => {
-    const reference = asset.reference
-    keptFrom = ''
-    let stale = false
-    api
-      .galleryMetadata(reference)
-      .then((r) => {
-        if (stale || !r.job) return
-        const workflow =
-          typeof r.job.workflow === 'string' ? r.job.workflow : r.job.id
-        keptFrom = `kept from ${workflow}${r.version ? ` v${r.version}` : ''}`
-      })
-      .catch(() => {})
-    return () => {
-      stale = true
-    }
+  const source = resource(() => api.galleryMetadata(asset.reference), {
+    watch: ['assets'],
   })
+  const keptFrom = (r: GalleryMetadata) => {
+    if (!r.job) return ''
+    const workflow =
+      typeof r.job.workflow === 'string' ? r.job.workflow : r.job.id
+    return `kept from ${workflow}${r.version ? ` v${r.version}` : ''}`
+  }
 </script>
 
 <div class="detail panel">
@@ -92,9 +86,15 @@
       <X size={14} />
     </button>
   </div>
-  {#if keptFrom}
-    <p class="usedby muted">{keptFrom}</p>
-  {/if}
+  <LoadState of={source} label="where this asset came from">
+    {#snippet skeleton()}<Skeleton
+        lines={1}
+        label="loading where this asset came from"
+      />{/snippet}
+    {#snippet children(r)}
+      {#if keptFrom(r)}<p class="usedby muted">{keptFrom(r)}</p>{/if}
+    {/snippet}
+  </LoadState>
   {#if asset.used_by?.length}
     <p class="usedby muted">
       used by

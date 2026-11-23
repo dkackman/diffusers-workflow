@@ -331,3 +331,20 @@ it('a quiet reload that fails keeps the cards and shows no error', async () => {
   expect(card('tti')).toBeTruthy()
   expect(screen.queryByText(/boom/)).toBeNull()
 })
+
+it('shows a skeleton while loading, not the empty state', async () => {
+  listWorkflows.mockReturnValueOnce(new Promise(() => {}))
+  render(WorkflowsPage)
+  expect(
+    screen.getByRole('status', { name: 'loading workflows' }),
+  ).toBeTruthy()
+  expect(screen.queryByText(/No workflows yet/)).toBeNull()
+})
+
+it('a failed first load offers Retry and Retry loads', async () => {
+  listWorkflows.mockRejectedValueOnce(new Error('boom'))
+  render(WorkflowsPage)
+  await screen.findByText(/Couldn't load workflows/)
+  await fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+  await waitFor(() => expect(card('tti')).toBeTruthy())
+})

@@ -262,3 +262,31 @@ it('merge decides what is held', async () => {
   await vi.waitFor(() => expect(merge).toHaveBeenCalledTimes(2))
   expect(r.data).toEqual({ rev: 2 })
 })
+
+it('teardown leaves no watcher and no timer', async () => {
+  vi.useFakeTimers()
+  const load = vi.fn(() => Promise.resolve(1))
+  mount(load, { watch: ['jobs'], alsoLive: () => 1000 })
+  await vi.advanceTimersByTimeAsync(1000)
+  expect(feed.watches.size).toBe(1)
+  teardown?.()
+  teardown = null
+  expect(feed.watches.size).toBe(0)
+  const calls = load.mock.calls.length
+  await vi.advanceTimersByTimeAsync(10_000)
+  expect(load).toHaveBeenCalledTimes(calls)
+})
+
+it('watch and live exclude each other, and one is required', () => {
+  const f = () => Promise.resolve(1)
+  // @ts-expect-error a freshness is required
+  expect(() => mount(f, {})).not.toThrow()
+  teardown?.()
+  // @ts-expect-error live and watch together
+  mount(f, { watch: [], live: { everyMs: 1 } })
+  teardown?.()
+  // @ts-expect-error alsoLive belongs to watch
+  mount(f, { live: { everyMs: 1 }, alsoLive: () => 1 })
+  teardown?.()
+  teardown = null
+})

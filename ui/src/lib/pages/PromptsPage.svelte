@@ -1,10 +1,8 @@
 <script lang="ts">
   import { MessageSquareText, Plus } from '@lucide/svelte'
   import { api } from '../api'
-  import { changes } from '../changes.svelte'
-  import { latestOnly } from '../latest'
-  import { workspace } from '../workspace.svelte'
-  import Empty from '../Empty.svelte'
+  import { resource } from '../resource.svelte'
+  import LoadState from '../ui/LoadState.svelte'
   import FolderGroups from '../FolderGroups.svelte'
   import { leafOf } from '../grouping'
   import HintBar from '../HintBar.svelte'
@@ -12,45 +10,15 @@
   import { writableRoot } from '../libraries'
   import type { PromptDetail } from '../types'
 
-  let prompts = $state<string[]>([])
-  let details = $state<Record<string, PromptDetail>>({})
-  let promptDir = $state('')
   let filter = $state('')
-  let error = $state('')
-  let loaded = $state(false)
 
-  // A reply overtaken by a later load (a switch, a newer reload) is dropped
-  const beginList = latestOnly()
-  /** Read the prompts of the current workspace. A quiet load is the change
-   * feed's: it keeps the list on screen, and a failed one keeps it too */
-  function load({ quiet = false } = {}) {
-    const current = beginList()
-    if (!quiet) error = ''
-    api
-      .listPrompts()
-      .then((result) => {
-        if (!current()) return
-        prompts = result.prompts
-        details = result.details ?? {}
-        promptDir = writableRoot(result.libraries)
-        error = ''
-        loaded = true
-      })
-      .catch((e) => {
-        if (!current() || quiet) return
-        error = e.message
-      })
-  }
-  $effect(() => {
-    // Read so a workspace switch reloads; the api scopes itself to it
-    void workspace.current
-    load()
-  })
   // A prompt an agent saves shows within one feed interval
-  $effect(() => {
-    const ws = workspace.current
-    return changes(ws).watch(['prompts'], () => load({ quiet: true }))
-  })
+  const list = resource(() => api.listPrompts(), { watch: ['prompts'] })
+  const prompts = $derived(list.data?.prompts ?? [])
+  const details = $derived<Record<string, PromptDetail>>(
+    list.data?.details ?? {},
+  )
+  const promptDir = $derived(writableRoot(list.data?.libraries ?? []))
 
   const visible = $derived(
     prompts.filter((name) => {
@@ -82,88 +50,90 @@
   </a>
 </div>
 
-{#if error}
-  <p class="muted">Could not load prompts: {error}</p>
-{/if}
-
 <HintBar storageKey="prompt-hint-dismissed">
   Write a prompt once, reuse it anywhere: a workflow argument set to prompt:name
   loads its text at run time.
 </HintBar>
 
-<FolderGroups
-  names={visible}
-  collapseKey="collapsed-prompt-folders"
-  filterActive={filter !== ''}
-  newHref="#/prompt-edit"
-  onnewingroup={(group) =>
-    sessionStorage.setItem('dw-prompt-editor-folder', group)}
+<LoadState
+  of={list}
+  label="prompts"
+  empty={visible.length === 0}
+  filtered={filter !== ''}
+  onclear={() => (filter = '')}
 >
-  {#snippet card(name)}
-    {@const detail = details[name]}
-    <!-- The link is an overlay rather than a wrapper: buttons may not
+  {#snippet emptyIcon()}<MessageSquareText
+      size={36}
+      strokeWidth={1.5}
+    />{/snippet}
+  {#snippet emptyText()}No prompts yet — the + above creates the first one.{/snippet}
+  <FolderGroups
+    names={visible}
+    collapseKey="collapsed-prompt-folders"
+    filterActive={filter !== ''}
+    newHref="#/prompt-edit"
+    onnewingroup={(group) =>
+      sessionStorage.setItem('dw-prompt-editor-folder', group)}
+  >
+    {#snippet card(name)}
+      {@const detail = details[name]}
+      <!-- The link is an overlay rather than a wrapper: buttons may not
          nest inside an anchor, and the chips are real buttons -->
-    <div class="card panel">
-      <a
-        class="cardcover"
-        href={href(name)}
-        aria-label="edit {name}"
-        title={detail?.description || detail?.text || undefined}
-      ></a>
-      <span class="cardtop">
-        <span class="cardname">{leafOf(name)}</span>
-        {#if details[name]?.origin && details[name].origin !== 'workspace'}
-          <span
-            class="origin muted"
-            title="read-only: from the {details[name].origin} library"
-          >
-            {details[name].origin}
+      <div class="card panel">
+        <a
+          class="cardcover"
+          href={href(name)}
+          aria-label="edit {name}"
+          title={detail?.description || detail?.text || undefined}
+        ></a>
+        <span class="cardtop">
+          <span class="cardname">{leafOf(name)}</span>
+          {#if details[name]?.origin && details[name].origin !== 'workspace'}
+            <span
+              class="origin muted"
+              title="read-only: from the {details[name].origin} library"
+            >
+              {details[name].origin}
+            </span>
+          {/if}
+          {#if detail?.intended_model}
+            <button
+              class="chip modelchip"
+              onclick={() => (filter = detail.intended_model)}
+              title="written for {detail.intended_model} - click to filter"
+            >
+              {detail.intended_model}
+            </button>
+          {/if}
+        </span>
+        {#if detail?.description || detail?.text}
+          <span class="carddesc muted">
+            {detail.description || detail.text}
           </span>
         {/if}
-        {#if detail?.intended_model}
-          <button
-            class="chip modelchip"
-            onclick={() => (filter = detail.intended_model)}
-            title="written for {detail.intended_model} - click to filter"
-          >
-            {detail.intended_model}
-          </button>
+        {#if detail?.tags?.length}
+          <span class="cardtags">
+            {#each detail.tags as tag (tag)}
+              <button
+                class="chip"
+                onclick={() => (filter = tag)}
+                title="click to filter by this tag"
+              >
+                {tag}
+              </button>
+            {/each}
+          </span>
         {/if}
-      </span>
-      {#if detail?.description || detail?.text}
-        <span class="carddesc muted">{detail.description || detail.text}</span>
-      {/if}
-      {#if detail?.tags?.length}
-        <span class="cardtags">
-          {#each detail.tags as tag (tag)}
-            <button
-              class="chip"
-              onclick={() => (filter = tag)}
-              title="click to filter by this tag"
-            >
-              {tag}
-            </button>
-          {/each}
-        </span>
-      {/if}
-    </div>
-  {/snippet}
-</FolderGroups>
+      </div>
+    {/snippet}
+  </FolderGroups>
 
-{#if loaded && prompts.length === 0}
-  <Empty>
-    {#snippet icon()}<MessageSquareText size={36} strokeWidth={1.5} />{/snippet}
-    No prompts yet — the + above creates the first one.
-  </Empty>
-{:else if loaded && visible.length === 0}
-  <p class="muted">Nothing matches "{filter}".</p>
-{/if}
-
-{#if promptDir}
-  <p class="dir muted">
-    read from <span class="path">{promptDir}</span>
-  </p>
-{/if}
+  {#if promptDir}
+    <p class="dir muted">
+      read from <span class="path">{promptDir}</span>
+    </p>
+  {/if}
+</LoadState>
 
 <style>
   .origin {
