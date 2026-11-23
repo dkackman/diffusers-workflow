@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { api, fetchOutputText, getNote, setNote, streamJobEvents } from './api'
+import { api, fetchOutputText, setNote, streamJobEvents } from './api'
 
 type Stub = {
   ok: boolean
@@ -464,7 +464,7 @@ describe('setNote', () => {
       ok: true,
       body: { target: 'wf/run 1', note: null, etag: '"e"' },
     })
-    expect((await getNote('wf/run 1', 'studio')).etag).toBe('"e"')
+    expect((await api.noteForSave('wf/run 1', 'studio')).etag).toBe('"e"')
     expect(calls[0][0]).toBe('/api/notes?target=wf%2Frun%201&workspace=studio')
   })
 })

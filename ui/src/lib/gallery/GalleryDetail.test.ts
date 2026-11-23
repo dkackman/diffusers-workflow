@@ -14,6 +14,8 @@ import { attempt, item, request } from '../request/fixtures'
 import type { GalleryFile, GalleryLinkedJob } from '../types'
 
 const setNote = vi.hoisted(() => vi.fn())
+// What the server holds as the note a save reads first (its etag read)
+const noteHeld = vi.hoisted(() => ({ note: null as string | null }))
 const keepOutput = vi.hoisted(() => vi.fn())
 const notifyMock = vi.hoisted(() => ({
   success: vi.fn(),
@@ -34,6 +36,8 @@ vi.mock('../api', async () => ({
   setNote: (t: string, n: string | null) => setNote(t, n),
   api: {
     outputDownloadUrl: (name: string) => `/download/${name}`,
+    noteForSave: (target: string) =>
+      Promise.resolve({ target, note: noteHeld.note, etag: '"e"' }),
     assess: (name: string) => assess(name),
     galleryMetadata: (name: string) => galleryMetadata(name),
     keepOutput: (...a: unknown[]) => keepOutput(...a),
@@ -94,6 +98,7 @@ const metaReply = (over: Record<string, unknown> = {}) => ({
 })
 
 beforeEach(() => {
+  noteHeld.note = null
   galleryMetadata.mockReset()
   galleryMetadata.mockResolvedValue(metaReply())
 })
@@ -225,6 +230,7 @@ it("labels a saved file note as the file's own, and a cleared one returns the ru
   await waitFor(() => expect(onnotesaved).toHaveBeenCalledWith('file', 'mine'))
   expect(screen.getByText('mine')).toBeTruthy()
 
+  noteHeld.note = 'mine'
   setNote.mockResolvedValue({
     target: file.name,
     note: 'for the client',
@@ -243,6 +249,7 @@ it("labels a saved file note as the file's own, and a cleared one returns the ru
 it('a note saved while the metadata will not read again tells the page nothing', async () => {
   const onnotesaved = vi.fn(async () => {})
   await view({ note: 'old', note_source: 'file' }, { onnotesaved })
+  noteHeld.note = 'old'
   setNote.mockResolvedValue({
     target: file.name,
     note: 'new',
@@ -265,6 +272,7 @@ it('a note save whose reread is overtaken hands on nothing from before it', asyn
   const { feed } = await import('../test/feedMock')
   const onnotesaved = vi.fn(async () => {})
   await view({ note: 'old', note_source: 'file' }, { onnotesaved })
+  noteHeld.note = 'old'
   setNote.mockResolvedValue({
     target: file.name,
     note: 'new',

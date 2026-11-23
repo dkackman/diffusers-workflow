@@ -76,6 +76,9 @@ vi.mock('../api', () => ({
       }),
     ),
     outputDownloadUrl: (name: string) => `/api/gallery/${name}/download`,
+    noteForSave: vi.fn((target: string) =>
+      Promise.resolve({ target, note: detail.job?.note ?? null, etag: '"e"' }),
+    ),
     eventLog: vi.fn(async (id: string, query: { after?: number } = {}) => {
       if (eventLog.status) {
         const { ApiError } = await import('../api')
@@ -96,9 +99,6 @@ vi.mock('../api', () => ({
   outputUrl: (path: string) => `/outputs/${path}`,
   setNote: vi.fn((target: string, note: string | null) =>
     Promise.resolve({ target, note, note_source: note ? 'run' : null }),
-  ),
-  getNote: vi.fn((target: string) =>
-    Promise.resolve({ target, note: detail.job?.note ?? null, etag: '"e"' }),
   ),
   streamJobEvents: (
     _jobId: string,

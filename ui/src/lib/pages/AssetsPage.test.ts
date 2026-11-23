@@ -95,6 +95,8 @@ const uploadMedia = vi.hoisted(() =>
   >(() => Promise.resolve({ reference: 'asset:uploads/x.png' })),
 )
 const setNote = vi.hoisted(() => vi.fn())
+// What the server holds as the note a save reads first (its etag read)
+const noteHeld = vi.hoisted(() => ({ note: null as string | null }))
 const galleryMetadata = vi.hoisted(() =>
   vi.fn<(reference: string) => Promise<unknown>>(() => new Promise(() => {})),
 )
@@ -102,6 +104,8 @@ vi.mock('../api', () => ({
   setNote: (t: string, n: string | null) => setNote(t, n),
   api: {
     listAssets: () => listAssets(),
+    noteForSave: (target: string) =>
+      Promise.resolve({ target, note: noteHeld.note, etag: '"e"' }),
     galleryMetadata: (reference: string) => galleryMetadata(reference),
     deleteAsset: (name: string) => deleteAsset(name),
     archiveAssets: (names: string[]) => archiveAssets(names),

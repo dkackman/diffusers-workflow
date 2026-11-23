@@ -16,7 +16,7 @@ vi.mock('../confirm.svelte', () => ({ confirmDialog: vi.fn() }))
 describe('NoteEditor', () => {
   /** What GET /api/notes answers: the server holds `note`, etag `e:<note>` */
   const holds = (note: string | null) =>
-    vi.spyOn(api, 'getNote').mockImplementation(async (target) => ({
+    vi.spyOn(api.api, 'noteForSave').mockImplementation(async (target) => ({
       target,
       note,
       etag: `e:${note ?? ''}`,
@@ -330,13 +330,11 @@ describe('NoteEditor', () => {
     }
 
     it('Ctrl+Enter saves a file note', async () => {
-      const spy = vi
-        .spyOn(api, 'setNote')
-        .mockResolvedValue({
-          target: 'wf/r/a.png',
-          note: 'k',
-          note_source: 'file',
-        })
+      const spy = vi.spyOn(api, 'setNote').mockResolvedValue({
+        target: 'wf/r/a.png',
+        note: 'k',
+        note_source: 'file',
+      })
       await typed('keeper', { note: 'old', target: 'wf/r/a.png' })
       await fireEvent.keyDown(screen.getByRole('textbox'), {
         key: 'Enter',
@@ -389,6 +387,101 @@ describe('NoteEditor', () => {
       expect((screen.getByRole('textbox') as HTMLTextAreaElement).value).toBe(
         'half',
       )
+    })
+  })
+  describe('a save that waits', () => {
+    const at = { note: null, workspace: 'studio', label: 'Run note' }
+    /** The box open on `t` with `mine` typed, the other note `u` holding a
+     * kept draft of its own */
+    async function typedOnT() {
+      sessionStorage.setItem('note:studio:u', 'u draft')
+      const view = render(NoteEditor, { props: { ...at, target: 't' } })
+      await fireEvent.click(screen.getByRole('button', { name: /edit note/i }))
+      await fireEvent.input(screen.getByRole('textbox'), {
+        target: { value: 'mine' },
+      })
+      return view
+    }
+    const settle = () => new Promise((r) => setTimeout(r, 0))
+
+    it('a note not written yet saves with the etag of an empty one', async () => {
+      holds(null)
+      const spy = vi
+        .spyOn(api, 'setNote')
+        .mockResolvedValue({ target: 't', note: 'mine', note_source: 'run' })
+      await typedOnT()
+      await fireEvent.click(screen.getByRole('button', { name: /^save/i }))
+      await waitFor(() =>
+        expect(spy).toHaveBeenCalledWith('t', 'mine', 'studio', 'e:'),
+      )
+    })
+
+    it('switched to another note during the etag read, writes neither', async () => {
+      const reads: (() => void)[] = []
+      vi.spyOn(api.api, 'noteForSave').mockImplementation(
+        (target) =>
+          new Promise((resolve) =>
+            reads.push(() => resolve({ target, note: null, etag: 'e:' })),
+          ),
+      )
+      const spy = vi.spyOn(api, 'setNote')
+      const view = await typedOnT()
+      await fireEvent.click(screen.getByRole('button', { name: /^save/i }))
+      // the user picks another file while the read is out; both show no note
+      await view.rerender({ ...at, target: 'u' })
+      for (const read of reads) read()
+      await settle()
+      expect(spy).not.toHaveBeenCalled()
+      expect(sessionStorage.getItem('note:studio:u')).toBe('u draft')
+      expect(sessionStorage.getItem('note:studio:t')).toBe('mine')
+    })
+
+    it('switched to another note during the write, leaves that one alone', async () => {
+      holds(null)
+      let land!: () => void
+      const spy = vi
+        .spyOn(api, 'setNote')
+        .mockImplementation(
+          (target, note) =>
+            new Promise(
+              (resolve) =>
+                (land = () => resolve({ target, note, note_source: 'run' })),
+            ),
+        )
+      const onsaved = vi.fn()
+      const view = await typedOnT()
+      await view.rerender({ ...at, target: 't', onsaved })
+      await settle()
+      await fireEvent.click(screen.getByRole('button', { name: /^save/i }))
+      await waitFor(() =>
+        expect(spy).toHaveBeenCalledWith('t', 'mine', 'studio', 'e:'),
+      )
+      await view.rerender({ ...at, target: 'u', onsaved })
+      land()
+      await settle()
+      expect(spy).toHaveBeenCalledTimes(1)
+      expect(onsaved).not.toHaveBeenCalled()
+      expect(sessionStorage.getItem('note:studio:u')).toBe('u draft')
+      expect(screen.getByText('You have an unsaved draft.')).toBeTruthy()
+      expect(screen.queryByText('mine')).toBeNull()
+    })
+
+    it('an etag read that fails writes nothing and says why', async () => {
+      vi.spyOn(api.api, 'noteForSave').mockRejectedValue(
+        new Error('the server did not answer'),
+      )
+      const spy = vi.spyOn(api, 'setNote')
+      await typedOnT()
+      await fireEvent.click(screen.getByRole('button', { name: /^save/i }))
+      expect(await screen.findByRole('alert')).toBeTruthy()
+      expect(screen.getByRole('alert').textContent).toContain(
+        "Couldn't save the note",
+      )
+      expect(spy).not.toHaveBeenCalled()
+      expect((screen.getByRole('textbox') as HTMLTextAreaElement).value).toBe(
+        'mine',
+      )
+      expect(sessionStorage.getItem('note:studio:t')).toBe('mine')
     })
   })
 })

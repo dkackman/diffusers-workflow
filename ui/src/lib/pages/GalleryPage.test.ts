@@ -67,6 +67,8 @@ const archiveOutputs = vi.hoisted(() =>
   vi.fn<(names: string[]) => Promise<void>>(() => Promise.resolve()),
 )
 const setNote = vi.hoisted(() => vi.fn())
+// What the server holds as the note a save reads first (its etag read)
+const noteHeld = vi.hoisted(() => ({ note: null as string | null }))
 const setStarred = vi.hoisted(() =>
   vi.fn((name: string, starred: boolean) => Promise.resolve({ name, starred })),
 )
@@ -86,6 +88,8 @@ vi.mock('../api', () => ({
     setStarred: (name: string, starred: boolean) => setStarred(name, starred),
     archiveOutputs: (names: string[]) => archiveOutputs(names),
     galleryMetadata: (name: string) => galleryMetadata(name),
+    noteForSave: (target: string) =>
+      Promise.resolve({ target, note: noteHeld.note, etag: '"e"' }),
     assess: () => new Promise(() => {}),
   },
 }))
@@ -107,6 +111,7 @@ vi.mock('../toast', () => ({
 }))
 
 beforeEach(() => {
+  noteHeld.note = null
   listing.files = ['a.png', 'b.png', 'demo/c.png'].map((name) => file(name))
 })
 afterEach(() => {
@@ -693,6 +698,7 @@ it('marks every tile of a run after its run note is saved', async () => {
     run_note: 'old',
     note_source: 'run',
   })
+  noteHeld.note = 'old'
   await renderGallery('wf/r1/a.png')
   screen
     .getByLabelText('select wf/r1/a.png')

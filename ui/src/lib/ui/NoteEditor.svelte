@@ -1,7 +1,7 @@
 <script lang="ts">
   import ErrorLine from './ErrorLine.svelte'
   import { Pencil } from '@lucide/svelte'
-  import { getNote, setNote } from '../api'
+  import { api, setNote } from '../api'
   import { ApiError } from '../apiErrors'
   import { confirmDialog } from '../confirm.svelte'
   import { NOTE_MAX, NoteDraft, noteKey } from '../noteDraft.svelte'
@@ -18,7 +18,8 @@
   // shows it until the user picks Use theirs or Keep mine. The write sends
   // `If-Match` with the etag of the note the user last saw (GET
   // /api/notes), so one that changed since is refused, read and shown in
-  // that notice - never overwritten unseen
+  // that notice - never overwritten unseen. A read that fails writes
+  // nothing: without the etag a save could not tell a newer note was there
   let {
     note,
     target,
@@ -78,17 +79,22 @@
   const etagOf = (text: string | null, at: At) =>
     known?.key === at.key && known.note === text ? known.etag : undefined
 
+  /** The box still edits the note `at` names */
+  const still = (at: At) => draft.editing && at.key === here().key
+
   /** Read the note's etag; a note other than the one shown is shown, so
-   * the notice offers it. False when it could not be read */
-  async function learn(at: At): Promise<boolean> {
+   * the notice offers it. A note not written yet has an etag too (that of
+   * ''). The read's error when it failed, else null */
+  async function learn(at: At): Promise<{ error: unknown } | null> {
     try {
-      const read = await getNote(at.target, at.workspace)
-      if (at.key !== here().key) return true
-      known = { key: at.key, note: read.note ?? null, etag: read.etag }
-      if (draft.editing && known.note !== shown) shown = known.note
-      return true
-    } catch {
-      return false
+      const read = await api.noteForSave(at.target, at.workspace)
+      if (at.key === here().key) {
+        known = { key: at.key, note: read.note ?? null, etag: read.etag }
+        if (draft.editing && known.note !== shown) shown = known.note
+      }
+      return null
+    } catch (e) {
+      return { error: e }
     }
   }
 
@@ -117,51 +123,68 @@
     base = shown
   }
 
+  /** Over a newer note the user has not taken in, ask first */
+  const mayReplace = async () =>
+    !newer ||
+    (await confirmDialog(
+      `${label} changed while you were editing. Replace it with yours?`,
+      { confirmLabel: 'Replace', cancelLabel: 'Keep editing', danger: true },
+    ))
+
+  // Every wait below can see the box switched to another note: `at`, taken
+  // first, is checked after each, so nothing lands on the wrong one
   async function save(): Promise<void> {
     if (pending) return
     pending = true
+    error = null
     const at = here()
     try {
-      if (
-        newer &&
-        !(await confirmDialog(
-          `${label} changed while you were editing. Replace it with yours?`,
-          {
-            confirmLabel: 'Replace',
-            cancelLabel: 'Keep editing',
-            danger: true,
-          },
-        ))
-      )
-        return
-      if (!draft.editing || at.key !== here().key) return
+      if (!(await mayReplace()) || !still(at)) return
       const seen = shown
-      if (!etagOf(seen, at)) await learn(at)
+      if (!etagOf(seen, at)) {
+        const failed = await learn(at)
+        if (!still(at)) return
+        // Not knowing what is there, write nothing: the draft stays
+        if (failed) {
+          error = failed.error
+          return
+        }
+      }
+      const etag = etagOf(seen, at)
       // The read found a note the user has not seen: the notice has it
-      if (shown !== seen) return
-      await write(at, etagOf(seen, at))
+      if (shown !== seen || !etag) return
+      await write(at, draft.text, etag)
     } finally {
       pending = false
     }
   }
 
-  async function write(at: At, etag: string | undefined) {
+  async function write(at: At, text: string, etag: string) {
     saving = true
     error = null
     try {
-      const text = draft.text.trim() ? draft.text : null
-      const stored = await setNote(at.target, text, at.workspace, etag)
+      const note = text.trim() ? text : null
+      const stored = await setNote(at.target, note, at.workspace, etag)
+      // Switched away meanwhile: the box, its draft and the page now
+      // belong to another note
+      if (at.key !== here().key) return
       shown = stored.note ?? null
       known = undefined
       draft.done()
       onsaved?.(shown)
     } catch (e) {
-      // Changed since it was read: show the newer note, write nothing
-      const stale = e instanceof ApiError && e.code === 'stale_write'
-      if (!stale || !(await learn(at))) error = e
+      await refused(at, e)
     } finally {
       saving = false
     }
+  }
+
+  /** A write the server refused: one that changed since it was read shows
+   * the newer note, and writes nothing. Said only while the box is on it */
+  async function refused(at: At, e: unknown) {
+    const stale = e instanceof ApiError && e.code === 'stale_write'
+    if (stale && at.key === here().key && !(await learn(at))) return
+    if (at.key === here().key) error = e
   }
 </script>
 

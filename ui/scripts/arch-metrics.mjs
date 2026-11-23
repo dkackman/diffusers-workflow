@@ -158,6 +158,9 @@ export const NOT_READS = [
   'validate',
   'assess',
   'checkToken',
+  // a precondition read for a save, not a view: the note and etag a save
+  // sends as If-Match
+  'noteForSave',
   // URL builders: no request is made
   'exportZipUrl',
   'galleryThumbnailUrl',

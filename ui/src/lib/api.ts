@@ -428,6 +428,14 @@ export const api = {
   workspaceChanges: (w: string) =>
     ledgerRead<WorkspaceChanges>(`/api/workspaces/${ws(w)}/changes`),
   listWorkspaces: () => request<WorkspaceList>('/api/workspaces'),
+  /** The target's own note and the etag `setNote`'s `ifMatch` names: the
+   * precondition a save reads, not a view (the page's resource is that).
+   * Scoped like `setNote`. */
+  noteForSave: (target: string, workspace?: string) =>
+    noteRequest<NoteRead>(
+      appendQuery('/api/notes', 'target', target),
+      workspace,
+    ),
   /** Whether the server lets the saved token in: a read any token opens */
   checkToken: async (): Promise<void> => {
     await request<unknown>('/api/workspaces', undefined, UNSCOPED)
@@ -553,11 +561,6 @@ const noteRequest = <T>(path: string, workspace?: string, init?: RequestInit) =>
   request<T>(workspace === undefined ? path : scopeTo(path, workspace), init, {
     scope: workspace === undefined,
   })
-
-/** The target's own note and the etag `setNote`'s `ifMatch` names: an
- * editor's precondition read, not a view (the page's resource is that) */
-export const getNote = (target: string, workspace?: string) =>
-  noteRequest<NoteRead>(appendQuery('/api/notes', 'target', target), workspace)
 
 export const TERMINAL_STATUSES = ['succeeded', 'failed', 'cancelled']
 
