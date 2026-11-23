@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ErrorLine from '../ui/ErrorLine.svelte'
   // A job's event log, read from GET /api/jobs/{id}/event-log rather than
   // the live stream. Its state is its own: the page's `events` - which the
   // Progress list, the flow view and its chips read - never sees these rows.
@@ -26,7 +27,7 @@
   let note = $state<string | null>(null)
   let capped = $state(false)
   let missing = $state(false)
-  let error = $state('')
+  let error = $state<unknown>(null)
   let kind = $state('')
   let body = $state<HTMLDivElement | null>(null)
 
@@ -41,7 +42,7 @@
     note = null
     capped = false
     missing = false
-    error = ''
+    error = null
     kind = ''
   })
 
@@ -63,14 +64,14 @@
 
   function failed(e: unknown) {
     if (e instanceof ApiError && e.status === 404) missing = true
-    else error = e instanceof Error ? e.message : String(e)
+    else error = e
     loaded = true
   }
 
   async function load(after: number) {
     const id = jobId
     loading = true
-    error = ''
+    error = null
     try {
       const page = await fetchEventLog(id, after, EVENT_LOG_CAP)
       if (id !== jobId) return
@@ -156,7 +157,7 @@
       {:else if missing}
         <p class="muted">no event log for this job</p>
       {:else}
-        {#if error}<p class="error">{error}</p>{/if}
+        {#if error}<ErrorLine {error} doing="read the log" />{/if}
         {#if note}<p class="muted note">{note}</p>{/if}
         {#if count}<p class="muted count">{count}</p>{/if}
         {#if loaded && !rows.length && !error}
@@ -265,8 +266,5 @@
   }
   .count {
     margin: var(--space-2) 0;
-  }
-  .error {
-    color: var(--bad);
   }
 </style>

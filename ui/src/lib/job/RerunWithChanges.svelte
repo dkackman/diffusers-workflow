@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ErrorLine from '../ui/ErrorLine.svelte'
   import { SlidersHorizontal } from '@lucide/svelte'
   import { api } from '../api'
   import { displayValue } from '../editor'
@@ -34,7 +35,7 @@
 
   let open = $state(false)
   let overrides = $state<Record<string, string>>({})
-  let error = $state('')
+  let error = $state<unknown>(null)
   let submitting = $state(false)
 
   // Only what differs from the run goes: the server stores the overrides
@@ -52,21 +53,21 @@
 
   function start() {
     overrides = {}
-    error = ''
+    error = null
     open = true
   }
 
   async function queue() {
     if (!changedCount || submitting) return
     submitting = true
-    error = ''
+    error = null
     try {
       const next = await api.rerunJob(job.id, { arguments: { ...changed } })
       open = false
       go('ws', job.workspace, 'jobs', next.id)
     } catch (e) {
       // A refused value is the user's to fix: the modal stays open on it
-      error = e instanceof Error ? e.message : String(e)
+      error = e
     } finally {
       submitting = false
     }
@@ -128,7 +129,7 @@
     bind:overrides
     idPrefix="rerun-var-"
   />
-  {#if error}<p class="error" role="alert">{error}</p>{/if}
+  {#if error}<ErrorLine {error} doing="rerun it" />{/if}
   <div class="actions">
     {#if !changedCount}<span class="muted">nothing changed</span>{/if}
     <button class="quiet" onclick={() => (open = false)}>Cancel</button>
@@ -154,8 +155,5 @@
     align-items: center;
     gap: var(--space-2);
     margin-top: var(--space-3);
-  }
-  .error {
-    color: var(--bad);
   }
 </style>

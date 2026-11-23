@@ -11,6 +11,7 @@
    * workflow page with its fields filled; nothing runs until Run there.
    * Continue reruns this job, behind a confirm. */
   import { api, outputUrl } from '../api'
+  import { describeError } from '../apiErrors'
   import {
     WORKFLOW_PREFILL_KEY,
     chainModel,
@@ -100,7 +101,7 @@
       if (!answer.valid) return 'none - a run would be refused'
       return describeEstimate(answer.plan?.estimate ?? null).text
     } catch (e) {
-      return `none - could not price it (${e instanceof Error ? e.message : String(e)})`
+      return `none - could not price it (${describeError(e).title})`
     }
   }
 

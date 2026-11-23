@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ErrorLine from './ErrorLine.svelte'
   import { Pencil } from '@lucide/svelte'
   import { setNote } from '../api'
   import { confirmDialog } from '../confirm.svelte'
@@ -36,7 +37,7 @@
   let editing = $state(false)
   let draft = $state('')
   let saving = $state(false)
-  let error = $state<string | null>(null)
+  let error = $state<unknown>(null)
   // What the box last stored, until the parent hands down a newer note
   let shown = $derived(note ?? null)
   // The note the draft answers: as it was when the edit began, or the
@@ -90,7 +91,7 @@
       editing = false
       onsaved?.(shown)
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e)
+      error = e
     } finally {
       saving = false
     }
@@ -142,7 +143,7 @@
         Cancel
       </button>
     </div>
-    {#if error}<p class="error" role="alert">{error}</p>{/if}
+    {#if error}<ErrorLine {error} doing="save the note" />{/if}
   {:else}
     <div class="shown">
       <span class="label muted">{label}</span>
@@ -213,9 +214,5 @@
   }
   .theirs {
     margin: 0.4rem 0;
-  }
-  .error {
-    color: var(--bad);
-    margin: 0.25rem 0 0;
   }
 </style>

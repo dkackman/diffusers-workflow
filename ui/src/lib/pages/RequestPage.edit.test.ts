@@ -31,6 +31,7 @@ const world = vi.hoisted(() => ({
   deleteRequest: vi.fn(),
   notify: {
     error: vi.fn(),
+    failure: vi.fn(),
     success: vi.fn(),
     undo: vi.fn(),
     dismiss: vi.fn(),
@@ -476,8 +477,9 @@ it('a write that fails says so, and the edit is taken back', async () => {
   })
   await fireEvent.click(first)
   await waitFor(() =>
-    expect(world.notify.error).toHaveBeenCalledWith(
-      'Not saved: the ledger is busy',
+    expect(world.notify.failure).toHaveBeenCalledWith(
+      'save that',
+      expect.objectContaining({ message: 'the ledger is busy' }),
     ),
   )
   expect(first.getAttribute('aria-pressed')).toBe('false')

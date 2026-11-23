@@ -3,6 +3,7 @@
   // Retry, and - when the file does not exist - a way to start it. Phase 2's
   // LoadState absorbs it
   import { describeError } from '../apiErrors'
+  import Details from './Details.svelte'
 
   let {
     label,
@@ -23,6 +24,7 @@
 <div class="panel loadfailed" role="alert">
   <p>Couldn't open {label}: {described.title}</p>
   {#if described.remedy}<p>{described.remedy}</p>{/if}
+  <Details summary="Engine detail" detail={described.detail ?? ''} />
   <div class="actions">
     <button onclick={onretry}>Retry</button>
     {#if oncreate && described.kind === 'not_found'}

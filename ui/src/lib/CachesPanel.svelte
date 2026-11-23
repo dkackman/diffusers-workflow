@@ -14,12 +14,13 @@
   import { api } from './api'
   import { resource } from './resource.svelte'
   import LoadState from './ui/LoadState.svelte'
+  import ErrorLine from './ui/ErrorLine.svelte'
   import { confirmDialog } from './confirm.svelte'
   import { formatBytes, formatMtime, gbFromBytes } from './format'
   import type { DiskCacheEntry, DiskCacheInfo } from './types'
 
   let clearing = $state<string | null>(null)
-  let clearError = $state('')
+  let clearError = $state<unknown>(null)
 
   const read = resource(() => api.listCaches(), { watch: ['models'] })
   const caches = $derived(read.data?.caches ?? [])
@@ -38,12 +39,12 @@
     )
       return
     clearing = cache.name
-    clearError = ''
+    clearError = null
     try {
       await api.clearCache(cache.name)
     } catch (e) {
       // a 409 (a job running or queued) carries the server's reason
-      clearError = e instanceof Error ? e.message : String(e)
+      clearError = e
     } finally {
       clearing = null
       await refreshCaches()
@@ -73,12 +74,12 @@
     )
       return
     clearing = `${cache.name}/${entry.id}`
-    clearError = ''
+    clearError = null
     try {
       await api.deleteCacheEntry(cache.name, entry.id)
     } catch (e) {
       // a 409 (a job or download active) carries the server's reason
-      clearError = e instanceof Error ? e.message : String(e)
+      clearError = e
     } finally {
       clearing = null
       await refreshCaches()
@@ -97,9 +98,7 @@
   <h2><HardDrive size={15} />Caches</h2>
   <LoadState of={read} label="the caches" empty={caches.length === 0}>
     {#snippet emptyText()}No disk caches registered.{/snippet}
-    {#if clearError}
-      <p class="warn" role="alert"><TriangleAlert size={14} />{clearError}</p>
-    {/if}
+    {#if clearError}<ErrorLine error={clearError} doing="clear that" />{/if}
     <div class="tablewrap">
       <table>
         <thead>

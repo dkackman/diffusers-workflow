@@ -73,12 +73,11 @@
   /** A write that failed for a reason that is not the plan moving */
   function failed(error: unknown) {
     const stale = error instanceof ApiError && error.code === 'stale_revision'
-    const message = error instanceof Error ? error.message : String(error)
-    notify.error(
-      stale
-        ? 'The plan kept changing, so that was not saved. Try again.'
-        : `Not saved: ${message}`,
-    )
+    if (stale) {
+      notify.error('The plan kept changing, so that was not saved. Try again.')
+    } else {
+      notify.failure('save that', error)
+    }
   }
   const quietly = (write: Promise<Outcome>) => void write.catch(failed)
 

@@ -33,7 +33,13 @@
     try {
       await store.push({ kind: 'state', state })
     } catch (error) {
-      notify.error(`Not saved: ${said(error)}`)
+      if (error instanceof ApiError && error.code === 'stale_revision') {
+        notify.error(
+          'The plan changed since this page read it. Look again, then try that.',
+        )
+      } else {
+        notify.failure('save that', error)
+      }
     }
   }
 
