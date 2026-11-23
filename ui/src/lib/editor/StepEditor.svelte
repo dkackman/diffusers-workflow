@@ -114,6 +114,8 @@
       step[kind] = JSON.parse(rawDraft)
       rawError = ''
     } catch (e) {
+      // JSON.parse's own syntax feedback on the author's draft, not engine text
+      // eslint-disable-next-line no-restricted-syntax
       rawError = e instanceof Error ? e.message : String(e)
     }
   }

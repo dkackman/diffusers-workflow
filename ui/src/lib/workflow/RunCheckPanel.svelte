@@ -3,6 +3,7 @@
   // edit. It informs; it never gates Run. Every finding is server text,
   // shown as text
   import type { Finding } from '../findings'
+  import ErrorLine from '../ui/ErrorLine.svelte'
   import type { PlanLine } from '../plan'
   import type { Verdict } from '../runCheck.svelte'
 
@@ -16,8 +17,8 @@
     verdict: Verdict | null
     checking: boolean
     planLines: PlanLine[]
-    /** A check the server refused outright, first in the list */
-    checkError: string
+    /** A check the server refused outright, as caught, first in the list */
+    checkError: unknown
     /** What validate said that names no field the form shows */
     findings: Finding[]
   } = $props()
@@ -41,9 +42,13 @@
       {/each}
     </ul>
   {/if}
-  {#if checkError || findings.length}
+  {#if checkError != null || findings.length}
     <ul class="findings" aria-label="findings">
-      {#if checkError}<li class="bad">{checkError}</li>{/if}
+      {#if checkError != null}
+        <li class="bad">
+          <ErrorLine error={checkError} doing="check these values" />
+        </li>
+      {/if}
       {#each findings as finding, i (i)}
         <li class={finding.tone}>{finding.text}</li>
       {/each}

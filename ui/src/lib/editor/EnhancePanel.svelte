@@ -1,5 +1,6 @@
 <script lang="ts">
   import { CircleCheck, Download, Sparkles } from '@lucide/svelte'
+  import Details from '../ui/Details.svelte'
   import Suggest from '../ui/Suggest.svelte'
   import type { Enhancer } from '../enhancer.svelte'
 
@@ -98,7 +99,12 @@
       </span>
     {/if}
   </div>
-  {#if enhancer.error}<p class="error">{enhancer.error}</p>{/if}
+  {#if enhancer.error}
+    <div class="error" role="alert">
+      <p>{enhancer.error}</p>
+      <Details summary="Engine detail" detail={enhancer.errorDetail} />
+    </div>
+  {/if}
   {#if enhancer.result}
     <textarea class="resultbox" rows="8" readonly value={enhancer.result}
     ></textarea>
@@ -181,6 +187,10 @@
   }
   .error {
     color: var(--bad);
+    margin: 0.5rem 0 0;
+  }
+  .error p {
+    margin: 0;
   }
   .hint {
     font-size: 0.8rem;

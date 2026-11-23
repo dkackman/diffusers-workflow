@@ -243,12 +243,23 @@ it('names itself and links back while the request loads', async () => {
   expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
 })
 
+// The engine's own words, which only the folded Details may show
+const RAW = 'ledger read failed: sqlite3.OperationalError database is locked'
+const outsideDetails = (el: Element) => {
+  const copy = el.cloneNode(true) as Element
+  copy.querySelectorAll('details').forEach((d) => d.remove())
+  return copy.textContent ?? ''
+}
+
 it('a first load that fails says why, and Retry asks again', async () => {
-  data.getError = { status: 503, message: 'busy' }
+  data.getError = { status: 503, message: RAW }
   render(RequestPage, { requestId: 'r1' })
-  expect((await screen.findByRole('alert')).textContent).toContain(
-    'Could not load this request: busy',
+  const alert = await screen.findByRole('alert')
+  expect(alert.textContent).toContain(
+    "Couldn't load this request: The server hit an error",
   )
+  expect(outsideDetails(alert)).not.toContain(RAW)
+  expect(alert.querySelector('details pre')?.textContent).toBe(RAW)
   expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
   expect(
     screen.getByRole('link', { name: '← Requests' }).getAttribute('href'),
@@ -601,12 +612,14 @@ it('a refresh that fails keeps the plan and the draft, and says how old it is', 
   render(RequestPage, { requestId: 'r1' })
   const box = await openNote('Second poster')
   await fireEvent.input(box, { target: { value: 'my draft' } })
-  data.getError = { status: 503, message: 'busy' }
+  data.getError = { status: 503, message: RAW }
   vi.advanceTimersByTime(IDLE_MS)
   const line = await screen.findByRole('status')
   expect(line.textContent).toMatch(
-    /Showing the plan as of .+\. Could not refresh: busy/,
+    /Showing the plan as of .+\. Couldn't refresh: The server hit an error/,
   )
+  expect(outsideDetails(line)).not.toContain(RAW)
+  expect(line.querySelector('details pre')?.textContent).toBe(RAW)
   expect(notify.error).not.toHaveBeenCalled()
   expect(box.value).toBe('my draft')
   expect(screen.getByRole('heading', { name: 'Launch posters' })).toBeTruthy()

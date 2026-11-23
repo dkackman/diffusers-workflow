@@ -293,13 +293,27 @@ it('a refused submit shows on its row in plain words, and the dialog stays open'
   const { onclose } = open('s4')
   await within(runRow('s4')).findByText(/~9 min/)
   await fireEvent.click(runButton())
-  expect((await within(runRow('s4')).findByRole('alert')).textContent).toBe(
+  const alert = await within(runRow('s4')).findByRole('alert')
+  expect(alert.querySelector('p')?.textContent).toBe(
     'This request is closed. Reopen it to run its items.',
   )
   expect(onclose).not.toHaveBeenCalled()
   expect(world.notify.success).not.toHaveBeenCalled()
   await fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
   await waitFor(() => expect(onclose).toHaveBeenCalledWith(0))
+})
+
+it('a submit the server failed on leads with plain words, its text folded behind Details', async () => {
+  const { ApiError } = await import('../apiErrors')
+  const raw = 'worker crashed: CUDA error: out of memory at step 3'
+  world.submitJob.mockRejectedValue(new ApiError(raw, 500))
+  open('s4')
+  await within(runRow('s4')).findByText(/~9 min/)
+  await fireEvent.click(runButton())
+  const alert = await within(runRow('s4')).findByRole('alert')
+  expect(alert.querySelector('p')?.textContent).toBe('The server hit an error')
+  expect(alert.querySelector('details pre')?.textContent).toBe(raw)
+  expect(alert.querySelector('details')?.open).toBe(false)
 })
 
 it('a single item has one row, no checkbox and no total', async () => {

@@ -95,7 +95,8 @@ it('a candidate validation refuses will not run, with its first error', async ()
           errors: [{ message: 'seed must be an integer', path: 'seed' }],
           warnings: [],
         }
-      if (body.workflow_path === 'flow-c') throw new Error('offline')
+      if (body.workflow_path === 'flow-c')
+        throw new Error('socket hang up at 10.0.0.4:8765')
       if (body.workflow_path === 'flow-d')
         throw new ApiError('workflow_path must name a workflow', 400)
       return valid('a')
@@ -104,7 +105,10 @@ it('a candidate validation refuses will not run, with its first error', async ()
   await queue.price()
   expect(states(queue)).toEqual(['priced', 'refused', 'refused', 'refused'])
   expect(queue.rows[1].error).toBe('would be refused: seed must be an integer')
-  expect(queue.rows[2].error).toBe('could not be checked: offline')
+  // a failure that is not the server's answer leads with plain words; the
+  // raw text is the row's detail, for Details
+  expect(queue.rows[2].error).toBe('could not be checked: Something went wrong')
+  expect(queue.rows[2].detail).toBe('socket hang up at 10.0.0.4:8765')
   // the server refusing the question is what a submit would meet too
   expect(queue.rows[3].error).toBe(
     'would be refused: workflow_path must name a workflow',
@@ -228,7 +232,7 @@ it("says a refused link in plain words, by the server's code", async () => {
       undefined,
       "The item's stored workflow or arguments were refused: no variable 'sed'",
     ],
-    f: [500, undefined, 'the worker is down'],
+    f: [500, undefined, 'The server hit an error'],
   }
   const { queue } = setup(Object.keys(refusals), {
     submitJob: vi.fn(async (body: { item?: string }) => {
@@ -237,7 +241,7 @@ it("says a refused link in plain words, by the server's code", async () => {
         status === 400
           ? "no variable 'sed'"
           : status === 500
-            ? 'the worker is down'
+            ? 'worker crashed: CUDA error: out of memory at step 3'
             : 'server words'
       throw new ApiError(text, status, code)
     }) as Mock,
@@ -247,6 +251,10 @@ it("says a refused link in plain words, by the server's code", async () => {
   expect(states(queue)).toEqual(Array(6).fill('failed'))
   expect(queue.rows.map((row) => row.error)).toEqual(
     Object.values(refusals).map(([, , words]) => words),
+  )
+  // the 500's own text is kept for Details, never put in the row's words
+  expect(queue.rows[5].detail).toBe(
+    'worker crashed: CUDA error: out of memory at step 3',
   )
   expect(queue.finished).toBe(false)
 })

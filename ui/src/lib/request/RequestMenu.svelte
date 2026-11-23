@@ -26,9 +26,6 @@
     ondeleted: () => void
   } = $props()
 
-  const said = (error: unknown) =>
-    error instanceof Error ? error.message : String(error)
-
   async function setState(state: LedgerRequest['state']) {
     try {
       await store.push({ kind: 'state', state })
@@ -63,7 +60,9 @@
     } catch (error) {
       const code = error instanceof ApiError ? error.code : undefined
       if (code === 'stale_revision') onreload()
-      notify.error(`Not deleted: ${(code && REFUSED[code]) || said(error)}`)
+      const refused = code && REFUSED[code]
+      if (refused) notify.error(`Not deleted: ${refused}`)
+      else notify.failure('delete that', error)
       return
     }
     notify.success(`Deleted ${title}`)

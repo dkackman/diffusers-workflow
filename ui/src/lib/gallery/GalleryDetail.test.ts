@@ -365,16 +365,22 @@ it('shows Assessing… while the request runs', async () => {
   expect((busy as HTMLButtonElement).disabled).toBe(true)
 })
 
-it('a failed Assess keeps the earlier list and shows the error', async () => {
+it('a failed Assess keeps the earlier list and says why in plain words', async () => {
   assess.mockResolvedValueOnce(reply([finding('warn', 'silent')]))
   await view({}, { file: video })
   await fireEvent.click(screen.getByRole('button', { name: 'Assess' }))
   await waitFor(() => expect(findingsRegion().textContent).toContain('silent'))
-  assess.mockRejectedValueOnce(new Error('cannot read this file'))
+  const { ApiError } = await import('../apiErrors')
+  const raw = 'ffprobe exited 1: moov atom not found in /runs/a/clip.mp4'
+  assess.mockRejectedValueOnce(new ApiError(raw, 500))
   await fireEvent.click(screen.getByRole('button', { name: 'Assess' }))
-  expect((await screen.findByRole('alert')).textContent).toContain(
-    'cannot read this file',
+  const alert = await screen.findByRole('alert')
+  expect(alert.querySelector('.title')?.textContent).toBe(
+    "Couldn't assess this file: The server hit an error",
   )
+  // the engine's words sit folded behind Details, not in the line
+  expect(alert.querySelector('details')?.open).toBe(false)
+  expect(alert.querySelector('details pre')?.textContent).toBe(raw)
   expect(findingsRegion().textContent).toContain('silent')
 })
 

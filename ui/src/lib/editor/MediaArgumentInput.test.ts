@@ -1,4 +1,4 @@
-import { fireEvent, render } from '@testing-library/svelte'
+import { fireEvent, render, screen } from '@testing-library/svelte'
 import { afterEach, expect, it, vi } from 'vitest'
 import MediaArgumentInput from './MediaArgumentInput.svelte'
 
@@ -49,6 +49,35 @@ it('revokes the local preview blob URL when the component is destroyed', async (
   expect(revokeObjectURL).not.toHaveBeenCalled()
   unmount()
   expect(revokeObjectURL).toHaveBeenCalledWith('blob:preview-1')
+}, 20000)
+
+it('a failed upload says why in plain words, the server text folded behind Details', async () => {
+  URL.createObjectURL = vi.fn(() => 'blob:preview-2')
+  URL.revokeObjectURL = vi.fn()
+  const { ApiError } = await import('../apiErrors')
+  const raw = 'OSError: [Errno 28] No space left on device: /assets/cat.png'
+  uploadMedia.mockRejectedValueOnce(new ApiError(raw, 500))
+  const { container } = render(MediaArgumentInput, {
+    id: 'arg-image',
+    kind: 'image',
+    location: '',
+    onchange: () => {},
+  })
+  const input = container.querySelector(
+    'input[type="file"]',
+  ) as HTMLInputElement
+  const file = new File(['x'], 'cat.png', { type: 'image/png' })
+  Object.defineProperty(input, 'files', { value: [file] })
+  await fireEvent.change(input)
+  const alert = await screen.findByRole('alert')
+  expect(alert.querySelector('.title')?.textContent).toBe(
+    "Couldn't upload that file: The server hit an error",
+  )
+  expect(alert.querySelector('details')?.open).toBe(false)
+  expect(alert.querySelector('details pre')?.textContent).toBe(raw)
+  expect(container.textContent).toContain(
+    'The path above can still be typed by hand.',
+  )
 }, 20000)
 
 it('previews the file an asset: reference names', async () => {

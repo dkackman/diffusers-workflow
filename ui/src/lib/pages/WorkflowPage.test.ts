@@ -300,10 +300,13 @@ describe('WorkflowPage run check', () => {
   })
 
   it('names a check the server refused outright in the general list', async () => {
-    vi.mocked(api.validate).mockRejectedValue(new Error('unknown workflow'))
+    vi.mocked(api.validate).mockRejectedValue(
+      new ApiError('unknown workflow', 400),
+    )
     await openPage()
+    // a refusal's own first line is its title, led by what was being done
     expect(screen.getByLabelText('findings').textContent).toContain(
-      'unknown workflow',
+      "Couldn't check these values: unknown workflow",
     )
   })
 })

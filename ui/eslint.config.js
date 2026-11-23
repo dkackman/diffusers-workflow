@@ -39,6 +39,41 @@ const restricted = ({ bits = false, empty = false, feed = false }) => [
     ],
   },
 ]
+// A caught error's raw message reaches the screen nowhere: describeError
+// (src/lib/apiErrors.ts, which alone reads it) gives the words, ErrorLine,
+// notify.failure and Details show them with the engine text folded. Pinned
+// by scripts/lint-rules.test.ts
+const messageSyntax = {
+  selector:
+    "ConditionalExpression[test.operator='instanceof'][test.right.name='Error'] > MemberExpression.consequent[property.name='message']",
+  message:
+    'Show a caught error through describeError (ErrorLine, notify.failure, Details), never its raw .message.',
+}
+const feedSyntax = [
+  {
+    selector:
+      "CallExpression[callee.property.name='watch'][callee.object.callee.name='changes']",
+    message: feedMessage,
+  },
+  {
+    // import('./changes.svelte'), which no import rule sees
+    selector: 'ImportExpression[source.value=/(^|\\/)changes\\.svelte/]',
+    message: feedMessage,
+  },
+]
+/** The no-restricted-syntax options for a block, listed whole for the same
+ * reason as `restricted` */
+const syntax = ({ feed = false, message = false }) => [
+  'error',
+  ...(feed ? feedSyntax : []),
+  ...(message ? [messageSyntax] : []),
+]
+// The one module that reads a caught error's message, and the tests
+const MESSAGE_OWNERS = [
+  'src/lib/apiErrors.ts',
+  'src/lib/test/**',
+  'src/**/*.test.ts',
+]
 // The feed's own module, the one subscriber and the tests that drive it
 const FEED_OWNERS = [
   'src/lib/changes.svelte.ts',
@@ -102,22 +137,18 @@ export default ts.config(
   },
   {
     files: ['src/**/*.{ts,svelte}'],
+    ignores: [...FEED_OWNERS, ...MESSAGE_OWNERS],
+    rules: { 'no-restricted-syntax': syntax({ feed: true, message: true }) },
+  },
+  {
+    files: FEED_OWNERS,
+    ignores: MESSAGE_OWNERS,
+    rules: { 'no-restricted-syntax': syntax({ message: true }) },
+  },
+  {
+    files: MESSAGE_OWNERS,
     ignores: FEED_OWNERS,
-    rules: {
-      'no-restricted-syntax': [
-        'error',
-        {
-          selector:
-            "CallExpression[callee.property.name='watch'][callee.object.callee.name='changes']",
-          message: feedMessage,
-        },
-        {
-          // import('./changes.svelte'), which no import rule sees
-          selector: 'ImportExpression[source.value=/(^|\\/)changes\\.svelte/]',
-          message: feedMessage,
-        },
-      ],
-    },
+    rules: { 'no-restricted-syntax': syntax({ feed: true }) },
   },
   {
     ignores: ['dist/', 'node_modules/', 'playwright-report/', 'test-results/'],

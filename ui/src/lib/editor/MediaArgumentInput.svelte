@@ -3,6 +3,7 @@
   import { Images, Upload } from '@lucide/svelte'
   import MediaPicker from '../assets/MediaPicker.svelte'
   import { reportUploads, uploadAll } from '../assets/uploads'
+  import ErrorLine from '../ui/ErrorLine.svelte'
   import Suggest from '../ui/Suggest.svelte'
   import {
     assetLibrary,
@@ -33,7 +34,10 @@
   let fileInput: HTMLInputElement | undefined = $state()
   let uploading = $state(false)
   let browsing = $state(false)
+  /** Our own word on an upload that did not land */
   let error = $state('')
+  /** An upload that failed, as caught: shown through ErrorLine */
+  let failure = $state<unknown>(null)
   // A locally-generated preview URL (object URL for a just-picked file, or
   // the location itself when it is already web-reachable). Cleaned up when
   // replaced so picking several files in a row doesn't leak object URLs.
@@ -85,6 +89,7 @@
 
   async function uploadFile(file: File) {
     error = ''
+    failure = null
     const previous = localPreview
     localPreview = URL.createObjectURL(file)
     uploading = true
@@ -117,7 +122,7 @@
       void loadAssetLibrary()
     } catch (err) {
       revokeBlob(previous)
-      error = err instanceof Error ? err.message : 'upload failed'
+      failure = err
     } finally {
       uploading = false
     }
@@ -183,6 +188,11 @@
   </div>
   {#if uploading}
     <div class="muted status">uploading…</div>
+  {:else if failure != null}
+    <div class="status">
+      <ErrorLine error={failure} doing="upload that file" />
+      <p class="muted">The path above can still be typed by hand.</p>
+    </div>
   {:else if error}
     <div class="warn status">
       {error} - path above can still be typed by hand
@@ -226,6 +236,9 @@
   }
   .status {
     font-size: 0.75rem;
+  }
+  .status p {
+    margin: 0;
   }
   .warn {
     color: var(--warn);

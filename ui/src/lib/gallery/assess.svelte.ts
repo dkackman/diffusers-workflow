@@ -8,7 +8,8 @@ import type { AssessReply } from '../types'
 export type AssessState = {
   running: boolean
   reply: AssessReply | null
-  error: string | null
+  /** The failure as caught, for ErrorLine to describe; null when none */
+  error: unknown
 }
 
 /** Assess results by output, held for the page's life and never persisted -
@@ -33,8 +34,7 @@ export class AssessCache {
       const next = await api.assess(name)
       this.#entries.set(key, { running: false, reply: next, error: null })
     } catch (e) {
-      const error = e instanceof Error ? e.message : String(e)
-      this.#entries.set(key, { running: false, reply, error })
+      this.#entries.set(key, { running: false, reply, error: e })
     }
   }
 }

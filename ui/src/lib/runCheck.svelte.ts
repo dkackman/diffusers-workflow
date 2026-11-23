@@ -13,8 +13,9 @@ export type Verdict = { tone: 'good' | 'warn' | 'bad'; text: string }
 
 export class RunCheck {
   validation = $state<ValidationResult | null>(null)
-  /** A check the server refused outright (an unknown name, a 400). */
-  error = $state('')
+  /** A check the server refused outright (an unknown name, a 400), as
+   * caught: shown through ErrorLine, never as its raw message. */
+  error = $state<unknown>(null)
   checking = $state(false)
 
   // Not state: bookkeeping for which answer is still wanted
@@ -65,13 +66,14 @@ export class RunCheck {
     this.#checkedFor = key
     if (first) {
       this.validation = null
-      this.error = ''
+      this.error = null
     }
     this.#schedule(first ? 0 : CHECK_AFTER_MS)
   }
 
   get verdict(): Verdict | null {
-    if (this.error) return { tone: 'bad', text: 'could not check this run' }
+    if (this.error !== null)
+      return { tone: 'bad', text: 'could not check this run' }
     if (!this.validation) return null
     if (!this.validation.valid)
       return { tone: 'bad', text: 'a run would be refused' }
@@ -100,12 +102,12 @@ export class RunCheck {
       if (stale()) return
       this.#appliedCall = call
       this.validation = answer
-      this.error = ''
+      this.error = null
     } catch (e) {
       if (stale() || isAbort(e)) return
       this.#appliedCall = call
       this.validation = null
-      this.error = e instanceof Error ? e.message : String(e)
+      this.error = e
     } finally {
       if (mine === this.#generation) this.checking = false
     }

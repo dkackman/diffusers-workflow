@@ -5,6 +5,7 @@
   import { describeEstimate, describeEstimateTotal } from '../plan'
   import { wsHref } from '../routes'
   import { notify } from '../toast'
+  import Details from '../ui/Details.svelte'
   import Modal from '../ui/Modal.svelte'
   import Skeleton from '../ui/Skeleton.svelte'
   import type { PlanState } from './itemState'
@@ -81,8 +82,9 @@
         key: row.candidate.key,
         title: row.candidate.title,
         reason: row.error ?? '',
+        detail: row.detail ?? '',
       })),
-    ...run.skipped,
+    ...run.skipped.map((skip) => ({ ...skip, detail: '' })),
   ])
   /** The rows the total and the "afterwards" line speak of */
   const counted = $derived(
@@ -206,7 +208,10 @@
                 </button>
               </p>
             {:else if row.state === 'failed'}
-              <p class="outcome bad" role="alert">{row.error}</p>
+              <div class="outcome bad" role="alert">
+                <p>{row.error}</p>
+                <Details summary="Engine detail" detail={row.detail ?? ''} />
+              </div>
             {/if}
           </li>
         {/each}
@@ -223,7 +228,12 @@
         <h3>Will not run</h3>
         <ul>
           {#each wont as skip (skip.key)}
-            <li><span class="name">{skip.title}</span>: {skip.reason}</li>
+            <li>
+              <span class="name">{skip.title}</span>: {skip.reason}<Details
+                summary="Engine detail"
+                detail={skip.detail}
+              />
+            </li>
           {/each}
         </ul>
       </section>
@@ -340,6 +350,9 @@
   }
   .bad {
     color: var(--bad);
+  }
+  .outcome p {
+    margin: 0;
   }
   .outcome button {
     padding: 0.2rem 0.6rem;
