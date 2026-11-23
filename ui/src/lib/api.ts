@@ -555,6 +555,7 @@ export function streamJobEvents(
   after: number,
   onEvent: (event: JobEvent) => void,
   onEnd: () => void,
+  onDrop?: () => void,
 ): () => void {
   // EventSource cannot set custom headers, so a configured token rides
   // along as a query parameter for this one route - see docs/SERVER.md.
@@ -572,7 +573,10 @@ export function streamJobEvents(
       onEnd()
     }
   }
-  // No onerror handling: a dropped connection is EventSource's own job to
-  // repair. Closing here froze live progress on any transient hiccup.
+  // A dropped connection is EventSource's own to repair, so it is not closed
+  // here - closing froze live progress on any transient hiccup. `onDrop`
+  // lets the caller read the job again: after a restart it may have ended,
+  // or be gone, and no event will ever say so.
+  source.onerror = () => onDrop?.()
   return () => source.close()
 }

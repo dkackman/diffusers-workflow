@@ -14,6 +14,7 @@
   let {
     of,
     label,
+    what,
     empty = false,
     filtered = false,
     onclear,
@@ -25,6 +26,8 @@
     of: Resource<T>
     /** What is loaded, as in "Couldn't load <label>" */
     label: string
+    /** What a 404 is about, as in "<what> wasn't found"; "That" by default */
+    what?: string
     empty?: boolean
     filtered?: boolean
     onclear?: () => void
@@ -37,7 +40,7 @@
 
   const held = $derived(of.data !== undefined)
   const described = $derived(
-    of.error === undefined ? null : describeError(of.error),
+    of.error === undefined ? null : describeError(of.error, what),
   )
   const retry = () => void of.reload()
 </script>

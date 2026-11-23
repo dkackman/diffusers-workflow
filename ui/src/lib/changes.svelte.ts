@@ -32,6 +32,10 @@
 //                               open (request/refresh.ts)       higher revision (newerOf)
 //   Linked notes                20 s                            -
 //   Jobs (JobsPage)             3 s, paused while hidden        -
+//   One job (JobPage)           its event stream; read again    jobs, gallery
+//                               when it drops (followJob)
+//   One workflow (WorkflowPage) -                               workflows; gallery:
+//                                                               the proofs
 //   Models (ModelsPage)         2 s while a download or a       -
 //                               diffusers update runs
 //   Server status (ServerPage)  health and memory, 5 s          -

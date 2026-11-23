@@ -5,6 +5,7 @@ import { tick } from 'svelte'
 import WorkflowPage from './WorkflowPage.svelte'
 import { api } from '../api'
 import { notify } from '../toast'
+import { connection } from '../connection.svelte'
 import type { ValidationResult } from '../types'
 
 // Monaco cannot boot in jsdom, and this page only mounts it on "show JSON"
@@ -58,6 +59,10 @@ vi.mock('../api', () => ({
     workflowDownloadUrl: vi.fn().mockReturnValue('/download'),
     galleryThumbnailUrl: vi.fn().mockReturnValue('/thumb'),
   },
+}))
+
+vi.mock('../changes.svelte', async () => ({
+  changes: (await import('../test/feedMock')).feed.changes,
 }))
 
 const definition = {
@@ -334,5 +339,43 @@ describe('WorkflowPage curated cost', () => {
     await openPage()
     expect(screen.queryByLabelText('curated cost')).toBeNull()
     expect(document.body.textContent).not.toContain("maintainer's figure")
+  })
+})
+
+describe('WorkflowPage recovery', () => {
+  it('a failed load offers Retry and recovers on reconnect', async () => {
+    vi.mocked(api.getWorkflow).mockRejectedValueOnce(
+      new TypeError('fetch failed'),
+    )
+    await openPage()
+    expect(
+      screen.getByText(
+        "Couldn't load templates/text-to-image: Can't reach the server",
+      ),
+    ).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeTruthy()
+    // The raw message never reaches the page
+    expect(screen.queryByText('fetch failed')).toBeNull()
+    // The heading and the way back stay above the failure
+    expect(
+      screen.getByRole('heading', { name: 'templates/text-to-image' }),
+    ).toBeTruthy()
+    connection.epoch++
+    await advance()
+    await advance()
+    expect(screen.queryByText(/Couldn't load/)).toBeNull()
+    expect(screen.getByText('a run would be admitted')).toBeTruthy()
+  })
+
+  it('Retry reads the definition again', async () => {
+    vi.mocked(api.getWorkflow).mockRejectedValueOnce(
+      new TypeError('fetch failed'),
+    )
+    await openPage()
+    await fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+    await advance()
+    await advance()
+    expect(screen.queryByText(/Couldn't load/)).toBeNull()
+    expect(document.getElementById('var-prompt')).not.toBeNull()
   })
 })
