@@ -24,7 +24,8 @@
   import { itemRows, newerOf, refreshInterval } from '../request/refresh'
   import { resource } from '../resource.svelte'
   import { formatMtime } from '../format'
-  import { wsHref } from '../routes'
+  import { SECTION_LABELS, wsHref } from '../routes'
+  import PageHeader from '../ui/PageHeader.svelte'
   import { notify } from '../toast'
   import type { LedgerRequest } from '../types'
   import { workspace } from '../workspace.svelte'
@@ -219,16 +220,26 @@
 {/if}
 
 <div class="reqpage" bind:this={page}>
+  {#if missing || error || request === null || plan === null}
+    <!-- the loaded page's RequestHeader owns the header; until then, and when
+         the load fails, this one names the page and goes back -->
+    <PageHeader
+      title="Request"
+      secondary={requestId}
+      back={{
+        href: wsHref(ws, 'requests'),
+        label: SECTION_LABELS.ws.requests,
+      }}
+    />
+  {/if}
   {#if missing}
     <p>
       This request no longer exists. The agent may have removed it.
-      <a href={wsHref(ws, 'requests')}>See all requests</a>
     </p>
   {:else if error}
     <p role="alert">
       Could not load this request: {error}
       <button type="button" class="quiet" onclick={load}>Retry</button>
-      <a href={wsHref(ws, 'requests')}>See all requests</a>
     </p>
   {:else if request === null || plan === null}
     <Skeleton lines={4} label="loading request" />

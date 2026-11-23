@@ -216,8 +216,31 @@ it('says a missing request no longer exists, with the way back', async () => {
     /This request no longer exists\. The agent may have removed it\./,
   )
   expect(
-    screen.getByRole('link', { name: 'See all requests' }).getAttribute('href'),
+    screen.getByRole('link', { name: '← Requests' }).getAttribute('href'),
   ).toBe('#/ws/studio/requests')
+  expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
+  expect(screen.getByRole('heading', { level: 1 }).textContent).toContain(
+    'Request',
+  )
+  expect(document.title).toBe('Request · diffusers-workflow')
+})
+
+it('names itself and links back while the request loads', async () => {
+  const { api } = await import('../api')
+  let land: (reply: unknown) => void = () => {}
+  vi.mocked(api.getRequest).mockImplementationOnce(
+    () => new Promise((resolve) => (land = resolve)) as never,
+  )
+  render(RequestPage, { requestId: 'r1' })
+  expect(screen.getByLabelText('loading request')).toBeTruthy()
+  expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
+  expect(
+    screen.getByRole('link', { name: '← Requests' }).getAttribute('href'),
+  ).toBe('#/ws/studio/requests')
+  expect(document.title).toBe('Request · diffusers-workflow')
+  land(make())
+  await loaded()
+  expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
 })
 
 it('a first load that fails says why, and Retry asks again', async () => {
@@ -226,6 +249,11 @@ it('a first load that fails says why, and Retry asks again', async () => {
   expect((await screen.findByRole('alert')).textContent).toContain(
     'Could not load this request: busy',
   )
+  expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
+  expect(
+    screen.getByRole('link', { name: '← Requests' }).getAttribute('href'),
+  ).toBe('#/ws/studio/requests')
+  expect(document.title).toBe('Request · diffusers-workflow')
   data.getError = null
   await fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
   await loaded()
