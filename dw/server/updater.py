@@ -108,6 +108,8 @@ class DiffusersUpdater:
     def __init__(self, run_fn=None):
         # Injectable for tests - the default runs pip against this venv
         self._run_fn = run_fn or self._run_pip
+        # The server's `Changes`, set by create_app; a finished update bumps it
+        self.changes = None
         self._lock = threading.Lock()
         self._state = {
             "status": "idle",
@@ -209,6 +211,17 @@ class DiffusersUpdater:
                 self._state["error"] = str(e)
                 self._state["finished_at"] = time.time()
             logger.error(f"diffusers update failed: {e}")
+        self._changed()
+
+    def _changed(self):
+        """The update finished, either way: the install status moved. Never
+        raises: a counter is a hint."""
+        if self.changes is None:
+            return
+        try:
+            self.changes.bump_all("models")
+        except Exception as e:
+            logger.warning(f"Could not bump change counters for an update: {e}")
 
     def status(self):
         """The update's state plus what is installed right now."""

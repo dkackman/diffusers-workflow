@@ -16,7 +16,7 @@
   import HintBar from '../HintBar.svelte'
   import { confirmDialog } from '../confirm.svelte'
   import BulkBar from '../BulkBar.svelte'
-  import { Picks, actOnEach } from '../picks.svelte'
+  import { Picks, actOnEach, reportFailures } from '../picks.svelte'
   import { overlayOpen } from '../ui/layers.svelte'
   import { notify } from '../toast'
   import { storageGet, storageSet } from '../storage'
@@ -60,9 +60,12 @@
     },
     {
       watch: ['assets'],
+      rows: (data) => data.assets.map((asset) => [asset.name, asset]),
+      // What is held carries the notes saved here still open, so a quiet
+      // reload never marks the page's own note (the gallery's merge)
       merge: (_held, incoming) => {
         noteEdits = settleEdits(incoming.assets, incoming.began, noteEdits)
-        return incoming
+        return { ...incoming, assets: applyEdits(incoming.assets, noteEdits) }
       },
     },
   )
@@ -94,6 +97,10 @@
     const name = selected.name
     noteEdits = withPatch(noteEdits, name, { note: note ?? undefined })
     selected = { ...selected, note: note ?? undefined }
+    // Held as read (resource's `adopt`): never marked as another writer's
+    const held = list.data
+    if (held)
+      list.adopt({ ...held, assets: applyEdits(held.assets, noteEdits) })
   }
 
   const filterActive = $derived(filter !== '')
@@ -241,11 +248,11 @@
     const failed = await actOnEach(names, (name) => api.deleteAsset(name))
     // A read-only examples asset answers 403; whatever could not go stays
     // ticked, so a retry needs no re-ticking
-    picks.keepFailed(names, failed)
-    if (failed.length)
-      notify.error(
-        `Could not delete ${failed.length} of ${names.length} assets: ${failed.join(', ')}`,
-      )
+    picks.keepFailed(
+      names,
+      failed.map((f) => f.name),
+    )
+    reportFailures('delete', failed, names.length, 'assets')
     busy = false
     await list.reload()
   }
@@ -410,7 +417,11 @@
       >
         {#snippet card(name)}
           {@const asset = byName.get(name)!}
-          <div class="cellwrap" class:picked={picks.has(name)}>
+          <div
+            class="cellwrap"
+            class:picked={picks.has(name)}
+            class:row-changed={list.changed.has(name)}
+          >
             <!-- A sibling of the cell rather than a child: a checkbox nested in
                a button is invalid, and keeping them apart is what lets a plain
                click still open the details it always has -->

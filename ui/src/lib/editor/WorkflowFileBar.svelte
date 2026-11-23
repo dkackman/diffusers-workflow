@@ -7,11 +7,13 @@
 <script lang="ts">
   import { ChevronUp, FileCog } from '@lucide/svelte'
   import FolderPicker from './FolderPicker.svelte'
+  import RemoteChanged from '../ui/RemoteChanged.svelte'
   import type { DocumentEditor } from '../editorShell.svelte'
   import { groupOf } from '../grouping'
 
   // Where the workflow saves, and what it says about itself: the full
-  // fields while open, a path chip once the workflow has a name
+  // fields while open, a path chip once the workflow has a name - and,
+  // above them, that the saved file changed under unsaved edits
   let {
     ed,
     workflowDir,
@@ -50,6 +52,13 @@
   })
 </script>
 
+{#if ed.remote === 'diverged'}
+  <RemoteChanged
+    label={ed.loadedPath ?? 'this workflow'}
+    ontheirs={() => ed.takeTheirs()}
+    onmine={() => ed.keepMine()}
+  />
+{/if}
 {#if fileOpen}
   <div class="filebar panel">
     <div class="filegrid">

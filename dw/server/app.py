@@ -275,6 +275,8 @@ def create_app(
         download_manager,
         diffusers_updater,
     )
+    app.state.downloads.changes = app.state.changes
+    app.state.updater.changes = app.state.changes
     install_middleware(app)
     include_routers(app)
     if mcp_asgi is not None:

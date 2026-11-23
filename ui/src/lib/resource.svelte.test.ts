@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { flushSync } from 'svelte'
 import { feed } from './test/feedMock'
 import {
+  CHANGED_MARK_MS,
   resource,
   type Resource,
   type ResourceOptions,
@@ -289,4 +290,169 @@ it('watch and live exclude each other, and one is required', () => {
   mount(f, { live: { everyMs: 1 }, alsoLive: () => 1 })
   teardown?.()
   teardown = null
+})
+
+type Row = { id: string; v: number }
+const byId = (rows: Row[]) => rows.map((r) => [r.id, r] as const)
+
+it('a quiet reload reports the changed and new keys and clears them', async () => {
+  vi.useFakeTimers()
+  const load = vi
+    .fn<() => Promise<Row[]>>()
+    .mockResolvedValueOnce([
+      { id: 'a', v: 1 },
+      { id: 'b', v: 1 },
+    ])
+    .mockResolvedValueOnce([
+      { id: 'a', v: 1 },
+      { id: 'b', v: 2 },
+      { id: 'c', v: 1 },
+    ])
+  const r = mount(load, { watch: ['jobs'], rows: byId })
+  await vi.advanceTimersByTimeAsync(0)
+  expect(r.status).toBe('ready')
+  expect([...r.changed]).toEqual([])
+  feed.move('default', 'jobs')
+  await vi.advanceTimersByTimeAsync(0)
+  expect([...r.changed].sort()).toEqual(['b', 'c'])
+  await vi.advanceTimersByTimeAsync(CHANGED_MARK_MS - 1)
+  expect(r.changed.size).toBe(2)
+  await vi.advanceTimersByTimeAsync(1)
+  expect(r.changed.size).toBe(0)
+})
+
+it('a non-quiet load marks nothing', async () => {
+  const load = vi
+    .fn<() => Promise<Row[]>>()
+    .mockResolvedValueOnce([{ id: 'a', v: 1 }])
+    .mockResolvedValueOnce([{ id: 'a', v: 2 }])
+    .mockResolvedValueOnce([{ id: 'a', v: 3 }])
+  const r = mount(load, { watch: ['jobs'], rows: byId })
+  await vi.waitFor(() => expect(r.status).toBe('ready'))
+  expect(r.changed.size).toBe(0)
+  feed.move('default', 'jobs')
+  await vi.waitFor(() => expect(r.changed.has('a')).toBe(true))
+  // A loud reload (Retry) is a fresh look: it takes the marks away
+  await r.reload()
+  expect(r.data).toEqual([{ id: 'a', v: 3 }])
+  expect(r.changed.size).toBe(0)
+})
+
+it("adopting the user's own saved read marks nothing on the next quiet reload", async () => {
+  const load = vi
+    .fn<() => Promise<Row[]>>()
+    .mockResolvedValueOnce([
+      { id: 'a', v: 1 },
+      { id: 'b', v: 1 },
+    ])
+    // the read after the user's write, and after an agent's on b
+    .mockResolvedValueOnce([
+      { id: 'a', v: 2 },
+      { id: 'b', v: 2 },
+    ])
+  const r = mount(load, { watch: ['jobs'], rows: byId })
+  await vi.waitFor(() => expect(r.status).toBe('ready'))
+  // the user's own write to a, as its save read it back
+  const saved = [
+    { id: 'a', v: 2 },
+    { id: 'b', v: 1 },
+  ]
+  r.adopt(saved)
+  expect(r.data).toBe(saved)
+  expect(r.changed.size).toBe(0)
+  feed.move('default', 'jobs')
+  await vi.waitFor(() =>
+    expect(r.data).toEqual([
+      { id: 'a', v: 2 },
+      { id: 'b', v: 2 },
+    ]),
+  )
+  // only the other writer's change is marked
+  expect([...r.changed]).toEqual(['b'])
+})
+
+it("a new question clears the marks: the old question's rows are not its own", async () => {
+  const filter = $state({ q: 'x' })
+  let gate = deferred<Row[]>()
+  const load = vi.fn(() => {
+    void filter.q
+    return gate.promise
+  })
+  const r = mount(load, { watch: ['jobs'], rows: byId })
+  gate.resolve([{ id: 'a', v: 1 }])
+  await vi.waitFor(() => expect(r.status).toBe('ready'))
+  gate = deferred<Row[]>()
+  feed.move('default', 'jobs')
+  gate.resolve([{ id: 'a', v: 2 }])
+  await vi.waitFor(() => expect(r.changed.has('a')).toBe(true))
+  // another question: its first read is not here yet, and nothing is marked
+  gate = deferred<Row[]>()
+  filter.q = 'y'
+  flushSync()
+  expect(r.status).toBe('loading')
+  expect(r.changed.size).toBe(0)
+  gate.resolve([{ id: 'a', v: 9 }])
+  await vi.waitFor(() => expect(r.status).toBe('ready'))
+  expect(r.changed.size).toBe(0)
+})
+
+it('a lazy resource does not load until a watched kind moves', async () => {
+  const load = vi.fn(() => Promise.resolve('rows'))
+  const r = mount(load, { watch: ['prompts'], lazy: true })
+  await settle()
+  expect(load).not.toHaveBeenCalled()
+  expect(r.data).toBeUndefined()
+  feed.move('default', 'prompts')
+  await vi.waitFor(() => expect(r.data).toBe('rows'))
+  expect(load).toHaveBeenCalledTimes(1)
+  connection.epoch++
+  flushSync()
+  await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(2))
+})
+
+it("a failed load for a new question drops the old question's data", async () => {
+  const filter = $state({ q: 'a' })
+  let answer: () => Promise<string> = () => Promise.resolve('rows')
+  const load = vi.fn(() => {
+    const q = filter.q
+    return answer().then((v) => `${q}:${v}`)
+  })
+  const r = mount(load, { watch: ['jobs'] })
+  await vi.waitFor(() => expect(r.data).toBe('a:rows'))
+
+  // The same question failing quietly keeps its rows, stale
+  answer = () => Promise.reject(new Error('down'))
+  feed.move('default', 'jobs')
+  await vi.waitFor(() => expect(r.stale).toBe(true))
+  expect(r.data).toBe('a:rows')
+
+  // A new question failing does not leave the old one's rows standing in
+  filter.q = 'b'
+  flushSync()
+  expect(r.data).toBe('a:rows')
+  await vi.waitFor(() => expect(r.status).toBe('error'))
+  expect(r.data).toBeUndefined()
+
+  // and a quiet run that overtakes that load answers for the new question too
+  answer = () => Promise.resolve('rows')
+  feed.move('default', 'jobs')
+  await vi.waitFor(() => expect(r.data).toBe('b:rows'))
+})
+
+it('a lock or an outage on a new question keeps the rows: the banner says it', async () => {
+  const { ApiError } = await import('./apiErrors')
+  const filter = $state({ q: 'a' })
+  let answer: () => Promise<string> = () => Promise.resolve('rows')
+  const load = vi.fn(() => {
+    const q = filter.q
+    return answer().then((v) => `${q}:${v}`)
+  })
+  const r = mount(load, { watch: [] })
+  await vi.waitFor(() => expect(r.data).toBe('a:rows'))
+  answer = () =>
+    Promise.reject(new ApiError('Invalid or missing API token', 401))
+  filter.q = 'b'
+  flushSync()
+  await vi.waitFor(() => expect(r.status).toBe('error'))
+  expect(r.data).toBe('a:rows')
 })

@@ -33,6 +33,7 @@
   import ChainSegments from '../job/ChainSegments.svelte'
   import LinkedNotes from '../request/LinkedNotes.svelte'
   import { LinkedRequest } from '../request/linkedRequest.svelte'
+  import RemoteNotice from '../ui/RemoteNotice.svelte'
   import type { JobEvent, LedgerNote } from '../types'
 
   let { jobId }: { jobId: string } = $props()
@@ -53,9 +54,22 @@
       const id = jobId
       return { ...(await api.getJobWorkflow(id)), of: id }
     },
-    { watch: [] },
+    // A re-read that only swaps the submitted copy for the run's realized
+    // one is the run's own doing, not news: it moves 'realized' too
+    {
+      watch: ['jobs'],
+      rows: (d) => [
+        ['realized', d.realized],
+        [d.of, d.definition],
+      ],
+    },
   )
   const ran = $derived(ranRead.data?.of === jobId ? ranRead.data : null)
+  // Another writer changed what this page shows: the inline notice
+  const definitionMoved = $derived(
+    ranRead.changed.has(jobId) && !ranRead.changed.has('realized'),
+  )
+  const noteMoved = $derived(record.changed.has('note'))
   const definition = $derived<Record<string, any> | null>(
     ran?.definition ?? null,
   )
@@ -302,11 +316,16 @@
     {/if}
 
     {#if job.run_dir}
+      <RemoteNotice shown={noteMoved} />
+      <!-- An edit in progress keeps its draft when a newer note lands; the
+           page's own save is adopted, so it marks nothing -->
       <NoteEditor
         note={job.note}
         target={job.run_dir}
         workspace={job.workspace}
         label="Run note"
+        onsaved={(note) =>
+          job && record.adopt({ ...job, note: note ?? undefined })}
       />
     {/if}
 
@@ -322,6 +341,7 @@
           >
             {realized ? 'realized' : 'as submitted'}
           </span>
+          <RemoteNotice shown={definitionMoved} inline />
         </div>
         <FlowView
           workflow={definition}

@@ -10,12 +10,13 @@
  * **Continue the chain** reruns a take that stopped short of its plan from
  * its last kept segment: the workflow has to declare the variables its
  * chain's `stop_after` and `resume_from` name, and every row has to have its
- * segment file. Pure, so the rules are tested without a DOM. */
+ * segment file. Pure but for `repairTemplateModels`, the one read, so the
+ * rules are tested without a DOM. */
 
 import type { ChainRow, ChainTable } from './chainRows'
 import { definitionStep, resolved } from './chainRows'
 import { OUTPUT, VARIABLE, reference, referenceName } from './references'
-import type { ValidateRequest } from './api'
+import { api, type ValidateRequest } from './api'
 import type { WorkflowDefinition } from './types'
 
 /** The only repair template the catalog holds */
@@ -72,6 +73,17 @@ export function repairModels(repair: Definition): string[] {
   return steps
     .map((step: any) => modelOf(step, repair, null))
     .filter((name: string | null): name is string => name !== null)
+}
+
+/** The models the repair template loads, as the server has it now; none
+ * when this server has no repair template */
+export async function repairTemplateModels(): Promise<string[]> {
+  try {
+    const { definition } = await api.getWorkflow(REPAIR_TEMPLATE)
+    return repairModels(definition as Definition)
+  } catch {
+    return []
+  }
 }
 
 /** Whether, and how, one row can be repaired. `model` is the chain step's

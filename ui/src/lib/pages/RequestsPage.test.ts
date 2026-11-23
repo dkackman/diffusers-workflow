@@ -281,3 +281,23 @@ it('watches the workspace it switched to, and only it', async () => {
   await waitFor(() => expect(feed.watched('other')).toEqual(['requests']))
   expect(feed.watched('studio')).toEqual([])
 })
+
+it('a request an agent edited is marked', async () => {
+  data.requests = [
+    summary({ id: 'r1', title: 'Launch posters' }),
+    summary({ id: 'r2', title: 'Second launch' }),
+  ]
+  render(RequestsPage)
+  await screen.findByRole('link', { name: /Second launch/ })
+  expect(document.querySelectorAll('.row-changed')).toHaveLength(0)
+  data.requests = [
+    summary({ id: 'r1', title: 'Launch posters' }),
+    summary({ id: 'r2', title: 'Second launch, recut' }),
+  ]
+  feed.move('studio', 'requests')
+  await screen.findByRole('link', { name: /Second launch, recut/ })
+  const marked = [...document.querySelectorAll('.list a.row-changed')]
+  expect(marked.map((r) => r.getAttribute('href'))).toEqual([
+    '#/ws/studio/requests/r2',
+  ])
+})

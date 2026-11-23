@@ -8,12 +8,17 @@ import { notify } from './toast'
 import { addLeaveGuard } from './router.svelte'
 import { confirmDialog } from './confirm.svelte'
 import { changeOnBlur } from './test/changeOnBlur'
+import { feed } from './test/feedMock'
+import { saveDocument } from './documentSave'
 
 vi.mock('./toast', () => ({
   notify: { error: vi.fn(), success: vi.fn(), dismiss: vi.fn() },
 }))
 vi.mock('./router.svelte', () => ({ addLeaveGuard: vi.fn(() => vi.fn()) }))
 vi.mock('./confirm.svelte', () => ({ confirmDialog: vi.fn() }))
+vi.mock('./changes.svelte', async () => ({
+  changes: (await import('./test/feedMock')).feed.changes,
+}))
 
 const KEY = 'test-editor-view'
 
@@ -420,4 +425,231 @@ it.each([
   expect(shell.jsonParseFailed).toBe(false)
   expect(JSON.parse(shell.jsonDraft)).toEqual({ text: 'b' })
   expect(notify.dismiss).toHaveBeenLastCalledWith('json-parse')
+})
+
+describe('watchRemote', () => {
+  type Read = {
+    doc: Record<string, any>
+    etag: string | null
+    writable: boolean
+  }
+  const theirs: Read = { doc: { text: 'theirs' }, etag: '"e2"', writable: true }
+
+  /** An editor watching `prompts`, opened on 'hero' at "e1" */
+  function watching(read: () => Promise<Read>) {
+    let shell: DocumentEditor | undefined
+    render(EditorShellHarness, {
+      viewKey: KEY,
+      views: ['form', 'json'],
+      label: () => 'hero',
+      remote: { kind: 'prompts', read },
+      onready: (s: DocumentEditor) => (shell = s),
+    })
+    flushSync()
+    shell!.load({ text: 'mine' }, { etag: '"e1"', path: 'hero' })
+    return shell!
+  }
+
+  /** The feed moves `prompts`, and the re-read lands */
+  async function moved() {
+    feed.move('default', 'prompts')
+    await settled()
+  }
+
+  /** Effects run, and any re-read they began lands */
+  async function settled() {
+    flushSync()
+    for (let i = 0; i < 5; i++) await tick()
+    flushSync()
+  }
+
+  it('an unedited document reloads on a move with a newer etag', async () => {
+    const read = vi.fn().mockResolvedValue(theirs)
+    const shell = watching(read)
+    await moved()
+    expect(read).toHaveBeenCalledTimes(1)
+    expect(shell.doc).toEqual({ text: 'theirs' })
+    expect(shell.etag).toBe('"e2"')
+    expect(shell.loadedPath).toBe('hero')
+    expect(shell.dirty).toBe(false)
+    expect(shell.remote).toBe('same')
+    expect(notify.success).toHaveBeenCalledWith(
+      'Updated by an agent or another tab',
+    )
+  })
+
+  it('an edited document gets the banner, and Keep mine leaves the conflict to save', async () => {
+    const shell = watching(vi.fn().mockResolvedValue(theirs))
+    shell.doc.text = 'edited'
+    await moved()
+    expect(shell.remote).toBe('diverged')
+    expect(shell.doc).toEqual({ text: 'edited' })
+    expect(notify.success).not.toHaveBeenCalled()
+    shell.keepMine()
+    expect(shell.remote).toBe('same')
+    expect(shell.doc).toEqual({ text: 'edited' })
+    // The next save still insists on the version it read: stale_write
+    expect(shell.etag).toBe('"e1"')
+    expect(shell.preconditions('hero')).toEqual({ ifMatch: '"e1"' })
+  })
+
+  it('Load theirs replaces the edits with the newer read', async () => {
+    const shell = watching(vi.fn().mockResolvedValue(theirs))
+    shell.doc.text = 'edited'
+    await moved()
+    shell.takeTheirs()
+    expect(shell.remote).toBe('same')
+    expect(shell.doc).toEqual({ text: 'theirs' })
+    expect(shell.etag).toBe('"e2"')
+    expect(shell.dirty).toBe(false)
+  })
+
+  it('the same etag does nothing', async () => {
+    const shell = watching(
+      vi.fn().mockResolvedValue({ ...theirs, etag: '"e1"' }),
+    )
+    shell.doc.text = 'edited'
+    await moved()
+    expect(shell.remote).toBe('same')
+    expect(shell.doc).toEqual({ text: 'edited' })
+    expect(notify.success).not.toHaveBeenCalled()
+  })
+
+  it('no reload while a save is in flight', async () => {
+    let land: (r: Read) => void = () => {}
+    const read = vi
+      .fn()
+      .mockReturnValueOnce(new Promise<Read>((r) => (land = r)))
+    const shell = watching(read)
+    // A read begun before the save began, landing after it started
+    feed.move('default', 'prompts')
+    await tick()
+    shell.busy = true
+    land(theirs)
+    for (let i = 0; i < 5; i++) await tick()
+    expect(shell.doc).toEqual({ text: 'mine' })
+    expect(shell.remote).toBe('same')
+  })
+
+  it('a move while busy is read once busy clears', async () => {
+    const read = vi.fn().mockResolvedValue(theirs)
+    const shell = watching(read)
+    shell.doc.text = 'edited'
+    shell.busy = true
+    await moved()
+    expect(read).not.toHaveBeenCalled()
+    expect(shell.remote).toBe('same')
+    shell.busy = false
+    await settled()
+    expect(read).toHaveBeenCalledTimes(1)
+    expect(shell.remote).toBe('diverged')
+    expect(shell.doc).toEqual({ text: 'edited' })
+  })
+
+  it('an unedited document skipped while busy reloads once busy clears', async () => {
+    const read = vi.fn().mockResolvedValue(theirs)
+    const shell = watching(read)
+    shell.busy = true
+    await moved()
+    shell.busy = false
+    await settled()
+    expect(shell.doc).toEqual({ text: 'theirs' })
+    expect(notify.success).toHaveBeenCalledWith(
+      'Updated by an agent or another tab',
+    )
+  })
+
+  it("a save's own move, re-read after busy clears, raises nothing", async () => {
+    const read = vi.fn().mockResolvedValue({ ...theirs, etag: '"e2"' })
+    const shell = watching(read)
+    shell.doc.text = 'edited'
+    shell.busy = true
+    // The save's write moves the feed while it is still in flight
+    await moved()
+    shell.markSaved()
+    shell.etag = '"e2"'
+    shell.busy = false
+    await settled()
+    expect(read).toHaveBeenCalledTimes(1)
+    expect(shell.remote).toBe('same')
+    expect(shell.doc).toEqual({ text: 'edited' })
+    expect(notify.success).not.toHaveBeenCalled()
+  })
+
+  it('text mid-composition is held as an edit, never loaded over', async () => {
+    const shell = watching(vi.fn().mockResolvedValue(theirs))
+    const root = document.createElement('div')
+    document.body.append(root)
+    shell.root = root
+    root.dispatchEvent(new CompositionEvent('compositionstart'))
+    await moved()
+    expect(shell.remote).toBe('diverged')
+    expect(shell.doc).toEqual({ text: 'mine' })
+    expect(notify.success).not.toHaveBeenCalled()
+    root.remove()
+  })
+
+  it("a new document, once saved, follows the server's copy", async () => {
+    const read = vi.fn().mockResolvedValue(theirs)
+    const shell = watching(read)
+    shell.startNew({ text: 'fresh' })
+    await saveDocument(shell, {
+      path: 'hero',
+      label: 'hero',
+      write: async () => ({ etag: '"e1"' }),
+    })
+    // Unedited since the save: the agent's write reloads it, with the toast
+    await moved()
+    expect(read).toHaveBeenCalledTimes(1)
+    expect(shell.doc).toEqual({ text: 'theirs' })
+    expect(notify.success).toHaveBeenCalledWith(
+      'Updated by an agent or another tab',
+    )
+  })
+
+  it('a new document saved then edited gets the banner on a remote write', async () => {
+    const shell = watching(vi.fn().mockResolvedValue(theirs))
+    shell.startNew({ text: 'fresh' })
+    await saveDocument(shell, {
+      path: 'hero',
+      label: 'hero',
+      write: async () => ({ etag: '"e1"' }),
+    })
+    shell.doc.text = 'edited after the save'
+    await moved()
+    expect(shell.remote).toBe('diverged')
+    expect(shell.doc).toEqual({ text: 'edited after the save' })
+  })
+
+  it('nothing is read until a document is loaded', async () => {
+    const read = vi.fn().mockResolvedValue(theirs)
+    const shell = watching(read)
+    shell.beginLoad()
+    await moved()
+    expect(read).not.toHaveBeenCalled()
+  })
+
+  it("the user's own save does not raise the banner", async () => {
+    let land: (r: Read) => void = () => {}
+    const read = vi
+      .fn()
+      .mockReturnValueOnce(new Promise<Read>((r) => (land = r)))
+      .mockResolvedValue(theirs)
+    const shell = watching(read)
+    shell.doc.text = 'edited'
+    // A read begun before the save, landing with the version it replaced
+    feed.move('default', 'prompts')
+    await tick()
+    shell.markSaved()
+    shell.etag = '"e2"'
+    land({ ...theirs, etag: '"e1"' })
+    for (let i = 0; i < 5; i++) await tick()
+    expect(shell.remote).toBe('same')
+    // The save's own move: the read is at the etag the save got back
+    shell.doc.text = 'edited again'
+    await moved()
+    expect(shell.remote).toBe('same')
+    expect(shell.doc).toEqual({ text: 'edited again' })
+    expect(notify.success).not.toHaveBeenCalled()
+  })
 })

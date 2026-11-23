@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, untrack } from 'svelte'
+  import { untrack } from 'svelte'
   import {
     BookCopy,
     ClipboardList,
@@ -31,12 +31,8 @@
     type SharedSection,
     type WsSection,
   } from './routes'
-  import { changes } from './changes.svelte'
-  import {
-    invalidateWorkspaces,
-    loadWorkspaces,
-    workspace,
-  } from './workspace.svelte'
+  import { resource } from './resource.svelte'
+  import { relistWorkspaces, workspace } from './workspace.svelte'
   import { createWorkspaceAndGo } from './workspaceActions'
   import { formatBytes } from './format'
   import { wsColor } from './wsColor'
@@ -50,15 +46,11 @@
     inert = false,
   }: { collapsed: boolean; onToggle: () => void; inert?: boolean } = $props()
 
-  onMount(loadWorkspaces)
   // A workspace an agent creates or deletes shows within one feed interval:
-  // the counter is server-wide, so the open workspace's feed carries it
-  $effect(() =>
-    changes(workspace.current).watch(['workspaces'], () => {
-      invalidateWorkspaces()
-      void loadWorkspaces()
-    }),
-  )
+  // the counter is server-wide, so the open workspace's feed carries it.
+  // What the listing holds is module state (workspace.svelte.ts), drawn
+  // from there; the resource is how it stays fresh
+  resource(() => relistWorkspaces(), { watch: ['workspaces'] })
 
   // The workspace whose sections are open: the route's when it names one,
   // else the one the UI is scoped to (a shared or server page still sits

@@ -6,6 +6,9 @@
   import ArgumentsEditor from './ArgumentsEditor.svelte'
   import ComponentEditor from './ComponentEditor.svelte'
   import LorasEditor from './LorasEditor.svelte'
+  import { latestOnly } from '../latest'
+  import { sleep } from '../poll'
+  import { resource } from '../resource.svelte'
   import {
     ATTENTION_BACKENDS,
     CACHE_TYPES,
@@ -90,20 +93,24 @@
     }
   }
 
-  let compatibles = $state<string[]>([])
-  $effect(() => {
-    compatibles = []
-    const schedulerType = pipeline?.scheduler?.configuration?.scheduler_type
-    // Only complete-looking names - prefixes typed on the way to a real one
-    // would each fire a doomed lookup
-    if (!schedulerType || !schedulerType.endsWith('Scheduler')) return
-    const timer = setTimeout(() => {
-      classDescription(schedulerType, 'init').then(
-        (d) => (compatibles = d?.compatibles ?? []),
-      )
-    }, 300)
-    return () => clearTimeout(timer)
-  })
+  // Only complete-looking names - prefixes typed on the way to a real one
+  // would each fire a doomed lookup. A scheduler's compatibles never change
+  // while the server runs, so the lookup watches nothing
+  const typing = latestOnly()
+  const schedulerLookup = resource(
+    async () => {
+      const schedulerType = pipeline?.scheduler?.configuration?.scheduler_type
+      const current = typing()
+      if (!schedulerType || !schedulerType.endsWith('Scheduler')) return []
+      await sleep(300)
+      if (!current()) return []
+      return (await classDescription(schedulerType, 'init'))?.compatibles ?? []
+    },
+    { watch: [] },
+  )
+  const compatibles = $derived(
+    schedulerLookup.status === 'ready' ? (schedulerLookup.data ?? []) : [],
+  )
 </script>
 
 <details open={activeSlots.length > 0 || openSection === 'components'}>

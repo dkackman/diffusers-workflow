@@ -98,3 +98,25 @@ it('says the review banner changed state once, and nothing as it ticks', () => {
   )
   expect(announce(held('due', 0), free)).toBe('')
 })
+
+it('announces a rename', () => {
+  const renamed = request([
+    item('shot', {
+      title: 'Shot 3: the pier',
+      status: 'running',
+      attempts: [attempt('j', 'running')],
+    }),
+    item('cut', { title: 'The cut', depends_on: ['shot'] }),
+  ])
+  expect(announce(before, renamed)).toBe(
+    'The agent renamed Shot 3 to Shot 3: the pier.',
+  )
+  // Renamed and finished in one refresh: both, the new name in the second
+  const done = request([
+    doneItem('shot', { title: 'Shot 3: the pier' }),
+    item('cut', { title: 'The cut', depends_on: ['shot'] }),
+  ])
+  expect(announce(before, done)).toBe(
+    'The agent renamed Shot 3 to Shot 3: the pier. Shot 3: the pier finished.',
+  )
+})

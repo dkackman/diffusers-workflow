@@ -66,6 +66,20 @@ for run_id in ("20260906-101500-a1b2c3d4", "20260906-101612-ffffffff"):
 helper = os.path.join(scratch, "helper")
 os.environ["DIFFUSERS_HELPER_ROOT"] = helper
 
+# The hub cache is scratch too, seeded with one made-up repo so the models
+# journey has a row to delete without ever reaching the developer's cache.
+# Set before the server import: huggingface_hub reads it when it loads.
+hub_cache = os.path.join(scratch, "hub-cache")
+os.environ["HF_HUB_CACHE"] = hub_cache
+revision = "0123456789abcdef0123456789abcdef01234567"
+repo_dir = os.path.join(hub_cache, "models--e2e--tiny")
+os.makedirs(os.path.join(repo_dir, "snapshots", revision))
+os.makedirs(os.path.join(repo_dir, "refs"))
+with open(os.path.join(repo_dir, "snapshots", revision, "config.json"), "w") as handle:
+    handle.write("{}")
+with open(os.path.join(repo_dir, "refs", "main"), "w") as handle:
+    handle.write(revision)
+
 # Two jobs a dead server's restart cancelled before they started: the
 # tombstones the jobs page offers to rerun as one batch (#1473). They share
 # the dead server's instance id, which is what groups them. The schema is the

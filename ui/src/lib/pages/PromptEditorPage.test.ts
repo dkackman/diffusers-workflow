@@ -11,6 +11,7 @@ import PromptEditorPage from './PromptEditorPage.svelte'
 import { api } from '../api'
 import { ApiError } from '../apiErrors'
 import { chooseDialog } from '../confirm.svelte'
+import { feed } from '../test/feedMock'
 
 // Monaco cannot boot in jsdom; the JSON view is read through this stub,
 // which renders the value it was handed as plain text
@@ -22,6 +23,10 @@ vi.mock('../editor/JsonEditor.svelte', async () => ({
 vi.mock('../confirm.svelte', () => ({
   chooseDialog: vi.fn(),
   confirmDialog: vi.fn().mockResolvedValue(true),
+}))
+
+vi.mock('../changes.svelte', async () => ({
+  changes: (await import('../test/feedMock')).feed.changes,
 }))
 
 vi.mock('../api', () => ({
@@ -312,4 +317,23 @@ it('going back to a prompt while another is still being read shows the prompt', 
   await new Promise((r) => setTimeout(r, 0))
   expect(promptText().value).toBe('a hero at dawn')
   expect(saveButton().disabled).toBe(false)
+})
+
+it('Load theirs replaces the edits', async () => {
+  await openHero()
+  await fireEvent.input(promptText(), { target: { value: 'my edit' } })
+  vi.mocked(api.getPrompt).mockResolvedValueOnce({
+    prompt: { text: 'their version' },
+    writable: true,
+    etag: '"p9"',
+  } as never)
+  feed.move('default', 'prompts')
+  const banner = await screen.findByText(
+    'portraits/hero changed since you opened it, in another tab or by an agent',
+  )
+  expect(banner.closest('[role="status"]')).toBeTruthy()
+  expect(promptText().value).toBe('my edit')
+  await fireEvent.click(screen.getByRole('button', { name: 'Load theirs' }))
+  await waitFor(() => expect(promptText().value).toBe('their version'))
+  expect(screen.queryByRole('button', { name: 'Load theirs' })).toBeNull()
 })

@@ -34,12 +34,19 @@
 //   LOAD_STATE; a page states an empty list through LoadState.
 // - unwatched_reads: in a .svelte file, `api.<read>(...)` calls with no
 //   `resource(` or `poll(` call around them. A read is `get*`, `list*` or a
-//   name in READ_ALIASES; a new read named otherwise must be added there.
+//   name in READ_ALIASES. Every other `api` key is in NOT_READS, and
+//   arch-metrics.test.ts fails, naming the key, when one is in neither list
+//   or in both - so a new method cannot dodge this count unclassified.
 // Known limits of those three rules:
 // - `resource` and `poll` are matched by callee name.
 // - `api` is matched by identifier name, so an alias or destructuring is
 //   invisible.
 // - `.svelte.ts` stores are not measured for reads.
+// - a read made through a plain `.ts` helper is not counted here.
+//   src/lib/freshness.test.ts sees one import level: a .svelte file that
+//   imports a src/lib .ts module calling an `api` read must have a
+//   `resource(` or be a declared exception. A read two or more imports
+//   away is out of reach of both checks.
 // - an `Empty` re-exported through a barrel is not counted.
 // - `String(...)` matches a single identifier only.
 import { ESLint } from 'eslint'
@@ -68,6 +75,55 @@ export const READ_ALIASES = [
   'describeTask',
   'describePipeline',
   'describeClass',
+  'fileText',
+  'notesChannel',
+  'workspaceChanges',
+]
+/** Every `api` key that is not a read, by what it is instead */
+export const NOT_READS = [
+  // writes: each moves server state, and the change feed reports it
+  'saveWorkflow',
+  'savePrompt',
+  'rerunJob',
+  'rerunRestartBatch',
+  'moveJob',
+  'exportJob',
+  'cancelJob',
+  'submitJob',
+  'startDownload',
+  'cancelDownload',
+  'deleteModel',
+  'updateDiffusers',
+  'clearCache',
+  'deleteCacheEntry',
+  'deleteOutput',
+  'setStarred',
+  'archiveOutputs',
+  'uploadMedia',
+  'archiveAssets',
+  'deleteAsset',
+  'putRequest',
+  'deleteRequest',
+  'addNote',
+  'editNote',
+  'deleteNote',
+  'createWorkspace',
+  'deleteWorkspace',
+  'keepOutput',
+  'deleteWorkflow',
+  'deletePrompt',
+  'enhance',
+  // checks a click asks for: each answers one question about what the user
+  // holds now, a snapshot nothing renders as a view to keep fresh
+  'validate',
+  'assess',
+  'checkToken',
+  // URL builders: no request is made
+  'exportZipUrl',
+  'galleryThumbnailUrl',
+  'outputDownloadUrl',
+  'workflowDownloadUrl',
+  'promptDownloadUrl',
 ]
 
 export const isLoadState = (file) =>
@@ -91,7 +147,30 @@ function isRawError(sourceCode, call, arg) {
   }
   return false
 }
-const isRead = (name) => /^(get|list)/.test(name) || READ_ALIASES.includes(name)
+export const isRead = (name) =>
+  /^(get|list)/.test(name) || READ_ALIASES.includes(name)
+
+/** What is wrong with how `keys` (the `api` object's) are classified: a key
+ * that is neither a read nor in NOT_READS, or both, and a list entry no key
+ * has */
+export function misclassified(
+  keys,
+  aliases = READ_ALIASES,
+  notReads = NOT_READS,
+) {
+  const read = (k) => /^(get|list)/.test(k) || aliases.includes(k)
+  const problems = []
+  for (const k of keys) {
+    if (read(k) && notReads.includes(k))
+      problems.push(`${k}: both a read and in NOT_READS`)
+    else if (!read(k) && !notReads.includes(k))
+      problems.push(`${k}: neither a read nor in NOT_READS`)
+  }
+  for (const k of [...aliases, ...notReads])
+    if (!keys.includes(k))
+      problems.push(`${k}: listed, but api has no such key`)
+  return problems
+}
 const isMember = (node, object, property) =>
   node?.type === 'MemberExpression' &&
   node.object.type === 'Identifier' &&

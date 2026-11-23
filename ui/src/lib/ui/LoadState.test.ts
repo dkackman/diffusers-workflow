@@ -24,7 +24,9 @@ function fake(state: Partial<Resource<string[]>>): Resource<string[]> {
     data: undefined,
     error: undefined,
     stale: false,
+    changed: new Set(),
     reload: vi.fn(() => Promise.resolve()),
+    adopt: vi.fn(),
     ...state,
   }
 }

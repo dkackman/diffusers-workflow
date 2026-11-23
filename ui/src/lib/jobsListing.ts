@@ -1,7 +1,9 @@
 // What the Jobs page asks the server for, and how it reads the answer: the
 // workspace a listing is scoped to, what a failed listing says, and how
 // long the waiting queue is when the page holds only some of its rows.
+import { api } from './api'
 import { ApiError } from './apiErrors'
+import type { RequestFilter } from './requestFilter'
 import type { JobSummary } from './types'
 
 /** The workspace a Jobs listing asks for; '' is every workspace. A
@@ -39,4 +41,27 @@ export function queueLength(jobs: JobSummary[], queued = 0): number {
     0,
   )
   return Math.max(seen, queued)
+}
+
+/** The listing a Jobs page's filters name: `ws` ('' for every workspace)
+ * narrowed to a request, or one item of it */
+export const listJobs = (ws: string, scoped: RequestFilter) =>
+  api.listJobs(
+    ws || undefined,
+    undefined,
+    undefined,
+    scoped.request || undefined,
+    scoped.item || undefined,
+  )
+
+/** The server's count of every queued job, asked for only by a narrowed
+ * listing that shows a waiting one: an unnarrowed listing holds the whole
+ * queue, and 0 leaves the length to the rows. */
+export async function queuedEverywhere(
+  rows: JobSummary[],
+  narrowed: boolean,
+): Promise<number> {
+  if (!narrowed || !rows.some((job) => job.queue_position !== undefined))
+    return 0
+  return (await api.listJobs(undefined, 1, 'queued')).total
 }

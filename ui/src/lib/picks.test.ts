@@ -130,7 +130,8 @@ it('runs one act per name in order and collects the failures', async () => {
   })
 
   expect(seen).toEqual(['a', 'b', 'c'])
-  expect(failed).toEqual(['b'])
+  expect(failed).toEqual([{ name: 'b', error: new Error('no') }])
+  expect(failed[0].error).toBeInstanceOf(Error)
 })
 
 it('does not hold the grid order it was built with', () => {

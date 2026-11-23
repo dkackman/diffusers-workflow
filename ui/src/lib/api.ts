@@ -58,6 +58,7 @@ import type {
 import { ApiError, errorDetail } from './apiErrors'
 import {
   archiveFrom,
+  fetchText,
   isValidateRequest,
   jsonInit,
   preconditionHeaders,
@@ -313,6 +314,9 @@ export const api = {
       undefined,
       { scope: workspace === undefined },
     ),
+  /** A gallery text file's contents, from the `url` its listing gave -
+   * which names its workspace already */
+  fileText: (url: string) => fetchText(url, { scope: false }),
   /** Run every assessment probe that applies to one output, in the
    * server's threadpool: a GET, scoped to the picker's workspace. It decodes
    * the whole file, so only a click calls it, never a poll. */
@@ -523,20 +527,7 @@ export const api = {
     ),
 }
 
-/** Fetch the text of a saved output file - how an enhancement's result
- * comes back, since the manifest only names files. `workspace` names the
- * job's own workspace, for the same reason `outputUrl` takes one: the file
- * has to be read from where the job wrote it, not from whatever the picker
- * says now. */
-export async function fetchOutputText(
-  path: string,
-  workspace?: string,
-): Promise<string> {
-  const name = path.split('/').pop() ?? ''
-  const response = await fetch(outputUrl(path, undefined, workspace))
-  if (!response.ok) throw new Error(`Could not read ${name}`)
-  return response.text()
-}
+export { fetchOutputText } from './apiRequest'
 
 /** Set (or, with null, clear) the note on a workspace, asset, run or file.
  * A file name or run directory is read in the picked workspace, unless

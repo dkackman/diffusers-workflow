@@ -3,7 +3,8 @@
 import { api } from './api'
 import { saveDocument, type SaveOutcome } from './documentSave'
 import type { DocumentEditor } from './editorShell.svelte'
-import type { PromptDefinition } from './types'
+import { workflowsReferencing } from './prompts'
+import type { PromptDefinition, PromptList } from './types'
 
 /** Read `name` into `ed` at the ETag and library it was found in. The
  * prompt once it is loaded; null when the read failed (the error is left
@@ -25,6 +26,21 @@ export async function openPrompt(
   }
 }
 
+/** `ed`, following the server's copy of the prompt it has open: an
+ * agent's or another tab's write reloads it, or raises the banner over
+ * unsaved edits (DocumentEditor.watchRemote). Call during component init */
+export function watchPrompt(ed: DocumentEditor): DocumentEditor {
+  ed.watchRemote({
+    kind: 'prompts',
+    read: async () => {
+      const read = await api.getPrompt(ed.loadedPath ?? '')
+      const doc = read.prompt as Record<string, any>
+      return { doc, etag: read.etag, writable: read.writable }
+    },
+  })
+  return ed
+}
+
 /** Save the prompt on screen to `path`, asking before it replaces a file
  * it did not read or one that changed since. */
 export function savePromptAt(
@@ -41,4 +57,33 @@ export function savePromptAt(
         pre,
       ),
   })
+}
+
+/** What a delete of `name` is about to break, read on the click that asks:
+ * any workflow holding a prompt:name reference fails at run time once the
+ * file is gone. '' when none does, or the listing could not be read - the
+ * confirm still protects the file itself */
+export async function deleteWarning(name: string): Promise<string> {
+  try {
+    const { details } = await api.listWorkflows()
+    const referencing = workflowsReferencing(name, details ?? {})
+    if (!referencing.length) return ''
+    const shown = referencing.slice(0, 5).join(', ')
+    const more = referencing.length > 5 ? ', …' : ''
+    return (
+      `\n\nReferenced by ${referencing.length} workflow` +
+      `${referencing.length === 1 ? '' : 's'} (${shown}${more}) - ` +
+      'they will fail at run time until updated.'
+    )
+  } catch {
+    return ''
+  }
+}
+
+/** `listing` with `path` in it: what this page's own save read back, so a
+ * folder the save just created is in the picker before the feed says so */
+export function withSavedPrompt(listing: PromptList, path: string): PromptList {
+  return listing.prompts.includes(path)
+    ? listing
+    : { ...listing, prompts: [...listing.prompts, path] }
 }

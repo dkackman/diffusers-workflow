@@ -5,10 +5,12 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { api } from '../src/lib/api'
 import {
   cycles,
   isLoadState,
   measure,
+  misclassified,
   referencePrefixes,
   regressions,
   sourceFiles,
@@ -207,5 +209,27 @@ describe('the page-quality metrics', () => {
       'b.ts': `declare const api: any\napi.listJobs()\n`,
     })
     expect(m.unwatched_reads).toBe(2)
+  })
+})
+
+describe('the read classification', () => {
+  // A new api method fails here until someone says whether it is a read, so
+  // unwatched_reads cannot miss it by its name
+  it('puts every api key in exactly one of the reads and NOT_READS', () => {
+    expect(misclassified(Object.keys(api))).toEqual([])
+  })
+
+  it('names a key in neither list, one in both, and a stale entry', () => {
+    expect(
+      misclassified(
+        ['listThings', 'fetchThing', 'saveThing', 'thingAlias', 'getThing'],
+        ['thingAlias', 'gone'],
+        ['saveThing', 'getThing'],
+      ),
+    ).toEqual([
+      'fetchThing: neither a read nor in NOT_READS',
+      'getThing: both a read and in NOT_READS',
+      'gone: listed, but api has no such key',
+    ])
   })
 })

@@ -6,14 +6,46 @@ import globals from 'globals'
 
 // Empty.svelte is imported only by src/lib/ui/LoadState.svelte, so an empty
 // list can never stand in for one still loading or one that failed.
-// Flat config replaces a rule's options rather than merging them, so the
-// pattern rides in the bits-ui block and again, alone, for src/lib/ui/**
 const emptyPattern = {
   group: ['**/Empty.svelte'],
   message:
     'Render an empty state through src/lib/ui/LoadState.svelte, never Empty directly.',
 }
-const emptyPatterns = { patterns: [emptyPattern] }
+// The change feed has one subscriber: resource(), whose quiet reloads
+// keep edits, focus and selection, and whose latestOnly drops a reply
+// overtaken by a later read. A view watching a kind declares `watch`.
+// Nothing else imports the feed's values, so no spelling of a subscription
+// - a chain, a feed held in a const, a `new ChangeFeed` - is left to write
+// (the ChangeKind type stays importable). Pinned by scripts/lint-rules.test.ts
+const feedMessage = 'Subscribe through resource() (src/lib/resource.svelte.ts)'
+const feedPattern = {
+  regex: '(^|/)changes\\.svelte(\\.[jt]s)?$',
+  importNames: ['changes', 'ChangeFeed'],
+  message: feedMessage,
+}
+const bitsPath = {
+  name: 'bits-ui',
+  message: 'Import a wrapper from src/lib/ui/ - Bits UI stays behind it.',
+}
+/** The no-restricted-imports options for a block: flat config replaces a
+ * rule's options rather than merging them, so each block lists them all */
+const restricted = ({ bits = false, empty = false, feed = false }) => [
+  'error',
+  {
+    paths: bits ? [bitsPath] : [],
+    patterns: [
+      ...(empty ? [emptyPattern] : []),
+      ...(feed ? [feedPattern] : []),
+    ],
+  },
+]
+// The feed's own module, the one subscriber and the tests that drive it
+const FEED_OWNERS = [
+  'src/lib/changes.svelte.ts',
+  'src/lib/resource.svelte.ts',
+  'src/lib/test/**',
+  'src/**/*.test.ts',
+]
 
 export default ts.config(
   // Generated from the server's OpenAPI document (npm run gen:api)
@@ -45,26 +77,46 @@ export default ts.config(
     files: ['src/**/*.{ts,svelte}'],
     ignores: ['src/lib/ui/**'],
     rules: {
-      'no-restricted-imports': [
-        'error',
-        {
-          paths: [
-            {
-              name: 'bits-ui',
-              message:
-                'Import a wrapper from src/lib/ui/ - Bits UI stays behind it.',
-            },
-          ],
-          ...emptyPatterns,
-        },
-      ],
+      'no-restricted-imports': restricted({
+        bits: true,
+        empty: true,
+        feed: true,
+      }),
     },
   },
   {
     files: ['src/lib/ui/**/*.{ts,svelte}'],
     ignores: ['src/lib/ui/LoadState.svelte'],
+    rules: { 'no-restricted-imports': restricted({ empty: true, feed: true }) },
+  },
+  {
+    files: ['src/lib/ui/LoadState.svelte'],
+    rules: { 'no-restricted-imports': restricted({ feed: true }) },
+  },
+  {
+    files: FEED_OWNERS,
+    ignores: ['src/lib/ui/**'],
     rules: {
-      'no-restricted-imports': ['error', { patterns: [emptyPattern] }],
+      'no-restricted-imports': restricted({ bits: true, empty: true }),
+    },
+  },
+  {
+    files: ['src/**/*.{ts,svelte}'],
+    ignores: FEED_OWNERS,
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector:
+            "CallExpression[callee.property.name='watch'][callee.object.callee.name='changes']",
+          message: feedMessage,
+        },
+        {
+          // import('./changes.svelte'), which no import rule sees
+          selector: 'ImportExpression[source.value=/(^|\\/)changes\\.svelte/]',
+          message: feedMessage,
+        },
+      ],
     },
   },
   {

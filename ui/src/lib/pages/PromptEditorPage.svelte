@@ -19,8 +19,17 @@
   } from '@lucide/svelte'
   import { api } from '../api'
   import { ApiError } from '../apiErrors'
-  import { openPrompt, savePromptAt } from '../promptFile'
+  import {
+    deleteWarning,
+    openPrompt,
+    savePromptAt,
+    watchPrompt,
+    withSavedPrompt,
+  } from '../promptFile'
+  import { resource } from '../resource.svelte'
+  import LoadState from '../ui/LoadState.svelte'
   import LoadFailed from '../ui/LoadFailed.svelte'
+  import RemoteChanged from '../ui/RemoteChanged.svelte'
   import { writableRoot } from '../libraries'
   import DownloadLink from '../DownloadLink.svelte'
   import { go, renameRoute } from '../router.svelte'
@@ -29,21 +38,30 @@
   import { confirmDialog } from '../confirm.svelte'
   import { loadPromptLibrary } from '../promptlib.svelte'
   import { groupOf, leafOf } from '../grouping'
-  import { emptyPrompt, parseTags, workflowsReferencing } from '../prompts'
+  import { emptyPrompt, parseTags } from '../prompts'
   import CopyButton from '../CopyButton.svelte'
   import type { PromptDetail } from '../types'
 
   let { name = '' }: { name?: string } = $props()
 
-  const shell = new DocumentEditor({
-    viewKey: 'dw-prompt-editor-view',
-    views: ['form', 'split', 'json'],
-    label: (): string => shell.savePath() ?? 'this prompt',
-  })
+  const shell = watchPrompt(
+    new DocumentEditor({
+      viewKey: 'dw-prompt-editor-view',
+      views: ['form', 'split', 'json'],
+      label: (): string => shell.savePath() ?? 'this prompt',
+    }),
+  )
   shell.doc = emptyPrompt()
-  let promptDir = $state('')
-  let promptFiles = $state<string[]>([])
-  let promptDetails = $state<Record<string, PromptDetail>>({})
+  // The listing: the folder picker's files, where a new prompt saves, and
+  // each prompt's intended model for the enhancer
+  const listing = resource(() => api.listPrompts(), { watch: ['prompts'] })
+  const promptDir = $derived(
+    listing.data ? writableRoot(listing.data.libraries) : '',
+  )
+  const promptFiles = $derived(listing.data?.prompts ?? [])
+  const promptDetails = $derived<Record<string, PromptDetail>>(
+    listing.data?.details ?? {},
+  )
   // A prompt from a read-only examples library: it can be edited and saved
   // (the save lands in this workspace's library, shadowing it) but not
   // deleted, the way a read-only workflow behaves
@@ -99,14 +117,6 @@
   // ---------------------------------------------------------------- lifecycle
 
   $effect(() => {
-    api
-      .listPrompts()
-      .then((r) => {
-        promptFiles = r.prompts
-        promptDir = writableRoot(r.libraries)
-        promptDetails = r.details ?? {}
-      })
-      .catch((e) => notify.failure('load the prompt list', e))
     if (name && opened === name) {
       // the route catching up with a save: this is the prompt already
     } else if (name) {
@@ -204,7 +214,7 @@
       shell.commitNewFolder()
       // Same as the workflow editor: the picker lists folders from the
       // listing, so a newly created one must be added or the select resets
-      if (!promptFiles.includes(path)) promptFiles = [...promptFiles, path]
+      if (listing.data) listing.adopt(withSavedPrompt(listing.data, path))
       notify.success(`Saved to ${path}`)
       loadPromptLibrary()
       // The URL names the prompt now on screen: a first save, or a save as
@@ -221,23 +231,7 @@
   async function remove() {
     const name = current
     if (!name) return
-    // Say what the delete is about to break: any workflow holding a
-    // prompt:name reference fails at run time once the file is gone
-    let warning = ''
-    try {
-      const { details } = await api.listWorkflows()
-      const referencing = workflowsReferencing(name, details ?? {})
-      if (referencing.length) {
-        const shown = referencing.slice(0, 5).join(', ')
-        const more = referencing.length > 5 ? ', …' : ''
-        warning =
-          `\n\nReferenced by ${referencing.length} workflow` +
-          `${referencing.length === 1 ? '' : 's'} (${shown}${more}) - ` +
-          'they will fail at run time until updated.'
-      }
-    } catch {
-      /* the confirm still protects the file itself */
-    }
+    const warning = await deleteWarning(name)
     if (
       !(await confirmDialog(
         `Delete ${name}.json? This removes the file on disk.${warning}`,
@@ -319,6 +313,17 @@
         : undefined}
     />
   {:else}
+    {#if shell.remote === 'diverged'}
+      <RemoteChanged
+        label={current}
+        ontheirs={() => shell.takeTheirs()}
+        onmine={() => shell.keepMine()}
+      />
+    {/if}
+    <!-- The listing only feeds the folder picker: loading shows nothing -->
+    <LoadState of={listing} label="the prompt list">
+      {#snippet skeleton()}{/snippet}
+    </LoadState>
     <div class="savebar muted">
       saving as
       <FolderPicker

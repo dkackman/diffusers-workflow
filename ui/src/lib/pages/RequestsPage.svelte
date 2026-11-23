@@ -29,9 +29,10 @@
     return () => window.removeEventListener('hashchange', sync)
   })
 
-  // A request an agent writes shows within one feed interval
+  // A request an agent writes shows within one feed interval, marked
   const list = resource(() => api.listRequests(workspace.current), {
     watch: ['requests'],
+    rows: (data) => data.requests.map((req) => [req.id, req]),
   })
   // Why requests.json could not be read, when it is there and is no ledger
   const unreadable = $derived(list.data?.unreadable ?? null)
@@ -77,6 +78,7 @@
         <a
           class="row plain"
           class:row-live={line.live}
+          class:row-changed={list.changed.has(req.id)}
           href={wsHref(name, 'requests', req.id)}
         >
           <span class="cover">

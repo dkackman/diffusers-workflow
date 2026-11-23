@@ -1,4 +1,6 @@
 import { SvelteSet } from 'svelte/reactivity'
+import { describeError } from './apiErrors'
+import { notify } from './toast'
 
 /** A tick-the-grid selection, for a contact sheet with bulk actions.
  *
@@ -90,23 +92,47 @@ export class Picks {
   }
 }
 
+/** A name a bulk action could not act on, and why */
+export interface Failure {
+  name: string
+  error: unknown
+}
+
 /** Run one request per name, in order, collecting what would not go.
  *
  * Sequential rather than parallel: the order makes the log readable, and a
  * selection of hundreds walking through the browser's six connections is
- * not meaningfully slower than flooding them. Returns the names that
- * failed, for `keepFailed`. */
+ * not meaningfully slower than flooding them. Returns each name that
+ * failed with its error, for `keepFailed` and `reportFailures`. */
 export async function actOnEach(
   names: string[],
   act: (name: string) => Promise<unknown>,
-): Promise<string[]> {
-  const failed: string[] = []
+): Promise<Failure[]> {
+  const failed: Failure[] = []
   for (const name of names) {
     try {
       await act(name)
-    } catch {
-      failed.push(name)
+    } catch (error) {
+      failed.push({ name, error })
     }
   }
   return failed
+}
+
+/** One toast for a bulk action's failures, as a single one would say it:
+ * "Couldn't delete 2 of 5 files: <why the first failed>", its remedy, and
+ * each name with its reason in Copy details */
+export function reportFailures(
+  verb: string,
+  failed: Failure[],
+  total: number,
+  noun: string,
+): void {
+  if (!failed.length) return
+  notify.failure(
+    `${verb} ${failed.length} of ${total} ${noun}`,
+    failed[0].error,
+    undefined,
+    failed.map((f) => `${f.name}: ${describeError(f.error).title}`).join('\n'),
+  )
 }

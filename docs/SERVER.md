@@ -50,6 +50,12 @@ see [Authentication](#authentication). The sections below cover the
 [Jobs API](#jobs-api), the [Introspection API](#introspection-api) and
 [Files and models](#files-and-models) in prose.
 
+For route authors: every POST, PUT, PATCH and DELETE route is
+`@writes(kind, ...)` or `@NO_CHANGE(reason)` (`dw/server/changes.py`), which
+is what moves the change counters the UI's open pages reload from.
+`tests/test_changes.py` fails on a route with neither, and on a declaring
+route with no case.
+
 Each job runs in a persistent GPU worker ([WORKER_GUIDE.md](WORKER_GUIDE.md)):
 models stay loaded between runs, so re-running a workflow with a new prompt
 skips the load.
@@ -1275,11 +1281,13 @@ blend toward, `minutes` is left alone and `low_confidence` is set instead.
 - `GET /api/workspaces/{name}/changes` — `{epoch, workspaces, kinds}`: the
   workspace's change counters, how the UI notices a write it did not make
   (an agent over MCP, `dw.run`, a job finishing). `kinds` holds one counter
-  each for `requests`, `prompts`, `workflows`, `assets`, `gallery` and `jobs`;
-  every server write that changes what a page lists bumps its kind after it
+  each for `requests`, `prompts`, `workflows`, `assets`, `gallery`, `jobs`, `models` and
+  `loras`; every server write that changes what a page lists bumps its kind after it
   succeeds, and a failed write bumps nothing. The prompt library and the
   shared asset library are shared, so a write to either moves that kind in
-  every workspace. `workspaces` is one server-wide counter (a workspace
+  every workspace; `models` (a download ending, a delete, a cache clear, a
+  diffusers update) and `loras` (a catalog save or delete) belong to the
+  server, so they always do. `workspaces` is one server-wide counter (a workspace
   created or deleted, or its note changed). Counters only grow and live in
   memory: `epoch` is a random id that changes on a server restart, or when a
   workspace is deleted and made again under the same name, so a client that

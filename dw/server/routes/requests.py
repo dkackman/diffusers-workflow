@@ -29,10 +29,10 @@ from ..deps import (
     workspace_for,
     workspace_root,
 )
-from ..changes import REQUESTS, changed
+from ..changes import REQUESTS, ChangeRoute, pending_change, writes
 from ..outputs import shown_outputs
 
-router = APIRouter()
+router = APIRouter(route_class=ChangeRoute)
 
 # --- the requests ledger (dw/ledger.py owns the model and its rules) ---
 # Every route is behind the bearer token like the rest of /api/*, and none
@@ -202,6 +202,7 @@ def get_request(request: Request, name: str, request_id: str):
     response_model=LedgerRequest,
     response_model_exclude_unset=True,
 )
+@writes(REQUESTS)
 def put_request(request: Request, name: str, request_id: str, body: RequestWrite):
     """Write one request's whole plan. `revision` is the revision it was
     read at, or 0 to create it; a write against any other revision is 409
@@ -224,7 +225,7 @@ def put_request(request: Request, name: str, request_id: str, body: RequestWrite
         raise HTTPException(status_code=e.status, detail=e.detail())
     except OSError:
         raise internal_error(f"Could not write request {request_id!r}")
-    changed(request, name, REQUESTS)
+    pending_change(request).in_workspace(name)
     return written
 
 
@@ -293,11 +294,12 @@ def _note_write(request, name, write, what):
         raise HTTPException(status_code=e.status, detail=e.detail())
     except OSError:
         raise internal_error(f"Could not {what}")
-    changed(request, name, REQUESTS)
+    pending_change(request).in_workspace(name)
     return written
 
 
 @router.post(NOTES_URL, response_model=NoteWritten, response_model_exclude_unset=True)
+@writes(REQUESTS)
 def add_request_note(request: Request, name: str, body: NoteAdd):
     """Add one of the user's notes for the agent, on an item or (no `item`)
     on the request itself; answers the note and the request's new revision.
@@ -324,6 +326,7 @@ def add_request_note(request: Request, name: str, body: NoteAdd):
 
 
 @router.put(NOTES_URL, response_model=NoteWritten, response_model_exclude_unset=True)
+@writes(REQUESTS)
 def edit_request_note(request: Request, name: str, body: NoteEdit):
     """Change one note's text; its `refs` and `created` stay, `at` moves to
     now. The same text writes nothing. 404 `unknown_request` or
@@ -338,6 +341,7 @@ def edit_request_note(request: Request, name: str, body: NoteEdit):
 
 
 @router.delete(NOTES_URL, response_model=NoteDeleted, response_model_exclude_unset=True)
+@writes(REQUESTS)
 def delete_request_note(
     request: Request,
     name: str,
@@ -360,6 +364,7 @@ def delete_request_note(
     response_model=LedgerDeleted,
     response_model_exclude_unset=True,
 )
+@writes(REQUESTS)
 def delete_request(
     request: Request,
     name: str,
@@ -379,5 +384,5 @@ def delete_request(
         raise HTTPException(status_code=e.status, detail=e.detail())
     except OSError:
         raise internal_error(f"Could not delete request {request_id!r}")
-    changed(request, name, REQUESTS)
+    pending_change(request).in_workspace(name)
     return {"workspace": name, **deleted}

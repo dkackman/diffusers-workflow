@@ -51,6 +51,7 @@ from ...security import (
 )
 from ...workspace import Workspace
 from ..assess import assess, level_findings, unknown_probe
+from ..changes import NO_CHANGE, ChangeRoute
 from ..deps import (
     selected_workspace,
 )
@@ -76,7 +77,7 @@ from ..outputs import (
 
 logger = logging.getLogger("dw")
 
-router = APIRouter()
+router = APIRouter(route_class=ChangeRoute)
 
 # Longest side of an on-demand gallery thumbnail, in pixels
 GALLERY_THUMBNAIL_MAX_DIM = 320
@@ -733,6 +734,7 @@ def _compare_source(state, ws, name):
 
 
 @router.post("/api/gallery/compare")
+@NO_CHANGE("builds a download or a view; writes nothing a page lists")
 def gallery_compare(
     request: Request, body: CompareRequest, ws: Workspace = Depends(selected_workspace)
 ):

@@ -1,10 +1,22 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/svelte'
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/svelte'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as api from '../api'
+import { confirmDialog } from '../confirm.svelte'
 import NoteEditor from './NoteEditor.svelte'
 
+vi.mock('../confirm.svelte', () => ({ confirmDialog: vi.fn() }))
+
 describe('NoteEditor', () => {
-  beforeEach(() => vi.restoreAllMocks())
+  beforeEach(() => {
+    vi.restoreAllMocks()
+    vi.mocked(confirmDialog).mockReset()
+  })
   afterEach(cleanup)
 
   it('shows the note as text, never markup', () => {
@@ -98,5 +110,99 @@ describe('NoteEditor', () => {
     expect((screen.getByRole('textbox') as HTMLTextAreaElement).value).toBe(
       'half typed',
     )
+  })
+
+  describe('a newer note arriving mid-edit', () => {
+    const NOTICE =
+      'Run note changed while you were editing, in another tab or by an agent'
+    const stored = { target: 't', note: 'mine', note_source: 'run' as const }
+
+    /** Editing 'old' with 'mine' typed, when an agent's note lands */
+    async function overtaken(newer: string | null = 'agent wrote this') {
+      const view = render(NoteEditor, {
+        props: { note: 'old', target: 't', label: 'Run note' },
+      })
+      await fireEvent.click(screen.getByRole('button', { name: /edit note/i }))
+      await fireEvent.input(screen.getByRole('textbox'), {
+        target: { value: 'mine' },
+      })
+      await view.rerender({ note: newer, target: 't', label: 'Run note' })
+      return view
+    }
+    const draft = () =>
+      (screen.getByRole('textbox') as HTMLTextAreaElement).value
+
+    it('stays up with the newer text until the user acts', async () => {
+      vi.useFakeTimers()
+      try {
+        await overtaken()
+        vi.advanceTimersByTime(60_000)
+      } finally {
+        vi.useRealTimers()
+      }
+      expect(screen.getByText(NOTICE)).toBeTruthy()
+      expect(screen.getByText('agent wrote this')).toBeTruthy()
+      expect(draft()).toBe('mine')
+      expect(screen.getByRole('button', { name: 'Use theirs' })).toBeTruthy()
+      expect(screen.getByRole('button', { name: 'Keep mine' })).toBeTruthy()
+    })
+
+    it('Use theirs puts the newer note in the box', async () => {
+      await overtaken()
+      await fireEvent.click(screen.getByRole('button', { name: 'Use theirs' }))
+      expect(draft()).toBe('agent wrote this')
+      expect(screen.queryByText(NOTICE)).toBeNull()
+    })
+
+    it('a cleared note says so', async () => {
+      await overtaken(null)
+      expect(screen.getByText(NOTICE)).toBeTruthy()
+      expect(screen.getByText('It is empty now.')).toBeTruthy()
+    })
+
+    it('Save over the unseen note asks first, and Keep editing writes nothing', async () => {
+      const spy = vi.spyOn(api, 'setNote').mockResolvedValue(stored)
+      vi.mocked(confirmDialog).mockResolvedValue(false)
+      await overtaken()
+      await fireEvent.click(screen.getByRole('button', { name: /^save/i }))
+      expect(confirmDialog).toHaveBeenCalledWith(
+        'Run note changed while you were editing. Replace it with yours?',
+        { confirmLabel: 'Replace', cancelLabel: 'Keep editing', danger: true },
+      )
+      expect(spy).not.toHaveBeenCalled()
+      expect(draft()).toBe('mine')
+      expect(screen.getByText(NOTICE)).toBeTruthy()
+    })
+
+    it('Replace writes the draft over the newer note', async () => {
+      const spy = vi.spyOn(api, 'setNote').mockResolvedValue(stored)
+      vi.mocked(confirmDialog).mockResolvedValue(true)
+      await overtaken()
+      await fireEvent.click(screen.getByRole('button', { name: /^save/i }))
+      await waitFor(() =>
+        expect(spy).toHaveBeenCalledWith('t', 'mine', undefined),
+      )
+    })
+
+    it('Keep mine takes the newer note in, so the save asks nothing', async () => {
+      const spy = vi.spyOn(api, 'setNote').mockResolvedValue(stored)
+      await overtaken()
+      await fireEvent.click(screen.getByRole('button', { name: 'Keep mine' }))
+      expect(screen.queryByText(NOTICE)).toBeNull()
+      expect(draft()).toBe('mine')
+      await fireEvent.click(screen.getByRole('button', { name: /^save/i }))
+      expect(confirmDialog).not.toHaveBeenCalled()
+      await waitFor(() =>
+        expect(spy).toHaveBeenCalledWith('t', 'mine', undefined),
+      )
+    })
+
+    it('a note that has not changed saves without asking', async () => {
+      vi.spyOn(api, 'setNote').mockResolvedValue(stored)
+      render(NoteEditor, { props: { note: 'old', target: 't' } })
+      await fireEvent.click(screen.getByRole('button', { name: /edit note/i }))
+      await fireEvent.click(screen.getByRole('button', { name: /^save/i }))
+      expect(confirmDialog).not.toHaveBeenCalled()
+    })
   })
 })

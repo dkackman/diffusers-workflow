@@ -95,7 +95,10 @@ vi.mock('../changes.svelte', async () => ({
 }))
 
 const notifyError = vi.hoisted(() => vi.fn())
-vi.mock('../toast', () => ({ notify: { error: notifyError } }))
+const notifyFailure = vi.hoisted(() => vi.fn())
+vi.mock('../toast', () => ({
+  notify: { error: notifyError, failure: notifyFailure },
+}))
 
 beforeEach(() => {
   listing.files = ['a.png', 'b.png', 'demo/c.png'].map((name) => file(name))
@@ -110,6 +113,7 @@ afterEach(() => {
   setStarred.mockClear()
   archiveOutputs.mockClear()
   notifyError.mockClear()
+  notifyFailure.mockClear()
   galleryMetadata.mockReset()
   galleryMetadata.mockImplementation(() => new Promise(() => {}))
   vi.unstubAllGlobals()
@@ -368,7 +372,15 @@ it('keeps a file that failed to delete selected and reports it', async () => {
   await waitFor(() => expect(screen.getByText('1 selected')).toBeTruthy())
   expect(screen.queryByLabelText('select a.png')).toBeNull()
   expect(screen.getByLabelText('select b.png')).toBeTruthy()
-  expect(notifyError).toHaveBeenCalled()
+  // Why, through describeError's copy, with the names in Copy details
+  const busy = deleteOutput.mock.results[1].value
+  expect(notifyFailure).toHaveBeenCalledWith(
+    'delete 1 of 2 files',
+    await busy.catch((e: unknown) => e),
+    undefined,
+    'b.png: Something went wrong',
+  )
+  expect(notifyError).not.toHaveBeenCalled()
 })
 
 it('does not delete anything when the confirmation is declined', async () => {
@@ -708,6 +720,42 @@ it('Delete removes the open file and opens the next', async () => {
   await answerConfirm(true)
   await waitFor(() => expect(deleteOutput).toHaveBeenCalledWith('a.png'))
   await waitFor(() => expect(galleryMetadata).toHaveBeenLastCalledWith('b.png'))
+})
+
+/** Whether a tile carries the changed mark */
+const marked = (name: string) =>
+  !!screen
+    .getByTitle(name)
+    .closest('.cellwrap')
+    ?.classList.contains('row-changed')
+
+it("the user's own star is not marked as another writer's change", async () => {
+  await renderGallery()
+  await openFile('a.png')
+  // a listing begun before the star, landing after it
+  let land: (reply: { files: GalleryFile[] }) => void = () => {}
+  gallery.mockImplementationOnce(
+    () => new Promise<{ files: GalleryFile[] }>((resolve) => (land = resolve)),
+  )
+  feed.move(DEFAULT_WORKSPACE, 'gallery')
+  await fireEvent.click(screen.getByRole('button', { name: 'star this file' }))
+  await waitFor(() => expect(starMark('a.png')).toBeTruthy())
+  land({ files: listing.files })
+  await settle()
+  expect(marked('a.png')).toBe(false)
+  // the star's own move of the feed: the server now says starred, and
+  // someone else retitled b
+  listing.files = listing.files.map((f) =>
+    f.name === 'a.png'
+      ? { ...f, starred: true }
+      : f.name === 'b.png'
+        ? { ...f, label: 'b, retitled' }
+        : f,
+  )
+  feed.move(DEFAULT_WORKSPACE, 'gallery')
+  await waitFor(() => expect(marked('b.png')).toBe(true))
+  expect(marked('a.png')).toBe(false)
+  expect(starMark('a.png')).toBeTruthy()
 })
 
 it('stars the open file and can filter to starred files', async () => {

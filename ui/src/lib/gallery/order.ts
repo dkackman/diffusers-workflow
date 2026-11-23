@@ -44,6 +44,11 @@ export interface Listing {
   began: number
 }
 
+/** A listing's rows by file name, for the changed-row mark (resource's
+ * `rows`) */
+export const listingRows = (listing: Listing) =>
+  listing.files.map((f) => [f.name, f] as const)
+
 type Named = { name: string }
 
 /** Edits a page made that a listing may not carry yet: names deleted, and

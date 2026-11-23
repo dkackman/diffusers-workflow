@@ -8,44 +8,20 @@
   import { untrack } from 'svelte'
   import { resource, type Resource } from '../resource.svelte'
   import LoadState from '../ui/LoadState.svelte'
-  import { differingArguments, argumentOf, valueText } from '../compare'
+  import {
+    argumentOf,
+    cellFor,
+    differingArguments,
+    valueText,
+    type Cell,
+  } from '../compare'
   import { formatDuration } from '../format'
   import { wsHref } from '../routes'
-  import type { GalleryFile } from '../types'
   import { workspace } from '../workspace.svelte'
   import Markdown from '../ui/Markdown.svelte'
   import Skeleton from '../ui/Skeleton.svelte'
 
   let { names }: { names: string[] } = $props()
-
-  type Cell = {
-    name: string
-    file: GalleryFile | null
-    meta: Record<string, unknown> | null
-    took: number | null
-  }
-  // How long the run took, from the job that made the file - unknown when
-  // the job is gone or never finished
-  async function runTime(jobId: string | null | undefined) {
-    const job = jobId ? await api.getJob(jobId).catch(() => null) : null
-    return job?.started_at && job.finished_at
-      ? job.finished_at - job.started_at
-      : null
-  }
-
-  async function cellFor(
-    name: string,
-    file: GalleryFile | null,
-  ): Promise<Cell> {
-    if (!file) return { name, file, meta: null, took: null }
-    const r = await api.galleryMetadata(name).catch(() => null)
-    return {
-      name,
-      file,
-      meta: (r?.metadata as Record<string, unknown> | undefined) ?? null,
-      took: await runTime(r?.job?.id),
-    }
-  }
 
   // A file's note or a new run shows within one feed interval. A cell that
   // already had its file keeps the metadata and run time it has - only a

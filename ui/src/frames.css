@@ -87,3 +87,33 @@ button.frame:hover {
   border-color: var(--ink);
   box-shadow: inset 0 0 0 1px var(--ink);
 }
+
+/* A tile or card a quiet reload changed (`.row-changed`, app.css). A row's
+   inset shadow paints under its children, so a tile's picture and a card's
+   frame would cover it: here the bar is an overlay that sits over them, and
+   a ticked tile keeps its own edge beside it. */
+.cellwrap.row-changed,
+a.card.row-changed {
+  position: relative;
+}
+.cellwrap.row-changed::after,
+a.card.row-changed::after {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: var(--live);
+  pointer-events: none;
+  animation: dw-changed-fade 4s ease-in forwards;
+}
+@keyframes dw-changed-fade {
+  to {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cellwrap.row-changed::after,
+  a.card.row-changed::after {
+    animation: none;
+  }
+}

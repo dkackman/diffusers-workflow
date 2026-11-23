@@ -149,6 +149,14 @@ export function invalidateWorkspaces(): void {
   workspacesPromise = null
 }
 
+/** The listing read again, the cached one dropped first: what a view
+ * watching the `workspaces` kind loads. Never a read already on its way,
+ * which may have left before the change it was asked for */
+export function relistWorkspaces(): Promise<void> {
+  invalidateWorkspaces()
+  return loadWorkspaces()
+}
+
 // A listing read while the server was down or locked is the default-only
 // fallback; once it lets this browser in again, read the real one
 onReconnect(() => {

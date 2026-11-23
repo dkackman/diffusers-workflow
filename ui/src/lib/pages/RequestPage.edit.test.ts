@@ -19,6 +19,7 @@ import {
   revisedItem,
 } from '../request/fixtures'
 import type { LedgerRequest } from '../types'
+import { feed } from '../test/feedMock'
 
 // The page's edits against a ledger that keeps the server's rules: a stale
 // revision is refused, a dropped item with no job is deleted
@@ -51,6 +52,9 @@ vi.mock('../api', async () => ({
   },
 }))
 vi.mock('../toast', () => ({ notify: world.notify }))
+vi.mock('../changes.svelte', async () => ({
+  changes: (await import('../test/feedMock')).feed.changes,
+}))
 vi.mock('../confirm.svelte', () => ({
   confirmDialog: (...args: unknown[]) => world.confirm(...args),
 }))
@@ -132,6 +136,29 @@ it('accepts a take at once, and the toast takes it back', async () => {
   await saved(5)
   expect(world.ledger.current.items[0].accepted).toBeNull()
   await waitFor(() => expect(first.getAttribute('aria-pressed')).toBe('false'))
+})
+
+it("the user's own accept is not marked as an agent's change", async () => {
+  await start()
+  await fireEvent.click(
+    within(row('cast')).getByRole('button', {
+      name: 'Accept take 1 for Cast sheet',
+    }),
+  )
+  await saved(4)
+  // the user's own PUT moves the feed; the read after it is the save's
+  const reads = world.ledger.gets
+  feed.move('studio', 'requests')
+  await waitFor(() => expect(world.ledger.gets).toBe(reads + 1))
+  await new Promise((r) => setTimeout(r, 20))
+  expect(document.querySelector('li.row-changed')).toBeNull()
+  // an agent's edit after it still is
+  world.ledger.agent('retitled shot 4', (items) =>
+    items.map((i) => (i.key === 's4' ? { ...i, title: 'Shot 4, wide' } : i)),
+  )
+  feed.move('studio', 'requests')
+  await waitFor(() => expect(row('s4').classList).toContain('row-changed'))
+  expect(document.querySelectorAll('li.row-changed')).toHaveLength(1)
 })
 
 it('a drop of an item others wait on asks first, saying what it does to them', async () => {

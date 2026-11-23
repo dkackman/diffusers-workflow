@@ -28,6 +28,7 @@
   import { RunCheck } from '../runCheck.svelte'
   import RunCheckPanel from '../workflow/RunCheckPanel.svelte'
   import { WORKFLOW_PREFILL_KEY } from '../chainActions'
+  import RemoteNotice from '../ui/RemoteNotice.svelte'
 
   let { name }: { name: string } = $props()
 
@@ -43,13 +44,14 @@
    * user's to change - an examples or builtin source is read-only. Both
    * come back on `getWorkflow` itself, off the response headers, so there
    * is no separate `listWorkflows` round trip just to learn them. Held only
-   * while it is this name's. */
+   * while it is this name's. Keyed by name, so a write from elsewhere marks
+   * it changed and the page says so */
   const read = resource(
     async () => {
       const wanted = name
       return { name: wanted, ...(await api.getWorkflow(wanted)) }
     },
-    { watch: ['workflows'] },
+    { watch: ['workflows'], rows: (d) => [[d.name, d.definition]] },
   )
   const fetched = $derived(read.data?.name === name ? read.data : null)
   const workflow = $derived<WorkflowDefinition | null>(
@@ -278,6 +280,7 @@
 
 <LoadState of={read} label={name} what={name}>
   {#if workflow}
+    <RemoteNotice shown={read.changed.has(name)} />
     <RunCheckPanel
       verdict={runCheck.verdict}
       checking={runCheck.checking}

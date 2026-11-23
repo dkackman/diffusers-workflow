@@ -57,7 +57,16 @@ from ...security import (
     validate_path,
 )
 from ...workspace import DEFAULT_WORKSPACE_NAME, Workspace, forget_workspace_usage
-from ..changes import GALLERY, changed, changed_assets
+from ..changes import (
+    ASSETS,
+    GALLERY,
+    NO_CHANGE,
+    WORKSPACES,
+    Change,
+    ChangeRoute,
+    pending_change,
+    writes,
+)
 from ..deps import (
     asset_library_missing,
     internal_error,
@@ -85,7 +94,7 @@ from ..outputs import (
 
 logger = logging.getLogger("dw")
 
-router = APIRouter()
+router = APIRouter(route_class=ChangeRoute)
 
 # What a run directory holds besides its outputs - the files a run writes
 # about itself. A run whose directory holds nothing else is an orphan
@@ -350,6 +359,7 @@ def gallery(
 
 
 @router.post("/api/gallery/archive")
+@NO_CHANGE("builds a download or a view; writes nothing a page lists")
 def archive_outputs(
     request: Request, body: ArchiveRequest, ws: Workspace = Depends(selected_workspace)
 ):
@@ -426,6 +436,7 @@ def _prune_empty_run_directory(name, root):
     response_model=OutputDeleted,
     response_model_exclude_unset=True,
 )
+@writes(GALLERY)
 def delete_output(
     request: Request, name: str, ws: Workspace = Depends(selected_workspace)
 ):
@@ -440,7 +451,6 @@ def delete_output(
     run_dir = run_directory(name, ws.outputs)
     if run_dir is not None:
         swept = delete_run_directory(run_dir, ws.outputs)
-        changed(request, ws.name, GALLERY)
         return {"name": name, "deleted": True, "run_swept": swept}
 
     path = resolve_output_file(request.app.state, name, ws.outputs)
@@ -459,7 +469,6 @@ def delete_output(
             logger.warning(f"Could not drop the note for {name}: {e}")
     swept = _prune_empty_run_directory(name, ws.outputs)
     forget_workspace_usage()
-    changed(request, ws.name, GALLERY)
     return {"name": name, "deleted": True, "run_swept": swept}
 
 
@@ -502,7 +511,7 @@ def _workspace_note_target(state, name):
 def _asset_note_target(state, ws, name):
     """(directory, file name, library root) of the asset an `asset:<name>`
     target names - resolved the way the asset delete resolves it, read-only
-    roots refused. The root says which library holds it (`changed_assets`)."""
+    roots refused. The root says which library holds it (`Change.in_library`)."""
     library = workspace_asset_library(state, ws)
     if not library.roots():
         raise asset_library_missing()
@@ -550,8 +559,12 @@ def resolve_note_target(state, ws, target):
 
 
 @router.put("/api/notes", response_model=NoteSet, response_model_exclude_unset=True)
+@writes(ASSETS, GALLERY, WORKSPACES)
 def put_note(
-    request: Request, body: NoteRequest, ws: Workspace = Depends(selected_workspace)
+    request: Request,
+    body: NoteRequest,
+    ws: Workspace = Depends(selected_workspace),
+    change: Change = Depends(pending_change),
 ):
     """Set or clear the note on a run, a file, an asset or a workspace.
 
@@ -580,11 +593,11 @@ def put_note(
         raise internal_error(f"Could not write the note on {body.target!r}")
     if kind == "workspace":
         # The sidebar lists workspace notes: the server-wide counter
-        request.app.state.changes.bump_workspaces()
+        change.only(WORKSPACES)
     elif kind == "asset":
-        changed_assets(request, ws, root)
+        change.only(ASSETS).in_library(ws, root)
     else:
-        changed(request, ws.name, GALLERY)
+        change.only(GALLERY)
     return {
         "target": body.target,
         "note": stored,
@@ -598,6 +611,7 @@ class StarRequest(BaseModel):
 
 
 @router.put("/api/stars", response_model=StarSet)
+@writes(GALLERY)
 def put_star(
     request: Request, body: StarRequest, ws: Workspace = Depends(selected_workspace)
 ):
@@ -618,5 +632,4 @@ def put_star(
         starred = set_file_starred(directory, name, body.starred)
     except OSError:
         raise internal_error(f"Could not write the star on {body.name!r}")
-    changed(request, ws.name, GALLERY)
     return {"name": body.name, "starred": starred}

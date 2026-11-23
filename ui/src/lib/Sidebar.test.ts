@@ -210,3 +210,25 @@ it('a workspace made or deleted elsewhere shows when the workspaces counter move
   feed.move(workspace.current, 'requests')
   expect(listWorkspaces.mock.calls.length).toBe(calls + 1)
 })
+
+it('a workspace made elsewhere appears', async () => {
+  // Another view read the listing first: the cache holds it
+  const { loadWorkspaces } = await import('./workspace.svelte')
+  await loadWorkspaces()
+  render(Sidebar, { collapsed: false, onToggle: () => {} })
+  await waitFor(() => expect(screen.getByText('default')).toBeTruthy())
+  listWorkspaces.mockImplementationOnce(() =>
+    Promise.resolve({
+      workspace_root: '/ws',
+      default: 'default',
+      workspaces: [
+        { name: 'default', default: true },
+        { name: 'studio', default: false },
+        { name: 'agent-made', default: false },
+      ],
+    }),
+  )
+  // the move drops that cached listing, so the sidebar reads the server's
+  feed.move(workspace.current, 'workspaces')
+  await waitFor(() => expect(screen.getByText('agent-made')).toBeTruthy())
+})

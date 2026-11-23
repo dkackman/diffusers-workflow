@@ -149,8 +149,12 @@ def workspace_for(state, name):
 def selected_workspace(request: Request, workspace: Optional[str] = None) -> Workspace:
     """FastAPI dependency form of workspace_for, reading the name from
     the `?workspace=` query parameter every scoped route already takes -
-    used as `ws: Workspace = Depends(selected_workspace)`."""
-    return workspace_for(request.app.state, workspace)
+    used as `ws: Workspace = Depends(selected_workspace)`. Records the name
+    on `request.state.dw_workspace`, the workspace a write route's declared
+    change bumps (dw/server/changes.py, `ChangeRoute`)."""
+    ws = workspace_for(request.app.state, workspace)
+    request.state.dw_workspace = ws.name
+    return ws
 
 
 def sources_for(state, ws):

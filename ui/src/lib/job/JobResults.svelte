@@ -1,6 +1,7 @@
 <script lang="ts">
-  import { untrack } from 'svelte'
   import { api, outputUrl } from '../api'
+  import { resource } from '../resource.svelte'
+  import { isBundle, runMetadataReader } from './runMetadata'
   import { describeOutputMeta } from '../outputMeta'
   import {
     sectionByRole,
@@ -47,62 +48,22 @@
 
   const kindOf = (path: string) => kinds[path] ?? null
 
-  // The generation metadata embedded in each image, keyed by file - per
-  // file rather than per step, since each image of a batch carries its own
-  // seed. Images and .otioz timelines only: the metadata route decodes an
-  // audio or video file whole to probe it, and nothing it would report is
-  // shown here. A key present with null is a lookup already in flight or
-  // failed. A timeline's summary is the response's `media`, kept per file in
-  // fileMedia beside the embedded metadata
-  let runInputs = $state<GalleryInput[]>([])
-  let fileMeta = $state<Record<string, Record<string, unknown> | null>>({})
-  let fileMedia = $state<Record<string, Record<string, unknown> | null>>({})
-  const isBundle = (file: string) => file.toLowerCase().endsWith('.otioz')
-  $effect(() => {
-    const workspace = job.workspace
-    const pending = fileGroups
-      .flatMap((group) => group.files)
-      .filter(
-        (file) =>
-          (kindOf(file) === 'image' || isBundle(file)) &&
-          !(file in untrack(() => fileMeta)),
-      )
-    if (!pending.length) return
-    untrack(() => {
-      for (const file of pending) {
-        fileMeta[file] = null
-        api
-          .galleryMetadata(file, workspace)
-          .then((r) => {
-            fileMeta[file] = r.metadata
-            if (isBundle(file)) fileMedia[file] = r.media
-            // The run's inputs are the same whichever output asks
-            if (r.inputs?.length && !runInputs.length) runInputs = r.inputs
-          })
-          .catch(() => {})
-      }
-    })
-  })
-
-  // A run that wrote no image or timeline (video and audio only, as H3 and
-  // LTX do) has no lookup above to read its inputs from, so the first output of any kind
-  // is asked once - never one probe per file
-  let probedFirst = false
-  $effect(() => {
-    const files = fileGroups.flatMap((group) => group.files)
-    if (!files.length || probedFirst) return
-    if (files.some((file) => kindOf(file) === 'image' || isBundle(file))) return
-    probedFirst = true
-    api
-      .galleryMetadata(
-        files[0],
-        untrack(() => job.workspace),
-      )
-      .then((r) => {
-        if (r.inputs?.length && !runInputs.length) runInputs = r.inputs
-      })
-      .catch(() => {})
-  })
+  // The metadata each image and timeline embeds, and the run's inputs
+  // (runMetadata.ts): read as the run's files arrive, and again when the
+  // gallery moves, which asks only what is new or failed
+  const readRun = runMetadataReader()
+  const run = resource(
+    () =>
+      readRun(
+        fileGroups.flatMap((group) => group.files),
+        kindOf,
+        job.workspace,
+      ),
+    { watch: ['gallery'], workspace: () => job.workspace },
+  )
+  const fileMeta = $derived(run.data?.meta ?? {})
+  const fileMedia = $derived(run.data?.media ?? {})
+  const runInputs = $derived(run.data?.inputs ?? [])
 
   // Nothing at all was generated: every step the manifest lists was served
   // from the step cache. Worth saying outright - the page otherwise shows a

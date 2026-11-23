@@ -183,3 +183,26 @@ it('an empty library with a filter typed says there are no prompts yet', async (
   expect(screen.queryByText('Nothing matches those filters.')).toBeNull()
   expect(screen.getByText('/srv/prompts')).toBeTruthy()
 })
+
+it('a quiet reload keeps focus, filter and selection', async () => {
+  listPrompts.mockResolvedValue(answer(['food', 'fog', 'bar']))
+  render(PromptsPage)
+  await waitFor(() => expect(screen.getByText('fog')).toBeTruthy())
+  const input = screen.getByPlaceholderText('filter…') as HTMLInputElement
+  input.focus()
+  await fireEvent.input(input, { target: { value: 'fo' } })
+  await waitFor(() => expect(screen.queryByText('bar')).toBeNull())
+
+  const next = answer(['food', 'fog', 'bar'])
+  next.details.fog = { ...next.details.fog, text: 'a foggier prompt' }
+  listPrompts.mockResolvedValue(next)
+  feed.move('default', 'prompts')
+  await screen.findByText('a foggier prompt')
+
+  expect(document.activeElement).toBe(input)
+  expect(input.value).toBe('fo')
+  const marked = [...document.querySelectorAll('.card.row-changed')]
+  expect(marked.map((c) => c.querySelector('.cardname')?.textContent)).toEqual([
+    'fog',
+  ])
+})

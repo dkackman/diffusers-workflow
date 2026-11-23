@@ -12,8 +12,11 @@
 
   let filter = $state('')
 
-  // A prompt an agent saves shows within one feed interval
-  const list = resource(() => api.listPrompts(), { watch: ['prompts'] })
+  // A prompt an agent saves shows within one feed interval, marked
+  const list = resource(() => api.listPrompts(), {
+    watch: ['prompts'],
+    rows: (data) => data.prompts.map((name) => [name, data.details[name]]),
+  })
   const prompts = $derived(list.data?.prompts ?? [])
   const details = $derived<Record<string, PromptDetail>>(
     list.data?.details ?? {},
@@ -79,7 +82,7 @@
       {@const detail = details[name]}
       <!-- The link is an overlay rather than a wrapper: buttons may not
          nest inside an anchor, and the chips are real buttons -->
-      <div class="card panel">
+      <div class="card panel" class:row-changed={list.changed.has(name)}>
         <a
           class="cardcover"
           href={href(name)}

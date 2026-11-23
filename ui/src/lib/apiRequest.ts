@@ -15,7 +15,7 @@ import {
   errorDetail,
   errorPayload,
 } from './apiErrors'
-import { scoped } from './apiUrls'
+import { outputUrl, scoped } from './apiUrls'
 import { reportResponse, reportUnreachable } from './connection.svelte'
 
 /** A JSON body sent with `method`, and any extra `headers` */
@@ -108,6 +108,39 @@ export async function fetchJson<T>(
 ): Promise<{ body: T; response: Response }> {
   const response = await send(path, init, options?.scope !== false)
   return { body: await response.json(), response }
+}
+
+/** A text response - a saved output file, a gallery text file - through
+ * the same path as every JSON call, so one that never arrived is a
+ * NetworkError and `connection` hears of it. `path` is used as given when
+ * `scope` is false: a file URL already names its workspace. */
+export async function fetchText(
+  path: string,
+  options?: { scope?: boolean },
+): Promise<string> {
+  return (await send(path, {}, options?.scope !== false)).text()
+}
+
+/** Fetch the text of a saved output file - how an enhancement's result
+ * comes back, since the manifest only names files. `workspace` names the
+ * job's own workspace, for the same reason `outputUrl` takes one: the file
+ * has to be read from where the job wrote it, not from whatever the picker
+ * says now. */
+export async function fetchOutputText(
+  path: string,
+  workspace?: string,
+): Promise<string> {
+  const name = path.split('/').pop() ?? ''
+  try {
+    return await fetchText(outputUrl(path, undefined, workspace), {
+      scope: false,
+    })
+  } catch (e) {
+    // A refusal names the file; one that never arrived stays a NetworkError
+    if (e instanceof ApiError)
+      throw new ApiError(`Could not read ${name}`, e.status, e.code)
+    throw e
+  }
 }
 
 /** PUT a JSON body under `pre`, returning the reply and the ETag of what

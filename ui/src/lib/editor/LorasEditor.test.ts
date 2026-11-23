@@ -2,6 +2,8 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/svelte'
 import Harness from './LorasEditorHarness.svelte'
 import type { LoraList, LoraRow } from '../types'
+import { feed } from '../test/feedMock'
+import { workspace } from '../workspaceState.svelte'
 
 // The spy only records calls: vitest's own tracking of a returned rejected
 // promise would report it as unhandled, so the result comes from `reply`
@@ -19,6 +21,10 @@ vi.mock('../api', () => ({
       return reply.next()
     },
   },
+}))
+
+vi.mock('../changes.svelte', async () => ({
+  changes: (await import('../test/feedMock')).feed.changes,
 }))
 
 beforeEach(() => listLoras.mockReset())
@@ -211,4 +217,16 @@ it('shows an existing row revision read-only', async () => {
   const code = await screen.findByText('deadbeef')
   expect(code.tagName).toBe('CODE')
   expect(screen.queryByDisplayValue('deadbeef')).toBeNull()
+})
+
+it('LorasEditor shows a LoRA saved elsewhere', async () => {
+  respond(row())
+  mount(pipe())
+  await screen.findByText('a-lora')
+  expect(feed.watched(workspace.current)).toContain('loras')
+  respond(row(), row({ name: 'b-saved', model_name: 'org/b-saved' }))
+  feed.move(workspace.current, 'loras')
+  await screen.findByText('b-saved')
+  expect(screen.getByText('a-lora')).toBeTruthy()
+  expect(screen.queryByText('Loading catalog suggestions…')).toBeNull()
 })

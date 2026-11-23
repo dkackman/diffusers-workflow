@@ -2,9 +2,10 @@ import { describe, expect, it, vi, afterEach } from 'vitest'
 import { render, screen, fireEvent, cleanup } from '@testing-library/svelte'
 import ArgumentsEditor from './ArgumentsEditor.svelte'
 import { api } from '../api'
+import type { PipelineDescription } from '../types'
 
-// componentType='' keeps the effect that fetches a pipeline description
-// from ever firing (see ArgumentsEditor.svelte's `if (!componentType) return`),
+// componentType='' keeps the resource that fetches a pipeline description
+// from ever asking (see ArgumentsEditor.svelte's `if (!wanted) return null`),
 // so every key resolves through mediaKindFor's name-based fallback - the
 // same fallback dw's task arguments (no annotation at all) rely on. That
 // keeps these tests independent of the introspection API.
@@ -78,5 +79,29 @@ describe('ArgumentsEditor media arguments', () => {
       }),
     )
     await vi.waitFor(() => expect(args.image).toBe('asset:abc123.png'))
+  })
+})
+
+describe('ArgumentsEditor class description', () => {
+  it("lists the described class's unused arguments once the name settles", async () => {
+    const describe = vi.spyOn(api, 'describePipeline').mockResolvedValue({
+      parameters: [
+        {
+          name: 'guidance_scale',
+          annotation: 'float',
+          default: 3.5,
+          required: false,
+        },
+      ],
+      accepts_kwargs: false,
+    } as unknown as PipelineDescription)
+    render(ArgumentsEditor, {
+      args: { prompt: 'a cat' },
+      componentType: 'ProbeArgumentsPipeline',
+    })
+    expect(
+      await screen.findByText(/show available arguments \(1\)/),
+    ).toBeInTheDocument()
+    expect(describe).toHaveBeenCalledWith('ProbeArgumentsPipeline')
   })
 })

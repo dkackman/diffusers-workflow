@@ -18,9 +18,16 @@
   } from '@lucide/svelte'
   import { api } from '../api'
   import { ApiError } from '../apiErrors'
-  import { openWorkflow, saveWorkflowAt } from '../editor/workflowFile'
+  import {
+    openWorkflow,
+    listedWorkflows,
+    saveWorkflowAt,
+    startingWorkflow,
+    watchWorkflow,
+    withSaved,
+  } from '../editor/workflowFile'
+  import { resource } from '../resource.svelte'
   import LoadFailed from '../ui/LoadFailed.svelte'
-  import { writableRoot } from '../libraries'
   import { notify } from '../toast'
   import { confirmDialog } from '../confirm.svelte'
   import { go, goWs, renameRoute } from '../router.svelte'
@@ -49,8 +56,8 @@
       localStorage.getItem('dw-editor-split') === '1' ? 'split' : null,
     label: (): string => ed.savePath() ?? 'this workflow',
   })
+  watchWorkflow(ed)
   ed.doc = emptyWorkflow()
-  let workflowDir = $state('')
   // The file fields collapse behind the path chip once the workflow has a
   // name - they are settings, not something you retouch on every edit
   let fileOpen = $state(false)
@@ -75,10 +82,20 @@
     [...new Set(editorLists.workflowFiles.map(groupOf).filter(Boolean))].sort(),
   )
   let validation = $state<ValidationResult | null>(null)
+  // A verdict on the copy the server's replaced is not one on this copy
+  $effect(() => {
+    if (ed.remoteLoads) validation = null
+  })
   // A new workflow's starting point: '' for blank, an example's name, or
   // IMPORTED for a definition handed over from an image's metadata
   let startFrom = $state('')
-  let examples = $state<string[]>([])
+  // The listing: the folder picker's files, where a new file saves, and the
+  // read-only examples a new workflow can start from (workflowFile.ts)
+  const catalog = resource(() => api.listWorkflows(), { watch: ['workflows'] })
+  const listed = $derived(listedWorkflows(catalog.data))
+  $effect(() => {
+    if (catalog.data) editorLists.workflowFiles = listed.files
+  })
   // Beside the definition, a hand-off carries the draft's file name and
   // what it started from, so moving it to another workspace keeps both
   const NAME_KEY = 'dw-editor-import-name'
@@ -114,9 +131,7 @@
     },
   ] as const
 
-  // Crumbs back out of the editor. The read-only page is where an edit
-  // usually starts, and until now the only exit landed on the list - so
-  // the last crumb links back to the workflow itself, when one is saved.
+  // Crumbs out of the editor, the last to the saved workflow's own page
   const crumbFolders = $derived(
     current ? groupOf(current).split('/').filter(Boolean) : [],
   )
@@ -162,11 +177,6 @@
     // draft back up from the hand-off
     void workspace.current
     loadEditorLists()
-    api.listWorkflows().then((r) => {
-      editorLists.workflowFiles = r.workflows.map((file) => `${file}.json`)
-      workflowDir = writableRoot(r.libraries)
-      examples = r.workflows.filter((wf) => r.details?.[wf]?.writable === false)
-    })
     loadPromptLibrary()
     // the route catching up with a save: this is the document already
     if (name && opened === `${workspace.current}:${name}`) return
@@ -236,15 +246,12 @@
     go('ws', target, 'edit')
   }
 
-  async function startingDoc(example: string) {
-    if (!example) return emptyWorkflow() as Record<string, any>
-    return (await api.getWorkflow(example)).definition as Record<string, any>
-  }
-
   /** A name the user typed stays; one the last example supplied follows
    * the new choice. */
   function followName(example: string) {
-    const supplied = examples.includes(startFrom) ? leafOf(startFrom) : ''
+    const supplied = listed.examples.includes(startFrom)
+      ? leafOf(startFrom)
+      : ''
     if (ed.saveName && ed.saveName !== supplied) return
     ed.saveName = example ? leafOf(example) : ''
   }
@@ -254,7 +261,7 @@
     const ask = { confirmLabel: 'Start over', danger: true }
     if (ed.unsaved() && !(await confirmDialog(message, ask))) return
     try {
-      const fresh = await startingDoc(example)
+      const fresh = await startingWorkflow(example, emptyWorkflow)
       ed.startNew(fresh)
       modes.reset(example ? {} : { [fresh.steps[0].name]: 'full' })
       followName(example)
@@ -314,15 +321,9 @@
       const outcome = await saveWorkflowAt(ed, path)
       if (outcome === 'cancelled') return
       ed.commitNewFolder()
-      // The folder picker's options come from the listing - a folder this
-      // save just created must appear there, or the select falls back to
-      // "(root)" while the state still names the folder
-      if (!editorLists.workflowFiles.includes(`${path}.json`)) {
-        editorLists.workflowFiles = [
-          ...editorLists.workflowFiles,
-          `${path}.json`,
-        ]
-      }
+      // A folder this save created must be in the picker at once, or the
+      // select falls back to "(root)" while the state still names it
+      if (catalog.data) catalog.adopt(withSaved(catalog.data, path))
       notify.success(`Saved to ${path}`)
       // The URL names the file now on screen: a first save, or a save as
       opened = `${workspace.current}:${path}`
@@ -345,7 +346,7 @@
         ed.folder && ed.folder !== NEW_FOLDER ? `/${ed.folder}` : ''
       const job = await api.submitJob({
         workflow: $state.snapshot(ed.doc) as WorkflowDefinition,
-        base_dir: `${workflowDir}${directory}`,
+        base_dir: `${listed.dir}${directory}`,
       })
       goWs('jobs', job.id)
     } catch (e) {
@@ -456,7 +457,7 @@
   {:else}
     <WorkflowFileBar
       {ed}
-      {workflowDir}
+      workflowDir={listed.dir}
       {folders}
       bind:fileOpen
       origin={current
@@ -465,7 +466,7 @@
             workspace: workspace.current,
             workspaces: workspace.names ?? [workspace.current],
             startFrom,
-            examples,
+            examples: listed.examples,
             onworkspace: moveToWorkspace,
             onstartfrom: chooseStart,
           }}

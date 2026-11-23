@@ -7,7 +7,7 @@
   import LoadState from '../ui/LoadState.svelte'
   import FolderGroups from '../FolderGroups.svelte'
   import BulkBar from '../BulkBar.svelte'
-  import { Picks, actOnEach } from '../picks.svelte'
+  import { Picks, actOnEach, reportFailures } from '../picks.svelte'
   import { isEditable } from '../editable'
   import { neighbor } from '../neighbor'
   import { overlayOpen } from '../ui/layers.svelte'
@@ -25,6 +25,7 @@
     applyEdits,
     gridFiles,
     keepPicks,
+    listingRows,
     noEdits,
     settleEdits,
     withGone,
@@ -64,9 +65,13 @@
     },
     {
       watch: ['gallery'],
+      rows: listingRows,
+      // What is held carries the page's edits still open, so a quiet reload
+      // diffs against them and never marks the page's own star or note
       merge: (held, incoming) => {
         edits = settleEdits(incoming.files, incoming.began, edits)
-        return keepPicks(picks, held, incoming)
+        const files = applyEdits(incoming.files, edits)
+        return keepPicks(picks, held, { ...incoming, files })
       },
     },
   )
@@ -75,8 +80,13 @@
   // cannot undo it
   let edits = $state(noEdits())
   const files = $derived(applyEdits(list.data?.files ?? [], edits))
-  const patch = (name: string, fields: Partial<GalleryFile>) =>
-    (edits = withPatch(edits, name, fields))
+  // A star or a note saved here is held as read (resource's `adopt`), so it
+  // is never marked as another writer's change
+  function patch(name: string, fields: Partial<GalleryFile>) {
+    edits = withPatch(edits, name, fields)
+    const held = list.data
+    if (held) list.adopt({ ...held, files: applyEdits(held.files, edits) })
+  }
   const drop = (names: Iterable<string>) => (edits = withGone(edits, names))
   // The editors' output: completions read the same listing
   $effect(() => {
@@ -141,17 +151,15 @@
     const names = await askDeletion(files, picks.names)
     if (!names) return
     busy = true
-    const failed = await actOnEach(names, (name) => api.deleteOutput(name))
+    const failures = await actOnEach(names, (name) => api.deleteOutput(name))
+    const failed = failures.map((f) => f.name)
     const gone = new Set(names.filter((name) => !failed.includes(name)))
     drop(gone)
     // Whatever could not be deleted stays selected, so a retry needs no
     // re-ticking and the failure is visible rather than silently dropped
     picks.keepFailed(names, failed)
     if (selected && gone.has(selected.name)) selected = null
-    if (failed.length)
-      notify.error(
-        `Could not delete ${failed.length} of ${names.length} files: ${failed.join(', ')}`,
-      )
+    reportFailures('delete', failures, names.length, 'files')
     busy = false
   }
 
@@ -321,7 +329,11 @@
   >
     {#snippet card(name)}
       {@const file = byName.get(name)!}
-      <div class="cellwrap" class:picked={picks.has(name)}>
+      <div
+        class="cellwrap"
+        class:picked={picks.has(name)}
+        class:row-changed={list.changed.has(name)}
+      >
         <!-- A sibling of the cell rather than a child: a checkbox nested in
            a button is invalid, and keeping them apart is what lets a plain
            click still open the details it always has -->

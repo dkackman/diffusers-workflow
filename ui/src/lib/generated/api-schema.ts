@@ -2286,6 +2286,16 @@ export interface components {
              */
             jobs: number;
             /**
+             * Loras
+             * @description LoRA catalog saves and deletes. Server-wide.
+             */
+            loras: number;
+            /**
+             * Models
+             * @description Model downloads, cancels and deletes, cache clears, and a diffusers update. Server-wide.
+             */
+            models: number;
+            /**
              * Prompts
              * @description Prompt library saves and deletes.
              */
