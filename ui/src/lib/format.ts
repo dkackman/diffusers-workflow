@@ -80,7 +80,10 @@ export function formatApprox(seconds: number): string {
   const minutes = Math.round(seconds / 60)
   if (seconds < 60 || minutes < 1) return 'under 1 min'
   if (minutes < 60) return `about ${minutes} min`
-  return `about ${Math.floor(minutes / 60)} h ${minutes % 60} min`
+  const h = Math.floor(minutes / 60)
+  return minutes % 60 === 0
+    ? `about ${h} h`
+    : `about ${h} h ${minutes % 60} min`
 }
 
 /** Minutes that were measured, not estimated, so with no tilde: '38 min
@@ -88,7 +91,7 @@ export function formatApprox(seconds: number): string {
  * decimal, past it the whole minute. */
 export function formatSpent(minutes: number): string {
   if (minutes <= 0) return '0 min'
-  if (minutes < 1) return '<1 min'
+  if (minutes < 1) return 'under 1 min'
   const shown = minutes < 10 ? Number(minutes.toFixed(1)) : Math.round(minutes)
   return `${shown} min`
 }

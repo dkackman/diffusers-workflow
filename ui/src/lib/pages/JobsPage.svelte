@@ -1,6 +1,6 @@
 <script lang="ts">
   import { formatDuration, formatExact, formatMtime } from '../format'
-  import { holdKind } from '../progress'
+  import { holdKind, holdText } from '../progress'
   import { queueWait } from '../jobTimes'
   import { resource } from '../resource.svelte'
   import LoadState from '../ui/LoadState.svelte'
@@ -393,7 +393,7 @@
             </span>
             {#if job.waiting_for}
               {@const kind = holdKind(job.waiting_for)}
-              <span class="muted" title={job.waiting_for}>
+              <span class="muted" title={holdText(job.waiting_for)}>
                 · {kind === 'host_ram'
                   ? 'host RAM'
                   : kind === 'cards_busy'

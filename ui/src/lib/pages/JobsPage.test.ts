@@ -224,7 +224,7 @@ it('adds the hold reason to a queued row that has waiting_for', async () => {
   const { container } = render(JobsPage)
   await waitFor(() => expect(screen.getByText('· host RAM')).toBeTruthy())
   expect(screen.getByText('· host RAM').getAttribute('title')).toBe(
-    'waiting for host RAM: needs ~9 GB, ~2 GB free',
+    'waiting for host RAM: needs about 9 GB, about 2 GB free',
   )
   expect(screen.getByText('· cards busy').getAttribute('title')).toBe(
     'queued behind 1 running job(s) on every card',

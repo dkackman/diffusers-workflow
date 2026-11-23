@@ -14,7 +14,7 @@
   import { displayValue } from '../editor'
   import { formatDuration, formatExact, formatMtime, gbFromMb } from '../format'
   import { notify } from '../toast'
-  import { holdKind } from '../progress'
+  import { holdKind, holdText } from '../progress'
   import type { JobDetail, LedgerRequest } from '../types'
 
   // The job page's title row: what ran, its state and identity, and the
@@ -221,7 +221,7 @@
     {/if}
     {#if job.waiting_for}
       <span class="muted" title={holdTitle(job.waiting_for)}>
-        {job.waiting_for}
+        {holdText(job.waiting_for)}
       </span>
     {/if}
     {#if seed !== undefined}

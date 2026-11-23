@@ -67,7 +67,7 @@ it('gives measured minutes with no tilde', () => {
   expect(formatSpent(38.27)).toBe('38 min')
   expect(formatSpent(6.25)).toBe('6.3 min')
   expect(formatSpent(2)).toBe('2 min')
-  expect(formatSpent(0.4)).toBe('<1 min')
+  expect(formatSpent(0.4)).toBe('under 1 min')
   expect(formatSpent(0)).toBe('0 min')
 })
 
@@ -85,6 +85,7 @@ describe('formatApprox', () => {
   })
   it('formatApprox crosses an hour', () => {
     expect(formatApprox(4800)).toBe('about 1 h 20 min')
+    expect(formatApprox(7200)).toBe('about 2 h')
   })
 })
 
