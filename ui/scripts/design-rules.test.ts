@@ -24,7 +24,6 @@ const LIVE_FILES = [
   'src/lib/editor/FlowView.svelte',
   'src/lib/job/JobProgress.svelte',
   'src/lib/pages/ModelsPage.svelte',
-  'src/lib/pages/OverviewPage.svelte',
   'src/lib/request/RequestProgress.svelte',
 ]
 
@@ -54,4 +53,75 @@ it('location.replace appears only in the router', () => {
     .filter((f) => readFileSync(f, 'utf8').includes('location.replace('))
     .map((f) => f.slice(UI.length + 1).replaceAll('\\', '/'))
   expect(using).toEqual(['src/lib/router.svelte.ts'])
+})
+
+// One look for a chosen segment and one for a chosen chip: the selected
+// styles live in Segmented.svelte and patterns.css, so no other component
+// restyles `aria-pressed` or `.activebtn`
+it('the segmented and chip selected styles live only in Segmented.svelte and patterns.css', () => {
+  const declaring = sourceFiles()
+    .filter((f) => /aria-pressed|\.activebtn/.test(styleOf(f)))
+    .map((f) => f.slice(UI.length + 1).replaceAll('\\', '/'))
+  expect(declaring.filter((f) => f !== 'src/lib/ui/Segmented.svelte')).toEqual(
+    declaring.filter((f) => f === 'src/patterns.css'),
+  )
+})
+
+// A job's status colours are one rule: `.chip.<status>` in app.css, worn
+// through StatusChip. A component that restyled one would give a status a
+// second look (a cancelled take once showed as a grey idle chip)
+it('job status colours are declared only in StatusChip.svelte and app.css', () => {
+  const STATUS = /\.chip\.(running|queued|succeeded|failed|cancelled)\b/
+  const declaring = sourceFiles()
+    .filter((f) => STATUS.test(styleOf(f)))
+    .map((f) => f.slice(UI.length + 1).replaceAll('\\', '/'))
+  expect(
+    declaring.filter(
+      (f) => f !== 'src/app.css' && f !== 'src/lib/ui/StatusChip.svelte',
+    ),
+  ).toEqual([])
+  // and the chip itself carries the status as its class
+  expect(
+    readFileSync(join(UI, 'src/lib/ui/StatusChip.svelte'), 'utf8'),
+  ).toContain('class="chip {status}"')
+})
+
+// The CSS a file declares: a .svelte file's <style> blocks, or a .css file whole
+function styleOf(file: string): string {
+  const text = readFileSync(file, 'utf8')
+  if (file.endsWith('.css')) return text
+  if (!file.endsWith('.svelte')) return ''
+  return [...text.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)]
+    .map((m) => m[1])
+    .join('\n')
+}
+
+// A var(--x) that names nothing silently falls back (or to nothing): every
+// custom property read is defined by `--x:` somewhere in src, set with
+// `style:--x`, or is a Bits UI `--bits-*` name
+it('every var(--x) names a defined custom property', () => {
+  const files = sourceFiles()
+  const texts = files.map((f) => readFileSync(f, 'utf8'))
+  const defined = new Set<string>()
+  for (const t of texts) {
+    for (const m of t.matchAll(/(?<![\w-])(--[a-zA-Z0-9_-]+)\s*:/g))
+      defined.add(m[1])
+    for (const m of t.matchAll(/style:(--[a-zA-Z0-9_-]+)/g)) defined.add(m[1])
+  }
+  const undefinedUses: string[] = []
+  files.forEach((f, i) => {
+    for (const m of texts[i].matchAll(/var\(\s*(--[a-zA-Z0-9_-]+)/g)) {
+      if (!defined.has(m[1]) && !m[1].startsWith('--bits-'))
+        undefinedUses.push(`${f.slice(UI.length + 1)}: ${m[1]}`)
+    }
+  })
+  expect(undefinedUses).toEqual([])
+})
+
+// app.css is full; a shared class that would grow it goes in patterns.css
+it('app.css stays at or under 600 lines', () => {
+  const lines = readFileSync(join(UI, 'src/app.css'), 'utf8').split('\n')
+  // a trailing newline is not a line
+  const count = lines.at(-1) === '' ? lines.length - 1 : lines.length
+  expect(count).toBeLessThanOrEqual(600)
 })

@@ -68,6 +68,7 @@ it('says nothing for an asset with no recorded provenance', async () => {
 it('shows the asset note', () => {
   render(AssetDetail, { ...props, asset: { ...asset, note: 'the hero face' } })
   expect(screen.getByText('the hero face')).toBeTruthy()
+  expect(screen.getByText('Your note on this asset')).toBeTruthy()
 })
 
 it('a failed provenance read says so, with Retry, rather than nothing', async () => {

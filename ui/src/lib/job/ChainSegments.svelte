@@ -11,6 +11,7 @@
    * workflow page with its fields filled; nothing runs until Run there.
    * Continue reruns this job, behind a confirm. */
   import { api, outputUrl } from '../api'
+  import { describeError } from '../apiErrors'
   import {
     WORKFLOW_PREFILL_KEY,
     chainModel,
@@ -97,10 +98,10 @@
     if (!asked) return describeEstimate(null).text
     try {
       const answer = await api.validate(asked)
-      if (!answer.valid) return 'none - a run would be refused'
+      if (!answer.valid) return 'none - a job would be refused'
       return describeEstimate(answer.plan?.estimate ?? null).text
     } catch (e) {
-      return `none - could not price it (${e instanceof Error ? e.message : String(e)})`
+      return `none - could not price it (${describeError(e).title})`
     }
   }
 
@@ -176,7 +177,7 @@
 
   const measureLabel = (row: ChainRow) =>
     row.measureState === 'resumed'
-      ? 'not recorded - resumed from an earlier run'
+      ? 'not recorded - resumed from an earlier job'
       : row.measureState === 'not-recorded'
         ? 'not recorded'
         : 'nothing measured'
@@ -209,8 +210,8 @@
         </button>
       </div>
     {/if}
-    <div class="scroll">
-      <table>
+    <div class="tablewrap">
+      <table class="datatable">
         <thead>
           <tr>
             <th scope="col">#</th>
@@ -309,10 +310,8 @@
 
 <style>
   h2 {
-    display: flex;
     flex-wrap: wrap;
     align-items: baseline;
-    gap: 0.5rem;
   }
   .step {
     font-size: 0.85em;
@@ -327,24 +326,14 @@
   .mono {
     font-family: var(--font-mono);
   }
-  .scroll {
-    overflow-x: auto;
-  }
   table {
-    border-collapse: collapse;
-    width: 100%;
     font-size: 0.85rem;
   }
   th,
   td {
-    text-align: left;
     vertical-align: top;
-    padding: 0.35rem 0.5rem;
-    border-bottom: 1px solid var(--line);
   }
   th {
-    font-weight: 600;
-    color: var(--muted);
     white-space: nowrap;
   }
   .thumb video {
@@ -394,6 +383,7 @@
     box-shadow: inset 3px 0 0 var(--bad);
   }
   .measure.warn {
+    color: inherit;
     box-shadow: inset 3px 0 0 var(--warn);
   }
   .muted {

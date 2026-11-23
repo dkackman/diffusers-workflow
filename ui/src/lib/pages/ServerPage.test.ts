@@ -1,4 +1,4 @@
-import { render, waitFor } from '@testing-library/svelte'
+import { render, screen, waitFor } from '@testing-library/svelte'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 // Hoisted above the component import so its static (hoisted) import sees an
 // initialized mock - the same shape the other page tests use
@@ -152,6 +152,17 @@ afterEach(() => {
   localStorage.clear()
 })
 
+it('sets the tab title to Status, with the host and version beside it', async () => {
+  await show()
+  expect(document.title).toBe('Status · diffusers-workflow')
+  expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Status')
+  expect(
+    screen.getByText(`${base.hostname} · v${base.version}`, {
+      selector: '.secondary',
+    }),
+  ).toBeTruthy()
+})
+
 it('composes the browser URL and the MCP command from the address', async () => {
   const text = await show()
   expect(text).toContain('http://192.168.1.50:8765')
@@ -248,7 +259,7 @@ it('lists each worker with its card, VRAM and a link to its job', async () => {
   const hrefs = [...container.querySelectorAll('li a')].map((a) =>
     a.getAttribute('href'),
   )
-  expect(hrefs).toEqual(['#/jobs/job-a', '#/jobs/job-b'])
+  expect(hrefs).toEqual(['#/ws/default/jobs/job-a', '#/ws/default/jobs/job-b'])
 })
 
 it('shows memory for every card, not just the first', async () => {
@@ -369,9 +380,14 @@ it('asks before clearing, quoting the cost and the shared-cache warning', async 
   clearButton(container, 'triton').click()
   await settle()
   expect(confirmDialog).toHaveBeenCalledOnce()
-  const message = confirmDialog.mock.calls[0][0]
-  expect(message).toContain('triton')
-  expect(message).toContain('7.10 GB')
+  const [message, spec] = confirmDialog.mock.calls[0] as [
+    string,
+    { title: string },
+  ]
+  // the title names the cache; the message does not say it again
+  expect(spec.title).toContain('triton')
+  expect(message).not.toContain('triton')
+  expect(message).toContain('7.10 GB, 19683 files.')
   expect(message).toContain('re-autotunes')
   expect(message).toContain('shared with any other Triton user')
   expect(clearCache).toHaveBeenCalledWith('triton')
@@ -386,7 +402,7 @@ it('names an empty cache as 0 bytes in the confirm, not 1 KB', async () => {
   clearButton(container, 'inductor').click()
   await settle()
   const message = confirmDialog.mock.calls[0][0]
-  expect(message).toContain('(0 bytes, 0 files)')
+  expect(message).toMatch(/^0 bytes, 0 files\. /)
   expect(message).not.toContain('1 KB')
 })
 
@@ -505,10 +521,15 @@ it('deletes an entry after the confirm, then re-reads the caches', async () => {
   await settle()
   entryDelete(container, 0).click()
   await settle()
-  const message = confirmDialog.mock.calls[0][0]
-  expect(message).toContain('transformer')
-  expect(message).toContain('org/flux')
-  expect(message).toContain('3.00 GB')
+  const [message, spec] = confirmDialog.mock.calls[0] as [
+    string,
+    { title: string },
+  ]
+  // the title names the entry; the message says its size and cost
+  expect(spec.title).toBe(
+    'Delete transformer of org/flux from the quantized cache?',
+  )
+  expect(message).toMatch(/^3\.00 GB\. /)
   expect(message).toContain('re-quantizes')
   expect(deleteCacheEntry).toHaveBeenCalledWith('quantized', ID_A)
   expect(listCaches).toHaveBeenCalledTimes(2)

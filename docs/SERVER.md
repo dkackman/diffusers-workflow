@@ -1491,6 +1491,14 @@ one that would leave its root is a 404 (a name a workspace cannot take, or
 an invalid asset name, a 400), and a write that fails a 500. Notes are free
 metadata and need no `acknowledged_cost`.
 
+`GET /api/notes?target=&workspace=` reads one target's **own** note
+(a file's, never the run's it falls back to) as `{target, note, etag}`, the
+etag in the `ETag` header too: a strong tag over the note's text, `""` for
+none. A PUT that sends `If-Match` with it writes only if the note is still
+that text, else answers 409 `stale_write` with the current `etag` and
+writes nothing, the way a workflow save does. The header is opt-in: without
+it a PUT is last-writer-wins, as MCP's `set_note` is.
+
 Notes are set at creation too:
 
 - `POST /api/jobs` takes `note`. It is kept on the job (`note` in every job

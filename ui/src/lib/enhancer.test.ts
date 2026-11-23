@@ -9,6 +9,7 @@ vi.mock('./api', () => ({
     listModels: vi.fn().mockResolvedValue({ repos: [] }),
     startDownload: vi.fn().mockResolvedValue({}),
     listDownloads: vi.fn(),
+    enhance: vi.fn(),
   },
   fetchOutputText: vi.fn(),
   streamJobEvents: vi.fn(() => () => {}),
@@ -75,7 +76,24 @@ it('reports a download that failed on the server', async () => {
   await vi.advanceTimersByTimeAsync(2000)
   await done
   expect(enhancer.downloading).toBe(false)
-  expect(enhancer.error).toBe('disk full')
+  // our words lead; the server's reason is kept for Details
+  expect(enhancer.error).toBe('The model download failed')
+  expect(enhancer.errorDetail).toBe('disk full')
+})
+
+it('a refused enhancement leads with the described title, not the raw message', async () => {
+  const { ApiError } = await import('./apiErrors')
+  const raw = 'Traceback (most recent call last): KeyError: preset'
+  vi.mocked(api.enhance).mockRejectedValue(new ApiError(raw, 500))
+  const enhancer = new Enhancer()
+  enhancer.idea = 'a cat'
+  await enhancer.generate()
+  expect(enhancer.error).toBe(
+    "Couldn't start the enhancement: The server hit an error",
+  )
+  expect(enhancer.error).not.toContain('Traceback')
+  expect(enhancer.errorDetail).toBe(raw)
+  expect(enhancer.busy).toBe(false)
 })
 
 it('hands the result over once, with what made it', () => {

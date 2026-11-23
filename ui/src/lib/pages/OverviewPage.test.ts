@@ -118,6 +118,14 @@ beforeEach(async () => {
 })
 afterEach(cleanup)
 
+it('sets the tab title to the workspace name', async () => {
+  render(OverviewPage)
+  await waitFor(() =>
+    expect(document.title).toBe('studio · diffusers-workflow'),
+  )
+  expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('studio')
+})
+
 it('an empty workspace shows empty states, not empty frames', async () => {
   render(OverviewPage)
   await waitFor(() =>
@@ -133,6 +141,7 @@ it('shows the workspace note', async () => {
   await waitFor(() =>
     expect(screen.getByText('client moodboards')).toBeTruthy(),
   )
+  expect(screen.getByText('Your note on this workspace')).toBeTruthy()
 })
 
 it('one panel failing leaves the others', async () => {
@@ -202,8 +211,9 @@ it('shows recent outputs, jobs and workflows, each linking to its page', async (
     },
   ]
   render(OverviewPage)
+  // the recent output's frame, and the workflow card's proof (also a .frame)
   await waitFor(() =>
-    expect(document.querySelectorAll('.frame').length).toBe(1),
+    expect(document.querySelectorAll('.frame').length).toBe(2),
   )
   expect(
     screen.getByRole('link', { name: /recent outputs/i }).getAttribute('href'),
@@ -237,7 +247,7 @@ it('a deep queue does not hide the running job, and queued jobs are not "recent"
   await waitFor(() =>
     expect(screen.getByRole('link', { name: 'running1' })).toBeTruthy(),
   )
-  expect(document.querySelector('.runningnow')).toBeTruthy()
+  expect(document.querySelector('.row-live')).toBeTruthy()
   expect(screen.getByRole('link', { name: 'done1' })).toBeTruthy()
   expect(document.querySelectorAll('.chip.queued')).toHaveLength(0)
   expect(screen.queryByRole('link', { name: /^queued/ })).toBeNull()
@@ -257,22 +267,30 @@ it('delete is offered off the default and goes through the shared action', async
   await waitFor(() => expect(location.hash).toBe('#/ws/default/overview'))
 })
 
-it('the default workspace cannot be deleted', async () => {
+it("the default workspace says why it can't be managed, with no disabled buttons", async () => {
   location.hash = '#/ws/default/overview'
   window.dispatchEvent(new HashChangeEvent('hashchange'))
   render(OverviewPage)
-  await waitFor(() =>
-    expect(
-      screen.getByRole('button', { name: /delete workspace/i }),
-    ).toBeTruthy(),
+  const manage = (await screen.findByRole('heading', { name: 'Manage' }))
+    .parentElement!
+  expect(manage.textContent?.replace(/\s+/g, ' ')).toContain(
+    "The default workspace is the server's own folder, so it can't be " +
+      'hidden or deleted.',
   )
+  expect(manage.querySelectorAll('button')).toHaveLength(0)
+  expect(screen.queryByRole('button', { name: /delete workspace/i })).toBeNull()
+})
+
+it('off the default, Manage offers hide and a danger delete', async () => {
+  render(OverviewPage)
+  const remove = await screen.findByRole('button', {
+    name: /delete workspace/i,
+  })
+  expect(remove.classList.contains('danger')).toBe(true)
+  expect((remove as HTMLButtonElement).disabled).toBe(false)
   expect(
-    (
-      screen.getByRole('button', {
-        name: /delete workspace/i,
-      }) as HTMLButtonElement
-    ).disabled,
-  ).toBe(true)
+    screen.getByRole('button', { name: /hide from sidebar/i }),
+  ).toBeTruthy()
 })
 
 const summary = (over: Record<string, unknown>) => ({

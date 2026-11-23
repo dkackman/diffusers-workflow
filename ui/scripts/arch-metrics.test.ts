@@ -74,7 +74,9 @@ describe('the real tree', () => {
     const { metrics } = await measure()
     expect(Object.keys(metrics).sort()).toEqual([
       'a11y_suppressions',
+      'banned_terms',
       'complex_functions',
+      'duplicate_blocks',
       'empty_outside_loadstate',
       'files_over_size_ceiling',
       'import_cycles',
@@ -82,7 +84,9 @@ describe('the real tree', () => {
       'modules_in_import_cycles',
       'prefix_literals',
       'raw_error_toasts',
+      'unguarded_mutations',
       'unwatched_reads',
+      'window_dialogs',
     ])
     for (const value of Object.values(metrics))
       expect(Number.isInteger(value)).toBe(true)
@@ -209,6 +213,191 @@ describe('the page-quality metrics', () => {
       'b.ts': `declare const api: any\napi.listJobs()\n`,
     })
     expect(m.unwatched_reads).toBe(2)
+  })
+})
+
+describe('the consistency metrics', () => {
+  async function measured(files: Record<string, string>, extra: string[] = []) {
+    const dir = mkdtempSync(join(UI, '.metrics-probe-'))
+    try {
+      const paths = Object.entries(files).map(([name, text]) => {
+        const file = join(dir, name)
+        writeFileSync(file, text)
+        return file
+      })
+      return await measure([...paths, ...extra], ['asset:'])
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  }
+
+  it('window_dialogs counts window.prompt and a bare confirm, not confirmDialog', async () => {
+    const { metrics, detail } = await measured({
+      'a.svelte': `<script lang="ts">
+  declare const confirmDialog: any
+  function go() {
+    const name = window.prompt('Name')
+    if (confirm('Sure?')) confirmDialog({ title: 'Sure?' })
+    return name
+  }
+</script>
+<button onclick={go}>Go</button>
+`,
+      'b.ts': `declare const ui: any\nui.confirm('x')\nexport {}\n`,
+    })
+    expect(metrics.window_dialogs).toBe(2)
+    expect(detail.window_dialogs).toEqual([
+      expect.stringMatching(/a\.svelte:4$/),
+      expect.stringMatching(/a\.svelte:5$/),
+    ])
+  })
+
+  it('unguarded_mutations spares a write inside action() and in a function action() names', async () => {
+    const { metrics, detail } = await measured({
+      'a.svelte': `<script lang="ts">
+  import { api } from '../api'
+  declare const action: any
+  async function helper() {
+    await api.cancelJob('j')
+  }
+  const cancel = action(() => helper())
+  const save = action(() => api.saveWorkflow({}))
+  async function bare() {
+    await api.deleteOutput('x')
+  }
+  const r = api.listJobs()
+</script>
+<button onclick={() => api.setStarred('x', true)}>Star</button>
+<button onclick={bare}>Delete</button>
+`,
+      'b.ts': `declare const api: any\napi.deleteOutput('x')\n`,
+    })
+    expect(metrics.unguarded_mutations).toBe(2)
+    expect(detail.unguarded_mutations).toEqual([
+      expect.stringMatching(/a\.svelte:10 deleteOutput$/),
+      expect.stringMatching(/a\.svelte:14 setStarred$/),
+    ])
+  })
+
+  it('unguarded_mutations counts a helper an action names when a button also binds it bare', async () => {
+    const { metrics, detail } = await measured({
+      'a.svelte': `<script lang="ts">
+  import { api } from '../api'
+  declare const action: any
+  async function bare() {
+    await api.deleteOutput('x')
+  }
+  const remove = action(() => bare())
+</script>
+<button onclick={bare}>Delete</button>
+<button onclick={remove.run}>Delete</button>
+`,
+    })
+    expect(metrics.unguarded_mutations).toBe(1)
+    expect(detail.unguarded_mutations).toEqual([
+      expect.stringMatching(/a\.svelte:5 deleteOutput$/),
+    ])
+  })
+
+  it('unguarded_mutations: a property or a shadowing local named like the helper does not guard it', async () => {
+    const { metrics, detail } = await measured({
+      'a.svelte': `<script lang="ts">
+  import { api } from '../api'
+  declare const action: any
+  declare const x: any
+  async function helper() {
+    await api.cancelJob('j')
+  }
+  async function other() {
+    await api.deleteOutput('x')
+  }
+  const a = action(() => x.helper())
+  const b = action(({ other }: any) => other())
+  const c = action(() => ({ helper: 1 }))
+</script>
+<button onclick={helper}>Cancel</button>
+<button onclick={other}>Delete</button>
+`,
+    })
+    expect(metrics.unguarded_mutations).toBe(2)
+    expect(detail.unguarded_mutations).toEqual([
+      expect.stringMatching(/a\.svelte:6 cancelJob$/),
+      expect.stringMatching(/a\.svelte:9 deleteOutput$/),
+    ])
+  })
+
+  it('unguarded_mutations counts a use of an imported .ts helper that writes, outside action()', async () => {
+    const { metrics, detail } = await measured({
+      'helpers.ts': `import { api } from './api'
+export async function removeIt(name: string) {
+  await inner(name)
+}
+async function inner(name: string) {
+  await api.deleteOutput(name)
+}
+export function label(name: string) {
+  return name
+}
+export { inner as removeInner }
+`,
+      'a.svelte': `<script lang="ts">
+  import { removeIt, label, removeInner } from './helpers'
+  import * as h from './helpers'
+  declare const action: any
+  const guarded = action(() => removeIt('x'))
+  const passed = action(removeInner, { doing: 'remove' })
+</script>
+<button onclick={() => removeIt('y')}>{label('y')}</button>
+<button onclick={removeInner}>Remove</button>
+<button onclick={() => h.removeIt('z')}>{h.label('z')}</button>
+`,
+    })
+    expect(metrics.unguarded_mutations).toBe(3)
+    expect(detail.unguarded_mutations).toEqual([
+      expect.stringMatching(/a\.svelte:8 removeIt$/),
+      expect.stringMatching(/a\.svelte:9 removeInner$/),
+      expect.stringMatching(/a\.svelte:10 removeIt$/),
+    ])
+  })
+
+  it('banned_terms skips style text and terms.ts', async () => {
+    const { metrics, detail } = await measured(
+      {
+        'a.svelte': `<script lang="ts">
+  const eta = \`~\${3} min\`
+  const word = 'session'
+  const hint = 'No session is listening'
+</script>
+<p>Keep as asset</p>
+<span title="held for your review">x</span>
+<style>
+  /* the run note, ~3 */
+  p { margin: 0 }
+</style>
+`,
+      },
+      [join(UI, 'src/lib/terms.ts')],
+    )
+    expect(detail.banned_terms).toEqual([
+      expect.stringMatching(/a\.svelte:2 tilde$/),
+      expect.stringMatching(/a\.svelte:4 session$/),
+      expect.stringMatching(/a\.svelte:6 keep-asset$/),
+      expect.stringMatching(/a\.svelte:7 held-review$/),
+    ])
+    expect(metrics.banned_terms).toBe(4)
+  })
+
+  it('duplicate_blocks counts one shared 6-line run once per file', async () => {
+    const block = Array.from(
+      { length: 8 },
+      (_, i) => `  <p class="row-${i}">line ${i}</p>`,
+    ).join('\n')
+    const { metrics } = await measured({
+      'a.svelte': `<div>\n${block}\n</div>\n<p>only a</p>\n`,
+      'b.svelte': `<section>\n  <h2>b</h2>\n${block.replaceAll('  <p', '      <p')}\n</section>\n`,
+      'c.svelte': `<p>nothing shared</p>\n`,
+    })
+    expect(metrics.duplicate_blocks).toBe(2)
   })
 })
 

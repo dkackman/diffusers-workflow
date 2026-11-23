@@ -20,7 +20,9 @@
 // `remoteLoads` counts the loads the server's copy caused (a reload, Load
 // theirs), so a page can drop what it said about the copy replaced - a
 // validation verdict.
-import { tick, untrack } from 'svelte'
+import { tick, untrack, type Component } from 'svelte'
+import { Braces, Columns2, LayoutList, Workflow } from '@lucide/svelte'
+import { overlayOpen } from './ui/layers.svelte'
 import type { WritePreconditions } from './apiRequest'
 import type { ChangeKind } from './changes.svelte'
 import { confirmDialog } from './confirm.svelte'
@@ -29,8 +31,59 @@ import { addLeaveGuard } from './router.svelte'
 import { describeError } from './apiErrors'
 import { resource } from './resource.svelte'
 import { notify } from './toast'
+import type { UndoTarget } from './destructive'
 
 export type EditorView = 'form' | 'split' | 'json' | 'flow'
+
+/** Every view an editor can offer, with its words; an editor filters this
+ * by the views it has (`DocumentEditor`'s `views`). */
+export const EDITOR_VIEWS: {
+  value: EditorView
+  label: string
+  title: string
+  icon: Component<{ size?: number }>
+}[] = [
+  { value: 'form', label: 'form', title: 'edit with a form', icon: LayoutList },
+  {
+    value: 'split',
+    label: 'split',
+    title: 'form beside the JSON - both editable, blur applies',
+    icon: Columns2,
+  },
+  {
+    value: 'json',
+    label: 'JSON',
+    title: 'edit the raw JSON, schema-aware',
+    icon: Braces,
+  },
+  {
+    value: 'flow',
+    label: 'flow',
+    title:
+      'read-only data-flow diagram: steps as boxes, previous_result as edges',
+    icon: Workflow,
+  },
+]
+
+/** The editor's Ctrl/Cmd+S (and Caps-Lock S) save and Ctrl/Cmd+Enter run.
+ * Nothing fires under an overlay, mid-IME composition, on a document that
+ * cannot be written or while it is busy; the pending edit is flushed first. */
+export function editorKeys(
+  ed: DocumentEditor,
+  handlers: { save: () => void; run?: () => void },
+): (e: KeyboardEvent) => void {
+  return (e) => {
+    if (!(e.ctrlKey || e.metaKey) || e.isComposing || overlayOpen()) return
+    const key = e.key.toLowerCase()
+    const act =
+      key === 's' ? handlers.save : key === 'enter' ? handlers.run : null
+    if (!act || !ed.canWrite) return
+    e.preventDefault()
+    if (ed.busy) return
+    ed.flush()
+    act()
+  }
+}
 
 /** 'new' is a blank or handed-over document, 'failed' one that never
  * arrived - which must not be saved over the file it stands in for. */
@@ -94,6 +147,17 @@ function successorOf(was: HTMLElement, root: HTMLElement | null) {
       ? `[name="${CSS.escape(name)}"]`
       : ''
   return selector ? root?.querySelector<HTMLElement>(selector) : null
+}
+
+// Every document an editor opens - another file, a newer copy, a new
+// draft - counts here; an edit in place does not
+let opened = 0
+
+/** An editor's Undo is for the document it was made in: one opened since
+ * refuses it, so it never lands in another workflow */
+export const OPEN_DOCUMENT: UndoTarget = {
+  now: () => opened,
+  away: 'Nothing undone: another workflow, or a newer copy of this one, has opened since.',
 }
 
 export class DocumentEditor {
@@ -309,6 +373,7 @@ export class DocumentEditor {
   ) {
     this.doc = doc
     this.baseline = JSON.stringify(doc)
+    opened++
     // The last document's broken draft is not this one's: the JSON view
     // mirrors the document just opened
     this.jsonParseFailed = false

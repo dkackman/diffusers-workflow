@@ -45,10 +45,10 @@ test('create a workspace, work in it, delete it', async ({ page }) => {
   // delete from its overview
   await page.goto('/#/ws/e2e-ws/overview')
   await page.getByRole('button', { name: 'Delete workspace' }).click()
-  await page
-    .getByRole('alertdialog')
-    .getByRole('button', { name: 'Delete' })
-    .click()
+  const confirm = page.getByRole('alertdialog')
+  await expect(confirm).toContainText('Delete workspace "e2e-ws"?')
+  await expect(confirm).toContainText('The prompt library and the shared')
+  await confirm.getByRole('button', { name: 'Delete workspace' }).click()
   await expect(page).toHaveURL(/#\/ws\/default\/overview$/)
   await expect(nav.getByText('e2e-ws')).toHaveCount(0)
 })

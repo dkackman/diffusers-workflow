@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { costBasisWords, costMeasuredAt, costMeasuredOn } from './cost'
+import {
+  costBasisWords,
+  costFigure,
+  costMeasuredAt,
+  costMeasuredOn,
+} from './cost'
 
 describe('costMeasuredAt', () => {
   it('prints a scalar as itself, in map order', () => {
@@ -58,5 +63,13 @@ describe('costMeasuredOn', () => {
   })
   it('is empty with no cost', () => {
     expect(costMeasuredOn(null, { steps: 30 })).toBe('')
+  })
+})
+
+describe('costFigure', () => {
+  it('says about, never a tilde', () => {
+    expect(costFigure({ device: 'cuda', vram_gb: 22, minutes: 3 })).toBe(
+      'about 3 min · 22 GB VRAM',
+    )
   })
 })

@@ -74,7 +74,4 @@
       position: static;
     }
   }
-  .hint {
-    font-size: 0.8rem;
-  }
 </style>

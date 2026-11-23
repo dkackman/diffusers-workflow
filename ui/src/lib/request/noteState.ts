@@ -52,12 +52,12 @@ export type NoteLine = {
 }
 
 /** What a waiting note, and the box a note is written in, say of when the
- * agent sees it: whether an agent session's notes channel is polling the
- * workspace (listening.svelte.ts) */
+ * agent sees it: whether the agent is connected, which is whether its
+ * notes channel is polling the workspace (listening.svelte.ts) */
 export const LISTENING_LINE =
-  'An agent session is listening; it will see this within about 10 seconds.'
+  'The agent is connected; it will see this within about 10 seconds.'
 export const NOT_LISTENING_LINE =
-  'No agent session is listening. It reads this the next time it updates the plan.'
+  "The agent isn't connected. It reads this the next time it updates the plan."
 
 /** A new note that has references but no words yet: the references say
  * what it is about, never what to change */

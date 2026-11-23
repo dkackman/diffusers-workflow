@@ -1,11 +1,13 @@
 <script lang="ts">
   import { Dices, PackageOpen, RotateCw, X } from '@lucide/svelte'
+  import StatusChip from '../ui/StatusChip.svelte'
   import { ApiError, api } from '../api'
   import { action } from '../action.svelte'
   import { confirmDialog } from '../confirm.svelte'
   import ActionButton from '../ui/ActionButton.svelte'
+  import PageHeader from '../ui/PageHeader.svelte'
   import { go } from '../router.svelte'
-  import { wsHref } from '../routes'
+  import { SECTION_LABELS, wsHref } from '../routes'
   import { workspace } from '../workspace.svelte'
   import CopyButton from '../CopyButton.svelte'
   import RerunWithChanges from './RerunWithChanges.svelte'
@@ -13,7 +15,8 @@
   import { displayValue } from '../editor'
   import { formatDuration, formatExact, formatMtime, gbFromMb } from '../format'
   import { notify } from '../toast'
-  import { holdKind } from '../progress'
+  import { holdKind, holdText } from '../progress'
+  import { versionTitle, workflowName } from '../terms'
   import type { JobDetail, LedgerRequest } from '../types'
 
   // The job page's title row: what ran, its state and identity, and the
@@ -72,7 +75,13 @@
     return end === null ? null : end - job.started_at
   })
 
-  const leaf = $derived((job?.workflow ?? jobId).split('/').pop() as string)
+  // The file the job ran names it; the JSON id beside it only when it says
+  // something else
+  const leaf = $derived(job ? workflowName(job) : jobId)
+  const fileName = $derived(job ? workflowName(job) : 'Job')
+  const jsonId = $derived(
+    job?.workflow && job.workflow !== fileName ? job.workflow : undefined,
+  )
 
   // A rerun failing must say so - the silent button was what made a
   // cache-served rerun so hard to read in the first place
@@ -145,13 +154,16 @@
   }
 </script>
 
-<div class="head">
-  <a href={wsHref(job?.workspace ?? workspace.current, 'jobs')} class="muted">
-    ← jobs
-  </a>
+<PageHeader
+  title={fileName}
+  secondary={jsonId}
+  back={{
+    href: wsHref(job?.workspace ?? workspace.current, 'jobs'),
+    label: SECTION_LABELS.ws.jobs,
+  }}
+>
   {#if job}
-    <h1>{job.workflow}</h1>
-    <span class="chip {job.status}">{job.status}</span>
+    <StatusChip status={job.status} />
     <code class="muted seed" title="this job's id">{job.id}</code>
     <CopyButton text={job.id} title="copy job id" />
     {#if job?.rerun_of}
@@ -209,24 +221,21 @@
     {/if}
     {#if job.waiting_for}
       <span class="muted" title={holdTitle(job.waiting_for)}>
-        {job.waiting_for}
+        {holdText(job.waiting_for)}
       </span>
     {/if}
     {#if seed !== undefined}
       <code
         class="muted seed"
-        title="the seed this run used - embedded in saved images alongside the recipe"
+        title="the seed this job used - embedded in saved images alongside the recipe"
       >
         seed {seed}
       </code>
     {/if}
     {#if runVersion}
-      <!-- The gallery labels this run's files the same way, so "version 4"
-           said here finds them there -->
-      <code
-        class="muted seed"
-        title={`version ${runVersion} of this workflow${job.run_id ? ` - run ${job.run_id}` : ''}`}
-      >
+      <!-- The gallery labels this job's files the same way, so "v4" said
+           here finds them there -->
+      <code class="muted seed" title={versionTitle(runVersion)}>
         v{runVersion}
       </code>
     {/if}
@@ -280,55 +289,49 @@
           : 'acknowledged'}
       </code>
     {/if}
-    <span class="flex"></span>
-    {#if running}
-      <ActionButton
-        act={cancel}
-        disabled={cancelPending}
-        title={cancelPending
-          ? 'cancel already requested - waiting on the current phase'
-          : 'stop this run at the next step - models stay cached'}
-      >
-        <X size={14} />{cancelPending ? 'Cancelling…' : 'Cancel'}
-      </ActionButton>
-    {:else}
-      <ActionButton
-        act={rerun}
-        args={[false]}
-        title={seedVariable
-          ? 'queue this job again with the same arguments - with the same seed, the step cache serves the files this run already made'
-          : 'queue this job again with the same arguments'}
-      >
-        <RotateCw size={14} />Run again
-      </ActionButton>
-      {#if seedVariable}
+  {/if}
+  {#snippet actions()}{#if job}
+      {#if running}
+        <ActionButton
+          act={cancel}
+          disabled={cancelPending}
+          title={cancelPending
+            ? 'cancel already requested - waiting on the current phase'
+            : 'stop this job at the next step - models stay cached'}
+        >
+          <X size={14} />{cancelPending ? 'Cancelling…' : 'Cancel'}
+        </ActionButton>
+      {:else}
         <ActionButton
           act={rerun}
-          args={[true]}
-          title="queue it again with a fresh {seedVariable} - a different image, rather than the one this run already made"
+          args={[false]}
+          title={seedVariable
+            ? 'queue this job again with the same arguments - with the same seed, the step cache serves the files this job already made'
+            : 'queue this job again with the same arguments'}
         >
-          <Dices size={14} />New seed
+          <RotateCw size={14} />Run again
+        </ActionButton>
+        {#if seedVariable}
+          <ActionButton
+            act={rerun}
+            args={[true]}
+            title="queue it again with a fresh {seedVariable} - a different image, rather than the one this job already made"
+          >
+            <Dices size={14} />New seed
+          </ActionButton>
+        {/if}
+        <RerunWithChanges {job} {declared} />
+        <ActionButton
+          act={exportJob}
+          title="bundle this job - its realized workflow, manifest, the media it used and made - into the workspace's exports/ on the server, and download it as a zip"
+        >
+          <PackageOpen size={14} />{exportJob.busy ? 'Exporting…' : 'Export'}
         </ActionButton>
       {/if}
-      <RerunWithChanges {job} {declared} />
-      <ActionButton
-        act={exportJob}
-        title="bundle this run - its realized workflow, manifest, the media it used and made - into the workspace's exports/ on the server, and download it as a zip"
-      >
-        <PackageOpen size={14} />{exportJob.busy ? 'Exporting…' : 'Export'}
-      </ActionButton>
-    {/if}
-  {/if}
-</div>
+    {/if}{/snippet}
+</PageHeader>
 
 <style>
-  .head {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.4rem 1rem;
-    margin-bottom: 1rem;
-  }
   .seed {
     font-size: 0.78rem;
   }

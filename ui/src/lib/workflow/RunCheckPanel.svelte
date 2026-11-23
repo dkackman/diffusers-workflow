@@ -3,6 +3,7 @@
   // edit. It informs; it never gates Run. Every finding is server text,
   // shown as text
   import type { Finding } from '../findings'
+  import ErrorLine from '../ui/ErrorLine.svelte'
   import type { PlanLine } from '../plan'
   import type { Verdict } from '../runCheck.svelte'
 
@@ -16,8 +17,8 @@
     verdict: Verdict | null
     checking: boolean
     planLines: PlanLine[]
-    /** A check the server refused outright, first in the list */
-    checkError: string
+    /** A check the server refused outright, as caught, first in the list */
+    checkError: unknown
     /** What validate said that names no field the form shows */
     findings: Finding[]
   } = $props()
@@ -33,7 +34,7 @@
   {#if planLines.length}
     <ul
       class="plan"
-      aria-label="what a run will do"
+      aria-label="what a job will do"
       title="from the workflow's own cost block and this server's model cache - a plan, not a promise"
     >
       {#each planLines as line, i (i)}
@@ -41,9 +42,13 @@
       {/each}
     </ul>
   {/if}
-  {#if checkError || findings.length}
+  {#if checkError != null || findings.length}
     <ul class="findings" aria-label="findings">
-      {#if checkError}<li class="bad">{checkError}</li>{/if}
+      {#if checkError != null}
+        <li class="bad">
+          <ErrorLine error={checkError} doing="check these values" />
+        </li>
+      {/if}
       {#each findings as finding, i (i)}
         <li class={finding.tone}>{finding.text}</li>
       {/each}
@@ -63,15 +68,6 @@
     gap: var(--space-3);
     align-items: baseline;
   }
-  .good {
-    color: var(--good);
-  }
-  .warn {
-    color: var(--warn);
-  }
-  .bad {
-    color: var(--bad);
-  }
   .plan {
     list-style: none;
     margin: var(--space-2) 0 0;
@@ -82,9 +78,6 @@
     display: flex;
     flex-wrap: wrap;
     gap: 0.2rem var(--space-3);
-  }
-  .plan .warn {
-    color: var(--warn);
   }
   .findings {
     list-style: none;

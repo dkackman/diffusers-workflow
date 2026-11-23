@@ -11,18 +11,19 @@
   import { api } from '../api'
   import { goWs, route } from '../router.svelte'
   import { leafOf } from '../grouping'
-  import { sharedHref, wsHref } from '../routes'
+  import { SECTION_LABELS, sharedHref, wsHref } from '../routes'
   import { workspace } from '../workspace.svelte'
   import { loadPromptLibrary } from '../promptlib.svelte'
-  import { notify } from '../toast'
   import { observedText, observedTitle } from '../observed'
   import { costBasisWords, costFigure, costMeasuredOn } from '../cost'
-  import { confirmDialog } from '../confirm.svelte'
+  import { action } from '../action.svelte'
+  import { destroyConfirm } from '../destructive'
   import type { GalleryFile, WorkflowDefinition } from '../types'
   import ClampedText from '../ui/ClampedText.svelte'
   import { onDestroy, untrack } from 'svelte'
   import { resource } from '../resource.svelte'
   import LoadState from '../ui/LoadState.svelte'
+  import PageHeader from '../ui/PageHeader.svelte'
   import { describePlan } from '../plan'
   import { placeFindings } from '../findings'
   import { RunCheck } from '../runCheck.svelte'
@@ -33,7 +34,6 @@
   let { name }: { name: string } = $props()
 
   let overrides = $state<Record<string, string>>({})
-  let submitting = $state(false)
   /** Collapsed by default: this page is where you set variables and run,
    * and a 520px read-only editor between the form and the rest of the page
    * pushed the actual work off the screen. The editor is one click away,
@@ -175,27 +175,20 @@
     goWs('edit')
   }
 
-  async function remove() {
-    if (
-      !(await confirmDialog(
-        `Delete ${name}.json? This removes the file on disk.`,
-        {
-          confirmLabel: 'Delete',
-        },
-      ))
-    )
-      return
-    try {
+  const removing = action(
+    async () => {
       await api.deleteWorkflow(name)
       goWs('workflows')
-    } catch (e) {
-      notify.failure(`delete ${name}`, e)
-    }
-  }
+    },
+    {
+      doing: () => `delete ${name}`,
+      confirm: () => destroyConfirm({ name: `${name}.json`, noun: 'workflow' }),
+    },
+  )
+  const remove = () => removing.run()
 
-  async function run() {
-    submitting = true
-    try {
+  const running = action(
+    async () => {
       const job = await api.submitJob({
         // By name, not by composed path: the server resolves a name across
         // every source it can read, so an example runs where it lives
@@ -203,28 +196,24 @@
         arguments: runArguments(),
       })
       goWs('jobs', job.id)
-    } catch (e) {
-      notify.failure(`run ${name}`, e)
-    } finally {
-      submitting = false
-    }
-  }
+      return job
+    },
+    { doing: () => `run ${name}` },
+  )
 </script>
-
-<a
-  href={route.view.kind === 'shared'
-    ? sharedHref('examples')
-    : wsHref(workspace.current, 'workflows')}
-  class="back muted"
->
-  ← workflows
-</a>
 
 <!-- One filled button: Run, the thing you came here to do. Everything else
      is outlined or bare, and Delete is pushed out of reach of Run rather
      than sitting beside it. -->
-<div class="head">
-  <h1>{name}</h1>
+<PageHeader
+  title={name}
+  back={route.view.kind === 'shared'
+    ? { href: sharedHref('examples'), label: SECTION_LABELS.shared.examples }
+    : {
+        href: wsHref(workspace.current, 'workflows'),
+        label: SECTION_LABELS.ws.workflows,
+      }}
+>
   {#if !writable}
     <span
       class="readonly muted"
@@ -233,31 +222,31 @@
       {origin || 'read-only'}, read-only
     </span>
   {/if}
-  <span class="flex"></span>
-  <a
-    class="plain editlink"
-    href={wsHref(workspace.current, 'edit', ...name.split('/'))}
-    title="open this workflow in the editor"
-  >
-    <SquarePen size={14} />Edit
-  </a>
-  <button
-    class="quiet withicon"
-    onclick={newFrom}
-    disabled={!workflow}
-    title="open a copy in the editor to save under a new name"
-  >
-    <Copy size={14} />Duplicate
-  </button>
-  <button
-    class="withicon run"
-    onclick={run}
-    disabled={submitting || !workflow}
-    title="queue this workflow with the variables below"
-  >
-    <Play size={14} />{submitting ? 'Submitting…' : 'Run'}
-  </button>
-</div>
+  {#snippet actions()}<a
+      class="plain editlink"
+      href={wsHref(workspace.current, 'edit', ...name.split('/'))}
+      title="open this workflow in the editor"
+    >
+      <SquarePen size={14} />Edit
+    </a>
+    <button
+      class="quiet withicon"
+      onclick={newFrom}
+      disabled={!workflow}
+      title="open a copy in the editor to save under a new name"
+    >
+      <Copy size={14} />Duplicate
+    </button>
+    <button
+      class="withicon run"
+      onclick={() => void running.run()}
+      disabled={running.busy || !workflow}
+      aria-busy={running.busy}
+      title="queue this workflow with the variables below"
+    >
+      <Play size={14} />{running.busy ? 'Submitting…' : 'Run'}
+    </button>{/snippet}
+</PageHeader>
 
 <!-- The template's own figure, then what this server measured: two claims,
      each saying whose it is. The per-run figure for the values below is the
@@ -335,7 +324,7 @@
         <p class="hint muted">
           Leave a field blank to use the workflow's own default. Type
           <code>prompt:</code>, <code>asset:</code> or <code>output:</code> to pick
-          a stored prompt, an asset or an earlier run's file - or press ↓ in an empty
+          a stored prompt, an asset or an earlier job's file - or press ↓ in an empty
           field to see them.
         </p>
         <VariablesForm
@@ -394,28 +383,10 @@
 </LoadState>
 
 <style>
-  .back {
-    display: inline-block;
-    font-size: var(--t-sm);
-    margin-bottom: var(--space-3);
-  }
   .readonly {
     font-family: var(--font-mono);
     font-size: var(--t-xs);
     align-self: center;
-  }
-  .head {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.4rem 0.6rem;
-    margin-bottom: var(--space-4);
-  }
-  .head h1 {
-    word-break: break-word;
-  }
-  .head .flex {
-    flex: 1;
   }
   .editlink {
     display: inline-flex;
@@ -470,6 +441,5 @@
   }
   .hint {
     margin: -0.4rem 0 var(--space-3);
-    font-size: var(--t-sm);
   }
 </style>

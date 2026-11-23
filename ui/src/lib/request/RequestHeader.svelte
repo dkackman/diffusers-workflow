@@ -11,7 +11,8 @@
   import { agentSaid, standing } from './standing'
   import { formatMinutes, formatMtime, formatSpent } from '../format'
   import { requestQuery } from '../requestFilter'
-  import { wsHref } from '../routes'
+  import { SECTION_LABELS, wsHref } from '../routes'
+  import PageHeader from '../ui/PageHeader.svelte'
   import type { LedgerNoteRef, LedgerRequest } from '../types'
 
   // Where the ask stands, before anything else on the page: what is
@@ -93,12 +94,20 @@
 </script>
 
 <header class="reqhead">
-  <div class="titleline">
-    <h1>{request.title}</h1>
+  <PageHeader
+    title={request.title}
+    secondary={request.id}
+    baseline
+    back={{
+      href: wsHref(workspace, 'requests'),
+      label: SECTION_LABELS.ws.requests,
+    }}
+  >
     <StateTag value={request.state} />
-    {#if menu}<span class="menu">{@render menu()}</span>{/if}
-  </div>
-  <p class="id"><code class="muted">{request.id}</code></p>
+    {#snippet actions()}{#if menu}<span class="menu">
+          {@render menu()}
+        </span>{/if}{/snippet}
+  </PageHeader>
 
   <p class="standing">{stand.sentence}</p>
   {#if stand.needs}<p class="needs">{stand.needs}</p>{/if}
@@ -176,31 +185,22 @@
     gap: var(--space-2);
     margin-bottom: var(--space-4);
   }
-  .titleline {
-    display: flex;
-    align-items: baseline;
-    gap: var(--space-3);
-  }
   /* A request's title is written for a person, so it is not in the mono
      face the engine's names take */
-  h1 {
+  .reqhead :global(h1) {
     font-family: var(--font-sans);
-    font-weight: 600;
     letter-spacing: 0;
     line-height: 1.2;
-    min-width: 0;
     overflow-wrap: anywhere;
   }
+  .reqhead :global(.pagehead) {
+    margin-bottom: 0;
+  }
   .menu {
-    margin-left: auto;
     align-self: center;
   }
   p {
     margin: 0;
-  }
-  .id {
-    font-size: var(--t-xs);
-    margin-top: calc(-1 * var(--space-1));
   }
   .standing {
     font-size: var(--t-md);

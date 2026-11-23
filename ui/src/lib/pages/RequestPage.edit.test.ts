@@ -10,6 +10,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import RequestPage from './RequestPage.svelte'
 import { workspace } from '../workspaceState.svelte'
 import { fakeLedger } from '../request/fakeLedger'
+import { PlanStore } from '../request/planStore.svelte'
 import {
   attempt,
   doneItem,
@@ -31,6 +32,7 @@ const world = vi.hoisted(() => ({
   deleteRequest: vi.fn(),
   notify: {
     error: vi.fn(),
+    failure: vi.fn(),
     success: vi.fn(),
     undo: vi.fn(),
     dismiss: vi.fn(),
@@ -136,6 +138,53 @@ it('accepts a take at once, and the toast takes it back', async () => {
   await saved(5)
   expect(world.ledger.current.items[0].accepted).toBeNull()
   await waitFor(() => expect(first.getAttribute('aria-pressed')).toBe('false'))
+})
+
+it("an accept's Undo pressed twice while its toast fades takes it back once", async () => {
+  await start()
+  await fireEvent.click(
+    within(row('cast')).getByRole('button', {
+      name: 'Accept take 1 for Cast sheet',
+    }),
+  )
+  await saved(4)
+  const push = vi.spyOn(PlanStore.prototype, 'push')
+  undo()
+  undo()
+  await saved(5)
+  // the second press found the toast used: one write back, not two
+  expect(push).toHaveBeenCalledTimes(1)
+  push.mockRestore()
+  await new Promise((r) => setTimeout(r, 20))
+  expect(whys()).toEqual([
+    'accept j1 for cast',
+    'clear the accepted take of cast',
+  ])
+  expect(world.ledger.current.revision).toBe(5)
+})
+
+it("a drop's Undo pressed once another request is open does nothing to it", async () => {
+  const view = render(RequestPage, { requestId: 'r1' })
+  await screen.findByRole('heading', { name: 'Launch posters' })
+  await choose('s3', 'Drop from plan')
+  await saved(4)
+  // the page goes on to another request that has an item of the same key
+  world.ledger = fakeLedger(
+    request(
+      [item('s3', { title: 'Other shot' }), item('x', { title: 'Extra' })],
+      { id: 'r2', title: 'Other request' },
+    ),
+  )
+  await view.rerender({ requestId: 'r2' })
+  await screen.findByRole('heading', { name: 'Other request' })
+  undo()
+  await waitFor(() =>
+    expect(world.notify.error).toHaveBeenCalledWith(
+      'Nothing undone: another request is open now.',
+    ),
+  )
+  await new Promise((r) => setTimeout(r, 20))
+  expect(world.ledger.puts).toHaveLength(0)
 })
 
 it("the user's own accept is not marked as an agent's change", async () => {
@@ -476,8 +525,9 @@ it('a write that fails says so, and the edit is taken back', async () => {
   })
   await fireEvent.click(first)
   await waitFor(() =>
-    expect(world.notify.error).toHaveBeenCalledWith(
-      'Not saved: the ledger is busy',
+    expect(world.notify.failure).toHaveBeenCalledWith(
+      'save that',
+      expect.objectContaining({ message: 'the ledger is busy' }),
     ),
   )
   expect(first.getAttribute('aria-pressed')).toBe('false')
@@ -535,7 +585,7 @@ it('the one filled button runs what is ready, through the priced dialog', async 
   const dialog = await screen.findByRole('dialog', {
     name: 'Run what is ready',
   })
-  await within(dialog).findByText(/~6 min on cuda/)
+  await within(dialog).findByText(/about 6 min on cuda/)
   // opening it spent nothing
   expect(world.submitJob).not.toHaveBeenCalled()
   expect(dialog.querySelector('.wont li')?.textContent).toBe(
@@ -644,11 +694,14 @@ it('a closed request can be deleted, after a confirm, and the page goes to the l
   await start()
   await headerMenu('Delete…')
   await waitFor(() => expect(world.deleteRequest).toHaveBeenCalled())
-  expect(world.confirm.mock.calls[0][0]).toContain('Delete "Launch posters"?')
   expect(world.confirm.mock.calls[0][0]).toContain(
     'Its jobs and their outputs are kept.',
   )
-  expect(world.confirm.mock.calls[0][1]).toEqual({ confirmLabel: 'Delete' })
+  expect(world.confirm.mock.calls[0][1]).toMatchObject({
+    title: 'Delete "Launch posters"?',
+    confirmLabel: 'Delete',
+    danger: true,
+  })
   expect(world.deleteRequest).toHaveBeenCalledWith('studio', 'r1', 3)
   await waitFor(() => expect(location.hash).toBe('#/ws/studio/requests'))
   expect(world.notify.success).toHaveBeenCalledWith('Deleted Launch posters')
@@ -731,7 +784,7 @@ it('a revised item shows its result, why, and Run take 2 beside it; its dependen
   const dialog = await screen.findByRole('dialog', {
     name: 'Run another take of Board A',
   })
-  await within(dialog).findByText(/~6 min on cuda/)
+  await within(dialog).findByText(/about 6 min on cuda/)
   await fireEvent.click(within(dialog).getByRole('button', { name: 'Run 1' }))
   await waitFor(() =>
     expect(world.submitJob).toHaveBeenCalledWith(

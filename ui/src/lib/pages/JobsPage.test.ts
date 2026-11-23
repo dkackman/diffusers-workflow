@@ -15,6 +15,7 @@ import type { JobSummary } from '../types'
 const data = vi.hoisted(() => ({
   jobs: [] as unknown[],
   rerunRestartBatch: vi.fn(),
+  moveJob: vi.fn(),
   confirm: vi.fn(),
   // Every listing asked for, as [workspace, limit, status, request, item]
   listed: [] as unknown[][],
@@ -27,6 +28,7 @@ vi.mock('../api', async () => ({
   ApiError: (await import('../apiErrors')).ApiError,
   api: {
     rerunRestartBatch: data.rerunRestartBatch,
+    moveJob: data.moveJob,
     // Filters by request/item the way the server does
     listJobs: (
       ws?: string,
@@ -47,6 +49,12 @@ vi.mock('../api', async () => ({
       )
       return Promise.resolve({ jobs, total: jobs.length })
     },
+    // The request picker's list, in whichever workspace it is asked for
+    listRequests: (ws: string) =>
+      Promise.resolve({
+        workspace: ws,
+        requests: [{ id: 'r1', title: 'Launch posters' }],
+      }),
     // The listing names the default workspace, as the server's always does:
     // a route parse that found it missing would redirect to overview
     listWorkspaces: () =>
@@ -55,6 +63,9 @@ vi.mock('../api', async () => ({
         workspaces: [{ name: 'default', default: true }],
       }),
   },
+}))
+vi.mock('../changes.svelte', async () => ({
+  changes: (await import('../test/feedMock')).feed.changes,
 }))
 vi.mock('../confirm.svelte', () => ({ confirmDialog: data.confirm }))
 vi.mock('../toast', () => ({ notify: { error: vi.fn(), success: vi.fn() } }))
@@ -67,6 +78,7 @@ afterEach(() => {
   data.queued = 0
   workspace.current = 'default'
   data.rerunRestartBatch.mockReset()
+  data.moveJob.mockReset()
   data.confirm.mockReset()
 })
 
@@ -155,6 +167,32 @@ it('hovering a start time gives it to the second, with the finish', async () => 
   expect(title).toContain(`finished ${formatExact(1700000243)}`)
 })
 
+it('rows and the name filter use the file name', async () => {
+  location.hash = '#/ws/default/jobs'
+  data.jobs = [
+    summary({ id: 'c1', workflow: 'E2ECard', workflow_name: 'e2e-card' }),
+    summary({ id: 'o1', workflow: 'Other', workflow_name: 'models/other' }),
+  ]
+  render(JobsPage)
+  await waitFor(() => expect(screen.getByText('e2e-card')).toBeTruthy())
+  expect(screen.queryByText('E2ECard')).toBeNull()
+  expect(screen.getByText('other')).toBeTruthy()
+  const input = screen.getByPlaceholderText('filter by workflow…')
+  await fireEvent.input(input, { target: { value: 'e2e-c' } })
+  expect(screen.getByText('e2e-card')).toBeTruthy()
+  expect(screen.queryByText('other')).toBeNull()
+  location.hash = ''
+})
+
+it('titles the version badge with its ordinal', async () => {
+  data.jobs = [summary({ id: 'v1', workflow_name: 'e2e-card', run_version: 3 })]
+  render(JobsPage)
+  await waitFor(() => expect(screen.getByText('v3')).toBeTruthy())
+  expect(screen.getByText('v3').getAttribute('title')).toBe(
+    '3rd job of this workflow in this folder',
+  )
+})
+
 it('reads its filters from the link and writes them back to it', async () => {
   location.hash = '#/ws/default/jobs?status=failed'
   data.jobs = [
@@ -221,7 +259,7 @@ it('adds the hold reason to a queued row that has waiting_for', async () => {
   const { container } = render(JobsPage)
   await waitFor(() => expect(screen.getByText('· host RAM')).toBeTruthy())
   expect(screen.getByText('· host RAM').getAttribute('title')).toBe(
-    'waiting for host RAM: needs ~9 GB, ~2 GB free',
+    'waiting for host RAM: needs about 9 GB, about 2 GB free',
   )
   expect(screen.getByText('· cards busy').getAttribute('title')).toBe(
     'queued behind 1 running job(s) on every card',
@@ -324,7 +362,8 @@ const preview = {
   would_queue: [
     {
       id: 't1',
-      workflow: 'w-t1',
+      workflow: 'WT1Id',
+      workflow_name: 'models/w-t1',
       workspace: 'default',
       estimate: {
         basis: 'observed',
@@ -357,9 +396,10 @@ it('previews on click with {} once, and the poll never calls the route', async (
     expect(['t1', 't2']).toContain(member)
     expect(rest).toEqual([])
     const message = data.confirm.mock.calls[0][0] as string
-    expect(message).toContain('w-t1 (t1, default) - ~2 min on mps')
+    expect(message).toContain('w-t1 (t1, default) - about 2 min on mps')
+    expect(message).not.toContain('WT1Id')
     expect(message).toContain('w-t2 (t2, default) - no estimate')
-    expect(message).toContain('total ~2 min, plus 1 with no figure')
+    expect(message).toContain('total about 2 min, plus 1 with no figure')
     expect(message).toContain('t3: its workspace is gone')
     await vi.advanceTimersByTimeAsync(10_000)
     expect(data.rerunRestartBatch).toHaveBeenCalledTimes(1)
@@ -466,6 +506,25 @@ it('narrows to a request, then to one item, and clearing restores the list', asy
   expect(screen.queryByTestId('req-filter')).toBeNull()
 })
 
+it('the request filter can be picked as well as cleared', async () => {
+  location.hash = '#/ws/default/jobs'
+  data.jobs = linked()
+  render(JobsPage)
+  await waitFor(() => expect(screen.getByText('wf-c')).toBeTruthy())
+  const picker = await screen.findByRole('combobox', {
+    name: 'filter by request',
+  })
+  await fireEvent.change(picker, { target: { value: 'r1' } })
+  await waitFor(() => expect(screen.queryByText('wf-c')).toBeNull())
+  expect(screen.getByText('wf-a')).toBeTruthy()
+  expect(location.hash).toBe('#/ws/default/jobs?req=r1')
+  expect(data.listed.at(-1)?.[3]).toBe('r1')
+  await fireEvent.click(screen.getByLabelText('remove the request filter'))
+  await waitFor(() => expect(screen.getByText('wf-c')).toBeTruthy())
+  expect(location.hash).toBe('#/ws/default/jobs')
+  location.hash = ''
+})
+
 it('a req that arrives on the hash refetches at once, not on the next tick', async () => {
   location.hash = '#/ws/default/jobs'
   data.jobs = linked()
@@ -538,6 +597,26 @@ it("a request's queued job mid-queue can move both ways, though it is the only r
   render(JobsPage)
   await waitFor(() => expect(screen.getByText('#3')).toBeTruthy())
   await waitFor(() => expect(moves('q3')).toEqual(['front', 'up', 'down']))
+})
+
+it('a double click on a move sends one request', async () => {
+  location.hash = '#/ws/default/jobs'
+  data.queued = 2
+  data.moveJob.mockResolvedValue({})
+  data.jobs = [
+    summary({ id: 'q1', status: 'queued', queue_position: 0 }),
+    summary({ id: 'q2', status: 'queued', queue_position: 1 }),
+  ]
+  render(JobsPage)
+  await waitFor(() => expect(moves('q2')).toEqual(['front', 'up']))
+  const up = screen.getByLabelText('move q2 up one place') as HTMLButtonElement
+  // Both clicks land before the page renders the first one's busy state
+  up.click()
+  up.click()
+  await waitFor(() => expect(data.moveJob).toHaveBeenCalled())
+  await new Promise((r) => setTimeout(r, 20))
+  expect(data.moveJob).toHaveBeenCalledTimes(1)
+  expect(data.moveJob).toHaveBeenCalledWith('q2', 'up')
 })
 
 it('the last job of the whole queue offers no down', async () => {

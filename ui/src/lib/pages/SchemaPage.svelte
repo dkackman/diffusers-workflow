@@ -2,6 +2,7 @@
   import { api } from '../api'
   import { resource } from '../resource.svelte'
   import LoadState from '../ui/LoadState.svelte'
+  import PageHeader from '../ui/PageHeader.svelte'
   import SchemaNode, { type SchemaValue } from '../schema/SchemaNode.svelte'
 
   let filter = $state('')
@@ -23,13 +24,16 @@
   )
 </script>
 
-<div class="head">
-  <h1>Workflow Schema</h1>
-  <span class="flex"></span>
-  <a class="muted" href="/api/schema" target="_blank" rel="noopener">
-    raw JSON
-  </a>
-</div>
+<PageHeader title="Workflow Schema">
+  {#snippet actions()}<a
+      class="muted"
+      href="/api/schema"
+      target="_blank"
+      rel="noopener"
+    >
+      raw JSON
+    </a>{/snippet}
+</PageHeader>
 
 <LoadState of={read} label="the schema" />
 
@@ -58,12 +62,6 @@
 {/if}
 
 <style>
-  .head {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.4rem 0.6rem;
-  }
   .intro {
     max-width: 80ch;
   }

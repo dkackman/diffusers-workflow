@@ -195,7 +195,7 @@ test('Continue the chain posts the rerun that resumes from the last segment', as
   const table = page.getByRole('region', { name: 'Chain segments: take' })
   await table.getByRole('button', { name: 'Continue the chain' }).click()
   const dialog = page.getByRole('alertdialog')
-  await expect(dialog).toContainText('Estimate: ~12 min on mps')
+  await expect(dialog).toContainText('Estimate: about 12 min on mps')
   expect(priced).toMatchObject({
     workflow_path: 'narrated-take',
     workspace: 'default',

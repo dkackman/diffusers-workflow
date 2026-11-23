@@ -9,6 +9,7 @@
   import LoadState from '../ui/LoadState.svelte'
   import Skeleton from '../ui/Skeleton.svelte'
   import { formatBytes, formatMtime } from '../format'
+  import { workflowName } from '../terms'
   import { wsHref } from '../routes'
   import { workspace } from '../workspace.svelte'
 
@@ -39,8 +40,9 @@
   })
   const keptFrom = (r: GalleryMetadata) => {
     if (!r.job) return ''
-    const workflow =
-      typeof r.job.workflow === 'string' ? r.job.workflow : r.job.id
+    const text = (v: unknown) => (typeof v === 'string' ? v : null)
+    const named = text(r.job.workflow_name) || text(r.job.workflow)
+    const workflow = named ? workflowName({ workflow_name: named }) : r.job.id
     return `kept from ${workflow}${r.version ? ` v${r.version}` : ''}`
   }
 </script>
@@ -111,6 +113,7 @@
   <NoteEditor
     note={asset.note}
     target={`${ASSET}${asset.name}`}
+    label="Your note on this asset"
     onsaved={(note) => onnotesaved?.(note)}
   />
   <div class="body">
@@ -162,7 +165,7 @@
     max-width: 100%;
     max-height: 60vh;
     border-radius: var(--radius-frame);
-    background: var(--sunk);
+    background: var(--panel-2);
   }
   .body audio {
     width: 100%;

@@ -61,7 +61,7 @@ it('words the banner by the most urgent state: due, then holding, then redirecte
   expect(group(all.slice(0, 1)).state).toBe('redirected')
 })
 
-it('says a hold with a session listening, plural and singular, with and without estimates', () => {
+it('says a hold with the agent connected, plural and singular, with and without estimates', () => {
   const two = group([
     item('a', { review: review('holding', LATER), estimate_minutes: 3 }),
     item('b', { review: review('holding'), estimate_minutes: 1.6 }),
@@ -71,32 +71,32 @@ it('says a hold with a session listening, plural and singular, with and without 
   // the soonest deadline is the one named
   expect(two.first.item.key).toBe('b')
   expect(bannerText(two, true, 125)).toBe(
-    `2 items held for your review (about 5 min by the agent's estimate). A session is listening: at ${at} (in 02:05) it is told to run them, unless you leave a note.`,
+    `2 items waiting for your OK (about 5 min by the agent's estimate). The agent will run them at ${at} if it's connected (in 02:05), unless you leave a note.`,
   )
   const one = group([item('a', { review: review('holding') })])
   expect(bannerText(one, true, 3725)).toBe(
-    `1 item held for your review. A session is listening: at ${at} (in 1:02:05) it is told to run it, unless you leave a note.`,
+    `1 item waiting for your OK. The agent will run it at ${at} if it's connected (in 1:02:05), unless you leave a note.`,
   )
   const partly = group([
     item('a', { review: review('holding'), estimate_minutes: 2 }),
     item('b', { review: review('holding') }),
   ])
   expect(bannerText(partly, true, 60)).toBe(
-    `2 items held for your review (about 2 min by the agent's estimate). A session is listening: at ${at} (in 01:00) it is told to run them, unless you leave a note.`,
+    `2 items waiting for your OK (about 2 min by the agent's estimate). The agent will run them at ${at} if it's connected (in 01:00), unless you leave a note.`,
   )
 })
 
-it('says a hold with no session listening, plural and singular', () => {
+it('says a hold with the agent not connected, plural and singular', () => {
   const two = group([
     item('a', { review: review('holding'), estimate_minutes: 3 }),
     item('b', { review: review('holding') }),
   ])
   expect(bannerText(two, false, 125)).toBe(
-    `2 items held for your review. No session is listening, so nothing will run at ${at}. Run them here, or leave a note.`,
+    `2 items waiting for your OK. The agent isn't connected, so nothing runs at ${at} unless it reconnects. Run them here, or leave a note.`,
   )
   const one = group([item('a', { review: review('holding') })])
   expect(bannerText(one, false, 125)).toBe(
-    `1 item held for your review. No session is listening, so nothing will run at ${at}. Run it here, or leave a note.`,
+    `1 item waiting for your OK. The agent isn't connected, so nothing runs at ${at} unless it reconnects. Run it here, or leave a note.`,
   )
 })
 
@@ -108,10 +108,17 @@ it('says a redirected hold, and a due one with and without a session', () => {
     )
   const due = group([item('a', { review: review('due', UNTIL, 0) })])
   expect(bannerText(due, true, 0)).toBe(
-    'Review time is up: the agent should be starting these.',
+    'Review time is up: the agent should be starting it.',
   )
   expect(bannerText(due, false, 0)).toBe(
-    'Review time passed with no session listening: nothing ran.',
+    "Review time passed while the agent wasn't connected: nothing ran.",
+  )
+  const dueTwo = group([
+    item('a', { review: review('due', UNTIL, 0) }),
+    item('b', { review: review('due', UNTIL, 0) }),
+  ])
+  expect(bannerText(dueTwo, true, 0)).toBe(
+    'Review time is up: the agent should be starting them.',
   )
 })
 
@@ -142,12 +149,12 @@ it("words a held row's chip", () => {
 
 it('has one sentence for each state, for the live region', () => {
   const one = group([item('a', { review: review('holding') })])
-  expect(holdNews(one)).toBe('1 item held for your review.')
+  expect(holdNews(one)).toBe('1 item waiting for your OK.')
   const two = group([
     item('a', { review: review('holding') }),
     item('b', { review: review('holding') }),
   ])
-  expect(holdNews(two)).toBe('2 items held for your review.')
+  expect(holdNews(two)).toBe('2 items waiting for your OK.')
   expect(holdNews(group([item('a', { review: review('redirected') })]))).toBe(
     'You left a note after these were held: the agent will revise before running.',
   )

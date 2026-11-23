@@ -1,11 +1,21 @@
 <script lang="ts">
+  import { collapsedState } from '../collapsed.svelte'
   import { leafName } from '../names'
+  import GroupHeading from '../ui/GroupHeading.svelte'
   import type { AssetFile, ShadowedAsset } from '../types'
 
   // The entries a library holds under a name a nearer library has taken -
   // a dimmed label per entry rather than a picture, since the server serves
   // the file that won
-  let { entries }: { entries: ShadowedAsset[] } = $props()
+  let {
+    entries,
+    filterActive = false,
+  }: { entries: ShadowedAsset[]; filterActive?: boolean } = $props()
+
+  const collapsed = collapsedState('collapsed-asset-shadowed')
+  const library = $derived(entries[0]?.origin ?? '')
+  // While filtering everything stays open: a shut section would hide matches
+  const shut = $derived(!filterActive && collapsed.has(library))
 
   // The same libraries in the possessive, for "shadowed by ...". Built by
   // hand rather than off the labels: "the examples's" is not English
@@ -22,46 +32,44 @@
      not serve these, so a tile is a dimmed label rather than a
      picture, and nothing bulk can reach it -->
 <div class="grouprow">
-  <span class="group">
-    shadowed/ <span class="muted">({entries.length})</span>
-  </span>
+  <GroupHeading
+    label="shadowed/"
+    count={entries.length}
+    collapsed={shut}
+    ontoggle={() => collapsed.toggle(library)}
+    title={shut
+      ? 'expand the shadowed entries'
+      : 'collapse the shadowed entries'}
+  />
 </div>
-<div class="grid">
-  {#each entries as entry (entry.name)}
-    <div class="cellwrap">
-      <!-- role + aria-label, not title alone: a bare div is not
+{#if !shut}
+  <div class="grid">
+    {#each entries as entry (entry.name)}
+      <div class="cellwrap">
+        <!-- role + aria-label, not title alone: a bare div is not
            exposed, and the title is the only thing that explains
            why this tile is here -->
-      <div
-        class="cell shadowed"
-        role="note"
-        aria-label="shadowed by {SHADOWED_BY[
-          entry.shadowed_by
-        ]} {entry.name} - {entry.reference} resolves to that file"
-        title="shadowed by {SHADOWED_BY[
-          entry.shadowed_by
-        ]} {entry.name} - {entry.reference} resolves to that file"
-      >
-        <span class="ghost">{entry.kind}</span>
-        <span class="caption">{leafName(entry.name)}</span>
+        <div
+          class="cell shadowed"
+          role="note"
+          aria-label="shadowed by {SHADOWED_BY[
+            entry.shadowed_by
+          ]} {entry.name} - {entry.reference} resolves to that file"
+          title="shadowed by {SHADOWED_BY[
+            entry.shadowed_by
+          ]} {entry.name} - {entry.reference} resolves to that file"
+        >
+          <span class="ghost">{entry.kind}</span>
+          <span class="caption">{leafName(entry.name)}</span>
+        </div>
       </div>
-    </div>
-  {/each}
-</div>
+    {/each}
+  </div>
+{/if}
 
 <style>
-  /* FolderGroups' folder heading, for the one group it does not lay out.
-     Its styles are scoped to that component, so this is the same look
-     rather than the same rule */
   .grouprow {
     margin: 1.2rem 0 var(--space-2);
-  }
-  .group {
-    color: var(--muted);
-    font-family: var(--font-mono);
-    font-weight: 600;
-    font-size: var(--t-sm);
-    letter-spacing: -0.01em;
   }
   .grid {
     display: grid;

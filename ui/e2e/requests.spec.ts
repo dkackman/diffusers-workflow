@@ -162,7 +162,7 @@ test('a done item shows its takes as pictures, the latest marked as the result',
   await expect(takes).toHaveCount(2)
   await expect(takes.nth(0)).toContainText('take 1')
   await expect(takes.nth(0).locator('.mark')).toHaveCount(0)
-  await expect(takes.nth(1).locator('.mark')).toHaveText('result (latest)')
+  await expect(takes.nth(1).locator('.mark')).toHaveText('latest take')
   await loaded(takes.nth(0).getByRole('img'))
   await expect(takes.nth(0).getByRole('link')).toHaveAttribute(
     'href',
@@ -187,7 +187,7 @@ test('a done item shows its takes as pictures, the latest marked as the result',
   )
 })
 
-test('a note for the agent says whether a session listens, and is in the ledger after a reload', async ({
+test('a note for the agent says whether the agent is connected, and is in the ledger after a reload', async ({
   page,
 }) => {
   const text = `warmer light, please (${Date.now()})`
@@ -201,7 +201,9 @@ test('a note for the agent says whether a session listens, and is in the ledger 
     name: 'Note for the agent on Alternate poster',
   })
   // said before a word is written: no agent session polls this server
-  await expect(alt.getByText(/No agent session is listening/)).toBeVisible()
+  await expect(
+    alt.getByText(/The agent isn't connected\. It reads/),
+  ).toBeVisible()
   await box.fill(text)
   const post = page.waitForResponse(
     (r) =>
@@ -215,7 +217,7 @@ test('a note for the agent says whether a session listens, and is in the ledger 
   // and said again under the saved note: when the agent will see it
   await expect(
     alt.getByText(
-      /^Saved .+\. No agent session is listening\. It reads this the next time it updates the plan\.$/,
+      /^Saved .+\. The agent isn't connected\. It reads this the next time it updates the plan\.$/,
     ),
   ).toBeVisible()
   await expect(page.locator('.reqhead .figures')).toContainText(
@@ -263,7 +265,7 @@ test("a note on the whole request is saved by an item note's rules", async ({
   await expect(
     page
       .locator('.reqhead')
-      .getByText(/No agent session is listening/)
+      .getByText(/The agent isn't connected\. It reads/)
       .first(),
   ).toBeVisible()
 })
@@ -623,7 +625,7 @@ test('a held item says so, counts down, runs only when asked, and a note turns i
   // the fixture holds `title` for an hour, and no session listens here
   const banner = page.locator('.reqhead .hold p')
   await expect(banner).toHaveText(
-    /^1 item held for your review\. No session is listening, so nothing will run at .+\. Run it here, or leave a note\.$/,
+    /^1 item waiting for your OK\. The agent isn't connected, so nothing runs at .+ unless it reconnects\. Run it here, or leave a note\.$/,
   )
   const title = boardRow(page, 'title')
   const chip = title.locator('.chip.held')
@@ -635,7 +637,9 @@ test('a held item says so, counts down, runs only when asked, and a note turns i
   const dialog = page.getByRole('dialog', { name: 'Run what is ready' })
   await expect(
     dialog.locator('.runrow[data-key="title"] .held span'),
-  ).toHaveText(/^Held for review until .+\. Running it now is your go-ahead\.$/)
+  ).toHaveText(
+    /^Waiting for your OK until .+\. Running it now is your go-ahead\.$/,
+  )
   await dialog.getByRole('button', { name: 'Cancel' }).click()
   await expect(dialog).toHaveCount(0)
   expect(submitted).toBe(0)

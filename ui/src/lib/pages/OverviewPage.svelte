@@ -10,14 +10,17 @@
     Plus,
     Trash2,
   } from '@lucide/svelte'
+  import StatusChip from '../ui/StatusChip.svelte'
   import { api } from '../api'
   import { attention, doneFigure } from '../request/attention'
   import { resource } from '../resource.svelte'
   import LoadState from '../ui/LoadState.svelte'
   import NoteEditor from '../ui/NoteEditor.svelte'
+  import PageHeader from '../ui/PageHeader.svelte'
   import Skeleton from '../ui/Skeleton.svelte'
   import { WORKSPACE } from '../references'
   import { formatBytes } from '../format'
+  import { workflowName } from '../terms'
   import { hiddenWorkspaces, setHidden } from '../hiddenWorkspaces.svelte'
   import { latestProofs } from '../proofs'
   import { wsHref } from '../routes'
@@ -29,8 +32,14 @@
     workspace,
   } from '../workspace.svelte'
   import { deleteWorkspaceWithConfirm } from '../workspaceActions'
+  import { action } from '../action.svelte'
+  import ActionButton from '../ui/ActionButton.svelte'
 
   const name = $derived(workspace.current)
+  // It asks first itself: the question needs the server's count
+  const deleting = action(deleteWorkspaceWithConfirm, {
+    doing: (ws: string) => `delete workspace ${ws}`,
+  })
   const RECENT = 8
   const WORKFLOWS = 6
   const JOBS = 5
@@ -120,13 +129,11 @@
   const leaf = (n: string) => n.split('/').pop() ?? n
 </script>
 
-<div class="head">
-  <h1>{name}</h1>
-  {#if directory}<code class="muted dir">{directory}</code>{/if}
-</div>
+<PageHeader title={name} secondary={directory ?? undefined} baseline />
 <NoteEditor
   note={workspace.notes[name]}
   target={`${WORKSPACE}${name}`}
+  label="Your note on this workspace"
   onsaved={reloadWorkspaces}
 />
 
@@ -213,9 +220,9 @@
       {#snippet children({ running, finished })}
         <ul class="jobs">
           {#if running}
-            <li class="runningnow">
-              <span class="chip running">running</span>
-              <span class="wf">{running.workflow}</span>
+            <li class="row-live">
+              <StatusChip status="running" />
+              <span class="wf">{workflowName(running)}</span>
               <a class="plain" href={wsHref(name, 'jobs', running.id)}>
                 {running.id}
               </a>
@@ -223,8 +230,8 @@
           {/if}
           {#each finished as job (job.id)}
             <li>
-              <span class="chip {job.status}">{job.status}</span>
-              <span class="wf">{job.workflow}</span>
+              <StatusChip status={job.status} />
+              <span class="wf">{workflowName(job)}</span>
               <a class="plain" href={wsHref(name, 'jobs', job.id)}>{job.id}</a>
             </li>
           {/each}
@@ -266,7 +273,7 @@
             href={wsHref(name, 'workflows', ...wf.split('/'))}
           >
             {#if proofs[wf]}
-              <span class="cardframe">
+              <span class="frame cardframe">
                 <img
                   src={api.galleryThumbnailUrl(proofs[wf].name)}
                   alt=""
@@ -308,50 +315,35 @@
   </section>
   <section class="panel">
     <h2>Manage</h2>
-    <p class="muted">
-      Deleting removes the workspace's workflows, assets and outputs on the
-      server. The prompt library and the shared asset library are untouched.
-    </p>
-    <button
-      class="quiet withicon"
-      onclick={() => setHidden(name, !hiddenWorkspaces.names.includes(name))}
-      disabled={name === DEFAULT_WORKSPACE}
-      title="a choice for this browser only - the workspace itself is unchanged"
-    >
-      {#if hiddenWorkspaces.names.includes(name)}<Eye size={14} />Show in
-        sidebar{:else}<EyeOff size={14} />Hide from sidebar{/if}
-    </button>
-    <button
-      class="quiet icon danger"
-      onclick={() => deleteWorkspaceWithConfirm(name)}
-      disabled={name === DEFAULT_WORKSPACE}
-      title={name === DEFAULT_WORKSPACE
-        ? 'the default workspace is the root itself and cannot be deleted'
-        : 'delete this workspace and everything in it'}
-      aria-label="delete workspace {name}"
-    >
-      <Trash2 size={14} />
-    </button>
+    {#if name === DEFAULT_WORKSPACE}
+      <p class="muted">
+        The default workspace is the server's own folder, so it can't be hidden
+        or deleted.
+      </p>
+    {:else}
+      <button
+        class="quiet withicon"
+        onclick={() => setHidden(name, !hiddenWorkspaces.names.includes(name))}
+        title="a choice for this browser only - the workspace itself is unchanged"
+      >
+        {#if hiddenWorkspaces.names.includes(name)}<Eye size={14} />Show in
+          sidebar{:else}<EyeOff size={14} />Hide from sidebar{/if}
+      </button>
+      <ActionButton
+        act={deleting}
+        args={[name]}
+        danger
+        title="delete this workspace and everything in it"
+      >
+        <Trash2 size={14} />Delete workspace
+      </ActionButton>
+    {/if}
   </section>
 </div>
 
 <style>
-  .head {
-    display: flex;
-    align-items: baseline;
-    gap: var(--space-3);
-    margin-bottom: var(--space-4);
-  }
-  .dir {
-    font-size: var(--t-xs);
-  }
   section {
     margin-bottom: var(--space-4);
-  }
-  h2 {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
   }
   h2 a {
     display: inline-flex;
@@ -401,8 +393,7 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .jobs .runningnow {
-    box-shadow: inset 2px 0 0 var(--live);
+  .jobs .row-live {
     padding-left: var(--space-2);
   }
   .cards {
@@ -428,18 +419,9 @@
     padding: 0 var(--space-2);
   }
   .cardframe {
-    display: block;
-    position: relative;
     aspect-ratio: 4 / 3;
-    background: var(--panel-2);
-    border-bottom: 1px solid var(--line);
-    overflow: hidden;
-  }
-  .cardframe img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    display: block;
+    border-width: 0 0 1px;
+    border-radius: 0;
   }
   dl {
     display: grid;

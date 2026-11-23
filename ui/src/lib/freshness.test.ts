@@ -66,6 +66,7 @@ const PAGE_TABLE: Record<string, Freshness[]> = {
   'pages/JobPage.svelte': [{ watch: ['jobs'] }],
   'pages/JobsPage.svelte': [{ live: { everyMs: 3000 } }],
   'pages/JsonEditorStub.svelte': [],
+  'pages/NotFoundPage.svelte': [],
   'pages/ModelsPage.svelte': [
     { watch: ['models'] },
     { watch: ['models'], alsoLive: true },

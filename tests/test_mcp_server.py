@@ -800,6 +800,27 @@ TOOL_WIRING = [
 ]
 
 
+@pytest.mark.asyncio
+async def test_set_note_sends_no_precondition():
+    """PUT /api/notes refuses a stale If-Match (#1597), but only a caller
+    that sends one: set_note sends none, so an agent's write is
+    last-writer-wins exactly as before."""
+    seen = []
+
+    def handler(request):
+        seen.append(request.headers)
+        return httpx.Response(
+            200, json={"target": "wf/run", "note": "keeper", "note_source": "run"}
+        )
+
+    await server_over(handler).call_tool(
+        "set_note", {"target": "wf/run", "note": "keeper"}
+    )
+    assert len(seen) == 1
+    assert "if-match" not in seen[0]
+    assert "if-none-match" not in seen[0]
+
+
 def test_the_wiring_table_covers_every_registered_tool():
     assert {name for name, _, _, _ in TOOL_WIRING} == EXPECTED_TOOLS
 

@@ -80,11 +80,10 @@ from .api_models_library import (
     GalleryLinkedJob,
     StarSet,
     NoteSet,
+    NoteRead,
 )
 
-# The library's models live in api_models_library, and the base in
-# api_models_base; every route and test imports them from here
-__all__ = [
+__all__ = [  # re-exported from api_models_library/_base: import them from here
     "STRICT",
     "ApiModel",
     "JobStatus",
@@ -143,6 +142,7 @@ __all__ = [
     "GalleryLinkedJob",
     "StarSet",
     "NoteSet",
+    "NoteRead",
 ]
 
 
@@ -767,6 +767,7 @@ class RestartBatchQueued(ApiModel):
 class RestartBatchCandidate(ApiModel):
     id: str = Field(description="The tombstone's id.")
     workflow: str | None
+    workflow_name: str | None = Field(None, description="The catalog name it ran by.")
     workspace: str
     estimate: "PlanEstimate | None" = Field(
         description="The plan's estimate of the rerun; null when none was built."
@@ -1101,5 +1102,4 @@ class ClassList(ApiModel):
     classes: list[str]
 
 
-# Read PlanEstimate, declared after it
-RestartBatchCandidate.model_rebuild()
+RestartBatchCandidate.model_rebuild()  # reads PlanEstimate, declared after it

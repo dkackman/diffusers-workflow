@@ -68,17 +68,30 @@ export function formatDuration(seconds: number): string {
   return `${Math.floor(whole / 3600)}h ${pad(Math.floor((whole % 3600) / 60))}m`
 }
 
-/** Minutes for a person: under one is '<1 min', anything else keeps the
- * measured value ('~3 min', '~1.5 min') rather than rounding it away. */
+/** An estimate for a person: under one minute is 'under 1 min', anything
+ * else keeps the measured value ('about 3 min', 'about 1.5 min') rather
+ * than rounding it away. */
 export const formatMinutes = (minutes: number) =>
-  minutes < 1 ? '<1 min' : `~${Number(minutes.toFixed(2))} min`
+  minutes < 1 ? 'under 1 min' : `about ${Number(minutes.toFixed(2))} min`
+
+/** A span of seconds as a rough figure - an ETA: 'under 1 min', 'about 3
+ * min' in whole minutes, 'about 1 h 20 min' from an hour up. */
+export function formatApprox(seconds: number): string {
+  const minutes = Math.round(seconds / 60)
+  if (seconds < 60 || minutes < 1) return 'under 1 min'
+  if (minutes < 60) return `about ${minutes} min`
+  const h = Math.floor(minutes / 60)
+  return minutes % 60 === 0
+    ? `about ${h} h`
+    : `about ${h} h ${minutes % 60} min`
+}
 
 /** Minutes that were measured, not estimated, so with no tilde: '38 min
- * spent' is a fact where '~38 min' reads as a guess. Under ten keeps one
+ * spent' is a fact where 'about 38 min' reads as a guess. Under ten keeps one
  * decimal, past it the whole minute. */
 export function formatSpent(minutes: number): string {
   if (minutes <= 0) return '0 min'
-  if (minutes < 1) return '<1 min'
+  if (minutes < 1) return 'under 1 min'
   const shown = minutes < 10 ? Number(minutes.toFixed(1)) : Math.round(minutes)
   return `${shown} min`
 }

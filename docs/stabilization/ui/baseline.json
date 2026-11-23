@@ -8,5 +8,9 @@
   "a11y_suppressions": 3,
   "raw_error_toasts": 0,
   "empty_outside_loadstate": 0,
-  "unwatched_reads": 0
+  "unwatched_reads": 0,
+  "window_dialogs": 0,
+  "unguarded_mutations": 0,
+  "banned_terms": 0,
+  "duplicate_blocks": 30
 }

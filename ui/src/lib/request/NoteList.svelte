@@ -8,6 +8,7 @@
   import { listening } from './listening.svelte'
   import { noteAnchor, noteLine } from './noteState'
   import { addRef, collapseRefs, writtenRefs } from './noteRefs'
+  import { action } from '../action.svelte'
 
   // The user's notes for the agent on a request or one of its items: each
   // with where it stands and what it is about, then the box a new one is
@@ -86,6 +87,37 @@
   // references go then, not before, so a sent draft is never kept under
   // the key of a box with none
   let stored: LedgerNote | null = null
+  // Each box's writes are an action, so a second Save while one is on its
+  // way sends nothing. A refusal is not the action's to toast: it goes back
+  // to the box, which says it beside the draft (ItemNote's store)
+  type Write =
+    | { add: string }
+    | { edit: LedgerNote; text: string }
+    | { remove: LedgerNote }
+  // Keyed by box (a note's id, '' for the new one); nothing renders it
+  const boxes: Record<string, ReturnType<typeof boxWriter>> = {}
+  function boxWriter() {
+    return action(
+      async (w: Write): Promise<{ refused: unknown }> => {
+        try {
+          if ('add' in w) await added(w.add)
+          else if ('edit' in w) await edited(w.edit, w.text)
+          else await deleted(w.remove)
+          return { refused: null }
+        } catch (refused) {
+          return { refused }
+        }
+      },
+      { doing: 'save the note' },
+    )
+  }
+  async function write(box: string, w: Write) {
+    boxes[box] ??= boxWriter()
+    const outcome = await boxes[box].run(w)
+    // Undefined: a write from this box is still on its way
+    if (!outcome) throw new Error('This note is still being saved.')
+    if (outcome.refused) throw outcome.refused
+  }
   async function added(text: string) {
     await channel.refresh()
     const refs = writtenRefs(pendingRefs)
@@ -158,8 +190,8 @@
               listening={channel.listening}
               refs={collapseRefs(note.refs ?? [])}
               {chip}
-              onsave={(text) => edited(note, text)}
-              ondelete={() => deleted(note)}
+              onsave={(text) => write(note.id, { edit: note, text })}
+              ondelete={() => write(note.id, { remove: note })}
               onreload={onchanged}
             />
           </li>
@@ -178,7 +210,7 @@
         {chip}
         onremoveref={unref}
         extra={pickItems && live.length ? picker : undefined}
-        onsave={added}
+        onsave={(text) => write('', { add: text })}
         onsaved={sent}
         onmove={item !== null && onmove ? move : undefined}
         onreload={onchanged}

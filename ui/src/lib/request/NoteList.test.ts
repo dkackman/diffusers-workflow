@@ -97,7 +97,7 @@ it('shows each note with its line and what it is about, under one label', () => 
   expect(file.getAttribute('href')).toContain('/outputs/run/s3.mp4')
   const second = within(items[1])
   expect(second.getByText(/ · edited /)).toBeTruthy()
-  expect(second.getByText(/No agent session is listening/)).toBeTruthy()
+  expect(second.getByText(/The agent isn't connected\. It reads/)).toBeTruthy()
   const gone = second.getByText('take 1')
   expect(gone.getAttribute('title')).toBe('no longer exists')
   expect(gone.closest('a')).toBeNull()
@@ -119,6 +119,19 @@ it('adds a note with the box’s references, then asks the page to read again', 
   expect(api.notesChannel.mock.calls.length).toBeGreaterThanOrEqual(2)
   // the box's references went with the note
   expect(screen.queryByRole('button', { name: /^Remove/ })).toBeNull()
+})
+
+it('a double click sends one request', async () => {
+  const given = props()
+  render(NoteList, given)
+  await write('reroll this one')
+  const save = screen.getByRole('button', { name: 'Save note' })
+  // Both clicks land before the box renders the first one's busy state
+  save.click()
+  save.click()
+  await waitFor(() => expect(given.onchanged).toHaveBeenCalledTimes(1))
+  await new Promise((r) => setTimeout(r, 20))
+  expect(api.addNote).toHaveBeenCalledTimes(1)
 })
 
 it('a box with every reference taken off sends none', async () => {
@@ -196,7 +209,7 @@ it('the save button and the waiting line follow whether a session listens', asyn
   ).toBeTruthy()
   expect(
     within(document.getElementById('request-note-n2') as HTMLElement).getByText(
-      /An agent session is listening/,
+      /The agent is connected/,
     ),
   ).toBeTruthy()
 })

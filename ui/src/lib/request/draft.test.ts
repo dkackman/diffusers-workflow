@@ -124,3 +124,8 @@ it('keeps the drafts of notes about different takes apart', () => {
     draftKey('studio', 'r1', 's3'),
   )
 })
+
+it('says a refusal as describeError reads it, never the raw message', () => {
+  const raw = new ApiError('note too long\nTraceback: internals', 400)
+  expect(saveFailure(raw)?.message).toBe('note too long')
+})

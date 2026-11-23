@@ -1,6 +1,9 @@
 <script lang="ts">
   import { tick, untrack } from 'svelte'
   import { ApiError } from '../api'
+  import { describeError } from '../apiErrors'
+  import Details from '../ui/Details.svelte'
+  import ErrorLine from '../ui/ErrorLine.svelte'
   import Skeleton from '../ui/Skeleton.svelte'
   import ClampedText from '../ui/ClampedText.svelte'
   import PlanChanges from '../request/PlanChanges.svelte'
@@ -24,7 +27,8 @@
   import { itemRows, newerOf, refreshInterval } from '../request/refresh'
   import { resource } from '../resource.svelte'
   import { formatMtime } from '../format'
-  import { wsHref } from '../routes'
+  import { SECTION_LABELS, wsHref } from '../routes'
+  import PageHeader from '../ui/PageHeader.svelte'
   import { notify } from '../toast'
   import type { LedgerRequest } from '../types'
   import { workspace } from '../workspace.svelte'
@@ -76,7 +80,6 @@
       onClick: () => void showNote(key, id),
     })
   }
-  const messageOf = (e: unknown) => (e instanceof Error ? e.message : String(e))
   const request = $derived(store.view)
   const plan = $derived(request ? planState(request) : null)
 
@@ -120,13 +123,11 @@
   $effect(() => {
     if (missing) untrack(() => store.reset())
   })
-  const failure = $derived(
-    !settled || reads.error === undefined || missing
-      ? null
-      : messageOf(reads.error),
+  const failed = $derived(settled && reads.error !== undefined && !missing)
+  const error = $derived(!store.read && failed)
+  const stale = $derived(
+    store.read && failed ? describeError(reads.error) : null,
   )
-  const error = $derived(store.read ? null : failure)
-  const stale = $derived(store.read ? failure : null)
   const load = () => reads.reload()
 
   // The priced run dialog, for what is ready or for one item. The page
@@ -219,26 +220,32 @@
 {/if}
 
 <div class="reqpage" bind:this={page}>
-  <p class="muted back"><a href={wsHref(ws, 'requests')}>all requests</a></p>
-
+  {#if missing || error || request === null || plan === null}
+    <!-- the loaded page's RequestHeader owns the header; until then, and when
+         the load fails, this one names the page and goes back -->
+    <PageHeader
+      title="Request"
+      secondary={requestId}
+      back={{
+        href: wsHref(ws, 'requests'),
+        label: SECTION_LABELS.ws.requests,
+      }}
+    />
+  {/if}
   {#if missing}
-    <p>
-      This request no longer exists. The agent may have removed it.
-      <a href={wsHref(ws, 'requests')}>See all requests</a>
-    </p>
+    <p>This request no longer exists. The agent may have removed it.</p>
   {:else if error}
-    <p role="alert">
-      Could not load this request: {error}
-      <button type="button" class="quiet" onclick={load}>Retry</button>
-    </p>
+    <ErrorLine error={reads.error} doing="load this request" />
+    <button type="button" class="quiet" onclick={load}>Retry</button>
   {:else if request === null || plan === null}
     <Skeleton lines={4} label="loading request" />
   {:else}
     {#if stale}
       <div class="panel warn-edge stale" role="status">
         <span>
-          Showing the plan as of {formatMtime(readAt)}. Could not refresh: {stale}
+          Showing the plan as of {formatMtime(readAt)}. Couldn't refresh: {stale.title}
         </span>
+        <Details summary="Engine detail" detail={stale.detail ?? ''} />
         <button type="button" class="quiet" onclick={load}>Retry</button>
       </div>
     {/if}
@@ -319,10 +326,6 @@
 <style>
   .reqpage {
     container-type: inline-size;
-  }
-  .back {
-    font-size: var(--t-sm);
-    margin: 0 0 var(--space-3);
   }
   .stale {
     display: flex;

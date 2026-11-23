@@ -1,11 +1,12 @@
 <script lang="ts">
   import { api, ApiError } from '../api'
-  import { confirmDialog } from '../confirm.svelte'
+  import { action } from '../action.svelte'
+  import { destroyConfirm, undoToast } from '../destructive'
   import { notify } from '../toast'
   import type { LedgerRequest } from '../types'
   import ItemMenu from './ItemMenu.svelte'
   import { requestMenu } from './menuEntries'
-  import type { PlanStore } from './planStore.svelte'
+  import { onThisRequest, type PlanStore } from './planStore.svelte'
 
   // The request's own actions, in its header: mark it done, abandon it,
   // reopen it - each a write of its state through the store, as any edit
@@ -26,15 +27,49 @@
     ondeleted: () => void
   } = $props()
 
-  const said = (error: unknown) =>
-    error instanceof Error ? error.message : String(error)
-
-  async function setState(state: LedgerRequest['state']) {
+  /** A state write through the store, which reads again and re-applies it
+   * when the plan moved on; whether it was written. `from` is the state it
+   * must find there (an Undo's). Refused for good, it says why here, or
+   * through the store's notice when the state moved on, and never throws */
+  async function pushState(
+    state: LedgerRequest['state'],
+    from?: LedgerRequest['state'],
+  ): Promise<boolean> {
     try {
-      await store.push({ kind: 'state', state })
+      const outcome = await store.push(
+        from ? { kind: 'state', state, from } : { kind: 'state', state },
+      )
+      return outcome.status === 'saved'
     } catch (error) {
-      notify.error(`Not saved: ${said(error)}`)
+      if (error instanceof ApiError && error.code === 'stale_revision') {
+        notify.error(
+          'The plan changed since this page read it. Look again, then try that.',
+        )
+      } else {
+        notify.failure('save that', error)
+      }
+      return false
     }
+  }
+
+  const UNDONE: Partial<Record<LedgerRequest['state'], (t: string) => string>> =
+    {
+      done: (title) => `Marked "${title}" done`,
+      abandoned: (title) => `Abandoned "${title}"`,
+    }
+
+  /** Mark done and Abandon act at once and offer Undo, which writes the
+   * state it had back through the same store path - only over the state
+   * this wrote, so a change the agent made since stays; Reopen just writes */
+  async function setState(state: LedgerRequest['state']) {
+    const { title, state: previous } = request
+    const said = UNDONE[state]
+    if (!(await pushState(state)) || !said) return
+    undoToast(
+      said(title),
+      () => pushState(previous, state),
+      onThisRequest(store),
+    )
   }
 
   const REFUSED: Record<string, string> = {
@@ -45,24 +80,34 @@
   }
 
   /** Its jobs and their files stay: only the ledger's record goes */
-  async function remove() {
-    const { title, id } = request
-    const sure = await confirmDialog(
-      `Delete "${title}"?\n\nIts plan, notes and history are removed from the ledger for good. Its jobs and their outputs are kept.`,
-      { confirmLabel: 'Delete' },
-    )
-    if (!sure) return
-    try {
-      await api.deleteRequest(workspace, id, store.read?.revision ?? 0)
-    } catch (error) {
-      const code = error instanceof ApiError ? error.code : undefined
-      if (code === 'stale_revision') onreload()
-      notify.error(`Not deleted: ${(code && REFUSED[code]) || said(error)}`)
-      return
-    }
-    notify.success(`Deleted ${title}`)
-    ondeleted()
-  }
+  const removing = action(
+    async ({ title, id }: LedgerRequest) => {
+      try {
+        await api.deleteRequest(workspace, id, store.read?.revision ?? 0)
+      } catch (error) {
+        const code = error instanceof ApiError ? error.code : undefined
+        if (code === 'stale_revision') onreload()
+        const refused = code && REFUSED[code]
+        // Any other failure is the action's to report
+        if (!refused) throw error
+        notify.error(`Not deleted: ${refused}`)
+        return
+      }
+      notify.success(`Deleted ${title}`)
+      ondeleted()
+    },
+    {
+      doing: () => 'delete that',
+      confirm: ({ title }) =>
+        destroyConfirm({
+          name: `"${title}"`,
+          noun: 'request',
+          consequence:
+            'Its plan, notes and history go from the ledger for good. Its jobs and their outputs are kept.',
+        }),
+    },
+  )
+  const remove = () => removing.run(request)
 
   const select = (id: string) =>
     id === 'delete' ? remove() : setState(id as LedgerRequest['state'])

@@ -1,11 +1,12 @@
 <script lang="ts">
   import { Bookmark, FolderOpen, Gauge, Star, Trash2, X } from '@lucide/svelte'
   import DownloadLink from '../DownloadLink.svelte'
-  import { ApiError, api } from '../api'
+  import { api } from '../api'
   import { describeError } from '../apiErrors'
   import { goWs } from '../router.svelte'
-  import { notify } from '../toast'
-  import { confirmDialog } from '../confirm.svelte'
+  import { action } from '../action.svelte'
+  import { assetLibrary, loadAssetLibrary } from '../assetlib.svelte'
+  import { saveAsAsset } from './saveAsAsset'
   import { describeOutputMeta } from '../outputMeta'
   import type { GalleryFile, GalleryInput } from '../types'
   import { resource } from '../resource.svelte'
@@ -17,9 +18,10 @@
   import NoteEditor from '../ui/NoteEditor.svelte'
   import { ASSET, OUTPUT, referenceName } from '../references'
   import { outputUrl } from '../apiUrls'
-  import { wsHref } from '../routes'
+  import { jobHref, wsHref } from '../routes'
   import { workspace } from '../workspace.svelte'
   import { formatBytes, formatMtime } from '../format'
+  import { versionTitle } from '../terms'
 
   // The detail panel under the grid for the one file picked. The page owns
   // the pick (and keys this panel by it, so a new pick starts a new read);
@@ -80,47 +82,19 @@
       : '(could not load this file)'
   })
 
-  /** keep_output's 409 for a name already in the library. Its 409 also
-   * means "no asset library", and neither refusal carries a code, so the
-   * taken one is told apart by its wording. */
-  function nameTaken(e: unknown): boolean {
-    if (!(e instanceof ApiError) || e.status !== 409) return false
-    return e.code === 'exists' || e.message.includes('already exists')
-  }
-
-  /** Keep this file as an input asset, so a later workflow can name it
-   * without depending on the run that made it. */
-  async function keepAsAsset() {
-    const suggestion = file.name.split('/').pop() ?? file.name
-    const assetName = window.prompt(
-      'Keep as asset — name in the asset library:',
-      suggestion,
-    )
-    if (!assetName) return
-    try {
-      const result = await api.keepOutput(file.name, assetName)
-      notify.success(`Kept as ${result.reference}`)
-    } catch (e) {
-      // The server refuses an existing name rather than replacing it; the
-      // choice to replace belongs to the person, not the button
-      if (nameTaken(e)) {
-        const replace = await confirmDialog(
-          `${ASSET}${assetName} already exists. Replace it?`,
-          { confirmLabel: 'Replace', title: 'Replace asset' },
-        )
-        // Declining is an answer, not a failure: nothing to report
-        if (!replace) return
-        try {
-          const result = await api.keepOutput(file.name, assetName, true)
-          notify.success(`Kept as ${result.reference}`)
-        } catch (failure) {
-          notify.failure(`keep ${file.name} as an asset`, failure)
-        }
-      } else {
-        notify.failure(`keep ${file.name} as an asset`, e)
-      }
-    }
-  }
+  // Save to the asset library under a name it asks for (saveAsAsset.ts);
+  // Keep both's suggestion avoids the library's names as listed now
+  const saving = action(
+    async () => {
+      await loadAssetLibrary()
+      const names = (assetLibrary.items ?? []).map((asset) => asset.name)
+      return saveAsAsset(file, names)
+    },
+    {
+      doing: 'save it as an asset',
+      success: (r) => `Saved as asset ${r.name}`,
+    },
+  )
 
   // Assess measures shots, seams and a soundtrack; a still has none, and
   // the title says so in the server's own words (dw/server/assess.py)
@@ -211,10 +185,11 @@
     {/if}
     <button
       class="quiet withicon"
-      onclick={keepAsAsset}
-      title="keep this file as an input asset, under a name later workflows can use"
+      onclick={() => saving.run()}
+      disabled={saving.busy}
+      title="save this file to the asset library, under a name later workflows can use"
     >
-      <Bookmark size={14} />Keep as asset
+      <Bookmark size={14} />Save as asset
     </button>
     <button
       class="quiet withicon"
@@ -233,12 +208,12 @@
       open file
     </a>
     {#if file.version}
-      <!-- The run this file came from, said in both the form a person is
-           quoted ("version 4") and the form every tool takes (the run
-           id), so the two can be checked against each other here rather
-           than back in the listing -->
-      <span class="num muted">
-        version {file.version} · <code>{file.run_id}</code>
+      <!-- The job this file came from, said in both the form a person is
+           quoted ("v4") and the form every tool takes (the run id), so the
+           two can be checked against each other here rather than back in
+           the listing -->
+      <span class="num muted" title={versionTitle(file.version)}>
+        v{file.version} · <code>{file.run_id}</code>
       </span>
     {/if}
     <span class="num muted">
@@ -250,7 +225,9 @@
       onclick={onstar}
       aria-pressed={starred}
       aria-label={starred ? 'unstar this file' : 'star this file'}
-      title={starred ? 'starred - press S to unstar' : 'star to keep - press S'}
+      title={starred
+        ? 'starred - press S to unstar'
+        : 'star this file - press S'}
     >
       <Star size={14} fill={starred ? 'currentColor' : 'none'} />
     </button>
@@ -291,7 +268,7 @@
             <NoteEditor
               note={runNote}
               target={runDir}
-              label="Run note"
+              label="Your note on this job"
               onsaved={() => noteSaved('run')}
             />
             <button type="button" class="bare" onclick={() => (ownNote = true)}>
@@ -301,7 +278,7 @@
             <NoteEditor
               note={ownNote ? null : note}
               target={file.name}
-              label={ownNote || noteSource === 'file' ? 'File note' : 'Note'}
+              label="Your note on this file"
               onsaved={saveFileNote}
             />
           {/if}
@@ -343,7 +320,7 @@
                 <div>
                   <span class="muted">job</span>
                   <a
-                    href={'#/jobs/' + sourceJob.id}
+                    href={jobHref(sourceJob.id, workspace.current)}
                     title="open the job that produced this file"
                   >
                     {sourceJob.id}

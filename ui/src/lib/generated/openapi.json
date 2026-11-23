@@ -4667,6 +4667,39 @@
         "title": "NoteEdit",
         "type": "object"
       },
+      "NoteRead": {
+        "additionalProperties": false,
+        "properties": {
+          "etag": {
+            "description": "What `If-Match` on PUT /api/notes names to replace only this note.",
+            "title": "Etag",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The target's own note, never the run's a file falls back to.",
+            "title": "Note"
+          },
+          "target": {
+            "title": "Target",
+            "type": "string"
+          }
+        },
+        "required": [
+          "target",
+          "note",
+          "etag"
+        ],
+        "title": "NoteRead",
+        "type": "object"
+      },
       "NoteRefWrite": {
         "additionalProperties": false,
         "description": "One reference of a new note. `kind` is the server's to set.",
@@ -5802,6 +5835,18 @@
               }
             ],
             "title": "Workflow"
+          },
+          "workflow_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The catalog name it ran by.",
+            "title": "Workflow Name"
           },
           "workspace": {
             "title": "Workspace",
@@ -10470,6 +10515,62 @@
       }
     },
     "/api/notes": {
+      "get": {
+        "description": "The target's own note and its etag, for an editor that will replace\nit only if it is still the note it read: `If-Match` on PUT /api/notes.",
+        "operationId": "get_note_api_notes_get",
+        "parameters": [
+          {
+            "description": "A target as PUT /api/notes takes it",
+            "in": "query",
+            "name": "target",
+            "required": true,
+            "schema": {
+              "description": "A target as PUT /api/notes takes it",
+              "title": "Target",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Workspace"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NoteRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Note"
+      },
       "put": {
         "description": "Set or clear the note on a run, a file, an asset or a workspace.\n\n`target` is a gallery file name (that file's own note), a run directory\n`<identity>/<run id>` (the run note every file of the run falls back to),\n`asset:<name>` or `workspace:<name>` ('default' for the root's own). The\nanswer is the target's effective note after the write: a file with no\nnote of its own answers with its run's, and `note_source` says which.",
         "operationId": "put_note_api_notes_put",

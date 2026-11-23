@@ -139,7 +139,7 @@ export function outputChoices(
 // that has not started one yet
 const LIBRARIES: Array<[string, string]> = [
   [ASSET, 'a file in the asset library'],
-  [OUTPUT, 'a file an earlier run wrote'],
+  [OUTPUT, 'a file an earlier job wrote'],
   [PROMPT, "a stored prompt's text"],
 ]
 

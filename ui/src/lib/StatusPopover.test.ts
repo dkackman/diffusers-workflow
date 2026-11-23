@@ -52,5 +52,5 @@ it('lists every worker with a link to its current job', async () => {
   const hrefs = [...pop.querySelectorAll('a')].map((a) =>
     a.getAttribute('href'),
   )
-  expect(hrefs).toEqual(['#/jobs/job-a', '#/jobs/job-b'])
+  expect(hrefs).toEqual(['#/ws/default/jobs/job-a', '#/ws/default/jobs/job-b'])
 })

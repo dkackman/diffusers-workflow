@@ -136,6 +136,12 @@ export function holdKind(
   return 'other'
 }
 
+/** The server's hold text for a person: its `~9 GB` figures read `about 9
+ * GB`. The server string stays as it is (MCP reads it); only the screen
+ * changes. */
+export const holdText = (waitingFor: string): string =>
+  waitingFor.replace(/~(?=\d)/g, 'about ')
+
 /** The latest phase_stall still standing: one with no event of another
  * kind after it, since the server sends no "stall cleared" event. Repeated
  * stalls climb, so the latest carries the longest silence. */

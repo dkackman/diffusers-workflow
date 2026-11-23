@@ -113,6 +113,14 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
+it('sets the tab title to the workflow, with Workflows as its back link', async () => {
+  await openPage()
+  expect(document.title).toBe('templates/text-to-image · diffusers-workflow')
+  expect(
+    screen.getByRole('link', { name: /^← (Workflows|Examples)$/ }),
+  ).toBeTruthy()
+})
+
 describe('WorkflowPage run check', () => {
   it('validates on load by name, without sizes, and shows the plan', async () => {
     await openPage()
@@ -122,9 +130,9 @@ describe('WorkflowPage run check', () => {
       arguments: {},
       sizes: false,
     })
-    const plan = screen.getByLabelText('what a run will do')
-    expect(plan.textContent).toContain('~2 min on mps')
-    expect(screen.getByText('a run would be admitted')).toBeTruthy()
+    const plan = screen.getByLabelText('what a job will do')
+    expect(plan.textContent).toContain('about 2 min on mps')
+    expect(screen.getByText('a job would be admitted')).toBeTruthy()
   })
 
   it('asks about exactly the arguments Run sends, blanks dropped', async () => {
@@ -142,6 +150,17 @@ describe('WorkflowPage run check', () => {
       workflow_path: 'templates/text-to-image',
       arguments: asked.arguments,
     })
+  })
+
+  it('a double click sends one request', async () => {
+    vi.mocked(api.submitJob).mockResolvedValue({ id: 'job-1' } as never)
+    await openPage()
+    const runButton = screen.getByRole('button', { name: /Run/ })
+    // Both clicks land before the page renders the first one's busy state
+    runButton.click()
+    runButton.click()
+    await advance()
+    expect(api.submitJob).toHaveBeenCalledTimes(1)
   })
 
   it('checks once per pause, and asks for sizes only after 3 s idle', async () => {
@@ -187,7 +206,7 @@ describe('WorkflowPage run check', () => {
     answerSizes(refusal)
     await advance()
     expect(screen.queryByText(/stale refusal/)).toBeNull()
-    expect(screen.getByText('a run would be admitted')).toBeTruthy()
+    expect(screen.getByText('a job would be admitted')).toBeTruthy()
     // and the signal it was handed was aborted
     const sizesCall = validateCalls().find(
       (c) => (c[0] as { sizes?: boolean }).sizes === true,
@@ -230,7 +249,7 @@ describe('WorkflowPage run check', () => {
     expect(general.textContent).not.toContain('must be at most 8')
     expect(general.querySelector('.bad')!.textContent).toContain('model_name')
     expect(general.querySelector('.warn')!.textContent).toContain('withheld')
-    expect(screen.getByText('a run would be refused')).toBeTruthy()
+    expect(screen.getByText('a job would be refused')).toBeTruthy()
   })
 
   it('clears a field error once the value is fixed', async () => {
@@ -292,10 +311,13 @@ describe('WorkflowPage run check', () => {
   })
 
   it('names a check the server refused outright in the general list', async () => {
-    vi.mocked(api.validate).mockRejectedValue(new Error('unknown workflow'))
+    vi.mocked(api.validate).mockRejectedValue(
+      new ApiError('unknown workflow', 400),
+    )
     await openPage()
+    // a refusal's own first line is its title, led by what was being done
     expect(screen.getByLabelText('findings').textContent).toContain(
-      'unknown workflow',
+      "Couldn't check these values: unknown workflow",
     )
   })
 })
@@ -327,10 +349,10 @@ describe('WorkflowPage curated cost', () => {
     await openPage()
     const line = screen.getByLabelText('curated cost')
     expect(line.textContent).toContain(
-      "a maintainer's figure: ~2 min · 6.5 GB VRAM, measured on M4 Max at num_images_per_prompt=4",
+      "a maintainer's figure: about 2 min · 6.5 GB VRAM, measured on M4 Max at num_images_per_prompt=4",
     )
     expect(line.textContent).toContain('other values re-price it in the plan')
-    const seen = screen.getByText('~1.5 min here')
+    const seen = screen.getByText('about 1.5 min here')
     expect(
       line.compareDocumentPosition(seen) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy()
@@ -366,7 +388,7 @@ describe('WorkflowPage recovery', () => {
     await advance()
     await advance()
     expect(screen.queryByText(/Couldn't load/)).toBeNull()
-    expect(screen.getByText('a run would be admitted')).toBeTruthy()
+    expect(screen.getByText('a job would be admitted')).toBeTruthy()
   })
 
   it('a missing workflow is named in its 404', async () => {

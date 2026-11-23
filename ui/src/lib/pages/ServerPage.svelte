@@ -5,6 +5,8 @@
   import ServerHealthList from '../ServerHealthList.svelte'
   import { resource } from '../resource.svelte'
   import LoadState from '../ui/LoadState.svelte'
+  import PageHeader from '../ui/PageHeader.svelte'
+  import { SECTION_LABELS } from '../routes'
   import CachesPanel from '../CachesPanel.svelte'
   import {
     addressLabel,
@@ -35,12 +37,12 @@
   const mcpPath = $derived(info?.mcp.path ?? '/mcp')
 </script>
 
-<div class="head">
-  <h1>Server</h1>
-  {#if info}
-    <span class="muted">{info.hostname} · v{info.version}</span>
-  {/if}
-</div>
+<!-- The status page's header: the queue below it is a section of this page -->
+<PageHeader
+  title={SECTION_LABELS.server.status}
+  secondary={info ? `${info.hostname} · v${info.version}` : undefined}
+  baseline
+/>
 
 <LoadState of={read} label="the server details" />
 
@@ -106,7 +108,7 @@
       </p>
     {:else}
       <div class="tablewrap">
-        <table>
+        <table class="datatable">
           <thead>
             <tr>
               <th></th>
@@ -290,21 +292,8 @@
 {/if}
 
 <style>
-  .head {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    gap: 0.4rem 0.8rem;
-  }
   .panel {
     margin-bottom: 0.8rem;
-  }
-  h2 {
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-    margin: 0 0 0.6rem;
-    font-size: 0.95rem;
   }
   h3 {
     margin: 0.9rem 0 0.35rem;
@@ -317,7 +306,6 @@
     font-size: 0.85rem;
   }
   .warn {
-    color: var(--warn);
     display: flex;
     align-items: center;
     gap: 0.4rem;
@@ -338,25 +326,6 @@
     gap: 0.4rem;
     font-size: 0.85rem;
     color: var(--muted);
-  }
-  .tablewrap {
-    overflow-x: auto;
-  }
-  table {
-    width: 100%;
-    border-collapse: collapse;
-  }
-  th {
-    text-align: left;
-    font-size: 0.75rem;
-    text-transform: none;
-    color: var(--muted);
-    font-weight: 600;
-    padding: 0.2rem 0.5rem 0.2rem 0;
-  }
-  td {
-    padding: 0.25rem 0.5rem 0.25rem 0;
-    border-top: 1px solid var(--line);
   }
   tr.chosen code {
     color: var(--accent);

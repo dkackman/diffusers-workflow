@@ -2,6 +2,8 @@
   import { Plus } from '@lucide/svelte'
   import StepEditor from './StepEditor.svelte'
   import { emptyStep, emptyTaskStep, emptyWorkflowStep } from '../editor'
+  import { undoToast } from '../destructive'
+  import { OPEN_DOCUMENT } from '../editorShell.svelte'
   import type { StepFlow } from '../flow'
   import type { StepModes } from '../stepModes.svelte'
 
@@ -27,6 +29,17 @@
     hovered: string | null
   } = $props()
 
+  /** `name`, or with the first free `-2`, `-3`... suffix when a step has
+   * it. Step mode and flow-graph edges are keyed by name - two steps sharing
+   * the factory default (e.g. 'generate') would collide in the step modes */
+  function freeName(name: string): string {
+    const taken = new Set((steps ?? []).map((s: Record<string, any>) => s.name))
+    if (!taken.has(name)) return name
+    let n = 2
+    while (taken.has(`${name}-${n}`)) n++
+    return `${name}-${n}`
+  }
+
   function addStep(kind: string) {
     const step =
       kind === 'task'
@@ -34,22 +47,28 @@
         : kind === 'workflow'
           ? emptyWorkflowStep()
           : emptyStep()
-    // Step mode and flow-graph edges are keyed by name - two steps sharing
-    // the factory default (e.g. 'generate') would collide in the step modes
-    const existingNames = new Set(
-      (steps ?? []).map((s: Record<string, any>) => s.name),
-    )
-    if (existingNames.has(step.name)) {
-      let n = 2
-      while (existingNames.has(`${step.name}-${n}`)) n++
-      step.name = `${step.name}-${n}`
-    }
+    step.name = freeName(step.name)
     steps = [...(steps ?? []), step]
     modes.mark(step.name, 'full')
   }
 
+  /** Removed at once, with an Undo that puts the step back where it was -
+   * past the steps still before it - under a free name */
   function removeStep(index: number) {
-    steps!.splice(index, 1)
+    const list = steps ?? []
+    const removed = $state.snapshot(list[index])
+    steps = list.filter((_, at) => at !== index)
+    undoToast(
+      `Removed step ${removed.name}`,
+      () => {
+        const now = steps ?? []
+        const step = { ...removed, name: freeName(removed.name) }
+        const at = Math.min(index, now.length)
+        steps = [...now.slice(0, at), step, ...now.slice(at)]
+        modes.mark(step.name, 'full')
+      },
+      OPEN_DOCUMENT,
+    )
   }
 
   function moveStep(index: number, delta: number) {

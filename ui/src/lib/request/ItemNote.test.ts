@@ -51,7 +51,7 @@ async function draft(text: string, saved: string | null = null) {
 
 it('says before a word is written that no agent session is listening', async () => {
   await draft('')
-  expect(screen.getByText(/No agent session is listening/)).toBeTruthy()
+  expect(screen.getByText(/The agent isn't connected\. It reads/)).toBeTruthy()
   expect(screen.getByRole('button', { name: 'Save note' })).toBeTruthy()
   expect(box().maxLength).toBe(4000)
   await waitFor(() => expect(document.activeElement).toBe(box()))
@@ -66,7 +66,7 @@ it('says Send to agent while a session is listening, and saves either way', asyn
   )
   expect(
     screen.getByText(
-      'An agent session is listening; it will see this within about 10 seconds.',
+      'The agent is connected; it will see this within about 10 seconds.',
     ),
   ).toBeTruthy()
   await fireEvent.input(box(), { target: { value: 'warmer' } })
@@ -315,7 +315,10 @@ it('a waiting note emptied and saved asks first, and stays when declined', async
   confirmDialog.mockResolvedValue(false)
   await fireEvent.click(screen.getByRole('button', { name: 'Save note' }))
   await waitFor(() => expect(confirmDialog).toHaveBeenCalledTimes(1))
-  expect(confirmDialog.mock.calls[0][0]).toMatch(/^Delete this note\?/)
+  expect(confirmDialog.mock.calls[0][1]).toMatchObject({
+    title: 'Delete this note?',
+    danger: true,
+  })
   expect(given.ondelete).not.toHaveBeenCalled()
   expect(given.onsave).not.toHaveBeenCalled()
   expect(box()).toBeTruthy()
@@ -383,4 +386,25 @@ it('asked to open again while open, keeps what is in the box', async () => {
   await fireEvent.input(box(), { target: { value: 'half' } })
   await note.edit()
   expect(box().value).toBe('half')
+})
+
+it('words typed while the save is out stay in the box and in storage', async () => {
+  let land!: () => void
+  const given = props(null, {
+    draftKey: 'note-draft:test',
+    onsave: vi.fn(() => new Promise<void>((resolve) => (land = resolve))),
+  })
+  render(ItemNote, given)
+  await fireEvent.click(
+    screen.getByRole('button', { name: 'Add a note for the agent' }),
+  )
+  await fireEvent.input(box(), { target: { value: 'warmer' } })
+  await fireEvent.click(screen.getByRole('button', { name: 'Save note' }))
+  expect(given.onsave).toHaveBeenCalledWith('warmer')
+  await fireEvent.input(box(), { target: { value: 'warmer, and slower' } })
+  land()
+  await waitFor(() => expect(box().disabled).toBe(false))
+  await new Promise((r) => setTimeout(r, 0))
+  expect(box().value).toBe('warmer, and slower')
+  expect(sessionStorage.getItem('note-draft:test')).toBe('warmer, and slower')
 })

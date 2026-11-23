@@ -3,6 +3,7 @@
   import { api } from '../api'
   import { resource } from '../resource.svelte'
   import LoadState from '../ui/LoadState.svelte'
+  import PageHeader from '../ui/PageHeader.svelte'
   import ItemProof from '../request/ItemProof.svelte'
   import RequestProgress from '../request/RequestProgress.svelte'
   import StateTag from '../request/StateTag.svelte'
@@ -13,7 +14,7 @@
     summaryBands,
   } from '../request/attention'
   import { formatMinutes, formatMtime, formatSpent } from '../format'
-  import { hashQuery, setHashQuery } from '../router.svelte'
+  import { hashState } from '../router.svelte'
   import { wsHref } from '../routes'
   import { workspace } from '../workspace.svelte'
 
@@ -21,12 +22,9 @@
 
   // Open requests are what the page is for; `show=all` in the hash's query
   // brings the closed ones back, and survives opening one and coming back
-  let show = $state(hashQuery().show === 'all' ? 'all' : 'open')
-  $effect(() => setHashQuery({ show: show === 'all' ? 'all' : '' }))
-  $effect(() => {
-    const sync = () => (show = hashQuery().show === 'all' ? 'all' : 'open')
-    window.addEventListener('hashchange', sync)
-    return () => window.removeEventListener('hashchange', sync)
+  const show = hashState('show', 'open', {
+    parse: (raw) => (raw === 'all' ? 'all' : 'open'),
+    format: (value) => value,
   })
 
   // A request an agent writes shows within one feed interval, marked
@@ -39,18 +37,21 @@
 
   const ordered = $derived(orderRequests(list.data?.requests ?? []))
   const open = $derived(ordered.filter((req) => req.state === 'open'))
-  const visible = $derived(show === 'all' ? ordered : open)
+  const visible = $derived(show.value === 'all' ? ordered : open)
   const closed = $derived(ordered.length - open.length)
   const written = (at: string) => formatMtime(Date.parse(at) / 1000)
 </script>
 
-<div class="pagehead">
-  <h1>Requests</h1>
-  <select bind:value={show} title="which requests to list" aria-label="show">
-    <option value="open">open</option>
-    <option value="all">all</option>
-  </select>
-</div>
+<PageHeader title="Requests">
+  {#snippet actions()}<select
+      bind:value={show.value}
+      title="which requests to list"
+      aria-label="show"
+    >
+      <option value="open">open</option>
+      <option value="all">all</option>
+    </select>{/snippet}
+</PageHeader>
 
 <LoadState
   of={list}
@@ -67,7 +68,7 @@
   {:else if visible.length === 0}
     <p class="muted">
       No open requests.
-      <button type="button" class="quiet" onclick={() => (show = 'all')}>
+      <button type="button" class="quiet" onclick={() => (show.value = 'all')}>
         show closed ({closed})
       </button>
     </p>
@@ -127,16 +128,6 @@
 </LoadState>
 
 <style>
-  .pagehead h1 {
-    margin: 0;
-    flex: 1;
-  }
-  .pagehead select {
-    max-width: 110px;
-  }
-  .list {
-    padding: 0.3rem;
-  }
   /* Fixed tracks past the title, so the columns line up down the list */
   .row {
     display: grid;
@@ -145,22 +136,10 @@
       108px 9.5rem 8.5rem;
     gap: 1rem;
     align-items: center;
-    padding: 0.55rem 0.8rem;
-    border-radius: 6px;
-    color: var(--ink);
-  }
-  .row:hover {
-    background: var(--panel-2);
   }
   .cover {
     display: flex;
     gap: 4px;
-  }
-  .namecol {
-    display: flex;
-    flex-direction: column;
-    gap: 0.15rem;
-    min-width: 0;
   }
   /* Written for a person, so not in the mono a workflow's name takes */
   .title {

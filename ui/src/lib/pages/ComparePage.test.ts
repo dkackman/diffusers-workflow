@@ -77,6 +77,19 @@ describe('ComparePage', () => {
     expect(await screen.findByRole('rowheader', { name: 'seed' })).toBeTruthy()
     expect(screen.queryByRole('rowheader', { name: 'steps' })).toBeNull()
   })
+  it('with fewer than two files says how to pick them', async () => {
+    render(ComparePage, { props: { names: ['wf/r1/a.png'] } })
+    expect(await screen.findByText('Nothing to compare yet.')).toBeTruthy()
+    expect(
+      screen.getByText(
+        'Tick two or more files in the Gallery, then press Compare.',
+      ),
+    ).toBeTruthy()
+    expect(
+      screen.getByRole('link', { name: 'Open the Gallery' }),
+    ).toHaveAttribute('href', '#/ws/default/gallery')
+    expect(screen.queryByAltText('wf/r1/a.png')).toBeNull()
+  })
   it('says when a file is gone', async () => {
     render(ComparePage, { props: { names: ['wf/r1/a.png', 'wf/gone.png'] } })
     expect(await screen.findByText(/no longer in the gallery/)).toBeTruthy()

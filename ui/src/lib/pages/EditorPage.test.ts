@@ -13,6 +13,7 @@ import { ApiError } from '../apiErrors'
 import { chooseDialog, confirmDialog } from '../confirm.svelte'
 import { changeOnBlur } from '../test/changeOnBlur'
 import { feed } from '../test/feedMock'
+import { notify } from '../toast'
 
 // EditorPage talks to the server on mount (pipeline/class/task catalogs,
 // the workflow listing, the prompt library) purely to feed forms the flow
@@ -37,6 +38,7 @@ vi.mock('../changes.svelte', async () => ({
 vi.mock('../api', () => ({
   api: {
     saveWorkflow: vi.fn().mockResolvedValue({ saved: {}, etag: '"e2"' }),
+    submitJob: vi.fn().mockResolvedValue({ id: 'job-1' }),
     listPipelines: vi.fn().mockResolvedValue({ pipelines: [] }),
     listClasses: vi.fn().mockResolvedValue({ classes: [] }),
     listTasks: vi.fn().mockResolvedValue({
@@ -123,6 +125,33 @@ describe('EditorPage view switch', () => {
   })
 })
 
+describe('EditorPage header', () => {
+  it('sets the tab title to the open workflow, and its back link to its own page', async () => {
+    render(EditorPage, { name: 'e2e-card' })
+    await waitFor(() =>
+      expect(document.title).toBe('e2e-card · diffusers-workflow'),
+    )
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe(
+      'e2e-card',
+    )
+    expect(screen.getByRole('link', { name: '← e2e-card' })).toHaveAttribute(
+      'href',
+      '#/ws/default/workflows/e2e-card',
+    )
+  })
+
+  it('sets the tab title to New workflow, and its back link to Workflows', async () => {
+    render(EditorPage, { name: '' })
+    await waitFor(() =>
+      expect(document.title).toBe('New workflow · diffusers-workflow'),
+    )
+    expect(screen.getByRole('link', { name: '← Workflows' })).toHaveAttribute(
+      'href',
+      '#/ws/default/workflows',
+    )
+  })
+})
+
 describe('EditorPage validation plan', () => {
   it('validates the definition it opened, without the transport metadata', async () => {
     render(EditorPage, { name: 'models/z-image' })
@@ -146,7 +175,7 @@ describe('EditorPage validation plan', () => {
     expect(payload).not.toHaveProperty('writable')
   })
 
-  it('shows what a run will do under a valid verdict', async () => {
+  it('shows what a job will do under a valid verdict', async () => {
     render(EditorPage, { name: '' })
     await waitFor(() =>
       expect(screen.getByLabelText('workflow id')).toBeTruthy(),
@@ -155,11 +184,11 @@ describe('EditorPage validation plan', () => {
     await screen.getByRole('button', { name: /validate/i }).click()
 
     await waitFor(() =>
-      expect(screen.getByLabelText('what a run will do')).toBeTruthy(),
+      expect(screen.getByLabelText('what a job will do')).toBeTruthy(),
     )
-    const plan = screen.getByLabelText('what a run will do')
+    const plan = screen.getByLabelText('what a job will do')
     expect(plan.textContent).toContain('3 steps (shots: 2)')
-    expect(plan.textContent).toContain('~12 min on cuda')
+    expect(plan.textContent).toContain('about 12 min on cuda')
     expect(plan.textContent).toContain('0 of 3 steps cached')
     expect(plan.textContent).toContain('needs download: org/model (41.2 GB)')
   })
@@ -413,6 +442,17 @@ describe('EditorPage saving', () => {
     expect(api.validate).not.toHaveBeenCalled()
   })
 
+  it('a double Save writes once', async () => {
+    render(EditorPage, { name: 'models/z-image' })
+    await waitFor(() => expect(saveButton().disabled).toBe(false))
+    // Both presses land before the page renders the first one's busy state
+    saveButton().click()
+    saveButton().click()
+    await waitFor(() => expect(api.saveWorkflow).toHaveBeenCalled())
+    await new Promise((r) => setTimeout(r, 20))
+    expect(api.saveWorkflow).toHaveBeenCalledTimes(1)
+  })
+
   it('re-saves an opened workflow at the version it was read', async () => {
     render(EditorPage, { name: 'models/z-image' })
     await waitFor(() => expect(saveButton().disabled).toBe(false))
@@ -453,8 +493,11 @@ describe('EditorPage saving', () => {
     await waitFor(() => expect(location.hash).toBe('#/ws/default/edit/mine'))
     // replaced in place: Back still leaves the editor, not the unsaved draft
     expect(history.length).toBe(entries)
-    const crumbs = screen.getByRole('navigation', { name: 'breadcrumb' })
-    await waitFor(() => expect(crumbs.textContent).toContain('mine'))
+    await waitFor(() =>
+      expect(screen.getByRole('heading', { level: 1 }).textContent).toBe(
+        'mine',
+      ),
+    )
   })
 
   it('Cmd+S saves text typed into the JSON view without a blur', async () => {
@@ -550,6 +593,26 @@ describe('EditorPage saving', () => {
   })
 })
 
+describe('EditorPage run', () => {
+  const runButton = () =>
+    screen.getByRole('button', { name: /^run/i }) as HTMLButtonElement
+
+  afterEach(() => {
+    vi.mocked(api.submitJob).mockClear()
+    location.hash = ''
+  })
+
+  it('a double click sends one request', async () => {
+    render(EditorPage, { name: 'models/z-image' })
+    await waitFor(() => expect(runButton().disabled).toBe(false))
+    // Both clicks land before the page renders the first one's busy state
+    runButton().click()
+    runButton().click()
+    await waitFor(() => expect(location.hash).toContain('/jobs/job-1'))
+    expect(api.submitJob).toHaveBeenCalledTimes(1)
+  })
+})
+
 describe('EditorPage remote change', () => {
   const idField = () => screen.getByLabelText('workflow id') as HTMLInputElement
 
@@ -610,5 +673,53 @@ describe('EditorPage remote change', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'Load theirs' }))
     await waitFor(() => expect(idField().value).toBe('Theirs'))
     expect(screen.queryByRole('button', { name: 'Load theirs' })).toBeNull()
+  })
+})
+
+describe('EditorPage undo', () => {
+  const stepNames = () =>
+    Array.from(document.querySelectorAll('.steprow')).map((row) =>
+      row.id.replace(/^step-/, ''),
+    )
+
+  it('an Undo pressed after switching workflow leaves the other one alone', async () => {
+    const undo = vi.spyOn(notify, 'undo')
+    const error = vi.spyOn(notify, 'error')
+    try {
+      vi.mocked(api.getWorkflow).mockResolvedValueOnce({
+        definition: {
+          id: 'A',
+          steps: [
+            { name: 'generate', pipeline: {} },
+            { name: 'upscale', pipeline: {} },
+          ],
+        },
+        origin: 'workspace',
+        writable: true,
+        etag: '"ea"',
+      } as never)
+      const { rerender } = render(EditorPage, { name: 'a' })
+      await waitFor(() => expect(stepNames()).toEqual(['generate', 'upscale']))
+      await fireEvent.click(
+        screen.getAllByRole('button', { name: 'remove step' })[1],
+      )
+      await waitFor(() => expect(undo).toHaveBeenCalledTimes(1))
+      await rerender({ name: 'b' })
+      await waitFor(() =>
+        expect(
+          (screen.getByLabelText('workflow id') as HTMLInputElement).value,
+        ).toBe('ZImage'),
+      )
+      undo.mock.calls[0][1]()
+      await waitFor(() =>
+        expect(error).toHaveBeenCalledWith(
+          'Nothing undone: another workflow, or a newer copy of this one, has opened since.',
+        ),
+      )
+      expect(stepNames()).toEqual(['generate'])
+    } finally {
+      undo.mockRestore()
+      error.mockRestore()
+    }
   })
 })

@@ -3,7 +3,7 @@
 // dialog closes), and on confirm each is submitted in plan order with a
 // cost acknowledgement bound to the plan it was quoted. Nothing here is
 // optimistic: a row is queued only when the server has said so.
-import { ApiError } from '../apiErrors'
+import { ApiError, describeError } from '../apiErrors'
 import type { JobSubmitBody, ValidateRequest } from '../apiRequest'
 import type { JobDetail, Plan, ValidationResult } from '../types'
 import { RUN_REFUSALS, type Candidate } from './runPlan'
@@ -42,21 +42,23 @@ export type RunRow = {
   plan: Plan | null
   /** What to resend after a re-price, as the server gave it */
   acknowledge: JobSubmitBody['acknowledged_cost'] | null
+  /** Why it will not run or did not queue, in plain words */
   error: string | null
+  /** The server's own text behind `error`, for Details; null when the
+   * words say all there is */
+  detail: string | null
   job: string | null
 }
 
-const message = (error: unknown) =>
-  error instanceof Error ? error.message : String(error)
-
 /** A submit the server did not take, in words for the row */
 function refusal(error: unknown): string {
-  if (!(error instanceof ApiError)) return message(error)
+  const { title } = describeError(error)
+  if (!(error instanceof ApiError)) return title
   const plain = error.code ? RUN_REFUSALS[error.code] : undefined
   if (plain) return plain
   if (error.status === 400)
-    return `The item's stored workflow or arguments were refused: ${error.message}`
-  return error.message
+    return `The item's stored workflow or arguments were refused: ${title}`
+  return title
 }
 
 /** A validation that did not answer. The server refusing the question
@@ -65,8 +67,12 @@ function refusal(error: unknown): string {
 function unchecked(error: unknown): string {
   const refused =
     error instanceof ApiError && error.status >= 400 && error.status < 500
-  return `${refused ? 'would be refused' : 'could not be checked'}: ${message(error)}`
+  const { title } = describeError(error)
+  return `${refused ? 'would be refused' : 'could not be checked'}: ${title}`
 }
+
+/** The engine text a caught error carries beyond its title */
+const detailOf = (error: unknown) => describeError(error).detail ?? null
 
 /** The current plan a 409 on a bound acknowledgement carries */
 function repriced(error: unknown): Record<string, unknown> | null {
@@ -98,6 +104,7 @@ export class RunQueue {
       plan: null,
       acknowledge: null,
       error: null,
+      detail: null,
       job: null,
     }))
   }
@@ -159,6 +166,7 @@ export class RunQueue {
     } catch (error) {
       if (this.#abort.signal.aborted) return
       row.error = unchecked(error)
+      row.detail = detailOf(error)
     }
     row.state = 'refused'
     row.ticked = false
@@ -198,6 +206,7 @@ export class RunQueue {
     const { key, workflow, arguments: args } = row.candidate
     row.state = 'sending'
     row.error = null
+    row.detail = null
     try {
       const job = await this.#api.submitJob({
         workflow_path: workflow,
@@ -216,6 +225,7 @@ export class RunQueue {
         row.state = 'repriced'
       } else {
         row.error = refusal(error)
+        row.detail = detailOf(error)
         row.state = 'failed'
       }
     }

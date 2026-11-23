@@ -95,6 +95,8 @@ const uploadMedia = vi.hoisted(() =>
   >(() => Promise.resolve({ reference: 'asset:uploads/x.png' })),
 )
 const setNote = vi.hoisted(() => vi.fn())
+// What the server holds as the note a save reads first (its etag read)
+const noteHeld = vi.hoisted(() => ({ note: null as string | null }))
 const galleryMetadata = vi.hoisted(() =>
   vi.fn<(reference: string) => Promise<unknown>>(() => new Promise(() => {})),
 )
@@ -102,6 +104,8 @@ vi.mock('../api', () => ({
   setNote: (t: string, n: string | null) => setNote(t, n),
   api: {
     listAssets: () => listAssets(),
+    noteForSave: (target: string) =>
+      Promise.resolve({ target, note: noteHeld.note, etag: '"e"' }),
     galleryMetadata: (reference: string) => galleryMetadata(reference),
     deleteAsset: (name: string) => deleteAsset(name),
     archiveAssets: (names: string[]) => archiveAssets(names),
@@ -155,6 +159,9 @@ afterEach(() => {
   // would otherwise hand it to whatever renders next
   localStorage.clear()
   workspace.current = DEFAULT_WORKSPACE
+  // The text filter lives in the hash: a test that typed one would hand
+  // it to whatever renders next
+  history.replaceState(null, '', location.pathname)
 })
 
 async function renderAssets(first = 'iris.png', shared = false) {
@@ -352,6 +359,24 @@ it('shows what a nearer library is hiding, dimmed and inert', async () => {
   expect(screen.getAllByLabelText(/^select /).length).toBe(1)
 })
 
+it('opens a shut shadowed section while a filter matches inside it', async () => {
+  listing.libraries = [WORKSPACE_LIBRARY, SHARED_LIBRARY]
+  listing.assets = [asset('iris.png')]
+  listing.shadowed = [shadowedAsset('iris.png', 'common', 'workspace')]
+  render(AssetsPage)
+  const label =
+    "shadowed by this workspace's iris.png - asset:iris.png resolves to that file"
+  await waitFor(() => screen.getByTitle(label))
+
+  screen.getByTitle('collapse the shadowed entries').click()
+  await waitFor(() => expect(screen.queryByTitle(label)).toBeNull())
+
+  const filter = screen.getByPlaceholderText('filter…') as HTMLInputElement
+  filter.value = 'iris'
+  filter.dispatchEvent(new Event('input', { bubbles: true }))
+  await waitFor(() => expect(screen.getByTitle(label)).toBeTruthy())
+})
+
 it('collapses a library section, and remembers it', async () => {
   listing.libraries = [WORKSPACE_LIBRARY, SHARED_LIBRARY]
   listing.assets = [asset('iris.png'), asset('shared/logo.png', 'common')]
@@ -465,6 +490,25 @@ it('downloads the ticked assets as one zip', async () => {
   await waitFor(() => expect(archiveAssets).toHaveBeenCalledTimes(1))
   // The order the grid shows them in, not the order they were ticked
   expect(archiveAssets).toHaveBeenCalledWith(['iris.png', 'cast/priya.jpg'])
+})
+
+it('a double click on Download sends one request', async () => {
+  await renderAssets()
+
+  screen.getByLabelText('select iris.png').click()
+  await waitFor(() =>
+    screen.getByRole('button', { name: /download the selected/i }),
+  )
+  const download = screen.getByRole('button', {
+    name: /download the selected/i,
+  })
+  // Both clicks land before the page renders the first one's busy state
+  download.click()
+  download.click()
+
+  await waitFor(() => expect(archiveAssets).toHaveBeenCalled())
+  await new Promise((r) => setTimeout(r, 20))
+  expect(archiveAssets).toHaveBeenCalledTimes(1)
 })
 
 it('deletes every ticked asset and refetches once', async () => {
@@ -597,10 +641,11 @@ it('says what a shared delete costs', async () => {
   )
 
   const dialog = await waitFor(() => screen.getByRole('alertdialog'))
+  expect(dialog.textContent).toContain('Delete asset:shared/logo.png?')
   expect(dialog.textContent).toContain(
-    'Delete asset:shared/logo.png from the shared library? Every workspace ' +
-      'under this root loses it, and any workflow still carrying that ' +
-      'reference stops loading.',
+    'This removes it on disk. It is in the shared library, so every ' +
+      'workspace under this root loses it, and any workflow still carrying ' +
+      'that reference stops loading.',
   )
   // Answer it: an unanswered confirm is module state the next render sees
   await answerConfirm(false)
@@ -616,9 +661,10 @@ it('says nothing about a shared library when nothing shared is picked', async ()
   screen.getByRole('button', { name: /^delete the selected/i }).click()
 
   const dialog = await waitFor(() => screen.getByRole('alertdialog'))
+  expect(dialog.textContent).toContain('Delete 2 assets?')
   expect(dialog.textContent).toContain(
-    'Delete 2 assets? Any workflow still carrying one of those references ' +
-      'stops loading.',
+    'This removes them on disk. Any workflow still carrying one of those ' +
+      'references stops loading.',
   )
   await answerConfirm(false)
 })
@@ -639,11 +685,17 @@ it('counts the shared assets in a bulk delete confirm', async () => {
   screen.getByRole('button', { name: /^delete the selected/i }).click()
 
   const dialog = await waitFor(() => screen.getByRole('alertdialog'))
+  expect(dialog.textContent).toContain('Delete 3 assets?')
   expect(dialog.textContent).toContain(
-    'Delete 3 assets? 2 are in the shared library and go away for every ' +
-      'workspace. Any workflow still carrying one of those references stops ' +
-      'loading.',
+    'This removes them on disk. 2 of them are in the shared library and go ' +
+      'away for every workspace. Any workflow still carrying one of those ' +
+      'references stops loading.',
   )
+  expect(
+    within(dialog)
+      .getByRole('button', { name: /^delete$/i })
+      .classList.contains('danger'),
+  ).toBe(true)
   await answerConfirm(false)
 })
 
@@ -736,7 +788,7 @@ it('keeps a saved note on the asset when it is selected again', async () => {
   await fireEvent.click(
     await screen.findByRole('button', { name: /edit note/i }),
   )
-  await fireEvent.input(screen.getByLabelText('Note'), {
+  await fireEvent.input(screen.getByLabelText('Your note on this asset'), {
     target: { value: 'hero shot' },
   })
   await fireEvent.click(screen.getByRole('button', { name: /save/i }))
@@ -848,7 +900,7 @@ async function saveIrisNote(note: string) {
   await fireEvent.click(
     await screen.findByRole('button', { name: /edit note/i }),
   )
-  await fireEvent.input(screen.getByLabelText('Note'), {
+  await fireEvent.input(screen.getByLabelText('Your note on this asset'), {
     target: { value: note },
   })
   await fireEvent.click(screen.getByRole('button', { name: /save/i }))

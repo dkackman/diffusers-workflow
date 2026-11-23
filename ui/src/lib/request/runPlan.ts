@@ -86,7 +86,7 @@ export function heldPlan(plan: PlanState, keys: readonly string[]): RunPlan {
 }
 
 /** The line a held item's row carries in the dialog: running it is the
- * user's go-ahead, or, with the review over and a session listening, the
+ * user's go-ahead, or, with the review over and the agent connected, the
  * agent may be starting it already */
 export function heldLine(
   review: LedgerReview | null,
@@ -95,11 +95,11 @@ export function heldLine(
   if (!review) return null
   if (review.state === 'due' && listening)
     return {
-      text: 'Review time is up and a session is listening: it may be starting this now.',
+      text: 'Review time is up and the agent is connected: it may be starting this now.',
       tone: 'warn',
     }
   return {
-    text: `Held for review until ${clockTime(review.until)}. Running it now is your go-ahead.`,
+    text: `Waiting for your OK until ${clockTime(review.until)}. Running it now is your go-ahead.`,
     tone: 'plain',
   }
 }

@@ -69,7 +69,10 @@
   const definitionMoved = $derived(
     ranRead.changed.has(jobId) && !ranRead.changed.has('realized'),
   )
-  const noteMoved = $derived(record.changed.has('note'))
+  // The run note's box is open: its own notice says a newer note, so the
+  // page's line would be a second, and a wrong one (the box did not move)
+  let noteEditing = $state(false)
+  const noteMoved = $derived(record.changed.has('note') && !noteEditing)
   const definition = $derived<Record<string, any> | null>(
     ran?.definition ?? null,
   )
@@ -323,7 +326,8 @@
         note={job.note}
         target={job.run_dir}
         workspace={job.workspace}
-        label="Run note"
+        label="Your note on this job"
+        bind:editing={noteEditing}
         onsaved={(note) =>
           job && record.adopt({ ...job, note: note ?? undefined })}
       />
@@ -336,8 +340,8 @@
           <span
             class="muted jsonmark"
             title={realized
-              ? 'this is the realized copy the run itself wrote - every mutable input pinned to the value it used'
-              : 'this is the definition as submitted - no realized copy of this run is on file'}
+              ? 'this is the realized copy the job itself wrote - every mutable input pinned to the value it used'
+              : 'this is the definition as submitted - no realized copy of this job is on file'}
           >
             {realized ? 'realized' : 'as submitted'}
           </span>
@@ -457,8 +461,5 @@
     display: flex;
     align-items: center;
     gap: 0.45rem;
-  }
-  .error {
-    color: var(--bad);
   }
 </style>

@@ -3,6 +3,7 @@
   import { Images, Upload } from '@lucide/svelte'
   import MediaPicker from '../assets/MediaPicker.svelte'
   import { reportUploads, uploadAll } from '../assets/uploads'
+  import ErrorLine from '../ui/ErrorLine.svelte'
   import Suggest from '../ui/Suggest.svelte'
   import {
     assetLibrary,
@@ -15,6 +16,7 @@
   import { ensureOutputLibrary, outputNamed } from '../outputlib.svelte'
   import type { MediaKind } from '../mediaArguments'
   import { dropFiles } from '../dropFiles'
+  import { action } from '../action.svelte'
 
   let {
     id,
@@ -31,9 +33,11 @@
   } = $props()
 
   let fileInput: HTMLInputElement | undefined = $state()
-  let uploading = $state(false)
   let browsing = $state(false)
+  /** Our own word on an upload that did not land */
   let error = $state('')
+  /** An upload that failed, as caught: shown through ErrorLine */
+  let failure = $state<unknown>(null)
   // A locally-generated preview URL (object URL for a just-picked file, or
   // the location itself when it is already web-reachable). Cleaned up when
   // replaced so picking several files in a row doesn't leak object URLs.
@@ -77,17 +81,20 @@
     if (localPreview.startsWith('blob:')) URL.revokeObjectURL(localPreview)
   })
 
-  async function pick(e: Event & { currentTarget: HTMLInputElement }) {
+  function pick(e: Event & { currentTarget: HTMLInputElement }) {
     const file = e.currentTarget.files?.[0]
     e.currentTarget.value = ''
-    if (file) await uploadFile(file)
+    if (file) void uploading.run(file)
   }
 
+  // A failed upload is said beside the field (ErrorLine), so the action
+  // has nothing to announce: it is the busy guard
+  const uploading = action(uploadFile, { doing: 'upload that file' })
   async function uploadFile(file: File) {
     error = ''
+    failure = null
     const previous = localPreview
     localPreview = URL.createObjectURL(file)
-    uploading = true
     try {
       // This uploads to the workspace library, so only its names are taken
       const taken = new Set(
@@ -117,9 +124,7 @@
       void loadAssetLibrary()
     } catch (err) {
       revokeBlob(previous)
-      error = err instanceof Error ? err.message : 'upload failed'
-    } finally {
-      uploading = false
+      failure = err
     }
   }
 </script>
@@ -137,9 +142,9 @@
 <div
   class="media"
   use:dropFiles={{
-    ondrop: (files) => uploadFile(files[0]),
+    ondrop: (files) => void uploading.run(files[0]),
     accept: (f) => f.type.startsWith(`${kind}/`),
-    disabled: uploading,
+    disabled: uploading.busy,
   }}
 >
   <div class="row1">
@@ -157,8 +162,8 @@
     <button
       type="button"
       class="quiet icon"
-      title={`choose ${kind === 'image' ? 'an image' : 'a video'} from the assets or earlier runs`}
-      aria-label={`choose ${kind === 'image' ? 'an image' : 'a video'} from the assets or earlier runs`}
+      title={`choose ${kind === 'image' ? 'an image' : 'a video'} from the assets or earlier jobs`}
+      aria-label={`choose ${kind === 'image' ? 'an image' : 'a video'} from the assets or earlier jobs`}
       onclick={() => (browsing = true)}
     >
       <Images size={14} />
@@ -168,7 +173,7 @@
       class="quiet icon"
       title={`browse for a local ${kind} file, or drop a file here`}
       aria-label={`browse for a local ${kind} file`}
-      disabled={uploading}
+      disabled={uploading.busy}
       onclick={() => fileInput?.click()}
     >
       <Upload size={14} />
@@ -181,8 +186,13 @@
       onchange={pick}
     />
   </div>
-  {#if uploading}
+  {#if uploading.busy}
     <div class="muted status">uploading…</div>
+  {:else if failure != null}
+    <div class="status">
+      <ErrorLine error={failure} doing="upload that file" />
+      <p class="muted">The path above can still be typed by hand.</p>
+    </div>
   {:else if error}
     <div class="warn status">
       {error} - path above can still be typed by hand
@@ -227,8 +237,8 @@
   .status {
     font-size: 0.75rem;
   }
-  .warn {
-    color: var(--warn);
+  .status p {
+    margin: 0;
   }
   .preview img,
   .preview video {

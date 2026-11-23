@@ -1,0 +1,155 @@
+/* app.css's overflow: the shared classes that would not fit its 600 lines,
+   so they live here, loaded straight after frames.css (main.ts), whose
+   tokens they read. The one multi-select filter chip is here; a choice of
+   one from a few is Segmented.svelte. */
+
+/* A chip that is on or off: a trait, a role, Starred, a prompt's tag. The
+   pill outline; `.on` (set with aria-pressed) fills it with ink. */
+button.togglechip {
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: var(--t-xs);
+  font-weight: 500;
+  padding: 0.05rem 0.55rem;
+  cursor: pointer;
+}
+button.togglechip:hover {
+  color: var(--ink);
+  border-color: var(--muted);
+  filter: none;
+}
+button.togglechip.on {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--panel);
+}
+
+/* A label/field form grid: the label in a track, the field beside it.
+   `--label-w` sets the track (default minmax(140px, 40%)); `.withaction`
+   adds a trailing auto track for a row's button; `.top` aligns a row to its
+   field's first line (a tall field, a field with hints) rather than its
+   middle. Collapses to one column, the label above its field, on the width
+   its panel gets (every `.panel` is a container, app.css). */
+.formgrid {
+  display: grid;
+  grid-template-columns: var(--label-w, minmax(140px, 40%)) minmax(0, 1fr);
+  gap: var(--space-2) var(--space-3);
+  align-items: center;
+}
+.formgrid.withaction {
+  grid-template-columns: var(--label-w, minmax(140px, 40%)) minmax(0, 1fr) auto;
+}
+.formgrid.top {
+  align-items: start;
+}
+.formgrid > label {
+  font-weight: 600;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.formgrid.top > label {
+  padding-top: 0.4rem;
+}
+@container (max-width: 400px) {
+  .formgrid,
+  .formgrid.withaction {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-1) var(--space-2);
+  }
+  .formgrid.withaction {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .formgrid.withaction > label {
+    grid-column: 1 / -1;
+  }
+  .formgrid.top > label {
+    padding-top: 0;
+  }
+}
+
+/* A table of records: a row rule, a quiet header. `.tablewrap` scrolls it
+   on its own rather than the page; `.dense` is the mono, tight one the
+   event log is. */
+.tablewrap {
+  overflow-x: auto;
+}
+table.datatable {
+  width: 100%;
+  border-collapse: collapse;
+}
+table.datatable th {
+  text-align: left;
+  font-size: var(--t-xs);
+  font-weight: 600;
+  color: var(--muted);
+  padding: 0.2rem var(--space-2) 0.2rem 0;
+}
+table.datatable td {
+  padding: var(--space-1) var(--space-2) var(--space-1) 0;
+  border-top: 1px solid var(--line);
+}
+table.datatable.dense {
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+}
+table.datatable.dense th,
+table.datatable.dense td {
+  padding: 0.15rem 0.6rem 0.15rem 0;
+  vertical-align: top;
+}
+table.datatable.dense td {
+  border-top: none;
+}
+
+/* Colour and nothing else: say what a line means; layout stays with the
+   place that uses it */
+.error,
+.bad {
+  color: var(--bad);
+}
+.warn {
+  color: var(--warn);
+}
+.good {
+  color: var(--good);
+}
+.hint {
+  color: var(--muted);
+  font-size: var(--t-sm);
+}
+
+/* A panel's heading with an icon beside it */
+.panel > h2 {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* A list of rows on a panel (Jobs, Requests): the row's padding, radius and
+   hover, and the name column's stack. Each page sets its own tracks and the
+   width it collapses at. */
+.panel.list {
+  padding: 0.3rem;
+}
+.panel.list > .row {
+  padding: 0.55rem 0.8rem;
+  border-radius: var(--radius-1);
+  color: var(--ink);
+}
+.panel.list > .row:hover {
+  background: var(--panel-2);
+}
+.panel.list .namecol {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+/* The editors' "unsaved" marker, beside the Save button's dirty dot */
+.chip.unsaved {
+  background: color-mix(in srgb, var(--warn) 22%, transparent);
+  color: var(--warn);
+}

@@ -160,9 +160,9 @@ it('shows the measured cost and omits it when nothing was measured', async () =>
 
   // The accelerator it was measured on moves to the card's tooltip - the
   // caption has room for the numbers, not for the hardware
-  expect(screen.getByText('~3 min · 22 GB VRAM')).toBeTruthy()
+  expect(screen.getByText('about 3 min · 22 GB VRAM')).toBeTruthy()
   // Under a minute reads as a bound rather than a rounded zero
-  expect(screen.getByText('<1 min · 0.5 GB VRAM')).toBeTruthy()
+  expect(screen.getByText('under 1 min · 0.5 GB VRAM')).toBeTruthy()
   // cost: null - the card says nothing rather than guessing
   expect(card('tti')?.textContent).not.toContain('min')
 })
@@ -181,7 +181,7 @@ it("says whose figure the cost is and the card's settings it was measured at", a
   // A null cost has no cost line at all
   expect(card('tti')!.getAttribute('title')).not.toContain('measured on')
   // and the caption is unchanged
-  expect(screen.getByText('~3 min · 22 GB VRAM')).toBeTruthy()
+  expect(screen.getByText('about 3 min · 22 GB VRAM')).toBeTruthy()
 })
 
 it('prints a basis it does not know and a hostile driver value literally', async () => {
@@ -212,7 +212,7 @@ it('keeps a fractional measurement rather than rounding it away', async () => {
     },
   }
   await renderPage('half')
-  expect(screen.getByText('~1.5 min · 8 GB VRAM')).toBeTruthy()
+  expect(screen.getByText('about 1.5 min · 8 GB VRAM')).toBeTruthy()
 })
 
 it('shows the summary rather than the whole description', async () => {
@@ -251,10 +251,20 @@ it('the examples view counts and offers chips for only the read-only population'
   }
   render(WorkflowsPage, { examples: true })
   await waitFor(() => expect(card('flux-dev')).toBeTruthy())
-  expect(screen.getByText('1', { selector: '.count' })).toBeTruthy()
+  expect(screen.getByText('1 example', { selector: '.count' })).toBeTruthy()
   const shapes = screen.getByRole('group', { name: 'filter by shape' })
   expect(within(shapes).queryByRole('button', { name: 'shot' })).toBeNull()
   expect(within(shapes).getByRole('button', { name: 'image' })).toBeTruthy()
+})
+
+it('with no examples says how to add them', async () => {
+  render(WorkflowsPage, { examples: true })
+  expect(await screen.findByText('No examples on this server.')).toBeTruthy()
+  expect(
+    screen.getByText(
+      'Start dw.serve with --examples-dir <folder> to list some.',
+    ),
+  ).toBeTruthy()
 })
 
 it('the workspace view leaves the examples out and links to them', async () => {

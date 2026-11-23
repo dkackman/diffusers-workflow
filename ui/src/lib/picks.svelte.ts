@@ -1,4 +1,5 @@
 import { SvelteSet } from 'svelte/reactivity'
+import { action } from './action.svelte'
 import { describeError } from './apiErrors'
 import { notify } from './toast'
 
@@ -38,6 +39,25 @@ export class Picks {
   /** The selection in the order the grid shows it. */
   get names(): string[] {
     return this.#order().filter((name) => this.#names.has(name))
+  }
+
+  /** The bulk bar's Download: the picked names as one zip from `archive`
+   * (the gallery's or the asset library's route). Call it once, at setup:
+   * the handle's action makes a double click fetch one, and with nothing
+   * picked `run` asks for nothing */
+  download(archive: (names: string[]) => Promise<unknown>, noun: string) {
+    const downloading = action((picked: string[]) => archive(picked), {
+      doing: `download the picked ${noun}`,
+    })
+    return {
+      get busy() {
+        return downloading.busy
+      },
+      run: () => {
+        const picked = this.names
+        if (picked.length) void downloading.run(picked)
+      },
+    }
   }
 
   toggle(name: string, shift: boolean): void {

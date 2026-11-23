@@ -78,7 +78,7 @@ const tiles = () =>
     .filter((label) => label !== 'choose another file')
 
 const showRuns = () =>
-  fireEvent.click(screen.getByRole('button', { name: 'Earlier runs' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Earlier jobs' }))
 
 it('shows the asset library by section, this workspace first, as thumbnails', () => {
   render(MediaPicker, { open: true, onpick: () => {} })

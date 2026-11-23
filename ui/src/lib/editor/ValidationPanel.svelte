@@ -51,7 +51,7 @@
          invalid but keeps its plan, under the error that names it -->
     <ul
       class="plan"
-      aria-label="what a run will do"
+      aria-label="what a job will do"
       title="from the workflow's own cost block and this server's model cache - a plan, not a promise"
     >
       {#each describePlan(validation.plan) as line, i (i)}
@@ -83,13 +83,9 @@
     gap: 0.4rem;
   }
   .warn {
-    color: var(--warn);
     display: flex;
     align-items: center;
     gap: 0.4rem;
-  }
-  .error {
-    color: var(--bad);
   }
   /* The plan under the verdict: figures the engine resolves, so mono, and
      quiet - a warn line is the one that changes the number to expect */

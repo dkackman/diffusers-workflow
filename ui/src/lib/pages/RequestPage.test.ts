@@ -147,13 +147,13 @@ it('leads with where the request stands, then the plan, the ask and its changes'
     [...container.querySelectorAll('ol.items .figure')].map(
       (e) => e.textContent,
     ),
-  ).toEqual(['1.5 min', 'est. ~4 min'])
+  ).toEqual(['1.5 min', 'est. about 4 min'])
   expect(
     container
       .querySelector('.figures')
       ?.textContent?.replace(/\s+/g, ' ')
       .trim(),
-  ).toBe('5 min spent ~7 min left')
+  ).toBe('5 min spent about 7 min left')
   // the proof comes from the ledger's own output: no job is asked for
   expect(
     screen
@@ -173,6 +173,16 @@ it('leads with where the request stands, then the plan, the ask and its changes'
     ),
   ).toEqual(['r3', 'r2', 'r1'])
   expect(rail.querySelector('.now')?.textContent).toBe('now at r3')
+})
+
+it('sets the tab title to the request, with Requests as its back link', async () => {
+  render(RequestPage, { requestId: 'r1' })
+  await loaded()
+  expect(document.title).toBe('Launch posters · diffusers-workflow')
+  expect(
+    screen.getByRole('link', { name: '← Requests' }).getAttribute('href'),
+  ).toMatch(/\/requests$/)
+  expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
 })
 
 it('keeps dropped items in a closed group under the plan', async () => {
@@ -206,16 +216,55 @@ it('says a missing request no longer exists, with the way back', async () => {
     /This request no longer exists\. The agent may have removed it\./,
   )
   expect(
-    screen.getByRole('link', { name: 'See all requests' }).getAttribute('href'),
+    screen.getByRole('link', { name: '← Requests' }).getAttribute('href'),
   ).toBe('#/ws/studio/requests')
+  expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
+  expect(screen.getByRole('heading', { level: 1 }).textContent).toContain(
+    'Request',
+  )
+  expect(document.title).toBe('Request · diffusers-workflow')
 })
 
-it('a first load that fails says why, and Retry asks again', async () => {
-  data.getError = { status: 503, message: 'busy' }
-  render(RequestPage, { requestId: 'r1' })
-  expect((await screen.findByRole('alert')).textContent).toContain(
-    'Could not load this request: busy',
+it('names itself and links back while the request loads', async () => {
+  const { api } = await import('../api')
+  let land: (reply: unknown) => void = () => {}
+  vi.mocked(api.getRequest).mockImplementationOnce(
+    () => new Promise((resolve) => (land = resolve)) as never,
   )
+  render(RequestPage, { requestId: 'r1' })
+  expect(screen.getByLabelText('loading request')).toBeTruthy()
+  expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
+  expect(
+    screen.getByRole('link', { name: '← Requests' }).getAttribute('href'),
+  ).toBe('#/ws/studio/requests')
+  expect(document.title).toBe('Request · diffusers-workflow')
+  land(make())
+  await loaded()
+  expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
+})
+
+// The engine's own words, which only the folded Details may show
+const RAW = 'ledger read failed: sqlite3.OperationalError database is locked'
+const outsideDetails = (el: Element) => {
+  const copy = el.cloneNode(true) as Element
+  copy.querySelectorAll('details').forEach((d) => d.remove())
+  return copy.textContent ?? ''
+}
+
+it('a first load that fails says why, and Retry asks again', async () => {
+  data.getError = { status: 503, message: RAW }
+  render(RequestPage, { requestId: 'r1' })
+  const alert = await screen.findByRole('alert')
+  expect(alert.textContent).toContain(
+    "Couldn't load this request: The server hit an error",
+  )
+  expect(outsideDetails(alert)).not.toContain(RAW)
+  expect(alert.querySelector('details pre')?.textContent).toBe(RAW)
+  expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
+  expect(
+    screen.getByRole('link', { name: '← Requests' }).getAttribute('href'),
+  ).toBe('#/ws/studio/requests')
+  expect(document.title).toBe('Request · diffusers-workflow')
   data.getError = null
   await fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
   await loaded()
@@ -296,7 +345,9 @@ it("saves the request's own note with no item", async () => {
     text: 'make it all warmer',
   })
   expect(data.putRequest).not.toHaveBeenCalled()
-  expect(within(head).getByText(/No agent session is listening/)).toBeTruthy()
+  expect(
+    within(head).getByText(/The agent isn't connected\. It reads/),
+  ).toBeTruthy()
 })
 
 it('a note the server refuses says why beside the draft, with a reload', async () => {
@@ -563,12 +614,14 @@ it('a refresh that fails keeps the plan and the draft, and says how old it is', 
   render(RequestPage, { requestId: 'r1' })
   const box = await openNote('Second poster')
   await fireEvent.input(box, { target: { value: 'my draft' } })
-  data.getError = { status: 503, message: 'busy' }
+  data.getError = { status: 503, message: RAW }
   vi.advanceTimersByTime(IDLE_MS)
   const line = await screen.findByRole('status')
   expect(line.textContent).toMatch(
-    /Showing the plan as of .+\. Could not refresh: busy/,
+    /Showing the plan as of .+\. Couldn't refresh: The server hit an error/,
   )
+  expect(outsideDetails(line)).not.toContain(RAW)
+  expect(line.querySelector('details pre')?.textContent).toBe(RAW)
   expect(notify.error).not.toHaveBeenCalled()
   expect(box.value).toBe('my draft')
   expect(screen.getByRole('heading', { name: 'Launch posters' })).toBeTruthy()

@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { StepProgress } from '../progress'
-  import { formatDuration } from '../format'
+  import { formatApprox, formatDuration } from '../format'
 
   // The Progress list: one row per step the run will take, the running
   // one carrying its denoise bar, ETA and phase
@@ -47,7 +47,7 @@
         </div>
         <span class="muted count">
           {denoise.step}{denoise.total_steps ? ` / ${denoise.total_steps}` : ''}
-          {#if etaSeconds !== null}· ~{etaSeconds}s left{/if}
+          {#if etaSeconds !== null}· {formatApprox(etaSeconds)} left{/if}
         </span>
       {/if}
       <!-- The counter tells the generating story on its own; every

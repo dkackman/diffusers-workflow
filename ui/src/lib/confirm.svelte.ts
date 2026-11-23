@@ -3,12 +3,25 @@
 // <ConfirmDialog> mounted in App.svelte, mirroring the notify()/Toaster
 // pair in toast.ts - callers just `await confirmDialog(...)` in place of
 // `window.confirm(...)`, or `await chooseDialog(...)` for more than two
-// answers. Calls made while a dialog is open wait their turn (FIFO).
+// answers, or `await nameDialog(...)` for a name typed into a field (the
+// window.prompt replacement). Calls made while a dialog is open wait their
+// turn (FIFO), whichever kind they are.
 
 export type Choice<T extends string = string> = {
   label: string
   value: T
   danger?: boolean
+  /** The button's title: what this choice will do, when its label alone
+   * cannot say (Keep both names the copy it makes) */
+  title?: string
+}
+
+/** A name dialog's field: the dialog edits `value`, and its confirm is
+ * disabled while `validate` answers a message, which is shown under it */
+export type NameInput = {
+  label: string
+  value: string
+  validate: (name: string) => string | null
 }
 
 type ConfirmState = {
@@ -17,6 +30,7 @@ type ConfirmState = {
   // The dialog's accessible name
   title: string
   choices: Choice[]
+  input: NameInput | null
 }
 
 export const confirmState = $state<ConfirmState>({
@@ -24,12 +38,14 @@ export const confirmState = $state<ConfirmState>({
   message: '',
   title: '',
   choices: [],
+  input: null,
 })
 
 type Pending = {
   message: string
   title: string
   choices: Choice[]
+  input?: NameInput
   resolve: (value: string | null) => void
 }
 
@@ -44,6 +60,7 @@ function show(head: Pending): void {
   confirmState.message = head.message
   confirmState.title = head.title
   confirmState.choices = head.choices
+  confirmState.input = head.input ? { ...head.input } : null
   confirmState.open = true
 }
 
@@ -53,14 +70,54 @@ export function chooseDialog<T extends string>(
   options?: { title?: string },
 ): Promise<T | null> {
   return new Promise((resolve) => {
-    const pending: Pending = {
+    enqueue({
       message,
       title: options?.title ?? firstSentence(message),
       choices,
       resolve: resolve as (value: string | null) => void,
-    }
-    queue.push(pending)
-    if (queue.length === 1) show(pending)
+    })
+  })
+}
+
+function enqueue(pending: Pending): void {
+  queue.push(pending)
+  if (queue.length === 1) show(pending)
+}
+
+/** Ask for a name: the typed name on the confirm button (or Enter), null
+ * on Cancel or Escape. The confirm stays disabled while `validate` answers
+ * a message, and the message says why under the field. */
+export function nameDialog(
+  question: string,
+  opts: {
+    title: string
+    label: string
+    initial?: string
+    confirmLabel?: string
+    validate: (name: string) => string | null
+  },
+): Promise<string | null> {
+  return new Promise((resolve) => {
+    enqueue({
+      message: question,
+      title: opts.title,
+      choices: [
+        { label: 'Cancel', value: 'cancel' },
+        { label: opts.confirmLabel ?? 'Save', value: 'confirm' },
+      ],
+      input: {
+        label: opts.label,
+        value: opts.initial ?? '',
+        validate: opts.validate,
+      },
+      // Read before the next dialog replaces the field. A name that does
+      // not validate is never answered, whatever pressed confirm
+      resolve: (value) => {
+        const name = confirmState.input?.value ?? ''
+        const valid = opts.validate(name) === null
+        resolve(value === 'confirm' && valid ? name : null)
+      },
+    })
   })
 }
 

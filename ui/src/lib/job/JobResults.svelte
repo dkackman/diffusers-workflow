@@ -104,8 +104,8 @@
 
 {#if allReused}
   <p class="muted reusednote">
-    Served from the step cache: every step matched an earlier run with the same
-    seed and inputs, so these are that run's files and nothing was generated.{#if seedVariable}
+    Served from the step cache: every step matched an earlier job with the same
+    seed and inputs, so these are that job's files and nothing was generated.{#if seedVariable}
       Use <strong>New seed</strong> for a different image.{/if}
   </p>
 {/if}
@@ -158,7 +158,7 @@
           <span
             class="muted"
             title="served from the step cache - an
-                 earlier run's files, nothing generated for this step"
+                 earlier job's files, nothing generated for this step"
           >
             · reused
           </span>

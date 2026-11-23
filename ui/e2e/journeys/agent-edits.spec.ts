@@ -218,14 +218,14 @@ test("job page: an agent's note shows, and says it was updated; the user's own d
 }) => {
   const run = 'e2e-request/20260907-090000-0badf00d'
   await page.goto('/#/ws/default/jobs/e2ereqdone01')
-  const note = page.getByText('Run note', { exact: true })
+  const note = page.getByText('Your note on this job', { exact: true })
   await expect(note).toBeVisible()
   const notice = page.getByText(REMOTE)
   const navigated = countNavigations(page)
   try {
     // the user's own save is adopted: no notice, no mark, even after a poll
     await page.getByRole('button', { name: 'Edit note' }).click()
-    await page.getByLabel('Run note').fill('A note of my own')
+    await page.getByLabel('Your note on this job').fill('A note of my own')
     await page.getByRole('button', { name: 'Save', exact: true }).click()
     await expect(page.getByText('A note of my own')).toBeVisible()
     await page.waitForTimeout(6_000)

@@ -3,7 +3,7 @@
 // page holds no load or save rules of its own.
 import { api } from '../api'
 import { saveDocument, type SaveOutcome } from '../documentSave'
-import type { DocumentEditor } from '../editorShell.svelte'
+import { NEW_FOLDER, type DocumentEditor } from '../editorShell.svelte'
 import { writableRoot } from '../libraries'
 import type { WorkflowDefinition, WorkflowList } from '../types'
 
@@ -58,6 +58,47 @@ export function saveWorkflowAt(
         pre,
       ),
   })
+}
+
+/** The editor's Save, once `validate` passes: the path written, or null
+ * when the check failed or a conflict question was cancelled, so nothing
+ * was written. The page's action wraps it (busy guard, failure copy) */
+export async function validatedSave(
+  ed: DocumentEditor,
+  path: string,
+  validate: () => Promise<boolean>,
+): Promise<string | null> {
+  if (!(await validate())) return null
+  ed.busy = true
+  try {
+    if ((await saveWorkflowAt(ed, path)) === 'cancelled') return null
+    ed.commitNewFolder()
+    return path
+  } finally {
+    ed.busy = false
+  }
+}
+
+/** The editor's Run, once `validate` passes: the document on screen queued
+ * as a job, or null when the check failed. base_dir anchors relative paths
+ * (images, sub-workflow files) the way running the saved file would - at
+ * the workflow's own folder under `root` */
+export async function validatedRun(
+  ed: DocumentEditor,
+  root: string,
+  validate: () => Promise<boolean>,
+) {
+  if (!(await validate())) return null
+  ed.busy = true
+  try {
+    const folder = ed.folder && ed.folder !== NEW_FOLDER ? `/${ed.folder}` : ''
+    return await api.submitJob({
+      workflow: JSON.parse(ed.serialized()) as WorkflowDefinition,
+      base_dir: `${root}${folder}`,
+    })
+  } finally {
+    ed.busy = false
+  }
 }
 
 /** Whether a sub-workflow step's `path` names a workflow file the editor

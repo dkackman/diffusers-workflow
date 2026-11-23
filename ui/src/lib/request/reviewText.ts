@@ -66,25 +66,25 @@ export function bannerText(
   listening: boolean,
   left: number,
 ): string {
-  const one = group.rows.length === 1
+  const them = group.rows.length === 1 ? 'it' : 'them'
   const at = clockTime(group.first.review?.until ?? '')
   if (group.state === 'redirected') return REDIRECTED
   if (group.state === 'due')
     return listening
-      ? 'Review time is up: the agent should be starting these.'
-      : 'Review time passed with no session listening: nothing ran.'
-  const lead = `${counted(group.rows.length)} held for your review`
+      ? `Review time is up: the agent should be starting ${them}.`
+      : "Review time passed while the agent wasn't connected: nothing ran."
+  const lead = `${counted(group.rows.length)} waiting for your OK`
   if (!listening)
-    return `${lead}. No session is listening, so nothing will run at ${at}. Run ${one ? 'it' : 'them'} here, or leave a note.`
+    return `${lead}. The agent isn't connected, so nothing runs at ${at} unless it reconnects. Run ${them} here, or leave a note.`
   const estimate =
     group.minutes == null
       ? ''
       : ` (about ${Math.max(1, Math.round(group.minutes))} min by the agent's estimate)`
-  return `${lead}${estimate}. A session is listening: at ${at} (in ${countdown(left)}) it is told to run ${one ? 'it' : 'them'}, unless you leave a note.`
+  return `${lead}${estimate}. The agent will run ${them} at ${at} if it's connected (in ${countdown(left)}), unless you leave a note.`
 }
 
 /** The rows "Run now…" would open the run dialog for: the ready ones of a
- * hold, or of a due one with no session to run it. Empty: no button */
+ * hold, or of a due one with the agent not connected to run it. Empty: no button */
 export function runNowKeys(group: HoldGroup, listening: boolean): string[] {
   const offered =
     group.state === 'holding' || (group.state === 'due' && !listening)
@@ -106,5 +106,5 @@ export function chipText(review: LedgerReview, left: number | null): string {
 export function holdNews(group: HoldGroup): string {
   if (group.state === 'redirected') return REDIRECTED
   if (group.state === 'due') return 'Review time is up for the held items.'
-  return `${counted(group.rows.length)} held for your review.`
+  return `${counted(group.rows.length)} waiting for your OK.`
 }

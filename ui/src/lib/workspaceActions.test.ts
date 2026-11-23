@@ -4,6 +4,7 @@ import cases from '../../../tests/fixtures/workspace_names.json'
 
 const createWorkspace = vi.hoisted(() => vi.fn())
 const deleteWorkspace = vi.hoisted(() => vi.fn())
+const gallery = vi.hoisted(() => vi.fn())
 const confirm = vi.hoisted(() => vi.fn())
 const errorToast = vi.hoisted(() => vi.fn())
 const failureToast = vi.hoisted(() => vi.fn())
@@ -14,6 +15,7 @@ vi.mock('./api', () => ({
   api: {
     createWorkspace: (n: string) => createWorkspace(n),
     deleteWorkspace: (n: string, ack?: boolean) => deleteWorkspace(n, ack),
+    gallery: () => gallery(),
     listWorkspaces: vi.fn(() =>
       Promise.resolve({
         workspace_root: '/ws',
@@ -33,6 +35,8 @@ vi.mock('./toast', () => ({
 beforeEach(() => {
   createWorkspace.mockReset()
   deleteWorkspace.mockReset()
+  gallery.mockReset()
+  gallery.mockResolvedValue({ files: [] })
   confirm.mockReset()
   errorToast.mockReset()
   failureToast.mockReset()
@@ -65,10 +69,28 @@ it('returns the server detail on failure and stays put', async () => {
   expect(location.hash).toBe('#/ws/default/overview')
 })
 
-it('asks with the server detail, then deletes acknowledged and goes to default', async () => {
+/** The server's unacknowledged refusal: what the workspace holds */
+const holds = async (contents: Record<string, unknown>) =>
+  new (await import('./apiErrors')).ApiError(
+    "Deleting workspace 'studio' removes these files permanently.",
+    409,
+    undefined,
+    { message: 'removes these files permanently', contents },
+  )
+
+it("asks with the counts from the server's refusal and deletes only on yes", async () => {
   deleteWorkspace
-    .mockRejectedValueOnce(await apiError('holds 3 files', 409))
+    .mockRejectedValueOnce(
+      await holds({
+        workflows: { files: 3, bytes: 1024 * 1024 },
+        assets: { files: 0, bytes: 0 },
+        outputs: { files: 5, bytes: 1024 * 1024 },
+      }),
+    )
     .mockResolvedValueOnce({ name: 'studio', deleted: true })
+  gallery.mockResolvedValue({
+    files: [{ name: 'a.png', starred: true }, { name: 'b.png' }],
+  })
   confirm.mockResolvedValue(true)
   location.hash = '#/ws/studio/overview'
   // The router is what applies the hash to `workspace.current`, which is
@@ -77,14 +99,27 @@ it('asks with the server detail, then deletes acknowledged and goes to default',
   const { deleteWorkspaceWithConfirm } = await import('./workspaceActions')
   expect(await deleteWorkspaceWithConfirm('studio')).toBe(true)
   expect(confirm).toHaveBeenCalledWith(
-    expect.stringContaining('holds 3 files'),
-    expect.anything(),
+    'This permanently removes 5 outputs (1 starred) and 3 workflows ' +
+      '(2.0 MB). The prompt library and the shared asset library are kept.',
+    expect.objectContaining({
+      title: 'Delete workspace "studio"?',
+      confirmLabel: 'Delete workspace',
+      danger: true,
+    }),
   )
   expect(deleteWorkspace).toHaveBeenLastCalledWith('studio', true)
   expect(location.hash).toBe('#/ws/default/overview')
   // The listing is reloaded after the delete, while the route still named
   // the deleted workspace: that must not read as an unknown-workspace error
   expect(errorToast).not.toHaveBeenCalled()
+
+  // Declined, nothing past the unacknowledged ask is sent
+  deleteWorkspace.mockReset()
+  deleteWorkspace.mockRejectedValueOnce(await holds({}))
+  confirm.mockResolvedValue(false)
+  expect(await deleteWorkspaceWithConfirm('studio')).toBe(false)
+  expect(deleteWorkspace).toHaveBeenCalledTimes(1)
+  expect(deleteWorkspace).toHaveBeenCalledWith('studio', undefined)
 })
 
 it('a declined confirm deletes nothing', async () => {
@@ -118,25 +153,43 @@ it('a failed create returns the described title, not the raw message', async () 
   expect(await createWorkspaceAndGo('studio')).toBe("Can't reach the server")
 })
 
-it('keeps the contents the server lists in the delete confirm', async () => {
-  const { errorDetail } = await import('./apiErrors')
-  const message = errorDetail(
-    {
-      detail: {
-        message: "Deleting workspace 'studio' removes these files permanently.",
-        contents: { outputs: { files: 3, bytes: 5 * 1024 * 1024 } },
-      },
+it('reads the contents off the payload, as send builds the refusal', async () => {
+  const { ApiError, errorDetail, errorPayload } = await import('./apiErrors')
+  const payload = {
+    detail: {
+      message: "Deleting workspace 'studio' removes these files permanently.",
+      contents: { outputs: { files: 3, bytes: 5 * 1024 * 1024 } },
     },
-    'refused',
-  )
+  }
   deleteWorkspace
-    .mockRejectedValueOnce(await apiError(message, 409))
+    .mockRejectedValueOnce(
+      new ApiError(
+        errorDetail(payload, 'refused'),
+        409,
+        undefined,
+        errorPayload(payload),
+      ),
+    )
     .mockResolvedValueOnce({ name: 'studio', deleted: true })
   confirm.mockResolvedValue(true)
   const { deleteWorkspaceWithConfirm } = await import('./workspaceActions')
   await deleteWorkspaceWithConfirm('studio')
   expect(confirm).toHaveBeenCalledWith(
-    expect.stringContaining('outputs: 3 files'),
+    expect.stringContaining('removes 3 outputs (5.0 MB).'),
     expect.anything(),
   )
+})
+
+it('does not ask without the starred count: a failed gallery read is reported', async () => {
+  deleteWorkspace.mockRejectedValueOnce(
+    await holds({ outputs: { files: 2, bytes: 1 } }),
+  )
+  gallery.mockRejectedValueOnce(
+    new (await import('./apiErrors')).NetworkError('Failed to fetch'),
+  )
+  const { deleteWorkspaceWithConfirm } = await import('./workspaceActions')
+  expect(await deleteWorkspaceWithConfirm('studio')).toBe(false)
+  expect(confirm).not.toHaveBeenCalled()
+  expect(failureToast).toHaveBeenCalled()
+  expect(deleteWorkspace).toHaveBeenCalledTimes(1)
 })

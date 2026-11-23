@@ -67,6 +67,8 @@ const archiveOutputs = vi.hoisted(() =>
   vi.fn<(names: string[]) => Promise<void>>(() => Promise.resolve()),
 )
 const setNote = vi.hoisted(() => vi.fn())
+// What the server holds as the note a save reads first (its etag read)
+const noteHeld = vi.hoisted(() => ({ note: null as string | null }))
 const setStarred = vi.hoisted(() =>
   vi.fn((name: string, starred: boolean) => Promise.resolve({ name, starred })),
 )
@@ -86,6 +88,8 @@ vi.mock('../api', () => ({
     setStarred: (name: string, starred: boolean) => setStarred(name, starred),
     archiveOutputs: (names: string[]) => archiveOutputs(names),
     galleryMetadata: (name: string) => galleryMetadata(name),
+    noteForSave: (target: string) =>
+      Promise.resolve({ target, note: noteHeld.note, etag: '"e"' }),
     assess: () => new Promise(() => {}),
   },
 }))
@@ -96,11 +100,18 @@ vi.mock('../changes.svelte', async () => ({
 
 const notifyError = vi.hoisted(() => vi.fn())
 const notifyFailure = vi.hoisted(() => vi.fn())
+const notifyUndo = vi.hoisted(() => vi.fn())
 vi.mock('../toast', () => ({
-  notify: { error: notifyError, failure: notifyFailure },
+  notify: {
+    error: notifyError,
+    failure: notifyFailure,
+    undo: notifyUndo,
+    success: vi.fn(),
+  },
 }))
 
 beforeEach(() => {
+  noteHeld.note = null
   listing.files = ['a.png', 'b.png', 'demo/c.png'].map((name) => file(name))
 })
 afterEach(() => {
@@ -114,6 +125,7 @@ afterEach(() => {
   archiveOutputs.mockClear()
   notifyError.mockClear()
   notifyFailure.mockClear()
+  notifyUndo.mockClear()
   galleryMetadata.mockReset()
   galleryMetadata.mockImplementation(() => new Promise(() => {}))
   vi.unstubAllGlobals()
@@ -338,6 +350,21 @@ it('archives every selected file in one request', async () => {
   await waitFor(() =>
     expect(archiveOutputs).toHaveBeenCalledWith(['a.png', 'b.png']),
   )
+})
+
+it('a double click on Download sends one request', async () => {
+  await renderGallery()
+
+  checkbox('a.png').click()
+  await waitFor(() => expect(screen.getByText('1 selected')).toBeTruthy())
+  const download = screen.getByRole('button', { name: /download/i })
+  // Both clicks land before the page renders the first one's busy state
+  download.click()
+  download.click()
+
+  await waitFor(() => expect(archiveOutputs).toHaveBeenCalled())
+  await new Promise((r) => setTimeout(r, 20))
+  expect(archiveOutputs).toHaveBeenCalledTimes(1)
 })
 
 it('drops deleted files from the grid and the selection', async () => {
@@ -604,7 +631,7 @@ it('shows no version for a flat-layout file, which belongs to no run', async () 
 })
 
 it('names the run and its version in the details of the selected file', async () => {
-  // "Look at version 4" ends here: the pane says which run it reached, so
+  // "Look at v4" ends here: the pane says which job it reached, so
   // the number in the grid can be checked against the one quoted
   listing.files = [
     {
@@ -619,7 +646,10 @@ it('names the run and its version in the details of the selected file', async ()
   await fireEvent.click(screen.getByText('film.mp4'))
   const detail = document.querySelector('.detail') as HTMLElement
   // One span holding both forms, so the query is over its whole text
-  expect(detail.textContent).toContain('version 4')
+  expect(detail.textContent).toContain('v4')
+  expect(
+    detail.querySelector('[title^="4th job"]')?.getAttribute('title'),
+  ).toBe('4th job of this workflow in this folder')
   expect(detail.querySelector('code')?.textContent).toBe('r2')
 })
 
@@ -668,6 +698,7 @@ it('marks every tile of a run after its run note is saved', async () => {
     run_note: 'old',
     note_source: 'run',
   })
+  noteHeld.note = 'old'
   await renderGallery('wf/r1/a.png')
   screen
     .getByLabelText('select wf/r1/a.png')
@@ -681,10 +712,10 @@ it('marks every tile of a run after its run note is saved', async () => {
     listing.files = [inRun('a.png', 'fresh'), inRun('b.png', 'fresh')]
     return { target: 'wf/r1', note: 'fresh', note_source: 'run' }
   })
-  await fireEvent.input(screen.getByLabelText('Run note'), {
+  await fireEvent.input(screen.getByLabelText('Your note on this job'), {
     target: { value: 'fresh' },
   })
-  await fireEvent.click(screen.getByRole('button', { name: /save/i }))
+  await fireEvent.click(screen.getByRole('button', { name: /^save$/i }))
   await waitFor(() =>
     expect(document.querySelectorAll('.note-mark')).toHaveLength(2),
   )
@@ -766,6 +797,45 @@ it('stars the open file and can filter to starred files', async () => {
   await fireEvent.click(screen.getByRole('button', { name: 'Starred' }))
   expect(screen.queryByTitle('b.png')).toBeNull()
   expect(screen.getByTitle('a.png')).toBeTruthy()
+})
+
+it('starring offers Undo, which unstars', async () => {
+  listing.files = [file('demo/c.png'), file('a.png')]
+  await renderGallery('demo/c.png')
+  await openFile('demo/c.png')
+  await fireEvent.click(screen.getByRole('button', { name: 'star this file' }))
+  await waitFor(() => expect(notifyUndo).toHaveBeenCalledTimes(1))
+  expect(notifyUndo.mock.calls[0][0]).toBe('Starred c.png')
+  await waitFor(() => expect(starMark('demo/c.png')).toBeTruthy())
+  notifyUndo.mock.calls[0][1]()
+  await waitFor(() =>
+    expect(setStarred).toHaveBeenLastCalledWith('demo/c.png', false),
+  )
+  // Undone here at once, as the star was: no listing has to land first
+  await waitFor(() => expect(starMark('demo/c.png')).toBeNull())
+  expect(screen.getByRole('button', { name: 'star this file' })).toBeTruthy()
+})
+
+it('an undo that fails is reported, not thrown', async () => {
+  listing.files = [{ ...file('a.png'), starred: true }, file('b.png')]
+  await renderGallery()
+  await openFile('a.png')
+  await fireEvent.click(
+    screen.getByRole('button', { name: 'unstar this file' }),
+  )
+  await waitFor(() => expect(notifyUndo).toHaveBeenCalledTimes(1))
+  expect(notifyUndo.mock.calls[0][0]).toBe('Unstarred a.png')
+  // The file was deleted elsewhere before Undo was pressed
+  const gone = new Error('no output a.png')
+  setStarred.mockImplementationOnce(() => Promise.reject(gone))
+  // An unhandled rejection fails the vitest run, so reaching the end of
+  // this test with the failure reported is the whole claim
+  notifyUndo.mock.calls[0][1]()
+  await waitFor(() => expect(notifyFailure).toHaveBeenCalled())
+  expect(notifyFailure.mock.calls[0][0]).toBe('undo that')
+  expect(notifyFailure.mock.calls[0][1]).toBe(gone)
+  await settle()
+  expect(starMark('a.png')).toBeNull()
 })
 
 it('the S key stars the open file', async () => {
@@ -905,8 +975,9 @@ it('deleting a selection with starred files says how many and can spare them', a
   await waitFor(() => expect(screen.getByText('2 selected')).toBeTruthy())
   screen.getByRole('button', { name: /^delete/i }).click()
   const dialog = await waitFor(() => screen.getByRole('alertdialog'))
+  expect(dialog.textContent).toContain('Delete 2 files?')
   expect(dialog.textContent).toContain(
-    'Delete 2 files? 1 of them is starred. This removes them on disk.',
+    'This removes them on disk. 1 of them is starred.',
   )
   within(dialog).getByRole('button', { name: 'Delete the 1 unstarred' }).click()
   await waitFor(() => expect(deleteOutput).toHaveBeenCalledTimes(1))
@@ -942,4 +1013,68 @@ it('filtered to nothing offers Clear filters', async () => {
   await waitFor(() =>
     expect(screen.getByLabelText('select a.png')).toBeTruthy(),
   )
+})
+
+const DETAIL_DELETE = 'delete this file from the output directory'
+
+it("a starred file's confirm says so", async () => {
+  listing.files = [{ ...file('a.png'), starred: true }, file('b.png')]
+  await renderGallery()
+  await openFile('a.png')
+  ;(await screen.findByRole('button', { name: DETAIL_DELETE })).click()
+  const dialog = await waitFor(() => screen.getByRole('alertdialog'))
+  expect(dialog.querySelector('.ui-title')?.textContent).toContain(
+    'Delete a.png?',
+  )
+  expect(dialog.textContent).toContain(
+    'This removes it on disk. It is starred.',
+  )
+  const yes = within(dialog).getByRole('button', { name: /^delete$/i })
+  expect(yes.classList.contains('danger')).toBe(true)
+  await answerConfirm(false)
+  expect(deleteOutput).not.toHaveBeenCalled()
+})
+
+it('a double click deletes once', async () => {
+  await renderGallery()
+  await openFile('a.png')
+  const button = await screen.findByRole('button', { name: DETAIL_DELETE })
+  button.click()
+  button.click()
+  await answerConfirm(true)
+  await waitFor(() => expect(deleteOutput).toHaveBeenCalledWith('a.png'))
+  await settle()
+  expect(deleteOutput).toHaveBeenCalledTimes(1)
+  expect(screen.queryByRole('alertdialog')).toBeNull()
+})
+
+const hashEvent = (change: () => void) =>
+  new Promise<void>((resolve) => {
+    window.addEventListener('hashchange', () => resolve(), { once: true })
+    change()
+  })
+
+it('the text, role and Starred filters survive leaving and coming back', async () => {
+  await hashEvent(() => (location.hash = '#/ws/default/gallery?x=1'))
+  await renderGallery()
+  const filter = screen.getByPlaceholderText('filter…') as HTMLInputElement
+  await fireEvent.input(filter, { target: { value: 'c' } })
+  await fireEvent.click(screen.getByRole('button', { name: 'Intermediate' }))
+  await fireEvent.click(screen.getByRole('button', { name: 'Starred' }))
+  expect(location.hash).toBe(
+    '#/ws/default/gallery?x=1&q=c&roles=final%2Cintermediate&starred=1',
+  )
+  // open something else, then press Back
+  cleanup()
+  await hashEvent(() => (location.hash = '#/ws/default/jobs'))
+  await hashEvent(() => history.back())
+  render(GalleryPage)
+  const again = (await screen.findByPlaceholderText(
+    'filter…',
+  )) as HTMLInputElement
+  expect(again.value).toBe('c')
+  const pressed = (name: string) =>
+    screen.getByRole('button', { name }).getAttribute('aria-pressed')
+  expect(pressed('Intermediate')).toBe('true')
+  expect(pressed('Starred')).toBe('true')
 })

@@ -1,5 +1,6 @@
 <script lang="ts">
   import Suggest from '../ui/Suggest.svelte'
+  import Segmented from '../ui/Segmented.svelte'
   import { editorLists } from '../editorLists.svelte'
   import {
     ChevronDown,
@@ -114,6 +115,8 @@
       step[kind] = JSON.parse(rawDraft)
       rawError = ''
     } catch (e) {
+      // JSON.parse's own syntax feedback on the author's draft, not engine text
+      // eslint-disable-next-line no-restricted-syntax
       rawError = e instanceof Error ? e.message : String(e)
     }
   }
@@ -191,24 +194,20 @@
     {/if}
     <span class="flex"></span>
     {#if mode !== 'collapsed'}
-      <div class="modeswitch" role="group" aria-label="step detail level">
-        <button
-          class="quiet"
-          class:activebtn={mode === 'compact'}
-          onclick={() => setModeInternal('compact')}
-          title="one-line-per-area digest of what this step sets"
-        >
-          compact
-        </button>
-        <button
-          class="quiet"
-          class:activebtn={mode === 'full'}
-          onclick={() => setModeInternal('full')}
-          title="every field, editable"
-        >
-          full
-        </button>
-      </div>
+      <Segmented
+        size="sm"
+        label="step detail level"
+        value={mode}
+        options={[
+          {
+            value: 'compact',
+            label: 'compact',
+            title: 'one-line-per-area digest of what this step sets',
+          },
+          { value: 'full', label: 'full', title: 'every field, editable' },
+        ]}
+        onselect={(picked) => setModeInternal(picked as 'compact' | 'full')}
+      />
     {/if}
     <button
       class="quiet icon"
@@ -252,7 +251,7 @@
     <StepDigestList lines={digest.lines} onopen={openFull} />
   {:else if mode === 'full'}
     {#if kind === 'pipeline'}
-      <div class="grid">
+      <div class="formgrid grid">
         <label for={'ct-' + index}>pipeline</label>
         <Suggest
           id={'ct-' + index}
@@ -333,7 +332,7 @@
         {references}
       />
     {:else if kind === 'task'}
-      <div class="grid">
+      <div class="formgrid grid">
         <label for={'task-' + index}>command</label>
         <Suggest
           id={'task-' + index}
@@ -350,7 +349,7 @@
         suggestions={references}
       />
     {:else if kind === 'workflow'}
-      <div class="grid">
+      <div class="formgrid grid">
         <label for={'wfpath-' + index}>path</label>
         <Suggest
           id={'wfpath-' + index}
@@ -396,31 +395,13 @@
     font-size: 0.75rem;
   }
   .grid {
-    display: grid;
-    grid-template-columns: 170px minmax(0, 480px);
-    gap: 0.5rem 0.7rem;
     margin-top: 0.8rem;
-    align-items: center;
-  }
-  @container (max-width: 400px) {
-    .grid {
-      grid-template-columns: minmax(0, 1fr);
-      gap: 0.2rem;
-    }
-  }
-  .grid label {
-    font-weight: 600;
-    color: var(--muted);
   }
   h3 {
     font-size: 0.8rem;
     text-transform: none;
     color: var(--muted);
     margin: 1rem 0 0.5rem;
-  }
-  .error {
-    color: var(--bad);
-    font-size: 0.8rem;
   }
   .raw {
     margin-top: 0.8rem;
@@ -430,12 +411,10 @@
     font-size: 0.82rem;
   }
   .error {
-    color: var(--bad);
     font-size: 0.8rem;
     margin-top: 0.3rem;
   }
   .hint {
-    font-size: 0.75rem;
     margin-top: 0.3rem;
   }
   .summary {
@@ -445,27 +424,6 @@
     white-space: nowrap;
     min-width: 0;
     flex: 1;
-  }
-  .modeswitch {
-    display: inline-flex;
-  }
-  .modeswitch button {
-    border-radius: 0;
-    padding: 0.2rem 0.55rem;
-    font-size: 0.75rem;
-  }
-  .modeswitch button:first-child {
-    border-radius: var(--radius-1) 0 0 var(--radius-1);
-  }
-  .modeswitch button:last-child {
-    border-radius: 0 var(--radius-1) var(--radius-1) 0;
-    margin-left: -1px;
-  }
-  .activebtn {
-    border-color: var(--accent);
-    color: var(--accent);
-    position: relative;
-    z-index: 1;
   }
   .flowchip {
     font-family: var(--font-mono);

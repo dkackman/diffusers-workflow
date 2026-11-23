@@ -14,10 +14,11 @@
     Sun,
   } from '@lucide/svelte'
   import { Toaster } from 'svelte-sonner'
-  import { untrack } from 'svelte'
-  import { route } from './lib/router.svelte'
+  import { tick, untrack } from 'svelte'
+  import { placeScroll, route, stopRestore } from './lib/router.svelte'
   import { isEditable } from './lib/editable'
   import { runningIds } from './lib/jobWatch'
+  import { jobHref } from './lib/routes'
   import {
     alertMode,
     clearEndedMark,
@@ -25,6 +26,7 @@
     unlockChime,
   } from './lib/finishAlert'
   import { alerts } from './lib/alerts.svelte'
+  import { cycleTheme, initialTheme, type Theme } from './lib/theme'
   import { storageGet, storageSet } from './lib/storage'
   import Sidebar from './lib/Sidebar.svelte'
   import Breadcrumb from './lib/Breadcrumb.svelte'
@@ -35,6 +37,7 @@
   import ConfirmDialog from './lib/ui/ConfirmDialog.svelte'
   import WorkflowsPage from './lib/pages/WorkflowsPage.svelte'
   import WorkflowPage from './lib/pages/WorkflowPage.svelte'
+  import NotFoundPage from './lib/pages/NotFoundPage.svelte'
   import JobsPage from './lib/pages/JobsPage.svelte'
   import JobPage from './lib/pages/JobPage.svelte'
   import RequestsPage from './lib/pages/RequestsPage.svelte'
@@ -108,29 +111,7 @@
     )
   })
 
-  type Theme = 'system' | 'light' | 'dark'
-  let theme = $state<Theme>(
-    (() => {
-      try {
-        const stored = localStorage.getItem('dw-theme')
-        return stored === 'light' || stored === 'dark' ? stored : 'system'
-      } catch {
-        return 'system'
-      }
-    })(),
-  )
-
-  function cycleTheme() {
-    theme = theme === 'system' ? 'light' : theme === 'light' ? 'dark' : 'system'
-    if (theme === 'system') delete document.documentElement.dataset.theme
-    else document.documentElement.dataset.theme = theme
-    try {
-      if (theme === 'system') localStorage.removeItem('dw-theme')
-      else localStorage.setItem('dw-theme', theme)
-    } catch {
-      /* fine - applies for this session */
-    }
-  }
+  let theme = $state<Theme>(initialTheme())
   // one meter bar per card, from the per-card readings; the top level of
   // /api/memory is only the first card's
   const metered = $derived(
@@ -157,12 +138,35 @@
     query.addEventListener('change', apply)
     return () => query.removeEventListener('change', apply)
   })
+  // Focus follows the drawer: in to its first link on open, back to the
+  // menu button on close (the scrim, Escape or a navigation)
+  let menuButton = $state<HTMLElement | null>(null)
+  let navShell = $state<HTMLElement | null>(null)
+  let drawerWas = false
   $effect(() => {
-    // any navigation closes the drawer and scrolls back to the top
+    const open = drawerOpen
+    if (open === drawerWas) return
+    drawerWas = open
+    void tick().then(() => {
+      if (!narrow) return
+      if (open) navShell?.querySelector<HTMLElement>('aside a')?.focus()
+      else menuButton?.focus()
+    })
+  })
+  function skipToContent(event: Event) {
+    // the router reads the hash, so the link must not navigate
+    event.preventDefault()
+    document.getElementById('main')?.focus()
+  }
+  $effect(() => {
+    // any navigation closes the drawer; the router places the page - the
+    // top for a new path, where it was left on Back, unmoved by a query
     void route.parts
     drawerOpen = false
-    window.scrollTo(0, 0)
+    untrack(placeScroll)
   })
+  // a restore still waiting on a slow list ends with the shell
+  $effect(() => stopRestore)
   const wide = $derived(
     (view.kind === 'ws' && view.section === 'edit') ||
       (view.kind === 'shared' && view.section === 'prompt-edit'),
@@ -172,7 +176,8 @@
 <svelte:window onkeydown={onKeydown} />
 
 <!-- The sidebar carries navigation; the header carries where you are and what the GPU is doing -->
-<div class="shell" class:drawer={drawerOpen}>
+<div class="shell" class:drawer={drawerOpen} bind:this={navShell}>
+  <a class="skiplink" href="#main" onclick={skipToContent}>Skip to content</a>
   <Sidebar
     collapsed={sidebarCollapsed && !drawerOpen}
     inert={narrow && !drawerOpen}
@@ -190,6 +195,7 @@
       <div class="navrow">
         <button
           class="bare icon menu"
+          bind:this={menuButton}
           onclick={() => (drawerOpen = !drawerOpen)}
           aria-label="open navigation"
           aria-expanded={drawerOpen}
@@ -208,7 +214,7 @@
              own workspace -->
             <a
               class="plain live"
-              href="#/jobs/{running[0]}"
+              href={jobHref(running[0])}
               title="go to the job"
             >
               <span class="pulse-dot"></span>running
@@ -228,10 +234,14 @@
               bind:this={statusTrigger}
               onclick={() => (statusOpen = !statusOpen)}
               title={meterTitle(metered) || 'VRAM allocated'}
-              aria-label={statusLabel}
+              aria-label="{statusLabel}, {meterText(metered)}"
               aria-expanded={statusOpen}
             >
-              {#if running.length > 1}{@render busy()}{/if}
+              {#if running.length > 1}{@render busy()}{:else}<span
+                  class="stateword"
+                >
+                  {running.length ? 'running' : 'idle'}
+                </span>{/if}
               <span class="meters">
                 {#each metered as card, i (card.device ?? i)}
                   <span class="meter">
@@ -275,7 +285,7 @@
           <AlertToggle />
           <button
             class="bare icon"
-            onclick={cycleTheme}
+            onclick={() => (theme = cycleTheme(theme))}
             title="theme: {theme} - click to change"
             aria-label="theme: {theme} - click to change"
           >
@@ -310,8 +320,9 @@
     </header>
     <ConnectionBanner ontoken={() => (tokenOpen = true)} />
 
-    <main class:wide>
-      {#if view.kind === 'server'}
+    <main id="main" tabindex="-1" class:wide>
+      {#if view.kind === 'missing'}<NotFoundPage />
+      {:else if view.kind === 'server'}
         {#if view.section === 'schema'}<SchemaPage />
         {:else if view.section === 'models'}<ModelsPage />
         {:else}<StatusPage />{/if}
@@ -380,6 +391,27 @@
     align-items: center;
     gap: 0.5rem 1rem;
     padding: 0.55rem 1.2rem;
+  }
+  .skiplink {
+    position: absolute;
+    left: 0.5rem;
+    top: 0.5rem;
+    z-index: 30;
+    padding: 0.4rem 0.7rem;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-1);
+    transform: translateY(-200%);
+  }
+  .skiplink:focus {
+    transform: none;
+  }
+  main:focus {
+    outline: none;
+  }
+  .stateword {
+    font-size: var(--t-xs);
+    color: var(--muted);
   }
   .menu {
     display: none;

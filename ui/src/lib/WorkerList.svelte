@@ -1,5 +1,8 @@
 <script lang="ts">
+  import { gbFromMb } from './format'
+  import { jobHref } from './routes'
   import type { WorkerInfo } from './types'
+  import { workspace } from './workspace.svelte'
 
   // One row per card the server runs a worker on - one job per GPU. Shared by
   // the status popover and the server page; `onnavigate` lets the popover
@@ -26,11 +29,14 @@
       {/if}
       {#if w.host_memory_rss_mb != null}
         <span class="muted" title="resident host memory of the worker process">
-          {(w.host_memory_rss_mb / 1024).toFixed(1)} GB RSS
+          {gbFromMb(w.host_memory_rss_mb)} GB RSS
         </span>
       {/if}
       {#if w.current_job}
-        <a href={'#/jobs/' + w.current_job} onclick={() => onnavigate?.()}>
+        <a
+          href={jobHref(w.current_job, workspace.current)}
+          onclick={() => onnavigate?.()}
+        >
           {w.current_job} →
         </a>
       {/if}

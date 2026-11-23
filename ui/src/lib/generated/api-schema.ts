@@ -1251,7 +1251,12 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * Get Note
+         * @description The target's own note and its etag, for an editor that will replace
+         *     it only if it is still the note it read: `If-Match` on PUT /api/notes.
+         */
+        get: operations["get_note_api_notes_get"];
         /**
          * Put Note
          * @description Set or clear the note on a run, a file, an asset or a workspace.
@@ -4078,6 +4083,21 @@ export interface components {
              */
             text: string;
         };
+        /** NoteRead */
+        NoteRead: {
+            /**
+             * Etag
+             * @description What `If-Match` on PUT /api/notes names to replace only this note.
+             */
+            etag: string;
+            /**
+             * Note
+             * @description The target's own note, never the run's a file falls back to.
+             */
+            note: string | null;
+            /** Target */
+            target: string;
+        };
         /**
          * NoteRefWrite
          * @description One reference of a new note. `kind` is the server's to set.
@@ -4574,6 +4594,11 @@ export interface components {
             id: string;
             /** Workflow */
             workflow: string | null;
+            /**
+             * Workflow Name
+             * @description The catalog name it ran by.
+             */
+            workflow_name?: string | null;
             /** Workspace */
             workspace: string;
         };
@@ -6957,6 +6982,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ModelDownload"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_note_api_notes_get: {
+        parameters: {
+            query: {
+                /** @description A target as PUT /api/notes takes it */
+                target: string;
+                workspace?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NoteRead"];
                 };
             };
             /** @description Validation Error */

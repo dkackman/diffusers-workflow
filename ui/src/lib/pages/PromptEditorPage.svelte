@@ -1,22 +1,20 @@
 <script lang="ts">
   import Suggest from '../ui/Suggest.svelte'
   import { isNameSegment } from '../names'
-  import { DocumentEditor, NEW_FOLDER } from '../editorShell.svelte'
-  import ViewSwitch from '../editor/ViewSwitch.svelte'
-  import FolderPicker from '../editor/FolderPicker.svelte'
+  import {
+    DocumentEditor,
+    EDITOR_VIEWS,
+    NEW_FOLDER,
+    editorKeys,
+    type EditorView,
+  } from '../editorShell.svelte'
+  import Segmented from '../ui/Segmented.svelte'
+  import DocumentFileBar from '../editor/DocumentFileBar.svelte'
   import EditorBody from '../editor/EditorBody.svelte'
   import EnhancePanel from '../editor/EnhancePanel.svelte'
   import { Enhancer } from '../enhancer.svelte'
   import { PROMPT, reference } from '../references'
-  import {
-    Braces,
-    Columns2,
-    Copy,
-    LayoutList,
-    Save,
-    Sparkles,
-    Trash2,
-  } from '@lucide/svelte'
+  import { Copy, Save, Sparkles, Trash2 } from '@lucide/svelte'
   import { api } from '../api'
   import { ApiError } from '../apiErrors'
   import {
@@ -29,17 +27,17 @@
   import { resource } from '../resource.svelte'
   import LoadState from '../ui/LoadState.svelte'
   import LoadFailed from '../ui/LoadFailed.svelte'
-  import RemoteChanged from '../ui/RemoteChanged.svelte'
+  import PageHeader from '../ui/PageHeader.svelte'
   import { writableRoot } from '../libraries'
   import DownloadLink from '../DownloadLink.svelte'
   import { go, renameRoute } from '../router.svelte'
-  import { sharedHref } from '../routes'
+  import { SECTION_LABELS, sharedHref } from '../routes'
   import { notify } from '../toast'
-  import { confirmDialog } from '../confirm.svelte'
+  import { action } from '../action.svelte'
+  import { destroyConfirm } from '../destructive'
   import { loadPromptLibrary } from '../promptlib.svelte'
   import { groupOf, leafOf } from '../grouping'
   import { emptyPrompt, parseTags } from '../prompts'
-  import CopyButton from '../CopyButton.svelte'
   import type { PromptDetail } from '../types'
 
   let { name = '' }: { name?: string } = $props()
@@ -82,26 +80,7 @@
     [...new Set(promptFiles.map(groupOf).filter(Boolean))].sort(),
   )
 
-  const VIEWS = [
-    {
-      view: 'form',
-      label: 'form',
-      title: 'edit with a form',
-      icon: LayoutList,
-    },
-    {
-      view: 'split',
-      label: 'split',
-      title: 'form beside the JSON - both editable, blur applies',
-      icon: Columns2,
-    },
-    {
-      view: 'json',
-      label: 'JSON',
-      title: 'edit the raw JSON, schema-aware',
-      icon: Braces,
-    },
-  ] as const
+  const views = EDITOR_VIEWS.filter((v) => v.value !== 'flow')
 
   // ------------------------------------------------------------- enhancer
 
@@ -157,14 +136,6 @@
     enhancer.preselect(shell.doc.intended_model)
   }
 
-  function onKeydown(event: KeyboardEvent) {
-    if (!shell.canWrite) return
-    if ((event.ctrlKey || event.metaKey) && event.key === 's') {
-      event.preventDefault()
-      save()
-    }
-  }
-
   // ---------------------------------------------------------------- editing
 
   function setField(key: string, value: string) {
@@ -198,7 +169,7 @@
     return null
   }
 
-  async function save() {
+  function save() {
     if (!shell.canWrite) return
     shell.flush()
     const blocker = saveBlocker()
@@ -206,46 +177,57 @@
       notify.error(blocker)
       return
     }
-    const path = shell.savePath()!
-    shell.busy = true
-    try {
-      const outcome = await savePromptAt(shell, path)
-      if (outcome === 'cancelled') return
-      shell.commitNewFolder()
+    void saving.run(shell.savePath()!)
+  }
+  const onKeydown = editorKeys(shell, { save })
+  // An action: Save twice (or Ctrl+S twice) writes once
+  const saving = action(
+    async (path: string) => {
+      shell.busy = true
+      try {
+        const outcome = await savePromptAt(shell, path)
+        if (outcome === 'cancelled') return null
+        shell.commitNewFolder()
+      } finally {
+        shell.busy = false
+      }
       // Same as the workflow editor: the picker lists folders from the
       // listing, so a newly created one must be added or the select resets
       if (listing.data) listing.adopt(withSavedPrompt(listing.data, path))
-      notify.success(`Saved to ${path}`)
       loadPromptLibrary()
       // The URL names the prompt now on screen: a first save, or a save as
       opened = path
       if (path !== name)
         renameRoute(sharedHref('prompt-edit', ...path.split('/')))
-    } catch (e) {
-      notify.failure(`save ${path}`, e)
-    } finally {
-      shell.busy = false
-    }
-  }
+      return path
+    },
+    {
+      doing: (path) => `save ${path}`,
+      success: (path) => `Saved to ${path}`,
+    },
+  )
 
-  async function remove() {
-    const name = current
-    if (!name) return
-    const warning = await deleteWarning(name)
-    if (
-      !(await confirmDialog(
-        `Delete ${name}.json? This removes the file on disk.${warning}`,
-        { confirmLabel: 'Delete' },
-      ))
-    )
-      return
-    try {
+  // The workflows a delete would break are read on the click that asks
+  const removing = action<[name: string, warning: string], void>(
+    async (name) => {
       await api.deletePrompt(name)
       loadPromptLibrary()
       go('shared', 'prompts')
-    } catch (e) {
-      notify.failure(`delete ${name}`, e)
-    }
+    },
+    {
+      doing: (name) => `delete ${name}`,
+      confirm: (name, warning) =>
+        destroyConfirm({
+          name: `${name}.json`,
+          noun: 'prompt',
+          consequence: warning.trim(),
+        }),
+    },
+  )
+  async function remove() {
+    const name = current
+    if (name && !removing.busy)
+      await removing.run(name, await deleteWarning(name))
   }
 
   function duplicate() {
@@ -263,44 +245,56 @@
 
 <!-- The editing surface: a flush commits the field focused in it -->
 <div class="editing" bind:this={shell.root}>
-  <div class="head">
-    <a href={sharedHref('prompts')} class="muted">← prompts</a>
-    <h1>{current || 'New prompt'}</h1>
-    <span class="flex"></span>
-    <ViewSwitch
-      view={shell.view}
-      options={[...VIEWS]}
-      onselect={(view) => shell.setView(view)}
-    />
-    {#if current}
-      <button
-        class="quiet withicon"
-        onclick={duplicate}
-        title="open a copy in the editor to save under a new name"
+  <PageHeader
+    title={current || 'New prompt'}
+    back={{ href: sharedHref('prompts'), label: SECTION_LABELS.shared.prompts }}
+  >
+    {#if shell.dirty}
+      <span
+        class="chip unsaved"
+        title="this definition differs from the last save"
       >
-        <Copy size={14} />Duplicate
-      </button>
-      <DownloadLink href={api.promptDownloadUrl(current)} />
-      {#if !readOnly}
-        <button
-          class="quiet icon danger"
-          onclick={remove}
-          title="delete this prompt from the library"
-          aria-label="delete this prompt from the library"
-        >
-          <Trash2 size={14} />
-        </button>
-      {/if}
+        unsaved
+      </span>
     {/if}
-    <button
-      class="withicon"
-      onclick={save}
-      disabled={shell.busy || !shell.canWrite}
-      title="write to the prompt directory under the name below (Ctrl+S)"
-    >
-      <Save size={14} />Save{#if shell.dirty}<span class="dirtydot"></span>{/if}
-    </button>
-  </div>
+    {#snippet actions()}
+      <Segmented
+        label="editor view"
+        value={shell.view}
+        options={views}
+        onselect={(view) => shell.setView(view as EditorView)}
+      />
+      {#if current}
+        <button
+          class="quiet withicon"
+          onclick={duplicate}
+          title="open a copy in the editor to save under a new name"
+        >
+          <Copy size={14} />Duplicate
+        </button>
+        <DownloadLink href={api.promptDownloadUrl(current)} />
+        {#if !readOnly}
+          <button
+            class="quiet icon danger"
+            onclick={remove}
+            title="delete this prompt from the library"
+            aria-label="delete this prompt from the library"
+          >
+            <Trash2 size={14} />
+          </button>
+        {/if}
+      {/if}
+      <button
+        class="withicon"
+        onclick={save}
+        disabled={shell.busy || !shell.canWrite}
+        title="write to the prompt directory under the name below (Ctrl+S)"
+      >
+        <Save size={14} />Save{#if shell.dirty}<span class="dirtydot"
+          ></span>{/if}
+      </button>
+    {/snippet}
+  </PageHeader>
 
   {#if shell.loadState === 'failed'}
     <LoadFailed
@@ -313,43 +307,20 @@
         : undefined}
     />
   {:else}
-    {#if shell.remote === 'diverged'}
-      <RemoteChanged
-        label={current}
-        ontheirs={() => shell.takeTheirs()}
-        onmine={() => shell.keepMine()}
-      />
-    {/if}
     <!-- The listing only feeds the folder picker: loading shows nothing -->
     <LoadState of={listing} label="the prompt list">
       {#snippet skeleton()}{/snippet}
     </LoadState>
-    <div class="savebar muted">
-      saving as
-      <FolderPicker
-        bind:folder={shell.folder}
-        bind:newFolder={shell.newFolder}
-        {folders}
-        newFolderTitle="name for the new folder at the root of the prompt directory"
-      />
-      {#if shell.folder === NEW_FOLDER}<span>/</span>{/if}
-      <input
-        class="savename"
-        bind:value={shell.saveName}
-        placeholder="MyPrompt"
-      />
-      <span class="dirhint">.json in {promptDir}</span>
-      <span class="flex"></span>
-      {#if shell.savePath()}
-        <code class="refhint" title="use the stored prompt from any workflow">
-          prompt:{shell.savePath()}
-        </code>
-        <CopyButton
-          text={reference(PROMPT, shell.savePath() ?? '')}
-          title="copy reference to clipboard"
-        />
-      {/if}
-    </div>
+    <DocumentFileBar
+      ed={shell}
+      dir={promptDir}
+      {folders}
+      noun="prompt"
+      described={false}
+      reference={shell.savePath()
+        ? reference(PROMPT, shell.savePath() ?? '')
+        : ''}
+    />
 
     <EditorBody
       view={shell.view}
@@ -391,7 +362,7 @@
                 oninput={(e) =>
                   setField('negative_prompt', e.currentTarget.value)}
               ></textarea>
-              <div class="metagrid">
+              <div class="formgrid metagrid">
                 <label for="prompt-desc">description</label>
                 <input
                   id="prompt-desc"
@@ -442,38 +413,6 @@
   .editing {
     display: contents;
   }
-  .head {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.4rem 0.6rem;
-    margin-bottom: 0.4rem;
-  }
-  .head h1 {
-    font-size: 1.1rem;
-    margin: 0;
-  }
-  .savebar {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.4rem 0.4rem;
-    margin-bottom: 1rem;
-    font-size: 0.85rem;
-  }
-  .savename {
-    max-width: 200px;
-  }
-  /* a directory is one unbroken token, so let it wrap anywhere rather than
-     push the bar past a phone-width viewport */
-  .dirhint {
-    min-width: 0;
-    overflow-wrap: anywhere;
-  }
-  .refhint {
-    font-size: 0.8rem;
-    color: var(--accent);
-  }
   .promptform {
     container-type: inline-size;
   }
@@ -492,11 +431,6 @@
     margin-bottom: 1rem;
     min-width: 0;
   }
-  .panel h2 {
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-  }
   .fieldlabel {
     display: block;
     font-weight: 600;
@@ -512,22 +446,7 @@
     font-size: 0.95rem;
   }
   .metagrid {
-    display: grid;
-    grid-template-columns: minmax(120px, 40%) minmax(0, 1fr);
-    gap: 0.5rem 0.8rem;
-    align-items: center;
     margin-top: 0.6rem;
-  }
-  @container (max-width: 420px) {
-    .metagrid {
-      grid-template-columns: minmax(0, 1fr);
-      gap: 0.2rem;
-    }
-  }
-  .metagrid label {
-    font-weight: 600;
-    color: var(--muted);
-    font-size: 0.85rem;
   }
   .metagrid textarea {
     align-self: stretch;

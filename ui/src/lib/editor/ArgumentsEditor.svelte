@@ -105,7 +105,7 @@
       !isReference(args[key]) && !Array.isArray(args[key])
         ? mediaKindFor(parameter, key)
         : null}
-    <div class="row">
+    <div class="formgrid withaction top row">
       <label for={`${uid}-${key}`} title={parameter?.description ?? ''}>
         {key}{#if parameter?.required}<span class="req">*</span>{/if}
       </label>
@@ -262,40 +262,15 @@
     flex-direction: column;
     gap: 0.5rem;
   }
-  .row {
-    display: grid;
-    grid-template-columns: 170px minmax(0, 1fr) auto;
-    gap: 0.7rem;
-    align-items: start;
-  }
-  /* The 170px label track plus an input's intrinsic width needs ~400px;
-     under that the label takes its own line above the field */
-  @container (max-width: 400px) {
-    .row {
-      grid-template-columns: minmax(0, 1fr) auto;
-      gap: 0.2rem 0.5rem;
-    }
-    .row > label {
-      grid-column: 1 / -1;
-      padding-top: 0;
-    }
-  }
   .row.add {
     grid-template-columns: 1fr auto;
     max-width: 340px;
-  }
-  label {
-    padding-top: 0.42rem;
-    font-weight: 600;
-    color: var(--muted);
-    overflow-wrap: anywhere;
   }
   .req {
     color: var(--warn);
     margin-left: 2px;
   }
   .hint {
-    font-size: 0.75rem;
     margin-top: 0.15rem;
     max-width: 60ch;
   }

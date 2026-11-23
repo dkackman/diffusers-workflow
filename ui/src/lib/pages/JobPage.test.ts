@@ -76,6 +76,9 @@ vi.mock('../api', () => ({
       }),
     ),
     outputDownloadUrl: (name: string) => `/api/gallery/${name}/download`,
+    noteForSave: vi.fn((target: string) =>
+      Promise.resolve({ target, note: detail.job?.note ?? null, etag: '"e"' }),
+    ),
     eventLog: vi.fn(async (id: string, query: { after?: number } = {}) => {
       if (eventLog.status) {
         const { ApiError } = await import('../api')
@@ -204,6 +207,19 @@ it('shows each image beside what made it, with a download link, and never probes
   expect(vi.mocked(api.galleryMetadata).mock.calls.map((c) => c[0])).toEqual([
     'a.png',
   ])
+})
+
+it('sets the tab title to the workflow file the job ran', async () => {
+  detail.job = {
+    ...job([]),
+    workflow: 'Storyboard',
+    workflow_name: 'templates/minimax/storyboard',
+  }
+  render(JobPage, { jobId: 'j1' })
+  await waitFor(() =>
+    expect(document.title).toBe('storyboard · diffusers-workflow'),
+  )
+  expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
 })
 
 it("drops one job's image metadata when the page switches to another", async () => {
@@ -526,7 +542,9 @@ it('names the run by the version the gallery labels its files with', async () =>
   }
   render(JobPage, { jobId: 'j1' })
   const chip = await waitFor(() => screen.getByText('v4'))
-  expect(chip.getAttribute('title')).toContain('20260922-120000-aaaaaaaa')
+  expect(chip.getAttribute('title')).toBe(
+    '4th job of this workflow in this folder',
+  )
 })
 
 it('shows no version for a job that never opened a run', async () => {
@@ -656,11 +674,11 @@ it('reads Made from off the first output of a video-only run, probing once', asy
   ])
 })
 
-it('shows the run note when the job has a run', async () => {
+it('shows your note on the job when the job has a run', async () => {
   detail.job = { ...job([]), run_dir: 'wf/run-1', note: 'second pass' }
   render(JobPage, { jobId: 'j1' })
   await waitFor(() => expect(screen.getByText('second pass')).toBeTruthy())
-  expect(screen.getByText('Run note')).toBeTruthy()
+  expect(screen.getByText('Your note on this job')).toBeTruthy()
 })
 
 it("saves the run note in the job's own workspace", async () => {
@@ -677,10 +695,13 @@ it("saves the run note in the job's own workspace", async () => {
     target: { value: 'third pass' },
   })
   await fireEvent.click(screen.getByRole('button', { name: /save/i }))
-  expect(vi.mocked(setNote)).toHaveBeenCalledWith(
-    'wf/run-1',
-    'third pass',
-    'studio',
+  await waitFor(() =>
+    expect(vi.mocked(setNote)).toHaveBeenCalledWith(
+      'wf/run-1',
+      'third pass',
+      'studio',
+      '"e"',
+    ),
   )
 })
 
@@ -715,7 +736,16 @@ describe('data changed underneath the page', () => {
     })
     noted('from the agent')
     await moved('gallery')
-    await waitFor(() => expect(notice()).toBeTruthy())
+    // The box's own notice is the one: the page's line stays down (#1597)
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          /Your note on this job changed while you were editing/,
+        ),
+      ).toBeTruthy(),
+    )
+    expect(notice()).toBeNull()
+    expect(screen.getAllByRole('status')).toHaveLength(1)
     const box = screen.getByRole('textbox') as HTMLTextAreaElement
     expect(box.value).toBe('my third pass')
   })

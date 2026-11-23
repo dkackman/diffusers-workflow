@@ -4,6 +4,7 @@ import type {
   PlanHostMemory,
   RequiredDownload,
 } from './types'
+import { formatMinutes } from './format'
 
 /** One line of a plan, read for a person: what it says and how loudly.
  * `warn` marks a figure that is not a quote (no cost block, a figure from
@@ -41,7 +42,7 @@ export function describePlan(plan: Plan): PlanLine[] {
     lines.push({
       text:
         cached >= plan.steps
-          ? `all ${steps(plan.steps)} cached - a run generates nothing`
+          ? `all ${steps(plan.steps)} cached - a job generates nothing`
           : `${cached} of ${steps(plan.steps)} cached`,
       tone: 'plain',
     })
@@ -87,9 +88,10 @@ function hostMemory(memory: PlanHostMemory): PlanLine {
     observed: 'observed',
     fit: `fit to ${memory.runs} run${memory.runs === 1 ? '' : 's'}`,
     declared: 'declared',
-    inherited: 'inherited from the template',
+    // the server names no source for a host-RAM figure
+    inherited: 'inherited from an example',
   }[memory.basis]
-  return { text: `host RAM ~${gb} GB (${basis})`, tone: 'plain' }
+  return { text: `host RAM about ${gb} GB (${basis})`, tone: 'plain' }
 }
 
 /** The qualifiers every priced figure carries: the card it was measured
@@ -150,7 +152,7 @@ function rawFigure(
   // another workflow's runs of the same pipeline priced this one (#797)
   if (basis === 'inherited') {
     return {
-      text: `~${minutes} min, inherited from ${estimate.inherited_from ?? 'a template'}${along}${missing}`,
+      text: `${formatMinutes(minutes)}, inherited from ${estimate.inherited_from ?? 'an example'}${along}${missing}`,
       tone: 'plain',
     }
   }
@@ -163,13 +165,13 @@ function rawFigure(
   if (basis === 'derived') {
     const target = forList ? ` for ${forList}` : ''
     return {
-      text: `~${minutes} min on ${on} - estimated${target}${along}, from a figure ${card}${missing}`,
+      text: `${formatMinutes(minutes)} on ${on} - estimated${target}${along}, from a figure ${card}${missing}`,
       tone: 'warn',
     }
   }
   const repriced = basis === 'per_entry' ? `re-priced for ${forList}, ` : ''
   return {
-    text: `~${minutes} min on ${on} - ${repriced}${card}${along}${missing}`,
+    text: `${formatMinutes(minutes)} on ${on} - ${repriced}${card}${along}${missing}`,
     tone: 'plain',
   }
 }
@@ -232,7 +234,7 @@ export function describeEstimateTotal(
   }
   const total = Math.round(minutes * 10) / 10
   return {
-    text: `total ~${total} min${unpricedNote}`,
+    text: `total ${formatMinutes(total)}${unpricedNote}`,
     tone: missing ? 'warn' : 'plain',
   }
 }

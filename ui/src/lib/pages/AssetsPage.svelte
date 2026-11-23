@@ -11,18 +11,21 @@
   import { resource } from '../resource.svelte'
   import { applyEdits, noEdits, settleEdits, withPatch } from '../gallery/order'
   import LoadState from '../ui/LoadState.svelte'
+  import PageHeader from '../ui/PageHeader.svelte'
   import FolderGroups from '../FolderGroups.svelte'
   import { dropFiles } from '../dropFiles'
   import HintBar from '../HintBar.svelte'
-  import { confirmDialog } from '../confirm.svelte'
+  import { action } from '../action.svelte'
+  import { assetConfirm, assetsConfirm } from '../assets/deletion'
   import BulkBar from '../BulkBar.svelte'
   import { Picks, actOnEach, reportFailures } from '../picks.svelte'
   import { overlayOpen } from '../ui/layers.svelte'
   import { notify } from '../toast'
-  import { storageGet, storageSet } from '../storage'
+  import { collapsedState } from '../collapsed.svelte'
   import type { AssetFile, AssetLibrary, ShadowedAsset } from '../types'
   import { workspace } from '../workspace.svelte'
   import { sharedHref } from '../routes'
+  import { hashState } from '../router.svelte'
   import { assetLibrary } from '../assetlib.svelte'
   import { leafName } from '../names'
   import {
@@ -75,9 +78,9 @@
   const assets = $derived(applyEdits(list.data?.assets ?? [], noteEdits))
   const libraries = $derived<AssetLibrary[]>(list.data?.libraries ?? [])
   const shadowed = $derived<ShadowedAsset[]>(list.data?.shadowed ?? [])
-  let filter = $state('')
+  // In the hash, so Back from an asset - or a shared link - keeps it
+  const filter = hashState('q', '')
   let selected = $state<AssetFile | null>(null)
-  let busy = $state(false)
   // Which library the next upload lands in, set by whichever section's
   // button was clicked. The one thing about an upload that cannot be
   // changed afterwards, so it is the destination's own button rather than
@@ -86,9 +89,7 @@
   let fileInput = $state<HTMLInputElement | null>(null)
   // Which library sections are shut. Persisted, since a box whose shared
   // library dwarfs the workspace's own is exactly where one gets shut
-  let collapsed = $state<Record<string, boolean>>(
-    storageGet(COLLAPSE_KEY, {} as Record<string, boolean>),
-  )
+  const collapsed = collapsedState(COLLAPSE_KEY)
 
   // Carry a saved note onto the listing and the pick, so selecting the asset
   // again shows it rather than what was fetched before the edit
@@ -103,9 +104,9 @@
       list.adopt({ ...held, assets: applyEdits(held.assets, noteEdits) })
   }
 
-  const filterActive = $derived(filter !== '')
+  const filterActive = $derived(filter.value !== '')
   const matches = (name: string) =>
-    name.toLowerCase().includes(filter.toLowerCase())
+    name.toLowerCase().includes(filter.value.toLowerCase())
   const visible = $derived(assets.filter((a) => matches(a.name)))
   const byName = $derived(new Map(visible.map((a) => [a.name, a])))
   const folderByName = $derived(new Map(assets.map((a) => [a.name, a.folder])))
@@ -128,13 +129,9 @@
     assets.filter((a) => a.origin !== 'workspace').length,
   )
 
-  function toggleLibrary(origin: string) {
-    collapsed[origin] = !collapsed[origin]
-    storageSet(COLLAPSE_KEY, $state.snapshot(collapsed))
-  }
   // While filtering, everything stays open - a shut section hiding matches
   // would make the filter look broken, as FolderGroups has it
-  const isOpen = (origin: string) => filterActive || !collapsed[origin]
+  const isOpen = (origin: string) => filterActive || !collapsed.has(origin)
 
   // One section per library on the search path, in the order the server
   // resolves them - the path is the page's top level and folders sit
@@ -210,65 +207,43 @@
     fileInput?.click()
   }
 
-  async function downloadPicked() {
-    if (picks.names.length === 0) return
-    busy = true
-    try {
-      await api.archiveAssets(picks.names)
-    } catch (e) {
-      notify.failure('download the picked assets', e)
-    } finally {
-      busy = false
-    }
-  }
+  const downloading = picks.download(api.archiveAssets, 'assets')
 
-  async function removePicked() {
-    const names = picks.names
-    if (names.length === 0) return
-    // A shared asset goes for every workspace under the root, which is a
-    // different thing from deleting one of this workspace's own - so the
-    // confirm counts them rather than leaving the selection to be read
-    const shared = names.filter(
-      (name) => originOf.get(name) === 'common',
-    ).length
-    if (
-      !(await confirmDialog(
-        `Delete ${names.length} asset${names.length === 1 ? '' : 's'}?` +
-          (shared
-            ? ` ${shared} ${shared === 1 ? 'is' : 'are'} in the shared ` +
-              `library and go${shared === 1 ? 'es' : ''} away for every ` +
-              `workspace.`
-            : '') +
-          ` Any workflow still carrying one of those references stops loading.`,
-        { confirmLabel: 'Delete' },
-      ))
-    )
-      return
-    busy = true
-    const failed = await actOnEach(names, (name) => api.deleteAsset(name))
-    // A read-only examples asset answers 403; whatever could not go stays
-    // ticked, so a retry needs no re-ticking
-    picks.keepFailed(
-      names,
-      failed.map((f) => f.name),
-    )
-    reportFailures('delete', failed, names.length, 'assets')
-    busy = false
-    await list.reload()
-  }
+  const removingPicked = action(
+    async (names: string[]) => {
+      const failed = await actOnEach(names, (name) => api.deleteAsset(name))
+      // A read-only examples asset answers 403; whatever could not go stays
+      // ticked, so a retry needs no re-ticking
+      picks.keepFailed(
+        names,
+        failed.map((f) => f.name),
+      )
+      reportFailures('delete', failed, names.length, 'assets')
+      await list.reload()
+    },
+    {
+      doing: 'delete the picked assets',
+      confirm: (names) =>
+        assetsConfirm(
+          names.length,
+          names.filter((name) => originOf.get(name) === 'common').length,
+        ),
+    },
+  )
+  const removePicked = () =>
+    picks.names.length && removingPicked.run(picks.names)
 
-  async function upload(event: Event) {
+  function upload(event: Event) {
     const input = event.target as HTMLInputElement
     const files = Array.from(input.files ?? [])
     // Clear it either way, so picking the same file twice still fires
     input.value = ''
-    await uploadFiles(files, uploadTarget)
+    uploadFiles(files, uploadTarget)
   }
 
-  async function uploadFiles(files: File[], target: 'workspace' | 'shared') {
-    if (!files.length) return
-    busy = true
-    try {
+  // Each file's own failure is reportUploads'; the action reports the rest
+  const uploading = action(
+    async (files: File[], target: 'workspace' | 'shared') => {
       const isShared = target === 'shared'
       // The names the target library already holds, so Keep both starts
       // from a free one
@@ -277,35 +252,28 @@
           .filter((a) => (a.origin === 'workspace') !== isShared)
           .map((a) => a.name),
       )
-      const result = await uploadAll(files, { shared: isShared, taken })
-      reportUploads(result)
-    } finally {
-      busy = false
-    }
-    await list.reload()
+      reportUploads(await uploadAll(files, { shared: isShared, taken }))
+      await list.reload()
+    },
+    { doing: 'upload the files' },
+  )
+  function uploadFiles(files: File[], target: 'workspace' | 'shared') {
+    if (files.length) void uploading.run(files, target)
   }
 
-  async function remove(asset: AssetFile) {
-    const question =
-      asset.origin === 'common'
-        ? `Delete ${asset.reference} from the shared library? Every ` +
-          `workspace under this root loses it, and any workflow still ` +
-          `carrying that reference stops loading.`
-        : `Delete ${asset.reference}? Any workflow still carrying that ` +
-          `reference stops loading.`
-    if (!(await confirmDialog(question, { confirmLabel: 'Delete' }))) return
-    busy = true
-    try {
+  const removing = action(
+    async (asset: AssetFile) => {
       await api.deleteAsset(asset.name)
       notify.success(`Deleted ${asset.reference}`)
       if (selected?.name === asset.name) selected = null
       await list.reload()
-    } catch (e) {
-      notify.failure(`delete ${asset.name}`, e)
-    } finally {
-      busy = false
-    }
-  }
+    },
+    { doing: (asset) => `delete ${asset.name}`, confirm: assetConfirm },
+  )
+  const remove = (asset: AssetFile) => removing.run(asset)
+  const working = $derived(
+    uploading.busy || downloading.busy || removing.busy || removingPicked.busy,
+  )
 </script>
 
 <svelte:window
@@ -323,34 +291,39 @@
   class="dropzone"
   use:dropFiles={{
     ondrop: (files) => uploadFiles(files, shared ? 'shared' : 'workspace'),
-    disabled: busy,
+    disabled: working,
   }}
 >
-  <div class="pagehead">
-    <h1>{shared ? 'Shared assets' : 'Assets'}</h1>
-    <span class="num muted">{shownCount} files</span>
-    <span class="flex"></span>
-    {#if !shared && elsewhereCount}
-      <a
-        class="sharedlink plain muted"
-        href={sharedHref('assets')}
-        title="the shared library every workspace under this root can use"
-      >
-        shared <span class="num">{elsewhereCount}</span>
-      </a>
-    {/if}
-    <input class="filter" placeholder="filter…" bind:value={filter} />
-    <!-- One input for every section: which library the file lands in is
+  {#snippet search()}
+    <input class="filter" placeholder="filter…" bind:value={filter.value} />
+  {/snippet}
+  <PageHeader
+    title={shared ? 'Shared assets' : 'Assets'}
+    count={{ n: shownCount, noun: 'file' }}
+    filter={search}
+  >
+    {#snippet actions()}
+      {#if !shared && elsewhereCount}
+        <a
+          class="sidelink plain muted"
+          href={sharedHref('assets')}
+          title="the shared library every workspace under this root can use"
+        >
+          shared <span class="num">{elsewhereCount}</span>
+        </a>
+      {/if}
+      <!-- One input for every section: which library the file lands in is
        uploadTarget, set by whichever button opened it -->
-    <input
-      class="hiddenfile"
-      type="file"
-      multiple
-      accept={UPLOAD_EXTENSIONS.join(',')}
-      bind:this={fileInput}
-      onchange={upload}
-    />
-  </div>
+      <input
+        class="hiddenfile"
+        type="file"
+        multiple
+        accept={UPLOAD_EXTENSIONS.join(',')}
+        bind:this={fileInput}
+        onchange={upload}
+      />
+    {/snippet}
+  </PageHeader>
 
   <HintBar storageKey="assets-hint-dismissed">
     An asset is input a workflow names by reference: an argument set to
@@ -372,7 +345,7 @@
     label="the asset library"
     empty={shownCount === 0 || (filterActive && !sections.some(shows))}
     filtered={filterActive && shownCount > 0}
-    onclear={() => (filter = '')}
+    onclear={() => (filter.value = '')}
   >
     {#snippet emptyIcon()}<FolderOpen size={36} strokeWidth={1.5} />{/snippet}
     {#snippet emptyText()}
@@ -391,9 +364,9 @@
     {picks}
     visible={ordered.length}
     {filterActive}
-    {busy}
+    busy={working}
     noun="asset"
-    ondownload={downloadPicked}
+    ondownload={downloading.run}
     ondelete={removePicked}
   />
 
@@ -402,8 +375,8 @@
       {section}
       open={isOpen(section.origin)}
       {shared}
-      {busy}
-      ontoggle={() => toggleLibrary(section.origin)}
+      busy={working}
+      ontoggle={() => collapsed.toggle(section.origin)}
       onupload={startUpload}
     />
 
@@ -461,7 +434,7 @@
       </FolderGroups>
 
       {#if section.shadowed.length}
-        <ShadowedAssets entries={section.shadowed} />
+        <ShadowedAssets entries={section.shadowed} {filterActive} />
       {/if}
     {/if}
   {/each}
@@ -473,7 +446,7 @@
   {#key selected.name}
     <AssetDetail
       asset={selected}
-      {busy}
+      busy={working}
       onremove={remove}
       onclose={() => (selected = null)}
       onnotesaved={saveNote}
@@ -484,16 +457,6 @@
 <style>
   .dropzone {
     min-height: 60vh;
-  }
-  .pagehead .filter {
-    max-width: 220px;
-  }
-  .sharedlink {
-    font-size: 0.82rem;
-    white-space: nowrap;
-  }
-  .sharedlink:hover {
-    color: var(--ink);
   }
   .hiddenfile {
     display: none;
@@ -530,7 +493,7 @@
     width: 100%;
     height: 110px;
     object-fit: cover;
-    background: var(--sunk);
+    background: var(--panel-2);
   }
   /* The audio placeholder has no picture to show, and has to keep the
      grid's rhythm - ShadowedAssets' tile does the same */

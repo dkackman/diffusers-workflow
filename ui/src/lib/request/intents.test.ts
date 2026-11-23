@@ -222,6 +222,14 @@ it('a change of state says why in words the history can show', () => {
   })
   expect(body({ kind: 'state', state: 'abandoned' }).why).toBe('abandoned')
   expect(refusal({ kind: 'state', state: 'open' })).toBe('no_change')
+  // An Undo's write expects the state it took away: over another, it stops
+  const closed = { ...plan(), state: 'abandoned' as const }
+  expect(refusal({ kind: 'state', state: 'open', from: 'done' }, closed)).toBe(
+    'moved_on',
+  )
+  expect(
+    body({ kind: 'state', state: 'open', from: 'abandoned' }, closed).state,
+  ).toBe('open')
   expect(
     body({ kind: 'state', state: 'open' }, { ...plan(), state: 'done' }).why,
   ).toBe('reopened')

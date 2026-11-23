@@ -1,6 +1,7 @@
 import { cleanup, render, screen } from '@testing-library/svelte'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import Breadcrumb from './Breadcrumb.svelte'
+import { SECTION_LABELS } from './routes'
 
 vi.mock('./api', () => ({
   api: { listWorkspaces: vi.fn(() => new Promise(() => {})) },
@@ -27,7 +28,7 @@ it('an overview route renders both crumbs even though they share an href', () =>
   render(Breadcrumb)
   expect(links()).toEqual([
     ['studio', '#/ws/studio/overview'],
-    ['overview', '#/ws/studio/overview'],
+    ['Overview', '#/ws/studio/overview'],
   ])
 })
 
@@ -36,7 +37,7 @@ it('a workspace section crumbs as workspace / section', () => {
   render(Breadcrumb)
   expect(links()).toEqual([
     ['studio', '#/ws/studio/overview'],
-    ['jobs', '#/ws/studio/jobs'],
+    ['Jobs', '#/ws/studio/jobs'],
   ])
 })
 
@@ -44,8 +45,8 @@ it('a shared route crumbs as shared / section', () => {
   at('#/shared/prompt-edit/x')
   render(Breadcrumb)
   expect(links()).toEqual([
-    ['shared', '#/shared/prompts'],
-    ['prompt-edit', '#/shared/prompt-edit'],
+    ['Shared', '#/shared/prompts'],
+    ['Prompt editor', '#/shared/prompt-edit'],
   ])
 })
 
@@ -53,7 +54,20 @@ it('a server route crumbs as server / section', () => {
   at('#/server/models')
   render(Breadcrumb)
   expect(links()).toEqual([
-    ['server', '#/server/status'],
-    ['models', '#/server/models'],
+    ['Server', '#/server/status'],
+    ['Models', '#/server/models'],
   ])
+})
+
+it("shows the sidebar's labels", () => {
+  at('#/shared/prompt-edit/x')
+  render(Breadcrumb)
+  expect(links().map(([label]) => label)).toEqual(['Shared', 'Prompt editor'])
+  expect(SECTION_LABELS.shared['prompt-edit']).toBe('Prompt editor')
+})
+
+it('a missing route reads Not found', () => {
+  at('#/ws/studio/nope')
+  render(Breadcrumb)
+  expect(links()).toEqual([['Not found', '#/ws/studio/nope']])
 })

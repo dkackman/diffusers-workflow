@@ -5,22 +5,24 @@
   import { untrack } from 'svelte'
   import { resource, type Resource } from '../resource.svelte'
   import LoadState from '../ui/LoadState.svelte'
+  import PageHeader from '../ui/PageHeader.svelte'
   import FolderGroups from '../FolderGroups.svelte'
   import BulkBar from '../BulkBar.svelte'
   import { Picks, actOnEach, reportFailures } from '../picks.svelte'
   import { isEditable } from '../editable'
   import { neighbor } from '../neighbor'
   import { overlayOpen } from '../ui/layers.svelte'
-  import { notify } from '../toast'
-  import { confirmDialog } from '../confirm.svelte'
-  import { askDeletion } from '../gallery/deletion'
+  import { action } from '../action.svelte'
+  import { askDeletion, fileConfirm } from '../gallery/deletion'
   import type { GalleryFile, OutputRole } from '../types'
   import { workspace } from '../workspace.svelte'
-  import { go } from '../router.svelte'
+  import { codec, go, hashState, type HashCodec } from '../router.svelte'
   import RequestFilter from '../gallery/RequestFilter.svelte'
+  import RoleChips from '../gallery/RoleChips.svelte'
   import GalleryDetail from '../gallery/GalleryDetail.svelte'
   import { AssessCache } from '../gallery/assess.svelte'
   import RoleTag from '../gallery/RoleTag.svelte'
+  import { versionTitle } from '../terms'
   import {
     applyEdits,
     gridFiles,
@@ -33,15 +35,20 @@
     type Listing,
   } from '../gallery/order'
 
-  let filter = $state('')
+  // The filters live in the hash, so opening a file and pressing Back - or
+  // sharing the link - keeps the narrowed view
+  const text = hashState('q', '')
   // The roles to show. Finals are what a run was for, so the gallery opens
   // on them; Intermediate adds the steps' working files
-  let roles = $state<OutputRole[]>(['final'])
+  const roles = hashState<OutputRole[]>(
+    'roles',
+    ['final'],
+    codec.list as HashCodec<OutputRole[]>,
+  )
   let selected = $state<GalleryFile | null>(null)
   // Names ticked in the grid, for the bulk actions. The grid order it is
   // given is what a shift-range spans and the order the actions act in
   const picks: Picks = new Picks(() => visible.map((f) => f.name))
-  let busy = $state(false)
   const assessCache = new AssessCache()
 
   // The requests-ledger request the gallery is narrowed to (RequestFilter
@@ -98,70 +105,72 @@
     })
   })
 
-  let starredOnly = $state(false)
+  const starredOnly = hashState('starred', false, codec.flag)
   const filterActive = $derived(
-    filter !== '' || roles.length < 2 || starredOnly || reqId !== '',
+    text.value !== '' ||
+      roles.value.length < 2 ||
+      starredOnly.value ||
+      reqId !== '',
   )
   function clearFilters() {
-    filter = ''
-    roles = ['final', 'intermediate']
-    starredOnly = false
+    text.value = ''
+    roles.value = ['final', 'intermediate']
+    starredOnly.value = false
     reqId = ''
     reqItem = ''
   }
-  const visible = $derived(gridFiles(files, filter, roles, starredOnly))
-  async function toggleStar() {
-    if (!selected) return
-    const name = selected.name
-    const next = !selected.starred
-    try {
-      await api.setStarred(name, next)
-      patch(name, { starred: next })
-      if (selected?.name === name) selected = { ...selected, starred: next }
-    } catch (e) {
-      notify.failure('star that file', e)
-    }
+  const visible = $derived(
+    gridFiles(files, text.value, roles.value, starredOnly.value),
+  )
+  // A star is undone, not asked about: held here at once (`patch`), as is
+  // the Undo that takes it back
+  async function setStar(name: string, next: boolean) {
+    await api.setStarred(name, next)
+    patch(name, { starred: next })
+    if (selected?.name === name) selected = { ...selected, starred: next }
+    return { name, next }
   }
-  // Never both off: an empty grid is not a state worth offering
-  function toggleRole(which: OutputRole) {
-    const next = roles.includes(which)
-      ? roles.filter((r) => r !== which)
-      : [...roles, which]
-    roles = next.length ? next : [which === 'final' ? 'intermediate' : 'final']
+  // A star is written in the open workspace, so its Undo is held to it
+  const STAR_TARGET = {
+    now: () => workspace.current,
+    away: 'Nothing undone: another workspace is open now.',
   }
+  const starring = action(setStar, {
+    doing: 'star that file',
+    undo: ({ name, next }) => ({
+      message: `${next ? 'Starred' : 'Unstarred'} ${name.split('/').pop()}`,
+      revert: () => setStar(name, !next),
+      target: STAR_TARGET,
+    }),
+  })
+  const toggleStar = () =>
+    selected && starring.run(selected.name, !selected.starred)
   const byName = $derived(new Map(visible.map((f) => [f.name, f])))
   // The server folds each run id into `folder`; group by that, since the
   // name alone reads the run directory as one more folder
   const folderByName = $derived(new Map(visible.map((f) => [f.name, f.folder])))
 
-  async function downloadPicked() {
-    if (picks.names.length === 0) return
-    busy = true
-    try {
-      await api.archiveOutputs(picks.names)
-    } catch (e) {
-      notify.failure('download the picked files', e)
-    } finally {
-      busy = false
-    }
-  }
+  const downloading = picks.download(api.archiveOutputs, 'files')
 
-  async function removePicked() {
-    if (picks.names.length === 0) return
-    const names = await askDeletion(files, picks.names)
-    if (!names) return
-    busy = true
-    const failures = await actOnEach(names, (name) => api.deleteOutput(name))
-    const failed = failures.map((f) => f.name)
-    const gone = new Set(names.filter((name) => !failed.includes(name)))
-    drop(gone)
-    // Whatever could not be deleted stays selected, so a retry needs no
-    // re-ticking and the failure is visible rather than silently dropped
-    picks.keepFailed(names, failed)
-    if (selected && gone.has(selected.name)) selected = null
-    reportFailures('delete', failures, names.length, 'files')
-    busy = false
-  }
+  // The question is askDeletion's: it can spare the starred files
+  const removingPicked = action(
+    async (names: string[]) => {
+      const chosen = await askDeletion(files, names)
+      if (!chosen) return
+      const failures = await actOnEach(chosen, (n) => api.deleteOutput(n))
+      const failed = failures.map((f) => f.name)
+      const gone = new Set(chosen.filter((name) => !failed.includes(name)))
+      drop(gone)
+      // Whatever could not be deleted stays selected, so a retry needs no
+      // re-ticking and the failure is visible rather than silently dropped
+      picks.keepFailed(chosen, failed)
+      if (selected && gone.has(selected.name)) selected = null
+      reportFailures('delete', failures, chosen.length, 'files')
+    },
+    { doing: 'delete the picked files' },
+  )
+  const removePicked = () =>
+    picks.names.length && removingPicked.run(picks.names)
 
   // Where the open file stood in the grid when last seen there, so stepping
   // goes on from that place once a filter or an unstar has hidden it
@@ -189,21 +198,13 @@
     patch(name, { note: note ?? undefined })
   }
 
-  async function removeFile() {
-    if (!selected) return
-    if (
-      !(await confirmDialog(
-        `Delete ${selected.name}? This removes the file on disk.`,
-        { confirmLabel: 'Delete' },
-      ))
-    )
-      return
-    const name = selected.name
-    const order = gridOrder()
-    const after =
-      neighbor(order, name, 1, selectedAt) ??
-      neighbor(order, name, -1, selectedAt)
-    try {
+  const removing = action(
+    async (file: GalleryFile) => {
+      const name = file.name
+      const order = gridOrder()
+      const after =
+        neighbor(order, name, 1, selectedAt) ??
+        neighbor(order, name, -1, selectedAt)
       await api.deleteOutput(name)
       drop([name])
       // A file deleted from here may also be ticked in the grid; leaving it
@@ -212,10 +213,10 @@
       // Culling goes on to the next file rather than back to the grid
       if (after && byName.get(after)) select(byName.get(after)!)
       else selected = null
-    } catch (e) {
-      notify.failure(`delete ${name}`, e)
-    }
-  }
+    },
+    { doing: (file) => `delete ${file.name}`, confirm: fileConfirm },
+  )
+  const removeFile = () => selected && removing.run(selected)
 
   // Escape closes the thing on top, and a dialog answers it itself. The
   // selection is the more recent, more surprising state to be stuck in,
@@ -262,44 +263,28 @@
 
 <svelte:window onkeydown={onKeydown} />
 
-<div class="pagehead baseline">
-  <h1>Gallery</h1>
-  <span class="num muted">{files.length} files</span>
-  <input class="filter" placeholder="filter…" bind:value={filter} />
-  <div class="rolechips" role="group" aria-label="filter by role">
-    {#each ['final', 'intermediate'] as const as which (which)}
-      <button
-        class="rolechip"
-        class:on={roles.includes(which)}
-        aria-pressed={roles.includes(which)}
-        onclick={() => toggleRole(which)}
-        title={which === 'final'
-          ? 'what the runs were for'
-          : "the steps' working files, kept along the way"}
-      >
-        {which === 'final' ? 'Final' : 'Intermediate'}
-      </button>
-    {/each}
-    <button
-      class="rolechip"
-      class:on={starredOnly}
-      aria-pressed={starredOnly}
-      onclick={() => (starredOnly = !starredOnly)}
-      title="only the files you starred"
-    >
-      Starred
-    </button>
-  </div>
-  <RequestFilter bind:request={reqId} bind:item={reqItem} />
-</div>
+{#snippet search()}
+  <input class="filter" placeholder="filter…" bind:value={text.value} />
+{/snippet}
+<PageHeader
+  title="Gallery"
+  baseline
+  count={{ n: files.length, noun: 'file' }}
+  filter={search}
+>
+  {#snippet actions()}
+    <RoleChips bind:roles={roles.value} bind:starredOnly={starredOnly.value} />
+    <RequestFilter bind:request={reqId} bind:item={reqItem} />
+  {/snippet}
+</PageHeader>
 
 <BulkBar
   {picks}
   visible={visible.length}
   {filterActive}
-  {busy}
+  busy={downloading.busy || removingPicked.busy}
   noun="file"
-  ondownload={downloadPicked}
+  ondownload={downloading.run}
   ondelete={removePicked}
   oncompare={() => go('ws', workspace.current, 'compare', ...picks.names)}
 />
@@ -385,10 +370,7 @@
               {' '}
             {/if}
             {#if file.version}
-              <span
-                class="version"
-                title="version {file.version} of this workflow"
-              >
+              <span class="version" title={versionTitle(file.version)}>
                 v{file.version}
               </span>
               <!-- A real space rather than a margin, so a screen reader says
@@ -432,34 +414,6 @@
 {/if}
 
 <style>
-  .filter {
-    max-width: 220px;
-    margin-left: auto;
-  }
-  .rolechips {
-    display: flex;
-    gap: 0.3rem;
-  }
-  .rolechip {
-    background: none;
-    border: 1px solid var(--line);
-    border-radius: 999px;
-    color: var(--muted);
-    font-size: var(--t-xs);
-    font-weight: 500;
-    padding: 0.05rem 0.6rem;
-    cursor: pointer;
-  }
-  .rolechip:hover {
-    color: var(--ink);
-    border-color: var(--muted);
-    filter: none;
-  }
-  .rolechip.on {
-    background: var(--ink);
-    border-color: var(--ink);
-    color: var(--panel);
-  }
   .note-mark {
     color: var(--muted);
     vertical-align: -1px;

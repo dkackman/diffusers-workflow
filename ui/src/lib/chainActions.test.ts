@@ -255,10 +255,10 @@ describe('continueValidation and continueConfirmText', () => {
   it('states the rerun, then the estimate', () => {
     const text = continueConfirmText(
       table([kept(1), kept(2)]),
-      '~3.2 min on mps',
+      'about 3.2 min on mps',
     )
     expect(text).toContain('(2 of 4)')
     expect(text).toContain('remaining 2 segments of take')
-    expect(text).toMatch(/\n\nEstimate: ~3\.2 min on mps$/)
+    expect(text).toMatch(/\n\nEstimate: about 3\.2 min on mps$/)
   })
 })

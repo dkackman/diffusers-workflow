@@ -1,6 +1,7 @@
+import { untrack } from 'svelte'
 import {
   legacyRedirect,
-  parseView,
+  resolveView,
   type RouteView,
   type WsSection,
 } from './routes'
@@ -67,6 +68,80 @@ export function setHashQuery(values: Record<string, string>) {
   committed = location.hash
 }
 
+/** How a box's value is written into the hash's query and read back. */
+export type HashCodec<T> = {
+  parse: (raw: string) => T
+  format: (value: T) => string
+}
+const text: HashCodec<string> = { parse: (raw) => raw, format: (v) => v }
+export const codec = {
+  /** A list, comma-joined: `roles=final,intermediate` */
+  list: {
+    parse: (raw) => (raw ? raw.split(',') : []),
+    format: (value) => value.join(','),
+  } as HashCodec<string[]>,
+  /** On or off: `starred=1`, or the key left out */
+  flag: {
+    parse: (raw) => raw === '1',
+    format: (value) => (value ? '1' : ''),
+  } as HashCodec<boolean>,
+}
+
+// Every box on screen, by key, as the hash would carry it: a box writing its
+// own key writes the others' too, so no filter ever drops another
+// eslint-disable-next-line svelte/prefer-svelte-reactivity -- not reactive state
+const boxes = new Set<{ key: string; written: () => string }>()
+
+/** A list's filter kept in the hash's query under `key`, so opening an item
+ * and pressing Back - or sharing the link - keeps the narrowed view. Writing
+ * the box replaces the query in place (no history entry); a hashchange
+ * re-reads it, and a hash without the key (a bare nav link) puts it back to
+ * `initial`, which the hash never spells out. Call it in component init. */
+export function hashState<T>(
+  key: string,
+  initial: T,
+  { parse, format }: HashCodec<T> = text as unknown as HashCodec<T>,
+): { value: T } {
+  const read = (): T => {
+    const query = hashQuery()
+    return key in query ? parse(query[key]) : initial
+  }
+  let value = $state(read())
+  const bare = format(initial)
+  const box = {
+    key,
+    written: () => {
+      const raw = format(value)
+      return raw === bare ? '' : raw
+    },
+  }
+  $effect(() => {
+    boxes.add(box)
+    const sync = () => (value = read())
+    window.addEventListener('hashchange', sync)
+    return () => {
+      boxes.delete(box)
+      window.removeEventListener('hashchange', sync)
+    }
+  })
+  $effect(() => {
+    const own = box.written()
+    untrack(() => {
+      const query = hashQuery()
+      for (const other of boxes) query[other.key] = other.written()
+      setHashQuery({ ...query, [key]: own })
+    })
+  })
+  return {
+    get value() {
+      return value
+    },
+    set value(next: T) {
+      value = next
+    },
+  }
+}
+
 function parse(): { parts: string[]; view: RouteView } {
   let parts = split()
   const redirect = legacyRedirect(parts, lastUsedWorkspace())
@@ -77,7 +152,7 @@ function parse(): { parts: string[]; view: RouteView } {
     history.replaceState(history.state, '', hash)
     parts = redirect
   }
-  const view = parseView(parts)!
+  const view = resolveView(parts)
   applyRouteWorkspace(view)
   return { parts, view }
 }
@@ -119,12 +194,116 @@ stamp(committedIndex)
 /** The index of the entry the browser was last seen on. */
 let lastSeenIndex = committedIndex
 
+// Where each entry was left, by its index, for Back and Forward to go back
+// to; the newest 50. The browser's own restore is off: it would land before
+// the page it restores into has rendered
+const SCROLLS_KEPT = 50
+// eslint-disable-next-line svelte/prefer-svelte-reactivity -- not reactive state
+const scrolls = new Map<number, number>()
+history.scrollRestoration = 'manual'
+function keepScroll(at: number) {
+  scrolls.delete(at)
+  scrolls.set(at, window.scrollY)
+  const oldest = scrolls.keys().next().value
+  if (scrolls.size > SCROLLS_KEPT && oldest !== undefined)
+    scrolls.delete(oldest)
+}
+
+// What the user does to scroll the page: any of these ends a restore
+const USER_SCROLLS = ['wheel', 'touchstart', 'keydown', 'pointerdown']
+// How long a restore waits for a slow list to render tall enough
+const RESTORE_MS = 10_000
+let ending = () => {}
+
+/** End the restore in flight, if any: its timer, observer and listeners go.
+ * A new navigation ends it, and the shell ends it on unmount. */
+export function stopRestore() {
+  ending()
+}
+
+/** Whether the page moved from where the restore last put it in a way the
+ * page's own growing or shrinking can't explain: a scrollbar click (which
+ * Firefox raises no pointerdown for), find-in-page, assistive tech. */
+function movedByUser(set: number, room: number): boolean {
+  const expected = Math.min(set, Math.max(0, room))
+  return Math.abs(window.scrollY - expected) > 1
+}
+
+/** Scroll to where the entry at `index` was left. The page it lands on may
+ * still be loading, so while it is too short it goes as far down as the
+ * page reaches - never back to the top, whatever a reload renders meanwhile
+ * - and goes again each time the document resizes, until the target is
+ * reachable, the user scrolls, a new navigation starts or `ms` pass. */
+export function restoreScroll(index: number, { ms = RESTORE_MS } = {}) {
+  stopRestore()
+  const target = scrolls.get(index) ?? 0
+  let set = -1
+  // Scroll anchoring off while it runs: content that grows above the list
+  // would make the browser shift the page to keep its anchor in view, which
+  // reads as the user's scroll and ends the restore short of its target
+  const root = document.documentElement.style
+  root.overflowAnchor = 'none'
+  // the arrows reach `stop` and `step` only once they are defined
+  const timer = setTimeout(() => stop(), ms)
+  // jsdom has no ResizeObserver: the first step stands
+  const observer =
+    typeof ResizeObserver === 'undefined'
+      ? undefined
+      : new ResizeObserver(() => step())
+  const stop = () => {
+    clearTimeout(timer)
+    root.overflowAnchor = ''
+    observer?.disconnect()
+    for (const type of USER_SCROLLS) window.removeEventListener(type, stop)
+    if (ending === stop) ending = () => {}
+  }
+  const step = () => {
+    const room = document.documentElement.scrollHeight - window.innerHeight
+    if (set >= 0 && movedByUser(set, room)) return stop()
+    set = Math.max(0, Math.min(target, room))
+    window.scrollTo(0, set)
+    if (room >= target) stop()
+  }
+  ending = stop
+  for (const type of USER_SCROLLS)
+    window.addEventListener(type, stop, { passive: true })
+  step()
+  if (ending === stop) observer?.observe(document.documentElement)
+}
+
+// The entry and path the page was last placed for. A traversal to an entry
+// with a saved place goes back there, a new path starts at the top, and
+// anything else - a filter typed, a pushed query, a rename (`renameRoute`) -
+// leaves the page where it is
+let placed: string | null = null
+let placedIndex: number | null = null
+
+/** Place the page after the route lands: Back or Forward to an entry goes
+ * where it was left, even on the same path; a new path starts at the top;
+ * otherwise the page stays. The shell calls it on every navigation. */
+export function placeScroll() {
+  const path = pathOf(committed)
+  const traversed =
+    committedIndex !== placedIndex && scrolls.has(committedIndex)
+  const moved = path !== placed
+  placed = path
+  placedIndex = committedIndex
+  if (traversed) restoreScroll(committedIndex)
+  else if (moved) {
+    stopRestore()
+    window.scrollTo(0, 0)
+  }
+}
+
 /** Stamp the entry a hashchange arrived on, guarded or not: a pushed entry
  * is one past the last one seen, a replaced one keeps its index. So the
  * walk back always knows how far, however many entries arrived while a
  * guard was asking. */
 function arrive() {
+  const fresh = indexOf() === undefined
   const at = indexOf() ?? (replacing ? lastSeenIndex : lastSeenIndex + 1)
+  // a new entry reuses the index of one Back left behind: not its scroll
+  if (fresh) scrolls.delete(at)
   replacing = false
   stamp(at)
   lastSeenIndex = at
@@ -155,9 +334,11 @@ async function allowed(): Promise<boolean> {
 
 /** Take the entry the browser is on as the route. */
 function settle() {
+  stopRestore()
   replacing = false
   replacedState = null
   const at = indexOf() ?? committedIndex + 1
+  if (at !== committedIndex) keepScroll(committedIndex)
   const next = parse()
   committed = location.hash
   route.parts = next.parts
@@ -250,6 +431,7 @@ export function replaceRoute(hash: string) {
 export function renameRoute(hash: string) {
   history.replaceState(history.state, '', hash)
   committed = location.hash
+  placed = pathOf(committed)
   const next = parse()
   route.parts.splice(0, route.parts.length, ...next.parts)
   route.view = next.view

@@ -49,10 +49,46 @@
 //   away is out of reach of both checks.
 // - an `Empty` re-exported through a barrel is not counted.
 // - `String(...)` matches a single identifier only.
+// - window_dialogs: calls to `window.confirm`, `window.prompt`,
+//   `window.alert`, or a bare `alert`, `confirm` or `prompt` - a dialog is
+//   `confirmDialog`/`chooseDialog` (src/lib/confirm.svelte.ts).
+// - unguarded_mutations: in a .svelte file, an `api.<write>` call (WRITES),
+//   or a use of an imported plain .ts function whose code calls one, lexically
+//   inside no `action(` call's arguments and inside no guarded function
+//   declaration. A function declaration is guarded when it is used and every
+//   use of it outside its own body (a scope reference, so neither a property
+//   key nor a shadowing local) is inside an `action(` call's arguments: a
+//   helper also bound to `onclick={helper}` is not. A .ts function writes
+//   when its code calls an `api` write directly or through another of its
+//   module's own top-level declarations - one import level, as
+//   src/lib/freshness.test.ts follows reads.
+// - banned_terms: user-facing copy matching a BANNED pattern
+//   (src/lib/terms.ts), outside COPY_OWNERS. Copy is a string literal with
+//   whitespace in it, a template literal whose parts joined with "0" have
+//   whitespace, Svelte markup text outside <style>, and a static attribute
+//   value. Each pattern counts once per piece of copy.
+// - duplicate_blocks: over .svelte files, lines trimmed and their
+//   whitespace collapsed, blank and TRIVIAL_LINE lines dropped; a 6-line
+//   window whose sha1 occurs in two or more files is shared, and each
+//   file's maximal runs of consecutive shared windows are counted.
+// Known limits of those four rules:
+// - a write two or more imports away (a .ts helper that writes through
+//   another module) is not counted, nor a write through a `.svelte.ts`
+//   store (enhancer, planStore, runQueue): their exports are classes and
+//   factories whose methods write, so a use is not a write.
+// - a write api.ts exports outside the `api` object (`setNote`) is not
+//   counted.
+// - only `function` declarations can be guarded helpers; a write inside an
+//   arrow helper (`const f = () => api.x()`) counts even when an action
+//   names it - name it in the action, don't rename it to `function`.
+// - copy assembled from single words, or across `{...}` in markup, can slip
+//   through banned_terms.
 import { ESLint } from 'eslint'
+import { createHash } from 'node:crypto'
 import { readFileSync, writeFileSync, readdirSync, statSync } from 'node:fs'
 import { dirname, join, relative, resolve, extname } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { BANNED, COPY_OWNERS } from '../src/lib/terms.ts'
 
 const UI = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const SRC = join(UI, 'src')
@@ -79,9 +115,9 @@ export const READ_ALIASES = [
   'notesChannel',
   'workspaceChanges',
 ]
-/** Every `api` key that is not a read, by what it is instead */
-export const NOT_READS = [
-  // writes: each moves server state, and the change feed reports it
+/** The `api` keys that write: each moves server state, and the change feed
+ * reports it */
+export const WRITES = [
   'saveWorkflow',
   'savePrompt',
   'rerunJob',
@@ -113,11 +149,18 @@ export const NOT_READS = [
   'deleteWorkflow',
   'deletePrompt',
   'enhance',
+]
+/** Every `api` key that is not a read, by what it is instead */
+export const NOT_READS = [
+  ...WRITES,
   // checks a click asks for: each answers one question about what the user
   // holds now, a snapshot nothing renders as a view to keep fresh
   'validate',
   'assess',
   'checkToken',
+  // a precondition read for a save, not a view: the note and etag a save
+  // sends as If-Match
+  'noteForSave',
   // URL builders: no request is made
   'exportZipUrl',
   'galleryThumbnailUrl',
@@ -246,6 +289,278 @@ function resolveImport(from, specifier, known) {
   return null
 }
 
+const DIALOG_NAMES = new Set(['alert', 'confirm', 'prompt'])
+const isWindowDialog = (callee) =>
+  (callee.type === 'Identifier' && DIALOG_NAMES.has(callee.name)) ||
+  (isMember(callee, 'window', null) && DIALOG_NAMES.has(callee.property.name))
+
+const isActionCall = (node) =>
+  node.type === 'CallExpression' &&
+  node.callee.type === 'Identifier' &&
+  node.callee.name === 'action'
+
+const isWrite = (node) =>
+  node.type === 'CallExpression' &&
+  isMember(node.callee, 'api', null) &&
+  WRITES.includes(node.callee.property.name)
+
+const within = (range, [s, e]) => range[0] >= s && range[1] <= e
+
+/** A module's top-level declarations (local name to node) and its exports
+ * (exported name to local name) */
+function topLevel(program) {
+  const tops = new Map()
+  const exported = new Map()
+  const declare = (id, node, isExport) => {
+    tops.set(id.name, node)
+    if (isExport) exported.set(id.name, id.name)
+  }
+  const declareAll = (decl, isExport) =>
+    decl.declarations
+      .filter((d) => d.id.type === 'Identifier')
+      .forEach((d) => declare(d.id, d, isExport))
+  for (const statement of program.body) {
+    const isExport = statement.type === 'ExportNamedDeclaration'
+    const decl = isExport ? statement.declaration : statement
+    if (decl?.type === 'FunctionDeclaration' && decl.id)
+      declare(decl.id, decl, isExport)
+    else if (decl?.type === 'VariableDeclaration') declareAll(decl, isExport)
+    else if (isExport && !statement.source)
+      for (const sp of statement.specifiers)
+        exported.set(sp.exported.name, sp.local.name)
+  }
+  return { tops, exported }
+}
+
+/** Grow `hit` (top-level names) by every top-level declaration whose code
+ * references one of them, until nothing changes */
+function closeOver(hit, tops, scopeManager) {
+  const usedBy = new Map()
+  const moduleScope = scopeManager.scopes.find((sc) => sc.type === 'module')
+  for (const variable of moduleScope?.variables ?? [])
+    usedBy.set(
+      variable.name,
+      [...tops]
+        .filter(([, n]) =>
+          variable.references.some((r) => within(r.identifier.range, n.range)),
+        )
+        .map(([name]) => name),
+    )
+  const queue = [...hit]
+  while (queue.length)
+    for (const user of usedBy.get(queue.pop()) ?? [])
+      if (!hit.has(user)) {
+        hit.add(user)
+        queue.push(user)
+      }
+  return hit
+}
+
+/** The names a plain .ts module exports whose code calls an `api` write:
+ * directly, or through another of the module's own top-level declarations
+ * that does (src/lib/freshness.test.ts's `readingExports`, for writes). A
+ * write made through another module is a second level, out of reach */
+function writingExports(program, scopeManager, writeRanges) {
+  const { tops, exported } = topLevel(program)
+  const direct = [...tops]
+    .filter(([, n]) => writeRanges.some((r) => within(r, n.range)))
+    .map(([name]) => name)
+  const writes = closeOver(new Set(direct), tops, scopeManager)
+  return new Set(
+    [...exported].filter(([, l]) => writes.has(l)).map(([name]) => name),
+  )
+}
+
+/** The function declarations that are guarded: used, and every use outside
+ * their own body inside an `action(` call's arguments. A use is a scope
+ * reference, so a property key or a shadowing local is none */
+function guardedFunctions(functions, sourceCode, inAction) {
+  return new Set(
+    functions.filter((fn) => {
+      const uses = sourceCode
+        .getDeclaredVariables(fn)
+        .flatMap((v) => v.references)
+        .filter((r) => !within(r.identifier.range, fn.range))
+      return uses.length > 0 && uses.every((r) => inAction(r.identifier.range))
+    }),
+  )
+}
+
+const importedName = (spec) =>
+  spec.type === 'ImportSpecifier'
+    ? (spec.imported.name ?? spec.imported.value)
+    : 'default'
+
+/** The member a reference reads, `ns.name`, if it reads one */
+function memberOf(id, sourceCode) {
+  const parent = sourceCode.getAncestors(id).at(-1)
+  return parent?.type === 'MemberExpression' &&
+    parent.object === id &&
+    !parent.computed
+    ? parent
+    : null
+}
+
+/** Each unguarded use of an import: the node and the exported name it
+ * stands for. A namespace import is used through `ns.name` */
+function importUses(spec, sourceCode, guarded) {
+  if (spec.importKind === 'type') return []
+  const namespace = spec.type === 'ImportNamespaceSpecifier'
+  const uses = sourceCode
+    .getDeclaredVariables(spec)
+    .flatMap((v) => v.references)
+    .map(({ identifier: id }) => {
+      if (!namespace) return { site: id, name: importedName(spec) }
+      const member = memberOf(id, sourceCode)
+      return member && { site: member, name: member.property.name }
+    })
+  return uses.filter((u) => u && !guarded(u.site))
+}
+
+/** In a plain .ts module, record its writing exports in `writers` */
+function writersRule(file, sourceCode, writers) {
+  const writeRanges = []
+  return {
+    CallExpression(node) {
+      if (isWrite(node)) writeRanges.push(node.range)
+    },
+    'Program:exit'(program) {
+      writers.set(
+        file,
+        writingExports(program, sourceCode.scopeManager, writeRanges),
+      )
+    },
+  }
+}
+
+/** `api.<write>` calls in a .svelte file that no `action(` guards go into
+ * `found`, and unguarded uses of imports into `helperSites`, which measure
+ * resolves after the lint against `writers` - the writing exports of every
+ * plain .ts module */
+function unguardedRule(found, helperSites, writers) {
+  return {
+    create(context) {
+      const file = context.filename
+      const sourceCode = context.sourceCode
+      if (file.endsWith('.ts') && !file.endsWith('.svelte.ts'))
+        return writersRule(file, sourceCode, writers)
+      if (!file.endsWith('.svelte')) return {}
+      const writes = []
+      const actionRanges = []
+      const functions = []
+      const imports = []
+      const at = (node) => `${relative(UI, file)}:${node.loc.start.line}`
+      return {
+        CallExpression(node) {
+          if (isActionCall(node))
+            for (const a of node.arguments) actionRanges.push(a.range)
+          if (isWrite(node)) writes.push(node)
+        },
+        FunctionDeclaration(node) {
+          if (node.id) functions.push(node)
+        },
+        ImportDeclaration(node) {
+          if (node.importKind !== 'type') imports.push(node)
+        },
+        'Program:exit'() {
+          const inAction = (range) => actionRanges.some((r) => within(range, r))
+          const safe = guardedFunctions(functions, sourceCode, inAction)
+          const guarded = (node) =>
+            inAction(node.range) ||
+            sourceCode.getAncestors(node).some((a) => safe.has(a))
+          for (const node of writes.filter((n) => !guarded(n)))
+            found.push(`${at(node)} ${node.callee.property.name}`)
+          for (const declaration of imports)
+            for (const spec of declaration.specifiers)
+              for (const { site, name } of importUses(
+                spec,
+                sourceCode,
+                guarded,
+              ))
+                helperSites.push({
+                  from: file,
+                  specifier: declaration.source.value,
+                  name,
+                  site: `${at(site)} ${name}`,
+                })
+        },
+      }
+    },
+  }
+}
+
+/** Copy that matches a banned term, outside COPY_OWNERS */
+function copyRule(found) {
+  return {
+    create(context) {
+      if (COPY_OWNERS.has(relative(UI, context.filename).replaceAll('\\', '/')))
+        return {}
+      const check = (node, text) => {
+        for (const { id, pattern } of BANNED)
+          if (pattern.test(text))
+            found.push(
+              `${relative(UI, context.filename)}:${node.loc.start.line} ${id}`,
+            )
+      }
+      return {
+        Literal(node) {
+          if (typeof node.value === 'string' && /\s/.test(node.value))
+            check(node, node.value)
+        },
+        TemplateLiteral(node) {
+          const text = node.quasis
+            .map((q) => q.value.cooked ?? q.value.raw)
+            .join('0')
+          if (/\s/.test(text)) check(node, text)
+        },
+        SvelteText(node) {
+          const inStyle = context.sourceCode
+            .getAncestors(node)
+            .some((a) => a.type === 'SvelteStyleElement')
+          if (!inStyle) check(node, node.value)
+        },
+        SvelteLiteral: (node) => check(node, node.value),
+      }
+    },
+  }
+}
+
+export const TRIVIAL_LINE =
+  /^([{}()[\];,]*|<\/?[a-z]+>|\/\/.*|\/\*.*|\*.*|\*\/|-->|<!--.*)$/i
+export const BLOCK_LINES = 6
+
+/** Per .svelte file, the maximal runs of 6-line windows another file shares */
+export function duplicateBlocks(texts) {
+  const windows = new Map()
+  const owners = new Map()
+  for (const [file, text] of texts) {
+    const lines = text
+      .split('\n')
+      .map((l) => l.trim().replace(/\s+/g, ' '))
+      .filter((l) => l && !TRIVIAL_LINE.test(l))
+    const hashes = []
+    for (let i = 0; i + BLOCK_LINES <= lines.length; i++) {
+      const hash = createHash('sha1')
+        .update(lines.slice(i, i + BLOCK_LINES).join('\n'))
+        .digest('hex')
+      hashes.push(hash)
+      if (!owners.has(hash)) owners.set(hash, new Set())
+      owners.get(hash).add(file)
+    }
+    windows.set(file, hashes)
+  }
+  const runs = []
+  for (const [file, hashes] of windows) {
+    let inRun = false
+    hashes.forEach((hash, i) => {
+      const shared = owners.get(hash).size > 1
+      if (shared && !inRun) runs.push(`${relative(UI, file)}:window ${i + 1}`)
+      inRun = shared
+    })
+  }
+  return runs
+}
+
 export async function measure(
   files = sourceFiles(),
   prefixes = referencePrefixes(),
@@ -256,8 +571,27 @@ export async function measure(
   const rawToasts = []
   const emptyImports = []
   const unwatched = []
+  const dialogs = []
+  const unguarded = []
+  const helperSites = []
+  const writers = new Map()
+  const banned = []
   const collector = {
     rules: {
+      dialogs: {
+        create(context) {
+          return {
+            CallExpression(node) {
+              if (isWindowDialog(node.callee))
+                dialogs.push(
+                  `${relative(UI, context.filename)}:${node.loc.start.line}`,
+                )
+            },
+          }
+        },
+      },
+      mutations: unguardedRule(unguarded, helperSites, writers),
+      copy: copyRule(banned),
       toasts: {
         create(context) {
           return {
@@ -366,6 +700,9 @@ export async function measure(
           'arch/toasts': 'error',
           'arch/empty': 'error',
           'arch/reads': 'error',
+          'arch/dialogs': 'error',
+          'arch/mutations': 'error',
+          'arch/copy': 'error',
         },
       },
     ],
@@ -385,18 +722,27 @@ export async function measure(
       0,
     )
 
+  for (const { from, specifier, name, site } of helperSites) {
+    const target = resolveImport(from, specifier, known)
+    if (target && writers.get(target)?.has(name)) unguarded.push(site)
+  }
+  unguarded.sort((a, b) => a.localeCompare(b, 'en', { numeric: true }))
+
   const graph = {}
   for (const file of scripts) graph[file] = [...new Set(imports[file] ?? [])]
   const components = cycles(graph)
 
   let oversized = 0
   let suppressions = 0
+  const svelteTexts = []
   for (const file of files) {
     const text = readFileSync(file, 'utf8')
+    if (file.endsWith('.svelte')) svelteTexts.push([file, text])
     if (text.split('\n').length - (text.endsWith('\n') ? 1 : 0) > SIZE_CEILING)
       oversized++
     suppressions += (text.match(/svelte-ignore[^\n]*\ba11y_/g) ?? []).length
   }
+  const duplicates = duplicateBlocks(svelteTexts)
   return {
     metrics: {
       files_over_size_ceiling: oversized,
@@ -409,6 +755,10 @@ export async function measure(
       raw_error_toasts: rawToasts.length,
       empty_outside_loadstate: emptyImports.length,
       unwatched_reads: unwatched.length,
+      window_dialogs: dialogs.length,
+      unguarded_mutations: unguarded.length,
+      banned_terms: banned.length,
+      duplicate_blocks: duplicates.length,
     },
     detail: {
       cycles: components.map((c) => c.map((f) => relative(UI, f))),
@@ -416,6 +766,10 @@ export async function measure(
       raw_error_toasts: rawToasts,
       empty_outside_loadstate: emptyImports,
       unwatched_reads: unwatched,
+      window_dialogs: dialogs,
+      unguarded_mutations: unguarded,
+      banned_terms: banned,
+      duplicate_blocks: duplicates,
     },
   }
 }

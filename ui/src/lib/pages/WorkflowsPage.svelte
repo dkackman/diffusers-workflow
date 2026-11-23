@@ -1,8 +1,10 @@
 <script lang="ts">
   import { Film, Image, Layers, Music, Play, Plus } from '@lucide/svelte'
   import { api } from '../api'
+  import Segmented from '../ui/Segmented.svelte'
   import { resource } from '../resource.svelte'
   import LoadState from '../ui/LoadState.svelte'
+  import PageHeader from '../ui/PageHeader.svelte'
   import { writableRoot } from '../libraries'
   import FolderGroups from '../FolderGroups.svelte'
   import { leafOf } from '../grouping'
@@ -13,6 +15,7 @@
   import { sharedHref, wsHref } from '../routes'
   import { cardTitle } from '../workflowCard'
   import { workspace } from '../workspace.svelte'
+  import { codec, hashState, type HashCodec } from '../router.svelte'
   import {
     WORKFLOW_SHAPES,
     WORKFLOW_TRAITS,
@@ -26,9 +29,15 @@
 
   let { examples = false }: { examples?: boolean } = $props()
 
-  let filter = $state('')
-  let shape = $state('')
-  let traits = $state<WorkflowTrait[]>([])
+  // The filters live in the hash, so opening a workflow and pressing Back -
+  // or sharing the link - keeps the narrowed view
+  const filter = hashState('q', '')
+  const shape = hashState('shape', '')
+  const traits = hashState<WorkflowTrait[]>(
+    'traits',
+    [],
+    codec.list as HashCodec<WorkflowTrait[]>,
+  )
 
   const list = resource(() => api.listWorkflows(), {
     watch: ['workflows'],
@@ -77,9 +86,9 @@
   )
 
   const toggleTrait = (trait: WorkflowTrait) => {
-    traits = traits.includes(trait)
-      ? traits.filter((value) => value !== trait)
-      : [...traits, trait]
+    traits.value = traits.value.includes(trait)
+      ? traits.value.filter((value) => value !== trait)
+      : [...traits.value, trait]
   }
 
   // Client-side over the listing the page already holds - shape, then every
@@ -87,10 +96,10 @@
   const visible = $derived(
     listed.filter((name) => {
       const detail = details[name]
-      if (shape && detail?.shape !== shape) return false
+      if (shape.value && detail?.shape !== shape.value) return false
       const has = detail?.traits ?? []
-      if (!traits.every((trait) => has.includes(trait))) return false
-      const needle = filter.toLowerCase()
+      if (!traits.value.every((trait) => has.includes(trait))) return false
+      const needle = filter.value.toLowerCase()
       return (
         name.toLowerCase().includes(needle) ||
         (detail?.description ?? '').toLowerCase().includes(needle)
@@ -112,13 +121,13 @@
   )
 
   const filterActive = $derived(
-    filter !== '' || shape !== '' || traits.length > 0,
+    filter.value !== '' || shape.value !== '' || traits.value.length > 0,
   )
 
   const clearFilters = () => {
-    filter = ''
-    shape = ''
-    traits = []
+    filter.value = ''
+    shape.value = ''
+    traits.value = []
   }
 
   /** The one measurement a card shows: the first the maintainer recorded.
@@ -135,55 +144,54 @@
       : wsHref(workspace.current, 'workflows', ...name.split('/'))
 </script>
 
-<div class="pagehead">
-  <h1>{examples ? 'Examples' : 'Workflows'}</h1>
-  <span class="count num muted">{listed.length}</span>
-  <span class="flex"></span>
-  {#if !examples && exampleCount}
-    <a
-      class="exampleslink plain muted"
-      href={sharedHref('examples')}
-      title="the read-only templates every workspace can start from"
-    >
-      examples <span class="num">{exampleCount}</span>
-    </a>
-  {/if}
-  <input placeholder="filter…" bind:value={filter} class="filter" />
-  {#if !examples}
-    <a
-      class="quiet icon plain"
-      href={wsHref(workspace.current, 'edit')}
-      title="new workflow"
-      aria-label="new workflow"
-    >
-      <Plus size={15} />
-    </a>
-  {/if}
-</div>
+{#snippet search()}
+  <input placeholder="filter…" bind:value={filter.value} class="filter" />
+{/snippet}
+<PageHeader
+  title={examples ? 'Examples' : 'Workflows'}
+  count={{ n: listed.length, noun: examples ? 'example' : 'workflow' }}
+  filter={search}
+>
+  {#snippet actions()}
+    {#if !examples && exampleCount}
+      <a
+        class="sidelink plain muted"
+        href={sharedHref('examples')}
+        title="the read-only templates every workspace can start from"
+      >
+        examples <span class="num">{exampleCount}</span>
+      </a>
+    {/if}
+    {#if !examples}
+      <a
+        class="quiet icon plain"
+        href={wsHref(workspace.current, 'edit')}
+        title="new workflow"
+        aria-label="new workflow"
+      >
+        <Plus size={15} />
+      </a>
+    {/if}
+  {/snippet}
+</PageHeader>
 
 <!-- Shape is what people choose by, so the vocabulary is visible rather
    than folded into a select nobody opens -->
 {#if shapesPresent.length}
-  <div class="shapes" role="group" aria-label="filter by shape">
-    <button
-      class="shapebtn"
-      class:on={shape === ''}
-      aria-pressed={shape === ''}
-      onclick={() => (shape = '')}
-    >
-      all
-    </button>
-    {#each shapesPresent as value (value)}
-      <button
-        class="shapebtn"
-        class:on={shape === value}
-        aria-pressed={shape === value}
-        onclick={() => (shape = shape === value ? '' : value)}
-        title="show only workflows that make {value}"
-      >
-        {value}
-      </button>
-    {/each}
+  <div class="shapes">
+    <Segmented
+      label="filter by shape"
+      value={shape.value}
+      options={[
+        { value: '', label: 'all' },
+        ...shapesPresent.map((value) => ({
+          value,
+          label: value,
+          title: `show only workflows that make ${value}`,
+        })),
+      ]}
+      onselect={(value) => (shape.value = value === shape.value ? '' : value)}
+    />
   </div>
 {/if}
 
@@ -191,9 +199,9 @@
   <div class="chips">
     {#each traitsPresent as trait (trait)}
       <button
-        class="traitchip"
-        class:on={traits.includes(trait)}
-        aria-pressed={traits.includes(trait)}
+        class="togglechip"
+        class:on={traits.value.includes(trait)}
+        aria-pressed={traits.value.includes(trait)}
         onclick={() => toggleTrait(trait)}
         title="show only workflows that are {trait}"
       >
@@ -219,7 +227,9 @@
   {#snippet emptyIcon()}<Layers size={36} strokeWidth={1.5} />{/snippet}
   {#snippet emptyText()}
     {#if examples}
-      No example workflows — start the server with --examples-dir to list some.
+      <span>No examples on this server.</span><br /><span>
+        Start dw.serve with --examples-dir &lt;folder&gt; to list some.
+      </span>
     {:else}
       No workflows yet — the + above creates the first one{#if exampleCount}, or
         start from one of the <a href={sharedHref('examples')}>
@@ -252,7 +262,7 @@
            there is something to look at. Card height ends up saying which
            workflows you have actually used. -->
         {#if proof}
-          <span class="cardframe">
+          <span class="frame cardframe">
             {#if proof.kind === 'image'}
               <img
                 src={api.galleryThumbnailUrl(proof.name)}
@@ -326,54 +336,12 @@
 {/if}
 
 <style>
-  .pagehead .flex {
-    flex: 1;
-  }
-  .count {
-    font-size: var(--t-sm);
-  }
-  .filter {
-    max-width: 220px;
-  }
-  .exampleslink {
-    font-size: 0.82rem;
-    white-space: nowrap;
-  }
-  .exampleslink:hover {
-    color: var(--ink);
-  }
-
   /* Shape: the primary cut through the catalog, so it reads as a row of
      choices rather than a set of tags */
   .shapes {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.2rem;
     margin-bottom: var(--space-2);
     border-bottom: 1px solid var(--line);
     padding-bottom: var(--space-2);
-  }
-  .shapebtn {
-    background: none;
-    border: 1px solid transparent;
-    border-radius: var(--radius-1);
-    color: var(--muted);
-    font-family: var(--font-mono);
-    font-size: var(--t-sm);
-    font-weight: 500;
-    padding: 0.2rem 0.55rem;
-    cursor: pointer;
-  }
-  .shapebtn:hover {
-    color: var(--ink);
-    background: var(--panel-2);
-    filter: none;
-  }
-  .shapebtn.on {
-    background: var(--ink);
-    color: var(--panel);
-    border-color: var(--ink);
-    font-weight: 600;
   }
 
   /* Traits narrow further, so they are quieter than shape and read as a
@@ -383,26 +351,6 @@
     flex-wrap: wrap;
     gap: 0.3rem;
     margin-bottom: var(--space-4);
-  }
-  .traitchip {
-    background: none;
-    border: 1px solid var(--line);
-    border-radius: 999px;
-    color: var(--muted);
-    font-size: var(--t-xs);
-    font-weight: 500;
-    padding: 0.05rem 0.5rem;
-    cursor: pointer;
-  }
-  .traitchip:hover {
-    color: var(--ink);
-    border-color: var(--muted);
-    filter: none;
-  }
-  .traitchip.on {
-    background: var(--ink);
-    border-color: var(--ink);
-    color: var(--panel);
   }
 
   /* A frame on a contact sheet: the picture bleeds to the top edge, the
@@ -423,18 +371,9 @@
      the card's own border surrounds it, so it contributes only the rule
      that separates the picture from its caption */
   .cardframe {
-    display: block;
-    position: relative;
     aspect-ratio: 4 / 3;
-    background: var(--panel-2);
-    border-bottom: 1px solid var(--line);
-    overflow: hidden;
-  }
-  .cardframe img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    display: block;
+    border-width: 0 0 1px;
+    border-radius: 0;
   }
   .caption {
     display: flex;

@@ -3,14 +3,17 @@
   import { api } from '../api'
   import { resource } from '../resource.svelte'
   import LoadState from '../ui/LoadState.svelte'
+  import PageHeader from '../ui/PageHeader.svelte'
   import FolderGroups from '../FolderGroups.svelte'
   import { leafOf } from '../grouping'
   import HintBar from '../HintBar.svelte'
   import { sharedHref } from '../routes'
   import { writableRoot } from '../libraries'
   import type { PromptDetail } from '../types'
+  import { hashState } from '../router.svelte'
 
-  let filter = $state('')
+  // In the hash, so Back from a prompt - or a shared link - keeps it
+  const filter = hashState('q', '')
 
   // A prompt an agent saves shows within one feed interval, marked
   const list = resource(() => api.listPrompts(), {
@@ -25,7 +28,7 @@
 
   const visible = $derived(
     prompts.filter((name) => {
-      const needle = filter.toLowerCase()
+      const needle = filter.value.toLowerCase()
       const detail = details[name]
       return (
         name.toLowerCase().includes(needle) ||
@@ -39,19 +42,19 @@
   const href = (name: string) => sharedHref('prompt-edit', ...name.split('/'))
 </script>
 
-<div class="pagehead">
-  <h1>Prompts</h1>
-  <span class="flex"></span>
-  <input placeholder="filter…" bind:value={filter} class="filter" />
-  <a
-    class="quiet icon plain"
-    href={sharedHref('prompt-edit')}
-    title="new prompt"
-    aria-label="new prompt"
-  >
-    <Plus size={15} />
-  </a>
-</div>
+{#snippet search()}
+  <input placeholder="filter…" bind:value={filter.value} class="filter" />
+{/snippet}
+<PageHeader title="Prompts" filter={search}>
+  {#snippet actions()}<a
+      class="quiet icon plain"
+      href={sharedHref('prompt-edit')}
+      title="new prompt"
+      aria-label="new prompt"
+    >
+      <Plus size={15} />
+    </a>{/snippet}
+</PageHeader>
 
 <HintBar storageKey="prompt-hint-dismissed">
   Write a prompt once, reuse it anywhere: a workflow argument set to prompt:name
@@ -62,8 +65,8 @@
   of={list}
   label="prompts"
   empty={visible.length === 0}
-  filtered={filter !== '' && prompts.length > 0}
-  onclear={() => (filter = '')}
+  filtered={filter.value !== '' && prompts.length > 0}
+  onclear={() => (filter.value = '')}
 >
   {#snippet emptyIcon()}<MessageSquareText
       size={36}
@@ -73,7 +76,7 @@
   <FolderGroups
     names={visible}
     collapseKey="collapsed-prompt-folders"
-    filterActive={filter !== ''}
+    filterActive={filter.value !== ''}
     newHref="#/prompt-edit"
     onnewingroup={(group) =>
       sessionStorage.setItem('dw-prompt-editor-folder', group)}
@@ -101,8 +104,14 @@
           {/if}
           {#if detail?.intended_model}
             <button
-              class="chip modelchip"
-              onclick={() => (filter = detail.intended_model)}
+              class="togglechip modelchip"
+              class:on={filter.value === detail.intended_model}
+              aria-pressed={filter.value === detail.intended_model}
+              onclick={() =>
+                (filter.value =
+                  filter.value === detail.intended_model
+                    ? ''
+                    : detail.intended_model)}
               title="written for {detail.intended_model} - click to filter"
             >
               {detail.intended_model}
@@ -118,8 +127,10 @@
           <span class="cardtags">
             {#each detail.tags as tag (tag)}
               <button
-                class="chip"
-                onclick={() => (filter = tag)}
+                class="togglechip"
+                class:on={filter.value === tag}
+                aria-pressed={filter.value === tag}
+                onclick={() => (filter.value = filter.value === tag ? '' : tag)}
                 title="click to filter by this tag"
               >
                 {tag}
@@ -143,9 +154,6 @@
   .origin {
     font-size: 0.75rem;
   }
-  .pagehead .flex {
-    flex: 1;
-  }
   /* An absolute path is worth knowing and not worth the slot beside the
      title - and as one unbreakable token it was pushing the page sideways
      on a phone */
@@ -156,10 +164,6 @@
   .path {
     font-family: var(--font-mono);
     word-break: break-all;
-  }
-  .filter {
-    max-width: 220px;
-    margin-left: auto;
   }
   .card {
     position: relative;
@@ -178,7 +182,7 @@
     inset: 0;
     border-radius: inherit;
   }
-  .chip {
+  .togglechip {
     position: relative;
   }
   .cardtop {
@@ -207,21 +211,6 @@
     display: flex;
     flex-wrap: wrap;
     gap: 0.3rem;
-  }
-  /* A tag is a button, and the global button rule would paint it accent-ink
-     on the panel - invisible in either theme - so the text colour is set here */
-  .chip {
-    cursor: pointer;
-    border: 1px solid var(--line);
-    background: var(--panel-2);
-    color: var(--muted);
-    font-size: 0.7rem;
-    font-weight: 500;
-    padding: 0.05rem 0.45rem;
-  }
-  .chip:hover {
-    border-color: var(--accent);
-    color: var(--accent);
   }
   .modelchip {
     flex-shrink: 0;

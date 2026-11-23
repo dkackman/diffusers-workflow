@@ -23,7 +23,7 @@ it('checks a new workflow at once, and with sizes only after the idle time', asy
   expect(ask.mock.calls[0][0]).toBe(false)
   expect(check.verdict).toEqual({
     tone: 'good',
-    text: 'a run would be admitted',
+    text: 'a job would be admitted',
   })
   expect(check.checking).toBe(false)
 
@@ -65,21 +65,23 @@ it('drops an answer from before the latest change', async () => {
 })
 
 it('names a refused check, and says nothing of an aborted one', async () => {
-  const ask = vi.fn().mockRejectedValue(new Error('unknown workflow'))
+  const refused = new Error('unknown workflow')
+  const ask = vi.fn().mockRejectedValue(refused)
   const check = new RunCheck(ask)
   check.changed('wf', {})
   await vi.advanceTimersByTimeAsync(0)
-  expect(check.error).toBe('unknown workflow')
+  // kept as caught, for ErrorLine to describe
+  expect(check.error).toBe(refused)
   expect(check.verdict).toEqual({
     tone: 'bad',
-    text: 'could not check this run',
+    text: 'could not check this workflow',
   })
 
   ask.mockRejectedValue(new DOMException('aborted', 'AbortError'))
   check.changed('other', {})
-  expect(check.error).toBe('')
+  expect(check.error).toBeNull()
   await vi.advanceTimersByTimeAsync(0)
-  expect(check.error).toBe('')
+  expect(check.error).toBeNull()
   expect(check.verdict).toBeNull()
 })
 

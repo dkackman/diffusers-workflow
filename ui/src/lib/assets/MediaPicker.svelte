@@ -4,6 +4,9 @@
   // suits someone who knows the name; this suits picking by what it shows.
   import { untrack } from 'svelte'
   import Modal from '../ui/Modal.svelte'
+  import Segmented from '../ui/Segmented.svelte'
+  import GroupHeading from '../ui/GroupHeading.svelte'
+  import { collapsedState } from '../collapsed.svelte'
   import { assetThumbnailUrl, galleryThumbnailUrl } from '../apiUrls'
   import { assetLibrary, ensureAssetLibrary } from '../assetlib.svelte'
   import {
@@ -147,7 +150,11 @@
 
   const sections = $derived(tab === 'assets' ? assetSections : outputSections)
   const listing = $derived(tab === 'assets' ? assetLibrary : outputLibrary)
-  const what = $derived(tab === 'assets' ? 'the asset library' : 'earlier runs')
+  // A section the person shut stays shut next time, except while a search is
+  // on: a shut section hiding matches would make the search look broken
+  const shut = collapsedState('collapsed-media-picker')
+  const closed = (key: string) => !query && shut.has(key)
+  const what = $derived(tab === 'assets' ? 'the asset library' : 'earlier jobs')
 
   function choose(tile: Tile) {
     onpick(tile.pick())
@@ -159,24 +166,15 @@
 <Modal bind:open label="choose a file" large>
   <div class="head">
     <h2>Choose {kind === 'image' ? 'an image' : `a ${kind ?? 'file'}`}</h2>
-    <div class="tabs" role="group" aria-label="where to choose from">
-      <button
-        class="quiet"
-        class:on={tab === 'assets'}
-        aria-pressed={tab === 'assets'}
-        onclick={() => (tab = 'assets')}
-      >
-        Assets
-      </button>
-      <button
-        class="quiet"
-        class:on={tab === 'outputs'}
-        aria-pressed={tab === 'outputs'}
-        onclick={() => (tab = 'outputs')}
-      >
-        Earlier runs
-      </button>
-    </div>
+    <Segmented
+      label="where to choose from"
+      value={tab}
+      options={[
+        { value: 'assets', label: 'Assets' },
+        { value: 'outputs', label: 'Earlier jobs' },
+      ]}
+      onselect={(picked) => (tab = picked as typeof tab)}
+    />
     <input
       class="search"
       placeholder="search…"
@@ -205,28 +203,35 @@
     {/if}
     {#each sections as section (section.key)}
       <h3 class="library">
-        {section.label} <span class="muted">({section.tiles.length})</span>
+        <GroupHeading
+          label={section.label}
+          count={section.tiles.length}
+          collapsed={closed(section.key)}
+          ontoggle={() => shut.toggle(section.key)}
+        />
       </h3>
-      <div class="grid">
-        {#each section.tiles as tile (tile.key)}
-          <button
-            class="tile"
-            class:current={tile.current}
-            aria-current={tile.current ? 'true' : undefined}
-            onclick={() => choose(tile)}
-            title={tile.key}
-            aria-label="choose {tile.key}"
-          >
-            {#if tile.thumb}
-              <img src={tile.thumb} alt="" loading="lazy" />
-            {:else}
-              <span class="glyph" aria-hidden="true">{tile.glyph}</span>
-            {/if}
-            <span class="caption">{tile.caption}</span>
-            {#if tile.sub}<span class="folder muted">{tile.sub}</span>{/if}
-          </button>
-        {/each}
-      </div>
+      {#if !closed(section.key)}
+        <div class="grid">
+          {#each section.tiles as tile (tile.key)}
+            <button
+              class="tile"
+              class:current={tile.current}
+              aria-current={tile.current ? 'true' : undefined}
+              onclick={() => choose(tile)}
+              title={tile.key}
+              aria-label="choose {tile.key}"
+            >
+              {#if tile.thumb}
+                <img src={tile.thumb} alt="" loading="lazy" />
+              {:else}
+                <span class="glyph" aria-hidden="true">{tile.glyph}</span>
+              {/if}
+              <span class="caption">{tile.caption}</span>
+              {#if tile.sub}<span class="folder muted">{tile.sub}</span>{/if}
+            </button>
+          {/each}
+        </div>
+      {/if}
     {/each}
   </div>
   <div class="ui-actions">
@@ -244,14 +249,6 @@
   }
   .head h2 {
     margin: 0;
-  }
-  .tabs {
-    display: flex;
-    gap: var(--space-1);
-  }
-  .tabs .on {
-    border-color: var(--accent);
-    color: var(--ink);
   }
   .latest {
     display: flex;
@@ -314,7 +311,7 @@
     width: 100%;
     height: 96px;
     object-fit: cover;
-    background: var(--sunk);
+    background: var(--panel-2);
   }
   .glyph {
     display: flex;

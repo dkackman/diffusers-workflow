@@ -54,3 +54,90 @@ it('resource() itself subscribes', async () => {
     await feedErrors(SPELLINGS.held, 'src/lib/resource.svelte.ts'),
   ).toEqual([])
 })
+
+// The raw-message rule (eslint.config.js): a caught error's .message shown
+// for display fails lint everywhere but describeError's own module and tests
+/** The messages of the raw-message rule `code` breaks, linted as `file` */
+async function messageErrors(code: string, file: string): Promise<string[]> {
+  const [result] = await eslint.lintText(code, { filePath: join(UI, file) })
+  return result.messages
+    .filter((m) => m.message.includes('never its raw .message'))
+    .map((m) => m.ruleId ?? '')
+}
+
+const RAW = `export function said(e: unknown) {
+  return e instanceof Error ? e.message : String(e)
+}`
+
+it.each([
+  'src/lib/pages/Probe.ts',
+  'src/lib/ui/Probe.ts',
+  'src/lib/changes.svelte.ts',
+])('reading a caught error for display fails lint in %s', async (file) => {
+  expect(await messageErrors(RAW, file)).toEqual(['no-restricted-syntax'])
+})
+
+it('the feed rule still holds beside the raw-message rule', async () => {
+  const both = `${RAW}\n${SPELLINGS.chained}`
+  const [result] = await eslint.lintText(both, {
+    filePath: join(UI, 'src/lib/pages/Probe.ts'),
+  })
+  const ids = result.messages.map((m) => m.message)
+  expect(ids.some((m) => m.includes('never its raw .message'))).toBe(true)
+  expect(ids.some((m) => m.includes('Subscribe through resource()'))).toBe(true)
+})
+
+it.each(['src/lib/apiErrors.ts', 'src/lib/pages/Probe.test.ts'])(
+  'describeError itself and the tests may read it: %s',
+  async (file) => {
+    expect(await messageErrors(RAW, file)).toEqual([])
+  },
+)
+
+it('a component reading a caught error for display fails lint', async () => {
+  const code = `<script lang="ts">\n  let shown = $state('')\n  try {\n    JSON.parse('{')\n  } catch (e) {\n    shown = e instanceof Error ? e.message : String(e)\n  }\n</script>\n\n<p>{shown}</p>\n`
+  expect(await messageErrors(code, 'src/lib/pages/Probe.svelte')).toEqual([
+    'no-restricted-syntax',
+  ])
+})
+
+// The delete rule (eslint.config.js): a confirm whose button deletes or
+// removes is built by destroyConfirm, so every delete asks one way
+/** The messages of the delete rule `code` breaks, linted as `file` */
+async function destroyErrors(code: string, file: string): Promise<string[]> {
+  const [result] = await eslint.lintText(code, { filePath: join(UI, file) })
+  return result.messages
+    .filter((m) => m.message.includes('asks through destroyConfirm()'))
+    .map((m) => m.ruleId ?? '')
+}
+
+const ASKS = `import { confirmDialog } from './confirm.svelte'
+export const ask = () => confirmDialog('Gone?', { confirmLabel: 'Delete' })
+export const drop = () => confirmDialog('Gone?', { confirmLabel: 'Remove it' })`
+
+it('a Delete confirm outside destructive.ts fails lint', async () => {
+  for (const file of [
+    'src/lib/pages/Probe.ts',
+    'src/lib/ui/Probe.ts',
+    'src/lib/resource.svelte.ts',
+    'src/lib/apiErrors.ts',
+  ])
+    expect(await destroyErrors(ASKS, file)).toEqual([
+      'no-restricted-syntax',
+      'no-restricted-syntax',
+    ])
+  const svelte = `<script lang="ts">\n  import { confirmDialog } from '../confirm.svelte'\n  const ask = () => confirmDialog('Gone?', { confirmLabel: 'Delete' })\n</script>\n\n<button onclick={ask}>x</button>\n`
+  expect(await destroyErrors(svelte, 'src/lib/pages/Probe.svelte')).toEqual([
+    'no-restricted-syntax',
+  ])
+  expect(await destroyErrors(ASKS, 'src/lib/destructive.ts')).toEqual([])
+  // Other labels are not deletes
+  const keep = `export const spec = { confirmLabel: 'Replace' }`
+  expect(await destroyErrors(keep, 'src/lib/pages/Probe.ts')).toEqual([])
+})
+
+it('destructive.ts keeps the other syntax rules', async () => {
+  expect(await messageErrors(RAW, 'src/lib/destructive.ts')).toEqual([
+    'no-restricted-syntax',
+  ])
+})

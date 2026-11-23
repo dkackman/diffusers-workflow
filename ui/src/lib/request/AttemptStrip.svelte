@@ -1,5 +1,6 @@
 <script lang="ts">
   import { Check, TriangleAlert } from '@lucide/svelte'
+  import StatusChip from '../ui/StatusChip.svelte'
   import ItemProof from './ItemProof.svelte'
   import { takesOf, type Take } from './itemState'
   import { formatSpent } from '../format'
@@ -28,19 +29,12 @@
   } = $props()
 
   const takes = $derived(takesOf(item))
-  const CHIP = {
-    queued: 'queued',
-    running: 'running',
-    failed: 'failed',
-    cancelled: 'idle',
-    succeeded: 'succeeded',
-  }
   const chosen = (take: Take) =>
     take.mark === 'accepted' || take.mark === 'accepted-gone'
   const MARK = {
     accepted: 'accepted',
     'accepted-gone': 'accepted, files gone',
-    latest: 'result (latest)',
+    latest: 'latest take',
   }
 
   // The newest take is the one being looked for: the strip starts at its end
@@ -77,7 +71,7 @@
       <span class="caption">
         <span class="n">take {take.n}</span>
         {#if attempt.status !== 'succeeded'}
-          <span class="chip {CHIP[attempt.status]}">{attempt.status}</span>
+          <StatusChip status={attempt.status} />
         {/if}
         {#if attempt.minutes != null}
           <span class="num muted">{formatSpent(attempt.minutes)}</span>
@@ -100,6 +94,7 @@
         <button
           type="button"
           class="quiet accept"
+          class:chosen={chosen(take)}
           aria-pressed={chosen(take)}
           aria-label="Accept take {take.n} for {item.title}"
           title={chosen(take)
@@ -175,7 +170,7 @@
     text-decoration: underline;
     text-underline-offset: 2px;
   }
-  .accept[aria-pressed='true'] {
+  .accept.chosen {
     color: var(--ink);
     border-color: var(--ink);
     font-weight: 600;

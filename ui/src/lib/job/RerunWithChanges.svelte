@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ErrorLine from '../ui/ErrorLine.svelte'
   import { SlidersHorizontal } from '@lucide/svelte'
   import { api } from '../api'
   import { displayValue } from '../editor'
@@ -34,8 +35,7 @@
 
   let open = $state(false)
   let overrides = $state<Record<string, string>>({})
-  let error = $state('')
-  let submitting = $state(false)
+  let error = $state<unknown>(null)
 
   // Only what differs from the run goes: the server stores the overrides
   // exactly as sent, so retyping a value the run already used (30 over 30)
@@ -52,25 +52,28 @@
 
   function start() {
     overrides = {}
-    error = ''
+    error = null
     open = true
   }
 
-  async function queue() {
-    if (!changedCount || submitting) return
-    submitting = true
-    error = ''
-    try {
-      const next = await api.rerunJob(job.id, { arguments: { ...changed } })
+  const queueing = action(
+    async () => {
+      if (!changedCount) return null
+      error = null
+      let next
+      try {
+        next = await api.rerunJob(job.id, { arguments: { ...changed } })
+      } catch (e) {
+        // A refused value is the user's to fix: the modal stays open on it
+        error = e
+        return null
+      }
       open = false
       go('ws', job.workspace, 'jobs', next.id)
-    } catch (e) {
-      // A refused value is the user's to fix: the modal stays open on it
-      error = e instanceof Error ? e.message : String(e)
-    } finally {
-      submitting = false
-    }
-  }
+      return next
+    },
+    { doing: 'rerun it' },
+  )
 
   // The selectors come from the workflow file as it is now (rerun.ts), read
   // again when a workflow is saved anywhere
@@ -98,7 +101,7 @@
   <button
     class="quiet withicon"
     onclick={start}
-    title="queue this job again with some of its variables changed - what you leave blank keeps this run's value"
+    title="queue this job again with some of its variables changed - what you leave blank keeps this job's value"
   >
     <SlidersHorizontal size={14} />Run again with changes…
   </button>
@@ -119,8 +122,8 @@
 <Modal bind:open label="Run again with changes" wide>
   <h2>Run again with changes</h2>
   <p class="hint muted">
-    Each field shows what this run used. Type only what should change - a blank
-    field keeps this run's value, the drawn seed included.
+    Each field shows what this job used. Type only what should change - a blank
+    field keeps this job's value, the drawn seed included.
   </p>
   <VariablesForm
     mode="override"
@@ -128,18 +131,19 @@
     bind:overrides
     idPrefix="rerun-var-"
   />
-  {#if error}<p class="error" role="alert">{error}</p>{/if}
+  {#if error}<ErrorLine {error} doing="rerun it" />{/if}
   <div class="actions">
     {#if !changedCount}<span class="muted">nothing changed</span>{/if}
     <button class="quiet" onclick={() => (open = false)}>Cancel</button>
     <button
-      onclick={queue}
-      disabled={!changedCount || submitting}
+      onclick={() => void queueing.run()}
+      disabled={!changedCount || queueing.busy}
+      aria-busy={queueing.busy}
       title={changedCount
         ? `queue a rerun changing ${Object.keys(changed).join(', ')}`
-        : 'nothing changed - type a value that differs from this run'}
+        : 'nothing changed - type a value that differs from this job'}
     >
-      {submitting ? 'Queueing…' : 'Queue'}
+      {queueing.busy ? 'Queueing…' : 'Queue'}
     </button>
   </div>
 </Modal>
@@ -154,8 +158,5 @@
     align-items: center;
     gap: var(--space-2);
     margin-top: var(--space-3);
-  }
-  .error {
-    color: var(--bad);
   }
 </style>

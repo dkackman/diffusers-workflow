@@ -1,37 +1,39 @@
 <script lang="ts">
   import { editorLists, loadEditorLists } from '../editorLists.svelte'
-  import { DocumentEditor, NEW_FOLDER } from '../editorShell.svelte'
-  import ViewSwitch from '../editor/ViewSwitch.svelte'
+  import {
+    DocumentEditor,
+    EDITOR_VIEWS,
+    NEW_FOLDER,
+    editorKeys,
+    type EditorView,
+  } from '../editorShell.svelte'
+  import Segmented from '../ui/Segmented.svelte'
   import EditorBody from '../editor/EditorBody.svelte'
   import StepList from '../editor/StepList.svelte'
   import { StepModes } from '../stepModes.svelte'
   import ValidationPanel from '../editor/ValidationPanel.svelte'
-  import WorkflowFileBar, { IMPORTED } from '../editor/WorkflowFileBar.svelte'
-  import {
-    CircleCheck,
-    Columns2,
-    Braces,
-    LayoutList,
-    Play,
-    Save,
-    Workflow,
-  } from '@lucide/svelte'
+  import DocumentFileBar from '../editor/DocumentFileBar.svelte'
+  import WorkflowOrigin, { IMPORTED } from '../editor/WorkflowOrigin.svelte'
+  import { CircleCheck, Play, Save } from '@lucide/svelte'
   import { api } from '../api'
   import { ApiError } from '../apiErrors'
   import {
     openWorkflow,
     listedWorkflows,
-    saveWorkflowAt,
     startingWorkflow,
+    validatedRun,
+    validatedSave,
     watchWorkflow,
     withSaved,
   } from '../editor/workflowFile'
   import { resource } from '../resource.svelte'
   import LoadFailed from '../ui/LoadFailed.svelte'
+  import PageHeader from '../ui/PageHeader.svelte'
   import { notify } from '../toast'
   import { confirmDialog } from '../confirm.svelte'
+  import { action } from '../action.svelte'
   import { go, goWs, renameRoute } from '../router.svelte'
-  import { wsHref } from '../routes'
+  import { SECTION_LABELS, wsHref } from '../routes'
   import { loadWorkspaces, workspace } from '../workspace.svelte'
   import {
     attentionBackendVariables,
@@ -103,41 +105,18 @@
   // the workspace picker's names - outside the load effect, so the listing
   // landing cannot re-run it and reset the draft
   loadWorkspaces()
-  const VIEWS = [
-    {
-      view: 'form',
-      label: 'form',
-      title: 'edit with introspection-driven forms',
-      icon: LayoutList,
-    },
-    {
-      view: 'split',
-      label: 'split',
-      title: 'form beside the JSON - both editable, blur applies',
-      icon: Columns2,
-    },
-    {
-      view: 'json',
-      label: 'JSON',
-      title: 'edit the raw JSON, schema-aware',
-      icon: Braces,
-    },
-    {
-      view: 'flow',
-      label: 'flow',
-      title:
-        'read-only data-flow diagram: steps as boxes, previous_result as edges',
-      icon: Workflow,
-    },
-  ] as const
 
-  // Crumbs out of the editor, the last to the saved workflow's own page
-  const crumbFolders = $derived(
-    current ? groupOf(current).split('/').filter(Boolean) : [],
-  )
-  const crumbName = $derived(current ? leafOf(current) : '')
-  const workflowHref = $derived(
-    wsHref(workspace.current, 'workflows', ...current.split('/')),
+  // The way out: a saved workflow's own page, else the Workflows list
+  const back = $derived(
+    current
+      ? {
+          href: wsHref(workspace.current, 'workflows', ...current.split('/')),
+          label: leafOf(current),
+        }
+      : {
+          href: wsHref(workspace.current, 'workflows'),
+          label: SECTION_LABELS.ws.workflows,
+        },
   )
 
   // The data-flow graph and per-step reference problems drive the rail's
@@ -271,17 +250,6 @@
     }
   }
 
-  function onKeydown(event: KeyboardEvent) {
-    if (!(event.ctrlKey || event.metaKey) || !ed.canWrite) return
-    if (event.key === 's') {
-      event.preventDefault()
-      save()
-    } else if (event.key === 'Enter') {
-      event.preventDefault()
-      run()
-    }
-  }
-
   async function validate(): Promise<boolean> {
     // Validate, save and run all see what is on screen, typed or not
     ed.flush()
@@ -315,46 +283,30 @@
       fileOpen = true
       return
     }
-    if (!(await validate())) return
-    ed.busy = true
-    try {
-      const outcome = await saveWorkflowAt(ed, path)
-      if (outcome === 'cancelled') return
-      ed.commitNewFolder()
-      // A folder this save created must be in the picker at once, or the
-      // select falls back to "(root)" while the state still names it
-      if (catalog.data) catalog.adopt(withSaved(catalog.data, path))
-      notify.success(`Saved to ${path}`)
-      // The URL names the file now on screen: a first save, or a save as
-      opened = `${workspace.current}:${path}`
-      if (path !== name)
-        renameRoute(wsHref(workspace.current, 'edit', ...path.split('/')))
-    } catch (e) {
-      notify.failure(`save ${path}`, e)
-    } finally {
-      ed.busy = false
-    }
+    if (!(await saving.run(path))) return
+    // A folder this save created must be in the picker at once, or the
+    // select falls back to "(root)" while the state still names it
+    if (catalog.data) catalog.adopt(withSaved(catalog.data, path))
+    // The URL names the file now on screen: a first save, or a save as
+    opened = `${workspace.current}:${path}`
+    if (path !== name)
+      renameRoute(wsHref(workspace.current, 'edit', ...path.split('/')))
   }
-
-  async function run() {
-    if (!(await validate())) return
-    ed.busy = true
-    try {
-      // base_dir anchors relative paths (images, sub-workflow files) the
-      // way running the saved file would - at the workflow's own folder
-      const directory =
-        ed.folder && ed.folder !== NEW_FOLDER ? `/${ed.folder}` : ''
-      const job = await api.submitJob({
-        workflow: $state.snapshot(ed.doc) as WorkflowDefinition,
-        base_dir: `${listed.dir}${directory}`,
-      })
-      goWs('jobs', job.id)
-    } catch (e) {
-      notify.failure('run the workflow', e)
-    } finally {
-      ed.busy = false
-    }
-  }
+  // Save and Run are actions: pressed twice, each does one thing
+  const saving = action((path: string) => validatedSave(ed, path, validate), {
+    doing: (path) => `save ${path}`,
+    success: (path) => `Saved to ${path}`,
+  })
+  const running = action(
+    async () => {
+      const job = await validatedRun(ed, listed.dir, validate)
+      if (job) goWs('jobs', job.id)
+      return job
+    },
+    { doing: 'run the workflow' },
+  )
+  const run = () => void running.run()
+  const onKeydown = editorKeys(ed, { save: () => void save(), run })
 
   // The flow view's click-to-navigate: land back on the form view with the
   // step's row scrolled into place and briefly lit, the same highlight the
@@ -379,70 +331,59 @@
 <!-- The editing surface: a flush commits the field focused in it -->
 <div class="editing" bind:this={ed.root}>
   <div class="head">
-    <nav class="crumbs muted" aria-label="breadcrumb">
-      <a href={wsHref(workspace.current, 'workflows')}>← workflows</a>
-      {#each crumbFolders as part (part)}
-        <span class="sep">/</span><span>{part}</span>
-      {/each}
-      {#if crumbName}
-        <span class="sep">/</span>
-        <a
-          href={workflowHref}
-          title="back to the read-only view of this workflow"
+    <PageHeader title={current || 'New workflow'} {back}>
+      <label class="wfidwrap">
+        <span class="wfidlabel">id</span>
+        <input
+          class="wfid"
+          bind:value={ed.doc.id}
+          placeholder="workflow id"
+          aria-label="workflow id"
+          title="the workflow's id - how it names itself, independent of the file name"
+        />
+      </label>
+      {#if ed.dirty}
+        <span
+          class="chip unsaved"
+          title="this definition differs from the last save"
         >
-          {crumbName}
-        </a>
+          unsaved
+        </span>
       {/if}
-    </nav>
-    <label class="wfidwrap">
-      <span class="wfidlabel">id</span>
-      <input
-        class="wfid"
-        bind:value={ed.doc.id}
-        placeholder="workflow id"
-        aria-label="workflow id"
-        title="the workflow's id - how it names itself, independent of the file name"
-      />
-    </label>
-    {#if ed.dirty}
-      <span
-        class="chip unsaved"
-        title="this definition differs from the last save"
-      >
-        unsaved
-      </span>
-    {/if}
-    <span class="flex"></span>
-    <ViewSwitch
-      view={ed.view}
-      options={[...VIEWS]}
-      onselect={(view) => ed.setView(view)}
-    />
-    <button
-      class="quiet withicon"
-      onclick={validate}
-      disabled={ed.busy || !ed.canWrite}
-      title="check against the schema and real pipeline signatures, without running"
-    >
-      <CircleCheck size={14} />Validate
-    </button>
-    <button
-      class="quiet withicon"
-      class:dirtybtn={ed.dirty}
-      onclick={save}
-      disabled={ed.busy || !ed.canWrite}
-      title="validate, then write to the workflow directory under the name below (Ctrl+S)"
-    >
-      <Save size={14} />Save{#if ed.dirty}<span class="dirtydot"></span>{/if}
-    </button>
-    <button
-      class="withicon"
-      onclick={run}
-      disabled={ed.busy || !ed.canWrite}
-      title="validate, then queue this definition as a job - no save needed (Ctrl+Enter)"
-    >
-      <Play size={14} />Run
-    </button>
+      {#snippet actions()}
+        <Segmented
+          label="editor view"
+          value={ed.view}
+          options={EDITOR_VIEWS}
+          onselect={(view) => ed.setView(view as EditorView)}
+        />
+        <button
+          class="quiet withicon"
+          onclick={validate}
+          disabled={ed.busy || !ed.canWrite}
+          title="check against the schema and real pipeline signatures, without running"
+        >
+          <CircleCheck size={14} />Validate
+        </button>
+        <button
+          class="withicon"
+          onclick={save}
+          disabled={ed.busy || !ed.canWrite}
+          title="validate, then write to the workflow directory under the name below (Ctrl+S)"
+        >
+          <Save size={14} />Save{#if ed.dirty}<span class="dirtydot"
+            ></span>{/if}
+        </button>
+        <button
+          class="withicon"
+          onclick={run}
+          disabled={ed.busy || !ed.canWrite}
+          title="validate, then queue this definition as a job - no save needed (Ctrl+Enter)"
+        >
+          <Play size={14} />Run
+        </button>
+      {/snippet}
+    </PageHeader>
   </div>
 
   {#if ed.loadState === 'failed'}
@@ -455,22 +396,20 @@
         : undefined}
     />
   {:else}
-    <WorkflowFileBar
-      {ed}
-      workflowDir={listed.dir}
-      {folders}
-      bind:fileOpen
-      origin={current
-        ? undefined
-        : {
-            workspace: workspace.current,
-            workspaces: workspace.names ?? [workspace.current],
-            startFrom,
-            examples: listed.examples,
-            onworkspace: moveToWorkspace,
-            onstartfrom: chooseStart,
-          }}
-    />
+    <DocumentFileBar {ed} dir={listed.dir} {folders} bind:fileOpen>
+      {#snippet extra()}
+        {#if !current}
+          <WorkflowOrigin
+            workspace={workspace.current}
+            workspaces={workspace.names ?? [workspace.current]}
+            {startFrom}
+            examples={listed.examples}
+            onworkspace={moveToWorkspace}
+            onstartfrom={chooseStart}
+          />
+        {/if}
+      {/snippet}
+    </DocumentFileBar>
 
     {#if validation}
       <ValidationPanel {validation} ondismiss={() => (validation = null)} />
@@ -524,10 +463,6 @@
      scrolls. Below 900px the app header wraps to a second row and its
      height stops being predictable, so the pinning is dropped there. */
   .head {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.4rem 0.6rem;
     position: sticky;
     top: 76px;
     z-index: 5;
@@ -541,15 +476,8 @@
       position: static;
     }
   }
-  .crumbs {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.3rem;
-    font-size: 0.85rem;
-    min-width: 0;
-  }
-  .crumbs .sep {
-    opacity: 0.5;
+  .head :global(.pagehead) {
+    margin-bottom: 0;
   }
   .wfidwrap {
     display: inline-flex;
@@ -563,7 +491,7 @@
     text-transform: none;
   }
   /* Reads as a title until you reach for it, rather than as an unexplained
-     text box sitting next to a breadcrumb */
+     text box sitting next to the title */
   .wfid {
     font-weight: 700;
     background: transparent;
@@ -575,17 +503,7 @@
   .wfid:focus {
     background: var(--panel-2);
   }
-  .chip.unsaved {
-    background: color-mix(in srgb, var(--warn) 22%, transparent);
-    color: var(--warn);
-  }
   .panel {
     margin-bottom: 1rem;
-  }
-  /* Unsaved work makes Save the thing to do next, so it stops looking
-     like the two quiet buttons beside it */
-  .dirtybtn {
-    border-color: var(--warn);
-    color: var(--warn);
   }
 </style>
