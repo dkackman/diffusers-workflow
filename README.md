@@ -110,9 +110,10 @@ typed **inside Claude Code**, not in the shell:
 ```
 
 **4. Make the first image.** Ask the agent: *"Run `templates/text-to-image` with the
-prompt 'a lighthouse at dusk'."* The agent quotes the cost and asks before it
-runs. The first run downloads SD 1.5 (a few GB), so it takes minutes rather than
-seconds; later runs reuse it. The agent shows you the
+prompt 'a lighthouse at dusk'."* The agent quotes the cost, and a direct ask like
+this one counts as the go-ahead, so it may run straight away. The first run
+downloads SD 1.5 (about 4 GB), so it takes about a minute on a fast connection and
+longer on a slow one; later runs reuse it. The agent shows you the
 image, and it is in the web UI's gallery and under the checkout's `outputs/`
 folder (a `dw-serve` started in the checkout uses it as its workspace;
 [Workspaces](docs/WORKSPACES.md#which-directory-is-used)).
