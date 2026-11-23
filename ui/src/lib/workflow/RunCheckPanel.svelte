@@ -34,7 +34,7 @@
   {#if planLines.length}
     <ul
       class="plan"
-      aria-label="what a run will do"
+      aria-label="what a job will do"
       title="from the workflow's own cost block and this server's model cache - a plan, not a promise"
     >
       {#each planLines as line, i (i)}

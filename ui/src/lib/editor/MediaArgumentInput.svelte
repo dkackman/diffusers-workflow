@@ -162,8 +162,8 @@
     <button
       type="button"
       class="quiet icon"
-      title={`choose ${kind === 'image' ? 'an image' : 'a video'} from the assets or earlier runs`}
-      aria-label={`choose ${kind === 'image' ? 'an image' : 'a video'} from the assets or earlier runs`}
+      title={`choose ${kind === 'image' ? 'an image' : 'a video'} from the assets or earlier jobs`}
+      aria-label={`choose ${kind === 'image' ? 'an image' : 'a video'} from the assets or earlier jobs`}
       onclick={() => (browsing = true)}
     >
       <Images size={14} />

@@ -17,6 +17,7 @@
     type Cell,
   } from '../compare'
   import { formatDuration } from '../format'
+  import { versionTitle } from '../terms'
   import { SECTION_LABELS, wsHref } from '../routes'
   import { workspace } from '../workspace.svelte'
   import Markdown from '../ui/Markdown.svelte'
@@ -145,7 +146,10 @@
         {#if cell.file}
           <figcaption>
             <span class="mono">{cell.file.label}</span>
-            {#if cell.file.version}<span class="num muted">
+            {#if cell.file.version}<span
+                class="num muted"
+                title={versionTitle(cell.file.version)}
+              >
                 v{cell.file.version}
               </span>{/if}
             <span class="num muted">
@@ -180,7 +184,7 @@
     </section>
   {:else if cells.filter((c) => c.meta).length > 1}
     <p class="muted">
-      Same model, seed and arguments - the files differ only in what the run
+      Same model, seed and arguments - the files differ only in what the job
       did.
     </p>
   {/if}

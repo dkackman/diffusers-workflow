@@ -64,7 +64,7 @@
 {:else if requests.length}
   <select
     bind:value={request}
-    title="show only the runs made for one request"
+    title="show only the jobs made for one request"
     aria-label="filter by request"
   >
     <option value="">all requests</option>

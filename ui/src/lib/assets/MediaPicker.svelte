@@ -147,7 +147,7 @@
 
   const sections = $derived(tab === 'assets' ? assetSections : outputSections)
   const listing = $derived(tab === 'assets' ? assetLibrary : outputLibrary)
-  const what = $derived(tab === 'assets' ? 'the asset library' : 'earlier runs')
+  const what = $derived(tab === 'assets' ? 'the asset library' : 'earlier jobs')
 
   function choose(tile: Tile) {
     onpick(tile.pick())
@@ -174,7 +174,7 @@
         aria-pressed={tab === 'outputs'}
         onclick={() => (tab = 'outputs')}
       >
-        Earlier runs
+        Earlier jobs
       </button>
     </div>
     <input

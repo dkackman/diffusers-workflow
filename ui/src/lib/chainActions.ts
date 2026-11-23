@@ -31,7 +31,7 @@ export const NO_REPAIR_TEMPLATE =
 export const FIRST_SEGMENT =
   'segment 1 cannot be repaired - re-render with a new seed'
 export const REPAIRED_TAKE = 'a repaired take has no segment files'
-export const NO_SEGMENTS = 'this run did not keep its segments'
+export const NO_SEGMENTS = 'this job did not keep its segments'
 
 type Definition = Record<string, any> | null | undefined
 

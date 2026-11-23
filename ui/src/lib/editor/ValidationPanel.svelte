@@ -51,7 +51,7 @@
          invalid but keeps its plan, under the error that names it -->
     <ul
       class="plan"
-      aria-label="what a run will do"
+      aria-label="what a job will do"
       title="from the workflow's own cost block and this server's model cache - a plan, not a promise"
     >
       {#each describePlan(validation.plan) as line, i (i)}

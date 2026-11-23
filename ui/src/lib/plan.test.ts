@@ -169,7 +169,7 @@ describe('describePlan', () => {
       cached_steps: 8,
       downloads_required: [],
     })
-    expect(lines[2].text).toBe('all 8 steps cached - a run generates nothing')
+    expect(lines[2].text).toBe('all 8 steps cached - a job generates nothing')
   })
 
   it('a download without a size, and a checkpoint URL, are still named', () => {

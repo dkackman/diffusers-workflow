@@ -22,6 +22,7 @@
   import GalleryDetail from '../gallery/GalleryDetail.svelte'
   import { AssessCache } from '../gallery/assess.svelte'
   import RoleTag from '../gallery/RoleTag.svelte'
+  import { versionTitle } from '../terms'
   import {
     applyEdits,
     gridFiles,
@@ -360,7 +361,7 @@
             {#if file.version}
               <span
                 class="version"
-                title="version {file.version} of this workflow"
+                title={versionTitle(file.version)}
               >
                 v{file.version}
               </span>

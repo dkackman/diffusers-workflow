@@ -21,6 +21,7 @@
   import { wsHref } from '../routes'
   import { workspace } from '../workspace.svelte'
   import { formatBytes, formatMtime } from '../format'
+  import { versionTitle } from '../terms'
 
   // The detail panel under the grid for the one file picked. The page owns
   // the pick (and keys this panel by it, so a new pick starts a new read);
@@ -207,12 +208,12 @@
       open file
     </a>
     {#if file.version}
-      <!-- The run this file came from, said in both the form a person is
-           quoted ("version 4") and the form every tool takes (the run
-           id), so the two can be checked against each other here rather
-           than back in the listing -->
-      <span class="num muted">
-        version {file.version} · <code>{file.run_id}</code>
+      <!-- The job this file came from, said in both the form a person is
+           quoted ("v4") and the form every tool takes (the run id), so the
+           two can be checked against each other here rather than back in
+           the listing -->
+      <span class="num muted" title={versionTitle(file.version)}>
+        v{file.version} · <code>{file.run_id}</code>
       </span>
     {/if}
     <span class="num muted">

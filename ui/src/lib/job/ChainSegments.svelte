@@ -98,7 +98,7 @@
     if (!asked) return describeEstimate(null).text
     try {
       const answer = await api.validate(asked)
-      if (!answer.valid) return 'none - a run would be refused'
+      if (!answer.valid) return 'none - a job would be refused'
       return describeEstimate(answer.plan?.estimate ?? null).text
     } catch (e) {
       return `none - could not price it (${describeError(e).title})`
@@ -177,7 +177,7 @@
 
   const measureLabel = (row: ChainRow) =>
     row.measureState === 'resumed'
-      ? 'not recorded - resumed from an earlier run'
+      ? 'not recorded - resumed from an earlier job'
       : row.measureState === 'not-recorded'
         ? 'not recorded'
         : 'nothing measured'

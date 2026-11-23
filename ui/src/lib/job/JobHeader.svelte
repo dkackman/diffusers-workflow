@@ -15,6 +15,7 @@
   import { formatDuration, formatExact, formatMtime, gbFromMb } from '../format'
   import { notify } from '../toast'
   import { holdKind, holdText } from '../progress'
+  import { versionTitle, workflowName } from '../terms'
   import type { JobDetail, LedgerRequest } from '../types'
 
   // The job page's title row: what ran, its state and identity, and the
@@ -73,12 +74,10 @@
     return end === null ? null : end - job.started_at
   })
 
-  const leaf = $derived((job?.workflow ?? jobId).split('/').pop() as string)
   // The file the job ran names it; the JSON id beside it only when it says
-  // something else. Task 13's workflowName(job) takes this over
-  const fileName = $derived(
-    job ? (job.workflow_name ?? job.workflow ?? jobId) : 'Job',
-  )
+  // something else
+  const leaf = $derived(job ? workflowName(job) : jobId)
+  const fileName = $derived(job ? workflowName(job) : 'Job')
   const jsonId = $derived(
     job?.workflow && job.workflow !== fileName ? job.workflow : undefined,
   )
@@ -227,17 +226,17 @@
     {#if seed !== undefined}
       <code
         class="muted seed"
-        title="the seed this run used - embedded in saved images alongside the recipe"
+        title="the seed this job used - embedded in saved images alongside the recipe"
       >
         seed {seed}
       </code>
     {/if}
     {#if runVersion}
-      <!-- The gallery labels this run's files the same way, so "version 4"
-           said here finds them there -->
+      <!-- The gallery labels this job's files the same way, so "v4" said
+           here finds them there -->
       <code
         class="muted seed"
-        title={`version ${runVersion} of this workflow${job.run_id ? ` - run ${job.run_id}` : ''}`}
+        title={`${versionTitle(runVersion)}${job.run_id ? ` - run id ${job.run_id}` : ''}`}
       >
         v{runVersion}
       </code>
@@ -300,7 +299,7 @@
           disabled={cancelPending}
           title={cancelPending
             ? 'cancel already requested - waiting on the current phase'
-            : 'stop this run at the next step - models stay cached'}
+            : 'stop this job at the next step - models stay cached'}
         >
           <X size={14} />{cancelPending ? 'Cancelling…' : 'Cancel'}
         </ActionButton>
@@ -309,7 +308,7 @@
           act={rerun}
           args={[false]}
           title={seedVariable
-            ? 'queue this job again with the same arguments - with the same seed, the step cache serves the files this run already made'
+            ? 'queue this job again with the same arguments - with the same seed, the step cache serves the files this job already made'
             : 'queue this job again with the same arguments'}
         >
           <RotateCw size={14} />Run again
@@ -318,7 +317,7 @@
           <ActionButton
             act={rerun}
             args={[true]}
-            title="queue it again with a fresh {seedVariable} - a different image, rather than the one this run already made"
+            title="queue it again with a fresh {seedVariable} - a different image, rather than the one this job already made"
           >
             <Dices size={14} />New seed
           </ActionButton>
@@ -326,7 +325,7 @@
         <RerunWithChanges {job} {declared} />
         <ActionButton
           act={exportJob}
-          title="bundle this run - its realized workflow, manifest, the media it used and made - into the workspace's exports/ on the server, and download it as a zip"
+          title="bundle this job - its realized workflow, manifest, the media it used and made - into the workspace's exports/ on the server, and download it as a zip"
         >
           <PackageOpen size={14} />{exportJob.busy ? 'Exporting…' : 'Export'}
         </ActionButton>

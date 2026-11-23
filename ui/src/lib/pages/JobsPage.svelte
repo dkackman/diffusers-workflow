@@ -10,6 +10,7 @@
   import { api } from '../api'
   import { action } from '../action.svelte'
   import type { JobSummary } from '../types'
+  import { versionTitle, workflowName } from '../terms'
   import { wsHref } from '../routes'
   import { hashQuery, setHashQuery } from '../router.svelte'
   import { parseRequestFilter } from '../requestFilter'
@@ -127,7 +128,7 @@
     jobs.filter(
       (job) =>
         (!statusFilter || job.status === statusFilter) &&
-        (job.workflow ?? '').toLowerCase().includes(nameFilter.toLowerCase()),
+        workflowName(job).toLowerCase().includes(nameFilter.toLowerCase()),
     ),
   )
   // Batches a preview found nothing left to rerun in: their banner stays
@@ -294,11 +295,11 @@
           <span class="chip {job.status}">{job.status}</span>
           <span class="namecol">
             <span class="name">
-              {job.workflow}
+              {workflowName(job)}
               {#if job.run_version}
                 <span
                   class="wschip muted"
-                  title="version {job.run_version} of this workflow - the gallery labels its files the same way"
+                  title={versionTitle(job.run_version)}
                 >
                   v{job.run_version}
                 </span>

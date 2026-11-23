@@ -50,11 +50,16 @@ const header = (
     ...opts,
   })
 
+it('titles the version badge with its ordinal', () => {
+  header(job({ run_id: 'r2' } as Partial<JobDetail>), {}, { runVersion: 2 })
+  expect(screen.getByText('v2').getAttribute('title')).toBe(
+    '2nd job of this workflow in this folder - run id r2',
+  )
+})
+
 it('titles the job with its workflow file, and the JSON id beside it when it differs', () => {
   header(job({ workflow: 'ZImage', workflow_name: 'models/z-image' }))
-  expect(screen.getByRole('heading', { level: 1 }).textContent).toBe(
-    'models/z-image',
-  )
+  expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('z-image')
   expect(screen.getByText('ZImage', { selector: '.secondary' })).toBeTruthy()
   expect(screen.getByRole('link', { name: '← Jobs' })).toHaveAttribute(
     'href',

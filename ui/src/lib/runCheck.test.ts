@@ -23,7 +23,7 @@ it('checks a new workflow at once, and with sizes only after the idle time', asy
   expect(ask.mock.calls[0][0]).toBe(false)
   expect(check.verdict).toEqual({
     tone: 'good',
-    text: 'a run would be admitted',
+    text: 'a job would be admitted',
   })
   expect(check.checking).toBe(false)
 
@@ -74,7 +74,7 @@ it('names a refused check, and says nothing of an aborted one', async () => {
   expect(check.error).toBe(refused)
   expect(check.verdict).toEqual({
     tone: 'bad',
-    text: 'could not check this run',
+    text: 'could not check this job',
   })
 
   ask.mockRejectedValue(new DOMException('aborted', 'AbortError'))

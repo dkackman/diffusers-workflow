@@ -130,9 +130,9 @@ describe('WorkflowPage run check', () => {
       arguments: {},
       sizes: false,
     })
-    const plan = screen.getByLabelText('what a run will do')
+    const plan = screen.getByLabelText('what a job will do')
     expect(plan.textContent).toContain('about 2 min on mps')
-    expect(screen.getByText('a run would be admitted')).toBeTruthy()
+    expect(screen.getByText('a job would be admitted')).toBeTruthy()
   })
 
   it('asks about exactly the arguments Run sends, blanks dropped', async () => {
@@ -206,7 +206,7 @@ describe('WorkflowPage run check', () => {
     answerSizes(refusal)
     await advance()
     expect(screen.queryByText(/stale refusal/)).toBeNull()
-    expect(screen.getByText('a run would be admitted')).toBeTruthy()
+    expect(screen.getByText('a job would be admitted')).toBeTruthy()
     // and the signal it was handed was aborted
     const sizesCall = validateCalls().find(
       (c) => (c[0] as { sizes?: boolean }).sizes === true,
@@ -249,7 +249,7 @@ describe('WorkflowPage run check', () => {
     expect(general.textContent).not.toContain('must be at most 8')
     expect(general.querySelector('.bad')!.textContent).toContain('model_name')
     expect(general.querySelector('.warn')!.textContent).toContain('withheld')
-    expect(screen.getByText('a run would be refused')).toBeTruthy()
+    expect(screen.getByText('a job would be refused')).toBeTruthy()
   })
 
   it('clears a field error once the value is fixed', async () => {
@@ -388,7 +388,7 @@ describe('WorkflowPage recovery', () => {
     await advance()
     await advance()
     expect(screen.queryByText(/Couldn't load/)).toBeNull()
-    expect(screen.getByText('a run would be admitted')).toBeTruthy()
+    expect(screen.getByText('a job would be admitted')).toBeTruthy()
   })
 
   it('a missing workflow is named in its 404', async () => {

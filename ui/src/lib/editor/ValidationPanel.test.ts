@@ -49,7 +49,7 @@ describe('ValidationPanel', () => {
     expect(
       screen.getByText('model_name: org/missing was not found'),
     ).toBeTruthy()
-    const box = screen.getByRole('list', { name: 'what a run will do' })
+    const box = screen.getByRole('list', { name: 'what a job will do' })
     expect(box.textContent).toContain('needs download: org/missing (not found)')
     // the plan sits under the error list
     const error = screen.getByText('model_name: org/missing was not found')
@@ -77,7 +77,7 @@ describe('ValidationPanel', () => {
       ondismiss: () => {},
     })
     expect(
-      screen.getByRole('list', { name: 'what a run will do' }).textContent,
+      screen.getByRole('list', { name: 'what a job will do' }).textContent,
     ).toContain('1 step')
   })
 
@@ -90,7 +90,7 @@ describe('ValidationPanel', () => {
       ondismiss: () => {},
     })
     expect(
-      screen.queryByRole('list', { name: 'what a run will do' }),
+      screen.queryByRole('list', { name: 'what a job will do' }),
     ).toBeNull()
   })
 })

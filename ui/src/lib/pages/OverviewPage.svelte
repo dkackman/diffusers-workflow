@@ -19,6 +19,7 @@
   import Skeleton from '../ui/Skeleton.svelte'
   import { WORKSPACE } from '../references'
   import { formatBytes } from '../format'
+  import { workflowName } from '../terms'
   import { hiddenWorkspaces, setHidden } from '../hiddenWorkspaces.svelte'
   import { latestProofs } from '../proofs'
   import { wsHref } from '../routes'
@@ -219,7 +220,7 @@
           {#if running}
             <li class="runningnow">
               <span class="chip running">running</span>
-              <span class="wf">{running.workflow}</span>
+              <span class="wf">{workflowName(running)}</span>
               <a class="plain" href={wsHref(name, 'jobs', running.id)}>
                 {running.id}
               </a>
@@ -228,7 +229,7 @@
           {#each finished as job (job.id)}
             <li>
               <span class="chip {job.status}">{job.status}</span>
-              <span class="wf">{job.workflow}</span>
+              <span class="wf">{workflowName(job)}</span>
               <a class="plain" href={wsHref(name, 'jobs', job.id)}>{job.id}</a>
             </li>
           {/each}

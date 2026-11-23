@@ -3,6 +3,7 @@
  * looking at, so the title is where its state has to be. */
 import { formatDuration } from './format'
 import { BASE_TITLE, pageTitle } from './pageFrame.svelte'
+import { workflowName } from './terms'
 import type { HealthInfo, JobDetail } from './types'
 
 export { BASE_TITLE }
@@ -105,8 +106,8 @@ export function percentDone(progress: JobDetail['progress']): number | null {
   return Math.min(99, Math.max(0, Math.floor(done * 100)))
 }
 
-const leaf = (job: TitleJob) =>
-  (job.workflow ?? job.workflow_name ?? 'job').split('/').pop() || 'job'
+// A job is named by its workflow's file, never the JSON id (ui/GLOSSARY.md)
+const leaf = workflowName
 
 /** `base` is the page's own title (`pageTitle`): the job's state goes in
  * front of it, so the tab still says which page it is. */

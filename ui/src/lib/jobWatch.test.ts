@@ -5,6 +5,7 @@ import {
   BASE_TITLE,
   endedSince,
   endedTitle,
+  finishedText,
   nextWatch,
   percentDone,
   runningIds,
@@ -161,5 +162,18 @@ describe('endedTitle', () => {
     expect(endedTitle({ ...base, status: 'cancelled' })).toBe(
       `⊘ wf — ${BASE_TITLE}`,
     )
+  })
+})
+
+describe('finishedText', () => {
+  it('finishedText names the file, not the JSON id', () => {
+    const job = {
+      workflow: 'E2ECard',
+      workflow_name: 'e2e-card',
+      status: 'succeeded',
+      started_at: 10,
+      finished_at: 22,
+    } as unknown as JobDetail
+    expect(finishedText(job).startsWith('e2e-card ')).toBe(true)
   })
 })

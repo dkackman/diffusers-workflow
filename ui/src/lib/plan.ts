@@ -42,7 +42,7 @@ export function describePlan(plan: Plan): PlanLine[] {
     lines.push({
       text:
         cached >= plan.steps
-          ? `all ${steps(plan.steps)} cached - a run generates nothing`
+          ? `all ${steps(plan.steps)} cached - a job generates nothing`
           : `${cached} of ${steps(plan.steps)} cached`,
       tone: 'plain',
     })

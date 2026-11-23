@@ -214,9 +214,7 @@ it('sets the tab title to the workflow file the job ran', async () => {
   }
   render(JobPage, { jobId: 'j1' })
   await waitFor(() =>
-    expect(document.title).toBe(
-      'templates/minimax/storyboard · diffusers-workflow',
-    ),
+    expect(document.title).toBe('storyboard · diffusers-workflow'),
   )
   expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
 })

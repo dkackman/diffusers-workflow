@@ -73,14 +73,14 @@ export class RunCheck {
 
   get verdict(): Verdict | null {
     if (this.error !== null)
-      return { tone: 'bad', text: 'could not check this run' }
+      return { tone: 'bad', text: 'could not check this job' }
     if (!this.validation) return null
     if (!this.validation.valid)
-      return { tone: 'bad', text: 'a run would be refused' }
+      return { tone: 'bad', text: 'a job would be refused' }
     if (this.validation.warnings.length) {
-      return { tone: 'warn', text: 'a run would be admitted, with warnings' }
+      return { tone: 'warn', text: 'a job would be admitted, with warnings' }
     }
-    return { tone: 'good', text: 'a run would be admitted' }
+    return { tone: 'good', text: 'a job would be admitted' }
   }
 
   #schedule(delay: number) {

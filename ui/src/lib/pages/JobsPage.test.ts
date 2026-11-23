@@ -158,6 +158,32 @@ it('hovering a start time gives it to the second, with the finish', async () => 
   expect(title).toContain(`finished ${formatExact(1700000243)}`)
 })
 
+it('rows and the name filter use the file name', async () => {
+  location.hash = '#/ws/default/jobs'
+  data.jobs = [
+    summary({ id: 'c1', workflow: 'E2ECard', workflow_name: 'e2e-card' }),
+    summary({ id: 'o1', workflow: 'Other', workflow_name: 'models/other' }),
+  ]
+  render(JobsPage)
+  await waitFor(() => expect(screen.getByText('e2e-card')).toBeTruthy())
+  expect(screen.queryByText('E2ECard')).toBeNull()
+  expect(screen.getByText('other')).toBeTruthy()
+  const input = screen.getByPlaceholderText('filter by workflow…')
+  await fireEvent.input(input, { target: { value: 'e2e-c' } })
+  expect(screen.getByText('e2e-card')).toBeTruthy()
+  expect(screen.queryByText('other')).toBeNull()
+  location.hash = ''
+})
+
+it('titles the version badge with its ordinal', async () => {
+  data.jobs = [summary({ id: 'v1', workflow_name: 'e2e-card', run_version: 3 })]
+  render(JobsPage)
+  await waitFor(() => expect(screen.getByText('v3')).toBeTruthy())
+  expect(screen.getByText('v3').getAttribute('title')).toBe(
+    '3rd job of this workflow in this folder',
+  )
+})
+
 it('reads its filters from the link and writes them back to it', async () => {
   location.hash = '#/ws/default/jobs?status=failed'
   data.jobs = [

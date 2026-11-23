@@ -408,9 +408,9 @@ test('the workflow page checks a run as you edit, and places each finding', asyn
   await page.goto('/#/workflows/models/z-image')
   const check = page.getByRole('region', { name: 'run check' })
   await expect(
-    check.getByText('a run would be admitted, with warnings'),
+    check.getByText('a job would be admitted, with warnings'),
   ).toBeVisible()
-  await expect(check.getByLabel('what a run will do')).toContainText('about 3 min')
+  await expect(check.getByLabel('what a job will do')).toContainText('about 3 min')
   expect(asked[0].body.workflow_path).toBe('models/z-image')
   expect(asked[0].url).toContain('sizes=false')
   // a hostile warning prints as text
@@ -422,7 +422,7 @@ test('the workflow page checks a run as you edit, and places each finding', asyn
   ).toBeUndefined()
 
   await page.getByLabel('num_inference_steps').fill('0')
-  await expect(check.getByText('a run would be refused')).toBeVisible()
+  await expect(check.getByText('a job would be refused')).toBeVisible()
   await expect(
     page.locator('[data-findings-for="num_inference_steps"]'),
   ).toContainText('must be at least 1')

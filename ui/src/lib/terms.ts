@@ -65,3 +65,25 @@ export const BANNED: Banned[] = [
 
 /** The files allowed to spell a banned term: this list's own */
 export const COPY_OWNERS = new Set(['src/lib/terms.ts'])
+
+/** A job's name: the last segment of the catalog name it ran by
+ * (`workflow_name`, which is the file), else of the JSON id (`workflow`).
+ * The JSON id is secondary text on the job page only. */
+export function workflowName(job: {
+  workflow_name?: string | null
+  workflow?: string | null
+}): string {
+  const name = job.workflow_name || job.workflow || ''
+  return name.split('/').pop() || 'job'
+}
+
+/** 1st, 2nd, 3rd, 4th ... 11th, 12th, 13th ... 21st. */
+export function ordinal(n: number): string {
+  const teen = n % 100 >= 11 && n % 100 <= 13
+  const suffix = teen ? 'th' : (['th', 'st', 'nd', 'rd'][n % 10] ?? 'th')
+  return `${n}${suffix}`
+}
+
+/** The `v<n>` badge's title (ui/GLOSSARY.md, *v2*). */
+export const versionTitle = (n: number): string =>
+  `${ordinal(n)} job of this workflow in this folder`

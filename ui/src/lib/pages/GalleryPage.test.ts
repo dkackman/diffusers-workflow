@@ -626,7 +626,7 @@ it('shows no version for a flat-layout file, which belongs to no run', async () 
 })
 
 it('names the run and its version in the details of the selected file', async () => {
-  // "Look at version 4" ends here: the pane says which run it reached, so
+  // "Look at v4" ends here: the pane says which job it reached, so
   // the number in the grid can be checked against the one quoted
   listing.files = [
     {
@@ -641,7 +641,10 @@ it('names the run and its version in the details of the selected file', async ()
   await fireEvent.click(screen.getByText('film.mp4'))
   const detail = document.querySelector('.detail') as HTMLElement
   // One span holding both forms, so the query is over its whole text
-  expect(detail.textContent).toContain('version 4')
+  expect(detail.textContent).toContain('v4')
+  expect(
+    detail.querySelector('[title^="4th job"]')?.getAttribute('title'),
+  ).toBe('4th job of this workflow in this folder')
   expect(detail.querySelector('code')?.textContent).toBe('r2')
 })
 

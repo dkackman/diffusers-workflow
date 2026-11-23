@@ -25,7 +25,7 @@
       aria-pressed={roles.includes(which)}
       onclick={() => toggleRole(which)}
       title={which === 'final'
-        ? 'what the runs were for'
+        ? 'what the jobs were for'
         : "the steps' working files, kept along the way"}
     >
       {which === 'final' ? 'Final' : 'Intermediate'}

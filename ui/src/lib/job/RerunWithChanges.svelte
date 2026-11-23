@@ -101,7 +101,7 @@
   <button
     class="quiet withicon"
     onclick={start}
-    title="queue this job again with some of its variables changed - what you leave blank keeps this run's value"
+    title="queue this job again with some of its variables changed - what you leave blank keeps this job's value"
   >
     <SlidersHorizontal size={14} />Run again with changes…
   </button>
@@ -122,8 +122,8 @@
 <Modal bind:open label="Run again with changes" wide>
   <h2>Run again with changes</h2>
   <p class="hint muted">
-    Each field shows what this run used. Type only what should change - a blank
-    field keeps this run's value, the drawn seed included.
+    Each field shows what this job used. Type only what should change - a blank
+    field keeps this job's value, the drawn seed included.
   </p>
   <VariablesForm
     mode="override"
@@ -141,7 +141,7 @@
       aria-busy={queueing.busy}
       title={changedCount
         ? `queue a rerun changing ${Object.keys(changed).join(', ')}`
-        : 'nothing changed - type a value that differs from this run'}
+        : 'nothing changed - type a value that differs from this job'}
     >
       {queueing.busy ? 'Queueing…' : 'Queue'}
     </button>
