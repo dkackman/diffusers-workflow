@@ -7,7 +7,11 @@ import {
   workspaceConfirm,
 } from './destructive'
 
-const notify = vi.hoisted(() => ({ undo: vi.fn(), failure: vi.fn() }))
+const notify = vi.hoisted(() => ({
+  undo: vi.fn(),
+  failure: vi.fn(),
+  error: vi.fn(),
+}))
 vi.mock('./toast', () => ({ notify }))
 
 it('one file, one starred, several', () => {
@@ -119,4 +123,33 @@ it('an undo toast reverts, and a revert that fails is reported', async () => {
   })
   notify.undo.mock.calls[2][1]()
   await vi.waitFor(() => expect(notify.failure).toHaveBeenCalledTimes(2))
+})
+
+it('an undo runs at most once: a second click on its fading toast does nothing', async () => {
+  notify.undo.mockClear()
+  const revert = vi.fn()
+  undoToast('Removed step b', revert)
+  const press = notify.undo.mock.calls[0][1]
+  press()
+  press()
+  await vi.waitFor(() => expect(revert).toHaveBeenCalledTimes(1))
+  await new Promise((r) => setTimeout(r, 0))
+  expect(revert).toHaveBeenCalledTimes(1)
+})
+
+it('an undo is refused, with a notice, once its target is no longer open', async () => {
+  notify.undo.mockClear()
+  let open = 'a'
+  const revert = vi.fn()
+  const target = { now: () => open, away: 'Nothing undone: elsewhere.' }
+  undoToast('Removed step b', revert, target)
+  open = 'b'
+  notify.undo.mock.calls[0][1]()
+  await new Promise((r) => setTimeout(r, 0))
+  expect(revert).not.toHaveBeenCalled()
+  expect(notify.error).toHaveBeenCalledWith('Nothing undone: elsewhere.')
+
+  undoToast('Removed step c', revert, target)
+  notify.undo.mock.calls[1][1]()
+  await vi.waitFor(() => expect(revert).toHaveBeenCalledTimes(1))
 })

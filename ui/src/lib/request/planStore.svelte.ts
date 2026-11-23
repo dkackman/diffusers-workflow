@@ -301,7 +301,9 @@ export class PlanStore {
       refusal,
       key,
       title: entry.seen?.title ?? key ?? 'this request',
-      entry: culprit(basis.history, entry.since),
+      // A state moved on may have been read before this write was asked
+      // for: the latest write names it, not only a later one
+      entry: culprit(basis.history, refusal === 'moved_on' ? 0 : entry.since),
       changes,
     }
     this.conflicts = [...this.conflicts, conflict]

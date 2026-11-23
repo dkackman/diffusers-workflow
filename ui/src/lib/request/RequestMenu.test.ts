@@ -4,7 +4,8 @@ import { ApiError } from '../apiErrors'
 import RequestMenu from './RequestMenu.svelte'
 import type { LedgerRequest } from '../types'
 import { fakeLedger } from './fakeLedger'
-import { item, request } from './fixtures'
+import { entry, item, request } from './fixtures'
+import { goneText } from './conflict'
 import { PlanStore } from './planStore.svelte'
 
 const notify = vi.hoisted(() => ({
@@ -166,7 +167,80 @@ it('an Undo the store gives up on says the plan changed, not a raw error', async
   await vi.waitFor(() => expect(notify.undo).toHaveBeenCalledTimes(1))
   notify.undo.mock.calls[0][1]()
   await vi.waitFor(() => expect(notify.error).toHaveBeenCalled())
-  expect(push).toHaveBeenLastCalledWith({ kind: 'state', state: 'open' })
+  expect(push).toHaveBeenLastCalledWith({
+    kind: 'state',
+    state: 'open',
+    from: 'abandoned',
+  })
   expect(notify.error.mock.calls[0][0]).toMatch(/^The plan changed/)
   expect(notify.failure).not.toHaveBeenCalled()
+})
+
+/** The agent abandons the request after the page marked it done */
+function agentAbandons(ledger: ReturnType<typeof fakeLedger>) {
+  const revision = ledger.current.revision + 1
+  ledger.current = {
+    ...ledger.current,
+    state: 'abandoned',
+    revision,
+    history: [...ledger.current.history, entry(revision, 'agent', 'abandoned')],
+  }
+}
+
+async function expectUndoRefused(
+  store: PlanStore,
+  ledger: ReturnType<typeof fakeLedger>,
+) {
+  await vi.waitFor(() => expect(store.conflicts).toHaveLength(1))
+  expect(store.queue).toHaveLength(0)
+  expect(ledger.current.state).toBe('abandoned')
+  const [conflict] = store.conflicts
+  expect(conflict.refusal).toBe('moved_on')
+  expect(goneText(conflict)).toMatch(
+    /^Undo not applied: the agent changed the state of this request since/,
+  )
+  expect(notify.failure).not.toHaveBeenCalled()
+}
+
+it('an Undo over a state the agent set since, met as a 409, writes nothing', async () => {
+  const { ledger, store } = realStore()
+  await pick('Mark done')
+  await vi.waitFor(() => expect(notify.undo).toHaveBeenCalledTimes(1))
+  agentAbandons(ledger)
+  const puts = ledger.puts.length
+  notify.undo.mock.calls[0][1]()
+  await expectUndoRefused(store, ledger)
+  // Only the write the server refused went out
+  expect(ledger.puts).toHaveLength(puts + 1)
+})
+
+it('an Undo over a state the agent set since, already read, writes nothing', async () => {
+  const { ledger, store } = realStore()
+  await pick('Mark done')
+  await vi.waitFor(() => expect(notify.undo).toHaveBeenCalledTimes(1))
+  agentAbandons(ledger)
+  // The page's own refresh took the agent's write: there is no 409 to meet
+  store.take(ledger.current)
+  const puts = ledger.puts.length
+  notify.undo.mock.calls[0][1]()
+  await expectUndoRefused(store, ledger)
+  expect(ledger.puts).toHaveLength(puts)
+})
+
+it('an Undo pressed once another request is open does nothing to it', async () => {
+  const { ledger, store } = realStore()
+  await pick('Mark done')
+  await vi.waitFor(() => expect(notify.undo).toHaveBeenCalledTimes(1))
+  // The page goes on to the next request, which is done too
+  store.reset()
+  store.take({ ...ledger.current, id: 'r2' })
+  const puts = ledger.puts.length
+  notify.undo.mock.calls[0][1]()
+  await vi.waitFor(() =>
+    expect(notify.error).toHaveBeenCalledWith(
+      'Nothing undone: another request is open now.',
+    ),
+  )
+  expect(ledger.puts).toHaveLength(puts)
+  expect(store.read?.state).toBe('done')
 })

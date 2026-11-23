@@ -13,6 +13,7 @@ import { ApiError } from '../apiErrors'
 import { chooseDialog, confirmDialog } from '../confirm.svelte'
 import { changeOnBlur } from '../test/changeOnBlur'
 import { feed } from '../test/feedMock'
+import { notify } from '../toast'
 
 // EditorPage talks to the server on mount (pipeline/class/task catalogs,
 // the workflow listing, the prompt library) purely to feed forms the flow
@@ -640,5 +641,53 @@ describe('EditorPage remote change', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'Load theirs' }))
     await waitFor(() => expect(idField().value).toBe('Theirs'))
     expect(screen.queryByRole('button', { name: 'Load theirs' })).toBeNull()
+  })
+})
+
+describe('EditorPage undo', () => {
+  const stepNames = () =>
+    Array.from(document.querySelectorAll('.steprow')).map((row) =>
+      row.id.replace(/^step-/, ''),
+    )
+
+  it('an Undo pressed after switching workflow leaves the other one alone', async () => {
+    const undo = vi.spyOn(notify, 'undo')
+    const error = vi.spyOn(notify, 'error')
+    try {
+      vi.mocked(api.getWorkflow).mockResolvedValueOnce({
+        definition: {
+          id: 'A',
+          steps: [
+            { name: 'generate', pipeline: {} },
+            { name: 'upscale', pipeline: {} },
+          ],
+        },
+        origin: 'workspace',
+        writable: true,
+        etag: '"ea"',
+      } as never)
+      const { rerender } = render(EditorPage, { name: 'a' })
+      await waitFor(() => expect(stepNames()).toEqual(['generate', 'upscale']))
+      await fireEvent.click(
+        screen.getAllByRole('button', { name: 'remove step' })[1],
+      )
+      await waitFor(() => expect(undo).toHaveBeenCalledTimes(1))
+      await rerender({ name: 'b' })
+      await waitFor(() =>
+        expect(
+          (screen.getByLabelText('workflow id') as HTMLInputElement).value,
+        ).toBe('ZImage'),
+      )
+      undo.mock.calls[0][1]()
+      await waitFor(() =>
+        expect(error).toHaveBeenCalledWith(
+          'Nothing undone: another workflow, or a newer copy of this one, has opened since.',
+        ),
+      )
+      expect(stepNames()).toEqual(['generate'])
+    } finally {
+      undo.mockRestore()
+      error.mockRestore()
+    }
   })
 })

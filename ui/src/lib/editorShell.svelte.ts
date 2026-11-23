@@ -29,6 +29,7 @@ import { addLeaveGuard } from './router.svelte'
 import { describeError } from './apiErrors'
 import { resource } from './resource.svelte'
 import { notify } from './toast'
+import type { UndoTarget } from './destructive'
 
 export type EditorView = 'form' | 'split' | 'json' | 'flow'
 
@@ -94,6 +95,17 @@ function successorOf(was: HTMLElement, root: HTMLElement | null) {
       ? `[name="${CSS.escape(name)}"]`
       : ''
   return selector ? root?.querySelector<HTMLElement>(selector) : null
+}
+
+// Every document an editor opens - another file, a newer copy, a new
+// draft - counts here; an edit in place does not
+let opened = 0
+
+/** An editor's Undo is for the document it was made in: one opened since
+ * refuses it, so it never lands in another workflow */
+export const OPEN_DOCUMENT: UndoTarget = {
+  now: () => opened,
+  away: 'Nothing undone: another workflow, or a newer copy of this one, has opened since.',
 }
 
 export class DocumentEditor {
@@ -309,6 +321,7 @@ export class DocumentEditor {
   ) {
     this.doc = doc
     this.baseline = JSON.stringify(doc)
+    opened++
     // The last document's broken draft is not this one's: the JSON view
     // mirrors the document just opened
     this.jsonParseFailed = false

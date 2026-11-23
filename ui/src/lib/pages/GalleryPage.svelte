@@ -118,11 +118,17 @@
     if (selected?.name === name) selected = { ...selected, starred: next }
     return { name, next }
   }
+  // A star is written in the open workspace, so its Undo is held to it
+  const STAR_TARGET = {
+    now: () => workspace.current,
+    away: 'Nothing undone: another workspace is open now.',
+  }
   const starring = action(setStar, {
     doing: 'star that file',
     undo: ({ name, next }) => ({
       message: `${next ? 'Starred' : 'Unstarred'} ${name.split('/').pop()}`,
       revert: () => setStar(name, !next),
+      target: STAR_TARGET,
     }),
   })
   const toggleStar = () =>
@@ -132,10 +138,9 @@
   // name alone reads the run directory as one more folder
   const folderByName = $derived(new Map(visible.map((f) => [f.name, f.folder])))
 
-  const downloading = action(
-    (names: string[]) => api.archiveOutputs(names),
-    { doing: 'download the picked files' },
-  )
+  const downloading = action((names: string[]) => api.archiveOutputs(names), {
+    doing: 'download the picked files',
+  })
   const downloadPicked = () =>
     picks.names.length > 0 && downloading.run(picks.names)
 

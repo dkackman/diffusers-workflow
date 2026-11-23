@@ -6,17 +6,38 @@
 // this module fails lint). A caller runs the spec through action()'s
 // `confirm`, or confirmDialog(spec.message, spec). What can be put back
 // is not asked about: it acts at once and offers Undo (`undoToast`).
-import type { ConfirmSpec } from './action.svelte'
 import { formatBytes } from './format'
 import { notify } from './toast'
 
+/** A question asked before an action (action()'s `confirm`) */
+export type ConfirmSpec = {
+  message: string
+  title?: string
+  confirmLabel: string
+  cancelLabel?: string
+  danger?: boolean
+}
+
+/** What an undo was made for: `now` is read when the undo is offered and
+ * again when it is pressed, and a different answer - another workflow,
+ * request or workspace open by then - refuses it with `away` */
+export type UndoTarget = { now: () => unknown; away: string }
+
 /** A reversible action done at once: the toast that takes it back for
- * UNDO_MS. A revert that fails is reported, never thrown */
+ * UNDO_MS. It runs at most once - a dismissed toast's button still takes a
+ * second click while it fades - and only on the thing it was made for. A
+ * revert that fails is reported, never thrown */
 export function undoToast(
   message: string,
   revert: () => void | Promise<unknown>,
+  target?: UndoTarget,
 ): void {
+  const was = target?.now()
+  let used = false
   notify.undo(message, () => {
+    if (used) return
+    used = true
+    if (target && target.now() !== was) return notify.error(target.away)
     Promise.resolve()
       .then(revert)
       .catch((e) => notify.failure('undo that', e))

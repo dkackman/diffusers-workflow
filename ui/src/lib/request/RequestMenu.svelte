@@ -28,11 +28,17 @@
   } = $props()
 
   /** A state write through the store, which reads again and re-applies it
-   * when the plan moved on; whether it was written. Refused for good, it
-   * says why here and is never thrown */
-  async function pushState(state: LedgerRequest['state']): Promise<boolean> {
+   * when the plan moved on; whether it was written. `from` is the state it
+   * must find there (an Undo's). Refused for good, it says why here, or
+   * through the store's notice when the state moved on, and never throws */
+  async function pushState(
+    state: LedgerRequest['state'],
+    from?: LedgerRequest['state'],
+  ): Promise<boolean> {
     try {
-      const outcome = await store.push({ kind: 'state', state })
+      const outcome = await store.push(
+        from ? { kind: 'state', state, from } : { kind: 'state', state },
+      )
       return outcome.status === 'saved'
     } catch (error) {
       if (error instanceof ApiError && error.code === 'stale_revision') {
@@ -52,13 +58,21 @@
       abandoned: (title) => `Abandoned "${title}"`,
     }
 
+  // The store is the page's, and the page is reused for the next request:
+  // an Undo is held to the request it was made on
+  const ON_THIS_REQUEST = {
+    now: () => store.read?.id ?? null,
+    away: 'Nothing undone: another request is open now.',
+  }
+
   /** Mark done and Abandon act at once and offer Undo, which writes the
-   * state it had back through the same store path; Reopen just writes */
+   * state it had back through the same store path - only over the state
+   * this wrote, so a change the agent made since stays; Reopen just writes */
   async function setState(state: LedgerRequest['state']) {
     const { title, state: previous } = request
     const said = UNDONE[state]
     if (!(await pushState(state)) || !said) return
-    undoToast(said(title), () => pushState(previous))
+    undoToast(said(title), () => pushState(previous, state), ON_THIS_REQUEST)
   }
 
   const REFUSED: Record<string, string> = {

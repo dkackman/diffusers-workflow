@@ -78,3 +78,24 @@ it('an undone step whose name was taken meanwhile comes back renamed', async () 
   await tick()
   expect(names()).toEqual(['process-2', 'z', 'process'])
 })
+
+it('a double click on Undo restores the step once', async () => {
+  render(StepList, {
+    steps: [taskStep('a'), taskStep('b')],
+    modes: new StepModes(() => 'test-step-modes'),
+    folder: '',
+    flow: [],
+    problemsByStep: new Map(),
+    stepReferences: [],
+    hovered: null,
+  })
+  await fireEvent.click(
+    screen.getAllByRole('button', { name: 'remove step' })[1],
+  )
+  const press = notify.undo.mock.calls[0][1]
+  press()
+  press()
+  await tick()
+  await new Promise((r) => setTimeout(r, 0))
+  expect(names()).toEqual(['a', 'b'])
+})

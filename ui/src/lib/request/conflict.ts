@@ -94,6 +94,8 @@ export function goneText(conflict: Conflict): string {
       return `Not applied: ${who(entry)} dropped ${title}${inRevision(entry)}.`
     case 'attempt_gone':
       return `Not applied: that take is no longer one of ${title}'s takes${aside(entry)}.`
+    case 'moved_on':
+      return `Undo not applied: ${who(entry)} changed the state of ${title} since${aside(entry)}.`
     case 'anchor_gone':
       return `Not applied: the item ${title} was moved beside is no longer in the plan${aside(entry)}.`
     default:

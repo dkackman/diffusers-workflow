@@ -810,6 +810,7 @@ it('an undo that fails is reported, not thrown', async () => {
   // this test with the failure reported is the whole claim
   notifyUndo.mock.calls[0][1]()
   await waitFor(() => expect(notifyFailure).toHaveBeenCalled())
+  expect(notifyFailure.mock.calls[0][0]).toBe('undo that')
   expect(notifyFailure.mock.calls[0][1]).toBe(gone)
   await settle()
   expect(starMark('a.png')).toBeNull()

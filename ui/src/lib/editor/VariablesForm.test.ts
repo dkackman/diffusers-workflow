@@ -310,9 +310,9 @@ describe('VariablesForm removing a variable', () => {
     notify.undo.mock.calls[0][1]()
     await tick()
     expect(listed()).toEqual(['a', 'b', 'c'])
-    expect(
-      (document.getElementById('v-b') as HTMLTextAreaElement).value,
-    ).toBe('two')
+    expect((document.getElementById('v-b') as HTMLTextAreaElement).value).toBe(
+      'two',
+    )
 
     // Removed again, then added again by hand before Undo is pressed
     await fireEvent.click(
@@ -328,9 +328,27 @@ describe('VariablesForm removing a variable', () => {
     await tick()
     // The key added again is left as it is, and the toast says so
     expect(listed()).toEqual(['b', 'c', 'a'])
-    expect(
-      (document.getElementById('v-a') as HTMLTextAreaElement).value,
-    ).toBe('')
+    expect((document.getElementById('v-a') as HTMLTextAreaElement).value).toBe(
+      '',
+    )
     expect(notify.success).toHaveBeenCalledWith('a is already back')
+  })
+
+  it('a double click on Undo restores the variable once', async () => {
+    render(
+      VariablesForm,
+      props({ variables: { a: 1, b: 'two' }, backendVariables: new Set() }),
+    )
+    await fireEvent.click(
+      screen.getAllByRole('button', { name: 'remove this variable' })[1],
+    )
+    const press = notify.undo.mock.calls[0][1]
+    press()
+    press()
+    await tick()
+    await new Promise((r) => setTimeout(r, 0))
+    expect(listed()).toEqual(['a', 'b'])
+    // The second click is not taken for the key being back already
+    expect(notify.success).not.toHaveBeenCalled()
   })
 })

@@ -3,6 +3,7 @@
   import StepEditor from './StepEditor.svelte'
   import { emptyStep, emptyTaskStep, emptyWorkflowStep } from '../editor'
   import { undoToast } from '../destructive'
+  import { OPEN_DOCUMENT } from '../editorShell.svelte'
   import type { StepFlow } from '../flow'
   import type { StepModes } from '../stepModes.svelte'
 
@@ -57,13 +58,17 @@
     const list = steps ?? []
     const removed = $state.snapshot(list[index])
     steps = list.filter((_, at) => at !== index)
-    undoToast(`Removed step ${removed.name}`, () => {
-      const now = steps ?? []
-      const step = { ...removed, name: freeName(removed.name) }
-      const at = Math.min(index, now.length)
-      steps = [...now.slice(0, at), step, ...now.slice(at)]
-      modes.mark(step.name, 'full')
-    })
+    undoToast(
+      `Removed step ${removed.name}`,
+      () => {
+        const now = steps ?? []
+        const step = { ...removed, name: freeName(removed.name) }
+        const at = Math.min(index, now.length)
+        steps = [...now.slice(0, at), step, ...now.slice(at)]
+        modes.mark(step.name, 'full')
+      },
+      OPEN_DOCUMENT,
+    )
   }
 
   function moveStep(index: number, delta: number) {
