@@ -37,6 +37,15 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **Cold install drill** (#1525, stages #1548-#1550), built 2026-11-23.
+  README *Getting started* gained per-platform prerequisites, the clone URL,
+  `--scope user`, a labelled `/plugin` block and a first-run line;
+  `install.sh` builds the web UI. From those steps alone a bare CUDA
+  container (12 commands, about 6 min), the Docker image (8 commands, about
+  6 min) and a fresh macOS user on an M4 Pro (10 commands, 3 min 56 s) each
+  reached a first image with no stalls. The CUDA 12 fallback, a desktop
+  Ubuntu and the Mac Homebrew path were not exercised:
+  `complete/cold-install-drill-complete.md`.
 - **H3 DMAD step-distillation LoRA probe** (#1579, stage #1584), closed at
   the load check 2026-11-23: don't adopt. `ZhengmingYu/DMAD`'s 4-step H3
   file (pinned `b08c2bf`) loads 0 of its 624 tensors in diffusers. Its keys
