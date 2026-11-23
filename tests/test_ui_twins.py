@@ -338,5 +338,8 @@ def test_the_ui_upload_extensions_match_the_server():
     from dw.server.routes.assets import ALLOWED_UPLOAD_EXTENSIONS
 
     ui = ts_string_array(UI_LIB / "assetlib.svelte.ts", "UPLOAD_EXTENSIONS")
-    norm = lambda exts: {"." + e.lower().lstrip(".") for e in exts}
+
+    def norm(exts):
+        return {"." + e.lower().lstrip(".") for e in exts}
+
     assert norm(ui) == norm(ALLOWED_UPLOAD_EXTENSIONS)
