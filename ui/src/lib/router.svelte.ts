@@ -238,6 +238,11 @@ export function restoreScroll(index: number, { ms = RESTORE_MS } = {}) {
   stopRestore()
   const target = scrolls.get(index) ?? 0
   let set = -1
+  // Scroll anchoring off while it runs: content that grows above the list
+  // would make the browser shift the page to keep its anchor in view, which
+  // reads as the user's scroll and ends the restore short of its target
+  const root = document.documentElement.style
+  root.overflowAnchor = 'none'
   // the arrows reach `stop` and `step` only once they are defined
   const timer = setTimeout(() => stop(), ms)
   // jsdom has no ResizeObserver: the first step stands
@@ -247,6 +252,7 @@ export function restoreScroll(index: number, { ms = RESTORE_MS } = {}) {
       : new ResizeObserver(() => step())
   const stop = () => {
     clearTimeout(timer)
+    root.overflowAnchor = ''
     observer?.disconnect()
     for (const type of USER_SCROLLS) window.removeEventListener(type, stop)
     if (ending === stop) ending = () => {}

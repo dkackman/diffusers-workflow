@@ -1,12 +1,14 @@
 // @vitest-environment node
 // The copy rules: what each banned term catches and spares, and that the
 // glossary names every replacement. `banned_terms` in arch-metrics.mjs counts
-// the matches in the source; this file pins the patterns themselves.
+// the matches in the source; this file pins the patterns themselves, and
+// its last case is the phase gate: no copy in the source breaks them.
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { BANNED } from '../src/lib/terms'
+import { measure } from './arch-metrics.mjs'
 
 const UI = join(dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -50,4 +52,18 @@ describe('the banned terms', () => {
     for (const { id, use } of BANNED)
       expect(glossary.includes(use), `${id}: ${use}`).toBe(true)
   })
+})
+
+describe('the source', () => {
+  it('no copy breaks the glossary', async () => {
+    const found: string[] = (await measure()).detail.banned_terms
+    const use = new Map(BANNED.map((b) => [b.id, b.use]))
+    const lines = found.map(
+      (at) => `${at}: use "${use.get(at.split(' ').pop()!)}"`,
+    )
+    expect(
+      found,
+      `copy that breaks ui/GLOSSARY.md:\n${lines.join('\n')}`,
+    ).toEqual([])
+  }, 60_000)
 })

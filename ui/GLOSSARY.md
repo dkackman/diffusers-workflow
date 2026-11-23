@@ -36,3 +36,22 @@ The words the web UI uses for each concept, and the ones it does not. The vocabu
 | The version title | `<ordinal> job of this workflow in this folder` | "2nd job of this workflow in this folder" | "run 2", "version 2" |
 
 ## Before you write markup
+
+The piece each concept is built from. Reach for it before writing new markup or a new style; paths are under `ui/`.
+
+| Concept | Use | Where |
+| --- | --- | --- |
+| A page's head (back link, h1 and tab title, count, filter, actions) | `PageHeader` | `src/lib/ui/PageHeader.svelte` |
+| A destructive action | `destroyConfirm` (a file, an asset, a workflow, a prompt, a request, a note), `serverConfirm` (a change to the server), or `undoToast` for what can be put back, each through `action()`'s `confirm` or `undo` | `src/lib/destructive.ts`, `src/lib/action.svelte.ts` |
+| A button that changes server state | `action()`, or `ActionButton` for a plain one | `src/lib/action.svelte.ts`, `src/lib/ui/ActionButton.svelte` |
+| Engine text (a traceback, a server detail) | `Details` behind a plain line; an inline failure is `ErrorLine` | `src/lib/ui/Details.svelte`, `src/lib/ui/ErrorLine.svelte` |
+| A name to type | `nameDialog` | `src/lib/confirm.svelte.ts` |
+| A switch between a few views, or a filter chip | `Segmented`; `button.togglechip` | `src/lib/ui/Segmented.svelte`; `src/patterns.css` |
+| A job's status | `StatusChip` | `src/lib/ui/StatusChip.svelte` |
+| A group heading that folds | `GroupHeading` | `src/lib/ui/GroupHeading.svelte` |
+| A filter that survives Back | `hashState(key, initial, codec)` | `src/lib/router.svelte.ts` |
+| A label and field grid | `.formgrid` | `src/patterns.css` |
+| A table | `table.datatable` in `.tablewrap` | `src/patterns.css` |
+| A line of tone | `.error`, `.warn`, `.bad`, `.good`, `.hint` | `src/patterns.css` |
+| The person's note | `NoteEditor`, whose draft is a `NoteDraft` | `src/lib/ui/NoteEditor.svelte`, `src/lib/noteDraft.svelte.ts` |
+| A document editor's file bar | `DocumentFileBar` | `src/lib/editor/DocumentFileBar.svelte` |

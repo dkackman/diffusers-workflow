@@ -590,6 +590,32 @@ it('restoreScroll waits for the page to be tall enough, and stops on a user scro
   expect(observers.size).toBe(0)
 })
 
+it('restoreScroll turns scroll anchoring off while it runs, and back on however it ends', async () => {
+  const { restoreScroll, stopRestore } = await loadRouter()
+  const at = await leftAt(900, '#/ws/studio/jobs', '#/ws/studio/jobs/j1')
+  spyScroll()
+  const anchoring = () => document.documentElement.style.overflowAnchor
+  // a banner shown above the list while it loads would otherwise make the
+  // browser shift the page, which reads as the user's scroll
+  pageHeight(innerHeight + 300)
+  restoreScroll(at)
+  expect(anchoring()).toBe('none')
+  pageHeight(innerHeight + 2000)
+  resized()
+  expect(anchoring()).toBe('')
+
+  // a restore that ends on the user's scroll, or on a new navigation, too
+  pageHeight(innerHeight + 300)
+  restoreScroll(at)
+  expect(anchoring()).toBe('none')
+  window.dispatchEvent(new WheelEvent('wheel'))
+  expect(anchoring()).toBe('')
+
+  restoreScroll(at)
+  stopRestore()
+  expect(anchoring()).toBe('')
+})
+
 it('restoreScroll waits for a slow list: it grows tall after more than a second, and Back still lands', async () => {
   const { placeScroll } = await loadRouter()
   const scrollTo = spyScroll()
