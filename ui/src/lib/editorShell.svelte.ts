@@ -8,12 +8,21 @@
 // commits only on blur.
 // Constructed during a page's component init, since it registers the
 // JSON-mirror, tab-close and leave-guard effects there.
-import { tick } from 'svelte'
+// `watchRemote` (also called at init) follows the server's copy: when the
+// change feed moves the document's kind it reads the document again, and a
+// newer ETag reloads an unedited document with a toast, or holds the read
+// and sets `remote` 'diverged' for the page's banner (ui/RemoteChanged):
+// Load theirs takes the held read, Keep mine leaves the ETag alone so the
+// next save meets the `stale_write` question. A read begun before a load
+// or a save is not news, nor one at the ETag the user already declined.
+import { tick, untrack } from 'svelte'
 import type { WritePreconditions } from './apiRequest'
+import type { ChangeKind } from './changes.svelte'
 import { confirmDialog } from './confirm.svelte'
 import { isNameSegment } from './names'
 import { addLeaveGuard } from './router.svelte'
 import { describeError } from './apiErrors'
+import { resource } from './resource.svelte'
 import { notify } from './toast'
 
 export type EditorView = 'form' | 'split' | 'json' | 'flow'
@@ -27,6 +36,19 @@ export type LoadOptions = {
   path?: string | null
   writable?: boolean
 }
+
+/** The document as the server holds it now, read again on a feed move */
+export type RemoteRead = {
+  doc: Record<string, any>
+  etag: string | null
+  writable: boolean
+}
+
+/** A re-read, with the version of the editor and the path it was asked at */
+type Arrival = RemoteRead & { version: number; path: string | null }
+
+/** The toast an unedited document's reload shows */
+export const REMOTE_RELOADED = 'Updated by an agent or another tab'
 
 // The views that show the JSON draft, which a parse failure keeps open
 const JSON_VIEWS: readonly EditorView[] = ['json', 'split']
@@ -88,6 +110,8 @@ export class DocumentEditor {
   etag = $state<string | null>(null)
   loadedPath = $state<string | null>(null)
   writable = $state(true)
+  // Whether the server's copy moved on under unsaved edits (watchRemote)
+  remote = $state<'same' | 'diverged'>('same')
 
   readonly canWrite = $derived(
     this.loadState === 'new' || this.loadState === 'loaded',
@@ -126,6 +150,12 @@ export class DocumentEditor {
   #viewKey: string
   // Not reactive: nothing renders from it
   #flushers: Array<() => void> = []
+  // The newer read a diverged document holds for Load theirs, and the ETag
+  // Keep mine declined; neither renders
+  #theirs: Arrival | null = null
+  #declined: string | null = null
+  // Moved by every load and save, so a re-read begun before one is dropped
+  #version = 0
 
   constructor({
     viewKey,
@@ -278,6 +308,76 @@ export class DocumentEditor {
     this.etag = etag
     this.loadedPath = path
     this.writable = writable
+    this.#settled()
+  }
+
+  /** The document on screen is the server's again: no banner, no held
+   * read, and any re-read in flight is from before */
+  #settled() {
+    this.#version++
+    this.#theirs = null
+    this.#declined = null
+    this.remote = 'same'
+  }
+
+  /** Follow the server's copy of the document through the `kind` feed,
+   * re-reading it with `read` (header above). Call during component init. */
+  watchRemote({
+    kind,
+    read,
+  }: {
+    kind: ChangeKind
+    read: () => Promise<RemoteRead>
+  }): void {
+    const reread = resource(() => this.#reread(read), {
+      watch: [kind],
+      lazy: true,
+    })
+    $effect(() => {
+      const arrived = reread.data
+      if (arrived) untrack(() => this.#arrived(arrived))
+    })
+  }
+
+  /** Nothing to compare while no document is open or a save is writing */
+  async #reread(read: () => Promise<RemoteRead>): Promise<Arrival | null> {
+    if (this.loadState !== 'loaded' || this.busy) return null
+    const version = this.#version
+    const path = this.loadedPath
+    return { ...(await read()), version, path }
+  }
+
+  #arrived(read: Arrival) {
+    const news =
+      read.version === this.#version &&
+      read.path === this.loadedPath &&
+      this.loadState === 'loaded' &&
+      !this.busy &&
+      read.etag !== this.etag &&
+      read.etag !== this.#declined
+    if (!news) return
+    if (this.unsaved()) {
+      this.#theirs = read
+      this.remote = 'diverged'
+      return
+    }
+    this.load(read.doc, read)
+    notify.success(REMOTE_RELOADED)
+  }
+
+  /** Load theirs: the newer read replaces the edits. */
+  takeTheirs() {
+    const theirs = this.#theirs
+    if (theirs) this.load(theirs.doc, theirs)
+    this.remote = 'same'
+  }
+
+  /** Keep mine: the edits stay, and so does the ETag they were read at, so
+   * the next save asks before it replaces the newer copy. */
+  keepMine() {
+    this.#declined = this.#theirs?.etag ?? null
+    this.#theirs = null
+    this.remote = 'same'
   }
 
   /** The read failed: nothing to edit, and nothing a save may write. */
@@ -309,6 +409,7 @@ export class DocumentEditor {
   /** Record `baseline` (the document as it is now) as the saved one. */
   markSaved(baseline: string = this.serialized()) {
     this.baseline = baseline
+    this.#settled()
   }
 
   /** The folder a save lands in - a new folder's typed name, trimmed. */

@@ -23,11 +23,13 @@
     deleteWarning,
     openPrompt,
     savePromptAt,
+    watchPrompt,
     withSavedPrompt,
   } from '../promptFile'
   import { resource } from '../resource.svelte'
   import LoadState from '../ui/LoadState.svelte'
   import LoadFailed from '../ui/LoadFailed.svelte'
+  import RemoteChanged from '../ui/RemoteChanged.svelte'
   import { writableRoot } from '../libraries'
   import DownloadLink from '../DownloadLink.svelte'
   import { go, renameRoute } from '../router.svelte'
@@ -42,11 +44,13 @@
 
   let { name = '' }: { name?: string } = $props()
 
-  const shell = new DocumentEditor({
-    viewKey: 'dw-prompt-editor-view',
-    views: ['form', 'split', 'json'],
-    label: (): string => shell.savePath() ?? 'this prompt',
-  })
+  const shell = watchPrompt(
+    new DocumentEditor({
+      viewKey: 'dw-prompt-editor-view',
+      views: ['form', 'split', 'json'],
+      label: (): string => shell.savePath() ?? 'this prompt',
+    }),
+  )
   shell.doc = emptyPrompt()
   // The listing: the folder picker's files, where a new prompt saves, and
   // each prompt's intended model for the enhancer
@@ -309,6 +313,13 @@
         : undefined}
     />
   {:else}
+    {#if shell.remote === 'diverged'}
+      <RemoteChanged
+        label={current}
+        ontheirs={() => shell.takeTheirs()}
+        onmine={() => shell.keepMine()}
+      />
+    {/if}
     <!-- The listing only feeds the folder picker: loading shows nothing -->
     <LoadState of={listing} label="the prompt list">
       {#snippet skeleton()}{/snippet}

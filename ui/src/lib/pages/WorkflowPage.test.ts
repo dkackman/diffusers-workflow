@@ -8,6 +8,7 @@ import { notify } from '../toast'
 import { connection } from '../connection.svelte'
 import { ApiError, NetworkError } from '../apiErrors'
 import type { ValidationResult } from '../types'
+import { feed } from '../test/feedMock'
 
 // Monaco cannot boot in jsdom, and this page only mounts it on "show JSON"
 vi.mock('../editor/JsonEditor.svelte', async () => ({
@@ -400,5 +401,29 @@ describe('WorkflowPage recovery', () => {
     await advance()
     expect(screen.queryByText(/Couldn't load/)).toBeNull()
     expect(document.getElementById('var-prompt')).not.toBeNull()
+  })
+})
+
+describe('WorkflowPage remote change', () => {
+  it('a definition changed elsewhere says so', async () => {
+    await openPage()
+    expect(screen.queryByText('Updated by an agent or another tab')).toBeNull()
+    vi.mocked(api.getWorkflow).mockResolvedValue({
+      definition: { ...definition, description: 'edited by an agent' },
+      origin: 'examples',
+      writable: false,
+    } as never)
+    feed.move('default', 'workflows')
+    await advance()
+    await advance()
+    expect(screen.getByText('Updated by an agent or another tab')).toBeTruthy()
+  })
+
+  it('a move that leaves the definition alone says nothing', async () => {
+    await openPage()
+    feed.move('default', 'workflows')
+    await advance()
+    await advance()
+    expect(screen.queryByText('Updated by an agent or another tab')).toBeNull()
   })
 })

@@ -23,6 +23,7 @@
     listedWorkflows,
     saveWorkflowAt,
     startingWorkflow,
+    watchWorkflow,
     withSaved,
   } from '../editor/workflowFile'
   import { resource } from '../resource.svelte'
@@ -55,6 +56,7 @@
       localStorage.getItem('dw-editor-split') === '1' ? 'split' : null,
     label: (): string => ed.savePath() ?? 'this workflow',
   })
+  watchWorkflow(ed)
   ed.doc = emptyWorkflow()
   // The file fields collapse behind the path chip once the workflow has a
   // name - they are settings, not something you retouch on every edit
@@ -125,9 +127,7 @@
     },
   ] as const
 
-  // Crumbs back out of the editor. The read-only page is where an edit
-  // usually starts, and until now the only exit landed on the list - so
-  // the last crumb links back to the workflow itself, when one is saved.
+  // Crumbs out of the editor, the last to the saved workflow's own page
   const crumbFolders = $derived(
     current ? groupOf(current).split('/').filter(Boolean) : [],
   )

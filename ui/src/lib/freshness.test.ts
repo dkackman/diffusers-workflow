@@ -5,7 +5,8 @@
 // that never changes), or a `live` poll for machine state, with `alsoLive`
 // beside a watch while something is in flight (resource.svelte.ts). A page
 // that reads the server with no `resource(` at all fails here by name,
-// unless it is a document page, which keeps its document fresh another way.
+// unless it is a document page, which keeps its document fresh another way:
+// it opens it through its opener and watches it with `watchRemote`.
 //
 // Reads made through a helper: a .svelte file that imports a plain src/lib
 // .ts module whose code calls an `api` read (arch-metrics.mjs's `isRead`)
@@ -102,9 +103,9 @@ const OPENERS: Record<string, string> = {
   'pages/EditorPage.svelte': 'openWorkflow',
   'pages/PromptEditorPage.svelte': 'openPrompt',
 }
-/** What a document page must call. The opener for now; the remote watch
- * (`watchRemote`) once a document follows the server */
-const documentFreshness = (page: string): string => OPENERS[page]
+/** What keeps an open document fresh: a `watchRemote` call, in the page or
+ * in a helper the page calls (one level, as for reads below) */
+const WATCH = 'watchRemote'
 
 /** Files that import a reading helper and have no resource, each with why
  * that is not a view to keep fresh */
@@ -137,6 +138,12 @@ function* nodes(node: unknown): Generator<Node> {
 const calleeName = (call: Node): string | null => {
   const callee = call.callee as Node
   return callee.type === 'Identifier' ? (callee.name as string) : null
+}
+
+const methodName = (call: Node): string | null => {
+  const callee = call.callee as Node
+  const name = callee.type === 'MemberExpression' && (callee.property as Node)
+  return name && name.type === 'Identifier' ? (name.name as string) : null
 }
 
 const property = (object: Node, key: string): Node | undefined =>
@@ -173,6 +180,8 @@ function freshnessOf(call: Node, source: string): Freshness {
 interface Read {
   resources: Freshness[]
   calls: Set<string>
+  /** The method names called on an object: `ed.watchRemote(...)` */
+  methodCalls: Set<string>
   imports: string[]
   /** Each import's source and the value names it brings in */
   valueImports: { from: string; names: string[] }[]
@@ -191,6 +200,7 @@ function read(source: string): Read {
       .filter((c) => calleeName(c) === 'resource')
       .map((c) => freshnessOf(c, source)),
     calls: new Set(calls.map(calleeName).filter((n) => n !== null)),
+    methodCalls: new Set(calls.map(methodName).filter((n) => n !== null)),
     imports: imports.map(from),
     valueImports: imports
       .filter((n) => n.importKind !== 'type')
@@ -204,6 +214,11 @@ const isApiRead = (n: ts.Node): boolean =>
   ts.isIdentifier(n.expression.expression) &&
   n.expression.expression.text === 'api' &&
   isRead(n.expression.name.text)
+
+const isWatch = (n: ts.Node): boolean =>
+  ts.isCallExpression(n) &&
+  ts.isPropertyAccessExpression(n.expression) &&
+  n.expression.name.text === WATCH
 
 const hasExport = (n: ts.Node): boolean =>
   ts.canHaveModifiers(n) &&
@@ -244,7 +259,10 @@ function declarations(file: ts.SourceFile) {
  * calling one, or through another of the module's own declarations that
  * does. A read in a comment is not code, and one made through another
  * module is a second level, out of reach */
-function readingExports(source: string): Set<string> {
+function readingExports(
+  source: string,
+  hit: (n: ts.Node) => boolean = isApiRead,
+): Set<string> {
   const file = ts.createSourceFile('m.ts', source, ts.ScriptTarget.Latest)
   const { local, exported } = declarations(file)
   const reads = new Set<string>()
@@ -252,7 +270,7 @@ function readingExports(source: string): Set<string> {
   for (const [name, node] of local) {
     const used = new Set<string>()
     const visit = (n: ts.Node): void => {
-      if (isApiRead(n)) reads.add(name)
+      if (hit(n)) reads.add(name)
       if (ts.isIdentifier(n) && local.has(n.text)) used.add(n.text)
       ts.forEachChild(n, visit)
     }
@@ -326,6 +344,28 @@ export function bareHelperReaders(
     .map(([k]) => k)
 }
 
+/** The document pages whose open document nothing watches: neither the
+ * page nor a helper function it imports and calls reaches `watchRemote` */
+export function unwatchedDocuments(
+  svelte: Record<string, string>,
+  helpers: Record<string, string>,
+  pages: readonly string[] = DOCUMENT_PAGES,
+): string[] {
+  const known = new Set(Object.keys(helpers))
+  const watches = (k: string, r: Read) =>
+    r.methodCalls.has(WATCH) ||
+    r.valueImports.some(({ from, names }) => {
+      const helper = helpers[resolved(k, from, known) ?? '']
+      if (helper === undefined) return false
+      const found = readingExports(helper, isWatch)
+      return names.some((n) => found.has(n) && r.calls.has(n))
+    })
+  return pages.filter((k) => {
+    const source = svelte[k]
+    return source === undefined || !watches(k, read(source))
+  })
+}
+
 // Every .svelte file's source, keyed from src/lib ('../App.svelte' for the
 // shell)
 const sources = import.meta.glob<string>(['../App.svelte', './**/*.svelte'], {
@@ -378,11 +418,46 @@ it('a page that reads the server does so through a resource', () => {
   expect(bare).toEqual([])
 })
 
-it('a document page opens its document the way that keeps it fresh', () => {
+it('a document page opens its document through its opener', () => {
   const missing = DOCUMENT_PAGES.filter(
-    (page) => !reads.get(page)?.calls.has(documentFreshness(page)),
+    (page) => !reads.get(page)?.calls.has(OPENERS[page]),
   )
   expect(missing).toEqual([])
+})
+
+it('a document page watches the document it opens', () => {
+  expect(unwatchedDocuments(svelteSources, helperSources)).toEqual([])
+})
+
+it('names a document page whose open document nothing watches', () => {
+  const helpers = {
+    'editor/file.ts': `export function watchFile(ed) {
+  ed.watchRemote({ kind: 'workflows', read: () => read(ed) })
+  return ed
+}
+// ed.watchRemote() in a comment is not a call
+export const openFile = (ed) => ed.load({})`,
+  }
+  const page = (body: string) => `<script lang="ts">
+  import { openFile, watchFile } from '../editor/file'
+  const ed = new DocumentEditor({})
+  ${body}
+</script>`
+  const svelte = {
+    'pages/Itself.svelte': page(
+      "ed.watchRemote({ kind: 'prompts', read })\n  openFile(ed)",
+    ),
+    'pages/Helper.svelte': page('watchFile(ed)\n  openFile(ed)'),
+    'pages/Imported.svelte': page('openFile(ed)'),
+    'pages/Opener.svelte': `<script lang="ts">
+  import { openFile } from '../editor/file'
+  openFile(ed)
+</script>`,
+  }
+  expect(unwatchedDocuments(svelte, helpers, Object.keys(svelte))).toEqual([
+    'pages/Imported.svelte',
+    'pages/Opener.svelte',
+  ])
 })
 
 it('a view that reads through a helper does so through a resource', () => {

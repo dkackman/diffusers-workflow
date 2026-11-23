@@ -28,6 +28,7 @@
   import { RunCheck } from '../runCheck.svelte'
   import RunCheckPanel from '../workflow/RunCheckPanel.svelte'
   import { WORKFLOW_PREFILL_KEY } from '../chainActions'
+  import { REMOTE_RELOADED } from '../editorShell.svelte'
 
   let { name }: { name: string } = $props()
 
@@ -43,13 +44,14 @@
    * user's to change - an examples or builtin source is read-only. Both
    * come back on `getWorkflow` itself, off the response headers, so there
    * is no separate `listWorkflows` round trip just to learn them. Held only
-   * while it is this name's. */
+   * while it is this name's. Keyed by name, so a write from elsewhere marks
+   * it changed and the page says so */
   const read = resource(
     async () => {
       const wanted = name
       return { name: wanted, ...(await api.getWorkflow(wanted)) }
     },
-    { watch: ['workflows'] },
+    { watch: ['workflows'], rows: (d) => [[d.name, d.definition]] },
   )
   const fetched = $derived(read.data?.name === name ? read.data : null)
   const workflow = $derived<WorkflowDefinition | null>(
@@ -278,6 +280,9 @@
 
 <LoadState of={read} label={name} what={name}>
   {#if workflow}
+    {#if read.changed.has(name)}
+      <p class="remotenote row-changed" role="status">{REMOTE_RELOADED}</p>
+    {/if}
     <RunCheckPanel
       verdict={runCheck.verdict}
       checking={runCheck.checking}
@@ -391,6 +396,10 @@
 </LoadState>
 
 <style>
+  .remotenote {
+    margin: 0.4rem 0;
+    padding-left: 0.6rem;
+  }
   .back {
     display: inline-block;
     font-size: var(--t-sm);

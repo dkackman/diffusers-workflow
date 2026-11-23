@@ -26,6 +26,21 @@ export async function openPrompt(
   }
 }
 
+/** `ed`, following the server's copy of the prompt it has open: an
+ * agent's or another tab's write reloads it, or raises the banner over
+ * unsaved edits (DocumentEditor.watchRemote). Call during component init */
+export function watchPrompt(ed: DocumentEditor): DocumentEditor {
+  ed.watchRemote({
+    kind: 'prompts',
+    read: async () => {
+      const read = await api.getPrompt(ed.loadedPath ?? '')
+      const doc = read.prompt as Record<string, any>
+      return { doc, etag: read.etag, writable: read.writable }
+    },
+  })
+  return ed
+}
+
 /** Save the prompt on screen to `path`, asking before it replaces a file
  * it did not read or one that changed since. */
 export function savePromptAt(

@@ -12,6 +12,7 @@ import { api } from '../api'
 import { ApiError } from '../apiErrors'
 import { chooseDialog, confirmDialog } from '../confirm.svelte'
 import { changeOnBlur } from '../test/changeOnBlur'
+import { feed } from '../test/feedMock'
 
 // EditorPage talks to the server on mount (pipeline/class/task catalogs,
 // the workflow listing, the prompt library) purely to feed forms the flow
@@ -27,6 +28,10 @@ vi.mock('../editor/JsonEditor.svelte', async () => ({
 vi.mock('../confirm.svelte', () => ({
   chooseDialog: vi.fn(),
   confirmDialog: vi.fn().mockResolvedValue(true),
+}))
+
+vi.mock('../changes.svelte', async () => ({
+  changes: (await import('../test/feedMock')).feed.changes,
 }))
 
 vi.mock('../api', () => ({
@@ -542,5 +547,31 @@ describe('EditorPage saving', () => {
       (screen.getByLabelText('workflow id') as HTMLInputElement).value,
     ).toBe('ZImage')
     expect(saveButton().disabled).toBe(false)
+  })
+})
+
+describe('EditorPage remote change', () => {
+  const idField = () => screen.getByLabelText('workflow id') as HTMLInputElement
+
+  it('Load theirs replaces the edits', async () => {
+    render(EditorPage, { name: 'models/z-image' })
+    await waitFor(() => expect(idField().value).toBe('ZImage'))
+    await fireEvent.input(idField(), { target: { value: 'Mine' } })
+    await fireEvent.change(idField())
+    vi.mocked(api.getWorkflow).mockResolvedValueOnce({
+      definition: { id: 'Theirs', steps: [{ name: 'generate', pipeline: {} }] },
+      origin: 'workspace',
+      writable: true,
+      etag: '"e9"',
+    } as never)
+    feed.move('default', 'workflows')
+    const banner = await screen.findByText(
+      'models/z-image changed since you opened it, in another tab or by an agent',
+    )
+    expect(banner.closest('[role="status"]')).toBeTruthy()
+    expect(idField().value).toBe('Mine')
+    await fireEvent.click(screen.getByRole('button', { name: 'Load theirs' }))
+    await waitFor(() => expect(idField().value).toBe('Theirs'))
+    expect(screen.queryByRole('button', { name: 'Load theirs' })).toBeNull()
   })
 })
