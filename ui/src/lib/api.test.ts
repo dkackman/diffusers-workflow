@@ -284,6 +284,35 @@ describe('fetchOutputText', () => {
   })
 })
 
+describe('text reads through the shared request path', () => {
+  const unreachable = () =>
+    vi.stubGlobal('fetch', () =>
+      Promise.reject(new TypeError('Failed to fetch')),
+    )
+
+  it('reads an output text that never arrived as the offline copy', async () => {
+    const { connection } = await import('./connection.svelte')
+    const { describeError } = await import('./apiErrors')
+    unreachable()
+    const failed = await fetchOutputText('enhance-0.0.txt').catch((e) => e)
+    expect(describeError(failed).title).toBe("Can't reach the server")
+    expect(connection.state).toBe('offline')
+  })
+
+  it("reads a gallery file's text that never arrived as the offline copy", async () => {
+    const { describeError } = await import('./apiErrors')
+    unreachable()
+    const failed = await api.fileText('/outputs/a.txt').catch((e) => e)
+    expect(describeError(failed).title).toBe("Can't reach the server")
+  })
+
+  it("reads a gallery file's text with the token, not re-scoped", async () => {
+    const calls = stubFetch({ ok: true, text: 'hello' })
+    expect(await api.fileText('/outputs/a.txt?workspace=shots')).toBe('hello')
+    expect(calls[0][0]).toBe('/outputs/a.txt?workspace=shots')
+  })
+})
+
 describe('output URLs', () => {
   it('keeps the subfolder of an output-dir-relative name', async () => {
     const { outputUrl } = await import('./api')

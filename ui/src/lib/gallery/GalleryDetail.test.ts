@@ -21,6 +21,7 @@ const notifyMock = vi.hoisted(() => ({
 }))
 const assess = vi.hoisted(() => vi.fn<(name: string) => Promise<unknown>>())
 const galleryMetadata = vi.hoisted(() => vi.fn())
+const fileText = vi.hoisted(() => vi.fn<(url: string) => Promise<string>>())
 // The request-notes calls the file's note for the agent makes
 const ledger = vi.hoisted(() => ({
   getRequest: vi.fn(),
@@ -35,6 +36,7 @@ vi.mock('../api', async () => ({
     assess: (name: string) => assess(name),
     galleryMetadata: (name: string) => galleryMetadata(name),
     keepOutput: (...a: unknown[]) => keepOutput(...a),
+    fileText: (url: string) => fileText(url),
     ...ledger,
   },
 }))
@@ -522,4 +524,30 @@ it('a keep refused for another reason shows the reason, not Replace', async () =
   )
   expect(screen.queryByRole('alertdialog')).toBeNull()
   expect(keepOutput).toHaveBeenCalledTimes(1)
+})
+
+describe('a text file', () => {
+  const text: GalleryFile = {
+    ...file,
+    name: 'wf/run-1/final/prompt.txt',
+    url: '/outputs/wf/run-1/final/prompt.txt',
+    kind: 'text',
+    label: 'prompt.txt',
+  }
+
+  it('shows its contents', async () => {
+    fileText.mockResolvedValue('a red fox')
+    render(GalleryDetail, { ...props, file: text })
+    await screen.findByText('a red fox')
+    expect(fileText).toHaveBeenCalledWith(text.url)
+  })
+
+  it('reads a network failure as the offline copy', async () => {
+    const { NetworkError } = await import('../apiErrors')
+    fileText.mockRejectedValue(new NetworkError('Failed to fetch'))
+    render(GalleryDetail, { ...props, file: text })
+    await screen.findByText("Can't reach the server")
+    expect(screen.queryByText(/Something went wrong/)).toBeNull()
+    expect(screen.queryByText('Failed to fetch')).toBeNull()
+  })
 })

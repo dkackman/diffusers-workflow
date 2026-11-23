@@ -2,6 +2,7 @@
   import { Bookmark, FolderOpen, Gauge, Star, Trash2, X } from '@lucide/svelte'
   import DownloadLink from '../DownloadLink.svelte'
   import { ApiError, api } from '../api'
+  import { describeError } from '../apiErrors'
   import { goWs } from '../router.svelte'
   import { notify } from '../toast'
   import { confirmDialog } from '../confirm.svelte'
@@ -63,24 +64,20 @@
   const runNote = $derived(meta.data?.run_note ?? null)
   const noteSource = $derived(meta.data?.note_source ?? null)
 
-  // A text file's contents, fetched when the pick changes
-  let textBody = $state<string | null>(null)
-  $effect(() => {
-    if (file.kind !== 'text') return
-    const url = file.url
-    textBody = null
-    let stale = false
-    fetch(url)
-      .then((r) => (r.ok ? r.text() : Promise.reject(new Error(r.statusText))))
-      .then((t) => {
-        if (!stale) textBody = t
-      })
-      .catch(() => {
-        if (!stale) textBody = '(could not load this file)'
-      })
-    return () => {
-      stale = true
-    }
+  // A text file's contents, read when the pick changes and again when the
+  // gallery moves. Out of reach reads as the offline copy
+  const text = resource(
+    () =>
+      file.kind === 'text' ? api.fileText(file.url) : Promise.resolve(null),
+    { watch: ['gallery'] },
+  )
+  const textBody = $derived.by(() => {
+    if (text.status === 'loading') return null
+    if (text.status !== 'error') return text.data ?? null
+    const described = describeError(text.error)
+    return described.kind === 'offline'
+      ? described.title
+      : '(could not load this file)'
   })
 
   /** keep_output's 409 for a name already in the library. Its 409 also
