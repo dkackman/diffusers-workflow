@@ -74,6 +74,10 @@ describe('adopted jobs', () => {
     expect(nextWatch(null, health([]), adopted).ended).toEqual(['x'])
     expect(nextWatch(['x'], health([]), adopted).ended).toEqual(['x'])
   })
+  it('an adopted job is held while anything is queued', () => {
+    const queued = { ...health([]), queued: 1 } as HealthInfo
+    expect(nextWatch(null, queued, new Set(['x'])).ended).toEqual([])
+  })
 })
 
 describe('percentDone', () => {

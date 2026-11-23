@@ -9,7 +9,8 @@ import {
 } from 'vitest'
 import type { HealthInfo, JobDetail } from './types'
 import { alertMode, followJobs, resetFollow } from './finishAlert'
-import { adoptJob } from './jobWatch'
+import { adoptJob, adoptedIds } from './jobWatch'
+import { ApiError } from './apiErrors'
 import { api } from './api'
 import { notify } from './toast'
 import { checkNow } from './statusPoll'
@@ -44,8 +45,8 @@ describe('followJobs', () => {
   })
   async function finish(onItsPage: (id: string) => boolean) {
     vi.spyOn(api, 'getJob').mockImplementation(async (id) => done(id))
-    await followJobs(hz(['j1']), { onItsPage })
-    await followJobs(hz([]), { onItsPage })
+    await followJobs(hz(['j1']), { onItsPage, alertsOn: () => false })
+    await followJobs(hz([]), { onItsPage, alertsOn: () => false })
   }
   it('announces with an Open action that goes to the job', async () => {
     await finish(() => false)
@@ -60,19 +61,19 @@ describe('followJobs', () => {
   })
   it('announces an adopted job that ended between polls', async () => {
     vi.spyOn(api, 'getJob').mockImplementation(async (id) => done(id))
-    await followJobs(hz([]), { onItsPage: () => false })
+    await followJobs(hz([]), { onItsPage: () => false, alertsOn: () => false })
     adoptJob('quick')
-    await followJobs(hz([]), { onItsPage: () => false })
-    await followJobs(hz([]), { onItsPage: () => false })
+    await followJobs(hz([]), { onItsPage: () => false, alertsOn: () => false })
+    await followJobs(hz([]), { onItsPage: () => false, alertsOn: () => false })
     expect(news).toHaveBeenCalledTimes(1)
   })
   it('a status poll reaching connection.health drives the announce', async () => {
     vi.spyOn(api, 'getJob').mockImplementation(async (id) => done(id))
     vi.spyOn(api, 'memory').mockResolvedValue({} as never)
     const health = vi.spyOn(api, 'health')
+    const ctx = { onItsPage: () => false, alertsOn: () => false }
     // What App's effect does with each reading the poll lands
-    const effect = () =>
-      followJobs(connection.health, { onItsPage: () => false })
+    const effect = () => followJobs(connection.health, ctx)
     health.mockResolvedValue(hz(['j2']))
     await checkNow()
     await effect()
@@ -82,6 +83,77 @@ describe('followJobs', () => {
     expect(news).toHaveBeenCalledTimes(1)
     expect(app).toMatch(/followJobs\(\s*info/)
     expect(app).toContain('connection.health')
+  })
+})
+
+describe('adopted jobs end once and stay bounded', () => {
+  const ctx = { onItsPage: () => false, alertsOn: () => false }
+  const queuedHealth = (ids: string[], queued: number) =>
+    ({ ...hz(ids), queued }) as HealthInfo
+  beforeEach(() => {
+    news = vi.spyOn(notify, 'news').mockImplementation(() => {})
+  })
+  afterEach(() => {
+    vi.restoreAllMocks()
+    resetFollow()
+  })
+  it('adopted, queued, then running, announces exactly once', async () => {
+    const get = vi
+      .spyOn(api, 'getJob')
+      .mockImplementation(async (id) => done(id))
+    await followJobs(hz([]), ctx)
+    adoptJob('q')
+    await followJobs(queuedHealth([], 1), ctx)
+    await followJobs(queuedHealth(['q'], 0), ctx)
+    await followJobs(hz([]), ctx)
+    await followJobs(hz([]), ctx)
+    expect(news).toHaveBeenCalledTimes(1)
+    expect(get.mock.calls.filter(([id]) => id === 'q')).toHaveLength(2)
+  })
+  it('a queued adopted job is not re-read on every poll', async () => {
+    const get = vi
+      .spyOn(api, 'getJob')
+      .mockImplementation(async (id) => done(id))
+    await followJobs(hz([]), ctx)
+    adoptJob('q')
+    for (let i = 0; i < 4; i++) await followJobs(queuedHealth([], 2), ctx)
+    expect(get).not.toHaveBeenCalled()
+    expect(adoptedIds().has('q')).toBe(true)
+  })
+  it('a 404 drops the id with no further reads', async () => {
+    const get = vi
+      .spyOn(api, 'getJob')
+      .mockRejectedValue(new ApiError('gone', 404, 'not_found'))
+    await followJobs(hz([]), ctx)
+    adoptJob('gone')
+    for (let i = 0; i < 3; i++) await followJobs(hz([]), ctx)
+    expect(get).toHaveBeenCalledTimes(1)
+    expect(news).not.toHaveBeenCalled()
+  })
+  it('a transient error keeps the id for the next poll', async () => {
+    const get = vi.spyOn(api, 'getJob').mockRejectedValueOnce(new Error('net'))
+    get.mockImplementation(async (id) => done(id))
+    await followJobs(hz([]), ctx)
+    adoptJob('t')
+    await followJobs(hz([]), ctx)
+    await followJobs(hz([]), ctx)
+    expect(news).toHaveBeenCalledTimes(1)
+  })
+  it('two overlapping readings announce once', async () => {
+    vi.spyOn(api, 'getJob').mockImplementation(async (id) => {
+      await new Promise((r) => setTimeout(r, 5))
+      return done(id)
+    })
+    await followJobs(hz([]), ctx)
+    adoptJob('o')
+    await Promise.all([followJobs(hz([]), ctx), followJobs(hz([]), ctx)])
+    expect(news).toHaveBeenCalledTimes(1)
+  })
+  it('the adopted set is bounded, oldest dropped first', () => {
+    for (let i = 0; i < 60; i++) adoptJob(`j${i}`)
+    expect(adoptedIds().size).toBe(50)
+    expect(adoptedIds().has('j0')).toBe(false)
+    expect(adoptedIds().has('j59')).toBe(true)
   })
 })
 

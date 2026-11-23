@@ -8,8 +8,12 @@
  * the click that turns alerts on, and again on the first click after a
  * reload. */
 import { api, TERMINAL_STATUSES } from './api'
+import { ApiError } from './apiErrors'
 import {
-  adopted,
+  adoptJob,
+  adoptedIds,
+  clearAdopted,
+  dropAdopted,
   endedTitle,
   finishedText,
   nextWatch,
@@ -80,7 +84,7 @@ export function alertFinished(text: string, href: string): void {
 /** `alertsOn` is passed in because alerts.svelte.ts imports this module. */
 export type FollowContext = {
   onItsPage: (id: string) => boolean
-  alertsOn?: () => boolean
+  alertsOn: () => boolean
 }
 
 let watched: string[] | null = null
@@ -103,7 +107,7 @@ export function resetFollow(): void {
   watched = null
   endedMark = titleJob = null
   others = 0
-  adopted.clear()
+  clearAdopted()
 }
 
 function announce(job: JobDetail, ctx: FollowContext): void {
@@ -118,8 +122,29 @@ function announce(job: JobDetail, ctx: FollowContext): void {
     if (job.status === 'succeeded') notify.news(text, open)
     else notify.error(text, undefined, open)
   }
-  if (ctx.alertsOn?.() && document.hidden)
+  if (ctx.alertsOn() && document.hidden)
     alertFinished(text, wsHref(job.workspace, 'jobs', job.id))
+}
+
+/** Reads one ended job and announces it. An adopted id leaves the set before
+ * the read, so an overlapping reading cannot announce it twice; it goes back
+ * only when the read failed transiently or the job is not finished yet. A
+ * 404 means the job is gone: it stays dropped. */
+async function settle(id: string, ctx: FollowContext): Promise<void> {
+  const wasAdopted = adoptedIds().has(id)
+  dropAdopted(id)
+  let job: JobDetail
+  try {
+    job = await api.getJob(id)
+  } catch (e) {
+    if (wasAdopted && !(e instanceof ApiError && e.status === 404)) adoptJob(id)
+    return
+  }
+  if (!TERMINAL_STATUSES.includes(job.status)) {
+    if (wasAdopted) adoptJob(id)
+    return
+  }
+  announce(job, ctx)
 }
 
 /** One health reading's worth of watching: the title, and a finish toast
@@ -128,22 +153,17 @@ export async function followJobs(
   info: HealthInfo | null,
   ctx: FollowContext,
 ): Promise<void> {
-  const next = nextWatch(watched, info, adopted)
+  const next = nextWatch(watched, info, adoptedIds())
   watched = next.watched
   // A failed poll leaves the title showing what it last knew
   if (info) {
-    for (const id of next.running) adopted.delete(id)
+    for (const id of next.running) dropAdopted(id)
     others = Math.max(0, next.running.length - 1)
     titleJob = next.running[0]
       ? await api.getJob(next.running[0]).catch(() => null)
       : null
     showTitle()
   }
-  for (const id of next.ended) {
-    const job = await api.getJob(id).catch(() => null)
-    if (!job || !TERMINAL_STATUSES.includes(job.status)) continue
-    adopted.delete(id)
-    announce(job, ctx)
-  }
+  for (const id of next.ended) await settle(id, ctx)
   showTitle()
 }

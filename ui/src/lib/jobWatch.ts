@@ -39,8 +39,13 @@ export type Watch = {
 /** One health poll's step: what is running now and which watched jobs ended.
  * The first poll (`watched` null) only learns what is running - a job
  * already going when the page opened has not "just finished" when the next
- * poll misses it - unless its id was adopted. A failed poll (`info` null) says nothing about the jobs:
- * reading it as "none running" would announce every running job as
+ * poll misses it - unless its id was adopted.
+ *
+ * The health reading counts queued jobs but does not name them, so an
+ * adopted id that is not running can only be called ended when nothing is
+ * queued; with a queue it may still be waiting, and is held rather than
+ * re-read every poll. A failed poll (`info` null) says nothing about the
+ * jobs: reading it as "none running" would announce every running job as
  * finished, so it leaves the state as it was. */
 export function nextWatch(
   watched: string[] | null,
@@ -49,20 +54,39 @@ export function nextWatch(
 ): Watch {
   if (!info) return { watched, ended: [], running: watched ?? [] }
   const running = runningIds(info)
-  const before = [...new Set([...(watched ?? []), ...adopted])]
+  const held = (info.queued ?? 0) > 0
+  const mine = held ? [] : [...adopted]
+  const before = [...new Set([...(watched ?? []), ...mine])]
   const ended =
-    watched === null && !adopted.size ? [] : endedSince(before, running)
+    watched === null && !mine.length ? [] : endedSince(before, running)
   return { watched: running, ended, running }
 }
 
 /** Ids a submit, rerun or enhance returned. A job that starts and ends
  * between two polls is never in `running`, so the id the server handed back
- * is what makes it watched from the moment it was submitted. Dropped by
- * `followJobs` once announced, or once a poll sees it running. */
-export const adopted = new Set<string>()
+ * is what makes it watched from the moment it was submitted. Insertion
+ * order is age; the oldest go first past the cap. */
+const adopted = new Set<string>()
+const ADOPTED_CAP = 50
+
+export const adoptedIds = (): ReadonlySet<string> => adopted
 
 export function adoptJob(id: string): void {
+  adopted.delete(id)
   adopted.add(id)
+  for (const old of adopted) {
+    if (adopted.size <= ADOPTED_CAP) break
+    adopted.delete(old)
+  }
+}
+
+/** Announced, seen running, in flight, or gone from the server. */
+export function dropAdopted(id: string): void {
+  adopted.delete(id)
+}
+
+export function clearAdopted(): void {
+  adopted.clear()
 }
 
 /** 0-99: steps behind it plus how far the current step's denoise loop is.
