@@ -691,7 +691,7 @@ it('marks every tile of a run after its run note is saved', async () => {
   await fireEvent.input(screen.getByLabelText('Run note'), {
     target: { value: 'fresh' },
   })
-  await fireEvent.click(screen.getByRole('button', { name: /save/i }))
+  await fireEvent.click(screen.getByRole('button', { name: /^save$/i }))
   await waitFor(() =>
     expect(document.querySelectorAll('.note-mark')).toHaveLength(2),
   )
@@ -789,9 +789,7 @@ it('starring offers Undo, which unstars', async () => {
   )
   // Undone here at once, as the star was: no listing has to land first
   await waitFor(() => expect(starMark('demo/c.png')).toBeNull())
-  expect(
-    screen.getByRole('button', { name: 'star this file' }),
-  ).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'star this file' })).toBeTruthy()
 })
 
 it('an undo that fails is reported, not thrown', async () => {

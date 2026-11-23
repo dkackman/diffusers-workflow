@@ -10,18 +10,20 @@ export type { ConfirmSpec }
 
 export interface Action<A extends unknown[], R> {
   /** Undefined without calling fn while busy, when the confirm is
-   * declined, or on failure. Never rejects. */
+   * declined, or on failure; null when fn answers null. Never rejects. */
   run(...args: A): Promise<R | undefined>
   readonly busy: boolean
 }
 
+// A fn that asks its own question (a name, Replace or Keep both) answers
+// null when it is declined: nothing was done, so nothing is announced
 type Options<A extends unknown[], R> = {
   doing: string | ((...args: A) => string)
   confirm?: (...args: A) => ConfirmSpec | null
-  success?: string | ((r: R) => string)
+  success?: string | ((r: NonNullable<R>) => string)
   /** The toast that takes it back (`undoToast`): its revert waits its
    * turn behind the action, and the action behind it */
-  undo?: (r: R) => {
+  undo?: (r: NonNullable<R>) => {
     message: string
     revert: () => Promise<unknown>
     target?: UndoTarget
@@ -72,7 +74,7 @@ export function action<A extends unknown[], R>(
     })
   }
 
-  function announce(result: R) {
+  function announce(result: NonNullable<R>) {
     if (opts.undo) {
       const { message, revert, target } = opts.undo(result)
       undoToast(message, () => turn.after(revert), target)
@@ -89,7 +91,7 @@ export function action<A extends unknown[], R>(
     try {
       if (!(await asked(args))) return undefined
       const result = await fn(...args)
-      announce(result)
+      if (result !== null) announce(result as NonNullable<R>)
       return result
     } catch (e) {
       notify.failure(doingOf(args), e)

@@ -9,6 +9,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import GalleryDetail from './GalleryDetail.svelte'
 import ConfirmDialog from '../ui/ConfirmDialog.svelte'
+import { confirmState, resolveChoice } from '../confirm.svelte'
 import { attempt, item, request } from '../request/fixtures'
 import type { GalleryFile, GalleryLinkedJob } from '../types'
 
@@ -36,6 +37,7 @@ vi.mock('../api', async () => ({
     assess: (name: string) => assess(name),
     galleryMetadata: (name: string) => galleryMetadata(name),
     keepOutput: (...a: unknown[]) => keepOutput(...a),
+    listAssets: () => Promise.resolve({ assets: [] }),
     fileText: (url: string) => fileText(url),
     ...ledger,
   },
@@ -53,6 +55,7 @@ afterEach(() => {
   notifyMock.failure.mockReset()
   vi.restoreAllMocks()
   cleanup()
+  while (confirmState.open) resolveChoice(null)
   assess.mockReset()
 })
 
@@ -188,7 +191,7 @@ it("labels a saved file note as the file's own, and a cleared one returns the ru
   await fireEvent.input(screen.getByRole('textbox'), {
     target: { value: 'mine' },
   })
-  await fireEvent.click(screen.getByRole('button', { name: /save/i }))
+  await fireEvent.click(screen.getByRole('button', { name: /^save$/i }))
   await waitFor(() => expect(screen.getByText('File note')).toBeTruthy())
   expect(screen.getByText('mine')).toBeTruthy()
   expect(onnotesaved).toHaveBeenCalledWith('file', 'mine')
@@ -201,7 +204,7 @@ it("labels a saved file note as the file's own, and a cleared one returns the ru
   galleryMetadata.mockResolvedValue(metaReply(run))
   await fireEvent.click(screen.getByRole('button', { name: /edit note/i }))
   await fireEvent.input(screen.getByRole('textbox'), { target: { value: '' } })
-  await fireEvent.click(screen.getByRole('button', { name: /save/i }))
+  await fireEvent.click(screen.getByRole('button', { name: /^save$/i }))
   await waitFor(() => expect(screen.getByText('Run note')).toBeTruthy())
   expect(screen.getByText('for the client')).toBeTruthy()
 })
@@ -219,7 +222,7 @@ it('a note saved while the metadata will not read again tells the page nothing',
   await fireEvent.input(screen.getByRole('textbox'), {
     target: { value: 'new' },
   })
-  await fireEvent.click(screen.getByRole('button', { name: /save/i }))
+  await fireEvent.click(screen.getByRole('button', { name: /^save$/i }))
   await waitFor(() => expect(setNote).toHaveBeenCalledWith(file.name, 'new'))
   await waitFor(() => expect(galleryMetadata).toHaveBeenCalledTimes(2))
   for (let i = 0; i < 3; i++) await new Promise((r) => setTimeout(r, 10))
@@ -246,7 +249,7 @@ it('a note save whose reread is overtaken hands on nothing from before it', asyn
   await fireEvent.input(screen.getByRole('textbox'), {
     target: { value: 'new' },
   })
-  await fireEvent.click(screen.getByRole('button', { name: /save/i }))
+  await fireEvent.click(screen.getByRole('button', { name: /^save$/i }))
   await waitFor(() => expect(galleryMetadata).toHaveBeenCalledTimes(2))
   for (const w of [...feed.watches])
     if (w.kinds.includes('gallery')) void w.fn()
@@ -471,19 +474,51 @@ describe('the note for the agent', () => {
 
 // keep_output's exists refusal carries no code, only this wording
 // (dw/server/routes/assets.py)
-const TAKEN =
-  'asset:face.png already exists - pass overwrite=true to replace it'
+const TAKEN = 'asset:a.png already exists - pass overwrite=true to replace it'
 
-it('cancelling Replace on keep-as-asset shows no error', async () => {
+/** Press Save as asset and save under the name it offers */
+async function saveAsAsset() {
+  const button = screen.getByRole('button', { name: 'Save as asset' })
+  expect(button.getAttribute('title')).toBe(
+    'save this file to the asset library, under a name later workflows can use',
+  )
+  await fireEvent.click(button)
+  const dialog = await screen.findByRole('alertdialog', {
+    name: 'Save as asset',
+  })
+  expect(
+    (
+      within(dialog).getByRole('textbox', {
+        name: 'Name in the asset library',
+      }) as HTMLInputElement
+    ).value,
+  ).toBe('a.png')
+  await fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }))
+}
+
+it('offers Save as asset, never window.prompt', async () => {
+  const prompt = vi.spyOn(window, 'prompt')
+  keepOutput.mockResolvedValueOnce({ reference: 'asset:a.png' })
+  render(ConfirmDialog)
+  await view()
+  await saveAsAsset()
+  await waitFor(() =>
+    expect(notifyMock.success).toHaveBeenCalledWith('Saved as asset a.png'),
+  )
+  expect(keepOutput).toHaveBeenCalledWith(file.name, 'a.png')
+  expect(prompt).not.toHaveBeenCalled()
+})
+
+it('cancelling the exists question on Save as asset shows no error', async () => {
   const { ApiError } = await import('../apiErrors')
-  vi.spyOn(window, 'prompt').mockReturnValue('face.png')
   keepOutput.mockRejectedValueOnce(new ApiError(TAKEN, 409))
   render(ConfirmDialog)
   await view()
-  await fireEvent.click(screen.getByRole('button', { name: /keep as asset/i }))
-  const dialog = await waitFor(() => screen.getByRole('alertdialog'))
-  expect(dialog.textContent).toContain(
-    'asset:face.png already exists. Replace it?',
+  await saveAsAsset()
+  const dialog = await waitFor(() =>
+    screen.getByRole('alertdialog', {
+      name: '"a.png" is already in the asset library.',
+    }),
   )
   await fireEvent.click(
     within(dialog).getByRole('button', { name: /^cancel$/i }),
@@ -491,44 +526,49 @@ it('cancelling Replace on keep-as-asset shows no error', async () => {
   await new Promise((r) => setTimeout(r, 10))
   expect(keepOutput).toHaveBeenCalledTimes(1)
   expect(notifyMock.error).not.toHaveBeenCalled()
+  expect(notifyMock.failure).not.toHaveBeenCalled()
   expect(notifyMock.success).not.toHaveBeenCalled()
 })
 
-it('accepting Replace on keep-as-asset retries with overwrite', async () => {
+it('Replace on Save as asset retries with overwrite', async () => {
   const { ApiError } = await import('../apiErrors')
-  vi.spyOn(window, 'prompt').mockReturnValue('face.png')
   keepOutput
     .mockRejectedValueOnce(new ApiError(TAKEN, 409))
-    .mockResolvedValueOnce({ reference: 'asset:face.png' })
+    .mockResolvedValueOnce({ reference: 'asset:a.png' })
   render(ConfirmDialog)
   await view()
-  await fireEvent.click(screen.getByRole('button', { name: /keep as asset/i }))
-  const dialog = await waitFor(() => screen.getByRole('alertdialog'))
+  await saveAsAsset()
+  const dialog = await waitFor(() =>
+    screen.getByRole('alertdialog', {
+      name: '"a.png" is already in the asset library.',
+    }),
+  )
   await fireEvent.click(
     within(dialog).getByRole('button', { name: /^replace$/i }),
   )
   await waitFor(() => expect(keepOutput).toHaveBeenCalledTimes(2))
-  expect(keepOutput).toHaveBeenLastCalledWith(file.name, 'face.png', true)
+  expect(keepOutput).toHaveBeenLastCalledWith(file.name, 'a.png', true)
 })
 
-it('a keep refused for another reason shows the reason, not Replace', async () => {
+it('a save refused for another reason shows the reason, not Replace', async () => {
   const { ApiError } = await import('../apiErrors')
-  vi.spyOn(window, 'prompt').mockReturnValue('face.png')
   keepOutput.mockRejectedValueOnce(
     new ApiError('This workspace has no asset library', 409),
   )
   render(ConfirmDialog)
   await view()
-  await fireEvent.click(screen.getByRole('button', { name: /keep as asset/i }))
+  await saveAsAsset()
   await waitFor(() =>
     expect(notifyMock.failure).toHaveBeenCalledWith(
-      expect.stringContaining('keep'),
+      'save it as an asset',
       expect.objectContaining({
         message: 'This workspace has no asset library',
       }),
     ),
   )
-  expect(screen.queryByRole('alertdialog')).toBeNull()
+  expect(
+    screen.queryByRole('alertdialog', { name: /already in the asset/ }),
+  ).toBeNull()
   expect(keepOutput).toHaveBeenCalledTimes(1)
 })
 

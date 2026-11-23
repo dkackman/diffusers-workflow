@@ -59,6 +59,18 @@ it('a null confirm runs without asking', async () => {
   expect(confirmDialog).not.toHaveBeenCalled()
 })
 
+it('a fn that answers null was declined: nothing is announced', async () => {
+  const act = action(async (): Promise<{ name: string } | null> => null, {
+    doing: 'x',
+    success: (r) => `Saved ${r.name}`,
+    undo: () => ({ message: 'm', revert: async () => {} }),
+  })
+  expect(await act.run()).toBeNull()
+  expect(success).not.toHaveBeenCalled()
+  expect(undo).not.toHaveBeenCalled()
+  expect(failure).not.toHaveBeenCalled()
+})
+
 it('doing can read the arguments', async () => {
   const act = action(
     vi.fn<(n: number) => Promise<void>>().mockRejectedValue(new Error('x')),
