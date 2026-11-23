@@ -211,49 +211,79 @@ function keepScroll(at: number) {
 
 // What the user does to scroll the page: any of these ends a restore
 const USER_SCROLLS = ['wheel', 'touchstart', 'keydown', 'pointerdown']
-let stopRestore = () => {}
+// How long a restore waits for a slow list to render tall enough
+const RESTORE_MS = 10_000
+let ending = () => {}
+
+/** End the restore in flight, if any: its timer, observer and listeners go.
+ * A new navigation ends it, and the shell ends it on unmount. */
+export function stopRestore() {
+  ending()
+}
+
+/** Whether the page moved from where the restore last put it in a way the
+ * page's own growing or shrinking can't explain: a scrollbar click (which
+ * Firefox raises no pointerdown for), find-in-page, assistive tech. */
+function movedByUser(set: number, room: number): boolean {
+  const expected = Math.min(set, Math.max(0, room))
+  return Math.abs(window.scrollY - expected) > 1
+}
 
 /** Scroll to where the entry at `index` was left. The page it lands on may
  * still be loading, so while it is too short it goes as far down as the
  * page reaches - never back to the top, whatever a reload renders meanwhile
- * - and tries again each animation frame, for up to `frames` (about 1 s);
- * the user scrolling, by wheel, touch, key or the scrollbar, lets go. */
-export function restoreScroll(index: number, { frames = 60 } = {}) {
+ * - and goes again each time the document resizes, until the target is
+ * reachable, the user scrolls, a new navigation starts or `ms` pass. */
+export function restoreScroll(index: number, { ms = RESTORE_MS } = {}) {
   stopRestore()
   const target = scrolls.get(index) ?? 0
-  let left = frames
-  let id = 0
+  let set = -1
+  // the arrows reach `stop` and `step` only once they are defined
+  const timer = setTimeout(() => stop(), ms)
+  // jsdom has no ResizeObserver: the first step stands
+  const observer =
+    typeof ResizeObserver === 'undefined'
+      ? undefined
+      : new ResizeObserver(() => step())
   const stop = () => {
-    cancelAnimationFrame(id)
+    clearTimeout(timer)
+    observer?.disconnect()
     for (const type of USER_SCROLLS) window.removeEventListener(type, stop)
-    if (stopRestore === stop) stopRestore = () => {}
+    if (ending === stop) ending = () => {}
   }
   const step = () => {
     const room = document.documentElement.scrollHeight - window.innerHeight
-    window.scrollTo(0, Math.max(0, Math.min(target, room)))
-    if (room >= target || --left <= 0) stop()
-    else id = requestAnimationFrame(step)
+    if (set >= 0 && movedByUser(set, room)) return stop()
+    set = Math.max(0, Math.min(target, room))
+    window.scrollTo(0, set)
+    if (room >= target) stop()
   }
+  ending = stop
   for (const type of USER_SCROLLS)
     window.addEventListener(type, stop, { passive: true })
-  stopRestore = stop
   step()
+  if (ending === stop) observer?.observe(document.documentElement)
 }
 
-// The path the page was last placed for. Only a new path moves the page: a
-// query change (a filter typed, Back between two queries) and a rename
-// (`renameRoute`) are the same page
+// The entry and path the page was last placed for. A traversal to an entry
+// with a saved place goes back there, a new path starts at the top, and
+// anything else - a filter typed, a pushed query, a rename (`renameRoute`) -
+// leaves the page where it is
 let placed: string | null = null
+let placedIndex: number | null = null
 
-/** Place the page after the route lands: a pushed path starts at the top,
- * an entry reached by Back or Forward where it was left. The shell calls it
- * on every navigation; it does nothing while the path is the one placed. */
+/** Place the page after the route lands: Back or Forward to an entry goes
+ * where it was left, even on the same path; a new path starts at the top;
+ * otherwise the page stays. The shell calls it on every navigation. */
 export function placeScroll() {
   const path = pathOf(committed)
-  if (path === placed) return
+  const traversed =
+    committedIndex !== placedIndex && scrolls.has(committedIndex)
+  const moved = path !== placed
   placed = path
-  if (scrolls.has(committedIndex)) restoreScroll(committedIndex)
-  else {
+  placedIndex = committedIndex
+  if (traversed) restoreScroll(committedIndex)
+  else if (moved) {
     stopRestore()
     window.scrollTo(0, 0)
   }
@@ -298,6 +328,7 @@ async function allowed(): Promise<boolean> {
 
 /** Take the entry the browser is on as the route. */
 function settle() {
+  stopRestore()
   replacing = false
   replacedState = null
   const at = indexOf() ?? committedIndex + 1

@@ -76,7 +76,9 @@
     void tick().then(() => {
       if (!h1?.isConnected || parts !== route.parts || path === seen) return
       seen = path
-      h1.focus()
+      // the page was just placed (a restore may be under way): focus
+      // must not scroll it back to the header
+      h1.focus({ preventScroll: true })
     })
   })
 

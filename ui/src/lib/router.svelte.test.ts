@@ -510,11 +510,10 @@ it('a hash with no query resets every box', async () => {
   expect(location.hash).toBe('#/ws/studio/gallery')
 })
 
-// Scroll: a new path starts at the top, Back and Forward go back to where
-// the page was left, and a query-only change never moves the page
+// Scroll: Back and Forward go back to where each entry was left, even on
+// the same path; a new path starts at the top; typing a filter or a rename
+// never moves the page
 
-const frame = () =>
-  new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
 function scrolled(y: number) {
   Object.defineProperty(window, 'scrollY', { value: y, configurable: true })
 }
@@ -524,56 +523,138 @@ function pageHeight(px: number) {
     configurable: true,
   })
 }
+// window.scrollTo as a browser does it: scrollY follows
+function spyScroll() {
+  return vi
+    .spyOn(window, 'scrollTo')
+    .mockImplementation((_x?: unknown, y?: unknown) => scrolled(Number(y)))
+}
+// jsdom has no ResizeObserver: this one is fired by hand, and says whether
+// it is still connected
+const observers = new Set<() => void>()
+class FakeResizeObserver {
+  constructor(private readonly callback: () => void) {}
+  observe() {
+    observers.add(this.callback)
+  }
+  disconnect() {
+    observers.delete(this.callback)
+  }
+}
+const resized = () => [...observers].forEach((callback) => callback())
+beforeEach(() => vi.stubGlobal('ResizeObserver', FakeResizeObserver))
 afterEach(() => {
+  observers.clear()
+  vi.unstubAllGlobals()
+  vi.useRealTimers()
   scrolled(0)
   pageHeight(0)
 })
 
+async function leftAt(y: number, from: string, to: string) {
+  await go(from)
+  const at = (history.state as { dwIndex: number }).dwIndex
+  scrolled(y)
+  await go(to)
+  return at
+}
+
 it('restoreScroll waits for the page to be tall enough, and stops on a user scroll', async () => {
   const { restoreScroll } = await loadRouter()
-  await go('#/ws/studio/jobs')
-  const at = (history.state as { dwIndex: number }).dwIndex
-  scrolled(900)
-  await go('#/ws/studio/jobs/j1')
-  const scrollTo = vi.spyOn(window, 'scrollTo').mockImplementation(() => {})
+  const at = await leftAt(900, '#/ws/studio/jobs', '#/ws/studio/jobs/j1')
+  const scrollTo = spyScroll()
   // the list is still loading: as far down as the page goes, never the top
   pageHeight(innerHeight + 300)
-  restoreScroll(at, { frames: 10 })
-  await frame()
+  restoreScroll(at)
   expect(scrollTo).toHaveBeenLastCalledWith(0, 300)
   pageHeight(innerHeight + 2000)
-  await frame()
+  resized()
   expect(scrollTo).toHaveBeenLastCalledWith(0, 900)
-  const calls = scrollTo.mock.calls.length
-  await frame()
-  expect(scrollTo.mock.calls.length).toBe(calls)
+  // there, it lets go of the document
+  expect(observers.size).toBe(0)
 
   // a wheel turned while it waits is the user's: the restore lets go
   pageHeight(innerHeight + 300)
-  scrollTo.mockClear()
-  restoreScroll(at, { frames: 10 })
-  await frame()
+  restoreScroll(at)
   window.dispatchEvent(new WheelEvent('wheel'))
+  expect(observers.size).toBe(0)
+
+  // so is a scrollbar click no event announces: the page is not where the
+  // restore put it, and its height does not explain it
+  scrollTo.mockClear()
+  restoreScroll(at)
+  scrolled(120)
   pageHeight(innerHeight + 2000)
-  await frame()
-  await frame()
-  expect(scrollTo).not.toHaveBeenCalledWith(0, 900)
+  resized()
+  expect(scrollTo).toHaveBeenCalledTimes(1)
+  expect(observers.size).toBe(0)
 })
 
-it('a query-only change never moves the page; a new path starts at the top and Back goes back to where it was', async () => {
+it('restoreScroll waits for a slow list: it grows tall after more than a second, and Back still lands', async () => {
+  const { placeScroll } = await loadRouter()
+  const scrollTo = spyScroll()
+  await leftAt(900, '#/ws/studio/jobs', '#/ws/studio/jobs/j1')
+  placeScroll()
+  pageHeight(innerHeight + 100)
+  await nav(() => history.back())
+  // the clock is faked only once the traversal has landed: jsdom's own
+  // hashchange, and nav's flush, run on real timers
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+  placeScroll()
+  expect(scrollTo).toHaveBeenLastCalledWith(0, 100)
+  vi.advanceTimersByTime(3000)
+  pageHeight(innerHeight + 2000)
+  resized()
+  expect(scrollTo).toHaveBeenLastCalledWith(0, 900)
+  expect(observers.size).toBe(0)
+})
+
+it('restoreScroll gives up after about 10 s, and a new navigation ends it', async () => {
+  const { placeScroll, stopRestore } = await loadRouter()
+  spyScroll()
+  await leftAt(900, '#/ws/studio/jobs', '#/ws/studio/jobs/j1')
+  placeScroll()
+  pageHeight(innerHeight + 100)
+  await nav(() => history.back())
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+  placeScroll()
+  expect(observers.size).toBe(1)
+  vi.advanceTimersByTime(9_000)
+  expect(observers.size).toBe(1)
+  vi.advanceTimersByTime(1_000)
+  expect(observers.size).toBe(0)
+  vi.useRealTimers()
+
+  scrolled(900)
+  await nav(() => history.forward())
+  placeScroll()
+  await nav(() => history.back())
+  placeScroll()
+  expect(observers.size).toBe(1)
+  scrolled(900)
+  await go('#/ws/studio/gallery')
+  expect(observers.size).toBe(0)
+  placeScroll()
+
+  // and the shell's unmount ends one too
+  await nav(() => history.back())
+  placeScroll()
+  expect(observers.size).toBe(1)
+  stopRestore()
+  expect(observers.size).toBe(0)
+})
+
+it('typing a filter or a rename never moves the page; a new path starts at the top', async () => {
   const { placeScroll, setHashQuery, renameRoute } = await loadRouter()
   await go('#/ws/studio/jobs')
-  const scrollTo = vi.spyOn(window, 'scrollTo').mockImplementation(() => {})
+  const scrollTo = spyScroll()
   placeScroll()
   scrollTo.mockClear()
-  // typing a filter, and a pushed query on the same path (Back between two
-  // queries too): the page stays where it is
   scrolled(900)
   setHashQuery({ status: 'failed' })
   placeScroll()
+  // a pushed query on the same path is a fresh entry with no place of its own
   await go('#/ws/studio/jobs?status=queued')
-  placeScroll()
-  await nav(() => history.back())
   placeScroll()
   expect(scrollTo).not.toHaveBeenCalled()
   // a rename (an editor's first save) is the same page under a new name
@@ -584,11 +665,24 @@ it('a query-only change never moves the page; a new path starts at the top and B
   await go('#/ws/studio/jobs/j1')
   placeScroll()
   expect(scrollTo).toHaveBeenLastCalledWith(0, 0)
-  // Back: where the page was left, once the page is tall enough
-  pageHeight(innerHeight + 2000)
-  scrolled(0)
+})
+
+it('Back and Forward between two queries on the same path restore each entry', async () => {
+  const { placeScroll } = await loadRouter()
+  const scrollTo = spyScroll()
+  pageHeight(innerHeight + 5000)
+  await go('#/ws/studio/jobs')
+  placeScroll()
+  scrollTo.mockClear()
+  scrolled(1200)
+  await go('#/ws/studio/jobs?req=r1')
+  placeScroll()
+  expect(scrollTo).not.toHaveBeenCalled()
+  scrolled(300)
   await nav(() => history.back())
   placeScroll()
-  await frame()
-  expect(scrollTo).toHaveBeenLastCalledWith(0, 900)
+  expect(scrollTo).toHaveBeenLastCalledWith(0, 1200)
+  await nav(() => history.forward())
+  placeScroll()
+  expect(scrollTo).toHaveBeenLastCalledWith(0, 300)
 })

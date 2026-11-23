@@ -15,7 +15,7 @@
   } from '@lucide/svelte'
   import { Toaster } from 'svelte-sonner'
   import { tick, untrack } from 'svelte'
-  import { placeScroll, route } from './lib/router.svelte'
+  import { placeScroll, route, stopRestore } from './lib/router.svelte'
   import { isEditable } from './lib/editable'
   import { runningIds } from './lib/jobWatch'
   import { jobHref } from './lib/routes'
@@ -165,6 +165,8 @@
     drawerOpen = false
     untrack(placeScroll)
   })
+  // a restore still waiting on a slow list ends with the shell
+  $effect(() => stopRestore)
   const wide = $derived(
     (view.kind === 'ws' && view.section === 'edit') ||
       (view.kind === 'shared' && view.section === 'prompt-edit'),
