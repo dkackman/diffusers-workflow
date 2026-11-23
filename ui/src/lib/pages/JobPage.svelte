@@ -33,7 +33,7 @@
   import ChainSegments from '../job/ChainSegments.svelte'
   import LinkedNotes from '../request/LinkedNotes.svelte'
   import { LinkedRequest } from '../request/linkedRequest.svelte'
-  import { REMOTE_RELOADED } from '../editorShell.svelte'
+  import RemoteNotice from '../ui/RemoteNotice.svelte'
   import type { JobEvent, LedgerNote } from '../types'
 
   let { jobId }: { jobId: string } = $props()
@@ -316,9 +316,7 @@
     {/if}
 
     {#if job.run_dir}
-      {#if noteMoved}
-        <p class="remotenote row-changed" role="status">{REMOTE_RELOADED}</p>
-      {/if}
+      <RemoteNotice shown={noteMoved} />
       <!-- An edit in progress keeps its draft when a newer note lands; the
            page's own save is adopted, so it marks nothing -->
       <NoteEditor
@@ -343,11 +341,7 @@
           >
             {realized ? 'realized' : 'as submitted'}
           </span>
-          {#if definitionMoved}
-            <span class="remotenote row-changed" role="status">
-              {REMOTE_RELOADED}
-            </span>
-          {/if}
+          <RemoteNotice shown={definitionMoved} inline />
         </div>
         <FlowView
           workflow={definition}
@@ -430,10 +424,6 @@
 </LoadState>
 
 <style>
-  .remotenote {
-    margin: 0.4rem 0;
-    padding-left: 0.6rem;
-  }
   .panel {
     margin-bottom: 1rem;
   }

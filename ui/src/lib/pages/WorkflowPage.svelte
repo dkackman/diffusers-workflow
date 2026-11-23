@@ -28,7 +28,7 @@
   import { RunCheck } from '../runCheck.svelte'
   import RunCheckPanel from '../workflow/RunCheckPanel.svelte'
   import { WORKFLOW_PREFILL_KEY } from '../chainActions'
-  import { REMOTE_RELOADED } from '../editorShell.svelte'
+  import RemoteNotice from '../ui/RemoteNotice.svelte'
 
   let { name }: { name: string } = $props()
 
@@ -280,9 +280,7 @@
 
 <LoadState of={read} label={name} what={name}>
   {#if workflow}
-    {#if read.changed.has(name)}
-      <p class="remotenote row-changed" role="status">{REMOTE_RELOADED}</p>
-    {/if}
+    <RemoteNotice shown={read.changed.has(name)} />
     <RunCheckPanel
       verdict={runCheck.verdict}
       checking={runCheck.checking}
@@ -396,10 +394,6 @@
 </LoadState>
 
 <style>
-  .remotenote {
-    margin: 0.4rem 0;
-    padding-left: 0.6rem;
-  }
   .back {
     display: inline-block;
     font-size: var(--t-sm);

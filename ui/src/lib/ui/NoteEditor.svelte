@@ -1,11 +1,17 @@
 <script lang="ts">
   import { Pencil } from '@lucide/svelte'
   import { setNote } from '../api'
+  import { confirmDialog } from '../confirm.svelte'
   import ClampedText from './ClampedText.svelte'
 
   // A note on a workspace, asset, run or file: shown as a safe Markdown
   // subset (never HTML), edited in place. The server owns the 4000-character
-  // limit and says so in its error, which stays on screen beside the box
+  // limit and says so in its error, which stays on screen beside the box.
+  // A newer note handed down mid-edit (an agent, another tab) never
+  // replaces the draft: a notice shows it and stays until the user picks
+  // Use theirs or Keep mine, and a Save while it is up asks before it
+  // writes over a note the user has not taken in. The write itself is
+  // last-writer-wins - the route has no precondition
   let {
     note,
     target,
@@ -33,6 +39,10 @@
   let error = $state<string | null>(null)
   // What the box last stored, until the parent hands down a newer note
   let shown = $derived(note ?? null)
+  // The note the draft answers: as it was when the edit began, or the
+  // newer one the user took in with Keep mine
+  let base = $state<string | null>(null)
+  const newer = $derived(editing && !saving && shown !== base)
   // Another target is another note, even when the text is the same. Only a
   // changed target ends an edit: a refetch landing mid-edit keeps the draft
   // svelte-ignore state_referenced_locally
@@ -45,11 +55,29 @@
 
   function edit() {
     draft = shown ?? ''
+    base = shown
     error = null
     editing = true
   }
 
+  function useTheirs() {
+    draft = shown ?? ''
+    base = shown
+  }
+
+  function keepMine() {
+    base = shown
+  }
+
   async function save() {
+    if (
+      newer &&
+      !(await confirmDialog(
+        `${label} changed while you were editing. Replace it with yours?`,
+        { confirmLabel: 'Replace', cancelLabel: 'Keep editing', danger: true },
+      ))
+    )
+      return
     saving = true
     error = null
     try {
@@ -71,6 +99,26 @@
 
 <div class="note">
   {#if editing}
+    {#if newer}
+      <div class="panel newer" role="status">
+        <p>
+          {label} changed while you were editing, in another tab or by an agent
+        </p>
+        {#if shown}
+          <div class="theirs">
+            <ClampedText text={shown} {lines} markdown />
+          </div>
+        {:else}
+          <p class="muted">It is empty now.</p>
+        {/if}
+        <div class="actions">
+          <button type="button" class="quiet" onclick={useTheirs}>
+            Use theirs
+          </button>
+          <button type="button" onclick={keepMine}>Keep mine</button>
+        </div>
+      </div>
+    {/if}
     <textarea
       bind:value={draft}
       maxlength="4000"
@@ -154,6 +202,17 @@
     display: flex;
     gap: 0.5rem;
     margin-top: 0.25rem;
+  }
+  .newer {
+    margin: 0 0 0.5rem;
+    border-color: var(--warn);
+  }
+  .newer p {
+    margin: 0;
+    overflow-wrap: anywhere;
+  }
+  .theirs {
+    margin: 0.4rem 0;
   }
   .error {
     color: var(--bad);
