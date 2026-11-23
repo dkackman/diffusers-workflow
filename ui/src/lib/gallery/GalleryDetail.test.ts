@@ -164,6 +164,32 @@ it('shows an inherited run note as the run note and offers to note the file', as
   expect(screen.queryByText('for the client')).toBeNull()
 })
 
+it('a half-written run note survives "Note this file" and coming back', async () => {
+  sessionStorage.clear()
+  const run = {
+    note: 'for the client',
+    run_note: 'for the client',
+    note_source: 'run',
+  }
+  await view(run)
+  await fireEvent.click(screen.getByRole('button', { name: /edit note/i }))
+  await fireEvent.input(screen.getByRole('textbox'), {
+    target: { value: 'half a thought' },
+  })
+  // The run's box goes away for the file's own
+  await fireEvent.click(screen.getByRole('button', { name: 'Note this file' }))
+  expect(screen.getByText('Your note on this file')).toBeTruthy()
+  // Coming back to the file: the run's box holds the draft
+  cleanup()
+  await view(run)
+  expect(screen.getByText('You have an unsaved draft.')).toBeTruthy()
+  await fireEvent.click(screen.getByRole('button', { name: /edit note/i }))
+  expect((screen.getByRole('textbox') as HTMLTextAreaElement).value).toBe(
+    'half a thought',
+  )
+  sessionStorage.clear()
+})
+
 it("shows the file's own note", async () => {
   await view({ note: 'keeper', note_source: 'file' })
   expect(screen.getByText('keeper')).toBeTruthy()
@@ -195,8 +221,9 @@ it("labels a saved file note as the file's own, and a cleared one returns the ru
   await waitFor(() =>
     expect(screen.getByText('Your note on this file')).toBeTruthy(),
   )
+  // The save reads the note's etag first, so it lands a tick later
+  await waitFor(() => expect(onnotesaved).toHaveBeenCalledWith('file', 'mine'))
   expect(screen.getByText('mine')).toBeTruthy()
-  expect(onnotesaved).toHaveBeenCalledWith('file', 'mine')
 
   setNote.mockResolvedValue({
     target: file.name,

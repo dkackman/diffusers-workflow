@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { api, fetchOutputText, setNote, streamJobEvents } from './api'
+import { api, fetchOutputText, getNote, setNote, streamJobEvents } from './api'
 
 type Stub = {
   ok: boolean
@@ -448,6 +448,24 @@ describe('setNote', () => {
     const calls = stubFetch({ ok: true, body: {} })
     await setNote('wf/run-1', null)
     expect(calls[0][0]).toBe('/api/notes')
+  })
+
+  it('sends If-Match only when given an etag', async () => {
+    const calls = stubFetch({ ok: true, body: {} })
+    await setNote('wf/run-1', 'n', 'studio', '"e1"')
+    await setNote('wf/run-1', 'n', 'studio')
+    const sent = (i: number) => new Headers(calls[i][1]?.headers)
+    expect(sent(0).get('If-Match')).toBe('"e1"')
+    expect(sent(1).get('If-Match')).toBeNull()
+  })
+
+  it('reads a note and its etag, scoped like the write', async () => {
+    const calls = stubFetch({
+      ok: true,
+      body: { target: 'wf/run 1', note: null, etag: '"e"' },
+    })
+    expect((await getNote('wf/run 1', 'studio')).etag).toBe('"e"')
+    expect(calls[0][0]).toBe('/api/notes?target=wf%2Frun%201&workspace=studio')
   })
 })
 

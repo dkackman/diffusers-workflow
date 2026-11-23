@@ -97,6 +97,9 @@ vi.mock('../api', () => ({
   setNote: vi.fn((target: string, note: string | null) =>
     Promise.resolve({ target, note, note_source: note ? 'run' : null }),
   ),
+  getNote: vi.fn((target: string) =>
+    Promise.resolve({ target, note: detail.job?.note ?? null, etag: '"e"' }),
+  ),
   streamJobEvents: (
     _jobId: string,
     after: number,
@@ -692,10 +695,13 @@ it("saves the run note in the job's own workspace", async () => {
     target: { value: 'third pass' },
   })
   await fireEvent.click(screen.getByRole('button', { name: /save/i }))
-  expect(vi.mocked(setNote)).toHaveBeenCalledWith(
-    'wf/run-1',
-    'third pass',
-    'studio',
+  await waitFor(() =>
+    expect(vi.mocked(setNote)).toHaveBeenCalledWith(
+      'wf/run-1',
+      'third pass',
+      'studio',
+      '"e"',
+    ),
   )
 })
 
@@ -730,7 +736,16 @@ describe('data changed underneath the page', () => {
     })
     noted('from the agent')
     await moved('gallery')
-    await waitFor(() => expect(notice()).toBeTruthy())
+    // The box's own notice is the one: the page's line stays down (#1597)
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          /Your note on this job changed while you were editing/,
+        ),
+      ).toBeTruthy(),
+    )
+    expect(notice()).toBeNull()
+    expect(screen.getAllByRole('status')).toHaveLength(1)
     const box = screen.getByRole('textbox') as HTMLTextAreaElement
     expect(box.value).toBe('my third pass')
   })

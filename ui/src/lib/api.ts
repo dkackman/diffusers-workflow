@@ -1,5 +1,6 @@
 import type {
   AssetDeleted,
+  NoteRead,
   NoteSet,
   StarSet,
   AssetList,
@@ -537,18 +538,26 @@ export function setNote(
   target: string,
   note: string | null,
   workspace?: string,
+  ifMatch?: string,
 ): Promise<NoteSet> {
-  const path = '/api/notes'
-  return request<NoteSet>(
-    workspace === undefined ? path : scopeTo(path, workspace),
-    {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ target, note }),
-    },
-    { scope: workspace === undefined },
+  const init = jsonInit(
+    'PUT',
+    { target, note },
+    preconditionHeaders({ ifMatch }),
   )
+  return noteRequest<NoteSet>('/api/notes', workspace, init)
 }
+
+/** A notes route, in `workspace` or else the picker's */
+const noteRequest = <T>(path: string, workspace?: string, init?: RequestInit) =>
+  request<T>(workspace === undefined ? path : scopeTo(path, workspace), init, {
+    scope: workspace === undefined,
+  })
+
+/** The target's own note and the etag `setNote`'s `ifMatch` names: an
+ * editor's precondition read, not a view (the page's resource is that) */
+export const getNote = (target: string, workspace?: string) =>
+  noteRequest<NoteRead>(appendQuery('/api/notes', 'target', target), workspace)
 
 export const TERMINAL_STATUSES = ['succeeded', 'failed', 'cancelled']
 

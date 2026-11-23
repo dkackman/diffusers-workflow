@@ -69,7 +69,10 @@
   const definitionMoved = $derived(
     ranRead.changed.has(jobId) && !ranRead.changed.has('realized'),
   )
-  const noteMoved = $derived(record.changed.has('note'))
+  // The run note's box is open: its own notice says a newer note, so the
+  // page's line would be a second, and a wrong one (the box did not move)
+  let noteEditing = $state(false)
+  const noteMoved = $derived(record.changed.has('note') && !noteEditing)
   const definition = $derived<Record<string, any> | null>(
     ran?.definition ?? null,
   )
@@ -324,6 +327,7 @@
         target={job.run_dir}
         workspace={job.workspace}
         label="Your note on this job"
+        bind:editing={noteEditing}
         onsaved={(note) =>
           job && record.adopt({ ...job, note: note ?? undefined })}
       />
