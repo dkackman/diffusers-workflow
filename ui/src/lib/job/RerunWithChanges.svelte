@@ -3,7 +3,7 @@
   import { api } from '../api'
   import { displayValue } from '../editor'
   import { go } from '../router.svelte'
-  import { notify } from '../toast'
+  import { action } from '../action.svelte'
   import Modal from '../ui/Modal.svelte'
   import VariablesForm from '../editor/VariablesForm.svelte'
   import type { JobDetail } from '../types'
@@ -101,16 +101,15 @@
     promotionsOf(presets, declared, job.arguments ?? {}, values),
   )
 
-  async function promote(p: Promotion) {
-    try {
+  const promote = action(
+    async (p: Promotion) => {
       const next = await api.rerunJob(job.id, {
         arguments: { [p.selector]: p.value },
       })
       go('ws', job.workspace, 'jobs', next.id)
-    } catch (e) {
-      notify.error(e instanceof Error ? e.message : String(e))
-    }
-  }
+    },
+    { doing: 'run it again' },
+  )
 </script>
 
 {#if Object.keys(values).length}
@@ -126,7 +125,9 @@
   <button
     class="quiet promote"
     data-promotion={p.selector}
-    onclick={() => promote(p)}
+    disabled={promote.busy}
+    aria-busy={promote.busy}
+    onclick={() => void promote.run(p)}
     title={promotionTitle(p)}
   >
     <code>{p.selector}</code>: {p.value}

@@ -25,7 +25,7 @@
   import { confirmDialog } from '../confirm.svelte'
   import { describeEstimate } from '../plan'
   import { go } from '../router.svelte'
-  import { notify } from '../toast'
+  import { action } from '../action.svelte'
   import {
     attemptsText,
     chainContext,
@@ -98,7 +98,6 @@
     go('ws', job.workspace, 'workflows', ...action.workflow.split('/'))
   }
 
-  let continuing = $state(false)
   let pricing = $state(false)
   // The estimate the confirm quotes: the validate route's plan for the
   // rerun's merged arguments, the figure line every plan shows. One that
@@ -119,6 +118,14 @@
     }
   }
 
+  const rerunChain = action(
+    async (action: ContinueAction) => {
+      const next = await api.rerunJob(job.id, { arguments: action.arguments })
+      go('ws', job.workspace, 'jobs', next.id)
+    },
+    { doing: 'continue the chain' },
+  )
+
   async function continueChain(table: ChainTable, action: ContinueAction) {
     pricing = true
     const estimate = await continueEstimate(action).finally(
@@ -127,16 +134,7 @@
     const ok = await confirmDialog(continueConfirmText(table, estimate), {
       confirmLabel: 'Continue',
     })
-    if (!ok) return
-    continuing = true
-    try {
-      const next = await api.rerunJob(job.id, { arguments: action.arguments })
-      go('ws', job.workspace, 'jobs', next.id)
-    } catch (e) {
-      notify.error(e instanceof Error ? e.message : String(e))
-    } finally {
-      continuing = false
-    }
+    if (ok) await rerunChain.run(action)
   }
 
   const fileUrl = (path: string) => outputUrl(path, job.id, job.workspace)
@@ -212,12 +210,12 @@
       <div class="continue">
         <button
           class="quiet"
-          disabled={continuing || pricing}
+          disabled={rerunChain.busy || pricing}
           onclick={() => continueChain(table, more)}
           title="queue this job again, resuming from segment {table.rows
             .length} and rendering the rest of the plan"
         >
-          {continuing
+          {rerunChain.busy
             ? 'Queueing…'
             : pricing
               ? 'Pricing…'

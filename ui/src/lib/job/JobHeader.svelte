@@ -1,7 +1,9 @@
 <script lang="ts">
   import { Dices, PackageOpen, RotateCw, X } from '@lucide/svelte'
   import { ApiError, api } from '../api'
+  import { action } from '../action.svelte'
   import { confirmDialog } from '../confirm.svelte'
+  import ActionButton from '../ui/ActionButton.svelte'
   import { go } from '../router.svelte'
   import { wsHref } from '../routes'
   import { workspace } from '../workspace.svelte'
@@ -70,26 +72,37 @@
     return end === null ? null : end - job.started_at
   })
 
-  async function rerun(newSeed: boolean) {
-    try {
-      go(
-        'ws',
-        job!.workspace,
-        'jobs',
-        (await api.rerunJob(jobId, { newSeed })).id,
-      )
-    } catch (e) {
-      // Without this the button silently does nothing - the failure mode
-      // that made a cache-served rerun so hard to read in the first place
-      notify.error(e instanceof Error ? e.message : String(e))
-    }
-  }
+  const leaf = $derived((job?.workflow ?? jobId).split('/').pop() as string)
+
+  // A rerun failing must say so - the silent button was what made a
+  // cache-served rerun so hard to read in the first place
+  const rerun = action(
+    async (newSeed: boolean) => {
+      const next = await api.rerunJob(jobId, { newSeed })
+      go('ws', job!.workspace, 'jobs', next.id)
+    },
+    { doing: 'run it again' },
+  )
+
+  // A cancel loses the work so far, which only matters once there is some
+  const CANCEL_ASKS_AFTER_S = 60
+  const cancel = action(() => api.cancelJob(jobId), {
+    doing: () => `cancel ${leaf}`,
+    confirm: () =>
+      job?.started_at && now - job.started_at > CANCEL_ASKS_AFTER_S
+        ? {
+            message: `Cancel ${job.workflow}? It has run for ${formatDuration(now - job.started_at)}; the work so far is lost.`,
+            confirmLabel: 'Cancel job',
+            cancelLabel: 'Keep running',
+            danger: true,
+          }
+        : null,
+  })
 
   // Export is a copy on the server before it is a download here: the
   // bundle is gathered into the workspace's exports/, then the zip the
-  // server builds from it is fetched. The flag keeps a second click from
-  // gathering it twice while the first is still copying media.
-  let exporting = $state(false)
+  // server builds from it is fetched. The action's busy guard keeps a second
+  // click from gathering it twice while the first is still copying media.
 
   /** The export, or null when one exists and the user kept it. The server
    * keeps one export per job. An existing one is not a failure but a
@@ -108,23 +121,18 @@
     return replace ? api.exportJob(jobId, workspace, true) : null
   }
 
-  async function exportJob() {
-    if (!job || exporting) return
-    exporting = true
-    try {
-      const result = await exportOrReplace(job.workspace)
+  const exportJob = action(
+    async () => {
+      const result = await exportOrReplace(job!.workspace)
       if (!result) return
       const anchor = document.createElement('a')
       anchor.href = api.exportZipUrl(result.zip_url)
       anchor.download = `${jobId}.zip`
       anchor.click()
       notify.success(exportMessage(result))
-    } catch (e) {
-      notify.error(e instanceof Error ? e.message : String(e))
-    } finally {
-      exporting = false
-    }
-  }
+    },
+    { doing: 'export this job' },
+  )
 
   /** Hover text for the hold, matched to whichever hold it is. */
   function holdTitle(waitingFor: string | null | undefined): string {
@@ -274,44 +282,41 @@
     {/if}
     <span class="flex"></span>
     {#if running}
-      <button
-        class="quiet withicon"
-        onclick={() => api.cancelJob(jobId)}
+      <ActionButton
+        act={cancel}
         disabled={cancelPending}
         title={cancelPending
           ? 'cancel already requested - waiting on the current phase'
           : 'stop this run at the next step - models stay cached'}
       >
         <X size={14} />{cancelPending ? 'Cancelling…' : 'Cancel'}
-      </button>
+      </ActionButton>
     {:else}
-      <button
-        class="quiet withicon"
-        onclick={() => rerun(false)}
+      <ActionButton
+        act={rerun}
+        args={[false]}
         title={seedVariable
           ? 'queue this job again with the same arguments - with the same seed, the step cache serves the files this run already made'
           : 'queue this job again with the same arguments'}
       >
         <RotateCw size={14} />Run again
-      </button>
+      </ActionButton>
       {#if seedVariable}
-        <button
-          class="quiet withicon"
-          onclick={() => rerun(true)}
+        <ActionButton
+          act={rerun}
+          args={[true]}
           title="queue it again with a fresh {seedVariable} - a different image, rather than the one this run already made"
         >
           <Dices size={14} />New seed
-        </button>
+        </ActionButton>
       {/if}
       <RerunWithChanges {job} {declared} />
-      <button
-        class="quiet withicon"
-        onclick={exportJob}
-        disabled={exporting}
+      <ActionButton
+        act={exportJob}
         title="bundle this run - its realized workflow, manifest, the media it used and made - into the workspace's exports/ on the server, and download it as a zip"
       >
-        <PackageOpen size={14} />{exporting ? 'Exporting…' : 'Export'}
-      </button>
+        <PackageOpen size={14} />{exportJob.busy ? 'Exporting…' : 'Export'}
+      </ActionButton>
     {/if}
   {/if}
 </div>
