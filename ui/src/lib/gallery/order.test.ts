@@ -77,9 +77,22 @@ it('a later edit to the same file is not settled by a listing begun between the 
 
 it('a deleted file stays gone until a listing no longer has it', () => {
   const edits = withGone(noEdits(), ['a'])
-  const held = settleEdits([file('a'), file('b')], edits.made, edits)
+  const held = settleEdits([file('a'), file('b')], edits.made - 1, edits)
   expect(applyEdits([file('a'), file('b')], held).map((f) => f.name)).toEqual([
     'b',
   ])
-  expect(settleEdits([file('b')], edits.made, held).gone).toEqual([])
+  expect(settleEdits([file('b')], edits.made, held).gone).toEqual({})
+})
+
+it('a deleted name is settled by a listing begun after the delete', () => {
+  const before = noEdits().made
+  const edits = withGone(noEdits(), ['a'])
+  // A read begun before the delete still lists it: it stays hidden
+  const held = settleEdits([file('a')], before, edits)
+  expect(applyEdits([file('a')], held)).toEqual([])
+  // A read begun after it lists a real file under the name (another
+  // workspace, or a run that wrote it since): it shows
+  const settled = settleEdits([file('a')], edits.made, held)
+  expect(settled.gone).toEqual({})
+  expect(applyEdits([file('a')], settled).map((f) => f.name)).toEqual(['a'])
 })

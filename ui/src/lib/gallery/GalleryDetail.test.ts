@@ -225,6 +225,37 @@ it('a note saved while the metadata will not read again tells the page nothing',
   expect(onnotesaved).not.toHaveBeenCalled()
 })
 
+it('a note save whose reread is overtaken hands on nothing from before it', async () => {
+  const { feed } = await import('../test/feedMock')
+  const onnotesaved = vi.fn(async () => {})
+  await view({ note: 'old', note_source: 'file' }, { onnotesaved })
+  setNote.mockResolvedValue({
+    target: file.name,
+    note: 'new',
+    note_source: 'file',
+  })
+  // The save's own reread, then a feed reload that overtakes it
+  let loud: (v: unknown) => void = () => {}
+  let quiet: (v: unknown) => void = () => {}
+  galleryMetadata
+    .mockImplementationOnce(() => new Promise((r) => (loud = r)))
+    .mockImplementationOnce(() => new Promise((r) => (quiet = r)))
+  await fireEvent.click(screen.getByRole('button', { name: /edit note/i }))
+  await fireEvent.input(screen.getByRole('textbox'), {
+    target: { value: 'new' },
+  })
+  await fireEvent.click(screen.getByRole('button', { name: /save/i }))
+  await waitFor(() => expect(galleryMetadata).toHaveBeenCalledTimes(2))
+  for (const w of [...feed.watches])
+    if (w.kinds.includes('gallery')) void w.fn()
+  await waitFor(() => expect(galleryMetadata).toHaveBeenCalledTimes(3))
+  loud(metaReply({ note: 'old', note_source: 'file' }))
+  for (let i = 0; i < 3; i++) await new Promise((r) => setTimeout(r, 10))
+  expect(onnotesaved).not.toHaveBeenCalled()
+  quiet(metaReply({ note: 'new', note_source: 'file' }))
+  await waitFor(() => expect(screen.getByText('new')).toBeTruthy())
+})
+
 it('a failed metadata read is not "no embedded metadata"', async () => {
   galleryMetadata.mockRejectedValue(new Error('boom'))
   render(GalleryDetail, props)

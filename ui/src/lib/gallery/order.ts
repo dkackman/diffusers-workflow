@@ -51,13 +51,14 @@ type Named = { name: string }
  * after it. A listing whose read began at or after that stamp has seen it */
 export interface Edits<T extends Named = GalleryFile> {
   made: number
-  gone: string[]
+  /** Each deleted name and its stamp */
+  gone: Record<string, number>
   patched: Record<string, { fields: Partial<T>; at: number }>
 }
 
 export const noEdits = <T extends Named = GalleryFile>(): Edits<T> => ({
   made: 0,
-  gone: [],
+  gone: {},
   patched: {},
 })
 
@@ -79,18 +80,23 @@ export function withPatch<T extends Named>(
   }
 }
 
-/** `edits` with `names` deleted */
-export const withGone = <T extends Named>(
+/** `edits` with `names` deleted, stamped as the newest edit */
+export function withGone<T extends Named>(
   edits: Edits<T>,
   names: Iterable<string>,
-): Edits<T> => ({ ...edits, gone: [...edits.gone, ...names] })
+): Edits<T> {
+  const at = edits.made + 1
+  const gone = { ...edits.gone }
+  for (const name of names) gone[name] = at
+  return { ...edits, made: at, gone }
+}
 
 /** The listing with the page's edits on it, so a reply that was asked for
  * before an edit cannot undo it */
 export function applyEdits<T extends Named>(files: T[], edits: Edits<T>): T[] {
   const { gone, patched } = edits
   return files
-    .filter((f) => !gone.includes(f.name))
+    .filter((f) => !(f.name in gone))
     .map((f) => (f.name in patched ? { ...f, ...patched[f.name].fields } : f))
 }
 
@@ -99,7 +105,9 @@ const same = (a: unknown, b: unknown) => (a || undefined) === (b || undefined)
 /** The edits a listing whose read began at `began` has not caught up with.
  * A field edit is settled by a listing begun after it, whatever it says (a
  * change made elsewhere since is the newer truth), or by one that already
- * says the same. A deleted name is settled once a listing lacks it */
+ * says the same. A deleted name is settled the same way: by a listing begun
+ * after the delete (a file written under the name since, or the same name
+ * in another workspace, is real), or by one that lacks it */
 export function settleEdits<T extends Named>(
   incoming: T[],
   began: number,
@@ -116,11 +124,10 @@ export function settleEdits<T extends Named>(
       )
     if (open) patched[name] = patch
   }
-  return {
-    ...edits,
-    gone: edits.gone.filter((name) => byName.has(name)),
-    patched,
-  }
+  const gone: Edits<T>['gone'] = {}
+  for (const [name, at] of Object.entries(edits.gone))
+    if (began < at && byName.has(name)) gone[name] = at
+  return { ...edits, gone, patched }
 }
 
 /** What is held when a listing lands: the picks stay across a reload of the

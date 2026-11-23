@@ -175,10 +175,12 @@
 
   // Back to what the server says once it has answered: a cleared file note
   // returns the run's, a saved one is the file's own
-  // A read that failed leaves the note from before the save: not handed on
+  // A read that failed, or one a feed reload overtook (still loading),
+  // leaves the note from before the save: not handed on. The listing's own
+  // feed reload carries the note to the tile
   async function noteSaved(kind: 'run' | 'file') {
     await meta.reload()
-    if (meta.status === 'error') return
+    if (meta.status !== 'ready') return
     await onnotesaved?.(kind, meta.data?.note ?? null)
   }
   async function saveFileNote() {
