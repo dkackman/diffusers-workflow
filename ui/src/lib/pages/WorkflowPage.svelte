@@ -276,7 +276,7 @@
   </div>
 {/if}
 
-<LoadState of={read} label={name}>
+<LoadState of={read} label={name} what={name}>
   {#if workflow}
     <RunCheckPanel
       verdict={runCheck.verdict}

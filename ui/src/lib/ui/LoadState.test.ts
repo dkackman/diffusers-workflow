@@ -3,6 +3,7 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render } from '@testing-library/svelte'
 import LoadState from './LoadState.svelte'
 import type { Resource } from '../resource.svelte'
+import { ApiError, NetworkError } from '../apiErrors'
 
 afterEach(cleanup)
 
@@ -51,7 +52,10 @@ it('loading is a skeleton, not empty', () => {
 })
 
 it('an error with no data offers Retry', async () => {
-  const of = fake({ status: 'error', error: new TypeError('Failed to fetch') })
+  const of = fake({
+    status: 'error',
+    error: new NetworkError('Failed to fetch'),
+  })
   const { container, getByRole, queryByText } = show(of)
   expect(container.textContent).toContain(
     "Couldn't load jobs: Can't reach the server",
@@ -84,15 +88,42 @@ it('a failed refresh keeps the rows and says so', async () => {
   const of = fake({
     data: ['one', 'two'],
     stale: true,
-    error: new TypeError('Failed to fetch'),
+    error: new ApiError('boom', 500),
   })
   const { container, getByRole, getAllByRole } = show(of)
   expect(getAllByRole('listitem')).toHaveLength(2)
   expect(container.textContent).toContain(
-    "Couldn't refresh jobs: Can't reach the server",
+    "Couldn't refresh jobs: The server hit an error",
   )
   await fireEvent.click(getByRole('button', { name: 'Retry' }))
   expect(of.reload).toHaveBeenCalledTimes(1)
+})
+
+it('an outage or a lock is left to the banner: rows, no refresh line', () => {
+  for (const error of [
+    new NetworkError('Failed to fetch'),
+    new ApiError('Invalid or missing API token', 401),
+  ]) {
+    const { container, queryByRole, getAllByRole } = show(
+      fake({ data: ['one'], stale: true, error }),
+    )
+    expect(getAllByRole('listitem')).toHaveLength(1)
+    expect(queryByRole('alert')).toBeNull()
+    expect(container.textContent).not.toContain("Couldn't refresh")
+    cleanup()
+  }
+})
+
+it('a programming TypeError is not called an outage', () => {
+  const of = fake({
+    status: 'error',
+    error: new TypeError("Cannot read properties of undefined (reading 'x')"),
+  })
+  const { container } = show(of)
+  expect(container.textContent).toContain(
+    "Couldn't load jobs: Something went wrong",
+  )
+  expect(container.textContent).not.toContain('dw.serve')
 })
 
 it('ready with rows shows only the rows', () => {
@@ -104,7 +135,7 @@ it('ready with rows shows only the rows', () => {
 it('quiet: a secondary panel shows nothing loading or failed', () => {
   for (const state of [
     fake({ status: 'loading' }),
-    fake({ status: 'error', error: new TypeError('Failed to fetch') }),
+    fake({ status: 'error', error: new NetworkError('Failed to fetch') }),
   ]) {
     const { container, queryByRole } = show(state, {
       quiet: true,
@@ -122,7 +153,7 @@ it('quiet: a failed refresh keeps the data without a line', () => {
     fake({
       data: ['a'],
       stale: true,
-      error: new TypeError('Failed to fetch'),
+      error: new NetworkError('Failed to fetch'),
     }),
     { quiet: true },
   )

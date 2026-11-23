@@ -3,7 +3,8 @@
   // that applies: loading with nothing held (a skeleton); an error with
   // nothing held (the failure and Retry); filtered to nothing (Clear
   // filters); nothing at all (Empty); otherwise the content, under a line
-  // saying a refresh failed when the data held is the last good read.
+  // saying a refresh failed when the data held is the last good read (not
+  // for an outage or a lock, which the connection banner says).
   // `quiet` is a secondary panel the page reads fine without: it shows
   // nothing while loading or failed, as the offline banner already speaks.
   // The one place Empty.svelte is imported (eslint.config.js)
@@ -47,6 +48,11 @@
   const described = $derived(
     of.error === undefined ? null : describeError(of.error, what),
   )
+  // Out of reach or locked is the connection banner's to say, once, with
+  // its own Retry now / Enter token: the line would say it twice
+  const bannerSays = $derived(
+    described?.kind === 'offline' || described?.kind === 'locked',
+  )
   const retry = () => void of.reload()
 </script>
 
@@ -74,7 +80,7 @@
     {#if emptyText}{@render emptyText()}{/if}
   </Empty>
 {:else}
-  {#if !quiet && held && described && (of.stale || of.status === 'error')}
+  {#if !quiet && held && described && !bannerSays && (of.stale || of.status === 'error')}
     <div class="refresh-failed" role="alert">
       <span>Couldn't refresh {label}: {described.title}</span>
       <button class="quiet" onclick={retry}>Retry</button>

@@ -1,13 +1,19 @@
 import { expect, it } from 'vitest'
-import { ApiError, describeError } from './apiErrors'
+import { ApiError, NetworkError, describeError } from './apiErrors'
 
 it('describes a fetch that never got a response as offline', () => {
-  const d = describeError(new TypeError('Failed to fetch'))
+  const d = describeError(new NetworkError('Failed to fetch'))
   expect(d.kind).toBe('offline')
   expect(d.title).toBe("Can't reach the server")
   expect(d.remedy).toBe(
     "Check that dw.serve is running. This page reloads when it's back.",
   )
+})
+
+it("a TypeError from the page's own code is not an outage", () => {
+  const d = describeError(new TypeError('Cannot read properties of undefined'))
+  expect(d.kind).toBe('unknown')
+  expect(d.title).toBe('Something went wrong')
 })
 
 it('describes a 401 as locked', () => {

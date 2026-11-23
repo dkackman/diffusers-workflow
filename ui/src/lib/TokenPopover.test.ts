@@ -119,6 +119,41 @@ describe('saving a token', () => {
     expect(connection.epoch).toBe(before)
   })
 
+  it('Enter while a check is pending sends one check', async () => {
+    let calls = 0
+    let reply: (r: unknown) => void = () => {}
+    vi.stubGlobal('fetch', () => {
+      calls += 1
+      return new Promise((r) => (reply = r))
+    })
+    render(TokenPopover, { props: { open: true, anchor: trigger() } })
+    await waitFor(() => expect(popover()).not.toBeNull())
+    const input = popover()!.querySelector('input')!
+    await fireEvent.input(input, { target: { value: 'tok' } })
+    await fireEvent.keyDown(input, { key: 'Enter' })
+    await fireEvent.keyDown(input, { key: 'Enter' })
+    expect(calls).toBe(1)
+    reply({ ok: true, status: 200, headers: new Headers(), json: () => ({}) })
+    await waitFor(() => expect(success).toHaveBeenCalledTimes(1))
+  })
+
+  it('a reopened popover forgets the last refusal', async () => {
+    answer(401)
+    const view = render(TokenPopover, {
+      props: { open: true, anchor: trigger() },
+    })
+    await waitFor(() => expect(popover()).not.toBeNull())
+    await enter('bad')
+    await waitFor(() =>
+      expect(popover()!.textContent).toContain('The server refused that token'),
+    )
+    await view.rerender({ open: false })
+    await waitFor(() => expect(popover()).toBeNull())
+    await view.rerender({ open: true })
+    await waitFor(() => expect(popover()).not.toBeNull())
+    expect(popover()!.textContent).not.toContain('The server refused')
+  })
+
   it('an unreachable server says so inline', async () => {
     vi.stubGlobal('fetch', () => Promise.reject(new TypeError('Failed')))
     render(TokenPopover, { props: { open: true, anchor: trigger() } })

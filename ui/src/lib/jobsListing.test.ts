@@ -18,13 +18,16 @@ it('a request filter never spans workspaces: with none picked it is read in the 
   expect(listingWorkspace('all', 'shots', 'studio', 'r1')).toBe('shots')
 })
 
-it('a refusal empties the list; a server fault or an unreachable server keeps the rows', () => {
+it('a refusal empties the list; a fault, an outage or a lock keeps the rows', () => {
   expect(
     listingRefused(new ApiError("Request 'R 1' must match ^[a-z0-9]", 422)),
   ).toBe(true)
   expect(listingRefused(new ApiError('Unknown workspace nope', 404))).toBe(true)
   expect(listingRefused(new ApiError('Internal Server Error', 500))).toBe(false)
   expect(listingRefused(new TypeError('Failed to fetch'))).toBe(false)
+  expect(
+    listingRefused(new ApiError('Invalid or missing API token', 401)),
+  ).toBe(false)
 })
 
 const at = (...positions: Array<number | undefined>) =>

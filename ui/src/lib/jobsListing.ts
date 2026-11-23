@@ -23,9 +23,10 @@ export function listingWorkspace(
  * `req` that is not a request id, a workspace that does not exist) rather
  * than a fault or an unreachable server. A refusal's message is the
  * explanation, and the rows of an earlier question must not stay under this
- * one's filters; a fault keeps the rows it had. */
+ * one's filters; a fault keeps the rows it had, and so does a lock (401),
+ * which is the connection's state, not an answer to the question. */
 export function listingRefused(error: unknown): boolean {
-  return error instanceof ApiError && error.status < 500
+  return error instanceof ApiError && error.status < 500 && error.status !== 401
 }
 
 /** How many jobs are waiting. `queue_position` is a job's place in the

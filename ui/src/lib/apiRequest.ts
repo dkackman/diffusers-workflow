@@ -8,7 +8,13 @@ import type {
   WorkflowDefinition,
 } from './types'
 import { getApiToken } from './token'
-import { ApiError, errorCode, errorDetail, errorPayload } from './apiErrors'
+import {
+  ApiError,
+  NetworkError,
+  errorCode,
+  errorDetail,
+  errorPayload,
+} from './apiErrors'
 import { scoped } from './apiUrls'
 import { reportResponse, reportUnreachable } from './connection.svelte'
 
@@ -38,11 +44,40 @@ export function preconditionHeaders(
   return headers
 }
 
+/** The fetch, with a request that never arrived told to `connection` and
+ * rethrown as a NetworkError; an abort is the caller's own doing, not an
+ * outage. */
+async function reach(url: string, init: RequestInit): Promise<Response> {
+  try {
+    return await fetch(url, init)
+  } catch (e) {
+    if (!(e instanceof TypeError)) throw e
+    reportUnreachable()
+    throw new NetworkError(e.message)
+  }
+}
+
+/** The ApiError a failed response carries: the server's detail, code and
+ * status. */
+async function refusal(response: Response): Promise<ApiError> {
+  let detail = response.statusText
+  let code: string | undefined
+  let held: Record<string, unknown> | undefined
+  try {
+    const payload = await response.json()
+    detail = errorDetail(payload, detail)
+    code = errorCode(payload)
+    held = errorPayload(payload)
+  } catch {
+    /* not json */
+  }
+  return new ApiError(detail, response.status, code, held)
+}
+
 /** A request with the bearer token, scoped to the picker's workspace
  * unless `scope` is false, failing with an ApiError that carries the
  * server's detail and status. Under every JSON call and file download, so
- * every answer (and every request that never arrived) tells `connection`;
- * an abort is the caller's own doing, not an outage. */
+ * every answer (and every request that never arrived) tells `connection`. */
 async function send(
   path: string,
   init: RequestInit = {},
@@ -51,28 +86,15 @@ async function send(
   const token = getApiToken()
   const headers = new Headers(init.headers)
   if (token) headers.set('Authorization', `Bearer ${token}`)
-  let response: Response
-  try {
-    response = await fetch(scope ? scoped(path) : path, { ...init, headers })
-  } catch (e) {
-    if (e instanceof TypeError) reportUnreachable()
-    throw e
-  }
-  reportResponse(response.status)
-  if (!response.ok) {
-    let detail = response.statusText
-    let code: string | undefined
-    let held: Record<string, unknown> | undefined
-    try {
-      const payload = await response.json()
-      detail = errorDetail(payload, detail)
-      code = errorCode(payload)
-      held = errorPayload(payload)
-    } catch {
-      /* not json */
-    }
-    throw new ApiError(detail, response.status, code, held)
-  }
+  const response = await reach(scope ? scoped(path) : path, {
+    ...init,
+    headers,
+  })
+  // A 401 to the token this request was sent with says nothing about one
+  // accepted since: it must not lock the app again
+  if (response.status !== 401 || getApiToken() === token)
+    reportResponse(response.status)
+  if (!response.ok) throw await refusal(response)
   return response
 }
 

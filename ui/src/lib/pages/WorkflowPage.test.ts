@@ -6,6 +6,7 @@ import WorkflowPage from './WorkflowPage.svelte'
 import { api } from '../api'
 import { notify } from '../toast'
 import { connection } from '../connection.svelte'
+import { ApiError, NetworkError } from '../apiErrors'
 import type { ValidationResult } from '../types'
 
 // Monaco cannot boot in jsdom, and this page only mounts it on "show JSON"
@@ -345,7 +346,7 @@ describe('WorkflowPage curated cost', () => {
 describe('WorkflowPage recovery', () => {
   it('a failed load offers Retry and recovers on reconnect', async () => {
     vi.mocked(api.getWorkflow).mockRejectedValueOnce(
-      new TypeError('fetch failed'),
+      new NetworkError('fetch failed'),
     )
     await openPage()
     expect(
@@ -367,8 +368,22 @@ describe('WorkflowPage recovery', () => {
     expect(screen.getByText('a run would be admitted')).toBeTruthy()
   })
 
+  it('a missing workflow is named in its 404', async () => {
+    vi.mocked(api.getWorkflow).mockRejectedValueOnce(
+      new ApiError('Workflow not found', 404),
+    )
+    await openPage()
+    expect(
+      screen.getByText(
+        "Couldn't load templates/text-to-image: templates/text-to-image wasn't found",
+      ),
+    ).toBeTruthy()
+  })
+
   it('a failed proofs read leaves the form alone', async () => {
-    vi.mocked(api.gallery).mockRejectedValueOnce(new TypeError('fetch failed'))
+    vi.mocked(api.gallery).mockRejectedValueOnce(
+      new NetworkError('fetch failed'),
+    )
     await openPage()
     expect(screen.queryByText(/Couldn't load/)).toBeNull()
     expect(screen.queryByRole('alert')).toBeNull()
@@ -377,7 +392,7 @@ describe('WorkflowPage recovery', () => {
 
   it('Retry reads the definition again', async () => {
     vi.mocked(api.getWorkflow).mockRejectedValueOnce(
-      new TypeError('fetch failed'),
+      new NetworkError('fetch failed'),
     )
     await openPage()
     await fireEvent.click(screen.getByRole('button', { name: 'Retry' }))

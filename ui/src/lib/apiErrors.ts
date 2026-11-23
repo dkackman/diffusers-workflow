@@ -100,6 +100,17 @@ export class ApiError extends Error {
   }
 }
 
+/** fetch's own TypeError - the request never reached the server - as
+ * `send` rethrows it. Only this is an outage: a TypeError from a bug in a
+ * page's own code is not, and must not send the user to restart a healthy
+ * server. Still a TypeError, for callers that only ask that. */
+export class NetworkError extends TypeError {
+  constructor(message: string) {
+    super(message)
+    this.name = 'NetworkError'
+  }
+}
+
 export type ErrorKind =
   | 'offline'
   | 'locked'
@@ -176,7 +187,7 @@ function byStatus(
 }
 
 function classify(e: unknown, message: string, what: string): Base {
-  if (e instanceof TypeError) {
+  if (e instanceof NetworkError) {
     return titled(
       'offline',
       "Can't reach the server",

@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import JobPage from './JobPage.svelte'
 import '../router.svelte'
 import { api, setNote } from '../api'
-import { ApiError } from '../apiErrors'
+import { ApiError, NetworkError } from '../apiErrors'
 import { connection } from '../connection.svelte'
 import type { JobDetail, JobEvent } from '../types'
 
@@ -992,7 +992,9 @@ describe('after an outage', () => {
 
   it('the page recovers when the server returns', async () => {
     detail.job = running()
-    vi.mocked(api.getJob).mockRejectedValueOnce(new TypeError('fetch failed'))
+    vi.mocked(api.getJob).mockRejectedValueOnce(
+      new NetworkError('fetch failed'),
+    )
     render(JobPage, { jobId: 'j1' })
     await screen.findByText("Couldn't load job j1: Can't reach the server")
     expect(stream.opened).toEqual([])

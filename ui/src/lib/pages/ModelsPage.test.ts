@@ -3,6 +3,7 @@ import { afterEach, expect, it, vi } from 'vitest'
 import ModelsPage from './ModelsPage.svelte'
 import { formatDay } from '../format'
 import { connection } from '../connection.svelte'
+import { NetworkError } from '../apiErrors'
 import type { ModelCache, ModelRepo } from '../types'
 
 // The "last used" column (#1445 stage B): a dw job's start time when the
@@ -103,7 +104,7 @@ it('explains the column in the header tooltip', async () => {
 })
 
 it('recovers on reconnect', async () => {
-  cache.error = new TypeError('fetch failed')
+  cache.error = new NetworkError('fetch failed')
   render(ModelsPage)
   await screen.findByText("Couldn't load the hub cache: Can't reach the server")
   // Offline, only the cache list says so: downloads and the diffusers

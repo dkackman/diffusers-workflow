@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte'
   import { getApiToken, setApiToken } from './token'
   import { api } from './api'
   import { describeError } from './apiErrors'
@@ -13,6 +14,15 @@
   let value = $state(getApiToken())
   let refused = $state<string | null>(null)
   let checking = $state(false)
+
+  // Each opening starts from the stored token, with no earlier refusal
+  $effect(() => {
+    if (open)
+      untrack(() => {
+        refused = null
+        value = getApiToken()
+      })
+  })
 
   // The token is asked about as it is saved: an accepted one ends a lock at
   // once (send() reports the answer, which raises the connection epoch)
@@ -47,7 +57,7 @@
       type="password"
       placeholder="API token"
       bind:value
-      onkeydown={(e) => e.key === 'Enter' && void save()}
+      onkeydown={(e) => e.key === 'Enter' && !checking && void save()}
     />
     <button onclick={save} disabled={checking}>Save</button>
   </div>

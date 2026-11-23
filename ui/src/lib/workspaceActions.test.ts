@@ -101,7 +101,9 @@ it.each(cases)('decides $name as the engine does', async ({ name, valid }) => {
 })
 
 it('an unreachable server is reported, not put in a confirm dialog', async () => {
-  deleteWorkspace.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+  deleteWorkspace.mockRejectedValueOnce(
+    new (await import('./apiErrors')).NetworkError('Failed to fetch'),
+  )
   const { deleteWorkspaceWithConfirm } = await import('./workspaceActions')
   expect(await deleteWorkspaceWithConfirm('studio')).toBe(false)
   expect(confirm).not.toHaveBeenCalled()
@@ -109,7 +111,9 @@ it('an unreachable server is reported, not put in a confirm dialog', async () =>
 })
 
 it('a failed create returns the described title, not the raw message', async () => {
-  createWorkspace.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+  createWorkspace.mockRejectedValueOnce(
+    new (await import('./apiErrors')).NetworkError('Failed to fetch'),
+  )
   const { createWorkspaceAndGo } = await import('./workspaceActions')
   expect(await createWorkspaceAndGo('studio')).toBe("Can't reach the server")
 })

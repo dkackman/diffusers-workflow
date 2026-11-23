@@ -94,7 +94,7 @@ const running = (startedAgo: number) =>
   header(
     job({
       status: 'running',
-      workflow: 'e2e-card',
+      workflow: 'models/e2e-card',
       started_at: Date.now() / 1000 - startedAgo,
     }),
     {},

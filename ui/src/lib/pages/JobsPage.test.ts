@@ -7,7 +7,7 @@ import {
 } from '@testing-library/svelte'
 import { afterEach, expect, it, vi } from 'vitest'
 import JobsPage from './JobsPage.svelte'
-import { ApiError } from '../apiErrors'
+import { ApiError, NetworkError } from '../apiErrors'
 import { formatExact } from '../format'
 import { workspace } from '../workspaceState.svelte'
 import type { JobSummary } from '../types'
@@ -570,7 +570,7 @@ it('loading shows a skeleton, not "No jobs yet"', async () => {
 })
 
 it('a listing that fails on first load is a load failure with Retry', async () => {
-  data.listError = new TypeError('Failed to fetch')
+  data.listError = new NetworkError('Failed to fetch')
   render(JobsPage)
   await screen.findByText(/Couldn't load jobs: Can't reach the server/)
   expect(screen.queryByText(/No jobs yet/)).toBeNull()

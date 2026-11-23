@@ -33,7 +33,8 @@ it('leaving unknown does not raise the epoch', () => {
 it('a fetch TypeError is offline and an AbortError is not', async () => {
   const { api } = await import('./api')
   vi.stubGlobal('fetch', () => Promise.reject(new TypeError('Failed to fetch')))
-  await expect(api.health()).rejects.toBeInstanceOf(TypeError)
+  const { NetworkError } = await import('./apiErrors')
+  await expect(api.health()).rejects.toBeInstanceOf(NetworkError)
   expect(mod.connection.state).toBe('offline')
 
   mod.reportResponse(200)
@@ -42,6 +43,27 @@ it('a fetch TypeError is offline and an AbortError is not', async () => {
   )
   await expect(api.health()).rejects.toThrow('aborted')
   expect(mod.connection.state).toBe('ok')
+})
+
+it('a 401 to a token replaced since does not lock the app again', async () => {
+  const { api } = await import('./api')
+  const { setApiToken } = await import('./token')
+  let reply: (r: unknown) => void = () => {}
+  vi.stubGlobal('fetch', () => new Promise((r) => (reply = r)))
+  setApiToken('old')
+  const pending = api.health()
+  setApiToken('new')
+  mod.reportResponse(200)
+  reply({
+    ok: false,
+    status: 401,
+    statusText: 'Unauthorized',
+    headers: new Headers(),
+    json: () => Promise.resolve({ detail: 'Invalid or missing API token' }),
+  })
+  await expect(pending).rejects.toMatchObject({ status: 401 })
+  expect(mod.connection.state).toBe('ok')
+  setApiToken('')
 })
 
 it('onReconnect is called once per rise', () => {

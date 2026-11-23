@@ -91,7 +91,7 @@
     confirm: () =>
       job?.started_at && now - job.started_at > CANCEL_ASKS_AFTER_S
         ? {
-            message: `Cancel ${job.workflow}? It has run for ${formatDuration(now - job.started_at)}; the work so far is lost.`,
+            message: `Cancel ${leaf}? It has run for ${formatDuration(now - job.started_at)}; the work so far is lost.`,
             confirmLabel: 'Cancel job',
             cancelLabel: 'Keep running',
             danger: true,
