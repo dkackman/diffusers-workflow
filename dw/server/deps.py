@@ -112,6 +112,15 @@ def workspace_root(state):
     return root
 
 
+def no_such_workspace(name):
+    """The 404 for a workspace that does not exist, carrying the stable code
+    `no_workspace` so a client can tell it from a missing file."""
+    return HTTPException(
+        status_code=404,
+        detail={"code": "no_workspace", "message": f"No such workspace: {name}"},
+    )
+
+
 def workspace_for(state, name):
     """The Workspace a request names.
 
@@ -133,7 +142,7 @@ def workspace_for(state, name):
     except SecurityError as e:
         raise HTTPException(status_code=400, detail=str(e))
     if not _holds_a_workspace(selected.root):
-        raise HTTPException(status_code=404, detail=f"No such workspace: {name}")
+        raise no_such_workspace(name)
     return selected
 
 

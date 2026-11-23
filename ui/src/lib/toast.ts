@@ -1,4 +1,5 @@
 import { toast } from 'svelte-sonner'
+import { describeError } from './apiErrors'
 
 /** How long an undo toast offers to take the action back */
 export const UNDO_MS = 8000
@@ -17,6 +18,22 @@ export const notify = {
   },
   error(message: string, id?: string) {
     toast.error(message, { duration: Number.POSITIVE_INFINITY, id })
+  },
+  /** A failed action: what was being done, why not, and what to do. The
+   * full message is one click away for pasting into a report */
+  failure(doing: string, e: unknown, id?: string) {
+    const { title, remedy, detail } = describeError(e)
+    toast.error(`Couldn't ${doing}: ${title}`, {
+      description: remedy,
+      duration: Number.POSITIVE_INFINITY,
+      id,
+      action: detail
+        ? {
+            label: 'Copy details',
+            onClick: () => void navigator.clipboard?.writeText(detail),
+          }
+        : undefined,
+    })
   },
   /** `id` lets the caller take the toast away (`dismiss`) when the thing
    * it offers to undo turned out not to have happened */

@@ -349,7 +349,7 @@ describe('EditorPage saving', () => {
     render(EditorPage, { name: 'models/z-image' })
     await screen.findByRole('button', { name: 'Retry' })
     expect(
-      screen.getByText("Couldn't open models/z-image: server exploded"),
+      screen.getByText("Couldn't open models/z-image: The server hit an error"),
     ).toBeTruthy()
     // a 500 is not a missing file: there is nothing to start in its place
     expect(
@@ -376,7 +376,9 @@ describe('EditorPage saving', () => {
     vi.mocked(api.getWorkflow).mockRejectedValueOnce(notFound())
     render(EditorPage, { name: 'models/missing' })
     expect(
-      await screen.findByText("Couldn't open models/missing: not found"),
+      await screen.findByText(
+        "Couldn't open models/missing: That wasn't found",
+      ),
     ).toBeTruthy()
     await fireEvent.click(
       screen.getByRole('button', {
@@ -511,7 +513,7 @@ describe('EditorPage saving', () => {
       new ApiError('server exploded', 500),
     )
     await rerender({ name: 'b' })
-    await screen.findByText("Couldn't open b: server exploded")
+    await screen.findByText("Couldn't open b: The server hit an error")
     await rerender({ name: 'a' })
     await waitFor(() => expect(saveButton().disabled).toBe(false))
     expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull()

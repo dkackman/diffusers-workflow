@@ -2,7 +2,7 @@
   // In place of an editor whose document never arrived: what failed, a
   // Retry, and - when the file does not exist - a way to start it. Phase 2's
   // LoadState absorbs it
-  import { ApiError } from '../apiErrors'
+  import { describeError } from '../apiErrors'
 
   let {
     label,
@@ -13,24 +13,19 @@
     label: string
     error: unknown
     onretry: () => void
-    /** Offered only when the file is missing (a 404) */
+    /** Offered only when the file is missing, not the workspace */
     oncreate?: () => void
   } = $props()
 
-  const reason = $derived(
-    error instanceof ApiError && error.status === 404
-      ? 'not found'
-      : error instanceof Error
-        ? error.message
-        : String(error),
-  )
+  const described = $derived(describeError(error))
 </script>
 
 <div class="panel loadfailed" role="alert">
-  <p>Couldn't open {label}: {reason}</p>
+  <p>Couldn't open {label}: {described.title}</p>
+  {#if described.remedy}<p>{described.remedy}</p>{/if}
   <div class="actions">
     <button onclick={onretry}>Retry</button>
-    {#if oncreate}
+    {#if oncreate && described.kind === 'not_found'}
       <button class="quiet" onclick={oncreate}>
         Start a new one named {label}
       </button>

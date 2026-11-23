@@ -504,6 +504,10 @@ class DwClient:
         verbatim."""
         if isinstance(detail, dict) and "message" in detail:
             formatted = str(detail["message"])
+            if detail.get("code") == "no_workspace":
+                formatted += (
+                    " - list_workspaces shows what exists; use_workspace switches."
+                )
             contents = detail.get("contents")
             if isinstance(contents, dict):
                 held = [
