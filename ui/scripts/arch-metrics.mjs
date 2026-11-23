@@ -49,10 +49,33 @@
 //   away is out of reach of both checks.
 // - an `Empty` re-exported through a barrel is not counted.
 // - `String(...)` matches a single identifier only.
+// - window_dialogs: calls to `window.confirm`, `window.prompt`,
+//   `window.alert`, or a bare `alert`, `confirm` or `prompt` - a dialog is
+//   `confirmDialog`/`chooseDialog` (src/lib/confirm.svelte.ts).
+// - unguarded_mutations: in a .svelte file, an `api.<write>` call (WRITES)
+//   lexically inside no `action(` call and inside no function declaration
+//   whose name an `action(` call's arguments reference in the same file -
+//   one level, so a helper an action calls counts as guarded.
+// - banned_terms: user-facing copy matching a BANNED pattern
+//   (src/lib/terms.ts), outside COPY_OWNERS. Copy is a string literal with
+//   whitespace in it, a template literal whose parts joined with "0" have
+//   whitespace, Svelte markup text outside <style>, and a static attribute
+//   value. Each pattern counts once per piece of copy.
+// - duplicate_blocks: over .svelte files, lines trimmed and their
+//   whitespace collapsed, blank and TRIVIAL_LINE lines dropped; a 6-line
+//   window whose sha1 occurs in two or more files is shared, and each
+//   file's maximal runs of consecutive shared windows are counted.
+// Known limits of those four rules:
+// - a write made in a .ts helper (workspaceActions.ts, uploads.ts,
+//   promptFile.ts) or through a named import (`setNote`) is not counted.
+// - copy assembled from single words, or across `{...}` in markup, can slip
+//   through banned_terms.
 import { ESLint } from 'eslint'
+import { createHash } from 'node:crypto'
 import { readFileSync, writeFileSync, readdirSync, statSync } from 'node:fs'
 import { dirname, join, relative, resolve, extname } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { BANNED, COPY_OWNERS } from '../src/lib/terms.ts'
 
 const UI = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const SRC = join(UI, 'src')
@@ -79,9 +102,9 @@ export const READ_ALIASES = [
   'notesChannel',
   'workspaceChanges',
 ]
-/** Every `api` key that is not a read, by what it is instead */
-export const NOT_READS = [
-  // writes: each moves server state, and the change feed reports it
+/** The `api` keys that write: each moves server state, and the change feed
+ * reports it */
+export const WRITES = [
   'saveWorkflow',
   'savePrompt',
   'rerunJob',
@@ -113,6 +136,10 @@ export const NOT_READS = [
   'deleteWorkflow',
   'deletePrompt',
   'enhance',
+]
+/** Every `api` key that is not a read, by what it is instead */
+export const NOT_READS = [
+  ...WRITES,
   // checks a click asks for: each answers one question about what the user
   // holds now, a snapshot nothing renders as a view to keep fresh
   'validate',
@@ -246,6 +273,137 @@ function resolveImport(from, specifier, known) {
   return null
 }
 
+const DIALOG_NAMES = new Set(['alert', 'confirm', 'prompt'])
+const isWindowDialog = (callee) =>
+  (callee.type === 'Identifier' && DIALOG_NAMES.has(callee.name)) ||
+  (isMember(callee, 'window', null) && DIALOG_NAMES.has(callee.property.name))
+
+const isActionCall = (node) =>
+  node.type === 'CallExpression' &&
+  node.callee.type === 'Identifier' &&
+  node.callee.name === 'action'
+
+/** `api.<write>` calls in a .svelte file that no `action(` guards */
+function unguardedRule(found) {
+  return {
+    create(context) {
+      if (!context.filename.endsWith('.svelte')) return {}
+      const writes = []
+      const actionRanges = []
+      const identifiers = []
+      return {
+        CallExpression(node) {
+          if (isActionCall(node))
+            for (const a of node.arguments) actionRanges.push(a.range)
+          const callee = node.callee
+          if (
+            isMember(callee, 'api', null) &&
+            WRITES.includes(callee.property.name)
+          )
+            writes.push({
+              node,
+              ancestors: context.sourceCode.getAncestors(node),
+            })
+        },
+        Identifier(node) {
+          identifiers.push(node)
+        },
+        'Program:exit'() {
+          const inAction = (range) =>
+            actionRanges.some(([s, e]) => range[0] >= s && range[1] <= e)
+          const named = new Set(
+            identifiers.filter((i) => inAction(i.range)).map((i) => i.name),
+          )
+          for (const { node, ancestors } of writes) {
+            const guarded =
+              inAction(node.range) ||
+              ancestors.some(
+                (a) =>
+                  a.type === 'FunctionDeclaration' && named.has(a.id?.name),
+              )
+            if (!guarded)
+              found.push(
+                `${relative(UI, context.filename)}:${node.loc.start.line} ${node.callee.property.name}`,
+              )
+          }
+        },
+      }
+    },
+  }
+}
+
+/** Copy that matches a banned term, outside COPY_OWNERS */
+function copyRule(found) {
+  return {
+    create(context) {
+      if (COPY_OWNERS.has(relative(UI, context.filename).replaceAll('\\', '/')))
+        return {}
+      const check = (node, text) => {
+        for (const { id, pattern } of BANNED)
+          if (pattern.test(text))
+            found.push(
+              `${relative(UI, context.filename)}:${node.loc.start.line} ${id}`,
+            )
+      }
+      return {
+        Literal(node) {
+          if (typeof node.value === 'string' && /\s/.test(node.value))
+            check(node, node.value)
+        },
+        TemplateLiteral(node) {
+          const text = node.quasis
+            .map((q) => q.value.cooked ?? q.value.raw)
+            .join('0')
+          if (/\s/.test(text)) check(node, text)
+        },
+        SvelteText(node) {
+          const inStyle = context.sourceCode
+            .getAncestors(node)
+            .some((a) => a.type === 'SvelteStyleElement')
+          if (!inStyle) check(node, node.value)
+        },
+        SvelteLiteral: (node) => check(node, node.value),
+      }
+    },
+  }
+}
+
+export const TRIVIAL_LINE =
+  /^([{}()[\];,]*|<\/?[a-z]+>|\/\/.*|\/\*.*|\*.*|\*\/|-->|<!--.*)$/i
+export const BLOCK_LINES = 6
+
+/** Per .svelte file, the maximal runs of 6-line windows another file shares */
+export function duplicateBlocks(texts) {
+  const windows = new Map()
+  const owners = new Map()
+  for (const [file, text] of texts) {
+    const lines = text
+      .split('\n')
+      .map((l) => l.trim().replace(/\s+/g, ' '))
+      .filter((l) => l && !TRIVIAL_LINE.test(l))
+    const hashes = []
+    for (let i = 0; i + BLOCK_LINES <= lines.length; i++) {
+      const hash = createHash('sha1')
+        .update(lines.slice(i, i + BLOCK_LINES).join('\n'))
+        .digest('hex')
+      hashes.push(hash)
+      if (!owners.has(hash)) owners.set(hash, new Set())
+      owners.get(hash).add(file)
+    }
+    windows.set(file, hashes)
+  }
+  const runs = []
+  for (const [file, hashes] of windows) {
+    let inRun = false
+    hashes.forEach((hash, i) => {
+      const shared = owners.get(hash).size > 1
+      if (shared && !inRun) runs.push(`${relative(UI, file)}:window ${i + 1}`)
+      inRun = shared
+    })
+  }
+  return runs
+}
+
 export async function measure(
   files = sourceFiles(),
   prefixes = referencePrefixes(),
@@ -256,8 +414,25 @@ export async function measure(
   const rawToasts = []
   const emptyImports = []
   const unwatched = []
+  const dialogs = []
+  const unguarded = []
+  const banned = []
   const collector = {
     rules: {
+      dialogs: {
+        create(context) {
+          return {
+            CallExpression(node) {
+              if (isWindowDialog(node.callee))
+                dialogs.push(
+                  `${relative(UI, context.filename)}:${node.loc.start.line}`,
+                )
+            },
+          }
+        },
+      },
+      mutations: unguardedRule(unguarded),
+      copy: copyRule(banned),
       toasts: {
         create(context) {
           return {
@@ -366,6 +541,9 @@ export async function measure(
           'arch/toasts': 'error',
           'arch/empty': 'error',
           'arch/reads': 'error',
+          'arch/dialogs': 'error',
+          'arch/mutations': 'error',
+          'arch/copy': 'error',
         },
       },
     ],
@@ -391,12 +569,15 @@ export async function measure(
 
   let oversized = 0
   let suppressions = 0
+  const svelteTexts = []
   for (const file of files) {
     const text = readFileSync(file, 'utf8')
+    if (file.endsWith('.svelte')) svelteTexts.push([file, text])
     if (text.split('\n').length - (text.endsWith('\n') ? 1 : 0) > SIZE_CEILING)
       oversized++
     suppressions += (text.match(/svelte-ignore[^\n]*\ba11y_/g) ?? []).length
   }
+  const duplicates = duplicateBlocks(svelteTexts)
   return {
     metrics: {
       files_over_size_ceiling: oversized,
@@ -409,6 +590,10 @@ export async function measure(
       raw_error_toasts: rawToasts.length,
       empty_outside_loadstate: emptyImports.length,
       unwatched_reads: unwatched.length,
+      window_dialogs: dialogs.length,
+      unguarded_mutations: unguarded.length,
+      banned_terms: banned.length,
+      duplicate_blocks: duplicates.length,
     },
     detail: {
       cycles: components.map((c) => c.map((f) => relative(UI, f))),
@@ -416,6 +601,10 @@ export async function measure(
       raw_error_toasts: rawToasts,
       empty_outside_loadstate: emptyImports,
       unwatched_reads: unwatched,
+      window_dialogs: dialogs,
+      unguarded_mutations: unguarded,
+      banned_terms: banned,
+      duplicate_blocks: duplicates,
     },
   }
 }

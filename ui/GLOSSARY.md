@@ -1,0 +1,38 @@
+# UI glossary
+
+The words the web UI uses for each concept, and the ones it does not. The vocabulary is the spec's (`docs/superpowers/specs/2026-11-22-ui-quality-design.md`, *Vocabulary*; the ★ rows are approved by Don). The banned synonyms and their replacements are `BANNED` in `src/lib/terms.ts`. `banned_terms` in `scripts/arch-metrics.mjs` counts their matches in the source, and `scripts/copy-rules.test.ts` pins each pattern and checks that every replacement is named here.
+
+## Words
+
+| Term | Means | Say | Don't say |
+| --- | --- | --- | --- |
+| **job** ★ | One execution of a workflow | "this job", "earlier jobs"; **Run** stays the verb ("Run it here") | "run" as a noun ("this run", "Run note"), "attempt", "result (latest)" |
+| **take** ★ | A job made for a request item; used only inside a request | "latest take" | "result (latest)", "take" outside a request |
+| **attempt** | A chain segment's retry inside one job (`src/lib/chainRows.ts`), nothing else | "attempt 2" on a chain segment | "attempt" for a job. It is deliberately not banned, because the chain needs it |
+| **v2** | The version badge: the job's ordinal among this workflow's jobs in this folder. `dw/runs.py` owns the number | **v2**, titled "2nd job of this workflow in this folder" | a number the UI computes itself |
+| **file name** ★ | A workflow's name: its file name (`e2e-card`) | the file name; the JSON `id` only as secondary text on the job page | the JSON `id` as the name |
+| **Star** | Favourite a file | **Star**, "Starred <leaf>", "Unstarred <leaf>" | "star to keep" |
+| **Save as asset** ★ | Copy an output into the asset library | **Save as asset**, "Saved as asset <name>" | "Keep as asset", "keep this file as an input asset" ("keep" means keeping your copy in a conflict: **Keep mine**, **Keep both**) |
+| **Accept** ★ | Choose a take as the item's result (accepting also stars the file, phase 6) | **Accept** | - |
+| **Your note** | The person's own note | "Your note on this job", "Your note on this file", "Your note on this asset", "Your note on this workspace" | "Run note" |
+| **Note for the agent** | The note channel to the agent | **Note for the agent** | - |
+| **the agent is connected** | The agent's notes channel is listening | "the agent is connected", "the agent isn't connected" | "session", "no session is listening" |
+| **waiting for your OK** | A held item waiting for review | "<n items> waiting for your OK"; the hold text says "the agent will run it at 4:44 PM if it's connected" | "held for your review" |
+| **Examples** | Starter workflows | **Examples** everywhere (the sidebar, "start from", the read-only banner); one of them is "an example" | "starter", "the blank starter", "a template", "the template" |
+| **card** ★ | A GPU, in the queue text (a job waiting for a free card) | **card** in the queue text | "GPU" in the queue text |
+| **GPU** ★ | The hardware line | "GPU" on the hardware line | "card" on the hardware line |
+
+## Formats
+
+| Value | Format | Example | Don't write |
+| --- | --- | --- | --- |
+| An estimate | `about <m> min`, the measured value to 2 decimals | "about 3 min", "about 1.5 min" | "~3 min" (a leading tilde reads as a minus sign in the monospace font) |
+| An estimate under a minute | `under 1 min` | "under 1 min" | "<1 min", "~0.5 min" |
+| An estimate of an hour or more | `about <h> h <m> min` | "about 1 h 20 min" | "~80 min" |
+| An ETA | `about <duration> left` | "about 3 min left" | "~3 min left" |
+| Host RAM | `host RAM about <gb> GB (<basis>)` | "host RAM about 41 GB (measured)" | "~41 GB" |
+| A total | `total about <m> min` | "total about 12 min" | "~12 min total" |
+| Measured time | `formatDuration` (`src/lib/format.ts`) for a span of seconds, `formatSpent` for minutes spent; no "about", since it is a fact | "12.3s", "4m 03s", "1h 02m", "38 min" | "about 38 min" for a measured time |
+| The version title | `<ordinal> job of this workflow in this folder` | "2nd job of this workflow in this folder" | "run 2", "version 2" |
+
+## Before you write markup
