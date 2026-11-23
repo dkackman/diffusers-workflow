@@ -14,7 +14,11 @@ import type { GalleryFile, GalleryLinkedJob } from '../types'
 
 const setNote = vi.hoisted(() => vi.fn())
 const keepOutput = vi.hoisted(() => vi.fn())
-const notifyMock = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }))
+const notifyMock = vi.hoisted(() => ({
+  success: vi.fn(),
+  error: vi.fn(),
+  failure: vi.fn(),
+}))
 const assess = vi.hoisted(() => vi.fn<(name: string) => Promise<unknown>>())
 // The request-notes calls the file's note for the agent makes
 const ledger = vi.hoisted(() => ({
@@ -39,6 +43,7 @@ afterEach(() => {
   keepOutput.mockReset()
   notifyMock.success.mockReset()
   notifyMock.error.mockReset()
+  notifyMock.failure.mockReset()
   vi.restoreAllMocks()
   cleanup()
   assess.mockReset()
@@ -423,8 +428,11 @@ it('a keep refused for another reason shows the reason, not Replace', async () =
   render(GalleryDetail, props)
   await fireEvent.click(screen.getByRole('button', { name: /keep as asset/i }))
   await waitFor(() =>
-    expect(notifyMock.error).toHaveBeenCalledWith(
-      'This workspace has no asset library',
+    expect(notifyMock.failure).toHaveBeenCalledWith(
+      expect.stringContaining('keep'),
+      expect.objectContaining({
+        message: 'This workspace has no asset library',
+      }),
     ),
   )
   expect(screen.queryByRole('alertdialog')).toBeNull()

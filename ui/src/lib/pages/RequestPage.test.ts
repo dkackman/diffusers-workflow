@@ -42,7 +42,13 @@ vi.mock('../changes.svelte', async () => ({
   changes: (await import('../test/feedMock')).feed.changes,
 }))
 vi.mock('../toast', () => ({
-  notify: { error: vi.fn(), success: vi.fn(), undo: vi.fn(), news: vi.fn() },
+  notify: {
+    error: vi.fn(),
+    failure: vi.fn(),
+    success: vi.fn(),
+    undo: vi.fn(),
+    news: vi.fn(),
+  },
 }))
 
 const proof = { name: 'run/a.png', kind: 'image' as const }
@@ -588,7 +594,10 @@ it('a save that fails for the network says so, and keeps the draft', async () =>
   await fireEvent.input(box, { target: { value: 'my draft' } })
   await saveNote('Second poster')
   await waitFor(() =>
-    expect(notify.error).toHaveBeenCalledWith('Failed to fetch'),
+    expect(notify.failure).toHaveBeenCalledWith(
+      'save the note',
+      expect.any(TypeError),
+    ),
   )
   expect(box.value).toBe('my draft')
   expect(document.body.contains(box)).toBe(true)

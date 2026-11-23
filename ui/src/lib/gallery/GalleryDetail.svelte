@@ -128,12 +128,10 @@
           const result = await api.keepOutput(file.name, assetName, true)
           notify.success(`Kept as ${result.reference}`)
         } catch (failure) {
-          notify.error(
-            failure instanceof Error ? failure.message : String(failure),
-          )
+          notify.failure(`keep ${file.name} as an asset`, failure)
         }
       } else {
-        notify.error(e instanceof Error ? e.message : String(e))
+        notify.failure(`keep ${file.name} as an asset`, e)
       }
     }
   }

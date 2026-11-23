@@ -13,6 +13,7 @@ import type { WritePreconditions } from './apiRequest'
 import { confirmDialog } from './confirm.svelte'
 import { isNameSegment } from './names'
 import { addLeaveGuard } from './router.svelte'
+import { describeError } from './apiErrors'
 import { notify } from './toast'
 
 export type EditorView = 'form' | 'split' | 'json' | 'flow'
@@ -249,7 +250,7 @@ export class DocumentEditor {
       this.jsonParseFailed = true
       if (!quiet)
         notify.error(
-          `JSON: ${e instanceof Error ? e.message : e}`,
+          `JSON: ${describeError(e).detail ?? describeError(e).title}`,
           'json-parse',
         )
     }

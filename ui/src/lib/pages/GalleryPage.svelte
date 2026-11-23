@@ -119,7 +119,7 @@
       files = files.map((f) => (f.name === name ? { ...f, starred: next } : f))
       if (selected?.name === name) selected = { ...selected, starred: next }
     } catch (e) {
-      notify.error(e instanceof Error ? e.message : String(e))
+      notify.failure('star that file', e)
     }
   }
   // Never both off: an empty grid is not a state worth offering
@@ -140,7 +140,7 @@
     try {
       await api.archiveOutputs(picks.names)
     } catch (e) {
-      notify.error(e instanceof Error ? e.message : String(e))
+      notify.failure('download the picked files', e)
     } finally {
       busy = false
     }
@@ -260,8 +260,7 @@
       if (after && byName.get(after)) select(byName.get(after)!)
       else selected = null
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e)
-      notify.error(msg)
+      notify.failure(`delete ${name}`, e)
     }
   }
 

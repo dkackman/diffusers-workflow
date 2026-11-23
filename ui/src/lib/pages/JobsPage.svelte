@@ -183,7 +183,7 @@
     try {
       await api.moveJob(id, direction)
     } catch (e) {
-      notify.error(e instanceof Error ? e.message : String(e))
+      notify.failure('move the job', e)
       return
     }
     // Same listing the poll asks for - refreshing without its filters would

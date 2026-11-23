@@ -13,7 +13,12 @@ vi.mock('../editor/JsonEditor.svelte', async () => ({
 }))
 
 vi.mock('../toast', () => ({
-  notify: { error: vi.fn(), success: vi.fn(), dismiss: vi.fn() },
+  notify: {
+    error: vi.fn(),
+    failure: vi.fn(),
+    success: vi.fn(),
+    dismiss: vi.fn(),
+  },
 }))
 
 const valid: ValidationResult = {
@@ -255,7 +260,10 @@ describe('WorkflowPage run check', () => {
     expect((runButton as HTMLButtonElement).disabled).toBe(false)
     await fireEvent.click(runButton)
     await advance()
-    expect(notify.error).toHaveBeenCalledWith('seed: not an integer')
+    expect(notify.failure).toHaveBeenCalledWith(
+      expect.stringMatching(/^run /),
+      expect.objectContaining({ message: 'seed: not an integer' }),
+    )
   })
 
   it('keeps Run enabled while a check is in flight', async () => {

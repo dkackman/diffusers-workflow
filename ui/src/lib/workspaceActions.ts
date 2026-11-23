@@ -93,7 +93,7 @@ export async function deleteWorkspaceWithConfirm(
   try {
     await api.deleteWorkspace(name, true)
   } catch (e) {
-    notify.error(e instanceof Error ? e.message : String(e))
+    notify.failure(`delete ${name}`, e)
     return false
   }
   // Leave the deleted workspace before the listing reloads: while `current`

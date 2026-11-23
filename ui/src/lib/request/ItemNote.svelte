@@ -160,7 +160,7 @@
       if (note === null) onsaved?.()
     } catch (e) {
       refused = saveFailure(e)
-      if (!refused) notify.error(e instanceof Error ? e.message : String(e))
+      if (!refused) notify.failure('save the note', e)
     } finally {
       saving = false
     }

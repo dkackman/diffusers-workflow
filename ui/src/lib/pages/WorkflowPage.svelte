@@ -193,8 +193,7 @@
       await api.deleteWorkflow(name)
       goWs('workflows')
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e)
-      notify.error(msg)
+      notify.failure(`delete ${name}`, e)
     }
   }
 
@@ -210,8 +209,7 @@
       })
       goWs('jobs', job.id)
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e)
-      notify.error(msg)
+      notify.failure(`run ${name}`, e)
     } finally {
       submitting = false
     }

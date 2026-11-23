@@ -260,7 +260,7 @@
       followName(example)
       startFrom = example
     } catch (e) {
-      notify.error(e instanceof Error ? e.message : String(e))
+      notify.failure('start a new workflow', e)
     }
   }
 
@@ -290,7 +290,7 @@
       )
       return validation.valid
     } catch (e) {
-      notify.error(e instanceof Error ? e.message : String(e))
+      notify.failure('validate the workflow', e)
       return false
     } finally {
       ed.busy = false
@@ -329,7 +329,7 @@
       if (path !== name)
         renameRoute(wsHref(workspace.current, 'edit', ...path.split('/')))
     } catch (e) {
-      notify.error(e instanceof Error ? e.message : String(e))
+      notify.failure(`save ${path}`, e)
     } finally {
       ed.busy = false
     }
@@ -349,7 +349,7 @@
       })
       goWs('jobs', job.id)
     } catch (e) {
-      notify.error(e instanceof Error ? e.message : String(e))
+      notify.failure('run the workflow', e)
     } finally {
       ed.busy = false
     }

@@ -74,8 +74,7 @@
       diffusers = await api.updateDiffusers()
       error = ''
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e)
-      notify.error(msg)
+      notify.failure('start the diffusers update', e)
     }
   }
 
@@ -107,8 +106,7 @@
       error = ''
       await refreshDownloads()
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e)
-      notify.error(msg)
+      notify.failure(`download ${repo}`, e)
     }
   }
 
@@ -117,8 +115,7 @@
       await api.cancelDownload(id)
       await refreshDownloads()
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e)
-      notify.error(msg)
+      notify.failure('cancel the download', e)
     }
   }
 
@@ -141,8 +138,7 @@
       await api.deleteModel(repo.repo_id)
       await refresh()
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e)
-      notify.error(msg)
+      notify.failure(`delete ${repo.repo_id}`, e)
     } finally {
       deleting = null
     }

@@ -12,7 +12,9 @@ import { ApiError } from '../apiErrors'
 
 const confirmDialog = vi.hoisted(() => vi.fn())
 vi.mock('../confirm.svelte', () => ({ confirmDialog }))
-vi.mock('../toast', () => ({ notify: { error: vi.fn(), success: vi.fn() } }))
+vi.mock('../toast', () => ({
+  notify: { error: vi.fn(), failure: vi.fn(), success: vi.fn() },
+}))
 
 beforeEach(() => {
   confirmDialog.mockReset()
@@ -268,7 +270,10 @@ it('a failure that is not a refusal is a toast, and the draft stays', async () =
   given.onsave.mockRejectedValue(new TypeError('Failed to fetch'))
   await fireEvent.click(screen.getByRole('button', { name: 'Save note' }))
   await waitFor(() =>
-    expect(notify.error).toHaveBeenCalledWith('Failed to fetch'),
+    expect(notify.failure).toHaveBeenCalledWith(
+      'save the note',
+      expect.any(TypeError),
+    ),
   )
   expect(screen.queryByRole('alert')).toBeNull()
   expect(box().value).toBe('my draft')

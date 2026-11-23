@@ -217,7 +217,7 @@
     try {
       await api.archiveAssets(picks.names)
     } catch (e) {
-      notify.error(e instanceof Error ? e.message : String(e))
+      notify.failure('download the picked assets', e)
     } finally {
       busy = false
     }
@@ -302,7 +302,7 @@
       if (selected?.name === asset.name) selected = null
       await load()
     } catch (e) {
-      notify.error(e instanceof Error ? e.message : String(e))
+      notify.failure(`delete ${asset.name}`, e)
     } finally {
       busy = false
     }
