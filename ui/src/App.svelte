@@ -18,6 +18,7 @@
   import { route } from './lib/router.svelte'
   import { isEditable } from './lib/editable'
   import { runningIds } from './lib/jobWatch'
+  import { jobHref } from './lib/routes'
   import {
     alertMode,
     clearEndedMark,
@@ -210,7 +211,7 @@
              own workspace -->
             <a
               class="plain live"
-              href="#/jobs/{running[0]}"
+              href={jobHref(running[0])}
               title="go to the job"
             >
               <span class="pulse-dot"></span>running

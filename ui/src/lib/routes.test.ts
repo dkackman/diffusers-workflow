@@ -4,6 +4,7 @@ import {
   SERVER_SECTIONS,
   SHARED_SECTIONS,
   WS_SECTIONS,
+  jobHref,
   legacyRedirect,
   resolveView,
   sectionLabel,
@@ -152,5 +153,14 @@ describe('href builders', () => {
     )
     expect(sharedHref('prompt-edit', 'p')).toBe('#/shared/prompt-edit/p')
     expect(serverHref('models')).toBe('#/server/models')
+  })
+})
+
+describe('jobHref', () => {
+  it("names the job's workspace when known", () => {
+    expect(jobHref('abc', 'studio')).toBe('#/ws/studio/jobs/abc')
+  })
+  it('keeps the legacy form where the caller has no workspace', () => {
+    expect(jobHref('abc')).toBe('#/jobs/abc')
   })
 })

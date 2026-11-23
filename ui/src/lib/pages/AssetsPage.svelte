@@ -21,7 +21,7 @@
   import { Picks, actOnEach, reportFailures } from '../picks.svelte'
   import { overlayOpen } from '../ui/layers.svelte'
   import { notify } from '../toast'
-  import { storageGet, storageSet } from '../storage'
+  import { collapsedState } from '../collapsed.svelte'
   import type { AssetFile, AssetLibrary, ShadowedAsset } from '../types'
   import { workspace } from '../workspace.svelte'
   import { sharedHref } from '../routes'
@@ -87,9 +87,7 @@
   let fileInput = $state<HTMLInputElement | null>(null)
   // Which library sections are shut. Persisted, since a box whose shared
   // library dwarfs the workspace's own is exactly where one gets shut
-  let collapsed = $state<Record<string, boolean>>(
-    storageGet(COLLAPSE_KEY, {} as Record<string, boolean>),
-  )
+  const collapsed = collapsedState(COLLAPSE_KEY)
 
   // Carry a saved note onto the listing and the pick, so selecting the asset
   // again shows it rather than what was fetched before the edit
@@ -129,13 +127,9 @@
     assets.filter((a) => a.origin !== 'workspace').length,
   )
 
-  function toggleLibrary(origin: string) {
-    collapsed[origin] = !collapsed[origin]
-    storageSet(COLLAPSE_KEY, $state.snapshot(collapsed))
-  }
   // While filtering, everything stays open - a shut section hiding matches
   // would make the filter look broken, as FolderGroups has it
-  const isOpen = (origin: string) => filterActive || !collapsed[origin]
+  const isOpen = (origin: string) => filterActive || !collapsed.has(origin)
 
   // One section per library on the search path, in the order the server
   // resolves them - the path is the page's top level and folders sit
@@ -380,7 +374,7 @@
       open={isOpen(section.origin)}
       {shared}
       busy={working}
-      ontoggle={() => toggleLibrary(section.origin)}
+      ontoggle={() => collapsed.toggle(section.origin)}
       onupload={startUpload}
     />
 

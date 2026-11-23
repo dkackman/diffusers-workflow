@@ -1,5 +1,6 @@
 <script lang="ts">
   import { Check, TriangleAlert } from '@lucide/svelte'
+  import StatusChip from '../ui/StatusChip.svelte'
   import ItemProof from './ItemProof.svelte'
   import { takesOf, type Take } from './itemState'
   import { formatSpent } from '../format'
@@ -28,13 +29,6 @@
   } = $props()
 
   const takes = $derived(takesOf(item))
-  const CHIP = {
-    queued: 'queued',
-    running: 'running',
-    failed: 'failed',
-    cancelled: 'idle',
-    succeeded: 'succeeded',
-  }
   const chosen = (take: Take) =>
     take.mark === 'accepted' || take.mark === 'accepted-gone'
   const MARK = {
@@ -77,7 +71,7 @@
       <span class="caption">
         <span class="n">take {take.n}</span>
         {#if attempt.status !== 'succeeded'}
-          <span class="chip {CHIP[attempt.status]}">{attempt.status}</span>
+          <StatusChip status={attempt.status} />
         {/if}
         {#if attempt.minutes != null}
           <span class="num muted">{formatSpent(attempt.minutes)}</span>

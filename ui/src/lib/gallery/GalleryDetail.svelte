@@ -18,7 +18,7 @@
   import NoteEditor from '../ui/NoteEditor.svelte'
   import { ASSET, OUTPUT, referenceName } from '../references'
   import { outputUrl } from '../apiUrls'
-  import { wsHref } from '../routes'
+  import { jobHref, wsHref } from '../routes'
   import { workspace } from '../workspace.svelte'
   import { formatBytes, formatMtime } from '../format'
   import { versionTitle } from '../terms'
@@ -320,7 +320,7 @@
                 <div>
                   <span class="muted">job</span>
                   <a
-                    href={'#/jobs/' + sourceJob.id}
+                    href={jobHref(sourceJob.id, workspace.current)}
                     title="open the job that produced this file"
                   >
                     {sourceJob.id}

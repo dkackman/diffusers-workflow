@@ -1,5 +1,6 @@
 <script lang="ts">
   import { Dices, PackageOpen, RotateCw, X } from '@lucide/svelte'
+  import StatusChip from '../ui/StatusChip.svelte'
   import { ApiError, api } from '../api'
   import { action } from '../action.svelte'
   import { confirmDialog } from '../confirm.svelte'
@@ -162,7 +163,7 @@
   }}
 >
   {#if job}
-    <span class="chip {job.status}">{job.status}</span>
+    <StatusChip status={job.status} />
     <code class="muted seed" title="this job's id">{job.id}</code>
     <CopyButton text={job.id} title="copy job id" />
     {#if job?.rerun_of}
@@ -234,10 +235,7 @@
     {#if runVersion}
       <!-- The gallery labels this job's files the same way, so "v4" said
            here finds them there -->
-      <code
-        class="muted seed"
-        title={versionTitle(runVersion)}
-      >
+      <code class="muted seed" title={versionTitle(runVersion)}>
         v{runVersion}
       </code>
     {/if}

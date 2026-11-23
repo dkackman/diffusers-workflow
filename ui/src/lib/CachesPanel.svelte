@@ -14,10 +14,11 @@
   import { api } from './api'
   import { resource } from './resource.svelte'
   import LoadState from './ui/LoadState.svelte'
+  import DiskMeter from './ui/DiskMeter.svelte'
   import ErrorLine from './ui/ErrorLine.svelte'
   import { action } from './action.svelte'
   import { cacheEntryConfirm, serverConfirm } from './destructive'
-  import { formatBytes, formatMtime, gbFromBytes } from './format'
+  import { formatBytes, formatMtime } from './format'
   import type { DiskCacheEntry, DiskCacheInfo } from './types'
 
   let clearError = $state<unknown>(null)
@@ -85,13 +86,6 @@
     },
   )
   const working = $derived(clear.busy || deleteEntry.busy)
-
-  const usedPct = (cache: DiskCacheInfo) =>
-    cache.disk_total && cache.disk_free != null
-      ? Math.round(
-          (100 * (cache.disk_total - cache.disk_free)) / cache.disk_total,
-        )
-      : null
 </script>
 
 <div class="panel caches">
@@ -115,7 +109,6 @@
         </thead>
         <tbody>
           {#each caches as cache (cache.name)}
-            {@const pct = usedPct(cache)}
             <tr>
               <td>{cache.name}</td>
               <td><code>{cache.root}</code></td>
@@ -126,18 +119,12 @@
               </td>
               <td>{cache.enabled ? 'yes' : 'no'}</td>
               <td>
-                {#if pct != null}
-                  <span
-                    class="disk"
+                {#if cache.disk_total && cache.disk_free != null}
+                  <DiskMeter
+                    freeBytes={cache.disk_free}
+                    totalBytes={cache.disk_total}
                     title="disk holding the {cache.name} cache"
-                  >
-                    <span class="diskbar">
-                      <span style="width: {pct}%"></span>
-                    </span>
-                    {gbFromBytes(cache.disk_free ?? 0)} / {gbFromBytes(
-                      cache.disk_total ?? 0,
-                    )} GB free
-                  </span>
+                  />
                 {:else}
                   <span class="muted">—</span>
                 {/if}
@@ -289,30 +276,5 @@
 
   .lowdisk {
     display: table-cell;
-  }
-
-  .disk {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.4rem;
-    color: var(--muted);
-    font-size: 0.85rem;
-    white-space: nowrap;
-  }
-
-  .diskbar {
-    width: 90px;
-    height: 6px;
-    border-radius: 3px;
-    background: var(--line);
-    overflow: hidden;
-    display: inline-block;
-  }
-
-  .diskbar > span {
-    display: block;
-    height: 100%;
-    background: var(--muted);
-    opacity: 0.7;
   }
 </style>

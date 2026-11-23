@@ -1,7 +1,8 @@
 <script lang="ts">
   import type { Snippet } from 'svelte'
-  import { ChevronDown, ChevronRight, Plus } from '@lucide/svelte'
-  import { storageGet, storageSet } from './storage'
+  import { Plus } from '@lucide/svelte'
+  import { collapsedState } from './collapsed.svelte'
+  import GroupHeading from './ui/GroupHeading.svelte'
   import { groupNames, groupOf as defaultGroupOf } from './grouping'
 
   let {
@@ -27,34 +28,26 @@
   } = $props()
 
   // svelte-ignore state_referenced_locally
-  let collapsed = $state<Record<string, boolean>>(storageGet(collapseKey, {}))
-
-  function toggle(group: string) {
-    collapsed[group] = !collapsed[group]
-    storageSet(collapseKey, $state.snapshot(collapsed))
-  }
+  const collapsed = collapsedState(collapseKey)
 
   const grouped = $derived(groupNames(names, groupOf))
   const groups = $derived([...grouped.keys()])
   const inGroup = (group: string) => grouped.get(group) ?? []
   // While filtering, everything stays visible - a collapsed folder hiding
   // matches would make the filter look broken
-  const isOpen = (group: string) => filterActive || !collapsed[group]
+  const isOpen = (group: string) => filterActive || !collapsed.has(group)
 </script>
 
 {#each groups as group (group)}
   {#if group}
     <div class="grouprow">
-      <button
-        class="group"
-        onclick={() => toggle(group)}
+      <GroupHeading
+        label="{group}/"
+        count={inGroup(group).length}
+        collapsed={!isOpen(group)}
+        ontoggle={() => collapsed.toggle(group)}
         title={isOpen(group) ? 'collapse this folder' : 'expand this folder'}
-      >
-        {#if isOpen(group)}<ChevronDown size={14} />{:else}<ChevronRight
-            size={14}
-          />{/if}
-        {group}/ <span class="muted">({inGroup(group).length})</span>
-      </button>
+      />
       {#if newHref}
         <a
           class="groupnew"
@@ -103,27 +96,6 @@
   .groupnew:hover {
     color: var(--ink);
     border-color: var(--line);
-  }
-  /* A folder name is a path segment the engine resolves, so it is mono
-     like every other name in the app */
-  .group {
-    display: flex;
-    align-items: center;
-    gap: 0.35rem;
-    background: none;
-    border: none;
-    color: var(--muted);
-    font-family: var(--font-mono);
-    font-weight: 600;
-    font-size: var(--t-sm);
-    letter-spacing: -0.01em;
-    padding: 0;
-    margin: 0;
-    cursor: pointer;
-  }
-  .group:hover {
-    color: var(--ink);
-    filter: none;
   }
   /* Cards are deliberately not equal height - one that has produced
      something carries a picture and one that has not does not - so rows

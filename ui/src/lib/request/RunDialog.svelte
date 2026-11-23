@@ -1,5 +1,6 @@
 <script lang="ts">
   import { TriangleAlert } from '@lucide/svelte'
+  import StatusChip from '../ui/StatusChip.svelte'
   import { api } from '../api'
   import { formatMinutes } from '../format'
   import { describeEstimate, describeEstimateTotal } from '../plan'
@@ -192,7 +193,7 @@
               <p class="outcome muted" role="status">queuing…</p>
             {:else if row.state === 'queued' && row.job}
               <p class="outcome" role="status">
-                <span class="chip queued">queued</span>
+                <StatusChip status="queued" />
                 <a href={wsHref(workspace, 'jobs', row.job)}>Open job</a>
               </p>
             {:else if row.state === 'repriced'}

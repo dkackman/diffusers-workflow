@@ -1,5 +1,6 @@
 <script lang="ts">
   import { formatDuration, formatExact, formatMtime } from '../format'
+  import StatusChip from '../ui/StatusChip.svelte'
   import { holdKind, holdText } from '../progress'
   import { queueWait } from '../jobTimes'
   import { resource } from '../resource.svelte'
@@ -292,7 +293,7 @@
             ? 'finished before this server started - loaded from history'
             : ''}
         >
-          <span class="chip {job.status}">{job.status}</span>
+          <StatusChip status={job.status} />
           <span class="namecol">
             <span class="name">
               {workflowName(job)}

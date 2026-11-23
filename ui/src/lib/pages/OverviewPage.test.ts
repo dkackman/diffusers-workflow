@@ -247,7 +247,7 @@ it('a deep queue does not hide the running job, and queued jobs are not "recent"
   await waitFor(() =>
     expect(screen.getByRole('link', { name: 'running1' })).toBeTruthy(),
   )
-  expect(document.querySelector('.runningnow')).toBeTruthy()
+  expect(document.querySelector('.row-live')).toBeTruthy()
   expect(screen.getByRole('link', { name: 'done1' })).toBeTruthy()
   expect(document.querySelectorAll('.chip.queued')).toHaveLength(0)
   expect(screen.queryByRole('link', { name: /^queued/ })).toBeNull()

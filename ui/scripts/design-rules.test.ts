@@ -24,7 +24,6 @@ const LIVE_FILES = [
   'src/lib/editor/FlowView.svelte',
   'src/lib/job/JobProgress.svelte',
   'src/lib/pages/ModelsPage.svelte',
-  'src/lib/pages/OverviewPage.svelte',
   'src/lib/request/RequestProgress.svelte',
 ]
 
@@ -66,6 +65,25 @@ it('the segmented and chip selected styles live only in Segmented.svelte and pat
   expect(declaring.filter((f) => f !== 'src/lib/ui/Segmented.svelte')).toEqual(
     declaring.filter((f) => f === 'src/patterns.css'),
   )
+})
+
+// A job's status colours are one rule: `.chip.<status>` in app.css, worn
+// through StatusChip. A component that restyled one would give a status a
+// second look (a cancelled take once showed as a grey idle chip)
+it('job status colours are declared only in StatusChip.svelte and app.css', () => {
+  const STATUS = /\.chip\.(running|queued|succeeded|failed|cancelled)\b/
+  const declaring = sourceFiles()
+    .filter((f) => STATUS.test(styleOf(f)))
+    .map((f) => f.slice(UI.length + 1).replaceAll('\\', '/'))
+  expect(
+    declaring.filter(
+      (f) => f !== 'src/app.css' && f !== 'src/lib/ui/StatusChip.svelte',
+    ),
+  ).toEqual([])
+  // and the chip itself carries the status as its class
+  expect(
+    readFileSync(join(UI, 'src/lib/ui/StatusChip.svelte'), 'utf8'),
+  ).toContain('class="chip {status}"')
 })
 
 // The CSS a file declares: a .svelte file's <style> blocks, or a .css file whole

@@ -259,7 +259,7 @@ it('lists each worker with its card, VRAM and a link to its job', async () => {
   const hrefs = [...container.querySelectorAll('li a')].map((a) =>
     a.getAttribute('href'),
   )
-  expect(hrefs).toEqual(['#/jobs/job-a', '#/jobs/job-b'])
+  expect(hrefs).toEqual(['#/ws/default/jobs/job-a', '#/ws/default/jobs/job-b'])
 })
 
 it('shows memory for every card, not just the first', async () => {

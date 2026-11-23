@@ -181,3 +181,12 @@ export function sharedHref(section: SharedSection, ...rest: string[]): string {
 export function serverHref(section: ServerSection): string {
   return join(['server', section])
 }
+
+/** A job's page. With its workspace it is a full hash; without one, only
+ * where the caller has none (the header's running link: health carries no
+ * workspace), the legacy form the job page redirects. */
+export function jobHref(id: string, workspace?: string): string {
+  return workspace
+    ? wsHref(workspace, 'jobs', id)
+    : '#/jobs/' + encodeURIComponent(id)
+}

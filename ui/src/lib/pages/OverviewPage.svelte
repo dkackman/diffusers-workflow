@@ -10,6 +10,7 @@
     Plus,
     Trash2,
   } from '@lucide/svelte'
+  import StatusChip from '../ui/StatusChip.svelte'
   import { api } from '../api'
   import { attention, doneFigure } from '../request/attention'
   import { resource } from '../resource.svelte'
@@ -219,8 +220,8 @@
       {#snippet children({ running, finished })}
         <ul class="jobs">
           {#if running}
-            <li class="runningnow">
-              <span class="chip running">running</span>
+            <li class="row-live">
+              <StatusChip status="running" />
               <span class="wf">{workflowName(running)}</span>
               <a class="plain" href={wsHref(name, 'jobs', running.id)}>
                 {running.id}
@@ -229,7 +230,7 @@
           {/if}
           {#each finished as job (job.id)}
             <li>
-              <span class="chip {job.status}">{job.status}</span>
+              <StatusChip status={job.status} />
               <span class="wf">{workflowName(job)}</span>
               <a class="plain" href={wsHref(name, 'jobs', job.id)}>{job.id}</a>
             </li>
@@ -392,8 +393,7 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .jobs .runningnow {
-    box-shadow: inset 2px 0 0 var(--live);
+  .jobs .row-live {
     padding-left: var(--space-2);
   }
   .cards {

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { resource } from '../resource.svelte'
   import LoadState from '../ui/LoadState.svelte'
+  import DiskMeter from '../ui/DiskMeter.svelte'
   import PageHeader from '../ui/PageHeader.svelte'
   import { formatBytes, formatDay, gbFromBytes } from '../format'
   import {
@@ -8,7 +9,6 @@
     ChevronRight,
     Download,
     ExternalLink,
-    HardDrive,
     RefreshCw,
     Trash2,
     X,
@@ -111,12 +111,6 @@
   const largest = $derived(
     Math.max(1, ...(cache?.repos ?? []).map((r) => r.size_on_disk)),
   )
-  const usedPct = $derived.by(() => {
-    if (!cache?.disk_total || cache.disk_free == null) return null
-    return Math.round(
-      (100 * (cache.disk_total - cache.disk_free)) / cache.disk_total,
-    )
-  })
 </script>
 
 <PageHeader title="Models" baseline>
@@ -126,12 +120,13 @@
     </span>
   {/if}
   {#snippet actions()}
-    {#if cache && usedPct != null}
-      <span class="disk" title="disk holding the hub cache">
-        <HardDrive size={14} />
-        <span class="diskbar"><span style="width: {usedPct}%"></span></span>
-        {gb(cache.disk_free ?? 0)} GB free
-      </span>
+    {#if cache && cache.disk_total && cache.disk_free != null}
+      <DiskMeter
+        freeBytes={cache.disk_free}
+        totalBytes={cache.disk_total}
+        title="disk holding the hub cache"
+        icon
+      />
     {/if}
   {/snippet}
 </PageHeader>
@@ -378,28 +373,6 @@
   }
   .updated {
     color: var(--accent);
-  }
-  .disk {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.4rem;
-    margin-left: auto;
-    color: var(--muted);
-    font-size: 0.85rem;
-  }
-  .diskbar {
-    width: 90px;
-    height: 6px;
-    border-radius: 3px;
-    background: var(--line);
-    overflow: hidden;
-    display: inline-block;
-  }
-  .diskbar > span {
-    display: block;
-    height: 100%;
-    background: var(--muted);
-    opacity: 0.7;
   }
   .bad {
     font-size: 0.9rem;
