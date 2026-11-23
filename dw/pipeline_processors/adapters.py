@@ -62,6 +62,18 @@ def set_adapter_alpha(pipeline, adapter_name, alpha):
     )
 
 
+def _lora_holders(pipeline):
+    """The torch modules a LoRA can have been loaded into."""
+    holders = []
+    for name in getattr(pipeline, "_lora_loadable_modules", []) or []:
+        holders.append(getattr(pipeline, name, None))
+    if not any(holder is not None for holder in holders):
+        components = getattr(pipeline, "components", None)
+        if isinstance(components, dict):
+            holders.extend(components.values())
+    return [h for h in holders if isinstance(h, torch.nn.Module)]
+
+
 def _lora_layers(pipeline):
     """Every peft-wrapped module under a pipeline, whatever holds it.
 
@@ -73,15 +85,7 @@ def _lora_layers(pipeline):
     from peft.tuners.tuners_utils import BaseTunerLayer
 
     seen = set()
-    holders = []
-    for name in getattr(pipeline, "_lora_loadable_modules", []) or []:
-        holders.append(getattr(pipeline, name, None))
-    if not any(holder is not None for holder in holders):
-        components = getattr(pipeline, "components", None)
-        if isinstance(components, dict):
-            holders.extend(components.values())
-
-    for holder in holders:
+    for holder in _lora_holders(pipeline):
         if not isinstance(holder, torch.nn.Module):
             continue
         for module in holder.modules():
@@ -185,6 +189,30 @@ def apply_adapter_settings(loras, pipeline, activate=False):
         set_adapter_scales(pipeline, names, weights)
 
 
+def _require_adapter_loaded(pipeline, adapter, model_name, weight_name):
+    """Fail at the load, naming the file, when no layer carries the adapter.
+
+    diffusers drops a state dict whose keys it cannot map (an unprefixed or
+    mixed-style file) with at most a log line, and the run then dies at
+    set_adapters() with "not in the list of present adapters", which never
+    says the file was the problem. A pipeline with no peft-aware component to
+    inspect is skipped: there is nothing to look at.
+    """
+    if not _lora_holders(pipeline):
+        return
+    for module in _lora_layers(pipeline):
+        if adapter in (getattr(module, "scaling", None) or {}):
+            return
+    source = f"{model_name}/{weight_name}" if weight_name else str(model_name)
+    raise ValueError(
+        f"LoRA '{adapter}' ({source}) matched 0 keys: no module of the "
+        "pipeline carries it after loading, so the file's key format was not "
+        "recognised (diffusers expects keys prefixed with the component, e.g. "
+        "'transformer.', in one consistent naming style) and applying it "
+        "would do nothing."
+    )
+
+
 def load_loras(loras, pipeline):
     """Load and configure LoRA models.
 
@@ -221,7 +249,9 @@ def load_loras(loras, pipeline):
         # pickle (SE-F066; trust.require_trusted_lora_entries keeps the
         # entry from saying otherwise)
         safe = {} if workflows_are_trusted() else {"use_safetensors": True}
-        pipeline.load_lora_weights(model_name, adapter_name=next(names), **lora, **safe)
+        adapter = next(names)
+        pipeline.load_lora_weights(model_name, adapter_name=adapter, **lora, **safe)
+        _require_adapter_loaded(pipeline, adapter, model_name, lora.get("weight_name"))
 
     apply_adapter_settings(settings, pipeline, activate=True)
 

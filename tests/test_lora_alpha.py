@@ -126,3 +126,21 @@ def test_a_non_positive_alpha_is_refused(alpha):
     pipeline = FakePipeline([FakeLoraLayer(["turbo"])])
     with pytest.raises(ValueError, match="must be positive"):
         set_adapter_alpha(pipeline, "turbo", alpha)
+
+
+def test_a_lora_whose_keys_matched_nothing_fails_at_the_load():
+    """diffusers drops an unrecognised state dict; the error names the file."""
+    pipeline = FakePipeline([FakeLoraLayer(["other"])])
+    with pytest.raises(
+        ValueError, match=r"'dmad' \(org/repo/f\.safetensors\) matched 0 keys"
+    ):
+        load_loras(
+            [
+                {
+                    "model_name": "org/repo",
+                    "weight_name": "f.safetensors",
+                    "adapter_name": "dmad",
+                }
+            ],
+            pipeline,
+        )
