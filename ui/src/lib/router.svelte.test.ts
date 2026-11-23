@@ -5,15 +5,28 @@ vi.mock('./api', () => ({
 }))
 vi.mock('./toast', () => ({ notify: { error: vi.fn(), success: vi.fn() } }))
 
+// Each test loads its own router, and an earlier test's would still hear
+// every hashchange and stamp the shared history with its own count - so the
+// hashchange listeners a test adds are removed after it
+const listeners: EventListenerOrEventListenerObject[] = []
+const addListener = window.addEventListener.bind(window)
 beforeEach(() => {
   localStorage.clear()
   // replaceState moves no hash event into the next test, as `location.hash = ''` does
   history.replaceState(null, '', location.pathname + location.search)
+  vi.spyOn(window, 'addEventListener').mockImplementation(
+    (type: string, listener: EventListenerOrEventListenerObject, options) => {
+      if (type === 'hashchange') listeners.push(listener)
+      addListener(type, listener, options)
+    },
+  )
 })
-// each test's module keeps its hashchange listener, so its guards are dropped
 const removers: Array<() => void> = []
 afterEach(() => {
   removers.splice(0).forEach((remove) => remove())
+  for (const listener of listeners.splice(0))
+    window.removeEventListener('hashchange', listener)
+  vi.restoreAllMocks()
   vi.resetModules()
 })
 async function loadRouter() {
@@ -289,4 +302,81 @@ it('renameRoute renames the entry in place and asks the guards for the new path'
   await go('#/ws/studio/edit', 2)
   expect(asked).toBe(1)
   expect(location.hash).toBe('#/ws/studio/edit/mine')
+})
+
+// a second navigation while a guard is asking, and a declined replace
+
+it('a second navigation while a guard asks is not lost', async () => {
+  const { route, addLeaveGuard } = await loadRouter()
+  await go('#/ws/studio/overview')
+  let answer: (ok: boolean) => void = () => {}
+  const remove = addLeaveGuard(() => new Promise<boolean>((r) => (answer = r)))
+  await go('#/ws/studio/jobs/a')
+  await go('#/ws/studio/jobs/b')
+  expect(route.view).toMatchObject({ section: 'overview' })
+  answer(true)
+  await flush()
+  remove()
+  expect(route.parts).toEqual(['ws', 'studio', 'jobs', 'b'])
+  expect(location.hash).toBe('#/ws/studio/jobs/b')
+  // settled on b's own entry: Back from it is a, not overview
+  await nav(() => history.back())
+  expect(route.parts).toEqual(['ws', 'studio', 'jobs', 'a'])
+})
+
+it('declining after two navigations walks back to the committed entry', async () => {
+  const { route, addLeaveGuard } = await loadRouter()
+  await go('#/ws/studio/overview')
+  const parts = [...route.parts]
+  let answer: (ok: boolean) => void = () => {}
+  addLeaveGuard(() => new Promise<boolean>((r) => (answer = r)))
+  await go('#/ws/studio/jobs/a')
+  await go('#/ws/studio/jobs/b')
+  const walk = vi.spyOn(history, 'go')
+  await nav(() => answer(false))
+  expect(walk).toHaveBeenCalledTimes(1)
+  expect(walk).toHaveBeenCalledWith(-2)
+  walk.mockRestore()
+  expect(location.hash).toBe('#/ws/studio/overview')
+  expect(route.parts).toEqual(parts)
+})
+
+it('a declined replaceRoute puts the committed hash back in place', async () => {
+  const { route, addLeaveGuard, replaceRoute } = await loadRouter()
+  await go('#/ws/studio/overview')
+  const stamped = history.state
+  const depth = history.length
+  addLeaveGuard(() => false)
+  const walk = vi.spyOn(history, 'go')
+  await nav(() => replaceRoute('#/ws/studio/jobs/j1'))
+  expect(walk).not.toHaveBeenCalled()
+  walk.mockRestore()
+  expect(location.hash).toBe('#/ws/studio/overview')
+  expect(history.state).toEqual(stamped)
+  expect(history.length).toBe(depth)
+  expect(route.view).toMatchObject({ section: 'overview' })
+})
+
+it('an allowed replaceRoute replaces the entry without a new one', async () => {
+  const { route, addLeaveGuard, replaceRoute } = await loadRouter()
+  await go('#/ws/studio/overview')
+  const stamped = history.state
+  const depth = history.length
+  addLeaveGuard(() => true)
+  await nav(() => replaceRoute('#/ws/studio/jobs/j1'))
+  expect(location.hash).toBe('#/ws/studio/jobs/j1')
+  expect(route.view).toMatchObject({ section: 'jobs', rest: ['j1'] })
+  expect(history.length).toBe(depth)
+  expect(history.state).toEqual(stamped)
+})
+
+it('a replaceRoute to the current hash leaves the next push a push', async () => {
+  const { addLeaveGuard, replaceRoute } = await loadRouter()
+  await go('#/ws/studio/overview')
+  replaceRoute('#/ws/studio/overview')
+  addLeaveGuard(() => false)
+  const walk = vi.spyOn(history, 'go')
+  await go('#/ws/studio/jobs/j1', 2)
+  expect(walk).toHaveBeenCalledWith(-1)
+  expect(location.hash).toBe('#/ws/studio/overview')
 })

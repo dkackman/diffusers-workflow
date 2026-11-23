@@ -43,6 +43,13 @@ let listed = false
 // a name the cache lacks is refetched once before it is called missing.
 let fresh = false
 let refetching = false
+// How a missing workspace's route is replaced: the router hands over its
+// replaceRoute at load, since it imports this module and so cannot be imported
+let replaceRoute: (hash: string) => void = () => {}
+
+export function setRouteReplacer(replace: (hash: string) => void): void {
+  replaceRoute = replace
+}
 
 export function applyRouteWorkspace(view: RouteView | null): void {
   lastView = view
@@ -79,7 +86,7 @@ export function checkWorkspaceExists(view: RouteView | null): void {
   rememberWorkspace(DEFAULT_WORKSPACE)
   if (view?.kind === 'ws') {
     notify.error(`No workspace named ${missing} - showing default`)
-    location.replace(wsHref(DEFAULT_WORKSPACE, 'overview'))
+    replaceRoute(wsHref(DEFAULT_WORKSPACE, 'overview'))
   }
 }
 

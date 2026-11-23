@@ -1,7 +1,7 @@
 <script lang="ts">
   import { Braces, TriangleAlert } from '@lucide/svelte'
   import { TERMINAL_STATUSES, api, streamJobEvents } from '../api'
-  import { route } from '../router.svelte'
+  import { replaceRoute, route } from '../router.svelte'
   import { wsHref } from '../routes'
   import { groupResultFiles, unsavedSteps } from '../results'
   import {
@@ -86,7 +86,7 @@
         // A legacy '#/jobs/<id>' lands under the last-used workspace as a first
         // guess; the job knows its own, so the URL is corrected once it answers
         if (route.view.kind === 'ws' && route.view.workspace !== job.workspace)
-          location.replace(wsHref(job.workspace, 'jobs', jobId))
+          replaceRoute(wsHref(job.workspace, 'jobs', jobId))
         if (detail.historical) return // no event log to stream
         stop = streamJobEvents(
           jobId,

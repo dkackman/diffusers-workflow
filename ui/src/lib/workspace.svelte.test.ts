@@ -185,9 +185,12 @@ it('a failed listing does not read as every other workspace being gone', async (
 
 it('a refetch that fails keeps the listing and still redirects the missing name', async () => {
   // Driven through applyRouteWorkspace rather than a hashchange: the routers
-  // earlier tests imported still listen, and one would take the rejection
-  const { applyRouteWorkspace, loadWorkspaces, workspace } =
+  // earlier tests imported still listen, and one would take the rejection.
+  // With no router loaded, the replace it would hand over is a spy
+  const { applyRouteWorkspace, loadWorkspaces, setRouteReplacer, workspace } =
     await import('./workspace.svelte')
+  const replace = vi.fn()
+  setRouteReplacer(replace)
   applyRouteWorkspace({
     kind: 'ws',
     workspace: 'studio',
@@ -206,7 +209,7 @@ it('a refetch that fails keeps the listing and still redirects the missing name'
   })
   await loadWorkspaces()
   expect(workspace.names).toEqual(['default', 'studio'])
-  expect(location.hash).toBe('#/ws/default/overview')
+  expect(replace).toHaveBeenCalledWith('#/ws/default/overview')
   expect(workspace.current).toBe('default')
   expect(errorToast).toHaveBeenCalledWith(expect.stringContaining('typo'))
 })

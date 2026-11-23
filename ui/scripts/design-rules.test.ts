@@ -44,3 +44,12 @@ it('uses --select only for the focus ring and the nav', () => {
     .map((f) => f.slice(UI.length + 1).replaceAll('\\', '/'))
   expect(using).toEqual(SELECT_FILES)
 })
+
+// A replace that skips the router would skip its leave guards and its
+// history stamp; everything else calls replaceRoute
+it('location.replace appears only in the router', () => {
+  const using = sourceFiles()
+    .filter((f) => readFileSync(f, 'utf8').includes('location.replace('))
+    .map((f) => f.slice(UI.length + 1).replaceAll('\\', '/'))
+  expect(using).toEqual(['src/lib/router.svelte.ts'])
+})
