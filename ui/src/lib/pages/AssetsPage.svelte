@@ -18,12 +18,7 @@
   import { action } from '../action.svelte'
   import { assetConfirm, assetsConfirm } from '../assets/deletion'
   import BulkBar from '../BulkBar.svelte'
-  import {
-    actOnEach,
-    downloadArchive,
-    Picks,
-    reportFailures,
-  } from '../picks.svelte'
+  import { Picks, actOnEach, reportFailures } from '../picks.svelte'
   import { overlayOpen } from '../ui/layers.svelte'
   import { notify } from '../toast'
   import { storageGet, storageSet } from '../storage'
@@ -216,11 +211,7 @@
     fileInput?.click()
   }
 
-  const downloading = downloadArchive(
-    () => picks.names,
-    api.archiveAssets,
-    'assets',
-  )
+  const downloading = picks.download(api.archiveAssets, 'assets')
 
   const removingPicked = action(
     async (names: string[]) => {

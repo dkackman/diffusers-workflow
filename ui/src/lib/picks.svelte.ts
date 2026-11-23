@@ -41,6 +41,25 @@ export class Picks {
     return this.#order().filter((name) => this.#names.has(name))
   }
 
+  /** The bulk bar's Download: the picked names as one zip from `archive`
+   * (the gallery's or the asset library's route). Call it once, at setup:
+   * the handle's action makes a double click fetch one, and with nothing
+   * picked `run` asks for nothing */
+  download(archive: (names: string[]) => Promise<unknown>, noun: string) {
+    const downloading = action((picked: string[]) => archive(picked), {
+      doing: `download the picked ${noun}`,
+    })
+    return {
+      get busy() {
+        return downloading.busy
+      },
+      run: () => {
+        const picked = this.names
+        if (picked.length) void downloading.run(picked)
+      },
+    }
+  }
+
   toggle(name: string, shift: boolean): void {
     const order = this.#order()
     const from =
@@ -136,26 +155,4 @@ export function reportFailures(
     undefined,
     failed.map((f) => `${f.name}: ${describeError(f.error).title}`).join('\n'),
   )
-}
-
-/** The bulk bar's Download: the picked `names` as one zip from `archive`
- * (the gallery's or the asset library's route). An action, so a double
- * click fetches one; with nothing picked it asks for nothing */
-export function downloadArchive(
-  names: () => string[],
-  archive: (names: string[]) => Promise<unknown>,
-  noun: string,
-) {
-  const downloading = action((picked: string[]) => archive(picked), {
-    doing: `download the picked ${noun}`,
-  })
-  return {
-    get busy() {
-      return downloading.busy
-    },
-    run() {
-      const picked = names()
-      if (picked.length) void downloading.run(picked)
-    },
-  }
 }

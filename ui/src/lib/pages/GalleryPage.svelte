@@ -8,12 +8,7 @@
   import PageHeader from '../ui/PageHeader.svelte'
   import FolderGroups from '../FolderGroups.svelte'
   import BulkBar from '../BulkBar.svelte'
-  import {
-    Picks,
-    actOnEach,
-    downloadArchive,
-    reportFailures,
-  } from '../picks.svelte'
+  import { Picks, actOnEach, reportFailures } from '../picks.svelte'
   import { isEditable } from '../editable'
   import { neighbor } from '../neighbor'
   import { overlayOpen } from '../ui/layers.svelte'
@@ -143,11 +138,7 @@
   // name alone reads the run directory as one more folder
   const folderByName = $derived(new Map(visible.map((f) => [f.name, f.folder])))
 
-  const downloading = downloadArchive(
-    () => picks.names,
-    api.archiveOutputs,
-    'files',
-  )
+  const downloading = picks.download(api.archiveOutputs, 'files')
 
   // The question is askDeletion's: it can spare the starred files
   const removingPicked = action(
