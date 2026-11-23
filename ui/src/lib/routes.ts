@@ -91,7 +91,9 @@ export function parseView(parts: string[]): RouteView | null {
   if (group === 'ws' && second) {
     // No section is the overview; an unknown one is missing, so the URL
     // stays as typed and the page says so
-    if (third === undefined) {
+    // A trailing slash ('#/ws/studio/') leaves an empty third part; it
+    // reads as no section, so it is the overview too
+    if (third === undefined || third === '') {
       return { kind: 'ws', workspace: second, section: 'overview', rest: [] }
     }
     if (isWs(third))

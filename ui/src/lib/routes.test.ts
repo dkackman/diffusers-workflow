@@ -40,6 +40,18 @@ describe('parseView', () => {
   it('defaults a bare workspace to the overview', () => {
     expect(parseView(['ws', 'studio'])).toMatchObject({ section: 'overview' })
   })
+  it('a trailing slash opens the overview, as the bare workspace does', () => {
+    // '#/ws/studio/' and '#/ws/studio/?q=1' (the router strips the query)
+    // both split to an empty third part
+    const overview = {
+      kind: 'ws',
+      workspace: 'studio',
+      section: 'overview',
+      rest: [],
+    }
+    expect(parseView(['ws', 'studio', ''])).toEqual(overview)
+    expect(parseView(['ws', 'studio'])).toEqual(overview)
+  })
   it('an unknown workspace section is missing, not the overview', () => {
     expect(parseView(['ws', 'studio', 'nope'])).toEqual({
       kind: 'missing',
