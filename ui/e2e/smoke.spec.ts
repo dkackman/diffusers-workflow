@@ -410,7 +410,7 @@ test('the workflow page checks a run as you edit, and places each finding', asyn
   await expect(
     check.getByText('a run would be admitted, with warnings'),
   ).toBeVisible()
-  await expect(check.getByLabel('what a run will do')).toContainText('~3 min')
+  await expect(check.getByLabel('what a run will do')).toContainText('about 3 min')
   expect(asked[0].body.workflow_path).toBe('models/z-image')
   expect(asked[0].url).toContain('sizes=false')
   // a hostile warning prints as text

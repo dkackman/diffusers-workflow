@@ -83,7 +83,7 @@ it('lists a request as one row: its pictures, what it wants, how far and what it
   expect(screen.getByText('2/3')).toBeTruthy()
   // measured minutes carry no tilde; what is left is an estimate
   expect(screen.getByText('4 min spent')).toBeTruthy()
-  expect(screen.getByText('~2 min left')).toBeTruthy()
+  expect(screen.getByText('about 2 min left')).toBeTruthy()
   expect(link.querySelector('.updated')?.textContent).not.toBe('')
 })
 

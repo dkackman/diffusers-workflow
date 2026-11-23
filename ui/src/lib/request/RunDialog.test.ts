@@ -136,13 +136,13 @@ it('starts on Cancel, and cannot spend until every row is priced', async () => {
     ),
   )
   // one priced, one still out
-  await within(runRow('s4')).findByText(/~9 min on cuda/)
+  await within(runRow('s4')).findByText(/about 9 min on cuda/)
   expect(
     within(runRow('title')).getByRole('status', { name: 'pricing Title card' }),
   ).toBeTruthy()
   expect(runButton().disabled).toBe(true)
   land(answer(PLANS.card))
-  await within(runRow('title')).findByText(/~5.5 min on cuda/)
+  await within(runRow('title')).findByText(/about 5.5 min on cuda/)
   expect(runButton().disabled).toBe(false)
   expect(runButton().textContent).toBe('Run 2')
   expect(world.submitJob).not.toHaveBeenCalled()
@@ -150,7 +150,7 @@ it('starts on Cancel, and cannot spend until every row is priced', async () => {
 
 it('prices each item with its workflow, and says what the plan had estimated', async () => {
   open()
-  await within(runRow('s4')).findByText(/~9 min on cuda/)
+  await within(runRow('s4')).findByText(/about 9 min on cuda/)
   expect(world.validate.mock.calls.map(([body]) => body)).toEqual([
     { workflow_path: 'shot', arguments: {}, workspace: 'studio' },
     { workflow_path: 'card', arguments: {}, workspace: 'studio' },
@@ -158,9 +158,9 @@ it('prices each item with its workflow, and says what the plan had estimated', a
   const s4 = within(runRow('s4'))
   expect(s4.getByText('shot')).toBeTruthy()
   // the plan said 4, the quote is 9: more than a quarter off
-  expect(s4.getByText('the plan said ~4 min')).toBeTruthy()
+  expect(s4.getByText('the plan said about 4 min')).toBeTruthy()
   expect(within(runRow('title')).queryByText(/the plan said/)).toBeNull()
-  expect(document.querySelector('.total')?.textContent).toBe('total ~14.5 min')
+  expect(document.querySelector('.total')?.textContent).toBe('total about 14.5 min')
 })
 
 it('the total follows the ticked rows, and counts one with no figure', async () => {
@@ -168,7 +168,7 @@ it('the total follows the ticked rows, and counts one with no figure', async () 
   open()
   await within(runRow('title')).findByText('no measured cost')
   expect(document.querySelector('.total')?.textContent).toBe(
-    'total ~9 min, plus 1 with no figure',
+    'total about 9 min, plus 1 with no figure',
   )
   await fireEvent.click(screen.getByRole('checkbox', { name: 'Run Shot 4' }))
   expect(document.querySelector('.total')?.textContent).toBe('total: no figure')
@@ -178,7 +178,7 @@ it('the total follows the ticked rows, and counts one with no figure', async () 
 
 it('lists what will not run and why, and what becomes ready afterwards', async () => {
   open()
-  await within(runRow('s4')).findByText(/~9 min/)
+  await within(runRow('s4')).findByText(/about 9 min/)
   const wont = document.querySelector('.wont') as HTMLElement
   expect(within(wont).getByRole('heading').textContent).toBe('Will not run')
   expect([...wont.querySelectorAll('li')].map((li) => li.textContent)).toEqual([
@@ -207,7 +207,7 @@ it('an item validation refuses moves to "Will not run" with its first error', as
       : answer(PLANS.shot),
   )
   open()
-  await within(runRow('s4')).findByText(/~9 min/)
+  await within(runRow('s4')).findByText(/about 9 min/)
   expect(runRow('title')).toBeNull()
   expect(document.querySelector('.wont li')?.textContent).toBe(
     'Title card: would be refused: no variable named sed',
@@ -225,7 +225,7 @@ it('warns when every step is cached: the run would make nothing new', async () =
 
 it('queues in plan order, each bound to its quote, then closes with a toast', async () => {
   const { onclose } = open()
-  await within(runRow('title')).findByText(/~5.5 min/)
+  await within(runRow('title')).findByText(/about 5.5 min/)
   await fireEvent.click(runButton())
   await waitFor(() => expect(onclose).toHaveBeenCalledWith(2))
   expect(world.submitJob.mock.calls.map(([body]) => body)).toEqual([
@@ -251,7 +251,7 @@ it('queues in plan order, each bound to its quote, then closes with a toast', as
 it('a row whose price moved re-prices in place; the others queue, and the dialog stays', async () => {
   const { ApiError } = await import('../apiErrors')
   const { onclose } = open()
-  await within(runRow('title')).findByText(/~5.5 min/)
+  await within(runRow('title')).findByText(/about 5.5 min/)
   const acknowledge = { fingerprint: 'fp-new', minutes: 12, downloads: [] }
   world.submitJob.mockImplementationOnce(async () => {
     throw new ApiError("The run's shape changed", 409, undefined, {
@@ -262,7 +262,7 @@ it('a row whose price moved re-prices in place; the others queue, and the dialog
   })
   await fireEvent.click(runButton())
   const moved = await within(runRow('s4')).findByRole('alert')
-  expect(moved.textContent).toContain('The price moved. Now ~12 min.')
+  expect(moved.textContent).toContain('The price moved. Now about 12 min.')
   // the other row went on, and shows its job
   const queued = await within(runRow('title')).findByRole('link', {
     name: 'Open job',
@@ -291,7 +291,7 @@ it('a refused submit shows on its row in plain words, and the dialog stays open'
     new ApiError('request r1 is done', 422, 'request_closed'),
   )
   const { onclose } = open('s4')
-  await within(runRow('s4')).findByText(/~9 min/)
+  await within(runRow('s4')).findByText(/about 9 min/)
   await fireEvent.click(runButton())
   const alert = await within(runRow('s4')).findByRole('alert')
   expect(alert.querySelector('p')?.textContent).toBe(
@@ -308,7 +308,7 @@ it('a submit the server failed on leads with plain words, its text folded behind
   const raw = 'worker crashed: CUDA error: out of memory at step 3'
   world.submitJob.mockRejectedValue(new ApiError(raw, 500))
   open('s4')
-  await within(runRow('s4')).findByText(/~9 min/)
+  await within(runRow('s4')).findByText(/about 9 min/)
   await fireEvent.click(runButton())
   const alert = await within(runRow('s4')).findByRole('alert')
   expect(alert.querySelector('p')?.textContent).toBe('The server hit an error')
@@ -319,7 +319,7 @@ it('a submit the server failed on leads with plain words, its text folded behind
 it('a single item has one row, no checkbox and no total', async () => {
   open('s4')
   await screen.findByRole('dialog', { name: 'Run Shot 4' })
-  await within(runRow('s4')).findByText(/~9 min/)
+  await within(runRow('s4')).findByText(/about 9 min/)
   expect(screen.queryByRole('checkbox')).toBeNull()
   expect(document.querySelector('.total')).toBeNull()
   expect(document.querySelectorAll('.runrow')).toHaveLength(1)

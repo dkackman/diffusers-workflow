@@ -360,9 +360,9 @@ it('previews on click with {} once, and the poll never calls the route', async (
     expect(['t1', 't2']).toContain(member)
     expect(rest).toEqual([])
     const message = data.confirm.mock.calls[0][0] as string
-    expect(message).toContain('w-t1 (t1, default) - ~2 min on mps')
+    expect(message).toContain('w-t1 (t1, default) - about 2 min on mps')
     expect(message).toContain('w-t2 (t2, default) - no estimate')
-    expect(message).toContain('total ~2 min, plus 1 with no figure')
+    expect(message).toContain('total about 2 min, plus 1 with no figure')
     expect(message).toContain('t3: its workspace is gone')
     await vi.advanceTimersByTimeAsync(10_000)
     expect(data.rerunRestartBatch).toHaveBeenCalledTimes(1)

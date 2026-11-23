@@ -125,7 +125,7 @@ it('gives minutes spent with no tilde, what is left, and the notes waiting', () 
       .querySelector('.figures')
       ?.textContent?.replace(/\s+/g, ' ')
       .trim(),
-  ).toBe('38 min spent ~52 min left 2 notes waiting')
+  ).toBe('38 min spent about 52 min left 2 notes waiting')
 })
 
 it('says nothing of what is left on a closed request', () => {

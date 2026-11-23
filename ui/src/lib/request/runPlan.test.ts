@@ -139,8 +139,8 @@ it('another take of a done item says what stands as the result meanwhile', () =>
 })
 
 it('says what the plan estimated only when the quote is far from it', () => {
-  expect(planSaid(4, 9)).toBe('the plan said ~4 min')
-  expect(planSaid(4, 2.9)).toBe('the plan said ~4 min')
+  expect(planSaid(4, 9)).toBe('the plan said about 4 min')
+  expect(planSaid(4, 2.9)).toBe('the plan said about 4 min')
   expect(planSaid(4, 5)).toBeNull()
   expect(planSaid(4, 3)).toBeNull()
   expect(planSaid(null, 9)).toBeNull()

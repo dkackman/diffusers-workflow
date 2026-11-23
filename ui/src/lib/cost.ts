@@ -33,7 +33,7 @@ export function costBasisWords(basis: string | null | undefined): string {
   return basis ?? ''
 }
 
-/** "~3 min · 22 GB VRAM" for one measured entry. */
+/** "about 3 min · 22 GB VRAM" for one measured entry. */
 export function costFigure(measured: WorkflowCost): string {
   return `${formatMinutes(measured.minutes)} · ${Number(
     measured.vram_gb.toFixed(1),

@@ -231,7 +231,7 @@ it('gives the estimate before a run, minutes so far during, minutes spent after'
     ]),
   )
   expect(plan.items.map(figureOf)).toEqual([
-    'est. ~6 min',
+    'est. about 6 min',
     '',
     '2 min so far',
     '6.3 min',

@@ -99,7 +99,7 @@ it('a ready item says ready, with its estimate and an empty slot', () => {
   )
   expect(chip(container)?.textContent).toBe('ready')
   expect(chip(container)?.classList.contains('ready')).toBe(true)
-  expect(container.querySelector('.figure')?.textContent).toBe('est. ~6 min')
+  expect(container.querySelector('.figure')?.textContent).toBe('est. about 6 min')
   expect(container.querySelector('.proofcell .slot')).toBeTruthy()
   // the slot is never a frame: the frame is only ever the picture
   expect(container.querySelector('.proofcell .frame')).toBeNull()

@@ -147,13 +147,13 @@ it('leads with where the request stands, then the plan, the ask and its changes'
     [...container.querySelectorAll('ol.items .figure')].map(
       (e) => e.textContent,
     ),
-  ).toEqual(['1.5 min', 'est. ~4 min'])
+  ).toEqual(['1.5 min', 'est. about 4 min'])
   expect(
     container
       .querySelector('.figures')
       ?.textContent?.replace(/\s+/g, ' ')
       .trim(),
-  ).toBe('5 min spent ~7 min left')
+  ).toBe('5 min spent about 7 min left')
   // the proof comes from the ledger's own output: no job is asked for
   expect(
     screen

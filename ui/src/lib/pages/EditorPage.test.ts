@@ -188,7 +188,7 @@ describe('EditorPage validation plan', () => {
     )
     const plan = screen.getByLabelText('what a run will do')
     expect(plan.textContent).toContain('3 steps (shots: 2)')
-    expect(plan.textContent).toContain('~12 min on cuda')
+    expect(plan.textContent).toContain('about 12 min on cuda')
     expect(plan.textContent).toContain('0 of 3 steps cached')
     expect(plan.textContent).toContain('needs download: org/model (41.2 GB)')
   })

@@ -131,7 +131,7 @@ describe('WorkflowPage run check', () => {
       sizes: false,
     })
     const plan = screen.getByLabelText('what a run will do')
-    expect(plan.textContent).toContain('~2 min on mps')
+    expect(plan.textContent).toContain('about 2 min on mps')
     expect(screen.getByText('a run would be admitted')).toBeTruthy()
   })
 
@@ -349,10 +349,10 @@ describe('WorkflowPage curated cost', () => {
     await openPage()
     const line = screen.getByLabelText('curated cost')
     expect(line.textContent).toContain(
-      "a maintainer's figure: ~2 min · 6.5 GB VRAM, measured on M4 Max at num_images_per_prompt=4",
+      "a maintainer's figure: about 2 min · 6.5 GB VRAM, measured on M4 Max at num_images_per_prompt=4",
     )
     expect(line.textContent).toContain('other values re-price it in the plan')
-    const seen = screen.getByText('~1.5 min here')
+    const seen = screen.getByText('about 1.5 min here')
     expect(
       line.compareDocumentPosition(seen) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy()

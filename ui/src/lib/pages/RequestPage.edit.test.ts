@@ -537,7 +537,7 @@ it('the one filled button runs what is ready, through the priced dialog', async 
   const dialog = await screen.findByRole('dialog', {
     name: 'Run what is ready',
   })
-  await within(dialog).findByText(/~6 min on cuda/)
+  await within(dialog).findByText(/about 6 min on cuda/)
   // opening it spent nothing
   expect(world.submitJob).not.toHaveBeenCalled()
   expect(dialog.querySelector('.wont li')?.textContent).toBe(
@@ -736,7 +736,7 @@ it('a revised item shows its result, why, and Run take 2 beside it; its dependen
   const dialog = await screen.findByRole('dialog', {
     name: 'Run another take of Board A',
   })
-  await within(dialog).findByText(/~6 min on cuda/)
+  await within(dialog).findByText(/about 6 min on cuda/)
   await fireEvent.click(within(dialog).getByRole('button', { name: 'Run 1' }))
   await waitFor(() =>
     expect(world.submitJob).toHaveBeenCalledWith(
