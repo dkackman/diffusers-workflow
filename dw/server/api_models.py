@@ -80,6 +80,7 @@ from .api_models_library import (
     GalleryLinkedJob,
     StarSet,
     NoteSet,
+    NoteRead,
 )
 
 # Re-exported from api_models_library and api_models_base: import them here
@@ -142,6 +143,7 @@ __all__ = [
     "GalleryLinkedJob",
     "StarSet",
     "NoteSet",
+    "NoteRead",
 ]
 
 

@@ -747,3 +747,13 @@ class NoteSet(ApiModel):
     note_source: Literal["file", "run"] | None = Field(
         description="Whose note `note` is; null for a workspace or no note."
     )
+
+
+class NoteRead(ApiModel):
+    target: str
+    note: str | None = Field(
+        description="The target's own note, never the run's a file falls back to."
+    )
+    etag: str = Field(
+        description="What `If-Match` on PUT /api/notes names to replace only this note."
+    )

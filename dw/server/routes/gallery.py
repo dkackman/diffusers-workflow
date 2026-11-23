@@ -1,7 +1,8 @@
 """The gallery routes: list a workspace's outputs, bundle a selection into a
 zip, delete one output or run directory, and the two marks a person puts on
 one: `PUT /api/notes` (the note on an output, a run, an asset or a workspace;
-dw/notes.py holds the stores) and `PUT /api/stars`.
+dw/notes.py holds the stores; `If-Match` with the etag `GET /api/notes`
+reads refuses a stale write) and `PUT /api/stars`.
 
 Registered after the media router, so the `/metadata`, `/thumbnail` and
 `/download` GETs under `/api/gallery/{name:path}` are matched before the
@@ -14,12 +15,13 @@ import shutil
 from typing import Optional
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from ..api_models import (
     GalleryList,
+    NoteRead,
     NoteSet,
     OutputDeleted,
     StarSet,
@@ -35,6 +37,7 @@ from ...notes import (
     drop_file_note,
     effective_note,
     read_notes,
+    read_workspace_note,
     set_file_note,
     set_file_starred,
     set_run_note,
@@ -74,6 +77,7 @@ from ..deps import (
     workspace_for,
     workspace_root,
 )
+from ..preconditions import check_if_match, content_etag_of
 from ..outputs import (
     ArchiveRequest,
     delete_run_directory,
@@ -558,6 +562,46 @@ def resolve_note_target(state, ws, target):
     return split[0], split[1], "file", None
 
 
+def _own_note(directory, name, kind):
+    """The note stored on the target itself: a file's or an asset's own,
+    never the run's it falls back to."""
+    if kind == "workspace":
+        return read_workspace_note(directory)
+    notes = read_notes(directory)
+    return notes["run"] if kind == "run" else notes["files"].get(name)
+
+
+def _note_etag(note):
+    """The etag of a note: its text's bytes, "" for none."""
+    return content_etag_of((note or "").encode("utf-8"))
+
+
+@router.get("/api/notes", response_model=NoteRead)
+def get_note(
+    request: Request,
+    response: Response,
+    target: str = Query(description="A target as PUT /api/notes takes it"),
+    ws: Workspace = Depends(selected_workspace),
+):
+    """The target's own note and its etag, for an editor that will replace
+    it only if it is still the note it read: `If-Match` on PUT /api/notes."""
+    directory, name, kind, _root = resolve_note_target(request.app.state, ws, target)
+    note = _own_note(directory, name, kind)
+    response.headers["ETag"] = _note_etag(note)
+    return {"target": target, "note": note, "etag": _note_etag(note)}
+
+
+def _note_expectation(request, target):
+    """What `If-Match` asks of the note, checked under the write's lock; None
+    without the header - the opt-in MCP's set_note never sends."""
+    if request.headers.get("if-match") is None:
+        return None
+    label = f"The note on {target}"
+    return lambda current: check_if_match(
+        request, (current or "").encode("utf-8"), label
+    )
+
+
 @router.put("/api/notes", response_model=NoteSet, response_model_exclude_unset=True)
 @writes(ASSETS, GALLERY, WORKSPACES)
 def put_note(
@@ -581,13 +625,14 @@ def put_note(
     directory, name, kind, root = resolve_note_target(
         request.app.state, ws, body.target
     )
+    expect = _note_expectation(request, body.target)
     try:
         if kind == "workspace":
-            stored, source = set_workspace_note(directory, note), None
+            stored, source = set_workspace_note(directory, note, expect), None
         elif kind == "run":
-            stored, source = set_run_note(directory, note), "run"
+            stored, source = set_run_note(directory, note, expect), "run"
         else:
-            set_file_note(directory, name, note)
+            set_file_note(directory, name, note, expect)
             stored, source = effective_note(read_notes(directory), name)
     except OSError:
         raise internal_error(f"Could not write the note on {body.target!r}")
