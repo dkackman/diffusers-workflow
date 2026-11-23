@@ -591,3 +591,15 @@ it('a status filter that matches nothing says so, and Clear filters brings the r
   await fireEvent.click(screen.getByRole('button', { name: 'Clear filters' }))
   await screen.findByText('wf-a')
 })
+
+it('a refusal from a quiet poll clears the rows, not just a loud load', async () => {
+  location.hash = '#/ws/default/jobs'
+  data.jobs = [summary({ id: 'x', workflow: 'still-here' })]
+  render(JobsPage)
+  await screen.findByText('still-here')
+  data.listError = new ApiError('no_workspace', 404)
+  // The 3 s poll finds it, with no reload in between
+  await waitFor(() => expect(screen.queryByText('still-here')).toBeNull(), {
+    timeout: 6000,
+  })
+}, 10000)

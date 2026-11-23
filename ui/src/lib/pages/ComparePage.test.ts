@@ -126,6 +126,17 @@ describe('ComparePage', () => {
     expect(galleryMetadata).toHaveBeenCalledTimes(calls + 1)
   })
 
+  it('asks again for a cell whose metadata fetch failed', async () => {
+    galleryMetadata.mockImplementationOnce(() =>
+      Promise.reject(new Error('down')),
+    )
+    render(ComparePage, { props: { names: ['wf/r1/a.png', 'wf/r2/b.png'] } })
+    await screen.findByAltText('wf/r1/a.png')
+    expect(galleryMetadata).toHaveBeenCalledTimes(2)
+    feed.move('default', 'gallery')
+    await waitFor(() => expect(galleryMetadata).toHaveBeenCalledTimes(3))
+  })
+
   it('keeps what is on screen when a quiet reload fails', async () => {
     render(ComparePage, { props: { names } })
     await screen.findByAltText('wf/r1/a.png')

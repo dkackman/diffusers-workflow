@@ -63,7 +63,7 @@
         wanted.map((name) => {
           const file = byName.get(name) ?? null
           const had = held.get(name)
-          return had?.file && file
+          return had?.file && had.meta && file
             ? Promise.resolve({ ...had, file })
             : cellFor(name, file)
         }),

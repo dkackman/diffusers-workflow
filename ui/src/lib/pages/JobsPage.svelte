@@ -107,7 +107,9 @@
   // The server turning the question down: its message is the explanation,
   // and the rows of an earlier question must not stay under this one's
   const refused = $derived(
-    list.status === 'error' && listingRefused(list.error),
+    list.error !== undefined &&
+      (list.status === 'error' || list.stale) &&
+      listingRefused(list.error),
   )
   const jobs = $derived(refused ? [] : (list.data?.rows ?? []))
   const filtered = $derived(

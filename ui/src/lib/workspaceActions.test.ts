@@ -113,3 +113,26 @@ it('a failed create returns the described title, not the raw message', async () 
   const { createWorkspaceAndGo } = await import('./workspaceActions')
   expect(await createWorkspaceAndGo('studio')).toBe("Can't reach the server")
 })
+
+it('keeps the contents the server lists in the delete confirm', async () => {
+  const { errorDetail } = await import('./apiErrors')
+  const message = errorDetail(
+    {
+      detail: {
+        message: "Deleting workspace 'studio' removes these files permanently.",
+        contents: { outputs: { files: 3, bytes: 5 * 1024 * 1024 } },
+      },
+    },
+    'refused',
+  )
+  deleteWorkspace
+    .mockRejectedValueOnce(await apiError(message, 409))
+    .mockResolvedValueOnce({ name: 'studio', deleted: true })
+  confirm.mockResolvedValue(true)
+  const { deleteWorkspaceWithConfirm } = await import('./workspaceActions')
+  await deleteWorkspaceWithConfirm('studio')
+  expect(confirm).toHaveBeenCalledWith(
+    expect.stringContaining('outputs: 3 files'),
+    expect.anything(),
+  )
+})

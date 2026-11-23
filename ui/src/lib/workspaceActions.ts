@@ -91,7 +91,7 @@ export async function deleteWorkspaceWithConfirm(
       notify.failure(`delete ${name}`, e)
       return false
     }
-    detail = described.title
+    detail = described.detail ?? described.title
   }
   if (
     !(await confirmDialog(`${detail}\n\nDelete workspace "${name}"?`.trim(), {
