@@ -1,0 +1,127 @@
+{
+  "label": "768p",
+  "input": "/home/don/bench-workspace/outputs/BenchS4Montage-t20/20261106-203231-c7342114/intermediate/BenchS4Montage-t20-shot@cold_open.2-0.0.mp4",
+  "latents": [
+    1,
+    24,
+    37,
+    48,
+    84
+  ],
+  "source_frames": 124,
+  "device": "NVIDIA GeForce RTX 3090",
+  "piece_clips": 2,
+  "sol_bf16_weights": false,
+  "variants": {
+    "full-fp32": {
+      "frames": 124,
+      "size": [
+        1344,
+        768
+      ],
+      "seconds": [
+        145.67,
+        145.895
+      ],
+      "best_s": 145.67,
+      "resident_gib": 9.708,
+      "peak_alloc_gib": 14.021,
+      "peak_reserved_gib": 17.832
+    },
+    "full-bf16": {
+      "frames": 124,
+      "size": [
+        1344,
+        768
+      ],
+      "seconds": [
+        30.91,
+        30.586
+      ],
+      "best_s": 30.586,
+      "resident_gib": 4.864,
+      "peak_alloc_gib": 8.446,
+      "peak_reserved_gib": 10.561,
+      "psnr_vs_full_fp32": 53.63,
+      "frame_psnr_vs_full_fp32": {
+        "min": 52.91,
+        "median": 53.68,
+        "max": 54.01
+      }
+    },
+    "full-int8": {
+      "frames": 124,
+      "size": [
+        1344,
+        768
+      ],
+      "seconds": [
+        33.119,
+        33.673
+      ],
+      "best_s": 33.119,
+      "resident_gib": 0.008,
+      "peak_alloc_gib": 6.535,
+      "peak_reserved_gib": 8.252,
+      "move_s": [
+        0.468,
+        0.478
+      ],
+      "note": "weights on the CPU between decodes; seconds include the move on",
+      "psnr_vs_full_fp32": 52.8,
+      "frame_psnr_vs_full_fp32": {
+        "min": 52.34,
+        "median": 52.84,
+        "max": 53.07
+      }
+    },
+    "sol": {
+      "oom": "CUDA out of memory. Tried to allocate 4.55 GiB. GPU 0 has a total capacity of 23.56 GiB of which 1.22 GiB is free. Including non-PyTorch memory, this process has 22.33 GiB memory in use. Of the allocated memory 20.41 GiB is allocated by PyTorch, and 1.61 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://docs.pytorch.org/docs/stable/notes/cuda.html#optimizing-memory-usage-with-pytorch-cuda-alloc-conf)"
+    },
+    "sol-bf16w": {
+      "oom": "CUDA out of memory. Tried to allocate 2.28 GiB. GPU 0 has a total capacity of 23.56 GiB of which 53.00 MiB is free. Including non-PyTorch memory, this process has 23.50 GiB memory in use. Of the allocated memory 22.47 GiB is allocated by PyTorch, and 737.89 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://docs.pytorch.org/docs/stable/notes/cuda.html#optimizing-memory-usage-with-pytorch-cuda-alloc-conf)"
+    },
+    "sol-piece": {
+      "frames": 124,
+      "size": [
+        1344,
+        768
+      ],
+      "seconds": [
+        9.876,
+        9.825
+      ],
+      "best_s": 9.825,
+      "resident_gib": 6.035,
+      "peak_alloc_gib": 13.609,
+      "peak_reserved_gib": 17.033,
+      "psnr_vs_full_fp32": 39.94,
+      "frame_psnr_vs_full_fp32": {
+        "min": 37.57,
+        "median": 40.21,
+        "max": 41.6
+      }
+    },
+    "sol-piece-ctx": {
+      "frames": 124,
+      "size": [
+        1344,
+        768
+      ],
+      "seconds": [
+        17.508,
+        17.553
+      ],
+      "best_s": 17.508,
+      "resident_gib": 6.035,
+      "peak_alloc_gib": 20.349,
+      "peak_reserved_gib": 22.615,
+      "psnr_vs_full_fp32": 40.39,
+      "frame_psnr_vs_full_fp32": {
+        "min": 37.69,
+        "median": 40.46,
+        "max": 41.6
+      }
+    }
+  }
+}

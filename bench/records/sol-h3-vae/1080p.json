@@ -1,0 +1,78 @@
+{
+  "label": "1080p",
+  "input": "/home/don/diffusers-workspace/qa-h3-tiled-refine/outputs/GateArmD/20261027-201838-aa6cba77/final/GateArmD-mux.3-0.0.mp4",
+  "latents": [
+    1,
+    24,
+    37,
+    68,
+    120
+  ],
+  "source_frames": 124,
+  "device": "NVIDIA GeForce RTX 3090",
+  "piece_clips": 1,
+  "sol_bf16_weights": true,
+  "variants": {
+    "full-fp32": {
+      "frames": 124,
+      "size": [
+        1920,
+        1088
+      ],
+      "seconds": [
+        312.876
+      ],
+      "best_s": 312.876,
+      "resident_gib": 9.708,
+      "peak_alloc_gib": 18.428,
+      "peak_reserved_gib": 22.998
+    },
+    "full-int8": {
+      "frames": 124,
+      "size": [
+        1920,
+        1088
+      ],
+      "seconds": [
+        68.397
+      ],
+      "best_s": 68.397,
+      "resident_gib": 0.008,
+      "peak_alloc_gib": 10.204,
+      "peak_reserved_gib": 13.652,
+      "move_s": [
+        0.579
+      ],
+      "note": "weights on the CPU between decodes; seconds include the move on",
+      "psnr_vs_full_fp32": 52.39,
+      "frame_psnr_vs_full_fp32": {
+        "min": 51.79,
+        "median": 52.43,
+        "max": 52.78
+      }
+    },
+    "sol-piece": {
+      "frames": 124,
+      "size": [
+        1920,
+        1088
+      ],
+      "seconds": [
+        20.39
+      ],
+      "best_s": 20.39,
+      "resident_gib": 3.033,
+      "peak_alloc_gib": 10.32,
+      "peak_reserved_gib": 13.932,
+      "psnr_vs_full_fp32": 37.47,
+      "frame_psnr_vs_full_fp32": {
+        "min": 35.85,
+        "median": 37.64,
+        "max": 39.8
+      }
+    },
+    "sol-piece-ctx": {
+      "oom": "CUDA out of memory. Tried to allocate 1.87 GiB. GPU 0 has a total capacity of 23.56 GiB of which 437.00 MiB is free. Including non-PyTorch memory, this process has 23.12 GiB memory in use. Of the allocated memory 18.39 GiB is allocated by PyTorch, and 4.42 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://docs.pytorch.org/docs/stable/notes/cuda.html#optimizing-memory-usage-with-pytorch-cuda-alloc-conf)"
+    }
+  }
+}

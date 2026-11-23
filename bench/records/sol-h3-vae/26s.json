@@ -1,0 +1,95 @@
+{
+  "label": "26s",
+  "input": "/home/don/diffusers-workspace/regression-model-specific/assets/qa-1230/chain-26s.mp4",
+  "latents": [
+    1,
+    24,
+    187,
+    34,
+    60
+  ],
+  "source_frames": 624,
+  "device": "NVIDIA GeForce RTX 3090",
+  "piece_clips": 4,
+  "sol_bf16_weights": false,
+  "variants": {
+    "full-fp32": {
+      "frames": 634,
+      "size": [
+        960,
+        544
+      ],
+      "seconds": [
+        413.162
+      ],
+      "best_s": 413.162,
+      "resident_gib": 9.708,
+      "peak_alloc_gib": 12.42,
+      "peak_reserved_gib": 16.018
+    },
+    "full-int8": {
+      "frames": 634,
+      "size": [
+        960,
+        544
+      ],
+      "seconds": [
+        90.002
+      ],
+      "best_s": 90.002,
+      "resident_gib": 0.008,
+      "peak_alloc_gib": 4.969,
+      "peak_reserved_gib": 6.715,
+      "move_s": [
+        0.446
+      ],
+      "note": "weights on the CPU between decodes; seconds include the move on",
+      "psnr_vs_full_fp32": 51.23,
+      "frame_psnr_vs_full_fp32": {
+        "min": 50.28,
+        "median": 51.26,
+        "max": 52.47
+      }
+    },
+    "sol-piece": {
+      "frames": 634,
+      "size": [
+        960,
+        544
+      ],
+      "seconds": [
+        26.665
+      ],
+      "best_s": 26.665,
+      "resident_gib": 6.035,
+      "peak_alloc_gib": 13.776,
+      "peak_reserved_gib": 16.885,
+      "psnr_vs_full_fp32": 35.01,
+      "frame_psnr_vs_full_fp32": {
+        "min": 31.84,
+        "median": 35.24,
+        "max": 40.67
+      }
+    },
+    "sol-piece-ctx": {
+      "frames": 634,
+      "size": [
+        960,
+        544
+      ],
+      "seconds": [
+        38.004
+      ],
+      "best_s": 38.004,
+      "resident_gib": 6.035,
+      "peak_alloc_gib": 17.376,
+      "peak_reserved_gib": 21.402,
+      "psnr_vs_full_fp32": 35.21,
+      "frame_psnr_vs_full_fp32": {
+        "min": 32.33,
+        "median": 35.35,
+        "max": 40.67
+      }
+    }
+  }
+}
