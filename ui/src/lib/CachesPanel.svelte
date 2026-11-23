@@ -17,7 +17,7 @@
   import DiskMeter from './ui/DiskMeter.svelte'
   import ErrorLine from './ui/ErrorLine.svelte'
   import { action } from './action.svelte'
-  import { cacheEntryConfirm, serverConfirm } from './destructive'
+  import { cacheClearConfirm, cacheEntryConfirm } from './destructive'
   import { formatBytes, formatMtime } from './format'
   import type { DiskCacheEntry, DiskCacheInfo } from './types'
 
@@ -47,12 +47,7 @@
     (cache: DiskCacheInfo) => settle(() => api.clearCache(cache.name)),
     {
       doing: (cache) => `clear the ${cache.name} cache`,
-      confirm: (cache) =>
-        serverConfirm({
-          title: `Clear the ${cache.name} cache at ${cache.root}?`,
-          message: `Clear the ${cache.name} cache (${cacheSize(cache.bytes)}, ${cache.files} files). ${cache.cost_of_clearing}`,
-          confirmLabel: 'Clear',
-        }),
+      confirm: (cache) => cacheClearConfirm(cache, cacheSize(cache.bytes)),
     },
   )
 

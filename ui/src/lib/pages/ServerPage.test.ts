@@ -380,9 +380,11 @@ it('asks before clearing, quoting the cost and the shared-cache warning', async 
   clearButton(container, 'triton').click()
   await settle()
   expect(confirmDialog).toHaveBeenCalledOnce()
-  const message = confirmDialog.mock.calls[0][0]
-  expect(message).toContain('triton')
-  expect(message).toContain('7.10 GB')
+  const [message, spec] = confirmDialog.mock.calls[0]
+  // the title names the cache; the message does not say it again
+  expect(spec.title).toContain('triton')
+  expect(message).not.toContain('triton')
+  expect(message).toContain('7.10 GB, 19683 files.')
   expect(message).toContain('re-autotunes')
   expect(message).toContain('shared with any other Triton user')
   expect(clearCache).toHaveBeenCalledWith('triton')
@@ -397,7 +399,7 @@ it('names an empty cache as 0 bytes in the confirm, not 1 KB', async () => {
   clearButton(container, 'inductor').click()
   await settle()
   const message = confirmDialog.mock.calls[0][0]
-  expect(message).toContain('(0 bytes, 0 files)')
+  expect(message).toMatch(/^0 bytes, 0 files\. /)
   expect(message).not.toContain('1 KB')
 })
 
@@ -516,10 +518,12 @@ it('deletes an entry after the confirm, then re-reads the caches', async () => {
   await settle()
   entryDelete(container, 0).click()
   await settle()
-  const message = confirmDialog.mock.calls[0][0]
-  expect(message).toContain('transformer')
-  expect(message).toContain('org/flux')
-  expect(message).toContain('3.00 GB')
+  const [message, spec] = confirmDialog.mock.calls[0]
+  // the title names the entry; the message says its size and cost
+  expect(spec.title).toBe(
+    'Delete transformer of org/flux from the quantized cache?',
+  )
+  expect(message).toMatch(/^3\.00 GB\. /)
   expect(message).toContain('re-quantizes')
   expect(deleteCacheEntry).toHaveBeenCalledWith('quantized', ID_A)
   expect(listCaches).toHaveBeenCalledTimes(2)

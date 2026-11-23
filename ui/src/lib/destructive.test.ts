@@ -1,5 +1,7 @@
 import { expect, it, vi } from 'vitest'
 import {
+  cacheClearConfirm,
+  cacheEntryConfirm,
   destroyConfirm,
   modelDeleteConfirm,
   serverConfirm,
@@ -164,4 +166,30 @@ it('an undo toast given an id is shown under it, for the caller to dismiss', () 
   )
   undoToast('Removed step b', vi.fn())
   expect(notify.undo.mock.calls[1]).toHaveLength(2)
+})
+
+it('the cache confirms name the cache or entry once, in the title, and count files', () => {
+  const triton = {
+    name: 'triton',
+    root: '/cache/triton',
+    files: 1,
+    cost_of_clearing: 'It is read again.',
+  }
+  expect(cacheClearConfirm(triton, '1 KB')).toEqual({
+    title: 'Clear the triton cache at /cache/triton?',
+    message: '1 KB, 1 file. It is read again.',
+    confirmLabel: 'Clear',
+    danger: false,
+  })
+  expect(cacheClearConfirm({ ...triton, files: 2 }, '2 KB').message).toBe(
+    '2 KB, 2 files. It is read again.',
+  )
+  expect(
+    cacheEntryConfirm('quantized', 'vae of org/flux', '3.00 GB', 'Costly.'),
+  ).toEqual({
+    title: 'Delete vae of org/flux from the quantized cache?',
+    message: '3.00 GB. Costly.',
+    confirmLabel: 'Delete entry',
+    danger: false,
+  })
 })

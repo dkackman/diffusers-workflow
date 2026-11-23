@@ -164,6 +164,24 @@ export function modelDeleteConfirm(repoId: string, gb: string): ConfirmSpec {
   })
 }
 
+/** Clearing a dw disk cache: the title names it, the message says how
+ * much goes and what the cache says that costs */
+export function cacheClearConfirm(
+  cache: {
+    name: string
+    root: string
+    files: number
+    cost_of_clearing: string
+  },
+  size: string,
+): ConfirmSpec {
+  return serverConfirm({
+    title: `Clear the ${cache.name} cache at ${cache.root}?`,
+    message: `${size}, ${counted(cache.files, 'file')}. ${cache.cost_of_clearing}`,
+    confirmLabel: 'Clear',
+  })
+}
+
 /** Deleting one entry of a dw disk cache; the cache says what it costs */
 export function cacheEntryConfirm(
   cache: string,
@@ -172,8 +190,8 @@ export function cacheEntryConfirm(
   cost: string,
 ): ConfirmSpec {
   return serverConfirm({
-    title: `Delete the ${cache} cache entry?`,
-    message: `Delete the ${cache} cache entry ${what} (${size}). ${cost}`,
+    title: `Delete ${what} from the ${cache} cache?`,
+    message: `${size}. ${cost}`,
     confirmLabel: 'Delete entry',
   })
 }

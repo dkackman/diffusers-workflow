@@ -78,7 +78,7 @@ it('clear asks with the cost and runs once', async () => {
   await fireEvent.click(button)
   await vi.waitFor(() => expect(clearCache).toHaveBeenCalledTimes(1))
   expect(vi.mocked(confirmDialog).mock.calls[0]).toEqual([
-    'Clear the triton cache (1 KB, 1 files). It is read again.',
+    '1 KB, 1 file. It is read again.',
     {
       title: 'Clear the triton cache at /cache/triton?',
       confirmLabel: 'Clear',
