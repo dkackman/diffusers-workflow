@@ -497,7 +497,7 @@
     width: 100%;
     height: 110px;
     object-fit: cover;
-    background: var(--sunk);
+    background: var(--panel-2);
   }
   /* The audio placeholder has no picture to show, and has to keep the
      grid's rhythm - ShadowedAssets' tile does the same */

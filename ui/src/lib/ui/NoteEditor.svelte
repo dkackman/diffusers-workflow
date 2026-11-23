@@ -196,7 +196,6 @@
     color: var(--ink);
   }
   .hint {
-    font-size: var(--t-sm);
     margin: 0.25rem 0 0;
   }
   .actions {

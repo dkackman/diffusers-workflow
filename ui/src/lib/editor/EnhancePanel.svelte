@@ -21,7 +21,7 @@
       Editing and saving still work.
     </p>
   {/if}
-  <div class="metagrid">
+  <div class="formgrid metagrid">
     <label for="enhance-preset">preset</label>
     <select
       id="enhance-preset"
@@ -124,32 +124,12 @@
     margin-bottom: 1rem;
     min-width: 0;
   }
-  .panel h2 {
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-  }
   textarea {
     width: 100%;
     resize: vertical;
   }
   .metagrid {
-    display: grid;
-    grid-template-columns: minmax(120px, 40%) minmax(0, 1fr);
-    gap: 0.5rem 0.8rem;
-    align-items: center;
     margin-top: 0.6rem;
-  }
-  @container (max-width: 420px) {
-    .metagrid {
-      grid-template-columns: minmax(0, 1fr);
-      gap: 0.2rem;
-    }
-  }
-  .metagrid label {
-    font-weight: 600;
-    color: var(--muted);
-    font-size: 0.85rem;
   }
   .metagrid textarea {
     align-self: stretch;
@@ -186,13 +166,9 @@
     font-size: 0.9rem;
   }
   .error {
-    color: var(--bad);
     margin: 0.5rem 0 0;
   }
   .error p {
     margin: 0;
-  }
-  .hint {
-    font-size: 0.8rem;
   }
 </style>

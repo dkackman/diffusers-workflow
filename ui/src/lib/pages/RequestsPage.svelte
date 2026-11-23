@@ -131,9 +131,6 @@
 </LoadState>
 
 <style>
-  .list {
-    padding: 0.3rem;
-  }
   /* Fixed tracks past the title, so the columns line up down the list */
   .row {
     display: grid;
@@ -142,22 +139,10 @@
       108px 9.5rem 8.5rem;
     gap: 1rem;
     align-items: center;
-    padding: 0.55rem 0.8rem;
-    border-radius: 6px;
-    color: var(--ink);
-  }
-  .row:hover {
-    background: var(--panel-2);
   }
   .cover {
     display: flex;
     gap: 4px;
-  }
-  .namecol {
-    display: flex;
-    flex-direction: column;
-    gap: 0.15rem;
-    min-width: 0;
   }
   /* Written for a person, so not in the mono a workflow's name takes */
   .title {

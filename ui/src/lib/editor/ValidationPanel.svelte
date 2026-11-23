@@ -83,13 +83,9 @@
     gap: 0.4rem;
   }
   .warn {
-    color: var(--warn);
     display: flex;
     align-items: center;
     gap: 0.4rem;
-  }
-  .error {
-    color: var(--bad);
   }
   /* The plan under the verdict: figures the engine resolves, so mono, and
      quiet - a warn line is the one that changes the number to expect */

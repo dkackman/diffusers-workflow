@@ -61,7 +61,7 @@
 {/if}
 {#if fileOpen}
   <div class="filebar panel">
-    <div class="filegrid">
+    <div class="formgrid filegrid">
       {#if origin}
         <label for="wf-workspace">workspace</label>
         <div>
@@ -219,21 +219,7 @@
     margin-bottom: 1rem;
   }
   .filegrid {
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr);
-    gap: 0.5rem 0.8rem;
-    align-items: center;
-  }
-  .filegrid label {
-    font-weight: 600;
-    color: var(--muted);
-    font-size: 0.85rem;
-  }
-  @container (max-width: 400px) {
-    .filegrid {
-      grid-template-columns: minmax(0, 1fr);
-      gap: 0.2rem 0.5rem;
-    }
+    --label-w: auto;
   }
   .folderrow,
   .namerow {

@@ -419,17 +419,11 @@
   select {
     max-width: 150px;
   }
-  .list {
-    padding: 0.3rem;
-  }
   .row {
     display: grid;
     grid-template-columns: 90px minmax(0, 1fr) auto auto auto;
     gap: 1rem;
     align-items: center;
-    padding: 0.55rem 0.8rem;
-    border-radius: 6px;
-    color: var(--ink);
   }
   /* The job id is the widest unbreakable cell and is repeated on the job
      page itself, so it is the first thing to go as the row narrows; below
@@ -448,20 +442,11 @@
       gap: 0.2rem 0.7rem;
     }
   }
-  .row:hover {
-    background: var(--panel-2);
-  }
   .row.historical {
     opacity: 0.72;
   }
   /* The name and, under it, why a failed or cancelled job ended - each its
      own element, so a later line beside the reason is a sibling */
-  .namecol {
-    display: flex;
-    flex-direction: column;
-    gap: 0.15rem;
-    min-width: 0;
-  }
   .reason {
     font-size: var(--t-xs);
     overflow: hidden;

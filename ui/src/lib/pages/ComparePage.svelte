@@ -169,7 +169,7 @@
   {#if differing.length}
     <section class="panel">
       <h2>What differs</h2>
-      <table>
+      <table class="datatable">
         <tbody>
           {#each differing as key (key)}
             <tr>
@@ -236,20 +236,14 @@
     flex: 1;
   }
   table {
-    border-collapse: collapse;
-    width: 100%;
     font-size: var(--t-sm);
   }
   th {
-    text-align: left;
     font-family: var(--font-mono);
-    color: var(--muted);
-    padding-right: var(--space-3);
+    font-size: inherit;
     white-space: nowrap;
   }
   td {
-    padding: var(--space-1) var(--space-2);
-    border-top: 1px solid var(--line);
     overflow-wrap: anywhere;
   }
 </style>

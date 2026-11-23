@@ -100,7 +100,7 @@
     {#snippet emptyText()}No disk caches registered.{/snippet}
     {#if clearError}<ErrorLine error={clearError} doing="clear that" />{/if}
     <div class="tablewrap">
-      <table>
+      <table class="datatable">
         <thead>
           <tr>
             <th>cache</th>
@@ -188,7 +188,7 @@
                   <td></td>
                   <td colspan="7">
                     <div class="tablewrap">
-                      <table class="entrytable">
+                      <table class="datatable entrytable">
                         <thead>
                           <tr>
                             <th>component</th>
@@ -266,43 +266,11 @@
 </div>
 
 <style>
-  h2 {
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-    margin: 0 0 0.6rem;
-    font-size: 0.95rem;
-  }
-
   .warn {
-    color: var(--warn);
     display: flex;
     align-items: center;
     gap: 0.4rem;
     max-width: 80ch;
-  }
-
-  .tablewrap {
-    overflow-x: auto;
-  }
-
-  table {
-    width: 100%;
-    border-collapse: collapse;
-  }
-
-  th {
-    text-align: left;
-    font-size: 0.75rem;
-    text-transform: none;
-    color: var(--muted);
-    font-weight: 600;
-    padding: 0.2rem 0.5rem 0.2rem 0;
-  }
-
-  td {
-    padding: 0.25rem 0.5rem 0.25rem 0;
-    border-top: 1px solid var(--line);
   }
 
   tr.reason td {

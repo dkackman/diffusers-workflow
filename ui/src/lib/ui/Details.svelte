@@ -38,7 +38,7 @@
     flex: 1;
     min-width: 0;
     margin: 0.25rem 0 0;
-    font-family: var(--mono, ui-monospace, monospace);
+    font-family: var(--font-mono);
     white-space: pre-wrap;
     overflow-wrap: anywhere;
     max-height: 14rem;

@@ -251,7 +251,7 @@
     <StepDigestList lines={digest.lines} onopen={openFull} />
   {:else if mode === 'full'}
     {#if kind === 'pipeline'}
-      <div class="grid">
+      <div class="formgrid grid">
         <label for={'ct-' + index}>pipeline</label>
         <Suggest
           id={'ct-' + index}
@@ -332,7 +332,7 @@
         {references}
       />
     {:else if kind === 'task'}
-      <div class="grid">
+      <div class="formgrid grid">
         <label for={'task-' + index}>command</label>
         <Suggest
           id={'task-' + index}
@@ -349,7 +349,7 @@
         suggestions={references}
       />
     {:else if kind === 'workflow'}
-      <div class="grid">
+      <div class="formgrid grid">
         <label for={'wfpath-' + index}>path</label>
         <Suggest
           id={'wfpath-' + index}
@@ -395,31 +395,13 @@
     font-size: 0.75rem;
   }
   .grid {
-    display: grid;
-    grid-template-columns: 170px minmax(0, 480px);
-    gap: 0.5rem 0.7rem;
     margin-top: 0.8rem;
-    align-items: center;
-  }
-  @container (max-width: 400px) {
-    .grid {
-      grid-template-columns: minmax(0, 1fr);
-      gap: 0.2rem;
-    }
-  }
-  .grid label {
-    font-weight: 600;
-    color: var(--muted);
   }
   h3 {
     font-size: 0.8rem;
     text-transform: none;
     color: var(--muted);
     margin: 1rem 0 0.5rem;
-  }
-  .error {
-    color: var(--bad);
-    font-size: 0.8rem;
   }
   .raw {
     margin-top: 0.8rem;
@@ -429,12 +411,10 @@
     font-size: 0.82rem;
   }
   .error {
-    color: var(--bad);
     font-size: 0.8rem;
     margin-top: 0.3rem;
   }
   .hint {
-    font-size: 0.75rem;
     margin-top: 0.3rem;
   }
   .summary {

@@ -482,9 +482,6 @@
     text-decoration: underline;
     text-underline-offset: 2px;
   }
-  .bad {
-    color: var(--bad);
-  }
   .more {
     display: flex;
     flex-direction: column;

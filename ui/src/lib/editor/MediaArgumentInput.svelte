@@ -240,9 +240,6 @@
   .status p {
     margin: 0;
   }
-  .warn {
-    color: var(--warn);
-  }
   .preview img,
   .preview video {
     max-width: 160px;

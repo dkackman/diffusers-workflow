@@ -272,7 +272,7 @@
             href={wsHref(name, 'workflows', ...wf.split('/'))}
           >
             {#if proofs[wf]}
-              <span class="cardframe">
+              <span class="frame cardframe">
                 <img
                   src={api.galleryThumbnailUrl(proofs[wf].name)}
                   alt=""
@@ -343,11 +343,6 @@
 <style>
   section {
     margin-bottom: var(--space-4);
-  }
-  h2 {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
   }
   h2 a {
     display: inline-flex;
@@ -424,18 +419,9 @@
     padding: 0 var(--space-2);
   }
   .cardframe {
-    display: block;
-    position: relative;
     aspect-ratio: 4 / 3;
-    background: var(--panel-2);
-    border-bottom: 1px solid var(--line);
-    overflow: hidden;
-  }
-  .cardframe img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    display: block;
+    border-width: 0 0 1px;
+    border-radius: 0;
   }
   dl {
     display: grid;

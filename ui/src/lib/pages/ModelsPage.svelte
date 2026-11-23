@@ -187,7 +187,7 @@
             <RefreshCw size={14} />Update from GitHub
           </button>
           {#if diffusers.status === 'failed'}
-            <span class="warn" title={diffusers.log ?? ''}>
+            <span class="bad" title={diffusers.log ?? ''}>
               update failed: {diffusers.error} (hover for pip output)
             </span>
           {:else if diffusers.status === 'succeeded'}
@@ -224,7 +224,7 @@
           <X size={14} />
         </button>
       {:else if download.status === 'failed'}
-        <span class="warn">{download.error}</span>
+        <span class="bad">{download.error}</span>
       {:else}
         <span class="muted">{download.status}</span>
       {/if}
@@ -249,7 +249,7 @@
     a workflow downloads them.{/snippet}
   {#if cache}
     <div class="tablewrap">
-      <table>
+      <table class="datatable">
         <thead>
           <tr>
             <th></th>
@@ -347,11 +347,6 @@
 </LoadState>
 
 <style>
-  /* Six columns of repo ids and sizes have a floor well above a phone -
-     scroll the table itself rather than the whole document */
-  .tablewrap {
-    overflow-x: auto;
-  }
   .engine {
     display: flex;
     align-items: center;
@@ -406,8 +401,7 @@
     background: var(--muted);
     opacity: 0.7;
   }
-  .warn {
-    color: var(--danger, #c33);
+  .bad {
     font-size: 0.9rem;
   }
   .toolrow {
@@ -445,7 +439,7 @@
     font-size: 0.88rem;
     margin-bottom: 0.4rem;
   }
-  .dl.failed .warn {
+  .dl.failed .bad {
     font-size: 0.82rem;
   }
   .dlrepo {
@@ -475,24 +469,10 @@
     font-size: 0.82rem;
     margin: 0 0 0.6rem;
   }
+  /* Six columns of repo ids and sizes have a floor well above a phone: the
+     table scrolls itself (.tablewrap) rather than the whole document */
   table {
-    width: 100%;
-    border-collapse: collapse;
     font-size: 0.9rem;
-  }
-  th {
-    text-align: left;
-    font-weight: 600;
-    color: var(--muted);
-    font-size: 0.75rem;
-    text-transform: none;
-    padding: 0.4rem 0.5rem;
-    border-bottom: 1px solid var(--line);
-  }
-  td {
-    padding: 0.35rem 0.5rem;
-    border-bottom: 1px solid var(--line);
-    vertical-align: middle;
   }
   .num {
     text-align: right;
@@ -544,7 +524,7 @@
     position: relative;
   }
   .revision td {
-    border-bottom: none;
+    border-top: none;
     padding-top: 0.1rem;
     padding-bottom: 0.1rem;
     font-size: 0.82rem;

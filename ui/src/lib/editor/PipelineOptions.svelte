@@ -201,7 +201,7 @@
     openSection === 'scheduler'}
 >
   <summary><Timer size={13} /> scheduler</summary>
-  <div class="section grid2">
+  <div class="section formgrid">
     <label for={'sched-' + index}>replace scheduler</label>
     <input
       id={'sched-' + index}
@@ -227,7 +227,7 @@
     openSection === 'acceleration'}
 >
   <summary><Zap size={13} /> acceleration</summary>
-  <div class="section grid2">
+  <div class="section formgrid">
     <label for={'cache-' + index}>cache</label>
     <div class="inline-row">
       <input
@@ -351,16 +351,6 @@
   .subhead {
     font-weight: 600;
   }
-  .grid2 {
-    display: grid;
-    grid-template-columns: 150px minmax(0, 1fr);
-    gap: 0.5rem 0.7rem;
-    align-items: center;
-  }
-  .grid2 > label {
-    font-weight: 600;
-    color: var(--muted);
-  }
   .check {
     width: auto;
     justify-self: start;
@@ -376,14 +366,7 @@
   .num {
     max-width: 110px;
   }
-  @container (max-width: 400px) {
-    .grid2 {
-      grid-template-columns: minmax(0, 1fr);
-      gap: 0.2rem;
-    }
-  }
   .hint {
-    font-size: 0.75rem;
     margin-top: 0.3rem;
   }
 </style>

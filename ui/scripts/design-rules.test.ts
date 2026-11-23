@@ -77,3 +77,33 @@ function styleOf(file: string): string {
     .map((m) => m[1])
     .join('\n')
 }
+
+// A var(--x) that names nothing silently falls back (or to nothing): every
+// custom property read is defined by `--x:` somewhere in src, set with
+// `style:--x`, or is a Bits UI `--bits-*` name
+it('every var(--x) names a defined custom property', () => {
+  const files = sourceFiles()
+  const texts = files.map((f) => readFileSync(f, 'utf8'))
+  const defined = new Set<string>()
+  for (const t of texts) {
+    for (const m of t.matchAll(/(?<![\w-])(--[a-zA-Z0-9_-]+)\s*:/g))
+      defined.add(m[1])
+    for (const m of t.matchAll(/style:(--[a-zA-Z0-9_-]+)/g)) defined.add(m[1])
+  }
+  const undefinedUses: string[] = []
+  files.forEach((f, i) => {
+    for (const m of texts[i].matchAll(/var\(\s*(--[a-zA-Z0-9_-]+)/g)) {
+      if (!defined.has(m[1]) && !m[1].startsWith('--bits-'))
+        undefinedUses.push(`${f.slice(UI.length + 1)}: ${m[1]}`)
+    }
+  })
+  expect(undefinedUses).toEqual([])
+})
+
+// app.css is full; a shared class that would grow it goes in patterns.css
+it('app.css stays at or under 600 lines', () => {
+  const lines = readFileSync(join(UI, 'src/app.css'), 'utf8').split('\n')
+  // a trailing newline is not a line
+  const count = lines.at(-1) === '' ? lines.length - 1 : lines.length
+  expect(count).toBeLessThanOrEqual(600)
+})

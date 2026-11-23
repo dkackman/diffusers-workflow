@@ -298,7 +298,7 @@
     width: 100%;
     height: 96px;
     object-fit: cover;
-    background: var(--sunk);
+    background: var(--panel-2);
   }
   .glyph {
     display: flex;

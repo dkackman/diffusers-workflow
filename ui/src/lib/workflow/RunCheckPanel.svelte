@@ -68,15 +68,6 @@
     gap: var(--space-3);
     align-items: baseline;
   }
-  .good {
-    color: var(--good);
-  }
-  .warn {
-    color: var(--warn);
-  }
-  .bad {
-    color: var(--bad);
-  }
   .plan {
     list-style: none;
     margin: var(--space-2) 0 0;
@@ -87,9 +78,6 @@
     display: flex;
     flex-wrap: wrap;
     gap: 0.2rem var(--space-3);
-  }
-  .plan .warn {
-    color: var(--warn);
   }
   .findings {
     list-style: none;

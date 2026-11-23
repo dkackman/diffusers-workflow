@@ -352,7 +352,6 @@
     margin: 0;
   }
   .hint {
-    font-size: var(--t-sm);
     margin: var(--space-1) 0 0;
   }
   .about {

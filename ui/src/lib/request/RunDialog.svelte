@@ -345,12 +345,6 @@
     min-width: 0;
     flex: 1;
   }
-  .warn {
-    color: var(--warn);
-  }
-  .bad {
-    color: var(--bad);
-  }
   .outcome p {
     margin: 0;
   }

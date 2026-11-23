@@ -255,7 +255,7 @@
            there is something to look at. Card height ends up saying which
            workflows you have actually used. -->
         {#if proof}
-          <span class="cardframe">
+          <span class="frame cardframe">
             {#if proof.kind === 'image'}
               <img
                 src={api.galleryThumbnailUrl(proof.name)}
@@ -364,18 +364,9 @@
      the card's own border surrounds it, so it contributes only the rule
      that separates the picture from its caption */
   .cardframe {
-    display: block;
-    position: relative;
     aspect-ratio: 4 / 3;
-    background: var(--panel-2);
-    border-bottom: 1px solid var(--line);
-    overflow: hidden;
-  }
-  .cardframe img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    display: block;
+    border-width: 0 0 1px;
+    border-radius: 0;
   }
   .caption {
     display: flex;

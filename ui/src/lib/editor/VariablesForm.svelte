@@ -169,7 +169,10 @@
   }
 </script>
 
-<div class="vars" class:define={mode === 'define'}>
+<div
+  class="formgrid top vars"
+  class:withaction={mode === 'define'}
+>
   {#each keys as key (key)}
     <label for={idPrefix + key}>
       {key}{#if requiredVariables.has(key)}
@@ -293,36 +296,10 @@
   .field > :global(:first-child) {
     flex: 1;
   }
-  .vars {
-    display: grid;
-    grid-template-columns: minmax(140px, 40%) minmax(0, 1fr);
-    gap: var(--space-2) var(--space-3);
-    align-items: start;
-  }
-  .vars.define {
-    grid-template-columns: minmax(140px, 40%) minmax(0, 1fr) auto;
-  }
-  @container (max-width: 400px) {
-    .vars,
-    .vars.define {
-      grid-template-columns: minmax(0, 1fr) auto;
-      gap: var(--space-1) var(--space-2);
-    }
-    .vars > label {
-      grid-column: 1 / -1;
-      padding-top: 0;
-    }
-  }
-  .vars label {
-    padding-top: 0.45rem;
-    font-weight: 600;
-    color: var(--muted);
-    overflow-wrap: anywhere;
-  }
   .required {
     font-weight: 400;
     font-size: 0.8em;
-    color: var(--danger, var(--muted));
+    color: var(--warn);
   }
   /* Under the field, in the field's column; spans the row when narrow */
   .hints {
@@ -338,12 +315,6 @@
     .hints {
       grid-column: 1 / -1;
     }
-  }
-  .findings .bad {
-    color: var(--bad);
-  }
-  .findings .warn {
-    color: var(--warn);
   }
   .addvar {
     justify-self: start;

@@ -211,8 +211,9 @@ it('shows recent outputs, jobs and workflows, each linking to its page', async (
     },
   ]
   render(OverviewPage)
+  // the recent output's frame, and the workflow card's proof (also a .frame)
   await waitFor(() =>
-    expect(document.querySelectorAll('.frame').length).toBe(1),
+    expect(document.querySelectorAll('.frame').length).toBe(2),
   )
   expect(
     screen.getByRole('link', { name: /recent outputs/i }).getAttribute('href'),

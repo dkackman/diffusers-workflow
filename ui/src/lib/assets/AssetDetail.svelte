@@ -165,7 +165,7 @@
     max-width: 100%;
     max-height: 60vh;
     border-radius: var(--radius-frame);
-    background: var(--sunk);
+    background: var(--panel-2);
   }
   .body audio {
     width: 100%;

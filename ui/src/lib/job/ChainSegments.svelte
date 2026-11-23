@@ -210,8 +210,8 @@
         </button>
       </div>
     {/if}
-    <div class="scroll">
-      <table>
+    <div class="tablewrap">
+      <table class="datatable">
         <thead>
           <tr>
             <th scope="col">#</th>
@@ -310,10 +310,8 @@
 
 <style>
   h2 {
-    display: flex;
     flex-wrap: wrap;
     align-items: baseline;
-    gap: 0.5rem;
   }
   .step {
     font-size: 0.85em;
@@ -328,24 +326,14 @@
   .mono {
     font-family: var(--font-mono);
   }
-  .scroll {
-    overflow-x: auto;
-  }
   table {
-    border-collapse: collapse;
-    width: 100%;
     font-size: 0.85rem;
   }
   th,
   td {
-    text-align: left;
     vertical-align: top;
-    padding: 0.35rem 0.5rem;
-    border-bottom: 1px solid var(--line);
   }
   th {
-    font-weight: 600;
-    color: var(--muted);
     white-space: nowrap;
   }
   .thumb video {
@@ -395,6 +383,7 @@
     box-shadow: inset 3px 0 0 var(--bad);
   }
   .measure.warn {
+    color: inherit;
     box-shadow: inset 3px 0 0 var(--warn);
   }
   .muted {

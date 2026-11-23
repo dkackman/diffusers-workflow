@@ -191,7 +191,7 @@
     object-fit: cover;
     border-radius: 3px;
     border: 1px solid var(--line);
-    background: var(--sunk);
+    background: var(--panel-2);
   }
   :global(.ui-suggest .glyph) {
     display: inline-flex;

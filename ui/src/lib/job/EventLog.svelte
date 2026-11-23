@@ -163,7 +163,7 @@
         {#if loaded && !rows.length && !error}
           <p class="muted">no events</p>
         {:else if shown.length}
-          <table>
+          <table class="datatable dense">
             <thead>
               <tr><th>seq</th><th>time</th><th>kind</th><th>event</th></tr>
             </thead>
@@ -231,22 +231,10 @@
     max-height: 32rem;
     overflow: auto;
   }
-  table {
-    width: 100%;
-    border-collapse: collapse;
-    font-family: var(--font-mono);
-    font-size: var(--t-xs);
-  }
   th {
-    text-align: left;
     position: sticky;
     top: 0;
     background: var(--panel);
-  }
-  th,
-  td {
-    padding: 0.15rem 0.6rem 0.15rem 0;
-    vertical-align: top;
   }
   .num {
     text-align: right;

@@ -441,6 +441,5 @@
   }
   .hint {
     margin: -0.4rem 0 var(--space-3);
-    font-size: var(--t-sm);
   }
 </style>
