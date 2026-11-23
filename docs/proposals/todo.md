@@ -45,7 +45,8 @@ remaining deferred fix is recorded in
   as `cast/<name>-<outfit>`, is marked untested. `minimax-h3/references/
   per-character.md`, *A costume change*. The probe and a ledger outfit field
   were cut. The probe comes back on a field report of a costume change that
-  lost the face or the outfit, or a planned costume-change series.
+  lost the face or the outfit, or a planned costume-change series:
+  `complete/wardrobe-variants-complete.md`.
 - **Cold install drill** (#1525, stages #1548-#1550), built 2026-11-23.
   README *Getting started* gained per-platform prerequisites, the clone URL,
   `--scope user`, a labelled `/plugin` block and a first-run line;
