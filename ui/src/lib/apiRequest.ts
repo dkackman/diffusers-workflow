@@ -10,6 +10,7 @@ import type {
 import { getApiToken } from './token'
 import { ApiError, errorCode, errorDetail, errorPayload } from './apiErrors'
 import { scoped } from './apiUrls'
+import { reportResponse, reportUnreachable } from './connection.svelte'
 
 /** A JSON body sent with `method`, and any extra `headers` */
 export const jsonInit = (
@@ -39,7 +40,9 @@ export function preconditionHeaders(
 
 /** A request with the bearer token, scoped to the picker's workspace
  * unless `scope` is false, failing with an ApiError that carries the
- * server's detail and status. Under every JSON call and file download. */
+ * server's detail and status. Under every JSON call and file download, so
+ * every answer (and every request that never arrived) tells `connection`;
+ * an abort is the caller's own doing, not an outage. */
 async function send(
   path: string,
   init: RequestInit = {},
@@ -48,10 +51,14 @@ async function send(
   const token = getApiToken()
   const headers = new Headers(init.headers)
   if (token) headers.set('Authorization', `Bearer ${token}`)
-  const response = await fetch(scope ? scoped(path) : path, {
-    ...init,
-    headers,
-  })
+  let response: Response
+  try {
+    response = await fetch(scope ? scoped(path) : path, { ...init, headers })
+  } catch (e) {
+    if (e instanceof TypeError) reportUnreachable()
+    throw e
+  }
+  reportResponse(response.status)
   if (!response.ok) {
     let detail = response.statusText
     let code: string | undefined

@@ -2,6 +2,7 @@ import { api } from './api'
 import { notify } from './toast'
 import { wsHref, type RouteView } from './routes'
 import { DEFAULT_WORKSPACE, workspace } from './workspaceState.svelte'
+import { onReconnect } from './connection.svelte'
 
 // The state lives in its own module so api.ts can scope requests by it
 // without importing this one, which imports api.ts to load the listing
@@ -147,3 +148,10 @@ export function loadWorkspaces(): Promise<void> {
 export function invalidateWorkspaces(): void {
   workspacesPromise = null
 }
+
+// A listing read while the server was down or locked is the default-only
+// fallback; once it lets this browser in again, read the real one
+onReconnect(() => {
+  invalidateWorkspaces()
+  void loadWorkspaces()
+})

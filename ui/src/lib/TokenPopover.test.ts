@@ -1,7 +1,18 @@
-import { afterEach, expect, it } from 'vitest'
-import { cleanup, fireEvent, render, waitFor } from '@testing-library/svelte'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/svelte'
+
+const success = vi.hoisted(() => vi.fn())
+vi.mock('./toast', () => ({ notify: { success, error: vi.fn() } }))
+
 import TokenPopover from './TokenPopover.svelte'
 import { overlayOpen } from './ui/layers.svelte'
+import { connection } from './connection.svelte'
 
 // jsdom has no layout: Bits never positions the popover, so it stays
 // visibility:hidden, and an accessible-name query cannot see a hidden
@@ -53,4 +64,69 @@ it('leaves a press on its own trigger to the trigger', async () => {
   await fireEvent.pointerUp(button)
   await new Promise((r) => setTimeout(r, 50))
   expect(popover()).not.toBeNull()
+})
+
+describe('saving a token', () => {
+  function answer(status: number) {
+    vi.stubGlobal('fetch', () =>
+      Promise.resolve({
+        ok: status < 400,
+        status,
+        statusText: 'x',
+        headers: new Headers(),
+        json: () => Promise.resolve({ detail: 'Invalid or missing API token' }),
+      }),
+    )
+  }
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    success.mockClear()
+    connection.state = 'unknown'
+  })
+
+  async function enter(token: string) {
+    const input = popover()!.querySelector('input')!
+    await fireEvent.input(input, { target: { value: token } })
+    await fireEvent.click(screen.getByText('Save'))
+  }
+
+  it('an accepted token raises the epoch and closes', async () => {
+    connection.state = 'locked'
+    const before = connection.epoch
+    answer(200)
+    render(TokenPopover, { props: { open: true, anchor: trigger() } })
+    await waitFor(() => expect(popover()).not.toBeNull())
+    await enter('good')
+    await waitFor(() => expect(popover()).toBeNull())
+    expect(connection.state).toBe('ok')
+    expect(connection.epoch).toBe(before + 1)
+    expect(success).toHaveBeenCalledWith('Token accepted')
+  })
+
+  it('a refused token stays locked and says so', async () => {
+    connection.state = 'locked'
+    const before = connection.epoch
+    answer(401)
+    render(TokenPopover, { props: { open: true, anchor: trigger() } })
+    await waitFor(() => expect(popover()).not.toBeNull())
+    await enter('bad')
+    await waitFor(() =>
+      expect(popover()!.textContent).toContain('The server refused that token'),
+    )
+    expect(popover()!.textContent).not.toContain('Saved')
+    expect(success).not.toHaveBeenCalled()
+    expect(connection.state).toBe('locked')
+    expect(connection.epoch).toBe(before)
+  })
+
+  it('an unreachable server says so inline', async () => {
+    vi.stubGlobal('fetch', () => Promise.reject(new TypeError('Failed')))
+    render(TokenPopover, { props: { open: true, anchor: trigger() } })
+    await waitFor(() => expect(popover()).not.toBeNull())
+    await enter('any')
+    await waitFor(() =>
+      expect(popover()!.textContent).toContain("Can't reach the server"),
+    )
+    expect(success).not.toHaveBeenCalled()
+  })
 })

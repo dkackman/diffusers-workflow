@@ -411,6 +411,10 @@ export const api = {
   workspaceChanges: (w: string) =>
     ledgerRead<WorkspaceChanges>(`/api/workspaces/${ws(w)}/changes`),
   listWorkspaces: () => request<WorkspaceList>('/api/workspaces'),
+  /** Whether the server lets the saved token in: a read any token opens */
+  checkToken: async (): Promise<void> => {
+    await request<unknown>('/api/workspaces', undefined, UNSCOPED)
+  },
   createWorkspace: (name: string) =>
     request<WorkspaceInfo>('/api/workspaces', {
       method: 'POST',

@@ -1,5 +1,8 @@
 <script lang="ts">
   import { getApiToken, setApiToken } from './token'
+  import { api } from './api'
+  import { describeError } from './apiErrors'
+  import { notify } from './toast'
   import Popover from './ui/Popover.svelte'
 
   let {
@@ -8,13 +11,29 @@
   }: { open?: boolean; anchor?: HTMLElement | null } = $props()
 
   let value = $state(getApiToken())
-  let saved = $state(false)
+  let refused = $state<string | null>(null)
+  let checking = $state(false)
 
-  function save() {
+  // The token is asked about as it is saved: an accepted one ends a lock at
+  // once (send() reports the answer, which raises the connection epoch)
+  async function save() {
     setApiToken(value)
     value = getApiToken()
-    saved = true
-    setTimeout(() => (saved = false), 1500)
+    refused = null
+    checking = true
+    try {
+      await api.checkToken()
+      open = false
+      notify.success('Token accepted')
+    } catch (e) {
+      const described = describeError(e)
+      refused =
+        described.kind === 'locked'
+          ? 'The server refused that token'
+          : described.title
+    } finally {
+      checking = false
+    }
   }
 </script>
 
@@ -28,15 +47,20 @@
       type="password"
       placeholder="API token"
       bind:value
-      onkeydown={(e) => e.key === 'Enter' && save()}
+      onkeydown={(e) => e.key === 'Enter' && void save()}
     />
-    <button onclick={save}>{saved ? 'Saved' : 'Save'}</button>
+    <button onclick={save} disabled={checking}>Save</button>
   </div>
+  {#if refused}<p class="refused" role="alert">{refused}</p>{/if}
 </Popover>
 
 <style>
   p {
     margin: 0 0 var(--space-3);
+  }
+  .refused {
+    margin: var(--space-2) 0 0;
+    color: var(--bad);
   }
   .row {
     display: flex;

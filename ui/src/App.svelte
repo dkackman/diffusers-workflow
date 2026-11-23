@@ -1,5 +1,7 @@
 <script lang="ts">
-  import { pollStatus } from './lib/statusPoll'
+  import { startStatusPoll } from './lib/statusPoll'
+  import { connection, quietWord } from './lib/connection.svelte'
+  import ConnectionBanner from './lib/ui/ConnectionBanner.svelte'
   import { cardReadings, meterText, meterTitle } from './lib/cardMemory'
   import {
     BookOpen,
@@ -12,6 +14,7 @@
     Sun,
   } from '@lucide/svelte'
   import { Toaster } from 'svelte-sonner'
+  import { untrack } from 'svelte'
   import { route } from './lib/router.svelte'
   import { api, TERMINAL_STATUSES } from './lib/api'
   import { isEditable } from './lib/editable'
@@ -27,7 +30,7 @@
   import { alertFinished, alertMode, unlockChime } from './lib/finishAlert'
   import { alerts } from './lib/alerts.svelte'
   import { storageGet, storageSet } from './lib/storage'
-  import type { HealthInfo, JobDetail, MemoryInfo } from './lib/types'
+  import type { HealthInfo, JobDetail } from './lib/types'
   import Sidebar from './lib/Sidebar.svelte'
   import Breadcrumb from './lib/Breadcrumb.svelte'
   import KeyboardHelp from './lib/KeyboardHelp.svelte'
@@ -51,10 +54,8 @@
   import ModelsPage from './lib/pages/ModelsPage.svelte'
   import SchemaPage from './lib/pages/SchemaPage.svelte'
   import StatusPage from './lib/pages/StatusPage.svelte'
-  import { setAttentionBackends } from './lib/attentionBackends.svelte'
 
-  let memory = $state<MemoryInfo | null>(null)
-  let health = $state<HealthInfo | null>(null)
+  const health = $derived(connection.health)
   let helpOpen = $state(false)
   let statusOpen = $state(false)
   let tokenOpen = $state(false)
@@ -139,21 +140,12 @@
     }
   }
 
+  // The one timer that keeps going while the tab is hidden (statusPoll.ts);
+  // each reading it lands moves the watched jobs on
+  $effect(() => startStatusPoll())
   $effect(() => {
-    const refreshStatus = async () => {
-      // Settled independently: memory answers 503 while the worker is
-      // unreachable, and that must not blank the "running" indicator too
-      const [memoryInfo, healthInfo] = await Promise.allSettled([
-        api.memory(),
-        api.health(),
-      ])
-      memory = memoryInfo.status === 'fulfilled' ? memoryInfo.value : null
-      health = healthInfo.status === 'fulfilled' ? healthInfo.value : null
-      setAttentionBackends(health?.attention_backends)
-      void watchJobs(health)
-    }
-    // The one timer that keeps going while the tab is hidden (statusPoll.ts)
-    return pollStatus(refreshStatus)
+    const info = health
+    untrack(() => void watchJobs(info))
   })
 
   type Theme = 'system' | 'light' | 'dark'
@@ -182,7 +174,9 @@
   // one meter bar per card, from the per-card readings; the top level of
   // /api/memory is only the first card's
   const metered = $derived(
-    cardReadings(memory).filter((c) => c.available && c.pct !== null),
+    cardReadings(connection.memory).filter(
+      (c) => c.available && c.pct !== null,
+    ),
   )
 
   // storage.ts namespaces the key: this is localStorage 'dw-sidebar'
@@ -303,14 +297,14 @@
               aria-expanded={statusOpen}
             >
               {#if running.length > 1}{@render busy()}
-              {:else}{currentJob ? 'status' : 'idle'}{/if}
+              {:else}{currentJob ? 'status' : quietWord(connection.state)}{/if}
             </button>
           {/if}
           <StatusPopover
             bind:open={statusOpen}
             anchor={statusTrigger}
             {health}
-            {memory}
+            memory={connection.memory}
           />
           <button
             class="bare icon"
@@ -359,6 +353,7 @@
         </div>
       </div>
     </header>
+    <ConnectionBanner ontoken={() => (tokenOpen = true)} />
 
     <main class:wide>
       {#if view.kind === 'server'}

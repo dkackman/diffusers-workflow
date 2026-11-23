@@ -67,6 +67,18 @@ it('refetches only after invalidateWorkspaces()', async () => {
   expect(listWorkspaces).toHaveBeenCalledTimes(2)
 })
 
+it('a reconnect replaces the fallback a locked start left', async () => {
+  const { loadWorkspaces, workspace } = await import('./workspace.svelte')
+  const { reportResponse } = await import('./connection.svelte')
+  listWorkspaces.mockImplementationOnce(() => Promise.reject(new Error('401')))
+  reportResponse(401)
+  await loadWorkspaces()
+  expect(workspace.names).toEqual(['default'])
+  reportResponse(200)
+  await vi.waitFor(() => expect(workspace.names).toEqual(['default', 'studio']))
+  expect(listWorkspaces).toHaveBeenCalledTimes(2)
+})
+
 it('a ws route sets current and is remembered as last used', async () => {
   const { applyRouteWorkspace, lastUsedWorkspace, workspace } =
     await import('./workspace.svelte')
