@@ -265,22 +265,30 @@ it('delete is offered off the default and goes through the shared action', async
   await waitFor(() => expect(location.hash).toBe('#/ws/default/overview'))
 })
 
-it('the default workspace cannot be deleted', async () => {
+it("the default workspace says why it can't be managed, with no disabled buttons", async () => {
   location.hash = '#/ws/default/overview'
   window.dispatchEvent(new HashChangeEvent('hashchange'))
   render(OverviewPage)
-  await waitFor(() =>
-    expect(
-      screen.getByRole('button', { name: /delete workspace/i }),
-    ).toBeTruthy(),
+  const manage = (await screen.findByRole('heading', { name: 'Manage' }))
+    .parentElement!
+  expect(manage.textContent?.replace(/\s+/g, ' ')).toContain(
+    "The default workspace is the server's own folder, so it can't be " +
+      'hidden or deleted.',
   )
+  expect(manage.querySelectorAll('button')).toHaveLength(0)
+  expect(screen.queryByRole('button', { name: /delete workspace/i })).toBeNull()
+})
+
+it('off the default, Manage offers hide and a danger delete', async () => {
+  render(OverviewPage)
+  const remove = await screen.findByRole('button', {
+    name: /delete workspace/i,
+  })
+  expect(remove.classList.contains('danger')).toBe(true)
+  expect((remove as HTMLButtonElement).disabled).toBe(false)
   expect(
-    (
-      screen.getByRole('button', {
-        name: /delete workspace/i,
-      }) as HTMLButtonElement
-    ).disabled,
-  ).toBe(true)
+    screen.getByRole('button', { name: /hide from sidebar/i }),
+  ).toBeTruthy()
 })
 
 const summary = (over: Record<string, unknown>) => ({

@@ -905,8 +905,9 @@ it('deleting a selection with starred files says how many and can spare them', a
   await waitFor(() => expect(screen.getByText('2 selected')).toBeTruthy())
   screen.getByRole('button', { name: /^delete/i }).click()
   const dialog = await waitFor(() => screen.getByRole('alertdialog'))
+  expect(dialog.textContent).toContain('Delete 2 files?')
   expect(dialog.textContent).toContain(
-    'Delete 2 files? 1 of them is starred. This removes them on disk.',
+    'This removes them on disk. 1 of them is starred.',
   )
   within(dialog).getByRole('button', { name: 'Delete the 1 unstarred' }).click()
   await waitFor(() => expect(deleteOutput).toHaveBeenCalledTimes(1))
@@ -942,4 +943,37 @@ it('filtered to nothing offers Clear filters', async () => {
   await waitFor(() =>
     expect(screen.getByLabelText('select a.png')).toBeTruthy(),
   )
+})
+
+const DETAIL_DELETE = 'delete this file from the output directory'
+
+it("a starred file's confirm says so", async () => {
+  listing.files = [{ ...file('a.png'), starred: true }, file('b.png')]
+  await renderGallery()
+  await openFile('a.png')
+  ;(await screen.findByRole('button', { name: DETAIL_DELETE })).click()
+  const dialog = await waitFor(() => screen.getByRole('alertdialog'))
+  expect(dialog.querySelector('.ui-title')?.textContent).toContain(
+    'Delete a.png?',
+  )
+  expect(dialog.textContent).toContain(
+    'This removes it on disk. It is starred.',
+  )
+  const yes = within(dialog).getByRole('button', { name: /^delete$/i })
+  expect(yes.classList.contains('danger')).toBe(true)
+  await answerConfirm(false)
+  expect(deleteOutput).not.toHaveBeenCalled()
+})
+
+it('a double click deletes once', async () => {
+  await renderGallery()
+  await openFile('a.png')
+  const button = await screen.findByRole('button', { name: DETAIL_DELETE })
+  button.click()
+  button.click()
+  await answerConfirm(true)
+  await waitFor(() => expect(deleteOutput).toHaveBeenCalledWith('a.png'))
+  await settle()
+  expect(deleteOutput).toHaveBeenCalledTimes(1)
+  expect(screen.queryByRole('alertdialog')).toBeNull()
 })

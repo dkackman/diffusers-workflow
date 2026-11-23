@@ -100,3 +100,44 @@ it('a component reading a caught error for display fails lint', async () => {
     'no-restricted-syntax',
   ])
 })
+
+// The delete rule (eslint.config.js): a confirm whose button deletes or
+// removes is built by destroyConfirm, so every delete asks one way
+/** The messages of the delete rule `code` breaks, linted as `file` */
+async function destroyErrors(code: string, file: string): Promise<string[]> {
+  const [result] = await eslint.lintText(code, { filePath: join(UI, file) })
+  return result.messages
+    .filter((m) => m.message.includes('asks through destroyConfirm()'))
+    .map((m) => m.ruleId ?? '')
+}
+
+const ASKS = `import { confirmDialog } from './confirm.svelte'
+export const ask = () => confirmDialog('Gone?', { confirmLabel: 'Delete' })
+export const drop = () => confirmDialog('Gone?', { confirmLabel: 'Remove it' })`
+
+it('a Delete confirm outside destructive.ts fails lint', async () => {
+  for (const file of [
+    'src/lib/pages/Probe.ts',
+    'src/lib/ui/Probe.ts',
+    'src/lib/resource.svelte.ts',
+    'src/lib/apiErrors.ts',
+  ])
+    expect(await destroyErrors(ASKS, file)).toEqual([
+      'no-restricted-syntax',
+      'no-restricted-syntax',
+    ])
+  const svelte = `<script lang="ts">\n  import { confirmDialog } from '../confirm.svelte'\n  const ask = () => confirmDialog('Gone?', { confirmLabel: 'Delete' })\n</script>\n\n<button onclick={ask}>x</button>\n`
+  expect(await destroyErrors(svelte, 'src/lib/pages/Probe.svelte')).toEqual([
+    'no-restricted-syntax',
+  ])
+  expect(await destroyErrors(ASKS, 'src/lib/destructive.ts')).toEqual([])
+  // Other labels are not deletes
+  const keep = `export const spec = { confirmLabel: 'Replace' }`
+  expect(await destroyErrors(keep, 'src/lib/pages/Probe.ts')).toEqual([])
+})
+
+it('destructive.ts keeps the other syntax rules', async () => {
+  expect(await messageErrors(RAW, 'src/lib/destructive.ts')).toEqual([
+    'no-restricted-syntax',
+  ])
+})

@@ -13,8 +13,8 @@
   import { neighbor } from '../neighbor'
   import { overlayOpen } from '../ui/layers.svelte'
   import { notify } from '../toast'
-  import { confirmDialog } from '../confirm.svelte'
-  import { askDeletion } from '../gallery/deletion'
+  import { action } from '../action.svelte'
+  import { askDeletion, fileConfirm } from '../gallery/deletion'
   import type { GalleryFile, OutputRole } from '../types'
   import { workspace } from '../workspace.svelte'
   import { go } from '../router.svelte'
@@ -141,22 +141,25 @@
     }
   }
 
-  async function removePicked() {
-    if (picks.names.length === 0) return
-    const names = await askDeletion(files, picks.names)
-    if (!names) return
-    busy = true
-    const failures = await actOnEach(names, (name) => api.deleteOutput(name))
-    const failed = failures.map((f) => f.name)
-    const gone = new Set(names.filter((name) => !failed.includes(name)))
-    drop(gone)
-    // Whatever could not be deleted stays selected, so a retry needs no
-    // re-ticking and the failure is visible rather than silently dropped
-    picks.keepFailed(names, failed)
-    if (selected && gone.has(selected.name)) selected = null
-    reportFailures('delete', failures, names.length, 'files')
-    busy = false
-  }
+  // The question is askDeletion's: it can spare the starred files
+  const removingPicked = action(
+    async (names: string[]) => {
+      const chosen = await askDeletion(files, names)
+      if (!chosen) return
+      const failures = await actOnEach(chosen, (n) => api.deleteOutput(n))
+      const failed = failures.map((f) => f.name)
+      const gone = new Set(chosen.filter((name) => !failed.includes(name)))
+      drop(gone)
+      // Whatever could not be deleted stays selected, so a retry needs no
+      // re-ticking and the failure is visible rather than silently dropped
+      picks.keepFailed(chosen, failed)
+      if (selected && gone.has(selected.name)) selected = null
+      reportFailures('delete', failures, chosen.length, 'files')
+    },
+    { doing: 'delete the picked files' },
+  )
+  const removePicked = () =>
+    picks.names.length && removingPicked.run(picks.names)
 
   // Where the open file stood in the grid when last seen there, so stepping
   // goes on from that place once a filter or an unstar has hidden it
@@ -184,21 +187,13 @@
     patch(name, { note: note ?? undefined })
   }
 
-  async function removeFile() {
-    if (!selected) return
-    if (
-      !(await confirmDialog(
-        `Delete ${selected.name}? This removes the file on disk.`,
-        { confirmLabel: 'Delete' },
-      ))
-    )
-      return
-    const name = selected.name
-    const order = gridOrder()
-    const after =
-      neighbor(order, name, 1, selectedAt) ??
-      neighbor(order, name, -1, selectedAt)
-    try {
+  const removing = action(
+    async (file: GalleryFile) => {
+      const name = file.name
+      const order = gridOrder()
+      const after =
+        neighbor(order, name, 1, selectedAt) ??
+        neighbor(order, name, -1, selectedAt)
       await api.deleteOutput(name)
       drop([name])
       // A file deleted from here may also be ticked in the grid; leaving it
@@ -207,10 +202,10 @@
       // Culling goes on to the next file rather than back to the grid
       if (after && byName.get(after)) select(byName.get(after)!)
       else selected = null
-    } catch (e) {
-      notify.failure(`delete ${name}`, e)
-    }
-  }
+    },
+    { doing: (file) => `delete ${file.name}`, confirm: fileConfirm },
+  )
+  const removeFile = () => selected && removing.run(selected)
 
   // Escape closes the thing on top, and a dialog answers it itself. The
   // selection is the more recent, more surprising state to be stuck in,
@@ -276,7 +271,7 @@
   {picks}
   visible={visible.length}
   {filterActive}
-  {busy}
+  busy={busy || removingPicked.busy}
   noun="file"
   ondownload={downloadPicked}
   ondelete={removePicked}

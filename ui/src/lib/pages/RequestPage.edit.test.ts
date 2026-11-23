@@ -646,11 +646,14 @@ it('a closed request can be deleted, after a confirm, and the page goes to the l
   await start()
   await headerMenu('Delete…')
   await waitFor(() => expect(world.deleteRequest).toHaveBeenCalled())
-  expect(world.confirm.mock.calls[0][0]).toContain('Delete "Launch posters"?')
   expect(world.confirm.mock.calls[0][0]).toContain(
     'Its jobs and their outputs are kept.',
   )
-  expect(world.confirm.mock.calls[0][1]).toEqual({ confirmLabel: 'Delete' })
+  expect(world.confirm.mock.calls[0][1]).toMatchObject({
+    title: 'Delete "Launch posters"?',
+    confirmLabel: 'Delete',
+    danger: true,
+  })
   expect(world.deleteRequest).toHaveBeenCalledWith('studio', 'r1', 3)
   await waitFor(() => expect(location.hash).toBe('#/ws/studio/requests'))
   expect(world.notify.success).toHaveBeenCalledWith('Deleted Launch posters')

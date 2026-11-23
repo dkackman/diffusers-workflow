@@ -1,6 +1,7 @@
 <script lang="ts">
   import { api, ApiError } from '../api'
-  import { confirmDialog } from '../confirm.svelte'
+  import { action } from '../action.svelte'
+  import { destroyConfirm } from '../destructive'
   import { notify } from '../toast'
   import type { LedgerRequest } from '../types'
   import ItemMenu from './ItemMenu.svelte'
@@ -48,26 +49,34 @@
   }
 
   /** Its jobs and their files stay: only the ledger's record goes */
-  async function remove() {
-    const { title, id } = request
-    const sure = await confirmDialog(
-      `Delete "${title}"?\n\nIts plan, notes and history are removed from the ledger for good. Its jobs and their outputs are kept.`,
-      { confirmLabel: 'Delete' },
-    )
-    if (!sure) return
-    try {
-      await api.deleteRequest(workspace, id, store.read?.revision ?? 0)
-    } catch (error) {
-      const code = error instanceof ApiError ? error.code : undefined
-      if (code === 'stale_revision') onreload()
-      const refused = code && REFUSED[code]
-      if (refused) notify.error(`Not deleted: ${refused}`)
-      else notify.failure('delete that', error)
-      return
-    }
-    notify.success(`Deleted ${title}`)
-    ondeleted()
-  }
+  const removing = action(
+    async ({ title, id }: LedgerRequest) => {
+      try {
+        await api.deleteRequest(workspace, id, store.read?.revision ?? 0)
+      } catch (error) {
+        const code = error instanceof ApiError ? error.code : undefined
+        if (code === 'stale_revision') onreload()
+        const refused = code && REFUSED[code]
+        // Any other failure is the action's to report
+        if (!refused) throw error
+        notify.error(`Not deleted: ${refused}`)
+        return
+      }
+      notify.success(`Deleted ${title}`)
+      ondeleted()
+    },
+    {
+      doing: () => 'delete that',
+      confirm: ({ title }) =>
+        destroyConfirm({
+          name: `"${title}"`,
+          noun: 'request',
+          consequence:
+            'Its plan, notes and history go from the ledger for good. Its jobs and their outputs are kept.',
+        }),
+    },
+  )
+  const remove = () => removing.run(request)
 
   const select = (id: string) =>
     id === 'delete' ? remove() : setState(id as LedgerRequest['state'])

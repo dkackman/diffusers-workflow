@@ -30,8 +30,14 @@
     workspace,
   } from '../workspace.svelte'
   import { deleteWorkspaceWithConfirm } from '../workspaceActions'
+  import { action } from '../action.svelte'
+  import ActionButton from '../ui/ActionButton.svelte'
 
   const name = $derived(workspace.current)
+  // It asks first itself: the question needs the server's count
+  const deleting = action(deleteWorkspaceWithConfirm, {
+    doing: (ws: string) => `delete workspace ${ws}`,
+  })
   const RECENT = 8
   const WORKFLOWS = 6
   const JOBS = 5
@@ -306,29 +312,29 @@
   </section>
   <section class="panel">
     <h2>Manage</h2>
-    <p class="muted">
-      Deleting removes the workspace's workflows, assets and outputs on the
-      server. The prompt library and the shared asset library are untouched.
-    </p>
-    <button
-      class="quiet withicon"
-      onclick={() => setHidden(name, !hiddenWorkspaces.names.includes(name))}
-      disabled={name === DEFAULT_WORKSPACE}
-      title="a choice for this browser only - the workspace itself is unchanged"
-    >
-      {#if hiddenWorkspaces.names.includes(name)}<Eye size={14} />Show in
-        sidebar{:else}<EyeOff size={14} />Hide from sidebar{/if}
-    </button>
-    <button
-      class="quiet withicon danger"
-      onclick={() => deleteWorkspaceWithConfirm(name)}
-      disabled={name === DEFAULT_WORKSPACE}
-      title={name === DEFAULT_WORKSPACE
-        ? 'the default workspace is the root itself and cannot be deleted'
-        : 'delete this workspace and everything in it'}
-    >
-      <Trash2 size={14} />Delete workspace
-    </button>
+    {#if name === DEFAULT_WORKSPACE}
+      <p class="muted">
+        The default workspace is the server's own folder, so it can't be hidden
+        or deleted.
+      </p>
+    {:else}
+      <button
+        class="quiet withicon"
+        onclick={() => setHidden(name, !hiddenWorkspaces.names.includes(name))}
+        title="a choice for this browser only - the workspace itself is unchanged"
+      >
+        {#if hiddenWorkspaces.names.includes(name)}<Eye size={14} />Show in
+          sidebar{:else}<EyeOff size={14} />Hide from sidebar{/if}
+      </button>
+      <ActionButton
+        act={deleting}
+        args={[name]}
+        danger
+        title="delete this workspace and everything in it"
+      >
+        <Trash2 size={14} />Delete workspace
+      </ActionButton>
+    {/if}
   </section>
 </div>
 

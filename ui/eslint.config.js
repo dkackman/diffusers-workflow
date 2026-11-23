@@ -61,18 +61,35 @@ const feedSyntax = [
     message: feedMessage,
   },
 ]
+// Destroying something the person made asks one way: destroyConfirm (the
+// P5 policy) names it, counts it, says how many are starred and puts the
+// button in danger, so no other module writes a Delete or Remove button of
+// its own. Pinned by scripts/lint-rules.test.ts
+const destroySyntax = {
+  selector: "Property[key.name='confirmLabel'][value.value=/^(Delete|Remove)/]",
+  message: 'A delete asks through destroyConfirm() (src/lib/destructive.ts)',
+}
 /** The no-restricted-syntax options for a block, listed whole for the same
  * reason as `restricted` */
-const syntax = ({ feed = false, message = false }) => [
+const syntax = ({ feed = false, message = false, destroy = true }) => [
   'error',
   ...(feed ? feedSyntax : []),
   ...(message ? [messageSyntax] : []),
+  ...(destroy ? [destroySyntax] : []),
 ]
 // The one module that reads a caught error's message, and the tests
 const MESSAGE_OWNERS = [
   'src/lib/apiErrors.ts',
   'src/lib/test/**',
   'src/**/*.test.ts',
+]
+// The module that words a delete. ModelsPage and CachesPanel ask about the
+// server's caches, which Task 8 moves to destructive.ts's serverConfirm;
+// until then they keep their own Delete
+const DESTROY_OWNERS = [
+  'src/lib/destructive.ts',
+  'src/lib/pages/ModelsPage.svelte',
+  'src/lib/CachesPanel.svelte',
 ]
 // The feed's own module, the one subscriber and the tests that drive it
 const FEED_OWNERS = [
@@ -149,6 +166,16 @@ export default ts.config(
     files: MESSAGE_OWNERS,
     ignores: FEED_OWNERS,
     rules: { 'no-restricted-syntax': syntax({ feed: true }) },
+  },
+  {
+    files: DESTROY_OWNERS,
+    rules: {
+      'no-restricted-syntax': syntax({
+        feed: true,
+        message: true,
+        destroy: false,
+      }),
+    },
   },
   {
     ignores: ['dist/', 'node_modules/', 'playwright-report/', 'test-results/'],

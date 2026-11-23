@@ -10,7 +10,7 @@
   "empty_outside_loadstate": 0,
   "unwatched_reads": 0,
   "window_dialogs": 1,
-  "unguarded_mutations": 32,
+  "unguarded_mutations": 24,
   "banned_terms": 62,
   "duplicate_blocks": 46
 }

@@ -15,7 +15,8 @@
   import FolderGroups from '../FolderGroups.svelte'
   import { dropFiles } from '../dropFiles'
   import HintBar from '../HintBar.svelte'
-  import { confirmDialog } from '../confirm.svelte'
+  import { action } from '../action.svelte'
+  import { assetConfirm, assetsConfirm } from '../assets/deletion'
   import BulkBar from '../BulkBar.svelte'
   import { Picks, actOnEach, reportFailures } from '../picks.svelte'
   import { overlayOpen } from '../ui/layers.svelte'
@@ -223,40 +224,29 @@
     }
   }
 
-  async function removePicked() {
-    const names = picks.names
-    if (names.length === 0) return
-    // A shared asset goes for every workspace under the root, which is a
-    // different thing from deleting one of this workspace's own - so the
-    // confirm counts them rather than leaving the selection to be read
-    const shared = names.filter(
-      (name) => originOf.get(name) === 'common',
-    ).length
-    if (
-      !(await confirmDialog(
-        `Delete ${names.length} asset${names.length === 1 ? '' : 's'}?` +
-          (shared
-            ? ` ${shared} ${shared === 1 ? 'is' : 'are'} in the shared ` +
-              `library and go${shared === 1 ? 'es' : ''} away for every ` +
-              `workspace.`
-            : '') +
-          ` Any workflow still carrying one of those references stops loading.`,
-        { confirmLabel: 'Delete' },
-      ))
-    )
-      return
-    busy = true
-    const failed = await actOnEach(names, (name) => api.deleteAsset(name))
-    // A read-only examples asset answers 403; whatever could not go stays
-    // ticked, so a retry needs no re-ticking
-    picks.keepFailed(
-      names,
-      failed.map((f) => f.name),
-    )
-    reportFailures('delete', failed, names.length, 'assets')
-    busy = false
-    await list.reload()
-  }
+  const removingPicked = action(
+    async (names: string[]) => {
+      const failed = await actOnEach(names, (name) => api.deleteAsset(name))
+      // A read-only examples asset answers 403; whatever could not go stays
+      // ticked, so a retry needs no re-ticking
+      picks.keepFailed(
+        names,
+        failed.map((f) => f.name),
+      )
+      reportFailures('delete', failed, names.length, 'assets')
+      await list.reload()
+    },
+    {
+      doing: 'delete the picked assets',
+      confirm: (names) =>
+        assetsConfirm(
+          names.length,
+          names.filter((name) => originOf.get(name) === 'common').length,
+        ),
+    },
+  )
+  const removePicked = () =>
+    picks.names.length && removingPicked.run(picks.names)
 
   async function upload(event: Event) {
     const input = event.target as HTMLInputElement
@@ -286,27 +276,17 @@
     await list.reload()
   }
 
-  async function remove(asset: AssetFile) {
-    const question =
-      asset.origin === 'common'
-        ? `Delete ${asset.reference} from the shared library? Every ` +
-          `workspace under this root loses it, and any workflow still ` +
-          `carrying that reference stops loading.`
-        : `Delete ${asset.reference}? Any workflow still carrying that ` +
-          `reference stops loading.`
-    if (!(await confirmDialog(question, { confirmLabel: 'Delete' }))) return
-    busy = true
-    try {
+  const removing = action(
+    async (asset: AssetFile) => {
       await api.deleteAsset(asset.name)
       notify.success(`Deleted ${asset.reference}`)
       if (selected?.name === asset.name) selected = null
       await list.reload()
-    } catch (e) {
-      notify.failure(`delete ${asset.name}`, e)
-    } finally {
-      busy = false
-    }
-  }
+    },
+    { doing: (asset) => `delete ${asset.name}`, confirm: assetConfirm },
+  )
+  const remove = (asset: AssetFile) => removing.run(asset)
+  const working = $derived(busy || removing.busy || removingPicked.busy)
 </script>
 
 <svelte:window
@@ -324,7 +304,7 @@
   class="dropzone"
   use:dropFiles={{
     ondrop: (files) => uploadFiles(files, shared ? 'shared' : 'workspace'),
-    disabled: busy,
+    disabled: working,
   }}
 >
   {#snippet search()}
@@ -397,7 +377,7 @@
     {picks}
     visible={ordered.length}
     {filterActive}
-    {busy}
+    busy={working}
     noun="asset"
     ondownload={downloadPicked}
     ondelete={removePicked}
@@ -408,7 +388,7 @@
       {section}
       open={isOpen(section.origin)}
       {shared}
-      {busy}
+      busy={working}
       ontoggle={() => toggleLibrary(section.origin)}
       onupload={startUpload}
     />
@@ -479,7 +459,7 @@
   {#key selected.name}
     <AssetDetail
       asset={selected}
-      {busy}
+      busy={working}
       onremove={remove}
       onclose={() => (selected = null)}
       onnotesaved={saveNote}

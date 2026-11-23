@@ -2,6 +2,7 @@
   import { tick, untrack, type Snippet } from 'svelte'
   import { X } from '@lucide/svelte'
   import { confirmDialog } from '../confirm.svelte'
+  import { destroyConfirm } from '../destructive'
   import { notify } from '../toast'
   import {
     draftAtRisk,
@@ -78,6 +79,11 @@
   } = $props()
 
   const MAX = 4000
+  const unreadNote = destroyConfirm({
+    name: 'this note',
+    noun: 'note',
+    consequence: 'The agent has not had the chance to read it.',
+  })
   const COUNT_FROM = 3600
 
   // A draft a reload left behind comes back as one set aside
@@ -176,10 +182,7 @@
   async function remove() {
     if (
       !line?.answered &&
-      !(await confirmDialog(
-        'Delete this note? The agent has not had the chance to read it.',
-        { confirmLabel: 'Delete' },
-      ))
+      !(await confirmDialog(unreadNote.message, unreadNote))
     )
       return
     if (ondelete) await store(ondelete)

@@ -597,10 +597,11 @@ it('says what a shared delete costs', async () => {
   )
 
   const dialog = await waitFor(() => screen.getByRole('alertdialog'))
+  expect(dialog.textContent).toContain('Delete asset:shared/logo.png?')
   expect(dialog.textContent).toContain(
-    'Delete asset:shared/logo.png from the shared library? Every workspace ' +
-      'under this root loses it, and any workflow still carrying that ' +
-      'reference stops loading.',
+    'This removes it on disk. It is in the shared library, so every ' +
+      'workspace under this root loses it, and any workflow still carrying ' +
+      'that reference stops loading.',
   )
   // Answer it: an unanswered confirm is module state the next render sees
   await answerConfirm(false)
@@ -616,9 +617,10 @@ it('says nothing about a shared library when nothing shared is picked', async ()
   screen.getByRole('button', { name: /^delete the selected/i }).click()
 
   const dialog = await waitFor(() => screen.getByRole('alertdialog'))
+  expect(dialog.textContent).toContain('Delete 2 assets?')
   expect(dialog.textContent).toContain(
-    'Delete 2 assets? Any workflow still carrying one of those references ' +
-      'stops loading.',
+    'This removes them on disk. Any workflow still carrying one of those ' +
+      'references stops loading.',
   )
   await answerConfirm(false)
 })
@@ -639,11 +641,17 @@ it('counts the shared assets in a bulk delete confirm', async () => {
   screen.getByRole('button', { name: /^delete the selected/i }).click()
 
   const dialog = await waitFor(() => screen.getByRole('alertdialog'))
+  expect(dialog.textContent).toContain('Delete 3 assets?')
   expect(dialog.textContent).toContain(
-    'Delete 3 assets? 2 are in the shared library and go away for every ' +
-      'workspace. Any workflow still carrying one of those references stops ' +
-      'loading.',
+    'This removes them on disk. 2 of them are in the shared library and go ' +
+      'away for every workspace. Any workflow still carrying one of those ' +
+      'references stops loading.',
   )
+  expect(
+    within(dialog)
+      .getByRole('button', { name: /^delete$/i })
+      .classList.contains('danger'),
+  ).toBe(true)
   await answerConfirm(false)
 })
 

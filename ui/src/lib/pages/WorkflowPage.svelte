@@ -17,7 +17,8 @@
   import { notify } from '../toast'
   import { observedText, observedTitle } from '../observed'
   import { costBasisWords, costFigure, costMeasuredOn } from '../cost'
-  import { confirmDialog } from '../confirm.svelte'
+  import { action } from '../action.svelte'
+  import { destroyConfirm } from '../destructive'
   import type { GalleryFile, WorkflowDefinition } from '../types'
   import ClampedText from '../ui/ClampedText.svelte'
   import { onDestroy, untrack } from 'svelte'
@@ -176,23 +177,17 @@
     goWs('edit')
   }
 
-  async function remove() {
-    if (
-      !(await confirmDialog(
-        `Delete ${name}.json? This removes the file on disk.`,
-        {
-          confirmLabel: 'Delete',
-        },
-      ))
-    )
-      return
-    try {
+  const removing = action(
+    async () => {
       await api.deleteWorkflow(name)
       goWs('workflows')
-    } catch (e) {
-      notify.failure(`delete ${name}`, e)
-    }
-  }
+    },
+    {
+      doing: () => `delete ${name}`,
+      confirm: () => destroyConfirm({ name: `${name}.json`, noun: 'workflow' }),
+    },
+  )
+  const remove = () => removing.run()
 
   async function run() {
     submitting = true

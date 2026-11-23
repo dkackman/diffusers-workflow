@@ -315,7 +315,10 @@ it('a waiting note emptied and saved asks first, and stays when declined', async
   confirmDialog.mockResolvedValue(false)
   await fireEvent.click(screen.getByRole('button', { name: 'Save note' }))
   await waitFor(() => expect(confirmDialog).toHaveBeenCalledTimes(1))
-  expect(confirmDialog.mock.calls[0][0]).toMatch(/^Delete this note\?/)
+  expect(confirmDialog.mock.calls[0][1]).toMatchObject({
+    title: 'Delete this note?',
+    danger: true,
+  })
   expect(given.ondelete).not.toHaveBeenCalled()
   expect(given.onsave).not.toHaveBeenCalled()
   expect(box()).toBeTruthy()

@@ -36,7 +36,8 @@
   import { go, renameRoute } from '../router.svelte'
   import { SECTION_LABELS, sharedHref } from '../routes'
   import { notify } from '../toast'
-  import { confirmDialog } from '../confirm.svelte'
+  import { action } from '../action.svelte'
+  import { destroyConfirm } from '../destructive'
   import { loadPromptLibrary } from '../promptlib.svelte'
   import { groupOf, leafOf } from '../grouping'
   import { emptyPrompt, parseTags } from '../prompts'
@@ -229,24 +230,27 @@
     }
   }
 
-  async function remove() {
-    const name = current
-    if (!name) return
-    const warning = await deleteWarning(name)
-    if (
-      !(await confirmDialog(
-        `Delete ${name}.json? This removes the file on disk.${warning}`,
-        { confirmLabel: 'Delete' },
-      ))
-    )
-      return
-    try {
+  // The workflows a delete would break are read on the click that asks
+  const removing = action<[name: string, warning: string], void>(
+    async (name) => {
       await api.deletePrompt(name)
       loadPromptLibrary()
       go('shared', 'prompts')
-    } catch (e) {
-      notify.failure(`delete ${name}`, e)
-    }
+    },
+    {
+      doing: (name) => `delete ${name}`,
+      confirm: (name, warning) =>
+        destroyConfirm({
+          name: `${name}.json`,
+          noun: 'prompt',
+          consequence: warning.trim(),
+        }),
+    },
+  )
+  async function remove() {
+    const name = current
+    if (name && !removing.busy)
+      await removing.run(name, await deleteWarning(name))
   }
 
   function duplicate() {
