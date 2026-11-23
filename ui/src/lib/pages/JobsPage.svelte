@@ -11,8 +11,14 @@
   import type { JobSummary } from '../types'
   import { wsHref } from '../routes'
   import { hashQuery, setHashQuery } from '../router.svelte'
-  import { parseRequestFilter, type RequestFilter } from '../requestFilter'
-  import { listingRefused, listingWorkspace, queueLength } from '../jobsListing'
+  import { parseRequestFilter } from '../requestFilter'
+  import {
+    listJobs,
+    listingRefused,
+    listingWorkspace,
+    queueLength,
+    queuedEverywhere,
+  } from '../jobsListing'
   import { loadWorkspaces, workspace } from '../workspace.svelte'
   import {
     rerunRestartBatchWithConfirm,
@@ -123,23 +129,6 @@
         (job.workflow ?? '').toLowerCase().includes(nameFilter.toLowerCase()),
     ),
   )
-  const listJobs = (ws: string, scoped: RequestFilter) =>
-    api.listJobs(
-      ws || undefined,
-      undefined,
-      undefined,
-      scoped.request || undefined,
-      scoped.item || undefined,
-    )
-  /** The server's count of every queued job, asked for only by a narrowed
-   * listing that shows a waiting one: an unnarrowed listing holds the whole
-   * queue, and 0 leaves the length to the rows. */
-  async function queuedEverywhere(rows: JobSummary[], narrowed: boolean) {
-    if (!narrowed || !rows.some((job) => job.queue_position !== undefined))
-      return 0
-    return (await api.listJobs(undefined, 1, 'queued')).total
-  }
-
   // Batches a preview found nothing left to rerun in: their banner stays
   // hidden for the rest of the session, in memory only - the client's
   // count is an estimate and the preview corrected it

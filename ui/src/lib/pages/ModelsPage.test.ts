@@ -5,6 +5,8 @@ import { formatDay } from '../format'
 import { connection } from '../connection.svelte'
 import { NetworkError } from '../apiErrors'
 import type { ModelCache, ModelRepo } from '../types'
+import { feed } from '../test/feedMock'
+import { workspace } from '../workspaceState.svelte'
 
 // The "last used" column (#1445 stage B): a dw job's start time when the
 // server has one, else the files' atime marked "(disk)", else a dash
@@ -53,6 +55,9 @@ vi.mock('../api', () => ({
     diffusersStatus: () =>
       cache.error ? Promise.reject(cache.error) : new Promise(() => {}),
   },
+}))
+vi.mock('../changes.svelte', async () => ({
+  changes: (await import('../test/feedMock')).feed.changes,
 }))
 vi.mock('../toast', () => ({ notify: { error: vi.fn(), success: vi.fn() } }))
 
@@ -122,4 +127,19 @@ it('recovers on reconnect', async () => {
   connection.epoch++
   await screen.findByText('org/back')
   expect(screen.queryByText(/Couldn't load/)).toBeNull()
+})
+
+it('ModelsPage reloads its cache list on a models move', async () => {
+  cache.repos = [repo('org/first', DW_USE, null)]
+  render(ModelsPage)
+  await screen.findByText('org/first')
+  expect(feed.watched(workspace.current)).toContain('models')
+  cache.repos = [
+    repo('org/first', DW_USE, null),
+    repo('org/fetched', null, null),
+  ]
+  feed.move(workspace.current, 'models')
+  await screen.findByText('org/fetched')
+  // Quiet: the list never went back to loading
+  expect(screen.getByText('org/first')).toBeTruthy()
 })

@@ -1,7 +1,8 @@
 <!-- dw's own disk caches on the server page: the registry's table with a
   clear per cache and, where a cache lists its entries, a delete per entry.
-  Fetched once on mount and again after each clear - every read walks the
-  cache's tree, so it is not polled. -->
+  Read on open, after each clear, and when the models feed moves (a clear
+  or an entry delete anywhere) - every read walks the cache's tree, so it
+  is never polled. -->
 <script lang="ts">
   import {
     ChevronDown,
@@ -11,26 +12,18 @@
     TriangleAlert,
   } from '@lucide/svelte'
   import { api } from './api'
+  import { resource } from './resource.svelte'
+  import LoadState from './ui/LoadState.svelte'
   import { confirmDialog } from './confirm.svelte'
   import { formatBytes, formatMtime, gbFromBytes } from './format'
   import type { DiskCacheEntry, DiskCacheInfo } from './types'
 
-  let caches = $state<DiskCacheInfo[] | null>(null)
-  let cachesError = $state('')
   let clearing = $state<string | null>(null)
   let clearError = $state('')
 
-  async function refreshCaches() {
-    try {
-      caches = (await api.listCaches()).caches
-      cachesError = ''
-    } catch (e) {
-      cachesError = e instanceof Error ? e.message : String(e)
-    }
-  }
-  $effect(() => {
-    refreshCaches()
-  })
+  const read = resource(() => api.listCaches(), { watch: ['models'] })
+  const caches = $derived(read.data?.caches ?? [])
+  const refreshCaches = () => read.reload()
 
   // formatBytes floors at 1 KB, so an empty cache would read as 1 KB
   const cacheSize = (bytes: number) => (bytes ? formatBytes(bytes) : '0 bytes')
@@ -102,13 +95,8 @@
 
 <div class="panel caches">
   <h2><HardDrive size={15} />Caches</h2>
-  {#if cachesError}
-    <p class="warn">{cachesError}</p>
-  {:else if !caches}
-    <p class="muted">loading caches…</p>
-  {:else if caches.length === 0}
-    <p class="muted">No disk caches registered.</p>
-  {:else}
+  <LoadState of={read} label="the caches" empty={caches.length === 0}>
+    {#snippet emptyText()}No disk caches registered.{/snippet}
     {#if clearError}
       <p class="warn" role="alert"><TriangleAlert size={14} />{clearError}</p>
     {/if}
@@ -276,7 +264,7 @@
         </tbody>
       </table>
     </div>
-  {/if}
+  </LoadState>
 </div>
 
 <style>

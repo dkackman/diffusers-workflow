@@ -1,17 +1,17 @@
 <script lang="ts">
   import { api } from '../api'
+  import { resource } from '../resource.svelte'
+  import LoadState from '../ui/LoadState.svelte'
   import SchemaNode, { type SchemaValue } from '../schema/SchemaNode.svelte'
 
-  let schema = $state<SchemaValue | null>(null)
-  let error = $state('')
   let filter = $state('')
 
-  $effect(() => {
-    api
-      .getSchema()
-      .then((s) => (schema = s))
-      .catch((e) => (error = e instanceof Error ? e.message : String(e)))
+  // The schema the running server validates against: it changes only with
+  // the server, whose restart raises the epoch and reads it again
+  const read = resource(() => api.getSchema() as Promise<SchemaValue>, {
+    watch: [],
   })
+  const schema = $derived(read.data ?? null)
 
   const definitions = $derived(
     Object.entries(schema?.$defs ?? {}) as [string, SchemaValue][],
@@ -31,7 +31,7 @@
   </a>
 </div>
 
-{#if error}<p class="error">{error}</p>{/if}
+<LoadState of={read} label="the schema" />
 
 {#if schema}
   <p class="muted intro">
@@ -55,8 +55,6 @@
   {:else}
     <p class="muted">No definition matches "{filter}".</p>
   {/each}
-{:else if !error}
-  <p class="muted">loading schema…</p>
 {/if}
 
 <style>

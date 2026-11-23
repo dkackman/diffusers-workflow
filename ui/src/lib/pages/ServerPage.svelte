@@ -3,7 +3,8 @@
   import { api } from '../api'
   import CopyButton from '../CopyButton.svelte'
   import ServerHealthList from '../ServerHealthList.svelte'
-  import { describeError, type Described } from '../apiErrors'
+  import { resource } from '../resource.svelte'
+  import LoadState from '../ui/LoadState.svelte'
   import CachesPanel from '../CachesPanel.svelte'
   import {
     addressLabel,
@@ -17,18 +18,10 @@
   } from '../serverinfo'
   import type { ServerInfo } from '../types'
 
-  let info = $state<ServerInfo | null>(null)
-  let error = $state<Described | null>(null)
-
-  $effect(() => {
-    api
-      .server()
-      .then((s) => {
-        info = s
-        error = null
-      })
-      .catch((e) => (error = describeError(e, 'the server details')))
-  })
+  // Static while the server runs; a reconnect or an accepted token raises
+  // the epoch, which reads it again, so the page recovers on its own
+  const read = resource(() => api.server(), { watch: [] })
+  const info = $derived<ServerInfo | null>(read.data ?? null)
 
   /** Which interface address the connect snippets are written against. */
   let selected = $state('')
@@ -49,11 +42,7 @@
   {/if}
 </div>
 
-{#if error}
-  <p class="warn">{error.title}</p>
-  {#if error.remedy}<p class="muted">{error.remedy}</p>{/if}
-  {#if error.detail}<p class="muted">{error.detail}</p>{/if}
-{/if}
+<LoadState of={read} label="the server details" />
 
 {#if info}
   <div class="panel">
@@ -298,8 +287,6 @@
   </div>
 
   <CachesPanel />
-{:else if !error}
-  <p class="muted">loading server details…</p>
 {/if}
 
 <style>

@@ -4,7 +4,8 @@
 import { api } from '../api'
 import { saveDocument, type SaveOutcome } from '../documentSave'
 import type { DocumentEditor } from '../editorShell.svelte'
-import type { WorkflowDefinition } from '../types'
+import { writableRoot } from '../libraries'
+import type { WorkflowDefinition, WorkflowList } from '../types'
 
 /** Read `name` into `ed` at the ETag and origin it was found with. True
  * once it is loaded; false when the read failed (the error is left on
@@ -42,4 +43,59 @@ export function saveWorkflowAt(
         pre,
       ),
   })
+}
+
+/** Whether a sub-workflow step's `path` names a workflow file the editor
+ * can read: a literal `.json` path, not a reference */
+export function subWorkflowPath(path: unknown): path is string {
+  return (
+    typeof path === 'string' && path.endsWith('.json') && !path.includes(':')
+  )
+}
+
+/** The variables the sub-workflow at `path` declares, each with its default
+ * as a hint. The engine resolves a step's relative path against the PARENT
+ * workflow's directory, `folder`, so this read does the same */
+export async function workflowVariables(
+  path: string,
+  folder: string,
+): Promise<Array<{ name: string; hint?: string }>> {
+  const resolved = folder && !path.startsWith('/') ? `${folder}/${path}` : path
+  const fetched = await api.getWorkflow(resolved.slice(0, -'.json'.length))
+  return Object.entries(fetched.definition.variables ?? {}).map(
+    ([name, value]) => ({
+      name,
+      hint: typeof value === 'string' ? value : JSON.stringify(value),
+    }),
+  )
+}
+
+/** The definition a new workflow starts from: an example's, or the blank
+ * starter for none. Read on the click that chooses it */
+export async function startingWorkflow(
+  example: string,
+  blank: () => Record<string, any>,
+): Promise<Record<string, any>> {
+  if (!example) return blank()
+  return (await api.getWorkflow(example)).definition as Record<string, any>
+}
+
+/** What the editor takes from the workflow listing: the files the folder
+ * picker offers (as `.json` paths), the directory a new file saves under,
+ * and the read-only examples a new workflow can start from */
+export function listedWorkflows(listing: WorkflowList | undefined) {
+  const names = listing?.workflows ?? []
+  return {
+    files: names.map((file) => `${file}.json`),
+    dir: listing ? writableRoot(listing.libraries) : '',
+    examples: names.filter((wf) => listing?.details?.[wf]?.writable === false),
+  }
+}
+
+/** `listing` with `path` in it: what this page's own save read back, so a
+ * folder the save just created is in the picker before the feed says so */
+export function withSaved(listing: WorkflowList, path: string): WorkflowList {
+  return listing.workflows.includes(path)
+    ? listing
+    : { ...listing, workflows: [...listing.workflows, path] }
 }

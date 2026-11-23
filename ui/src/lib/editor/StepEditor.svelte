@@ -12,7 +12,10 @@
   import PipelineOptions from './PipelineOptions.svelte'
   import StepDigestList from './StepDigestList.svelte'
   import MappingEditor from './MappingEditor.svelte'
-  import { api } from '../api'
+  import { latestOnly } from '../latest'
+  import { sleep } from '../poll'
+  import { resource } from '../resource.svelte'
+  import { subWorkflowPath, workflowVariables } from './workflowFile'
   import { stepDigest } from '../digest'
   import {
     contentTypeOptions,
@@ -119,37 +122,23 @@
     if (kind !== 'pipeline' && kind !== 'task' && kind !== 'workflow') openRaw()
   })
 
-  // A sub-workflow's argument suggestions are the target's own variables
-  let workflowVariables = $state<Array<{ name: string; hint?: string }>>([])
-  $effect(() => {
-    workflowVariables = []
-    const path = step.workflow?.path
-    if (
-      typeof path !== 'string' ||
-      !path.endsWith('.json') ||
-      path.includes(':')
-    ) {
-      return
-    }
-    // The engine resolves a step's relative path against the PARENT
-    // workflow's directory, so the hint fetch must do the same
-    const resolved =
-      baseFolder && !path.startsWith('/') ? `${baseFolder}/${path}` : path
-    const timer = setTimeout(() => {
-      api
-        .getWorkflow(resolved.slice(0, -'.json'.length))
-        .then((fetched) => {
-          workflowVariables = Object.entries(
-            fetched.definition.variables ?? {},
-          ).map(([name, value]) => ({
-            name,
-            hint: typeof value === 'string' ? value : JSON.stringify(value),
-          }))
-        })
-        .catch(() => {})
-    }, 300)
-    return () => clearTimeout(timer)
-  })
+  // A sub-workflow's argument suggestions are the target's own variables,
+  // asked 300 ms after its path stops changing and again when a workflow is
+  // saved (workflowFile.ts)
+  const typing = latestOnly()
+  const target = resource(
+    async () => {
+      const [path, folder] = [step.workflow?.path, baseFolder]
+      const current = typing()
+      if (!subWorkflowPath(path)) return []
+      await sleep(300)
+      return current() ? workflowVariables(path, folder) : []
+    },
+    { watch: ['workflows'] },
+  )
+  const targetVariables = $derived(
+    target.status === 'ready' ? (target.data ?? []) : [],
+  )
 
   const configuration = $derived(step.pipeline?.configuration ?? {})
   const pretrained = $derived(step.pipeline?.from_pretrained_arguments ?? {})
@@ -373,7 +362,7 @@
       <h3>arguments</h3>
       <MappingEditor
         bind:args={step.workflow.arguments}
-        suggestions={workflowVariables}
+        suggestions={targetVariables}
         valueSuggestions={references}
       />
       <div class="muted hint">

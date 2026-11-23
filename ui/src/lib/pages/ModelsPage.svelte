@@ -1,7 +1,7 @@
 <script lang="ts">
   import { resource } from '../resource.svelte'
   import LoadState from '../ui/LoadState.svelte'
-  import { formatDay, gbFromBytes } from '../format'
+  import { formatBytes, formatDay, gbFromBytes } from '../format'
   import {
     ChevronDown,
     ChevronRight,
@@ -18,19 +18,18 @@
   import CopyButton from '../CopyButton.svelte'
   import LastUsedCell, { LAST_USED_TIP } from '../LastUsedCell.svelte'
   import type { ModelDownload, ModelRepo } from '../types'
-  import { formatBytes } from '../format'
 
   let deleting = $state<string | null>(null)
   let expanded = $state<Record<string, boolean>>({})
   let repoInput = $state('')
 
-  // No change kind covers the hub cache, downloads or the installed
-  // diffusers yet, so each is read on open and on reconnect; downloads and
-  // a diffusers update in flight also keep a 2 s poll while they run
-  const cacheRead = resource(() => api.listModels(), { watch: [] })
+  // The hub cache and downloads follow the models feed (a delete, a
+  // download started or cancelled, here or by an agent); a download or a
+  // diffusers update in flight also keeps a 2 s poll while it runs
+  const cacheRead = resource(() => api.listModels(), { watch: ['models'] })
   const cache = $derived(cacheRead.data ?? null)
   const downloadsRead = resource(() => api.listDownloads(), {
-    watch: [],
+    watch: ['models'],
     alsoLive: (): number | null => (active ? 2000 : null),
   })
   const downloads = $derived(downloadsRead.data?.downloads ?? [])

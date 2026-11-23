@@ -8,6 +8,8 @@
   import VariablesForm from '../editor/VariablesForm.svelte'
   import type { JobDetail } from '../types'
   import { promotionTitle, promotionsOf, type Promotion } from './promotions'
+  import { resource } from '../resource.svelte'
+  import { workflowPresets } from './rerun'
 
   // A finished job queued again with some of its arguments changed: a form
   // over every variable the run declared, and one button per other value of
@@ -70,32 +72,12 @@
     }
   }
 
-  // The selectors come from the workflow file as it is now - the job's own
-  // definition has its bundles folded in and its `presets` stripped. Only a
-  // job run by catalog name can be looked up; anything else has none.
-  let presets = $state<Record<string, Record<string, unknown>> | null>(null)
-  $effect(() => {
-    const name = job.workflow_name
-    presets = null
-    if (!name) return
-    let stopped = false
-    api
-      .getWorkflow(name)
-      .then(({ definition }) => {
-        if (stopped) return
-        const found = (definition as Record<string, unknown>)?.presets
-        presets =
-          found && typeof found === 'object'
-            ? (found as Record<string, Record<string, unknown>>)
-            : null
-      })
-      .catch(() => {
-        /* inline or deleted workflow: no promotions */
-      })
-    return () => {
-      stopped = true
-    }
+  // The selectors come from the workflow file as it is now (rerun.ts), read
+  // again when a workflow is saved anywhere
+  const presetsRead = resource(() => workflowPresets(job.workflow_name), {
+    watch: ['workflows'],
   })
+  const presets = $derived(presetsRead.data ?? null)
 
   const promotions = $derived(
     promotionsOf(presets, declared, job.arguments ?? {}, values),

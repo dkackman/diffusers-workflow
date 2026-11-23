@@ -12,20 +12,20 @@
    * Continue reruns this job, behind a confirm. */
   import { api, outputUrl } from '../api'
   import {
-    REPAIR_TEMPLATE,
     WORKFLOW_PREFILL_KEY,
     chainModel,
     continueAction,
     continueConfirmText,
     continueValidation,
     repairAction,
-    repairModels,
+    repairTemplateModels,
     type ContinueAction,
   } from '../chainActions'
   import { confirmDialog } from '../confirm.svelte'
   import { describeEstimate } from '../plan'
   import { go } from '../router.svelte'
   import { action } from '../action.svelte'
+  import { resource } from '../resource.svelte'
   import {
     attemptsText,
     chainContext,
@@ -58,28 +58,14 @@
   )
 
   // The models the repair template loads: read once there is a chain to
-  // offer it on. Unreadable, it repairs nothing
-  let models = $state<string[]>([])
+  // offer it on, and again when a workflow is saved. Unreadable, it repairs
+  // nothing
   const hasChain = $derived(tables.length > 0)
-  $effect(() => {
-    if (!hasChain) return
-    let stopped = false
-    try {
-      api
-        .getWorkflow(REPAIR_TEMPLATE)
-        .then(({ definition: repair }) => {
-          if (!stopped) models = repairModels(repair as Record<string, any>)
-        })
-        .catch(() => {
-          /* no repair template on this server */
-        })
-    } catch {
-      /* no repair template on this server */
-    }
-    return () => {
-      stopped = true
-    }
-  })
+  const modelsRead = resource(
+    () => (hasChain ? repairTemplateModels() : Promise.resolve([])),
+    { watch: ['workflows'] },
+  )
+  const models = $derived(modelsRead.data ?? [])
 
   const args = $derived(job.arguments as Record<string, unknown>)
   const repairFor = (table: ChainTable, row: ChainRow) =>

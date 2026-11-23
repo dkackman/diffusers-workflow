@@ -1,10 +1,10 @@
-import { render } from '@testing-library/svelte'
+import { render, waitFor } from '@testing-library/svelte'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 // Hoisted above the component import so its static (hoisted) import sees an
 // initialized mock - the same shape the other page tests use
 import ServerPage from './ServerPage.svelte'
 import { connection } from '../connection.svelte'
-import { ApiError } from '../apiErrors'
+import { ApiError, NetworkError } from '../apiErrors'
 import type { HealthInfo, MemoryInfo, ServerInfo } from '../types'
 
 const SECRET = 'super-secret-token-value'
@@ -109,6 +109,9 @@ vi.mock('../api', () => ({
     deleteCacheEntry: (name: string, entry: string) =>
       deleteCacheEntry(name, entry),
   },
+}))
+vi.mock('../changes.svelte', async () => ({
+  changes: (await import('../test/feedMock')).feed.changes,
 }))
 vi.mock('../confirm.svelte', () => ({
   confirmDialog: (message: string, options?: unknown) =>
@@ -539,4 +542,21 @@ it('warns when the volume is under the free-space floor', async () => {
   expect(flat(container)).toContain('free-space floor')
   const ok = await showCaches(quantizedList())
   expect(flat(ok.querySelector('.caches')!)).not.toContain('free-space floor')
+})
+
+it('ServerPage recovers after the server comes back', async () => {
+  server.mockImplementationOnce(() =>
+    Promise.reject(new NetworkError('fetch failed')),
+  )
+  state.info = base
+  state.fail = ''
+  const { container } = render(ServerPage)
+  const text = () => (container.textContent ?? '').replace(/\s+/g, ' ')
+  await waitFor(() => expect(text()).toContain("Can't reach the server"))
+  expect(text()).not.toContain('fetch failed')
+  expect(text()).not.toContain('192.168.1.50')
+  // The server answering again raises the epoch; the page reads again
+  connection.epoch++
+  await waitFor(() => expect(text()).toContain('http://192.168.1.50:8765'))
+  expect(text()).not.toContain("Can't reach the server")
 })
