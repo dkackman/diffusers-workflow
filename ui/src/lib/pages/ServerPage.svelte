@@ -1,12 +1,10 @@
 <script lang="ts">
-  import { poll } from '../poll'
   import { Globe, Plug, ShieldCheck, TriangleAlert } from '@lucide/svelte'
   import { api } from '../api'
   import CopyButton from '../CopyButton.svelte'
-  import WorkerList from '../WorkerList.svelte'
-  import CardMemoryList from '../CardMemoryList.svelte'
+  import ServerHealthList from '../ServerHealthList.svelte'
+  import { describeError, type Described } from '../apiErrors'
   import CachesPanel from '../CachesPanel.svelte'
-  import { cardReadings } from '../cardMemory'
   import {
     addressLabel,
     browserUrl,
@@ -17,33 +15,19 @@
     runtimeRows,
     runtimeText,
   } from '../serverinfo'
-  import type { HealthInfo, MemoryInfo, ServerInfo } from '../types'
+  import type { ServerInfo } from '../types'
 
   let info = $state<ServerInfo | null>(null)
-  let error = $state('')
-  let health = $state<HealthInfo | null>(null)
-  let memory = $state<MemoryInfo | null>(null)
-  const cards = $derived(cardReadings(memory))
+  let error = $state<Described | null>(null)
 
   $effect(() => {
     api
       .server()
       .then((s) => {
         info = s
-        error = ''
+        error = null
       })
-      .catch((e) => (error = e instanceof Error ? e.message : String(e)))
-  })
-
-  // The live half of the page: the same endpoint App.svelte polls for the
-  // status bar, fetched here so the worker/queue lines keep up on their own
-  $effect(() => {
-    return poll(async () => {
-      // settled apart: memory answers 503 while the worker is starting
-      const [h, m] = await Promise.allSettled([api.health(), api.memory()])
-      health = h.status === 'fulfilled' ? h.value : null
-      memory = m.status === 'fulfilled' ? m.value : null
-    }, 5000)
+      .catch((e) => (error = describeError(e, 'the server details')))
   })
 
   /** Which interface address the connect snippets are written against. */
@@ -66,38 +50,23 @@
 </div>
 
 {#if error}
-  <p class="warn">{error}</p>
-  <p class="muted">
-    The server details need the API token — set it with the key icon above.
-  </p>
+  <p class="warn">{error.title}</p>
+  {#if error.remedy}<p class="muted">{error.remedy}</p>{/if}
+  {#if error.detail}<p class="muted">{error.detail}</p>{/if}
 {/if}
 
 {#if info}
   <div class="panel">
     <h2>Status</h2>
-    <dl>
+    <dl class="kv">
       <dt>Hostname</dt>
       <dd>{info.hostname}</dd>
       <dt>Version</dt>
       <dd>{info.version}</dd>
       <dt>Device</dt>
       <dd>{info.device}</dd>
-      <dt>{(health?.workers.length ?? 0) > 1 ? 'Workers' : 'Worker'}</dt>
-      <dd>
-        {#if health?.workers.length}
-          <WorkerList workers={health.workers} />
-        {/if}
-        {#if !health}
-          <span class="warn">unreachable</span>
-        {:else if !health.worker_alive}
-          <span class="muted">not started — spawns with the first job</span>
-        {/if}
-      </dd>
-      <dt>Queue</dt>
-      <dd>{health?.queued ?? 0} queued</dd>
-      <dt>Memory</dt>
-      <dd><CardMemoryList {cards} /></dd>
     </dl>
+    <ServerHealthList />
   </div>
 
   <div class="panel runtime">
@@ -105,7 +74,7 @@
       Runtime
       <CopyButton text={runtimeText(info)} title="copy the runtime versions" />
     </h2>
-    <dl>
+    <dl class="kv">
       {#each runtimeRows(info.runtime) as row (row.name)}
         <dt>{row.name}</dt>
         <dd>
@@ -121,7 +90,7 @@
 
   <div class="panel">
     <h2>Binding</h2>
-    <dl>
+    <dl class="kv">
       <dt>Bind host</dt>
       <dd><code>{info.bind_host}</code></dd>
       <dt>Port</dt>
@@ -193,7 +162,7 @@
   <div class="panel">
     <h2><Plug size={15} />MCP</h2>
     {#if info.mcp.mounted}
-      <dl>
+      <dl class="kv">
         <dt>Mounted</dt>
         <dd>yes</dd>
         <dt>Path</dt>
@@ -219,7 +188,7 @@
 
   <div class="panel" class:warn-edge={isUnauthenticatedPublicBind(info)}>
     <h2><ShieldCheck size={15} />Authentication</h2>
-    <dl>
+    <dl class="kv">
       <dt>Token required</dt>
       <dd>{info.auth_required ? 'yes' : 'no'}</dd>
     </dl>
@@ -296,7 +265,7 @@
 
   <div class="panel">
     <h2>Directories</h2>
-    <dl>
+    <dl class="kv">
       <dt>Workspace</dt>
       <dd>
         {#if info.directories.workspace}
@@ -354,28 +323,6 @@
     margin: 0.9rem 0 0.35rem;
     font-size: 0.85rem;
     color: var(--muted);
-  }
-  dl {
-    display: grid;
-    grid-template-columns: auto 1fr;
-    gap: var(--space-2) var(--space-4);
-    margin: 0;
-    align-items: baseline;
-  }
-  dt {
-    font-weight: 600;
-    color: var(--muted);
-    font-size: 0.75rem;
-    text-transform: none;
-  }
-  dd {
-    margin: 0;
-    /* a grid item's automatic minimum width is its content's min-content
-       size (an unbroken path or address) unless overridden - min-width:0
-       lets it shrink to the 1fr track and overflow-wrap lets a long value
-       break instead of pushing the document wider */
-    min-width: 0;
-    overflow-wrap: anywhere;
   }
   .note {
     margin: 0.6rem 0 0;

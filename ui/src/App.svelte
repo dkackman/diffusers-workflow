@@ -300,12 +300,7 @@
               {:else}{currentJob ? 'status' : quietWord(connection.state)}{/if}
             </button>
           {/if}
-          <StatusPopover
-            bind:open={statusOpen}
-            anchor={statusTrigger}
-            {health}
-            memory={connection.memory}
-          />
+          <StatusPopover bind:open={statusOpen} anchor={statusTrigger} />
           <button
             class="bare icon"
             bind:this={tokenTrigger}

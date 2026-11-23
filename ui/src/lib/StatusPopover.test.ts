@@ -1,6 +1,7 @@
 import { afterEach, expect, it } from 'vitest'
 import { cleanup, render, waitFor } from '@testing-library/svelte'
 import StatusPopover from './StatusPopover.svelte'
+import { connection } from './connection.svelte'
 import type { HealthInfo } from './types'
 
 afterEach(() => {
@@ -38,7 +39,9 @@ const health: HealthInfo = {
 it('lists every worker with a link to its current job', async () => {
   const anchor = document.createElement('button')
   document.body.appendChild(anchor)
-  render(StatusPopover, { props: { open: true, anchor, health, memory: null } })
+  connection.state = 'ok'
+  connection.health = health
+  render(StatusPopover, { props: { open: true, anchor } })
   const pop = await waitFor(() => {
     const el = document.querySelector<HTMLElement>('[data-popover-content]')
     expect(el).not.toBeNull()
