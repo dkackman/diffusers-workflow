@@ -251,11 +251,8 @@
 
   async function chooseStart(example: string) {
     const message = `Start over from ${example || 'a blank workflow'}? Your edits are lost.`
-    if (
-      ed.dirty &&
-      !(await confirmDialog(message, { confirmLabel: 'Start over' }))
-    )
-      return
+    const ask = { confirmLabel: 'Start over', danger: true }
+    if (ed.unsaved() && !(await confirmDialog(message, ask))) return
     try {
       const fresh = await startingDoc(example)
       ed.startNew(fresh)

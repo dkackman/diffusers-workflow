@@ -8,6 +8,7 @@
 // commits only on blur.
 // Constructed during a page's component init, since it registers the
 // JSON-mirror, tab-close and leave-guard effects there.
+import { tick } from 'svelte'
 import type { WritePreconditions } from './apiRequest'
 import { confirmDialog } from './confirm.svelte'
 import { isNameSegment } from './names'
@@ -46,6 +47,27 @@ function storedView(
   }
 }
 
+type TextField = HTMLInputElement | HTMLTextAreaElement
+
+function isTextField(el: HTMLElement): el is TextField {
+  return el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement
+}
+
+function caretOf(el: HTMLElement): [number | null, number | null] | null {
+  return isTextField(el) ? [el.selectionStart, el.selectionEnd] : null
+}
+
+/** The field a re-render put in place of `was`: the same id, else name. */
+function successorOf(was: HTMLElement, root: HTMLElement | null) {
+  const name = was.getAttribute('name')
+  const selector = was.id
+    ? `#${CSS.escape(was.id)}`
+    : name
+      ? `[name="${CSS.escape(name)}"]`
+      : ''
+  return selector ? root?.querySelector<HTMLElement>(selector) : null
+}
+
 export class DocumentEditor {
   doc = $state<Record<string, any>>({})
   // The document as last loaded or saved, serialized; '' until one loads,
@@ -75,9 +97,27 @@ export class DocumentEditor {
       JSON.stringify($state.snapshot(this.doc)) !== this.baseline,
   )
 
+  // Not reactive: nothing renders from it
+  #root: HTMLElement | null = null
+  #composing = false
+
   /** The page's editing surface: a flush commits the field focused in it.
-   * Not reactive: nothing renders from it */
-  root: HTMLElement | null = null
+   * Setting it follows the element's IME composition, which a blur ends. */
+  get root(): HTMLElement | null {
+    return this.#root
+  }
+  set root(el: HTMLElement | null) {
+    this.#root?.removeEventListener('compositionstart', this.#compose)
+    this.#root?.removeEventListener('compositionend', this.#compose)
+    this.#root = el
+    this.#composing = false
+    el?.addEventListener('compositionstart', this.#compose)
+    el?.addEventListener('compositionend', this.#compose)
+  }
+
+  #compose = (event: Event) => {
+    this.#composing = event.type === 'compositionstart'
+  }
 
   #viewKey: string
   // Not reactive: nothing renders from it
@@ -140,14 +180,34 @@ export class DocumentEditor {
 
   /** Push every pending edit into the document now: the focused field's,
    * which a browser commits on blur (its `change`), then every debounced
-   * one. The field gets its focus back, so typing carries on. */
+   * one. The field gets its focus back once the commit has rendered, so
+   * typing carries on; mid-composition it is not blurred at all. */
   flush() {
     const active = document.activeElement
-    if (active instanceof HTMLElement && this.root?.contains(active)) {
+    if (
+      !this.#composing &&
+      active instanceof HTMLElement &&
+      this.#root?.contains(active)
+    ) {
       active.blur()
-      if (active.isConnected) active.focus({ preventScroll: true })
+      void this.#refocus(active)
     }
     for (const fn of [...this.#flushers]) fn()
+  }
+
+  async #refocus(was: HTMLElement) {
+    const caret = caretOf(was)
+    await tick()
+    const node = was.isConnected ? was : successorOf(was, this.#root)
+    if (!node) return
+    node.focus({ preventScroll: true })
+    if (caret && isTextField(node)) {
+      try {
+        node.setSelectionRange(caret[0], caret[1])
+      } catch {
+        /* a type with no selection */
+      }
+    }
   }
 
   /** Whether leaving now would lose anything: an edit not yet saved, once
