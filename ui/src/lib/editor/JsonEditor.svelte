@@ -1,15 +1,22 @@
+<script module lang="ts">
+  // Quiet pause after the last keystroke before the text applies
+  export const JSON_APPLY_MS = 300
+</script>
+
 <script lang="ts">
   import type * as Monaco from 'monaco-editor'
 
   let {
     value,
     onchange,
+    register,
     readonly = false,
     height = '460px',
     schema = 'workflow',
   }: {
     value: string
-    onchange?: (value: string) => void
+    onchange?: (value: string, options?: { quiet?: boolean }) => void
+    register?: (flush: () => void) => () => void
     readonly?: boolean
     height?: string
     schema?: 'workflow' | 'prompt'
@@ -18,6 +25,30 @@
   let container: HTMLDivElement
   let editor = $state<Monaco.editor.IStandaloneCodeEditor | null>(null)
   let loading = $state(true)
+  let timer: ReturnType<typeof setTimeout> | null = null
+  // The last text handed to onchange (or received from outside): an
+  // unchanged value is never applied again
+  let applied = ''
+  // Whether that text went out quietly: a quiet apply of broken JSON shows
+  // no toast, so the real apply on blur or flush must still run
+  let appliedQuiet = false
+
+  function apply(quiet: boolean) {
+    if (timer) clearTimeout(timer)
+    timer = null
+    if (readonly || !onchange || !editor) return
+    const text = editor.getValue()
+    if (text === applied && (quiet || !appliedQuiet)) return
+    applied = text
+    appliedQuiet = quiet
+    if (quiet) onchange(text, { quiet: true })
+    else onchange(text)
+  }
+
+  $effect(() => {
+    if (readonly || !register) return
+    return register(() => apply(false))
+  })
 
   $effect(() => {
     let disposed = false
@@ -65,13 +96,21 @@
         tabSize: 2,
         fixedOverflowWidgets: true,
       })
-      // Changes apply on blur, matching the form/JSON handoff everywhere else
-      editor.onDidBlurEditorWidget(() => {
-        if (!readonly && onchange) onchange(editor!.getValue())
+      applied = value
+      appliedQuiet = false
+      // Changes apply quietly once typing pauses, and for real on blur or a
+      // flush (save, view switch)
+      editor.onDidChangeModelContent(() => {
+        if (readonly || !onchange) return
+        if (timer) clearTimeout(timer)
+        timer = setTimeout(() => apply(true), JSON_APPLY_MS)
       })
+      editor.onDidBlurEditorWidget(() => apply(false))
     })
     return () => {
       disposed = true
+      if (timer) clearTimeout(timer)
+      timer = null
       untheme?.()
       editor?.dispose()
       editor = null
@@ -87,6 +126,8 @@
     if (editor && editor.getValue() !== value && !editor.hasTextFocus()) {
       const viewState = editor.saveViewState()
       editor.setValue(value)
+      applied = value
+      appliedQuiet = false
       if (viewState) editor.restoreViewState(viewState)
     }
   })

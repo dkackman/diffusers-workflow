@@ -676,7 +676,10 @@ def test_no_stale_entry_in_the_allowlist():
 # estimate quoted ~4x low.
 # (A 15_950 raise for `minimax/reframe`, #1542, was taken back when #1585
 # withdrew the template.)
-COMPACT_BUDGET = 15_750
+# Then to 15_775 (measured 15_752) for `templates/text-to-image`'s mps cost row
+# (#1550, plan #1525 Q4): the measured Apple M4 Pro figure from the stage C walk,
+# so a first run on a Mac has a cost to quote.
+COMPACT_BUDGET = 15_775
 # The shape=sequence listing to 1_650 (measured 1_642) for
 # `minimax/replace-performer` (#1374), the catalog's only sequence that recasts
 # a take.

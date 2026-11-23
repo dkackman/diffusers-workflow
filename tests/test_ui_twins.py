@@ -332,3 +332,14 @@ def test_the_notes_channel_decides_each_shared_waiting_note_case(case):
 def test_the_ui_test_reads_the_shared_waiting_note_cases():
     source = (UI_LIB / "request" / "noteState.test.ts").read_text()
     assert "tests/fixtures/note_waiting_cases.json" in source
+
+
+def test_the_ui_upload_extensions_match_the_server():
+    from dw.server.routes.assets import ALLOWED_UPLOAD_EXTENSIONS
+
+    ui = ts_string_array(UI_LIB / "assetlib.svelte.ts", "UPLOAD_EXTENSIONS")
+
+    def norm(exts):
+        return {"." + e.lower().lstrip(".") for e in exts}
+
+    assert norm(ui) == norm(ALLOWED_UPLOAD_EXTENSIONS)

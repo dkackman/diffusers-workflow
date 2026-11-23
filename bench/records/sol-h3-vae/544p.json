@@ -1,0 +1,196 @@
+{
+  "label": "544p",
+  "input": "/home/don/bench-workspace/outputs/BenchS2Arc-tst/20261105-232515-d7d79b61/final/BenchS2Arc-tst-chained_keyframe_to_video_audio.0-0.0.mp4",
+  "latents": [
+    1,
+    24,
+    37,
+    34,
+    60
+  ],
+  "source_frames": 124,
+  "device": "NVIDIA GeForce RTX 3090",
+  "variants": {
+    "full-fp32": {
+      "frames": 124,
+      "size": [
+        960,
+        544
+      ],
+      "seconds": [
+        77.949,
+        78.152
+      ],
+      "best_s": 77.949,
+      "resident_gib": 9.708,
+      "peak_alloc_gib": 11.897,
+      "peak_reserved_gib": 14.031
+    },
+    "full-int8": {
+      "frames": 124,
+      "size": [
+        960,
+        544
+      ],
+      "seconds": [
+        18.474,
+        18.202
+      ],
+      "best_s": 18.202,
+      "resident_gib": 0.008,
+      "peak_alloc_gib": 4.766,
+      "peak_reserved_gib": 5.68,
+      "move_s": [
+        0.428,
+        0.415
+      ],
+      "note": "weights on the CPU between decodes; seconds include the move on",
+      "psnr_vs_full_fp32": 49.98,
+      "frame_psnr_vs_full_fp32": {
+        "min": 47.51,
+        "median": 50.2,
+        "max": 50.8
+      }
+    },
+    "sol": {
+      "frames": 124,
+      "size": [
+        960,
+        544
+      ],
+      "seconds": [
+        5.329,
+        5.316
+      ],
+      "best_s": 5.316,
+      "resident_gib": 6.035,
+      "peak_alloc_gib": 19.792,
+      "peak_reserved_gib": 22.555,
+      "psnr_vs_full_fp32": 32.73,
+      "frame_psnr_vs_full_fp32": {
+        "min": 30.56,
+        "median": 33.05,
+        "max": 35.22
+      }
+    },
+    "sol-bf16w": {
+      "frames": 124,
+      "size": [
+        960,
+        544
+      ],
+      "seconds": [
+        5.223,
+        5.212
+      ],
+      "best_s": 5.212,
+      "resident_gib": 3.033,
+      "peak_alloc_gib": 15.638,
+      "peak_reserved_gib": 22.273,
+      "psnr_vs_full_fp32": 32.72,
+      "frame_psnr_vs_full_fp32": {
+        "min": 30.55,
+        "median": 33.04,
+        "max": 35.21
+      }
+    },
+    "sol-piece": {
+      "frames": 124,
+      "size": [
+        960,
+        544
+      ],
+      "seconds": [
+        5.364,
+        5.387
+      ],
+      "best_s": 5.364,
+      "resident_gib": 6.035,
+      "peak_alloc_gib": 19.792,
+      "peak_reserved_gib": 22.555,
+      "psnr_vs_full_fp32": 32.73,
+      "frame_psnr_vs_full_fp32": {
+        "min": 30.56,
+        "median": 33.05,
+        "max": 35.22
+      },
+      "psnr_vs_sol_whole": Infinity,
+      "max_abs_vs_sol_whole": 0,
+      "worst_frames_vs_sol_whole": [
+        [
+          99.0,
+          0
+        ],
+        [
+          99.0,
+          1
+        ],
+        [
+          99.0,
+          2
+        ],
+        [
+          99.0,
+          3
+        ],
+        [
+          99.0,
+          4
+        ],
+        [
+          99.0,
+          5
+        ]
+      ]
+    },
+    "sol-piece-ctx": {
+      "frames": 124,
+      "size": [
+        960,
+        544
+      ],
+      "seconds": [
+        5.419,
+        5.427
+      ],
+      "best_s": 5.419,
+      "resident_gib": 6.035,
+      "peak_alloc_gib": 19.792,
+      "peak_reserved_gib": 22.555,
+      "psnr_vs_full_fp32": 32.73,
+      "frame_psnr_vs_full_fp32": {
+        "min": 30.56,
+        "median": 33.05,
+        "max": 35.22
+      },
+      "psnr_vs_sol_whole": Infinity,
+      "max_abs_vs_sol_whole": 0,
+      "worst_frames_vs_sol_whole": [
+        [
+          99.0,
+          0
+        ],
+        [
+          99.0,
+          1
+        ],
+        [
+          99.0,
+          2
+        ],
+        [
+          99.0,
+          3
+        ],
+        [
+          99.0,
+          4
+        ],
+        [
+          99.0,
+          5
+        ]
+      ]
+    }
+  }
+}

@@ -72,7 +72,11 @@ describe('ArgumentsEditor media arguments', () => {
     })
 
     // resolves asynchronously - wait for the mocked upload to settle
-    await vi.waitFor(() => expect(api.uploadMedia).toHaveBeenCalledWith(file))
+    await vi.waitFor(() =>
+      expect(api.uploadMedia).toHaveBeenCalledWith(file, 'local.png', false, {
+        createOnly: true,
+      }),
+    )
     await vi.waitFor(() => expect(args.image).toBe('asset:abc123.png'))
   })
 })

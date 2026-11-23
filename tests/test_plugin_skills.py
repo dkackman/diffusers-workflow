@@ -672,7 +672,10 @@ class TestMiniMaxH3Skill:
         definition = json.load(open(path, encoding="utf-8"))
         estimate = definition["vram_estimate"]
         (cost_entry,) = definition["cost"]
-        capacity = cost_entry["vram_gb"]
+        # #1586: the gate holds a projection to what the card reports
+        # (23.6 on a 3090), not the catalog's rounded-up 24, so the pin
+        # derives the ceiling from the same figure
+        capacity = min(cost_entry["vram_gb"], 23.6)
         constraint = definition["variable_constraints"]["num_frames"]
         width, height = 1344, 768
 

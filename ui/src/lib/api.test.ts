@@ -453,3 +453,52 @@ describe('request notes', () => {
     })
   })
 })
+
+describe('write preconditions', () => {
+  it('saveWorkflow sends If-Match and reads the ETag', async () => {
+    const calls = stubFetch({
+      ok: true,
+      body: { saved: 'hero' },
+      headers: { ETag: '"new"' },
+    })
+    const result = await api.saveWorkflow(
+      'hero',
+      { id: 'hero', steps: [] } as never,
+      { ifMatch: '"old"' },
+    )
+    expect(result).toEqual({ saved: { saved: 'hero' }, etag: '"new"' })
+    const headers = new Headers(calls[0][1]?.headers)
+    expect(calls[0][1]?.method).toBe('PUT')
+    expect(headers.get('If-Match')).toBe('"old"')
+    expect(headers.get('If-None-Match')).toBeNull()
+    expect(headers.get('Content-Type')).toBe('application/json')
+  })
+
+  it('createOnly sends If-None-Match: *', async () => {
+    const calls = stubFetch({ ok: true, body: {} })
+    const result = await api.savePrompt('fox', { text: 'a fox' } as never, {
+      createOnly: true,
+    })
+    expect(result.etag).toBeNull()
+    expect(new Headers(calls[0][1]?.headers).get('If-None-Match')).toBe('*')
+    await api.uploadMedia(new File(['x'], 'photo.jpg'), 'photo.jpg', false, {
+      createOnly: true,
+    })
+    expect(new Headers(calls[1][1]?.headers).get('If-None-Match')).toBe('*')
+  })
+
+  it('sends no precondition header without one', async () => {
+    const calls = stubFetch({ ok: true, body: {} })
+    await api.saveWorkflow('hero', { id: 'hero', steps: [] } as never)
+    const headers = new Headers(calls[0][1]?.headers)
+    expect(headers.get('If-Match')).toBeNull()
+    expect(headers.get('If-None-Match')).toBeNull()
+  })
+
+  it('reads the ETag a get sends', async () => {
+    stubFetch({ ok: true, body: { text: 'a' }, headers: { ETag: '"p"' } })
+    expect((await api.getPrompt('fox')).etag).toBe('"p"')
+    stubFetch({ ok: true, body: {}, headers: { ETag: '"w"' } })
+    expect((await api.getWorkflow('hero')).etag).toBe('"w"')
+  })
+})

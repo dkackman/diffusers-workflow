@@ -269,7 +269,7 @@
           id={'ct-' + index}
           suggestions={editorLists.pipelines}
           bind:value={configuration.component_type}
-          placeholder="ZImagePipeline"
+          placeholder="e.g. FluxPipeline"
         />
 
         <label for={'model-' + index}>model</label>

@@ -16,3 +16,24 @@ export const loadAssetLibrary = assets.load
 export function assetNamed(name: string): AssetFile | undefined {
   return assetLibrary.items?.find((asset) => asset.name === name)
 }
+
+/** The extensions the server's upload route accepts (dw/server/routes/
+ * assets.py `ALLOWED_UPLOAD_EXTENSIONS`, pinned equal by a twin test). */
+export const UPLOAD_EXTENSIONS: readonly string[] = [
+  '.jpg',
+  '.jpeg',
+  '.png',
+  '.gif',
+  '.bmp',
+  '.webp',
+  '.mp4',
+  '.avi',
+  '.mkv',
+  '.mov',
+  '.webm',
+  '.wav',
+  '.mp3',
+  '.flac',
+  '.ogg',
+  '.cube',
+]

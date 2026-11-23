@@ -4,13 +4,17 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from '@testing-library/svelte'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import GalleryDetail from './GalleryDetail.svelte'
+import ConfirmDialog from '../ui/ConfirmDialog.svelte'
 import { attempt, item, request } from '../request/fixtures'
 import type { GalleryFile, GalleryLinkedJob } from '../types'
 
 const setNote = vi.hoisted(() => vi.fn())
+const keepOutput = vi.hoisted(() => vi.fn())
+const notifyMock = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }))
 const assess = vi.hoisted(() => vi.fn<(name: string) => Promise<unknown>>())
 // The request-notes calls the file's note for the agent makes
 const ledger = vi.hoisted(() => ({
@@ -24,11 +28,18 @@ vi.mock('../api', async () => ({
   api: {
     outputDownloadUrl: (name: string) => `/download/${name}`,
     assess: (name: string) => assess(name),
+    keepOutput: (...a: unknown[]) => keepOutput(...a),
     ...ledger,
   },
 }))
 
+vi.mock('../toast', () => ({ notify: notifyMock }))
+
 afterEach(() => {
+  keepOutput.mockReset()
+  notifyMock.success.mockReset()
+  notifyMock.error.mockReset()
+  vi.restoreAllMocks()
   cleanup()
   assess.mockReset()
 })
@@ -358,4 +369,64 @@ describe('the note for the agent', () => {
       { item: 's3', job: 'j2', output: file.name },
     ])
   })
+})
+
+// keep_output's exists refusal carries no code, only this wording
+// (dw/server/routes/assets.py)
+const TAKEN =
+  'asset:face.png already exists - pass overwrite=true to replace it'
+
+it('cancelling Replace on keep-as-asset shows no error', async () => {
+  const { ApiError } = await import('../apiErrors')
+  vi.spyOn(window, 'prompt').mockReturnValue('face.png')
+  keepOutput.mockRejectedValueOnce(new ApiError(TAKEN, 409))
+  render(ConfirmDialog)
+  render(GalleryDetail, props)
+  await fireEvent.click(screen.getByRole('button', { name: /keep as asset/i }))
+  const dialog = await waitFor(() => screen.getByRole('alertdialog'))
+  expect(dialog.textContent).toContain(
+    'asset:face.png already exists. Replace it?',
+  )
+  await fireEvent.click(
+    within(dialog).getByRole('button', { name: /^cancel$/i }),
+  )
+  await new Promise((r) => setTimeout(r, 10))
+  expect(keepOutput).toHaveBeenCalledTimes(1)
+  expect(notifyMock.error).not.toHaveBeenCalled()
+  expect(notifyMock.success).not.toHaveBeenCalled()
+})
+
+it('accepting Replace on keep-as-asset retries with overwrite', async () => {
+  const { ApiError } = await import('../apiErrors')
+  vi.spyOn(window, 'prompt').mockReturnValue('face.png')
+  keepOutput
+    .mockRejectedValueOnce(new ApiError(TAKEN, 409))
+    .mockResolvedValueOnce({ reference: 'asset:face.png' })
+  render(ConfirmDialog)
+  render(GalleryDetail, props)
+  await fireEvent.click(screen.getByRole('button', { name: /keep as asset/i }))
+  const dialog = await waitFor(() => screen.getByRole('alertdialog'))
+  await fireEvent.click(
+    within(dialog).getByRole('button', { name: /^replace$/i }),
+  )
+  await waitFor(() => expect(keepOutput).toHaveBeenCalledTimes(2))
+  expect(keepOutput).toHaveBeenLastCalledWith(file.name, 'face.png', true)
+})
+
+it('a keep refused for another reason shows the reason, not Replace', async () => {
+  const { ApiError } = await import('../apiErrors')
+  vi.spyOn(window, 'prompt').mockReturnValue('face.png')
+  keepOutput.mockRejectedValueOnce(
+    new ApiError('This workspace has no asset library', 409),
+  )
+  render(ConfirmDialog)
+  render(GalleryDetail, props)
+  await fireEvent.click(screen.getByRole('button', { name: /keep as asset/i }))
+  await waitFor(() =>
+    expect(notifyMock.error).toHaveBeenCalledWith(
+      'This workspace has no asset library',
+    ),
+  )
+  expect(screen.queryByRole('alertdialog')).toBeNull()
+  expect(keepOutput).toHaveBeenCalledTimes(1)
 })

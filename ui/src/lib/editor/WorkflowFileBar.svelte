@@ -140,7 +140,7 @@
         value={ed.doc.description ?? ''}
         placeholder="shown on the workflow card"
         title="a short description of what this workflow does"
-        onchange={(e) => {
+        oninput={(e) => {
           const v = e.currentTarget.value
           if (v) ed.doc.description = v
           else delete ed.doc.description

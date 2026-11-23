@@ -9,6 +9,9 @@ import {
 } from '@testing-library/svelte'
 import EditorPage from './EditorPage.svelte'
 import { api } from '../api'
+import { ApiError } from '../apiErrors'
+import { chooseDialog } from '../confirm.svelte'
+import { changeOnBlur } from '../test/changeOnBlur'
 
 // EditorPage talks to the server on mount (pipeline/class/task catalogs,
 // the workflow listing, the prompt library) purely to feed forms the flow
@@ -20,8 +23,15 @@ vi.mock('../editor/JsonEditor.svelte', async () => ({
   default: (await import('./JsonEditorStub.svelte')).default,
 }))
 
+// The conflict question is answered by each test that meets one
+vi.mock('../confirm.svelte', () => ({
+  chooseDialog: vi.fn(),
+  confirmDialog: vi.fn().mockResolvedValue(true),
+}))
+
 vi.mock('../api', () => ({
   api: {
+    saveWorkflow: vi.fn().mockResolvedValue({ saved: {}, etag: '"e2"' }),
     listPipelines: vi.fn().mockResolvedValue({ pipelines: [] }),
     listClasses: vi.fn().mockResolvedValue({ classes: [] }),
     listTasks: vi.fn().mockResolvedValue({
@@ -38,6 +48,7 @@ vi.mock('../api', () => ({
       definition: { id: 'ZImage', steps: [{ name: 'generate', pipeline: {} }] },
       origin: 'workspace',
       writable: true,
+      etag: '"e1"',
     }),
     listPrompts: vi.fn().mockResolvedValue({ prompts: [], details: {} }),
     listWorkspaces: vi.fn().mockResolvedValue({
@@ -110,8 +121,11 @@ describe('EditorPage view switch', () => {
 describe('EditorPage validation plan', () => {
   it('validates the definition it opened, without the transport metadata', async () => {
     render(EditorPage, { name: 'models/z-image' })
+    // Validate waits for the document: until it arrives there is none
     await waitFor(() =>
-      expect(screen.getByLabelText('workflow id')).toBeTruthy(),
+      expect(
+        (screen.getByLabelText('workflow id') as HTMLInputElement).value,
+      ).toBe('ZImage'),
     )
     await screen.getByRole('button', { name: /validate/i }).click()
     await waitFor(() =>
@@ -280,5 +294,228 @@ describe('EditorPage new workflow origin', () => {
     await waitFor(() => expect(location.hash).toBe('#/ws/studio/edit'))
     await waitFor(() => expect(picker().value).toBe('studio'))
     expect(fileName().value).toBe('Keep')
+  })
+})
+
+describe('EditorPage saving', () => {
+  const fileName = () => screen.getByLabelText('file name') as HTMLInputElement
+  const saveButton = () =>
+    screen.getByRole('button', { name: /^save/i }) as HTMLButtonElement
+  const notFound = () =>
+    new ApiError('Workflow not found: models/missing', 404, undefined)
+  const ctrl = (key: string) =>
+    fireEvent.keyDown(window, { key, ctrlKey: true })
+
+  /** A new workflow that validates, named `leaf`, ready to save. */
+  async function newNamed(leaf: string) {
+    render(EditorPage, { name: '' })
+    await waitFor(() => expect(fileName()).toBeTruthy())
+    await fireEvent.input(fileName(), { target: { value: leaf } })
+  }
+
+  afterEach(() => {
+    vi.mocked(api.saveWorkflow).mockClear()
+    vi.mocked(chooseDialog).mockReset()
+    location.hash = ''
+  })
+
+  it('a failed load shows Retry and disables Save', async () => {
+    vi.mocked(api.getWorkflow).mockRejectedValueOnce(
+      new ApiError('server exploded', 500),
+    )
+    render(EditorPage, { name: 'models/z-image' })
+    await screen.findByRole('button', { name: 'Retry' })
+    expect(
+      screen.getByText("Couldn't open models/z-image: server exploded"),
+    ).toBeTruthy()
+    // a 500 is not a missing file: there is nothing to start in its place
+    expect(
+      screen.queryByRole('button', { name: /start a new one/i }),
+    ).toBeNull()
+    expect(saveButton().disabled).toBe(true)
+    expect(
+      (screen.getByRole('button', { name: /^run/i }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true)
+    expect(
+      (screen.getByRole('button', { name: /^validate/i }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true)
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+    await waitFor(() => expect(saveButton().disabled).toBe(false))
+    expect(
+      (screen.getByLabelText('workflow id') as HTMLInputElement).value,
+    ).toBe('ZImage')
+  })
+
+  it('a 404 offers to start a new workflow with that name', async () => {
+    vi.mocked(api.getWorkflow).mockRejectedValueOnce(notFound())
+    render(EditorPage, { name: 'models/missing' })
+    expect(
+      await screen.findByText("Couldn't open models/missing: not found"),
+    ).toBeTruthy()
+    await fireEvent.click(
+      screen.getByRole('button', {
+        name: 'Start a new one named models/missing',
+      }),
+    )
+    await waitFor(() => expect(saveButton().disabled).toBe(false))
+    await fireEvent.click(saveButton())
+    await waitFor(() => expect(api.saveWorkflow).toHaveBeenCalledTimes(1))
+    const [path, , pre] = vi.mocked(api.saveWorkflow).mock.calls[0]
+    expect(path).toBe('models/missing')
+    // nothing is there yet, and a save must not land on a file made meanwhile
+    expect(pre).toEqual({ createOnly: true })
+  })
+
+  it('Save after a load failure never calls saveWorkflow', async () => {
+    vi.mocked(api.getWorkflow).mockRejectedValueOnce(
+      new ApiError('timed out', 504),
+    )
+    render(EditorPage, { name: 'models/z-image' })
+    await screen.findByRole('button', { name: 'Retry' })
+    await ctrl('s')
+    await ctrl('Enter')
+    await fireEvent.click(saveButton())
+    await new Promise((r) => setTimeout(r, 0))
+    expect(api.saveWorkflow).not.toHaveBeenCalled()
+    expect(api.validate).not.toHaveBeenCalled()
+  })
+
+  it('re-saves an opened workflow at the version it was read', async () => {
+    render(EditorPage, { name: 'models/z-image' })
+    await waitFor(() => expect(saveButton().disabled).toBe(false))
+    await ctrl('s')
+    await waitFor(() => expect(api.saveWorkflow).toHaveBeenCalledTimes(1))
+    expect(vi.mocked(api.saveWorkflow).mock.calls[0][2]).toEqual({
+      ifMatch: '"e1"',
+    })
+  })
+
+  it('a new workflow saved under an existing name asks before replacing', async () => {
+    vi.mocked(api.saveWorkflow).mockRejectedValueOnce(
+      new ApiError('mine already exists', 409, 'exists'),
+    )
+    vi.mocked(chooseDialog).mockResolvedValueOnce('cancel')
+    await newNamed('mine')
+    await fireEvent.click(saveButton())
+
+    await waitFor(() => expect(chooseDialog).toHaveBeenCalledTimes(1))
+    expect(vi.mocked(chooseDialog).mock.calls[0][0]).toBe(
+      'mine already exists. Replace it?',
+    )
+    expect(vi.mocked(api.saveWorkflow).mock.calls[0][2]).toEqual({
+      createOnly: true,
+    })
+    // Cancel writes nothing more and leaves the edits unsaved
+    expect(api.saveWorkflow).toHaveBeenCalledTimes(1)
+    expect(location.hash).not.toContain('/edit/mine')
+  })
+
+  it('the URL moves to the saved name after the first save', async () => {
+    location.hash = '#/ws/default/edit'
+    await new Promise((r) => setTimeout(r, 0))
+    const entries = history.length
+    await newNamed('mine')
+    await fireEvent.click(saveButton())
+
+    await waitFor(() => expect(location.hash).toBe('#/ws/default/edit/mine'))
+    // replaced in place: Back still leaves the editor, not the unsaved draft
+    expect(history.length).toBe(entries)
+    const crumbs = screen.getByRole('navigation', { name: 'breadcrumb' })
+    await waitFor(() => expect(crumbs.textContent).toContain('mine'))
+  })
+
+  it('Cmd+S saves text typed into the JSON view without a blur', async () => {
+    await newNamed('mine')
+    await fireEvent.click(screen.getByTitle('edit the raw JSON, schema-aware'))
+    const typed = {
+      id: 'typed',
+      steps: [
+        {
+          name: 'generate',
+          pipeline: {
+            configuration: { component_type: 'FluxPipeline' },
+            from_pretrained_arguments: { model_name: 'org/flux' },
+          },
+        },
+      ],
+    }
+    await fireEvent.input(await screen.findByTestId('json-input'), {
+      target: { value: JSON.stringify(typed) },
+    })
+    await fireEvent.keyDown(window, { key: 's', metaKey: true })
+
+    await waitFor(() => expect(api.saveWorkflow).toHaveBeenCalledTimes(1))
+    expect(vi.mocked(api.saveWorkflow).mock.calls[0][1]).toEqual(typed)
+  })
+
+  it('Cmd+S saves text typed into a form field that has not blurred', async () => {
+    const uninstall = changeOnBlur()
+    try {
+      vi.mocked(api.getWorkflow).mockResolvedValueOnce({
+        definition: {
+          id: 'ZImage',
+          variables: { line: 'Title card' },
+          steps: [{ name: 'generate', pipeline: {} }],
+        },
+        origin: 'workspace',
+        writable: true,
+        etag: '"e1"',
+      } as never)
+      localStorage.removeItem('dw-editor-view')
+      render(EditorPage, { name: 'models/z-image' })
+      const field = (await screen.findByLabelText('line')) as HTMLInputElement
+      await waitFor(() => expect(field.value).toBe('Title card'))
+      field.focus()
+      await fireEvent.input(field, { target: { value: 'Typed, not blurred' } })
+      await fireEvent.keyDown(window, { key: 's', metaKey: true })
+
+      await waitFor(() => expect(api.saveWorkflow).toHaveBeenCalledTimes(1))
+      expect(vi.mocked(api.saveWorkflow).mock.calls[0][1]).toMatchObject({
+        variables: { line: 'Typed, not blurred' },
+      })
+    } finally {
+      uninstall()
+    }
+  })
+
+  it('going back to a file after another failed to open shows the file', async () => {
+    const { rerender } = render(EditorPage, { name: 'a' })
+    await waitFor(() => expect(saveButton().disabled).toBe(false))
+    vi.mocked(api.getWorkflow).mockRejectedValueOnce(
+      new ApiError('server exploded', 500),
+    )
+    await rerender({ name: 'b' })
+    await screen.findByText("Couldn't open b: server exploded")
+    await rerender({ name: 'a' })
+    await waitFor(() => expect(saveButton().disabled).toBe(false))
+    expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull()
+    expect(screen.queryByText(/Couldn't open/)).toBeNull()
+  })
+
+  it('going back to a file while another is still being read shows the file', async () => {
+    const { rerender } = render(EditorPage, { name: 'a' })
+    await waitFor(() => expect(saveButton().disabled).toBe(false))
+    let finishB: (v: unknown) => void = () => {}
+    vi.mocked(api.getWorkflow).mockImplementationOnce(
+      () => new Promise((r) => (finishB = r)) as never,
+    )
+    await rerender({ name: 'b' })
+    await rerender({ name: 'a' })
+    await waitFor(() => expect(saveButton().disabled).toBe(false))
+    // b's read lands late and must change nothing
+    finishB({
+      definition: { id: 'Other', steps: [{ name: 'generate', pipeline: {} }] },
+      origin: 'workspace',
+      writable: true,
+      etag: '"e9"',
+    })
+    await new Promise((r) => setTimeout(r, 0))
+    expect(
+      (screen.getByLabelText('workflow id') as HTMLInputElement).value,
+    ).toBe('ZImage')
+    expect(saveButton().disabled).toBe(false)
   })
 })

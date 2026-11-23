@@ -290,8 +290,8 @@ The card holds the lamp, shelf and window; the coat is not in it.
 - **A close-up carries it.** R2 was not pulled wide: the lamp at the frame
   edge and the window behind her read the set. Its face score held (0.804),
   but the close-up's focus is soft, so look at the face.
-- **Two people and a card fit a 24 GB card at 175 frames** (validate projected
-  23.83 GB; it ran). The two stood side by side to camera rather than across
+- **Two people and a card fit a 24 GB card at 175 frames** (it ran; validate
+  projects 23.53 GB, under the 3090's 23.6). The two stood side by side to camera rather than across
   the desk, and a prop from one portrait (an accordion) showed in the first
   frames and went. Stage the blocking in the prompt, and keep props out of the
   portraits you don't want in the shot.
