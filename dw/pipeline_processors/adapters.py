@@ -62,6 +62,18 @@ def set_adapter_alpha(pipeline, adapter_name, alpha):
     )
 
 
+def _lora_holders(pipeline):
+    """The torch modules a LoRA can have been loaded into."""
+    holders = []
+    for name in getattr(pipeline, "_lora_loadable_modules", []) or []:
+        holders.append(getattr(pipeline, name, None))
+    if not any(holder is not None for holder in holders):
+        components = getattr(pipeline, "components", None)
+        if isinstance(components, dict):
+            holders.extend(components.values())
+    return [h for h in holders if isinstance(h, torch.nn.Module)]
+
+
 def _lora_layers(pipeline):
     """Every peft-wrapped module under a pipeline, whatever holds it.
 
@@ -73,15 +85,7 @@ def _lora_layers(pipeline):
     from peft.tuners.tuners_utils import BaseTunerLayer
 
     seen = set()
-    holders = []
-    for name in getattr(pipeline, "_lora_loadable_modules", []) or []:
-        holders.append(getattr(pipeline, name, None))
-    if not any(holder is not None for holder in holders):
-        components = getattr(pipeline, "components", None)
-        if isinstance(components, dict):
-            holders.extend(components.values())
-
-    for holder in holders:
+    for holder in _lora_holders(pipeline):
         if not isinstance(holder, torch.nn.Module):
             continue
         for module in holder.modules():
@@ -194,10 +198,7 @@ def _require_adapter_loaded(pipeline, adapter, model_name, weight_name):
     says the file was the problem. A pipeline with no peft-aware component to
     inspect is skipped: there is nothing to look at.
     """
-    inspectable = getattr(pipeline, "_lora_loadable_modules", None) or isinstance(
-        getattr(pipeline, "components", None), dict
-    )
-    if not inspectable:
+    if not _lora_holders(pipeline):
         return
     for module in _lora_layers(pipeline):
         if adapter in (getattr(module, "scaling", None) or {}):
