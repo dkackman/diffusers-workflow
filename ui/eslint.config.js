@@ -8,15 +8,12 @@ import globals from 'globals'
 // list can never stand in for one still loading or one that failed.
 // Flat config replaces a rule's options rather than merging them, so the
 // pattern rides in the bits-ui block and again, alone, for src/lib/ui/**
-const EMPTY_OUTSIDE_LOADSTATE = true
 const emptyPattern = {
   group: ['**/Empty.svelte'],
   message:
     'Render an empty state through src/lib/ui/LoadState.svelte, never Empty directly.',
 }
-const emptyPatterns = EMPTY_OUTSIDE_LOADSTATE
-  ? { patterns: [emptyPattern] }
-  : {}
+const emptyPatterns = { patterns: [emptyPattern] }
 
 export default ts.config(
   // Generated from the server's OpenAPI document (npm run gen:api)
@@ -67,10 +64,7 @@ export default ts.config(
     files: ['src/lib/ui/**/*.{ts,svelte}'],
     ignores: ['src/lib/ui/LoadState.svelte'],
     rules: {
-      'no-restricted-imports': [
-        EMPTY_OUTSIDE_LOADSTATE ? 'error' : 'off',
-        { patterns: [emptyPattern] },
-      ],
+      'no-restricted-imports': ['error', { patterns: [emptyPattern] }],
     },
   },
   {
