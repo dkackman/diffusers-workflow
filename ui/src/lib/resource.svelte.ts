@@ -5,7 +5,9 @@
 // trigger goes through one `run`:
 //   - its dependencies changed (what `load` reads before its first await,
 //     and the workspace): a new question, a loud reload, `status`
-//     'loading', `data` kept unless the workspace changed;
+//     'loading', `data` kept unless the workspace changed - and dropped if
+//     the new question's load fails, so the old answer never stands in for
+//     it (unless the failure is an outage or a lock, the banner's to say);
 //   - a watched kind moved, `connection.epoch` rose, a timer ticked: a
 //     quiet reload, never 'loading', and a failure keeps `data` and
 //     `status` and sets `stale`;
@@ -18,6 +20,7 @@
 // go through `poll`, the feed through `changes(workspace).watch`. LoadState
 // (ui/LoadState.svelte) renders one.
 import { untrack } from 'svelte'
+import { describeError } from './apiErrors'
 import { changes, type ChangeKind } from './changes.svelte'
 import { connection } from './connection.svelte'
 import { latestOnly } from './latest'
@@ -108,6 +111,13 @@ function changeMarks() {
   }
 }
 
+/** A failure that is not an answer to the question: the connection
+ * banner says it, and what is held stays under it */
+function bannerSays(e: unknown): boolean {
+  const kind = describeError(e).kind
+  return kind === 'offline' || kind === 'locked'
+}
+
 /** The triggers that are not dependencies: the feed, the epoch, timers.
  * Each calls `run(true)` */
 function keepFresh(
@@ -166,10 +176,16 @@ class Held<T> {
     this.stale = false
   }
 
-  failed(e: unknown, quiet: boolean) {
+  failed(e: unknown, quiet: boolean, question: number) {
     this.error = e
+    // Another question's answer is not this one's stale data
+    const dropped = this.heldFor !== question && !bannerSays(e)
+    if (dropped) {
+      this.forget()
+      this.stale = false
+    }
     // A quiet run that overtook a loud one answers for it: never left loading
-    if (quiet && this.status !== 'loading') this.stale = true
+    if (quiet && !dropped && this.status !== 'loading') this.stale = true
     else this.status = 'error'
   }
 
@@ -204,7 +220,7 @@ export function resource<T>(
       const value = await load()
       if (current()) held.landed(value, quiet, question)
     } catch (e) {
-      if (current()) held.failed(e, quiet)
+      if (current()) held.failed(e, quiet, question)
     }
   }
 

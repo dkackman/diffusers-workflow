@@ -351,3 +351,50 @@ it('a lazy resource does not load until a watched kind moves', async () => {
   flushSync()
   await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(2))
 })
+
+it("a failed load for a new question drops the old question's data", async () => {
+  const filter = $state({ q: 'a' })
+  let answer: () => Promise<string> = () => Promise.resolve('rows')
+  const load = vi.fn(() => {
+    const q = filter.q
+    return answer().then((v) => `${q}:${v}`)
+  })
+  const r = mount(load, { watch: ['jobs'] })
+  await vi.waitFor(() => expect(r.data).toBe('a:rows'))
+
+  // The same question failing quietly keeps its rows, stale
+  answer = () => Promise.reject(new Error('down'))
+  feed.move('default', 'jobs')
+  await vi.waitFor(() => expect(r.stale).toBe(true))
+  expect(r.data).toBe('a:rows')
+
+  // A new question failing does not leave the old one's rows standing in
+  filter.q = 'b'
+  flushSync()
+  expect(r.data).toBe('a:rows')
+  await vi.waitFor(() => expect(r.status).toBe('error'))
+  expect(r.data).toBeUndefined()
+
+  // and a quiet run that overtakes that load answers for the new question too
+  answer = () => Promise.resolve('rows')
+  feed.move('default', 'jobs')
+  await vi.waitFor(() => expect(r.data).toBe('b:rows'))
+})
+
+it('a lock or an outage on a new question keeps the rows: the banner says it', async () => {
+  const { ApiError } = await import('./apiErrors')
+  const filter = $state({ q: 'a' })
+  let answer: () => Promise<string> = () => Promise.resolve('rows')
+  const load = vi.fn(() => {
+    const q = filter.q
+    return answer().then((v) => `${q}:${v}`)
+  })
+  const r = mount(load, { watch: [] })
+  await vi.waitFor(() => expect(r.data).toBe('a:rows'))
+  answer = () =>
+    Promise.reject(new ApiError('Invalid or missing API token', 401))
+  filter.q = 'b'
+  flushSync()
+  await vi.waitFor(() => expect(r.status).toBe('error'))
+  expect(r.data).toBe('a:rows')
+})
