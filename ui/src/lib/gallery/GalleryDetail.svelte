@@ -225,7 +225,9 @@
       onclick={onstar}
       aria-pressed={starred}
       aria-label={starred ? 'unstar this file' : 'star this file'}
-      title={starred ? 'starred - press S to unstar' : 'star to keep - press S'}
+      title={starred
+        ? 'starred - press S to unstar'
+        : 'star this file - press S'}
     >
       <Star size={14} fill={starred ? 'currentColor' : 'none'} />
     </button>
@@ -266,7 +268,7 @@
             <NoteEditor
               note={runNote}
               target={runDir}
-              label="Run note"
+              label="Your note on this job"
               onsaved={() => noteSaved('run')}
             />
             <button type="button" class="bare" onclick={() => (ownNote = true)}>
@@ -276,7 +278,7 @@
             <NoteEditor
               note={ownNote ? null : note}
               target={file.name}
-              label={ownNote || noteSource === 'file' ? 'File note' : 'Note'}
+              label="Your note on this file"
               onsaved={saveFileNote}
             />
           {/if}

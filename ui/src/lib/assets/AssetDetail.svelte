@@ -113,6 +113,7 @@
   <NoteEditor
     note={asset.note}
     target={`${ASSET}${asset.name}`}
+    label="Your note on this asset"
     onsaved={(note) => onnotesaved?.(note)}
   />
   <div class="body">

@@ -218,7 +218,7 @@ it('runs the held rows named that are ready, and none that is not', () => {
 
 it("gives a held item's dialog row its line, warning when a session may be starting it", () => {
   const go = {
-    text: `Held for review until ${clockTime(UNTIL)}. Running it now is your go-ahead.`,
+    text: `Waiting for your OK until ${clockTime(UNTIL)}. Running it now is your go-ahead.`,
     tone: 'plain',
   }
   expect(heldLine(null, true)).toBeNull()
@@ -226,7 +226,7 @@ it("gives a held item's dialog row its line, warning when a session may be start
   expect(heldLine(hold('redirected'), false)).toEqual(go)
   expect(heldLine(hold('due'), false)).toEqual(go)
   expect(heldLine(hold('due'), true)).toEqual({
-    text: 'Review time is up and a session is listening: it may be starting this now.',
+    text: 'Review time is up and the agent is connected: it may be starting this now.',
     tone: 'warn',
   })
 })

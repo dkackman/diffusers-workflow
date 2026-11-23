@@ -323,7 +323,7 @@
         note={job.note}
         target={job.run_dir}
         workspace={job.workspace}
-        label="Run note"
+        label="Your note on this job"
         onsaved={(note) =>
           job && record.adopt({ ...job, note: note ?? undefined })}
       />

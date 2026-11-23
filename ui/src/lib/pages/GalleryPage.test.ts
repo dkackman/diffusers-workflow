@@ -706,7 +706,7 @@ it('marks every tile of a run after its run note is saved', async () => {
     listing.files = [inRun('a.png', 'fresh'), inRun('b.png', 'fresh')]
     return { target: 'wf/r1', note: 'fresh', note_source: 'run' }
   })
-  await fireEvent.input(screen.getByLabelText('Run note'), {
+  await fireEvent.input(screen.getByLabelText('Your note on this job'), {
     target: { value: 'fresh' },
   })
   await fireEvent.click(screen.getByRole('button', { name: /^save$/i }))

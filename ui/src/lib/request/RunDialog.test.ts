@@ -386,7 +386,7 @@ it('says on a held row that running it now is the go-ahead', async () => {
   await screen.findByRole('dialog', { name: 'Run what is ready' })
   const line = runRow('title').querySelector('.held') as HTMLElement
   expect(line.textContent?.trim()).toBe(
-    `Held for review until ${clockTime(UNTIL)}. Running it now is your go-ahead.`,
+    `Waiting for your OK until ${clockTime(UNTIL)}. Running it now is your go-ahead.`,
   )
   expect(line.classList.contains('warn')).toBe(false)
   // only the held row is in this run
@@ -399,7 +399,7 @@ it('warns on a held row whose review is up while a session listens', async () =>
   await screen.findByRole('dialog', { name: 'Run what is ready' })
   const line = runRow('title').querySelector('.held') as HTMLElement
   expect(line.textContent?.trim()).toBe(
-    'Review time is up and a session is listening: it may be starting this now.',
+    'Review time is up and the agent is connected: it may be starting this now.',
   )
   expect(line.classList.contains('warn')).toBe(true)
   listening('studio').listening = false

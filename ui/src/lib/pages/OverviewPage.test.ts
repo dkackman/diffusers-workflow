@@ -141,6 +141,7 @@ it('shows the workspace note', async () => {
   await waitFor(() =>
     expect(screen.getByText('client moodboards')).toBeTruthy(),
   )
+  expect(screen.getByText('Your note on this workspace')).toBeTruthy()
 })
 
 it('one panel failing leaves the others', async () => {

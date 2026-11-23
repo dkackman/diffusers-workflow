@@ -165,7 +165,7 @@ it("holds the request's own notes, by an item note's rules", async () => {
   api.editNote.mockResolvedValue({ revision: 4 })
   render(RequestHeader, given)
   expect(screen.getByText('make it all warmer')).toBeTruthy()
-  expect(screen.getByText(/No agent session is listening/)).toBeTruthy()
+  expect(screen.getByText(/The agent isn't connected\. It reads/)).toBeTruthy()
   await fireEvent.click(screen.getByRole('button', { name: 'Edit note' }))
   const box = screen.getByLabelText(
     'Edit your note for the agent on this request',
@@ -253,7 +253,7 @@ it('shows one hold banner, worded by its most urgent state, with Run now for the
   })
   await waitFor(() =>
     expect(banner(container)).toMatch(
-      /^2 items held for your review\. No session is listening, so nothing will run at .+\. Run them here, or leave a note\.$/,
+      /^2 items waiting for your OK\. The agent isn't connected, so nothing runs at .+ unless it reconnects\. Run them here, or leave a note\.$/,
     ),
   )
   expect(container.querySelectorAll('.hold')).toHaveLength(1)
@@ -268,7 +268,7 @@ it('has no Run now when no held row is ready, and no banner with nothing held', 
     ...props([held('b', 'holding')]),
     onrunheld: vi.fn(),
   })
-  expect(banner(container)).toMatch(/^1 item held for your review\./)
+  expect(banner(container)).toMatch(/^1 item waiting for your OK\./)
   expect(screen.queryByRole('button', { name: 'Run now…' })).toBeNull()
   unmount()
   const free = render(RequestHeader, props([item('a', { ready: true })]))
@@ -283,7 +283,7 @@ it('counts down while a session listens, and says a redirect without a button', 
   })
   await waitFor(() =>
     expect(banner(container)).toMatch(
-      /^1 item held for your review \(about 3 min by the agent's estimate\)\. A session is listening: at .+ \(in 02:05\) it is told to run it, unless you leave a note\.$/,
+      /^1 item waiting for your OK \(about 3 min by the agent's estimate\)\. The agent will run it at .+ if it's connected \(in 02:05\), unless you leave a note\.$/,
     ),
   )
   expect(screen.getByRole('button', { name: 'Run now…' })).toBeTruthy()

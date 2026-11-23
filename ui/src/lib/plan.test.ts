@@ -211,13 +211,25 @@ describe('describePlan', () => {
       ],
       [
         { basis: 'inherited', projected_mb: 20480, runs: 2 },
-        'host RAM about 20 GB (inherited from the template)',
+        'host RAM about 20 GB (inherited from an example)',
       ],
     ]
     for (const [memory, text] of cases) {
       const lines = describePlan({ ...base, host_memory: memory })
       expect(lines[2]).toEqual({ text, tone: 'plain' })
     }
+  })
+
+  it('an inherited figure with no source says it came from an example', () => {
+    const [, figure] = describePlan({
+      ...base,
+      estimate: {
+        ...base.estimate,
+        basis: 'inherited',
+        inherited_from: undefined,
+      },
+    })
+    expect(figure.text).toBe('about 42 min, inherited from an example')
   })
 
   it('a low-confidence figure says so and is a warning', () => {

@@ -345,7 +345,9 @@ it("saves the request's own note with no item", async () => {
     text: 'make it all warmer',
   })
   expect(data.putRequest).not.toHaveBeenCalled()
-  expect(within(head).getByText(/No agent session is listening/)).toBeTruthy()
+  expect(
+    within(head).getByText(/The agent isn't connected\. It reads/),
+  ).toBeTruthy()
 })
 
 it('a note the server refuses says why beside the draft, with a reload', async () => {

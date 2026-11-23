@@ -88,7 +88,8 @@ function hostMemory(memory: PlanHostMemory): PlanLine {
     observed: 'observed',
     fit: `fit to ${memory.runs} run${memory.runs === 1 ? '' : 's'}`,
     declared: 'declared',
-    inherited: 'inherited from the template',
+    // the server names no source for a host-RAM figure
+    inherited: 'inherited from an example',
   }[memory.basis]
   return { text: `host RAM about ${gb} GB (${basis})`, tone: 'plain' }
 }
@@ -151,7 +152,7 @@ function rawFigure(
   // another workflow's runs of the same pipeline priced this one (#797)
   if (basis === 'inherited') {
     return {
-      text: `${formatMinutes(minutes)}, inherited from ${estimate.inherited_from ?? 'a template'}${along}${missing}`,
+      text: `${formatMinutes(minutes)}, inherited from ${estimate.inherited_from ?? 'an example'}${along}${missing}`,
       tone: 'plain',
     }
   }

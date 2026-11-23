@@ -118,7 +118,7 @@ it('orders the panel role, Settings, Made from, Location', async () => {
   )
   expect(order).toEqual([
     'role',
-    'Note',
+    'Your note on this file',
     'Findings',
     'Settings',
     'Made from',
@@ -157,10 +157,10 @@ it('shows an inherited run note as the run note and offers to note the file', as
     run_note: 'for the client',
     note_source: 'run',
   })
-  expect(screen.getByText('Run note')).toBeTruthy()
+  expect(screen.getByText('Your note on this job')).toBeTruthy()
   expect(screen.getByText('for the client')).toBeTruthy()
   await fireEvent.click(screen.getByRole('button', { name: 'Note this file' }))
-  expect(screen.getByText('File note')).toBeTruthy()
+  expect(screen.getByText('Your note on this file')).toBeTruthy()
   expect(screen.queryByText('for the client')).toBeNull()
 })
 
@@ -192,7 +192,9 @@ it("labels a saved file note as the file's own, and a cleared one returns the ru
     target: { value: 'mine' },
   })
   await fireEvent.click(screen.getByRole('button', { name: /^save$/i }))
-  await waitFor(() => expect(screen.getByText('File note')).toBeTruthy())
+  await waitFor(() =>
+    expect(screen.getByText('Your note on this file')).toBeTruthy(),
+  )
   expect(screen.getByText('mine')).toBeTruthy()
   expect(onnotesaved).toHaveBeenCalledWith('file', 'mine')
 
@@ -205,7 +207,9 @@ it("labels a saved file note as the file's own, and a cleared one returns the ru
   await fireEvent.click(screen.getByRole('button', { name: /edit note/i }))
   await fireEvent.input(screen.getByRole('textbox'), { target: { value: '' } })
   await fireEvent.click(screen.getByRole('button', { name: /^save$/i }))
-  await waitFor(() => expect(screen.getByText('Run note')).toBeTruthy())
+  await waitFor(() =>
+    expect(screen.getByText('Your note on this job')).toBeTruthy(),
+  )
   expect(screen.getByText('for the client')).toBeTruthy()
 })
 
@@ -325,6 +329,12 @@ it("lists the metadata's findings warn first", async () => {
     'info',
   ])
   expect(rows[0].textContent).toContain('too loud')
+})
+
+it('titles the star as starring the file, never keeping it', async () => {
+  await view()
+  const star = screen.getByRole('button', { name: 'star this file' })
+  expect(star.getAttribute('title')).toBe('star this file - press S')
 })
 
 it('says No findings when there are none', async () => {

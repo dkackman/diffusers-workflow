@@ -763,7 +763,7 @@ it('keeps a saved note on the asset when it is selected again', async () => {
   await fireEvent.click(
     await screen.findByRole('button', { name: /edit note/i }),
   )
-  await fireEvent.input(screen.getByLabelText('Note'), {
+  await fireEvent.input(screen.getByLabelText('Your note on this asset'), {
     target: { value: 'hero shot' },
   })
   await fireEvent.click(screen.getByRole('button', { name: /save/i }))
@@ -875,7 +875,7 @@ async function saveIrisNote(note: string) {
   await fireEvent.click(
     await screen.findByRole('button', { name: /edit note/i }),
   )
-  await fireEvent.input(screen.getByLabelText('Note'), {
+  await fireEvent.input(screen.getByLabelText('Your note on this asset'), {
     target: { value: note },
   })
   await fireEvent.click(screen.getByRole('button', { name: /save/i }))

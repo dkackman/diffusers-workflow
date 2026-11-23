@@ -40,7 +40,7 @@
   const MARK = {
     accepted: 'accepted',
     'accepted-gone': 'accepted, files gone',
-    latest: 'result (latest)',
+    latest: 'latest take',
   }
 
   // The newest take is the one being looked for: the strip starts at its end

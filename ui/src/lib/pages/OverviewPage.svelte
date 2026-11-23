@@ -132,6 +132,7 @@
 <NoteEditor
   note={workspace.notes[name]}
   target={`${WORKSPACE}${name}`}
+  label="Your note on this workspace"
   onsaved={reloadWorkspaces}
 />
 

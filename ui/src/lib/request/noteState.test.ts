@@ -17,16 +17,16 @@ const at = (minute: number) =>
 const shown = (minute: number) => formatMtime(Date.parse(at(minute)) / 1000)
 const note = { id: 'n1', text: 'warmer, please', created: at(5), at: at(5) }
 
-it('a waiting note says whether an agent session is listening', () => {
+it('a waiting note says whether the agent is connected', () => {
   const req = request([], {
     agent_wrote_at: at(1),
     history: [entry(1, 'agent', 'opened'), entry(6, 'user', 'note added')],
   })
   expect(NOT_LISTENING_LINE).toBe(
-    'No agent session is listening. It reads this the next time it updates the plan.',
+    "The agent isn't connected. It reads this the next time it updates the plan.",
   )
   expect(LISTENING_LINE).toBe(
-    'An agent session is listening; it will see this within about 10 seconds.',
+    'The agent is connected; it will see this within about 10 seconds.',
   )
   expect(noteLine(note, req)).toEqual({
     text: `Saved ${shown(5)}. ${NOT_LISTENING_LINE}`,

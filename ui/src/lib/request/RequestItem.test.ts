@@ -193,7 +193,7 @@ it('with several takes and none accepted, opens and marks the latest as the resu
     'take 3',
   ])
   expect(takes[2].querySelector('.mark')?.textContent?.trim()).toBe(
-    'result (latest)',
+    'latest take',
   )
   expect(takes[0].querySelector('.mark')).toBeNull()
   // a take that made nothing is a slot with its status in words
@@ -373,7 +373,7 @@ it('opens a row whose note the agent has had no chance to read', () => {
   )
   expect(title('Shot 3').getAttribute('aria-expanded')).toBe('true')
   expect(container.querySelector('.peek')).toBeNull()
-  expect(screen.getByText(/No agent session is listening/)).toBeTruthy()
+  expect(screen.getByText(/The agent isn't connected\. It reads/)).toBeTruthy()
 })
 
 it("the user's toggle outlives a refresh, and closing a row keeps its draft", async () => {

@@ -51,7 +51,7 @@ async function draft(text: string, saved: string | null = null) {
 
 it('says before a word is written that no agent session is listening', async () => {
   await draft('')
-  expect(screen.getByText(/No agent session is listening/)).toBeTruthy()
+  expect(screen.getByText(/The agent isn't connected\. It reads/)).toBeTruthy()
   expect(screen.getByRole('button', { name: 'Save note' })).toBeTruthy()
   expect(box().maxLength).toBe(4000)
   await waitFor(() => expect(document.activeElement).toBe(box()))
@@ -66,7 +66,7 @@ it('says Send to agent while a session is listening, and saves either way', asyn
   )
   expect(
     screen.getByText(
-      'An agent session is listening; it will see this within about 10 seconds.',
+      'The agent is connected; it will see this within about 10 seconds.',
     ),
   ).toBeTruthy()
   await fireEvent.input(box(), { target: { value: 'warmer' } })
