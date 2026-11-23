@@ -21,7 +21,9 @@
   import { referenceCompletions } from '../refcomplete.svelte'
   import BrowseButton from '../assets/BrowseButton.svelte'
   import ClampedText from '../ui/ClampedText.svelte'
-  import type { PipelineDescription } from '../types'
+  import { latestOnly } from '../latest'
+  import { sleep } from '../poll'
+  import { resource } from '../resource.svelte'
 
   let {
     args = $bindable(),
@@ -42,22 +44,25 @@
   // wrong step's field
   const uid = $props.id()
 
-  let description = $state<PipelineDescription | null>(null)
   let showAll = $state(false)
 
   // Debounced: the class name arrives keystroke by keystroke, and every
-  // prefix would otherwise fire (and cache) a doomed lookup
-  $effect(() => {
-    description = null
-    if (!componentType) return
-    const wanted = componentType
-    const timer = setTimeout(() => {
-      classDescription(wanted, target).then((d) => {
-        if (wanted === componentType) description = d
-      })
-    }, 300)
-    return () => clearTimeout(timer)
-  })
+  // prefix would otherwise fire (and cache) a doomed lookup. A class's
+  // description never changes while the server runs, so it watches nothing
+  const typing = latestOnly()
+  const lookup = resource(
+    async () => {
+      const [wanted, kind] = [componentType, target]
+      const current = typing()
+      if (!wanted) return null
+      await sleep(300)
+      return current() ? classDescription(wanted, kind) : null
+    },
+    { watch: [] },
+  )
+  const description = $derived(
+    lookup.status === 'ready' ? (lookup.data ?? null) : null,
+  )
 
   const parameters = $derived(
     new Map((description?.parameters ?? []).map((p) => [p.name, p])),

@@ -7,13 +7,29 @@
 // that reads the server with no `resource(` at all fails here by name,
 // unless it is a document page, which keeps its document fresh another way.
 //
+// Reads made through a helper: a .svelte file that imports a plain src/lib
+// .ts module whose code calls an `api` read (arch-metrics.mjs's `isRead`)
+// reads the server too. It must have a `resource(`, be a document page, or
+// be in HELPER_EXCEPTIONS with the reason beside it. One import level is
+// followed: a helper that reaches the api through another module (two or
+// more levels) is out of reach here and of the metric, as are `.svelte.ts`
+// stores, which keep their own freshness (below).
+//
 // Outside this table: the app shell's status poll (statusPoll.ts, 5 s, also
 // while the tab is hidden), the linked notes' 20 s poll
 // (request/listening.svelte.ts), one job's event stream and its resource
 // (job/followJob.svelte.ts), and one request's interval, which RequestPage's
 // `alsoLive` names (request/refresh.ts).
 import { parse } from 'svelte/compiler'
+import ts from 'typescript'
 import { expect, it } from 'vitest'
+
+// The metric's own read rule. A specifier that is not a literal keeps the
+// script out of svelte-check's program, which has no node types
+const METRICS = '../../scripts/arch-metrics.mjs'
+const { isRead } = (await import(/* @vite-ignore */ METRICS)) as {
+  isRead: (name: string) => boolean
+}
 
 type Freshness =
   | { watch: string[]; alsoLive?: true }
@@ -26,7 +42,9 @@ const PAGE_TABLE: Record<string, Freshness[]> = {
   'Sidebar.svelte': [{ watch: ['workspaces'] }],
   'CachesPanel.svelte': [{ watch: ['models'] }],
   'assets/AssetDetail.svelte': [{ watch: ['assets'] }],
+  'editor/ArgumentsEditor.svelte': [{ watch: [] }],
   'editor/LorasEditor.svelte': [{ watch: ['loras'] }],
+  'editor/PipelineOptions.svelte': [{ watch: [] }],
   'editor/StepEditor.svelte': [{ watch: ['workflows'] }],
   'gallery/GalleryDetail.svelte': [
     { watch: ['gallery'] },
@@ -88,6 +106,19 @@ const OPENERS: Record<string, string> = {
  * (`watchRemote`) once a document follows the server */
 const documentFreshness = (page: string): string => OPENERS[page]
 
+/** Files that import a reading helper and have no resource, each with why
+ * that is not a view to keep fresh */
+const HELPER_EXCEPTIONS: Record<string, string> = {
+  '../App.svelte':
+    "startStatusPoll is the shell's own 5 s status poll (statusPoll.ts), " +
+    'and followJobs reads one job when that poll reports it ended',
+  'job/EventLog.svelte':
+    'fetchEventLog runs on a click (open, Refresh) and once more when the ' +
+    'job ends, to read the events after the last one shown',
+  'ui/ConnectionBanner.svelte':
+    "checkNow is the Retry now button's one status check",
+}
+
 type Node = { type: string; [key: string]: unknown }
 
 function* nodes(node: unknown): Generator<Node> {
@@ -143,21 +174,156 @@ interface Read {
   resources: Freshness[]
   calls: Set<string>
   imports: string[]
+  /** Each import's source and the value names it brings in */
+  valueImports: { from: string; names: string[] }[]
 }
 
 function read(source: string): Read {
   const ast = parse(source, { modern: true })
   const script = ast.instance?.content
   const calls = [...nodes(script)].filter((n) => n.type === 'CallExpression')
+  const imports = [...nodes(script)].filter(
+    (n) => n.type === 'ImportDeclaration',
+  )
+  const from = (n: Node) => (n.source as Node).value as string
   return {
     resources: calls
       .filter((c) => calleeName(c) === 'resource')
       .map((c) => freshnessOf(c, source)),
     calls: new Set(calls.map(calleeName).filter((n) => n !== null)),
-    imports: [...nodes(script)]
-      .filter((n) => n.type === 'ImportDeclaration')
-      .map((n) => (n.source as Node).value as string),
+    imports: imports.map(from),
+    valueImports: imports
+      .filter((n) => n.importKind !== 'type')
+      .map((n) => ({ from: from(n), names: importedNames(n) })),
   }
+}
+
+const isApiRead = (n: ts.Node): boolean =>
+  ts.isCallExpression(n) &&
+  ts.isPropertyAccessExpression(n.expression) &&
+  ts.isIdentifier(n.expression.expression) &&
+  n.expression.expression.text === 'api' &&
+  isRead(n.expression.name.text)
+
+const hasExport = (n: ts.Node): boolean =>
+  ts.canHaveModifiers(n) &&
+  (ts.getModifiers(n) ?? []).some((m) => m.kind === ts.SyntaxKind.ExportKeyword)
+
+/** A module's top-level declarations (name to node), and its exports
+ * (exported name to local name) */
+function declarations(file: ts.SourceFile) {
+  const local = new Map<string, ts.Node>()
+  const exported = new Map<string, string>()
+  for (const statement of file.statements) {
+    const named = (name: string, node: ts.Node) => {
+      local.set(name, node)
+      if (hasExport(statement)) exported.set(name, name)
+    }
+    if (
+      (ts.isFunctionDeclaration(statement) ||
+        ts.isClassDeclaration(statement)) &&
+      statement.name
+    )
+      named(statement.name.text, statement)
+    else if (ts.isVariableStatement(statement)) {
+      for (const d of statement.declarationList.declarations)
+        if (ts.isIdentifier(d.name)) named(d.name.text, d)
+    } else if (
+      ts.isExportDeclaration(statement) &&
+      !statement.moduleSpecifier &&
+      statement.exportClause &&
+      ts.isNamedExports(statement.exportClause)
+    )
+      for (const e of statement.exportClause.elements)
+        exported.set(e.name.text, (e.propertyName ?? e.name).text)
+  }
+  return { local, exported }
+}
+
+/** The names a .ts module exports whose code reaches an `api` read: by
+ * calling one, or through another of the module's own declarations that
+ * does. A read in a comment is not code, and one made through another
+ * module is a second level, out of reach */
+function readingExports(source: string): Set<string> {
+  const file = ts.createSourceFile('m.ts', source, ts.ScriptTarget.Latest)
+  const { local, exported } = declarations(file)
+  const reads = new Set<string>()
+  const uses = new Map<string, Set<string>>()
+  for (const [name, node] of local) {
+    const used = new Set<string>()
+    const visit = (n: ts.Node): void => {
+      if (isApiRead(n)) reads.add(name)
+      if (ts.isIdentifier(n) && local.has(n.text)) used.add(n.text)
+      ts.forEachChild(n, visit)
+    }
+    visit(node)
+    uses.set(name, used)
+  }
+  for (let grew = true; grew;) {
+    grew = false
+    for (const [name, used] of uses)
+      if (!reads.has(name) && [...used].some((u) => reads.has(u))) {
+        reads.add(name)
+        grew = true
+      }
+  }
+  return new Set(
+    [...exported].filter(([, l]) => reads.has(l)).map(([name]) => name),
+  )
+}
+
+/** The value names an import declaration brings in ('*' for a namespace) */
+const importedNames = (n: Node): string[] =>
+  (n.specifiers as Node[])
+    .filter((s) => s.importKind !== 'type')
+    .map((s) =>
+      s.type === 'ImportNamespaceSpecifier'
+        ? '*'
+        : s.type === 'ImportDefaultSpecifier'
+          ? 'default'
+          : (((s.imported as Node).name ??
+              (s.imported as Node).value) as string),
+    )
+
+/** The src/lib-relative key a file's relative import names, if any (the
+ * shell's '../App.svelte' climbs out of src/lib, so the walk starts in it) */
+function resolved(fromKey: string, specifier: string, known: Set<string>) {
+  if (!specifier.startsWith('.')) return null
+  const parts = ['src', 'lib']
+  const dir = fromKey.split('/').slice(0, -1)
+  for (const part of [...dir, ...specifier.split('/')])
+    if (part === '..') parts.pop()
+    else if (part !== '.') parts.push(part)
+  const base = parts.join('/').replace(/^src\/lib\//, '')
+  return [base, `${base}.ts`, `${base}/index.ts`].find((k) => known.has(k))
+}
+
+/** The .svelte files that import, from a .ts helper, a name whose code
+ * calls an `api` read, and have no `resource(` - outside the document pages
+ * and `exceptions` */
+export function bareHelperReaders(
+  svelte: Record<string, string>,
+  helpers: Record<string, string>,
+  exceptions: Record<string, string> = {},
+): string[] {
+  const reading = new Map(
+    Object.entries(helpers).map(([k, source]) => [k, readingExports(source)]),
+  )
+  const known = new Set(Object.keys(helpers))
+  const readsThrough = (k: string, r: Read) =>
+    r.valueImports.some(({ from, names }) => {
+      const found = reading.get(resolved(k, from, known) ?? '')
+      return (
+        !!found &&
+        found.size > 0 &&
+        names.some((n) => n === '*' || found.has(n))
+      )
+    })
+  return Object.entries(svelte)
+    .map(([k, source]) => [k, read(source)] as const)
+    .filter(([k, r]) => readsThrough(k, r) && r.resources.length === 0)
+    .filter(([k]) => !DOCUMENT_PAGES.includes(k) && !(k in exceptions))
+    .map(([k]) => k)
 }
 
 // Every .svelte file's source, keyed from src/lib ('../App.svelte' for the
@@ -168,6 +334,18 @@ const sources = import.meta.glob<string>(['../App.svelte', './**/*.svelte'], {
   eager: true,
 })
 const key = (path: string) => path.replace(/^\.\//, '')
+// Every plain .ts module's source (no tests, no .svelte.ts stores)
+const helperSources = Object.fromEntries(
+  Object.entries(
+    import.meta.glob<string>(
+      ['./**/*.ts', '!./**/*.test.ts', '!./**/*.svelte.ts', '!./**/*.d.ts'],
+      { query: '?raw', import: 'default', eager: true },
+    ),
+  ).map(([path, source]) => [key(path), source]),
+)
+const svelteSources = Object.fromEntries(
+  Object.entries(sources).map(([path, source]) => [key(path), source]),
+)
 const isPage = (k: string) => /^pages\/[^/]+\.svelte$/.test(k)
 const always = (k: string) =>
   k === '../App.svelte' || k === 'Sidebar.svelte' || isPage(k)
@@ -205,4 +383,67 @@ it('a document page opens its document the way that keeps it fresh', () => {
     (page) => !reads.get(page)?.calls.has(documentFreshness(page)),
   )
   expect(missing).toEqual([])
+})
+
+it('a view that reads through a helper does so through a resource', () => {
+  expect(
+    bareHelperReaders(svelteSources, helperSources, HELPER_EXCEPTIONS),
+  ).toEqual([])
+})
+
+it('each helper exception still reads through a helper with no resource', () => {
+  const stale = Object.keys(HELPER_EXCEPTIONS).filter(
+    (k) => !bareHelperReaders(svelteSources, helperSources).includes(k),
+  )
+  expect(stale).toEqual([])
+})
+
+it('names a component that calls a reading helper with no resource', () => {
+  const helpers = {
+    'job/probe.ts': `import { api } from '../api'
+// api.listJobs() in a comment is not a call
+export const jobsFor = (w: string) => api.listJobs(w)`,
+    'job/quiet.ts': `import { api } from '../api'
+export const save = () => api.saveWorkflow('a', {})`,
+    'job/indirect.ts': `import { api } from '../api'
+export const LIMIT = 4
+function fetchOne(id: string) { return api.getJob(id) }
+const viaLocal = (id: string) => fetchOne(id)
+export { viaLocal as latestJob }`,
+  }
+  const svelte = {
+    'job/Bare.svelte': `<script lang="ts">
+  import { jobsFor } from './probe'
+  let rows = $state([])
+  $effect(() => { jobsFor('w').then((r) => (rows = r)) })
+</script>`,
+    'job/Watched.svelte': `<script lang="ts">
+  import { jobsFor } from './probe'
+  const jobs = resource(() => jobsFor('w'), { watch: ['jobs'] })
+</script>`,
+    'job/Writes.svelte': `<script lang="ts">
+  import { save } from './quiet'
+</script>`,
+    'job/Types.svelte': `<script lang="ts">
+  import type { jobsFor } from './probe'
+</script>`,
+    'job/Limit.svelte': `<script lang="ts">
+  import { LIMIT } from './indirect'
+</script>`,
+    'job/Latest.svelte': `<script lang="ts">
+  import { latestJob } from './indirect'
+</script>`,
+    'pages/Clicks.svelte': `<script lang="ts">
+  import { jobsFor } from '../job/probe'
+</script>`,
+  }
+  expect(bareHelperReaders(svelte, helpers)).toEqual([
+    'job/Bare.svelte',
+    'job/Latest.svelte',
+    'pages/Clicks.svelte',
+  ])
+  expect(
+    bareHelperReaders(svelte, helpers, { 'pages/Clicks.svelte': 'a click' }),
+  ).toEqual(['job/Bare.svelte', 'job/Latest.svelte'])
+  expect(bareHelperReaders(svelte, {})).toEqual([])
 })
