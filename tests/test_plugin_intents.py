@@ -44,6 +44,7 @@ EXEMPT = {
     "h3-audio-encode-context.md": "an engine-question probe with no template; its verdict (bar not met) settles #1516 stage A's gate (#1544)",
     "held-frames.md": "a corpus probe with no template; its verdict settles #1527 stage A's gate (#1551)",
     "sol-h3-vae.md": "an engine-question probe with no template; its verdict settles #1574's build-or-not (#1583)",
+    "hybrid-windows.md": "a flag-gated engine experiment with no template; its walk verdict is Don's and pending, and it settles #1188's S4-or-not (#1571)",
     "h3-dmad.md": "a LoRA probe stopped at its load check (0 tensors mapped); it settles no intent row, only that DMAD isn't adopted (#1584)",
 }
 
