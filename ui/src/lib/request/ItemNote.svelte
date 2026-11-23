@@ -123,7 +123,8 @@
     refused = null
     onreload()
   }
-  async function store(write: () => Promise<void>) {
+  /** Send `sent` (the box as it was at the press) through `write` */
+  async function store(write: () => Promise<void>, sent: string) {
     // Ctrl+Enter is not a disabled button: a second press waits for none
     if (saving) return
     saving = true
@@ -131,8 +132,8 @@
       await write()
       const open = draft.editing
       refused = null
-      draft.done()
-      if (open) void focusOpener()
+      // Words typed while it was out stay in the box
+      if (draft.done(sent) && open) void focusOpener()
       if (note === null) onsaved?.()
     } catch (e) {
       refused = saveFailure(e)
@@ -146,21 +147,22 @@
   /** A saved note emptied is deleted, asking first as "Delete note" does;
    * a new one with no words is not sent, and the box stays open */
   function save(): Promise<void> | undefined {
-    if (draft.text.trim()) return store(() => onsave(draft.text))
-    if (note && ondelete) return remove()
+    const sent = draft.text
+    if (sent.trim()) return store(() => onsave(sent), sent)
+    if (note && ondelete) return remove(sent)
   }
-  async function remove() {
+  async function remove(sent: string) {
     if (
       !line?.answered &&
       !(await confirmDialog(unreadNote.message, unreadNote))
     )
       return
-    if (ondelete) await store(ondelete)
+    if (ondelete) await store(ondelete, sent)
   }
   function move() {
     if (!onmove || wordless) return
     onmove(draft.text)
-    draft.done()
+    draft.done(draft.text)
     void focusOpener()
   }
 </script>
@@ -278,7 +280,7 @@
             <button
               type="button"
               class="bare"
-              onclick={remove}
+              onclick={() => remove(draft.text)}
               disabled={saving}
             >
               Delete note

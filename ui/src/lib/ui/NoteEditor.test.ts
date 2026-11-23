@@ -59,6 +59,64 @@ describe('NoteEditor', () => {
     await waitFor(() => expect(onsaved).toHaveBeenCalledWith('new'))
   })
 
+  it('words typed while the save is out stay as a draft over the saved note', async () => {
+    let land!: (v: {
+      target: string
+      note: string
+      note_source: string
+    }) => void
+    const spy = vi
+      .spyOn(api, 'setNote')
+      .mockReturnValue(new Promise((resolve) => (land = resolve)) as never)
+    const onsaved = vi.fn()
+    render(NoteEditor, { props: { note: 'old', target: 't', onsaved } })
+    await fireEvent.click(screen.getByRole('button', { name: /edit note/i }))
+    const box = screen.getByRole('textbox')
+    await fireEvent.input(box, { target: { value: 'new' } })
+    await fireEvent.click(screen.getByRole('button', { name: /save/i }))
+    await waitFor(() =>
+      expect(spy).toHaveBeenCalledWith('t', 'new', undefined, 'e:old'),
+    )
+    // the PUT is out; the user keeps typing
+    await fireEvent.input(box, { target: { value: 'new and more' } })
+    land({ target: 't', note: 'new', note_source: 'run' })
+    await waitFor(() => expect(onsaved).toHaveBeenCalledWith('new'))
+    expect((screen.getByRole('textbox') as HTMLTextAreaElement).value).toBe(
+      'new and more',
+    )
+    // a draft over the note now saved, not a newer note to take in
+    expect(screen.queryByText(/changed while you were editing/)).toBeNull()
+    expect(Object.values({ ...sessionStorage })).toContain('new and more')
+  })
+
+  it('Escape while the save is out keeps the words typed since', async () => {
+    let land!: (v: {
+      target: string
+      note: string
+      note_source: string
+    }) => void
+    vi.spyOn(api, 'setNote').mockReturnValue(
+      new Promise((resolve) => (land = resolve)) as never,
+    )
+    const onsaved = vi.fn()
+    render(NoteEditor, { props: { note: 'old', target: 't', onsaved } })
+    await fireEvent.click(screen.getByRole('button', { name: /edit note/i }))
+    const box = screen.getByRole('textbox')
+    await fireEvent.input(box, { target: { value: 'new' } })
+    await fireEvent.click(screen.getByRole('button', { name: /save/i }))
+    await fireEvent.input(box, { target: { value: 'new and more' } })
+    await fireEvent.keyDown(box, { key: 'Escape' })
+    land({ target: 't', note: 'new', note_source: 'run' })
+    await waitFor(() => expect(onsaved).toHaveBeenCalledWith('new'))
+    expect(Object.values({ ...sessionStorage })).toContain('new and more')
+    await fireEvent.click(
+      screen.getByRole('button', { name: /continue|edit note/i }),
+    )
+    expect((screen.getByRole('textbox') as HTMLTextAreaElement).value).toBe(
+      'new and more',
+    )
+  })
+
   it('cancel restores the old note without calling the api', async () => {
     const spy = vi.spyOn(api, 'setNote')
     vi.mocked(confirmDialog).mockResolvedValue(true)

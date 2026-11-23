@@ -170,7 +170,8 @@
       if (at.key !== here().key) return
       shown = stored.note ?? null
       known = undefined
-      draft.done()
+      // Words typed while it was out stay, as a draft over the stored note
+      if (!draft.done(text)) base = shown
       onsaved?.(shown)
     } catch (e) {
       await refused(at, e)

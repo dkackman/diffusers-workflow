@@ -46,7 +46,7 @@ it('a draft survives a reload', () => {
   again.open()
   expect(again.text).toBe('half a thought')
   // saved: nothing is left behind
-  again.done()
+  expect(again.done('half a thought')).toBe(true)
   flushSync()
   expect(sessionStorage.getItem('note:studio:wf/run-1')).toBeNull()
 })
@@ -126,4 +126,47 @@ it('a new key is another note: its own draft is read, the old one kept', () => {
   expect(sessionStorage.getItem('note:studio:a')).toBe('on a')
   draft.open()
   expect(draft.text).toBe('on b')
+})
+
+it('words typed while a save is out stay, in the box and in storage', () => {
+  const draft = make()
+  draft.open()
+  draft.text = 'warmer'
+  const sent = draft.text
+  // the PUT is out; the box still takes typing
+  draft.text = 'warmer light'
+  flushSync()
+  // the save lands with what was sent: the rest is not lost
+  expect(draft.done(sent)).toBe(false)
+  flushSync()
+  expect(draft.editing).toBe(true)
+  expect(draft.text).toBe('warmer light')
+  expect(sessionStorage.getItem('note:studio:wf/run-1')).toBe('warmer light')
+})
+
+it('Escape while a save is out keeps words typed after the press', () => {
+  const draft = make()
+  draft.open()
+  draft.text = 'warmer'
+  const sent = draft.text
+  draft.text = 'warmer light'
+  draft.keydown(key({ key: 'Escape' }))
+  expect(draft.done(sent)).toBe(false)
+  flushSync()
+  expect(draft.editing).toBe(false)
+  expect(draft.kept).toBe(true)
+  expect(sessionStorage.getItem('note:studio:wf/run-1')).toBe('warmer light')
+  draft.open()
+  expect(draft.text).toBe('warmer light')
+})
+
+it('Escape while a save is out, with nothing typed since, leaves nothing', () => {
+  const draft = make()
+  draft.open()
+  draft.text = 'warmer'
+  draft.keydown(key({ key: 'Escape' }))
+  expect(draft.done('warmer')).toBe(true)
+  flushSync()
+  expect(draft.kept).toBe(false)
+  expect(sessionStorage.getItem('note:studio:wf/run-1')).toBeNull()
 })

@@ -387,3 +387,24 @@ it('asked to open again while open, keeps what is in the box', async () => {
   await note.edit()
   expect(box().value).toBe('half')
 })
+
+it('words typed while the save is out stay in the box and in storage', async () => {
+  let land!: () => void
+  const given = props(null, {
+    draftKey: 'note-draft:test',
+    onsave: vi.fn(() => new Promise<void>((resolve) => (land = resolve))),
+  })
+  render(ItemNote, given)
+  await fireEvent.click(
+    screen.getByRole('button', { name: 'Add a note for the agent' }),
+  )
+  await fireEvent.input(box(), { target: { value: 'warmer' } })
+  await fireEvent.click(screen.getByRole('button', { name: 'Save note' }))
+  expect(given.onsave).toHaveBeenCalledWith('warmer')
+  await fireEvent.input(box(), { target: { value: 'warmer, and slower' } })
+  land()
+  await waitFor(() => expect(box().disabled).toBe(false))
+  await new Promise((r) => setTimeout(r, 0))
+  expect(box().value).toBe('warmer, and slower')
+  expect(sessionStorage.getItem('note-draft:test')).toBe('warmer, and slower')
+})

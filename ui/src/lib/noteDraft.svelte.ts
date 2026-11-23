@@ -103,11 +103,15 @@ export class NoteDraft {
     this.#onclose?.()
   }
 
-  /** The save went through: nothing is kept */
-  done() {
+  /** The save of `sent` went through: nothing is kept - unless words were
+   * typed (or Escape pressed) while it was out, which stay as the draft
+   * over the note now saved. True when the box was emptied */
+  done(sent: string): boolean {
+    if (this.text !== sent) return false
     this.kept = false
     this.text = ''
     this.editing = false
+    return true
   }
 
   /** Discard the draft, asking first when it holds words not saved.
