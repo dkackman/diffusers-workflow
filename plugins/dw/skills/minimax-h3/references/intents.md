@@ -28,6 +28,7 @@ pattern heading that exists.
 | What a `<d>` line talks about is acted out on screen | | `references/dialogue.md` § Probed and not a rule | `docs/proposals/audits/2026-11-longvideos-claims.md` | refuted |
 | A reference picture the prompt never names is drawn as another person | | `references/per-character.md` § Probed and not a rule | `docs/proposals/audits/2026-11-longvideos-claims.md` | refuted |
 | A face-once reference sheet holds identity better than a portrait | | `references/per-character.md` § Probed and not a rule | `docs/proposals/audits/2026-11-face-once-sheet.md` | refuted |
+| A per-outfit portrait, edited from the base portrait with the face kept, holds a costume change across cuts | | `references/per-character.md` § A costume change | issue only: #1591 | untested |
 | Leaving the portrait out of a continued segment stops the person being drawn twice | | `references/chains.md` § Probed and not a rule | `docs/proposals/audits/2026-11-longvideos-claims.md` | refuted |
 | A long take built as odd shots, then bridges between them, beats one chain | `templates/minimax/first-and-last-frame` | `references/cuts.md` § Probed, not a rule: odd shots, then bridges | `docs/proposals/complete/h3-odd-then-bridge-complete.md` | refuted |
 | Fix one region of a good take, keeping the rest of the picture and the soundtrack | `templates/minimax/regional-edit` | `references/regional-edit.md` § refine_strength | `docs/proposals/complete/h3-regional-edit-complete.md` | confirmed |

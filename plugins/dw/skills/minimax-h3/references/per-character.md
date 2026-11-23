@@ -52,3 +52,32 @@ Tested on our server (Ref2VA turbo, 960x544, two seeds per arm, November
   SFace on both seeds, though no clip reused the sheet's layout. Asked for
   the face only once, Z-Image-Turbo drew a head on every figure anyway.
   Keep the portrait.
+
+## A costume change
+
+A character who changes clothes mid-story keeps the one cast portrait. Don't
+redraw the face for the new outfit.
+
+- **Measured (#1193, claim 3 above):** one portrait plus a prompt that names
+  the new clothes, and says the clothes are not taken from the picture, gave
+  the new outfit on both seeds. Keep the same portrait, so the face holds.
+- **Wardrobe drifts across cuts** unless the portrait or a 22-frame window
+  carries it. `cuts.md`, *A place card holds the set*: "Hold wardrobe or a
+  prop with the window, or by putting it in the portrait." So name the
+  outfit in identical words in every shot's prompt, and when it drifts, use
+  a window from an earlier shot in that outfit (`cuts.md`, *Visual memory at
+  a cut*).
+- **Untested (#1591):** one portrait per outfit, each an edit of the first
+  portrait whose instruction names the face as kept. On CUDA, draw it with
+  `templates/flux3/multi-reference` or H3-Image's edit route
+  (`templates/minimax-h3-image/multi-reference`); in
+  `bench/records/h3-image.md` an H3-Image edit kept faces and costumes, and
+  a Klein edit kept faces recognisable but flattened the grade. On `mps` it
+  is unmeasured (the Klein edit templates place every component on `cuda`),
+  so say so before spending. Keep each as
+  `keep_output(..., asset_name="cast/<name>-<outfit>", shared=True)`, beside
+  `cast/<name>`, the way a place card's new look is `places/<set>-night`.
+  Its request item id is `cast-<name>-<outfit>`.
+- **When drift is checked**, the reference is the portrait the shot used:
+  `cast/<name>-<outfit>` for a shot conditioned on an outfit portrait, the
+  base `cast/<name>` otherwise.
