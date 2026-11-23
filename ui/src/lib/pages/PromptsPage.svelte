@@ -102,7 +102,9 @@
           {/if}
           {#if detail?.intended_model}
             <button
-              class="chip modelchip"
+              class="togglechip modelchip"
+              class:on={filter === detail.intended_model}
+              aria-pressed={filter === detail.intended_model}
               onclick={() => (filter = detail.intended_model)}
               title="written for {detail.intended_model} - click to filter"
             >
@@ -119,7 +121,9 @@
           <span class="cardtags">
             {#each detail.tags as tag (tag)}
               <button
-                class="chip"
+                class="togglechip"
+                class:on={filter === tag}
+                aria-pressed={filter === tag}
                 onclick={() => (filter = tag)}
                 title="click to filter by this tag"
               >
@@ -172,7 +176,7 @@
     inset: 0;
     border-radius: inherit;
   }
-  .chip {
+  .togglechip {
     position: relative;
   }
   .cardtop {
@@ -201,21 +205,6 @@
     display: flex;
     flex-wrap: wrap;
     gap: 0.3rem;
-  }
-  /* A tag is a button, and the global button rule would paint it accent-ink
-     on the panel - invisible in either theme - so the text colour is set here */
-  .chip {
-    cursor: pointer;
-    border: 1px solid var(--line);
-    background: var(--panel-2);
-    color: var(--muted);
-    font-size: 0.7rem;
-    font-weight: 500;
-    padding: 0.05rem 0.45rem;
-  }
-  .chip:hover {
-    border-color: var(--accent);
-    color: var(--accent);
   }
   .modelchip {
     flex-shrink: 0;

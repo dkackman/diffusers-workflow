@@ -1,7 +1,11 @@
 <script lang="ts">
   import { editorLists, loadEditorLists } from '../editorLists.svelte'
-  import { DocumentEditor, NEW_FOLDER } from '../editorShell.svelte'
-  import ViewSwitch from '../editor/ViewSwitch.svelte'
+  import {
+    DocumentEditor,
+    NEW_FOLDER,
+    type EditorView,
+  } from '../editorShell.svelte'
+  import Segmented from '../ui/Segmented.svelte'
   import EditorBody from '../editor/EditorBody.svelte'
   import StepList from '../editor/StepList.svelte'
   import { StepModes } from '../stepModes.svelte'
@@ -389,10 +393,11 @@
         </span>
       {/if}
       {#snippet actions()}
-        <ViewSwitch
-          view={ed.view}
-          options={[...VIEWS]}
-          onselect={(view) => ed.setView(view)}
+        <Segmented
+          label="editor view"
+          value={ed.view}
+          options={VIEWS.map((v) => ({ ...v, value: v.view }))}
+          onselect={(view) => ed.setView(view as EditorView)}
         />
         <button
           class="quiet withicon"

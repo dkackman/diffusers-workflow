@@ -1,6 +1,7 @@
 import { mount } from 'svelte'
 import './app.css'
 import './frames.css'
+import './patterns.css'
 
 // Apply a manual theme choice before first paint; absent = follow the system
 try {

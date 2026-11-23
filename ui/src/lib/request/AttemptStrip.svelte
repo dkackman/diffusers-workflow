@@ -100,6 +100,7 @@
         <button
           type="button"
           class="quiet accept"
+          class:chosen={chosen(take)}
           aria-pressed={chosen(take)}
           aria-label="Accept take {take.n} for {item.title}"
           title={chosen(take)
@@ -175,7 +176,7 @@
     text-decoration: underline;
     text-underline-offset: 2px;
   }
-  .accept[aria-pressed='true'] {
+  .accept.chosen {
     color: var(--ink);
     border-color: var(--ink);
     font-weight: 600;

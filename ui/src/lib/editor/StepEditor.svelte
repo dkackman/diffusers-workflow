@@ -1,5 +1,6 @@
 <script lang="ts">
   import Suggest from '../ui/Suggest.svelte'
+  import Segmented from '../ui/Segmented.svelte'
   import { editorLists } from '../editorLists.svelte'
   import {
     ChevronDown,
@@ -193,24 +194,20 @@
     {/if}
     <span class="flex"></span>
     {#if mode !== 'collapsed'}
-      <div class="modeswitch" role="group" aria-label="step detail level">
-        <button
-          class="quiet"
-          class:activebtn={mode === 'compact'}
-          onclick={() => setModeInternal('compact')}
-          title="one-line-per-area digest of what this step sets"
-        >
-          compact
-        </button>
-        <button
-          class="quiet"
-          class:activebtn={mode === 'full'}
-          onclick={() => setModeInternal('full')}
-          title="every field, editable"
-        >
-          full
-        </button>
-      </div>
+      <Segmented
+        size="sm"
+        label="step detail level"
+        value={mode}
+        options={[
+          {
+            value: 'compact',
+            label: 'compact',
+            title: 'one-line-per-area digest of what this step sets',
+          },
+          { value: 'full', label: 'full', title: 'every field, editable' },
+        ]}
+        onselect={(picked) => setModeInternal(picked as 'compact' | 'full')}
+      />
     {/if}
     <button
       class="quiet icon"
@@ -447,27 +444,6 @@
     white-space: nowrap;
     min-width: 0;
     flex: 1;
-  }
-  .modeswitch {
-    display: inline-flex;
-  }
-  .modeswitch button {
-    border-radius: 0;
-    padding: 0.2rem 0.55rem;
-    font-size: 0.75rem;
-  }
-  .modeswitch button:first-child {
-    border-radius: var(--radius-1) 0 0 var(--radius-1);
-  }
-  .modeswitch button:last-child {
-    border-radius: 0 var(--radius-1) var(--radius-1) 0;
-    margin-left: -1px;
-  }
-  .activebtn {
-    border-color: var(--accent);
-    color: var(--accent);
-    position: relative;
-    z-index: 1;
   }
   .flowchip {
     font-family: var(--font-mono);

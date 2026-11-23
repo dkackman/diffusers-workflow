@@ -1,8 +1,12 @@
 <script lang="ts">
   import Suggest from '../ui/Suggest.svelte'
   import { isNameSegment } from '../names'
-  import { DocumentEditor, NEW_FOLDER } from '../editorShell.svelte'
-  import ViewSwitch from '../editor/ViewSwitch.svelte'
+  import {
+    DocumentEditor,
+    NEW_FOLDER,
+    type EditorView,
+  } from '../editorShell.svelte'
+  import Segmented from '../ui/Segmented.svelte'
   import FolderPicker from '../editor/FolderPicker.svelte'
   import EditorBody from '../editor/EditorBody.svelte'
   import EnhancePanel from '../editor/EnhancePanel.svelte'
@@ -280,10 +284,11 @@
     back={{ href: sharedHref('prompts'), label: SECTION_LABELS.shared.prompts }}
   >
     {#snippet actions()}
-      <ViewSwitch
-        view={shell.view}
-        options={[...VIEWS]}
-        onselect={(view) => shell.setView(view)}
+      <Segmented
+        label="editor view"
+        value={shell.view}
+        options={VIEWS.map((v) => ({ ...v, value: v.view }))}
+        onselect={(view) => shell.setView(view as EditorView)}
       />
       {#if current}
         <button

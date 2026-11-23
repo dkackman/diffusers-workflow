@@ -1,6 +1,7 @@
 <script lang="ts">
   import { Film, Image, Layers, Music, Play, Plus } from '@lucide/svelte'
   import { api } from '../api'
+  import Segmented from '../ui/Segmented.svelte'
   import { resource } from '../resource.svelte'
   import LoadState from '../ui/LoadState.svelte'
   import PageHeader from '../ui/PageHeader.svelte'
@@ -170,26 +171,20 @@
 <!-- Shape is what people choose by, so the vocabulary is visible rather
    than folded into a select nobody opens -->
 {#if shapesPresent.length}
-  <div class="shapes" role="group" aria-label="filter by shape">
-    <button
-      class="shapebtn"
-      class:on={shape === ''}
-      aria-pressed={shape === ''}
-      onclick={() => (shape = '')}
-    >
-      all
-    </button>
-    {#each shapesPresent as value (value)}
-      <button
-        class="shapebtn"
-        class:on={shape === value}
-        aria-pressed={shape === value}
-        onclick={() => (shape = shape === value ? '' : value)}
-        title="show only workflows that make {value}"
-      >
-        {value}
-      </button>
-    {/each}
+  <div class="shapes">
+    <Segmented
+      label="filter by shape"
+      value={shape}
+      options={[
+        { value: '', label: 'all' },
+        ...shapesPresent.map((value) => ({
+          value,
+          label: value,
+          title: `show only workflows that make ${value}`,
+        })),
+      ]}
+      onselect={(value) => (shape = value === shape ? '' : value)}
+    />
   </div>
 {/if}
 
@@ -197,7 +192,7 @@
   <div class="chips">
     {#each traitsPresent as trait (trait)}
       <button
-        class="traitchip"
+        class="togglechip"
         class:on={traits.includes(trait)}
         aria-pressed={traits.includes(trait)}
         onclick={() => toggleTrait(trait)}
@@ -337,34 +332,9 @@
   /* Shape: the primary cut through the catalog, so it reads as a row of
      choices rather than a set of tags */
   .shapes {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.2rem;
     margin-bottom: var(--space-2);
     border-bottom: 1px solid var(--line);
     padding-bottom: var(--space-2);
-  }
-  .shapebtn {
-    background: none;
-    border: 1px solid transparent;
-    border-radius: var(--radius-1);
-    color: var(--muted);
-    font-family: var(--font-mono);
-    font-size: var(--t-sm);
-    font-weight: 500;
-    padding: 0.2rem 0.55rem;
-    cursor: pointer;
-  }
-  .shapebtn:hover {
-    color: var(--ink);
-    background: var(--panel-2);
-    filter: none;
-  }
-  .shapebtn.on {
-    background: var(--ink);
-    color: var(--panel);
-    border-color: var(--ink);
-    font-weight: 600;
   }
 
   /* Traits narrow further, so they are quieter than shape and read as a
@@ -374,26 +344,6 @@
     flex-wrap: wrap;
     gap: 0.3rem;
     margin-bottom: var(--space-4);
-  }
-  .traitchip {
-    background: none;
-    border: 1px solid var(--line);
-    border-radius: 999px;
-    color: var(--muted);
-    font-size: var(--t-xs);
-    font-weight: 500;
-    padding: 0.05rem 0.5rem;
-    cursor: pointer;
-  }
-  .traitchip:hover {
-    color: var(--ink);
-    border-color: var(--muted);
-    filter: none;
-  }
-  .traitchip.on {
-    background: var(--ink);
-    border-color: var(--ink);
-    color: var(--panel);
   }
 
   /* A frame on a contact sheet: the picture bleeds to the top edge, the

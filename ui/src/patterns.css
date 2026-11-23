@@ -1,0 +1,27 @@
+/* app.css's overflow: the shared classes that would not fit its 600 lines,
+   so they live here, loaded straight after frames.css (main.ts), whose
+   tokens they read. The one multi-select filter chip is here; a choice of
+   one from a few is Segmented.svelte. */
+
+/* A chip that is on or off: a trait, a role, Starred, a prompt's tag. The
+   pill outline; `.on` (set with aria-pressed) fills it with ink. */
+button.togglechip {
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: var(--t-xs);
+  font-weight: 500;
+  padding: 0.05rem 0.55rem;
+  cursor: pointer;
+}
+button.togglechip:hover {
+  color: var(--ink);
+  border-color: var(--muted);
+  filter: none;
+}
+button.togglechip.on {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--panel);
+}

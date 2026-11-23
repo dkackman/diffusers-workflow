@@ -4,6 +4,7 @@
   // suits someone who knows the name; this suits picking by what it shows.
   import { untrack } from 'svelte'
   import Modal from '../ui/Modal.svelte'
+  import Segmented from '../ui/Segmented.svelte'
   import { assetThumbnailUrl, galleryThumbnailUrl } from '../apiUrls'
   import { assetLibrary, ensureAssetLibrary } from '../assetlib.svelte'
   import {
@@ -159,24 +160,15 @@
 <Modal bind:open label="choose a file" large>
   <div class="head">
     <h2>Choose {kind === 'image' ? 'an image' : `a ${kind ?? 'file'}`}</h2>
-    <div class="tabs" role="group" aria-label="where to choose from">
-      <button
-        class="quiet"
-        class:on={tab === 'assets'}
-        aria-pressed={tab === 'assets'}
-        onclick={() => (tab = 'assets')}
-      >
-        Assets
-      </button>
-      <button
-        class="quiet"
-        class:on={tab === 'outputs'}
-        aria-pressed={tab === 'outputs'}
-        onclick={() => (tab = 'outputs')}
-      >
-        Earlier jobs
-      </button>
-    </div>
+    <Segmented
+      label="where to choose from"
+      value={tab}
+      options={[
+        { value: 'assets', label: 'Assets' },
+        { value: 'outputs', label: 'Earlier jobs' },
+      ]}
+      onselect={(picked) => (tab = picked as typeof tab)}
+    />
     <input
       class="search"
       placeholder="search…"
@@ -244,14 +236,6 @@
   }
   .head h2 {
     margin: 0;
-  }
-  .tabs {
-    display: flex;
-    gap: var(--space-1);
-  }
-  .tabs .on {
-    border-color: var(--accent);
-    color: var(--ink);
   }
   .latest {
     display: flex;
