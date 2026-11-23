@@ -50,6 +50,12 @@ see [Authentication](#authentication). The sections below cover the
 [Jobs API](#jobs-api), the [Introspection API](#introspection-api) and
 [Files and models](#files-and-models) in prose.
 
+For route authors: every POST, PUT, PATCH and DELETE route is
+`@writes(kind, ...)` or `@NO_CHANGE(reason)` (`dw/server/changes.py`), which
+is what moves the change counters the UI's open pages reload from.
+`tests/test_changes.py` fails on a route with neither, and on a declaring
+route with no case.
+
 Each job runs in a persistent GPU worker ([WORKER_GUIDE.md](WORKER_GUIDE.md)):
 models stay loaded between runs, so re-running a workflow with a new prompt
 skips the load.
