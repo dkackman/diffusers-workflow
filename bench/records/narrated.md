@@ -381,7 +381,10 @@ from 477 to 856. The plate, the arc and the v4 keyframes are cleared. The v4 mou
 keyframes keep their lip-sync gain without latent carry (3 still-mouth bins against 7
 for the v2 keyframes). On these measures this is the cleanest 86 s arm, and it is the
 shipped `walk_keyframed` configuration with v4-style keyframes. One seed; Don has not
-viewed it (`cp1-arc4-s1.mp4`, `arc4-nolatent-faces.jpg`).
+viewed it at the time (`cp1-arc4-s1.mp4`, `arc4-nolatent-faces.jpg`).
+Don watched it on 2026-11-23 (#1571 Q4, #1596): no walk, she stands; the face
+holds because the pose is pinned. The arm is a standing speaker on a lateral
+camera arc, and no record here has a motion metric.
 
 ## Masked handoff probe, seed 101-112 - job 64a392dcebe1 (refs #1322)
 

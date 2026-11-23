@@ -1,6 +1,8 @@
-# Hybrid windows: the 60 s narrated walking take in one generation (#1571)
+# Hybrid windows: the 60 s narrated take in one generation (#1571)
 
-Feature #1188, plan v1, stage S3. The question is whether one `experimental_hybrid_windows` generation can hold the narrated walk for 60 s as well as the v4-keyframes chain does. The gate for an arm: SFace drift ≤ the chain arm's to 60 s, no burn, and Don sees her walk (Q4, his eye).
+Feature #1188, plan v1, stage S3. The question is whether one `experimental_hybrid_windows` generation can hold the narrated take's face for 60 s as well as the v4-keyframes chain does. The chain arm is a standing speaker on a lateral camera arc: only the backdrop moves. The gate for an arm: SFace drift ≤ the chain arm's to 60 s, no burn, and Don sees her walk (Q4, his eye).
+
+*Note, 2026-11-23 (#1596):* Don watched the chain reference (job ddbac3a46144) for #1571 Q4 and she does not walk. Its 0.070 face drift held because the pose is pinned, not because she moved. The gate stands as Don ruled it; #1188 plan v2 has already decoupled it from the 0.070.
 
 **Verdict: no arm passes the measured half of the gate.**
 - Arm a (blended only) doesn't burn, but its face drifts more than twice as far as the chain's: 0.172 and 0.160 against 0.070.

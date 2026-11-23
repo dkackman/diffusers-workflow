@@ -496,7 +496,7 @@ one speaker can be held to a narration made first.
 - What it holds, measured at about 86 s (`bench/records/narrated.md`):
   `shot: dialogue` to about 30 s; `standing` (keystone, no keyframes) to
   about 85 s on one seed, and she stands; `walk_keyframed` holds the face to
-  85 s on two seeds and moves the camera, at the price of a hand-built
+  85 s on two seeds and moves the camera (she stands; no walk), at the price of a hand-built
   keyframe per segment (`keyframes`, the chain's `keystone_images`). No
   preset cleared face, lip sync and motion together, and nothing is measured
   past 86 s. A longer piece is split into passages joined as cuts.

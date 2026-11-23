@@ -557,7 +557,7 @@ unless said.
 | Moving keystone, v2 keyframes | at most 0.041, two seeds | 75 to 81 | lip sync drops at closed-mouth keyframes; sway, no walk |
 | Arc, v3 keyframes (with and without latent carry) | at most 0.068 | 74 to 81 / 77 | the Klein mouth edits aged the face |
 | Arc, v4 keyframes + latent carry | at most 0.074 | 73 to 76 | best lip sync; face over-sharpens from about 45 s |
-| Arc, v4 keyframes, no latent carry (finished after close) | at most 0.075 | 73 to 77 | face sharpness flat to 86 s; 3 still-mouth bins; one seed, not yet viewed by Don |
+| Arc, v4 keyframes, no latent carry (finished after close) | at most 0.075 | 73 to 77 | face sharpness flat to 86 s; 3 still-mouth bins; one seed; Don watched it on 2026-11-23 (#1571 Q4, #1596): she does not walk, the face holds because the pose is pinned |
 | Masked handoff, plain `dialogue` (2026-11-13, after close; #1322) | not measured (SFace .60 at 86 s) | 68 to 85 | no over-sharpening, colour still climbs at seams, a bump at about half the seams |
 | Levelled latent carry, plain `dialogue` (2026-11-13, after close; #1322) | 0.195 | 69 to 67 | no burn on the measures, soft from about 60 s; Don's eye: she becomes progressively glossy. Rejected |
 | Kandinsky S2V 1.0 Lite distilled (spike, outside dw) | SFace 0.71 | 71 to 91 | fails on identity |

@@ -176,7 +176,7 @@ seed 1; about 18-19 min per segment on dialogue and walk_keyframed; standing too
    `shot: dialogue`, up to 12 for `shot: standing`. The estimate prices only
    those segments. Pick `shot` by length: `dialogue` is good for about 30 s;
    `standing` holds to about 85 s (she stands, and each segment eases back to
-   the opening frame); `walk_keyframed` moves, and needs one hand-built
+   the opening frame); `walk_keyframed` pans the backdrop on a lateral camera arc (she stands; no walk, by Don's eye), and needs one hand-built
    keyframe per segment, each with an open, mid-word mouth.
 3. **Judge.** Read each shot's `face_drop`, which is recorded and never
    failed. It is the face's drift from segment 1: `dialogue` read 0.003-0.057
