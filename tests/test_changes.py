@@ -11,7 +11,22 @@ import threading
 
 import pytest
 
-from dw.server.changes import KINDS, Changes
+from fastapi.routing import APIRoute
+
+from dw.server.changes import (
+    ASSETS,
+    GALLERY,
+    JOBS,
+    KINDS,
+    NO_CHANGE,
+    WORKSPACES,
+    Change,
+    ChangeRoute,
+    Changes,
+    Declared,
+    pending_change,
+    writes,
+)
 
 from .test_ledger import item, plan
 from .test_ledger_job_link import client, root  # noqa: F401 - fixtures (F811: tests take them by name)
@@ -160,53 +175,69 @@ def _with_note(client):
     assert r.status_code == 200, r.text
 
 
-# Each case: (setup(client, run), call(client, run) -> response, expected move)
+def _finished_job(client):
+    """A job that ran and wrote its run, its own gallery bump already seen."""
+    client.job = finish(client, submit(client, request=None, item_key=None))
+    wait_until(lambda: counters(client)["kinds"]["gallery"] >= 1)
+
+
+def _run_only_in_shots(client, run):
+    """`run` copied into workspace `shots`, then deleted from the default."""
+    assert client.post("/api/workspaces", json={"name": "shots"}).status_code < 300
+    r = client.post("/api/workspaces/shots/copy", json={"runs": [run]})
+    assert r.status_code == 200, r.text
+    assert client.delete(f"/api/gallery/{run}").status_code == 200
+
+
+# Each case, keyed by the route's name (its handler), or `<route>:<variant>`
+# when one route has several: (setup(client, run), call(client, run) ->
+# response, expected move in the default workspace)
 CASES = {
-    "request-create": (
+    "put_request": (
         lambda c, run: None,
         lambda c, run: c.put(REQ, json={**plan(revision=0), "by": "agent"}),
         {"requests": 1},
     ),
-    "request-note-add": (
+    "add_request_note": (
         lambda c, run: write_plan(c),
         lambda c, run: c.post(NOTES, json={"request": "cats", "text": "hi"}),
         {"requests": 1},
     ),
-    "request-note-edit": (
+    "edit_request_note": (
         lambda c, run: _with_note(c),
         lambda c, run: c.put(
             NOTES, json={"request": "cats", "note": "n1", "text": "second"}
         ),
         {"requests": 1},
     ),
-    "request-note-delete": (
+    "delete_request_note": (
         lambda c, run: _with_note(c),
         lambda c, run: c.delete(f"{NOTES}?request=cats&note=n1"),
         {"requests": 1},
     ),
-    "request-delete": (
+    "delete_request": (
         lambda c, run: write_plan(c),
         lambda c, run: c.delete(f"{REQ}?revision={_request_revision(c)}"),
         {"requests": 1},
     ),
-    "prompt-save": (
+    "save_prompt": (
         lambda c, run: None,
         lambda c, run: c.put("/api/prompts/Fox", json=PROMPT),
         {"prompts": 1},
     ),
-    "prompt-delete": (
+    "delete_prompt": (
         lambda c, run: c.put("/api/prompts/Fox", json=PROMPT),
         lambda c, run: c.delete("/api/prompts/Fox"),
         {"prompts": 1},
     ),
-    "workflow-save": (
+    "save_workflow": (
         lambda c, run: None,
         lambda c, run: c.put(
             "/api/workflows/mine", json={"workflow": valid_workflow()}
         ),
         {"workflows": 1},
     ),
-    "workflow-patch": (
+    "patch_workflow": (
         lambda c, run: c.put(
             "/api/workflows/mine", json={"workflow": valid_workflow()}
         ),
@@ -215,77 +246,95 @@ CASES = {
         ),
         {"workflows": 1},
     ),
-    "workflow-delete": (
+    "delete_workflow": (
         lambda c, run: c.put(
             "/api/workflows/mine", json={"workflow": valid_workflow()}
         ),
         lambda c, run: c.delete("/api/workflows/mine"),
         {"workflows": 1},
     ),
-    "asset-upload": (
+    "upload_media": (
         lambda c, run: None,
         lambda c, run: c.post(
             "/api/uploads", params={"filename": "i.png"}, content=PNG
         ),
         {"assets": 1},
     ),
-    "asset-keep": (
+    "keep_output_as_asset": (
         lambda c, run: None,
         lambda c, run: c.post("/api/assets/keep", json={"name": f"{run}/a.png"}),
         {"assets": 1},
     ),
-    "asset-delete": (
+    "delete_asset": (
         lambda c, run: c.post("/api/assets/keep", json={"name": f"{run}/a.png"}),
         lambda c, run: c.delete("/api/assets/a.png"),
         {"assets": 1},
     ),
-    "asset-note": (
+    "put_note:asset": (
         lambda c, run: c.post("/api/assets/keep", json={"name": f"{run}/a.png"}),
         lambda c, run: c.put("/api/notes", json={"target": "asset:a.png", "note": "n"}),
         {"assets": 1},
     ),
-    "star": (
+    "put_star": (
         lambda c, run: None,
         lambda c, run: c.put(
             "/api/stars", json={"name": f"{run}/a.png", "starred": True}
         ),
         {"gallery": 1},
     ),
-    "file-note": (
+    "put_note:file": (
         lambda c, run: None,
         lambda c, run: c.put(
             "/api/notes", json={"target": f"{run}/a.png", "note": "n"}
         ),
         {"gallery": 1},
     ),
-    "run-note": (
+    "put_note:run": (
         lambda c, run: None,
         lambda c, run: c.put("/api/notes", json={"target": run, "note": "n"}),
         {"gallery": 1},
     ),
-    "output-delete": (
+    "delete_output": (
         lambda c, run: None,
         lambda c, run: c.delete(f"/api/gallery/{run}/a.png"),
         {"gallery": 1},
     ),
-    "workspace-create": (
+    "add_workspace": (
         lambda c, run: None,
         lambda c, run: c.post("/api/workspaces", json={"name": "shots"}),
         {"workspaces": 1},
     ),
-    "workspace-delete": (
+    "remove_workspace": (
         lambda c, run: c.post("/api/workspaces", json={"name": "shots"}),
         lambda c, run: c.delete("/api/workspaces/shots?acknowledged=true"),
         {"workspaces": 1},
     ),
-    "workspace-note": (
+    "put_note:workspace": (
         lambda c, run: None,
         lambda c, run: c.put(
             "/api/notes", json={"target": "workspace:default", "note": "n"}
         ),
         {"workspaces": 1},
     ),
+    "delete_job_run": (
+        lambda c, run: _finished_job(c),
+        lambda c, run: c.delete(f"/api/jobs/{c.job['id']}/run"),
+        {"gallery": 1, "jobs": 1},
+    ),
+    "copy_into_workspace": (
+        _run_only_in_shots,
+        lambda c, run: c.post(
+            "/api/workspaces/default/copy", json={"source": "shots", "runs": [run]}
+        ),
+        {"gallery": 1},
+    ),
 }
+
+# Routes that declare kinds but have no case above: {route name: why}
+UNCASED = {}
+
+
+WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
 
 @pytest.mark.parametrize("case", list(CASES))
@@ -352,15 +401,6 @@ def test_cancelling_a_queued_job_moves_jobs(held):
     r = held.post(f"/api/jobs/{queued['id']}/cancel")
     assert r.status_code == 200, r.text
     assert moved(before, counters(held)) == {"jobs": 1}
-
-
-def test_deleting_a_jobs_run_moves_gallery_and_jobs(client):
-    job = finish(client, submit(client, request=None, item_key=None))
-    wait_until(lambda: counters(client)["kinds"]["gallery"] >= 1)
-    before = counters(client)
-    r = client.delete(f"/api/jobs/{job['id']}/run")
-    assert r.status_code == 200, r.text
-    assert moved(before, counters(client)) == {"gallery": 1, "jobs": 1}
 
 
 # ------------------------------------------------------- a failed write: none
@@ -432,25 +472,141 @@ def test_an_asset_write_moves_every_workspace_only_when_shared(
     assert moved(there, counters(client, "shots")) == ({"assets": 1} if shared else {})
 
 
-class _App:
-    def __init__(self, changes):
-        self.state = type("State", (), {"changes": changes})()
-
-
-class _Request:
-    def __init__(self, changes):
-        self.app = _App(changes)
-
-
 @pytest.mark.parametrize("origin, everywhere", [("common", True), ("workspace", False)])
-def test_changed_assets_decides_from_the_roots_origin(origin, everywhere):
+def test_change_in_library_decides_from_the_roots_origin(origin, everywhere):
     from dw.library import LibraryRoot
-    from dw.server.changes import changed_assets
 
     changes = Changes()
     ws = type("Ws", (), {"name": "shots", "common_assets": "/elsewhere/assets"})()
     # The root's directory is nowhere near ws.common_assets (a symlinked or
     # differently normalised shared library): only its origin decides
-    changed_assets(_Request(changes), ws, LibraryRoot("/linked/common", origin, True))
+    change = Change(Declared((ASSETS,), False, None, None))
+    change.in_library(ws, LibraryRoot("/linked/common", origin, True))
+    change.apply(changes, "elsewhere", "delete_asset")
     assert changes.snapshot("shots")["kinds"]["assets"] == 1
     assert changes.snapshot("other")["kinds"]["assets"] == (1 if everywhere else 0)
+    assert changes.snapshot("elsewhere")["kinds"]["assets"] == (1 if everywhere else 0)
+
+
+def test_change_only_refuses_an_undeclared_kind():
+    change = Change(Declared((ASSETS, GALLERY), False, None, None))
+    with pytest.raises(ValueError):
+        change.only(JOBS)
+    with pytest.raises(ValueError):
+        change.only()
+    assert change.only(GALLERY).kinds == (GALLERY,)
+
+
+def test_a_declaration_names_known_kinds_and_a_reason():
+    with pytest.raises(ValueError):
+        writes()
+    with pytest.raises(ValueError):
+        writes("nope")
+    with pytest.raises(ValueError):
+        NO_CHANGE("")
+    assert writes(WORKSPACES)(lambda: None).writes.kinds == (WORKSPACES,)
+
+
+# ------------------------------------------- every write route declares
+
+
+def _write_routes(app):
+    return [
+        route
+        for route in app.routes
+        if isinstance(route, APIRoute) and route.methods & WRITE_METHODS
+    ]
+
+
+def test_every_write_route_declares_what_it_changes(client):
+    undeclared = sorted(
+        route.name
+        for route in _write_routes(client.app)
+        if getattr(route.endpoint, "writes", None) is None
+    )
+    assert undeclared == []
+
+
+def test_every_write_route_is_a_change_route(client):
+    plain = sorted(
+        route.name
+        for route in _write_routes(client.app)
+        if not isinstance(route, ChangeRoute)
+    )
+    assert plain == []
+
+
+def test_every_declaring_route_has_a_case(client):
+    declaring = {
+        route.name
+        for route in _write_routes(client.app)
+        if getattr(route.endpoint, "writes", None) is not None
+        and route.endpoint.writes.kinds
+        and not route.endpoint.writes.by
+    }
+    cased = {case.split(":")[0] for case in CASES}
+    assert declaring == cased | set(UNCASED)
+
+
+def test_no_route_bumps_by_hand():
+    import pathlib
+
+    routes = pathlib.Path(__file__).parent.parent / "dw" / "server" / "routes"
+    banned = (
+        "changed(",
+        "changed_everywhere(",
+        "changed_assets(",
+        ".bump(",
+        ".bump_all(",
+        ".bump_workspaces(",
+    )
+    found = sorted(
+        f"{path.name}: {needle}"
+        for path in routes.glob("*.py")
+        for needle in banned
+        if needle in path.read_text()
+    )
+    assert found == []
+
+
+def test_a_copy_of_nothing_moves_nothing(client, run):
+    assert client.post("/api/workspaces", json={"name": "shots"}).status_code < 300
+    body = {"runs": [run]}
+    assert client.post("/api/workspaces/shots/copy", json=body).status_code == 200
+    before = counters(client, "shots")
+    again = client.post("/api/workspaces/shots/copy", json=body)
+    assert again.status_code == 200, again.text
+    assert again.json()["already_present"] == [run]
+    assert counters(client, "shots") == before
+
+
+def test_a_handler_that_raises_bumps_nothing():
+    from fastapi import Depends, FastAPI, HTTPException
+    from fastapi.routing import APIRouter
+    from fastapi.testclient import TestClient
+
+    done = []
+    router = APIRouter(route_class=ChangeRoute)
+
+    @router.post("/refused")
+    @writes(GALLERY)
+    def refused(change: Change = Depends(pending_change)):
+        change.in_workspace("a")
+        done.append("written")
+        raise HTTPException(status_code=409, detail="no")
+
+    @router.post("/accepted")
+    @writes(GALLERY)
+    def accepted(change: Change = Depends(pending_change)):
+        change.in_workspace("a")
+        return {}
+
+    app = FastAPI()
+    app.state.changes = Changes()
+    app.router.routes.extend(router.routes)
+    http = TestClient(app)
+    assert http.post("/refused").status_code == 409
+    assert done == ["written"]
+    assert app.state.changes.snapshot("a")["kinds"]["gallery"] == 0
+    assert http.post("/accepted").status_code == 200
+    assert app.state.changes.snapshot("a")["kinds"]["gallery"] == 1

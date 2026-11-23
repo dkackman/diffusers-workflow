@@ -19,14 +19,31 @@ job manager), so the counters see every write but a hand edit on disk.
   library) is bumped with `bump_all`: a server-wide count added to each
   workspace's own, so every workspace's page of that kind reloads.
 
+A route never bumps by hand. Every write route declares what it changes,
+`@writes(kinds...)` under its `@router.<method>(...)`, or `@NO_CHANGE(reason)`
+when it writes nothing a page lists; `by=` names who bumps instead (the job
+manager, for a queued job). Every router is `APIRouter(route_class=ChangeRoute)`,
+whose handler bumps the declared kinds after the response is built, and only
+for a 2xx: a raised exception, or a 4xx or 5xx, bumps nothing. The target is
+the request's workspace, which `deps.selected_workspace` records on
+`request.state`; a handler whose target is conditional takes
+`change: Change = Depends(pending_change)` and narrows it (`only`,
+`in_workspace`, `everywhere`, `in_library`, `nothing`). `WORKSPACES` is the
+declarable name of the server-wide counter.
+
 The rule "every server write bumps its kind" is a row of
 docs/ARCHITECTURE.md, enforced by tests/test_changes.py, which calls each
-write route and checks exactly the right kind moved. In memory under one
-lock, the `dw/server/listening.py` pattern.
+write route and checks exactly the right kind moved, and checks that every
+write route declares. In memory under one lock, the `dw/server/listening.py`
+pattern.
 """
 
 import threading
 import uuid
+from typing import NamedTuple, Optional
+
+from fastapi import Request
+from fastapi.routing import APIRoute
 
 from ..library import COMMON_ORIGIN
 from ..workspace import DEFAULT_WORKSPACE_NAME
@@ -38,6 +55,8 @@ ASSETS = "assets"
 GALLERY = "gallery"
 JOBS = "jobs"
 KINDS = (REQUESTS, PROMPTS, WORKFLOWS, ASSETS, GALLERY, JOBS)
+# The server-wide counter, declarable on a route; not one of `KINDS`
+WORKSPACES = "workspaces"
 
 
 def _space():
@@ -103,22 +122,126 @@ def _check(kinds):
         raise ValueError(f"Unknown change kind(s): {unknown or 'none named'}")
 
 
-def changed(request, workspace, *kinds) -> None:
-    """Route form: bump `kinds` in `workspace` on this request's app."""
-    request.app.state.changes.bump(workspace, *kinds)
+class Declared(NamedTuple):
+    """What a route said it changes (`writes`, `NO_CHANGE`)."""
+
+    kinds: tuple
+    shared: bool
+    by: Optional[str]
+    reason: Optional[str]
 
 
-def changed_everywhere(request, *kinds) -> None:
-    """Route form of `bump_all`."""
-    request.app.state.changes.bump_all(*kinds)
+def writes(*kinds, shared=False, by=None):
+    """Declare the kinds a write route changes. `shared` moves every
+    workspace (a library they all share); `by` names who bumps instead of
+    the route ("the job manager"), so `ChangeRoute` bumps nothing."""
+    unknown = [kind for kind in kinds if kind not in KINDS + (WORKSPACES,)]
+    if unknown or not kinds:
+        raise ValueError(f"Unknown change kind(s): {unknown or 'none named'}")
+
+    def declare(fn):
+        fn.writes = Declared(tuple(kinds), shared, by, None)
+        return fn
+
+    return declare
 
 
-def changed_assets(request, ws, root) -> None:
-    """An asset in library `root` (the `LibraryRoot` that `AssetLibrary.find`
-    or `writable_root` answered) changed: the shared library's moves every
-    workspace's `assets`, any other only `ws`'s. Which library holds a file
-    is `LibraryPath`'s answer (`origin`), never re-derived from the path."""
-    if root.origin == COMMON_ORIGIN:
-        changed_everywhere(request, ASSETS)
-    else:
-        changed(request, ws.name, ASSETS)
+def NO_CHANGE(reason):
+    """Declare a write route that changes nothing a page lists, and why."""
+    if not reason:
+        raise ValueError("NO_CHANGE needs a reason")
+
+    def declare(fn):
+        fn.writes = Declared((), False, None, reason)
+        return fn
+
+    return declare
+
+
+class Change:
+    """One request's pending bump: the route's declaration, narrowed by
+    its handler. `ChangeRoute` applies it after a 2xx."""
+
+    def __init__(self, declared):
+        self.declared = declared
+        self.kinds = declared.kinds
+        self.shared = declared.shared
+        self.named = False
+        self.workspace = None
+        self.skip = False
+
+    def only(self, *kinds):
+        outside = [kind for kind in kinds if kind not in self.declared.kinds]
+        if outside or not kinds:
+            raise ValueError(f"Not declared by this route: {outside or 'none named'}")
+        self.kinds = tuple(kinds)
+        return self
+
+    def in_workspace(self, name):
+        self.named, self.workspace = True, name
+        return self
+
+    def everywhere(self):
+        self.shared = True
+        return self
+
+    def in_library(self, ws, root):
+        """An asset in library `root` (the `LibraryRoot` that
+        `AssetLibrary.find` or `writable_root` answered): the shared
+        library's moves every workspace, any other only `ws`. Which library
+        holds a file is `LibraryPath`'s answer (`origin`), never re-derived
+        from the path."""
+        if root.origin == COMMON_ORIGIN:
+            return self.everywhere()
+        return self.in_workspace(ws.name)
+
+    def nothing(self):
+        self.skip = True
+        return self
+
+    def apply(self, changes, recorded, route):
+        """Bump what is pending. `recorded` is the workspace the request
+        selected (`_UNSET` when it selected none)."""
+        if self.skip or self.declared.by or not self.kinds:
+            return
+        if WORKSPACES in self.kinds:
+            changes.bump_workspaces()
+        kinds = tuple(kind for kind in self.kinds if kind != WORKSPACES)
+        if not kinds:
+            return
+        if self.shared:
+            changes.bump_all(*kinds)
+            return
+        target = self.workspace if self.named else recorded
+        if target is _UNSET:
+            raise RuntimeError(f"{route} declares {kinds} but named no workspace")
+        changes.bump(target, *kinds)
+
+
+_UNSET = object()
+
+
+def pending_change(request: Request) -> Change:
+    """FastAPI dependency: this request's pending `Change`, to narrow."""
+    return request.state.dw_change
+
+
+class ChangeRoute(APIRoute):
+    """A route that bumps what its endpoint declared, after a 2xx."""
+
+    def get_route_handler(self):
+        handler = super().get_route_handler()
+        declared = getattr(self.endpoint, "writes", None)
+        if declared is None:
+            return handler
+        name = self.name
+
+        async def bump_after(request):
+            change = request.state.dw_change = Change(declared)
+            response = await handler(request)
+            if 200 <= response.status_code < 300:
+                recorded = getattr(request.state, "dw_workspace", _UNSET)
+                change.apply(request.app.state.changes, recorded, name)
+            return response
+
+        return bump_after

@@ -34,7 +34,8 @@ from ..api_models import (
 )
 
 from ..api_models_library import WorkspaceChanges
-from ..changes import ASSETS, GALLERY, PROMPTS, WORKFLOWS, changed, changed_everywhere
+from ..changes import ASSETS, GALLERY, PROMPTS, WORKFLOWS, WORKSPACES, ChangeRoute
+from ..changes import JOBS, Change, pending_change, writes
 from ...argument_warnings import workflow_argument_warnings
 from ...schema import format_validation_errors, load_schema, validate_data
 from ... import references, validation
@@ -99,7 +100,7 @@ from ..job_record import TERMINAL_STATES
 
 logger = logging.getLogger("dw")
 
-router = APIRouter()
+router = APIRouter(route_class=ChangeRoute)
 
 
 class WorkspaceRequest(BaseModel):
@@ -165,6 +166,7 @@ def workspace_changes(request: Request, name: str):
     response_model=WorkspaceInfo,
     response_model_exclude_unset=True,
 )
+@writes(WORKSPACES)
 def add_workspace(http_request: Request, request: WorkspaceRequest):
     """Create a workspace: its own workflows, assets and outputs, sharing
     this server's one prompt library."""
@@ -178,7 +180,6 @@ def add_workspace(http_request: Request, request: WorkspaceRequest):
         raise HTTPException(status_code=409, detail=str(e))
     forget_workspace_usage()
     state.changes.forget(created.name)
-    state.changes.bump_workspaces()
     logger.info(f"Created workspace {request.name} at {created.root}")
     return created.describe()
 
@@ -222,8 +223,12 @@ def _copy_side(state, root, name):
     response_model=WorkspaceCopied,
     response_model_exclude_unset=True,
 )
+@writes(GALLERY, ASSETS)
 def copy_into_workspace(
-    http_request: Request, destination: str, request: WorkspaceCopyRequest
+    http_request: Request,
+    destination: str,
+    request: WorkspaceCopyRequest,
+    change: Change = Depends(pending_change),
 ):
     """Copy runs and asset-library entries from another workspace into this one.
 
@@ -270,8 +275,9 @@ def copy_into_workspace(
         raise HTTPException(status_code=e.status, detail=detail)
     except (SecurityError, InvalidInputError, ValueError) as e:
         raise HTTPException(status_code=400, detail=str(e))
-    kinds = ((GALLERY,) if request.runs else ()) + ((ASSETS,) if request.assets else ())
-    changed(http_request, target.name, *kinds)
+    done = copied["copied"]
+    kinds = ((GALLERY,) if done["runs"] else ()) + ((ASSETS,) if done["assets"] else ())
+    change.in_workspace(target.name).only(*kinds) if kinds else change.nothing()
     return copied
 
 
@@ -280,6 +286,7 @@ def copy_into_workspace(
     response_model=WorkspaceDeleted,
     response_model_exclude_unset=True,
 )
+@writes(WORKSPACES)
 def remove_workspace(request: Request, name: str, acknowledged: bool = False):
     """Delete a workspace and everything in it.
 
@@ -339,7 +346,6 @@ def remove_workspace(request: Request, name: str, acknowledged: bool = False):
     forget_workspace_usage()
     manager.forget_workspace(name)
     state.changes.forget(name)
-    state.changes.bump_workspaces()
     logger.info(f"Deleted workspace {name}")
     return {"name": name, "deleted": True, "contents": contents}
 
@@ -497,6 +503,7 @@ def _write_validated(http_request, ws, name, definition):
     response_model=WorkflowSaved,
     response_model_exclude_unset=True,
 )
+@writes(WORKFLOWS)
 def save_workflow(
     http_request: Request,
     response: Response,
@@ -521,7 +528,6 @@ def save_workflow(
         path, saved = _write_validated(http_request, ws, name, request.workflow)
         etag = content_etag(path)
     response.headers["ETag"] = etag
-    changed(http_request, ws.name, WORKFLOWS)
     return saved
 
 
@@ -530,6 +536,7 @@ def save_workflow(
     response_model=WorkflowSaved,
     response_model_exclude_unset=True,
 )
+@writes(WORKFLOWS)
 def patch_workflow(
     http_request: Request,
     response: Response,
@@ -555,7 +562,6 @@ def patch_workflow(
         )
         etag = content_etag(path)
     response.headers["ETag"] = etag
-    changed(http_request, ws.name, WORKFLOWS)
     return saved
 
 
@@ -564,6 +570,7 @@ def patch_workflow(
     response_model=WorkflowDeleted,
     response_model_exclude_unset=True,
 )
+@writes(WORKFLOWS)
 def delete_workflow(
     request: Request, name: str, ws: Workspace = Depends(selected_workspace)
 ):
@@ -589,7 +596,6 @@ def delete_workflow(
     # deletes and recreates the same workflow, would inherit the deleted
     # copy's observed figures and host-memory history
     manager.history.orphan_workflow_history(ws.name, name)
-    changed(request, ws.name, WORKFLOWS)
     return {
         "name": name,
         "workspace": ws.name,
@@ -821,6 +827,7 @@ def list_prompts(
     response_model=PromptSaved,
     response_model_exclude_unset=True,
 )
+@writes(PROMPTS, shared=True)
 def save_prompt(
     http_request: Request, response: Response, name: str, request: PromptRequest
 ):
@@ -848,8 +855,6 @@ def save_prompt(
         etag = content_etag(path)
     response.headers["ETag"] = etag
     logger.info(f"Saved prompt {name} to {path}")
-    # One library every workspace reads
-    changed_everywhere(http_request, PROMPTS)
     return {"name": name}
 
 
@@ -858,6 +863,7 @@ def save_prompt(
     response_model=Deleted,
     response_model_exclude_unset=True,
 )
+@writes(PROMPTS, shared=True)
 def delete_prompt(request: Request, name: str):
     """Remove a prompt file from the prompt directory. A prompt that
     came from a read-only examples library is not this server's to
@@ -872,7 +878,6 @@ def delete_prompt(request: Request, name: str):
     os.remove(path)
     logger.info(f"Deleted prompt {name} ({path})")
     forget_workspace_usage()
-    changed_everywhere(request, PROMPTS)
     return {"name": name, "deleted": True}
 
 
@@ -936,6 +941,7 @@ def list_enhancers():
     response_model=JobDetail,
     response_model_exclude_unset=True,
 )
+@writes(JOBS, by="the job manager")
 def enhance(
     http_request: Request,
     request: EnhanceRequest,

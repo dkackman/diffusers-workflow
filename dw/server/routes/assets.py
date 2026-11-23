@@ -46,7 +46,14 @@ from ...security import (
 from ...library import ReadOnlyLibraryError, shadowed_listing
 from ...workspace import Workspace, forget_workspace_usage
 from ..preconditions import check_write_preconditions
-from ..changes import ASSETS, changed, changed_assets, changed_everywhere
+from ..changes import (
+    ASSETS,
+    NO_CHANGE,
+    Change,
+    ChangeRoute,
+    pending_change,
+    writes,
+)
 from ..deps import (
     asset_library_missing,
     asset_users,
@@ -71,7 +78,7 @@ from ..outputs import (
 
 logger = logging.getLogger("dw")
 
-router = APIRouter()
+router = APIRouter(route_class=ChangeRoute)
 
 
 def _write_bytes(path, data):
@@ -143,6 +150,7 @@ MAX_UPLOAD_BYTES = 200 * 1024 * 1024  # 200MB - covers a short video clip
     response_model=Uploaded,
     response_model_exclude_unset=True,
 )
+@writes(ASSETS)
 async def upload_media(
     request: Request,
     filename: str,
@@ -153,6 +161,7 @@ async def upload_media(
         description=f"A note on the asset, at most {MAX_NOTE_LENGTH} characters",
     ),
     ws: Workspace = Depends(selected_workspace),
+    change: Change = Depends(pending_change),
 ):
     """Save a browser-picked image, video or audio file into the asset library's
     uploads/ subfolder and hand back the reference a workflow argument
@@ -270,9 +279,7 @@ async def upload_media(
     if absolute_url is not None:
         result["absolute_url"] = absolute_url
     if shared:
-        changed_everywhere(request, ASSETS)
-    else:
-        changed(request, ws.name, ASSETS)
+        change.everywhere()
     return result
 
 
@@ -430,8 +437,12 @@ class KeepRequest(BaseModel):
     response_model=Kept,
     response_model_exclude_unset=True,
 )
+@writes(ASSETS)
 def keep_output_as_asset(
-    request: Request, body: KeepRequest, ws: Workspace = Depends(selected_workspace)
+    request: Request,
+    body: KeepRequest,
+    ws: Workspace = Depends(selected_workspace),
+    change: Change = Depends(pending_change),
 ):
     """Keep a generated file as an input asset, under a stable name.
 
@@ -536,9 +547,7 @@ def keep_output_as_asset(
 
     logger.info(f"Kept output {body.name} as {make_ref(ASSET, asset_name)}")
     if body.shared:
-        changed_everywhere(request, ASSETS)
-    else:
-        changed(request, ws.name, ASSETS)
+        change.everywhere()
     return {
         "reference": make_ref(ASSET, asset_name),
         "name": asset_name,
@@ -549,6 +558,7 @@ def keep_output_as_asset(
 
 
 @router.post("/api/assets/archive")
+@NO_CHANGE("builds a download or a view; writes nothing a page lists")
 def archive_assets(
     request: Request, body: ArchiveRequest, ws: Workspace = Depends(selected_workspace)
 ):
@@ -580,8 +590,12 @@ def archive_assets(
     response_model=AssetDeleted,
     response_model_exclude_unset=True,
 )
+@writes(ASSETS)
 def delete_asset(
-    request: Request, name: str, ws: Workspace = Depends(selected_workspace)
+    request: Request,
+    name: str,
+    ws: Workspace = Depends(selected_workspace),
+    change: Change = Depends(pending_change),
 ):
     """Permanently remove one file from the asset library.
 
@@ -622,7 +636,7 @@ def delete_asset(
         except OSError as e:
             logger.warning(f"Could not clear what {path} left beside it: {e}")
         forget_workspace_usage()
-        changed_assets(request, ws, root)
+        change.in_library(ws, root)
         return {
             "name": relative,
             "workspace": ws.name,

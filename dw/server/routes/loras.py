@@ -36,6 +36,7 @@ from ...security import (
 )
 from ...workspace import Workspace, forget_workspace_usage
 from ..api_models import LoraList
+from ..changes import NO_CHANGE, ChangeRoute
 from ..deps import (
     catalog_entries,
     lora_library_missing,
@@ -45,7 +46,7 @@ from ..deps import (
 )
 
 logger = logging.getLogger("dw")
-router = APIRouter()
+router = APIRouter(route_class=ChangeRoute)
 
 
 class LoraRequest(BaseModel):
@@ -179,6 +180,7 @@ def recommend_loras(
 
 
 @router.put("/api/loras/{name:path}")
+@NO_CHANGE("until the models and loras kinds (2b Task 2)")
 def save_lora(http_request: Request, name: str, request: LoraRequest):
     """Write an entry into the server's LoRA library, schema-checked first.
     Saving over a shipped entry writes a copy that shadows it."""
@@ -213,6 +215,7 @@ def save_lora(http_request: Request, name: str, request: LoraRequest):
 
 
 @router.delete("/api/loras/{name:path}")
+@NO_CHANGE("until the models and loras kinds (2b Task 2)")
 def delete_lora(request: Request, name: str):
     """Remove one of the server's own entries; a shipped one is a 403."""
     state = request.app.state
