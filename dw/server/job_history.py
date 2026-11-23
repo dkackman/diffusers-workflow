@@ -408,7 +408,7 @@ class JobHistory:
                 return None
             instance = row["server_instance"]
             rows = connection.execute(
-                "SELECT id, workflow, workspace, created_at FROM jobs"
+                "SELECT id, workflow, workflow_name, workspace, created_at FROM jobs"
                 " WHERE server_instance = ? AND status = ? AND error LIKE ?"
                 " ORDER BY created_at, id",
                 (instance, CANCELLED, pattern),

@@ -5803,6 +5803,19 @@
             ],
             "title": "Workflow"
           },
+          "workflow_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "The catalog name it was run by - the file the UI names it by.",
+            "title": "Workflow Name"
+          },
           "workspace": {
             "title": "Workspace",
             "type": "string"

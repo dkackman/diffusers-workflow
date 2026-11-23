@@ -353,7 +353,8 @@ const preview = {
   would_queue: [
     {
       id: 't1',
-      workflow: 'w-t1',
+      workflow: 'WT1Id',
+      workflow_name: 'models/w-t1',
       workspace: 'default',
       estimate: {
         basis: 'observed',
@@ -387,6 +388,7 @@ it('previews on click with {} once, and the poll never calls the route', async (
     expect(rest).toEqual([])
     const message = data.confirm.mock.calls[0][0] as string
     expect(message).toContain('w-t1 (t1, default) - about 2 min on mps')
+    expect(message).not.toContain('WT1Id')
     expect(message).toContain('w-t2 (t2, default) - no estimate')
     expect(message).toContain('total about 2 min, plus 1 with no figure')
     expect(message).toContain('t3: its workspace is gone')

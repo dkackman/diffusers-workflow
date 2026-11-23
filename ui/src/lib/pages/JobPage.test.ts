@@ -539,7 +539,9 @@ it('names the run by the version the gallery labels its files with', async () =>
   }
   render(JobPage, { jobId: 'j1' })
   const chip = await waitFor(() => screen.getByText('v4'))
-  expect(chip.getAttribute('title')).toContain('20260922-120000-aaaaaaaa')
+  expect(chip.getAttribute('title')).toBe(
+    '4th job of this workflow in this folder',
+  )
 })
 
 it('shows no version for a job that never opened a run', async () => {

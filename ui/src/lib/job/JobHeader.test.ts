@@ -53,7 +53,7 @@ const header = (
 it('titles the version badge with its ordinal', () => {
   header(job({ run_id: 'r2' } as Partial<JobDetail>), {}, { runVersion: 2 })
   expect(screen.getByText('v2').getAttribute('title')).toBe(
-    '2nd job of this workflow in this folder - run id r2',
+    '2nd job of this workflow in this folder',
   )
 })
 

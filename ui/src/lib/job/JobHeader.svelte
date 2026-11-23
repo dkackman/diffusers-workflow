@@ -236,7 +236,7 @@
            here finds them there -->
       <code
         class="muted seed"
-        title={`${versionTitle(runVersion)}${job.run_id ? ` - run id ${job.run_id}` : ''}`}
+        title={versionTitle(runVersion)}
       >
         v{runVersion}
       </code>
