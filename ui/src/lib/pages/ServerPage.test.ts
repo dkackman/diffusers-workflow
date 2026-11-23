@@ -380,7 +380,10 @@ it('asks before clearing, quoting the cost and the shared-cache warning', async 
   clearButton(container, 'triton').click()
   await settle()
   expect(confirmDialog).toHaveBeenCalledOnce()
-  const [message, spec] = confirmDialog.mock.calls[0]
+  const [message, spec] = confirmDialog.mock.calls[0] as [
+    string,
+    { title: string },
+  ]
   // the title names the cache; the message does not say it again
   expect(spec.title).toContain('triton')
   expect(message).not.toContain('triton')
@@ -518,7 +521,10 @@ it('deletes an entry after the confirm, then re-reads the caches', async () => {
   await settle()
   entryDelete(container, 0).click()
   await settle()
-  const [message, spec] = confirmDialog.mock.calls[0]
+  const [message, spec] = confirmDialog.mock.calls[0] as [
+    string,
+    { title: string },
+  ]
   // the title names the entry; the message says its size and cost
   expect(spec.title).toBe(
     'Delete transformer of org/flux from the quantized cache?',
