@@ -6,7 +6,7 @@
   import NoteRef from './NoteRef.svelte'
   import { draftKey, refKey } from './draft'
   import { listening } from './listening.svelte'
-  import { noteAnchor, noteLine } from './noteState'
+  import { answerOf, noteAnchor, noteLine } from './noteState'
   import { holdsStopped } from './reviewText'
   import { addRef, collapseRefs, writtenRefs } from './noteRefs'
   import { action } from '../action.svelte'
@@ -118,9 +118,9 @@
   async function write(box: string, w: Write) {
     boxes[box] ??= boxWriter()
     const outcome = await boxes[box].run(w)
-    // Undefined: a write from this box is still on its way
-    if (!outcome) throw new Error('This note is still being saved.')
-    if (outcome.refused) throw outcome.refused
+    // Undefined while another write from this box is out: the action's
+    // guard, the only one here
+    if (outcome?.refused) throw outcome.refused
   }
   async function added(text: string) {
     await channel.refresh()
@@ -190,6 +190,7 @@
               {note}
               {about}
               line={noteLine(note, request, new Date(), channel.listening)}
+              answer={answerOf(note, request)}
               {editable}
               draftKey={draftKey(workspace, request.id, item, `@${note.id}`)}
               listening={channel.listening}

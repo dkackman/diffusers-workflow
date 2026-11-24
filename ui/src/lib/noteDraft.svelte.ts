@@ -37,12 +37,16 @@ export class NoteDraft {
   /** What is in the box */
   text = $state('')
   editing = $state(false)
-  /** The box was closed over words that are not saved: still here */
-  kept = $state(false)
+  /** The box was closed over words that are not saved, and the draft is
+   * set aside */
+  #aside = $state(false)
   #key: () => string | null
   #saved: () => string
   #save: (text: string) => Promise<void>
   #onclose?: () => void
+  /** Set aside and still not the note as saved now: a draft equal to it,
+   * after a save went through, is not kept */
+  readonly kept: boolean
 
   /** Construct during a component's setup: the storage follows `text` in
    * an effect */
@@ -52,6 +56,7 @@ export class NoteDraft {
     this.#saved = options.saved
     this.#save = options.save
     this.#onclose = options.onclose
+    this.kept = $derived(this.#aside && draftAtRisk(this.text, this.#saved()))
     let last = untrack(this.#key)
     untrack(() => this.#restore(last))
     $effect(() => {
@@ -74,7 +79,7 @@ export class NoteDraft {
     const left = readDraft(key)
     const atRisk = left !== null && draftAtRisk(left, this.#saved())
     this.text = atRisk ? left : ''
-    this.kept = atRisk
+    this.#aside = atRisk
   }
 
   /** Closing the box now would lose words */
@@ -92,13 +97,13 @@ export class NoteDraft {
   open() {
     if (this.editing) return
     if (!this.kept) this.text = this.#saved()
-    this.kept = false
+    this.#aside = false
     this.editing = true
   }
 
   /** Close the box, keeping words that are not saved for the next open */
   close() {
-    this.kept = this.atRisk
+    this.#aside = this.atRisk
     this.editing = false
     this.#onclose?.()
   }
@@ -108,7 +113,7 @@ export class NoteDraft {
    * over the note now saved. True when the box was emptied */
   done(sent: string): boolean {
     if (this.text !== sent) return false
-    this.kept = false
+    this.#aside = false
     this.text = ''
     this.editing = false
     return true
@@ -126,7 +131,7 @@ export class NoteDraft {
       }))
     )
       return false
-    this.kept = false
+    this.#aside = false
     this.text = ''
     this.editing = false
     return true

@@ -170,3 +170,18 @@ it('Escape while a save is out, with nothing typed since, leaves nothing', () =>
   expect(draft.kept).toBe(false)
   expect(sessionStorage.getItem('note:studio:wf/run-1')).toBeNull()
 })
+
+it('a draft equal to the saved note is not kept', () => {
+  let saved = $state('saved')
+  const draft = make({ saved: () => saved })
+  draft.open()
+  draft.text = 'warmer light'
+  draft.keydown(key({ key: 'Escape' }))
+  expect(draft.kept).toBe(true)
+  // the save went through while the box was closed
+  saved = 'warmer light'
+  flushSync()
+  expect(draft.kept).toBe(false)
+  draft.open()
+  expect(draft.text).toBe('warmer light')
+})

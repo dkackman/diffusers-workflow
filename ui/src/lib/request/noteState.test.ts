@@ -1,6 +1,7 @@
 import { expect, it } from 'vitest'
 import { formatMtime } from '../format'
 import {
+  answerOf,
   LISTENING_LINE,
   NOT_LISTENING_LINE,
   noteAnswered,
@@ -133,4 +134,25 @@ it.each(cases)('shared case: $name', ({ request: stored, waiting }) => {
     .map((n) => n.id)
   expect(ids).toEqual(waiting)
   expect(notesWaiting(req)).toBe(waiting.length)
+})
+
+it("the answer is the agent's first write after the note", () => {
+  const req = request([], {
+    agent_wrote_at: at(14),
+    history: [
+      entry(4, 'agent', 'before the note'),
+      entry(6, 'user', 'a comment'),
+      entry(8, 'agent', 'added shot 7'),
+      entry(14, 'agent', 'retook shot 3 warmer'),
+    ],
+  })
+  expect(answerOf(note, req)).toEqual({ revision: 8, why: 'added shot 7' })
+})
+
+it('no write after it, no answer', () => {
+  const req = request([], {
+    agent_wrote_at: at(4),
+    history: [entry(4, 'agent', 'before the note'), entry(9, 'user', 'x')],
+  })
+  expect(answerOf(note, req)).toBeNull()
 })

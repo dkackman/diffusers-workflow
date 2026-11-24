@@ -18,6 +18,16 @@ export function agentWritesSince(
     .sort((a, b) => a.revision - b.revision)
 }
 
+/** What the agent said in its first write after the note: the revision it
+ * made and its `why`; null while it has written none */
+export function answerOf(
+  note: LedgerNote,
+  request: LedgerRequest,
+): { revision: number; why: string } | null {
+  const first = agentWritesSince(note, request.history)[0]
+  return first ? { revision: first.revision, why: first.why } : null
+}
+
 type Standing = Pick<LedgerRequest, 'state' | 'agent_wrote_at'>
 type StandingWithHistory = Standing & Pick<LedgerRequest, 'history'>
 

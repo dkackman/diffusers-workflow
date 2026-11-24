@@ -8,7 +8,7 @@ import {
 } from '@testing-library/svelte'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import NoteList from './NoteList.svelte'
-import { attempt, item, request } from './fixtures'
+import { attempt, entry, item, request } from './fixtures'
 import type { LedgerNote, LedgerNoteRef } from '../types'
 
 const api = vi.hoisted(() => ({
@@ -245,7 +245,7 @@ it('edits and deletes a note through the note routes', async () => {
   const first = within(
     document.getElementById('request-note-n1') as HTMLElement,
   )
-  await fireEvent.click(first.getByRole('button', { name: 'Delete note' }))
+  await fireEvent.click(first.getByRole('button', { name: 'Clear note' }))
   await waitFor(() =>
     expect(api.deleteNote).toHaveBeenCalledWith('studio', 'r1', 'n1'),
   )
@@ -411,4 +411,44 @@ it('a closed request keeps its notes and offers no box', () => {
     screen.queryByRole('button', { name: 'Add a note for the agent' }),
   ).toBeNull()
   expect(screen.queryByRole('button', { name: /^Edit/ })).toBeNull()
+})
+
+it('a second Save while one is out sends one write', async () => {
+  let landed!: (v: unknown) => void
+  api.addNote.mockReturnValue(new Promise((r) => (landed = r)))
+  const given = props()
+  render(NoteList, given)
+  await write('reroll this one')
+  await fireEvent.click(screen.getByRole('button', { name: 'Save note' }))
+  await fireEvent.keyDown(box(), { key: 'Enter', ctrlKey: true })
+  await fireEvent.keyDown(box(), { key: 'Enter', metaKey: true })
+  landed({ note: notes[0], revision: 4 })
+  await waitFor(() => expect(given.onchanged).toHaveBeenCalledTimes(1))
+  expect(api.addNote).toHaveBeenCalledTimes(1)
+})
+
+it('an answered note shows the answer the agent gave in its first write', () => {
+  const answered = {
+    ...req(),
+    history: [
+      entry(6, 'agent', 'retook shot 3 warmer'),
+      entry(8, 'agent', 'later still'),
+    ],
+  }
+  render(NoteList, props({ request: answered, notes: [notes[0]] }))
+  expect(
+    screen.getByText('The agent answered in r6: retook shot 3 warmer'),
+  ).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'Clear note' })).toBeTruthy()
+})
+
+it('a closed request shows the answer and offers no Clear note', () => {
+  const closed = {
+    ...req(),
+    state: 'done' as const,
+    history: [entry(6, 'agent', 'retook shot 3 warmer')],
+  }
+  render(NoteList, props({ request: closed, notes: [notes[0]] }))
+  expect(screen.getByText(/The agent answered in r6/)).toBeTruthy()
+  expect(screen.queryByRole('button', { name: 'Clear note' })).toBeNull()
 })

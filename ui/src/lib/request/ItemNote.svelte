@@ -24,6 +24,7 @@
     note,
     about,
     line,
+    answer = null,
     editable = true,
     draftKey = null,
     listening = false,
@@ -45,6 +46,9 @@
     about: string
     /** The line under the saved note; null when there is none */
     line: NoteLine | null
+    /** What the agent said in its first write after the saved note
+     * (answerOf); null while it has said nothing */
+    answer?: { revision: number; why: string } | null
     /** False where the ledger would not keep an edit: a dropped item */
     editable?: boolean
     /** Where the unsaved draft is kept across a reload (draft.ts) */
@@ -137,7 +141,12 @@
       const open = draft.editing
       refused = null
       // Words typed while it was out stay in the box
-      if (draft.done(sent) && open) void focusOpener()
+      if (draft.done(sent)) {
+        if (open) void focusOpener()
+      } else if (note === null && draft.text.startsWith(sent)) {
+        // Typing went on while it was out: the box keeps only the new words
+        draft.text = draft.text.slice(sent.length).trim()
+      }
       if (note === null) onsaved?.()
     } catch (e) {
       refused = saveFailure(e)
@@ -268,6 +277,11 @@
             {@render chips()}
           </div>
         {/if}
+        {#if answer}
+          <p class="hint">
+            The agent answered in r{answer.revision}: {answer.why}
+          </p>
+        {/if}
         {#if line}<p class="hint muted">{line.text}</p>{/if}
       {/if}
       {#if draft.kept}<p class="hint">You have an unsaved draft.</p>{/if}
@@ -292,8 +306,11 @@
               class="bare"
               onclick={() => remove(draft.text)}
               disabled={saving}
+              title={line?.answered
+                ? 'The agent has answered; remove it from the list'
+                : undefined}
             >
-              Delete note
+              {line?.answered ? 'Clear note' : 'Delete note'}
             </button>
           {/if}
         </div>
