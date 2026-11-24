@@ -27,12 +27,20 @@ const bitsPath = {
   name: 'bits-ui',
   message: 'Import a wrapper from src/lib/ui/ - Bits UI stays behind it.',
 }
+// The whole package carries every language Monaco ships; the JSON view
+// needs one. Pinned by scripts/lint-rules.test.ts
+const monacoPath = {
+  name: 'monaco-editor',
+  allowTypeImports: true,
+  message:
+    'Import Monaco through src/lib/monaco.ts, which loads the JSON language only.',
+}
 /** The no-restricted-imports options for a block: flat config replaces a
  * rule's options rather than merging them, so each block lists them all */
 const restricted = ({ bits = false, empty = false, feed = false }) => [
   'error',
   {
-    paths: bits ? [bitsPath] : [],
+    paths: [monacoPath, ...(bits ? [bitsPath] : [])],
     patterns: [
       ...(empty ? [emptyPattern] : []),
       ...(feed ? [feedPattern] : []),
