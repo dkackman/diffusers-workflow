@@ -235,13 +235,15 @@ def _probe_at(path, mtime_ns, size):
     return probe_media(path)
 
 
-def _probed(path):
+def _probed(path, root):
     """`probe_media(path)`, memoised on the file's (path, mtime, size) and
     bounded at 4096 answers - a second `media=true` listing re-probes only
-    the files that changed. None for a file that cannot be stat'ed."""
+    the files that changed. `path` goes through `validate_path` against
+    `root` first; None for a file that is refused or cannot be stat'ed."""
     try:
+        path = validate_path(path, root, allow_create=False)
         stat = os.stat(path)
-    except OSError:
+    except (SecurityError, OSError):
         return None
     return _probe_at(path, stat.st_mtime_ns, stat.st_size)
 
@@ -254,7 +256,7 @@ def _page_extras(request, ws, page, media, prompts):
         for entry in page:
             if entry["kind"] not in ("audio", "video"):
                 continue
-            probed = _probed(os.path.join(ws.outputs, entry["name"]))
+            probed = _probed(os.path.join(ws.outputs, entry["name"]), ws.outputs)
             if probed is not None:
                 entry["duration_seconds"] = probed.get("duration_seconds")
     if not prompts:

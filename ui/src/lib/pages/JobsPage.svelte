@@ -82,10 +82,13 @@
   // What load reads before its first await (the scope's workspace and the
   // request filter) restarts the read when it changes, so a narrowed view
   // never shows another question's rows
+  // Prompts ride along only while the search has text: the restart this
+  // read makes is on starting or clearing a search, not on each keystroke
+  const searching = $derived(!!nameFilter.value.trim())
   const list = resource(
     async () => {
       const [ws, scoped] = [listed, { ...requestScope }]
-      const rows = (await listJobs(ws, scoped)).jobs.reverse()
+      const rows = (await listJobs(ws, scoped, searching)).jobs.reverse()
       const queued = await queuedEverywhere(rows, !!(ws || scoped.request))
       return { rows, queueSize: queueLength(rows, queued) }
     },

@@ -290,7 +290,7 @@ def list_jobs(
     )
     if not prompts:
         return {"jobs": jobs, "total": total}
-    found = job_prompts(manager, [job["id"] for job in jobs], workspace)
+    found = job_prompts(manager, [job["id"] for job in jobs])
     return {"jobs": jobs, "total": total, "prompts": found}
 
 

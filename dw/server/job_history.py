@@ -28,7 +28,6 @@ from ..workspace import DEFAULT_WORKSPACE_NAME
 from .host_ram_need import memory_key
 from .observed_cost import EVENT_CAP, LOADING_MARKER
 from .job_results import stored_manifest
-from .outputs import prompt_text
 from .job_record import (
     ACK_NONE,
     CANCELLED,
@@ -629,16 +628,17 @@ class JobHistory:
             rows = connection.execute(sql, params).fetchall()
         return {row["run_id"] for row in rows}
 
-    def submitted_prompts(self, workspace):
-        """(job id, run id, prompt) for each job of `workspace` (every one for
-        None) whose stored `arguments` carry a prompt, read by `prompt_text`."""
-        sql = "SELECT id, run_id, arguments FROM jobs WHERE json_valid(arguments)"
-        sql += " AND json_type(arguments, '$.prompt') IN ('text', 'array')"
-        sql += " AND workspace = ?" if workspace else ""
-        with self._lock, self._connect() as connection:
-            rows = connection.execute(sql, [workspace] if workspace else []).fetchall()
-        found = ((r["id"], r["run_id"], json.loads(r["arguments"])) for r in rows)
-        return [(job, run, p) for job, run, a in found if (p := prompt_text(a))]
+    def submitted_prompts(self, ids, by_run=False, workspace=None):
+        """(id, run id, json_type, json_extract) of `$.prompt` for `workspace`'s rows
+        (any for None) whose id (run id `by_run`) is in list `ids` - not the blob."""
+        p, rows, col = "arguments, '$.prompt'", [], ("id", "run_id")[by_run]
+        sql = f"SELECT id, run_id, json_type({p}), json_extract({p}) FROM jobs"
+        sql += " WHERE json_valid(arguments) AND IFNULL(?, workspace) IS workspace"
+        for chunk in (ids[at : at + 500] for at in range(0, len(ids), 500)):
+            with self._lock, self._connect() as connection:
+                query = f"{sql} AND {col} IN ({','.join('?' * len(chunk))})"
+                rows += connection.execute(query, [workspace, *chunk]).fetchall()
+        return rows
 
     def device_ordinal(self, job_id):
         """The ordinal of the card a finished job ran on ('cuda:1'), or None

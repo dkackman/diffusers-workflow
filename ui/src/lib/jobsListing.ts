@@ -44,16 +44,21 @@ export function queueLength(jobs: JobSummary[], queued = 0): number {
 }
 
 /** The listing a Jobs page's filters name: `ws` ('' for every workspace)
- * narrowed to a request, or one item of it, with each job's submitted
- * prompt (`prompts`) for the page's search to match on */
-export const listJobs = (ws: string, scoped: RequestFilter) =>
+ * narrowed to a request, or one item of it. Only while the page's search
+ * has text (`searching`) does it ask for each job's submitted prompt
+ * (`prompts`) to match on: the listing is polled, and nothing else reads it */
+export const listJobs = (
+  ws: string,
+  scoped: RequestFilter,
+  searching = false,
+) =>
   api.listJobs(
     ws || undefined,
     undefined,
     undefined,
     scoped.request || undefined,
     scoped.item || undefined,
-    { prompts: true },
+    { prompts: searching },
   )
 
 /** The server's count of every queued job, asked for only by a narrowed

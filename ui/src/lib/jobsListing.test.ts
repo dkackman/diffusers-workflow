@@ -45,8 +45,8 @@ vi.mock('./api', () => ({
   },
 }))
 
-it("the Jobs page's listing asks for each job's prompt", async () => {
-  await listJobs('studio', { request: 'r1', item: 'alpha' })
+it("the Jobs page's listing asks for each job's prompt only while searching", async () => {
+  await listJobs('studio', { request: 'r1', item: 'alpha' }, true)
   expect(listed.at(-1)).toEqual([
     'studio',
     undefined,
@@ -55,6 +55,8 @@ it("the Jobs page's listing asks for each job's prompt", async () => {
     'alpha',
     { prompts: true },
   ])
+  await listJobs('studio', { request: '', item: '' })
+  expect(listed.at(-1)?.at(-1)).toEqual({ prompts: false })
 })
 
 const at = (...positions: Array<number | undefined>) =>

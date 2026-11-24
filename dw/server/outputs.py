@@ -6,6 +6,7 @@ The gallery, media, assets and files routers all reach it. Functions take the
 app's `state` explicitly, so two apps in one process resolve independently.
 """
 
+import json
 import logging
 import os
 import shutil
@@ -102,18 +103,42 @@ def prompt_text(arguments):
     )
 
 
-def job_prompts(manager, job_ids, workspace=None):
+def _stored_prompt(json_type, value):
+    """`prompt_text` of a `$.prompt` as `JobHistory.submitted_prompts` read it
+    out of SQL: text as it is, a list from its JSON, anything else None."""
+    if json_type == "array":
+        value = json.loads(value)
+    elif json_type != "text":
+        return None
+    return prompt_text({"prompt": value})
+
+
+# (history path, job id) -> its submitted prompt or None: a job's arguments
+# never change once stored, so the polled jobs listing reads each id once
+_PROMPT_MEMO, _PROMPT_MEMO_LOCK = OrderedDict(), threading.Lock()
+PROMPT_MEMO_MAX = 4096
+
+
+def job_prompts(manager, job_ids):
     """Job id -> submitted prompt for `job_ids`: a live job's from its spec,
-    a historical one's from the history (`JobHistory.submitted_prompts`)."""
-    wanted = set(job_ids)
-    found = {
-        job_id: prompt
-        for job_id, _run_id, prompt in manager.history.submitted_prompts(workspace)
-        if job_id in wanted
-    }
-    for job_id in wanted:
-        live = manager.jobs.get(job_id)
-        prompt = prompt_text(live.spec.get("arguments")) if live else None
+    a historical one's from the history (`JobHistory.submitted_prompts`),
+    each read once and memoised (`_PROMPT_MEMO`, bounded at PROMPT_MEMO_MAX)."""
+    history, found = manager.history, {}
+    live = {job_id: manager.jobs.get(job_id) for job_id in job_ids}
+    unread = [
+        job_id
+        for job_id, job in live.items()
+        if job is None and (history.db_path, job_id) not in _PROMPT_MEMO
+    ]
+    rows = history.submitted_prompts(unread) if unread else []
+    read = {job_id: _stored_prompt(kind, value) for job_id, _run, kind, value in rows}
+    with _PROMPT_MEMO_LOCK:
+        _PROMPT_MEMO.update(((history.db_path, j), p) for j, p in read.items())
+        while len(_PROMPT_MEMO) > PROMPT_MEMO_MAX:
+            _PROMPT_MEMO.popitem(last=False)
+    for job_id, job in live.items():
+        prompt = prompt_text(job.spec.get("arguments")) if job else read.get(job_id)
+        prompt = prompt or _PROMPT_MEMO.get((history.db_path, job_id))
         if prompt:
             found[job_id] = prompt
     return found
@@ -122,12 +147,9 @@ def job_prompts(manager, job_ids, workspace=None):
 def run_prompts(history, workspace, run_ids):
     """Run id -> the prompt its job was submitted with, for `run_ids`; a run
     whose job history no longer holds has no entry."""
-    wanted = set(run_ids)
-    return {
-        run_id: prompt
-        for _job_id, run_id, prompt in history.submitted_prompts(workspace)
-        if run_id in wanted
-    }
+    rows = history.submitted_prompts(list(run_ids), by_run=True, workspace=workspace)
+    found = ((run, _stored_prompt(kind, value)) for _job, run, kind, value in rows)
+    return {run: prompt for run, prompt in found if prompt}
 
 
 def _shown(entries):

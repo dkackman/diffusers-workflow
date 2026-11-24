@@ -7,6 +7,8 @@ could be read. The API grew `limit` and `status` (and always reports
 job worth looking at is almost always the last one.
 """
 
+import json
+
 import httpx
 import pytest
 
@@ -115,6 +117,41 @@ def test_a_queued_jobs_prompt_is_listed(server):
         assert prompts == {running: "first", queued: "second"}
         for job_id in (queued, running):
             client.post(f"/api/jobs/{job_id}/cancel")
+
+
+def _stored_with_prompt(history, job_id, prompt, created_at):
+    stored_job(history, job_id, "succeeded", created_at)
+    with history._connect() as connection:
+        connection.execute(
+            "UPDATE jobs SET arguments = ? WHERE id = ?",
+            (json.dumps({"prompt": prompt}), job_id),
+        )
+
+
+def test_prompts_cover_only_the_listed_page(server):
+    """`limit` keeps the newest job; the prompts are that page's, and only
+    its ids are read out of history - not every row of it."""
+    with server(success_script) as client:
+        history = client.app.state.job_manager.history
+        for index in range(3):
+            _stored_with_prompt(history, f"p{index}", f"prompt {index}", index)
+        asked = []
+        read = history.submitted_prompts
+        history.submitted_prompts = lambda ids, *a, **k: (
+            asked.append(ids) or read(ids, *a, **k)
+        )
+
+        params = {"prompts": "true", "limit": "1"}
+        body = client.get("/api/jobs", params=params).json()
+
+        assert [job["id"] for job in body["jobs"]] == ["p2"]
+        assert body["prompts"] == {"p2": "prompt 2"}
+        assert asked == [["p2"]]
+        # A submitted prompt never changes: the next poll reads no history
+        assert client.get("/api/jobs", params=params).json()["prompts"] == {
+            "p2": "prompt 2"
+        }
+        assert asked == [["p2"]]
 
 
 def test_jobs_say_nothing_about_prompts_unless_asked(server):
