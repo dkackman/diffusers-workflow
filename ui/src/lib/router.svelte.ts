@@ -52,10 +52,9 @@ export function hashQuery(): Record<string, string> {
   return query
 }
 
-/** Replace the hash's query in place: no history entry and no hashchange,
- * so typing in a filter neither floods Back nor re-runs the route. Empty
- * values are dropped, so a cleared filter leaves a clean link. */
-export function setHashQuery(values: Record<string, string>) {
+/** The current path with `values` as its query, empty values dropped: what
+ * setHashQuery writes in place, and what a push of a query names. */
+export function queryHash(values: Record<string, string>): string {
   const query = Object.entries(values)
     .filter(([, value]) => value)
     .map(
@@ -63,7 +62,14 @@ export function setHashQuery(values: Record<string, string>) {
         `${encodeURIComponent(key)}=${encodeURIComponent(value)}`,
     )
     .join('&')
-  const hash = '#/' + hashParts()[0] + (query ? '?' + query : '')
+  return '#/' + hashParts()[0] + (query ? '?' + query : '')
+}
+
+/** Replace the hash's query in place: no history entry and no hashchange,
+ * so typing in a filter neither floods Back nor re-runs the route. Empty
+ * values are dropped, so a cleared filter leaves a clean link. */
+export function setHashQuery(values: Record<string, string>) {
+  const hash = queryHash(values)
   if (hash !== location.hash) history.replaceState(history.state, '', hash)
   committed = location.hash
 }

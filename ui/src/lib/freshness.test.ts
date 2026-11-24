@@ -96,6 +96,8 @@ const PAGE_TABLE: Record<string, Freshness[]> = {
     { watch: ['workflows'] },
     { watch: ['gallery'] },
   ],
+  // a text file shown large, read once when shown
+  'ui/MediaBody.svelte': [{ watch: [] }],
   // a text tile's first lines, read once when first seen
   'ui/OutputTile.svelte': [{ watch: [] }],
 }

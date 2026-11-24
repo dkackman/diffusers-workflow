@@ -8,6 +8,8 @@
     label,
     wide = false,
     large = false,
+    fill = false,
+    onkeydowncapture,
     onopenfocus,
     children,
   }: {
@@ -16,6 +18,11 @@
     wide?: boolean
     /** Most of the viewport, for a browsing grid rather than a message */
     large?: boolean
+    /** The whole window, for one file shown large (MediaViewer); its look
+     * is `.ui-sheet-fill` in patterns.css, app.css being full */
+    fill?: boolean
+    /** Every key pressed inside the sheet, before its target sees it */
+    onkeydowncapture?: (event: KeyboardEvent) => void
     /** Where focus goes on open, when not the first control: call
      * preventDefault and focus it. A dialog that spends starts on Cancel */
     onopenfocus?: (event: Event) => void
@@ -37,10 +44,12 @@
         'ui-sheet panel',
         wide && 'ui-sheet-wide',
         large && 'ui-sheet-large',
+        fill && 'ui-sheet-fill',
       ]
         .filter(Boolean)
         .join(' ')}
       aria-label={label}
+      {onkeydowncapture}
       onOpenAutoFocus={onopenfocus}
     >
       {@render children()}
