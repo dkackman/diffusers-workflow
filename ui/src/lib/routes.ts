@@ -182,6 +182,13 @@ export function serverHref(section: ServerSection): string {
   return join(['server', section])
 }
 
+/** A comparison of `names`: the one builder, each name one path segment
+ * (so a name holding a slash survives the round trip through `parseView`,
+ * which takes `rest` as the decoded array). */
+export function compareHref(workspace: string, names: string[]): string {
+  return wsHref(workspace, 'compare', ...names)
+}
+
 /** A file opened in the Gallery or the Assets viewer: the section's
  * `open=<name>` deep link, which the page opens (and Back closes). */
 export function fileHref(

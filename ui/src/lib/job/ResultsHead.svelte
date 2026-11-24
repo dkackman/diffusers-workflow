@@ -6,7 +6,7 @@
   import { action } from '../action.svelte'
   import { api } from '../api'
   import { hasPicture, type MediaFile } from '../media'
-  import { go } from '../router.svelte'
+  import { compareHref } from '../routes'
 
   let {
     files,
@@ -31,7 +31,7 @@
       : 'Compare these side by side',
   )
   function compare() {
-    go('ws', workspace, 'compare', ...comparable.slice(0, COMPARE_MAX))
+    location.hash = compareHref(workspace, comparable.slice(0, COMPARE_MAX))
   }
   const downloading = action((names: string[]) => api.archiveOutputs(names), {
     doing: "download this job's files",

@@ -3,9 +3,13 @@
   // pair, the 12 vs 30 steps - with the arguments that differ called out
   // and every video on one transport, so a difference in motion is seen at
   // the same frame rather than remembered across two players
-  import { Columns2, Pause, Play } from '@lucide/svelte'
+  import { Columns2, Pause, Play, X } from '@lucide/svelte'
   import { api } from '../api'
   import { untrack } from 'svelte'
+  import { hasPicture, outputMedia } from '../media'
+  import { openInHash } from '../mediaViewer'
+  import { leafName } from '../names'
+  import { replaceRoute } from '../router.svelte'
   import { resource, type Resource } from '../resource.svelte'
   import LoadState from '../ui/LoadState.svelte'
   import PageHeader from '../ui/PageHeader.svelte'
@@ -18,9 +22,12 @@
   } from '../compare'
   import { formatDuration } from '../format'
   import { versionTitle } from '../terms'
-  import { SECTION_LABELS, wsHref } from '../routes'
+  import { SECTION_LABELS, compareHref, wsHref } from '../routes'
   import { workspace } from '../workspace.svelte'
   import Markdown from '../ui/Markdown.svelte'
+  import MediaBody from '../ui/MediaBody.svelte'
+  import MediaViewer from '../ui/MediaViewer.svelte'
+  import MissingFile from '../ui/MissingFile.svelte'
   import Skeleton from '../ui/Skeleton.svelte'
 
   let { names }: { names: string[] } = $props()
@@ -32,6 +39,8 @@
   const comparison: Resource<Cell[]> = resource(
     async () => {
       const wanted = [...names]
+      // Under two there is nothing to compare, so nothing is read
+      if (wanted.length < 2) return []
       const held = new Map(
         untrack(() => comparison.data ?? []).map((c) => [c.name, c]),
       )
@@ -60,14 +69,27 @@
 
   const differing = $derived(differingArguments(cells.map((c) => c.meta)))
 
-  // One transport for every video
-  let videos = $state<HTMLVideoElement[]>([])
+  // One transport for every video, kept by cell name
+  let videos: Record<string, HTMLVideoElement> = {}
   let playing = $state(false)
   let time = $state(0)
   let length = $state(0)
   // The first video is the clock the slider reads, whatever cells precede it
-  const clock = $derived(cells.findIndex((c) => c.file?.kind === 'video'))
-  const present = () => videos.filter(Boolean)
+  const clock = $derived(cells.find((c) => c.file?.kind === 'video')?.name)
+  const present = () => Object.values(videos)
+  function track(name: string, el: HTMLVideoElement | null) {
+    if (!el) {
+      delete videos[name]
+      return
+    }
+    videos[name] = el
+    el.addEventListener('timeupdate', () => {
+      if (name === clock) time = el.currentTime
+    })
+    const measure = () => (length = Math.max(length, el.duration))
+    el.addEventListener('loadedmetadata', measure)
+    if (el.readyState >= 1) measure()
+  }
   function playPause() {
     playing = !playing
     for (const v of present()) {
@@ -80,6 +102,35 @@
     time = to
     for (const v of present()) v.currentTime = to
   }
+
+  // The viewer steps through the pictures and clips compared, as the
+  // Gallery's does: the open file is `open=` in the hash (mediaViewer.ts)
+  const items = $derived(
+    cells.flatMap((c) =>
+      c.file && hasPicture(c.file.kind)
+        ? [outputMedia(c.file, workspace.current)]
+        : [],
+    ),
+  )
+  let open = $state<string | null>(openInHash())
+  let missing = $state('')
+  $effect(() => {
+    const name = open
+    if (!name || comparison.status !== 'ready') return
+    if (items.some((item) => item.name === name)) return
+    untrack(() => {
+      missing = leafName(name)
+      open = null
+    })
+  })
+
+  const without = (name: string) =>
+    replaceRoute(
+      compareHref(
+        workspace.current,
+        names.filter((n) => n !== name),
+      ),
+    )
 </script>
 
 <PageHeader
@@ -88,15 +139,17 @@
   back={{ href: galleryHref, label: SECTION_LABELS.ws.gallery }}
 />
 
+<MissingFile bind:leaf={missing} />
+
 <LoadState of={comparison} label="the comparison" empty={names.length < 2}>
   {#snippet emptyIcon()}<Columns2 size={36} strokeWidth={1.5} />{/snippet}
   {#snippet emptyText()}<span>Nothing to compare yet.</span><br /><span>
       Tick two or more files in the Gallery, then press Compare.
     </span><br /><a href={galleryHref}>Open the Gallery</a>{/snippet}
-  {#snippet skeleton()}<Skeleton
-      tiles={names.length}
-      label="loading the comparison"
-    />{/snippet}
+  {#snippet skeleton()}{#if names.length >= 2}<Skeleton
+        tiles={names.length}
+        label="loading the comparison"
+      />{/if}{/snippet}
   {#if cells.some((c) => c.file?.kind === 'video')}
     <div class="transport">
       <button
@@ -120,29 +173,38 @@
   {/if}
 
   <div class="grid" style:--cols={cells.length}>
-    {#each cells as cell, i (cell.name)}
+    {#each cells as cell (cell.name)}
       <figure class="cell">
         {#if !cell.file}
           <p class="muted">{cell.name} is no longer in the gallery.</p>
-        {:else if cell.file.kind === 'video'}
-          <video
-            bind:this={videos[i]}
-            src={cell.file.url}
-            loop
-            muted
-            playsinline
-            ontimeupdate={(e) => {
-              if (i === clock) time = e.currentTarget.currentTime
-            }}
-            onloadedmetadata={(e) => {
-              length = Math.max(length, e.currentTarget.duration)
-            }}
-          ></video>
-        {:else if cell.file.kind === 'image'}
-          <img src={cell.file.url} alt={cell.name} />
+        {:else if hasPicture(cell.file.kind)}
+          <button
+            type="button"
+            class="thumb"
+            aria-label="open {cell.file.label}"
+            title="open this file large"
+            onclick={() => (open = cell.name)}
+          >
+            <MediaBody
+              file={outputMedia(cell.file, workspace.current)}
+              fit={false}
+              controls={false}
+              muted
+              onvideo={(el) => track(cell.name, el)}
+            />
+          </button>
         {:else}
           <p class="muted">{cell.file.label}</p>
         {/if}
+        <button
+          type="button"
+          class="quiet icon remove"
+          aria-label="Remove from comparison"
+          title="Remove from comparison"
+          onclick={() => without(cell.name)}
+        >
+          <X size={14} />
+        </button>
         {#if cell.file}
           <figcaption>
             <span class="mono">{cell.file.label}</span>
@@ -190,6 +252,8 @@
   {/if}
 </LoadState>
 
+<MediaViewer {items} bind:open />
+
 <style>
   .grid {
     display: grid;
@@ -208,8 +272,23 @@
     flex-direction: column;
     gap: var(--space-2);
   }
-  .cell img,
-  .cell video {
+  .cell {
+    position: relative;
+  }
+  .remove {
+    position: absolute;
+    top: var(--space-1);
+    right: var(--space-1);
+  }
+  .thumb {
+    display: block;
+    padding: 0;
+    border: 0;
+    background: none;
+    cursor: zoom-in;
+  }
+  .cell :global(.media-body) {
+    display: block;
     width: 100%;
     background: var(--panel-2);
     border: 1px solid var(--line);

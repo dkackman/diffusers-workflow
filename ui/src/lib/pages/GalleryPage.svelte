@@ -20,7 +20,8 @@
   import { askDeletion, fileConfirm } from '../gallery/deletion'
   import type { GalleryFile, OutputRole } from '../types'
   import { workspace } from '../workspace.svelte'
-  import { codec, go, hashState } from '../router.svelte'
+  import { codec, hashState } from '../router.svelte'
+  import { compareHref } from '../routes'
   import { collapsedState } from '../collapsed.svelte'
   import GalleryFind, { findState } from '../gallery/GalleryFind.svelte'
   import GalleryCell from '../gallery/GalleryCell.svelte'
@@ -346,7 +347,8 @@
   noun="file"
   ondownload={downloading.run}
   ondelete={removePicked}
-  oncompare={() => go('ws', workspace.current, 'compare', ...picks.names)}
+  oncompare={() =>
+    (location.hash = compareHref(workspace.current, picks.names))}
 />
 
 <LoadState

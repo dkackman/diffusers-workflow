@@ -17,6 +17,7 @@
     fit = true,
     onvideo,
     controls = true,
+    muted = false,
   }: {
     file: MediaFile
     fit?: boolean
@@ -24,6 +25,8 @@
     onvideo?: (el: HTMLVideoElement | null) => void
     /** The native controls; Compare drives its videos from one transport */
     controls?: boolean
+    /** Silent: Compare's clips play together, so none makes sound */
+    muted?: boolean
   } = $props()
 
   let video = $state<HTMLVideoElement | null>(null)
@@ -53,12 +56,12 @@
   <img class={cls} src={file.url} alt={file.label} draggable="false" />
 {:else if file.kind === 'video'}
   <!-- Generated media has no caption track to offer -->
-  <!-- svelte-ignore a11y_media_has_caption -->
   <video
     bind:this={video}
     class={cls}
     src={file.url}
     {controls}
+    {muted}
     loop
     playsinline
     tabindex="-1"

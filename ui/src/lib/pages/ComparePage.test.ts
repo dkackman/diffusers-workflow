@@ -62,6 +62,7 @@ const defaults = () => {
 defaults()
 
 import ComparePage from './ComparePage.svelte'
+import { compareHref } from '../routes'
 
 describe('ComparePage', () => {
   afterEach(() => {
@@ -73,7 +74,7 @@ describe('ComparePage', () => {
   })
   it('shows each file and only the argument that differs', async () => {
     render(ComparePage, { props: { names: ['wf/r1/a.png', 'wf/r2/b.png'] } })
-    expect(await screen.findByAltText('wf/r1/a.png')).toBeTruthy()
+    expect(await screen.findByAltText('a.png')).toBeTruthy()
     expect(await screen.findByRole('rowheader', { name: 'seed' })).toBeTruthy()
     expect(screen.queryByRole('rowheader', { name: 'steps' })).toBeNull()
   })
@@ -88,7 +89,7 @@ describe('ComparePage', () => {
     expect(
       screen.getByRole('link', { name: 'Open the Gallery' }),
     ).toHaveAttribute('href', '#/ws/default/gallery')
-    expect(screen.queryByAltText('wf/r1/a.png')).toBeNull()
+    expect(screen.queryByAltText('a.png')).toBeNull()
   })
   it('says when a file is gone', async () => {
     render(ComparePage, { props: { names: ['wf/r1/a.png', 'wf/gone.png'] } })
@@ -116,7 +117,7 @@ describe('ComparePage', () => {
 
   it('reloads when the gallery moves, with no skeleton, and cells keep their metadata', async () => {
     render(ComparePage, { props: { names } })
-    await screen.findByAltText('wf/r1/a.png')
+    await screen.findByAltText('a.png')
     await screen.findByText(/no longer in the gallery/)
     expect(feed.watched('default')).toEqual(['gallery'])
     const calls = galleryMetadata.mock.calls.length
@@ -127,8 +128,8 @@ describe('ComparePage', () => {
     listing.extra = ['wf/gone.png']
     feed.move('default', 'gallery')
     expect(screen.queryByLabelText('loading the comparison')).toBeNull()
-    expect(screen.getByAltText('wf/r1/a.png')).toBeTruthy()
-    await screen.findByAltText('wf/gone.png')
+    expect(screen.getByAltText('a.png')).toBeTruthy()
+    await screen.findByAltText('gone.png')
     expect(gallery.mock.calls.length).toBe(reads + 1)
     expect(galleryMetadata).toHaveBeenCalledTimes(calls + 1)
     expect(galleryMetadata).toHaveBeenLastCalledWith('wf/gone.png')
@@ -144,7 +145,7 @@ describe('ComparePage', () => {
       Promise.reject(new Error('down')),
     )
     render(ComparePage, { props: { names: ['wf/r1/a.png', 'wf/r2/b.png'] } })
-    await screen.findByAltText('wf/r1/a.png')
+    await screen.findByAltText('a.png')
     expect(galleryMetadata).toHaveBeenCalledTimes(2)
     feed.move('default', 'gallery')
     await waitFor(() => expect(galleryMetadata).toHaveBeenCalledTimes(3))
@@ -152,21 +153,84 @@ describe('ComparePage', () => {
 
   it('keeps what is on screen when a quiet reload fails', async () => {
     render(ComparePage, { props: { names } })
-    await screen.findByAltText('wf/r1/a.png')
+    await screen.findByAltText('a.png')
     gallery.mockImplementationOnce(() => Promise.reject(new Error('down')))
     feed.move('default', 'gallery')
     await settle()
-    expect(screen.getByAltText('wf/r1/a.png')).toBeTruthy()
+    expect(screen.getByAltText('a.png')).toBeTruthy()
   })
 
   it('does not reload for another kind or another workspace', async () => {
     render(ComparePage, { props: { names } })
-    await screen.findByAltText('wf/r1/a.png')
+    await screen.findByAltText('a.png')
     const reads = gallery.mock.calls.length
     feed.move('default', 'jobs')
     feed.move('elsewhere', 'gallery')
     await settle()
     expect(gallery.mock.calls.length).toBe(reads)
     await waitFor(() => expect(feed.watched('default')).toEqual(['gallery']))
+  })
+
+  it('with fewer than two names shows the empty copy without loading', async () => {
+    render(ComparePage, { props: { names: ['wf/r1/a.png'] } })
+    expect(screen.queryByLabelText('loading the comparison')).toBeNull()
+    expect(await screen.findByText('Nothing to compare yet.')).toBeTruthy()
+    await settle()
+    expect(gallery).not.toHaveBeenCalled()
+  })
+
+  it('shows the load error when the gallery read fails with two names', async () => {
+    gallery.mockImplementation(() => Promise.reject(new Error('down')))
+    render(ComparePage, { props: { names: ['wf/r1/a.png', 'wf/r2/b.png'] } })
+    expect(await screen.findByText(/Couldn't load the comparison/)).toBeTruthy()
+  })
+
+  it('a name holding a slash survives the round trip', async () => {
+    const hash = compareHref('default', ['wf/r1/a.png', 'wf/r2/b.png'])
+    const parts = hash.slice(2).split('/').map(decodeURIComponent)
+    expect(parts.slice(3)).toEqual(['wf/r1/a.png', 'wf/r2/b.png'])
+    render(ComparePage, { props: { names: parts.slice(3) } })
+    expect(await screen.findByAltText('a.png')).toBeTruthy()
+  })
+
+  it('removing a cell rewrites the URL', async () => {
+    location.hash = '#/ws/default/compare/x'
+    render(ComparePage, {
+      props: { names: ['wf/r1/a.png', 'wf/r2/b.png', 'wf/v1.mp4'] },
+    })
+    await screen.findByAltText('a.png')
+    const [first] = screen.getAllByRole('button', {
+      name: 'Remove from comparison',
+    })
+    await fireEvent.click(first)
+    expect(location.hash).toBe(
+      compareHref('default', ['wf/r2/b.png', 'wf/v1.mp4']),
+    )
+  })
+
+  it('a cell opens in the viewer', async () => {
+    location.hash = '#/ws/default/compare/x'
+    render(ComparePage, { props: { names: ['wf/r1/a.png', 'wf/r2/b.png'] } })
+    await screen.findByAltText('a.png')
+    await fireEvent.click(
+      screen.getAllByRole('button', { name: 'open a.png' })[0],
+    )
+    expect(location.hash).toContain('open=wf%2Fr1%2Fa.png')
+    expect(await screen.findByRole('dialog', { name: 'a.png' })).toBeTruthy()
+  })
+
+  it('one transport plays every clip, muted', async () => {
+    const { container } = render(ComparePage, {
+      props: { names: ['wf/v1.mp4', 'wf/v2.mp4'] },
+    })
+    await screen.findByLabelText('position in every video')
+    const clips = [...container.querySelectorAll('video')]
+    expect(clips).toHaveLength(2)
+    for (const clip of clips) {
+      expect(clip.muted).toBe(true)
+      clip.play = vi.fn(() => Promise.resolve())
+    }
+    await fireEvent.click(screen.getByRole('button', { name: 'play all' }))
+    for (const clip of clips) expect(clip.play).toHaveBeenCalled()
   })
 })
