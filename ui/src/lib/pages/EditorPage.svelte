@@ -400,7 +400,10 @@
         error={check.error}
         doc={ed.doc}
         onjump={jumps.goTo}
-        ondismiss={() => (check.validation = null)}
+        ondismiss={() => {
+          check.validation = null
+          check.error = null
+        }}
       />
     {/if}
 

@@ -332,6 +332,20 @@ describe('EditorPage validation plan', () => {
     expect(screen.getByRole('alert')).toBeTruthy()
   })
 
+  it('dismissing a failed live check closes it', async () => {
+    vi.mocked(api.validate).mockRejectedValueOnce(new Error('server down'))
+    render(EditorPage, { name: 'models/z-image' })
+    await waitFor(() =>
+      expect(screen.getByText("Couldn't check this workflow.")).toBeTruthy(),
+    )
+    await fireEvent.click(
+      screen.getByRole('button', { name: 'dismiss validation results' }),
+    )
+    await waitFor(() =>
+      expect(screen.queryByText("Couldn't check this workflow.")).toBeNull(),
+    )
+  })
+
   /** An opened workflow whose check names a step and a variable */
   async function openRefused() {
     vi.mocked(api.getWorkflow).mockResolvedValueOnce({
