@@ -833,6 +833,40 @@ it('a revised item shows its result, why, and Run take 2 beside it; its dependen
   )
 })
 
+const failedShot = (key: string) =>
+  item(key, {
+    title: `Failed ${key}`,
+    ready: true,
+    workflow: 'shot',
+    arguments: { seed: 1 },
+    attempts: [attempt(`j-${key}`, 'failed')],
+    status: 'failed',
+  })
+
+it('a request with only failed items still offers Run, counting them', async () => {
+  world.ledger = fakeLedger(
+    request([doneItem('cast', { workflow: 'sheet' }), failedShot('f1')], {
+      history: [entry(3, 'agent', 'opened')],
+    }),
+  )
+  priced()
+  await start()
+  await fireEvent.click(screen.getByRole('button', { name: 'Run 1…' }))
+  const dialog = await screen.findByRole('dialog', {
+    name: 'Run what can run now',
+  })
+  expect(within(dialog).getByText('Failed f1')).toBeTruthy()
+})
+
+it('the header counts the ready items and the failed ones the dialog offers', async () => {
+  const mixed = runnable()
+  mixed.items.push(failedShot('f1'), failedShot('f2'))
+  world.ledger = fakeLedger(mixed)
+  priced()
+  await start()
+  expect(screen.getByRole('button', { name: 'Run 3…' })).toBeTruthy()
+})
+
 it('Run what can run now lists a revised item, and Keep this take makes it done', async () => {
   world.ledger = fakeLedger(revisedPlan())
   priced()

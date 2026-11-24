@@ -626,7 +626,7 @@ test('the run dialog prices what is ready, says what will not run, and spends no
       submitted++
   })
   await page.goto(BOARD)
-  const run = page.getByRole('button', { name: 'Run 1…' })
+  const run = page.getByRole('button', { name: 'Run 2…' })
   const priced = page.waitForResponse(
     (r) =>
       new URL(r.url()).pathname === '/api/validate' &&
@@ -737,7 +737,12 @@ test('running a ready item queues a job bound to its quote, and the job appears 
   await page.goto(BOARD)
   const title = boardRow(page, 'title')
   await expect(title.locator('.chipcell .chip')).toHaveText('ready')
-  await page.getByRole('button', { name: 'Run 1…' }).click()
+  // the failed shots earlier tests left are offered too, so the count is
+  // the ready title plus however many of them there are
+  const header = page.getByRole('button', { name: /^Run \d+…$/ })
+  const offered = Number(/\d+/.exec((await header.textContent()) ?? '')?.[0])
+  expect(offered).toBeGreaterThan(1)
+  await header.click()
   const dialog = page.getByRole('dialog', { name: 'Run what can run now' })
   const submit = page.waitForResponse(
     (r) =>
@@ -769,7 +774,10 @@ test('running a ready item queues a job bound to its quote, and the job appears 
   await expect(title.locator('.chipcell .chip')).toHaveText(
     /queued|running|done/,
   )
-  await expect(page.getByRole('button', { name: /^Run \d+…$/ })).toHaveCount(0)
+  // only the failed shots are still offered
+  await expect(
+    page.getByRole('button', { name: `Run ${offered - 1}…` }),
+  ).toBeVisible()
   const stored = await ledger(request)
   const item = stored.items.find((i: Stored) => i.key === 'title')
   expect(item.attempts.map((a: { job: string }) => a.job)).toEqual([job.id])

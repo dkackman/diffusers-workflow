@@ -133,7 +133,11 @@
   // The priced run dialog, for what is ready or for one item. The page
   // never starts anything itself: a newly ready item waits to be asked for
   let running = $state<RunPlan | null>(null)
-  const ready = $derived(request?.state === 'open' ? plan?.toRun : 0)
+  // What the dialog would offer, ready and runnable failed items alike: the
+  // header's button and its count come from the same plan the dialog opens on
+  const offered = $derived(
+    request?.state === 'open' && plan ? readyPlan(plan).candidates.length : 0,
+  )
   /** Jobs were queued: show them at once, not at the next refresh */
   function ran(queued: number) {
     running = null
@@ -263,13 +267,13 @@
           onrunheld={(keys) => (running = heldPlan(plan, keys))}
         >
           {#snippet actions()}
-            {#if ready}
+            {#if offered}
               <button
                 type="button"
                 title="Price and queue what can run now"
                 onclick={() => (running = readyPlan(plan))}
               >
-                Run {ready}…
+                Run {offered}…
               </button>
             {/if}
           {/snippet}

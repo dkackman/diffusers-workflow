@@ -363,7 +363,9 @@ icon, a finish-alert toggle, the theme toggle, and links to these docs and
   **Run {n}…** in the header (*Run what can run now*) takes every ready
   item, ticked, and offers each failed item that can run again (its
   dependencies done, a stored workflow) unticked under *Failed before. Tick
-  one to run it again.*; a ready row has **Run…**, a failed or cancelled one
+  one to run it again.*; the button shows whenever the dialog would offer
+  anything, so a request with only failed items has it, and {n} counts every
+  item offered, ticked or not; a ready row has **Run…**, a failed or cancelled one
   whose dependencies are done **Run again…**, and a done row's menu **Run
   another take…**. Each opens a dialog that validates every item first (the
   spend button stays disabled until each has its quote) and shows, per
