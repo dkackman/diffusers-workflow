@@ -2,15 +2,17 @@
   // The sidebar's new-workspace form. It opens with focus in the field and
   // closes on Escape, Cancel, success (which lands on the new overview) or a
   // focus that leaves it while the field is empty: a typed name stays until
-  // Cancel or Escape. A refused name is said beside the field, the draft
+  // Cancel or Escape (and the parent holds it, so a collapse keeps it). A refused name is said beside the field, the draft
   // kept and focus back in it; Enter twice creates it once
   import { onMount } from 'svelte'
   import { createWorkspaceAndGo } from './workspaceActions'
   import { action } from './action.svelte'
 
-  let { onclose }: { onclose?: () => void } = $props()
+  let {
+    onclose,
+    name = $bindable(''),
+  }: { onclose?: () => void; name?: string } = $props()
 
-  let name = $state('')
   let error = $state('')
   let form = $state<HTMLFormElement | null>(null)
   let input = $state<HTMLInputElement | null>(null)

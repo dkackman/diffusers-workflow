@@ -33,10 +33,6 @@ export function rememberWorkspace(name: string): void {
 // a workspace the URL named from one the localStorage fallback supplied.
 // Recorded here rather than read off the router, which imports this module.
 let lastView: RouteView | null = null
-// Whether `names` is the server's answer. A failed listing falls back to
-// the default alone so the sidebar has something to show, and that fallback
-// must not be read as proof that every other workspace is gone.
-let listed = false
 // Whether `names` was fetched for the check now reading it. The listing is
 // cached for the page's life, and a workspace can be created elsewhere after
 // it landed (an agent's create_workspace, another tab) - the running chip's
@@ -72,7 +68,7 @@ export function applyRouteWorkspace(view: RouteView | null): void {
  * toast, no navigation. Nothing until a listing has landed, and nothing on
  * the fallback a failed listing leaves. */
 export function checkWorkspaceExists(view: RouteView | null): void {
-  if (!listed || !workspace.names) return
+  if (!workspace.listed || !workspace.names) return
   if (workspace.names.includes(workspace.current)) return
   if (!fresh) {
     // The refetch's own landing re-runs this check against `lastView`
@@ -113,7 +109,7 @@ export function loadWorkspaces(): Promise<void> {
       try {
         const result = await api.listWorkspaces()
         workspace.names = result.workspaces.map((entry) => entry.name)
-        listed = true
+        workspace.listed = true
         workspace.root = result.workspace_root
         workspace.usage = Object.fromEntries(
           result.workspaces
@@ -135,7 +131,7 @@ export function loadWorkspaces(): Promise<void> {
         // keeps the listing that landed: a server hiccup does not empty the
         // sidebar, and the name that listing lacks is still called missing,
         // since that listing is the only answer there is.
-        if (listed) checkAgainstFreshListing()
+        if (workspace.listed) checkAgainstFreshListing()
         else workspace.names = [DEFAULT_WORKSPACE]
       }
     })()

@@ -49,6 +49,7 @@ beforeEach(() => {
   invalidateWorkspaces()
   workspace.names = undefined
   workspace.root = null
+  workspace.listed = false
   workspace.usage = {}
 })
 afterEach(cleanup)
@@ -139,6 +140,32 @@ it('no workspace root says why there is no new', async () => {
     'Start the server with --workspace <folder> to add workspaces.',
   )
   expect(screen.queryByRole('button', { name: 'new workspace' })).toBeNull()
+})
+
+it('a failed listing does not claim there is no workspace folder', async () => {
+  listWorkspaces.mockRejectedValueOnce(new Error('down'))
+  render(Sidebar, { collapsed: false, onToggle: () => {} })
+  await waitFor(() => expect(screen.getByText('default')).toBeTruthy())
+  expect(workspace.listed).toBe(false)
+  expect(
+    screen.queryByText('New workspaces need a workspace folder'),
+  ).toBeNull()
+})
+
+it('collapsing the sidebar keeps a typed workspace name', async () => {
+  const view = render(Sidebar, { collapsed: false, onToggle: () => {} })
+  await fireEvent.click(
+    await screen.findByRole('button', { name: 'new workspace' }),
+  )
+  await fireEvent.input(screen.getByPlaceholderText('name'), {
+    target: { value: 'half-typed' },
+  })
+  await view.rerender({ collapsed: true, onToggle: () => {} })
+  expect(screen.queryByPlaceholderText('name')).toBeNull()
+  await view.rerender({ collapsed: false, onToggle: () => {} })
+  expect((screen.getByPlaceholderText('name') as HTMLInputElement).value).toBe(
+    'half-typed',
+  )
 })
 
 it('a server with a workspace root offers new, not the reason', async () => {

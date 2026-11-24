@@ -157,6 +157,8 @@
   let showHidden = $state(false)
 
   let adding = $state(false)
+  // held here, not in the form, so collapsing the rail keeps a typed name
+  let draft = $state('')
 </script>
 
 {#snippet wsRow(name: string)}
@@ -292,17 +294,20 @@
       {#if collapsed}
         <!-- the rail has no room for the form or the reason -->
       {:else if adding}
-        <NewWorkspace onclose={() => (adding = false)} />
+        <NewWorkspace bind:name={draft} onclose={() => (adding = false)} />
       {:else if workspace.root}
         <button
           class="bare item"
-          onclick={() => (adding = true)}
+          onclick={() => {
+            draft = ''
+            adding = true
+          }}
           title="new workspace"
           aria-label="new workspace"
         >
           <Plus size={15} /><span class="label">new</span>
         </button>
-      {:else if workspace.names}
+      {:else if workspace.listed}
         <span
           class="muted noroot"
           title="Start the server with --workspace <folder> to add workspaces."
