@@ -47,6 +47,8 @@ export type ShadowedEntry = Schemas['ShadowedEntry']
 export type PromptDetail = Schemas['PromptCard']
 export type EnhancerPreset = Schemas['EnhancerPreset']
 export type WorkflowCard = Schemas['WorkflowCard']
+/** What a variable that feeds a media argument takes. */
+export type InputKind = NonNullable<WorkflowCard['inputs']>[string]
 export type WorkflowList = Schemas['WorkflowList']
 export type WorkflowSaved = Schemas['WorkflowSaved']
 export type PromptList = Schemas['PromptList']

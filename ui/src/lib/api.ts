@@ -102,18 +102,19 @@ export type {
 // The ledger's routes (request notes, the change counters): workspace in the path
 const UNSCOPED = { scope: false }
 const ws = encodeURIComponent
-const notesUrl = (workspace: string) =>
-  `/api/workspaces/${encodeURIComponent(workspace)}/request-notes`
+const notesUrl = (w: string) => `/api/workspaces/${ws(w)}/request-notes`
 const ledgerRead = <T>(url: string) => request<T>(url, undefined, UNSCOPED)
 
 export const api = {
   // getWorkflow, saveWorkflow, getPrompt, savePrompt
   ...documentRoutes,
-  listWorkflows: () => request<WorkflowList>('/api/workflows'),
+  listWorkflows: (o?: { inputs?: boolean }) =>
+    request<WorkflowList>(
+      appendQuery('/api/workflows', 'inputs', `${!!o?.inputs}`),
+    ),
   // Unscoped on purpose: `workspace` is explicit so Status can span every
   // workspace and a workspace's Jobs page can name its own. `status` is one
-  // state or a comma-separated set ('succeeded,failed,cancelled'); `limit`
-  // keeps the newest N of what matched.
+  // state or a set ('succeeded,failed,cancelled'); `limit` keeps the newest N.
   // `requestId` (with `item`) narrows to the jobs linked to a requests-ledger
   // request, or one item of it; `opts.prompts` adds each job's prompt
   listJobs: (
@@ -286,10 +287,9 @@ export const api = {
       { method: 'DELETE' },
     ),
   // Loads the whole gallery in one request, like listWorkflows/listPrompts -
-  // the limit just needs to exceed any real output directory's file count
-  // `roles` narrows to those roles server-side (repeated `role` parameters;
-  // a null role counts as final there). The page filters on the client, so
-  // it asks for none
+  // the limit just needs to exceed any real output directory's file count.
+  // `roles` narrows server-side (repeated `role` parameters; a null role
+  // counts as final there); the page filters on the client, so asks for none
   // `requestId` narrows to the runs whose job is linked to that
   // requests-ledger request (in the selected workspace), and `item` to one
   // item of it. `opts`: `prompts` (by run id), `media` (durations)

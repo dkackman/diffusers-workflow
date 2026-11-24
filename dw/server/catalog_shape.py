@@ -56,20 +56,21 @@ _EDIT_PIPELINE = re.compile(r"inpaint|img2img|edit|upscale|outpaint", re.I)
 _CHAIN_ARGUMENTS = frozenset(
     {"last_frame", "last_segment", "last_image", "match_audio"}
 )
-_MEDIA_ARGUMENTS = frozenset(
-    {
-        "image",
-        "video",
-        "audio",
-        "mask_image",
-        # An H3 step's take to edit or sound (#1192: add-sound has no other)
-        "source_video",
-        "urls",
-        "videos",
-        "clip",
-        "reference_audio",
-    }
-)
+# The arguments a caller's file reaches a step through, and the kind each
+# takes: what the `needs-input-media` trait reads, and what `input_kinds`
+# says a variable feeding one is
+_MEDIA_ARGUMENT_KINDS = {
+    "image": "image",
+    "mask_image": "image",
+    "urls": "image",
+    "video": "video",
+    # An H3 step's take to edit or sound (#1192: add-sound has no other)
+    "source_video": "video",
+    "videos": "video",
+    "clip": "video",
+    "audio": "audio",
+    "reference_audio": "audio",
+}
 # A task that cuts shots together, and the argument holding the shots.
 # replace_cuts puts re-rendered cuts back into a take: as much an edit of
 # several shots as a concat of them
@@ -173,7 +174,7 @@ def _needs_input_media(steps, variables=None):
     for step in steps:
         arguments = _arguments(step)
         for name, value in arguments.items():
-            if name not in _MEDIA_ARGUMENTS:
+            if name not in _MEDIA_ARGUMENT_KINDS:
                 continue
             # A list argument (gather_images' `urls`) carries the same fact
             # one level in.
@@ -190,6 +191,46 @@ def _needs_input_media(steps, variables=None):
             if isinstance(value, dict) and "location" in value:
                 return True
     return False
+
+
+def _location_kind(value, argument_kind):
+    """The kind a `{"location": ...}` object's `media_type` names
+    (`image/png` and `image` alike); an object that names none takes the
+    kind of the argument holding it, else it is a file."""
+    media_type = value.get("media_type")
+    if isinstance(media_type, str):
+        kind = media_type.split("/")[0]
+        if kind in _MEDIA_ARGUMENT_KINDS.values():
+            return kind
+    return argument_kind or "file"
+
+
+def input_kinds(steps, variables=None):
+    """Each variable a caller's file arrives through, and the kind it takes.
+
+    A `variable:` reference an argument of `_MEDIA_ARGUMENT_KINDS` names (one
+    level into a list), or one inside a `{"location": ...}` object, and not
+    one whose default is a step of this workflow's own. The first kind a
+    variable is given wins; sorted by name.
+    """
+    variables = variables or {}
+    found = {}
+
+    def add(item, kind):
+        name = references.ref_name(references.VARIABLE, item)
+        if name is not None and not _filled_inside(item, variables):
+            found.setdefault(name, kind)
+
+    for step in steps:
+        for name, value in _arguments(step).items():
+            kind = _MEDIA_ARGUMENT_KINDS.get(name)
+            for item in value if isinstance(value, list) else [value]:
+                if kind:
+                    add(item, kind)
+            for inner in _walk(value):
+                if isinstance(inner, dict) and "location" in inner:
+                    add(inner["location"], _location_kind(inner, kind))
+    return dict(sorted(found.items()))
 
 
 def _cuts_together(steps):
@@ -452,6 +493,7 @@ def project_listing(
     configures=None,
     include_models=False,
     view=None,
+    inputs=False,
 ):
     """The listing an agent asked for: filtered by shape and traits, and in
     the compact view stripped to what choosing a template needs.
@@ -542,5 +584,10 @@ def project_listing(
                 slim["configures_missing"] = detail["configures_missing"]
             projected[name] = slim
         else:
-            projected[name] = detail
+            # `inputs` is cached on every detail but listed only when asked
+            projected[name] = (
+                detail
+                if inputs
+                else {key: value for key, value in detail.items() if key != "inputs"}
+            )
     return projected

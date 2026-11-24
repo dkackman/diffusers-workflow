@@ -19,7 +19,7 @@ from ..security import (
 )
 from ..library import suggest_workflow_names
 from ..presets import effective_variables
-from .catalog_shape import derive_catalog_metadata
+from .catalog_shape import derive_catalog_metadata, input_kinds
 from .observed_cost import declared_drivers
 
 # What each workflow produces and takes, for listing cards - cached by mtime
@@ -180,6 +180,12 @@ def workflow_details(sources_by_name):
                 # is what lets a client show the two as different kinds of thing
                 "configures": str(definition.get("configures", "") or ""),
                 "prompt_refs": sorted(collect_prompt_references(definition)),
+                # Carried always, as the detail is cached; the listing drops
+                # it unless `inputs=true` asks
+                "inputs": input_kinds(
+                    [s for s in definition.get("steps", []) if isinstance(s, dict)],
+                    variables,
+                ),
                 "shape": metadata["shape"],
                 "traits": metadata["traits"],
                 "summary": metadata["summary"],
@@ -205,6 +211,7 @@ def workflow_details(sources_by_name):
                 "variable_names": [],
                 "description": "",
                 "prompt_refs": [],
+                "inputs": {},
                 "shape": "utility",
                 "traits": [],
                 "summary": "",
