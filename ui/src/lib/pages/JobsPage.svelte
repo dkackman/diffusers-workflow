@@ -92,14 +92,19 @@
   // page and merges it into `held`, so the cost per poll stays a page
   let loadAll = $state(false)
   const held: HeldJobs = { question: '', jobs: new Map() }
+  // A different workspace or request is a new question: it starts at the
+  // first page again, as `held` does, so the three cannot drift apart
+  let asking = ''
   const list = resource(
     async () => {
-      const [ws, scoped, limit, all] = [
-        listed,
-        { ...requestScope },
-        shown,
-        loadAll,
-      ]
+      const [ws, scoped] = [listed, { ...requestScope }]
+      const question = JSON.stringify([ws, scoped])
+      if (question !== asking) {
+        asking = question
+        shown = JOBS_PAGE
+        loadAll = false
+      }
+      const [limit, all] = [shown, loadAll]
       const { list: answer, prompts } = await listWithPrompts(
         ws,
         scoped,
