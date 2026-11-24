@@ -144,7 +144,51 @@ it('total counts the live and every finished job', async () => {
   ]
   const { list } = await listWithPrompts('', none, new Map(), 50)
   expect(list.total).toBe(72)
+  expect(list.finished).toBe(70)
   expect(list.jobs).toHaveLength(52)
+})
+
+it('a job that finishes between the two reads is listed, not lost', async () => {
+  served.jobs = [job('x', 'running', 1), job('d', 'succeeded', 0)]
+  const orig = served.jobs
+  // finish x right after the live read is answered
+  const finishAfterLive = vi.fn()
+  const { api } = await import('./api')
+  const real = api.listJobs
+  api.listJobs = ((...a: Parameters<typeof real>) => {
+    const out = real(...a)
+    if (a[2] === 'queued,running')
+      served.jobs = orig.map((j) => ({
+        ...(j as JobSummary),
+        status: 'succeeded',
+      }))
+    finishAfterLive()
+    return out
+  }) as typeof real
+  try {
+    const { list } = await listWithPrompts('', none, new Map(), 50)
+    expect(list.jobs.map((j) => j.id)).toContain('x')
+    expect(list.total).toBe(2)
+  } finally {
+    api.listJobs = real
+  }
+})
+
+it('with held jobs a read is one finished page, merged into what is held', async () => {
+  served.jobs = Array.from({ length: 120 }, (_, i) =>
+    job(`d${i}`, 'succeeded', i),
+  )
+  const held = new Map<string, JobSummary>()
+  const known = new Map<string, string>()
+  const first = await listWithPrompts('', none, known, 120, held)
+  expect(first.list.jobs).toHaveLength(120)
+  served.jobs = [...served.jobs, job('d120', 'succeeded', 120)]
+  const from = listed.length
+  const next = await listWithPrompts('', none, known, 120, held)
+  // the new job's prompt is asked for again, alone; no read is the history
+  expect(reads(from).every((r) => r[1] === undefined || r[1] === 50)).toBe(true)
+  expect(next.list.jobs).toHaveLength(121)
+  expect(next.list.finished).toBe(121)
 })
 
 it('prompts are asked for only for jobs not yet known', async () => {

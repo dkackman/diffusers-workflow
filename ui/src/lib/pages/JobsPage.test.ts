@@ -831,6 +831,36 @@ it('Show older reads the next 50', async () => {
   expect(screen.getByRole('button', { name: 'Show 20 older' })).toBeTruthy()
 })
 
+const live = (n: number) =>
+  Array.from({ length: n }, (_, i) =>
+    summary({
+      id: `l-${i}`,
+      workflow: `live${i}`,
+      status: 'running',
+      created_at: 1000 + i,
+      finished_at: null,
+    }),
+  )
+
+it('3 live and 49 finished is one whole page: no paging line, no button', async () => {
+  data.jobs = [...finished(49), ...live(3)]
+  const { container } = render(JobsPage)
+  await waitFor(() => expect(screen.getByText('live2')).toBeTruthy())
+  expect(container.textContent).not.toContain('Showing the newest')
+  expect(screen.queryByRole('button', { name: /older/ })).toBeNull()
+})
+
+it('3 live and 120 finished count the rows shown against every job', async () => {
+  data.jobs = [...finished(120), ...live(3)]
+  const { container } = render(JobsPage)
+  await waitFor(() =>
+    expect(container.textContent).toContain(
+      'Showing the newest 53 of 123 jobs.',
+    ),
+  )
+  expect(screen.getByRole('button', { name: 'Show 50 older' })).toBeTruthy()
+})
+
 it('a filter over a partial page says what it searched', async () => {
   location.hash = '#/ws/default/jobs?q=zzz'
   data.jobs = finished(120)
@@ -864,6 +894,36 @@ it('Search all reads every job', async () => {
   await waitFor(() => expect(screen.getByText('w7')).toBeTruthy())
   expect(screen.queryByRole('button', { name: /Search all/ })).toBeNull()
   location.hash = ''
+})
+
+it('after Search all a poll reads a page, and a newly finished job brings nothing back', async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true })
+  location.hash = '#/ws/default/jobs?q=w'
+  try {
+    data.jobs = finished(120)
+    const { container } = render(JobsPage)
+    await fireEvent.click(
+      await screen.findByRole('button', { name: 'Search all 120' }),
+    )
+    await waitFor(() => expect(finishedLimits()).toContain(120))
+    await waitFor(() => expect(screen.getByText('w1')).toBeTruthy())
+    const from = data.listed.length
+    data.jobs = [...data.jobs, ...finished(1, 121)]
+    await vi.advanceTimersByTimeAsync(3500)
+    await waitFor(() => expect(screen.getByText('w121')).toBeTruthy())
+    const polled = data.listed
+      .slice(from)
+      .filter((l) => l[2] === 'succeeded,failed,cancelled')
+    expect(polled.length).toBeGreaterThan(0)
+    expect(polled.every((l) => l[1] === 50)).toBe(true)
+    // the older ones stay, and nothing offers a search of the rest
+    expect(screen.getByText('w1')).toBeTruthy()
+    expect(container.textContent).not.toContain('Searching the newest')
+    expect(screen.queryByRole('button', { name: /Search all/ })).toBeNull()
+  } finally {
+    vi.useRealTimers()
+    location.hash = ''
+  }
 })
 
 it('a filter change does not reset how much is read', async () => {

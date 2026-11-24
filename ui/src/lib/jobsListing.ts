@@ -68,8 +68,10 @@ export const listJobs = (
   )
 
 /** The live jobs and the finished page as one listing: by creation, oldest
- * first, each id once (the live answer wins), `total` every live job and
- * every finished one. */
+ * first, each id once (the live answer wins). `finished` is every finished
+ * job the server holds; `total` adds the live jobs the finished answer does
+ * not already name, so a job caught finishing between the two reads counts
+ * once. */
 export function mergeListings(live: JobList, done: JobList) {
   const byId = new Map<string, JobSummary>()
   for (const job of [...done.jobs, ...live.jobs]) byId.set(job.id, job)
@@ -80,9 +82,11 @@ export function mergeListings(live: JobList, done: JobList) {
     live.prompts || done.prompts
       ? { ...done.prompts, ...live.prompts }
       : undefined
+  const doneIds = new Set(done.jobs.map((job) => job.id))
   return {
     jobs,
-    total: live.jobs.length + done.total,
+    finished: done.total,
+    total: done.total + live.jobs.filter((job) => !doneIds.has(job.id)).length,
     ...(prompts ? { prompts } : {}),
   }
 }
@@ -102,24 +106,64 @@ async function readWithPrompts(
   return list
 }
 
+/** The finished jobs a page holds after it read the whole history, and the
+ * question they answer. */
+export type HeldJobs = { question: string; jobs: Map<string, JobSummary> }
+
+/** The held jobs for this question: another question's are let go. */
+export function heldFor(
+  held: HeldJobs,
+  ws: string,
+  scoped: RequestFilter,
+): Map<string, JobSummary> {
+  const question = JSON.stringify([ws, scoped])
+  if (question !== held.question) {
+    held.jobs.clear()
+    held.question = question
+  }
+  return held.jobs
+}
+
+/** The finished read: the newest `limit`, or only a page when `held` has the
+ * rest, merged with what is held. */
+async function readFinished(
+  ws: string,
+  scoped: RequestFilter,
+  known: Map<string, string>,
+  limit: number,
+  held?: Map<string, JobSummary>,
+) {
+  const done = await readWithPrompts(ws, scoped, known, {
+    status: 'succeeded,failed,cancelled',
+    limit: held?.size ? JOBS_PAGE : limit,
+  })
+  if (!held) return done
+  for (const job of done.jobs) held.set(job.id, job)
+  return { ...done, jobs: [...held.values()] }
+}
+
 /** The page of the listing - every queued and running job and the newest
  * `limit` finished ones - and each job's prompt, without paying for
  * prompts on every poll: a job's prompt never changes, so `known` (job id
  * -> prompt, kept by the page) holds what was read, and a read is asked
- * again with `prompts` only when a job it names is not in it. */
+ * again with `prompts` only when a job it names is not in it.
+ *
+ * `held` (finished jobs by id, kept by the page) is for a page that has
+ * read the whole history once: while it holds some, a read asks for the
+ * newest page only and merges it in, so the rest stays held and a poll
+ * costs a page. The live jobs are read first: a job that finishes between
+ * the two reads is then in the finished answer, never in neither. */
 export async function listWithPrompts(
   ws: string,
   scoped: RequestFilter,
   known: Map<string, string>,
   limit: number = JOBS_PAGE,
+  held?: Map<string, JobSummary>,
 ) {
-  const [live, done] = await Promise.all([
-    readWithPrompts(ws, scoped, known, { status: 'queued,running' }),
-    readWithPrompts(ws, scoped, known, {
-      status: 'succeeded,failed,cancelled',
-      limit,
-    }),
-  ])
+  const live = await readWithPrompts(ws, scoped, known, {
+    status: 'queued,running',
+  })
+  const done = await readFinished(ws, scoped, known, limit, held)
   const list = mergeListings(live, done)
   for (const job of list.jobs)
     if (list.prompts || !known.has(job.id))

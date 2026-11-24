@@ -12,6 +12,8 @@
   import RequestFilter from '../gallery/RequestFilter.svelte'
   import {
     JOBS_PAGE,
+    heldFor,
+    type HeldJobs,
     jobMatches,
     listWithPrompts,
     listingRefused,
@@ -86,14 +88,24 @@
   // How many finished jobs are read: the newest page, then what Show older
   // or Search all asked for. A change re-reads, and a filter does not reset it
   let shown = $state(JOBS_PAGE)
+  // Search all read the whole history once; from then on a poll reads a
+  // page and merges it into `held`, so the cost per poll stays a page
+  let loadAll = $state(false)
+  const held: HeldJobs = { question: '', jobs: new Map() }
   const list = resource(
     async () => {
-      const [ws, scoped, limit] = [listed, { ...requestScope }, shown]
+      const [ws, scoped, limit, all] = [
+        listed,
+        { ...requestScope },
+        shown,
+        loadAll,
+      ]
       const { list: answer, prompts } = await listWithPrompts(
         ws,
         scoped,
         known,
         limit,
+        all ? heldFor(held, ws, scoped) : undefined,
       )
       const rows = answer.jobs.reverse()
       const queued = await queuedEverywhere(rows, !!(ws || scoped.request))
@@ -101,6 +113,7 @@
       return {
         rows,
         total: answer.total,
+        finished: answer.finished,
         queueSize: queueLength(rows, queued),
         prompts,
         progress,
@@ -134,8 +147,9 @@
   )
   const queueSize = $derived(list.data?.queueSize ?? 0)
   const total = $derived(refused ? 0 : (list.data?.total ?? 0))
-  const partial = $derived(shown < total)
-  const olderBy = $derived(Math.min(JOBS_PAGE, total - shown))
+  const finished = $derived(refused ? 0 : (list.data?.finished ?? 0))
+  const partial = $derived(!loadAll && shown < finished)
+  const olderBy = $derived(Math.min(JOBS_PAGE, finished - shown))
   const visible = $derived(
     jobs.filter(
       (job) =>
@@ -248,8 +262,14 @@
 
 {#if partial && (statusFilter.value || nameFilter.value)}
   <p class="hint">
-    Searching the newest {shown} of {total} jobs.
-    <button class="quiet" onclick={() => (shown = total)}>
+    Searching the newest {jobs.length} of {total} jobs.
+    <button
+      class="quiet"
+      onclick={() => {
+        shown = finished
+        loadAll = true
+      }}
+    >
       Search all {total}
     </button>
   </p>
@@ -284,7 +304,7 @@
 
 {#if partial}
   <p class="hint">
-    Showing the newest {shown} of {total} jobs.
+    Showing the newest {jobs.length} of {total} jobs.
     <button class="quiet" onclick={() => (shown += JOBS_PAGE)}>
       Show {olderBy} older
     </button>
