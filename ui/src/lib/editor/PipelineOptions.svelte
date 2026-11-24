@@ -9,6 +9,7 @@
   import { latestOnly } from '../latest'
   import { sleep } from '../poll'
   import { resource } from '../resource.svelte'
+  import { slotsFrom } from './componentSlots'
   import {
     ATTENTION_BACKENDS,
     CACHE_TYPES,
@@ -41,6 +42,31 @@
     COMPONENT_SLOTS.filter((slot) => pipeline && slot in pipeline),
   )
   let addSlot = $state('')
+
+  // The pipeline class's own constructor names its components; a modular
+  // pipeline or an unknown class keeps the schema's list. Debounced like
+  // ArgumentsEditor's: the class name arrives keystroke by keystroke
+  const classTyping = latestOnly()
+  const classLookup = resource(
+    async () => {
+      const wanted = pipeline?.configuration?.component_type
+      const current = classTyping()
+      if (!wanted) return null
+      await sleep(300)
+      return current() ? classDescription(wanted, 'init') : null
+    },
+    { watch: [] },
+  )
+  const pipelineSlots = $derived(
+    slotsFrom(
+      classLookup.status === 'ready' ? (classLookup.data ?? null) : null,
+    ),
+  )
+  const offeredSlots = $derived(
+    (pipelineSlots ?? [...COMPONENT_SLOTS]).filter(
+      (slot) => !activeSlots.includes(slot),
+    ),
+  )
 
   function addComponent() {
     if (!addSlot) return
@@ -120,6 +146,11 @@
   </summary>
   <div class="section">
     {#each activeSlots as slot (slot)}
+      {#if pipelineSlots && !pipelineSlots.includes(slot)}
+        <span class="warn">
+          not a component of {configuration.component_type}
+        </span>
+      {/if}
       <ComponentEditor
         {slot}
         bind:component={pipeline[slot]}
@@ -130,7 +161,7 @@
     <div class="addrow">
       <select bind:value={addSlot}>
         <option value="">add component…</option>
-        {#each COMPONENT_SLOTS.filter((slot) => !activeSlots.includes(slot)) as slot (slot)}
+        {#each offeredSlots as slot (slot)}
           <option value={slot}>{slot}</option>
         {/each}
       </select>
