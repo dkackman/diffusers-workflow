@@ -975,3 +975,21 @@ it("the user's own note is not marked as another writer's change", async () => {
   )
   expect(tile('iris.png').classList).not.toContain('row-changed')
 })
+
+it('the asset grid shows thumbnails, never the original or a video', async () => {
+  listing.assets = [
+    asset('iris.png'),
+    asset('cast/walk.mp4', 'workspace', 'video'),
+  ]
+  const { container } = render(AssetsPage)
+  await waitFor(() => expect(container.querySelectorAll('img').length).toBe(2))
+  expect(container.querySelector('video')).toBeNull()
+  const srcs = [...container.querySelectorAll('img')].map((img) =>
+    img.getAttribute('src'),
+  )
+  for (const src of srcs) {
+    expect(src).toMatch(/^\/api\/gallery\/asset(:|%3A).*\/thumbnail/)
+    expect(src).not.toContain('/inputs/')
+  }
+  expect(container.querySelector('.videobadge')).not.toBeNull()
+})

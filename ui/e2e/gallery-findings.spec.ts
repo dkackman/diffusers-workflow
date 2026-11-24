@@ -101,7 +101,7 @@ for (const theme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: theme })
     const assessCalls = await mockGallery(page)
     await page.goto('/#/ws/default/gallery')
-    await page.locator('button.cell').first().click()
+    await page.locator('button.filetile').first().click()
 
     const findings = page.getByRole('region', { name: 'Findings' })
     // The metadata's level finding shows without a click

@@ -60,6 +60,13 @@ const gallery = vi.hoisted(() =>
       ),
   ),
 )
+// The background read for durations (`media: true`), kept apart so the
+// listing's own call counts stay the listing's
+const galleryMedia = vi.hoisted(() =>
+  vi.fn<() => Promise<{ files: GalleryFile[] }>>(() =>
+    Promise.resolve({ files: [] }),
+  ),
+)
 const deleteOutput = vi.hoisted(() =>
   vi.fn<(name: string) => Promise<void>>(() => Promise.resolve()),
 )
@@ -78,8 +85,12 @@ const galleryMetadata = vi.hoisted(() =>
 vi.mock('../api', () => ({
   setNote: (t: string, n: string | null) => setNote(t, n),
   api: {
-    gallery: (roles?: string[], request?: string, item?: string) =>
-      gallery(roles, request, item),
+    gallery: (
+      roles?: string[],
+      request?: string,
+      item?: string,
+      opts?: { media?: boolean },
+    ) => (opts?.media ? galleryMedia() : gallery(roles, request, item)),
     listRequests: () => listRequests(),
     galleryThumbnailUrl: (name: string) => `/thumb/${name}`,
     galleryUrl: (name: string) => `/outputs/${name}`,
@@ -119,6 +130,8 @@ afterEach(() => {
   // queries find two of everything
   cleanup()
   gallery.mockClear()
+  galleryMedia.mockReset()
+  galleryMedia.mockImplementation(() => Promise.resolve({ files: [] }))
   location.hash = '#/ws/default/gallery'
   deleteOutput.mockClear()
   setStarred.mockClear()
@@ -181,8 +194,9 @@ it('lists once on mount, and again when the gallery moves, with no blanking', as
   await renderGallery()
   await settle()
   expect(gallery).toHaveBeenCalledTimes(1)
-  // the page's gallery, and the request picker's requests
+  // the page's gallery and its durations, and the request picker's requests
   expect(feed.watched(DEFAULT_WORKSPACE).sort()).toEqual([
+    'gallery',
     'gallery',
     'requests',
   ])
@@ -273,7 +287,9 @@ it('a reload begun before a delete does not bring the file back', async () => {
 
 /** Whether a tile shows the star mark */
 const starMark = (name: string) =>
-  within(screen.getByTitle(name)).queryByLabelText('Starred')
+  within(
+    screen.getByTitle(name).closest('.cellwrap') as HTMLElement,
+  ).queryByLabelText('Starred')
 
 it('a listing that began after a star shows an unstar made elsewhere', async () => {
   await renderGallery()
@@ -465,7 +481,7 @@ it('opens on finals only and shows each tile its role', async () => {
       .getAttribute('aria-pressed'),
   ).toBe('false')
   expect(screen.queryByLabelText('select wf/run-1/scratch.png')).toBeNull()
-  const tag = document.querySelector('.cell .role-tag') as HTMLElement
+  const tag = document.querySelector('.filetile .role-tag') as HTMLElement
   expect(tag.textContent).toBe('Final')
   expect(tag.dataset.role).toBe('final')
 })
@@ -615,10 +631,12 @@ it('marks each file with the version of the run that wrote it', async () => {
   await waitFor(() => expect(screen.getAllByText('film.mp4')).toHaveLength(2))
   expect(screen.getByText('v1')).toBeTruthy()
   expect(screen.getByText('v4')).toBeTruthy()
-  // One space between chip and label, so a screen reader does not run
-  // 'v4' into the file name
-  const caption = screen.getByText('v4').closest('.caption') as HTMLElement
-  expect(caption.textContent?.replace(/\s+/g, ' ').trim()).toBe('v4 film.mp4')
+  // The version sits in the tile's corner row, its own element, so a
+  // screen reader never runs 'v4' into the file name
+  const v4 = screen.getByText('v4')
+  expect(v4.closest('.tile-marks')).not.toBeNull()
+  const caption = v4.closest('.filetile')!.querySelector('.tile-caption')!
+  expect(caption.textContent?.trim()).toBe('film.mp4')
 })
 
 it('shows no version for a flat-layout file, which belongs to no run', async () => {
@@ -659,12 +677,9 @@ it('shows a video as a lazy thumbnail, never a <video>', async () => {
   listing.files = [{ ...file('demo/clip.mp4'), kind: 'video' }]
   const { container } = render(GalleryPage)
 
-  await waitFor(() =>
-    expect(
-      container.querySelector('img[src="/thumb/demo/clip.mp4"]'),
-    ).not.toBeNull(),
-  )
-  const img = container.querySelector('img[src="/thumb/demo/clip.mp4"]')!
+  const thumb = 'img[src="/api/gallery/demo/clip.mp4/thumbnail"]'
+  await waitFor(() => expect(container.querySelector(thumb)).not.toBeNull())
+  const img = container.querySelector(thumb)!
   expect(img.getAttribute('loading')).toBe('lazy')
   expect(container.querySelector('video')).toBeNull()
   expect(container.querySelector('.videobadge')).not.toBeNull()
@@ -703,7 +718,7 @@ it('marks every tile of a run after its run note is saved', async () => {
   screen
     .getByLabelText('select wf/r1/a.png')
     .closest('.cellwrap')!
-    .querySelector<HTMLButtonElement>('button.cell')!
+    .querySelector<HTMLButtonElement>('button.filetile')!
     .click()
   await fireEvent.click(
     await screen.findByRole('button', { name: /edit note/i }),
@@ -1077,4 +1092,54 @@ it('the text, role and Starred filters survive leaving and coming back', async (
     screen.getByRole('button', { name }).getAttribute('aria-pressed')
   expect(pressed('Intermediate')).toBe('true')
   expect(pressed('Starred')).toBe('true')
+})
+
+it('the grid renders no <video>, and fills durations from one background read', async () => {
+  listing.files = [
+    { ...file('a.png') },
+    { ...file('demo/clip.mp4'), kind: 'video', label: 'clip.mp4' },
+    { ...file('demo/tone.wav'), kind: 'audio', label: 'tone.wav' },
+  ]
+  galleryMedia.mockImplementation(() =>
+    Promise.resolve({
+      files: [
+        { ...file('demo/clip.mp4'), kind: 'video', duration_seconds: 75 },
+        { ...file('demo/tone.wav'), kind: 'audio', duration_seconds: 2.5 },
+      ],
+    }),
+  )
+  const { container } = render(GalleryPage)
+  await waitFor(() =>
+    expect(
+      screen
+        .getByTitle('demo/clip.mp4')
+        .closest('.filetile')!
+        .querySelector('.tile-time')?.textContent,
+    ).toBe('1m 15s'),
+  )
+  await waitFor(() =>
+    expect(
+      screen.getByTitle('demo/tone.wav').closest('.filetile')!.textContent,
+    ).toContain('2.5s'),
+  )
+  await settle()
+  expect(container.querySelector('video')).toBeNull()
+  expect(galleryMedia).toHaveBeenCalledTimes(1)
+  expect(gallery).toHaveBeenCalledTimes(1)
+})
+
+it('tiles take their workspace from the listing', async () => {
+  gallery.mockImplementationOnce(
+    () =>
+      new Promise((resolve) =>
+        setTimeout(
+          () => resolve({ files: listing.files, workspace: 'studio' } as never),
+          0,
+        ),
+      ),
+  )
+  const { container } = render(GalleryPage)
+  await waitFor(() => expect(container.querySelectorAll('img').length).toBe(3))
+  for (const img of container.querySelectorAll('img'))
+    expect(img.getAttribute('src')).toContain('workspace=studio')
 })

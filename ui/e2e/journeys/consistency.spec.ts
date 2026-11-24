@@ -47,7 +47,7 @@ async function narrowAndScroll(page: Page, by = 400): Promise<number> {
   await page.getByRole('button', { name: 'Starred', exact: true }).click()
   await expect(page).toHaveURL(/q=e2e/)
   await expect(page).toHaveURL(/starred=1/)
-  await expect(page.locator('button.cell')).toHaveCount(6)
+  await expect(page.locator('button.filetile')).toHaveCount(6)
   await page.mouse.move(600, 300)
   await page.mouse.wheel(0, by)
   await expect.poll(() => scrollY(page)).toBeGreaterThan(by - 50)
@@ -252,7 +252,7 @@ test('typing in the gallery filter leaves focus in the field', async ({
   await expect(page).toHaveURL(/q=still/)
   await expect(filter).toBeFocused()
   await expect(filter).toHaveValue('still')
-  await expect(page.locator('button.cell')).toHaveCount(2)
+  await expect(page.locator('button.filetile')).toHaveCount(2)
   await expect(filter).toBeFocused()
 })
 

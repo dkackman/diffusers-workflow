@@ -1,8 +1,9 @@
 <script lang="ts">
-  import { ImageOff, Pencil, Play, Star } from '@lucide/svelte'
+  import { ImageOff } from '@lucide/svelte'
   import { outputLibrary } from '../outputlib.svelte'
   import { api } from '../api'
-  import { kindGlyph } from '../media'
+  import { outputMedia } from '../media'
+  import OutputTile from '../ui/OutputTile.svelte'
   import { untrack } from 'svelte'
   import { resource, type Resource } from '../resource.svelte'
   import LoadState from '../ui/LoadState.svelte'
@@ -69,7 +70,7 @@
         reqId || undefined,
         reqItem || undefined,
       )
-      return { files: result.files, key, began }
+      return { files: result.files, key, began, workspace: result.workspace }
     },
     {
       watch: ['gallery'],
@@ -87,6 +88,25 @@
   // until a read begun after the change lands, so one asked for before it
   // cannot undo it
   let edits = $state(noEdits())
+  // Each clip's and sound's length: the listing again with `media`, read in
+  // the background so the grid never waits on the probe; a tile takes its
+  // duration from here by name
+  const durations = resource(
+    async () => {
+      const result = await api.gallery(
+        undefined,
+        reqId || undefined,
+        reqItem || undefined,
+        { media: true },
+      )
+      return new Map(result.files.map((f) => [f.name, f.duration_seconds]))
+    },
+    { watch: ['gallery'] },
+  )
+  const tileOf = (file: GalleryFile) => {
+    const media = outputMedia(file, list.data?.workspace ?? workspace.current)
+    return { ...media, duration: durations.data?.get(file.name) ?? null }
+  }
   const files = $derived(applyEdits(list.data?.files ?? [], edits))
   // A star or a note saved here is held as read (resource's `adopt`), so it
   // is never marked as another writer's change
@@ -331,69 +351,25 @@
           title="select this file for a bulk action"
           onclick={(e) => picks.toggle(name, e.shiftKey)}
         />
-        <button
-          class="cell"
-          class:active={selected?.name === name}
+        <OutputTile
+          file={tileOf(file)}
+          caption="clamp"
+          active={selected?.name === name}
+          picked={picks.has(name)}
           onclick={() => select(file)}
           title="show details{file.kind === 'image'
             ? ' and generation metadata'
             : ''}"
         >
-          {#if file.kind === 'image'}
-            <img
-              src={api.galleryThumbnailUrl(file.name)}
-              alt={file.name}
-              loading="lazy"
-            />
-          {:else if file.kind === 'video'}
-            <!-- a poster, never a <video>: a grid of clips opening a stream
-               per tile hung the page -->
-            <span class="poster">
-              <img
-                src={api.galleryThumbnailUrl(file.name)}
-                alt={file.name}
-                loading="lazy"
-              />
-              <span class="videobadge" aria-hidden="true">
-                <Play size={11} />
-              </span>
-            </span>
-          {:else}
-            <span class="audio">
-              {kindGlyph(file.kind)}
-              {file.label}
-            </span>
-          {/if}
-          <span class="caption" title={file.name}>
-            {#if file.role}
-              <RoleTag role={file.role} />
-              <!-- eslint-disable-next-line svelte/no-useless-mustaches -->
-              {' '}
-            {/if}
+          {#snippet badges()}
+            <RoleTag role={file.role} />
             {#if file.version}
               <span class="version" title={versionTitle(file.version)}>
                 v{file.version}
               </span>
-              <!-- A real space rather than a margin, so a screen reader says
-                 "v4 film.mp4" instead of running the two together. Explicit:
-                 whitespace at the edge of an if block is trimmed -->
-              <!-- eslint-disable-next-line svelte/no-useless-mustaches -->
-              {' '}
-            {/if}{file.label}{#if file.note}
-              <!-- eslint-disable-next-line svelte/no-useless-mustaches -->
-              {' '}<span
-                class="note-mark"
-                title={file.note.split('\n')[0]}
-                aria-label="Has a note"
-              >
-                <Pencil size={11} />
-              </span>{/if}{#if file.starred}
-              <!-- eslint-disable-next-line svelte/no-useless-mustaches -->
-              {' '}<span class="note-mark" aria-label="Starred">
-                <Star size={11} fill="currentColor" />
-              </span>{/if}
-          </span>
-        </button>
+            {/if}
+          {/snippet}
+        </OutputTile>
       </div>
     {/snippet}
   </FolderGroups>
@@ -415,84 +391,7 @@
 {/if}
 
 <style>
-  .note-mark {
-    color: var(--muted);
-    vertical-align: -1px;
-  }
-  .cellwrap {
-    display: flex;
-  }
-  /* A frame with a caption strip under it, like the catalog's cards: the
-     picture bleeds to the edges and the label sits below the rule rather
-     than floating on a padded card */
-  .cell {
-    flex: 1;
-    min-width: 0;
-    background: var(--panel);
-    border: 1px solid var(--line);
-    border-radius: var(--radius-2);
-    padding: 0;
-    overflow: hidden;
-    cursor: pointer;
-    display: flex;
-    flex-direction: column;
-    color: var(--muted);
-    font-weight: 500;
-    font-size: var(--t-xs);
-    text-align: left;
-    /* A folder of thousands of outputs still renders every cell's DOM node
-       (no true windowing library is in the project's dependencies yet),
-       but content-visibility skips layout/paint for cells scrolled out of
-       view, which is most of the win for cheap. contain-intrinsic-size
-       keeps scrollbar height stable before a cell has ever been measured. */
-    content-visibility: auto;
-    contain-intrinsic-size: 150px 210px;
-  }
-  .cell:hover,
-  .cell.active {
-    border-color: var(--ink);
-    filter: none;
-  }
-  .poster {
-    display: block;
-    position: relative;
-  }
-  .cell img {
-    width: 100%;
-    aspect-ratio: 1;
-    object-fit: cover;
-    display: block;
-  }
-  .audio {
-    aspect-ratio: 1;
-    display: grid;
-    place-items: center;
-    font-family: var(--font-mono);
-    background: var(--panel-2);
-  }
-  /* The file's own name, which is what the engine wrote and what you would
-     type to reference it */
-  .caption {
-    font-family: var(--font-mono);
-    padding: 0.35rem 0.5rem 0.4rem;
-    border-top: 1px solid var(--line);
-    overflow: hidden;
-    /* Sibling outputs of one step share a long common prefix and differ only
-       near the end (the i.j.k index, or a dedupe counter right before the
-       extension) - a single nowrap+ellipsis line would hide exactly the part
-       that tells them apart, so wrap onto a few lines and break mid-token
-       instead of clipping. */
-    display: -webkit-box;
-    -webkit-line-clamp: 4;
-    line-clamp: 4;
-    -webkit-box-orient: vertical;
-    white-space: normal;
-    word-break: break-all;
-  }
-  /* The one part of the caption that must not be broken or clamped away:
-     with four runs writing the same name it is the only thing on the card
-     that differs. Inline-block so word-break: break-all cannot split 'v10'
-     across lines */
+  /* The one mark that tells four runs' same-named files apart */
   .version {
     display: inline-block;
     padding: 0 0.3rem;
@@ -500,6 +399,5 @@
     background: var(--line);
     color: var(--ink);
     font-weight: 600;
-    word-break: keep-all;
   }
 </style>

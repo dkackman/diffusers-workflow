@@ -62,7 +62,7 @@ const PAGE_TABLE: Record<string, Freshness[]> = {
   'pages/AssetsPage.svelte': [{ watch: ['assets'] }],
   'pages/ComparePage.svelte': [{ watch: ['gallery'] }],
   'pages/EditorPage.svelte': [{ watch: ['workflows'] }],
-  'pages/GalleryPage.svelte': [{ watch: ['gallery'] }],
+  'pages/GalleryPage.svelte': [{ watch: ['gallery'] }, { watch: ['gallery'] }],
   'pages/JobPage.svelte': [{ watch: ['jobs'] }],
   'pages/JobsPage.svelte': [{ live: { everyMs: 3000 } }],
   'pages/JsonEditorStub.svelte': [],
@@ -96,6 +96,8 @@ const PAGE_TABLE: Record<string, Freshness[]> = {
     { watch: ['workflows'] },
     { watch: ['gallery'] },
   ],
+  // a text tile's first lines, read once when first seen
+  'ui/OutputTile.svelte': [{ watch: [] }],
 }
 
 /** The pages that edit one document: it is kept fresh by what they call to

@@ -7,7 +7,8 @@
   // folder groups, a contact-sheet grid, a detail popout.
   import { FolderOpen } from '@lucide/svelte'
   import { api } from '../api'
-  import { kindGlyph } from '../media'
+  import { assetMedia } from '../media'
+  import OutputTile from '../ui/OutputTile.svelte'
   import { untrack } from 'svelte'
   import { resource } from '../resource.svelte'
   import { applyEdits, noEdits, settleEdits, withPatch } from '../gallery/order'
@@ -28,7 +29,6 @@
   import { sharedHref } from '../routes'
   import { hashState } from '../router.svelte'
   import { assetLibrary } from '../assetlib.svelte'
-  import { leafName } from '../names'
   import {
     UPLOAD_EXTENSIONS,
     reportUploads,
@@ -409,27 +409,17 @@
                 onclick={(e) => picks.toggle(name, e.shiftKey)}
               />
             {/if}
-            <button
-              class="cell"
-              class:active={selected?.name === name}
+            <OutputTile
+              file={assetMedia(
+                asset,
+                list.data?.workspace ?? workspace.current,
+              )}
+              active={selected?.name === name}
+              picked={picks.has(name)}
               onclick={() => (selected = asset)}
               aria-label="show details for {asset.name}"
               title="show details"
-            >
-              {#if asset.kind === 'image'}
-                <img src={asset.url} alt={asset.name} loading="lazy" />
-              {:else if asset.kind === 'video'}
-                <video src={asset.url} preload="metadata" muted></video>
-              {:else}
-                <span class="audio">
-                  {kindGlyph(asset.kind)}
-                  {leafName(asset.name)}
-                </span>
-              {/if}
-              <span class="caption" title={asset.reference}>
-                {leafName(asset.name)}
-              </span>
-            </button>
+            />
           </div>
         {/snippet}
       </FolderGroups>
@@ -461,62 +451,5 @@
   }
   .hiddenfile {
     display: none;
-  }
-  /* The frame is the app's one picture surface: media edge to edge, the
-     size set here rather than on the media */
-  .cell {
-    display: block;
-    width: 100%;
-    padding: 0;
-    border: 1px solid var(--line);
-    border-radius: var(--radius-frame);
-    background: var(--panel);
-    overflow: hidden;
-    cursor: pointer;
-    text-align: left;
-    /* As in the gallery: every cell's DOM node is still rendered, but
-       content-visibility skips layout and paint for the ones scrolled out
-       of view, which is most of the win for a large library */
-    content-visibility: auto;
-    contain-intrinsic-size: 150px 134px;
-  }
-  .cell:hover {
-    border-color: var(--accent);
-    filter: none;
-  }
-  .cell.active {
-    border-color: var(--accent);
-    box-shadow: inset 0 0 0 1px var(--accent);
-  }
-  .cell img,
-  .cell video {
-    display: block;
-    width: 100%;
-    height: 110px;
-    object-fit: cover;
-    background: var(--panel-2);
-  }
-  /* The audio placeholder has no picture to show, and has to keep the
-     grid's rhythm - ShadowedAssets' tile does the same */
-  .cell .audio {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    height: 110px;
-    color: var(--muted);
-    font-family: var(--font-mono);
-    font-size: var(--t-xs);
-    padding: 0 0.4rem;
-    overflow: hidden;
-  }
-  .caption {
-    display: block;
-    padding: 0.3rem 0.45rem;
-    font-family: var(--font-mono);
-    font-size: var(--t-xs);
-    color: var(--ink);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
 </style>

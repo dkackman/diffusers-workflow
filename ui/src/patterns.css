@@ -153,3 +153,172 @@ table.datatable.dense td {
   background: color-mix(in srgb, var(--warn) 22%, transparent);
   color: var(--warn);
 }
+
+/* A file as a tile (OutputTile.svelte): the picture on --panel-2, letterboxed
+   and never cropped, a caption under a rule, the marks in a corner row. One
+   hover and one selection look: the ink border for the open file
+   (`.active`), the ink edge for a ticked one (`.picked`, an outer ring so the
+   picture cannot cover it). `tile-<size>` sets the frame. */
+.filetile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  width: 100%;
+  padding: 0;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-frame);
+  overflow: hidden;
+  color: var(--muted);
+  font-size: var(--t-xs);
+  font-weight: 500;
+  text-align: left;
+  text-decoration: none;
+}
+a.filetile,
+button.filetile {
+  cursor: pointer;
+}
+a.filetile:hover,
+button.filetile:hover,
+.filetile.active {
+  border-color: var(--ink);
+  filter: none;
+}
+.filetile.picked {
+  border-color: var(--ink);
+  box-shadow: 0 0 0 1px var(--ink);
+}
+.filetile.dim {
+  opacity: 0.45;
+}
+/* A grid renders every tile's node; content-visibility skips layout and
+   paint for the ones scrolled out of view */
+.tile-grid {
+  content-visibility: auto;
+  contain-intrinsic-size: 150px 190px;
+}
+.tile-strip {
+  width: 96px;
+}
+.tile-take {
+  width: 240px;
+}
+.tile-mini {
+  width: 48px;
+}
+.tile-media {
+  position: relative;
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1;
+  background: var(--panel-2);
+  overflow: hidden;
+  font-family: var(--font-mono);
+}
+.tile-card .tile-media,
+.tile-take .tile-media {
+  aspect-ratio: 4 / 3;
+}
+/* Pinned to the frame: a percentage height in a grid cell does not resolve,
+   and a tall picture would then overflow the square and be cropped */
+.tile-pic {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.tile-glyph {
+  display: inline-flex;
+  font-size: var(--t-lg);
+  line-height: 1;
+}
+.tile-sound,
+.tile-text {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+  max-width: 100%;
+  max-height: 100%;
+  padding: var(--space-2);
+  overflow: hidden;
+  text-align: center;
+}
+.tile-name {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tile-length {
+  color: var(--ink);
+}
+.tile-excerpt {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--ink);
+  text-align: left;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+/* A clip's play badge and length sit along the bottom, clear of the pick
+   box in the top corner */
+.tile-media .videobadge {
+  top: auto;
+  bottom: var(--space-2);
+}
+.tile-time {
+  position: absolute;
+  right: var(--space-2);
+  bottom: var(--space-2);
+  padding: 0 0.3rem;
+  border-radius: 0.2rem;
+  background: color-mix(in srgb, var(--ink) 65%, transparent);
+  color: var(--panel);
+}
+.tile-caption {
+  display: block;
+  padding: 0.3rem 0.45rem;
+  border-top: 1px solid var(--line);
+  font-family: var(--font-mono);
+  color: var(--ink);
+  overflow: hidden;
+}
+.caption-line .tile-caption {
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Sibling outputs share a long prefix and differ near the end, so the clamp
+   wraps and breaks mid-token rather than clipping the part that differs */
+.caption-clamp .tile-caption {
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  line-clamp: 4;
+  -webkit-box-orient: vertical;
+  word-break: break-all;
+}
+.tile-marks {
+  position: absolute;
+  top: var(--space-1);
+  right: var(--space-1);
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.2rem;
+  max-width: calc(100% - 2rem);
+}
+.tile-mark {
+  display: inline-flex;
+  padding: 0.15rem;
+  border-radius: 0.2rem;
+  background: var(--panel);
+  color: var(--muted);
+}
+.tile-meta {
+  display: block;
+  padding: 0 0.45rem 0.3rem;
+}

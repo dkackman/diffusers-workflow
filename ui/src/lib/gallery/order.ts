@@ -42,6 +42,8 @@ export interface Listing {
   files: GalleryFile[]
   key: string
   began: number
+  /** The workspace the listing is of, which its thumbnails are served from */
+  workspace: string
 }
 
 /** A listing's rows by file name, for the changed-row mark (resource's
