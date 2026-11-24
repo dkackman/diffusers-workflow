@@ -1,13 +1,14 @@
 <script lang="ts">
   import type { Snippet } from 'svelte'
   import { Plus } from '@lucide/svelte'
-  import { collapsedState } from './collapsed.svelte'
+  import { collapsedState, type Collapsed } from './collapsed.svelte'
   import GroupHeading from './ui/GroupHeading.svelte'
   import { groupNames, groupOf as defaultGroupOf } from './grouping'
 
   let {
     names,
-    collapseKey,
+    collapseKey = '',
+    collapsed = undefined,
     filterActive,
     newHref = undefined,
     onnewingroup = undefined,
@@ -18,7 +19,11 @@
     card,
   }: {
     names: string[]
-    collapseKey: string
+    /** Where the shut folders are remembered, unless the page holds them */
+    collapseKey?: string
+    /** The shut folders, held by a page whose own order leaves them out
+     * (the gallery's picks and viewer) */
+    collapsed?: Collapsed
     filterActive: boolean
     newHref?: string
     onnewingroup?: (group: string) => void
@@ -35,14 +40,14 @@
   } = $props()
 
   // svelte-ignore state_referenced_locally
-  const collapsed = collapsedState(collapseKey)
+  const shut = collapsed ?? collapsedState(collapseKey)
 
   const grouped = $derived(groupNames(names, groupOf, rank))
   const groups = $derived([...grouped.keys()])
   const inGroup = (group: string) => grouped.get(group) ?? []
   // While filtering, everything stays visible - a collapsed folder hiding
   // matches would make the filter look broken
-  const isOpen = (group: string) => filterActive || !collapsed.has(group)
+  const isOpen = (group: string) => filterActive || !shut.has(group)
   // ...so the toggle is off then, and says why
   const toggleTitle = (group: string) =>
     filterActive
@@ -58,7 +63,7 @@
         count={inGroup(group).length}
         collapsed={!isOpen(group)}
         disabled={filterActive}
-        ontoggle={() => collapsed.toggle(group)}
+        ontoggle={() => shut.toggle(group)}
         title={toggleTitle(group)}
       />
       {#if newHref}

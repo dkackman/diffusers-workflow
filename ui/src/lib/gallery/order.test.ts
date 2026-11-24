@@ -3,6 +3,8 @@ import {
   applyEdits,
   dateGroup,
   gridFiles,
+  gridGroups,
+  inGroupOrder,
   noEdits,
   roleOf,
   settleEdits,
@@ -168,4 +170,18 @@ it('a deleted name is settled by a listing begun after the delete', () => {
   const settled = settleEdits([file('a')], edits.made, held)
   expect(settled.gone).toEqual({})
   expect(applyEdits([file('a')], settled).map((f) => f.name)).toEqual(['a'])
+})
+
+it('leaves out the files of a shut group, heading by heading', () => {
+  const files = [
+    file('z/1', { folder: 'z' }),
+    file('a/1', { folder: 'a' }),
+    file('m/1', { folder: 'm' }),
+  ]
+  const groups = gridGroups(files, 'folder', 'newest', new Date())
+  expect(names(inGroupOrder(files, groups))).toEqual(['a/1', 'm/1', 'z/1'])
+  expect(names(inGroupOrder(files, groups, (g) => g === 'm'))).toEqual([
+    'a/1',
+    'z/1',
+  ])
 })

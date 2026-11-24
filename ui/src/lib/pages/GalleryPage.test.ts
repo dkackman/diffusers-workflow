@@ -176,6 +176,7 @@ afterEach(() => {
   galleryMetadata.mockImplementation(() => new Promise(() => {}))
   vi.unstubAllGlobals()
   workspace.current = DEFAULT_WORKSPACE
+  localStorage.removeItem('dw-collapsed-gallery-folders')
 })
 
 const SEARCH = 'search names, prompts and notes…'
@@ -1645,4 +1646,81 @@ it('sort and group survive Back', async () => {
       .getAttribute('aria-pressed')
   expect(pressed('Sort', 'Name')).toBe('true')
   expect(pressed('Group by', 'Date')).toBe('true')
+})
+
+it('after Clear filters, folder toggles work', async () => {
+  await renderGallery()
+  await fireEvent.input(screen.getByPlaceholderText(SEARCH), {
+    target: { value: 'zzz' },
+  })
+  await fireEvent.click(screen.getByRole('button', { name: 'Clear filters' }))
+  await waitFor(() =>
+    expect(screen.getByLabelText('select demo/c.png')).toBeTruthy(),
+  )
+  // Clear filters shows intermediates too, which hides nothing
+  expect(demoToggle()).not.toBeDisabled()
+  await fireEvent.click(demoToggle())
+  await waitFor(() =>
+    expect(screen.queryByLabelText('select demo/c.png')).toBeNull(),
+  )
+})
+
+/** a.png and b.png at the top, demo/c.png shut away, zz/d.png below it */
+async function renderShutDemo() {
+  listing.files = ['a.png', 'b.png', 'demo/c.png', 'zz/d.png'].map((name) =>
+    file(name),
+  )
+  await renderGallery()
+  await fireEvent.click(demoToggle())
+  await waitFor(() =>
+    expect(screen.queryByLabelText('select demo/c.png')).toBeNull(),
+  )
+}
+
+it('select all with a collapsed folder picks only the files shown', async () => {
+  await renderShutDemo()
+  await fireEvent.click(screen.getByRole('button', { name: /select all/i }))
+  await waitFor(() => expect(screen.getByText('3 selected')).toBeTruthy())
+  await fireEvent.click(screen.getByRole('button', { name: /^download/i }))
+  await waitFor(() => expect(archiveOutputs).toHaveBeenCalledTimes(1))
+  expect(archiveOutputs).toHaveBeenCalledWith(['a.png', 'b.png', 'zz/d.png'])
+})
+
+it('a shift-range across a collapsed folder skips its files', async () => {
+  await renderShutDemo()
+  checkbox('a.png').click()
+  checkbox('zz/d.png').dispatchEvent(
+    new MouseEvent('click', { bubbles: true, shiftKey: true }),
+  )
+  await waitFor(() => expect(screen.getByText('3 selected')).toBeTruthy())
+  // opening the folder again shows its file was never picked
+  await fireEvent.click(demoToggle())
+  await waitFor(() => expect(checkbox('demo/c.png')).not.toBeChecked())
+  expect(screen.getByText('3 selected')).toBeTruthy()
+})
+
+it("the viewer's count leaves out a collapsed folder's files", async () => {
+  await renderShutDemo()
+  await openFile('b.png')
+  expect(await viewer('b.png')).toHaveTextContent('2 of 3')
+  await press({ key: 'ArrowRight' })
+  expect(await viewer('d.png')).toHaveTextContent('3 of 3')
+})
+
+it('a delete confirm counts only the picks that are shown', async () => {
+  await renderShutDemo()
+  await fireEvent.click(demoToggle())
+  await waitFor(() => expect(checkbox('demo/c.png')).toBeTruthy())
+  await fireEvent.click(screen.getByRole('button', { name: /select all/i }))
+  await waitFor(() => expect(screen.getByText('4 selected')).toBeTruthy())
+  await fireEvent.click(demoToggle())
+  await waitFor(() => expect(screen.getByText('3 selected')).toBeTruthy())
+  await fireEvent.click(screen.getByRole('button', { name: /^delete/i }))
+  const dialog = await waitFor(() => screen.getByRole('alertdialog'))
+  expect(dialog.textContent).toContain('Delete 3 files?')
+  within(dialog)
+    .getByRole('button', { name: /^delete$/i })
+    .click()
+  await waitFor(() => expect(deleteOutput).toHaveBeenCalledTimes(3))
+  expect(deleteOutput).not.toHaveBeenCalledWith('demo/c.png')
 })

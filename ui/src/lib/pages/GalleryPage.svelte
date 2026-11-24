@@ -15,15 +15,12 @@
   import { openInHash } from '../mediaViewer'
   import { leafName } from '../names'
   import { OUTPUT } from '../references'
-  import OutputTile from '../ui/OutputTile.svelte'
   import MediaViewer from '../ui/MediaViewer.svelte'
   import RecipePanel from '../ui/RecipePanel.svelte'
   import ReferenceChip from '../ui/ReferenceChip.svelte'
   import { untrack } from 'svelte'
   import { resource, type Resource } from '../resource.svelte'
   import LoadState from '../ui/LoadState.svelte'
-  import PageHeader from '../ui/PageHeader.svelte'
-  import Segmented from '../ui/Segmented.svelte'
   import FolderGroups from '../FolderGroups.svelte'
   import BulkBar from '../BulkBar.svelte'
   import { Picks, actOnEach, reportFailures } from '../picks.svelte'
@@ -33,19 +30,20 @@
   import type { GalleryFile, OutputRole } from '../types'
   import { workspace } from '../workspace.svelte'
   import { codec, go, hashState } from '../router.svelte'
+  import { collapsedState } from '../collapsed.svelte'
+  import GalleryFind, { findState } from '../gallery/GalleryFind.svelte'
+  import GalleryCell from '../gallery/GalleryCell.svelte'
   import RequestFilter from '../gallery/RequestFilter.svelte'
   import RoleChips from '../gallery/RoleChips.svelte'
   import GalleryAside from '../gallery/GalleryAside.svelte'
   import { saveAsAsset } from '../gallery/saveAsAsset'
   import UseAsInput from '../gallery/UseAsInput.svelte'
-  import { AssessCache } from '../gallery/assess.svelte'
-  import RoleTag from '../gallery/RoleTag.svelte'
-  import { versionTitle } from '../terms'
   import {
-    GROUPINGS,
-    GROUP_OPTIONS,
-    SORTS,
-    SORT_OPTIONS,
+    AssessCache,
+    assessable,
+    assessTitle,
+  } from '../gallery/assess.svelte'
+  import {
     applyEdits,
     gridFiles,
     gridGroups,
@@ -56,14 +54,13 @@
     settleEdits,
     withGone,
     withPatch,
-    type GallerySort,
-    type Grouping,
     type Listing,
   } from '../gallery/order'
 
   // The filters live in the hash, so opening a file and pressing Back - or
   // sharing the link - keeps the narrowed view
-  const text = hashState('q', '')
+  const find = findState()
+  const { text, sort, groupBy } = find
   // The roles to show. Finals are what a run was for, so the gallery opens
   // on them; Intermediate adds the steps' working files
   const roles = hashState<OutputRole[]>(
@@ -71,8 +68,6 @@
     ['final'],
     codec.someOf<OutputRole>(['final', 'intermediate'], ['final']),
   )
-  const sort = hashState('sort', SORTS[0], codec.oneOf(SORTS))
-  const groupBy = hashState('group', GROUPINGS[0], codec.oneOf(GROUPINGS))
   // The file open in the viewer, as `open=` in the hash: the viewer writes
   // it the way Back expects (mediaViewer.ts), and Back closes it
   let open = $state<string | null>(openInHash())
@@ -160,11 +155,11 @@
   })
 
   const starredOnly = hashState('starred', false, codec.flag)
-  // Finals only is where the gallery opens, not a filter: folders still
-  // collapse under it
+  // Finals, with or without the intermediates, hide nothing a run was
+  // for: not a filter, so folders still collapse under them
   const filterActive = $derived(
     text.value !== '' ||
-      roles.value.join() !== 'final' ||
+      !roles.value.includes('final') ||
       starredOnly.value ||
       reqId !== '',
   )
@@ -184,11 +179,20 @@
       prompts: list.data?.prompts ?? {},
     }),
   )
-  // The headings, and the files in the order they show under them
+  // The headings, and the files in the order they show under them. Folders
+  // and days are shut apart (a day is not a folder), and held here so a
+  // shut one's files are out of the picks' and the viewer's order too
   const groups = $derived(
     gridGroups(visible, groupBy.value, sort.value, new Date()),
   )
-  const shown = $derived(inGroupOrder(visible, groups))
+  const shutBy = {
+    folder: collapsedState('collapsed-gallery-folders'),
+    date: collapsedState('collapsed-gallery-days'),
+  }
+  const collapsed = $derived(shutBy[groupBy.value])
+  const shown = $derived(
+    inGroupOrder(visible, groups, (g) => !filterActive && collapsed.has(g)),
+  )
   // A star is undone, not asked about: held here at once (`patch`), as is
   // the Undo that takes it back
   async function setStar(name: string, next: boolean) {
@@ -270,7 +274,7 @@
   $effect(() => {
     const name = open
     if (!name || list.status !== 'ready') return
-    const here = byName.has(name)
+    const here = items.some((item) => item.name === name)
     untrack(() => {
       if (here) listed = name
       else if (name !== listed) {
@@ -290,16 +294,7 @@
     })
   })
 
-  // Assess measures shots, seams and a soundtrack; a still has none, and
-  // the title says so in the server's own words (dw/server/assess.py)
   const assessKey = (name: string) => AssessCache.key(workspace.current, name)
-  const assessable = (kind: string) => kind === 'video' || kind === 'audio'
-  const assessTitle = (kind: string) =>
-    assessable(kind)
-      ? 'measure this file for shots, seams, sync and level - places to look, not verdicts'
-      : kind === 'image'
-        ? 'a still has no shots, seams or soundtrack to measure'
-        : 'not a video or audio file'
 
   // A bare S: with Shift, Alt or a command modifier it is someone else's
   const isStarKey = (e: KeyboardEvent) =>
@@ -327,38 +322,10 @@
 
 <svelte:window onkeydown={onKeydown} />
 
-{#snippet search()}
-  <input
-    class="filter"
-    placeholder="search names, prompts and notes…"
-    bind:value={text.value}
-  />
-{/snippet}
-<PageHeader
-  title="Gallery"
-  baseline
-  count={{ n: visible.length, of: files.length, noun: 'file' }}
-  filter={search}
->
-  {#snippet actions()}
-    <RoleChips bind:roles={roles.value} bind:starredOnly={starredOnly.value} />
-    <RequestFilter bind:request={reqId} bind:item={reqItem} />
-    <Segmented
-      label="Sort"
-      size="sm"
-      options={SORT_OPTIONS}
-      value={sort.value}
-      onselect={(v) => (sort.value = v as GallerySort)}
-    />
-    <Segmented
-      label="Group by"
-      size="sm"
-      options={GROUP_OPTIONS}
-      value={groupBy.value}
-      onselect={(v) => (groupBy.value = v as Grouping)}
-    />
-  {/snippet}
-</PageHeader>
+<GalleryFind {find} count={{ n: visible.length, of: files.length }}>
+  <RoleChips bind:roles={roles.value} bind:starredOnly={starredOnly.value} />
+  <RequestFilter bind:request={reqId} bind:item={reqItem} />
+</GalleryFind>
 
 {#if missing}
   <p class="hint missing">
@@ -377,7 +344,7 @@
 
 <BulkBar
   {picks}
-  visible={visible.length}
+  visible={shown.length}
   {filterActive}
   busy={downloading.busy || removingPicked.busy}
   noun="file"
@@ -402,53 +369,24 @@
       Nothing generated yet — outputs land here as workflows run.
     {/if}
   {/snippet}
-  <!-- Folders and days are shut apart: a day is not a folder -->
+  <!-- Remounted per grouping: FolderGroups reads its shut state once -->
   {#key groupBy.value}
     <FolderGroups
-      names={shown.map((f) => f.name)}
+      names={visible.map((f) => f.name)}
       {...groups}
-      collapseKey="collapsed-gallery-{groupBy.value === 'date'
-        ? 'days'
-        : 'folders'}"
+      {collapsed}
       {filterActive}
       minColumn="150px"
     >
       {#snippet card(name)}
-        {@const file = byName.get(name)!}
-        <div
-          class="cellwrap"
-          class:picked={picks.has(name)}
-          class:row-changed={list.changed.has(name)}
-        >
-          <!-- A sibling of the cell rather than a child: a checkbox nested in
-           a button is invalid, and keeping them apart is what lets a plain
-           click still open the details it always has -->
-          <input
-            class="pick"
-            type="checkbox"
-            checked={picks.has(name)}
-            aria-label="select {name}"
-            title="select this file for a bulk action"
-            onclick={(e) => picks.toggle(name, e.shiftKey)}
-          />
-          <OutputTile
-            file={tileOf(file)}
-            caption="clamp"
-            active={open === name}
-            picked={picks.has(name)}
-            onclick={() => (open = name)}
-            title="open this file, with what made it"
-          >
-            {#snippet badges()}
-              <RoleTag role={file.role} />
-              {#if file.version}
-                <span class="version" title={versionTitle(file.version)}>
-                  v{file.version}
-                </span>
-              {/if}
-            {/snippet}
-          </OutputTile>
-        </div>
+        <GalleryCell
+          file={byName.get(name)!}
+          tile={tileOf(byName.get(name)!)}
+          {picks}
+          changed={list.changed.has(name)}
+          active={open === name}
+          onopen={() => (open = name)}
+        />
       {/snippet}
     </FolderGroups>
   {/key}
@@ -552,14 +490,5 @@
     align-items: center;
     gap: var(--space-2);
     margin: 0 0 var(--space-2);
-  }
-  /* The one mark that tells four runs' same-named files apart */
-  .version {
-    display: inline-block;
-    padding: 0 0.3rem;
-    border-radius: 0.2rem;
-    background: var(--line);
-    color: var(--ink);
-    font-weight: 600;
   }
 </style>

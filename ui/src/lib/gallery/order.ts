@@ -136,15 +136,17 @@ export function gridGroups(
 }
 
 /** The files in the order the grid shows them, heading by heading: what
- * the viewer steps through and a shift-range spans */
+ * the viewer steps through, a shift-range spans and Select all picks. A
+ * group `shut` says is collapsed shows no files, so none of its are here */
 export function inGroupOrder(
   files: GalleryFile[],
   groups: ReturnType<typeof gridGroups>,
+  shut: (group: string) => boolean = () => false,
 ): GalleryFile[] {
   const byName = new Map(files.map((f) => [f.name, f]))
   const names = files.map((f) => f.name)
-  return [...groupNames(names, groups.groupOf, groups.rank).values()]
-    .flat()
+  return [...groupNames(names, groups.groupOf, groups.rank).entries()]
+    .flatMap(([group, inGroup]) => (shut(group) ? [] : inGroup))
     .map((name) => byName.get(name)!)
 }
 
