@@ -26,7 +26,6 @@ import sqlite3
 import sys
 import struct
 import tempfile
-import time
 import wave
 import zlib
 from datetime import datetime, timedelta, timezone
@@ -406,10 +405,8 @@ review_linked = {
     ],
     "comp": [{"job": "e2erevcomp01", "status": "failed", "run_id": None}],
 }
-# The list puts held requests first, the most recently written first among
-# them, to the second: this one is written in a later second than the
-# storyboard, so it leads the list
-time.sleep(1.01 - time.time() % 1)
+# The list puts held requests first; the journey asserts only that nothing
+# ahead of this one is anything but held, so no write timing is relied on
 seed_jobs(REVIEW_ID, review_linked, "review-takes", "hero-take.png", 1767441610.0, 60)
 # Written last, the takes would be the gallery's newest files and push the
 # find-and-reuse journey's lighthouse off the overview's recent row: dated

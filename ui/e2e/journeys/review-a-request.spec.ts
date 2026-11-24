@@ -100,8 +100,15 @@ test('review a request: what it needs, why it failed, a note, a price, a choice,
 
   // 1. The list says what it wants, and puts it first: it holds an item
   await page.goto('/#/ws/default/requests')
-  const listed = page.locator('a.row').first()
-  await expect(listed).toContainText(ID)
+  // (held requests lead, in write order: other specs' held requests may
+  // precede it, nothing that does not wait on the person may)
+  const listed = page.locator('a.row', { hasText: ID })
+  await expect(listed).toHaveCount(1)
+  const rows = await page.locator('a.row').allInnerTexts()
+  const at = rows.findIndex((text) => text.includes(ID))
+  expect(at).toBeGreaterThanOrEqual(0)
+  for (const text of rows.slice(0, at))
+    expect(text).toContain('waiting for your OK')
   await expect(listed.locator('.attention')).toHaveText(NEEDS)
   await page.setViewportSize({ width: 390, height: 844 })
   await expect(listed.locator('.title')).toBeVisible()
