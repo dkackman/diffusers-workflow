@@ -48,14 +48,44 @@ export async function fetchEventLog(
 // The fields a row already shows in its own columns
 const ROW_FIELDS = new Set(['seq', 'event', 'at', 'kind'])
 
-/** What a row says beyond its seq, time and kind: the event's message, or
- * the rest of its payload as compact JSON. */
-export function eventSummary(event: JobEvent): string {
-  if (typeof event.message === 'string') return event.message
+type Sentence = { text: (event: JobEvent) => string; used: string[] }
+
+const word = (value: unknown) => String(value ?? '')
+
+/** The events a row words in plain sentences, and the payload fields each
+ * sentence already says (so they are not repeated in the folded data). */
+const SENTENCES: Record<string, Sentence> = {
+  step_start: { text: (e) => `Started ${word(e.step)}`, used: ['step'] },
+  step_end: { text: (e) => `Finished ${word(e.step)}`, used: ['step'] },
+  pipeline_step: {
+    text: (e) => `Denoise ${word(e.step)} of ${word(e.total_steps)}`,
+    used: ['step', 'total_steps'],
+  },
+  workflow_start: { text: () => 'Started the workflow', used: [] },
+  job_status: { text: (e) => `Status: ${word(e.status)}`, used: ['status'] },
+  queue_wait: { text: () => 'Waiting for a card', used: [] },
+  warning: { text: (e) => word(e.message), used: ['message'] },
+}
+
+/** What a row says beyond its seq, time and kind: a sentence for the events
+ * the table names, else the event's own name, and the rest of the payload as
+ * indented JSON (null when nothing is left) to fold behind Details. */
+export function eventSummary(event: JobEvent): {
+  text: string
+  data: string | null
+} {
+  const sentence = SENTENCES[event.event]
+  const text = sentence ? sentence.text(event) : event.event
+  const used = new Set(sentence?.used)
   const rest = Object.fromEntries(
-    Object.entries(event).filter(([key]) => !ROW_FIELDS.has(key)),
+    Object.entries(event).filter(
+      ([key]) => !ROW_FIELDS.has(key) && !used.has(key),
+    ),
   )
-  return Object.keys(rest).length ? JSON.stringify(rest) : ''
+  return {
+    text,
+    data: Object.keys(rest).length ? JSON.stringify(rest, null, 2) : null,
+  }
 }
 
 /** The kind a row is filed under: the event name, with a warning's own

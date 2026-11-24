@@ -73,7 +73,7 @@
             {denoise.step}{denoise.total_steps
               ? ` / ${denoise.total_steps}`
               : ''}
-            {#if etaSeconds !== null}· {formatApprox(etaSeconds)} left{/if}
+            {#if etaSeconds !== null}· {formatApprox(etaSeconds)} left in this step{/if}
           </span>
         {/if}
         <!-- The counter tells the generating story on its own; every

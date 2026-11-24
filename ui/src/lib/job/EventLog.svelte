@@ -1,5 +1,6 @@
 <script lang="ts">
   import ErrorLine from '../ui/ErrorLine.svelte'
+  import Details from '../ui/Details.svelte'
   // A job's event log, read from GET /api/jobs/{id}/event-log rather than
   // the live stream. Its state is its own: the page's `events` - which the
   // Progress list, the flow view and its chips read - never sees these rows.
@@ -30,6 +31,11 @@
   let error = $state<unknown>(null)
   let kind = $state('')
   let body = $state<HTMLDivElement | null>(null)
+  // Follow new events: on for a live job. Only a scroll up by the user turns
+  // it off; `lastTop` is where the log last stood, so the scrolls this
+  // component makes (always to the bottom) never read as the user's.
+  let follow = $state(untrack(() => live))
+  let lastTop = 0
 
   // Another job is another log: drop this one's and close
   $effect(() => {
@@ -44,6 +50,8 @@
     missing = false
     error = null
     kind = ''
+    follow = untrack(() => live)
+    lastTop = 0
   })
 
   function take(page: EventLogFetch, after: number) {
@@ -59,7 +67,20 @@
   // leaving them below the box's fold (#1499)
   async function showTail(id: string) {
     await tick()
-    if (id === jobId && body) body.scrollTop = body.scrollHeight
+    if (id !== jobId || !body) return
+    body.scrollTop = body.scrollHeight
+    lastTop = body.scrollTop
+  }
+
+  function scrolled() {
+    if (!body) return
+    if (body.scrollTop < lastTop - 1) follow = false
+    lastTop = body.scrollTop
+  }
+
+  function toggleFollow() {
+    follow = !follow
+    if (follow) showTail(jobId)
   }
 
   function failed(e: unknown) {
@@ -76,7 +97,7 @@
       const page = await fetchEventLog(id, after, EVENT_LOG_CAP)
       if (id !== jobId) return
       take(page, after)
-      if (live && page.events.length) await showTail(id)
+      if (follow && page.events.length) await showTail(id)
     } catch (e) {
       if (id === jobId) failed(e)
     } finally {
@@ -137,6 +158,16 @@
         </select>
       </label>
     {/if}
+    {#if open && loaded && !missing}
+      <button
+        class="togglechip"
+        class:on={follow}
+        aria-pressed={follow}
+        onclick={toggleFollow}
+      >
+        Follow new events
+      </button>
+    {/if}
     {#if open && live && loaded && !missing}
       <button
         class="quiet icon"
@@ -151,7 +182,7 @@
   </div>
 
   {#if open}
-    <div id="event-log-body" bind:this={body}>
+    <div id="event-log-body" bind:this={body} onscroll={scrolled}>
       {#if loading && !loaded}
         <p class="muted">Loading…</p>
       {:else if missing}
@@ -169,6 +200,7 @@
             </thead>
             <tbody>
               {#each shown as event (event.seq)}
+                {@const said = eventSummary(event)}
                 <tr>
                   <td class="num">{event.seq}</td>
                   <td class="num">
@@ -177,8 +209,11 @@
                       : ''}
                   </td>
                   <td class="kind">{eventKind(event)}</td>
-                  <td class="body" title={eventSummary(event)}>
-                    {eventSummary(event)}
+                  <td class="body">
+                    <span class="text" title={said.text}>{said.text}</span>
+                    {#if said.data}
+                      <Details summary="Event data" detail={said.data} />
+                    {/if}
                   </td>
                 </tr>
               {/each}
@@ -248,6 +283,9 @@
   .body {
     width: 100%;
     max-width: 0;
+  }
+  .text {
+    display: block;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;

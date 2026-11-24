@@ -1038,7 +1038,7 @@ describe('event log (#1478)', () => {
       'Only the last 200 events of this job were retained; everything before seq 41 was dropped when the job was recorded.'
     eventLog.events = [
       { seq: 41, event: 'step_start', at: 1.5, step: 'gen' },
-      { seq: 42, event: 'log', at: 2, message: 'loading model' },
+      { seq: 42, event: 'step_end', at: 2, step: 'gen' },
     ]
     const { container } = render(JobPage, { jobId: 'j1' })
     await waitFor(() => expect(logToggle()).toBeTruthy())
@@ -1051,8 +1051,8 @@ describe('event log (#1478)', () => {
       screen.getByText(/everything before seq 41 was dropped/),
     ).toBeTruthy()
     expect(logRows(container)).toEqual([
-      ['41', '+1.5s', 'step_start', '{"step":"gen"}'],
-      ['42', '+2.0s', 'log', 'loading model'],
+      ['41', '+1.5s', 'step_start', 'Started gen'],
+      ['42', '+2.0s', 'step_end', 'Finished gen'],
     ])
     expect(vi.mocked(api.eventLog).mock.calls).toEqual([
       ['j1', { after: -1, limit: 500 }],
@@ -1142,6 +1142,48 @@ describe('event log (#1478)', () => {
       { after: 3, limit: 500 },
     ])
     expect(nodeFor(container, 'mux').classList.contains('active')).toBe(false)
+  })
+
+  it('follows a live job until the user scrolls up', async () => {
+    detail.job = { ...job([]), status: 'running', finished_at: null }
+    eventLog.events = [{ seq: 0, event: 'log', message: 'one' }]
+    const { container } = render(JobPage, { jobId: 'j1' })
+    await waitFor(() => expect(logToggle()).toBeTruthy())
+    await fireEvent.click(logToggle())
+    const follow = await screen.findByRole('button', {
+      name: 'Follow new events',
+    })
+    expect(follow.getAttribute('aria-pressed')).toBe('true')
+    // jsdom has no layout: give the box a height and a scroll position
+    const box = container.querySelector('#event-log-body') as HTMLElement
+    let top = 0
+    Object.defineProperty(box, 'scrollHeight', { value: 900 })
+    Object.defineProperty(box, 'scrollTop', {
+      get: () => top,
+      set: (v: number) => (top = v),
+    })
+    const refresh = () =>
+      fireEvent.click(screen.getByRole('button', { name: 'Refresh event log' }))
+    eventLog.events.push({ seq: 1, event: 'log', message: 'two' })
+    await refresh()
+    await waitFor(() => expect(top).toBe(900))
+    expect(follow.getAttribute('aria-pressed')).toBe('true')
+
+    // Our own scroll to the bottom is not the user's
+    await fireEvent.scroll(box)
+    expect(follow.getAttribute('aria-pressed')).toBe('true')
+
+    top = 100
+    await fireEvent.scroll(box)
+    expect(follow.getAttribute('aria-pressed')).toBe('false')
+    eventLog.events.push({ seq: 2, event: 'log', message: 'three' })
+    await refresh()
+    await waitFor(() => expect(logRows(container).length).toBe(3))
+    expect(top).toBe(100)
+
+    await fireEvent.click(follow)
+    expect(follow.getAttribute('aria-pressed')).toBe('true')
+    await waitFor(() => expect(top).toBe(900))
   })
 })
 
