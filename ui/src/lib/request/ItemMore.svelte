@@ -38,7 +38,8 @@
     onaccept?: (take: Take, job: string | null) => void
     /** "For the whole request instead" on this item's new note */
     onmove?: (text: string, refs: LedgerNoteRef[]) => void
-    /** A take was noted: the row stays open under the note being drafted */
+    /** A take was noted, or a note's box opened: the row stays open under
+     * the note being drafted */
     onnote?: () => void
     /** What the new note is about so far: the takes "Note this take" added */
     pending?: LedgerNoteRef[]
@@ -106,6 +107,7 @@
     about={item.title}
     {ongo}
     {onmove}
+    onopen={onnote}
     onchanged={onreload}
   />
   <!-- What it runs is detail: after the notes, folded -->

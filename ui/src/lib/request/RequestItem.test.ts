@@ -24,7 +24,11 @@ vi.mock('../api', () => ({
 vi.mock('../confirm.svelte', () => ({ confirmDialog: vi.fn() }))
 vi.mock('../toast', () => ({ notify: { error: vi.fn(), success: vi.fn() } }))
 
-afterEach(cleanup)
+// A draft is kept for the tab (draft.ts): none carries into the next test
+afterEach(() => {
+  cleanup()
+  sessionStorage.clear()
+})
 
 let ids = 0
 const note = (text: string, at: string) => ({
@@ -591,6 +595,25 @@ it('"Note this take" keeps the row open when a read would close it', async () =>
   await view.rerender(props([accepted()]))
   expect(title('Shot 3').getAttribute('aria-expanded')).toBe('true')
   expect(screen.getByLabelText('Note for the agent on Shot 3')).toBeTruthy()
+})
+
+it("the box's own Add a note keeps the row open while it holds a draft", async () => {
+  const view = render(RequestItem, props([goodTakes()]))
+  expect(title('Shot 3').getAttribute('aria-expanded')).toBe('true')
+  await fireEvent.click(
+    screen.getByRole('button', { name: 'Add a note for the agent' }),
+  )
+  const box = await screen.findByLabelText('Note for the agent on Shot 3')
+  await fireEvent.input(box, { target: { value: 'half a thought' } })
+  await view.rerender(props([accepted()]))
+  expect(title('Shot 3').getAttribute('aria-expanded')).toBe('true')
+  expect(
+    (
+      screen.getByLabelText(
+        'Note for the agent on Shot 3',
+      ) as HTMLTextAreaElement
+    ).value,
+  ).toBe('half a thought')
 })
 
 it("the menu's note keeps the row open when a read would close it", async () => {

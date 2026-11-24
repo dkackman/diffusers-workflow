@@ -38,6 +38,7 @@
     ondelete,
     onreload,
     onmove,
+    onopen,
   }: {
     /** The saved note; null for the box a new one is written in */
     note: LedgerNote | null
@@ -78,6 +79,8 @@
     /** An item's new-note box only: hand the draft to the request's own
      * note box ("For the whole request instead") */
     onmove?: (text: string) => void
+    /** The box was opened: a row keeps itself open under it */
+    onopen?: () => void
   } = $props()
 
   const unreadNote = destroyConfirm({
@@ -107,6 +110,7 @@
   /** Open the box: the row's menu and "Note this take" ask for it too. An
    * open box keeps what is in it */
   export async function edit(text?: string) {
+    onopen?.()
     if (!draft.editing) {
       draft.open()
       refused = null

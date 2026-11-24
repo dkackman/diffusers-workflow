@@ -29,6 +29,7 @@
     ongo,
     onadded,
     onmove,
+    onopen,
     onchanged,
   }: {
     notes: LedgerNote[]
@@ -52,6 +53,8 @@
     /** An item's box offers "For the whole request instead": the draft and
      * what it is about, for the page to take to the request's own box */
     onmove?: (text: string, refs: LedgerNoteRef[]) => void
+    /** A box here was opened to write in */
+    onopen?: () => void
     onchanged: () => void | Promise<void>
   } = $props()
 
@@ -200,6 +203,7 @@
               onsave={(text) => write(note.id, { edit: note, text })}
               ondelete={() => write(note.id, { remove: note })}
               onreload={onchanged}
+              {onopen}
             />
           </li>
         {/each}
@@ -222,6 +226,7 @@
         onsaved={sent}
         onmove={item !== null && onmove ? move : undefined}
         onreload={onchanged}
+        {onopen}
       />
     {/if}
   </section>
