@@ -3,6 +3,7 @@
 // first read says nothing - there is no change to announce.
 import type { LedgerRequest } from '../types'
 import { planState, type ItemDisplay, type ItemState } from './itemState'
+import { planDiff, type PlanChange } from './planDiff'
 import { holdGroup, holdNews } from './reviewText'
 
 /** More changes than this in one refresh are counted, not listed */
@@ -35,13 +36,27 @@ function itemChange(before: ItemState | undefined, now: ItemState) {
   return null
 }
 
+/** What the agent edited in an item's job, said after its rename */
+const EDITED: Partial<Record<NonNullable<PlanChange['what']>, string>> = {
+  arguments: 'arguments',
+  workflow: 'workflow',
+}
+
 /** What changed about one item: a rename first, so what follows reads
- * under the new name */
-function itemChanges(before: ItemState | undefined, now: ItemState) {
+ * under the new name; then what the agent edited (`planDiff`'s lines) */
+function itemChanges(
+  before: ItemState | undefined,
+  now: ItemState,
+  edits: PlanChange[],
+) {
   const said: string[] = []
   const was = before?.item.title
   if (was !== undefined && was !== now.item.title)
     said.push(`The agent renamed ${was} to ${now.item.title}.`)
+  for (const edit of edits) {
+    const what = edit.kind === 'changed' && edit.what && EDITED[edit.what]
+    if (what) said.push(`The agent changed the ${what} of ${now.item.title}.`)
+  }
   const change = itemChange(before, now)
   if (change) said.push(change)
   return said
@@ -63,8 +78,13 @@ export function announce(
   const was = planState(previous)
   const now = planState(next)
   const before = new Map(was.items.map((state) => [state.item.key, state]))
+  const edits = planDiff(previous, next)
   const said = now.items.flatMap((state) =>
-    itemChanges(before.get(state.item.key), state),
+    itemChanges(
+      before.get(state.item.key),
+      state,
+      edits.filter((edit) => edit.key === state.item.key),
+    ),
   )
   // The review banner's state, said once when it changes (ahead of the
   // item changes, so a busy refresh does not count it away); its

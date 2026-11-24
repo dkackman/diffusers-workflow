@@ -20,6 +20,7 @@
   import { ReviewCountdown } from '../request/review.svelte'
   import { goWs } from '../router.svelte'
   import { announce } from '../request/announce'
+  import * as seen from '../request/planDiff'
   import { answeredNow, answeredText, noteItem } from '../request/answered'
   import { noteAnchor } from '../request/noteState'
   import { planState, titleId } from '../request/itemState'
@@ -59,6 +60,8 @@
       if (news) said = news
       readAt = Date.now() / 1000
       countdown.read(next)
+      // What the agent changed, and since this browser last looked (planDiff)
+      looked = seen.afterRead(ws, previous, next, looked)
       if (previous)
         for (const note of answeredNow(previous, next)) told(next, note.id)
     },
@@ -71,6 +74,7 @@
   // note while the page is open, never for one answered before it opened.
   // Note ids restart per request, so a switch forgets them (the effect below)
   let toldOf: Record<string, true> = {}
+  let looked = $state.raw(seen.UNSEEN)
   function told(next: LedgerRequest, id: string) {
     if (toldOf[id]) return
     toldOf[id] = true
@@ -93,6 +97,7 @@
       store.reset()
       toldOf = {}
       said = ''
+      looked = seen.UNSEEN
     })
   })
 
@@ -198,6 +203,17 @@
   })
   const narrow = $derived(width > 0 && width < 640)
 </script>
+
+{#snippet changes(req: LedgerRequest, heading: boolean)}
+  <PlanChanges
+    history={req.history}
+    revision={req.revision}
+    {heading}
+    diffs={looked.diffs}
+    since={looked.since}
+    ondismiss={() => (looked = seen.dismissed(ws, store.read, looked))}
+  />
+{/snippet}
 
 {#snippet ask(req: LedgerRequest)}
   {#if req.prompt}
@@ -320,15 +336,11 @@
           </details>
           <details>
             <summary>Plan changes ({request.history.length})</summary>
-            <PlanChanges
-              history={request.history}
-              revision={request.revision}
-              heading={false}
-            />
+            {@render changes(request, false)}
           </details>
         {:else}
           {@render ask(request)}
-          <PlanChanges history={request.history} revision={request.revision} />
+          {@render changes(request, true)}
         {/if}
       </div>
     </div>

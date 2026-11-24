@@ -120,3 +120,20 @@ it('announces a rename', () => {
     'The agent renamed Shot 3 to Shot 3: the pier. Shot 3: the pier finished.',
   )
 })
+
+it('says an argument change after a rename', () => {
+  const edited = request([
+    item('shot', {
+      title: 'Shot 3: the pier',
+      status: 'running',
+      attempts: [attempt('j', 'running')],
+      arguments: { seed: 7 },
+    }),
+    item('cut', { title: 'The cut', depends_on: ['shot'], workflow: 'cut' }),
+  ])
+  expect(announce(before, edited)).toBe(
+    'The agent renamed Shot 3 to Shot 3: the pier. ' +
+      'The agent changed the arguments of Shot 3: the pier. ' +
+      'The agent changed the workflow of The cut.',
+  )
+})

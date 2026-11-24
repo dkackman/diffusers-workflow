@@ -13,6 +13,7 @@ import { ACTIVE_MS, IDLE_MS } from '../request/refresh'
 import { doneItem, entry, item, request } from '../request/fixtures'
 import type { LedgerRequest } from '../types'
 import { feed } from '../test/feedMock'
+import { readSnapshot, snapshotOf, writeSnapshot } from '../request/planDiff'
 
 const data = vi.hoisted(() => ({
   request: null as unknown,
@@ -442,7 +443,11 @@ it('tells a screen reader what a refresh changed, and nothing on first load', as
   vi.advanceTimersByTime(IDLE_MS)
   await waitFor(() => expect(live()).toBe('Second poster was queued.'))
   const done = queued()
-  done.items[1] = doneItem('b', { title: 'Second poster', depends_on: ['a'] })
+  done.items[1] = doneItem('b', {
+    title: 'Second poster',
+    depends_on: ['a'],
+    workflow: 'poster',
+  })
   data.request = done
   vi.advanceTimersByTime(ACTIVE_MS)
   await waitFor(() => expect(live()).toBe('Second poster finished.'))
@@ -733,4 +738,122 @@ it('a save that fails for the network says so, and keeps the draft', async () =>
   expect(box.value).toBe('my draft')
   expect(document.body.contains(box)).toBe(true)
   expect(screen.getByRole('heading', { name: 'Launch posters' })).toBeTruthy()
+})
+
+// What the agent changed: under its write while the page is open, and
+// since this browser last looked, from a snapshot per workspace and id
+const diffOf = (revision: number) =>
+  [...document.querySelectorAll(`#plan-change-r${revision} .diff li`)].map(
+    (e) => e.textContent,
+  )
+const sinceLines = () =>
+  [...document.querySelectorAll('.since li')].map((e) => e.textContent)
+/** An agent write at r4 that renames `key`'s item */
+function agentRename(index: number, title: string): LedgerRequest {
+  const next = make()
+  next.revision = 4
+  next.items[index] = { ...next.items[index], title }
+  next.history = [...next.history, entry(4, 'agent', 'a clearer name')]
+  return next
+}
+/** The request as an earlier visit saw it, at r1, its second item seeded */
+function seenAtR1(ws = 'studio', revision = 1) {
+  const earlier = make()
+  earlier.revision = revision
+  earlier.items[1] = { ...earlier.items[1], arguments: { seed: 1 } }
+  writeSnapshot(ws, 'r1', snapshotOf(earlier))
+}
+
+it('a write read while open lists its changes under it', async () => {
+  localStorage.clear()
+  render(RequestPage, { requestId: 'r1' })
+  await loaded()
+  expect(document.querySelector('.diff')).toBeNull()
+  data.request = agentRename(1, 'Second poster, in red')
+  feed.move('studio', 'requests')
+  await atRevision(4)
+  await waitFor(() =>
+    expect(diffOf(4)).toEqual([
+      'Renamed Second poster to Second poster, in red',
+    ]),
+  )
+  // the user's own write brings no lines
+  expect(diffOf(3)).toEqual([])
+})
+
+it('since you last looked lists the changes from the snapshot', async () => {
+  localStorage.clear()
+  seenAtR1()
+  render(RequestPage, { requestId: 'r1' })
+  await loaded()
+  expect(
+    await screen.findByText('Since you last looked (r1 to r3)'),
+  ).toBeTruthy()
+  expect(sinceLines()).toEqual(['Changed Second poster: its arguments (seed)'])
+  // the read was taken as the new snapshot
+  expect(readSnapshot('studio', 'r1')?.revision).toBe(3)
+  await fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }))
+  expect(document.querySelector('.since')).toBeNull()
+  expect(readSnapshot('studio', 'r1')?.revision).toBe(3)
+})
+
+it('a stored revision above the current one is discarded', async () => {
+  localStorage.clear()
+  seenAtR1('studio', 9)
+  render(RequestPage, { requestId: 'r1' })
+  await loaded()
+  await atRevision(3)
+  expect(document.querySelector('.since')).toBeNull()
+  expect(readSnapshot('studio', 'r1')?.revision).toBe(3)
+})
+
+it('storage that throws shows no diff', async () => {
+  const get = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+    throw new Error('forbidden')
+  })
+  const set = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+    throw new Error('forbidden')
+  })
+  try {
+    render(RequestPage, { requestId: 'r1' })
+    await loaded()
+    await atRevision(3)
+    expect(document.querySelector('.since')).toBeNull()
+    // and what the agent writes while the page is open is still listed
+    data.request = agentRename(0, 'Poster one')
+    feed.move('studio', 'requests')
+    await atRevision(4)
+    await waitFor(() =>
+      expect(diffOf(4)).toEqual(['Renamed First poster to Poster one']),
+    )
+  } finally {
+    get.mockRestore()
+    set.mockRestore()
+  }
+})
+
+it('snapshots are per workspace', async () => {
+  localStorage.clear()
+  seenAtR1('other')
+  render(RequestPage, { requestId: 'r1' })
+  await loaded()
+  await atRevision(3)
+  expect(document.querySelector('.since')).toBeNull()
+  expect(readSnapshot('other', 'r1')?.revision).toBe(1)
+  expect(readSnapshot('studio', 'r1')?.revision).toBe(3)
+})
+
+it('a diff is taken against the read the page held, not the snapshot', async () => {
+  localStorage.clear()
+  seenAtR1()
+  render(RequestPage, { requestId: 'r1' })
+  await screen.findByText('Since you last looked (r1 to r3)')
+  data.request = agentRename(0, 'Poster one')
+  feed.move('studio', 'requests')
+  await atRevision(4)
+  await waitFor(() =>
+    expect(diffOf(4)).toEqual(['Renamed First poster to Poster one']),
+  )
+  // the panel still says what it said: the visit's own snapshot is r3
+  expect(sinceLines()).toEqual(['Changed Second poster: its arguments (seed)'])
 })
