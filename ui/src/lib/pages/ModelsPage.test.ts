@@ -6,7 +6,7 @@ import {
   waitFor,
 } from '@testing-library/svelte'
 import { afterEach, expect, it, vi } from 'vitest'
-import ModelsPage from './ModelsPage.svelte'
+import ModelsPage, { repoIdHint } from './ModelsPage.svelte'
 import { formatDay } from '../format'
 import { connection } from '../connection.svelte'
 import { NetworkError } from '../apiErrors'
@@ -155,7 +155,7 @@ it('recovers on reconnect', async () => {
   expect(screen.queryByText('fetch failed')).toBeNull()
   // The download form stays usable while the listing is down
   expect(
-    screen.getByPlaceholderText('download a model… (org/name)'),
+    screen.getByPlaceholderText('org/name, e.g. black-forest-labs/FLUX.1-dev'),
   ).toBeTruthy()
   cache.error = null
   cache.repos = [repo('org/back', DW_USE, null)]
@@ -214,7 +214,7 @@ it('Update diffusers asks first and runs only on yes', async () => {
 it('a second click while starting a download sends one request', async () => {
   render(ModelsPage)
   const input = await screen.findByPlaceholderText(
-    'download a model… (org/name)',
+    'org/name, e.g. black-forest-labs/FLUX.1-dev',
   )
   await fireEvent.input(input, { target: { value: 'org/model' } })
   const button = screen.getByRole('button', { name: /Download/ })
@@ -243,4 +243,74 @@ it('deleting a model asks with its size', async () => {
       danger: false,
     },
   ])
+})
+
+// Each value with whether huggingface_hub's validate_repo_id (the server's
+// rule) takes it; tests/test_ui_twins.py checks this list against the
+// server, so the field cannot drift from it
+const REPO_ID_CASES: [string, boolean][] = [
+  ['black-forest-labs/FLUX.1-dev', true],
+  ['org/name', true],
+  ['gpt2', true],
+  ['a/b', true],
+  ['Foo-BAR_foo.bar123/x', true],
+  ['org/', false],
+  ['/name', false],
+  ['a/b/c', false],
+  ['org /name', false],
+  ['org/na me', false],
+  ['org/-name', false],
+  ['org/name-', false],
+  ['org/.name', false],
+  ['org/na--me', false],
+  ['org/na..me', false],
+  ['org/name.git', false],
+  ['org/na!me', false],
+  ['https://huggingface.co/org/name', false],
+  ['a'.repeat(96) + '/b', true],
+  ['a'.repeat(97) + '/b', false],
+  ['org/' + 'a'.repeat(97), false],
+]
+
+it.each(REPO_ID_CASES)('repoIdHint(%j) agrees with the server', (value, ok) => {
+  expect(repoIdHint(value) === null).toBe(ok)
+})
+
+it('repoIdHint is null for an empty value', () => {
+  expect(repoIdHint('')).toBeNull()
+  expect(repoIdHint('  ')).toBeNull()
+})
+
+it('the download field is labelled', () => {
+  render(ModelsPage)
+  const field = screen.getByLabelText('Hugging Face repo to download')
+  expect(field.getAttribute('placeholder')).toBe(
+    'org/name, e.g. black-forest-labs/FLUX.1-dev',
+  )
+})
+
+it('a value that is not org/name says so and cannot be sent', async () => {
+  render(ModelsPage)
+  const field = screen.getByLabelText('Hugging Face repo to download')
+  await fireEvent.input(field, { target: { value: 'a/b/c' } })
+  expect(
+    screen.getByText(
+      'A repo id is org/name, like black-forest-labs/FLUX.1-dev.',
+    ),
+  ).toBeTruthy()
+  const send = screen.getByRole('button', { name: /Download/ })
+  expect((send as HTMLButtonElement).disabled).toBe(true)
+  await fireEvent.submit(field.closest('form') as HTMLFormElement)
+  expect(calls.startDownload).not.toHaveBeenCalled()
+})
+
+it('a repo id can be sent', async () => {
+  render(ModelsPage)
+  const field = screen.getByLabelText('Hugging Face repo to download')
+  await fireEvent.input(field, { target: { value: ' org/name ' } })
+  expect(screen.queryByText(/A repo id is org\/name/)).toBeNull()
+  const send = screen.getByRole('button', { name: /Download/ })
+  expect((send as HTMLButtonElement).disabled).toBe(false)
+  await fireEvent.click(send)
+  expect(calls.startDownload).toHaveBeenCalledWith('org/name')
 })

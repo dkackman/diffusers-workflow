@@ -72,3 +72,18 @@ test('below the breakpoint the sidebar becomes a drawer opened from the header',
   await nav.getByRole('link', { name: 'Workflows' }).click()
   await expect(nav).not.toBeInViewport()
 })
+
+test('the models table shows size at 390px', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto('/#/models')
+  await page.waitForLoadState('networkidle')
+  const size = page.getByRole('columnheader', { name: 'size' })
+  // an empty hub cache has no table; the check holds whenever one is listed
+  if (await size.count()) {
+    await expect(size).toBeInViewport()
+    await expect(page.getByRole('columnheader', { name: 'files' })).toBeHidden()
+    await expect(
+      page.getByRole('columnheader', { name: 'last used' }),
+    ).toBeHidden()
+  }
+})

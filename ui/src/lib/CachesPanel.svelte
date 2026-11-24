@@ -138,7 +138,7 @@
                 </button>
               </td>
             </tr>
-            {#if cache.low_disk}
+            {#if cache.enabled && cache.low_disk}
               <tr class="reason">
                 <td></td>
                 <td colspan="7" class="warn lowdisk">

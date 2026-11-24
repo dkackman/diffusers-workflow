@@ -298,7 +298,7 @@ test('models page inventories the hub cache', async ({ page }) => {
     timeout: 30_000,
   })
   // The download form is present but never submitted here
-  await expect(page.getByPlaceholder(/download a model/)).toBeVisible()
+  await expect(page.getByLabel('Hugging Face repo to download')).toBeVisible()
 })
 
 test('task steps get introspection-driven forms', async ({ page }) => {

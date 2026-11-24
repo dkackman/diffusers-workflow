@@ -354,3 +354,39 @@ def test_the_ui_upload_extensions_match_the_server():
         return {"." + e.lower().lstrip(".") for e in exts}
 
     assert norm(ui) == norm(ALLOWED_UPLOAD_EXTENSIONS)
+
+
+def ts_repo_id_cases():
+    """`[value, accepted]` pairs of REPO_ID_CASES in the Models page's test."""
+    source = (UI_LIB / "pages" / "ModelsPage.test.ts").read_text()
+    body = re.search(r"REPO_ID_CASES: \[string, boolean\]\[\] = \[(.*?)\n\]", source, re.S)
+    assert body, "no REPO_ID_CASES in ModelsPage.test.ts"
+    cases = []
+    for value, ok in re.findall(r"\[(.+?), (true|false)\],", body.group(1)):
+        repeat = re.fullmatch(r"'(.)'\.repeat\((\d+)\) \+ '([^']*)'", value)
+        tail = re.fullmatch(r"'([^']*)' \+ '(.)'\.repeat\((\d+)\)", value)
+        if repeat:
+            value = repeat.group(1) * int(repeat.group(2)) + repeat.group(3)
+        elif tail:
+            value = tail.group(1) + tail.group(2) * int(tail.group(3))
+        else:
+            value = value.strip("'")
+        cases.append((value, ok == "true"))
+    return cases
+
+
+def test_the_download_field_takes_the_repo_ids_the_server_takes():
+    from huggingface_hub.utils import HFValidationError, validate_repo_id
+
+    cases = ts_repo_id_cases()
+    assert len(cases) > 15
+
+    def server_takes(value):
+        try:
+            validate_repo_id(value)
+        except HFValidationError:
+            return False
+        return True
+
+    for value, ui_takes in cases:
+        assert server_takes(value) == ui_takes, value

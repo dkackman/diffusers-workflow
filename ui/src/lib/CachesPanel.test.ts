@@ -87,3 +87,16 @@ it('clear asks with the cost and runs once', async () => {
     },
   ])
 })
+
+it('a disabled cache does not warn about disk', async () => {
+  listing.caches = [{ ...cache('triton'), enabled: false, low_disk: true }]
+  render(CachesPanel)
+  await screen.findByText('triton')
+  expect(screen.queryByText(/free-space floor/)).toBeNull()
+})
+
+it('an enabled cache under its floor warns', async () => {
+  listing.caches = [{ ...cache('triton'), enabled: true, low_disk: true }]
+  render(CachesPanel)
+  expect(await screen.findByText(/free-space floor/)).toBeTruthy()
+})

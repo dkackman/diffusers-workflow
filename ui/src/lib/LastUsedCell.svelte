@@ -19,17 +19,22 @@
   let {
     lastJobUse,
     lastAccessed,
-  }: { lastJobUse: number | null; lastAccessed: number | null } = $props()
+    class: extra = '',
+  }: {
+    lastJobUse: number | null
+    lastAccessed: number | null
+    class?: string
+  } = $props()
 </script>
 
 {#if lastJobUse != null}
-  <td class="lastused" title={DW_USE_TIP}>{formatDay(lastJobUse)}</td>
+  <td class="lastused {extra}" title={DW_USE_TIP}>{formatDay(lastJobUse)}</td>
 {:else if lastAccessed != null}
-  <td class="muted lastused" title={DISK_FALLBACK_TIP}>
+  <td class="muted lastused {extra}" title={DISK_FALLBACK_TIP}>
     {formatDay(lastAccessed)} (disk)
   </td>
 {:else}
-  <td class="muted lastused">—</td>
+  <td class="muted lastused {extra}">—</td>
 {/if}
 
 <style>
