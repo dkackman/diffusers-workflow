@@ -24,3 +24,10 @@ it('says false when the page has no search', () => {
     '<main><div class="pagehead"></div></main><input class="filter">'
   expect(focusPageFilter()).toBe(false)
 })
+
+it('focuses a filter input in the page body', () => {
+  document.body.innerHTML =
+    '<main><div class="pagehead"></div><div><input class="filter" id="c"></div></main>'
+  expect(focusPageFilter()).toBe(true)
+  expect(document.activeElement?.id).toBe('c')
+})

@@ -169,9 +169,20 @@ it('one running job is said once', () => {
   connection.health = health('job-a')
   render(App)
   const meter = screen.getByRole('button', { name: /server & worker status/ })
-  expect(meter.getAttribute('aria-label')).toMatch(/^running, server/)
+  expect(meter.getAttribute('aria-label')).toMatch(/^1 job running, server/)
   expect(meter.textContent).not.toMatch(/running|idle/)
   expect(screen.getAllByText(/running/)).toHaveLength(1)
+})
+
+it("the meter's name keeps the running count", () => {
+  connection.memory = memory
+  connection.health = health('job-a', 'job-b')
+  render(App)
+  expect(
+    screen
+      .getByRole('button', { name: /server & worker status/ })
+      .getAttribute('aria-label'),
+  ).toBe('2 jobs running, server & worker status, 5.9/23.4 GB')
 })
 
 it('no meter: N running and status labels', () => {

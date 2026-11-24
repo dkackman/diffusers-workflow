@@ -67,6 +67,9 @@
   // One job per card: with more than one running, the chip cannot link to
   // them all, so it joins the status trigger and the popover lists each
   const running = $derived(health ? runningIds(health) : [])
+  // The meter's name keeps the count its visible text may drop.
+  const meterState = (n: number) =>
+    n > 1 ? `${n} jobs running` : n === 1 ? '1 job running' : 'idle'
   const statusLabel = $derived(
     running.length > 1
       ? `${running.length} jobs running - server & worker status`
@@ -238,9 +241,9 @@
               bind:this={statusTrigger}
               onclick={() => (statusOpen = !statusOpen)}
               title={meterTitle(metered) || 'VRAM allocated'}
-              aria-label="{running.length
-                ? 'running'
-                : 'idle'}, server & worker status, {meterText(metered)}"
+              aria-label="{meterState(
+                running.length,
+              )}, server & worker status, {meterText(metered)}"
               aria-expanded={statusOpen}
             >
               {#if running.length > 1}{@render busy()}{:else if running.length === 0}<span

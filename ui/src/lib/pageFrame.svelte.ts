@@ -16,10 +16,11 @@ export function pageTitle(): string {
 }
 
 /** Focuses the page's own search field - the first input in a page header's
- * `.filter` - and says whether there was one. */
+ * `.filter`, or a `.filter` input in the page body - and says whether there
+ * was one. */
 export function focusPageFilter(): boolean {
   const field = document.querySelector<HTMLInputElement>(
-    'main .pagehead .filter input, main .pagehead input.filter',
+    'main .pagehead .filter input, main input.filter',
   )
   field?.focus()
   return field !== null

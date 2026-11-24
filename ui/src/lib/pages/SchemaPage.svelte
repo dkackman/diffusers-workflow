@@ -50,7 +50,7 @@
 
   <div class="defshead">
     <h2>Definitions</h2>
-    <input placeholder="filter…" bind:value={filter} />
+    <input class="filter" placeholder="filter…" bind:value={filter} />
   </div>
   {#each shownDefinitions as [name, definition] (name)}
     <div class="panel def" id={'def-' + name}>

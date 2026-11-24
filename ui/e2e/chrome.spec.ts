@@ -235,7 +235,7 @@ test('the meter names idle in words with nothing running', async ({ page }) => {
   await expect(meter.locator('.stateword')).toHaveText('idle')
   await expect(meter).toHaveAttribute(
     'aria-label',
-    /^(idle|running), server & worker status, /,
+    /^(idle|1 job running|\d+ jobs running), server & worker status, /,
   )
 })
 
@@ -248,6 +248,6 @@ test('the meter names running in words with a job in flight', async ({
   await expect(page.getByRole('link', { name: 'running' })).toBeVisible()
   await expect(meter).toHaveAttribute(
     'aria-label',
-    /^(idle|running), server & worker status, /,
+    /^(idle|1 job running|\d+ jobs running), server & worker status, /,
   )
 })
