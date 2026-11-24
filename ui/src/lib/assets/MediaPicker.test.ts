@@ -69,7 +69,10 @@ beforeEach(() => {
     output('portrait', RUN1, 1, 'out.png'),
   ]
 })
-afterEach(() => cleanup())
+afterEach(() => {
+  cleanup()
+  localStorage.clear()
+})
 
 const tiles = () =>
   screen
@@ -216,4 +219,49 @@ it('offers browsing only beside a file reference, as that kind', async () => {
     screen.getByRole('button', { name: 'choose clips/intro.mp4' }),
   )
   expect(onpick).toHaveBeenCalledWith('asset:clips/intro.mp4')
+})
+
+const toggle = (name: RegExp) => screen.getByRole('button', { name })
+
+it('group toggles are disabled while searching', async () => {
+  render(MediaPicker, { open: true, onpick: () => {} })
+  const heading = toggle(/Shared library/)
+  expect((heading as HTMLButtonElement).disabled).toBe(false)
+  await fireEvent.click(heading)
+  expect(tiles()).not.toContain('choose cast/priya.png')
+  await fireEvent.input(screen.getByLabelText('search the asset library'), {
+    target: { value: 'pri' },
+  })
+  const searching = toggle(/Shared library/) as HTMLButtonElement
+  expect(searching.disabled).toBe(true)
+  expect(searching.title).toBe('Showing every match while the search is on')
+  expect(tiles()).toEqual(['choose cast/priya.png'])
+})
+
+it('the collapse state is per workspace and tab', async () => {
+  render(MediaPicker, { open: true, onpick: () => {} })
+  await fireEvent.click(toggle(/Shared library/))
+  expect(
+    localStorage.getItem(`dw-collapsed-media-picker:${workspace.current}:assets`),
+  ).toContain('common')
+  await showRuns()
+  expect(toggle(/^portrait/).getAttribute('aria-expanded')).toBe('true')
+  expect(
+    localStorage.getItem(`dw-collapsed-media-picker:${workspace.current}:outputs`),
+  ).toBeNull()
+})
+
+it('the current tile says current', () => {
+  render(MediaPicker, {
+    open: true,
+    current: 'asset:iris.png',
+    onpick: () => {},
+  })
+  const tile = screen.getByRole('button', { name: 'choose iris.png' })
+  expect(tile.textContent).toContain('current')
+  expect(
+    screen
+      .getByRole('button', { name: 'choose cast/priya.png' })
+      .textContent,
+  ).not.toContain('current')
 })

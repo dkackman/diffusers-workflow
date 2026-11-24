@@ -273,3 +273,19 @@ it("a text tile reads its lines again when the file's stamp changes", async () =
   )
   expect(fileText).toHaveBeenCalledTimes(2)
 })
+
+it('a row tile has no caption', () => {
+  const { container } = render(OutputTile, {
+    props: {
+      file: media({ starred: true, note: 'keep' }),
+      size: 'row',
+      caption: 'none',
+      alt: '',
+    },
+  })
+  expect(container.querySelector('.tile-row')).not.toBeNull()
+  expect(container.querySelector('.tile-caption')).toBeNull()
+  expect(container.querySelector('.tile-marks')).toBeNull()
+  const patterns = readFileSync('src/patterns.css', 'utf8')
+  expect(patterns).toMatch(/\.tile-row\s*\{[^}]*width:\s*32px/)
+})

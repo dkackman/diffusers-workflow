@@ -89,14 +89,16 @@ describe('assetChoices', () => {
   it('shows an image, a glyph for other media, and the library', () => {
     const rows = assetChoices('cast')
     expect(rows.find((r) => r.value === 'cast/priya.png')).toMatchObject({
-      thumb: expect.stringContaining(
-        '/api/gallery/asset%3Acast/priya.png/thumbnail',
-      ),
+      media: {
+        kind: 'image',
+        thumb: expect.stringContaining(
+          '/api/gallery/asset%3Acast/priya.png/thumbnail',
+        ),
+      },
       badge: 'shared',
     })
     expect(rows.find((r) => r.value === 'cast/theme.wav')).toMatchObject({
-      glyph: '♪',
-      thumb: undefined,
+      media: { kind: 'audio', thumb: null },
       badge: undefined,
     })
   })
@@ -162,6 +164,14 @@ describe('output: completions', () => {
         label: 'shot.mp4',
       },
     ]
+  })
+
+  it("an output row's thumbnail names the listing's workspace", async () => {
+    const { outputLibrary } = await import('./outputlib.svelte')
+    outputLibrary.workspace = 'studio'
+    const rows = referenceCompletions('output:')!
+    expect(rows[0].media?.workspace).toBe('studio')
+    expect(rows[0].media?.thumb).toContain('workspace=studio')
   })
 
   it('offers what earlier runs wrote, newest first, with the run', () => {
