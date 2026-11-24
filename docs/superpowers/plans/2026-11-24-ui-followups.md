@@ -129,6 +129,22 @@ Each task is written for the recommended answer.
 7. **The JSON view's 3.5% budget margin** (#1624). **Recommended:** accept it. There is no task, and a Monaco upgrade re-measures.
 8. **The JSON editor's failure copy** is phase 7's fixed copy, and it names one cause for every failure (#1624). **Recommended:** `The JSON editor couldn't load. Reload the page; if that doesn't help, check that the server is running.` It mirrors the loading shell's line.
 
+## Don's answers (2026-11-24)
+
+1. Approved: `dw/server/job_prompts.py` (modules 281 -> 282) for Task 8.
+2. Reasonable, with this framing from Don: the timestamps are **not meant to be exhaustive** - show them where a person would want them to orient, telling what is most recent from what is out of date as they move through the UI. Tasks 21-22 follow the recommended scope within that aim; a noun or view where a time would not help someone orient may be left without one (say which and why).
+3. OK: add `WorkerInfo.workspace` and `host_memory.inherited_from` as optional fields.
+4. OK: Shift+Ctrl/Cmd+S and Shift+Ctrl/Cmd+Enter act like the plain keys; pin with a test.
+5. Agreed: "the shared asset library" everywhere.
+6. Agreed: the open-in-new-tab link is not restored.
+7. Agreed: the JSON view's budget margin is accepted; no task.
+8. Agreed: `The JSON editor couldn't load. Reload the page; if that doesn't help, check that the server is running.`
+
+## Execution split (Don, 2026-11-24)
+
+- **In session, one branch** (`feat/ui-followups`, subagent-driven): Tasks 1-7 (release-blockers), Task 10 (one shared missing-file helper), Task 19 (the metric and lint rules every other task is measured by) and Tasks 21-22 (timestamps, a cross-page design). Tracked by one GitHub issue.
+- **The implementer/lead loop, one GitHub issue per task:** Tasks 8, 9, 11, 12, 13, 14, 15, 16, 17, 18, 20 and 23. Each issue carries its task text, these answers, the global constraints, the review focus and the ledger rows it closes.
+
 ## Global constraints
 
 **MCP**
