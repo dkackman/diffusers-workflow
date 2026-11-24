@@ -16,6 +16,7 @@
   import OutputTile from '../ui/OutputTile.svelte'
   import { sharedHref, wsHref } from '../routes'
   import { cardTitle } from '../workflowCard'
+  import { catalogMatches, queryWords } from '../workflow/catalogSearch'
   import { workspace } from '../workspace.svelte'
   import { codec, hashState, type HashCodec } from '../router.svelte'
   import {
@@ -41,7 +42,7 @@
     codec.list as HashCodec<WorkflowTrait[]>,
   )
 
-  const list = resource(() => api.listWorkflows(), {
+  const list = resource(() => api.listWorkflows({ inputs: true }), {
     watch: ['workflows'],
     rows: (data) => data.workflows.map((name) => [name, data.details[name]]),
   })
@@ -101,20 +102,22 @@
   }
 
   // Client-side over the listing the page already holds - shape, then every
-  // selected trait (AND, not OR: the chips narrow), then the text filter
+  // selected trait (AND, not OR: the chips narrow), then the words: the best
+  // matches, best first
   const visible = $derived(
-    listed.filter((name) => {
-      const detail = details[name]
-      if (shape.value && detail?.shape !== shape.value) return false
-      const has = detail?.traits ?? []
-      if (!traits.value.every((trait) => has.includes(trait))) return false
-      const needle = filter.value.toLowerCase()
-      return (
-        name.toLowerCase().includes(needle) ||
-        (detail?.description ?? '').toLowerCase().includes(needle)
-      )
-    }),
+    catalogMatches(
+      listed.filter((name) => {
+        const detail = details[name]
+        if (shape.value && detail?.shape !== shape.value) return false
+        const has = detail?.traits ?? []
+        return traits.value.every((trait) => has.includes(trait))
+      }),
+      details,
+      filter.value,
+    ),
   )
+  // Words put the best match first, ahead of what has run before
+  const searching = $derived(queryWords(filter.value).length > 0)
 
   /** Within a folder, workflows that have produced something come first,
    * then alphabetical as before. Two reasons, and both matter: the ones you
@@ -122,11 +125,13 @@
    * a picture - so grouping them keeps the taller cards together instead of
    * punching holes through an otherwise even grid. */
   const ordered = $derived(
-    [...visible].sort((left, right) => {
-      const leftRun = proofs[left] ? 0 : 1
-      const rightRun = proofs[right] ? 0 : 1
-      return leftRun - rightRun || left.localeCompare(right)
-    }),
+    searching
+      ? visible
+      : [...visible].sort((left, right) => {
+          const leftRun = proofs[left] ? 0 : 1
+          const rightRun = proofs[right] ? 0 : 1
+          return leftRun - rightRun || left.localeCompare(right)
+        }),
   )
 
   const filterActive = $derived(
@@ -140,12 +145,16 @@
   }
 
   /** The one measurement a card shows: the first the maintainer recorded.
-   * '~3 min · 22 GB', with the accelerator moved to the tooltip - the card
+   * 'about 3 min · 22 GB VRAM', with the accelerator moved to the tooltip - the card
    * has room for the numbers, not for the hardware they came from. */
   const formatCost = (cost?: WorkflowCost[] | null) => {
     const measured = cost?.[0]
     return measured ? costFigure(measured) : ''
   }
+
+  /** The variables a workflow asks for, by name, or '' when it asks for none. */
+  const needs = (detail?: Detail) =>
+    Object.keys(detail?.inputs ?? {}).join(', ')
 
   const href = (name: string) =>
     examples
@@ -154,11 +163,19 @@
 </script>
 
 {#snippet search()}
-  <input placeholder="filter…" bind:value={filter.value} class="filter" />
+  <input
+    placeholder="search workflows…"
+    bind:value={filter.value}
+    class="filter"
+  />
 {/snippet}
 <PageHeader
   title={examples ? 'Examples' : 'Workflows'}
-  count={{ n: listed.length, noun: examples ? 'example' : 'workflow' }}
+  count={{
+    n: visible.length,
+    of: listed.length,
+    noun: examples ? 'example' : 'workflow',
+  }}
   filter={search}
 >
   {#snippet actions()}
@@ -196,7 +213,10 @@
         ...shapesPresent.map((value) => ({
           value,
           label: value,
-          title: `show only workflows that make ${value}`,
+          title:
+            value === shape.value
+              ? 'press again to show every shape'
+              : `show only workflows that make ${value}`,
         })),
       ]}
       onselect={(value) => (shape.value = value === shape.value ? '' : value)}
@@ -252,6 +272,7 @@
     {filterActive}
     newHref={examples ? undefined : wsHref(workspace.current, 'edit')}
     minColumn="200px"
+    groupOf={searching ? () => '' : undefined}
     onnewingroup={(group) => sessionStorage.setItem('dw-editor-folder', group)}
   >
     {#snippet card(name)}
@@ -288,10 +309,11 @@
             <span class="flex"></span>
             {#if (detail?.steps ?? 0) > 1}
               <span class="num">{detail?.steps} steps</span>
-            {:else if detail?.variables}
-              <span class="num">{detail.variables} vars</span>
             {/if}
           </span>
+          {#if needs(detail)}
+            <span class="needs muted">needs {needs(detail)}</span>
+          {/if}
           <!-- A measured run is the most concrete thing on the card - what it
              will cost you to press Run - so it gets its own line instead of
              competing for the meta row's leftovers -->
@@ -389,6 +411,12 @@
     align-items: center;
     gap: 0.35rem;
     font-size: var(--t-xs);
+  }
+  .needs {
+    font-size: var(--t-xs);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .cardmeta .flex {
     flex: 1;

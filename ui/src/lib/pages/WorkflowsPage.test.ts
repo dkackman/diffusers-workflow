@@ -401,3 +401,50 @@ it("a card's proof is its tile, from the listing's workspace, inside the one lin
   expect(card('shot')!.querySelectorAll('a')).toHaveLength(0)
   expect(card('tti')?.querySelector('.filetile')).toBeNull()
 })
+
+it('the count reads n of m while searching', async () => {
+  await renderPage('tti')
+  expect(screen.getByText('3 workflows', { selector: '.count' })).toBeTruthy()
+  await fireEvent.input(screen.getByPlaceholderText('search workflows…'), {
+    target: { value: 'shot with speech' },
+  })
+  await waitFor(() =>
+    expect(
+      screen.getByText('1 of 3 workflows', { selector: '.count' }),
+    ).toBeTruthy(),
+  )
+  expect(card('shot')).toBeTruthy()
+  expect(card('tti')).toBeNull()
+})
+
+it('a card says what it needs', async () => {
+  listing.details['templates/tti'] = {
+    ...listing.details['templates/tti'],
+    inputs: { init_image: 'image', voice: 'audio' },
+  }
+  await renderPage('tti')
+  expect(card('tti')?.textContent).toContain('needs init_image, voice')
+  expect(card('tti')?.textContent).not.toContain('vars')
+})
+
+it('a card with no inputs says nothing about variables', async () => {
+  await renderPage('tti')
+  expect(card('tti')?.textContent).not.toContain('needs')
+  expect(card('tti')?.textContent).not.toContain('vars')
+})
+
+it('a second press on a shape clears it to all', async () => {
+  await renderPage('tti')
+  const shapes = screen.getByRole('group', { name: 'filter by shape' })
+  await fireEvent.click(within(shapes).getByRole('button', { name: 'shot' }))
+  await waitFor(() => expect(card('tti')).toBeNull())
+  const pressed = within(shapes).getByRole('button', { name: 'shot' })
+  expect(pressed.getAttribute('title')).toBe('press again to show every shape')
+  await fireEvent.click(pressed)
+  await waitFor(() => expect(card('tti')).toBeTruthy())
+  expect(
+    within(shapes)
+      .getByRole('button', { name: 'all' })
+      .getAttribute('aria-pressed'),
+  ).toBe('true')
+})
