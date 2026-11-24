@@ -397,6 +397,20 @@
   .items > :global(li + li) {
     border-top: 1px solid var(--line);
   }
+  /* A row being dragged, and where it would land: the reorder sets these
+     on the row's <li>. Ink, the pointer's place, as a drop target is */
+  .items > :global(li.insert-before) {
+    box-shadow: inset 0 2px 0 var(--ink);
+  }
+  .items > :global(li.insert-after) {
+    box-shadow: inset 0 -2px 0 var(--ink);
+  }
+  .items > :global(li.dragging) {
+    position: relative;
+    z-index: 1;
+    opacity: 0.85;
+    background: var(--panel);
+  }
   .droppedgroup {
     border-top: 1px solid var(--line);
   }

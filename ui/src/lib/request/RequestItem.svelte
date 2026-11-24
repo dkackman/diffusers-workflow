@@ -244,6 +244,7 @@
     {onreload}
     onaccept={onaccept ? accept : undefined}
     {onmove}
+    onnote={() => (chosen = true)}
   />
 </li>
 
@@ -258,8 +259,7 @@
       --handle: 44px;
     }
   }
-  /* handle, proof, main, chip, figure, actions. The chip's column is
-     fixed, so a change of status never moves what is beside it */
+  /* A fixed chip column: a change of status never moves its neighbours */
   .row {
     display: grid;
     grid-template-columns:

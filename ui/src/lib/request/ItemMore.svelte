@@ -25,6 +25,7 @@
     onreload,
     onaccept,
     onmove,
+    onnote,
     pending = $bindable([]),
   }: {
     row: ItemState
@@ -37,6 +38,8 @@
     onaccept?: (take: Take, job: string | null) => void
     /** "For the whole request instead" on this item's new note */
     onmove?: (text: string, refs: LedgerNoteRef[]) => void
+    /** A take was noted: the row stays open under the note being drafted */
+    onnote?: () => void
     /** What the new note is about so far: the takes "Note this take" added */
     pending?: LedgerNoteRef[]
   } = $props()
@@ -59,6 +62,7 @@
       job,
       ...(output ? { output: output.name } : {}),
     })
+    onnote?.()
     void add()
   }
 </script>

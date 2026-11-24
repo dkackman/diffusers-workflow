@@ -578,6 +578,55 @@ it('"Note this take" adds the take and its file to the new note, once', async ()
   })
 })
 
+// Open by default for its takes, then the agent accepts one: by default
+// it would close. A note being drafted keeps it open
+const accepted = () => goodTakes({ accepted: { job: 'j1', run_id: 'r1' } })
+
+it('"Note this take" keeps the row open when a read would close it', async () => {
+  const view = render(RequestItem, props([goodTakes()]))
+  expect(title('Shot 3').getAttribute('aria-expanded')).toBe('true')
+  await fireEvent.click(
+    screen.getByRole('button', { name: 'Note take 1 of Shot 3 for the agent' }),
+  )
+  await view.rerender(props([accepted()]))
+  expect(title('Shot 3').getAttribute('aria-expanded')).toBe('true')
+  expect(screen.getByLabelText('Note for the agent on Shot 3')).toBeTruthy()
+})
+
+it("the menu's note keeps the row open when a read would close it", async () => {
+  const { createRawSnippet } = await import('svelte')
+  let api: { note: () => void } | undefined
+  const menu = createRawSnippet<[unknown, { note: () => void }]>(
+    (_row, given) => {
+      api = given()
+      return { render: () => '<span></span>' }
+    },
+  )
+  const view = render(RequestItem, { ...props([goodTakes()]), menu })
+  api?.note()
+  await screen.findByLabelText('Note for the agent on Shot 3')
+  await view.rerender({ ...props([accepted()]), menu })
+  expect(title('Shot 3').getAttribute('aria-expanded')).toBe('true')
+})
+
+it('a saved note keeps the row open: the read brings it back waiting', async () => {
+  api.addNote.mockResolvedValue({ revision: 4 })
+  const given = props([goodTakes()])
+  const view = render(RequestItem, given)
+  await fireEvent.click(
+    screen.getByRole('button', { name: 'Add a note for the agent' }),
+  )
+  const box = await screen.findByLabelText('Note for the agent on Shot 3')
+  await fireEvent.input(box, { target: { value: 'warmer' } })
+  await fireEvent.click(screen.getByRole('button', { name: 'Save note' }))
+  await vi.waitFor(() => expect(given.onreload).toHaveBeenCalled())
+  const at = '2026-01-01T00:05:00+00:00'
+  await view.rerender(
+    props([goodTakes({ ...accepted(), notes: [note('warmer', at)] })]),
+  )
+  expect(title('Shot 3').getAttribute('aria-expanded')).toBe('true')
+})
+
 it('a dropped item offers no "Note this take"', async () => {
   render(RequestItem, props([goodTakes({ dropped: true, status: 'dropped' })]))
   await fireEvent.click(title('Shot 3'))

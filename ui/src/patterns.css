@@ -510,22 +510,6 @@ button.filetile:hover,
   white-space: pre-wrap;
 }
 
-/* A plan's row being dragged, and where it would land: reorder.svelte.ts
-   sets these on RequestItem's <li>. Ink, the pointer's place, as a drop
-   target is */
-li.item.insert-before {
-  box-shadow: inset 0 2px 0 var(--ink);
-}
-li.item.insert-after {
-  box-shadow: inset 0 -2px 0 var(--ink);
-}
-li.item.dragging {
-  position: relative;
-  z-index: 1;
-  opacity: 0.85;
-  background: var(--panel);
-}
-
 /* A menu is as wide as its words (Popover's `menu`): a .panel is a size
    container, whose width never follows its content */
 .ui-popover-menu {
