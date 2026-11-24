@@ -390,3 +390,9 @@ def test_the_download_field_takes_the_repo_ids_the_server_takes():
 
     for value, ui_takes in cases:
         assert server_takes(value) == ui_takes, value
+
+
+def test_the_first_run_workflow_exists():
+    """The workflow the first-run card names is a template in the repo."""
+    name = ts_constants(UI_LIB / "firstRun.ts")["FIRST_RUN_WORKFLOW"]
+    assert (REPO / "workflows" / f"{name}.json").is_file(), name

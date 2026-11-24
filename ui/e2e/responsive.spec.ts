@@ -14,6 +14,10 @@ const ROUTES = [
   '#/gallery',
   '#/models',
   '#/schema',
+  '#/ws/default/overview',
+  '#/server/status',
+  '#/ws/default/requests',
+  '#/ws/default/assets',
 ]
 
 const WIDTHS = [1280, 900, 768, 640, 480, 375]
