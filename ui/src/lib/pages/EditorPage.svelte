@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte'
   import { editorLists, loadEditorLists } from '../editorLists.svelte'
   import {
     DocumentEditor,
@@ -29,6 +30,7 @@
   } from '../editor/workflowFile'
   import { resource } from '../resource.svelte'
   import LoadFailed from '../ui/LoadFailed.svelte'
+  import ErrorLine from '../ui/ErrorLine.svelte'
   import PageHeader from '../ui/PageHeader.svelte'
   import { notify } from '../toast'
   import { confirmDialog } from '../confirm.svelte'
@@ -79,6 +81,15 @@
   // Keyed by step name; existing steps open compact, new ones full
   const modes = new StepModes(() => modesKey)
   const jumps = new EditorJumps(ed, modes)
+  // The server's copy replaced the steps: each keeps its mode by name
+  $effect(() => {
+    if (!ed.remoteLoads) return
+    untrack(() =>
+      modes.retain(
+        ((ed.doc.steps as Record<string, any>[]) ?? []).map((s) => s?.name),
+      ),
+    )
+  })
 
   // Existing folders, from the listing - one level is the designed depth,
   // but any deeper directories that exist still appear and keep working
@@ -393,6 +404,9 @@
         {/if}
       {/snippet}
     </DocumentFileBar>
+    {#if catalog.error}
+      <ErrorLine error={catalog.error} doing="list the workflows" />
+    {/if}
 
     {#if check.validation || check.error}
       <ValidationPanel

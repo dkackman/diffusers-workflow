@@ -11,7 +11,7 @@ import {
 import PromptEditorPage from './PromptEditorPage.svelte'
 import { api } from '../api'
 import { ApiError } from '../apiErrors'
-import { chooseDialog } from '../confirm.svelte'
+import { chooseDialog, confirmDialog } from '../confirm.svelte'
 import { feed } from '../test/feedMock'
 
 // Monaco cannot boot in jsdom; the JSON view is read through this stub,
@@ -370,6 +370,46 @@ it('Load theirs replaces the edits', async () => {
   await fireEvent.click(screen.getByRole('button', { name: 'Load theirs' }))
   await waitFor(() => expect(promptText().value).toBe('their version'))
   expect(screen.queryByRole('button', { name: 'Load theirs' })).toBeNull()
+})
+
+it('a remote reload refreshes the enhancer idea', async () => {
+  vi.mocked(api.getPrompt).mockResolvedValueOnce({
+    prompt: { text: 'a hero at dawn', enhanced: { idea: 'my idea' } },
+    writable: true,
+    etag: '"p1"',
+  } as never)
+  await openHero()
+  const idea = () => document.getElementById('enhance-idea') as HTMLInputElement
+  await waitFor(() => expect(idea().value).toBe('my idea'))
+  vi.mocked(api.getPrompt).mockResolvedValueOnce({
+    prompt: { text: 'their version', enhanced: { idea: 'their idea' } },
+    writable: true,
+    etag: '"p9"',
+  } as never)
+  feed.move('default', 'prompts')
+  await waitFor(() => expect(promptText().value).toBe('their version'))
+  await waitFor(() => expect(idea().value).toBe('their idea'))
+})
+
+it('a second Delete while the warning loads does nothing', async () => {
+  await openHero()
+  let land: (listing: unknown) => void = () => {}
+  vi.mocked(api.listWorkflows).mockClear()
+  vi.mocked(api.listWorkflows).mockReturnValueOnce(
+    new Promise((resolve) => (land = resolve)) as never,
+  )
+  vi.mocked(confirmDialog).mockClear()
+  vi.mocked(confirmDialog).mockResolvedValueOnce(false)
+  const del = screen.getByRole('button', {
+    name: 'delete this prompt from the library',
+  })
+  await fireEvent.click(del)
+  await fireEvent.click(del)
+  land({ workflows: [], details: {} })
+  await waitFor(() => expect(confirmDialog).toHaveBeenCalledTimes(1))
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  expect(confirmDialog).toHaveBeenCalledTimes(1)
+  expect(api.listWorkflows).toHaveBeenCalledTimes(1)
 })
 
 it('shows the unsaved chip like the workflow editor', async () => {

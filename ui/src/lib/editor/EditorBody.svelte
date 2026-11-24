@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { Snippet } from 'svelte'
   import JsonEditor from './JsonEditor.svelte'
-  import type { EditorView } from '../editorShell.svelte'
+  import type { EditorView, Flusher } from '../editorShell.svelte'
 
   // The editor's body for the view picked: the JSON alone, the form alone,
   // or the two side by side
@@ -18,7 +18,7 @@
     view: EditorView
     jsonDraft: string
     onjson: (raw: string, options?: { quiet?: boolean }) => void
-    register?: (flush: () => void) => () => void
+    register?: (flush: Flusher) => () => void
     schema?: 'workflow' | 'prompt'
     hint: string
     // Where the split view's JSON column pins: below the app header, and

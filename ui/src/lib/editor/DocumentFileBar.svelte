@@ -9,8 +9,8 @@
 
   // Where a document saves, and what it says about itself: the full fields
   // while open, a path chip once it has a name - and, above them, that the
-  // saved file changed under unsaved edits. A bar given no `fileOpen` stays
-  // open; one given it collapses.
+  // saved file changed under unsaved edits, or was deleted. A bar given no
+  // `fileOpen` stays open; one given it collapses.
   let {
     ed,
     dir,
@@ -53,9 +53,10 @@
   {/if}
 {/snippet}
 
-{#if ed.remote === 'diverged'}
+{#if ed.remote !== 'same'}
   <RemoteChanged
     label={ed.loadedPath ?? 'this file'}
+    gone={ed.remote === 'gone'}
     ontheirs={() => ed.takeTheirs()}
     onmine={() => ed.keepMine()}
   />

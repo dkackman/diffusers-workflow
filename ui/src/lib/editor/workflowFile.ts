@@ -2,8 +2,13 @@
 // callers of the editor's load state and the shared saveDocument, so the
 // page holds no load or save rules of its own.
 import { api } from '../api'
+import { ApiError } from '../apiErrors'
 import { saveDocument, type SaveOutcome } from '../documentSave'
-import { NEW_FOLDER, type DocumentEditor } from '../editorShell.svelte'
+import {
+  NEW_FOLDER,
+  type DocumentEditor,
+  type RemoteRead,
+} from '../editorShell.svelte'
 import { writableRoot } from '../libraries'
 import type { WorkflowDefinition, WorkflowList } from '../types'
 
@@ -27,17 +32,31 @@ export async function openWorkflow(
   }
 }
 
+/** `read()`, or `{ gone: true }` when the file it reads is not there */
+export async function goneOn404(
+  read: () => Promise<RemoteRead>,
+): Promise<RemoteRead> {
+  try {
+    return await read()
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) return { gone: true }
+    throw error
+  }
+}
+
 /** `ed`, following the server's copy of the workflow it has open: an
  * agent's or another tab's write reloads it, or raises the banner over
- * unsaved edits (DocumentEditor.watchRemote). Call during component init */
+ * unsaved edits, or says it was deleted (DocumentEditor.watchRemote). Call
+ * during component init */
 export function watchWorkflow(ed: DocumentEditor): DocumentEditor {
   ed.watchRemote({
     kind: 'workflows',
-    read: async () => {
-      const read = await api.getWorkflow(ed.loadedPath ?? '')
-      const doc = read.definition as Record<string, any>
-      return { doc, etag: read.etag, writable: read.writable }
-    },
+    read: () =>
+      goneOn404(async () => {
+        const read = await api.getWorkflow(ed.loadedPath ?? '')
+        const doc = read.definition as Record<string, any>
+        return { doc, etag: read.etag, writable: read.writable }
+      }),
   })
   return ed
 }
@@ -148,10 +167,20 @@ export function listedWorkflows(listing: WorkflowList | undefined) {
   }
 }
 
-/** `listing` with `path` in it: what this page's own save read back, so a
- * folder the save just created is in the picker before the feed says so */
-export function withSaved(listing: WorkflowList, path: string): WorkflowList {
-  return listing.workflows.includes(path)
+/** `listing` with `path` in its `key` list: what a page's own save read
+ * back, so a folder the save just created is in the picker before the feed
+ * says so */
+export function withSavedEntry<K extends string, L extends Record<K, string[]>>(
+  listing: L,
+  key: K,
+  path: string,
+): L {
+  return listing[key].includes(path)
     ? listing
-    : { ...listing, workflows: [...listing.workflows, path] }
+    : { ...listing, [key]: [...listing[key], path] }
+}
+
+/** The workflow listing with `path` in it (withSavedEntry) */
+export function withSaved(listing: WorkflowList, path: string): WorkflowList {
+  return withSavedEntry(listing, 'workflows', path)
 }

@@ -3,6 +3,7 @@
 import { api } from './api'
 import { saveDocument, type SaveOutcome } from './documentSave'
 import type { DocumentEditor } from './editorShell.svelte'
+import { goneOn404, withSavedEntry } from './editor/workflowFile'
 import { workflowsReferencing } from './prompts'
 import type { PromptDefinition, PromptList } from './types'
 
@@ -28,15 +29,17 @@ export async function openPrompt(
 
 /** `ed`, following the server's copy of the prompt it has open: an
  * agent's or another tab's write reloads it, or raises the banner over
- * unsaved edits (DocumentEditor.watchRemote). Call during component init */
+ * unsaved edits, or says it was deleted (DocumentEditor.watchRemote). Call
+ * during component init */
 export function watchPrompt(ed: DocumentEditor): DocumentEditor {
   ed.watchRemote({
     kind: 'prompts',
-    read: async () => {
-      const read = await api.getPrompt(ed.loadedPath ?? '')
-      const doc = read.prompt as Record<string, any>
-      return { doc, etag: read.etag, writable: read.writable }
-    },
+    read: () =>
+      goneOn404(async () => {
+        const read = await api.getPrompt(ed.loadedPath ?? '')
+        const doc = read.prompt as Record<string, any>
+        return { doc, etag: read.etag, writable: read.writable }
+      }),
   })
   return ed
 }
@@ -80,10 +83,7 @@ export async function deleteWarning(name: string): Promise<string> {
   }
 }
 
-/** `listing` with `path` in it: what this page's own save read back, so a
- * folder the save just created is in the picker before the feed says so */
+/** The prompt listing with `path` in it (withSavedEntry) */
 export function withSavedPrompt(listing: PromptList, path: string): PromptList {
-  return listing.prompts.includes(path)
-    ? listing
-    : { ...listing, prompts: [...listing.prompts, path] }
+  return withSavedEntry(listing, 'prompts', path)
 }

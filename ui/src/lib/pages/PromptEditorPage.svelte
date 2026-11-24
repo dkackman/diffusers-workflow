@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte'
   import Suggest from '../ui/Suggest.svelte'
   import { isNameSegment } from '../names'
   import {
@@ -86,6 +87,12 @@
 
   const enhancer = new Enhancer()
   const intendedModels = $derived(enhancer.intendedModels(promptDetails))
+
+  // The server's copy replaced the prompt: its idea is the enhancer's
+  $effect(() => {
+    if (!shell.remoteLoads) return
+    untrack(() => (enhancer.idea = shell.doc.enhanced?.idea ?? ''))
+  })
 
   function useResult() {
     const { text, enhanced } = enhancer.takeResult()
@@ -224,10 +231,19 @@
         }),
     },
   )
+  // A Delete pressed again while the warning is read does nothing; one
+  // pressed while the delete runs is the action's busy guard
+  let warning = false
   async function remove() {
     const name = current
-    if (name && !removing.busy)
-      await removing.run(name, await deleteWarning(name))
+    if (!name || removing.busy || warning) return
+    warning = true
+    try {
+      const said = await deleteWarning(name)
+      if (!removing.busy) await removing.run(name, said)
+    } finally {
+      warning = false
+    }
   }
 
   function duplicate() {

@@ -943,6 +943,63 @@ describe('EditorPage remote change', () => {
   })
 })
 
+describe('EditorPage keeps up with the server', () => {
+  const rows = () =>
+    Array.from(document.querySelectorAll<HTMLElement>('.steprow'))
+  const stepNames = () => rows().map((row) => row.id.replace(/^step-/, ''))
+  const collapsed = (name: string) =>
+    !!document
+      .getElementById(`step-${name}`)
+      ?.querySelector('button[aria-label="expand this step"]')
+  const serve = (etag: string, ...names: string[]) =>
+    vi.mocked(api.getWorkflow).mockResolvedValueOnce({
+      definition: { id: 'M', steps: names.map((name) => ({ name, task: {} })) },
+      origin: 'workspace',
+      writable: true,
+      etag,
+    } as never)
+
+  it('a failed workflow listing says so', async () => {
+    vi.mocked(api.listWorkflows).mockRejectedValueOnce(
+      new ApiError('listing exploded', 500),
+    )
+    render(EditorPage, { name: '' })
+    const line = await screen.findByText(/^Couldn't list the workflows/)
+    expect(line.closest('[role="alert"]')).toBeTruthy()
+  })
+
+  it("a remote reload keeps the steps' modes by name", async () => {
+    serve('"m1"', 'generate', 'upscale')
+    render(EditorPage, { name: 'modes/kept' })
+    await waitFor(() => expect(stepNames()).toEqual(['generate', 'upscale']))
+    await fireEvent.click(
+      document
+        .getElementById('step-upscale')!
+        .querySelector<HTMLButtonElement>(
+          'button[aria-label="collapse this step"]',
+        )!,
+    )
+    await waitFor(() => expect(collapsed('upscale')).toBe(true))
+    // The agent reorders the steps and adds one: each keeps its own mode
+    serve('"m2"', 'upscale', 'generate', 'caption')
+    feed.move('default', 'workflows')
+    await waitFor(() =>
+      expect(stepNames()).toEqual(['upscale', 'generate', 'caption']),
+    )
+    expect(collapsed('upscale')).toBe(true)
+    expect(collapsed('generate')).toBe(false)
+    expect(collapsed('caption')).toBe(false)
+    // A step that left and came back opens as a new one
+    serve('"m3"', 'generate')
+    feed.move('default', 'workflows')
+    await waitFor(() => expect(stepNames()).toEqual(['generate']))
+    serve('"m4"', 'generate', 'upscale')
+    feed.move('default', 'workflows')
+    await waitFor(() => expect(stepNames()).toEqual(['generate', 'upscale']))
+    expect(collapsed('upscale')).toBe(false)
+  })
+})
+
 describe('EditorPage undo', () => {
   const stepNames = () =>
     Array.from(document.querySelectorAll('.steprow')).map((row) =>

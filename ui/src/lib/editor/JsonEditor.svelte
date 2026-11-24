@@ -6,6 +6,7 @@
 <script lang="ts">
   import type * as Monaco from 'monaco-editor'
   import { describeError } from '../apiErrors'
+  import type { Flusher } from '../editorShell.svelte'
   import Details from '../ui/Details.svelte'
 
   let {
@@ -18,7 +19,7 @@
   }: {
     value: string
     onchange?: (value: string, options?: { quiet?: boolean }) => void
-    register?: (flush: () => void) => () => void
+    register?: (flush: Flusher) => () => void
     readonly?: boolean
     height?: string
     schema?: 'workflow' | 'prompt'
@@ -52,7 +53,8 @@
 
   $effect(() => {
     if (readonly || !register) return
-    return register(() => apply(false))
+    // A quiet flush (a re-read checking for edits) never toasts a draft
+    return register((options) => apply(options?.quiet === true))
   })
 
   // Follow the app theme after mount: the header toggle stamps data-theme
