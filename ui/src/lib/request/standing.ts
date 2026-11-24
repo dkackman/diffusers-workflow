@@ -61,7 +61,8 @@ function lead(request: LedgerRequest, plan: PlanState, now: Date): string {
   if (counts.running) return rendering(plan)
   if (counts.queued) return `${counts.queued} queued behind other jobs.`
   if (request.state !== 'open') return closed(request, now)
-  if (plan.toRun) return `Nothing is running. ${plan.toRun} ready to run.`
+  // How many are ready is the needs line's to say
+  if (plan.toRun) return 'Nothing is running.'
   if (counts.waiting) return waiting(plan)
   if (plan.live.length === 0) return 'Nothing is planned yet.'
   return counts.done === plan.live.length
@@ -70,27 +71,47 @@ function lead(request: LedgerRequest, plan: PlanState, now: Date): string {
 }
 
 const NEEDS: Record<NeedsReason, (n: number) => string> = {
+  held: (n) => `${n} waiting for your OK`,
   ready: (n) => `${n} ready to run`,
+  failed: (n) => `${n} failed`,
   revised: (n) =>
     count(n, 'revised since its take', 'revised since their takes'),
-  failed: (n) => `${n} failed`,
   choose: (n) => count(n, 'take to choose', 'takes to choose'),
   accepted_missing: (n) =>
     count(n, 'accepted take missing', 'accepted takes missing'),
 }
 
+/** The reasons in the order the needs line gives them */
+const ORDER = Object.keys(NEEDS) as NeedsReason[]
+
 /** "Needs you: 2 ready to run, 1 failed.", or null when nothing does */
 export function needsLine(needs: Record<NeedsReason, number>): string | null {
-  const parts = (Object.keys(NEEDS) as NeedsReason[])
-    .filter((reason) => needs[reason] > 0)
-    .map((reason) => NEEDS[reason](needs[reason]))
+  const parts = ORDER.filter((reason) => needs[reason] > 0).map((reason) =>
+    NEEDS[reason](needs[reason]),
+  )
   return parts.length ? `Needs you: ${parts.join(', ')}.` : null
+}
+
+/** One part of the needs line, and the item it goes to: the first live
+ * item, in plan order, with that reason */
+export type NeedsPart = { reason: NeedsReason; text: string; key: string }
+
+/** The needs line's parts, in its order: the header draws each as a way to
+ * its first item */
+export function needsParts(plan: PlanState): NeedsPart[] {
+  return ORDER.flatMap((reason) => {
+    const first = plan.live.find((state) => state.needs.includes(reason))
+    const n = plan.needs[reason]
+    return first && n > 0
+      ? [{ reason, text: NEEDS[reason](n), key: first.item.key }]
+      : []
+  })
 }
 
 /** Where the request stands, as the first of these that holds: something
  * is rendering, something is queued, the request is closed, something is
- * ready, everything left is waiting, everything is done. Then how much of
- * the live plan is done. */
+ * ready (how much is the needs line's), everything left is waiting,
+ * everything is done. Then how much of the live plan is done. */
 export function standing(
   request: LedgerRequest,
   plan: PlanState,

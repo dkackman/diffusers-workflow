@@ -131,7 +131,7 @@ it('leads with where the request stands, then the plan, the ask and its changes'
   const { container } = render(RequestPage, { requestId: 'r1' })
   await loaded()
   expect(container.querySelector('.standing')?.textContent).toBe(
-    'Nothing is running. 1 ready to run. 1 of 2 done.',
+    'Nothing is running. 1 of 2 done.',
   )
   expect(container.querySelector('.needs')?.textContent).toBe(
     'Needs you: 1 ready to run.',

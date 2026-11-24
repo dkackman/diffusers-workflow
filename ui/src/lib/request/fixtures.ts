@@ -1,5 +1,6 @@
 // Ledger records for the request tests: every field the server sends, so
 // a test names only what it is about.
+import { PROMPT } from '../references'
 import type {
   LedgerAttempt,
   LedgerHistoryEntry,
@@ -62,7 +63,7 @@ export const revisedItem = (
     status: 'revised',
     ready: true,
     accepted: { job: `job-${key}`, run_id: `run-${key}` },
-    revised_because: ['prompt:board-01'],
+    revised_because: [`${PROMPT}board-01`],
     ...over,
   })
 

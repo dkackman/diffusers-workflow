@@ -90,7 +90,7 @@ test('a request leads with where it stands and what needs you', async ({
   const head = page.locator('.reqhead')
   await expect(head.locator('.tag')).toHaveText('open')
   await expect(head.locator('.standing')).toHaveText(
-    'Nothing is running. 1 ready to run. 1 of 3 done.',
+    'Nothing is running. 1 of 3 done.',
   )
   await expect(head.locator('.needs')).toHaveText(
     'Needs you: 1 ready to run, 1 take to choose.',
@@ -322,9 +322,11 @@ const BOARD = `/#/ws/default/requests/${BOARD_ID}`
 const BOARD_API = `/api/workspaces/default/requests/${BOARD_ID}`
 const boardRow = (page: Page, key: string) =>
   page.locator(`li.item[data-key="${key}"]`)
+// The page asks with `?reasons=true`: match the path, not the whole URL
+const isBoard = (url: string) => new URL(url).pathname === BOARD_API
 const written = (page: Page) =>
   page.waitForResponse(
-    (r) => r.request().method() === 'PUT' && r.url().endsWith(BOARD_API),
+    (r) => r.request().method() === 'PUT' && isBoard(r.url()),
   )
 const order = (page: Page) =>
   page
@@ -463,7 +465,7 @@ test('the handle reorders with the keys, in one write that a reload still shows'
   )
   let puts = 0
   page.on('request', (r) => {
-    if (r.method() === 'PUT' && r.url().endsWith(BOARD_API)) puts++
+    if (r.method() === 'PUT' && isBoard(r.url())) puts++
   })
   const put = written(page)
   await handle.focus()
@@ -498,7 +500,7 @@ test("an edit made over the agent's write goes on top of it, and the page says s
   )
   const answers: number[] = []
   page.on('response', (r) => {
-    if (r.request().method() === 'PUT' && r.url().endsWith(BOARD_API))
+    if (r.request().method() === 'PUT' && isBoard(r.url()))
       answers.push(r.status())
   })
   await choose(page, boardRow(page, 'score'), 'Move to top')

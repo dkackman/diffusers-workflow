@@ -3,6 +3,7 @@
 // is read off one LedgerRequest: what a planned item waits on, whether a
 // failure was a cancel, which items want the user, which take is the result.
 import { formatMinutes, formatSpent } from '../format'
+import { PROMPT } from '../references'
 import type {
   LedgerAttempt,
   LedgerItem,
@@ -22,11 +23,13 @@ export type ItemDisplay =
   | 'cancelled'
   | 'dropped'
 
-/** Why an item wants the user: it can be run, its result was made for a
- * plan or prompt that has changed since, it failed, it has two or more good
- * takes and none accepted, or its accepted take's files are gone */
+/** Why an item wants the user, only ever for what the user can act on: it
+ * waits for their OK (held, in place of ready or revised), it can be run, its
+ * result was made for a plan or prompt that has changed since, it failed and
+ * can run again, it has two or more good takes and none accepted, or its
+ * accepted take's files are gone */
 export type NeedsReason =
-  'ready' | 'revised' | 'failed' | 'choose' | 'accepted_missing'
+  'held' | 'ready' | 'revised' | 'failed' | 'choose' | 'accepted_missing'
 
 /** Another item as a row names it: a dependency, or one that depends on it */
 export type ItemRef = { key: string; title: string; display: ItemDisplay }
@@ -118,19 +121,30 @@ export function displayOf(item: LedgerItem, depsDone: boolean): ItemDisplay {
   return depsDone ? 'planned' : 'waiting'
 }
 
+/** The displays a review hold stands in for: what would otherwise ask */
+const ASKS: Partial<Record<ItemDisplay, NeedsReason>> = {
+  ready: 'ready',
+  revised: 'revised',
+}
+
+/** The same rule as `needs_counts` in dw/ledger_views.py, pinned by
+ * tests/fixtures/request_needs_cases.json */
 function needsOf(
   item: LedgerItem,
   display: ItemDisplay,
   open: boolean,
+  runnable: boolean,
+  held: boolean,
 ): NeedsReason[] {
   if (!open || item.dropped) return []
-  const needs: NeedsReason[] = []
-  if (display === 'ready') needs.push('ready')
-  if (display === 'revised') needs.push('revised')
-  if (display === 'failed') needs.push('failed')
-  if (unchosen(item)) needs.push('choose')
-  if (item.accepted_missing) needs.push('accepted_missing')
-  return needs
+  const ask = ASKS[display]
+  const needs: (NeedsReason | false | undefined)[] = [
+    ask && (held ? 'held' : ask),
+    display === 'failed' && runnable && 'failed',
+    unchosen(item) && 'choose',
+    item.accepted_missing && 'accepted_missing',
+  ]
+  return needs.filter((reason): reason is NeedsReason => !!reason)
 }
 
 function runnableNow(
@@ -149,9 +163,10 @@ const zero = <K extends string>(keys: readonly K[]) =>
   Object.fromEntries(keys.map((k) => [k, 0])) as Record<K, number>
 const DISPLAYS = Object.keys(CHIP) as ItemDisplay[]
 const REASONS = [
+  'held',
   'ready',
-  'revised',
   'failed',
+  'revised',
   'choose',
   'accepted_missing',
 ] as const
@@ -203,7 +218,7 @@ export function planState(request: LedgerRequest): PlanState {
       runnable,
       canRetake: display === 'done' && open && item.workflow !== null,
       runsNow: display === 'ready' || (display === 'revised' && runnable),
-      needs: needsOf(item, display, open),
+      needs: needsOf(item, display, open, runnable, !!item.review),
       review: (!item.dropped && item.review) || null,
     }
   })
@@ -214,12 +229,14 @@ export function planState(request: LedgerRequest): PlanState {
 }
 
 /** Whether a row starts expanded: something is happening to it, it went
- * wrong, its takes want the user (none chosen, or the chosen one's files
- * gone), or it holds a note the agent has not had the chance to read. The
- * user's own toggle wins over this (RequestItem). */
+ * wrong, its plan changed since its take, its takes want the user (none
+ * chosen, or the chosen one's files gone), or it holds a note the agent has
+ * not had the chance to read. The user's own toggle wins over this
+ * (RequestItem). */
+const OPENS: ItemDisplay[] = ['running', 'failed', 'revised']
 export function opensByDefault(state: ItemState, noteWaiting: boolean) {
   if (state.item.dropped) return false
-  if (state.display === 'running' || state.display === 'failed') return true
+  if (OPENS.includes(state.display)) return true
   const takes =
     state.needs.includes('choose') || state.needs.includes('accepted_missing')
   return takes || noteWaiting
@@ -264,8 +281,21 @@ export function takesLine(state: ItemState): string | null {
   if (state.display === 'done' || state.display === 'revised')
     return n > 1 ? count(n, 'take', 'takes') : null
   if (state.display === 'failed' || state.display === 'cancelled')
-    return `${count(n, 'attempt', 'attempts')}, none succeeded`
+    return `${count(n, 'take', 'takes')}, none succeeded`
   return null
+}
+
+/** A failed row's line while it cannot run again: what it waits on. A
+ * dependency that can never be done (dropped, or gone from the plan) says
+ * so. Null for any other row. */
+export function blockedLine(state: ItemState): string | null {
+  if (state.display !== 'failed' || state.runnable) return null
+  if (!state.blockers.length) return null
+  const titles = state.blockers.map((dep) =>
+    dep.display === 'dropped' ? `${dep.title} (dropped)` : dep.title,
+  )
+  const verb = titles.length === 1 ? 'is' : 'are'
+  return `Failed. It can run again once ${listed(titles)} ${verb} done.`
 }
 
 /** The job a queued or running row's "Open job" leads to */
@@ -305,8 +335,8 @@ const MOVED: Record<string, string> = {
 
 /** One server reason in words: `prompt:<name>` is that saved prompt */
 function moved(reason: string): string {
-  if (reason.startsWith('prompt:'))
-    return `the prompt ${reason.slice('prompt:'.length)}`
+  if (reason.startsWith(PROMPT))
+    return `the prompt ${reason.slice(PROMPT.length)}`
   return MOVED[reason] ?? reason
 }
 

@@ -75,6 +75,27 @@ it('leads with where the request stands and what needs the user', () => {
   expect(container.textContent).not.toMatch(/revision/)
 })
 
+it('pressing a needs part goes to its first item', async () => {
+  const p = props([
+    item('cast', { title: 'Cast sheet', ready: true }),
+    failed,
+    item('plate', { title: 'Plate', ready: true }),
+  ])
+  const { container } = render(RequestHeader, p)
+  expect(container.querySelector('.needs')?.textContent).toBe(
+    'Needs you: 2 ready to run, 1 failed.',
+  )
+  const ready = screen.getByRole('button', { name: '2 ready to run' })
+  expect(ready.getAttribute('title')).toBe('Go to Cast sheet')
+  expect(ready.classList.contains('bare')).toBe(true)
+  await fireEvent.click(ready)
+  expect(p.onselect).toHaveBeenLastCalledWith('cast')
+  const bad = screen.getByRole('button', { name: '1 failed' })
+  expect(bad.getAttribute('title')).toBe('Go to Shot 2')
+  await fireEvent.click(bad)
+  expect(p.onselect).toHaveBeenLastCalledWith('bad')
+})
+
 it('leaves out the needs line when nothing needs the user', () => {
   const { container } = render(RequestHeader, props([doneItem('a'), running]))
   expect(container.querySelector('.needs')).toBeNull()

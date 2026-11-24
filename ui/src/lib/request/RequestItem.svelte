@@ -11,6 +11,7 @@
   import NoteList from './NoteList.svelte'
   import {
     activeJob,
+    blockedLine,
     CHIP,
     figureOf,
     opensByDefault,
@@ -97,6 +98,7 @@
   )
   const figure = $derived(figureOf(row))
   const takes = $derived(takesLine(row))
+  const blocked = $derived(blockedLine(row))
   const mark = $derived(
     row.display === 'done' || row.display === 'revised'
       ? resultMark(item)
@@ -181,6 +183,8 @@
       </div>
       {#if row.display === 'waiting'}
         <p class="sub">waits on {@render refs(row.blockers)}</p>
+      {:else if blocked}
+        <p class="sub">{blocked}</p>
       {:else if row.noWorkflow && !item.dropped}
         <p class="sub muted">
           No stored workflow. Only the agent can run this.

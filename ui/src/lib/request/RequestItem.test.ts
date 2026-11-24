@@ -137,6 +137,23 @@ it('a waiting item names what it waits on, each a way to that row', async () => 
   expect(given.ongo).toHaveBeenCalledWith('shot')
 })
 
+it('a failed row that cannot run again yet says what it waits on', () => {
+  const failed = {
+    status: 'failed' as const,
+    attempts: [attempt('j', 'failed')],
+  }
+  const { container } = render(
+    RequestItem,
+    props([
+      item('plate', { title: 'Background plate', ...failed }),
+      item('comp', { title: 'Composite', depends_on: ['plate'], ...failed }),
+    ]),
+  )
+  expect(container.querySelector('.main .sub')?.textContent).toBe(
+    'Failed. It can run again once Background plate is done.',
+  )
+})
+
 it('says only the agent can run an item with no stored workflow', () => {
   const { container } = render(
     RequestItem,
@@ -250,7 +267,7 @@ it("says when the accepted take's files are gone", () => {
   expect(screen.getByText(/The accepted take's files are gone/)).toBeTruthy()
 })
 
-it('a failed item says none of its attempts succeeded; a cancelled one is not failed', () => {
+it('a failed item says none of its takes succeeded; a cancelled one is not failed', () => {
   const failed = render(
     RequestItem,
     props([
@@ -261,7 +278,7 @@ it('a failed item says none of its attempts succeeded; a cancelled one is not fa
     ]),
   )
   expect(chip(failed.container)?.classList.contains('failed')).toBe(true)
-  expect(screen.getByText('2 attempts, none succeeded')).toBeTruthy()
+  expect(screen.getByText('2 takes, none succeeded')).toBeTruthy()
   cleanup()
   const { container } = render(
     RequestItem,
