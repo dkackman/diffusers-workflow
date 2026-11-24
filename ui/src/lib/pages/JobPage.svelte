@@ -270,6 +270,27 @@
   })
 </script>
 
+<!-- A running job leads with this; a finished one has it as one line,
+     after its results and the workflow -->
+{#snippet progressPanel()}
+  {#if steps.length}
+    <div class="panel">
+      <JobProgress
+        {steps}
+        {finishedSteps}
+        {listStep}
+        {running}
+        {progress}
+        {etaSeconds}
+        {stall}
+        took={job?.started_at && job.finished_at
+          ? job.finished_at - job.started_at
+          : null}
+      />
+    </div>
+  {/if}
+{/snippet}
+
 <JobHeader
   {job}
   {jobId}
@@ -303,94 +324,18 @@
       </div>
     {/if}
 
-    {#if steps.length}
-      <div class="panel">
-        <h2>Progress</h2>
-        <JobProgress
-          {steps}
-          {finishedSteps}
-          {listStep}
-          {running}
-          {progress}
-          {etaSeconds}
-          {stall}
-        />
+    {#if running}{@render progressPanel()}{/if}
+
+    {#if job.error}
+      <div class="panel error-edge">
+        <h2 class="error">Error</h2>
+        <p>{job.error}</p>
+        {#if job.traceback}<pre>{job.traceback}</pre>{/if}
       </div>
-    {/if}
-
-    {#if job.run_dir}
-      <RemoteNotice shown={noteMoved} />
-      <!-- An edit in progress keeps its draft when a newer note lands; the
-           page's own save is adopted, so it marks nothing -->
-      <NoteEditor
-        note={job.note}
-        target={job.run_dir}
-        workspace={job.workspace}
-        label="Your note on this job"
-        bind:editing={noteEditing}
-        onsaved={(note) =>
-          job && record.adopt({ ...job, note: note ?? undefined })}
-      />
-    {/if}
-
-    {#if definition}
-      <section class="flowsection">
-        <div class="flowhead">
-          <h2>Workflow</h2>
-          <span
-            class="muted jsonmark"
-            title={realized
-              ? 'this is the realized copy the job itself wrote - every mutable input pinned to the value it used'
-              : 'this is the definition as submitted - no realized copy of this job is on file'}
-          >
-            {realized ? 'realized' : 'as submitted'}
-          </span>
-          <RemoteNotice shown={definitionMoved} inline />
-        </div>
-        <FlowView
-          workflow={definition}
-          activeStep={running ? activeNode : undefined}
-          doneSteps={finishedSteps}
-          failedStep={failedNode}
-          activeMember={activeMemberStep}
-          failedMember={failedMemberStep}
-          onselect={openResult}
-          selectable={hasResult}
-          selectHint="click a step to see its results"
-          doneMembers={finishedMemberSteps}
-          activeSegments={segments}
-          {nodeTimes}
-          {memberTimes}
-        />
-        <!-- The JSON toggle sits where the JSON opens, beneath the graph -->
-        <div class="jsontoggle">
-          <button
-            class="quiet icon"
-            onclick={() => (showJson = !showJson)}
-            aria-expanded={showJson}
-            aria-label={showJson ? 'hide JSON' : 'show JSON'}
-            title={showJson
-              ? 'hide the workflow this job ran'
-              : 'show the workflow this job ran, as JSON'}
-          >
-            <Braces size={14} />
-          </button>
-        </div>
-        {#if showJson}
-          <div class="json">
-            <JsonEditor
-              value={JSON.stringify(definition, null, 2)}
-              readonly
-              height="520px"
-            />
-          </div>
-        {/if}
-      </section>
     {/if}
 
     {#if fileGroups.length || unsaved.length}
       <div class="panel">
-        <h2>Results</h2>
         {#key job.id}
           <JobResults
             {job}
@@ -408,13 +353,76 @@
 
     <ChainSegments {job} {definition} />
 
-    {#if job.error}
-      <div class="panel error-edge">
-        <h2 class="error">Error</h2>
-        <p>{job.error}</p>
-        {#if job.traceback}<pre>{job.traceback}</pre>{/if}
+    {#if job.run_dir}
+      <div class="panel">
+        <RemoteNotice shown={noteMoved} />
+        <!-- An edit in progress keeps its draft when a newer note lands; the
+             page's own save is adopted, so it marks nothing -->
+        <NoteEditor
+          note={job.note}
+          target={job.run_dir}
+          workspace={job.workspace}
+          label="Your note on this job"
+          bind:editing={noteEditing}
+          onsaved={(note) =>
+            job && record.adopt({ ...job, note: note ?? undefined })}
+        />
       </div>
     {/if}
+
+    {#if definition}
+      <section class="flowsection">
+        <div class="flowhead">
+          <h2>Workflow</h2>
+          <span
+            class="muted jsonmark"
+            title={realized
+              ? 'this is the realized copy the job itself wrote - every mutable input pinned to the value it used'
+              : 'this is the definition as submitted - no realized copy of this job is on file'}
+          >
+            {realized ? 'realized' : 'as submitted'}
+          </span>
+          <button
+            class="quiet icon"
+            onclick={() => (showJson = !showJson)}
+            aria-expanded={showJson}
+            aria-label={showJson ? 'hide JSON' : 'show JSON'}
+            title={showJson
+              ? 'hide the workflow this job ran'
+              : 'show the workflow this job ran, as JSON'}
+          >
+            <Braces size={14} />
+          </button>
+          <RemoteNotice shown={definitionMoved} inline />
+        </div>
+        <FlowView
+          workflow={definition}
+          activeStep={running ? activeNode : undefined}
+          doneSteps={finishedSteps}
+          failedStep={failedNode}
+          activeMember={activeMemberStep}
+          failedMember={failedMemberStep}
+          onselect={openResult}
+          selectable={hasResult}
+          selectHint="click a step to see its results"
+          doneMembers={finishedMemberSteps}
+          activeSegments={segments}
+          {nodeTimes}
+          {memberTimes}
+        />
+        {#if showJson}
+          <div class="json">
+            <JsonEditor
+              value={JSON.stringify(definition, null, 2)}
+              readonly
+              height="520px"
+            />
+          </div>
+        {/if}
+      </section>
+    {/if}
+
+    {#if !running}{@render progressPanel()}{/if}
 
     {#if logs.length}
       <div class="panel">
@@ -440,11 +448,6 @@
     align-items: center;
     gap: 0.4rem 1rem;
     margin-bottom: var(--space-2);
-  }
-  .jsontoggle {
-    display: flex;
-    justify-content: flex-end;
-    margin-top: var(--space-1);
   }
   .flowhead h2 {
     margin: 0;

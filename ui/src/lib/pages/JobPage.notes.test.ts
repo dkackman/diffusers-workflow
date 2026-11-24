@@ -161,6 +161,8 @@ it("shows only this job's notes, and a new one is about this job", async () => {
 it('"Note this file" makes the new note about that file of this job', async () => {
   held.job = job({ request: 'r1', item: 's3' })
   render(JobPage, { jobId: 'j2' })
+  // the note is one of the viewer's actions on the file
+  await fireEvent.click(await screen.findByLabelText('open s3.mp4'))
   await fireEvent.click(
     await screen.findByRole('button', {
       name: 'Note this file (s3.mp4) for the agent',
@@ -178,6 +180,8 @@ it('offers no "Note this file" while the take is still running', async () => {
   held.job = job({ request: 'r1', item: 's3', status: 'running' })
   render(JobPage, { jobId: 'j2' })
   await screen.findByText('warmer light on this one')
+  await fireEvent.click(await screen.findByLabelText('open s3.mp4'))
+  await screen.findByRole('dialog', { name: 's3.mp4' })
   expect(screen.queryByRole('button', { name: /Note this file/ })).toBeNull()
 })
 

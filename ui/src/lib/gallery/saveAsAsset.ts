@@ -12,7 +12,8 @@ import { chooseDialog, nameDialog } from '../confirm.svelte'
 import { freeName } from '../documentSave'
 import { MAX_NAME_LENGTH, isNameSegment, leafName } from '../names'
 import { ASSET, referenceName } from '../references'
-import type { GalleryFile } from '../types'
+/** What a save reads of the file: only its output name */
+type Saved = { name: string }
 
 // How many names Keep both tries before giving up, as uploads.ts does
 const KEEP_BOTH_TRIES = 20
@@ -37,7 +38,7 @@ function nameTaken(e: unknown): boolean {
 
 /** The name the server stores: it adds the file's extension to a name
  * typed without one */
-function storedName(name: string, file: GalleryFile): string {
+function storedName(name: string, file: Saved): string {
   const leaf = leafName(file.name)
   const dot = leaf.lastIndexOf('.')
   if (name.includes('.') || dot <= 0) return name
@@ -45,7 +46,7 @@ function storedName(name: string, file: GalleryFile): string {
 }
 
 async function kept(
-  file: GalleryFile,
+  file: Saved,
   name: string,
   overwrite?: true,
 ): Promise<{ name: string }> {
@@ -58,7 +59,7 @@ async function kept(
 /** Keep both: the first free name, and the next when the listing was
  * behind the library */
 async function keepBoth(
-  file: GalleryFile,
+  file: Saved,
   name: string,
   existing: string[],
 ): Promise<{ name: string }> {
@@ -80,7 +81,7 @@ export const listAssetNames = (): Promise<string[]> =>
 
 /** Ask what to do with a name already in the library */
 async function onTaken(
-  file: GalleryFile,
+  file: Saved,
   name: string,
   listNames: () => Promise<string[]>,
 ): Promise<{ name: string } | null> {
@@ -109,7 +110,7 @@ async function onTaken(
  * avoids, once the name turns out taken. Null when they cancel; a failure
  * throws. */
 export async function saveAsAsset(
-  file: GalleryFile,
+  file: Saved,
   listNames: () => Promise<string[]> = listAssetNames,
 ): Promise<{ name: string } | null> {
   const name = await nameDialog(

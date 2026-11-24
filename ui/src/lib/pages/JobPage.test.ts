@@ -4,6 +4,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from '@testing-library/svelte'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import JobPage from './JobPage.svelte'
@@ -182,7 +183,7 @@ function unsavedRows(container: HTMLElement) {
   )
 }
 
-it('shows each image beside what made it, with a download link, and never probes a video', async () => {
+it('shows each image with its model and seed, its recipe in the viewer, and never probes a video', async () => {
   metadata.byFile['a.png'] = {
     model_name: 'org/model',
     seed: 7,
@@ -193,20 +194,20 @@ it('shows each image beside what made it, with a download link, and never probes
     output_kinds: { 'a.png': 'image', 'clip.mp4': 'video' },
   }
   render(JobPage, { jobId: 'j1' })
-  await waitFor(() => expect(screen.getByText('org/model')).toBeTruthy())
-  expect(screen.getByText('7')).toBeTruthy()
-  expect(screen.getByText('a cat')).toBeTruthy()
-  expect(screen.getByText('a dog')).toBeTruthy()
-  expect(
-    screen
-      .getAllByRole('link', { name: 'Download' })
-      .map((a) => a.getAttribute('href')),
-  ).toEqual(['/api/gallery/a.png/download', '/api/gallery/clip.mp4/download'])
+  const tile = await screen.findByLabelText('open a.png')
+  await waitFor(() => expect(tile).toHaveTextContent('org/model · seed 7'))
   // The metadata route decodes a video whole to probe it, and the page
   // shows nothing a probe would report
   expect(vi.mocked(api.galleryMetadata).mock.calls.map((c) => c[0])).toEqual([
     'a.png',
   ])
+  await fireEvent.click(tile)
+  const sheet = await screen.findByRole('dialog', { name: 'a.png' })
+  await waitFor(() => expect(sheet).toHaveTextContent('a cat'))
+  expect(sheet).toHaveTextContent('a dog')
+  expect(
+    within(sheet).getByRole('link', { name: 'Download' }).getAttribute('href'),
+  ).toBe('/api/gallery/a.png/download')
 })
 
 it('sets the tab title to the workflow file the job ran', async () => {
@@ -231,13 +232,13 @@ it("drops one job's image metadata when the page switches to another", async () 
     output_kinds: { 'a.png': 'image' },
   }
   const { rerender } = render(JobPage, { jobId: 'j1' })
-  await waitFor(() => expect(screen.getByText('org/first')).toBeTruthy())
+  await waitFor(() => expect(screen.getByText(/org\/first/)).toBeTruthy())
 
   metadata.byFile['a.png'] = { model_name: 'org/second' }
   detail.job = { ...detail.job, id: 'j2' }
   await rerender({ jobId: 'j2' })
-  await waitFor(() => expect(screen.getByText('org/second')).toBeTruthy())
-  expect(screen.queryByText('org/first')).toBeNull()
+  await waitFor(() => expect(screen.getByText(/org\/second/)).toBeTruthy())
+  expect(screen.queryByText(/org\/first/)).toBeNull()
   expect(vi.mocked(api.galleryMetadata).mock.calls.map((c) => c[0])).toEqual([
     'a.png',
     'a.png',
@@ -284,7 +285,7 @@ it('renders an unfoldered run exactly as before: step headings, no subfolder hea
       .map((h) => h.textContent?.trim()),
   ).toEqual(['generate', 'upscale'])
   expect(screen.queryByRole('heading', { level: 4 })).toBeNull()
-  expect(screen.queryByText('(run root)')).toBeNull()
+  expect(screen.queryByText('(top folder)')).toBeNull()
 })
 
 it('places a live step_end under its subfolder before the manifest arrives', async () => {
@@ -560,14 +561,96 @@ it('renders each output by the kind the server reports', async () => {
     output_kinds: { 'a.bmp': 'image', 'b.mov': 'video', 'c.flac': 'audio' },
   }
   const { container } = render(JobPage, { jobId: 'j1' })
-  await waitFor(() => expect(container.querySelector('audio')).toBeTruthy())
-  expect(container.querySelector('img')?.getAttribute('src')).toContain('a.bmp')
-  expect(container.querySelector('video')?.getAttribute('src')).toContain(
-    'b.mov',
+  await screen.findByLabelText('open c.flac')
+  // tiles: a picture and a clip's poster, never a stream; a sound's glyph
+  const pics = [...container.querySelectorAll('.filetile img')].map((i) =>
+    i.getAttribute('src'),
   )
-  expect(container.querySelector('audio')?.getAttribute('src')).toContain(
-    'c.flac',
+  expect(pics[0]).toContain('a.bmp/thumbnail')
+  expect(pics[1]).toContain('b.mov/thumbnail')
+  expect(container.querySelector('.filetile video, .filetile audio')).toBeNull()
+  expect(screen.getByLabelText('open c.flac')).toHaveTextContent('♪')
+  // the viewer plays each by its kind
+  await fireEvent.click(screen.getByLabelText('open b.mov'))
+  const sheet = await screen.findByRole('dialog', { name: 'b.mov' })
+  expect(sheet.querySelector('video')?.getAttribute('src')).toContain('b.mov')
+})
+
+/** The page's panels' h2 headings, in order */
+const panelOrder = () =>
+  screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent?.trim())
+
+it('a finished job shows Results before the workflow and Progress', async () => {
+  ran.definition = { steps: [{ name: 'generate', pipeline: {} }] }
+  detail.job = {
+    ...job([{ step: 'generate', files: ['a.png'] }]),
+    output_kinds: { 'a.png': 'image' },
+    run_dir: 'wf/run-1',
+  }
+  render(JobPage, { jobId: 'j1' })
+  await waitFor(() => expect(stream.onEvent).not.toBeNull())
+  stream.onEvent!({ seq: 1, event: 'workflow_start', steps: ['generate'] })
+  stream.onEvent!({ seq: 2, event: 'step_end', step: 'generate', files: [] })
+  await waitFor(() => expect(panelOrder()).toContain('Progress'))
+  const order = panelOrder().filter((h) =>
+    ['Results', 'Workflow', 'Progress'].includes(h ?? ''),
   )
+  expect(order).toEqual(['Results', 'Workflow', 'Progress'])
+  // the note sits in a panel of its own, between Results and the workflow
+  const note = screen.getByText('Your note on this job').closest('.panel')
+  expect(note?.querySelector('h2')).toBeNull()
+  // the JSON toggle sits in the Workflow head
+  const head = screen.getByRole('heading', {
+    level: 2,
+    name: 'Workflow',
+  }).parentElement!
+  expect(within(head).getByRole('button', { name: 'show JSON' })).toBeTruthy()
+})
+
+it('a running job keeps Progress first', async () => {
+  detail.job = { ...job([]), status: 'running', finished_at: null }
+  render(JobPage, { jobId: 'j1' })
+  await waitFor(() => expect(stream.onEvent).not.toBeNull())
+  stream.onEvent!({ seq: 1, event: 'workflow_start', steps: ['generate'] })
+  stream.onEvent!({
+    seq: 2,
+    event: 'step_end',
+    step: 'generate',
+    files: ['a.png'],
+    output_kinds: { 'a.png': 'image' },
+  })
+  await waitFor(() => expect(panelOrder()).toContain('Results'))
+  const order = panelOrder().filter((h) =>
+    ['Results', 'Progress'].includes(h ?? ''),
+  )
+  expect(order).toEqual(['Progress', 'Results'])
+  // the list is open while it runs
+  expect(screen.getByText('generate', { selector: '.step span' })).toBeTruthy()
+  expect(document.querySelector('details.progress')).toBeNull()
+})
+
+it("a finished job's progress is one line until opened", async () => {
+  detail.job = { ...job([]), started_at: 100, finished_at: 172 }
+  render(JobPage, { jobId: 'j1' })
+  await waitFor(() => expect(stream.onEvent).not.toBeNull())
+  stream.onEvent!({
+    seq: 1,
+    event: 'workflow_start',
+    steps: ['base', 'upscale'],
+  })
+  stream.onEvent!({ seq: 2, event: 'step_end', step: 'base', files: [] })
+  const details = await waitFor(() => {
+    const found = document.querySelector('details.progress')
+    expect(found).toBeTruthy()
+    return found as HTMLDetailsElement
+  })
+  expect(details.open).toBe(false)
+  const summary = details.querySelector('summary')!
+  expect(summary.textContent?.replace(/\s+/g, ' ').trim()).toBe(
+    'Progress 1 of 2 steps · 1m 12s',
+  )
+  // the list is behind the disclosure
+  expect(details.querySelectorAll('.step')).toHaveLength(2)
 })
 
 it('shows the card the job ran on', async () => {

@@ -1,23 +1,14 @@
 <script lang="ts">
-  import {
-    Bookmark,
-    Gauge,
-    ImagePlus,
-    ImageOff,
-    Star,
-    Trash2,
-  } from '@lucide/svelte'
+  import { Gauge, ImageOff, Trash2 } from '@lucide/svelte'
   import { outputLibrary } from '../outputlib.svelte'
   import { api } from '../api'
   import DownloadLink from '../DownloadLink.svelte'
   import { outputMedia, type MediaFile } from '../media'
   import { openInHash } from '../mediaViewer'
   import { leafName } from '../names'
-  import { OUTPUT } from '../references'
   import MediaViewer from '../ui/MediaViewer.svelte'
   import MissingFile from '../ui/MissingFile.svelte'
   import RecipePanel from '../ui/RecipePanel.svelte'
-  import ReferenceChip from '../ui/ReferenceChip.svelte'
   import { untrack } from 'svelte'
   import { resource, type Resource } from '../resource.svelte'
   import LoadState from '../ui/LoadState.svelte'
@@ -38,6 +29,7 @@
   import GalleryAside from '../gallery/GalleryAside.svelte'
   import { saveAsAsset } from '../gallery/saveAsAsset'
   import UseAsInput from '../gallery/UseAsInput.svelte'
+  import ReuseActions from '../gallery/ReuseActions.svelte'
   import {
     AssessCache,
     assessable,
@@ -400,41 +392,17 @@
   {@const listedFile = byName.get(file.name)}
   {@const assessed = assessCache.get(assessKey(file.name))}
   {#if listedFile}
-    <button
-      type="button"
-      class="quiet icon"
-      onclick={() => starring.run(file.name, !listedFile.starred)}
-      aria-pressed={!!listedFile.starred}
-      aria-label={listedFile.starred ? 'unstar this file' : 'star this file'}
-      title={listedFile.starred
-        ? 'starred - press S to unstar'
-        : 'star this file - press S'}
-    >
-      <Star size={16} fill={listedFile.starred ? 'currentColor' : 'none'} />
-    </button>
-    <button
-      type="button"
-      class="quiet withicon"
-      onclick={() => saving.run(listedFile)}
-      disabled={saving.busy}
-      title="save this file to the asset library, under a name later workflows can use"
-    >
-      <Bookmark size={14} />Save as asset
-    </button>
-    {#if file.kind === 'image' || file.kind === 'video'}
-      <button
-        type="button"
-        class="quiet withicon"
-        onclick={() => {
-          useInput = file
-          useInputOpen = true
-        }}
-        title="open a workflow of this workspace with this file filled in"
-      >
-        <ImagePlus size={14} />Use as input…
-      </button>
-    {/if}
-    <ReferenceChip prefix={OUTPUT} name={file.name} />
+    <ReuseActions
+      {file}
+      starred={!!listedFile.starred}
+      saving={saving.busy}
+      onstar={() => starring.run(file.name, !listedFile.starred)}
+      onsave={() => saving.run(listedFile)}
+      onuse={() => {
+        useInput = file
+        useInputOpen = true
+      }}
+    />
     <button
       type="button"
       class="quiet withicon"

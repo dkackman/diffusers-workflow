@@ -208,9 +208,10 @@ test('hostile content in the workflow editor stays text', async ({ page }) => {
   await assertInert(page, `/#/ws/${WS}/edit/hostile`, /hostile/)
 })
 
-test('the job page lists the output as an inert link', async ({ page }) => {
+test('the job page lists the output as an inert tile', async ({ page }) => {
   await assertInert(page, `/#/ws/${WS}/jobs/${htmlJobId}`, /hostile-html/)
-  await expect(page.locator('a.filelink').first()).toBeVisible()
+  // a text output is a tile whose excerpt is the file's text, never markup
+  await expect(page.getByLabel(/^open .*hostile-html.*\.txt$/)).toBeVisible()
 })
 
 test('a gallery file with a hostile name opens inert', async ({ page }) => {

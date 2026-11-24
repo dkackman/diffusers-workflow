@@ -1,6 +1,6 @@
 // What the job page's Results panel reads about a run's outputs: the
 // generation metadata embedded in each image and the summary of each .otioz
-// timeline, keyed by file - per file rather than per step, since each image
+// timeline, and whether it is starred, keyed by file - per file rather than per step, since each image
 // of a batch carries its own seed - and the run's inputs, which are the same
 // whichever output asks. Images and timelines only: the metadata route
 // decodes an audio or video file whole to probe it, and nothing it would
@@ -15,6 +15,8 @@ export interface RunMetadata {
   meta: Record<string, Fields>
   media: Record<string, Fields>
   inputs: GalleryInput[]
+  /** Whether each file read is starred, as the same reply says */
+  starred: Record<string, boolean>
 }
 
 export const isBundle = (file: string) => file.toLowerCase().endsWith('.otioz')
@@ -53,9 +55,10 @@ export function runMetadataReader() {
     const replies = await Promise.all(
       [...wanted, ...probe].map((file) => ask(file, workspace)),
     )
-    const found: RunMetadata = { meta: {}, media: {}, inputs: [] }
+    const found: RunMetadata = { meta: {}, media: {}, inputs: [], starred: {} }
     wanted.forEach((file, i) => {
       found.meta[file] = (replies[i]?.metadata as Fields) ?? null
+      found.starred[file] = replies[i]?.starred === true
       if (isBundle(file))
         found.media[file] = (replies[i]?.media as Fields) ?? null
     })

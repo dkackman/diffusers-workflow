@@ -2,7 +2,12 @@
 // an asset, the one glyph map for a kind with no picture, and the only two
 // places a tile's thumbnail URL is built. The glyphs are spelled here and
 // nowhere else (scripts/design-rules.test.ts).
-import { assetThumbnailUrl, galleryThumbnailUrl, outputUrl } from './apiUrls'
+import {
+  appendQuery,
+  assetThumbnailUrl,
+  galleryThumbnailUrl,
+  outputUrl,
+} from './apiUrls'
 import { leafName } from './names'
 import type {
   AssetFile,
@@ -85,6 +90,28 @@ export function ledgerMedia(
     workspace,
     thumb: hasPicture(output.kind)
       ? galleryThumbnailUrl(output.name, workspace)
+      : null,
+  }
+}
+
+/** One of a job's outputs (its manifest's name and the kind the server
+ * gave it) as a tile shows it. The job id rides on the file and on its
+ * thumbnail: two runs of a workflow write the same names, and the browser
+ * would show this job the picture it cached from the last one */
+export function jobMedia(
+  name: string,
+  kind: OutputKind,
+  jobId: string,
+  workspace: string,
+): MediaFile {
+  return {
+    name,
+    kind,
+    url: outputUrl(name, jobId, workspace),
+    label: leafName(name),
+    workspace,
+    thumb: hasPicture(kind)
+      ? appendQuery(galleryThumbnailUrl(name, workspace), 'v', jobId)
       : null,
   }
 }

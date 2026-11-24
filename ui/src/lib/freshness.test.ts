@@ -127,6 +127,9 @@ const HELPER_EXCEPTIONS: Record<string, string> = {
   'job/EventLog.svelte':
     'fetchEventLog runs on a click (open, Refresh) and once more when the ' +
     'job ends, to read the events after the last one shown',
+  'job/JobViewer.svelte':
+    'saveAsAsset lists the asset library on a Save as asset click, and ' +
+    "only when the name is taken, for Keep both's suggestion",
   'ui/ConnectionBanner.svelte':
     "checkNow is the Retry now button's one status check",
 }
