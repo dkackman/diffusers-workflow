@@ -1,10 +1,10 @@
 // The workflow editor's live check and where its findings lead. The check
 // is the run page's RunCheck (runCheck.svelte.ts) over the document on
 // screen: debounced, only the latest answer kept, quick first and with
-// download sizes once the editing pauses. It runs only while a file that
-// was read is open - nothing is asked while one is loading, failed, or is a
-// new draft, which the Validate button checks. A step or variable a finding
-// names is a place the editor goes to (findingPlace.ts).
+// download sizes once the editing pauses. It runs while a file that was
+// read or a new draft is open - nothing is asked while one is loading or
+// failed. A step or variable a finding names is a place the editor goes to
+// (findingPlace.ts).
 import { onDestroy } from 'svelte'
 import { api } from '../api'
 import type { DocumentEditor } from '../editorShell.svelte'
@@ -23,13 +23,13 @@ export function editorCheck(ed: DocumentEditor): RunCheck {
   )
   $effect(() => {
     // What was said about the last file goes with it
-    if (ed.loadState !== 'loaded') {
+    if (ed.loadState !== 'loaded' && ed.loadState !== 'new') {
       check.clear()
       check.validation = null
       return
     }
-    // Keyed by the path read, not the file name field, which changes on
-    // every keystroke and is not part of what is checked
+    // Keyed by the path read (a draft by 'new'), not the file name field,
+    // which changes on every keystroke and is not part of what is checked
     check.changed(ed.loadedPath ?? 'new', $state.snapshot(ed.doc))
   })
   // A verdict on the copy the server's replaced is not one on this copy;

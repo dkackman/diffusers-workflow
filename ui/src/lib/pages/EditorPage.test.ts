@@ -297,6 +297,21 @@ describe('EditorPage validation plan', () => {
     })
   })
 
+  it('a new draft is checked without pressing Validate', async () => {
+    vi.mocked(api.validate).mockClear()
+    render(EditorPage, { name: '' })
+    const id = () => screen.getByLabelText('workflow id') as HTMLInputElement
+    await waitFor(() => expect(id()).toBeTruthy())
+    await fireEvent.input(id(), { target: { value: 'Drafted' } })
+    await waitFor(
+      () =>
+        expect(vi.mocked(api.validate).mock.calls.at(-1)?.[0]).toMatchObject({
+          workflow: { id: 'Drafted' },
+        }),
+      { timeout: 5000 },
+    )
+  }, 10_000)
+
   it('a live check that fails says so', async () => {
     vi.mocked(api.validate).mockRejectedValueOnce(new Error('server down'))
     render(EditorPage, { name: 'models/z-image' })
