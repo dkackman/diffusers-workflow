@@ -30,6 +30,7 @@ const world = vi.hoisted(() => ({
   validate: vi.fn(),
   submitJob: vi.fn(),
   deleteRequest: vi.fn(),
+  setStarred: vi.fn(),
   notify: {
     error: vi.fn(),
     failure: vi.fn(),
@@ -50,6 +51,7 @@ vi.mock('../api', async () => ({
     validate: (...args: unknown[]) => world.validate(...args),
     submitJob: (...args: unknown[]) => world.submitJob(...args),
     deleteRequest: (...args: unknown[]) => world.deleteRequest(...args),
+    setStarred: (...args: unknown[]) => world.setStarred(...args),
   },
 }))
 vi.mock('../toast', () => ({ notify: world.notify }))
@@ -87,6 +89,7 @@ beforeEach(() => {
   workspace.current = 'studio'
   world.ledger = fakeLedger(make())
   world.confirm.mockResolvedValue(true)
+  world.setStarred.mockResolvedValue({ name: '', starred: true })
 })
 afterEach(() => {
   cleanup()
@@ -825,4 +828,96 @@ it('Run what is ready lists a revised item, and Keep this take makes it done', a
   expect(
     within(row('a')).queryByRole('button', { name: 'Keep this take' }),
   ).toBeNull()
+})
+
+// Accept stars the take's file; Undo takes back the acceptance only
+const filedWorld = (accepted = false) => {
+  const out = (name: string) => ({ name, kind: 'image' as const })
+  world.ledger = fakeLedger(
+    request([
+      doneItem('cast', {
+        title: 'Cast sheet',
+        attempts: [
+          attempt('j1', 'succeeded', { output: out('run1/a.png') }),
+          attempt('j2', 'succeeded'),
+        ],
+        accepted: accepted ? { job: 'j1', run_id: 'r1' } : null,
+        result: { job: 'j1', run_id: 'r1', output: out('run1/a.png') },
+      }),
+    ]),
+  )
+}
+const accept = (n: number) =>
+  fireEvent.click(
+    within(row('cast')).getByRole('button', {
+      name: `Accept take ${n} for Cast sheet`,
+    }),
+  )
+
+it("Accept stars the take's file", async () => {
+  filedWorld()
+  await start()
+  await accept(1)
+  await saved(4)
+  await waitFor(() =>
+    expect(world.setStarred).toHaveBeenCalledWith('run1/a.png', true),
+  )
+  expect(world.notify.undo).toHaveBeenCalledWith(
+    'Accepted take 1 for Cast sheet and starred it',
+    expect.any(Function),
+    expect.any(String),
+  )
+})
+
+it('a take with no file is accepted and stars nothing', async () => {
+  filedWorld()
+  await start()
+  await accept(2)
+  await saved(4)
+  expect(world.ledger.current.items[0].accepted?.job).toBe('j2')
+  await new Promise((r) => setTimeout(r, 20))
+  expect(world.setStarred).not.toHaveBeenCalled()
+})
+
+it('a failed star leaves the acceptance', async () => {
+  filedWorld()
+  const boom = new Error('no')
+  world.setStarred.mockRejectedValue(boom)
+  await start()
+  await accept(1)
+  await saved(4)
+  await waitFor(() =>
+    expect(world.notify.failure).toHaveBeenCalledWith(
+      'star the accepted take',
+      boom,
+    ),
+  )
+  expect(world.ledger.current.items[0].accepted?.job).toBe('j1')
+})
+
+it('Undo takes back the acceptance and keeps the star', async () => {
+  filedWorld()
+  await start()
+  await accept(1)
+  await saved(4)
+  await waitFor(() => expect(world.setStarred).toHaveBeenCalledTimes(1))
+  undo()
+  await saved(5)
+  expect(world.ledger.current.items[0].accepted).toBeNull()
+  expect(world.setStarred).toHaveBeenCalledTimes(1)
+  expect(world.setStarred).not.toHaveBeenCalledWith('run1/a.png', false)
+})
+
+it('a deep link to a take opens its row', async () => {
+  filedWorld(true)
+  history.replaceState(
+    history.state,
+    '',
+    '#/ws/studio/requests/r1?open=cast%2Fj1%2Frun1%2Fa.png',
+  )
+  await start()
+  const toggle = row('cast').querySelector('.title') as HTMLElement
+  expect(toggle.getAttribute('aria-expanded')).toBe('true')
+  await screen.findByRole('dialog')
+  history.replaceState(history.state, '', '#/ws/studio/requests/r1')
 })

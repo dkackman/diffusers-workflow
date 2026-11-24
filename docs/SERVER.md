@@ -309,7 +309,9 @@ icon, a finish-alert toggle, the theme toggle, and links to these docs and
   the plan on a wide window and fold under it on a narrow one.
 
   You edit the plan from its rows. Under each good take, **Accept** makes it
-  the item's result (**Accepted** pressed again clears the choice). The grip
+  the item's result and, once that is saved, stars the take's file
+  (**Accepted** pressed again clears the choice; its Undo takes back the
+  acceptance only, the star stays). The grip
   at the start of a row reorders it - drag it, or focus it and press
   ArrowUp/ArrowDown, Home or End; the order is written once, shortly after
   the last move. A row's **more actions** menu has the same four moves, a

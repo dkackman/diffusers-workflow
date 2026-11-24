@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { tick, type Snippet } from 'svelte'
+  import { tick, untrack, type Snippet } from 'svelte'
   import {
     Check,
     ChevronDown,
@@ -30,6 +30,7 @@
   import { chipText } from './reviewText'
   import { addRef } from './noteRefs'
   import { displayValue } from '../editor'
+  import { openInHash } from '../mediaViewer'
   import { wsHref } from '../routes'
   import type { LedgerNoteRef, LedgerRequest } from '../types'
 
@@ -91,7 +92,10 @@
   )
   const latestNote = $derived(item.notes.at(-1) ?? null)
   // The user's own toggle wins for as long as the page holds this row
-  let chosen = $state<boolean | null>(null)
+  // A deep link to one of its takes (`open=<key>/…`) opens the row
+  let chosen = $state<boolean | null>(
+    untrack(() => openInHash()?.startsWith(`${row.item.key}/`)) ? true : null,
+  )
   const open = $derived(chosen ?? opensByDefault(row, waitingNote))
 
   const held = $derived(

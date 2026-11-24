@@ -13,7 +13,7 @@ The words the web UI uses for each concept, and the ones it does not. The vocabu
 | **file name** ★ | A workflow's name: its file name (`e2e-card`) | the file name; the JSON `id` only as secondary text on the job page | the JSON `id` as the name |
 | **Star** | Favourite a file | **Star**, "Starred <leaf>", "Unstarred <leaf>" | "star to keep" |
 | **Save as asset** ★ | Copy an output into the asset library | **Save as asset**, "Saved as asset <name>" | "Keep as asset", "keep this file as an input asset" ("keep" means keeping your copy in a conflict: **Keep mine**, **Keep both**) |
-| **Accept** ★ | Choose a take as the item's result (accepting also stars the file, phase 6) | **Accept** | - |
+| **Accept** ★ | Choose a take as the item's result (accepting also stars the file) | **Accept** | - |
 | **Your note** | The person's own note | "Your note on this job", "Your note on this file", "Your note on this asset", "Your note on this workspace" | "Run note" |
 | **Note for the agent** | The note channel to the agent | **Note for the agent** | - |
 | **the agent is connected** | The agent's notes channel is listening | "the agent is connected", "the agent isn't connected" | "session", "no session is listening" |

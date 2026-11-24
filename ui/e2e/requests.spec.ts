@@ -405,6 +405,23 @@ test('accepting a take is shown at once, is in the ledger, and the toast takes i
   )
 })
 
+test('Back closes the take viewer', async ({ page }) => {
+  await page.goto(BOARD)
+  const board = boardRow(page, 'board')
+  await board
+    .getByRole('button', { name: 'take 1 of Board sheet', exact: true })
+    .click()
+  const viewer = page.getByRole('dialog')
+  await expect(viewer).toBeVisible()
+  await expect(page).toHaveURL(/open=board/)
+  // Back closes the viewer and stays on the request
+  await page.goBack()
+  await expect(viewer).toHaveCount(0)
+  await expect(page).not.toHaveURL(/open=/)
+  await expect(page).toHaveURL(new RegExp(BOARD_ID))
+  await expect(board.locator('.strip .tile')).toHaveCount(2)
+})
+
 test('dropping an item others wait on says what it does to them, and Restore puts it all back', async ({
   page,
   request,

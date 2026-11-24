@@ -1,6 +1,8 @@
 <script lang="ts">
   import { tick } from 'svelte'
   import { GripVertical } from '@lucide/svelte'
+  import { action } from '../action.svelte'
+  import { api } from '../api'
   import { ApiError } from '../apiErrors'
   import { confirmDialog } from '../confirm.svelte'
   import { undoToast } from '../destructive'
@@ -127,16 +129,31 @@
   })
   $effect(() => () => reorder.destroy())
 
+  // The star is the accept's own: Undo takes back the acceptance only, and
+  // a star that fails leaves the acceptance (notify.failure says so)
+  const starring = action((name: string) => api.setStarred(name, true), {
+    doing: 'star the accepted take',
+  })
+
   function accept(row: ItemState, take: Take, job: string | null) {
     const { key, title } = row.item
     const previous = row.item.accepted?.job ?? null
+    const file = take.attempt.output?.name
+    const write = store.push({ kind: 'accept', key, job })
+    const starred = job !== null && file ? ' and starred it' : ''
     undoable(
-      store.push({ kind: 'accept', key, job }),
+      write,
       job === null
         ? `Cleared the accepted take of ${title}`
-        : `Accepted take ${take.n} for ${title}`,
+        : `Accepted take ${take.n} for ${title}${starred}`,
       () => quietly(store.push({ kind: 'accept', key, job: previous })),
     )
+    if (starred && file)
+      void write
+        .then((outcome) => {
+          if (outcome.status === 'saved') void starring.run(file)
+        })
+        .catch(() => undefined)
   }
 
   /** "Keep this take": the revised item's shown take accepted again, which
@@ -222,7 +239,7 @@
   </button>
 {/snippet}
 
-{#snippet action(row: ItemState)}
+{#snippet rowAction(row: ItemState)}
   {#if row.item.dropped}
     <button type="button" class="quiet act" onclick={() => restore(row)}>
       Restore
@@ -280,7 +297,7 @@
     {onreload}
     {ongo}
     handle={row.item.dropped ? undefined : handle}
-    {action}
+    action={rowAction}
     {menu}
     {notice}
     onaccept={(take, job) => accept(row, take, job)}
