@@ -1300,6 +1300,16 @@ it('an open= naming a missing file says so', async () => {
   expect(screen.queryByText(/is not in this view any more/)).toBeNull()
 })
 
+it('an open= naming a file in a collapsed folder opens it and the folder', async () => {
+  await renderShutDemo()
+  cleanup()
+  location.hash = '#/ws/default/gallery?open=demo%2Fc.png'
+  await renderGallery()
+  expect(await viewer('demo/c.png')).toBeTruthy()
+  expect(screen.queryByText(/is not in this view any more/)).toBeNull()
+  await waitFor(() => expect(checkbox('demo/c.png')).toBeTruthy())
+})
+
 it('the viewer steps on when its file is deleted elsewhere', async () => {
   await renderGallery()
   await openFile('a.png')

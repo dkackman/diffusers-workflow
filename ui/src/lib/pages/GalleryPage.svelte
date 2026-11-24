@@ -274,10 +274,16 @@
   $effect(() => {
     const name = open
     if (!name || list.status !== 'ready') return
-    const here = items.some((item) => item.name === name)
+    const here = byName.has(name)
     untrack(() => {
-      if (here) listed = name
-      else if (name !== listed) {
+      if (here) {
+        // A link to a file in a shut folder or day opens the group too, so
+        // the viewer's count and the grid agree
+        const g = groups.groupOf(name)
+        if (name !== listed && !filterActive && collapsed.has(g))
+          collapsed.toggle(g)
+        listed = name
+      } else if (name !== listed) {
         missing = leafName(name)
         open = null
       }
