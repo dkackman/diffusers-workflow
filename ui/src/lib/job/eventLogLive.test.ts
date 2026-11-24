@@ -160,12 +160,60 @@ describe('EventLog live reads', () => {
 
   it('a waiting read is dropped when the job changes', async () => {
     const view = await opened({ live: true })
+    await vi.advanceTimersByTimeAsync(1000)
+    // The first beat reads at once; the second waits on the spacer
     add(1)
     await view.rerender({ live: true, pulse: 1 })
+    await flush()
+    add(2)
+    await view.rerender({ live: true, pulse: 2 })
+    await flush()
     const before = calls()
+    expect(vi.getTimerCount()).toBeGreaterThan(0)
     await view.rerender({ jobId: 'j2' })
     await vi.advanceTimersByTimeAsync(5000)
+    await flush()
     expect(calls()).toBe(before)
+  })
+
+  it('an unmount during a read with another asked for starts none', async () => {
+    const view = await opened({ live: true })
+    hold = true
+    add(1)
+    await vi.advanceTimersByTimeAsync(1000)
+    await view.rerender({ live: true, pulse: 1 })
+    await flush()
+    const during = calls()
+    // The timer fires while the read is out: `again` is set
+    await view.rerender({ live: true, pulse: 2 })
+    await vi.advanceTimersByTimeAsync(1000)
+    view.unmount()
+    held.splice(0).forEach((release) => release())
+    await flush()
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(calls()).toBe(during)
+  })
+
+  it('collects the closing events when the job ends during the first load', async () => {
+    served.push({ seq: 1, event: 'log', message: 'line 1' })
+    let release: () => void = () => {}
+    vi.mocked(api.eventLog).mockImplementation(async (_id, q = {}) => {
+      const out = reply(q.after ?? -1)
+      if ((q.after ?? -1) < 0) {
+        await new Promise<void>((resolve) => (release = resolve))
+      }
+      return out
+    })
+    const view = render(EventLogHarness, { start: { pulse: 0, live: true } })
+    await fireEvent.click(screen.getByRole('button', { name: /Event log/ }))
+    await flush()
+    expect(calls()).toBe(1)
+    add(2)
+    view.component.set({ live: false })
+    await tick()
+    release()
+    await flush()
+    expect(seqs(view.container)).toEqual(['0', '1', '2'])
   })
 
   it('a closed log makes no reads on beats', async () => {

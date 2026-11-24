@@ -173,9 +173,10 @@
   // them, rather than leave the log short of its end
   function endRead() {
     spacer.cancel()
-    if (!loaded || missing) return
+    if (missing) return
+    // A load still in flight (the first one too) reads once more after it
     if (loading) again = true
-    else void load(lastSeq)
+    else if (loaded) void load(lastSeq)
   }
   let wasLive = untrack(() => live)
   $effect(() => {
