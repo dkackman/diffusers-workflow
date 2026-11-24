@@ -9,7 +9,6 @@ Registered after the media router, so the `/metadata`, `/thumbnail` and
 greedy `DELETE /api/gallery/{name:path}` sits in the table.
 """
 
-import functools
 import logging
 import os
 import shutil
@@ -29,7 +28,6 @@ from ..api_models import (
 )
 from ...assets import is_asset_reference
 from ...library import ReadOnlyLibraryError
-from ...media import probe_media
 from ...notes import (
     MAX_NOTE_LENGTH,
     NOTES_FILE_NAME,
@@ -81,6 +79,7 @@ from ..outputs import (
     absolute_served_url,
     archive_selection,
     iter_gallery_files,
+    probed_duration,
     resolve_output_file,
     run_directory,
     run_prompts,
@@ -228,26 +227,6 @@ def _check_gallery_filters(role, request_id, item):
     check_ledger_filter(request_id, item)
 
 
-@functools.lru_cache(maxsize=4096)
-def _probe_at(path, mtime_ns, size):
-    """`probe_media` of `path` as it stood at this mtime and size: the key
-    changes when the file is rewritten, so a stale answer is never served."""
-    return probe_media(path)
-
-
-def _probed(path, root):
-    """`probe_media(path)`, memoised on the file's (path, mtime, size) and
-    bounded at 4096 answers - a second `media=true` listing re-probes only
-    the files that changed. `path` goes through `validate_path` against
-    `root` first; None for a file that is refused or cannot be stat'ed."""
-    try:
-        path = validate_path(path, root, allow_create=False)
-        stat = os.stat(path)
-    except (SecurityError, OSError):
-        return None
-    return _probe_at(path, stat.st_mtime_ns, stat.st_size)
-
-
 def _page_extras(request, ws, page, media, prompts):
     """What the opt-ins add to a gallery page: with `media`, each audio and
     video entry's `duration_seconds` (set in place); with `prompts`, the
@@ -256,7 +235,9 @@ def _page_extras(request, ws, page, media, prompts):
         for entry in page:
             if entry["kind"] not in ("audio", "video"):
                 continue
-            probed = _probed(os.path.join(ws.outputs, entry["name"]), ws.outputs)
+            probed = probed_duration(
+                os.path.join(ws.outputs, entry["name"]), ws.outputs
+            )
             if probed is not None:
                 entry["duration_seconds"] = probed.get("duration_seconds")
     if not prompts:
@@ -326,7 +307,8 @@ def gallery(
     Off by default and bounded by `limit`: only the page actually
     returned is probed, not the whole listing, so the cost of asking
     stays proportional to the page size rather than the library size. A
-    file's answer is memoised on its mtime and size (`_probed`).
+    file's answer is its header's duration, memoised on its mtime and
+    size (`probed_duration`).
 
     `prompts=true` adds `prompts`: run id -> the `prompt` argument its job
     was submitted with, for the runs on the page. A run whose job history

@@ -46,7 +46,6 @@ from ...security import (
 from ...library import ReadOnlyLibraryError, shadowed_listing
 from ...workspace import Workspace, forget_workspace_usage
 from ..preconditions import check_write_preconditions
-from .gallery import _probed as probed_media
 from ..changes import (
     ASSETS,
     NO_CHANGE,
@@ -69,6 +68,7 @@ from ..outputs import (
     workspace_asset_library,
     iter_gallery_files,
     job_provenance,
+    probed_duration,
     resolution_library,
     resolve_output_file,
     served_url,
@@ -304,12 +304,13 @@ def _media_names(root, found):
 
 def _add_durations(assets, winners, found):
     """`media=true`: each audio and video asset's `duration_seconds`, set in
-    place, from the gallery's memoised probe (validated against its root)."""
+    place, from `probed_duration`'s memoised header read, validated
+    against its root."""
     for entry in assets:
         if entry["kind"] not in ("audio", "video"):
             continue
         root = winners[entry["name"]].root
-        probed = probed_media(found[(root, entry["name"])][3], root)
+        probed = probed_duration(found[(root, entry["name"])][3], root)
         if probed is not None:
             entry["duration_seconds"] = probed.get("duration_seconds")
 

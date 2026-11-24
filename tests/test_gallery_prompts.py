@@ -5,7 +5,6 @@ import os
 
 from dw.server import outputs
 from dw.server.outputs import PROMPT_TEXT_MAX, prompt_text
-from dw.server.routes import gallery as gallery_routes
 
 RUN = "20261122-000000-aaaaaaaa"
 OTHER_RUN = "20261122-000001-bbbbbbbb"
@@ -97,10 +96,10 @@ def _counting_probe(monkeypatch):
 
     def probe(path):
         calls.append(path)
-        return {"duration_seconds": 2.5}
+        return 2.5
 
-    gallery_routes._probe_at.cache_clear()
-    monkeypatch.setattr(gallery_routes, "probe_media", probe)
+    outputs._duration_at.cache_clear()
+    monkeypatch.setattr(outputs, "media_duration", probe)
     return calls
 
 
@@ -142,3 +141,45 @@ def test_a_rewritten_file_is_probed_again(
     gallery_client.get("/api/gallery", params={"media": "true"})
 
     assert len(calls) == 2
+
+
+def test_a_media_listing_reads_the_header_and_never_decodes(
+    gallery_client, output_root, write_run, monkeypatch
+):
+    """`media=true` reads each clip's length from its container header
+    (`media_duration`): the figure `probe_media` reports as
+    `duration_seconds`, without decoding the soundtrack or the picture."""
+    import av
+
+    import dw.media
+    from tests.test_media_info import write_mp4, write_wav
+
+    run_dir = write_run(
+        output_root,
+        "wf",
+        RUN,
+        [{"step": "a", "files": ["a.mp4", "b.wav"]}],
+        files=[],
+    )
+    write_mp4(os.path.join(run_dir, "a.mp4"))
+    write_wav(os.path.join(run_dir, "b.wav"), seconds=1.5)
+    expected = {
+        name: dw.media.probe_media(os.path.join(run_dir, name))["duration_seconds"]
+        for name in ("a.mp4", "b.wav")
+    }
+    outputs._duration_at.cache_clear()
+    decoded = []
+    real_decode = av.container.InputContainer.decode
+
+    def counting_decode(self, *args, **kwargs):
+        decoded.append(True)
+        yield from real_decode(self, *args, **kwargs)
+
+    monkeypatch.setattr(av.container.InputContainer, "decode", counting_decode)
+
+    files = gallery_client.get("/api/gallery", params={"media": "true"}).json()["files"]
+
+    assert {os.path.basename(f["name"]): f["duration_seconds"] for f in files} == (
+        expected
+    )
+    assert decoded == []

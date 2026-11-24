@@ -6,6 +6,7 @@ The gallery, media, assets and files routers all reach it. Functions take the
 app's `state` explicitly, so two apps in one process resolve independently.
 """
 
+import functools
 import json
 import logging
 import os
@@ -26,6 +27,7 @@ from starlette.background import BackgroundTask
 
 from .. import settings
 from .. import references
+from ..media import media_duration
 from ..library import (
     ASSETS_KIND,
     WORKSPACE_ORIGIN,
@@ -72,6 +74,31 @@ MEDIA_KINDS = {
     # gallery like any other kind (#238)
     ".txt": "text",
 }
+
+
+@functools.lru_cache(maxsize=4096)
+def _duration_at(path, mtime_ns, size):
+    """`media_duration` of `path` as it stood at this mtime and size: the key
+    changes when the file is rewritten, so a stale answer is never served."""
+    try:
+        return {"duration_seconds": media_duration(path)}
+    except Exception as e:
+        logger.debug(f"Not probeable as media: {path}: {e}")
+        return None
+
+
+def probed_duration(path, root):
+    """`{"duration_seconds": ...}` from the container's header - no stream is
+    decoded, so a `media=true` listing of thousands of clips stays cheap.
+    Memoised on the file's (path, mtime, size), bounded at 4096 answers.
+    `path` goes through `validate_path` against `root` first; None for a
+    file that is refused, cannot be stat'ed, or is not media."""
+    try:
+        path = validate_path(path, root, allow_create=False)
+        stat = os.stat(path)
+    except (SecurityError, OSError):
+        return None
+    return _duration_at(path, stat.st_mtime_ns, stat.st_size)
 
 
 def output_kinds(manifest):

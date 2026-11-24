@@ -2576,25 +2576,30 @@ def test_gallery_metadata_hashes_the_decoded_audio(server, tmp_path):
 
 
 def test_gallery_listing_never_computes_the_pcm_hash(server, tmp_path, monkeypatch):
-    """list_gallery media=true probes every file on the page: it must not
-    pay for the hash only get_gallery_metadata reports (#1139)."""
-    from dw.server.routes import gallery
+    """list_gallery media=true reads every file on the page: it must not
+    pay for the hash only get_gallery_metadata reports (#1139) - nor for
+    any decode, since its length is the container header's."""
+    import av
+
+    from dw.server import outputs as outputs_module
     from tests.test_media_info import write_wav
 
     calls = []
-    real = gallery.probe_media
+    real_decode = av.container.InputContainer.decode
 
-    def spy(*args, **kwargs):
-        calls.append(kwargs)
-        return real(*args, **kwargs)
+    def counting_decode(self, *args, **kwargs):
+        calls.append(True)
+        yield from real_decode(self, *args, **kwargs)
 
-    monkeypatch.setattr(gallery, "probe_media", spy)
+    outputs_module._duration_at.cache_clear()
+    monkeypatch.setattr(av.container.InputContainer, "decode", counting_decode)
     with server(success_script) as client:
         write_wav(tmp_path / "outputs" / "score-gen.0-0.0.wav", seconds=1.0)
 
         listing = client.get("/api/gallery", params={"media": "true"}).json()
 
-        assert calls and not any(c.get("pcm_hash") for c in calls)
+        assert calls == []
+        assert listing["files"][0]["duration_seconds"] == pytest.approx(1.0)
         for entry in listing["files"]:
             assert "pcm_sha256" not in entry
 
@@ -3376,7 +3381,7 @@ def test_the_asset_listing_adds_durations_only_when_asked(
     """`media=true` probes the audio and video assets through the gallery's
     memo; without it the payload is key for key what it was, so the MCP
     tools that list assets see nothing new."""
-    from dw.server.routes import gallery as gallery_routes
+    from dw.server import outputs as outputs_module
 
     library = tmp_path / "assets"
     (library / "iris.png").write_bytes(b"png")
@@ -3386,10 +3391,10 @@ def test_the_asset_listing_adds_durations_only_when_asked(
 
     def probe(path):
         calls.append(os.path.basename(path))
-        return {"duration_seconds": 2.5}
+        return 2.5
 
-    gallery_routes._probe_at.cache_clear()
-    monkeypatch.setattr(gallery_routes, "probe_media", probe)
+    outputs_module._duration_at.cache_clear()
+    monkeypatch.setattr(outputs_module, "media_duration", probe)
 
     with asset_server(success_script) as client:
         plain = client.get("/api/assets").json()
