@@ -148,3 +148,24 @@ it('children see the same read', async () => {
   expect(galleryMetadata).toHaveBeenCalledTimes(1)
   expect(galleryMetadata).toHaveBeenCalledWith(`${ASSET}hero.png`, 'studio')
 })
+
+it('children can read the file again: the fresh read, or null when it failed', async () => {
+  reply.meta = meta({ note: 'old' })
+  let again: () => Promise<GalleryMetadata | null> = async () => null
+  const children = createRawSnippet(
+    (m: () => GalleryMetadata, reload: () => typeof again) => ({
+      render: () => `<p class="aside">note: ${m().note}</p>`,
+      setup: () => {
+        again = reload()
+      },
+    }),
+  )
+  panel({ children })
+  await waitFor(() =>
+    expect(document.querySelector('.aside')?.textContent).toBe('note: old'),
+  )
+  reply.meta = meta({ note: 'new' })
+  expect((await again())?.note).toBe('new')
+  galleryMetadata.mockImplementationOnce(() => Promise.reject(new Error('x')))
+  expect(await again()).toBeNull()
+})

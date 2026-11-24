@@ -12,6 +12,8 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 // the test instead would charge its (multi-second) compile to the test timeout
 import GalleryPage from './GalleryPage.svelte'
 import ConfirmDialog from '../ui/ConfirmDialog.svelte'
+import { confirmState, resolveChoice } from '../confirm.svelte'
+import { ApiError } from '../apiErrors'
 import type { GalleryFile } from '../types'
 import { DEFAULT_WORKSPACE, workspace } from '../workspace.svelte'
 import { feed } from '../test/feedMock'
@@ -82,7 +84,15 @@ const setStarred = vi.hoisted(() =>
 const galleryMetadata = vi.hoisted(() =>
   vi.fn<(name: string) => Promise<unknown>>(() => new Promise(() => {})),
 )
-vi.mock('../api', () => ({
+const keepOutput = vi.hoisted(() => vi.fn())
+const listAssets = vi.hoisted(() =>
+  vi.fn(() => Promise.resolve({ assets: [{ name: 'a.png' }] })),
+)
+const assess = vi.hoisted(() =>
+  vi.fn<(name: string) => Promise<unknown>>(() => new Promise(() => {})),
+)
+vi.mock('../api', async () => ({
+  ApiError: (await import('../apiErrors')).ApiError,
   setNote: (t: string, n: string | null) => setNote(t, n),
   api: {
     gallery: (
@@ -101,7 +111,10 @@ vi.mock('../api', () => ({
     galleryMetadata: (name: string) => galleryMetadata(name),
     noteForSave: (target: string) =>
       Promise.resolve({ target, note: noteHeld.note, etag: '"e"' }),
-    assess: () => new Promise(() => {}),
+    assess: (name: string) => assess(name),
+    keepOutput: (...a: unknown[]) => keepOutput(...a),
+    listAssets: () => listAssets(),
+    getJob: () => new Promise(() => {}),
   },
 }))
 
@@ -109,6 +122,7 @@ vi.mock('../changes.svelte', async () => ({
   changes: (await import('../test/feedMock')).feed.changes,
 }))
 
+const notifySuccess = vi.hoisted(() => vi.fn())
 const notifyError = vi.hoisted(() => vi.fn())
 const notifyFailure = vi.hoisted(() => vi.fn())
 const notifyUndo = vi.hoisted(() => vi.fn())
@@ -117,7 +131,7 @@ vi.mock('../toast', () => ({
     error: notifyError,
     failure: notifyFailure,
     undo: notifyUndo,
-    success: vi.fn(),
+    success: notifySuccess,
   },
 }))
 
@@ -133,12 +147,19 @@ afterEach(() => {
   galleryMedia.mockReset()
   galleryMedia.mockImplementation(() => Promise.resolve({ files: [] }))
   location.hash = '#/ws/default/gallery'
-  deleteOutput.mockClear()
+  deleteOutput.mockReset()
+  deleteOutput.mockImplementation(() => Promise.resolve())
   setStarred.mockClear()
   archiveOutputs.mockClear()
   notifyError.mockClear()
   notifyFailure.mockClear()
   notifyUndo.mockClear()
+  notifySuccess.mockClear()
+  keepOutput.mockReset()
+  listAssets.mockClear()
+  assess.mockReset()
+  assess.mockImplementation(() => new Promise(() => {}))
+  while (confirmState.open) resolveChoice(null)
   galleryMetadata.mockReset()
   galleryMetadata.mockImplementation(() => new Promise(() => {}))
   vi.unstubAllGlobals()
@@ -171,13 +192,30 @@ function pressEscape() {
   )
 }
 
-/** Opens a file's detail panel by clicking its tile. */
-const openFile = (name: string) =>
-  fireEvent.click(
+/** Opens a file in the viewer by clicking its tile, and waits for it */
+async function openFile(name: string) {
+  await fireEvent.click(
     screen.getByRole('button', {
       name: new RegExp(`^${name.replace('.', '\\.')}`),
     }),
   )
+  return viewer(name)
+}
+
+/** The viewer, open on `name` */
+const viewer = (name: string) =>
+  screen.findByRole('dialog', { name: name.split('/').pop() })
+
+/** A key pressed in the viewer: where focus is, once the sheet has it */
+function press(init: KeyboardEventInit) {
+  const sheet = screen.getByRole('dialog')
+  const at = document.activeElement
+  return fireEvent.keyDown(at && sheet.contains(at) ? at : sheet, init)
+}
+
+/** A tile's caption, which carries the file's name as its title */
+const tile = (name: string) =>
+  document.querySelector(`.tile-caption[title="${name}"]`)
 
 async function answerConfirm(accept: boolean) {
   const dialog = await waitFor(() => screen.getByRole('alertdialog'))
@@ -185,6 +223,25 @@ async function answerConfirm(accept: boolean) {
     .getByRole('button', { name: accept ? /^delete$/i : /^cancel$/i })
     .click()
 }
+
+/** What the metadata route answers for a file with no recipe */
+const metaReply = (over: Record<string, unknown> = {}) => ({
+  name: 'a.png',
+  source: 'output',
+  metadata: null,
+  job: null,
+  run_id: '',
+  version: null,
+  media: null,
+  role: null,
+  inputs: [],
+  findings: [],
+  linked_jobs: [],
+  note: null,
+  run_note: null,
+  note_source: null,
+  ...over,
+})
 
 const settle = async () => {
   for (let i = 0; i < 5; i++) await new Promise((r) => setTimeout(r, 10))
@@ -275,7 +332,7 @@ it('a reload begun before a delete does not bring the file back', async () => {
     () => new Promise<{ files: GalleryFile[] }>((resolve) => (land = resolve)),
   )
   feed.move(DEFAULT_WORKSPACE, 'gallery')
-  await fireEvent.keyDown(window, { key: 'Delete' })
+  await press({ key: 'Delete' })
   await answerConfirm(true)
   await waitFor(() =>
     expect(screen.queryByLabelText('select a.png')).toBeNull(),
@@ -287,9 +344,9 @@ it('a reload begun before a delete does not bring the file back', async () => {
 
 /** Whether a tile shows the star mark */
 const starMark = (name: string) =>
-  within(
-    screen.getByTitle(name).closest('.cellwrap') as HTMLElement,
-  ).queryByLabelText('Starred')
+  within(tile(name)!.closest('.cellwrap') as HTMLElement).queryByLabelText(
+    'Starred',
+  )
 
 it('a listing that began after a star shows an unstar made elsewhere', async () => {
   await renderGallery()
@@ -585,14 +642,9 @@ it('intersects the role chips with the text filter', async () => {
 // The confirm dialog answers Escape itself, so the page must not also take
 // the detail away underneath it. The guard used to name only [role=dialog],
 // which is not what ConfirmDialog renders
-it('leaves the detail open when Escape answers a confirm dialog', async () => {
+it('leaves the viewer open when Escape answers a confirm dialog', async () => {
   await renderGallery()
-  screen.getAllByTitle(/show details/)[0].click()
-  await waitFor(() =>
-    expect(
-      screen.getByLabelText('delete this file from the output directory'),
-    ).toBeTruthy(),
-  )
+  await openFile('a.png')
 
   screen.getByLabelText('delete this file from the output directory').click()
   await waitFor(() => expect(screen.getByRole('alertdialog')).toBeTruthy())
@@ -600,9 +652,8 @@ it('leaves the detail open when Escape answers a confirm dialog', async () => {
   pressEscape()
 
   await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
-  expect(
-    screen.getByLabelText('delete this file from the output directory'),
-  ).toBeTruthy()
+  expect(await viewer('a.png')).toBeTruthy()
+  expect(deleteOutput).not.toHaveBeenCalled()
 })
 
 it('an Escape that closes a confirm leaves the selection; the next clears it', async () => {
@@ -648,8 +699,8 @@ it('shows no version for a flat-layout file, which belongs to no run', async () 
   expect(screen.queryByText(/^v\S+$/)).toBeNull()
 })
 
-it('names the run and its version in the details of the selected file', async () => {
-  // "Look at v4" ends here: the pane says which job it reached, so
+it('names the run and its version beside the open file', async () => {
+  // "Look at v4" ends here: the aside says which job it reached, so
   // the number in the grid can be checked against the one quoted
   listing.files = [
     {
@@ -659,16 +710,16 @@ it('names the run and its version in the details of the selected file', async ()
       version: 4,
     },
   ]
+  galleryMetadata.mockResolvedValue(metaReply())
   render(GalleryPage)
   await waitFor(() => expect(screen.getByText('film.mp4')).toBeTruthy())
   await fireEvent.click(screen.getByText('film.mp4'))
-  const detail = document.querySelector('.detail') as HTMLElement
-  // One span holding both forms, so the query is over its whole text
-  expect(detail.textContent).toContain('v4')
-  expect(
-    detail.querySelector('[title^="4th job"]')?.getAttribute('title'),
-  ).toBe('4th job of this workflow in this folder')
-  expect(detail.querySelector('code')?.textContent).toBe('r2')
+  const sheet = await viewer('film.mp4')
+  const version = await within(sheet).findByTitle(
+    '4th job of this workflow in this folder',
+  )
+  expect(version.textContent).toContain('v4')
+  expect(version.querySelector('code')?.textContent).toBe('r2')
 })
 
 // A <video> per tile held a connection each and hung a gallery of a few
@@ -741,39 +792,69 @@ it('the arrow keys step through the files the grid shows', async () => {
   await renderGallery()
   await openFile('a.png')
   await waitFor(() => expect(galleryMetadata).toHaveBeenLastCalledWith('a.png'))
-  await fireEvent.keyDown(window, { key: 'ArrowRight' })
-  expect(galleryMetadata).toHaveBeenLastCalledWith('b.png')
-  await fireEvent.keyDown(window, { key: 'ArrowLeft' })
-  expect(galleryMetadata).toHaveBeenLastCalledWith('a.png')
+  await press({ key: 'ArrowRight' })
+  expect(await viewer('b.png')).toHaveTextContent('2 of 3')
+  await waitFor(() => expect(galleryMetadata).toHaveBeenLastCalledWith('b.png'))
+  await press({ key: 'ArrowLeft' })
+  expect(await viewer('a.png')).toBeTruthy()
 })
 
-it('an arrow key typed in the note box does not move the selection', async () => {
+it('an arrow key typed in the note box does not move the viewer', async () => {
+  galleryMetadata.mockResolvedValue(metaReply())
   await renderGallery()
   await openFile('a.png')
-  await waitFor(() => expect(galleryMetadata).toHaveBeenLastCalledWith('a.png'))
-  const before = galleryMetadata.mock.calls.length
-  const box = document.createElement('textarea')
-  document.body.append(box)
+  await fireEvent.click(
+    await screen.findByRole('button', { name: /edit note/i }),
+  )
+  const box = await screen.findByRole('textbox', { name: /note/i })
   await fireEvent.keyDown(box, { key: 'ArrowRight' })
-  expect(galleryMetadata.mock.calls.length).toBe(before)
-  box.remove()
+  await fireEvent.keyDown(box, { key: 's' })
+  expect(await viewer('a.png')).toBeTruthy()
+  expect(setStarred).not.toHaveBeenCalled()
 })
 
-it('Delete removes the open file and opens the next', async () => {
+it('S stars the open file and Delete asks, then steps on', async () => {
   await renderGallery()
   await openFile('a.png')
-  await fireEvent.keyDown(window, { key: 'Delete' })
+  await press({ key: 's' })
+  await waitFor(() => expect(setStarred).toHaveBeenCalledWith('a.png', true))
+  await waitFor(() =>
+    expect(
+      screen.getByRole('button', { name: 'unstar this file' }),
+    ).toHaveAttribute('aria-pressed', 'true'),
+  )
+  await press({ key: 'Delete' })
   await answerConfirm(true)
   await waitFor(() => expect(deleteOutput).toHaveBeenCalledWith('a.png'))
-  await waitFor(() => expect(galleryMetadata).toHaveBeenLastCalledWith('b.png'))
+  expect(await viewer('b.png')).toHaveTextContent('1 of 2')
+  await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+  // Cmd+Backspace deletes too
+  await press({ key: 'Backspace', metaKey: true })
+  await answerConfirm(true)
+  await waitFor(() => expect(deleteOutput).toHaveBeenCalledWith('b.png'))
+  expect(await viewer('demo/c.png')).toHaveTextContent('1 of 1')
+})
+
+it('a delete that fails leaves its file open in the viewer', async () => {
+  deleteOutput.mockImplementation((n) =>
+    n === 'b.png' ? Promise.reject(new Error('busy')) : Promise.resolve(),
+  )
+  await renderGallery()
+  await openFile('a.png')
+  await press({ key: 'Delete' })
+  await answerConfirm(true)
+  expect(await viewer('b.png')).toBeTruthy()
+  await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+  await press({ key: 'Delete' })
+  await answerConfirm(true)
+  await waitFor(() => expect(notifyFailure).toHaveBeenCalled())
+  await settle()
+  expect(await viewer('b.png')).toBeTruthy()
 })
 
 /** Whether a tile carries the changed mark */
 const marked = (name: string) =>
-  !!screen
-    .getByTitle(name)
-    .closest('.cellwrap')
-    ?.classList.contains('row-changed')
+  !!tile(name)?.closest('.cellwrap')?.classList.contains('row-changed')
 
 it("the user's own star is not marked as another writer's change", async () => {
   await renderGallery()
@@ -809,9 +890,12 @@ it('stars the open file and can filter to starred files', async () => {
   await openFile('a.png')
   await fireEvent.click(screen.getByRole('button', { name: 'star this file' }))
   expect(setStarred).toHaveBeenCalledWith('a.png', true)
+  await waitFor(() => expect(starMark('a.png')).toBeTruthy())
+  await fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
   await fireEvent.click(screen.getByRole('button', { name: 'Starred' }))
-  expect(screen.queryByTitle('b.png')).toBeNull()
-  expect(screen.getByTitle('a.png')).toBeTruthy()
+  expect(tile('b.png')).toBeNull()
+  expect(tile('a.png')).toBeTruthy()
 })
 
 it('starring offers Undo, which unstars', async () => {
@@ -856,14 +940,14 @@ it('an undo that fails is reported, not thrown', async () => {
 it('the S key stars the open file', async () => {
   await renderGallery()
   await openFile('a.png')
-  await fireEvent.keyDown(window, { key: 's' })
+  await press({ key: 's' })
   await waitFor(() => expect(setStarred).toHaveBeenCalledWith('a.png', true))
 })
 
 it('the S key leaves a bare s to the page: Shift-S does nothing', async () => {
   await renderGallery()
   await openFile('a.png')
-  await fireEvent.keyDown(window, { key: 'S', shiftKey: true })
+  await press({ key: 'S', shiftKey: true })
   expect(setStarred).not.toHaveBeenCalled()
 })
 
@@ -876,12 +960,11 @@ it('unstarring the open file under Starred steps on from its place', async () =>
   await renderGallery()
   await fireEvent.click(screen.getByRole('button', { name: 'Starred' }))
   await openFile('a.png')
-  await waitFor(() => expect(galleryMetadata).toHaveBeenLastCalledWith('a.png'))
-  await fireEvent.keyDown(window, { key: 's' })
+  await press({ key: 's' })
   await waitFor(() => expect(setStarred).toHaveBeenCalledWith('a.png', false))
-  await waitFor(() => expect(screen.queryByTitle('a.png')).toBeNull())
-  await fireEvent.keyDown(window, { key: 'ArrowRight' })
-  expect(galleryMetadata).toHaveBeenLastCalledWith('b.png')
+  await waitFor(() => expect(tile('a.png')).toBeNull())
+  // the viewer goes on to what now fills its place
+  expect(await viewer('b.png')).toHaveTextContent('1 of 1')
 })
 
 it("shows the open file's level findings from its metadata", async () => {
@@ -1142,4 +1225,281 @@ it('tiles take their workspace from the listing', async () => {
   await waitFor(() => expect(container.querySelectorAll('img').length).toBe(3))
   for (const img of container.querySelectorAll('img'))
     expect(img.getAttribute('src')).toContain('workspace=studio')
+})
+
+// The viewer: opened from the grid or the link, closed by Back
+
+const hashOpen = () =>
+  new URLSearchParams(location.hash.split('?')[1]).get('open')
+
+it('clicking a tile opens the viewer and writes open= to the hash', async () => {
+  await renderGallery()
+  const before = history.length
+  const sheet = await openFile('demo/c.png')
+  expect(sheet).toHaveTextContent('3 of 3')
+  expect(hashOpen()).toBe('demo/c.png')
+  // a pushed entry, so Back closes it
+  expect(history.length).toBe(before + 1)
+  await hashEvent(() => history.back())
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+  expect(hashOpen()).toBeNull()
+})
+
+it('a hash with open= opens that file', async () => {
+  location.hash = '#/ws/default/gallery?open=b.png'
+  await renderGallery()
+  expect(await viewer('b.png')).toHaveTextContent('2 of 3')
+  // a deep link pushed nothing: Close replaces open= away
+  await fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+  expect(location.hash).toBe('#/ws/default/gallery')
+})
+
+it('an open= naming a missing file says so', async () => {
+  location.hash = '#/ws/default/gallery?open=gone%2Fold.png'
+  await renderGallery()
+  const notice = await screen.findByText(
+    'old.png is not in this view any more.',
+  )
+  expect(notice.classList.contains('hint')).toBe(true)
+  expect(screen.queryByRole('dialog')).toBeNull()
+  await waitFor(() => expect(hashOpen()).toBeNull())
+  await fireEvent.click(within(notice).getByRole('button', { name: 'Dismiss' }))
+  expect(screen.queryByText(/is not in this view any more/)).toBeNull()
+})
+
+it('the viewer steps on when its file is deleted elsewhere', async () => {
+  await renderGallery()
+  await openFile('a.png')
+  listing.files = [file('b.png'), file('demo/c.png')]
+  feed.move(DEFAULT_WORKSPACE, 'gallery')
+  expect(await viewer('b.png')).toHaveTextContent('1 of 2')
+  expect(hashOpen()).toBe('b.png')
+  expect(screen.queryByText(/is not in this view any more/)).toBeNull()
+  // the last one goes: the viewer closes
+  listing.files = []
+  feed.move(DEFAULT_WORKSPACE, 'gallery')
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+})
+
+it('switching workspace closes the viewer', async () => {
+  await renderGallery()
+  await openFile('a.png')
+  // the picker alone: the viewer does not wait for the hash to follow
+  workspace.current = 'studio'
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+})
+
+it('titles the star as starring the file, never keeping it', async () => {
+  await renderGallery()
+  await openFile('a.png')
+  const star = screen.getByRole('button', { name: 'star this file' })
+  expect(star.getAttribute('title')).toBe('star this file - press S')
+  expect(star.getAttribute('aria-pressed')).toBe('false')
+})
+
+it("offers the file's reference and a download beside it", async () => {
+  await renderGallery()
+  const sheet = await openFile('demo/c.png')
+  expect(within(sheet).getByText('output:demo/c.png')).toBeTruthy()
+  expect(
+    within(sheet).getByRole('link', { name: 'Download' }).getAttribute('href'),
+  ).toBe('/download/demo/c.png')
+})
+
+// Save as asset: the name dialog, and Replace or Keep both when it is taken
+
+// keep_output's exists refusal carries no code, only this wording
+// (dw/server/routes/assets.py)
+const TAKEN = 'asset:a.png already exists - pass overwrite=true to replace it'
+
+/** Press Save as asset and save under the name it offers */
+async function saveAsAsset() {
+  const button = screen.getByRole('button', { name: 'Save as asset' })
+  expect(button.getAttribute('title')).toBe(
+    'save this file to the asset library, under a name later workflows can use',
+  )
+  await fireEvent.click(button)
+  const dialog = await screen.findByRole('alertdialog', {
+    name: 'Save as asset',
+  })
+  expect(
+    (
+      within(dialog).getByRole('textbox', {
+        name: 'Name in the asset library',
+      }) as HTMLInputElement
+    ).value,
+  ).toBe('a.png')
+  await fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }))
+}
+const takenQuestion = () =>
+  waitFor(() =>
+    screen.getByRole('alertdialog', {
+      name: '"a.png" is already in the asset library.',
+    }),
+  )
+
+it('offers Save as asset, never window.prompt, and lists nothing to save', async () => {
+  const prompt = vi.spyOn(window, 'prompt')
+  keepOutput.mockResolvedValueOnce({ reference: 'asset:a.png' })
+  await renderGallery()
+  await openFile('a.png')
+  await saveAsAsset()
+  await waitFor(() =>
+    expect(notifySuccess).toHaveBeenCalledWith('Saved as asset a.png'),
+  )
+  expect(keepOutput).toHaveBeenCalledWith('a.png', 'a.png')
+  expect(listAssets).not.toHaveBeenCalled()
+  expect(prompt).not.toHaveBeenCalled()
+})
+
+it('cancelling the exists question on Save as asset shows no error', async () => {
+  keepOutput.mockRejectedValueOnce(new ApiError(TAKEN, 409))
+  await renderGallery()
+  await openFile('a.png')
+  await saveAsAsset()
+  const dialog = await takenQuestion()
+  expect(listAssets).toHaveBeenCalledTimes(1)
+  await fireEvent.click(
+    within(dialog).getByRole('button', { name: /^cancel$/i }),
+  )
+  await settle()
+  expect(keepOutput).toHaveBeenCalledTimes(1)
+  expect(notifyError).not.toHaveBeenCalled()
+  expect(notifyFailure).not.toHaveBeenCalled()
+  expect(notifySuccess).not.toHaveBeenCalled()
+  // the viewer is still on the file
+  expect(await viewer('a.png')).toBeTruthy()
+})
+
+it('Replace on Save as asset retries with overwrite, Keep both under a free name', async () => {
+  keepOutput
+    .mockRejectedValueOnce(new ApiError(TAKEN, 409))
+    .mockResolvedValueOnce({ reference: 'asset:a.png' })
+  await renderGallery()
+  await openFile('a.png')
+  await saveAsAsset()
+  await fireEvent.click(
+    within(await takenQuestion()).getByRole('button', { name: /^replace$/i }),
+  )
+  await waitFor(() => expect(keepOutput).toHaveBeenCalledTimes(2))
+  expect(keepOutput).toHaveBeenLastCalledWith('a.png', 'a.png', true)
+  await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+
+  keepOutput
+    .mockRejectedValueOnce(new ApiError(TAKEN, 409))
+    .mockResolvedValueOnce({ reference: 'asset:a-2.png' })
+  await saveAsAsset()
+  await fireEvent.click(
+    within(await takenQuestion()).getByRole('button', { name: 'Keep both' }),
+  )
+  await waitFor(() => expect(keepOutput).toHaveBeenCalledTimes(4))
+  expect(keepOutput).toHaveBeenLastCalledWith('a.png', 'a-2.png')
+})
+
+it('a save refused for another reason shows the reason, not Replace', async () => {
+  keepOutput.mockRejectedValueOnce(
+    new ApiError('This workspace has no asset library', 409),
+  )
+  await renderGallery()
+  await openFile('a.png')
+  await saveAsAsset()
+  await waitFor(() =>
+    expect(notifyFailure).toHaveBeenCalledWith(
+      'save it as an asset',
+      expect.objectContaining({
+        message: 'This workspace has no asset library',
+      }),
+    ),
+  )
+  expect(
+    screen.queryByRole('alertdialog', { name: /already in the asset/ }),
+  ).toBeNull()
+  expect(keepOutput).toHaveBeenCalledTimes(1)
+})
+
+// Assess, and the findings beside the open file
+
+const clipFiles = () => [
+  { ...file('demo/clip.mp4'), kind: 'video' as const, label: 'clip.mp4' },
+  file('a.png'),
+]
+const finding = (
+  severity: 'warn' | 'info',
+  says: string,
+  at: number | null = null,
+) => ({ rule: `${severity}_rule`, severity, at, value: 1, threshold: 0, says })
+const assessReply = (findings: ReturnType<typeof finding>[]) => ({
+  name: 'demo/clip.mp4',
+  source: 'output',
+  kind: 'video',
+  findings,
+  rules_applied: ['near_silent', 'shot_dead_air'],
+  rules_skipped: [],
+  not_applicable: { analyze_seams: 'no shot boundaries recorded' },
+})
+
+it("disables an image's Assess and says why", async () => {
+  await renderGallery()
+  await openFile('a.png')
+  const button = screen.getByRole('button', { name: 'Assess' })
+  expect((button as HTMLButtonElement).disabled).toBe(true)
+  expect(button.getAttribute('title')).toBe(
+    'a still has no shots, seams or soundtrack to measure',
+  )
+  expect(assess).not.toHaveBeenCalled()
+})
+
+it("Assess shows the reply's findings, their time and what did not apply", async () => {
+  listing.files = clipFiles()
+  galleryMetadata.mockResolvedValue(metaReply())
+  assess.mockResolvedValue(
+    assessReply([
+      finding('info', 'picture jumps', 64.25),
+      finding('warn', 'silent'),
+    ]),
+  )
+  await renderGallery('demo/clip.mp4')
+  await openFile('demo/clip.mp4')
+  const region = await screen.findByRole('region', { name: 'Findings' })
+  await fireEvent.click(screen.getByRole('button', { name: 'Assess' }))
+  expect(assess).toHaveBeenCalledWith('demo/clip.mp4')
+  await waitFor(() => expect(region.querySelectorAll('li')).toHaveLength(2))
+  const rows = [...region.querySelectorAll('li')]
+  expect(rows[0].textContent).toContain('silent')
+  expect(rows[1].querySelector('.at')?.textContent).toBe('1:04.3')
+  expect(region.textContent).toContain(
+    'analyze_seams not applicable (no shot boundaries recorded)',
+  )
+})
+
+it('shows Assessing… while the request runs', async () => {
+  listing.files = clipFiles()
+  await renderGallery('demo/clip.mp4')
+  await openFile('demo/clip.mp4')
+  await fireEvent.click(screen.getByRole('button', { name: 'Assess' }))
+  const busy = await screen.findByRole('button', { name: /Assessing/ })
+  expect((busy as HTMLButtonElement).disabled).toBe(true)
+})
+
+it('a failed Assess keeps the earlier list and says why in plain words', async () => {
+  listing.files = clipFiles()
+  galleryMetadata.mockResolvedValue(metaReply())
+  assess.mockResolvedValueOnce(assessReply([finding('warn', 'silent')]))
+  await renderGallery('demo/clip.mp4')
+  await openFile('demo/clip.mp4')
+  const region = await screen.findByRole('region', { name: 'Findings' })
+  await fireEvent.click(screen.getByRole('button', { name: 'Assess' }))
+  await waitFor(() => expect(region.textContent).toContain('silent'))
+  const raw = 'ffprobe exited 1: moov atom not found in /runs/a/clip.mp4'
+  assess.mockRejectedValueOnce(new ApiError(raw, 500))
+  await fireEvent.click(screen.getByRole('button', { name: 'Assess' }))
+  const alert = await within(region).findByRole('alert')
+  expect(alert.querySelector('.title')?.textContent).toBe(
+    "Couldn't assess this file: The server hit an error",
+  )
+  // the engine's words sit folded behind Details, not in the line
+  expect(alert.querySelector('details')?.open).toBe(false)
+  expect(alert.querySelector('details pre')?.textContent).toBe(raw)
+  expect(region.textContent).toContain('silent')
 })

@@ -323,6 +323,19 @@ button.filetile:hover,
   padding: 0 0.45rem 0.3rem;
 }
 
+/* A question (ConfirmDialog) is asked over the sheet that asked it: the
+   viewer's delete and Save as asset. Its portal can sit before that
+   sheet's on <body>, where one layer would leave it underneath */
+.ui-ask {
+  z-index: calc(var(--layer-modal) + 1);
+}
+/* A toast stays pressable over a modal sheet (an Undo for a star made in
+   the viewer): Bits makes <body> inert to the pointer while one is open,
+   and Modal does not take a press on a toast for one outside it */
+[data-sonner-toaster] {
+  pointer-events: auto;
+}
+
 /* One file shown large (MediaViewer.svelte, through Modal's `fill`): the
    sheet is the window, a bar of controls on top and the stage under it,
    the page's aside a 22rem column beside the stage from 900px and below it

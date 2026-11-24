@@ -135,8 +135,16 @@ it('a file that left the items steps on from where it stood', async () => {
   await dialog()
   // b is unstarred with Starred on: the list no longer holds it
   await rerender({ items: [items[0], items[2]] })
-  await fireEvent.click(screen.getByRole('button', { name: 'Next file' }))
   expect(await screen.findByRole('dialog', { name: 'c.png' })).toBeTruthy()
+  expect(location.hash).toBe('#/ws/studio/gallery?open=run%2Fc.png')
+  // the last one goes: back to the one before its place
+  // (a rerender sets every prop again: `open` as a bound page holds it)
+  await rerender({ items: [items[0]], open: 'run/c.png' })
+  expect(await screen.findByRole('dialog', { name: 'a.png' })).toBeTruthy()
+  // nothing left: the viewer closes
+  await rerender({ items: [], open: 'run/a.png' })
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+  expect(location.hash).toBe('#/ws/studio/gallery')
 })
 
 it('arrows step after a click on the video', async () => {

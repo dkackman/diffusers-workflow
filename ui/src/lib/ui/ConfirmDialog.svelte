@@ -43,9 +43,9 @@
   }}
 >
   <AlertDialog.Portal>
-    <AlertDialog.Overlay class="ui-overlay" />
+    <AlertDialog.Overlay class="ui-overlay ui-ask" />
     <AlertDialog.Content
-      class="ui-sheet panel"
+      class="ui-sheet panel ui-ask"
       interactOutsideBehavior="close"
       onOpenAutoFocus={(e) => {
         if (confirmState.input) e.preventDefault()

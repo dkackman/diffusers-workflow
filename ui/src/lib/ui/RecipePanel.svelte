@@ -2,8 +2,9 @@
   // "What made this": one read of a file's metadata, and of the job that
   // made it when it is still on record (it names the workflow by its file,
   // and a video embeds no recipe), shown open, every argument listed. A page adds its own lines (notes,
-  // findings) through `children`, which is handed the same read, so the
-  // page makes no second metadata call. Links name the file's own
+  // findings) through `children`, which is handed the same read and a way
+  // to read it again (after a note is saved), so the page makes no
+  // metadata call of its own. Links name the file's own
   // workspace, never the one the picker is on (#1600)
   import type { Snippet } from 'svelte'
   import { untrack } from 'svelte'
@@ -32,8 +33,9 @@
     source: 'output' | 'asset'
     /** The workspace the file belongs to */
     workspace: string
-    /** The page's own lines, under the recipe, from the same read */
-    children?: Snippet<[GalleryMetadata]>
+    /** The page's own lines, under the recipe, from the same read, and
+     * the read again (after a note is saved beside it) */
+    children?: Snippet<[GalleryMetadata, () => Promise<GalleryMetadata | null>]>
   } = $props()
 
   const own = () => workspace
@@ -49,6 +51,14 @@
           watch: ['assets'],
           workspace: own,
         })
+
+  // Read the file again: the fresh read, or null when it failed or a
+  // later read overtook it (still loading), so nothing from before is
+  // handed on
+  async function reread(): Promise<GalleryMetadata | null> {
+    await meta.reload()
+    return meta.status === 'ready' ? (meta.data ?? null) : null
+  }
 
   // The job, read whenever the file names one that history still holds: its
   // file name is the workflow's name, and a clip's arguments come from it.
@@ -192,7 +202,7 @@
           A step saves one when its result sets embed_metadata.
         </p>
       {/if}
-      {@render aside?.(m)}
+      {@render aside?.(m, reread)}
     {/snippet}
   </LoadState>
 </section>

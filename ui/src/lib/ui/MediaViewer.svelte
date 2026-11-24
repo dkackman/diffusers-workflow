@@ -6,8 +6,9 @@
   // binds `open`; what opening, stepping, closing and Back do to the
   // history is mediaViewer.ts's (its head says why). An `open` no item
   // names renders nothing - the page says the file is gone - but a file
-  // that leaves `items` while it is shown stays, and steps on from where it
-  // stood. The look is `.ui-sheet-fill` and `.viewer-*` in patterns.css.
+  // that leaves `items` while it is shown (deleted, filtered, unstarred
+  // under Starred) steps on to whatever now fills its place, or the one
+  // before it; with nothing left the viewer closes. The look is `.ui-sheet-fill` and `.viewer-*` in patterns.css.
   import { untrack, type Snippet } from 'svelte'
   import {
     ChevronLeft,
@@ -76,6 +77,16 @@
   )
   const nextName = $derived(file ? neighbor(names, file.name, 1, lastAt) : null)
   const leaf = $derived(file ? leafName(file.name) : '')
+
+  // The shown file left the list: on from where it stood (the head)
+  $effect(() => {
+    const gone = file && listedAt < 0 ? file.name : null
+    if (gone === null) return
+    untrack(() => {
+      open =
+        neighbor(names, gone, 1, lastAt) ?? neighbor(names, gone, -1, lastAt)
+    })
+  })
 
   // Every change of `open` goes into the hash; an `open` naming no file
   // writes nothing. Back (a hashchange) reads it back

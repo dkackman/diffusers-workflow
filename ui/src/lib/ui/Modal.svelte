@@ -32,6 +32,14 @@
   $effect(() => {
     if (open) return holdLayer()
   })
+
+  // A press on a toast (its Undo, its close) is not a press outside the
+  // sheet: the sheet stays open under it
+  function keepForToast(event: PointerEvent) {
+    const target = event.target
+    if (target instanceof Element && target.closest('[data-sonner-toaster]'))
+      event.preventDefault()
+  }
 </script>
 
 <!-- A modal: focus is trapped inside and returns to the trigger on close;
@@ -51,6 +59,7 @@
       aria-label={label}
       {onkeydowncapture}
       onOpenAutoFocus={onopenfocus}
+      onInteractOutside={keepForToast}
     >
       {@render children()}
     </Dialog.Content>

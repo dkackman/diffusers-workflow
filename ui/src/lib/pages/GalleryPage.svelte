@@ -1,9 +1,16 @@
 <script lang="ts">
-  import { ImageOff } from '@lucide/svelte'
+  import { Bookmark, Gauge, ImageOff, Star, Trash2, X } from '@lucide/svelte'
   import { outputLibrary } from '../outputlib.svelte'
   import { api } from '../api'
-  import { outputMedia } from '../media'
+  import DownloadLink from '../DownloadLink.svelte'
+  import { outputMedia, type MediaFile } from '../media'
+  import { openInHash } from '../mediaViewer'
+  import { leafName } from '../names'
+  import { OUTPUT } from '../references'
   import OutputTile from '../ui/OutputTile.svelte'
+  import MediaViewer from '../ui/MediaViewer.svelte'
+  import RecipePanel from '../ui/RecipePanel.svelte'
+  import ReferenceChip from '../ui/ReferenceChip.svelte'
   import { untrack } from 'svelte'
   import { resource, type Resource } from '../resource.svelte'
   import LoadState from '../ui/LoadState.svelte'
@@ -11,8 +18,6 @@
   import FolderGroups from '../FolderGroups.svelte'
   import BulkBar from '../BulkBar.svelte'
   import { Picks, actOnEach, reportFailures } from '../picks.svelte'
-  import { isEditable } from '../editable'
-  import { neighbor } from '../neighbor'
   import { overlayOpen } from '../ui/layers.svelte'
   import { action } from '../action.svelte'
   import { askDeletion, fileConfirm } from '../gallery/deletion'
@@ -21,7 +26,8 @@
   import { codec, go, hashState, type HashCodec } from '../router.svelte'
   import RequestFilter from '../gallery/RequestFilter.svelte'
   import RoleChips from '../gallery/RoleChips.svelte'
-  import GalleryDetail from '../gallery/GalleryDetail.svelte'
+  import GalleryAside from '../gallery/GalleryAside.svelte'
+  import { saveAsAsset } from '../gallery/saveAsAsset'
   import { AssessCache } from '../gallery/assess.svelte'
   import RoleTag from '../gallery/RoleTag.svelte'
   import { versionTitle } from '../terms'
@@ -47,7 +53,9 @@
     ['final'],
     codec.list as HashCodec<OutputRole[]>,
   )
-  let selected = $state<GalleryFile | null>(null)
+  // The file open in the viewer, as `open=` in the hash: the viewer writes
+  // it the way Back expects (mediaViewer.ts), and Back closes it
+  let open = $state<string | null>(openInHash())
   // Names ticked in the grid, for the bulk actions. The grid order it is
   // given is what a shift-range spans and the order the actions act in
   const picks: Picks = new Picks(() => visible.map((f) => f.name))
@@ -148,7 +156,6 @@
   async function setStar(name: string, next: boolean) {
     await api.setStarred(name, next)
     patch(name, { starred: next })
-    if (selected?.name === name) selected = { ...selected, starred: next }
     return { name, next }
   }
   // A star is written in the open workspace, so its Undo is held to it
@@ -164,9 +171,9 @@
       target: STAR_TARGET,
     }),
   })
-  const toggleStar = () =>
-    selected && starring.run(selected.name, !selected.starred)
   const byName = $derived(new Map(visible.map((f) => [f.name, f])))
+  // What the viewer steps through: the grid, in its order
+  const items = $derived(visible.map(tileOf))
   // The server folds each run id into `folder`; group by that, since the
   // name alone reads the run directory as one more folder
   const folderByName = $derived(new Map(visible.map((f) => [f.name, f.folder])))
@@ -185,7 +192,6 @@
       // Whatever could not be deleted stays selected, so a retry needs no
       // re-ticking and the failure is visible rather than silently dropped
       picks.keepFailed(chosen, failed)
-      if (selected && gone.has(selected.name)) selected = null
       reportFailures('delete', failures, chosen.length, 'files')
     },
     { doing: 'delete the picked files' },
@@ -193,92 +199,94 @@
   const removePicked = () =>
     picks.names.length && removingPicked.run(picks.names)
 
-  // Where the open file stood in the grid when last seen there, so stepping
-  // goes on from that place once a filter or an unstar has hidden it
-  let selectedAt = -1
-  // The grid's order, noting the open file's place while it is still listed
-  function gridOrder() {
-    const order = visible.map((f) => f.name)
-    const at = selected ? order.indexOf(selected.name) : -1
-    if (at !== -1) selectedAt = at
-    return order
-  }
-
-  function select(file: GalleryFile) {
-    selected = file
-    selectedAt = visible.findIndex((f) => f.name === file.name)
-  }
-
   // A note changed: carry the file's effective note to its tile, which is
   // what the grid marks. A run's note shows on every tile of the run that
   // inherits it, so that one reads the listing again
-  async function noteSaved(kind: 'run' | 'file', note: string | null) {
-    if (!selected) return
-    const name = selected.name
+  async function noteSaved(
+    name: string,
+    kind: 'run' | 'file',
+    note: string | null,
+  ) {
     if (kind === 'run') await list.reload()
     patch(name, { note: note ?? undefined })
   }
 
+  // The viewer steps on from a file that leaves the grid (MediaViewer)
   const removing = action(
     async (file: GalleryFile) => {
-      const name = file.name
-      const order = gridOrder()
-      const after =
-        neighbor(order, name, 1, selectedAt) ??
-        neighbor(order, name, -1, selectedAt)
-      await api.deleteOutput(name)
-      drop([name])
+      await api.deleteOutput(file.name)
+      drop([file.name])
       // A file deleted from here may also be ticked in the grid; leaving it
       // there would make the next bulk action fail on a file that is gone
-      picks.drop(name)
-      // Culling goes on to the next file rather than back to the grid
-      if (after && byName.get(after)) select(byName.get(after)!)
-      else selected = null
+      picks.drop(file.name)
     },
     { doing: (file) => `delete ${file.name}`, confirm: fileConfirm },
   )
-  const removeFile = () => selected && removing.run(selected)
+  const saving = action(saveAsAsset, {
+    doing: 'save it as an asset',
+    success: (r) => `Saved as asset ${r.name}`,
+  })
 
-  // Escape closes the thing on top, and a dialog answers it itself. The
-  // selection is the more recent, more surprising state to be stuck in,
-  // so it clears first and the detail panel on a second press
-  function escape() {
-    if (picks.size) picks.clear()
-    else selected = null
-  }
+  // An open= that names no file in this view, once the listing is in: said
+  // under the header, and cleared. One that was listed and left is the
+  // viewer's to step on from
+  let missing = $state('')
+  let listed: string | null = null
+  $effect(() => {
+    const name = open
+    if (!name || list.status !== 'ready') return
+    const here = byName.has(name)
+    untrack(() => {
+      if (here) listed = name
+      else if (name !== listed) {
+        missing = leafName(name)
+        open = null
+      }
+    })
+  })
+  // Another workspace's files are another view: the viewer closes
+  let openedIn = workspace.current
+  $effect(() => {
+    const ws = workspace.current
+    untrack(() => {
+      if (ws === openedIn) return
+      openedIn = ws
+      open = null
+    })
+  })
 
-  function step(e: KeyboardEvent, by: 1 | -1) {
-    if (!selected) return
-    const next = neighbor(gridOrder(), selected.name, by, selectedAt)
-    const file = next ? byName.get(next) : undefined
-    if (!file) return
-    e.preventDefault()
-    select(file)
-  }
+  // Assess measures shots, seams and a soundtrack; a still has none, and
+  // the title says so in the server's own words (dw/server/assess.py)
+  const assessKey = (name: string) => AssessCache.key(workspace.current, name)
+  const assessable = (kind: string) => kind === 'video' || kind === 'audio'
+  const assessTitle = (kind: string) =>
+    assessable(kind)
+      ? 'measure this file for shots, seams, sync and level - places to look, not verdicts'
+      : kind === 'image'
+        ? 'a still has no shots, seams or soundtrack to measure'
+        : 'not a video or audio file'
 
   // A bare S: with Shift, Alt or a command modifier it is someone else's
   const isStarKey = (e: KeyboardEvent) =>
     e.key.toLowerCase() === 's' &&
     !(e.metaKey || e.ctrlKey || e.altKey || e.shiftKey)
+  const isDeleteKey = (e: KeyboardEvent) =>
+    e.key === 'Delete' || (e.key === 'Backspace' && e.metaKey)
 
-  // Culling a run: step through what the grid shows, delete as you go
-  function cullKey(e: KeyboardEvent) {
-    if (e.key === 'ArrowRight') step(e, 1)
-    else if (e.key === 'ArrowLeft') step(e, -1)
-    else if (e.key === 'Delete' || (e.key === 'Backspace' && e.metaKey)) {
-      e.preventDefault()
-      void removeFile()
-    } else if (isStarKey(e)) {
-      e.preventDefault()
-      void toggleStar()
-    }
+  // Culling a run in the viewer: its arrows step, S stars, Delete deletes
+  function viewerKey(e: KeyboardEvent, file: MediaFile): boolean {
+    const listedFile = byName.get(file.name)
+    if (!listedFile) return false
+    if (isStarKey(e)) void starring.run(file.name, !listedFile.starred)
+    else if (isDeleteKey(e)) void removing.run(listedFile)
+    else return false
+    return true
   }
 
+  // Escape clears the ticks; the viewer and a dialog answer it themselves
   function onKeydown(e: KeyboardEvent) {
     if (overlayOpen()) return
-    if (e.key === 'Escape') return escape()
-    // A key typed into the note box, or a focused video seeking, is theirs
-    if (selected && !isEditable(e.target)) cullKey(e)
+    if (e.key === 'Escape' && picks.size) picks.clear()
   }
 </script>
 
@@ -298,6 +306,21 @@
     <RequestFilter bind:request={reqId} bind:item={reqItem} />
   {/snippet}
 </PageHeader>
+
+{#if missing}
+  <p class="hint missing">
+    {missing} is not in this view any more.
+    <button
+      type="button"
+      class="quiet icon"
+      aria-label="Dismiss"
+      title="Dismiss"
+      onclick={() => (missing = '')}
+    >
+      <X size={14} />
+    </button>
+  </p>
+{/if}
 
 <BulkBar
   {picks}
@@ -354,12 +377,10 @@
         <OutputTile
           file={tileOf(file)}
           caption="clamp"
-          active={selected?.name === name}
+          active={open === name}
           picked={picks.has(name)}
-          onclick={() => select(file)}
-          title="show details{file.kind === 'image'
-            ? ' and generation metadata'
-            : ''}"
+          onclick={() => (open = name)}
+          title="open this file, with what made it"
         >
           {#snippet badges()}
             <RoleTag role={file.role} />
@@ -375,22 +396,91 @@
   </FolderGroups>
 </LoadState>
 
-{#if selected}
-  <!-- Keyed by the pick, so each file's panel starts its own read -->
-  {#key selected.name}
-    <GalleryDetail
-      file={selected}
-      {assessCache}
-      onnotesaved={noteSaved}
-      starred={!!selected.starred}
-      onstar={toggleStar}
-      onremove={removeFile}
-      onclose={() => (selected = null)}
-    />
+{#snippet viewerActions(file: MediaFile)}
+  {@const listedFile = byName.get(file.name)}
+  {@const assessed = assessCache.get(assessKey(file.name))}
+  {#if listedFile}
+    <button
+      type="button"
+      class="quiet icon"
+      onclick={() => starring.run(file.name, !listedFile.starred)}
+      aria-pressed={!!listedFile.starred}
+      aria-label={listedFile.starred ? 'unstar this file' : 'star this file'}
+      title={listedFile.starred
+        ? 'starred - press S to unstar'
+        : 'star this file - press S'}
+    >
+      <Star size={16} fill={listedFile.starred ? 'currentColor' : 'none'} />
+    </button>
+    <button
+      type="button"
+      class="quiet withicon"
+      onclick={() => saving.run(listedFile)}
+      disabled={saving.busy}
+      title="save this file to the asset library, under a name later workflows can use"
+    >
+      <Bookmark size={14} />Save as asset
+    </button>
+    <!-- Task 7: Use as input… -->
+    <ReferenceChip prefix={OUTPUT} name={file.name} />
+    <button
+      type="button"
+      class="quiet withicon"
+      onclick={() => assessCache.run(assessKey(file.name), file.name)}
+      disabled={!assessable(file.kind) || assessed?.running}
+      title={assessTitle(file.kind)}
+    >
+      <Gauge size={14} />{assessed?.running ? 'Assessing…' : 'Assess'}
+    </button>
+    <DownloadLink href={api.outputDownloadUrl(file.name)} />
+    <button
+      type="button"
+      class="quiet icon danger"
+      onclick={() => removing.run(listedFile)}
+      title="delete this file from the output directory"
+      aria-label="delete this file from the output directory"
+    >
+      <Trash2 size={16} />
+    </button>
+  {/if}
+{/snippet}
+
+{#snippet viewerAside(file: MediaFile)}
+  {@const listedFile = byName.get(file.name)}
+  <!-- Keyed by the file, so each starts its own read and its own note box -->
+  {#key file.name}
+    <RecipePanel name={file.name} source="output" workspace={file.workspace}>
+      {#snippet children(meta, reload)}
+        {#if listedFile}
+          <GalleryAside
+            file={listedFile}
+            {meta}
+            {reload}
+            workspace={file.workspace}
+            assessed={assessCache.get(assessKey(file.name))}
+            onnotesaved={(kind, note) => noteSaved(file.name, kind, note)}
+          />
+        {/if}
+      {/snippet}
+    </RecipePanel>
   {/key}
-{/if}
+{/snippet}
+
+<MediaViewer
+  {items}
+  bind:open
+  actions={viewerActions}
+  aside={viewerAside}
+  onkey={viewerKey}
+/>
 
 <style>
+  .missing {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin: 0 0 var(--space-2);
+  }
   /* The one mark that tells four runs' same-named files apart */
   .version {
     display: inline-block;

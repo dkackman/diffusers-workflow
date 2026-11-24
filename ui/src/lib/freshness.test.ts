@@ -51,10 +51,6 @@ const PAGE_TABLE: Record<string, Freshness[]> = {
   'editor/LorasEditor.svelte': [{ watch: ['loras'] }],
   'editor/PipelineOptions.svelte': [{ watch: [] }],
   'editor/StepEditor.svelte': [{ watch: ['workflows'] }],
-  'gallery/GalleryDetail.svelte': [
-    { watch: ['gallery'] },
-    { watch: ['gallery'] },
-  ],
   'gallery/RequestFilter.svelte': [{ watch: ['requests'] }],
   'job/ChainSegments.svelte': [{ watch: ['workflows'] }],
   'job/JobResults.svelte': [{ watch: ['gallery'] }],
