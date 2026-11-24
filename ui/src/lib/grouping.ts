@@ -35,11 +35,12 @@ const groupRank = (group: string): number => {
  * Names bucketed by group, one pass, groups in sorted order. A page hands in
  * its own grouper when the name alone cannot say which folder an entry belongs
  * to - the gallery's names carry a run id the server has already stripped into
- * `folder`.
+ * `folder`, and its own `rank` when its groups are not folders (dates).
  */
 export const groupNames = (
   names: string[],
   grouper: (name: string) => string = groupOf,
+  rank: (group: string) => number = groupRank,
 ): Map<string, string[]> => {
   const buckets = new Map<string, string[]>()
   for (const name of names) {
@@ -50,7 +51,7 @@ export const groupNames = (
   }
   return new Map(
     [...buckets.entries()].sort(
-      ([a], [b]) => groupRank(a) - groupRank(b) || a.localeCompare(b),
+      ([a], [b]) => rank(a) - rank(b) || a.localeCompare(b),
     ),
   )
 }

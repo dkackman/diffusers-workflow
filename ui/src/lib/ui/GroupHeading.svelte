@@ -11,6 +11,7 @@
     collapsed,
     ontoggle,
     title,
+    disabled = false,
     size = 'folder',
     children,
   }: {
@@ -19,6 +20,7 @@
     collapsed: boolean
     ontoggle: () => void
     title?: string
+    disabled?: boolean
     size?: 'folder' | 'library'
     children?: Snippet
   } = $props()
@@ -28,6 +30,7 @@
   class="group {size}"
   aria-expanded={!collapsed}
   onclick={ontoggle}
+  {disabled}
   title={title ?? (collapsed ? 'expand this section' : 'collapse this section')}
 >
   {#if collapsed}<ChevronRight size={14} />{:else}<ChevronDown size={14} />{/if}
@@ -52,9 +55,13 @@
     margin: 0;
     cursor: pointer;
   }
-  .group:hover {
+  .group:hover:not(:disabled) {
     color: var(--ink);
     filter: none;
+  }
+  /* Held open while a filter is on: still a heading, so it stays legible */
+  .group:disabled {
+    opacity: 0.75;
   }
   .group.library {
     color: var(--ink);

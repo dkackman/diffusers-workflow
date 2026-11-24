@@ -23,6 +23,7 @@
   import { resource, type Resource } from '../resource.svelte'
   import LoadState from '../ui/LoadState.svelte'
   import PageHeader from '../ui/PageHeader.svelte'
+  import Segmented from '../ui/Segmented.svelte'
   import FolderGroups from '../FolderGroups.svelte'
   import BulkBar from '../BulkBar.svelte'
   import { Picks, actOnEach, reportFailures } from '../picks.svelte'
@@ -31,7 +32,7 @@
   import { askDeletion, fileConfirm } from '../gallery/deletion'
   import type { GalleryFile, OutputRole } from '../types'
   import { workspace } from '../workspace.svelte'
-  import { codec, go, hashState, type HashCodec } from '../router.svelte'
+  import { codec, go, hashState } from '../router.svelte'
   import RequestFilter from '../gallery/RequestFilter.svelte'
   import RoleChips from '../gallery/RoleChips.svelte'
   import GalleryAside from '../gallery/GalleryAside.svelte'
@@ -41,14 +42,22 @@
   import RoleTag from '../gallery/RoleTag.svelte'
   import { versionTitle } from '../terms'
   import {
+    GROUPINGS,
+    GROUP_OPTIONS,
+    SORTS,
+    SORT_OPTIONS,
     applyEdits,
     gridFiles,
+    gridGroups,
+    inGroupOrder,
     keepPicks,
     listingRows,
     noEdits,
     settleEdits,
     withGone,
     withPatch,
+    type GallerySort,
+    type Grouping,
     type Listing,
   } from '../gallery/order'
 
@@ -60,8 +69,10 @@
   const roles = hashState<OutputRole[]>(
     'roles',
     ['final'],
-    codec.list as HashCodec<OutputRole[]>,
+    codec.someOf<OutputRole>(['final', 'intermediate'], ['final']),
   )
+  const sort = hashState('sort', SORTS[0], codec.oneOf(SORTS))
+  const groupBy = hashState('group', GROUPINGS[0], codec.oneOf(GROUPINGS))
   // The file open in the viewer, as `open=` in the hash: the viewer writes
   // it the way Back expects (mediaViewer.ts), and Back closes it
   let open = $state<string | null>(openInHash())
@@ -70,7 +81,7 @@
   let useInputOpen = $state(false)
   // Names ticked in the grid, for the bulk actions. The grid order it is
   // given is what a shift-range spans and the order the actions act in
-  const picks: Picks = new Picks(() => visible.map((f) => f.name))
+  const picks: Picks = new Picks(() => shown.map((f) => f.name))
   const assessCache = new AssessCache()
 
   // The requests-ledger request the gallery is narrowed to (RequestFilter
@@ -89,8 +100,10 @@
         undefined,
         reqId || undefined,
         reqItem || undefined,
+        { prompts: true },
       )
-      return { files: result.files, key, began, workspace: result.workspace }
+      const { files, prompts = {} } = result
+      return { files, key, began, workspace: result.workspace, prompts }
     },
     {
       watch: ['gallery'],
@@ -147,9 +160,11 @@
   })
 
   const starredOnly = hashState('starred', false, codec.flag)
+  // Finals only is where the gallery opens, not a filter: folders still
+  // collapse under it
   const filterActive = $derived(
     text.value !== '' ||
-      roles.value.length < 2 ||
+      roles.value.join() !== 'final' ||
       starredOnly.value ||
       reqId !== '',
   )
@@ -161,8 +176,19 @@
     reqItem = ''
   }
   const visible = $derived(
-    gridFiles(files, text.value, roles.value, starredOnly.value),
+    gridFiles(files, {
+      text: text.value,
+      roles: roles.value,
+      starredOnly: starredOnly.value,
+      sort: sort.value,
+      prompts: list.data?.prompts ?? {},
+    }),
   )
+  // The headings, and the files in the order they show under them
+  const groups = $derived(
+    gridGroups(visible, groupBy.value, sort.value, new Date()),
+  )
+  const shown = $derived(inGroupOrder(visible, groups))
   // A star is undone, not asked about: held here at once (`patch`), as is
   // the Undo that takes it back
   async function setStar(name: string, next: boolean) {
@@ -185,10 +211,7 @@
   })
   const byName = $derived(new Map(visible.map((f) => [f.name, f])))
   // What the viewer steps through: the grid, in its order
-  const items = $derived(visible.map(tileOf))
-  // The server folds each run id into `folder`; group by that, since the
-  // name alone reads the run directory as one more folder
-  const folderByName = $derived(new Map(visible.map((f) => [f.name, f.folder])))
+  const items = $derived(shown.map(tileOf))
 
   const downloading = picks.download(api.archiveOutputs, 'files')
 
@@ -305,17 +328,35 @@
 <svelte:window onkeydown={onKeydown} />
 
 {#snippet search()}
-  <input class="filter" placeholder="filter…" bind:value={text.value} />
+  <input
+    class="filter"
+    placeholder="search names, prompts and notes…"
+    bind:value={text.value}
+  />
 {/snippet}
 <PageHeader
   title="Gallery"
   baseline
-  count={{ n: files.length, noun: 'file' }}
+  count={{ n: visible.length, of: files.length, noun: 'file' }}
   filter={search}
 >
   {#snippet actions()}
     <RoleChips bind:roles={roles.value} bind:starredOnly={starredOnly.value} />
     <RequestFilter bind:request={reqId} bind:item={reqItem} />
+    <Segmented
+      label="Sort"
+      size="sm"
+      options={SORT_OPTIONS}
+      value={sort.value}
+      onselect={(v) => (sort.value = v as GallerySort)}
+    />
+    <Segmented
+      label="Group by"
+      size="sm"
+      options={GROUP_OPTIONS}
+      value={groupBy.value}
+      onselect={(v) => (groupBy.value = v as Grouping)}
+    />
   {/snippet}
 </PageHeader>
 
@@ -349,7 +390,7 @@
   of={list}
   label="the gallery"
   empty={visible.length === 0}
-  filtered={filterActive && files.length > 0}
+  filtered={files.length > 0}
   onclear={clearFilters}
 >
   {#snippet emptyIcon()}<ImageOff size={36} strokeWidth={1.5} />{/snippet}
@@ -361,51 +402,56 @@
       Nothing generated yet — outputs land here as workflows run.
     {/if}
   {/snippet}
-  <FolderGroups
-    names={visible.map((f) => f.name)}
-    groupOf={(name) => folderByName.get(name) ?? ''}
-    collapseKey="collapsed-gallery-folders"
-    {filterActive}
-    minColumn="150px"
-  >
-    {#snippet card(name)}
-      {@const file = byName.get(name)!}
-      <div
-        class="cellwrap"
-        class:picked={picks.has(name)}
-        class:row-changed={list.changed.has(name)}
-      >
-        <!-- A sibling of the cell rather than a child: a checkbox nested in
+  <!-- Folders and days are shut apart: a day is not a folder -->
+  {#key groupBy.value}
+    <FolderGroups
+      names={shown.map((f) => f.name)}
+      {...groups}
+      collapseKey="collapsed-gallery-{groupBy.value === 'date'
+        ? 'days'
+        : 'folders'}"
+      {filterActive}
+      minColumn="150px"
+    >
+      {#snippet card(name)}
+        {@const file = byName.get(name)!}
+        <div
+          class="cellwrap"
+          class:picked={picks.has(name)}
+          class:row-changed={list.changed.has(name)}
+        >
+          <!-- A sibling of the cell rather than a child: a checkbox nested in
            a button is invalid, and keeping them apart is what lets a plain
            click still open the details it always has -->
-        <input
-          class="pick"
-          type="checkbox"
-          checked={picks.has(name)}
-          aria-label="select {name}"
-          title="select this file for a bulk action"
-          onclick={(e) => picks.toggle(name, e.shiftKey)}
-        />
-        <OutputTile
-          file={tileOf(file)}
-          caption="clamp"
-          active={open === name}
-          picked={picks.has(name)}
-          onclick={() => (open = name)}
-          title="open this file, with what made it"
-        >
-          {#snippet badges()}
-            <RoleTag role={file.role} />
-            {#if file.version}
-              <span class="version" title={versionTitle(file.version)}>
-                v{file.version}
-              </span>
-            {/if}
-          {/snippet}
-        </OutputTile>
-      </div>
-    {/snippet}
-  </FolderGroups>
+          <input
+            class="pick"
+            type="checkbox"
+            checked={picks.has(name)}
+            aria-label="select {name}"
+            title="select this file for a bulk action"
+            onclick={(e) => picks.toggle(name, e.shiftKey)}
+          />
+          <OutputTile
+            file={tileOf(file)}
+            caption="clamp"
+            active={open === name}
+            picked={picks.has(name)}
+            onclick={() => (open = name)}
+            title="open this file, with what made it"
+          >
+            {#snippet badges()}
+              <RoleTag role={file.role} />
+              {#if file.version}
+                <span class="version" title={versionTitle(file.version)}>
+                  v{file.version}
+                </span>
+              {/if}
+            {/snippet}
+          </OutputTile>
+        </div>
+      {/snippet}
+    </FolderGroups>
+  {/key}
 </LoadState>
 
 {#snippet viewerActions(file: MediaFile)}

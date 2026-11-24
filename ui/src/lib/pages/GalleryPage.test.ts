@@ -36,7 +36,10 @@ const file = (
   label: name.split('/').pop()!.split('.')[0],
 })
 
-const listing = vi.hoisted(() => ({ files: [] as GalleryFile[] }))
+const listing = vi.hoisted(() => ({
+  files: [] as GalleryFile[],
+  prompts: {} as Record<string, string>,
+}))
 
 // Resolves on a macrotask so that a re-triggering effect cannot starve the
 // timers this test waits on - the failure then shows as a call count
@@ -54,11 +57,19 @@ const gallery = vi.hoisted(() =>
       roles?: string[],
       request?: string,
       item?: string,
-    ) => Promise<{ files: GalleryFile[] }>
+      opts?: { prompts?: boolean },
+    ) => Promise<{ files: GalleryFile[]; prompts?: Record<string, string> }>
   >(
-    () =>
-      new Promise<{ files: GalleryFile[] }>((resolve) =>
-        setTimeout(() => resolve({ files: listing.files }), 0),
+    (_roles, _request, _item, opts) =>
+      new Promise((resolve) =>
+        setTimeout(
+          () =>
+            resolve({
+              files: listing.files,
+              ...(opts?.prompts ? { prompts: listing.prompts } : {}),
+            }),
+          0,
+        ),
       ),
   ),
 )
@@ -99,8 +110,8 @@ vi.mock('../api', async () => ({
       roles?: string[],
       request?: string,
       item?: string,
-      opts?: { media?: boolean },
-    ) => (opts?.media ? galleryMedia() : gallery(roles, request, item)),
+      opts?: { media?: boolean; prompts?: boolean },
+    ) => (opts?.media ? galleryMedia() : gallery(roles, request, item, opts)),
     listRequests: () => listRequests(),
     galleryThumbnailUrl: (name: string) => `/thumb/${name}`,
     galleryUrl: (name: string) => `/outputs/${name}`,
@@ -138,6 +149,7 @@ vi.mock('../toast', () => ({
 beforeEach(() => {
   noteHeld.note = null
   listing.files = ['a.png', 'b.png', 'demo/c.png'].map((name) => file(name))
+  listing.prompts = {}
 })
 afterEach(() => {
   // Without this each render's DOM stays behind and the next test's
@@ -165,6 +177,10 @@ afterEach(() => {
   vi.unstubAllGlobals()
   workspace.current = DEFAULT_WORKSPACE
 })
+
+const SEARCH = 'search names, prompts and notes…'
+// What the listing asks for besides the filter: the runs' prompts
+const PROMPTS = { prompts: true }
 
 /** The grid's per-file selection checkbox. */
 const checkbox = (name: string) =>
@@ -403,7 +419,7 @@ it('selects only the files the filter leaves visible', async () => {
   )
   await renderGallery('keep-a.png')
 
-  const filter = screen.getByPlaceholderText('filter…') as HTMLInputElement
+  const filter = screen.getByPlaceholderText(SEARCH) as HTMLInputElement
   filter.value = 'keep'
   filter.dispatchEvent(new Event('input', { bubbles: true }))
   await waitFor(() =>
@@ -632,7 +648,7 @@ it('intersects the role chips with the text filter', async () => {
     file('wf/run-1/b.png', 'final', 'final'),
   ]
   await renderGallery('wf/run-1/a.png')
-  const filter = screen.getByPlaceholderText('filter…') as HTMLInputElement
+  const filter = screen.getByPlaceholderText(SEARCH) as HTMLInputElement
   filter.value = '/a.'
   filter.dispatchEvent(new Event('input', { bubbles: true }))
   await waitFor(() =>
@@ -995,14 +1011,19 @@ it("shows the open file's level findings from its metadata", async () => {
 it('with req in the hash, asks for that request and shows a removable chip', async () => {
   location.hash = '#/ws/default/gallery?req=r1'
   await renderGallery()
-  expect(gallery).toHaveBeenLastCalledWith(undefined, 'r1', undefined)
+  expect(gallery).toHaveBeenLastCalledWith(undefined, 'r1', undefined, PROMPTS)
   const chip = screen.getByTestId('req-filter')
   expect(chip.querySelector('a')?.getAttribute('href')).toBe(
     '#/ws/default/requests/r1',
   )
   await fireEvent.click(screen.getByLabelText('remove the request filter'))
   await waitFor(() =>
-    expect(gallery).toHaveBeenLastCalledWith(undefined, undefined, undefined),
+    expect(gallery).toHaveBeenLastCalledWith(
+      undefined,
+      undefined,
+      undefined,
+      PROMPTS,
+    ),
   )
   expect(screen.queryByTestId('req-filter')).toBeNull()
 })
@@ -1010,14 +1031,19 @@ it('with req in the hash, asks for that request and shows a removable chip', asy
 it('with req=<id>/<item> in the hash, keeps the item and asks for it', async () => {
   location.hash = '#/ws/default/gallery?req=r1/alpha'
   await renderGallery()
-  expect(gallery).toHaveBeenLastCalledWith(undefined, 'r1', 'alpha')
+  expect(gallery).toHaveBeenLastCalledWith(undefined, 'r1', 'alpha', PROMPTS)
   const chip = screen.getByTestId('req-filter')
   expect(chip.textContent).toContain('r1 › alpha')
   await Promise.resolve()
   expect(location.hash).toBe('#/ws/default/gallery?req=r1%2Falpha')
   await fireEvent.click(screen.getByLabelText('remove the request filter'))
   await waitFor(() =>
-    expect(gallery).toHaveBeenLastCalledWith(undefined, undefined, undefined),
+    expect(gallery).toHaveBeenLastCalledWith(
+      undefined,
+      undefined,
+      undefined,
+      PROMPTS,
+    ),
   )
   expect(screen.queryByTestId('req-filter')).toBeNull()
 })
@@ -1037,7 +1063,12 @@ it('offers a request picker, and picking one reloads narrowed', async () => {
   const picker = await screen.findByLabelText('filter by request')
   await fireEvent.change(picker, { target: { value: 'r1' } })
   await waitFor(() =>
-    expect(gallery).toHaveBeenLastCalledWith(undefined, 'r1', undefined),
+    expect(gallery).toHaveBeenLastCalledWith(
+      undefined,
+      'r1',
+      undefined,
+      PROMPTS,
+    ),
   )
   expect(screen.getByTestId('req-filter')).toBeTruthy()
 })
@@ -1105,7 +1136,7 @@ it('a failed first load offers Retry and Retry loads', async () => {
 
 it('filtered to nothing offers Clear filters', async () => {
   await renderGallery()
-  await fireEvent.input(screen.getByPlaceholderText('filter…'), {
+  await fireEvent.input(screen.getByPlaceholderText(SEARCH), {
     target: { value: 'zzz' },
   })
   expect(screen.getByText('Nothing matches those filters.')).toBeTruthy()
@@ -1157,21 +1188,19 @@ const hashEvent = (change: () => void) =>
 it('the text, role and Starred filters survive leaving and coming back', async () => {
   await hashEvent(() => (location.hash = '#/ws/default/gallery?x=1'))
   await renderGallery()
-  const filter = screen.getByPlaceholderText('filter…') as HTMLInputElement
+  const filter = screen.getByPlaceholderText(SEARCH) as HTMLInputElement
   await fireEvent.input(filter, { target: { value: 'c' } })
   await fireEvent.click(screen.getByRole('button', { name: 'Intermediate' }))
   await fireEvent.click(screen.getByRole('button', { name: 'Starred' }))
   expect(location.hash).toBe(
-    '#/ws/default/gallery?x=1&q=c&roles=final%2Cintermediate&starred=1',
+    '#/ws/default/gallery?x=1&q=c&roles=final,intermediate&starred=1',
   )
   // open something else, then press Back
   cleanup()
   await hashEvent(() => (location.hash = '#/ws/default/jobs'))
   await hashEvent(() => history.back())
   render(GalleryPage)
-  const again = (await screen.findByPlaceholderText(
-    'filter…',
-  )) as HTMLInputElement
+  const again = (await screen.findByPlaceholderText(SEARCH)) as HTMLInputElement
   expect(again.value).toBe('c')
   const pressed = (name: string) =>
     screen.getByRole('button', { name }).getAttribute('aria-pressed')
@@ -1504,4 +1533,116 @@ it('a failed Assess keeps the earlier list and says why in plain words', async (
   expect(alert.querySelector('details')?.open).toBe(false)
   expect(alert.querySelector('details pre')?.textContent).toBe(raw)
   expect(region.textContent).toContain('silent')
+})
+
+// Finding a file: search covers prompts and notes, sort, group by date, and
+// folders that collapse
+
+/** The grid's files, in the order shown */
+const shownNames = () =>
+  screen
+    .getAllByRole('checkbox')
+    .map((c) => c.getAttribute('aria-label')!.replace(/^select /, ''))
+
+const demoToggle = () =>
+  [...document.querySelectorAll('button.group')].find((b) =>
+    b.textContent?.includes('demo/'),
+  ) as HTMLButtonElement
+
+it('collapsing a folder hides it with the default roles', async () => {
+  await renderGallery()
+  const toggle = demoToggle()
+  expect(toggle).not.toBeDisabled()
+  await fireEvent.click(toggle)
+  await waitFor(() =>
+    expect(screen.queryByLabelText('select demo/c.png')).toBeNull(),
+  )
+  expect(toggle).toHaveAttribute('aria-expanded', 'false')
+  // a filter shows every match again, and the toggle says why it is off
+  await fireEvent.input(screen.getByPlaceholderText(SEARCH), {
+    target: { value: 'c' },
+  })
+  await waitFor(() =>
+    expect(screen.getByLabelText('select demo/c.png')).toBeTruthy(),
+  )
+  expect(demoToggle()).toBeDisabled()
+  await fireEvent.input(screen.getByPlaceholderText(SEARCH), {
+    target: { value: '' },
+  })
+  await fireEvent.click(demoToggle())
+})
+
+it('searching a prompt finds its file', async () => {
+  listing.files = [
+    { ...file('a.png'), run_id: 'r1' },
+    { ...file('b.mp4'), run_id: 'r2', kind: 'video' },
+    { ...file('c.png'), run_id: 'gone' },
+  ]
+  listing.prompts = { r1: 'a red fox', r2: 'waves on a grey shore' }
+  await renderGallery()
+  expect(gallery).toHaveBeenCalledWith(undefined, undefined, undefined, {
+    prompts: true,
+  })
+  const search = screen.getByPlaceholderText(SEARCH)
+  await fireEvent.input(search, { target: { value: 'grey shore' } })
+  await waitFor(() => expect(shownNames()).toEqual(['b.mp4']))
+  await fireEvent.input(search, { target: { value: 'FOX' } })
+  await waitFor(() => expect(shownNames()).toEqual(['a.png']))
+  // typing never takes focus away
+  search.focus()
+  await fireEvent.input(search, { target: { value: 'fox red' } })
+  expect(document.activeElement).toBe(search)
+})
+
+it('the count says n of m while filtered', async () => {
+  await renderGallery()
+  const count = () => document.querySelector('.pagehead .count')?.textContent
+  expect(count()).toBe('3 files')
+  await fireEvent.input(screen.getByPlaceholderText(SEARCH), {
+    target: { value: 'demo' },
+  })
+  await waitFor(() => expect(count()).toBe('1 of 3 files'))
+})
+
+it('sort and group survive Back', async () => {
+  listing.files = [
+    { ...file('b.png'), run_id: 'r2', mtime: Date.now() / 1000 },
+    { ...file('a.png'), run_id: 'r1', mtime: 1 },
+  ]
+  await hashEvent(() => (location.hash = '#/ws/default/gallery?x=1'))
+  await renderGallery('b.png')
+  const sort = screen.getByRole('group', { name: 'Sort' })
+  const groupBy = screen.getByRole('group', { name: 'Group by' })
+  await fireEvent.click(within(sort).getByRole('button', { name: 'Name' }))
+  await fireEvent.click(within(groupBy).getByRole('button', { name: 'Date' }))
+  await waitFor(() =>
+    expect(location.hash).toBe('#/ws/default/gallery?x=1&sort=name&group=date'),
+  )
+  // grouped by date, newest group first; the viewer steps in that order
+  expect(
+    [...document.querySelectorAll('button.group')].map((b) =>
+      b.textContent?.trim(),
+    ),
+  ).toEqual(['Today (1)', 'Earlier (1)'])
+  expect(shownNames()).toEqual(['b.png', 'a.png'])
+  await openFile('b.png')
+  await press({ key: 'ArrowRight' })
+  expect(await viewer('a.png')).toHaveTextContent('2 of 2')
+  // Escape closes the viewer by going Back
+  await hashEvent(() => void press({ key: 'Escape' }))
+  expect(location.hash).not.toContain('open=')
+
+  cleanup()
+  await hashEvent(() => (location.hash = '#/ws/default/jobs'))
+  await hashEvent(() => history.back())
+  render(GalleryPage)
+  await waitFor(() =>
+    expect(screen.getByLabelText('select a.png')).toBeTruthy(),
+  )
+  const pressed = (group: string, name: string) =>
+    within(screen.getByRole('group', { name: group }))
+      .getByRole('button', { name })
+      .getAttribute('aria-pressed')
+  expect(pressed('Sort', 'Name')).toBe('true')
+  expect(pressed('Group by', 'Date')).toBe('true')
 })

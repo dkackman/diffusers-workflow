@@ -38,7 +38,8 @@
   }: {
     title: string
     secondary?: string
-    count?: { n: number; noun: string; plural?: string }
+    /** `of`: the whole, when `n` is only those shown: `3 of 12 files` */
+    count?: { n: number; of?: number; noun: string; plural?: string }
     back?: { href: string; label: string }
     actions?: Snippet
     filter?: Snippet
@@ -82,11 +83,12 @@
     })
   })
 
-  const counted = $derived(
-    count
-      ? `${count.n} ${count.n === 1 ? count.noun : (count.plural ?? count.noun + 's')}`
-      : '',
-  )
+  const counted = $derived.by(() => {
+    if (!count) return ''
+    const { n, of = n, noun, plural = noun + 's' } = count
+    const head = of === n ? `${n}` : `${n} of ${of}`
+    return `${head} ${of === 1 ? noun : plural}`
+  })
 </script>
 
 <div class="pagehead" class:baseline>

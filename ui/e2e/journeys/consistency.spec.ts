@@ -43,7 +43,7 @@ const scrollY = (page: Page) => page.evaluate(() => window.scrollY)
 async function narrowAndScroll(page: Page, by = 400): Promise<number> {
   await page.setViewportSize(SHORT)
   await page.goto(GALLERY)
-  await page.getByPlaceholder('filter…').fill('e2e')
+  await page.getByPlaceholder('search names, prompts and notes…').fill('e2e')
   await page.getByRole('button', { name: 'Starred', exact: true }).click()
   await expect(page).toHaveURL(/q=e2e/)
   await expect(page).toHaveURL(/starred=1/)
@@ -173,7 +173,9 @@ test('Back to a narrowed, scrolled gallery that loads late keeps its filters and
   await star(request, STILLS[0], true)
   await expect(page).toHaveURL(/q=e2e/)
   await expect(page).toHaveURL(/starred=1/)
-  await expect(page.getByPlaceholder('filter…')).toHaveValue('e2e')
+  await expect(
+    page.getByPlaceholder('search names, prompts and notes…'),
+  ).toHaveValue('e2e')
   await expect(
     page.getByRole('button', { name: 'Starred', exact: true }),
   ).toHaveAttribute('aria-pressed', 'true')
@@ -228,17 +230,23 @@ test("Back and Forward between two queries on the same path restore each entry's
   await page.evaluate(() => {
     location.hash = '#/ws/default/gallery?starred=1'
   })
-  await expect(page.getByPlaceholder('filter…')).toHaveValue('')
+  await expect(
+    page.getByPlaceholder('search names, prompts and notes…'),
+  ).toHaveValue('')
   expect(await scrollY(page)).toBe(first)
   await page.mouse.wheel(0, -200)
   await expect.poll(() => scrollY(page)).toBeLessThan(first - 150)
   const second = await scrollY(page)
 
   await page.goBack()
-  await expect(page.getByPlaceholder('filter…')).toHaveValue('e2e')
+  await expect(
+    page.getByPlaceholder('search names, prompts and notes…'),
+  ).toHaveValue('e2e')
   await expect.poll(() => scrollY(page)).toBe(first)
   await page.goForward()
-  await expect(page.getByPlaceholder('filter…')).toHaveValue('')
+  await expect(
+    page.getByPlaceholder('search names, prompts and notes…'),
+  ).toHaveValue('')
   await expect.poll(() => scrollY(page)).toBe(second)
 })
 
@@ -246,7 +254,7 @@ test('typing in the gallery filter leaves focus in the field', async ({
   page,
 }) => {
   await page.goto(GALLERY)
-  const filter = page.getByPlaceholder('filter…')
+  const filter = page.getByPlaceholder('search names, prompts and notes…')
   await filter.click()
   await page.keyboard.type('still', { delay: 50 })
   await expect(page).toHaveURL(/q=still/)

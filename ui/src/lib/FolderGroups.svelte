@@ -13,6 +13,8 @@
     onnewingroup = undefined,
     minColumn = '210px',
     groupOf = defaultGroupOf,
+    rank = undefined,
+    heading = (group: string) => `${group}/`,
     card,
   }: {
     names: string[]
@@ -24,29 +26,40 @@
     /** Which folder a name belongs to. The gallery passes its own: its
      * names carry a run id that the server has already folded into `folder`. */
     groupOf?: (name: string) => string
+    /** Where a group sits, when its groups are not folders (the gallery's
+     * dates); folders sort as `groupNames` sorts them */
+    rank?: (group: string) => number
+    /** How a group's heading reads: a folder ends in a slash */
+    heading?: (group: string) => string
     card: Snippet<[string]>
   } = $props()
 
   // svelte-ignore state_referenced_locally
   const collapsed = collapsedState(collapseKey)
 
-  const grouped = $derived(groupNames(names, groupOf))
+  const grouped = $derived(groupNames(names, groupOf, rank))
   const groups = $derived([...grouped.keys()])
   const inGroup = (group: string) => grouped.get(group) ?? []
   // While filtering, everything stays visible - a collapsed folder hiding
   // matches would make the filter look broken
   const isOpen = (group: string) => filterActive || !collapsed.has(group)
+  // ...so the toggle is off then, and says why
+  const toggleTitle = (group: string) =>
+    filterActive
+      ? 'Showing every match while the filter is on'
+      : `${isOpen(group) ? 'collapse' : 'expand'} this ${rank ? 'group' : 'folder'}`
 </script>
 
 {#each groups as group (group)}
   {#if group}
     <div class="grouprow">
       <GroupHeading
-        label="{group}/"
+        label={heading(group)}
         count={inGroup(group).length}
         collapsed={!isOpen(group)}
+        disabled={filterActive}
         ontoggle={() => collapsed.toggle(group)}
-        title={isOpen(group) ? 'collapse this folder' : 'expand this folder'}
+        title={toggleTitle(group)}
       />
       {#if newHref}
         <a
