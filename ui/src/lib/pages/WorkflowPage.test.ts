@@ -121,6 +121,19 @@ it('sets the tab title to the workflow, with Workflows as its back link', async 
   ).toBeTruthy()
 })
 
+it('opens with an output: reference filled in from Use as input', async () => {
+  sessionStorage.setItem(
+    'dw-workflow-prefill',
+    JSON.stringify({
+      workflow: 'templates/text-to-image',
+      arguments: { prompt: 'output:run/cat.png' },
+    }),
+  )
+  await openPage()
+  expect(field('prompt').value).toBe('output:run/cat.png')
+  expect(sessionStorage.getItem('dw-workflow-prefill')).toBeNull()
+})
+
 describe('WorkflowPage run check', () => {
   it('validates on load by name, without sizes, and shows the plan', async () => {
     await openPage()

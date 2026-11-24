@@ -251,11 +251,13 @@ it('lists once on mount, and again when the gallery moves, with no blanking', as
   await renderGallery()
   await settle()
   expect(gallery).toHaveBeenCalledTimes(1)
-  // the page's gallery and its durations, and the request picker's requests
+  // the page's gallery and its durations, the request picker's requests,
+  // and Use as input's workflows
   expect(feed.watched(DEFAULT_WORKSPACE).sort()).toEqual([
     'gallery',
     'gallery',
     'requests',
+    'workflows',
   ])
 
   listing.files = [...listing.files, file('new.png')]

@@ -1,5 +1,13 @@
 <script lang="ts">
-  import { Bookmark, Gauge, ImageOff, Star, Trash2, X } from '@lucide/svelte'
+  import {
+    Bookmark,
+    Gauge,
+    ImagePlus,
+    ImageOff,
+    Star,
+    Trash2,
+    X,
+  } from '@lucide/svelte'
   import { outputLibrary } from '../outputlib.svelte'
   import { api } from '../api'
   import DownloadLink from '../DownloadLink.svelte'
@@ -28,6 +36,7 @@
   import RoleChips from '../gallery/RoleChips.svelte'
   import GalleryAside from '../gallery/GalleryAside.svelte'
   import { saveAsAsset } from '../gallery/saveAsAsset'
+  import UseAsInput from '../gallery/UseAsInput.svelte'
   import { AssessCache } from '../gallery/assess.svelte'
   import RoleTag from '../gallery/RoleTag.svelte'
   import { versionTitle } from '../terms'
@@ -56,6 +65,9 @@
   // The file open in the viewer, as `open=` in the hash: the viewer writes
   // it the way Back expects (mediaViewer.ts), and Back closes it
   let open = $state<string | null>(openInHash())
+  // The file Use as input… was chosen on, and its dialog
+  let useInput = $state<MediaFile | null>(null)
+  let useInputOpen = $state(false)
   // Names ticked in the grid, for the bulk actions. The grid order it is
   // given is what a shift-range spans and the order the actions act in
   const picks: Picks = new Picks(() => visible.map((f) => f.name))
@@ -421,7 +433,19 @@
     >
       <Bookmark size={14} />Save as asset
     </button>
-    <!-- Task 7: Use as input… -->
+    {#if file.kind === 'image' || file.kind === 'video'}
+      <button
+        type="button"
+        class="quiet withicon"
+        onclick={() => {
+          useInput = file
+          useInputOpen = true
+        }}
+        title="open a workflow of this workspace with this file filled in"
+      >
+        <ImagePlus size={14} />Use as input…
+      </button>
+    {/if}
     <ReferenceChip prefix={OUTPUT} name={file.name} />
     <button
       type="button"
@@ -465,6 +489,8 @@
     </RecipePanel>
   {/key}
 {/snippet}
+
+<UseAsInput file={useInput} bind:open={useInputOpen} />
 
 <MediaViewer
   {items}

@@ -52,6 +52,7 @@ const PAGE_TABLE: Record<string, Freshness[]> = {
   'editor/PipelineOptions.svelte': [{ watch: [] }],
   'editor/StepEditor.svelte': [{ watch: ['workflows'] }],
   'gallery/RequestFilter.svelte': [{ watch: ['requests'] }],
+  'gallery/UseAsInput.svelte': [{ watch: ['workflows'] }],
   'job/ChainSegments.svelte': [{ watch: ['workflows'] }],
   'job/JobResults.svelte': [{ watch: ['gallery'] }],
   'job/RerunWithChanges.svelte': [{ watch: ['workflows'] }],

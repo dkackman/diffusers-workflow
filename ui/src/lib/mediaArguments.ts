@@ -37,10 +37,10 @@ export function mediaKindFor(
   const typeText = `${annotation} ${docType}`
   if (IMAGE_TYPE_PATTERN.test(typeText)) return 'image'
   if (VIDEO_TYPE_PATTERN.test(typeText)) return 'video'
-  return annotation || docType ? null : kindByName(key)
+  return annotation || docType ? null : mediaKindByName(key)
 }
 
-function kindByName(key: string): MediaKind | null {
+export function mediaKindByName(key: string): MediaKind | null {
   if (IMAGE_NAME_PATTERN.test(key)) return 'image'
   if (VIDEO_NAME_PATTERN.test(key)) return 'video'
   return null
