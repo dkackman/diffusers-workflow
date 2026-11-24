@@ -75,7 +75,7 @@
    * this wrote, so a change the agent made since stays; Reopen just writes
    * and says so. The page's closed line calls this for its Reopen button:
    * one writer for both */
-  export async function setState(state: LedgerRequest['state']) {
+  async function write(state: LedgerRequest['state']) {
     const { title, state: previous } = request
     const said = UNDONE[state]
     if (!(await pushState(state))) return
@@ -83,6 +83,12 @@
     if (!said) return
     undoToast(said(title), () => undo(previous, state), onThisRequest(store))
   }
+
+  // One write at a time: a second press while one is in flight does nothing
+  const writing = action(write, { doing: 'save that' })
+  export const setState = (state: LedgerRequest['state']) => writing.run(state)
+  /** A state write is in flight (the closed line's Reopen shows it) */
+  export const busy = () => writing.busy
 
   const REFUSED: Record<string, string> = {
     request_has_active_jobs:

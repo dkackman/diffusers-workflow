@@ -49,6 +49,7 @@
     onmove,
     changed,
     onreopen,
+    reopening = false,
   }: {
     store: PlanStore
     /** The request as the page shows it: the store's view */
@@ -74,6 +75,8 @@
     changed?: ReadonlySet<string>
     /** Reopen a closed request: the header menu's own Reopen */
     onreopen?: () => void
+    /** A Reopen is in flight: the button waits */
+    reopening?: boolean
   } = $props()
 
   // A closed request is read-only: no grip, Accept, row action or note box
@@ -337,7 +340,9 @@
       note.
     </p>
     {#if onreopen}
-      <button type="button" onclick={onreopen}>Reopen</button>
+      <button type="button" onclick={onreopen} disabled={reopening}>
+        {reopening ? 'Reopening…' : 'Reopen'}
+      </button>
     {/if}
   </div>
 {/if}

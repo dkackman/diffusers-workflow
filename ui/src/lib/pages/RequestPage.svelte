@@ -294,6 +294,7 @@
           {countdown}
           onmove={(text, refs) => header?.takeNote(text, refs)}
           onreopen={() => requestMenu?.setState('open')}
+          reopening={requestMenu?.busy() ?? false}
         />
       </div>
 

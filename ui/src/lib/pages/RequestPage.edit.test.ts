@@ -9,6 +9,7 @@ import {
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import RequestPage from './RequestPage.svelte'
 import { workspace } from '../workspaceState.svelte'
+import { ApiError } from '../apiErrors'
 import { fakeLedger } from '../request/fakeLedger'
 import { PlanStore } from '../request/planStore.svelte'
 import {
@@ -973,12 +974,43 @@ it("the closed line's Reopen opens the request and brings the editing back", asy
   await fireEvent.click(screen.getByRole('button', { name: 'Reopen' }))
   await saved(4)
   expect(world.ledger.puts[0]).toMatchObject({ state: 'open', why: 'reopened' })
-  expect(world.notify.success).toHaveBeenCalledWith('Reopened "Launch posters"')
+  await waitFor(() =>
+    expect(world.notify.success).toHaveBeenCalledWith(
+      'Reopened "Launch posters"',
+    ),
+  )
   await waitFor(() => expect(screen.queryByRole('note')).toBeNull())
   expect(document.querySelectorAll('.grip').length).toBeGreaterThan(0)
   expect(
     screen.getAllByRole('button', { name: 'Add a note for the agent' }).length,
   ).toBeGreaterThan(0)
+})
+
+it("a double click on the closed line's Reopen sends one write", async () => {
+  world.ledger = fakeLedger(closedRequest())
+  await start()
+  const put = vi.spyOn(world.ledger, 'put')
+  const button = screen.getByRole('button', { name: 'Reopen' })
+  await fireEvent.click(button)
+  await fireEvent.click(button)
+  await saved(4)
+  await waitFor(() => expect(world.notify.success).toHaveBeenCalledTimes(1))
+  expect(put).toHaveBeenCalledTimes(1)
+})
+
+it("a refused Reopen from the closed line says so, as the menu's does", async () => {
+  world.ledger = fakeLedger(closedRequest())
+  await start()
+  const stale = new ApiError('at revision 9, not 3', 409, 'stale_revision')
+  vi.spyOn(world.ledger, 'put').mockRejectedValue(stale)
+  await fireEvent.click(screen.getByRole('button', { name: 'Reopen' }))
+  await waitFor(() =>
+    expect(world.notify.error).toHaveBeenCalledWith(
+      'The plan changed since this page read it. Look again, then try that.',
+    ),
+  )
+  expect(world.notify.success).not.toHaveBeenCalled()
+  expect(screen.getByRole('note')).toBeTruthy()
 })
 
 it('the header menu still offers Reopen on a closed request', async () => {
