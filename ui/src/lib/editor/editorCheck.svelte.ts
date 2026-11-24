@@ -7,6 +7,7 @@
 // (findingPlace.ts).
 import { onDestroy } from 'svelte'
 import { api } from '../api'
+import { emptyWorkflow } from '../editor'
 import type { DocumentEditor } from '../editorShell.svelte'
 import type { Place } from '../findingPlace'
 import { RunCheck } from '../runCheck.svelte'
@@ -21,16 +22,29 @@ export function editorCheck(ed: DocumentEditor): RunCheck {
       signal,
     ),
   )
+  // A blank draft nobody has touched has nothing to refuse yet: it waits
+  // for its first edit. Validate still asks, and a draft started from an
+  // example differs from the blank, so it is checked at once.
+  let touched = false
   $effect(() => {
     // What was said about the last file goes with it
     if (ed.loadState !== 'loaded' && ed.loadState !== 'new') {
       check.clear()
       check.validation = null
+      touched = false
       return
     }
+    const doc = $state.snapshot(ed.doc)
+    if (ed.loadState === 'loaded') touched = true
+    else if (
+      !touched &&
+      JSON.stringify(doc) !== JSON.stringify(emptyWorkflow())
+    )
+      touched = true
+    if (!touched) return
     // Keyed by the path read (a draft by 'new'), not the file name field,
     // which changes on every keystroke and is not part of what is checked
-    check.changed(ed.loadedPath ?? 'new', $state.snapshot(ed.doc))
+    check.changed(ed.loadedPath ?? 'new', doc)
   })
   // A verdict on the copy the server's replaced is not one on this copy;
   // the replacement's own check follows the pause a change waits for

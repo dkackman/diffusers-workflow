@@ -312,6 +312,17 @@ describe('EditorPage validation plan', () => {
     )
   }, 10_000)
 
+  it('a blank new draft is not checked until its first edit', async () => {
+    vi.mocked(api.validate).mockClear()
+    render(EditorPage, { name: '' })
+    const id = () => screen.getByLabelText('workflow id') as HTMLInputElement
+    await waitFor(() => expect(id()).toBeTruthy())
+    await new Promise((done) => setTimeout(done, 900))
+    expect(api.validate).not.toHaveBeenCalled()
+    await fireEvent.click(screen.getByRole('button', { name: /Validate/ }))
+    await waitFor(() => expect(api.validate).toHaveBeenCalledTimes(1))
+  })
+
   it('a live check that fails says so', async () => {
     vi.mocked(api.validate).mockRejectedValueOnce(new Error('server down'))
     render(EditorPage, { name: 'models/z-image' })
@@ -494,6 +505,18 @@ describe('EditorPage new workflow origin', () => {
     expect(
       (screen.getByLabelText('workflow id') as HTMLInputElement).value,
     ).toBe('ZImage')
+  })
+
+  it('a draft started from an example is checked at once', async () => {
+    vi.mocked(api.listWorkflows).mockResolvedValue(withExample as never)
+    render(EditorPage, { name: '' })
+    await waitFor(() => expect(startFrom().options.length).toBe(2))
+    await new Promise((done) => setTimeout(done, 900))
+    vi.mocked(api.validate).mockClear()
+    await fireEvent.change(startFrom(), { target: { value: 'templates/tti' } })
+    await waitFor(() => expect(api.validate).toHaveBeenCalled(), {
+      timeout: 2000,
+    })
   })
 
   it('Start from asks before discarding a JSON draft that does not parse', async () => {
