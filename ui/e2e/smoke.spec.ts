@@ -421,9 +421,8 @@ test('the workflow page checks a run as you edit, and places each finding', asyn
   await expect(
     page.locator('[data-findings-for="num_inference_steps"]'),
   ).toContainText('must be at least 1')
-  await expect(check.getByLabel('findings')).not.toContainText(
-    'must be at least 1',
-  )
+  // the field's error is shown under the field and nowhere in the run check
+  await expect(check).not.toContainText('must be at least 1')
   // the check never gates Run
   await expect(page.getByRole('button', { name: /Run/ })).toBeEnabled()
 })
