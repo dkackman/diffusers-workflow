@@ -104,15 +104,17 @@ it('with no recipe and no job says so once', async () => {
   expect(getJob).not.toHaveBeenCalled()
 })
 
-it('reads the job only when nothing is embedded', async () => {
+it('reads the job when one is known, and the Workflow row is its file name', async () => {
   reply.meta = meta({
     metadata: { arguments: { prompt: 'a cat' } },
     job: { id: 'j1', status: 'succeeded' },
   })
   panel()
   await screen.findByText('a cat')
-  expect(getJob).not.toHaveBeenCalled()
+  await waitFor(() => expect(getJob).toHaveBeenCalledWith('j1'))
+  expect(await screen.findByText('clip')).toBeTruthy()
   cleanup()
+  getJob.mockClear()
 
   reply.meta = meta({
     name: 'demo/r1/clip.mp4',

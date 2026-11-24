@@ -83,6 +83,29 @@ it("a clip's rows come from its job's arguments", () => {
   ])
 })
 
+it('the Workflow row is the job file name, not the embedded id', () => {
+  const rows = recipeRows(
+    meta({
+      metadata: { workflow: { id: 'portrait-json-id' } },
+      job: { id: 'j9', status: 'succeeded' },
+    }),
+    job({ workflow_name: 'people/portrait' }),
+    'studio',
+  )
+  expect(rows.find((r) => r.key === 'workflow')?.value).toBe('portrait')
+  const forgotten = recipeRows(
+    meta({
+      metadata: { workflow: { id: 'portrait-json-id' } },
+      job: { id: 'j9', status: 'forgotten' },
+    }),
+    null,
+    'studio',
+  )
+  expect(forgotten.find((r) => r.key === 'workflow')?.value).toBe(
+    'portrait-json-id',
+  )
+})
+
 it('every argument is listed once', () => {
   const rows = recipeRows(
     meta({

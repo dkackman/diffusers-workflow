@@ -1,7 +1,7 @@
 <script lang="ts">
   // "What made this": one read of a file's metadata, and of the job that
-  // made it when the file embeds nothing (video embeds no recipe), shown
-  // open, every argument listed. A page adds its own lines (notes,
+  // made it when it is still on record (it names the workflow by its file,
+  // and a video embeds no recipe), shown open, every argument listed. A page adds its own lines (notes,
   // findings) through `children`, which is handed the same read, so the
   // page makes no second metadata call. Links name the file's own
   // workspace, never the one the picker is on (#1600)
@@ -50,11 +50,12 @@
           workspace: own,
         })
 
-  // The job, read only when the file embeds nothing and names one that
-  // history still holds; a finished job's arguments never change
+  // The job, read whenever the file names one that history still holds: its
+  // file name is the workflow's name, and a clip's arguments come from it.
+  // Embedded arguments still win for the rows; a finished job never changes
   const jobId = $derived.by(() => {
     const m = meta.data
-    if (!m || m.metadata || !m.job || m.job.status === 'forgotten') return null
+    if (!m || !m.job || m.job.status === 'forgotten') return null
     return m.job.id
   })
   const job = resource(
