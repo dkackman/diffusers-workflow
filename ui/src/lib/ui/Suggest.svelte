@@ -134,12 +134,7 @@
             class={item.media || item.detail ? 'rich' : ''}
           >
             {#if item.media}
-              <OutputTile
-                file={item.media}
-                size="row"
-                caption="none"
-                alt=""
-              />
+              <OutputTile file={item.media} size="row" caption="none" alt="" />
             {/if}
             <span class="text">
               <span class="name">{item.label ?? item.value}</span>

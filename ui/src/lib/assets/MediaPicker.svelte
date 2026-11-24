@@ -209,7 +209,9 @@
         <div class="grid">
           {#each section.tiles as tile (tile.key)}
             {#snippet folder()}<span class="folder">{tile.sub}</span>{/snippet}
-            {#snippet here()}<span class="tile-mark here">current</span>{/snippet}
+            {#snippet here()}<span class="tile-mark here">
+                current
+              </span>{/snippet}
             <OutputTile
               file={tile.file}
               size="strip"

@@ -60,3 +60,6 @@ The piece each concept is built from. Reach for it before writing new markup or 
 | What made a file | `RecipePanel` | `src/lib/ui/RecipePanel.svelte` |
 | A reference to copy | `ReferenceChip` | `src/lib/ui/ReferenceChip.svelte` |
 | A file to reuse | `UseAsInput` | `src/lib/gallery/UseAsInput.svelte` |
+| A file or reference to fill in | `ReferenceField` | `src/lib/ui/ReferenceField.svelte` |
+| Whether a run will work | `verdictOf`, then `PlanLines` for what a job will do | `src/lib/runCheck.svelte.ts`, `src/lib/workflow/PlanLines.svelte` |
+| A workflow's search | `catalogMatches` | `src/lib/workflow/catalogSearch.ts` |

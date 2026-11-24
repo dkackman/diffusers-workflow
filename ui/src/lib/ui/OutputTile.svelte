@@ -182,7 +182,9 @@
       {/if}
     </span>
   {/if}
-  {#if meta && size !== 'row'}<span class="tile-meta">{@render meta()}</span>{/if}
+  {#if meta && size !== 'row'}<span class="tile-meta">
+      {@render meta()}
+    </span>{/if}
 {/snippet}
 
 {#if href}
