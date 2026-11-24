@@ -27,6 +27,7 @@
     editable = true,
     draftKey = null,
     listening = false,
+    stops = 0,
     refs = [],
     chip,
     onremoveref,
@@ -51,6 +52,9 @@
     /** Whether an agent session will hear the note now: the button says
      * "Send to agent", else "Save note". Saving works either way */
     listening?: boolean
+    /** How many held items saving a note would stop from starting on
+     * their own (holdsStopped); the open box warns while it is above 0 */
+    stops?: number
     /** What the note is about: a saved note's, or a new one's so far */
     refs?: LedgerNoteRef[]
     /** How a reference is drawn */
@@ -216,6 +220,12 @@
       {/if}
       {#if wordless && refs.length}
         <p class="hint">{NEEDS_WORDS}</p>
+      {/if}
+      {#if stops > 0}
+        <p class="hint" role="status">
+          Saving this note stops {stops === 1 ? '1 item' : `${stops} items`}
+          waiting for your OK from starting on their own.
+        </p>
       {/if}
       <p class="hint muted">
         {listening ? LISTENING_LINE : NOT_LISTENING_LINE}

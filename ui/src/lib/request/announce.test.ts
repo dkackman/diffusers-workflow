@@ -91,7 +91,7 @@ it('says the review banner changed state once, and nothing as it ticks', () => {
   // the same state with fewer seconds left: nothing to say
   expect(announce(held('holding', 60), held('holding', 30))).toBe('')
   expect(announce(held('holding'), held('redirected'))).toBe(
-    'You left a note after these were held: the agent will revise before running.',
+    "The held items won't start on their own: you left a note.",
   )
   expect(announce(held('holding'), held('due', 0))).toBe(
     'Review time is up for the held items.',

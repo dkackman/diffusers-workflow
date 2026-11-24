@@ -296,7 +296,7 @@ it('has no Run now when no held row is ready, and no banner with nothing held', 
   expect(free.container.querySelector('.hold')).toBeNull()
 })
 
-it('counts down while a session listens, and says a redirect without a button', async () => {
+it('counts down while a session listens, and says a redirect with Run now', async () => {
   api.notesChannel.mockResolvedValue({ listening: true, last_seen: null })
   const { container, unmount } = render(RequestHeader, {
     ...props([held('a', 'holding', { ready: true, estimate_minutes: 3 })]),
@@ -314,9 +314,9 @@ it('counts down while a session listens, and says a redirect without a button', 
     onrunheld: vi.fn(),
   })
   expect(banner(redirected.container)).toBe(
-    'You left a note after these were held: the agent will revise before running.',
+    "You left a note after these were held, so they won't start on their own. The agent will read it and may revise them; run them here if they're right as they are.",
   )
-  expect(screen.queryByRole('button', { name: 'Run now…' })).toBeNull()
+  expect(screen.getByRole('button', { name: 'Run now…' })).toBeTruthy()
   redirected.unmount()
   api.notesChannel.mockResolvedValue({ listening: false, last_seen: null })
 })

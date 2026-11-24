@@ -7,6 +7,7 @@
   import { draftKey, refKey } from './draft'
   import { listening } from './listening.svelte'
   import { noteAnchor, noteLine } from './noteState'
+  import { holdsStopped } from './reviewText'
   import { addRef, collapseRefs, writtenRefs } from './noteRefs'
   import { action } from '../action.svelte'
 
@@ -188,6 +189,7 @@
               {editable}
               draftKey={draftKey(workspace, request.id, item, `@${note.id}`)}
               listening={channel.listening}
+              stops={holdsStopped(request)}
               refs={collapseRefs(note.refs ?? [])}
               {chip}
               onsave={(text) => write(note.id, { edit: note, text })}
@@ -206,6 +208,7 @@
         line={null}
         draftKey={draftKey(workspace, request.id, item, refKey(pendingRefs))}
         listening={channel.listening}
+        stops={holdsStopped(request)}
         refs={pendingRefs}
         {chip}
         onremoveref={unref}

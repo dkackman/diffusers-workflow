@@ -595,8 +595,8 @@ it('marks a held row with a chip: its countdown, a note left, or time up', () =>
     unmount()
     return text
   }
-  expect(chip('holding')).toBe('held · 02:05')
-  expect(chip('redirected')).toBe('held · note left')
+  expect(chip('holding')).toBe('waiting for your OK · 02:05')
+  expect(chip('redirected')).toBe('on hold: note left')
   expect(chip('due')).toBe('review time up')
   const { container } = render(RequestItem, props([item('a')]))
   expect(container.querySelector('.chip.held')).toBeNull()

@@ -648,7 +648,7 @@ test('a held item says so, counts down, runs only when asked, and a note turns i
   )
   const title = boardRow(page, 'title')
   const chip = title.locator('.chip.held')
-  await expect(chip).toHaveText(/^held · \d\d:\d\d$/)
+  await expect(chip).toHaveText(/^waiting for your OK · \d\d:\d\d$/)
   const first = await chip.textContent()
   await expect(chip).not.toHaveText(first ?? '', { timeout: 5000 })
 
@@ -665,15 +665,20 @@ test('a held item says so, counts down, runs only when asked, and a note turns i
 
   await expand(title, 'Title card')
   await title.getByRole('button', { name: 'Add a note for the agent' }).click()
+  await expect(
+    title.getByText(
+      'Saving this note stops 1 item waiting for your OK from starting on their own.',
+    ),
+  ).toBeVisible()
   await title
     .getByRole('textbox', { name: 'Note for the agent on Title card' })
     .fill('make the title bolder')
   await title.getByRole('button', { name: 'Save note' }).click()
   await expect(banner).toHaveText(
-    'You left a note after these were held: the agent will revise before running.',
+    "You left a note after these were held, so they won't start on their own, and the agent isn't connected. Run them here, or wait for the agent.",
   )
-  await expect(chip).toHaveText('held · note left')
-  await expect(page.getByRole('button', { name: 'Run now…' })).toHaveCount(0)
+  await expect(chip).toHaveText('on hold: note left')
+  await expect(page.getByRole('button', { name: 'Run now…' })).toBeVisible()
   expect(submitted).toBe(0)
 })
 

@@ -355,3 +355,35 @@ it('a seeded add merges refs and appends to a draft already there', async () => 
   const about = screen.getByRole('list', { name: 'What the note is about' })
   expect(within(about).getAllByRole('listitem')).toHaveLength(2)
 })
+
+const held = (state: 'holding' | 'redirected' | 'due') => ({
+  review: { until: '2026-11-21T12:00:00+00:00', state, seconds_left: 60 },
+})
+const STOPS =
+  'Saving this note stops 1 item waiting for your OK from starting on their own.'
+
+it('the warning follows the latest read', async () => {
+  const given = props({
+    item: null,
+    about: 'this request',
+    notes: [],
+    request: request([item('s3', held('holding')), item('s5')]),
+  })
+  const view = render(NoteList, given as never)
+  await fireEvent.click(
+    screen.getByRole('button', { name: 'Add a note for the agent' }),
+  )
+  const area = () =>
+    screen.getByLabelText(
+      'Note for the agent on this request',
+    ) as HTMLTextAreaElement
+  await fireEvent.input(area(), { target: { value: 'warmer' } })
+  expect(screen.getByText(STOPS)).toBeTruthy()
+  // a read lands: the hold is redirected, and the draft is kept
+  await view.rerender({
+    ...given,
+    request: request([item('s3', held('redirected')), item('s5')]),
+  } as never)
+  expect(screen.queryByText(STOPS)).toBeNull()
+  expect(area().value).toBe('warmer')
+})

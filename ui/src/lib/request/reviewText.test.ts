@@ -8,6 +8,7 @@ import {
   countdown,
   holdGroup,
   holdNews,
+  holdsStopped,
   runNowKeys,
 } from './reviewText'
 import type { LedgerItem, LedgerReview } from '../types'
@@ -100,12 +101,17 @@ it('says a hold with the agent not connected, plural and singular', () => {
   )
 })
 
-it('says a redirected hold, and a due one with and without a session', () => {
+it("a redirected hold says the truth when the agent isn't connected", () => {
   const redirected = group([item('a', { review: review('redirected') })])
-  for (const listening of [true, false])
-    expect(bannerText(redirected, listening, 0)).toBe(
-      'You left a note after these were held: the agent will revise before running.',
-    )
+  expect(bannerText(redirected, true, 0)).toBe(
+    "You left a note after these were held, so they won't start on their own. The agent will read it and may revise them; run them here if they're right as they are.",
+  )
+  expect(bannerText(redirected, false, 0)).toBe(
+    "You left a note after these were held, so they won't start on their own, and the agent isn't connected. Run them here, or wait for the agent.",
+  )
+})
+
+it('says a due hold with and without a session', () => {
   const due = group([item('a', { review: review('due', UNTIL, 0) })])
   expect(bannerText(due, true, 0)).toBe(
     'Review time is up: the agent should be starting it.',
@@ -122,7 +128,7 @@ it('says a redirected hold, and a due one with and without a session', () => {
   )
 })
 
-it('offers Run now for the ready rows of a hold, or of a due one nobody listens for', () => {
+it('offers Run now for the ready rows of a hold, a redirected one, or a due one nobody listens for', () => {
   const holding = group([
     item('a', { review: review('holding'), ready: true }),
     item('b', { review: review('holding') }),
@@ -137,13 +143,40 @@ it('offers Run now for the ready rows of a hold, or of a due one nobody listens 
   const redirected = group([
     item('a', { review: review('redirected'), ready: true }),
   ])
-  expect(runNowKeys(redirected, false)).toEqual([])
+  expect(runNowKeys(redirected, false)).toEqual(['a'])
 })
 
-it("words a held row's chip", () => {
-  expect(chipText(review('holding'), 125)).toBe('held · 02:05')
-  expect(chipText(review('holding'), 3600)).toBe('held · 1:00:00')
-  expect(chipText(review('redirected'), null)).toBe('held · note left')
+it('a redirected hold still offers Run now', () => {
+  const redirected = group([
+    item('a', { review: review('redirected'), ready: true }),
+  ])
+  expect(runNowKeys(redirected, true)).toEqual(['a'])
+})
+
+it('holdsStopped counts holding and due, not redirected', () => {
+  const live = (key: string, state: string | null, dropped = false) => ({
+    key,
+    dropped,
+    review: state ? review(state as never) : null,
+  })
+  const req = {
+    items: [
+      live('a', 'holding'),
+      live('b', 'due'),
+      live('c', 'redirected'),
+      live('d', null),
+      live('e', 'holding', true),
+    ],
+  } as never
+  expect(holdsStopped(req)).toBe(2)
+})
+
+it('the held chip says waiting for your OK', () => {
+  expect(chipText(review('holding'), 125)).toBe('waiting for your OK · 02:05')
+  expect(chipText(review('holding'), 3600)).toBe(
+    'waiting for your OK · 1:00:00',
+  )
+  expect(chipText(review('redirected'), null)).toBe('on hold: note left')
   expect(chipText(review('due'), null)).toBe('review time up')
 })
 
@@ -156,7 +189,7 @@ it('has one sentence for each state, for the live region', () => {
   ])
   expect(holdNews(two)).toBe('2 items waiting for your OK.')
   expect(holdNews(group([item('a', { review: review('redirected') })]))).toBe(
-    'You left a note after these were held: the agent will revise before running.',
+    "The held items won't start on their own: you left a note.",
   )
   expect(holdNews(group([item('a', { review: review('due') })]))).toBe(
     'Review time is up for the held items.',

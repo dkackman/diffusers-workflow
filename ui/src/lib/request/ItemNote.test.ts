@@ -408,3 +408,20 @@ it('words typed while the save is out stay in the box and in storage', async () 
   expect(box().value).toBe('warmer, and slower')
   expect(sessionStorage.getItem('note-draft:test')).toBe('warmer, and slower')
 })
+
+it('the box warns that saving stops the held items', async () => {
+  render(ItemNote, { ...props(), stops: 2 })
+  await fireEvent.click(
+    screen.getByRole('button', { name: 'Add a note for the agent' }),
+  )
+  expect(
+    screen.getByText(
+      'Saving this note stops 2 items waiting for your OK from starting on their own.',
+    ),
+  ).toBeTruthy()
+})
+
+it('no hold, no warning', async () => {
+  await draft('x')
+  expect(screen.queryByText(/Saving this note stops/)).toBeNull()
+})
