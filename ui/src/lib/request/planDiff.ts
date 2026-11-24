@@ -25,7 +25,8 @@ type SeenItem = {
   args: Record<string, string>
 }
 
-/** A request as it was last looked at: enough to diff, never the values */
+/** A request as it was last looked at: enough to diff; a long value is
+ * kept as a hash of it */
 export type Snapshot = { revision: number; items: Record<string, SeenItem> }
 
 /** An argument value longer than this is kept as a hash of it */
@@ -172,14 +173,15 @@ export const markSeen = (workspace: string, read: LedgerRequest) =>
 export type Since = { from: number; to: number; changes: PlanChange[] }
 
 /** What changed since this browser last looked at the request, from its
- * snapshot, which is then replaced by this read. A snapshot at or above
- * the read's revision (a request deleted and made again) says nothing */
+ * snapshot, which is then replaced by this read unless it already is it.
+ * A snapshot at or above the read's revision (a request deleted and made
+ * again) says nothing */
 export function seenSince(
   workspace: string,
   read: LedgerRequest,
 ): Since | null {
   const seen = readSnapshot(workspace, read.id)
-  markSeen(workspace, read)
+  if (seen?.revision !== read.revision) markSeen(workspace, read)
   if (!seen || seen.revision >= read.revision) return null
   try {
     const changes = planDiff(seen, read)
@@ -193,7 +195,8 @@ export function seenSince(
 
 /** The agent's newest write among those `next` brought over `previous`,
  * with what it changed; null for a first read, the user's own writes, or a
- * write that changed no item */
+ * write that changed no item. A read that brings several writes lists all
+ * their changes under the newest agent write among them */
 export function agentChanges(
   previous: LedgerRequest | null,
   next: LedgerRequest,
@@ -215,7 +218,9 @@ export const UNSEEN: Seen = { diffs: {}, since: null }
 
 /** `held` after a read replaced `previous` with `next`: an agent write's
  * changes kept under it, and on a first read what changed since the last
- * visit. Each diff is against the read the page held, never the snapshot */
+ * visit. Each diff is against the read the page held, never the snapshot.
+ * Every read that moves the revision is what was last seen, so the next
+ * visit lists only what this one did not show, the user's writes included */
 export function afterRead(
   workspace: string,
   previous: LedgerRequest | null,
@@ -226,7 +231,9 @@ export function afterRead(
   const diffs = brought
     ? { ...held.diffs, [brought.revision]: brought.changes }
     : held.diffs
-  return { diffs, since: previous ? held.since : seenSince(workspace, next) }
+  if (!previous) return { diffs, since: seenSince(workspace, next) }
+  if (next.revision !== previous.revision) markSeen(workspace, next)
+  return { diffs, since: held.since }
 }
 
 /** Dismiss: the panel goes, and the request as held now is what was seen */

@@ -38,9 +38,9 @@
   const seconds = (at: string) => Date.parse(at) / 1000
 </script>
 
-{#snippet lines(changes: PlanChange[])}
+{#snippet lines(list: PlanChange[])}
   <ul class="diff">
-    {#each changes as change, i (i)}<li>{lineOf(change)}</li>{/each}
+    {#each list as change, i (i)}<li>{lineOf(change)}</li>{/each}
   </ul>
 {/snippet}
 

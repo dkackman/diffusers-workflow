@@ -12,6 +12,7 @@ import { workspace } from '../workspaceState.svelte'
 import { ApiError } from '../apiErrors'
 import { fakeLedger } from '../request/fakeLedger'
 import { PlanStore } from '../request/planStore.svelte'
+import { readSnapshot } from '../request/planDiff'
 import {
   attempt,
   doneItem,
@@ -259,6 +260,25 @@ it('declining the confirm drops nothing', async () => {
   expect(order()).toEqual(['cast', 's3', 's4', 'cut'])
   expect(world.ledger.puts).toHaveLength(0)
   expect(world.notify.undo).not.toHaveBeenCalled()
+})
+
+it("the user's own write never appears in the next visit's panel", async () => {
+  localStorage.clear()
+  await start()
+  await choose('s3', 'Drop from plan')
+  await saved(4)
+  const at4 = () =>
+    waitFor(() =>
+      expect(document.querySelector('.rail .now')?.textContent).toBe(
+        'now at r4',
+      ),
+    )
+  await at4()
+  cleanup()
+  await start()
+  await at4()
+  expect(document.querySelector('.since')).toBeNull()
+  expect(readSnapshot('studio', 'r1')?.revision).toBe(4)
 })
 
 it('an item nothing was run for is deleted by the drop, and Restore brings it back', async () => {

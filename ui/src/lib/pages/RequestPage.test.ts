@@ -857,3 +857,42 @@ it('a diff is taken against the read the page held, not the snapshot', async () 
   // the panel still says what it said: the visit's own snapshot is r3
   expect(sinceLines()).toEqual(['Changed Second poster: its arguments (seed)'])
 })
+
+it('a change seen live is not listed again on the next visit', async () => {
+  localStorage.clear()
+  render(RequestPage, { requestId: 'r1' })
+  await loaded()
+  data.request = agentRename(1, 'Second poster, in red')
+  feed.move('studio', 'requests')
+  await atRevision(4)
+  cleanup()
+  render(RequestPage, { requestId: 'r1' })
+  await loaded()
+  await atRevision(4)
+  expect(document.querySelector('.since')).toBeNull()
+  expect(readSnapshot('studio', 'r1')?.revision).toBe(4)
+})
+
+it('a read that does not move the revision writes nothing', async () => {
+  const { api } = await import('../api')
+  localStorage.clear()
+  seenAtR1('studio', 3)
+  const set = vi.spyOn(Storage.prototype, 'setItem')
+  const seenWrites = () =>
+    set.mock.calls.filter(([key]) => key.includes('request-seen')).length
+  try {
+    render(RequestPage, { requestId: 'r1' })
+    await loaded()
+    const reads = vi.mocked(api.getRequest).mock.calls.length
+    data.request = make()
+    feed.move('studio', 'requests')
+    await waitFor(() =>
+      expect(vi.mocked(api.getRequest).mock.calls.length).toBe(reads + 1),
+    )
+    await new Promise((r) => setTimeout(r, 20))
+    expect(seenWrites()).toBe(0)
+    expect(document.querySelector('.since')).toBeNull()
+  } finally {
+    set.mockRestore()
+  }
+})

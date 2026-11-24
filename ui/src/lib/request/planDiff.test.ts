@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest'
-import { item, request } from './fixtures'
-import { lineOf, planDiff, snapshotOf } from './planDiff'
+import { entry, item, request } from './fixtures'
+import { agentChanges, lineOf, planDiff, snapshotOf } from './planDiff'
 
 const lines = (...args: Parameters<typeof planDiff>) =>
   planDiff(...args).map(lineOf)
@@ -72,4 +72,25 @@ it('nothing changed, no lines', () => {
   ])
   expect(lines(read, structuredClone(read))).toEqual([])
   expect(lines(snapshotOf(read), { ...read, revision: 9 })).toEqual([])
+})
+
+it('one read bringing two agent writes lists them all under the newer', () => {
+  const before = request([item('a', { title: 'Shot 1' })])
+  const after = request(
+    [item('a', { title: 'Opening shot', arguments: { seed: 2 } })],
+    {
+      revision: 6,
+      history: [
+        entry(4, 'agent', 'renamed'),
+        entry(5, 'agent', 'reseeded'),
+        entry(6, 'user', 'from another tab'),
+      ],
+    },
+  )
+  const brought = agentChanges(before, after)
+  expect(brought?.revision).toBe(5)
+  expect(brought?.changes.map(lineOf)).toEqual([
+    'Renamed Shot 1 to Opening shot',
+    'Changed Opening shot: its arguments (seed)',
+  ])
 })
