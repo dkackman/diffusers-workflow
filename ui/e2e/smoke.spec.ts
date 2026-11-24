@@ -9,7 +9,7 @@ test('workflow browser lists, describes and filters', async ({ page }) => {
   ).toBeVisible()
   // the filter searches descriptions, not just names: 'fill dev' appears in
   // outpaint's description and in no workflow's name
-  await page.getByPlaceholder('filter…').fill('fill dev')
+  await page.getByPlaceholder('search workflows…').fill('fill dev')
   await expect(page.getByRole('link', { name: /^outpaint / })).toBeVisible()
   await expect(page.getByRole('link', { name: /^z-image / })).toHaveCount(0)
 })
@@ -370,7 +370,8 @@ test('the workflow page checks a run as you edit, and places each finding', asyn
     const body = route.request().postDataJSON() as Record<string, unknown>
     asked.push({ url: route.request().url(), body })
     const args = (body.arguments ?? {}) as Record<string, unknown>
-    const refused = args.num_inference_steps === '0'
+    // the page sends typed values: a number, not the typed string
+    const refused = args.num_inference_steps === 0
     await route.fulfill({
       json: {
         valid: !refused,
