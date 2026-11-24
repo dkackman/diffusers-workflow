@@ -423,6 +423,7 @@ test('the workflow page checks a run as you edit, and places each finding', asyn
   ).toContainText('must be at least 1')
   // the field's error is shown under the field and nowhere in the run check
   await expect(check).not.toContainText('must be at least 1')
-  // the check never gates Run
-  await expect(page.getByRole('button', { name: /Run/ })).toBeEnabled()
+  // a refusing check turns Run into Fix, which goes to the field
+  await page.getByRole('button', { name: 'Fix 1 issue' }).click()
+  await expect(page.getByLabel('num_inference_steps')).toBeFocused()
 })

@@ -328,28 +328,77 @@ describe('WorkflowPage run check', () => {
     expect(document.querySelector('[data-findings-for="seed"]')).toBeNull()
   })
 
-  it('keeps Run enabled with errors present, and a refused Run still toasts', async () => {
-    vi.mocked(api.validate).mockResolvedValue({
+  const refused = (errors: { path: string; message: string }[]) =>
+    ({
       valid: false,
       error: 'refused',
-      errors: [{ path: 'arguments.seed', message: 'not an integer' }],
+      errors,
       warnings: [],
-    } as unknown as ValidationResult)
-    vi.mocked(api.submitJob).mockRejectedValue(
-      new Error('seed: not an integer'),
+    }) as unknown as ValidationResult
+
+  it('a refused check turns Run into Fix 2 issues, which focuses the first field', async () => {
+    vi.mocked(api.validate).mockResolvedValue(
+      refused([
+        { path: 'arguments.seed', message: 'not an integer' },
+        { path: 'arguments.prompt', message: 'too long' },
+      ]),
     )
     await openPage()
-    const runButton = screen.getByRole('button', { name: /Run/ })
-    expect((runButton as HTMLButtonElement).disabled).toBe(false)
-    await fireEvent.click(runButton)
+    const fix = screen.getByRole('button', { name: 'Fix 2 issues' })
+    expect(fix.getAttribute('title')).toBe('Shows what would stop this job')
+    await fireEvent.click(fix)
+    expect(document.activeElement).toBe(field('prompt'))
+    expect(api.submitJob).not.toHaveBeenCalled()
+  })
+
+  it('Fix scrolls to the first general issue when no field has one', async () => {
+    vi.mocked(api.validate).mockResolvedValue(
+      refused([{ path: 'model_name', message: 'unknown model' }]),
+    )
+    await openPage()
+    const target = document.getElementById('issue-0')!
+    target.scrollIntoView = vi.fn()
+    await fireEvent.click(screen.getByRole('button', { name: 'Fix 1 issue' }))
+    expect(target.scrollIntoView).toHaveBeenCalled()
+  })
+
+  it('Run comes back once the check stops refusing', async () => {
+    vi.mocked(api.validate).mockResolvedValueOnce(
+      refused([{ path: 'arguments.seed', message: 'not an integer' }]),
+    )
+    await openPage()
+    expect(screen.getByRole('button', { name: 'Fix 1 issue' })).toBeTruthy()
+    await type('seed', '3')
+    await advance(600)
+    const run = screen.getByRole('button', { name: 'Run' })
+    vi.mocked(api.submitJob).mockRejectedValue(new Error('boom'))
+    await fireEvent.click(run)
     await advance()
     expect(notify.failure).toHaveBeenCalledWith(
       expect.stringMatching(/^run /),
-      expect.objectContaining({ message: 'seed: not an integer' }),
+      expect.objectContaining({ message: 'boom' }),
     )
   })
 
-  it('keeps Run enabled while a check is in flight', async () => {
+  it('a gated verdict keeps Run', async () => {
+    vi.mocked(api.validate).mockResolvedValue({
+      ...valid,
+      plan: {
+        ...valid.plan,
+        downloads_required: [
+          { repo: 'a/b', access_blocked: true, not_found: false },
+        ],
+      },
+    } as unknown as ValidationResult)
+    await openPage()
+    expect(
+      screen.getByText('This model needs Hugging Face access.'),
+    ).toBeTruthy()
+    const run = screen.getByRole('button', { name: 'Run' })
+    expect((run as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  it('a check in flight does not block Run', async () => {
     vi.mocked(api.validate).mockImplementation(() => new Promise(() => {}))
     await openPage()
     const runButton = screen.getByRole('button', { name: /Run/ })

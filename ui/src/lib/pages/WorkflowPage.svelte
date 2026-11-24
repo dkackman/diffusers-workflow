@@ -173,6 +173,26 @@
     verdictOf(runCheck.validation, runCheck.error, placed),
   )
 
+  /** A refused check turns Run into Fix: nothing else gates Run */
+  const fixing = $derived(
+    verdict?.tone === 'bad' && verdict.issues > 0 ? verdict.issues : 0,
+  )
+
+  /** Bring the first issue into view: the first field with an error, in
+   * form order, else the first general finding */
+  function showFirstIssue() {
+    const key = variables
+      .map(([k]) => k)
+      .find((k) => placed.byVariable[k]?.some((f) => f.tone === 'bad'))
+    const target =
+      key === undefined
+        ? document.getElementById('issue-0')
+        : document.getElementById(`var-${key}`)
+    if (!target) return
+    target.scrollIntoView?.({ block: 'center' })
+    if (key !== undefined) target.focus()
+  }
+
   function newFrom() {
     if (!workflow) return
     sessionStorage.setItem('dw-editor-import', JSON.stringify(workflow))
@@ -246,12 +266,18 @@
     </button>
     <button
       class="withicon run"
-      onclick={() => void running.run()}
+      onclick={() => (fixing ? showFirstIssue() : void running.run())}
       disabled={running.busy || !workflow}
       aria-busy={running.busy}
-      title="queue this workflow with the variables below"
+      title={fixing
+        ? 'Shows what would stop this job'
+        : 'queue this workflow with the variables below'}
     >
-      <Play size={14} />{running.busy ? 'Submitting…' : 'Run'}
+      <Play size={14} />{running.busy
+        ? 'Submitting…'
+        : fixing
+          ? `Fix ${fixing} ${fixing === 1 ? 'issue' : 'issues'}`
+          : 'Run'}
     </button>{/snippet}
 </PageHeader>
 
