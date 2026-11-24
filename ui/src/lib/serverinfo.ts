@@ -57,7 +57,9 @@ export function isLoopbackBind(host: string): boolean {
     host === '127.0.0.1' ||
     host === 'localhost' ||
     host === '::1' ||
-    host.startsWith('127.')
+    host === '[::1]' ||
+    host.startsWith('127.') ||
+    host.startsWith('::ffff:127.')
   )
 }
 

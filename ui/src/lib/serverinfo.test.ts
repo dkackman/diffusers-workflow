@@ -96,7 +96,14 @@ describe('mcp add command token header', () => {
 
 describe('bind classification', () => {
   it('recognises loopback binds', () => {
-    for (const host of ['127.0.0.1', 'localhost', '::1', '127.0.1.1'])
+    for (const host of [
+      '127.0.0.1',
+      'localhost',
+      '::1',
+      '127.0.1.1',
+      '[::1]',
+      '::ffff:127.0.0.1',
+    ])
       expect(isLoopbackBind(host)).toBe(true)
     for (const host of ['0.0.0.0', '192.168.1.50', '::'])
       expect(isLoopbackBind(host)).toBe(false)

@@ -218,6 +218,28 @@ it('a wildcard bind lists its addresses', async () => {
   expect(text).not.toContain('Only this machine can reach this server')
 })
 
+it('a bind to one address offers that address only', async () => {
+  const text = await show({
+    bind_host: '10.0.0.7',
+    wildcard_bind: false,
+    addresses: [
+      { address: '192.168.1.50', family: 'IPv4', interface: 'enp6s0' },
+      { address: '10.0.0.7', family: 'IPv4', interface: 'eth1' },
+    ],
+  })
+  expect(text).toContain('http://10.0.0.7:8765')
+  expect(text).toContain(
+    'claude mcp add --transport http dw http://10.0.0.7:8765/mcp',
+  )
+  expect(text).not.toContain('192.168.1.50')
+})
+
+it('a bind to an address no interface lists still offers it', async () => {
+  const text = await show({ bind_host: '10.9.9.9', wildcard_bind: false })
+  expect(text).toContain('http://10.9.9.9:8765')
+  expect(text).not.toContain('192.168.1.50')
+})
+
 it('no token required, no token note', async () => {
   const text = await show({ auth_required: false })
   expect(text).toContain(

@@ -29,7 +29,22 @@
 
   /** Which interface address the connect snippets are written against. */
   let selected = $state('')
-  const addresses = $derived(info?.addresses ?? [])
+  // A wildcard bind answers on every interface; a bind to one address answers
+  // on that address only, so it is the only one worth offering
+  const addresses = $derived.by(() => {
+    if (!info) return []
+    if (info.wildcard_bind || isLoopbackBind(info.bind_host)) {
+      return info.addresses
+    }
+    const named = info.addresses.find((a) => a.address === info.bind_host)
+    return [
+      named ?? {
+        address: info.bind_host,
+        family: info.bind_host.includes(':') ? 'IPv6' : 'IPv4',
+        interface: '',
+      },
+    ]
+  })
   const address = $derived(
     addresses.find((a) => a.address === selected)?.address ??
       addresses[0]?.address ??
@@ -95,7 +110,7 @@
     <p class="muted note">
       {#if info.wildcard_bind}
         A wildcard bind is reachable on every address listed below.
-      {:else if isLoopbackBind(info.bind_host)}
+      {:else if loopback}
         A loopback bind is reachable only from this machine.
       {:else}
         This server answers on {info.bind_host} only.
