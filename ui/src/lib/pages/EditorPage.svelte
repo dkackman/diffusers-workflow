@@ -441,7 +441,7 @@
 
           <StepList
             bind:steps={ed.doc.steps}
-            workflow={ed.doc}
+            bind:workflow={ed.doc}
             {modes}
             folder={ed.folder === NEW_FOLDER ? '' : ed.folder}
             {flow}

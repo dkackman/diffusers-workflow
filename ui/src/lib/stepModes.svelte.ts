@@ -30,6 +30,20 @@ export class StepModes {
     this.#modes[name] = mode
   }
 
+  /** A renamed step keeps its mode. One the person picked stays
+   * remembered; one only marked for this session stays unstored. */
+  rename(from: string, to: string) {
+    if (from in this.#modes) {
+      this.#modes[to] = this.#modes[from]
+      delete this.#modes[from]
+    }
+    const stored = storageGet<Record<string, StepMode>>(this.#key(), {})
+    if (!(from in stored)) return
+    stored[to] = stored[from]
+    delete stored[from]
+    storageSet(this.#key(), stored)
+  }
+
   setAll(steps: Record<string, any>[], mode: StepMode) {
     for (const step of steps) this.#modes[step.name] = mode
     this.#persist()

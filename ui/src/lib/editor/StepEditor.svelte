@@ -27,6 +27,7 @@
   import type { StepFlow } from '../flow'
   import { BUILTIN, reference } from '../references'
   import { earlierResults } from '../referenceField'
+  import { stepNameProblem } from '../stepRename'
 
   let {
     step = $bindable(),
@@ -42,6 +43,7 @@
     onhover = undefined,
     onremove,
     onmove,
+    onrename = undefined,
   }: {
     step: Record<string, any>
     index: number
@@ -58,7 +60,23 @@
     onhover?: (stepName: string | null) => void
     onremove: () => void
     onmove: (delta: number) => void
+    // A name the step may take: free, and nothing a reference misreads
+    onrename?: (to: string) => void
   } = $props()
+
+  // The name field commits on change; a name it refuses is said under the
+  // bar and the field goes back to the name the step keeps
+  let nameProblem = $state<string | null>(null)
+  function rename(field: HTMLInputElement) {
+    const to = field.value
+    if (to === step.name) return
+    const others = (workflow.steps ?? [])
+      .filter((s: Record<string, any>) => s !== step && s?.name !== step.name)
+      .map((s: Record<string, any>) => s?.name)
+    nameProblem = stepNameProblem(to, others)
+    if (nameProblem) field.value = step.name
+    else onrename?.(to)
+  }
 
   // What a sub-workflow step's path can name: the library's workflows, then
   // the packaged fragments as builtin: names
@@ -168,7 +186,11 @@
     </button>
     <input
       class="name"
-      bind:value={step.name}
+      value={step.name}
+      onchange={(e) => rename(e.currentTarget)}
+      oninput={() => (nameProblem = null)}
+      aria-invalid={nameProblem ? true : undefined}
+      aria-describedby={nameProblem ? `stepname-${index}` : undefined}
       title="step name - how later steps reference this one"
     />
     <span class="kind muted">{kind}</span>
@@ -242,6 +264,11 @@
     </button>
   </div>
 
+  {#if nameProblem}
+    <p id={`stepname-${index}`} class="error nameproblem" role="alert">
+      {nameProblem}
+    </p>
+  {/if}
   {#each problems as problem (problem)}
     <div class="stepwarn"><TriangleAlert size={13} /> {problem}</div>
   {/each}
@@ -395,7 +422,7 @@
     gap: 0.4rem 0.5rem;
   }
   .name {
-    max-width: 220px;
+    max-width: 480px;
     font-weight: 600;
   }
   .kind {
@@ -450,6 +477,9 @@
     color: var(--good);
     border-color: color-mix(in srgb, var(--good) 45%, transparent);
     background: color-mix(in srgb, var(--good) 12%, transparent);
+  }
+  .nameproblem {
+    margin: var(--space-2) 0 0;
   }
   .stepwarn {
     display: flex;
