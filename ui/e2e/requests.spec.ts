@@ -737,13 +737,14 @@ test('running a ready item queues a job bound to its quote, and the job appears 
   await page.goto(BOARD)
   const title = boardRow(page, 'title')
   await expect(title.locator('.chipcell .chip')).toHaveText('ready')
-  // the failed shots earlier tests left are offered too, so the count is
-  // the ready title plus however many of them there are
+  // the header counts what the dialog offers: the ready title and every
+  // failed item that can run again, however many earlier tests left
   const header = page.getByRole('button', { name: /^Run \d+…$/ })
   const offered = Number(/\d+/.exec((await header.textContent()) ?? '')?.[0])
-  expect(offered).toBeGreaterThan(1)
   await header.click()
   const dialog = page.getByRole('dialog', { name: 'Run what can run now' })
+  await expect(dialog.locator('.runrow')).toHaveCount(offered)
+  await expect(dialog.locator('.runrow[data-key="title"]')).toHaveCount(1)
   const submit = page.waitForResponse(
     (r) =>
       r.request().method() === 'POST' &&
@@ -774,10 +775,12 @@ test('running a ready item queues a job bound to its quote, and the job appears 
   await expect(title.locator('.chipcell .chip')).toHaveText(
     /queued|running|done/,
   )
-  // only the failed shots are still offered
-  await expect(
-    page.getByRole('button', { name: `Run ${offered - 1}…` }),
-  ).toBeVisible()
+  // the title is no longer offered: whatever else was, still is
+  if (offered > 1)
+    await expect(
+      page.getByRole('button', { name: `Run ${offered - 1}…` }),
+    ).toBeVisible()
+  else await expect(header).toHaveCount(0)
   const stored = await ledger(request)
   const item = stored.items.find((i: Stored) => i.key === 'title')
   expect(item.attempts.map((a: { job: string }) => a.job)).toEqual([job.id])

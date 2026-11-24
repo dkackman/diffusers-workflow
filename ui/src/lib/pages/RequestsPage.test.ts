@@ -75,9 +75,7 @@ it('lists a request as one row: its pictures, what it wants, how far and what it
   expect(screen.getByText('r1')).toBeTruthy()
   expect(link.querySelector('.tag')?.textContent).toBe('open')
   const line = link.querySelector('.attention') as HTMLElement
-  expect(line.textContent?.trim()).toBe(
-    '1 planned, nothing running',
-  )
+  expect(line.textContent?.trim()).toBe('1 planned, nothing running')
   expect(line.classList.contains('idle')).toBe(true)
   expect(
     screen.getByRole('img', { name: '2 done, 1 not started' }),

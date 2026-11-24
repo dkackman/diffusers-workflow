@@ -59,7 +59,8 @@ const counted = (n: number) => (n === 1 ? '1 item' : `${n} items`)
 
 const REDIRECTED_LEAD =
   "You left a note after these were held, so they won't start on their own"
-const REDIRECTED_NEWS = "The held items won't start on their own: you left a note."
+const REDIRECTED_NEWS =
+  "The held items won't start on their own: you left a note."
 
 /** The banner's words. `left` is the seconds to the first deadline */
 export function bannerText(
@@ -91,8 +92,7 @@ export function bannerText(
  * hold or a redirected one, or of a due one with the agent not connected to
  * run it. Empty: no button */
 export function runNowKeys(group: HoldGroup, listening: boolean): string[] {
-  const offered =
-    group.state !== 'due' || !listening
+  const offered = group.state !== 'due' || !listening
   if (!offered) return []
   return group.rows
     .filter((row) => row.display === 'ready')
@@ -119,6 +119,7 @@ export function holdNews(group: HoldGroup): string {
 export function holdsStopped(request: LedgerRequest): number {
   return request.items.filter(
     (i) =>
-      !i.dropped && (i.review?.state === 'holding' || i.review?.state === 'due'),
+      !i.dropped &&
+      (i.review?.state === 'holding' || i.review?.state === 'due'),
   ).length
 }
