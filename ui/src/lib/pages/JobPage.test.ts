@@ -953,6 +953,37 @@ it('refetches the detail on queue_wait and on a live warning, not on a stall', a
   )
 })
 
+it("the seed warning is folded under the author's notes", async () => {
+  detail.job = {
+    ...job([]),
+    warnings: ['gen: the step cache ignores the seed'],
+  }
+  const { container } = render(JobPage, { jobId: 'j1' })
+  const summary = await screen.findByText("1 note for the workflow's author")
+  expect(summary.closest('details')!.open).toBe(false)
+  expect(container.querySelector('.warnrow')).toBeNull()
+  expect(container.querySelector('.warn-edge')).toBeNull()
+})
+
+it('a warning about an argument this job was given stays in view', async () => {
+  detail.job = {
+    ...job([]),
+    arguments: { prompt: 'a cat' },
+    warnings: [
+      'arguments.prompt: too long',
+      'gen: the step cache ignores the seed',
+    ],
+  }
+  const { container } = render(JobPage, { jobId: 'j1' })
+  await waitFor(() =>
+    expect(container.querySelector('.warnrow')?.textContent).toContain(
+      'too long',
+    ),
+  )
+  expect(container.querySelectorAll('.warnrow')).toHaveLength(1)
+  expect(screen.getByText("1 note for the workflow's author")).toBeTruthy()
+})
+
 it('shows a stall line while a phase_stall is the latest event', async () => {
   detail.job = { ...job([]), status: 'running', finished_at: null }
   const { container } = render(JobPage, { jobId: 'j1' })
