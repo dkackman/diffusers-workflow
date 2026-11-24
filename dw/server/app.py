@@ -38,8 +38,7 @@ logger = logging.getLogger("dw")
 
 
 def default_ui_dir():
-    """The built SPA: ui/dist in a checkout, else dw/server/ui in the wheel,
-    else None."""
+    """The built SPA: ui/dist in a checkout, else the wheel's dw/server/ui, or None."""
     here = os.path.dirname(os.path.abspath(__file__))
     candidates = [
         os.path.join(os.path.dirname(os.path.dirname(here)), "ui", "dist"),
@@ -83,14 +82,12 @@ def _lifespan(manager, mcp_server, mcp_client):
         if mcp_server is None:
             yield
         else:
-            # the SDK session manager is the sub-app's lifespan, which
-            # Starlette does not run
+            # the SDK session manager is the sub-app's lifespan, which Starlette skips
             try:
                 async with mcp_server.session_manager.run():
                     yield
             finally:
-                # the client's connection pool must not leak if the session
-                # manager fails to start
+                # the client's pool must not leak if the session manager fails to start
                 mcp_client.close()
         manager.shutdown()
 
@@ -102,15 +99,18 @@ def _store_directories(
 ):
     """The directories every handler resolves against, on `app.state`."""
     state.job_manager = manager
-    # Job history as a cost, recomputed when the jobs table moves (#93)
+    # Job history as a cost, recomputed when the jobs table moves, not a file: a
+    # job landing changes no workflow file (#93)
     state.observed_costs = ObservedCosts(getattr(manager, "history", None))
     state.workflow_dir = workflow_dir
     state.prompt_dir = prompt_dir
     # Where uploads land and 'asset:' resolves; None: uploads/keep/delete 409
     state.asset_dir = os.path.abspath(asset_dir) if asset_dir else None
-    # The root the directories above default to; None without one
+    # The root the directories above default to; None without one (a test
+    # building an app around three explicit directories)
     state.workspace = os.path.abspath(workspace) if workspace else None
-    # The LoRA catalog written (root's loras/); None without a root: a save 409s
+    # The LoRA catalog written (root's loras/), shared by all like the prompt library;
+    # None without a root: the shipped catalog is still read, and a save 409s
     state.lora_dir = (
         os.path.join(state.workspace, LORAS_SUBDIR) if state.workspace else None
     )
@@ -121,7 +121,8 @@ def _store_directories(
             "is no longer listed and LoRA saves land beside its folders. "
             "Rename the directory to keep using it."
         )
-    # The root holding named workspaces; its folders are the default one
+    # The root holding named workspaces; its folders are the default one, so a
+    # server given directory overrides has that one workspace and no others
     state.workspace_root = (
         Workspace(state.workspace, "flag") if state.workspace else None
     )
@@ -136,7 +137,7 @@ def _store_directories(
     )
 
     # The folder of a workspace's requests.json, for a rerun's ledger check
-    # (None, never raises, when the workspace is gone)
+    # (None, never raises, when the workspace is gone, which the rerun warns about)
     def ledger_root_for(name):
         from .deps import workspace_for
 
@@ -146,8 +147,9 @@ def _store_directories(
             return None
 
     manager.ledger_root_for = ledger_root_for
-    # A StaticFiles per output/asset root, built lazily and reused, so
-    # /outputs and /inputs answer 304 and 206 instead of resending the file
+    # A StaticFiles per output/asset root, built lazily (a mount binds one
+    # directory at startup and a named workspace's root may not exist yet). Reused,
+    # so /outputs and /inputs answer 304 and 206 instead of resending the file
     state.static_files_by_root = {}
     # The two sets zip_download's policy reads, exposed for tests
     state.media_kinds = MEDIA_KINDS
@@ -180,11 +182,11 @@ def _store_serving(
 
 
 def _mount_mcp(app, mcp_asgi):
-    """The two `/mcp` routes, not app.mount("/mcp"): a Mount only matches
-    *under* its prefix, so a bare POST /mcp (the configured URL) would fall
-    to the SPA catch-all and 405. Exactly the two spellings
-    require_bearer_token gates; one "/mcp{path:path}" would also answer
-    /mcpfoo. build_mcp_app's wrapper normalizes the path for the SDK."""
+    """The two `/mcp` routes, not app.mount("/mcp"): a Mount only matches *under*
+    its prefix, so a bare POST /mcp (the configured URL) would fall to the SPA
+    catch-all and 405. Exactly the two spellings require_bearer_token gates; one
+    "/mcp{path:path}" would also answer /mcpfoo. build_mcp_app's wrapper
+    normalizes the path for the SDK."""
     app.router.routes.append(Route("/mcp", endpoint=mcp_asgi, name="mcp"))
     app.router.routes.append(
         Route("/mcp/{sub_path:path}", endpoint=mcp_asgi, name="mcp_sub")
@@ -213,13 +215,11 @@ def create_app(
 
     `devices` is `--devices` as resolved: one worker per entry (#462).
 
-    `host` is the bound address, added to the Host-header allowlist beside
-    loopback so a bind to one non-loopback address accepts its own requests.
-    `token`, if given, is a bearer token required on every /api/* request
-    (require_bearer_token in http_security).
+    `host` is the bound address, added to the Host-header allowlist beside loopback so a
+    bind to one non-loopback address accepts its own requests. `token`, if given, is the
+    bearer token every /api/* request needs (http_security's require_bearer_token).
 
-    Registration order is the surface: `ROUTERS` order, `/mcp`, the files
-    routes, then the UI mount.
+    Registration order is the surface: `ROUTERS`, `/mcp`, the files routes, the UI.
     """
     manager = job_manager or JobManager(
         output_dir, log_level=log_level, workflow_dir=workflow_dir, devices=devices
@@ -285,8 +285,8 @@ def create_app(
 
     resolved_ui = ui_dir or default_ui_dir()
     if resolved_ui:
-        # Last, so /api and /outputs win; html=True serves index.html at /
-        # (the SPA routes by hash, no fallback needed)
+        # Last, so /api and /outputs win; html=True serves index.html at / (the
+        # SPA routes by hash, no fallback needed)
         app.mount("/", UiFiles(directory=resolved_ui, html=True), name="ui")
 
     return app
