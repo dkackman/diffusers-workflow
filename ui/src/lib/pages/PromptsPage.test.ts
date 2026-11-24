@@ -228,3 +228,25 @@ it('a quiet reload keeps focus, filter and selection', async () => {
     'fog',
   ])
 })
+
+it('the name has its own line, and the model chip sits with the tags', async () => {
+  const long = 'a-very-long-prompt-name-that-would-have-been-cut-by-its-chip'
+  listPrompts.mockResolvedValue({
+    ...answer([long]),
+    details: {
+      [long]: {
+        ...detail('workspace', true),
+        intended_model: 'flux-dev',
+        tags: ['anime'],
+      },
+    },
+  })
+  render(PromptsPage)
+  const name = await screen.findByText(long)
+  const chip = screen.getByRole('button', { name: 'flux-dev' })
+  const tag = screen.getByRole('button', { name: 'anime' })
+  expect(name.parentElement?.contains(chip)).toBe(false)
+  expect(chip.parentElement).toBe(tag.parentElement)
+  expect(chip.parentElement?.firstElementChild).toBe(chip)
+  expect(name.getAttribute('title')).toBe(long)
+})
