@@ -15,6 +15,27 @@ export function appendQuery(url: string, key: string, value: string): string {
   return `${url}${separator}${key}=${encodeURIComponent(value)}`
 }
 
+type QueryValue = string | number | boolean | string[] | null | undefined
+
+/** The query string of `fields`' set values, in order ('' when none is): a
+ * falsy value is left out, `true` is sent as 'true', a list's values are
+ * each sent under the key. */
+export function queryOf(fields: Record<string, QueryValue>): string {
+  const query = new URLSearchParams()
+  for (const [key, value] of Object.entries(fields)) {
+    if (Array.isArray(value)) for (const v of value) query.append(key, v)
+    else if (value) query.set(key, String(value))
+  }
+  return query.toString()
+}
+
+/** A listing's requests-ledger filter as `queryOf` fields: an `item` is
+ * sent only with its `request`. */
+export const linked = (request?: string, item?: string) => ({
+  request,
+  item: request && item,
+})
+
 /** Scope a path to a workspace. The server defaults to 'default' when no
  * selector is sent, so that one sends nothing and the request looks
  * exactly as it did before workspaces existed. Routes that are not

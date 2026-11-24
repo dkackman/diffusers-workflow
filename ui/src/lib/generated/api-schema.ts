@@ -338,7 +338,12 @@ export interface paths {
          *     by, since size and mtime are misleading proxies for length (#356).
          *     Off by default and bounded by `limit`: only the page actually
          *     returned is probed, not the whole listing, so the cost of asking
-         *     stays proportional to the page size rather than the library size.
+         *     stays proportional to the page size rather than the library size. A
+         *     file's answer is memoised on its mtime and size (`_probed`).
+         *
+         *     `prompts=true` adds `prompts`: run id -> the `prompt` argument its job
+         *     was submitted with, for the runs on the page. A run whose job history
+         *     no longer holds has no entry.
          *
          *     Each entry carries `role`, `final` or `intermediate` (null for a
          *     flat-layout file or one no manifest lists); a file a later run read
@@ -769,7 +774,8 @@ export interface paths {
          *     `limit` keeps the newest N, and `total` always reports how many
          *     matched before the cut, so a caller can tell a bounded answer from a
          *     complete one. The default is still every matching job, oldest first -
-         *     what the web UI polls.
+         *     what the web UI polls. `prompts=true` adds `prompts`: each listed job's
+         *     submitted `prompt` argument by job id.
          */
         get: operations["list_jobs_api_jobs_get"];
         put?: never;
@@ -2607,7 +2613,7 @@ export interface components {
             absolute_url?: string;
             /**
              * Duration Seconds
-             * @description An audio or video file's length, with `media=true`.
+             * @description A/V length with `media=true`.
              */
             duration_seconds?: number | null;
             /** Folder */
@@ -2699,6 +2705,13 @@ export interface components {
             limit: number;
             /** Offset */
             offset: number;
+            /**
+             * Prompts
+             * @description Run id -> prompt, with `prompts=true`.
+             */
+            prompts?: {
+                [key: string]: string;
+            };
             /** Subfolders */
             subfolders: string[];
             /** Total */
@@ -3011,6 +3024,13 @@ export interface components {
              * @description Oldest first.
              */
             jobs: components["schemas"]["JobSummary"][];
+            /**
+             * Prompts
+             * @description Job id -> its prompt, with `prompts=true`.
+             */
+            prompts?: {
+                [key: string]: string;
+            };
             /**
              * Total
              * @description How many matched before `limit` cut the list.
@@ -5748,6 +5768,7 @@ export interface operations {
                 only_orphans?: boolean;
                 version?: number | null;
                 media?: boolean;
+                prompts?: boolean;
                 role?: string[] | null;
                 /** @description Only the files of runs whose job is linked to this requests-ledger request in this workspace */
                 request?: string | null;
@@ -6217,6 +6238,7 @@ export interface operations {
                 request?: string | null;
                 /** @description With `request`: only the jobs linked to this item of it */
                 item?: string | null;
+                prompts?: boolean;
             };
             header?: never;
             path?: never;

@@ -44,7 +44,8 @@ export function queueLength(jobs: JobSummary[], queued = 0): number {
 }
 
 /** The listing a Jobs page's filters name: `ws` ('' for every workspace)
- * narrowed to a request, or one item of it */
+ * narrowed to a request, or one item of it, with each job's submitted
+ * prompt (`prompts`) for the page's search to match on */
 export const listJobs = (ws: string, scoped: RequestFilter) =>
   api.listJobs(
     ws || undefined,
@@ -52,6 +53,7 @@ export const listJobs = (ws: string, scoped: RequestFilter) =>
     undefined,
     scoped.request || undefined,
     scoped.item || undefined,
+    { prompts: true },
   )
 
 /** The server's count of every queued job, asked for only by a narrowed

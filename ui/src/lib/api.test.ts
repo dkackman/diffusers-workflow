@@ -208,6 +208,14 @@ describe('job listing', () => {
     await api.listJobs()
     expect(calls[0][0]).toBe('/api/jobs')
   })
+
+  it('asks for prompts only when told to', async () => {
+    const calls = stubFetch({ ok: true, body: { jobs: [], total: 0 } })
+    await api.listJobs('studio', undefined, undefined, undefined, undefined, {
+      prompts: true,
+    })
+    expect(calls[0][0]).toBe('/api/jobs?workspace=studio&prompts=true')
+  })
 })
 
 describe('workflow definition fetch', () => {
@@ -245,6 +253,19 @@ describe('gallery listing and thumbnails', () => {
     await api.gallery(undefined, 'r1', 'alpha')
     await api.gallery(undefined, undefined, 'alpha')
     expect(calls[0][0]).toBe('/api/gallery?limit=100000&request=r1&item=alpha')
+    expect(calls[1][0]).toBe('/api/gallery?limit=100000')
+  })
+
+  it('asks for prompts and durations only when told to', async () => {
+    const calls = stubFetch({ ok: true, body: {} })
+    await api.gallery(undefined, undefined, undefined, {
+      prompts: true,
+      media: true,
+    })
+    await api.gallery(undefined, undefined, undefined, {})
+    expect(calls[0][0]).toBe(
+      '/api/gallery?limit=100000&prompts=true&media=true',
+    )
     expect(calls[1][0]).toBe('/api/gallery?limit=100000')
   })
 

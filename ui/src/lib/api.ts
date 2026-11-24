@@ -73,7 +73,9 @@ import {
   addToken,
   appendQuery,
   encodePath,
+  linked,
   outputUrl,
+  queryOf,
   scopeTo,
   withToken,
   galleryThumbnailUrl,
@@ -114,24 +116,19 @@ export const api = {
   // state or a comma-separated set ('succeeded,failed,cancelled'); `limit`
   // keeps the newest N of what matched.
   // `requestId` (with `item`) narrows to the jobs linked to a requests-ledger
-  // request, or one item of it
+  // request, or one item of it; `opts.prompts` adds each job's prompt
   listJobs: (
     workspace?: string,
     limit?: number,
     status?: string,
     requestId?: string,
     item?: string,
+    opts?: { prompts?: boolean },
   ) => {
-    const query = new URLSearchParams()
-    if (workspace) query.set('workspace', workspace)
-    if (status) query.set('status', status)
-    if (requestId) query.set('request', requestId)
-    if (requestId && item) query.set('item', item)
-    if (limit) query.set('limit', String(limit))
-    const qs = query.toString()
-    return request<JobList>(qs ? `/api/jobs?${qs}` : '/api/jobs', undefined, {
-      scope: false,
-    })
+    const link = linked(requestId, item)
+    const qs = queryOf({ workspace, status, ...link, limit, ...opts })
+    const url = qs ? `/api/jobs?${qs}` : '/api/jobs'
+    return request<JobList>(url, undefined, UNSCOPED)
   },
   getJob: (id: string) => request<JobDetail>(`/api/jobs/${id}`),
   /** The definition a job ran, for the job page's read-only flow view.
@@ -296,13 +293,16 @@ export const api = {
   // it asks for none
   // `requestId` narrows to the runs whose job is linked to that
   // requests-ledger request (in the selected workspace), and `item` to one
-  // item of it
-  gallery: (roles?: string[], requestId?: string, item?: string) => {
-    const params = new URLSearchParams({ limit: '100000' })
-    for (const role of roles ?? []) params.append('role', role)
-    if (requestId) params.set('request', requestId)
-    if (requestId && item) params.set('item', item)
-    return request<GalleryList>(`/api/gallery?${params}`)
+  // item of it. `opts`: `prompts` (by run id), `media` (durations)
+  gallery: (
+    roles?: string[],
+    requestId?: string,
+    item?: string,
+    opts?: { prompts?: boolean; media?: boolean },
+  ) => {
+    const link = linked(requestId, item)
+    const qs = queryOf({ limit: 100000, role: roles, ...link, ...opts })
+    return request<GalleryList>(`/api/gallery?${qs}`)
   },
   // `workspace`, when given, names the file's own workspace and wins over
   // whatever is currently selected in the picker - mirrors `outputUrl`, since

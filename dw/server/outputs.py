@@ -86,6 +86,50 @@ def output_kinds(manifest):
     return kinds
 
 
+# How much of a job's prompt a listing carries: enough to search by
+PROMPT_TEXT_MAX = 2000
+
+
+def prompt_text(arguments):
+    """The `prompt` argument of a job's submitted `arguments` as text - a
+    string, or a list's strings joined by newlines - cut to PROMPT_TEXT_MAX
+    characters; None when it is absent, empty or not text."""
+    prompt = arguments.get("prompt") if isinstance(arguments, dict) else None
+    if isinstance(prompt, list):
+        prompt = "\n".join(part for part in prompt if isinstance(part, str))
+    return (
+        prompt[:PROMPT_TEXT_MAX] if isinstance(prompt, str) and prompt.strip() else None
+    )
+
+
+def job_prompts(manager, job_ids, workspace=None):
+    """Job id -> submitted prompt for `job_ids`: a live job's from its spec,
+    a historical one's from the history (`JobHistory.submitted_prompts`)."""
+    wanted = set(job_ids)
+    found = {
+        job_id: prompt
+        for job_id, _run_id, prompt in manager.history.submitted_prompts(workspace)
+        if job_id in wanted
+    }
+    for job_id in wanted:
+        live = manager.jobs.get(job_id)
+        prompt = prompt_text(live.spec.get("arguments")) if live else None
+        if prompt:
+            found[job_id] = prompt
+    return found
+
+
+def run_prompts(history, workspace, run_ids):
+    """Run id -> the prompt its job was submitted with, for `run_ids`; a run
+    whose job history no longer holds has no entry."""
+    wanted = set(run_ids)
+    return {
+        run_id: prompt
+        for _job_id, run_id, prompt in history.submitted_prompts(workspace)
+        if run_id in wanted
+    }
+
+
 def _shown(entries):
     """`(name, kind)` for each file of these manifest entries the gallery
     shows, in order. A name that is not a plain relative one is skipped."""

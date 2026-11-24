@@ -1,6 +1,11 @@
-import { expect, it } from 'vitest'
+import { expect, it, vi } from 'vitest'
 import { ApiError } from './apiErrors'
-import { listingRefused, listingWorkspace, queueLength } from './jobsListing'
+import {
+  listJobs,
+  listingRefused,
+  listingWorkspace,
+  queueLength,
+} from './jobsListing'
 import type { JobSummary } from './types'
 
 it("a workspace's Jobs page lists that workspace", () => {
@@ -28,6 +33,28 @@ it('a refusal empties the list; a fault, an outage or a lock keeps the rows', ()
   expect(
     listingRefused(new ApiError('Invalid or missing API token', 401)),
   ).toBe(false)
+})
+
+const listed = vi.hoisted(() => [] as unknown[][])
+vi.mock('./api', () => ({
+  api: {
+    listJobs: (...args: unknown[]) => {
+      listed.push(args)
+      return Promise.resolve({ jobs: [], total: 0 })
+    },
+  },
+}))
+
+it("the Jobs page's listing asks for each job's prompt", async () => {
+  await listJobs('studio', { request: 'r1', item: 'alpha' })
+  expect(listed.at(-1)).toEqual([
+    'studio',
+    undefined,
+    undefined,
+    'r1',
+    'alpha',
+    { prompts: true },
+  ])
 })
 
 const at = (...positions: Array<number | undefined>) =>

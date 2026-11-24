@@ -15,6 +15,7 @@ from dw_mcp.client import DwClient
 from dw.server.job_history import JobHistory
 
 from .test_server import (  # noqa: F401 - `server` is a fixture
+    hanging_script,
     server,
     success_script,
     valid_workflow,
@@ -83,6 +84,44 @@ def test_listing_is_unchanged_without_the_new_parameters(server):
 
         assert [job["id"] for job in body["jobs"]]
         assert body["total"] == len(body["jobs"])
+
+
+def _submit(client, prompt):
+    body = {"workflow": valid_workflow(), "arguments": {"prompt": prompt}}
+    return client.post("/api/jobs", json=body).json()["id"]
+
+
+def test_jobs_carry_their_prompts_when_asked(server):
+    with server(success_script) as client:
+        done = _submit(client, "a red fox")
+        wait_for_status(client, done, {"succeeded"})
+        stored_job(client.app.state.job_manager.history, "old", "failed", 1)
+
+        body = client.get("/api/jobs", params={"prompts": "true"}).json()
+
+        # The stored job carried no arguments, so it has no entry
+        assert body["prompts"] == {done: "a red fox"}
+
+
+def test_a_queued_jobs_prompt_is_listed(server):
+    with server(hanging_script) as client:
+        running = _submit(client, "first")
+        wait_for_status(client, running, {"running"})
+        queued = _submit(client, "second")
+        wait_for_status(client, queued, {"queued"})
+
+        prompts = client.get("/api/jobs", params={"prompts": "true"}).json()["prompts"]
+
+        assert prompts == {running: "first", queued: "second"}
+        for job_id in (queued, running):
+            client.post(f"/api/jobs/{job_id}/cancel")
+
+
+def test_jobs_say_nothing_about_prompts_unless_asked(server):
+    with server(success_script) as client:
+        wait_for_status(client, _submit(client, "a red fox"), {"succeeded"})
+
+        assert set(client.get("/api/jobs").json()) == {"jobs", "total"}
 
 
 def test_limit_keeps_the_newest_and_total_reports_the_rest(server):
