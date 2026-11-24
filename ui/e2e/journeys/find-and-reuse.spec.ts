@@ -68,6 +68,28 @@ test('find a file, read what made it, and reuse it', async ({
   await page.keyboard.press(back)
   await expect(position).toHaveText(first)
 
+  // 3b. Escape closes the viewer and takes open= away; reopened, Back
+  // closes it with the grid in place. Neither leaves an entry behind: one
+  // more Back leaves the Gallery, and Forward brings it back for step 4
+  const lighthouse = page.locator('.filetile', { hasText: 'lighthouse.png' })
+  await page.keyboard.press('Escape')
+  await expect(viewer).toBeHidden()
+  await expect(page).not.toHaveURL(/open=/)
+  await lighthouse.click()
+  await expect(viewer).toBeVisible()
+  await expect(page).toHaveURL(/open=/)
+  await page.goBack()
+  await expect(viewer).toBeHidden()
+  await expect(page).not.toHaveURL(/open=/)
+  await expect(page).toHaveURL(/\/gallery/)
+  await expect(page.locator('.filetile')).toHaveCount(4)
+  await page.goBack()
+  await expect(page).not.toHaveURL(/\/gallery/)
+  await page.goForward()
+  await expect(page.locator('.filetile')).toHaveCount(4)
+  await lighthouse.click()
+  await expect(viewer).toBeVisible()
+
   // 4. The reference chip copies the text a workflow argument takes
   await viewer
     .getByRole('button', {

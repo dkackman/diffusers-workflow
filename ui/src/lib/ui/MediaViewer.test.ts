@@ -82,7 +82,7 @@ it('opens on the named file and says where it is', async () => {
     'Next file',
     'Zoom in',
     'Zoom out',
-    'Actual size (100%)',
+    'Actual size',
     'Close',
   ])
     expect(screen.getByRole('button', { name })).toBeInTheDocument()
@@ -388,9 +388,9 @@ it('one button swaps between actual size and fit, saying which it does', async (
   viewer()
   await dialog()
   // fitted, it offers actual size; zoomed, it offers the fit back
-  const toggle = screen.getByRole('button', { name: 'Actual size (100%)' })
+  const toggle = screen.getByRole('button', { name: 'Actual size' })
   expect(toggle).toHaveTextContent('100%')
-  expect(toggle).toHaveAttribute('title', 'Actual size (100%)')
+  expect(toggle).toHaveAttribute('title', 'Actual size')
   expect(
     screen.queryByRole('button', { name: 'Fit to window' }),
   ).not.toBeInTheDocument()
@@ -400,14 +400,14 @@ it('one button swaps between actual size and fit, saying which it does', async (
   expect(fit).toHaveTextContent('Fit')
   expect(fit).toHaveAttribute('title', 'Fit to window')
   await fireEvent.click(fit)
-  expect(
-    await screen.findByRole('button', { name: 'Actual size (100%)' }),
-  ).toBe(toggle)
+  expect(await screen.findByRole('button', { name: 'Actual size' })).toBe(
+    toggle,
+  )
 })
 
 const pageActions = createRawSnippet(() => ({
   render: () =>
-    '<span class="acts"><button type="button" class="quiet icon" aria-label="star this file">*</button></span>',
+    '<span class="acts"><button type="button" class="quiet icon" aria-label="Star">*</button></span>',
 }))
 const widthOf = (px: number) => {
   Object.defineProperty(window, 'innerWidth', { configurable: true, value: px })
@@ -421,8 +421,8 @@ it("at a phone's width the page's actions are in More, and zoom goes", async () 
     const sheet = await dialog()
     const bar = sheet.querySelector('.viewer-bar')!
     // one row: the name, the place, previous and next, More and Close
-    expect(bar.querySelector('[aria-label="star this file"]')).toBeNull()
-    for (const name of ['Zoom in', 'Zoom out', 'Actual size (100%)'])
+    expect(bar.querySelector('[aria-label="Star"]')).toBeNull()
+    for (const name of ['Zoom in', 'Zoom out', 'Actual size'])
       expect(screen.queryByRole('button', { name })).not.toBeInTheDocument()
     const more = screen.getByRole('button', { name: 'More' })
     expect(more).toHaveAttribute('aria-expanded', 'false')
@@ -430,7 +430,7 @@ it("at a phone's width the page's actions are in More, and zoom goes", async () 
     await fireEvent.click(more)
     const menu = await screen.findByRole('dialog', { name: 'More' })
     expect(more).toHaveAttribute('aria-expanded', 'true')
-    const star = within(menu).getByRole('button', { name: 'star this file' })
+    const star = within(menu).getByRole('button', { name: 'Star' })
     // choosing an action closes the menu, so what it asks is not under it
     await fireEvent.click(star)
     await waitFor(() =>
@@ -441,11 +441,38 @@ it("at a phone's width the page's actions are in More, and zoom goes", async () 
     // widened, the actions are back in the bar and More goes
     widthOf(1024)
     await waitFor(() =>
-      expect(bar.querySelector('[aria-label="star this file"]')).not.toBeNull(),
+      expect(bar.querySelector('[aria-label="Star"]')).not.toBeNull(),
     )
     expect(screen.queryByRole('button', { name: 'More' })).toBeNull()
     expect(screen.getByRole('button', { name: 'Zoom in' })).toBeInTheDocument()
   } finally {
     widthOf(1024)
+  }
+})
+
+it("f enters full screen, but not at a phone's width, where the bar hides it", async () => {
+  Object.defineProperty(document, 'fullscreenEnabled', {
+    configurable: true,
+    value: true,
+  })
+  const enter = vi.fn(() => Promise.resolve())
+  Object.defineProperty(HTMLElement.prototype, 'requestFullscreen', {
+    configurable: true,
+    value: enter,
+  })
+  try {
+    widthOf(390)
+    viewer()
+    const sheet = await dialog()
+    await press(sheet, { key: 'f' })
+    expect(enter).not.toHaveBeenCalled()
+    widthOf(1024)
+    await press(sheet, { key: 'f' })
+    expect(enter).toHaveBeenCalledTimes(1)
+  } finally {
+    widthOf(1024)
+    delete (document as { fullscreenEnabled?: boolean }).fullscreenEnabled
+    delete (HTMLElement.prototype as { requestFullscreen?: unknown })
+      .requestFullscreen
   }
 })

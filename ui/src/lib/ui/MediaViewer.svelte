@@ -180,7 +180,7 @@
   }
   const fullLabel = $derived(sheetFull ? 'Exit full screen' : 'Full screen')
   // One toggle for the two views a double-click also swaps between
-  const sizeLabel = $derived(fitted ? 'Actual size (100%)' : 'Fit to window')
+  const sizeLabel = $derived(fitted ? 'Actual size' : 'Fit to window')
 
   // At a phone's width the bar keeps one row: zoom and full screen go (a
   // double-tap still zooms; a portal on <body> would not show over a full
@@ -222,7 +222,8 @@
     zoomOut: () => zoomable && zoomBy(-1),
     fit: fitToWindow,
     actual: () => zoomable && actualSize(),
-    fullscreen: toggleFullscreen,
+    // At a phone's width the bar hides full screen, so the key only leaves it
+    fullscreen: () => (!narrow || sheetFull) && toggleFullscreen(),
     seekBack: () => seek(-SEEK_SECONDS),
     seekOn: () => seek(SEEK_SECONDS),
   }

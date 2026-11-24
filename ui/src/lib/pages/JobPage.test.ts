@@ -78,6 +78,9 @@ vi.mock('../api', () => ({
       }),
     ),
     outputDownloadUrl: (name: string) => `/api/gallery/${name}/download`,
+    setStarred: vi.fn((name: string, starred: boolean) =>
+      Promise.resolve({ name, starred }),
+    ),
     noteForSave: vi.fn((target: string) =>
       Promise.resolve({ target, note: detail.job?.note ?? null, etag: '"e"' }),
     ),
@@ -120,7 +123,9 @@ vi.mock('../api', () => ({
 vi.mock('../changes.svelte', async () => ({
   changes: (await import('../test/feedMock')).feed.changes,
 }))
-vi.mock('../toast', () => ({ notify: { error: vi.fn(), success: vi.fn() } }))
+vi.mock('../toast', () => ({
+  notify: { error: vi.fn(), success: vi.fn(), undo: vi.fn(), failure: vi.fn() },
+}))
 
 const job = (manifest: JobDetail['manifest']): JobDetail => ({
   id: 'j1',
@@ -196,7 +201,7 @@ it('shows each image with its model and seed, its recipe in the viewer, and neve
     output_kinds: { 'a.png': 'image', 'clip.mp4': 'video' },
   }
   render(JobPage, { jobId: 'j1' })
-  const tile = await screen.findByLabelText('open a.png')
+  const tile = await screen.findByLabelText('Open a.png')
   await waitFor(() => expect(tile).toHaveTextContent('org/model · seed 7'))
   // The metadata route decodes a video whole to probe it, and the page
   // shows nothing a probe would report
@@ -210,6 +215,31 @@ it('shows each image with its model and seed, its recipe in the viewer, and neve
   expect(
     within(sheet).getByRole('link', { name: 'Download' }).getAttribute('href'),
   ).toBe('/api/gallery/a.png/download')
+})
+
+it('a bare S stars the open file, as its star says, and S again unstars it', async () => {
+  detail.job = {
+    ...job([{ step: 'generate', files: ['a.png'] }]),
+    output_kinds: { 'a.png': 'image' },
+  }
+  render(JobPage, { jobId: 'j1' })
+  await fireEvent.click(await screen.findByLabelText('Open a.png'))
+  const sheet = await screen.findByRole('dialog', { name: 'a.png' })
+  const star = await within(sheet).findByRole('button', { name: 'Star' })
+  await waitFor(() => expect(star).not.toBeDisabled())
+  vi.mocked(api.setStarred).mockClear()
+  // a modified S is the browser's or the page's own
+  await fireEvent.keyDown(sheet, { key: 'S', shiftKey: true })
+  expect(api.setStarred).not.toHaveBeenCalled()
+  await fireEvent.keyDown(sheet, { key: 's' })
+  await waitFor(() =>
+    expect(api.setStarred).toHaveBeenCalledWith('a.png', true),
+  )
+  await waitFor(() => expect(star).toHaveAttribute('aria-pressed', 'true'))
+  await fireEvent.keyDown(sheet, { key: 's' })
+  await waitFor(() =>
+    expect(api.setStarred).toHaveBeenLastCalledWith('a.png', false),
+  )
 })
 
 it('sets the tab title to the workflow file the job ran', async () => {
@@ -563,7 +593,7 @@ it('renders each output by the kind the server reports', async () => {
     output_kinds: { 'a.bmp': 'image', 'b.mov': 'video', 'c.flac': 'audio' },
   }
   const { container } = render(JobPage, { jobId: 'j1' })
-  await screen.findByLabelText('open c.flac')
+  await screen.findByLabelText('Open c.flac')
   // tiles: a picture and a clip's poster, never a stream; a sound's glyph
   const pics = [...container.querySelectorAll('.filetile img')].map((i) =>
     i.getAttribute('src'),
@@ -571,9 +601,9 @@ it('renders each output by the kind the server reports', async () => {
   expect(pics[0]).toContain('a.bmp/thumbnail')
   expect(pics[1]).toContain('b.mov/thumbnail')
   expect(container.querySelector('.filetile video, .filetile audio')).toBeNull()
-  expect(screen.getByLabelText('open c.flac')).toHaveTextContent('♪')
+  expect(screen.getByLabelText('Open c.flac')).toHaveTextContent('♪')
   // the viewer plays each by its kind
-  await fireEvent.click(screen.getByLabelText('open b.mov'))
+  await fireEvent.click(screen.getByLabelText('Open b.mov'))
   const sheet = await screen.findByRole('dialog', { name: 'b.mov' })
   expect(sheet.querySelector('video')?.getAttribute('src')).toContain('b.mov')
 })

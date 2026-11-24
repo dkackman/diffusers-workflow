@@ -15,6 +15,7 @@
   import { saveAsAsset } from '../gallery/saveAsAsset'
   import UseAsInput from '../gallery/UseAsInput.svelte'
   import type { MediaFile } from '../media'
+  import { isStarKey } from '../mediaViewer'
   import { leafName } from '../names'
   import MediaViewer from '../ui/MediaViewer.svelte'
   import RecipePanel from '../ui/RecipePanel.svelte'
@@ -40,6 +41,12 @@
   function toggleStar(name: string) {
     const now = starredNow(name)
     if (now !== null) starring.run(name, !now)
+  }
+  // S stars or unstars the open file, as the star's title says
+  function starKey(e: KeyboardEvent, file: MediaFile): boolean {
+    if (!isStarKey(e)) return false
+    toggleStar(file.name)
+    return true
   }
   async function writeStar(name: string, next: boolean) {
     await api.setStarred(name, next)
@@ -112,4 +119,4 @@
 
 <UseAsInput file={useInput} bind:open={useInputOpen} />
 
-<MediaViewer {items} bind:open {actions} {aside} />
+<MediaViewer {items} bind:open {actions} {aside} onkey={starKey} />

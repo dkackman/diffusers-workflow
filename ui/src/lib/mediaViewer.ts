@@ -73,6 +73,12 @@ export function viewerKey(e: KeyboardEvent): ViewerKey | null {
   return KEYS[e.key] ?? null
 }
 
+/** A bare S, which stars or unstars the open file on a page that offers
+ * the star: with Shift, Alt or a command modifier it is someone else's */
+export const isStarKey = (e: KeyboardEvent): boolean =>
+  e.key.toLowerCase() === 's' &&
+  !(e.metaKey || e.ctrlKey || e.altKey || e.shiftKey)
+
 type Size = { w: number; h: number }
 
 /** A pan (the picture's centre offset from the box's, in px) held so no
