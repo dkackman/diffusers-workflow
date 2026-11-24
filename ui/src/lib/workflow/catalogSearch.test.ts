@@ -71,3 +71,11 @@ it('a shallower workflow ranks ahead of a same-named one in a folder', () => {
     'templates/ltx/text-to-image',
   ])
 })
+
+it('a name that holds the words in the order asked ranks ahead of its reverse', () => {
+  const list = ['templates/image-to-text', 'templates/text-to-image']
+  expect(catalogMatches(list, {}, 'text to image')).toEqual([
+    'templates/text-to-image',
+    'templates/image-to-text',
+  ])
+})

@@ -35,6 +35,17 @@ function textOf(name: string, card: WorkflowCard | undefined): string {
     .toLowerCase()
 }
 
+/** Whether `text` holds every word, each after the one before. */
+function holdsInOrder(text: string, words: string[]): boolean {
+  let from = 0
+  for (const word of words) {
+    const at = text.indexOf(word, from)
+    if (at < 0) return false
+    from = at + word.length
+  }
+  return true
+}
+
 /** How many folders deep a workflow sits: the generic one outranks a
  * same-named one inside a model's folder. */
 const depthOf = (name: string) => name.split('/').length
@@ -61,6 +72,9 @@ export function catalogMatches(
       // `text to image` lists text-to-image before every workflow that merely
       // mentions both
       inName: words.filter((word) => named.includes(word)).length,
+      // and to the one that holds them in the order they were asked in:
+      // `text to image` is text-to-image, not image-to-text
+      inOrder: holdsInOrder(named, words) ? 1 : 0,
     }
   })
   const best = Math.max(...scored.map((entry) => entry.score))
@@ -70,6 +84,7 @@ export function catalogMatches(
     .sort(
       (left, right) =>
         right.inName - left.inName ||
+        right.inOrder - left.inOrder ||
         depthOf(left.name) - depthOf(right.name) ||
         left.name.localeCompare(right.name),
     )
