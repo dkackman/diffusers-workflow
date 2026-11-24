@@ -104,7 +104,9 @@ it('a candidate validation refuses will not run, with its first error', async ()
   })
   await queue.price()
   expect(states(queue)).toEqual(['priced', 'refused', 'refused', 'refused'])
-  expect(queue.rows[1].error).toBe('would be refused: seed must be an integer')
+  expect(queue.rows[1].error).toBe(
+    "A job would be refused: 1 issue to fix. Ask the agent to fix the item's workflow or arguments.",
+  )
   // a failure that is not the server's answer leads with plain words; the
   // raw text is the row's detail, for Details
   expect(queue.rows[2].error).toBe('could not be checked: Something went wrong')
@@ -115,6 +117,83 @@ it('a candidate validation refuses will not run, with its first error', async ()
   )
   expect(queue.rows[1].ticked).toBe(false)
   expect(queue.chosen.map((row) => row.candidate.key)).toEqual(['a'])
+})
+
+it('an optional row starts unticked', async () => {
+  const api = {
+    validate: vi.fn(async () => valid('f')),
+    submitJob: vi.fn(async () => job('job-f')),
+  }
+  const queue = new RunQueue(
+    [candidate('a'), candidate('f', { optional: true })],
+    { workspace: 'studio', requestId: 'r1', api: api as unknown as RunApi },
+  )
+  expect(queue.rows.map((row) => row.ticked)).toEqual([true, false])
+  await queue.price()
+  // priced the same as the others, and tickable
+  expect(states(queue)).toEqual(['priced', 'priced'])
+  expect(queue.chosen.map((row) => row.candidate.key)).toEqual(['a'])
+  queue.rows[1].ticked = true
+  expect(queue.chosen.map((row) => row.candidate.key)).toEqual(['a', 'f'])
+})
+
+it('a refused validation reads the verdict, the engine text behind detail', async () => {
+  const { queue } = setup(['a', 'b'], {
+    validate: vi.fn(async (body: { workflow_path?: string }) =>
+      body.workflow_path === 'flow-b'
+        ? {
+            valid: false,
+            error: 'workflow failed to load',
+            errors: [
+              { message: 'seed must be an integer', path: 'arguments.seed' },
+              { message: 'steps[0] has no pipeline', path: 'steps[0]' },
+            ],
+            warnings: [],
+          }
+        : {
+            valid: false,
+            error: null,
+            errors: [],
+            warnings: [],
+          },
+    ) as Mock,
+  })
+  await queue.price()
+  expect(states(queue)).toEqual(['refused', 'refused'])
+  // nothing counted: the bare refusal
+  expect(queue.rows[0].error).toBe(
+    "A job would be refused. Ask the agent to fix the item's workflow or arguments.",
+  )
+  expect(queue.rows[0].detail).toBeNull()
+  expect(queue.rows[1].error).toBe(
+    "A job would be refused: 2 issues to fix. Ask the agent to fix the item's workflow or arguments.",
+  )
+  expect(queue.rows[1].detail).toBe(
+    'seed must be an integer\nsteps[0] has no pipeline\nworkflow failed to load',
+  )
+})
+
+it('a gated model is priced with its verdict', async () => {
+  const gated = valid('a')
+  gated.plan!.downloads_required = [
+    { repo: 'org/m', gb: null, gated: true, access_blocked: true },
+  ] as Plan['downloads_required']
+  const { queue } = setup(['a', 'b'], {
+    validate: vi.fn(async (body: { workflow_path?: string }) =>
+      body.workflow_path === 'flow-a' ? gated : valid('b'),
+    ) as Mock,
+  })
+  await queue.price()
+  expect(states(queue)).toEqual(['priced', 'priced'])
+  expect(queue.rows[0].verdict).toMatchObject({
+    tone: 'warn',
+    text: 'This model needs Hugging Face access.',
+    remedy:
+      'Accept its terms on Hugging Face, then sign in on the server with hf auth login.',
+  })
+  // the row stays ticked: the server is the gate
+  expect(queue.rows[0].ticked).toBe(true)
+  expect(queue.rows[1].verdict).toBeNull()
 })
 
 it('closing drops the validations still out, and prices no more', async () => {

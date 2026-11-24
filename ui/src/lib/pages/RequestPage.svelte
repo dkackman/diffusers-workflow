@@ -264,8 +264,12 @@
         >
           {#snippet actions()}
             {#if ready}
-              <button type="button" onclick={() => (running = readyPlan(plan))}>
-                Run {ready} ready…
+              <button
+                type="button"
+                title="Price and queue what can run now"
+                onclick={() => (running = readyPlan(plan))}
+              >
+                Run {ready}…
               </button>
             {/if}
           {/snippet}

@@ -5,6 +5,8 @@
 // optimistic: a row is queued only when the server has said so.
 import { ApiError, describeError } from '../apiErrors'
 import type { JobSubmitBody, ValidateRequest } from '../apiRequest'
+import { placeFindings } from '../findings'
+import { verdictOf, type Verdict } from '../runCheck.svelte'
 import type { JobDetail, Plan, ValidationResult } from '../types'
 import { RUN_REFUSALS, type Candidate } from './runPlan'
 
@@ -47,7 +49,28 @@ export type RunRow = {
   /** The server's own text behind `error`, for Details; null when the
    * words say all there is */
   detail: string | null
+  /** A priced row's model it may not reach (gated, or not found): said in
+   * warn tone, the row still tickable - the server is the gate */
+  verdict: Verdict | null
   job: string | null
+}
+
+/** What an invalid validation tells the row: the verdict the workflow page
+ * shows, and every engine message behind it */
+function refusedBy(result: ValidationResult) {
+  const verdict = verdictOf(result, null, placeFindings(result, []))
+  const engine = [...result.errors.map((e) => e.message), result.error]
+  return {
+    error: `${verdict?.text} Ask the agent to fix the item's workflow or arguments.`,
+    detail: engine.filter(Boolean).join('\n') || null,
+  }
+}
+
+/** A valid answer's verdict when it warns of a model: with nothing placed
+ * under a field, a warn verdict is the gated or not-found one */
+function modelVerdict(result: ValidationResult): Verdict | null {
+  const verdict = verdictOf(result, null, placeFindings(result, []))
+  return verdict?.tone === 'warn' ? verdict : null
 }
 
 /** A submit the server did not take, in words for the row */
@@ -100,11 +123,12 @@ export class RunQueue {
     this.rows = candidates.map((candidate) => ({
       candidate,
       state: 'pricing',
-      ticked: true,
+      ticked: !candidate.optional,
       plan: null,
       acknowledge: null,
       error: null,
       detail: null,
+      verdict: null,
       job: null,
     }))
   }
@@ -158,11 +182,11 @@ export class RunQueue {
       if (this.#abort.signal.aborted) return
       if (result.valid) {
         row.plan = result.plan ?? null
+        row.verdict = modelVerdict(result)
         row.state = 'priced'
         return
       }
-      const first = result.error ?? result.errors[0]?.message ?? 'not valid'
-      row.error = `would be refused: ${first}`
+      Object.assign(row, refusedBy(result))
     } catch (error) {
       if (this.#abort.signal.aborted) return
       row.error = unchecked(error)

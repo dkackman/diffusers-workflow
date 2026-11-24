@@ -129,6 +129,15 @@ it('a refused check counts its issues', () => {
   expect(verdictFor(bare)?.text).toBe('A job would be refused: 1 issue to fix.')
 })
 
+it('a refusal with no counted issue reads A job would be refused.', () => {
+  const blank = answer({ valid: false, error: null, errors: [] })
+  expect(verdictFor(blank)).toEqual({
+    tone: 'bad',
+    text: 'A job would be refused.',
+    issues: 0,
+  })
+})
+
 it('a gated download is its own verdict with the hf remedy', () => {
   const gated = answer({
     plan: planWith([

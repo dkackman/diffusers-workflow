@@ -24,6 +24,20 @@ export type Verdict = {
 const plural = (n: number, one: string, many: string) =>
   `${n} ${n === 1 ? one : many}`
 
+/** A refusal, counting what it names to fix; one that names nothing
+ * (#1612) says only that */
+function refused(placed: PlacedFindings): Verdict {
+  const bad = (list: { tone: string }[]) =>
+    list.filter((f) => f.tone === 'bad').length
+  const issues =
+    bad(placed.general) +
+    Object.values(placed.byVariable).reduce((n, l) => n + bad(l), 0)
+  const text = issues
+    ? `A job would be refused: ${plural(issues, 'issue', 'issues')} to fix.`
+    : 'A job would be refused.'
+  return { tone: 'bad', text, issues }
+}
+
 /** What a validate answer says about running now, in plain words - the one
  * verdict the run check and the editor both show. It reads `valid`,
  * `errors`, `access_blocked`, `not_found` and what `placed` holds, and
@@ -36,18 +50,7 @@ export function verdictOf(
   if (error !== null && error !== undefined)
     return { tone: 'bad', text: "Couldn't check this workflow.", issues: 0 }
   if (!validation) return null
-  if (!validation.valid) {
-    const bad = (list: { tone: string }[]) =>
-      list.filter((f) => f.tone === 'bad').length
-    const issues =
-      bad(placed.general) +
-      Object.values(placed.byVariable).reduce((n, l) => n + bad(l), 0)
-    return {
-      tone: 'bad',
-      text: `A job would be refused: ${plural(issues, 'issue', 'issues')} to fix.`,
-      issues,
-    }
-  }
+  if (!validation.valid) return refused(placed)
   const downloads = validation.plan?.downloads_required ?? []
   if (downloads.some((d) => d.access_blocked)) {
     return {

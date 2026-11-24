@@ -626,24 +626,35 @@ test('the run dialog prices what is ready, says what will not run, and spends no
       submitted++
   })
   await page.goto(BOARD)
-  const run = page.getByRole('button', { name: 'Run 1 ready…' })
+  const run = page.getByRole('button', { name: 'Run 1…' })
   const priced = page.waitForResponse(
-    (r) => new URL(r.url()).pathname === '/api/validate',
+    (r) =>
+      new URL(r.url()).pathname === '/api/validate' &&
+      r.request().postDataJSON()?.workflow_path === 'e2e-card',
   )
   await run.click()
-  const dialog = page.getByRole('dialog', { name: 'Run what is ready' })
+  const dialog = page.getByRole('dialog', { name: 'Run what can run now' })
   // a dialog that spends starts on Cancel
   await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeFocused()
   expect((await priced).status()).toBe(200)
   const row = dialog.locator('.runrow[data-key="title"]')
   await expect(row).toContainText('Title card')
   await expect(row.locator('.flow')).toHaveText('e2e-card')
-  // the server's own quote: a task-only workflow has no figure, and says so
-  await expect(row.locator('.quote')).toContainText('no figure')
+  // the server's own quote: a task-only workflow has no figure, and says
+  // so, the engine's reason one click away
+  await expect(row.locator('.quote')).toContainText(
+    'No time estimate for this workflow.',
+  )
+  await expect(row.locator('.quote details summary')).toHaveText(
+    "Why there's no estimate",
+  )
   await expect(dialog.locator('.total')).toHaveText('total: no figure')
-  await expect(dialog.getByRole('button', { name: 'Run 1' })).toBeEnabled()
-  await expect(dialog.locator('.wont li')).toHaveText([
-    'Opening shot: failed: run it again from its row',
+  await expect(
+    dialog.getByRole('button', { name: 'Run 1 job', exact: true }),
+  ).toBeEnabled()
+  // the failed shot is offered again, but its workflow cannot be reached
+  await expect(dialog.locator('.wont li')).toContainText([
+    'Opening shot: would be refused: workflow_path must name a workflow the server can reach',
     'Final cut, tighter: waits on Opening shot (failed)',
   ])
   // Cancel: nothing queued, and focus is back on what opened it
@@ -662,7 +673,9 @@ test('the run dialog prices what is ready, says what will not run, and spends no
     'Opening shot: would be refused: workflow_path must name a workflow the server can reach',
   )
   await expect(single.getByRole('checkbox')).toHaveCount(0)
-  await expect(single.getByRole('button', { name: 'Run 0' })).toBeDisabled()
+  await expect(
+    single.getByRole('button', { name: 'Run 0 jobs', exact: true }),
+  ).toBeDisabled()
   await single.getByRole('button', { name: 'Cancel' }).click()
   expect(submitted).toBe(0)
 })
@@ -688,7 +701,7 @@ test('a held item says so, counts down, runs only when asked, and a note turns i
   await expect(chip).not.toHaveText(first ?? '', { timeout: 5000 })
 
   await page.getByRole('button', { name: 'Run now…' }).click()
-  const dialog = page.getByRole('dialog', { name: 'Run what is ready' })
+  const dialog = page.getByRole('dialog', { name: 'Run what can run now' })
   await expect(
     dialog.locator('.runrow[data-key="title"] .held span'),
   ).toHaveText(
@@ -724,14 +737,14 @@ test('running a ready item queues a job bound to its quote, and the job appears 
   await page.goto(BOARD)
   const title = boardRow(page, 'title')
   await expect(title.locator('.chipcell .chip')).toHaveText('ready')
-  await page.getByRole('button', { name: 'Run 1 ready…' }).click()
-  const dialog = page.getByRole('dialog', { name: 'Run what is ready' })
+  await page.getByRole('button', { name: 'Run 1…' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Run what can run now' })
   const submit = page.waitForResponse(
     (r) =>
       r.request().method() === 'POST' &&
       new URL(r.url()).pathname === '/api/jobs',
   )
-  await dialog.getByRole('button', { name: 'Run 1' }).click()
+  await dialog.getByRole('button', { name: 'Run 1 job', exact: true }).click()
   const answer = await submit
   expect(answer.status()).toBe(201)
   const sent = answer.request().postDataJSON()
@@ -756,7 +769,7 @@ test('running a ready item queues a job bound to its quote, and the job appears 
   await expect(title.locator('.chipcell .chip')).toHaveText(
     /queued|running|done/,
   )
-  await expect(page.getByRole('button', { name: /ready…$/ })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: /^Run \d+…$/ })).toHaveCount(0)
   const stored = await ledger(request)
   const item = stored.items.find((i: Stored) => i.key === 'title')
   expect(item.attempts.map((a: { job: string }) => a.job)).toEqual([job.id])

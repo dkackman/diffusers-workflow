@@ -52,7 +52,7 @@ export type ItemState = {
   runnable: boolean
   /** Done, and another take could be queued (from its menu only) */
   canRetake: boolean
-  /** "Run what is ready" would queue it: ready, or revised and runnable */
+  /** "Run what can run now" would queue it: ready, or revised and runnable */
   runsNow: boolean
   needs: NeedsReason[]
   /** The server's review hold on it, while one applies; null otherwise.
@@ -66,7 +66,7 @@ export type PlanState = {
   dropped: ItemState[]
   counts: Record<ItemDisplay, number>
   needs: Record<NeedsReason, number>
-  /** How many live items "Run what is ready" would queue (`runsNow`) */
+  /** How many live items "Run what can run now" would queue (`runsNow`) */
   toRun: number
   /** The live items held for the user's review, in plan order */
   held: ItemState[]

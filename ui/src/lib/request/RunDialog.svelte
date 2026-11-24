@@ -3,7 +3,7 @@
   import StatusChip from '../ui/StatusChip.svelte'
   import { api } from '../api'
   import { formatMinutes } from '../format'
-  import { describeEstimate, describeEstimateTotal } from '../plan'
+  import { describeEstimateTotal } from '../plan'
   import { wsHref } from '../routes'
   import { notify } from '../toast'
   import Details from '../ui/Details.svelte'
@@ -16,6 +16,7 @@
     heldLine,
     planNotes,
     planSaid,
+    quoteLine,
     type RunPlan,
   } from './runPlan'
   import { RunQueue, type RunRow } from './runQueue.svelte'
@@ -70,12 +71,16 @@
   const only = $derived(run.single ? run.candidates[0] : null)
   const heading = $derived(
     !only
-      ? 'Run what is ready'
+      ? 'Run what can run now'
       : run.retake
         ? `Run another take of ${only.title}`
         : `Run ${only.title}`,
   )
   const rows = $derived(queue.rows.filter((row) => row.state !== 'refused'))
+  // a failed item offered again sits apart, unticked, so it is never run
+  // by accident
+  const firstRows = $derived(rows.filter((row) => !row.candidate.optional))
+  const againRows = $derived(rows.filter((row) => row.candidate.optional))
   const wont = $derived([
     ...queue.rows
       .filter((row) => row.state === 'refused')
@@ -111,7 +116,7 @@
       channel.listening,
     )
 
-  const quote = (row: RunRow) => describeEstimate(row.plan?.estimate ?? null)
+  const quote = (row: RunRow) => quoteLine(row.plan?.estimate ?? null)
   const said = (row: RunRow) =>
     planSaid(row.candidate.planMinutes, row.plan?.estimate.minutes)
   const now = (row: RunRow) => {
@@ -121,6 +126,99 @@
       : `Now ${formatMinutes(minutes)}.`
   }
 </script>
+
+{#snippet runRow(row: RunRow)}
+  {@const item = row.candidate}
+  {@const hold = held(item.key)}
+  <li class="runrow" data-key={item.key}>
+    <div class="who">
+      {#if !run.single}
+        <input
+          type="checkbox"
+          bind:checked={row.ticked}
+          disabled={row.state !== 'priced' || queue.started || queue.busy}
+          aria-label="Run {item.title}"
+        />
+      {/if}
+      <span class="name">{item.title}</span>
+      <code class="muted">{item.key}</code>
+      <code class="flow">{item.workflow}</code>
+    </div>
+    {#if hold}
+      <p class="held" class:warn={hold.tone === 'warn'}>
+        {#if hold.tone === 'warn'}<TriangleAlert
+            size={13}
+            aria-hidden="true"
+          />{/if}
+        <span>{hold.text}</span>
+      </p>
+    {/if}
+    <div class="quote">
+      {#if row.state === 'pricing'}
+        <Skeleton lines={1} label="pricing {item.title}" />
+      {:else}
+        {@const line = quote(row)}
+        <p class:warn={line.tone === 'warn'}>
+          {#if line.tone === 'warn'}<TriangleAlert
+              size={13}
+              aria-hidden="true"
+            />{/if}
+          <span>{line.text}</span>
+        </p>
+        {#if line.detail}<Details
+            summary="Why there's no estimate"
+            detail={line.detail}
+          />{/if}
+        {#if row.verdict}
+          <p class="verdict" class:warn={row.verdict.tone === 'warn'}>
+            <TriangleAlert size={13} aria-hidden="true" />
+            <span>
+              {row.verdict.text}{#if row.verdict.remedy}
+                {row.verdict.remedy}{/if}
+            </span>
+          </p>
+        {/if}
+        {#if row.plan}
+          {#each planNotes(row.plan) as note (note.text)}
+            <p class:warn={note.tone === 'warn'}>
+              {#if note.tone === 'warn'}<TriangleAlert
+                  size={13}
+                  aria-hidden="true"
+                />{/if}
+              <span>{note.text}</span>
+            </p>
+          {/each}
+        {/if}
+        {#if said(row)}<p class="muted">{said(row)}</p>{/if}
+      {/if}
+    </div>
+    {#if row.state === 'sending'}
+      <p class="outcome muted" role="status">queuing…</p>
+    {:else if row.state === 'queued' && row.job}
+      <p class="outcome" role="status">
+        <StatusChip status="queued" />
+        <a href={wsHref(workspace, 'jobs', row.job)}>Open job</a>
+      </p>
+    {:else if row.state === 'repriced'}
+      <p class="outcome" role="alert">
+        <span>The price moved. {now(row)}</span>
+        <button
+          type="button"
+          class="quiet"
+          disabled={queue.busy}
+          onclick={() => queue.accept(item.key)}
+        >
+          Run at this price
+        </button>
+      </p>
+    {:else if row.state === 'failed'}
+      <div class="outcome bad" role="alert">
+        <p>{row.error}</p>
+        <Details summary="Engine detail" detail={row.detail ?? ''} />
+      </div>
+    {/if}
+  </li>
+{/snippet}
 
 <Modal
   bind:open
@@ -134,89 +232,23 @@
   <h2>{heading}</h2>
   <div class="body">
     {#if rows.length}
-      <ul class="rows" aria-label="Will run">
-        {#each rows as row (row.candidate.key)}
-          {@const item = row.candidate}
-          {@const hold = held(item.key)}
-          <li class="runrow" data-key={item.key}>
-            <div class="who">
-              {#if !run.single}
-                <input
-                  type="checkbox"
-                  bind:checked={row.ticked}
-                  disabled={row.state !== 'priced' ||
-                    queue.started ||
-                    queue.busy}
-                  aria-label="Run {item.title}"
-                />
-              {/if}
-              <span class="name">{item.title}</span>
-              <code class="muted">{item.key}</code>
-              <code class="flow">{item.workflow}</code>
-            </div>
-            {#if hold}
-              <p class="held" class:warn={hold.tone === 'warn'}>
-                {#if hold.tone === 'warn'}<TriangleAlert
-                    size={13}
-                    aria-hidden="true"
-                  />{/if}
-                <span>{hold.text}</span>
-              </p>
-            {/if}
-            <div class="quote">
-              {#if row.state === 'pricing'}
-                <Skeleton lines={1} label="pricing {item.title}" />
-              {:else}
-                {@const line = quote(row)}
-                <p class:warn={line.tone === 'warn'}>
-                  {#if line.tone === 'warn'}<TriangleAlert
-                      size={13}
-                      aria-hidden="true"
-                    />{/if}
-                  <span>{line.text}</span>
-                </p>
-                {#if row.plan}
-                  {#each planNotes(row.plan) as note (note.text)}
-                    <p class:warn={note.tone === 'warn'}>
-                      {#if note.tone === 'warn'}<TriangleAlert
-                          size={13}
-                          aria-hidden="true"
-                        />{/if}
-                      <span>{note.text}</span>
-                    </p>
-                  {/each}
-                {/if}
-                {#if said(row)}<p class="muted">{said(row)}</p>{/if}
-              {/if}
-            </div>
-            {#if row.state === 'sending'}
-              <p class="outcome muted" role="status">queuing…</p>
-            {:else if row.state === 'queued' && row.job}
-              <p class="outcome" role="status">
-                <StatusChip status="queued" />
-                <a href={wsHref(workspace, 'jobs', row.job)}>Open job</a>
-              </p>
-            {:else if row.state === 'repriced'}
-              <p class="outcome" role="alert">
-                <span>The price moved. {now(row)}</span>
-                <button
-                  type="button"
-                  class="quiet"
-                  disabled={queue.busy}
-                  onclick={() => queue.accept(item.key)}
-                >
-                  Run at this price
-                </button>
-              </p>
-            {:else if row.state === 'failed'}
-              <div class="outcome bad" role="alert">
-                <p>{row.error}</p>
-                <Details summary="Engine detail" detail={row.detail ?? ''} />
-              </div>
-            {/if}
-          </li>
-        {/each}
-      </ul>
+      {#if firstRows.length}
+        <ul class="rows" aria-label="Will run">
+          {#each firstRows as row (row.candidate.key)}{@render runRow(
+              row,
+            )}{/each}
+        </ul>
+      {/if}
+      {#if againRows.length}
+        <section class="again">
+          <h3>Failed before. Tick one to run it again.</h3>
+          <ul class="rows" aria-label="Failed before">
+            {#each againRows as row (row.candidate.key)}{@render runRow(
+                row,
+              )}{/each}
+          </ul>
+        </section>
+      {/if}
       {#if !run.single}
         <p class="total num" class:warn={total.tone === 'warn'}>{total.text}</p>
       {/if}
@@ -256,7 +288,7 @@
       disabled={!queue.settled || queue.busy || n === 0}
       onclick={() => queue.submit()}
     >
-      {queue.busy ? 'Queuing…' : `Run ${n}`}
+      {queue.busy ? 'Queuing…' : `Run ${n} ${n === 1 ? 'job' : 'jobs'}`}
     </button>
   </div>
 </Modal>

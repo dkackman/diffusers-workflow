@@ -609,12 +609,12 @@ it('the one filled button runs what is ready, through the priced dialog', async 
   world.ledger = fakeLedger(runnable())
   priced()
   await start()
-  const run = screen.getByRole('button', { name: 'Run 1 ready…' })
+  const run = screen.getByRole('button', { name: 'Run 1…' })
   // the page's only filled button
   expect(run.className).toBe('')
   await fireEvent.click(run)
   const dialog = await screen.findByRole('dialog', {
-    name: 'Run what is ready',
+    name: 'Run what can run now',
   })
   await within(dialog).findByText(/about 6 min on cuda/)
   // opening it spent nothing
@@ -623,7 +623,9 @@ it('the one filled button runs what is ready, through the priced dialog', async 
     'The cut: waits on Shot 4 (ready)',
   )
   const reads = world.ledger.gets
-  await fireEvent.click(within(dialog).getByRole('button', { name: 'Run 1' }))
+  await fireEvent.click(
+    within(dialog).getByRole('button', { name: 'Run 1 job' }),
+  )
   await waitFor(() =>
     expect(world.notify.success).toHaveBeenCalledWith('Queued 1 job'),
   )
@@ -685,7 +687,7 @@ it('a closed request offers no run at all', async () => {
   closed.items[1].ready = false
   world.ledger = fakeLedger(closed)
   await start()
-  expect(screen.queryByRole('button', { name: /ready…$/ })).toBeNull()
+  expect(screen.queryByRole('button', { name: /^Run \d+…$/ })).toBeNull()
   expect(screen.queryByRole('button', { name: 'Run…' })).toBeNull()
 })
 
@@ -816,7 +818,9 @@ it('a revised item shows its result, why, and Run take 2 beside it; its dependen
     name: 'Run another take of Board A',
   })
   await within(dialog).findByText(/about 6 min on cuda/)
-  await fireEvent.click(within(dialog).getByRole('button', { name: 'Run 1' }))
+  await fireEvent.click(
+    within(dialog).getByRole('button', { name: 'Run 1 job' }),
+  )
   await waitFor(() =>
     expect(world.submitJob).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -829,13 +833,13 @@ it('a revised item shows its result, why, and Run take 2 beside it; its dependen
   )
 })
 
-it('Run what is ready lists a revised item, and Keep this take makes it done', async () => {
+it('Run what can run now lists a revised item, and Keep this take makes it done', async () => {
   world.ledger = fakeLedger(revisedPlan())
   priced()
   await start()
-  await fireEvent.click(screen.getByRole('button', { name: 'Run 1 ready…' }))
+  await fireEvent.click(screen.getByRole('button', { name: 'Run 1…' }))
   const dialog = await screen.findByRole('dialog', {
-    name: 'Run what is ready',
+    name: 'Run what can run now',
   })
   expect(within(dialog).getByText('Board A')).toBeTruthy()
   await fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))

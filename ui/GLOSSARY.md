@@ -61,5 +61,5 @@ The piece each concept is built from. Reach for it before writing new markup or 
 | A reference to copy | `ReferenceChip` | `src/lib/ui/ReferenceChip.svelte` |
 | A file to reuse | `UseAsInput` | `src/lib/gallery/UseAsInput.svelte` |
 | A file or reference to fill in | `ReferenceField` | `src/lib/ui/ReferenceField.svelte` |
-| Whether a run will work | `verdictOf`, then `PlanLines` for what a job will do | `src/lib/runCheck.svelte.ts`, `src/lib/workflow/PlanLines.svelte` |
+| Whether a run will work | `verdictOf`, then `PlanLines` for what a job will do; the request run dialog reads each row's refusal or gated model off the same `verdictOf` | `src/lib/runCheck.svelte.ts`, `src/lib/workflow/PlanLines.svelte`, `src/lib/request/runQueue.svelte.ts` |
 | A workflow's search | `catalogMatches` | `src/lib/workflow/catalogSearch.ts` |

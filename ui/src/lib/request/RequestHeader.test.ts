@@ -240,12 +240,10 @@ it('has no filled button of its own, and a place for the one a page hands it', (
   const { container } = render(RequestHeader, {
     ...props([item('a', { ready: true })]),
     actions: createRawSnippet(() => ({
-      render: () => '<button type="button">Run 1 ready…</button>',
+      render: () => '<button type="button">Run 1…</button>',
     })),
   })
-  expect(container.querySelector('.primary button')?.textContent).toBe(
-    'Run 1 ready…',
-  )
+  expect(container.querySelector('.primary button')?.textContent).toBe('Run 1…')
 })
 
 const UNTIL = '2026-11-21T15:30:00+00:00'
