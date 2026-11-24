@@ -11,7 +11,7 @@
 </script>
 
 <span class="refchip">
-  <code>{text}</code>
+  <code title={text}>{text}</code>
   <CopyButton {text} title="Copy the reference a workflow argument takes" />
 </span>
 

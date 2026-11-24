@@ -507,14 +507,14 @@ a.row-live.row-live.row-live:hover {
 /* The contact-sheet frame (.frame, .videobadge) and the pickable tile
    (.cellwrap) are in frames.css. */
 
-/* One stacking scale for everything above the page. Bits renders overlays
-   in a portal on <body>, where a component's scoped styles cannot reach,
-   so their look lives here. */
+/* One stacking scale above the page (Bits portals overlays to <body>). A
+   popover tops any modal: a press outside closes it, so none is left under */
 :root {
   --layer-sticky: 10;
   --layer-drawer: 20;
-  --layer-popover: 30;
   --layer-modal: 60;
+  --layer-ask: 70;
+  --layer-popover: 80;
 }
 .ui-overlay {
   position: fixed;

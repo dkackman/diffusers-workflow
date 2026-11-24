@@ -13,10 +13,9 @@
   import {
     ChevronLeft,
     ChevronRight,
+    Ellipsis,
     Expand,
-    Maximize,
-    Minimize,
-    Scan,
+    Shrink,
     X,
     ZoomIn,
     ZoomOut,
@@ -38,6 +37,7 @@
   import { overlayOpen } from './layers.svelte'
   import MediaBody from './MediaBody.svelte'
   import Modal from './Modal.svelte'
+  import Popover from './Popover.svelte'
 
   let {
     items,
@@ -48,7 +48,8 @@
   }: {
     items: MediaFile[]
     open: string | null
-    /** The page's own buttons for the file, between full screen and Close */
+    /** The page's own buttons for the file, before Close; in the More menu
+     * at a phone's width, where an icon button shows its aria-label */
     actions?: Snippet<[MediaFile]>
     /** What the page says about the file, beside the stage */
     aside?: Snippet<[MediaFile]>
@@ -177,6 +178,42 @@
     if (document.fullscreenElement) void document.exitFullscreen()
     else void stage?.closest<HTMLElement>('.ui-sheet')?.requestFullscreen()
   }
+  const fullLabel = $derived(sheetFull ? 'Exit full screen' : 'Full screen')
+  // One toggle for the two views a double-click also swaps between
+  const sizeLabel = $derived(fitted ? 'Actual size (100%)' : 'Fit to window')
+
+  // At a phone's width the bar keeps one row: zoom and full screen go (a
+  // double-tap still zooms; a portal on <body> would not show over a full
+  // screen sheet) and the page's actions go into More. Read off the
+  // window, as the stylesheet's own break is
+  const NARROW_PX = 600
+  const isNarrow = () =>
+    typeof window !== 'undefined' && window.innerWidth <= NARROW_PX
+  let narrow = $state(isNarrow())
+  $effect(() => {
+    const sync = () => (narrow = isNarrow())
+    window.addEventListener('resize', sync)
+    return () => window.removeEventListener('resize', sync)
+  })
+  let moreOpen = $state(false)
+  let moreButton = $state<HTMLButtonElement | null>(null)
+  let moreList = $state<HTMLElement | null>(null)
+  // Any action chosen from More closes it first, so a question or a dialog
+  // it asks is not under the menu. A listener, not an attribute: the list
+  // is the page's buttons, and the press is theirs
+  $effect(() => {
+    const list = moreList
+    if (!list) return
+    const chosen = (e: Event) => {
+      if (e.target instanceof Element && e.target.closest('button, a'))
+        moreOpen = false
+    }
+    list.addEventListener('click', chosen)
+    return () => list.removeEventListener('click', chosen)
+  })
+  $effect(() => {
+    if (!narrow || !file) moreOpen = false
+  })
 
   const ACTS: Record<ViewerKey, () => void> = {
     prev: () => step(prevName),
@@ -280,61 +317,63 @@
       >
         <ChevronRight size={16} />
       </button>
-      <button
-        type="button"
-        class="quiet icon"
-        aria-label="Zoom out"
-        title="Zoom out"
-        disabled={!zoomable || fitted}
-        onclick={() => zoomBy(-1)}
-      >
-        <ZoomOut size={16} />
-      </button>
-      <button
-        type="button"
-        class="quiet icon"
-        aria-label="Zoom in"
-        title="Zoom in"
-        disabled={!zoomable}
-        onclick={() => zoomBy(1)}
-      >
-        <ZoomIn size={16} />
-      </button>
-      <button
-        type="button"
-        class="quiet icon"
-        aria-label="Fit to window"
-        title="Fit to window"
-        aria-pressed={fitted}
-        disabled={!zoomable}
-        onclick={fitToWindow}
-      >
-        <Scan size={16} />
-      </button>
-      <button
-        type="button"
-        class="quiet icon"
-        aria-label="Actual size"
-        title="Actual size"
-        disabled={!zoomable}
-        onclick={actualSize}
-      >
-        <Expand size={16} />
-      </button>
-      {#if canFullscreen}
+      {#if !narrow}
         <button
           type="button"
           class="quiet icon"
-          aria-label={sheetFull ? 'Exit full screen' : 'Full screen'}
-          title={sheetFull ? 'Exit full screen' : 'Full screen'}
-          onclick={toggleFullscreen}
+          aria-label="Zoom out"
+          title="Zoom out"
+          disabled={!zoomable || fitted}
+          onclick={() => zoomBy(-1)}
         >
-          {#if sheetFull}<Minimize size={16} />{:else}<Maximize
-              size={16}
-            />{/if}
+          <ZoomOut size={16} />
+        </button>
+        <button
+          type="button"
+          class="quiet icon"
+          aria-label="Zoom in"
+          title="Zoom in"
+          disabled={!zoomable}
+          onclick={() => zoomBy(1)}
+        >
+          <ZoomIn size={16} />
+        </button>
+        <button
+          type="button"
+          class="quiet viewer-size"
+          aria-label={sizeLabel}
+          title={sizeLabel}
+          disabled={!zoomable}
+          onclick={fitted ? actualSize : fitToWindow}
+        >
+          {fitted ? '100%' : 'Fit'}
+        </button>
+        {#if canFullscreen}
+          <button
+            type="button"
+            class="quiet icon"
+            aria-label={fullLabel}
+            title={fullLabel}
+            onclick={toggleFullscreen}
+          >
+            {#if sheetFull}<Shrink size={16} />{:else}<Expand size={16} />{/if}
+          </button>
+        {/if}
+        {@render actions?.(file)}
+      {:else if actions}
+        <button
+          type="button"
+          class="quiet icon"
+          bind:this={moreButton}
+          aria-label="More"
+          title="More"
+          aria-haspopup="dialog"
+          aria-expanded={moreOpen}
+          onclick={() => (moreOpen = !moreOpen)}
+        >
+          <Ellipsis size={16} />
         </button>
       {/if}
-      {@render actions?.(file)}
       <button
         type="button"
         class="quiet icon"
@@ -345,6 +384,19 @@
         <X size={16} />
       </button>
     </div>
+    {#if narrow && actions}
+      <Popover
+        bind:open={moreOpen}
+        label="More"
+        anchor={moreButton}
+        align="end"
+        menu
+      >
+        <div class="viewer-more" bind:this={moreList}>
+          {@render actions?.(file)}
+        </div>
+      </Popover>
+    {/if}
     <div class="viewer-body" class:has-aside={!!aside}>
       <!-- The pointer pans and swipes here; every one of its gestures is
            also a button in the bar above -->

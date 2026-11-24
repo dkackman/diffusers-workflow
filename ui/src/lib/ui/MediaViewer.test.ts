@@ -4,6 +4,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from '@testing-library/svelte'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { createRawSnippet } from 'svelte'
@@ -81,8 +82,7 @@ it('opens on the named file and says where it is', async () => {
     'Next file',
     'Zoom in',
     'Zoom out',
-    'Fit to window',
-    'Actual size',
+    'Actual size (100%)',
     'Close',
   ])
     expect(screen.getByRole('button', { name })).toBeInTheDocument()
@@ -382,4 +382,70 @@ it('a drag on a zoomed clip scrubs, it does not pan', async () => {
   // the stage's own margin still pans
   await drag(stage)
   expect(frame.style.transform).not.toBe(before)
+})
+
+it('one button swaps between actual size and fit, saying which it does', async () => {
+  viewer()
+  await dialog()
+  // fitted, it offers actual size; zoomed, it offers the fit back
+  const toggle = screen.getByRole('button', { name: 'Actual size (100%)' })
+  expect(toggle).toHaveTextContent('100%')
+  expect(toggle).toHaveAttribute('title', 'Actual size (100%)')
+  expect(
+    screen.queryByRole('button', { name: 'Fit to window' }),
+  ).not.toBeInTheDocument()
+  await fireEvent.click(screen.getByRole('button', { name: 'Zoom in' }))
+  const fit = await screen.findByRole('button', { name: 'Fit to window' })
+  expect(fit).toBe(toggle)
+  expect(fit).toHaveTextContent('Fit')
+  expect(fit).toHaveAttribute('title', 'Fit to window')
+  await fireEvent.click(fit)
+  expect(
+    await screen.findByRole('button', { name: 'Actual size (100%)' }),
+  ).toBe(toggle)
+})
+
+const pageActions = createRawSnippet(() => ({
+  render: () =>
+    '<span class="acts"><button type="button" class="quiet icon" aria-label="star this file">*</button></span>',
+}))
+const widthOf = (px: number) => {
+  Object.defineProperty(window, 'innerWidth', { configurable: true, value: px })
+  window.dispatchEvent(new Event('resize'))
+}
+
+it("at a phone's width the page's actions are in More, and zoom goes", async () => {
+  widthOf(390)
+  try {
+    viewer({ actions: pageActions })
+    const sheet = await dialog()
+    const bar = sheet.querySelector('.viewer-bar')!
+    // one row: the name, the place, previous and next, More and Close
+    expect(bar.querySelector('[aria-label="star this file"]')).toBeNull()
+    for (const name of ['Zoom in', 'Zoom out', 'Actual size (100%)'])
+      expect(screen.queryByRole('button', { name })).not.toBeInTheDocument()
+    const more = screen.getByRole('button', { name: 'More' })
+    expect(more).toHaveAttribute('aria-expanded', 'false')
+    expect(more).toHaveAttribute('title', 'More')
+    await fireEvent.click(more)
+    const menu = await screen.findByRole('dialog', { name: 'More' })
+    expect(more).toHaveAttribute('aria-expanded', 'true')
+    const star = within(menu).getByRole('button', { name: 'star this file' })
+    // choosing an action closes the menu, so what it asks is not under it
+    await fireEvent.click(star)
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('dialog', { name: 'More' }),
+      ).not.toBeInTheDocument(),
+    )
+    // widened, the actions are back in the bar and More goes
+    widthOf(1024)
+    await waitFor(() =>
+      expect(bar.querySelector('[aria-label="star this file"]')).not.toBeNull(),
+    )
+    expect(screen.queryByRole('button', { name: 'More' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Zoom in' })).toBeInTheDocument()
+  } finally {
+    widthOf(1024)
+  }
 })

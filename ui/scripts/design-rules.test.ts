@@ -134,3 +134,16 @@ it('app.css stays at or under 600 lines', () => {
   const count = lines.at(-1) === '' ? lines.length - 1 : lines.length
   expect(count).toBeLessThanOrEqual(600)
 })
+
+// A popover or menu opened inside the viewer or a modal shows on top: it
+// closes on a press outside, so it is never left over a modal opened later.
+// A question asked from a sheet sits over that sheet
+it('the layers stack page, modal, question, popover', () => {
+  const css = readFileSync(join(UI, 'src/app.css'), 'utf8')
+  const layer = (name: string) =>
+    Number(css.match(new RegExp(`--layer-${name}:\\s*(\\d+)`))?.[1])
+  const order = ['sticky', 'drawer', 'modal', 'ask', 'popover'].map(layer)
+  expect(order.every((n) => Number.isFinite(n))).toBe(true)
+  expect([...order].sort((a, b) => a - b)).toEqual(order)
+  expect(new Set(order).size).toBe(order.length)
+})
