@@ -26,11 +26,11 @@
   import { resource } from '../resource.svelte'
   import LoadState from '../ui/LoadState.svelte'
   import PageHeader from '../ui/PageHeader.svelte'
-  import { describePlan } from '../plan'
   import { placeFindings } from '../findings'
-  import { RunCheck } from '../runCheck.svelte'
+  import { RunCheck, verdictOf } from '../runCheck.svelte'
   import RunCheckPanel from '../workflow/RunCheckPanel.svelte'
-  import { WORKFLOW_PREFILL_KEY } from '../chainActions'
+  import EnhanceDialog from '../workflow/EnhanceDialog.svelte'
+  import * as form from '../workflow/runForm'
   import RemoteNotice from '../ui/RemoteNotice.svelte'
 
   let { name }: { name: string } = $props()
@@ -38,8 +38,7 @@
   let overrides = $state<Record<string, string>>({})
   /** Collapsed by default: this page is where you set variables and run,
    * and a 520px read-only editor between the form and the rest of the page
-   * pushed the actual work off the screen. The editor is one click away,
-   * and Edit opens the real one. */
+   * pushed the actual work off the screen. Edit opens the real one. */
   let showJson = $state(false)
 
   /** The definition, with where it was read from and whether it is the
@@ -90,7 +89,9 @@
    * workflow, and the maintainer's figure - "a maintainer's figure: ~3 min
    * · 22 GB VRAM, measured on <card> at steps=30". Null when the card has
    * no cost - never "unknown cost". */
-  const catalog = resource(() => api.listWorkflows(), { watch: ['workflows'] })
+  const catalog = resource(() => api.listWorkflows({ inputs: true }), {
+    watch: ['workflows'],
+  })
   const card = $derived(catalog.data?.details?.[name])
   const observed = $derived(
     (card?.observed as Record<string, unknown> | undefined) ?? null,
@@ -103,47 +104,43 @@
     return basis ? `${basis}: ${figure}` : figure
   })
 
-  /** Values another page asked this one to open with (Repair this
-   * segment, #1476): read once, and only when they name this workflow.
-   * Filled in, never submitted - Run is still the user's */
-  function takePrefill(): Record<string, string> {
-    const raw = sessionStorage.getItem(WORKFLOW_PREFILL_KEY)
-    if (raw === null) return {}
-    sessionStorage.removeItem(WORKFLOW_PREFILL_KEY)
-    try {
-      const parsed = JSON.parse(raw)
-      if (parsed?.workflow !== name) return {}
-      const args = parsed.arguments
-      if (!args || typeof args !== 'object') return {}
-      return Object.fromEntries(
-        Object.entries(args).map(([key, value]) => [key, String(value)]),
-      )
-    } catch {
-      return {}
-    }
-  }
+  let restored = $state(false)
+  let enhancing = $state('') // the variable whose Enhance dialog is open
+  let seeded = '' // the draft key (workspace and name) held in `overrides`
+  const saver = new form.DraftSaver()
 
   $effect(() => {
     void name
     untrack(() => {
-      overrides = takePrefill()
       showJson = false
       loadPromptLibrary()
     })
   })
 
+  $effect(() => {
+    const key = form.draftKey(workspace.current, name)
+    if (!workflow || seeded === key) return
+    seeded = key
+    untrack(() => {
+      saver.flush()
+      const opened = form.openingValues(workspace.current, name, workflow)
+      ;({ restored, overrides } = opened)
+    })
+  })
+
+  $effect(() => {
+    const values = $state.snapshot(overrides)
+    const key = form.draftKey(workspace.current, name)
+    if (seeded === key) saver.schedule(key, values)
+  })
+
+  onDestroy(saver.flush)
+  const resetForm = () => ((overrides = {}), (restored = false))
+
   const variables = $derived(Object.entries(workflow?.variables ?? {}))
 
-  /** The arguments a Run sends: the overrides with every blank dropped, so
-   * a blank field leaves the workflow's own default in place. Validate asks
-   * about exactly these, so its answer predicts the Run click. */
-  function runArguments(): Record<string, unknown> {
-    const args: Record<string, unknown> = {}
-    for (const [key, value] of Object.entries(overrides)) {
-      if (value !== '') args[key] = value
-    }
-    return args
-  }
+  const runArguments = () =>
+    form.runArguments(overrides, workflow?.variables ?? {})
 
   /** The check beside Run, asked about exactly what Run would send. */
   const runCheck = new RunCheck((sizes, signal) =>
@@ -170,9 +167,29 @@
       variables.map(([key]) => key),
     ),
   )
-  const planLines = $derived(
-    runCheck.validation?.plan ? describePlan(runCheck.validation.plan) : [],
+  const verdict = $derived(
+    verdictOf(runCheck.validation, runCheck.error, placed),
   )
+
+  /** A refused check turns Run into Fix: nothing else gates Run */
+  const fixing = $derived(
+    verdict?.tone === 'bad' && verdict.issues > 0 ? verdict.issues : 0,
+  )
+
+  /** Bring the first issue into view: the first field with an error, in
+   * form order, else the first general finding */
+  function showFirstIssue() {
+    const key = variables
+      .map(([k]) => k)
+      .find((k) => placed.byVariable[k]?.some((f) => f.tone === 'bad'))
+    const target =
+      key === undefined
+        ? document.getElementById('issue-0')
+        : document.getElementById(`var-${key}`)
+    if (!target) return
+    target.scrollIntoView?.({ block: 'center' })
+    if (key !== undefined) target.focus()
+  }
 
   function newFrom() {
     if (!workflow) return
@@ -247,12 +264,18 @@
     </button>
     <button
       class="withicon run"
-      onclick={() => void running.run()}
+      onclick={() => (fixing ? showFirstIssue() : void running.run())}
       disabled={running.busy || !workflow}
       aria-busy={running.busy}
-      title="queue this workflow with the variables below"
+      title={fixing
+        ? 'Shows what would stop this job'
+        : 'queue this workflow with the variables below'}
     >
-      <Play size={14} />{running.busy ? 'Submitting…' : 'Run'}
+      <Play size={14} />{running.busy
+        ? 'Submitting…'
+        : fixing
+          ? `Fix ${fixing} ${fixing === 1 ? 'issue' : 'issues'}`
+          : 'Run'}
     </button>{/snippet}
 </PageHeader>
 
@@ -279,11 +302,12 @@
   {#if workflow}
     <RemoteNotice shown={read.changed.has(name)} />
     <RunCheckPanel
-      verdict={runCheck.verdict}
+      {verdict}
       checking={runCheck.checking}
-      {planLines}
+      plan={runCheck.validation?.plan ?? null}
       checkError={runCheck.error}
       findings={placed.general}
+      author={placed.author}
     />
 
     {#if workflow.description}
@@ -316,10 +340,11 @@
            hint is written for a person, so it is not -->
         <h2>Variables</h2>
         <p class="hint muted">
-          Leave a field blank to use the workflow's own default. Type
-          <code>prompt:</code>, <code>asset:</code> or <code>output:</code> to pick
-          a stored prompt, an asset or an earlier job's file - or press ↓ in an empty
-          field to see them.
+          Leave a field blank to use the workflow's own default.
+          {#if restored}
+            Restored what you last typed here.
+            <button class="bare" onclick={resetForm}>Reset to defaults</button>
+          {/if}
         </p>
         <VariablesForm
           mode="override"
@@ -331,7 +356,18 @@
           constraints={constraintHints(workflow)}
           presets={workflow.presets}
           findings={placed.byVariable}
+          kinds={card?.inputs ?? {}}
+          advanced={form.advancedVariables(workflow, card)}
+          seed={form.seedVariable(workflow)}
+          onenhance={(key) => (enhancing = key)}
         />
+        {#if enhancing}
+          <EnhanceDialog
+            bind:open={() => !!enhancing, () => (enhancing = '')}
+            idea={form.enhanceIdea(overrides, workflow, enhancing)}
+            onuse={(text) => (overrides[enhancing] = text)}
+          />
+        {/if}
       </div>
     {:else}
       <p class="muted">This workflow defines no variables.</p>

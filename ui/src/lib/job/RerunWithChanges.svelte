@@ -1,8 +1,10 @@
 <script lang="ts">
+  import { untrack } from 'svelte'
   import ErrorLine from '../ui/ErrorLine.svelte'
   import { SlidersHorizontal } from '@lucide/svelte'
   import { api } from '../api'
   import { displayValue } from '../editor'
+  import { typedArguments } from '../workflow/typedArguments'
   import { go } from '../router.svelte'
   import { action } from '../action.svelte'
   import Modal from '../ui/Modal.svelte'
@@ -37,35 +39,47 @@
   })
 
   let overrides = $state<Record<string, string>>({})
+  let newSeed = $state(false)
   let error = $state<unknown>(null)
 
   // Only what differs from the run goes: the server stores the overrides
   // exactly as sent, so retyping a value the run already used (30 over 30)
   // would otherwise be named as a change it never was
+  const started = (key: string) => displayValue(values[key]).trim()
   const changed = $derived(
     Object.fromEntries(
       Object.entries(overrides).filter(([key, raw]) => {
         const text = raw.trim()
-        return text !== '' && text !== displayValue(values[key]).trim()
+        return text !== '' && text !== started(key)
       }),
     ),
   )
   const changedCount = $derived(Object.keys(changed).length)
 
-  // Opened from here or from outside, the form starts empty
+  // Opened from here or from outside, the form holds the job's values
   $effect(() => {
     if (!open) return
-    overrides = {}
-    error = null
+    // Only opening seeds the form: a job or definition refresh while it is
+    // open must not wipe what was typed
+    untrack(() => {
+      overrides = Object.fromEntries(
+        Object.keys(values).map((key) => [key, displayValue(values[key])]),
+      )
+      newSeed = false
+      error = null
+    })
   })
 
   const queueing = action(
     async () => {
-      if (!changedCount) return null
+      if (!changedCount && !newSeed) return null
       error = null
       let next
       try {
-        next = await api.rerunJob(job.id, { arguments: { ...changed } })
+        next = await api.rerunJob(job.id, {
+          newSeed,
+          arguments: typedArguments(changed, values),
+        })
       } catch (e) {
         // A refused value is the user's to fix: the modal stays open on it
         error = e
@@ -84,6 +98,15 @@
     watch: ['workflows'],
   })
   const presets = $derived(presetsRead.data ?? null)
+
+  // The kind of file each variable takes, read once the form is open
+  const catalog = resource(
+    () => (open ? api.listWorkflows({ inputs: true }) : Promise.resolve(null)),
+    { watch: ['workflows'] },
+  )
+  const kinds = $derived(
+    catalog.data?.details?.[job.workflow_name ?? '']?.inputs ?? {},
+  )
 
   const promotions = $derived(
     promotionsOf(presets, declared, job.arguments ?? {}, values),
@@ -125,26 +148,31 @@
 <Modal bind:open label="Run again with changes" wide>
   <h2>Run again with changes</h2>
   <p class="hint muted">
-    Each field shows what this job used. Type only what should change - a blank
-    field keeps this job's value, the drawn seed included.
+    Each field holds what this job used. Change what should differ.
   </p>
   <VariablesForm
     mode="override"
     variables={values}
     bind:overrides
     idPrefix="rerun-var-"
+    {kinds}
   />
+  <label class="newseed">
+    <input type="checkbox" bind:checked={newSeed} />New seed
+  </label>
   {#if error}<ErrorLine {error} doing="rerun it" />{/if}
   <div class="actions">
-    {#if !changedCount}<span class="muted">nothing changed</span>{/if}
+    {#if !changedCount && !newSeed}<span class="muted">
+        nothing changed
+      </span>{/if}
     <button class="quiet" onclick={() => (open = false)}>Cancel</button>
     <button
       onclick={() => void queueing.run()}
-      disabled={!changedCount || queueing.busy}
+      disabled={(!changedCount && !newSeed) || queueing.busy}
       aria-busy={queueing.busy}
-      title={changedCount
-        ? `queue a rerun changing ${Object.keys(changed).join(', ')}`
-        : 'nothing changed - type a value that differs from this job'}
+      title={changedCount || newSeed
+        ? `queue a rerun${changedCount ? ` changing ${Object.keys(changed).join(', ')}` : ''}${newSeed ? ' with a new seed' : ''}`
+        : 'nothing changed - change a value, or choose New seed'}
     >
       {queueing.busy ? 'Queueing…' : 'Queue'}
     </button>
@@ -154,6 +182,12 @@
 <style>
   .promote {
     font-size: 0.85rem;
+  }
+  .newseed {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin-top: var(--space-3);
   }
   .actions {
     display: flex;

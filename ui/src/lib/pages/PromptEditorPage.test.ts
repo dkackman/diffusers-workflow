@@ -393,3 +393,18 @@ it('Save is the one primary button of the prompt editor', async () => {
   expect(primary).toEqual(['Save'])
   expect(screen.getByRole('button', { name: /^Save/ })).not.toHaveClass('quiet')
 })
+
+it('an example prompt says so', async () => {
+  vi.mocked(api.getPrompt).mockResolvedValueOnce({
+    prompt: { text: 'a hero at dawn' },
+    origin: 'builtin',
+    writable: false,
+    etag: '"p1"',
+  })
+  await openHero()
+  expect(
+    screen.getByText(
+      "This is an example, so it can't be changed in place. Save makes your own copy in default.",
+    ),
+  ).toBeTruthy()
+})

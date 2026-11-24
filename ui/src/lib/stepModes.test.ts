@@ -48,3 +48,16 @@ it('restores what the current key stored, and resets to a given set', () => {
   m.restore()
   expect(m.of({ name: 'a' })).toBe('full')
 })
+
+it('rename moves the mode', () => {
+  const m = modes()
+  m.set({ name: 'gen' }, 'full')
+  m.mark('fresh', 'collapsed')
+  m.rename('gen', 'base')
+  m.rename('fresh', 'newer')
+  expect(m.of({ name: 'base' })).toBe('full')
+  expect(m.of({ name: 'gen' })).toBe('compact')
+  expect(m.of({ name: 'newer' })).toBe('collapsed')
+  // What was remembered moves with it; a session-only mark stays unstored
+  expect(storageGet(KEY, {})).toEqual({ base: 'full' })
+})

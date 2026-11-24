@@ -9,7 +9,7 @@ test('workflow browser lists, describes and filters', async ({ page }) => {
   ).toBeVisible()
   // the filter searches descriptions, not just names: 'fill dev' appears in
   // outpaint's description and in no workflow's name
-  await page.getByPlaceholder('filter…').fill('fill dev')
+  await page.getByPlaceholder('search workflows…').fill('fill dev')
   await expect(page.getByRole('link', { name: /^outpaint / })).toBeVisible()
   await expect(page.getByRole('link', { name: /^z-image / })).toHaveCount(0)
 })
@@ -136,7 +136,7 @@ test('editor validates, saves into a new folder, and deletes', async ({
   test.setTimeout(60_000)
   await page.goto('/#/edit/models/z-image')
   await page.getByRole('button', { name: 'Validate' }).click()
-  await expect(page.getByText('schema-valid')).toBeVisible({ timeout: 30_000 })
+  await expect(page.getByText('Ready to run.')).toBeVisible({ timeout: 30_000 })
 
   // save into a folder that does not exist yet - the "new folder…" flow
   // exercises the {name:path} route and the server's directory creation
@@ -175,7 +175,9 @@ test('the editor back link walks back to the workflow it opened', async ({
   await expect(page).toHaveURL(/#\/ws\/default\/edit\/models\/z-image$/)
   // the way back to the read-only page, which the bare "← workflows"
   // link never offered
-  await page.getByRole('link', { name: '← z-image', exact: true }).click()
+  await page
+    .getByRole('link', { name: '← models/z-image', exact: true })
+    .click()
   await expect(page).toHaveURL(/#\/ws\/default\/workflows\/models\/z-image$/)
   await expect(
     page.getByRole('heading', { name: 'models/z-image' }),
@@ -370,7 +372,8 @@ test('the workflow page checks a run as you edit, and places each finding', asyn
     const body = route.request().postDataJSON() as Record<string, unknown>
     asked.push({ url: route.request().url(), body })
     const args = (body.arguments ?? {}) as Record<string, unknown>
-    const refused = args.num_inference_steps === '0'
+    // the page sends typed values: a number, not the typed string
+    const refused = args.num_inference_steps === 0
     await route.fulfill({
       json: {
         valid: !refused,
@@ -405,30 +408,25 @@ test('the workflow page checks a run as you edit, and places each finding', asyn
   })
   await page.goto('/#/workflows/models/z-image')
   const check = page.getByRole('region', { name: 'run check' })
-  await expect(
-    check.getByText('a job would be admitted, with warnings'),
-  ).toBeVisible()
-  await expect(check.getByLabel('what a job will do')).toContainText(
-    'about 3 min',
-  )
+  await expect(check.getByText('Ready to run.')).toBeVisible()
+  await expect(check).toContainText('about 3 min')
   expect(asked[0].body.workflow_path).toBe('models/z-image')
   expect(asked[0].url).toContain('sizes=false')
   // a hostile warning prints as text
-  await expect(
-    check.getByLabel('findings').getByText(/<img src=x onerror=/),
-  ).toBeVisible()
+  await check.getByText(/note for the workflow's author/).click()
+  await expect(check.getByText(/<img src=x onerror=/)).toBeVisible()
   expect(
     await page.evaluate(() => (window as { __pwned?: number }).__pwned),
   ).toBeUndefined()
 
   await page.getByLabel('num_inference_steps').fill('0')
-  await expect(check.getByText('a job would be refused')).toBeVisible()
+  await expect(check.getByText(/A job would be refused/)).toBeVisible()
   await expect(
     page.locator('[data-findings-for="num_inference_steps"]'),
   ).toContainText('must be at least 1')
-  await expect(check.getByLabel('findings')).not.toContainText(
-    'must be at least 1',
-  )
-  // the check never gates Run
-  await expect(page.getByRole('button', { name: /Run/ })).toBeEnabled()
+  // the field's error is shown under the field and nowhere in the run check
+  await expect(check).not.toContainText('must be at least 1')
+  // a refusing check turns Run into Fix, which goes to the field
+  await page.getByRole('button', { name: 'Fix 1 issue' }).click()
+  await expect(page.getByLabel('num_inference_steps')).toBeFocused()
 })

@@ -19,3 +19,11 @@ export function storageSet(key: string, value: unknown): void {
     /* private mode or quota - session only */
   }
 }
+
+export function storageRemove(key: string): void {
+  try {
+    localStorage.removeItem(PREFIX + key)
+  } catch {
+    /* nothing to forget */
+  }
+}

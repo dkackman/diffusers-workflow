@@ -76,13 +76,13 @@ test('catalog LoRA suggestions hide rejected entries and add a row', async ({
   await add.click()
 
   const row = step.locator('.loras .row')
-  await expect(row.getByPlaceholder('org/lora-repo or path')).toHaveValue(
+  await expect(row.getByLabel('Model')).toHaveValue(
     'e2e-org/e2e-style-lora',
   )
-  await expect(row.getByPlaceholder('weight file (optional)')).toHaveValue(
+  await expect(row.getByLabel('Weight file')).toHaveValue(
     'e2e_style.safetensors',
   )
-  await expect(row.getByPlaceholder('scale')).toHaveValue('0.8')
+  await expect(row.getByLabel('Scale')).toHaveValue('0.8')
   await expect(catalog.locator('li.suggestion button')).toHaveText('added')
 
   expect(

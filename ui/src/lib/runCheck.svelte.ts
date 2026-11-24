@@ -1,7 +1,10 @@
 // The check beside Run: validate on load and after each pause in the
 // editing, with `sizes=false` so typing never asks the hub; once the form
 // has sat idle a while, one more check with sizes fills in download GB.
-// It only informs - Run stays enabled, and the server stays the gate.
+// A refused check turns Run into Fix N issues (verdictOf); any other
+// verdict, or a check still in flight, leaves Run as it is, and the
+// server stays the gate.
+import type { PlacedFindings } from './findings'
 import type { ValidationResult } from './types'
 
 /** The quiet after the last change before checking again. */
@@ -9,7 +12,72 @@ export const CHECK_AFTER_MS = 600
 /** The idle time before the one check that asks the hub for sizes. */
 export const SIZES_AFTER_MS = 3000
 
-export type Verdict = { tone: 'good' | 'warn' | 'bad'; text: string }
+export type Verdict = {
+  tone: 'good' | 'warn' | 'bad'
+  text: string
+  remedy?: string
+  /** How many things stand between the values and a job: the errors and a
+   * bare refusal, which a Run gated on this verdict names */
+  issues: number
+}
+
+const plural = (n: number, one: string, many: string) =>
+  `${n} ${n === 1 ? one : many}`
+
+/** What a validate answer says about running now, in plain words - the one
+ * verdict the run check and the editor both show. It reads `valid`,
+ * `errors`, `access_blocked`, `not_found` and what `placed` holds, and
+ * derives nothing else. */
+export function verdictOf(
+  validation: ValidationResult | null,
+  error: unknown,
+  placed: PlacedFindings,
+): Verdict | null {
+  if (error !== null && error !== undefined)
+    return { tone: 'bad', text: "Couldn't check this workflow.", issues: 0 }
+  if (!validation) return null
+  if (!validation.valid) {
+    const bad = (list: { tone: string }[]) =>
+      list.filter((f) => f.tone === 'bad').length
+    const issues =
+      bad(placed.general) +
+      Object.values(placed.byVariable).reduce((n, l) => n + bad(l), 0)
+    return {
+      tone: 'bad',
+      text: `A job would be refused: ${plural(issues, 'issue', 'issues')} to fix.`,
+      issues,
+    }
+  }
+  const downloads = validation.plan?.downloads_required ?? []
+  if (downloads.some((d) => d.access_blocked)) {
+    return {
+      tone: 'warn',
+      text: 'This model needs Hugging Face access.',
+      remedy:
+        'Accept its terms on Hugging Face, then sign in on the server with hf auth login.',
+      issues: 0,
+    }
+  }
+  if (downloads.some((d) => d.not_found)) {
+    return {
+      tone: 'warn',
+      text: "A model this workflow downloads can't be found.",
+      remedy: 'Check the model name in the workflow.',
+      issues: 0,
+    }
+  }
+  const noted = Object.values(placed.byVariable).filter((list) =>
+    list.some((f) => f.tone === 'warn'),
+  ).length
+  if (noted) {
+    return {
+      tone: 'warn',
+      text: `Ready to run. Read the notes under ${plural(noted, 'field', 'fields')}.`,
+      issues: 0,
+    }
+  }
+  return { tone: 'good', text: 'Ready to run.', issues: 0 }
+}
 
 export class RunCheck {
   validation = $state<ValidationResult | null>(null)
@@ -69,18 +137,6 @@ export class RunCheck {
       this.error = null
     }
     this.#schedule(first ? 0 : CHECK_AFTER_MS)
-  }
-
-  get verdict(): Verdict | null {
-    if (this.error !== null)
-      return { tone: 'bad', text: 'could not check this workflow' }
-    if (!this.validation) return null
-    if (!this.validation.valid)
-      return { tone: 'bad', text: 'a job would be refused' }
-    if (this.validation.warnings.length) {
-      return { tone: 'warn', text: 'a job would be admitted, with warnings' }
-    }
-    return { tone: 'good', text: 'a job would be admitted' }
   }
 
   #schedule(delay: number) {

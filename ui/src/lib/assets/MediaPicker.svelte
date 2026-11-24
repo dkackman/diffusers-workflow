@@ -18,6 +18,7 @@
     outputNamed,
   } from '../outputlib.svelte'
   import { ASSET, OUTPUT, reference, referenceName } from '../references'
+  import { kindWithArticle } from '../referenceField'
   import { matchesWords } from '../ui/suggest'
   import type { AssetFile } from '../types'
   import { workspace } from '../workspace.svelte'
@@ -141,8 +142,12 @@
   const listing = $derived(tab === 'assets' ? assetLibrary : outputLibrary)
   // A section the person shut stays shut next time, except while a search is
   // on: a shut section hiding matches would make the search look broken
-  const shut = collapsedState('collapsed-media-picker')
+  // and per workspace and tab, since a library's names are its own
+  const shut = $derived(
+    collapsedState(`collapsed-media-picker:${workspace.current}:${tab}`),
+  )
   const closed = (key: string) => !query && shut.has(key)
+  const searching = 'Showing every match while the search is on'
   const what = $derived(tab === 'assets' ? 'the asset library' : 'earlier jobs')
 
   function choose(tile: Tile) {
@@ -154,7 +159,7 @@
 
 <Modal bind:open label="choose a file" large>
   <div class="head">
-    <h2>Choose {kind === 'image' ? 'an image' : `a ${kind ?? 'file'}`}</h2>
+    <h2>Choose {kindWithArticle(kind)}</h2>
     <Segmented
       label="where to choose from"
       value={tab}
@@ -197,12 +202,17 @@
           count={section.tiles.length}
           collapsed={closed(section.key)}
           ontoggle={() => shut.toggle(section.key)}
+          disabled={!!query}
+          title={query ? searching : undefined}
         />
       </h3>
       {#if !closed(section.key)}
         <div class="grid">
           {#each section.tiles as tile (tile.key)}
             {#snippet folder()}<span class="folder">{tile.sub}</span>{/snippet}
+            {#snippet here()}<span class="tile-mark here">
+                current
+              </span>{/snippet}
             <OutputTile
               file={tile.file}
               size="strip"
@@ -212,6 +222,7 @@
               onclick={() => choose(tile)}
               title={tile.key}
               aria-label="choose {tile.key}"
+              badges={tile.current ? here : undefined}
               meta={tile.sub ? folder : undefined}
             />
           {/each}

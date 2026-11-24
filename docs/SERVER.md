@@ -1036,7 +1036,10 @@ blend toward, `minutes` is left alone and `low_confidence` is set instead.
   `shape`, `traits`, `cost`, `kinds`, `variable_names` and `lists` (carried
   only when the workflow has a list-driven step, like `configures`), and
   lists templates only unless `include_models=true` or a `configures` asks
-  otherwise
+  otherwise. `inputs=true` adds to each full-view detail `inputs`: every
+  variable that feeds a media argument (`image`, `mask_image`, `video`,
+  `audio`, ...) or sits in a `location` object, and the kind it takes
+  (`image`, `video`, `audio` or `file`); without it the key is absent
 - `GET/PUT/DELETE /api/workflows/{name}` — read, save, delete workflow files
   (confined to `--workflow-dir`); `PATCH` applies a JSON merge patch (RFC 7396,
   `application/merge-patch+json` or JSON) to the stored version and saves the

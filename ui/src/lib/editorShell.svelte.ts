@@ -65,18 +65,27 @@ export const EDITOR_VIEWS: {
   },
 ]
 
-/** The editor's Ctrl/Cmd+S (and Caps-Lock S) save and Ctrl/Cmd+Enter run.
- * Nothing fires under an overlay, mid-IME composition, on a document that
- * cannot be written or while it is busy; the pending edit is flushed first. */
+/** The editor shortcut a key press names: Ctrl/Cmd+S (Caps-Lock S too)
+ * or Ctrl/Cmd+Enter. */
+function shortcut(e: KeyboardEvent): 'save' | 'run' | null {
+  if (!(e.ctrlKey || e.metaKey)) return null
+  const key = e.key.toLowerCase()
+  return key === 's' ? 'save' : key === 'enter' ? 'run' : null
+}
+
+/** The editor's Ctrl/Cmd+S save and Ctrl/Cmd+Enter run. Ctrl/Cmd+S never
+ * reaches the browser, whose own Save would download the page; nothing
+ * fires under an overlay, mid-IME composition, on a document that cannot
+ * be written or while it is busy; the pending edit is flushed first. */
 export function editorKeys(
   ed: DocumentEditor,
   handlers: { save: () => void; run?: () => void },
 ): (e: KeyboardEvent) => void {
   return (e) => {
-    if (!(e.ctrlKey || e.metaKey) || e.isComposing || overlayOpen()) return
-    const key = e.key.toLowerCase()
-    const act =
-      key === 's' ? handlers.save : key === 'enter' ? handlers.run : null
+    const which = shortcut(e)
+    if (which === 'save') e.preventDefault()
+    if (!which || e.isComposing || overlayOpen()) return
+    const act = handlers[which]
     if (!act || !ed.canWrite) return
     e.preventDefault()
     if (ed.busy) return

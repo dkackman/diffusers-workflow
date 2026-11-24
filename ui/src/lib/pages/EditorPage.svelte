@@ -12,6 +12,7 @@
   import StepList from '../editor/StepList.svelte'
   import { StepModes } from '../stepModes.svelte'
   import ValidationPanel from '../editor/ValidationPanel.svelte'
+  import { EditorJumps, editorCheck } from '../editor/editorCheck.svelte'
   import DocumentFileBar from '../editor/DocumentFileBar.svelte'
   import WorkflowOrigin, { IMPORTED } from '../editor/WorkflowOrigin.svelte'
   import { CircleCheck, Play, Save } from '@lucide/svelte'
@@ -46,7 +47,7 @@
   import { loadPromptLibrary, promptLibrary } from '../promptlib.svelte'
   import VariablesForm from '../editor/VariablesForm.svelte'
   import FlowView from '../editor/FlowView.svelte'
-  import type { ValidationResult, WorkflowDefinition } from '../types'
+  import type { WorkflowDefinition } from '../types'
 
   let { name = '' }: { name?: string } = $props()
 
@@ -77,17 +78,15 @@
   const modesKey = $derived(`step-modes:${current || '(unsaved)'}`)
   // Keyed by step name; existing steps open compact, new ones full
   const modes = new StepModes(() => modesKey)
+  const jumps = new EditorJumps(ed, modes)
 
   // Existing folders, from the listing - one level is the designed depth,
   // but any deeper directories that exist still appear and keep working
   const folders = $derived(
     [...new Set(editorLists.workflowFiles.map(groupOf).filter(Boolean))].sort(),
   )
-  let validation = $state<ValidationResult | null>(null)
-  // A verdict on the copy the server's replaced is not one on this copy
-  $effect(() => {
-    if (ed.remoteLoads) validation = null
-  })
+  // The verdict shown: the live check's, or the Validate button's
+  const check = editorCheck(ed)
   // A new workflow's starting point: '' for blank, an example's name, or
   // IMPORTED for a definition handed over from an image's metadata
   let startFrom = $state('')
@@ -107,17 +106,14 @@
   loadWorkspaces()
 
   // The way out: a saved workflow's own page, else the Workflows list
-  const back = $derived(
-    current
-      ? {
-          href: wsHref(workspace.current, 'workflows', ...current.split('/')),
-          label: leafOf(current),
-        }
-      : {
-          href: wsHref(workspace.current, 'workflows'),
-          label: SECTION_LABELS.ws.workflows,
-        },
-  )
+  const back = $derived({
+    href: wsHref(
+      workspace.current,
+      'workflows',
+      ...current.split('/').filter(Boolean),
+    ),
+    label: current || SECTION_LABELS.ws.workflows,
+  })
 
   // The data-flow graph and per-step reference problems drive the rail's
   // producer/consumer chips and inline warnings - promptLibrary.names stays
@@ -140,7 +136,6 @@
       ]),
     )
   })
-  let hovered = $state<string | null>(null)
   // Memoized so datalist options keep stable DOM identity - churn on every
   // render made the browser's suggestion dropdown flaky on first focus
   const stepReferences = $derived.by(() => {
@@ -159,7 +154,6 @@
     loadPromptLibrary()
     // the route catching up with a save: this is the document already
     if (name && opened === `${workspace.current}:${name}`) return
-    validation = null
     if (name) {
       ed.saveName = leafOf(name)
       ed.folder = groupOf(name)
@@ -260,10 +254,10 @@
     }
     ed.busy = true
     try {
-      validation = await api.validate(
+      check.validation = await api.validate(
         $state.snapshot(ed.doc) as WorkflowDefinition,
       )
-      return validation.valid
+      return check.validation.valid
     } catch (e) {
       notify.failure('validate the workflow', e)
       return false
@@ -284,13 +278,19 @@
       return
     }
     if (!(await saving.run(path))) return
-    // A folder this save created must be in the picker at once, or the
-    // select falls back to "(root)" while the state still names it
-    if (catalog.data) catalog.adopt(withSaved(catalog.data, path))
-    // The URL names the file now on screen: a first save, or a save as
-    opened = `${workspace.current}:${path}`
-    if (path !== name)
-      renameRoute(wsHref(workspace.current, 'edit', ...path.split('/')))
+    // The file is written: what follows only brings the page up to it
+    try {
+      // The URL names the file now on screen: a first save, or a save as.
+      // It goes first so a failure after it leaves page and URL agreeing
+      opened = `${workspace.current}:${path}`
+      if (path !== name)
+        renameRoute(wsHref(workspace.current, 'edit', ...path.split('/')))
+      // A folder this save created must be in the picker at once, or the
+      // select falls back to "(root)" while the state still names it
+      if (catalog.data) catalog.adopt(withSaved(catalog.data, path))
+    } catch (e) {
+      notify.failure('update the editor after saving', e)
+    }
   }
   // Save and Run are actions: pressed twice, each does one thing
   const saving = action((path: string) => validatedSave(ed, path, validate), {
@@ -307,23 +307,6 @@
   )
   const run = () => void running.run()
   const onKeydown = editorKeys(ed, { save: () => void save(), run })
-
-  // The flow view's click-to-navigate: land back on the form view with the
-  // step's row scrolled into place and briefly lit, the same highlight the
-  // rail chips already use on hover - a reasonable cross-reference without
-  // teaching the flow view anything about editing.
-  function focusStep(stepName: string) {
-    ed.setView('form')
-    hovered = stepName
-    requestAnimationFrame(() => {
-      document
-        .getElementById('step-' + stepName)
-        ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-    })
-    setTimeout(() => {
-      if (hovered === stepName) hovered = null
-    }, 2000)
-  }
 </script>
 
 <svelte:window onkeydown={onKeydown} />
@@ -411,12 +394,21 @@
       {/snippet}
     </DocumentFileBar>
 
-    {#if validation}
-      <ValidationPanel {validation} ondismiss={() => (validation = null)} />
+    {#if check.validation || check.error}
+      <ValidationPanel
+        validation={check.validation}
+        error={check.error}
+        doc={ed.doc}
+        onjump={jumps.goTo}
+        ondismiss={() => {
+          check.validation = null
+          check.error = null
+        }}
+      />
     {/if}
 
     {#if ed.view === 'flow'}
-      <FlowView workflow={$state.snapshot(ed.doc)} onselect={focusStep} />
+      <FlowView workflow={$state.snapshot(ed.doc)} onselect={jumps.showStep} />
     {:else}
       <EditorBody
         view={ed.view}
@@ -441,12 +433,13 @@
 
           <StepList
             bind:steps={ed.doc.steps}
+            bind:workflow={ed.doc}
             {modes}
             folder={ed.folder === NEW_FOLDER ? '' : ed.folder}
             {flow}
             {problemsByStep}
             {stepReferences}
-            bind:hovered
+            bind:hovered={jumps.hovered}
           />
         {/snippet}
       </EditorBody>

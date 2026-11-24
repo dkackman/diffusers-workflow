@@ -9,6 +9,7 @@
   import { latestOnly } from '../latest'
   import { sleep } from '../poll'
   import { resource } from '../resource.svelte'
+  import { slotsFrom } from './componentSlots'
   import {
     ATTENTION_BACKENDS,
     CACHE_TYPES,
@@ -37,10 +38,63 @@
 
   // ---- optional blocks: components, loras, scheduler, acceleration ----
 
-  const activeSlots = $derived(
-    COMPONENT_SLOTS.filter((slot) => pipeline && slot in pipeline),
-  )
+  // The pipeline's own option keys (schema $defs/pipeline); any other key
+  // whose value carries from_pretrained_arguments is a component the engine
+  // loads under that name
+  const OPTION_KEYS = new Set([
+    'configuration',
+    'shared_components',
+    'reused_components',
+    'scheduler',
+    'audio_scheduler',
+    'controlnet',
+    'loras',
+    'ip_adapter',
+    'from_pretrained_arguments',
+    'remote_text_encoder',
+    'seed',
+    'chain',
+    'arguments',
+  ])
+  const activeSlots = $derived.by(() => {
+    if (!pipeline) return []
+    const known: readonly string[] = COMPONENT_SLOTS
+    const extra = Object.keys(pipeline).filter(
+      (key) =>
+        !known.includes(key) &&
+        !OPTION_KEYS.has(key) &&
+        pipeline[key] !== null &&
+        typeof pipeline[key] === 'object' &&
+        'from_pretrained_arguments' in pipeline[key],
+    )
+    return [...known.filter((slot) => slot in pipeline), ...extra]
+  })
   let addSlot = $state('')
+
+  // The pipeline class's own constructor names its components; a modular
+  // pipeline or an unknown class keeps the schema's list. Debounced like
+  // ArgumentsEditor's: the class name arrives keystroke by keystroke
+  const classTyping = latestOnly()
+  const classLookup = resource(
+    async () => {
+      const wanted = pipeline?.configuration?.component_type
+      const current = classTyping()
+      if (!wanted) return null
+      await sleep(300)
+      return current() ? classDescription(wanted, 'init') : null
+    },
+    { watch: [] },
+  )
+  const pipelineSlots = $derived(
+    slotsFrom(
+      classLookup.status === 'ready' ? (classLookup.data ?? null) : null,
+    ),
+  )
+  const offeredSlots = $derived(
+    (pipelineSlots ?? [...COMPONENT_SLOTS]).filter(
+      (slot) => !activeSlots.includes(slot),
+    ),
+  )
 
   function addComponent() {
     if (!addSlot) return
@@ -120,6 +174,11 @@
   </summary>
   <div class="section">
     {#each activeSlots as slot (slot)}
+      {#if pipelineSlots && !pipelineSlots.includes(slot)}
+        <span class="warn">
+          not a component of {configuration.component_type}
+        </span>
+      {/if}
       <ComponentEditor
         {slot}
         bind:component={pipeline[slot]}
@@ -130,7 +189,7 @@
     <div class="addrow">
       <select bind:value={addSlot}>
         <option value="">add component…</option>
-        {#each COMPONENT_SLOTS.filter((slot) => !activeSlots.includes(slot)) as slot (slot)}
+        {#each offeredSlots as slot (slot)}
           <option value={slot}>{slot}</option>
         {/each}
       </select>

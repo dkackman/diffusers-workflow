@@ -2,7 +2,7 @@
 // text, and the two shapes such a value is written in.
 import type { PipelineParameter } from './types'
 
-export type MediaKind = 'image' | 'video'
+export type MediaKind = 'image' | 'video' | 'audio'
 
 // A pipeline's __call__ signature types media arguments as a union like
 // PipelineImageInput (PIL.Image.Image | np.ndarray | torch.Tensor | lists of

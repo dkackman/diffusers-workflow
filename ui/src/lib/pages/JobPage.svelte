@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Braces, TriangleAlert } from '@lucide/svelte'
+  import { Braces } from '@lucide/svelte'
   import { TERMINAL_STATUSES, api } from '../api'
   import { resource } from '../resource.svelte'
   import { followJob, jobRecord } from '../job/followJob.svelte'
@@ -27,6 +27,7 @@
   import JsonEditor from '../editor/JsonEditor.svelte'
   import JobHeader from '../job/JobHeader.svelte'
   import JobError from '../job/JobError.svelte'
+  import JobWarnings from '../job/JobWarnings.svelte'
   import JobProgress from '../job/JobProgress.svelte'
   import NoteEditor from '../ui/NoteEditor.svelte'
   import JobResults from '../job/JobResults.svelte'
@@ -335,13 +336,10 @@
 
 <LoadState of={record} label="job {jobId}" what="job {jobId}">
   {#if job}
-    {#if job.warnings.length}
-      <div class="panel warnings warn-edge">
-        {#each job.warnings as warning, i (i)}
-          <div class="warnrow"><TriangleAlert size={14} /> {warning}</div>
-        {/each}
-      </div>
-    {/if}
+    <JobWarnings
+      warnings={job.warnings}
+      given={Object.keys(job.arguments ?? {})}
+    />
 
     {#if running}{@render progressPanel()}{/if}
 
@@ -490,13 +488,5 @@
   .jsonmark {
     font-family: var(--font-mono);
     font-size: var(--t-xs);
-  }
-  .warnings {
-    color: var(--warn);
-  }
-  .warnrow {
-    display: flex;
-    align-items: center;
-    gap: 0.45rem;
   }
 </style>

@@ -1,3 +1,5 @@
+import type { MediaFile } from '../media'
+
 /** One row a suggestion list can show richer than its value: what a pick
  * writes into the field, and what helps someone recognize it - a
  * thumbnail, a line of the text it stands for, which library it is from. */
@@ -8,10 +10,9 @@ export type SuggestItem = {
   label?: string
   /** A second, quieter line: a prompt's first words */
   detail?: string
-  /** An image to show beside the name */
-  thumb?: string
-  /** A character standing in for a picture (`kindGlyph`, src/lib/media.ts) */
-  glyph?: string
+  /** The file the row stands for, drawn beside the name as a row tile: its
+   * picture, or the glyph of its kind */
+  media?: MediaFile
   /** A short tag after the name: which library it came from */
   badge?: string
   /** Choosing it starts the value rather than finishing it - a reference

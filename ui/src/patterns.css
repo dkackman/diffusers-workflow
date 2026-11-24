@@ -208,6 +208,26 @@ button.filetile:hover,
 .tile-mini {
   width: 48px;
 }
+/* A suggestion row's picture: a small square, no caption or marks, and the
+   name of a sound or text left to the row beside it */
+.tile-row {
+  flex: none;
+  width: 32px;
+}
+.tile-row .tile-glyph {
+  font-size: var(--t-sm);
+}
+.tile-row .tile-sound,
+.tile-row .tile-text {
+  padding: 0;
+}
+.tile-row .tile-name,
+.tile-row .tile-length,
+.tile-row .tile-excerpt,
+.tile-row .videobadge,
+.tile-row .tile-time {
+  display: none;
+}
 .tile-media {
   position: relative;
   display: grid;
@@ -317,6 +337,12 @@ button.filetile:hover,
   border-radius: 0.2rem;
   background: var(--panel);
   color: var(--muted);
+}
+.tile-mark.here {
+  padding: 0.1rem 0.35rem;
+  background: var(--ink);
+  color: var(--panel);
+  font-size: var(--t-xs);
 }
 .tile-meta {
   display: block;

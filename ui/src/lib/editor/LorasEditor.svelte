@@ -9,6 +9,7 @@
 
   let { pipeline = $bindable() }: { pipeline: Record<string, any> } = $props()
 
+  const uid = $props.id()
   const loras = $derived(pipeline.loras ?? [])
 
   // Catalog suggestions (loraCatalog.ts, catalog-only - never the Hub). Only
@@ -139,28 +140,43 @@
   </section>
 
   {#each loras as lora, index (index)}
+    {@const rowId = `${uid}-${index}`}
+    {@const removeName = lora.model_name
+      ? `remove ${lora.model_name}`
+      : 'remove this LoRA'}
     <div class="row">
-      <input bind:value={lora.model_name} placeholder="org/lora-repo or path" />
-      <input
-        value={lora.weight_name ?? ''}
-        placeholder="weight file (optional)"
-        onchange={(e) => {
-          const v = e.currentTarget.value
-          if (v) lora.weight_name = v
-          else delete lora.weight_name
-        }}
-      />
-      <input
-        class="scale"
-        value={lora.scale ?? ''}
-        placeholder="scale"
-        onchange={(e) => setNumber(lora, 'scale', e.currentTarget.value)}
-      />
+      <div class="formgrid">
+        <label for="{rowId}-model">Model</label>
+        <input
+          id="{rowId}-model"
+          bind:value={lora.model_name}
+          placeholder="org/lora-repo or path"
+        />
+        <label for="{rowId}-weight">Weight file</label>
+        <input
+          id="{rowId}-weight"
+          value={lora.weight_name ?? ''}
+          placeholder="weight file (optional)"
+          onchange={(e) => {
+            const v = e.currentTarget.value
+            if (v) lora.weight_name = v
+            else delete lora.weight_name
+          }}
+        />
+        <label for="{rowId}-scale">Scale</label>
+        <input
+          id="{rowId}-scale"
+          class="scale"
+          value={lora.scale ?? ''}
+          placeholder="scale"
+          onchange={(e) => setNumber(lora, 'scale', e.currentTarget.value)}
+        />
+      </div>
       <button
         class="quiet icon"
         onclick={() => remove(index)}
-        title="remove this LoRA"
-        aria-label="remove this LoRA"
+        title={removeName}
+        aria-label={removeName}
       >
         <Trash2 size={14} />
       </button>
@@ -254,22 +270,15 @@
   }
   .row {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 80px auto;
+    grid-template-columns: minmax(0, 1fr) auto;
     gap: 0.5rem;
     width: 100%;
-    align-items: center;
+    align-items: start;
   }
   .revision {
     grid-column: 1 / -1;
   }
-  /* Two repo fields side by side need ~460px; below that they stack and the
-     scale keeps the remove button company on the last line */
-  @container (max-width: 460px) {
-    .row {
-      grid-template-columns: minmax(0, 1fr) auto;
-    }
-    .row > input:not(.scale) {
-      grid-column: 1 / -1;
-    }
+  .scale {
+    max-width: 80px;
   }
 </style>

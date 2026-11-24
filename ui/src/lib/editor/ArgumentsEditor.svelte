@@ -3,7 +3,8 @@
   import { PROMPT, reference } from '../references'
   import { Plus, Trash2 } from '@lucide/svelte'
   import ExpandingText from './ExpandingText.svelte'
-  import MediaArgumentInput from './MediaArgumentInput.svelte'
+  import ReferenceField from '../ui/ReferenceField.svelte'
+  import type { FieldKind } from '../referenceField'
   import {
     classDescription,
     coerce,
@@ -19,7 +20,6 @@
   import { promptLibrary } from '../promptlib.svelte'
   import { promptTooltip } from '../prompts'
   import { referenceCompletions } from '../refcomplete.svelte'
-  import BrowseButton from '../assets/BrowseButton.svelte'
   import ClampedText from '../ui/ClampedText.svelte'
   import { latestOnly } from '../latest'
   import { sleep } from '../poll'
@@ -31,12 +31,15 @@
     target = 'call',
     hide = [],
     suggestions = [],
+    earlier = () => [],
   }: {
     args: Record<string, unknown>
     componentType: string
     target?: 'call' | 'init' | 'load' | 'task'
     hide?: string[]
     suggestions?: readonly string[]
+    // The earlier steps' results a media argument of `kind` can take
+    earlier?: (kind?: FieldKind) => string[]
   } = $props()
 
   // Element ids are per instance: two steps both taking 'prompt' would
@@ -101,25 +104,27 @@
   {#each shownKeys as key (key)}
     {@const parameter = parameters.get(key)}
     {@const widget = widgetFor(parameter, args[key])}
-    {@const mediaKind =
-      !isReference(args[key]) && !Array.isArray(args[key])
-        ? mediaKindFor(parameter, key)
-        : null}
+    {@const mediaKind = Array.isArray(args[key])
+      ? null
+      : mediaKindFor(parameter, key)}
     <div class="formgrid withaction top row">
       <label for={`${uid}-${key}`} title={parameter?.description ?? ''}>
         {key}{#if parameter?.required}<span class="req">*</span>{/if}
       </label>
       <div class="field">
-        {#if mediaKind}
-          <MediaArgumentInput
+        {#if mediaKind || isReference(args[key])}
+          <ReferenceField
             id={`${uid}-${key}`}
-            location={mediaLocation(args[key])}
-            kind={mediaKind}
+            value={mediaLocation(args[key])}
+            kind={mediaKind ?? undefined}
+            earlier={earlier(mediaKind ?? undefined)}
+            {suggestions}
+            title={promptTooltip(args[key], promptLibrary.texts)}
             onchange={(location) => {
               args[key] = withMediaLocation(args[key], location)
             }}
           />
-        {:else if widget === 'boolean' && !isReference(args[key])}
+        {:else if widget === 'boolean'}
           <select
             id={`${uid}-${key}`}
             value={String(args[key])}
@@ -136,9 +141,7 @@
             value={displayValue(args[key], true)}
             onchange={(e) => update(key, e.currentTarget.value)}></textarea>
         {:else if widget === 'textarea'}
-          <!-- A reference is never a textarea: widgetFor routes it to the
-               input branch below, which carries the suggestions and tooltip.
-               Prose fields collapse to one line until asked to be a
+          <!-- Prose fields collapse to one line until asked to be a
                document; the picker can swap in a stored prompt. -->
           <ExpandingText
             id={`${uid}-${key}`}
@@ -150,21 +153,14 @@
             }}
           />
         {:else}
-          <div class="withbrowse">
-            <Suggest
-              id={`${uid}-${key}`}
-              class={isReference(args[key]) ? 'ref' : ''}
-              {suggestions}
-              complete={(text) => referenceCompletions(text)}
-              title={promptTooltip(args[key], promptLibrary.texts)}
-              value={displayValue(args[key])}
-              onchange={(value) => update(key, value)}
-            />
-            <BrowseButton
-              value={args[key]}
-              onpick={(value) => update(key, value)}
-            />
-          </div>
+          <Suggest
+            id={`${uid}-${key}`}
+            {suggestions}
+            complete={(text) => referenceCompletions(text)}
+            title={promptTooltip(args[key], promptLibrary.texts)}
+            value={displayValue(args[key])}
+            onchange={(value) => update(key, value)}
+          />
         {/if}
         {#if parameter?.description}
           <div class="hint muted">
@@ -247,16 +243,6 @@
 </div>
 
 <style>
-  /* A value field, and beside it the asset browser when it holds asset: */
-  .withbrowse {
-    display: flex;
-    gap: var(--space-1);
-    align-items: center;
-  }
-  .withbrowse > :global(input) {
-    flex: 1;
-    min-width: 0;
-  }
   .args {
     display: flex;
     flex-direction: column;

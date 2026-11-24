@@ -2,19 +2,24 @@ import type { ValidationResult } from './types'
 
 /** One thing a validate answer said: an error (`bad`, a Run would be
  * refused) or a warning (`warn`), as text the page prints and never parses
- * further. */
-export type Finding = { tone: 'bad' | 'warn'; text: string }
+ * further. An error in the general list keeps the path it was sent with,
+ * which the editor reads a place off (findingPlace.ts). */
+export type Finding = { tone: 'bad' | 'warn'; text: string; path?: string }
 
 /** The findings a form field shows under itself, by variable name, and the
  * rest, for the general list. */
 export type PlacedFindings = {
   byVariable: Record<string, Finding[]>
+  /** Errors and the bare refusal, which name no field the form shows */
   general: Finding[]
+  /** Warnings that name no shown variable: for whoever wrote the workflow */
+  author: Finding[]
 }
 
 // `arguments.<name>` or `variables.<name>`, the name as
 // validate_variable_name() allows it, then whatever follows it ([i], .key)
-const VARIABLE_PATH = /^(?:arguments|variables)\.([A-Za-z_][A-Za-z0-9_-]*)(.*)$/
+export const VARIABLE_PATH =
+  /^(?:arguments|variables)\.([A-Za-z_][A-Za-z0-9_-]*)(.*)$/
 // A warning is "path: message" or a bare message; only a variable path
 // prefix is read off it - a bare message may hold ": " itself
 const VARIABLE_WARNING =
@@ -37,7 +42,7 @@ export function placeFindings(
   shown: Iterable<string>,
 ): PlacedFindings {
   const names = new Set(shown)
-  const placed: PlacedFindings = { byVariable: {}, general: [] }
+  const placed: PlacedFindings = { byVariable: {}, general: [], author: [] }
   if (!result) return placed
 
   const place = (
@@ -53,8 +58,10 @@ export function placeFindings(
       const rest = match[2].replace(/^\./, '')
       const text = rest ? `${rest}: ${message}` : message
       ;(placed.byVariable[match[1]] ??= []).push({ tone, text })
+    } else if (tone === 'bad') {
+      placed.general.push({ tone, text: whole, ...(path ? { path } : {}) })
     } else {
-      placed.general.push({ tone, text: whole })
+      placed.author.push({ tone, text: whole })
     }
   }
 
@@ -67,7 +74,7 @@ export function placeFindings(
   for (const warning of result.warnings ?? []) {
     const match = VARIABLE_WARNING.exec(warning)
     if (match) place('warn', match[1], match[2], warning)
-    else placed.general.push({ tone: 'warn', text: warning })
+    else placed.author.push({ tone: 'warn', text: warning })
   }
   return placed
 }

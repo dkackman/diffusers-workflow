@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { describeEstimate, describeEstimateTotal, describePlan } from './plan'
+import {
+  describeEstimate,
+  describeEstimateTotal,
+  describePlan,
+  planSummary,
+} from './plan'
 import type { Plan } from './types'
 
 const base: Plan = {
@@ -375,7 +380,9 @@ describe('describePlan', () => {
       ...base,
       estimate: { ...inherited, priced_for: 'mps' },
     })
-    expect(same.text).toBe('about 42 min, inherited from templates/text-to-image')
+    expect(same.text).toBe(
+      'about 42 min, inherited from templates/text-to-image',
+    )
   })
 
   it('an unpriced reason replaces the bare no measured cost', () => {
@@ -461,11 +468,32 @@ describe('describeEstimateTotal', () => {
         null,
         { ...base.estimate, minutes: null, basis: 'unknown' },
       ]),
-    ).toEqual({ text: 'total about 42 min, plus 2 with no figure', tone: 'warn' })
+    ).toEqual({
+      text: 'total about 42 min, plus 2 with no figure',
+      tone: 'warn',
+    })
   })
 
   it('with nothing priced has no figure', () => {
     expect(describeEstimateTotal([null]).text).toBe('total: no figure')
     expect(describeEstimateTotal([]).text).toBe('total: nothing to run')
+  })
+})
+
+describe('planSummary', () => {
+  it('the summary names the estimate and the download size', () => {
+    expect(planSummary(base)).toBe('about 42 min · downloads 41.2 GB first')
+  })
+
+  it('no download, no download half', () => {
+    expect(planSummary({ ...base, downloads_required: [] })).toBe(
+      'about 42 min',
+    )
+    const unsized = [
+      { repo: 'org/m', gb: null, gated: null, access_blocked: null },
+    ]
+    expect(planSummary({ ...base, downloads_required: unsized })).toBe(
+      'about 42 min',
+    )
   })
 })

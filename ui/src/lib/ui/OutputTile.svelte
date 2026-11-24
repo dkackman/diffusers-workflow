@@ -30,7 +30,7 @@
     'aria-current': ariaCurrent,
   }: {
     file: MediaFile
-    size?: 'grid' | 'card' | 'strip' | 'take' | 'mini'
+    size?: 'grid' | 'card' | 'strip' | 'take' | 'mini' | 'row'
     caption?: 'none' | 'line' | 'clamp'
     href?: string
     onclick?: () => void
@@ -76,7 +76,8 @@
   const excerpt = textExcerpt()
 
   function textExcerpt() {
-    if (file.kind !== 'text') return null
+    // A row is a glyph; it reads nothing
+    if (file.kind !== 'text' || size === 'row') return null
     return resource(
       async () => {
         // The stamp is part of the question, though the read needs only the URL
@@ -162,7 +163,7 @@
   {#if caption !== 'none'}
     <span class="tile-caption" title={file.name}>{file.label}</span>
   {/if}
-  {#if badges || file.note || file.starred}
+  {#if size !== 'row' && (badges || file.note || file.starred)}
     <span class="tile-marks">
       {@render badges?.()}
       {#if file.note}
@@ -181,7 +182,9 @@
       {/if}
     </span>
   {/if}
-  {#if meta}<span class="tile-meta">{@render meta()}</span>{/if}
+  {#if meta && size !== 'row'}<span class="tile-meta">
+      {@render meta()}
+    </span>{/if}
 {/snippet}
 
 {#if href}

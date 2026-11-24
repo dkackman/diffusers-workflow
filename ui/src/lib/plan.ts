@@ -4,7 +4,7 @@ import type {
   PlanHostMemory,
   RequiredDownload,
 } from './types'
-import { formatMinutes } from './format'
+import { formatApprox, formatMinutes } from './format'
 
 /** One line of a plan, read for a person: what it says and how loudly.
  * `warn` marks a figure that is not a quote (no cost block, a figure from
@@ -237,4 +237,17 @@ export function describeEstimateTotal(
     text: `total ${formatMinutes(total)}${unpricedNote}`,
     tone: missing ? 'warn' : 'plain',
   }
+}
+
+/** The one line a plan opens with: the time to expect, and the weights to
+ * fetch first when a download has a size. */
+export function planSummary(plan: Plan): string {
+  const { minutes, basis } = plan.estimate
+  const time =
+    basis === 'unknown' || minutes === null
+      ? 'no estimate'
+      : formatApprox(minutes * 60)
+  const gb = plan.downloads_required.reduce((n, d) => n + (d.gb ?? 0), 0)
+  const sized = plan.downloads_required.some((d) => d.gb !== null)
+  return sized ? `${time} · downloads ${Number(gb.toFixed(1))} GB first` : time
 }

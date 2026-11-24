@@ -1,24 +1,31 @@
 <script lang="ts">
   import { PROMPT, reference } from '../references'
-  import { Plus, Trash2 } from '@lucide/svelte'
+  import { Trash2 } from '@lucide/svelte'
+  import { SvelteSet } from 'svelte/reactivity'
   import ExpandingText from './ExpandingText.svelte'
+  import VariableNotes from './VariableNotes.svelte'
+  import NewVariable from './NewVariable.svelte'
   import {
-    coerce,
     displayValue,
     isReference,
     presetPlaceholder,
     presetView,
-    widgetFor,
   } from '../editor'
+  import { VARIABLE_TYPES, asType, inferValue, typeOf } from './variableTypes'
+  import { isFreeText } from '../workflow/runForm'
   import { promptLibrary } from '../promptlib.svelte'
   import { promptTooltip } from '../prompts'
   import { referenceCompletions } from '../refcomplete.svelte'
-  import BrowseButton from '../assets/BrowseButton.svelte'
+  import GroupHeading from '../ui/GroupHeading.svelte'
+  import ReferenceField from '../ui/ReferenceField.svelte'
+  import type { FieldKind } from '../referenceField'
+  import { ASSET, OUTPUT, referenceName } from '../references'
   import { attentionBackends } from '../attentionBackends.svelte'
   import type { Finding } from '../findings'
   import { undoToast } from '../destructive'
   import { OPEN_DOCUMENT } from '../editorShell.svelte'
   import { notify } from '../toast'
+  import type { VariableType } from './variableTypes'
 
   let {
     mode,
@@ -30,6 +37,10 @@
     constraints = {},
     presets = undefined,
     findings = {},
+    kinds = {},
+    advanced = new Set<string>(),
+    seed = null,
+    onenhance = undefined,
   }: {
     /** define: edit the workflow's own defaults (add/remove/coerce).
      * override: fill per-run values over read-only defaults. */
@@ -55,9 +66,27 @@
      * `arguments.<name>` / `variables.<name>` path (`placeFindings`) and
      * shown under the field as text. */
     findings?: Record<string, Finding[]>
+    /** The kind of file each variable takes (the catalog's `inputs`): in
+     * override mode such a variable is a ReferenceField of that kind */
+    kinds?: Record<string, FieldKind>
+    /** Variables folded under "Advanced": after the rest, open while one
+     * holds an override or a finding */
+    advanced?: Set<string>
+    /** The variable the workflow's seed names: with no default it says the
+     * seed is drawn for each job */
+    seed?: string | null
+    /** Override mode: a free-text variable offers Enhance…, which asks the
+     * page to open the enhancer for this key */
+    onenhance?: (key: string) => void
   } = $props()
 
   const keys = $derived(Object.keys(variables ?? {}))
+  const main = $derived(keys.filter((k) => !advanced.has(k)))
+  const folded = $derived(keys.filter((k) => advanced.has(k)))
+  let foldOpen = $state(false)
+  const foldShown = $derived(
+    foldOpen || folded.some((k) => overrides[k] || findings[k]?.length),
+  )
 
   const presetDefinition = $derived({ variables, presets })
   const selectors = $derived(presetView(presetDefinition))
@@ -79,13 +108,28 @@
   function placeholderFor(key: string): string {
     if (mode !== 'override') return ''
     if (requiredVariables.has(key)) return 'required'
+    if (key === seed && variables[key] == null) return 'random each job'
     return (
       presetPlaceholder(presetDefinition, overrides, key) ??
       displayValue(variables[key])
     )
   }
 
-  let newVariable = $state('')
+  /** Whether a variable is a file field: it takes a kind of file (override
+   * mode), or declares an asset: or output: reference. The widget follows
+   * the declared default, never what is being typed, so typing a reference
+   * does not swap the input out from under the cursor. */
+  function isFileField(key: string): boolean {
+    if (mode === 'override' && Object.hasOwn(kinds, key)) return true
+    const value = variables[key]
+    return (
+      referenceName(value, ASSET) !== null ||
+      referenceName(value, OUTPUT) !== null
+    )
+  }
+
+  /** Added and not yet given a value: its first commit infers the type */
+  const fresh = new SvelteSet<string>()
 
   function shown(key: string): string {
     if (mode === 'override') return overrides[key] ?? ''
@@ -126,9 +170,16 @@
       overrides[key] = raw
       return
     }
-    // Coerce to the default's type - schema validation runs on the
-    // definition itself, so "9" where 9 belongs breaks the workflow
-    variables[key] = coerce(widgetFor(undefined, variables[key]), raw)
+    // Coerce to the row's type - schema validation runs on the definition
+    // itself, so "9" where 9 belongs breaks the workflow
+    const type = typeOf(variables[key])
+    variables[key] =
+      fresh.delete(key) || type === 'none' ? inferValue(raw) : asType(raw, type)
+  }
+
+  function retype(key: string, type: string) {
+    fresh.delete(key)
+    variables[key] = asType(displayValue(variables[key]), type as VariableType)
   }
 
   // An override is live as it is typed, so Run takes what is in the box
@@ -137,10 +188,9 @@
     if (mode === 'override') overrides[key] = raw
   }
 
-  function addVariable() {
-    if (!newVariable) return
-    variables = { ...(variables ?? {}), [newVariable]: '' }
-    newVariable = ''
+  function addVariable(name: string) {
+    variables = { ...(variables ?? {}), [name]: '' }
+    fresh.add(name)
   }
 
   /** Removed at once, with an Undo that puts it back at its place - before
@@ -169,124 +219,139 @@
   }
 </script>
 
-<div
-  class="formgrid top vars"
-  class:withaction={mode === 'define'}
->
-  {#each keys as key (key)}
-    <label for={idPrefix + key}>
-      {key}{#if requiredVariables.has(key)}
-        <span class="required">required</span>{/if}
-    </label>
-    <div class="field">
-      {#if isPresetSelect(key)}
-        {@const current = shown(key)}
-        <select
-          id={idPrefix + key}
-          value={current}
-          onchange={(e) => commit(key, e.currentTarget.value)}
-        >
-          <option value="">
-            default ({displayValue(variables[key]) || 'none'})
+{#snippet enhance(key: string)}
+  {#if mode === 'override' && onenhance && isFreeText(variables[key])}
+    <button
+      class="quiet"
+      onclick={() => onenhance(key)}
+      title="Expand an idea into a full prompt with a language model"
+    >
+      Enhance…
+    </button>
+  {/if}
+{/snippet}
+
+{#snippet row(key: string)}
+  <label for={idPrefix + key}>
+    {key}{#if requiredVariables.has(key)}
+      <span class="required">required</span>{/if}
+  </label>
+  <div class="field">
+    {#if isPresetSelect(key)}
+      {@const current = shown(key)}
+      <select
+        id={idPrefix + key}
+        value={current}
+        onchange={(e) => commit(key, e.currentTarget.value)}
+      >
+        <option value="">
+          default ({displayValue(variables[key]) || 'none'})
+        </option>
+        {#if current && !selectors[key].bundles.includes(current)}
+          <option value={current}>{current} (not a preset)</option>
+        {/if}
+        {#each selectors[key].bundles as bundle (bundle)}
+          <option value={bundle}>{bundle}</option>
+        {/each}
+      </select>
+    {:else if isBackendSelect(key)}
+      {@const current = shown(key)}
+      <select
+        id={idPrefix + key}
+        value={current}
+        onchange={(e) => commitBackend(key, e.currentTarget.value)}
+      >
+        <option value="">
+          {mode === 'override'
+            ? `default (${displayValue(variables[key]) || 'none'})`
+            : 'default (none)'}
+        </option>
+        {#if current && !attentionBackends.list.includes(current)}
+          <option value={current}>
+            {current} (not available on this server)
           </option>
-          {#if current && !selectors[key].bundles.includes(current)}
-            <option value={current}>{current} (not a preset)</option>
-          {/if}
-          {#each selectors[key].bundles as bundle (bundle)}
-            <option value={bundle}>{bundle}</option>
-          {/each}
-        </select>
-      {:else if isBackendSelect(key)}
-        {@const current = shown(key)}
-        <select
-          id={idPrefix + key}
-          value={current}
-          onchange={(e) => commitBackend(key, e.currentTarget.value)}
-        >
-          <option value="">
-            {mode === 'override'
-              ? `default (${displayValue(variables[key]) || 'none'})`
-              : 'default (none)'}
-          </option>
-          {#if current && !attentionBackends.list.includes(current)}
-            <option value={current}>
-              {current} (not available on this server)
-            </option>
-          {/if}
-          {#each attentionBackends.list as backend (backend)}
-            <option value={backend}>{backend}</option>
-          {/each}
-        </select>
-      {:else}
-        <ExpandingText
-          id={idPrefix + key}
-          value={shown(key)}
-          placeholder={placeholderFor(key)}
-          refStyle={isReference(effective(key))}
-          complete={(text) => referenceCompletions(text)}
-          title={promptTooltip(effective(key), promptLibrary.texts)}
-          oninput={(raw) => draft(key, raw)}
-          onchange={(raw) => commit(key, raw)}
-          onpromptpick={(name) => commit(key, reference(PROMPT, name))}
-        />
-      {/if}
-      <BrowseButton
-        value={effective(key)}
-        onpick={(value) => commit(key, value)}
+        {/if}
+        {#each attentionBackends.list as backend (backend)}
+          <option value={backend}>{backend}</option>
+        {/each}
+      </select>
+    {:else if isFileField(key)}
+      <ReferenceField
+        id={idPrefix + key}
+        value={shown(key)}
+        kind={mode === 'override' ? (kinds[key] ?? 'file') : undefined}
+        placeholder={placeholderFor(key) || undefined}
+        oninput={(raw) => draft(key, raw)}
+        onchange={(raw) => commit(key, raw)}
+      >
+        {@render enhance(key)}
+      </ReferenceField>
+    {:else}
+      <ExpandingText
+        id={idPrefix + key}
+        value={shown(key)}
+        placeholder={placeholderFor(key)}
+        refStyle={isReference(effective(key))}
+        complete={(text) => referenceCompletions(text)}
+        title={promptTooltip(effective(key), promptLibrary.texts)}
+        oninput={(raw) => draft(key, raw)}
+        onchange={(raw) => commit(key, raw)}
+        onpromptpick={(name) => commit(key, reference(PROMPT, name))}
+      />
+      {@render enhance(key)}
+    {/if}
+    {#if mode === 'define'}
+      <select
+        class="vartype"
+        aria-label="type of {key}"
+        value={typeOf(variables[key])}
+        onchange={(e) => retype(key, e.currentTarget.value)}
+      >
+        {#each VARIABLE_TYPES as type (type)}<option>{type}</option>{/each}
+      </select>
+    {/if}
+  </div>
+  {#if mode === 'define'}
+    <button
+      class="quiet icon"
+      onclick={() => removeVariable(key)}
+      title="remove this variable"
+      aria-label="remove this variable"
+    >
+      <Trash2 size={14} />
+    </button>
+  {/if}
+  <VariableNotes
+    {key}
+    {mode}
+    selector={selectors[key]}
+    hints={constraints[key]}
+    findings={findings[key]}
+  />
+{/snippet}
+
+<div class="formgrid top vars" class:withaction={mode === 'define'}>
+  {#each main as key (key)}{@render row(key)}{/each}
+  {#if folded.length}
+    <div class="fold">
+      <GroupHeading
+        label="Advanced"
+        count={folded.length}
+        collapsed={!foldShown}
+        ontoggle={() => (foldOpen = !foldShown)}
       />
     </div>
-    {#if mode === 'define'}
-      <button
-        class="quiet icon"
-        onclick={() => removeVariable(key)}
-        title="remove this variable"
-        aria-label="remove this variable"
-      >
-        <Trash2 size={14} />
-      </button>
+    {#if foldShown}
+      {#each folded as key (key)}{@render row(key)}{/each}
     {/if}
-    {#if Object.hasOwn(selectors, key)}
-      <ul class="hints" data-presets-for={key}>
-        {#if selectors[key].sets.length}
-          <li>sets {selectors[key].sets.join(', ')}</li>
-        {/if}
-        {#if mode === 'define' && selectors[key].bundles.length}
-          <li>bundles: {selectors[key].bundles.join(', ')}</li>
-        {/if}
-      </ul>
-    {/if}
-    {#if constraints[key]?.length}
-      <ul class="hints" data-hints-for={key}>
-        {#each constraints[key] as hint, i (i)}
-          <li>{hint}</li>
-        {/each}
-      </ul>
-    {/if}
-    {#if findings[key]?.length}
-      <ul class="hints findings" data-findings-for={key}>
-        {#each findings[key] as finding, i (i)}
-          <li class={finding.tone}>{finding.text}</li>
-        {/each}
-      </ul>
-    {/if}
-  {/each}
+  {/if}
   {#if mode === 'define'}
-    <input placeholder="new variable name…" bind:value={newVariable} />
-    <button
-      class="quiet icon addvar"
-      onclick={addVariable}
-      disabled={!newVariable}
-      title="add this variable to the workflow"
-      aria-label="add this variable to the workflow"
-    >
-      <Plus size={14} />
-    </button>
-    <span></span>
+    <NewVariable taken={keys} onadd={addVariable} />
   {/if}
 </div>
 
 <style>
-  /* The field, and beside it the asset browser when it holds an asset: */
+  /* The field: */
   .field {
     display: flex;
     gap: var(--space-1);
@@ -301,22 +366,12 @@
     font-size: 0.8em;
     color: var(--warn);
   }
-  /* Under the field, in the field's column; spans the row when narrow */
-  .hints {
-    grid-column: 2 / -1;
-    margin: calc(-1 * var(--space-1)) 0 0;
-    padding: 0;
-    list-style: none;
+  .fold {
+    grid-column: 1 / -1;
+  }
+  .vartype {
+    flex: none;
+    width: auto;
     font-size: 0.85em;
-    color: var(--muted);
-    overflow-wrap: anywhere;
-  }
-  @container (max-width: 400px) {
-    .hints {
-      grid-column: 1 / -1;
-    }
-  }
-  .addvar {
-    justify-self: start;
   }
 </style>

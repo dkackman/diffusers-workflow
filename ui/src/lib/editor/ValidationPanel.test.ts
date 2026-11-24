@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, it } from 'vitest'
-import { cleanup, render, screen } from '@testing-library/svelte'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { cleanup, fireEvent, render, screen } from '@testing-library/svelte'
 import ValidationPanel from './ValidationPanel.svelte'
 import type { Plan, ValidationResult } from '../types'
 
@@ -33,6 +33,9 @@ const plan: Plan = {
   workspace: 'default',
 }
 
+/** The props a test that never dismisses or jumps passes */
+const quiet = { doc: {}, ondismiss: () => {}, onjump: () => {} }
+
 const result = (over: Partial<ValidationResult>): ValidationResult =>
   ({ valid: true, warnings: [], ...over }) as ValidationResult
 
@@ -44,12 +47,12 @@ describe('ValidationPanel', () => {
         errors: [{ path: 'model_name', message: 'org/missing was not found' }],
         plan,
       }),
-      ondismiss: () => {},
+      ...quiet,
     })
     expect(
       screen.getByText('model_name: org/missing was not found'),
     ).toBeTruthy()
-    const box = screen.getByRole('list', { name: 'what a job will do' })
+    const box = screen.getByText('What a job will do').closest('details')!
     expect(box.textContent).toContain('needs download: org/missing (not found)')
     // the plan sits under the error list
     const error = screen.getByText('model_name: org/missing was not found')
@@ -65,7 +68,7 @@ describe('ValidationPanel', () => {
         errors: [{ path: 'a', message: 'bad' }],
         warnings: ['WARN-PLAIN <b>x</b>'],
       }),
-      ondismiss: () => {},
+      ...quiet,
     })
     expect(screen.getByText('a: bad')).toBeTruthy()
     expect(screen.getByText(/WARN-PLAIN <b>x<\/b>/)).toBeTruthy()
@@ -74,11 +77,16 @@ describe('ValidationPanel', () => {
   it('a valid answer still shows its plan', () => {
     render(ValidationPanel, {
       validation: result({ plan: { ...plan, downloads_required: [] } }),
-      ondismiss: () => {},
+      ...quiet,
     })
     expect(
-      screen.getByRole('list', { name: 'what a job will do' }).textContent,
+      screen.getByText('What a job will do').closest('details')!.textContent,
     ).toContain('1 step')
+  })
+
+  it('a valid answer with no warnings says Ready to run', () => {
+    render(ValidationPanel, { validation: result({}), ...quiet })
+    expect(screen.getByText('Ready to run.')).toBeTruthy()
   })
 
   it('an answer without a plan shows none', () => {
@@ -87,10 +95,45 @@ describe('ValidationPanel', () => {
         valid: false,
         errors: [{ path: 'arguments.n', message: 'not an integer' }],
       }),
-      ondismiss: () => {},
+      ...quiet,
     })
-    expect(
-      screen.queryByRole('list', { name: 'what a job will do' }),
-    ).toBeNull()
+    expect(screen.queryByText('What a job will do')).toBeNull()
+  })
+
+  it('an error with a place offers Go to', async () => {
+    const onjump = vi.fn()
+    render(ValidationPanel, {
+      validation: result({
+        valid: false,
+        errors: [
+          { path: 'steps[0].pipeline', message: 'no pipeline' },
+          { path: 'variables.prompt', message: 'not a string' },
+          { path: 'steps[5]', message: 'no such step' },
+          { path: null, message: 'not a workflow' },
+        ],
+      }),
+      doc: { variables: { prompt: 1 }, steps: [{ name: 'generate' }] },
+      ondismiss: () => {},
+      onjump,
+    })
+    expect(screen.getByText('steps[0].pipeline: no pipeline')).toBeTruthy()
+    await fireEvent.click(
+      screen.getByRole('button', { name: 'Go to step generate' }),
+    )
+    expect(onjump).toHaveBeenLastCalledWith({
+      kind: 'step',
+      index: 0,
+      name: 'generate',
+    })
+    await fireEvent.click(
+      screen.getByRole('button', { name: 'Go to variable prompt' }),
+    )
+    expect(onjump).toHaveBeenLastCalledWith({
+      kind: 'variable',
+      name: 'prompt',
+    })
+    // a step that is not there, and the root, have nowhere to go
+    expect(screen.getAllByRole('button', { name: /^Go to/ })).toHaveLength(2)
+    expect(screen.getByText('root: not a workflow')).toBeTruthy()
   })
 })

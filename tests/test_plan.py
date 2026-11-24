@@ -2780,6 +2780,21 @@ class TestUnseededCacheWarning:
         spec["variables"]["seed"] = None
         assert unseeded_cache_warnings(spec, {"seed": 7}) == []
 
+    def test_a_seed_variable_with_no_value_is_named(self):
+        spec = definition()
+        spec["seed"] = "variable:my_seed"
+        spec["variables"] = {"my_seed": None}
+        (warning,) = unseeded_cache_warnings(spec)
+        assert warning.startswith("The seed variable 'my_seed' has no value")
+        assert "Give 'my_seed' a default, or pass one" in warning
+        assert "sets no 'seed'" not in warning
+
+    def test_no_seed_at_all_keeps_the_original_warning(self):
+        spec = definition()
+        del spec["seed"]
+        (warning,) = unseeded_cache_warnings(spec)
+        assert warning.startswith("This workflow sets no 'seed'")
+
 
 class TestAnAdapterIsADownloadToo:
     """A `loras` entry carries its repo under `model_name` directly rather

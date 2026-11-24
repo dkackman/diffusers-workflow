@@ -9,7 +9,6 @@ vi.mock('../api', () => ({
   },
 }))
 
-import BrowseButton from './BrowseButton.svelte'
 import MediaPicker from './MediaPicker.svelte'
 import { assetLibrary } from '../assetlib.svelte'
 import { outputLibrary } from '../outputlib.svelte'
@@ -69,7 +68,10 @@ beforeEach(() => {
     output('portrait', RUN1, 1, 'out.png'),
   ]
 })
-afterEach(() => cleanup())
+afterEach(() => {
+  cleanup()
+  localStorage.clear()
+})
 
 const tiles = () =>
   screen
@@ -95,6 +97,13 @@ it('shows the asset library by section, this workspace first, as thumbnails', ()
   const priya = screen.getByRole('button', { name: 'choose cast/priya.png' })
   expect(priya.querySelector('img')?.getAttribute('src')).toContain(
     '/api/gallery/asset%3Acast/priya.png/thumbnail',
+  )
+})
+
+it('names the kind it chooses with its article', () => {
+  render(MediaPicker, { open: true, kind: 'audio', onpick: () => {} })
+  expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent(
+    'Choose an audio',
   )
 })
 
@@ -199,21 +208,49 @@ it('opens on earlier runs for an output: value, latest ticked and marked', () =>
   ).toBe('true')
 })
 
-it('offers browsing only beside a file reference, as that kind', async () => {
-  const onpick = vi.fn()
-  const { unmount } = render(BrowseButton, { value: 'a cat', onpick })
-  expect(
-    screen.queryByRole('button', { name: 'choose another file' }),
-  ).toBeNull()
-  unmount()
+const toggle = (name: RegExp) => screen.getByRole('button', { name })
 
-  render(BrowseButton, { value: 'asset:clips/intro.mp4', onpick })
-  await fireEvent.click(
-    screen.getByRole('button', { name: 'choose another file' }),
-  )
-  expect(tiles()).toEqual(['choose clips/intro.mp4'])
-  await fireEvent.click(
-    screen.getByRole('button', { name: 'choose clips/intro.mp4' }),
-  )
-  expect(onpick).toHaveBeenCalledWith('asset:clips/intro.mp4')
+it('group toggles are disabled while searching', async () => {
+  render(MediaPicker, { open: true, onpick: () => {} })
+  const heading = toggle(/Shared library/)
+  expect((heading as HTMLButtonElement).disabled).toBe(false)
+  await fireEvent.click(heading)
+  expect(tiles()).not.toContain('choose cast/priya.png')
+  await fireEvent.input(screen.getByLabelText('search the asset library'), {
+    target: { value: 'pri' },
+  })
+  const searching = toggle(/Shared library/) as HTMLButtonElement
+  expect(searching.disabled).toBe(true)
+  expect(searching.title).toBe('Showing every match while the search is on')
+  expect(tiles()).toEqual(['choose cast/priya.png'])
+})
+
+it('the collapse state is per workspace and tab', async () => {
+  render(MediaPicker, { open: true, onpick: () => {} })
+  await fireEvent.click(toggle(/Shared library/))
+  expect(
+    localStorage.getItem(
+      `dw-collapsed-media-picker:${workspace.current}:assets`,
+    ),
+  ).toContain('common')
+  await showRuns()
+  expect(toggle(/^portrait/).getAttribute('aria-expanded')).toBe('true')
+  expect(
+    localStorage.getItem(
+      `dw-collapsed-media-picker:${workspace.current}:outputs`,
+    ),
+  ).toBeNull()
+})
+
+it('the current tile says current', () => {
+  render(MediaPicker, {
+    open: true,
+    current: 'asset:iris.png',
+    onpick: () => {},
+  })
+  const tile = screen.getByRole('button', { name: 'choose iris.png' })
+  expect(tile.textContent).toContain('current')
+  expect(
+    screen.getByRole('button', { name: 'choose cast/priya.png' }).textContent,
+  ).not.toContain('current')
 })

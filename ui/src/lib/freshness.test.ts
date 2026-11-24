@@ -48,13 +48,18 @@ const PAGE_TABLE: Record<string, Freshness[]> = {
   'CachesPanel.svelte': [{ watch: ['models'] }],
   'editor/ArgumentsEditor.svelte': [{ watch: [] }],
   'editor/LorasEditor.svelte': [{ watch: ['loras'] }],
-  'editor/PipelineOptions.svelte': [{ watch: [] }],
+  // The pipeline class's components, then the scheduler's compatibles: a class
+  // description never changes while the server runs
+  'editor/PipelineOptions.svelte': [{ watch: [] }, { watch: [] }],
   'editor/StepEditor.svelte': [{ watch: ['workflows'] }],
   'gallery/RequestFilter.svelte': [{ watch: ['requests'] }],
   'gallery/UseAsInput.svelte': [{ watch: ['workflows'] }],
   'job/ChainSegments.svelte': [{ watch: ['workflows'] }],
   'job/JobResults.svelte': [{ watch: ['gallery'] }],
-  'job/RerunWithChanges.svelte': [{ watch: ['workflows'] }],
+  'job/RerunWithChanges.svelte': [
+    { watch: ['workflows'] },
+    { watch: ['workflows'] },
+  ],
   'pages/AssetsPage.svelte': [{ watch: ['assets'] }, { watch: ['assets'] }],
   'pages/ComparePage.svelte': [{ watch: ['gallery'] }],
   'pages/EditorPage.svelte': [{ watch: ['workflows'] }],

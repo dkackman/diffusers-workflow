@@ -4,7 +4,6 @@
   import Suggest from '../ui/Suggest.svelte'
   import type { Enhancer } from '../enhancer.svelte'
   import { jobHref } from '../routes'
-  import { workspace } from '../workspace.svelte'
 
   // The prompt editor's "Enhance with AI" panel. Its state is the page's
   // Enhancer, so a view switch that unmounts this keeps a download going
@@ -93,7 +92,12 @@
     </button>
     {#if enhancer.busy && enhancer.jobId}
       <button class="quiet" onclick={() => enhancer.cancel()}>Cancel</button>
-      <a class="muted joblink" href={jobHref(enhancer.jobId, workspace.current)}>watch job</a>
+      <a
+        class="muted joblink"
+        href={jobHref(enhancer.jobId, enhancer.jobWorkspace)}
+      >
+        watch job
+      </a>
     {/if}
     {#if enhancer.status}
       <span class="muted enhancestatus">
@@ -112,7 +116,7 @@
     ></textarea>
     <div class="enhanceactions">
       <button class="withicon" onclick={onuse}>
-        <CircleCheck size={14} />Use as prompt text
+        <CircleCheck size={14} />Use this prompt
       </button>
       <button class="quiet" onclick={() => (enhancer.result = '')}>
         Discard

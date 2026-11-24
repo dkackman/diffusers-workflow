@@ -343,7 +343,8 @@ export interface paths {
          *     Off by default and bounded by `limit`: only the page actually
          *     returned is probed, not the whole listing, so the cost of asking
          *     stays proportional to the page size rather than the library size. A
-         *     file's answer is memoised on its mtime and size (`_probed`).
+         *     file's answer is its header's duration, memoised on its mtime and
+         *     size (`probed_duration`).
          *
          *     `prompts=true` adds `prompts`: run id -> the `prompt` argument its job
          *     was submitted with, for the runs on the page. A run whose job history
@@ -1701,8 +1702,8 @@ export interface paths {
          *     `shape`, `traits` (comma-separated, all must match) and `configures`
          *     narrow the listing; `view=compact` is the agent's view - summaries
          *     rather than descriptions, templates rather than model configs
-         *     unless `include_models` asks for them. `workflows` always names
-         *     exactly the entries `details` holds.
+         *     unless `include_models` asks for them; `inputs` adds each media
+         *     input's kind. `workflows` names exactly the entries `details` holds.
          */
         get: operations["list_workflows_api_workflows_get"];
         put?: never;
@@ -5151,6 +5152,13 @@ export interface components {
             };
             /** Description */
             description: string;
+            /**
+             * Inputs
+             * @description Each variable that feeds a media argument, and the kind it takes. Only with inputs=true.
+             */
+            inputs?: {
+                [key: string]: "image" | "video" | "audio" | "file";
+            };
             /** Kinds */
             kinds: string[];
             /** Lists */
@@ -7630,6 +7638,7 @@ export interface operations {
                 configures?: string | null;
                 include_models?: boolean;
                 view?: string | null;
+                inputs?: boolean;
                 workspace?: string | null;
             };
             header?: never;

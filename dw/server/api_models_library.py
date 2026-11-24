@@ -17,6 +17,7 @@ from .catalog_shape import SHAPES, TRAITS
 Origin = Literal["workspace", "common", "examples", "builtin"]
 Shape = Literal[SHAPES]
 Trait = Literal[TRAITS]
+InputKind = Literal["image", "video", "audio", "file"]
 
 
 class LibraryRoot(ApiModel):
@@ -118,6 +119,10 @@ class WorkflowCard(ApiModel):
     )
     configures_missing: str = sometimes("A `configures` that names no workflow.")
     prompt_refs: list[str]
+    inputs: dict[str, InputKind] = sometimes(
+        "Each variable that feeds a media argument, and the kind it takes. "
+        "Only with inputs=true."
+    )
     shape: Shape = Field(description="What the workflow makes, derived by the server.")
     traits: list[Trait] = Field(
         description="Sorted, independent facts about how the output is made or what "

@@ -15,6 +15,7 @@ import { chooseDialog, confirmDialog } from '../confirm.svelte'
 import { changeOnBlur } from '../test/changeOnBlur'
 import { feed } from '../test/feedMock'
 import { notify } from '../toast'
+import { emptyStep } from '../editor'
 
 // EditorPage talks to the server on mount (pipeline/class/task catalogs,
 // the workflow listing, the prompt library) purely to feed forms the flow
@@ -170,6 +171,64 @@ describe('EditorPage primary action', () => {
   })
 })
 
+describe('EditorPage primary action in every state', () => {
+  const primaryNow = () =>
+    within(
+      screen
+        .getByRole('heading', { level: 1 })
+        .closest('.pagehead') as HTMLElement,
+    )
+      .getAllByRole('button')
+      .filter((b) => b.matches('.withicon:not(.quiet, .bare)'))
+      .map((b) => b.textContent?.trim())
+
+  it('the back link is the full path', async () => {
+    render(EditorPage, { name: 'models/z-image' })
+    await waitFor(() =>
+      expect(
+        screen.getByRole('link', { name: '← models/z-image' }),
+      ).toBeTruthy(),
+    )
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe(
+      'models/z-image',
+    )
+  })
+
+  it('Run is the primary button when dirty, on an example and while running', async () => {
+    vi.mocked(api.getWorkflow).mockResolvedValueOnce({
+      definition: { id: 'Ex', steps: [{ name: 'generate', pipeline: {} }] },
+      origin: 'builtin',
+      writable: false,
+      etag: '"e1"',
+    })
+    render(EditorPage, { name: 'models/z-image' })
+    await waitFor(() =>
+      expect(screen.getByText(/This is an example/)).toBeTruthy(),
+    )
+    expect(primaryNow()).toEqual(['Run'])
+    expect(screen.getByRole('button', { name: /^Save/ })).toHaveClass('quiet')
+    cleanup()
+
+    render(EditorPage, { name: 'e2e-card' })
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Run' })))
+    await fireEvent.input(screen.getByLabelText('workflow id'), {
+      target: { value: 'Changed' },
+    })
+    expect(screen.getByText('unsaved')).toBeTruthy()
+    expect(primaryNow()).toEqual(['Run'])
+    vi.mocked(api.submitJob).mockReturnValueOnce(new Promise(() => {}))
+    await screen.getByRole('button', { name: 'Run' }).click()
+    await waitFor(() =>
+      expect(
+        (screen.getByRole('button', { name: /^Save/ }) as HTMLButtonElement)
+          .disabled,
+      ).toBe(true),
+    )
+    expect(primaryNow()).toEqual(['Run'])
+    expect(screen.getByRole('button', { name: /^Save/ })).toHaveClass('quiet')
+  })
+})
+
 describe('EditorPage validation plan', () => {
   it('validates the definition it opened, without the transport metadata', async () => {
     render(EditorPage, { name: 'models/z-image' })
@@ -179,18 +238,168 @@ describe('EditorPage validation plan', () => {
         (screen.getByLabelText('workflow id') as HTMLInputElement).value,
       ).toBe('ZImage'),
     )
+    vi.mocked(api.validate).mockClear()
     await screen.getByRole('button', { name: /validate/i }).click()
-    await waitFor(() =>
-      expect(vi.mocked(api.validate).mock.calls).toHaveLength(1),
+    await waitFor(() => expect(api.validate).toHaveBeenCalled())
+    // the press hands over the definition; the live check wraps it
+    for (const [asked] of vi.mocked(api.validate).mock.calls) {
+      const payload = ('workflow' in asked ? asked.workflow : asked) as object
+      // origin and writable are how the fetch says where a file came from -
+      // they are not the file's, and the schema refuses unknown root keys
+      expect(payload).not.toHaveProperty('origin')
+      expect(payload).not.toHaveProperty('writable')
+    }
+  })
+
+  it('a change is checked without pressing Validate', async () => {
+    vi.mocked(api.validate).mockClear()
+    render(EditorPage, { name: 'models/z-image' })
+    const id = () => screen.getByLabelText('workflow id') as HTMLInputElement
+    await waitFor(() => expect(id().value).toBe('ZImage'))
+    // the file just read is checked at once, without asking the hub
+    await waitFor(() => expect(api.validate).toHaveBeenCalledTimes(1))
+    expect(vi.mocked(api.validate).mock.calls[0][0]).toMatchObject({
+      workflow: { id: 'ZImage' },
+      sizes: false,
+    })
+    await waitFor(() => expect(screen.getByText('Ready to run.')).toBeTruthy())
+    // a burst of typing is one check, of what was typed last
+    await fireEvent.input(id(), { target: { value: 'Mi' } })
+    await fireEvent.input(id(), { target: { value: 'Mine' } })
+    expect(api.validate).toHaveBeenCalledTimes(1)
+    // the debounce is real time: wait well past it, not up to waitFor's 1 s
+    await waitFor(() => expect(api.validate).toHaveBeenCalledTimes(2), {
+      timeout: 5000,
+    })
+    expect(vi.mocked(api.validate).mock.calls[1][0]).toMatchObject({
+      workflow: { id: 'Mine' },
+      sizes: false,
+    })
+  })
+
+  it('a document still being read is not checked', async () => {
+    vi.mocked(api.validate).mockClear()
+    let arrive!: (read: unknown) => void
+    vi.mocked(api.getWorkflow).mockReturnValueOnce(
+      new Promise((resolve) => (arrive = resolve)) as never,
     )
-    const payload = vi.mocked(api.validate).mock.calls[0][0] as Record<
-      string,
-      unknown
-    >
-    // origin and writable are how the fetch says where a file came from -
-    // they are not the file's, and the schema refuses unknown root keys
-    expect(payload).not.toHaveProperty('origin')
-    expect(payload).not.toHaveProperty('writable')
+    render(EditorPage, { name: 'models/z-image' })
+    await new Promise((r) => setTimeout(r, 700))
+    expect(api.validate).not.toHaveBeenCalled()
+    arrive({
+      definition: { id: 'Late', steps: [{ name: 'generate', pipeline: {} }] },
+      origin: 'workspace',
+      writable: true,
+      etag: '"e1"',
+    })
+    await waitFor(() => expect(api.validate).toHaveBeenCalledTimes(1), {
+      timeout: 5000,
+    })
+  })
+
+  it('a new draft is checked without pressing Validate', async () => {
+    vi.mocked(api.validate).mockClear()
+    render(EditorPage, { name: '' })
+    const id = () => screen.getByLabelText('workflow id') as HTMLInputElement
+    await waitFor(() => expect(id()).toBeTruthy())
+    await fireEvent.input(id(), { target: { value: 'Drafted' } })
+    await waitFor(
+      () =>
+        expect(vi.mocked(api.validate).mock.calls.at(-1)?.[0]).toMatchObject({
+          workflow: { id: 'Drafted' },
+        }),
+      { timeout: 5000 },
+    )
+  }, 10_000)
+
+  it('a blank new draft is not checked until its first edit', async () => {
+    vi.mocked(api.validate).mockClear()
+    render(EditorPage, { name: '' })
+    const id = () => screen.getByLabelText('workflow id') as HTMLInputElement
+    await waitFor(() => expect(id()).toBeTruthy())
+    await new Promise((done) => setTimeout(done, 900))
+    expect(api.validate).not.toHaveBeenCalled()
+    await fireEvent.click(screen.getByRole('button', { name: /Validate/ }))
+    await waitFor(() => expect(api.validate).toHaveBeenCalledTimes(1))
+  })
+
+  it('a live check that fails says so', async () => {
+    vi.mocked(api.validate).mockRejectedValueOnce(new Error('server down'))
+    render(EditorPage, { name: 'models/z-image' })
+    await waitFor(() =>
+      expect(screen.getByText("Couldn't check this workflow.")).toBeTruthy(),
+    )
+    expect(screen.getByRole('alert')).toBeTruthy()
+  })
+
+  it('dismissing a failed live check closes it', async () => {
+    vi.mocked(api.validate).mockRejectedValueOnce(new Error('server down'))
+    render(EditorPage, { name: 'models/z-image' })
+    await waitFor(() =>
+      expect(screen.getByText("Couldn't check this workflow.")).toBeTruthy(),
+    )
+    await fireEvent.click(
+      screen.getByRole('button', { name: 'dismiss validation results' }),
+    )
+    await waitFor(() =>
+      expect(screen.queryByText("Couldn't check this workflow.")).toBeNull(),
+    )
+  })
+
+  /** An opened workflow whose check names a step and a variable */
+  async function openRefused() {
+    vi.mocked(api.getWorkflow).mockResolvedValueOnce({
+      definition: {
+        id: 'ZImage',
+        variables: { prompt: 'a cat' },
+        // a whole step: Go to opens it full, which shows every field
+        steps: [emptyStep()],
+      },
+      origin: 'workspace',
+      writable: true,
+      etag: '"e1"',
+    } as never)
+    vi.mocked(api.validate).mockResolvedValueOnce({
+      valid: false,
+      error: null,
+      errors: [
+        { path: 'steps[0].pipeline', message: 'no pipeline' },
+        { path: 'variables.prompt', message: 'not a number' },
+      ],
+      warnings: [],
+      plan: null,
+    } as never)
+    // its own name: the step mode a Go to stores is this file's alone
+    render(EditorPage, { name: 'models/refused' })
+  }
+
+  it('Go to opens the step and scrolls to it', async () => {
+    const scroll = vi.fn()
+    Element.prototype.scrollIntoView = scroll
+    try {
+      await openRefused()
+      await fireEvent.click(
+        await screen.findByRole('button', { name: 'Go to step generate' }),
+      )
+      const row = document.getElementById('step-generate')!
+      await waitFor(() => expect(scroll.mock.contexts).toContain(row))
+      const full = within(row).getByRole('button', { name: 'full' })
+      expect(full.getAttribute('aria-pressed')).toBe('true')
+      // keyboard focus lands in the step, not left on the Go to button
+      await waitFor(() =>
+        expect(row.contains(document.activeElement)).toBe(true),
+      )
+    } finally {
+      delete (Element.prototype as Partial<Element>).scrollIntoView
+    }
+  })
+
+  it('Go to a variable focuses its field', async () => {
+    await openRefused()
+    await fireEvent.click(
+      await screen.findByRole('button', { name: 'Go to variable prompt' }),
+    )
+    await waitFor(() => expect(document.activeElement?.id).toBe('wfvar-prompt'))
   })
 
   it('shows what a job will do under a valid verdict', async () => {
@@ -202,9 +411,9 @@ describe('EditorPage validation plan', () => {
     await screen.getByRole('button', { name: /validate/i }).click()
 
     await waitFor(() =>
-      expect(screen.getByLabelText('what a job will do')).toBeTruthy(),
+      expect(screen.getByText('What a job will do')).toBeTruthy(),
     )
-    const plan = screen.getByLabelText('what a job will do')
+    const plan = screen.getByText('What a job will do').closest('details')!
     expect(plan.textContent).toContain('3 steps (shots: 2)')
     expect(plan.textContent).toContain('about 12 min on cuda')
     expect(plan.textContent).toContain('0 of 3 steps cached')
@@ -310,6 +519,18 @@ describe('EditorPage new workflow origin', () => {
     expect(
       (screen.getByLabelText('workflow id') as HTMLInputElement).value,
     ).toBe('ZImage')
+  })
+
+  it('a draft started from an example is checked at once', async () => {
+    vi.mocked(api.listWorkflows).mockResolvedValue(withExample as never)
+    render(EditorPage, { name: '' })
+    await waitFor(() => expect(startFrom().options.length).toBe(2))
+    await new Promise((done) => setTimeout(done, 900))
+    vi.mocked(api.validate).mockClear()
+    await fireEvent.change(startFrom(), { target: { value: 'templates/tti' } })
+    await waitFor(() => expect(api.validate).toHaveBeenCalled(), {
+      timeout: 2000,
+    })
   })
 
   it('Start from asks before discarding a JSON draft that does not parse', async () => {
@@ -516,6 +737,34 @@ describe('EditorPage saving', () => {
         'mine',
       ),
     )
+  })
+
+  it('a failure after a save is reported, not thrown', async () => {
+    const failure = vi.spyOn(notify, 'failure')
+    const broken = new Error('no history')
+    // only the save's own move to the saved name fails; the router's
+    // other bookkeeping goes through
+    const replaceState = history.replaceState.bind(history)
+    const replace = vi
+      .spyOn(history, 'replaceState')
+      .mockImplementation((state, unused, url) => {
+        if (String(url).endsWith('/edit/mine')) throw broken
+        replaceState(state, unused, url)
+      })
+    try {
+      await newNamed('mine')
+      await fireEvent.click(saveButton())
+      await waitFor(() =>
+        expect(failure).toHaveBeenCalledWith(
+          'update the editor after saving',
+          broken,
+        ),
+      )
+      expect(api.saveWorkflow).toHaveBeenCalledTimes(1)
+    } finally {
+      replace.mockRestore()
+      failure.mockRestore()
+    }
   })
 
   it('Cmd+S saves text typed into the JSON view without a blur', async () => {

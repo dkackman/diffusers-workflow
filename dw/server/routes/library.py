@@ -99,7 +99,6 @@ from ..preconditions import (
 from ..job_record import TERMINAL_STATES
 
 logger = logging.getLogger("dw")
-
 router = APIRouter(route_class=ChangeRoute)
 
 
@@ -366,6 +365,7 @@ def list_workflows(
     configures: Optional[str] = None,
     include_models: bool = False,
     view: Optional[str] = None,
+    inputs: bool = False,
 ):
     """Every workflow the search path offers, each detail saying which
     library it came from and whether it can be written to. 'libraries' is
@@ -375,8 +375,8 @@ def list_workflows(
     `shape`, `traits` (comma-separated, all must match) and `configures`
     narrow the listing; `view=compact` is the agent's view - summaries
     rather than descriptions, templates rather than model configs
-    unless `include_models` asks for them. `workflows` always names
-    exactly the entries `details` holds.
+    unless `include_models` asks for them; `inputs` adds each media
+    input's kind. `workflows` names exactly the entries `details` holds.
     """
     state = request.app.state
     library = sources_for(state, ws)
@@ -393,6 +393,7 @@ def list_workflows(
             configures=configures,
             include_models=include_models,
             view=view,
+            inputs=inputs,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -408,11 +409,10 @@ def list_workflows(
         # figures a maintainer measured once on the devices named and
         # wrote into the workflow - nothing derives them from this
         # server's own job history, so null means nobody wrote one
-        # down, not that the run is cheap or that this box has never
-        # run it (#91). A detail's `observed` block, when present, is the
-        # other kind of number: this box's own finished runs of that
-        # workflow, derived rather than claimed, and never a substitute
-        # for `cost` (#93)
+        # down, not that the run is cheap or that this box has never run
+        # it (#91). A detail's `observed` block, when present, is the other
+        # kind of number: this box's own finished runs of that workflow,
+        # derived rather than claimed, never a substitute for `cost` (#93)
         "cost_basis": "curated",
     }
     # The agent's compact view is a different, smaller card than the one

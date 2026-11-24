@@ -1,5 +1,6 @@
 <script lang="ts">
   import { Combobox } from 'bits-ui'
+  import OutputTile from './OutputTile.svelte'
   import type { SuggestItem } from './suggest'
 
   let {
@@ -130,12 +131,10 @@
           <Combobox.Item
             value={item.value}
             label={item.value}
-            class={item.thumb || item.glyph || item.detail ? 'rich' : ''}
+            class={item.media || item.detail ? 'rich' : ''}
           >
-            {#if item.thumb}
-              <img class="thumb" src={item.thumb} alt="" loading="lazy" />
-            {:else if item.glyph}
-              <span class="thumb glyph" aria-hidden="true">{item.glyph}</span>
+            {#if item.media}
+              <OutputTile file={item.media} size="row" caption="none" alt="" />
             {/if}
             <span class="text">
               <span class="name">{item.label ?? item.value}</span>
@@ -177,27 +176,12 @@
   :global(.ui-suggest [data-combobox-item][data-highlighted]) {
     background: var(--panel-2);
   }
-  /* A row with more than its value: a thumbnail or glyph, the name over a
+  /* A row with more than its value: a row tile, the name over a
      quieter line of what it stands for, and which library it came from */
   :global(.ui-suggest [data-combobox-item].rich) {
     display: flex;
     align-items: center;
     gap: var(--space-2);
-  }
-  :global(.ui-suggest .thumb) {
-    flex: none;
-    width: 32px;
-    height: 32px;
-    object-fit: cover;
-    border-radius: 3px;
-    border: 1px solid var(--line);
-    background: var(--panel-2);
-  }
-  :global(.ui-suggest .glyph) {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--muted);
   }
   :global(.ui-suggest .text) {
     display: flex;

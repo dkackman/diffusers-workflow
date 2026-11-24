@@ -28,7 +28,7 @@ UI_LIB = REPO / "ui" / "src" / "lib"
 def ts_constants(path):
     """`export const NAME = 'value'` string constants in a TS file."""
     return dict(
-        re.findall(r"^export const ([A-Z_]+) = '([^']*)'", path.read_text(), re.M)
+        re.findall(r"^export const ([A-Z_]+) =\s*'([^']*)'", path.read_text(), re.M)
     )
 
 
@@ -62,6 +62,11 @@ def test_the_member_separator_and_reference_key_are_the_engines():
     ui = ts_constants(UI_LIB / "references.ts")
     assert ui["MEMBER_SEPARATOR"] == references.MEMBER_SEPARATOR
     assert ui["FROM_PREVIOUS_RESULT_KEY"] == references.FROM_PREVIOUS_RESULT_KEY
+
+
+def test_the_ui_variable_name_characters_are_the_engines():
+    ui = ts_constants(UI_LIB / "references.ts")
+    assert ui["VARIABLE_NAME_CHARACTERS"] == references.VARIABLE_NAME_CHARACTERS
 
 
 WORKSPACE_NAMES = json.loads(

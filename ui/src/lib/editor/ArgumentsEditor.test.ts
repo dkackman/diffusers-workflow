@@ -3,6 +3,8 @@ import { render, screen, fireEvent, cleanup } from '@testing-library/svelte'
 import ArgumentsEditor from './ArgumentsEditor.svelte'
 import { api } from '../api'
 import type { PipelineDescription } from '../types'
+import { earlierResults } from '../referenceField'
+import { promptLibrary } from '../promptlib.svelte'
 
 // componentType='' keeps the resource that fetches a pipeline description
 // from ever asking (see ArgumentsEditor.svelte's `if (!wanted) return null`),
@@ -22,12 +24,13 @@ describe('ArgumentsEditor media arguments', () => {
       componentType: '',
     })
 
-    expect(
-      screen.getByRole('button', { name: /browse for a local image file/i }),
-    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Upload…' })).toHaveAttribute(
+      'title',
+      'Upload an image from this computer, or drop one here',
+    )
     // the location itself is still a plain, directly-editable text input
     expect(
-      screen.getByPlaceholderText('asset:name, image path or URL'),
+      screen.getByPlaceholderText('type, drop or choose an image'),
     ).toHaveValue('photo.png')
   })
 
@@ -38,13 +41,13 @@ describe('ArgumentsEditor media arguments', () => {
     })
 
     expect(
-      screen.queryByRole('button', { name: /browse for a local/i }),
+      screen.queryByRole('button', { name: 'Upload…' }),
     ).not.toBeInTheDocument()
     const input = screen.getByDisplayValue('a scenic landscape')
     expect(input.tagName).toBe('INPUT')
     expect(input).not.toHaveAttribute(
       'placeholder',
-      'asset:name, image path or URL',
+      'type, drop or choose an image',
     )
   })
 
@@ -59,10 +62,8 @@ describe('ArgumentsEditor media arguments', () => {
     const args: Record<string, unknown> = { image: '' }
     render(ArgumentsEditor, { args, componentType: '' })
 
-    const browseButton = screen.getByRole('button', {
-      name: /browse for a local image file/i,
-    })
-    const container = browseButton.closest('.media') as HTMLElement
+    const uploadButton = screen.getByRole('button', { name: 'Upload…' })
+    const container = uploadButton.closest('.reference') as HTMLElement
 
     const hiddenFileInput = container.querySelector(
       'input[type="file"]',
@@ -103,5 +104,90 @@ describe('ArgumentsEditor class description', () => {
       await screen.findByText(/show available arguments \(1\)/),
     ).toBeInTheDocument()
     expect(describe).toHaveBeenCalledWith('ProbeArgumentsPipeline')
+  })
+})
+
+const workflow = {
+  steps: [
+    { name: 'still', result: { content_type: 'image/png' } },
+    { name: 'clip', result: { content_type: 'video/mp4' } },
+    { name: 'use', result: { content_type: 'image/png' } },
+    { name: 'later', result: { content_type: 'image/png' } },
+  ],
+}
+
+async function optionsOf(args: Record<string, unknown>, index = 2) {
+  render(ArgumentsEditor, {
+    args,
+    componentType: '',
+    earlier: (kind) => earlierResults(workflow, index, kind),
+  })
+  const input = screen.getByRole('combobox') as HTMLInputElement
+  await fireEvent.focus(input)
+  await fireEvent.input(input, { target: { value: '' } })
+  return screen.findAllByRole('option')
+}
+
+describe('ArgumentsEditor earlier results', () => {
+  it("an image argument offers the earlier step's result first", async () => {
+    const options = await optionsOf({ image: '' })
+    expect(options[0]).toHaveTextContent('previous_result:still')
+  })
+
+  it('an image argument holding previous_result stays a reference field', () => {
+    render(ArgumentsEditor, {
+      args: { image: 'previous_result:still' },
+      componentType: '',
+      earlier: (kind) => earlierResults(workflow, 2, kind),
+    })
+    expect(screen.getByRole('button', { name: 'Upload…' })).toBeInTheDocument()
+    expect((screen.getByRole('combobox') as HTMLInputElement).value).toBe(
+      'previous_result:still',
+    )
+  })
+
+  it("a video step's frames are offered to an image argument", async () => {
+    const options = await optionsOf({ image: '' })
+    const text = options.map((o) => o.textContent).join('\n')
+    expect(text).toContain('previous_result:clip.frames')
+  })
+
+  it("a later step's result is never offered", async () => {
+    const options = await optionsOf({ image: '' })
+    const text = options.map((o) => o.textContent).join('\n')
+    expect(text).not.toContain('previous_result:later')
+  })
+})
+
+describe('ArgumentsEditor reference arguments', () => {
+  it("an argument holding variable:x still offers the workflow's variables", async () => {
+    render(ArgumentsEditor, {
+      args: { steps: 'variable:steps' },
+      componentType: '',
+      suggestions: ['variable:steps', 'variable:guidance', 'prompt:fox'],
+    })
+    const input = screen.getByRole('combobox') as HTMLInputElement
+    await fireEvent.focus(input)
+    await fireEvent.input(input, { target: { value: 'variable:' } })
+    const options = await screen.findAllByRole('option')
+    const text = options.map((o) => o.textContent).join('\n')
+    expect(text).toContain('variable:steps')
+    expect(text).toContain('variable:guidance')
+  })
+
+  it("an argument holding a stored prompt shows the prompt's text on hover", () => {
+    promptLibrary.texts = { fox: 'a red fox in the snow' }
+    try {
+      render(ArgumentsEditor, {
+        args: { prompt: 'prompt:fox' },
+        componentType: '',
+      })
+      expect(screen.getByRole('combobox')).toHaveAttribute(
+        'title',
+        'a red fox in the snow',
+      )
+    } finally {
+      promptLibrary.texts = {}
+    }
   })
 })
