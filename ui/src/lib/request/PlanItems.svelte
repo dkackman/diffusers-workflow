@@ -27,7 +27,15 @@
     type PlanStore,
   } from './planStore.svelte'
   import { handleId, Reorder } from './reorder.svelte'
-  import { moveTarget, type Direction, type Move } from './reorderMath'
+  import {
+    laterIn,
+    moveTarget,
+    placeBefore,
+    runsAfter,
+    titlesOf,
+    type Direction,
+    type Move,
+  } from './reorderMath'
   import RequestItem from './RequestItem.svelte'
   import type { ReviewCountdown } from './review.svelte'
 
@@ -118,12 +126,18 @@
       })
   }
 
+  // Rows placed above something they depend on: the dependency wins
+  const later = $derived(open ? runsAfter(plan) : {})
+
   function moved(row: ItemState, move: Move) {
     quietly(
       store.stage({ kind: 'move', key: row.item.key, before: move.before }),
     )
+    const next = placeBefore(keys, row.item.key, move.before)
+    const wins = laterIn(next, row.item.key, row.after)
     onsay(
-      `${row.item.title} moved to position ${move.position} of ${move.total}.`,
+      `${row.item.title} moved to position ${move.position} of ${move.total}.` +
+        (wins.length ? ` It still runs after ${titlesOf(wins)}.` : ''),
     )
   }
   const byKey = (key: string) => plan.live.find((row) => row.item.key === key)
@@ -288,6 +302,11 @@
 {/snippet}
 
 {#snippet notice(row: ItemState)}
+  {#if later[row.item.key]}
+    <p class="onrow hint muted">
+      Runs after {titlesOf(later[row.item.key])} whatever its place.
+    </p>
+  {/if}
   {#each store.conflicts.filter((c) => c.key === row.item.key) as conflict (conflict.id)}
     <div class="onrow">
       <ConflictNotice
@@ -382,6 +401,10 @@
   }
   .closed p {
     margin: 0;
+  }
+  .hint {
+    margin: 0;
+    font-size: var(--t-sm);
   }
   .onrow {
     padding: 0 0.8rem var(--space-3) calc(0.2rem + 24px + var(--space-3));

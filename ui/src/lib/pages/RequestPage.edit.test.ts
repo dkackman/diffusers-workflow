@@ -315,6 +315,34 @@ it('a dropped item restored on a fresh page goes last, and the page says what it
   expect(order()).toEqual(['cast', 's3', 's4', 'cut', 'old'])
 })
 
+it('moving an item above its dependency says it still runs after it', async () => {
+  await start()
+  const handle = within(row('cut')).getByRole('button', {
+    name: 'Reorder The cut, position 4 of 4',
+  })
+  expect(row('cut').textContent).not.toContain('Runs after')
+  handle.focus()
+  await fireEvent.keyDown(handle, { key: 'Home' })
+  await waitFor(() => expect(order()).toEqual(['cut', 'cast', 's3', 's4']))
+  expect(screen.getByTestId('request-live').textContent).toBe(
+    'The cut moved to position 1 of 4. It still runs after Shot 3.',
+  )
+  expect(row('cut').textContent).toContain(
+    'Runs after Shot 3 whatever its place.',
+  )
+  expect(row('cast').textContent).not.toContain('Runs after')
+})
+
+it('a closed request shows no hint for an item above its dependency', async () => {
+  const closed = make()
+  closed.state = 'done'
+  closed.items = [closed.items[3], ...closed.items.slice(0, 3)]
+  world.ledger = fakeLedger(closed)
+  await start()
+  expect(order()[0]).toBe('cut')
+  expect(row('cut').textContent).not.toContain('Runs after')
+})
+
 it('the handle moves an item with the keys: one write for the run, focus kept, each move said', async () => {
   await start()
   const handle = within(row('cut')).getByRole('button', {

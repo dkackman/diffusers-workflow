@@ -358,7 +358,7 @@ function moved(reason: string): string {
   return MOVED[reason] ?? reason
 }
 
-const listed = (parts: string[]) =>
+export const listed = (parts: string[]) =>
   parts.length <= 1
     ? (parts[0] ?? '')
     : `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}`
