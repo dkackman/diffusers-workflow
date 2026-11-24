@@ -118,6 +118,8 @@
             value={mediaLocation(args[key])}
             kind={mediaKind ?? undefined}
             earlier={earlier(mediaKind ?? undefined)}
+            {suggestions}
+            title={promptTooltip(args[key], promptLibrary.texts)}
             onchange={(location) => {
               args[key] = withMediaLocation(args[key], location)
             }}
@@ -139,9 +141,7 @@
             value={displayValue(args[key], true)}
             onchange={(e) => update(key, e.currentTarget.value)}></textarea>
         {:else if widget === 'textarea'}
-          <!-- A reference is never a textarea: widgetFor routes it to the
-               input branch below, which carries the suggestions and tooltip.
-               Prose fields collapse to one line until asked to be a
+          <!-- Prose fields collapse to one line until asked to be a
                document; the picker can swap in a stored prompt. -->
           <ExpandingText
             id={`${uid}-${key}`}

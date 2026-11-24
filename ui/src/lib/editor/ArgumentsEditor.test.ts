@@ -4,6 +4,7 @@ import ArgumentsEditor from './ArgumentsEditor.svelte'
 import { api } from '../api'
 import type { PipelineDescription } from '../types'
 import { earlierResults } from '../referenceField'
+import { promptLibrary } from '../promptlib.svelte'
 
 // componentType='' keeps the resource that fetches a pipeline description
 // from ever asking (see ArgumentsEditor.svelte's `if (!wanted) return null`),
@@ -155,5 +156,38 @@ describe('ArgumentsEditor earlier results', () => {
     const options = await optionsOf({ image: '' })
     const text = options.map((o) => o.textContent).join('\n')
     expect(text).not.toContain('previous_result:later')
+  })
+})
+
+describe('ArgumentsEditor reference arguments', () => {
+  it("an argument holding variable:x still offers the workflow's variables", async () => {
+    render(ArgumentsEditor, {
+      args: { steps: 'variable:steps' },
+      componentType: '',
+      suggestions: ['variable:steps', 'variable:guidance', 'prompt:fox'],
+    })
+    const input = screen.getByRole('combobox') as HTMLInputElement
+    await fireEvent.focus(input)
+    await fireEvent.input(input, { target: { value: 'variable:' } })
+    const options = await screen.findAllByRole('option')
+    const text = options.map((o) => o.textContent).join('\n')
+    expect(text).toContain('variable:steps')
+    expect(text).toContain('variable:guidance')
+  })
+
+  it("an argument holding a stored prompt shows the prompt's text on hover", () => {
+    promptLibrary.texts = { fox: 'a red fox in the snow' }
+    try {
+      render(ArgumentsEditor, {
+        args: { prompt: 'prompt:fox' },
+        componentType: '',
+      })
+      expect(screen.getByRole('combobox')).toHaveAttribute(
+        'title',
+        'a red fox in the snow',
+      )
+    } finally {
+      promptLibrary.texts = {}
+    }
   })
 })

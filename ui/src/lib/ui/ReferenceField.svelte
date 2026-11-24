@@ -43,6 +43,8 @@
     kind = undefined,
     earlier = undefined,
     placeholder = undefined,
+    suggestions = undefined,
+    title = undefined,
     onchange,
     oninput = undefined,
     children = undefined,
@@ -54,6 +56,11 @@
     /** The earlier steps' results this field can take, offered first */
     earlier?: string[]
     placeholder?: string
+    /** Names offered after the completion's rows: a step's declared
+     * variables, stored prompts and for_each items */
+    suggestions?: readonly string[]
+    /** The input's hover text, e.g. a stored prompt's preview */
+    title?: string
     onchange: (value: string) => void
     oninput?: (value: string) => void
     /** More buttons, after Choose… and Upload… */
@@ -230,6 +237,8 @@
       class={isReference(value) ? 'referencefield ref' : 'referencefield'}
       placeholder={placeholder ?? `type, drop or choose ${named}`}
       {value}
+      {suggestions}
+      {title}
       complete={(text) => fieldRows(text, kind, earlier ?? [])}
       onchange={commit}
       oninput={typing}
