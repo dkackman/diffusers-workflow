@@ -113,12 +113,11 @@ test("each sidebar section's tab title and h1 are its sidebar label", async ({
 }) => {
   // A page that names its subject rather than its section says so here:
   // the overview is the workspace's, the editor's is its document's, and
-  // the shared Assets and the Schema pages qualify the label
+  // the shared Assets page qualifies the label
   const subject: Record<string, string> = {
     '#/ws/default/overview': 'default',
     '#/ws/default/edit': 'New workflow',
     '#/shared/assets': 'Shared assets',
-    '#/server/schema': 'Workflow Schema',
   }
   await page.goto('/#/ws/default/jobs')
   const items = await page
