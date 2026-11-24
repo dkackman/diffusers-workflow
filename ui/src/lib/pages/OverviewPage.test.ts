@@ -7,6 +7,7 @@ import {
 } from '@testing-library/svelte'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import OverviewPage from './OverviewPage.svelte'
+import { formatMtime } from '../format'
 import { feed } from '../test/feedMock'
 import { invalidateWorkspaces, workspace } from '../workspace.svelte'
 import '../router.svelte'
@@ -493,4 +494,35 @@ it('a job row is one link, titled with its id', async () => {
     ),
   )
   expect(row.closest('li')?.querySelectorAll('a')).toHaveLength(1)
+})
+
+it('a job with no proof draws the cover slot, and same-workflow rows differ', async () => {
+  const job = (id: string, finished: number) => ({
+    id,
+    workflow: 'text-to-image',
+    workflow_name: 'text-to-image',
+    status: 'failed',
+    run_id: null,
+    created_at: finished - 10,
+    started_at: finished - 5,
+    finished_at: finished,
+    workspace: 'studio',
+  })
+  data.files = []
+  data.jobs = [job('j1', 1_700_000_000), job('j2', 1_700_090_000)]
+  render(OverviewPage)
+  await waitFor(() => expect(screen.getByTitle('job j1')).toBeTruthy())
+  const a = screen.getByTitle('job j1')
+  const b = screen.getByTitle('job j2')
+  // the dashed slot stands where a proof would, in the same 48 px frame
+  expect(a.querySelector('.slot.as-cover')).toBeTruthy()
+  expect(b.querySelector('.slot.as-cover')).toBeTruthy()
+  // same workflow and status, told apart by when they finished
+  expect(a.textContent).not.toBe(b.textContent)
+  expect(a.querySelector('.when')?.textContent).toBe(formatMtime(1_700_000_000))
+  const names = screen
+    .getAllByRole('link')
+    .filter((l) => l.getAttribute('title')?.startsWith('job '))
+    .map((l) => l.textContent?.replace(/\s+/g, ' ').trim())
+  expect(new Set(names).size).toBe(2)
 })

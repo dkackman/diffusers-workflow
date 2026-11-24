@@ -11,6 +11,7 @@
   } from '@lucide/svelte'
   import StatusChip from '../ui/StatusChip.svelte'
   import OutputTile from '../ui/OutputTile.svelte'
+  import ItemProof from '../request/ItemProof.svelte'
   import { outputMedia } from '../media'
   import { api } from '../api'
   import { attention, doneFigure } from '../request/attention'
@@ -20,7 +21,7 @@
   import PageHeader from '../ui/PageHeader.svelte'
   import Skeleton from '../ui/Skeleton.svelte'
   import { WORKSPACE } from '../references'
-  import { formatBytes } from '../format'
+  import { formatBytes, formatMtime } from '../format'
   import { workflowName } from '../terms'
   import { hiddenWorkspaces, setHidden } from '../hiddenWorkspaces.svelte'
   import { latestProofs, proofByRun } from '../proofs'
@@ -186,25 +187,27 @@
 <!-- A job as one link: its status, its workflow and its run's proof -->
 {#snippet jobRow(job: JobSummary, live: boolean)}
   {@const proof = job.run_id ? runs[job.run_id] : undefined}
+  {@const when = job.finished_at ?? job.started_at ?? job.created_at ?? null}
   <li class:row-live={live}>
     <a
       class="plain jobrow"
       href={jobHref(job.id, job.workspace)}
       title="job {job.id}"
     >
-      <!-- A fixed slot, so the names line up with a proof or without -->
+      <!-- The run's proof, or the dashed slot that says why there is none:
+           every row is the same height -->
       <span class="jobproof">
-        {#if proof}
-          <OutputTile
-            file={outputMedia(proof, listed)}
-            size="mini"
-            caption="none"
-            alt=""
-          />
-        {/if}
+        <ItemProof
+          output={proof ? { name: proof.name, kind: proof.kind } : null}
+          state={job.status}
+          workspace={listed}
+          alt=""
+          size="cover"
+        />
       </span>
       <StatusChip status={job.status} />
       <span class="wf">{workflowName(job)}</span>
+      {#if when !== null}<span class="when">{formatMtime(when)}</span>{/if}
     </a>
   </li>
 {/snippet}
@@ -406,6 +409,10 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  .jobs .when {
+    flex: none;
+    color: var(--muted);
   }
   .jobs .row-live {
     padding-left: var(--space-2);
