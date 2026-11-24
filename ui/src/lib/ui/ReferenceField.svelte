@@ -73,6 +73,15 @@
    * it uploads, and after, until the field holds something else */
   let local = $state<{ for: string; file: MediaFile } | null>(null)
   let destroyed = false
+  /** What the person has typed and not yet committed, for the value it was
+   * typed over: Suggest keeps it until change or blur */
+  let typed = $state<{ over: string; text: string } | null>(null)
+  const live = () => (typed?.over === value ? typed.text : value)
+
+  function typing(text: string) {
+    typed = { over: value, text }
+    oninput?.(text)
+  }
 
   // A library reference previews once the listing that holds it has loaded
   $effect(() => {
@@ -141,9 +150,9 @@
   async function uploadFile(file: File) {
     error = ''
     failure = null
-    const from = value
+    const from = live()
     const previous = local
-    local = { for: from, file: pickedMedia(file, URL.createObjectURL(file)) }
+    local = { for: value, file: pickedMedia(file, URL.createObjectURL(file)) }
     try {
       // This uploads to the workspace library, so only its names are taken
       const taken = new Set(
@@ -154,6 +163,8 @@
       const result = await uploadAll([file], { shared: false, taken })
       landed(result, from, previous)
     } catch (err) {
+      // The file never uploaded, so its picture goes with it
+      setLocal(previous)
       failure = err
     }
     // A picture the field no longer shows lets go of its bytes
@@ -181,7 +192,7 @@
     // So the upload is among what an asset: completion offers next
     void loadAssetLibrary()
     const next = done.reference ?? done.url
-    if (destroyed || value !== from) {
+    if (destroyed || live() !== from) {
       setLocal(null)
       notify.success(
         `Uploaded as ${next}. The field changed meanwhile, so it was left as it is.`,
@@ -215,7 +226,7 @@
       {value}
       complete={(text) => fieldRows(text, kind, earlier ?? [])}
       onchange={commit}
-      {oninput}
+      oninput={typing}
     />
     <button
       type="button"

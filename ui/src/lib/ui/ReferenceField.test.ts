@@ -88,7 +88,8 @@ it('revokes the local preview blob URL when the component is destroyed', async (
   const revokeObjectURL = vi.fn()
   URL.createObjectURL = createObjectURL
   URL.revokeObjectURL = revokeObjectURL
-  uploadMedia.mockRejectedValueOnce(new Error('upload failed'))
+  // Navigating away mid-upload: the upload never lands
+  uploadMedia.mockReturnValueOnce(new Promise(() => {}))
 
   const { container, unmount } = field()
   await pickFile(container, png())
@@ -98,6 +99,21 @@ it('revokes the local preview blob URL when the component is destroyed', async (
   expect(revokeObjectURL).not.toHaveBeenCalled()
   unmount()
   expect(revokeObjectURL).toHaveBeenCalledWith('blob:preview-1')
+}, 20000)
+
+it('a failed upload leaves no preview of the file it never took', async () => {
+  URL.createObjectURL = vi.fn(() => 'blob:failed')
+  const revokeObjectURL = vi.fn()
+  URL.revokeObjectURL = revokeObjectURL
+  uploadMedia.mockRejectedValueOnce(new Error('upload failed'))
+  const { container } = field({ value: 'asset:cast/priya.png' })
+  await pickFile(container, png())
+  await screen.findByRole('alert')
+  expect(revokeObjectURL).toHaveBeenCalledWith('blob:failed')
+  expect(container.querySelector('.preview img[src="blob:failed"]')).toBeNull()
+  expect(
+    container.querySelector('.preview img.tile-pic')?.getAttribute('src'),
+  ).toContain('cast/priya.png')
 }, 20000)
 
 it('a failed upload says why in plain words, the server text folded behind Details', async () => {
@@ -221,6 +237,27 @@ it('an upload that finishes after the field changed leaves it alone', async () =
     'Uploaded as asset:uploads/cat.png. The field changed meanwhile, so it was left as it is.',
   )
   expect(container.querySelector('.preview')).toBeNull()
+})
+
+it('an upload that finishes while the person is typing leaves their text alone', async () => {
+  URL.createObjectURL = vi.fn(() => 'blob:slow')
+  URL.revokeObjectURL = vi.fn()
+  let finish: (v: unknown) => void = () => {}
+  uploadMedia.mockReturnValueOnce(new Promise((r) => (finish = r)))
+  const onchange = vi.fn()
+  const { container } = field({ value: 'asset:old.png', onchange })
+  await pickFile(container, png())
+  // Meanwhile the person types in the field without leaving it
+  const input = screen.getByRole('combobox') as HTMLInputElement
+  await fireEvent.input(input, { target: { value: 'asset:mine.png' } })
+  finish({ reference: 'asset:uploads/cat.png', url: '/inputs/uploads/cat.png' })
+  await tick()
+  await tick()
+  expect(onchange).not.toHaveBeenCalled()
+  expect(input.value).toBe('asset:mine.png')
+  expect(notifySuccess).toHaveBeenCalledWith(
+    'Uploaded as asset:uploads/cat.png. The field changed meanwhile, so it was left as it is.',
+  )
 })
 
 it('an upload that finishes after the field is gone writes nothing', async () => {
