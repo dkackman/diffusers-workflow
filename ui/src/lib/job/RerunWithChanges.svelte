@@ -19,11 +19,14 @@
   let {
     job,
     declared,
+    open = $bindable(false),
   }: {
     job: JobDetail
     /** The run's definition's declared variables, or null when the job's
      * definition is not on file - the form then lists its arguments only */
     declared: Record<string, unknown> | null
+    /** Whether the form is open: the job page's error panel opens it too */
+    open?: boolean
   } = $props()
 
   // What this run used for each variable: its declared default, under the
@@ -33,7 +36,6 @@
     ...(job.arguments ?? {}),
   })
 
-  let open = $state(false)
   let overrides = $state<Record<string, string>>({})
   let error = $state<unknown>(null)
 
@@ -50,11 +52,12 @@
   )
   const changedCount = $derived(Object.keys(changed).length)
 
-  function start() {
+  // Opened from here or from outside, the form starts empty
+  $effect(() => {
+    if (!open) return
     overrides = {}
     error = null
-    open = true
-  }
+  })
 
   const queueing = action(
     async () => {
@@ -100,7 +103,7 @@
 {#if Object.keys(values).length}
   <button
     class="quiet withicon"
-    onclick={start}
+    onclick={() => (open = true)}
     title="queue this job again with some of its variables changed - what you leave blank keeps this job's value"
   >
     <SlidersHorizontal size={14} />Run again with changes…

@@ -35,6 +35,7 @@ const metadata = vi.hoisted(() => ({
 const ran = vi.hoisted(() => ({
   definition: null as Record<string, any> | null,
   realized: true,
+  seedVariable: null as string | null,
 }))
 // What the event-log route answers: one page, or a status to fail with
 const eventLog = vi.hoisted(() => ({
@@ -65,7 +66,7 @@ vi.mock('../api', () => ({
       Promise.resolve({
         definition: ran.definition,
         realized: ran.realized,
-        seed_variable: null,
+        seed_variable: ran.seedVariable,
       }),
     ),
     galleryMetadata: vi.fn((name: string) =>
@@ -162,6 +163,7 @@ afterEach(() => {
   metadata.inputs = []
   ran.definition = null
   ran.realized = true
+  ran.seedVariable = null
   eventLog.events = []
   eventLog.note = null
   eventLog.status = 0
@@ -1301,4 +1303,93 @@ describe('after an outage', () => {
     )
     expect(stream.opened).toEqual([-1])
   })
+})
+
+const failedJob = (): JobDetail => ({
+  ...job([]),
+  status: 'failed',
+  error: 'torch.OutOfMemoryError: CUDA out of memory',
+  traceback: 'Traceback (most recent call last):\n  boom',
+  progress: { step: 'generate', parent_step: null } as JobDetail['progress'],
+})
+
+it('a failed job leads with what failed and the remedy, the traceback folded', async () => {
+  ran.definition = { steps: [{ name: 'generate', pipeline: {} }] }
+  detail.job = failedJob()
+  const { container } = render(JobPage, { jobId: 'j1' })
+  const alert = await screen.findByRole('alert')
+  expect(alert).toHaveTextContent('Failed in step generate.')
+  expect(alert).toHaveTextContent('The card ran out of memory.')
+  expect(alert).toHaveTextContent(
+    'Run it again with a smaller size or fewer frames.',
+  )
+  expect(
+    within(alert).getByRole('button', { name: 'Run again with changes…' }),
+  ).toBeInTheDocument()
+  const folded = container.querySelector('details.engine-detail')!
+  expect((folded as HTMLDetailsElement).open).toBe(false)
+  expect(folded.textContent).toContain('CUDA out of memory')
+  expect(folded.textContent).toContain('boom')
+})
+
+it('an error no case knows still shows the engine text behind Details', async () => {
+  detail.job = { ...failedJob(), error: 'KeyError: weird' }
+  const { container } = render(JobPage, { jobId: 'j1' })
+  const alert = await screen.findByRole('alert')
+  expect(alert).toHaveTextContent('The job stopped with an error.')
+  expect(container.querySelector('details.engine-detail')).toHaveTextContent(
+    'KeyError: weird',
+  )
+})
+
+it('the failed step is red on a job read from history', async () => {
+  ran.definition = {
+    steps: [
+      { name: 'prep', pipeline: {} },
+      { name: 'generate', pipeline: {} },
+    ],
+  }
+  detail.job = failedJob()
+  const { container } = render(JobPage, { jobId: 'j1' })
+  await waitFor(() =>
+    expect(nodeFor(container, 'generate').classList.contains('failed')).toBe(
+      true,
+    ),
+  )
+})
+
+it('the seed shows on a job read from history', async () => {
+  ran.definition = {
+    steps: [
+      { name: 'prep', pipeline: {} },
+      { name: 'generate', pipeline: {} },
+    ],
+  }
+  ran.seedVariable = 'seed'
+  detail.job = { ...job([]), arguments: { seed: 4242 } }
+  render(JobPage, { jobId: 'j1' })
+  expect(await screen.findByText('seed 4242')).toBeInTheDocument()
+})
+
+it('the workflow updates when the job finishes', async () => {
+  ran.definition = {
+    steps: [
+      { name: 'prep', pipeline: {} },
+      { name: 'generate', pipeline: {} },
+    ],
+  }
+  detail.job = { ...job([]), status: 'running', finished_at: null }
+  const { container } = render(JobPage, { jobId: 'j1' })
+  await waitFor(() => expect(nodeFor(container, 'generate')).toBeTruthy())
+  expect(nodeFor(container, 'finish')).toBeUndefined()
+  ran.definition = {
+    steps: [
+      { name: 'prep', pipeline: {} },
+      { name: 'generate', pipeline: {} },
+      { name: 'finish', pipeline: {} },
+    ],
+  }
+  detail.job = job([])
+  feed.move('default', 'jobs')
+  await waitFor(() => expect(nodeFor(container, 'finish')).toBeTruthy())
 })

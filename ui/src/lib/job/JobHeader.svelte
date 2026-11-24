@@ -30,6 +30,7 @@
     running,
     cancelPending,
     seedVariable,
+    rerunOpen = $bindable(false),
     declared = null,
     request = null,
     requestGone = false,
@@ -41,6 +42,8 @@
     running: boolean
     cancelPending: boolean
     seedVariable: string | null
+    /** Whether Run again with changes is open - the error panel opens it */
+    rerunOpen?: boolean
     /** The run's definition's declared variables, for Run again with
      * changes; null while it loads or when it is not on file */
     declared?: Record<string, unknown> | null
@@ -320,7 +323,7 @@
             <Dices size={14} />New seed
           </ActionButton>
         {/if}
-        <RerunWithChanges {job} {declared} />
+        <RerunWithChanges {job} {declared} bind:open={rerunOpen} />
         <ActionButton
           act={exportJob}
           title="bundle this job - its realized workflow, manifest, the media it used and made - into the workspace's exports/ on the server, and download it as a zip"
