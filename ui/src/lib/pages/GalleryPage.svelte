@@ -6,7 +6,6 @@
     ImageOff,
     Star,
     Trash2,
-    X,
   } from '@lucide/svelte'
   import { outputLibrary } from '../outputlib.svelte'
   import { api } from '../api'
@@ -16,6 +15,7 @@
   import { leafName } from '../names'
   import { OUTPUT } from '../references'
   import MediaViewer from '../ui/MediaViewer.svelte'
+  import MissingFile from '../ui/MissingFile.svelte'
   import RecipePanel from '../ui/RecipePanel.svelte'
   import ReferenceChip from '../ui/ReferenceChip.svelte'
   import { untrack } from 'svelte'
@@ -342,20 +342,7 @@
   <RequestFilter bind:request={reqId} bind:item={reqItem} />
 </GalleryFind>
 
-{#if missing}
-  <p class="hint missing">
-    {missing} is not in this view any more.
-    <button
-      type="button"
-      class="quiet icon"
-      aria-label="Dismiss"
-      title="Dismiss"
-      onclick={() => (missing = '')}
-    >
-      <X size={14} />
-    </button>
-  </p>
-{/if}
+<MissingFile bind:leaf={missing} />
 
 <BulkBar
   {picks}
@@ -500,12 +487,3 @@
   aside={viewerAside}
   onkey={viewerKey}
 />
-
-<style>
-  .missing {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-    margin: 0 0 var(--space-2);
-  }
-</style>

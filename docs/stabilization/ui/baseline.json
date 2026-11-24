@@ -5,13 +5,13 @@
   "import_cycles": 0,
   "modules_in_import_cycles": 0,
   "prefix_literals": 0,
-  "a11y_suppressions": 3,
+  "a11y_suppressions": 2,
   "raw_error_toasts": 0,
   "empty_outside_loadstate": 0,
   "unwatched_reads": 0,
   "window_dialogs": 0,
   "unguarded_mutations": 0,
   "banned_terms": 0,
-  "raw_media": 20,
-  "duplicate_blocks": 20
+  "raw_media": 17,
+  "duplicate_blocks": 18
 }

@@ -46,7 +46,6 @@ const PAGE_TABLE: Record<string, Freshness[]> = {
   '../App.svelte': [],
   'Sidebar.svelte': [{ watch: ['workspaces'] }],
   'CachesPanel.svelte': [{ watch: ['models'] }],
-  'assets/AssetDetail.svelte': [{ watch: ['assets'] }],
   'editor/ArgumentsEditor.svelte': [{ watch: [] }],
   'editor/LorasEditor.svelte': [{ watch: ['loras'] }],
   'editor/PipelineOptions.svelte': [{ watch: [] }],

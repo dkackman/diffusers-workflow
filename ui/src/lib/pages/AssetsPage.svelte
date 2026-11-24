@@ -4,10 +4,15 @@
   // failure or grepping the box, so writing a workflow that reuses an asset
   // meant guessing a name - and nothing showed which names a `common` or an
   // examples library was shadowing. The UX is the gallery's on purpose:
-  // folder groups, a contact-sheet grid, a detail popout.
+  // folder groups, a contact-sheet grid, and the viewer with the recipe
+  // beside it.
   import { FolderOpen } from '@lucide/svelte'
   import { api } from '../api'
-  import { assetMedia } from '../media'
+  import { assetMedia, type MediaFile } from '../media'
+  import { openInHash } from '../mediaViewer'
+  import { leafName } from '../names'
+  import { groupNames } from '../grouping'
+  import MissingFile from '../ui/MissingFile.svelte'
   import OutputTile from '../ui/OutputTile.svelte'
   import { untrack } from 'svelte'
   import { resource } from '../resource.svelte'
@@ -23,7 +28,7 @@
   import { Picks, actOnEach, reportFailures } from '../picks.svelte'
   import { overlayOpen } from '../ui/layers.svelte'
   import { notify } from '../toast'
-  import { collapsedState } from '../collapsed.svelte'
+  import { collapsedState, type Collapsed } from '../collapsed.svelte'
   import type { AssetFile, AssetLibrary, ShadowedAsset } from '../types'
   import { workspace } from '../workspace.svelte'
   import { sharedHref } from '../routes'
@@ -34,7 +39,7 @@
     reportUploads,
     uploadAll,
   } from '../assets/uploads'
-  import AssetDetail from '../assets/AssetDetail.svelte'
+  import AssetViewer from '../assets/AssetViewer.svelte'
   import LibraryRow from '../assets/LibraryRow.svelte'
   import ShadowedAssets from '../assets/ShadowedAssets.svelte'
 
@@ -95,7 +100,9 @@
   const shadowed = $derived<ShadowedAsset[]>(list.data?.shadowed ?? [])
   // In the hash, so Back from an asset - or a shared link - keeps it
   const filter = hashState('q', '')
-  let selected = $state<AssetFile | null>(null)
+  // The asset open in the viewer, as `open=` in the hash: the viewer writes
+  // it the way Back expects (mediaViewer.ts), and Back closes it
+  let open = $state<string | null>(openInHash())
   // Which library the next upload lands in, set by whichever section's
   // button was clicked. The one thing about an upload that cannot be
   // changed afterwards, so it is the destination's own button rather than
@@ -105,14 +112,19 @@
   // Which library sections are shut. Persisted, since a box whose shared
   // library dwarfs the workspace's own is exactly where one gets shut
   const collapsed = collapsedState(COLLAPSE_KEY)
+  // Each library's shut folders, held here rather than in FolderGroups so
+  // the viewer steps through only what the grid shows
+  const shutFolders = Object.fromEntries(
+    Object.keys(LIBRARY_LABELS).map((origin) => [
+      origin,
+      collapsedState(`collapsed-asset-folders-${origin}`),
+    ]),
+  ) as Record<string, Collapsed | undefined>
 
-  // Carry a saved note onto the listing and the pick, so selecting the asset
-  // again shows it rather than what was fetched before the edit
-  function saveNote(note: string | null) {
-    if (!selected) return
-    const name = selected.name
+  // Carry a saved note onto the listing, so opening the asset again shows
+  // it rather than what was fetched before the edit
+  function saveNote(name: string, note: string | null) {
     noteEdits = withPatch(noteEdits, name, { note: note ?? undefined })
-    selected = { ...selected, note: note ?? undefined }
     // Held as read (resource's `adopt`): never marked as another writer's
     const held = list.data
     if (held)
@@ -212,10 +224,56 @@
       }
       assetLibrary.items = data.assets
       assetLibrary.workspace = workspace.current
-      if (selected && !data.assets.some((a) => a.name === selected?.name))
-        selected = null
     })
   })
+
+  // The library the open asset is in, remembered so a deleted one steps on
+  // through the same library (MediaViewer)
+  let viewedOrigin = ''
+  const viewed = $derived.by(() => {
+    const at = sections.find((s) => s.assets.some((a) => a.name === open))
+    if (at) viewedOrigin = at.origin
+    return at ?? sections.find((s) => s.origin === viewedOrigin)
+  })
+  // What the viewer steps through: that library, in the grid's order,
+  // minus a shut folder's assets
+  const items = $derived.by((): MediaFile[] => {
+    if (!viewed) return []
+    const shut = shutFolders[viewed.origin]
+    const grouped = groupNames(
+      viewed.assets.map((a) => a.name),
+      (name) => folderByName.get(name) ?? '',
+    )
+    return [...grouped.entries()]
+      .flatMap(([g, names]) => (!filterActive && shut?.has(g) ? [] : names))
+      .map((name) => tileOf(byName.get(name)!))
+  })
+
+  // An open= naming no asset on the page, once the listing is in: said
+  // under the header, and cleared. A link to one in a shut library or
+  // folder opens it; one that was listed and left is the viewer's
+  let missing = $state('')
+  let listed: string | null = null
+  $effect(() => {
+    const name = open
+    if (!name || list.status !== 'ready') return
+    const at = sections.find((s) => s.assets.some((a) => a.name === name))
+    untrack(() => {
+      if (name === listed) return
+      if (!at) {
+        missing = leafName(name)
+        open = null
+        return
+      }
+      listed = name
+      reveal(at.origin, folderByName.get(name) ?? '')
+    })
+  })
+  function reveal(origin: string, folder: string) {
+    if (filterActive) return
+    if (collapsed.has(origin)) collapsed.toggle(origin)
+    if (shutFolders[origin]?.has(folder)) shutFolders[origin]?.toggle(folder)
+  }
 
   function startUpload(target: 'workspace' | 'shared') {
     uploadTarget = target
@@ -280,7 +338,6 @@
     async (asset: AssetFile) => {
       await api.deleteAsset(asset.name)
       notify.success(`Deleted ${asset.reference}`)
-      if (selected?.name === asset.name) selected = null
       await list.reload()
     },
     { doing: (asset) => `delete ${asset.name}`, confirm: assetConfirm },
@@ -293,12 +350,10 @@
 
 <svelte:window
   onkeydown={(e) => {
-    // Escape closes the thing on top, and a dialog answers it itself. The
-    // selection is the more recent, more surprising state to be stuck in,
-    // so it clears first and the detail panel on a second press
+    // Escape closes the thing on top: the viewer and a dialog answer it
+    // themselves, and the selection clears under them
     if (e.key !== 'Escape' || overlayOpen()) return
-    if (picks.size) picks.clear()
-    else selected = null
+    picks.clear()
   }}
 />
 
@@ -339,6 +394,8 @@
       />
     {/snippet}
   </PageHeader>
+
+  <MissingFile bind:leaf={missing} />
 
   <HintBar storageKey="assets-hint-dismissed">
     An asset is input a workflow names by reference: an argument set to
@@ -400,6 +457,7 @@
         names={section.assets.map((a) => a.name)}
         groupOf={(name) => folderByName.get(name) ?? ''}
         collapseKey="collapsed-asset-folders-{section.origin}"
+        collapsed={shutFolders[section.origin]}
         {filterActive}
         minColumn="150px"
       >
@@ -412,7 +470,7 @@
           >
             <!-- A sibling of the cell rather than a child: a checkbox nested in
                a button is invalid, and keeping them apart is what lets a plain
-               click still open the details it always has -->
+               click still open the asset -->
             {#if section.writable}
               <input
                 class="pick"
@@ -425,11 +483,11 @@
             {/if}
             <OutputTile
               file={tileOf(asset)}
-              active={selected?.name === name}
+              active={open === name}
               picked={picks.has(name)}
-              onclick={() => (selected = asset)}
-              aria-label="show details for {asset.name}"
-              title="show details"
+              onclick={() => (open = name)}
+              aria-label="open {asset.name}"
+              title="open this asset, with what made it"
             />
           </div>
         {/snippet}
@@ -442,19 +500,14 @@
   {/each}
 </div>
 
-{#if selected}
-  <!-- Keyed by the pick, so each asset's panel starts its own read and never
-       shows the last one's -->
-  {#key selected.name}
-    <AssetDetail
-      asset={selected}
-      busy={working}
-      onremove={remove}
-      onclose={() => (selected = null)}
-      onnotesaved={saveNote}
-    />
-  {/key}
-{/if}
+<AssetViewer
+  {items}
+  bind:open
+  assetOf={(name) => byName.get(name)}
+  busy={working}
+  onremove={remove}
+  onnotesaved={saveNote}
+/>
 
 <style>
   .dropzone {

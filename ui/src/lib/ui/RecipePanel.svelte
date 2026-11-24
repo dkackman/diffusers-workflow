@@ -38,16 +38,20 @@
     children?: Snippet<[GalleryMetadata, () => Promise<GalleryMetadata | null>]>
   } = $props()
 
-  const own = () => workspace
+  // Read through the name and workspace alone: a page handing in a new
+  // file object for the same file (a note saved beside it) reads nothing
+  const file = $derived(name)
+  const ws = $derived(workspace)
+  const own = () => ws
   // An output moves with the gallery, an asset (read by its reference)
   // with the library; the source is fixed for the panel's life
   const meta =
     untrack(() => source) === 'output'
-      ? resource(() => api.galleryMetadata(name, workspace), {
+      ? resource(() => api.galleryMetadata(file, ws), {
           watch: ['gallery'],
           workspace: own,
         })
-      : resource(() => api.galleryMetadata(reference(ASSET, name), workspace), {
+      : resource(() => api.galleryMetadata(reference(ASSET, file), ws), {
           watch: ['assets'],
           workspace: own,
         })
