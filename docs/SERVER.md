@@ -28,6 +28,13 @@ server uses, and in what order they are resolved, is in
 [WORKSPACES.md](WORKSPACES.md). Running it for other machines is
 [REMOTE.md](REMOTE.md); in a container, [DOCKER.md](DOCKER.md).
 
+The server gzips a response when the client sends `Accept-Encoding: gzip`
+and the body is at least 1 KB, except `/mcp` and what is already compressed
+or must stream (event streams, images, video, audio, zips, a `206` range).
+The body decodes to the same bytes. The web UI's `/assets/*` files carry
+content hashes and are cached as immutable for a year; `index.html` is
+`no-cache`, so a reload after an upgrade fetches the new build.
+
 ## The HTTP API
 
 Everything the web UI and the MCP server do goes through one HTTP API, and a
