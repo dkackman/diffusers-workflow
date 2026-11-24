@@ -59,9 +59,36 @@ async function wireBytes(responses: Response[]): Promise<number> {
 const paths = (responses: Response[]) =>
   responses.map((r) => new URL(r.url()).pathname)
 
+/** The JSON editor's own Monaco-family chunks, by unhashed name */
+const JSON_EDITOR_CHUNKS = [
+  'monaco',
+  'jsonMode',
+  'editor.worker',
+  'json.worker',
+]
+
+/** A hashed asset's path is `/assets/<chunk>-<hash>.<ext>`. Vite's hash may
+ * hold `-` and `_`, so a file is matched by its known chunk name as a prefix
+ * and never by stripping a hash off its tail */
+const isChunk = (path: string, chunk: string, ext: string) =>
+  path.startsWith(`/assets/${chunk}-`) &&
+  new RegExp(`^[\\w-]+\\.${ext}$`).test(path.slice(`/assets/${chunk}-`.length))
+
 /** `names` has a file of this chunk's name (the hash varies per build) */
 const hasChunk = (names: string[], chunk: string, ext: string) =>
-  names.some((n) => new RegExp(`/assets/${chunk}-[^/]+\\.${ext}$`).test(n))
+  names.some((n) => isChunk(n, chunk, ext))
+
+test('chunk names are matched whatever characters the hash holds', () => {
+  for (const hash of ['Ab12Cd34', 'Ab-12_Cd', '-a-b-c-', '_x_']) {
+    expect(isChunk(`/assets/monaco-${hash}.js`, 'monaco', 'js')).toBe(true)
+    expect(
+      isChunk(`/assets/editor.worker-${hash}.js`, 'editor.worker', 'js'),
+    ).toBe(true)
+  }
+  expect(isChunk('/assets/monaco-x.css', 'monaco', 'js')).toBe(false)
+  expect(isChunk('/assets/tsMode-x.js', 'monaco', 'js')).toBe(false)
+  expect(isChunk('/assets/monaco-x/y.js', 'monaco', 'js')).toBe(false)
+})
 
 const kb = (bytes: number) => bytes / 1000
 
@@ -89,7 +116,7 @@ test('the entry bundle stays within budget', async ({ page }) => {
   ])
   const total = kb(await wireBytes(entry))
   console.log(`entry bundle: ${total.toFixed(1)} KB`)
-  expect(total, 'the entry bundle was counted').toBeGreaterThan(100)
+  expect(total, 'the entry bundle was counted').toBeGreaterThan(20)
   expect(total).toBeLessThanOrEqual(ENTRY_BUDGET_KB)
 })
 
@@ -108,10 +135,12 @@ test('a first load of the Overview stays within budget', async ({ page }) => {
   ).toBe(true)
   const total = kb(await wireBytes(seen))
   console.log(`overview first load: ${total.toFixed(1)} KB`)
-  // the entry bundle alone is ~280 KB; the API reads ride on top of it, whose
-  // size follows the fixture's contents (earlier specs may save into it), so
-  // the 15% margin under the budget covers that and no more
-  expect(total, 'the first load was counted').toBeGreaterThan(280)
+  // The API reads ride on top of the entry bundle, whose size follows the
+  // fixture's contents (earlier specs may save into it), so the 15% margin
+  // under the budget covers that and no more. The floor only proves the
+  // measurement saw response bodies (the by-name checks above prove it saw the
+  // right files); it stays far below today's size so a smaller bundle passes
+  expect(total, 'the first load was counted').toBeGreaterThan(50)
   expect(total).toBeLessThanOrEqual(FIRST_LOAD_BUDGET_KB)
 })
 
@@ -154,26 +183,28 @@ test('the JSON view stays within budget and loads only the JSON language', async
     )
   }
   expect(names, 'the schema was counted').toContain('/api/schema')
-  // Vite emits no manifest here, and a chunk's hash changes per build, so the
-  // check is on the unhashed name: every Monaco-family file (a language mode,
-  // a worker, the typescript service) the page fetched must be one of the
-  // JSON editor's own. Another language's mode or worker, whatever its hash,
-  // is a regression
-  const allowed = new Set([
-    'monaco',
-    'jsonMode',
-    'editor.worker',
-    'json.worker',
-  ])
-  const family = names
-    .filter((n) => n.startsWith('/assets/'))
-    .map((n) => n.slice('/assets/'.length).replace(/-[^-/.]+(\.[a-z]+)$/, ''))
-    .map((n) => n.replace(/\.(js|css|ttf)$/, ''))
-    .filter((n) => /mode|worker|typescript|tsserver|lib\./i.test(n))
-  expect(family.filter((n) => !allowed.has(n))).toEqual([])
+  // a chunk's hash changes per build, so a file is judged by its name: every
+  // Monaco-family file (a language mode, a worker, the typescript service)
+  // the page fetched must be one of the JSON editor's own. Another language's
+  // mode or worker, whatever its hash, is a regression
+  const family = names.filter(
+    (n) =>
+      n.startsWith('/assets/') &&
+      /mode|worker|typescript|tsserver|lib\./i.test(n.slice(8)),
+  )
+  expect(
+    family.filter(
+      (n) =>
+        !JSON_EDITOR_CHUNKS.some(
+          (c) => isChunk(n, c, 'js') || isChunk(n, c, 'css'),
+        ),
+    ),
+  ).toEqual([])
   const total = kb(await wireBytes(seen))
   console.log(`json view first open: ${total.toFixed(1)} KB`)
-  expect(total, 'the JSON view was counted').toBeGreaterThan(1000)
+  // a sanity floor, far below today's size: the by-name checks above prove
+  // the right files were seen, so a leaner editor still passes
+  expect(total, 'the JSON view was counted').toBeGreaterThan(300)
   expect(total).toBeLessThanOrEqual(JSON_VIEW_BUDGET_KB)
 })
 
