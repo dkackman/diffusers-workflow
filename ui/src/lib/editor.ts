@@ -46,6 +46,17 @@ export function widgetFor(
   return 'text'
 }
 
+/** Typed text as a boolean when it says true or false, in any case. Any
+ * other text stays text, so the engine judges its spelling (dw/variables.py
+ * takes yes/no/1/0/on/off and refuses the rest) rather than it silently
+ * becoming false */
+export function booleanOf(raw: string): boolean | string {
+  const word = raw.trim().toLowerCase()
+  if (word === 'true') return true
+  if (word === 'false') return false
+  return raw
+}
+
 /** Turn what the input produced back into the JSON value the engine expects.
  * Reference strings and unparseable numbers stay strings - the engine
  * substitutes variables after schema validation. */
@@ -54,7 +65,7 @@ export function coerce(widget: Widget, raw: string): unknown {
     const parsed = Number(raw)
     if (!Number.isNaN(parsed)) return parsed
   }
-  if (widget === 'boolean') return raw === 'true'
+  if (widget === 'boolean') return booleanOf(raw)
   if (widget === 'json') {
     try {
       return JSON.parse(raw)

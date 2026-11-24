@@ -1,7 +1,9 @@
 // The check beside Run: validate on load and after each pause in the
 // editing, with `sizes=false` so typing never asks the hub; once the form
 // has sat idle a while, one more check with sizes fills in download GB.
-// It only informs - Run stays enabled, and the server stays the gate.
+// A refused check turns Run into Fix N issues (verdictOf); any other
+// verdict, or a check still in flight, leaves Run as it is, and the
+// server stays the gate.
 import type { PlacedFindings } from './findings'
 import type { ValidationResult } from './types'
 

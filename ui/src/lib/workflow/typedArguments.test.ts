@@ -22,3 +22,17 @@ it('a reference stays text', () => {
 it('a blank is dropped', () => {
   expect(typedArguments({ a: '', b: '  ', c: '1' }, { c: 0 })).toEqual({ c: 1 })
 })
+
+it('a boolean field typed yes is sent as text, not false', () => {
+  const declared = { keep: false, snap: true, look: false, typo: true }
+  expect(
+    typedArguments(
+      { keep: 'yes', snap: 'True', look: 'FALSE', typo: 'ture' },
+      declared,
+    ),
+  ).toEqual({ keep: 'yes', snap: true, look: false, typo: 'ture' })
+  // A reference fed to a boolean stays the reference
+  expect(typedArguments({ keep: 'asset:on.txt' }, declared)).toEqual({
+    keep: 'asset:on.txt',
+  })
+})

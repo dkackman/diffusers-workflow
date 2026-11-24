@@ -65,8 +65,15 @@ describe('types', () => {
     expect(asType('variable:n', 'number')).toBe('variable:n')
     expect(asType('x', 'number')).toBe('x')
     expect(asType('true', 'boolean')).toBe(true)
+    expect(asType('False', 'boolean')).toBe(false)
     expect(asType('{"a":1}', 'json')).toEqual({ a: 1 })
     expect(asType('30', 'text')).toBe('30')
     expect(asType('anything', 'none')).toBeNull()
+  })
+
+  it('a boolean row keeps text that is not true or false as text', () => {
+    expect(asType('yes', 'boolean')).toBe('yes')
+    expect(asType('1', 'boolean')).toBe('1')
+    expect(asType('ture', 'boolean')).toBe('ture')
   })
 })

@@ -1,3 +1,4 @@
+import { booleanOf } from '../editor'
 import { VARIABLE_NAME_CHARACTERS, isReference } from '../references'
 
 export type VariableType = 'text' | 'number' | 'boolean' | 'json' | 'none'
@@ -63,10 +64,11 @@ export function inferValue(raw: string): unknown {
 }
 
 /** The typed text as a value of `type`; text that does not fit the type
- * (a reference, a half-typed number) stays text rather than being lost. */
+ * (a reference, a half-typed number, a boolean that is not true or false)
+ * stays text rather than being lost, and the row's type shows it. */
 export function asType(raw: string, type: VariableType): unknown {
   if (type === 'none') return null
-  if (type === 'boolean') return raw === 'true'
+  if (type === 'boolean') return booleanOf(raw)
   if (type === 'number')
     return isReference(raw) ? raw : (finiteNumber(raw) ?? raw)
   if (type === 'json') return parsed(raw)
