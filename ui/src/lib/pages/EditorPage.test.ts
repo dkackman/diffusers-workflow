@@ -267,7 +267,10 @@ describe('EditorPage validation plan', () => {
     await fireEvent.input(id(), { target: { value: 'Mi' } })
     await fireEvent.input(id(), { target: { value: 'Mine' } })
     expect(api.validate).toHaveBeenCalledTimes(1)
-    await waitFor(() => expect(api.validate).toHaveBeenCalledTimes(2))
+    // the debounce is real time: wait well past it, not up to waitFor's 1 s
+    await waitFor(() => expect(api.validate).toHaveBeenCalledTimes(2), {
+      timeout: 5000,
+    })
     expect(vi.mocked(api.validate).mock.calls[1][0]).toMatchObject({
       workflow: { id: 'Mine' },
       sizes: false,
@@ -289,7 +292,18 @@ describe('EditorPage validation plan', () => {
       writable: true,
       etag: '"e1"',
     })
-    await waitFor(() => expect(api.validate).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(api.validate).toHaveBeenCalledTimes(1), {
+      timeout: 5000,
+    })
+  })
+
+  it('a live check that fails says so', async () => {
+    vi.mocked(api.validate).mockRejectedValueOnce(new Error('server down'))
+    render(EditorPage, { name: 'models/z-image' })
+    await waitFor(() =>
+      expect(screen.getByText("Couldn't check this workflow.")).toBeTruthy(),
+    )
+    expect(screen.getByRole('alert')).toBeTruthy()
   })
 
   /** An opened workflow whose check names a step and a variable */
@@ -331,6 +345,10 @@ describe('EditorPage validation plan', () => {
       await waitFor(() => expect(scroll.mock.contexts).toContain(row))
       const full = within(row).getByRole('button', { name: 'full' })
       expect(full.getAttribute('aria-pressed')).toBe('true')
+      // keyboard focus lands in the step, not left on the Go to button
+      await waitFor(() =>
+        expect(row.contains(document.activeElement)).toBe(true),
+      )
     } finally {
       delete (Element.prototype as Partial<Element>).scrollIntoView
     }

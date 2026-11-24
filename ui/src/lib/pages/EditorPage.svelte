@@ -280,13 +280,14 @@
     if (!(await saving.run(path))) return
     // The file is written: what follows only brings the page up to it
     try {
-      // A folder this save created must be in the picker at once, or the
-      // select falls back to "(root)" while the state still names it
-      if (catalog.data) catalog.adopt(withSaved(catalog.data, path))
-      // The URL names the file now on screen: a first save, or a save as
+      // The URL names the file now on screen: a first save, or a save as.
+      // It goes first so a failure after it leaves page and URL agreeing
       opened = `${workspace.current}:${path}`
       if (path !== name)
         renameRoute(wsHref(workspace.current, 'edit', ...path.split('/')))
+      // A folder this save created must be in the picker at once, or the
+      // select falls back to "(root)" while the state still names it
+      if (catalog.data) catalog.adopt(withSaved(catalog.data, path))
     } catch (e) {
       notify.failure('update the editor after saving', e)
     }
@@ -393,9 +394,10 @@
       {/snippet}
     </DocumentFileBar>
 
-    {#if check.validation}
+    {#if check.validation || check.error}
       <ValidationPanel
         validation={check.validation}
+        error={check.error}
         doc={ed.doc}
         onjump={jumps.goTo}
         ondismiss={() => (check.validation = null)}

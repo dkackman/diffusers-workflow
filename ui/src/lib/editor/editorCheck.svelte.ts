@@ -75,6 +75,14 @@ export class EditorJumps {
     if (place.kind === 'step') {
       this.#modes.set(this.#ed.doc.steps[place.index], 'full')
       this.showStep(place.name)
+      // Focus goes where the finding is: the step's name field, once the
+      // list has drawn it open
+      requestAnimationFrame(() => {
+        document
+          .getElementById('step-' + place.name)
+          ?.querySelector<HTMLElement>('input.name')
+          ?.focus({ preventScroll: true })
+      })
       return
     }
     this.#ed.setView('form')

@@ -5,32 +5,40 @@
   import { verdictOf } from '../runCheck.svelte'
   import type { ValidationResult } from '../types'
   import PlanLines from '../workflow/PlanLines.svelte'
+  import ErrorLine from '../ui/ErrorLine.svelte'
 
   // The verdict on the definition as it stands, and under it, whenever the
   // server sent a plan, what a run will do. The reader is the author, so
   // every warning stays visible: nothing is split off for one. An error
   // that names a step or variable `doc` still has offers to go to it
+  // A check that failed outright has no answer: `error` says so instead
   let {
     validation,
+    error = null,
     doc,
     ondismiss,
     onjump,
   }: {
-    validation: ValidationResult
+    validation: ValidationResult | null
+    error?: unknown
     doc: Record<string, any>
     ondismiss: () => void
     onjump: (place: Place) => void
   } = $props()
 
-  const placed = $derived(placeFindings(validation, []))
-  const verdict = $derived(verdictOf(validation, null, placed))
+  const placed = $derived(
+    validation
+      ? placeFindings(validation, [])
+      : { general: [], author: [], byVariable: {} },
+  )
+  const verdict = $derived(verdictOf(validation, error, placed))
 </script>
 
 <div
   class="panel validation"
-  class:error-edge={!validation.valid}
-  class:warn-edge={validation.valid && validation.warnings.length > 0}
-  class:good-edge={validation.valid && validation.warnings.length === 0}
+  class:error-edge={!validation || !validation.valid}
+  class:warn-edge={validation?.valid && validation.warnings.length > 0}
+  class:good-edge={validation?.valid && validation.warnings.length === 0}
 >
   <button
     class="quiet icon dismiss"
@@ -47,6 +55,7 @@
       {#if verdict.remedy}<span class="muted">{verdict.remedy}</span>{/if}
     </div>
   {/if}
+  {#if error !== null && error !== undefined}<ErrorLine {error} />{/if}
   {#each placed.general as finding, i (i)}
     {@const place = findingPlace(finding.path ?? null, doc)}
     <div class="error">
@@ -62,7 +71,7 @@
   {#each placed.author as finding, i (i)}
     <div class="warn"><TriangleAlert size={14} /> {finding.text}</div>
   {/each}
-  {#if validation.plan}
+  {#if validation?.plan}
     <!-- What a run of this definition, with these defaults, will do -
          the figure to expect before pressing Run, and the weights it
          would pull first, which the cost block never counts. Shown whenever
