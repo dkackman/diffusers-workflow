@@ -24,21 +24,44 @@ function recordResponses(page: Page): Response[] {
   return seen
 }
 
-/** Encoded body bytes of `responses`, once the browser has all of them. A
- * worker's script is fetched from the worker, where the browser reports no
- * size: its decoded body is gzipped at the server's level (6) instead */
+/** Encoded body bytes of `responses`, once the browser has all of them.
+ * Where the browser reports a size it is used as is. A worker's script is
+ * fetched from the worker, where it reports none: that body is then gzipped
+ * at the server's level (6) - but only after the response is shown to have
+ * been served gzip (a body of 1 KB or more, as the server's threshold), so a
+ * server that stopped compressing fails here instead of being priced as if
+ * it had not. A body under 1 KB is never compressed and counts as is. */
 async function wireBytes(responses: Response[]): Promise<number> {
   let total = 0
   for (const response of responses) {
     const sizes = await response.request().sizes()
-    total +=
-      sizes.responseBodySize ||
-      (response.status() === 200
-        ? gzipSync(await response.body(), { level: 6 }).length
-        : 0)
+    if (sizes.responseBodySize) {
+      total += sizes.responseBodySize
+      continue
+    }
+    if (response.status() !== 200) continue
+    const body = await response.body()
+    if (body.length < 1000) {
+      total += body.length
+      continue
+    }
+    expect(
+      response.headers()['content-encoding'],
+      `${response.url()} (no transfer size reported) was served compressed`,
+    ).toBe('gzip')
+    total += gzipSync(body, { level: 6 }).length
   }
   return total
 }
+
+/** The path of every response, for the floors: a budget that counted nothing
+ * (or missed the files it is about) must fail, not pass */
+const paths = (responses: Response[]) =>
+  responses.map((r) => new URL(r.url()).pathname)
+
+/** `names` has a file of this chunk's name (the hash varies per build) */
+const hasChunk = (names: string[], chunk: string, ext: string) =>
+  names.some((n) => new RegExp(`/assets/${chunk}-[^/]+\\.${ext}$`).test(n))
 
 const kb = (bytes: number) => bytes / 1000
 
@@ -66,6 +89,7 @@ test('the entry bundle stays within budget', async ({ page }) => {
   ])
   const total = kb(await wireBytes(entry))
   console.log(`entry bundle: ${total.toFixed(1)} KB`)
+  expect(total, 'the entry bundle was counted').toBeGreaterThan(100)
   expect(total).toBeLessThanOrEqual(ENTRY_BUDGET_KB)
 })
 
@@ -73,8 +97,21 @@ test('a first load of the Overview stays within budget', async ({ page }) => {
   const seen = recordResponses(page)
   await page.goto(OVERVIEW)
   await page.waitForLoadState('networkidle')
+  const names = paths(seen)
+  expect(hasChunk(names, 'index', 'js'), 'the entry JS was counted').toBe(true)
+  expect(hasChunk(names, 'index', 'css'), 'the entry CSS was counted').toBe(
+    true,
+  )
+  expect(
+    names.some((n) => /^\/api\/workflows(\/?|\?.*)$/.test(n)),
+    `the Overview's workflows read was counted (${names.join(', ')})`,
+  ).toBe(true)
   const total = kb(await wireBytes(seen))
   console.log(`overview first load: ${total.toFixed(1)} KB`)
+  // the entry bundle alone is ~280 KB; the API reads ride on top of it, whose
+  // size follows the fixture's contents (earlier specs may save into it), so
+  // the 15% margin under the budget covers that and no more
+  expect(total, 'the first load was counted').toBeGreaterThan(280)
   expect(total).toBeLessThanOrEqual(FIRST_LOAD_BUDGET_KB)
 })
 
@@ -102,22 +139,41 @@ test('the JSON view stays within budget and loads only the JSON language', async
   })
   await page.evaluate(() => document.fonts.load('16px codicon'))
   await page.waitForLoadState('networkidle')
-  const names = seen.map((r) => new URL(r.url()).pathname)
-  for (const other of [
-    'ts.worker',
-    'css.worker',
-    'html.worker',
-    'typescript',
-    'cssMode',
-    'htmlMode',
+  const names = paths(seen)
+  // what this open must have loaded, by chunk name
+  for (const [chunk, ext] of [
+    ['monaco', 'js'],
+    ['monaco', 'css'],
+    ['jsonMode', 'js'],
+    ['editor.worker', 'js'],
+    ['json.worker', 'js'],
+    ['codicon', 'ttf'],
   ]) {
-    expect(
-      names.filter((n) => n.includes(other)),
-      other,
-    ).toEqual([])
+    expect(hasChunk(names, chunk, ext), `${chunk}.${ext} was counted`).toBe(
+      true,
+    )
   }
+  expect(names, 'the schema was counted').toContain('/api/schema')
+  // Vite emits no manifest here, and a chunk's hash changes per build, so the
+  // check is on the unhashed name: every Monaco-family file (a language mode,
+  // a worker, the typescript service) the page fetched must be one of the
+  // JSON editor's own. Another language's mode or worker, whatever its hash,
+  // is a regression
+  const allowed = new Set([
+    'monaco',
+    'jsonMode',
+    'editor.worker',
+    'json.worker',
+  ])
+  const family = names
+    .filter((n) => n.startsWith('/assets/'))
+    .map((n) => n.slice('/assets/'.length).replace(/-[^-/.]+(\.[a-z]+)$/, ''))
+    .map((n) => n.replace(/\.(js|css|ttf)$/, ''))
+    .filter((n) => /mode|worker|typescript|tsserver|lib\./i.test(n))
+  expect(family.filter((n) => !allowed.has(n))).toEqual([])
   const total = kb(await wireBytes(seen))
   console.log(`json view first open: ${total.toFixed(1)} KB`)
+  expect(total, 'the JSON view was counted').toBeGreaterThan(1000)
   expect(total).toBeLessThanOrEqual(JSON_VIEW_BUDGET_KB)
 })
 
