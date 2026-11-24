@@ -62,8 +62,7 @@ vi.mock('../api', async () => ({
         ...(opts?.prompts ? { prompts: data.prompts } : {}),
       })
     },
-    gallery: () =>
-      Promise.resolve({ workspace: 'default', files: data.files }),
+    gallery: () => Promise.resolve({ workspace: 'default', files: data.files }),
     getJob: (id: string) => Promise.resolve({ progress: data.progress[id] }),
     // The request picker's list, in whichever workspace it is asked for
     listRequests: (ws: string) =>
@@ -197,7 +196,9 @@ it('rows and the name filter use the file name', async () => {
   await waitFor(() => expect(screen.getByText('e2e-card')).toBeTruthy())
   expect(screen.queryByText('E2ECard')).toBeNull()
   expect(screen.getByText('other')).toBeTruthy()
-  const input = screen.getByPlaceholderText('search names, prompts, notes and ids…')
+  const input = screen.getByPlaceholderText(
+    'search names, prompts, notes and ids…',
+  )
   await fireEvent.input(input, { target: { value: 'e2e-c' } })
   expect(screen.getByText('e2e-card')).toBeTruthy()
   expect(screen.queryByText('other')).toBeNull()
@@ -222,7 +223,9 @@ it('reads its filters from the link and writes them back to it', async () => {
   render(JobsPage)
   await waitFor(() => expect(screen.getByText('broke')).toBeTruthy())
   expect(screen.queryByText('fine')).toBeNull()
-  const input = screen.getByPlaceholderText('search names, prompts, notes and ids…')
+  const input = screen.getByPlaceholderText(
+    'search names, prompts, notes and ids…',
+  )
   await fireEvent.input(input, { target: { value: 'zzz' } })
   expect(location.hash).toBe('#/ws/default/jobs?status=failed&q=zzz')
   await fireEvent.click(screen.getByRole('button', { name: 'Clear filters' }))

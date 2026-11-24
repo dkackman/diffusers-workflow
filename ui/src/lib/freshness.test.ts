@@ -60,7 +60,10 @@ const PAGE_TABLE: Record<string, Freshness[]> = {
   'pages/EditorPage.svelte': [{ watch: ['workflows'] }],
   'pages/GalleryPage.svelte': [{ watch: ['gallery'] }, { watch: ['gallery'] }],
   'pages/JobPage.svelte': [{ watch: ['jobs'] }],
-  'pages/JobsPage.svelte': [{ live: { everyMs: 3000 } }, { watch: ['gallery'] }],
+  'pages/JobsPage.svelte': [
+    { live: { everyMs: 3000 } },
+    { watch: ['gallery'] },
+  ],
   'pages/JsonEditorStub.svelte': [],
   'pages/NotFoundPage.svelte': [],
   'pages/ModelsPage.svelte': [

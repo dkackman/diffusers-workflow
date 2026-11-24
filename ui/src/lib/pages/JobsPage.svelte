@@ -1,5 +1,5 @@
 <script lang="ts">
-      import { proofByRun } from '../proofs'
+  import { proofByRun } from '../proofs'
   import JobRow from '../job/JobRow.svelte'
   import { resource } from '../resource.svelte'
   import LoadState from '../ui/LoadState.svelte'
@@ -165,7 +165,6 @@
     event.preventDefault()
     void moving.run(id, way)
   }
-
 </script>
 
 {#snippet filters()}

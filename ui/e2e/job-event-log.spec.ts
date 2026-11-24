@@ -295,11 +295,12 @@ test("a running job's log shows every row and grows on Refresh", async ({
   // The newest row is in view, not below the box's fold
   await expect(rows.last()).toContainText('pipeline_step')
   expect(await inBox(rows.last())).toBe(true)
-  // A memory reading takes one line like any other row
+  // A row for an event with no sentence of its own is its name and the
+  // Event data disclosure: two lines at most, never a tall block
   const heights = await rows.evaluateAll((trs) =>
     trs.map((tr) => tr.getBoundingClientRect().height),
   )
-  expect(Math.max(...heights)).toBeLessThan(Math.min(...heights) * 1.5)
+  expect(Math.max(...heights)).toBeLessThan(Math.min(...heights) * 2)
 
   served.push(step(13), step(14))
   await section.getByRole('button', { name: 'Refresh event log' }).click()

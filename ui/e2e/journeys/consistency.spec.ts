@@ -13,7 +13,8 @@ const STILLS = [
   'e2e-run-group/20260906-101612-ffffffff/still.png',
   'e2e-run-group/20260906-101500-a1b2c3d4/still.png',
 ]
-// The height a narrowed, starred gallery scrolls in: its six run files
+// The height a narrowed, starred gallery scrolls in: its ten run files (the
+// fixture's six and the four of e2e-find, all of which `e2e` finds)
 // stand taller than this viewport
 const SHORT = { width: 1000, height: 500 }
 
@@ -47,7 +48,7 @@ async function narrowAndScroll(page: Page, by = 400): Promise<number> {
   await page.getByRole('button', { name: 'Starred', exact: true }).click()
   await expect(page).toHaveURL(/q=e2e/)
   await expect(page).toHaveURL(/starred=1/)
-  await expect(page.locator('button.filetile')).toHaveCount(6)
+  await expect(page.locator('button.filetile')).toHaveCount(10)
   await page.mouse.move(600, 300)
   await page.mouse.wheel(0, by)
   await expect.poll(() => scrollY(page)).toBeGreaterThan(by - 50)

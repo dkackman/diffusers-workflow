@@ -24,7 +24,10 @@ import json
 import shutil
 import sqlite3
 import sys
+import struct
 import tempfile
+import wave
+import zlib
 from datetime import datetime, timedelta, timezone
 
 root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -62,6 +65,49 @@ for run_id in ("20260906-101500-a1b2c3d4", "20260906-101612-ffffffff"):
     os.makedirs(run_dir)
     with open(os.path.join(run_dir, "still.png"), "wb") as handle:
         handle.write(ONE_PIXEL_PNG)
+
+# The media the find-and-reuse journey looks for, in one run: a tall PNG whose
+# `parameters` tEXt chunk (before IDAT, as the engine's embed_metadata writes
+# it) holds the recipe, a small PNG with none, two seconds of silence and a
+# three-line note. Written with the standard library, as the fixture runs
+# before the server and imports no imaging stack.
+FIND_RUN = "20260910-120000-0f1d0f1d"
+
+
+def png_chunk(kind, data):
+    body = kind + data
+    return struct.pack(">I", len(data)) + body + struct.pack(">I", zlib.crc32(body))
+
+
+def solid_png(width, height, rgb, text=None):
+    header = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    rows = (b"\x00" + bytes(rgb) * width) * height
+    chunks = [png_chunk(b"IHDR", header)]
+    if text is not None:
+        chunks.append(png_chunk(b"tEXt", b"parameters\x00" + text.encode("latin-1")))
+    chunks += [png_chunk(b"IDAT", zlib.compress(rows)), png_chunk(b"IEND", b"")]
+    return b"\x89PNG\r\n\x1a\n" + b"".join(chunks)
+
+
+find_dir = os.path.join(outputs, "e2e-find", FIND_RUN)
+os.makedirs(find_dir)
+recipe = {
+    "prompt": "a lighthouse at dusk",
+    "seed": 4242,
+    "model_name": "e2e/tiny",
+    "arguments": {"prompt": "a lighthouse at dusk", "seed": 4242, "steps": 12},
+}
+with open(os.path.join(find_dir, "lighthouse.png"), "wb") as handle:
+    handle.write(solid_png(400, 1600, (40, 90, 160), json.dumps(recipe)))
+with open(os.path.join(find_dir, "harbour.png"), "wb") as handle:
+    handle.write(solid_png(64, 64, (160, 120, 40)))
+with wave.open(os.path.join(find_dir, "hum.wav"), "wb") as hum:
+    hum.setnchannels(1)
+    hum.setsampwidth(2)
+    hum.setframerate(8000)
+    hum.writeframes(b"\x00\x00" * 8000 * 2)
+with open(os.path.join(find_dir, "notes.txt"), "w") as handle:
+    handle.write("Keeper's log, first night\nthe lamp is lit\nnothing on the water\n")
 
 helper = os.path.join(scratch, "helper")
 os.environ["DIFFUSERS_HELPER_ROOT"] = helper
@@ -109,6 +155,39 @@ with sqlite3.connect(history_db) as connection:
                 "e2e-dead-server",
             ),
         )
+
+# The job that made them: a history row the job page and the viewer's recipe
+# read, its manifest naming the pictures as the step's results.
+find_started = 1767484810.0
+with sqlite3.connect(history_db) as connection:
+    connection.execute(
+        "INSERT INTO jobs (id, workflow, status, created_at, started_at,"
+        " finished_at, arguments, spec, manifest, error, events, workspace,"
+        " run_id, run_dir)"
+        " VALUES ('e2efind00001', 'text-to-image', 'succeeded', ?, ?, ?, ?, ?, ?,"
+        " NULL, '[]', 'default', ?, ?)",
+        (
+            find_started - 10,
+            find_started,
+            find_started + 60,
+            json.dumps({"prompt": "a lighthouse at dusk"}),
+            json.dumps({"workflow_path": template, "workspace": "default"}),
+            json.dumps(
+                [
+                    {
+                        "step": "image",
+                        "files": [
+                            f"e2e-find/{FIND_RUN}/{name}"
+                            for name in ("lighthouse.png", "harbour.png")
+                        ],
+                        "role": "final",
+                    }
+                ]
+            ),
+            FIND_RUN,
+            f"e2e-find/{FIND_RUN}",
+        ),
+    )
 
 # One request in the default workspace's ledger (requests.json at the
 # workspace root), for the Requests pages: a done item with two succeeded

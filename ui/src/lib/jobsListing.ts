@@ -79,7 +79,10 @@ export async function listWithPrompts(
 
 /** The first non-empty line of a prompt or note, trimmed */
 export const firstLine = (text: string) =>
-  text.split('\n').find((line) => line.trim())?.trim() ?? ''
+  text
+    .split('\n')
+    .find((line) => line.trim())
+    ?.trim() ?? ''
 
 /** Whether every word of `query` is in the job's name, id, note or prompt */
 export function jobMatches(
