@@ -22,12 +22,13 @@ describe('ArgumentsEditor media arguments', () => {
       componentType: '',
     })
 
-    expect(
-      screen.getByRole('button', { name: /browse for a local image file/i }),
-    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Upload…' })).toHaveAttribute(
+      'title',
+      'Upload an image from this computer, or drop one here',
+    )
     // the location itself is still a plain, directly-editable text input
     expect(
-      screen.getByPlaceholderText('asset:name, image path or URL'),
+      screen.getByPlaceholderText('type, drop or choose an image'),
     ).toHaveValue('photo.png')
   })
 
@@ -38,13 +39,13 @@ describe('ArgumentsEditor media arguments', () => {
     })
 
     expect(
-      screen.queryByRole('button', { name: /browse for a local/i }),
+      screen.queryByRole('button', { name: 'Upload…' }),
     ).not.toBeInTheDocument()
     const input = screen.getByDisplayValue('a scenic landscape')
     expect(input.tagName).toBe('INPUT')
     expect(input).not.toHaveAttribute(
       'placeholder',
-      'asset:name, image path or URL',
+      'type, drop or choose an image',
     )
   })
 
@@ -59,10 +60,8 @@ describe('ArgumentsEditor media arguments', () => {
     const args: Record<string, unknown> = { image: '' }
     render(ArgumentsEditor, { args, componentType: '' })
 
-    const browseButton = screen.getByRole('button', {
-      name: /browse for a local image file/i,
-    })
-    const container = browseButton.closest('.media') as HTMLElement
+    const uploadButton = screen.getByRole('button', { name: 'Upload…' })
+    const container = uploadButton.closest('.reference') as HTMLElement
 
     const hiddenFileInput = container.querySelector(
       'input[type="file"]',

@@ -3,7 +3,7 @@
   import { PROMPT, reference } from '../references'
   import { Plus, Trash2 } from '@lucide/svelte'
   import ExpandingText from './ExpandingText.svelte'
-  import MediaArgumentInput from './MediaArgumentInput.svelte'
+  import ReferenceField from '../ui/ReferenceField.svelte'
   import {
     classDescription,
     coerce,
@@ -111,9 +111,9 @@
       </label>
       <div class="field">
         {#if mediaKind}
-          <MediaArgumentInput
+          <ReferenceField
             id={`${uid}-${key}`}
-            location={mediaLocation(args[key])}
+            value={mediaLocation(args[key])}
             kind={mediaKind}
             onchange={(location) => {
               args[key] = withMediaLocation(args[key], location)
