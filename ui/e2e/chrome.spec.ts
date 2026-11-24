@@ -35,7 +35,7 @@ test('? opens the shortcuts overlay; Escape closes it; typing ? in a field does 
   await page.keyboard.press('Escape')
   await expect(dialog).toHaveCount(0)
   // inside a text field the character types instead
-  const filter = page.getByPlaceholder('filter…')
+  const filter = page.getByPlaceholder('search workflows…')
   await filter.click()
   await filter.press('?')
   await expect(dialog).toHaveCount(0)
