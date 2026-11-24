@@ -8,6 +8,7 @@ import {
 } from '@testing-library/svelte'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import OverviewPage from './OverviewPage.svelte'
+import { firstRunSession } from '../firstRun'
 import { formatMtime } from '../format'
 import { feed } from '../test/feedMock'
 import { invalidateWorkspaces, workspace } from '../workspace.svelte'
@@ -103,6 +104,7 @@ vi.mock('../confirm.svelte', () => ({
 vi.mock('../toast', () => ({ notify: { error: vi.fn(), success: vi.fn() } }))
 
 beforeEach(async () => {
+  firstRunSession.dismissed = false
   for (const k of Object.keys(calls)) delete calls[k]
   data.files = []
   data.galleryWorkspace = 'studio'
@@ -657,7 +659,7 @@ it('the overview shows the card until it is dismissed', async () => {
     ) & Node.DOCUMENT_POSITION_FOLLOWING,
   ).toBeTruthy()
   await fireEvent.click(
-    screen.getByRole('button', { name: 'Dismiss this introduction' }),
+    screen.getByRole('button', { name: 'Got it, dismiss this introduction' }),
   )
   expect(screen.queryByText('New here? Make your first picture')).toBeNull()
 })

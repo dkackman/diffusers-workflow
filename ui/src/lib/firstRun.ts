@@ -1,10 +1,28 @@
 import { sharedHref, wsHref } from './routes'
+import { storageGet, storageSet } from './storage'
 import type { WorkflowList } from './types'
 
 /** The workflow the first-run card sends a newcomer to: small, ungated. */
 export const FIRST_RUN_WORKFLOW = 'templates/text-to-image'
 /** The storage key (see storage.ts) that remembers the card was dismissed. */
 export const FIRST_RUN_KEY = 'first-run-dismissed'
+
+/** This session's dismissal, kept beside storage: storage that throws (a
+ * private window, blocked site data) cannot remember "Got it", and the
+ * Overview remounts the card on every visit, so component state alone would
+ * last one visit. */
+export const firstRunSession = { dismissed: false }
+
+/** Whether "Got it" was pressed: in this browser, or in this session. */
+export function firstRunDismissed(): boolean {
+  return firstRunSession.dismissed || storageGet(FIRST_RUN_KEY, false)
+}
+
+/** Remember "Got it" for the session, and in this browser where it can. */
+export function dismissFirstRun(): void {
+  firstRunSession.dismissed = true
+  storageSet(FIRST_RUN_KEY, true)
+}
 
 export type FirstRunLink = {
   href: string

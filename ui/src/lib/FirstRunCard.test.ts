@@ -7,7 +7,7 @@ import {
 } from '@testing-library/svelte'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import FirstRunCard from './FirstRunCard.svelte'
-import { FIRST_RUN_KEY } from './firstRun'
+import { FIRST_RUN_KEY, firstRunSession } from './firstRun'
 import { storageGet } from './storage'
 
 const link = {
@@ -16,7 +16,10 @@ const link = {
 }
 const TITLE = 'New here? Make your first picture'
 
-beforeEach(() => localStorage.clear())
+beforeEach(() => {
+  localStorage.clear()
+  firstRunSession.dismissed = false
+})
 afterEach(() => {
   cleanup()
   vi.restoreAllMocks()
@@ -47,7 +50,7 @@ it('the card says what dw is and how to start', () => {
 it('Got it hides it and remembers', async () => {
   render(FirstRunCard, { link })
   await fireEvent.click(
-    screen.getByRole('button', { name: 'Dismiss this introduction' }),
+    screen.getByRole('button', { name: 'Got it, dismiss this introduction' }),
   )
   expect(screen.queryByRole('region')).toBeNull()
   expect(storageGet(FIRST_RUN_KEY, false)).toBe(true)
@@ -63,9 +66,19 @@ it('a dismissal that cannot be stored lasts the session', async () => {
   render(FirstRunCard, { link })
   expect(screen.getByRole('region', { name: TITLE })).toBeTruthy()
   await fireEvent.click(
-    screen.getByRole('button', { name: 'Dismiss this introduction' }),
+    screen.getByRole('button', { name: 'Got it, dismiss this introduction' }),
   )
   expect(screen.queryByRole('region')).toBeNull()
+  // The Overview remounts the card on every visit: the next one stays hidden
+  cleanup()
+  render(FirstRunCard, { link })
+  expect(screen.queryByRole('region')).toBeNull()
+})
+
+it("Got it's accessible name starts with its visible text", () => {
+  render(FirstRunCard, { link })
+  const button = screen.getByRole('button', { name: /^Got it\b/ })
+  expect(button.textContent?.trim()).toBe('Got it')
 })
 
 it('a dismissed card stays hidden', () => {
@@ -81,7 +94,7 @@ it('Got it moves focus to the page heading, not the body', async () => {
   try {
     render(FirstRunCard, { link })
     const button = screen.getByRole('button', {
-      name: 'Dismiss this introduction',
+      name: 'Got it, dismiss this introduction',
     })
     button.focus()
     await fireEvent.click(button)

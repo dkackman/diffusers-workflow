@@ -56,7 +56,7 @@ test('a newcomer finds a workflow that runs, makes a workspace and switches to i
 
     // 3. Got it dismisses the card, for this browser: a reload keeps it gone
     await card
-      .getByRole('button', { name: 'Dismiss this introduction' })
+      .getByRole('button', { name: 'Got it, dismiss this introduction' })
       .click()
     await expect(card).toHaveCount(0)
     await page.reload()
