@@ -3,6 +3,8 @@
 // the end), never an index, so it still means the same thing after the
 // agent has added or removed items around it.
 
+import { listed, type ItemRef, type PlanState } from './itemState'
+
 export type Direction = 'up' | 'down' | 'top' | 'bottom'
 
 /** The keys the focused handle answers to */
@@ -92,3 +94,30 @@ export function dropIndex(
   return rows.filter((row, i) => i !== from && y > row.top + row.height / 2)
     .length
 }
+
+/** The items of `after` that `order` puts after `key`: a dependency the
+ * order does not hold (dropped, or gone) is not among them */
+export function laterIn(
+  order: readonly string[],
+  key: string,
+  after: readonly ItemRef[],
+): ItemRef[] {
+  const at = order.indexOf(key)
+  return after.filter((dep) => order.indexOf(dep.key) > at)
+}
+
+/** For each live item, the dependencies the plan puts after it: the order
+ * says one thing and the dependency another, and the dependency wins.
+ * Items with none are left out. */
+export function runsAfter(plan: PlanState): Record<string, ItemRef[]> {
+  const order = plan.live.map((row) => row.item.key)
+  const out: Record<string, ItemRef[]> = {}
+  for (const row of plan.live) {
+    const later = laterIn(order, row.item.key, row.after)
+    if (later.length) out[row.item.key] = later
+  }
+  return out
+}
+
+export const titlesOf = (deps: readonly ItemRef[]) =>
+  listed(deps.map((dep) => dep.title))

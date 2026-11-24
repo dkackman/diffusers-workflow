@@ -8,7 +8,7 @@ import {
 } from '@testing-library/svelte'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import NoteList from './NoteList.svelte'
-import { attempt, item, request } from './fixtures'
+import { attempt, entry, item, request } from './fixtures'
 import type { LedgerNote, LedgerNoteRef } from '../types'
 
 const api = vi.hoisted(() => ({
@@ -101,6 +101,15 @@ it('shows each note with its line and what it is about, under one label', () => 
   const gone = second.getByText('take 1')
   expect(gone.getAttribute('title')).toBe('no longer exists')
   expect(gone.closest('a')).toBeNull()
+})
+
+it('no notes, no heading', () => {
+  const { container } = render(NoteList, props({ notes: [] }))
+  expect(container.querySelector('.label')).toBeNull()
+  expect(screen.queryByText('Note for the agent')).toBeNull()
+  expect(
+    screen.getByRole('button', { name: 'Add a note for the agent' }),
+  ).toBeTruthy()
 })
 
 it('adds a note with the box’s references, then asks the page to read again', async () => {
@@ -236,7 +245,7 @@ it('edits and deletes a note through the note routes', async () => {
   const first = within(
     document.getElementById('request-note-n1') as HTMLElement,
   )
-  await fireEvent.click(first.getByRole('button', { name: 'Delete note' }))
+  await fireEvent.click(first.getByRole('button', { name: 'Clear note' }))
   await waitFor(() =>
     expect(api.deleteNote).toHaveBeenCalledWith('studio', 'r1', 'n1'),
   )
@@ -354,4 +363,130 @@ it('a seeded add merges refs and appends to a draft already there', async () => 
   await waitFor(() => expect(request().value).toBe('first\n\nsecond'))
   const about = screen.getByRole('list', { name: 'What the note is about' })
   expect(within(about).getAllByRole('listitem')).toHaveLength(2)
+})
+
+const held = (state: 'holding' | 'redirected' | 'due') => ({
+  review: { until: '2026-11-21T12:00:00+00:00', state, seconds_left: 60 },
+})
+const STOPS =
+  'Saving this note stops 1 item waiting for your OK from starting on their own.'
+
+it('the warning follows the latest read', async () => {
+  const given = props({
+    item: null,
+    about: 'this request',
+    notes: [],
+    request: request([item('s3', held('holding')), item('s5')]),
+  })
+  const view = render(NoteList, given as never)
+  await fireEvent.click(
+    screen.getByRole('button', { name: 'Add a note for the agent' }),
+  )
+  const area = () =>
+    screen.getByLabelText(
+      'Note for the agent on this request',
+    ) as HTMLTextAreaElement
+  await fireEvent.input(area(), { target: { value: 'warmer' } })
+  expect(screen.getByText(STOPS)).toBeTruthy()
+  // a read lands: the hold is redirected, and the draft is kept
+  await view.rerender({
+    ...given,
+    request: request([item('s3', held('redirected')), item('s5')]),
+  } as never)
+  expect(screen.queryByText(STOPS)).toBeNull()
+  expect(area().value).toBe('warmer')
+})
+
+it("an item's box counts only its own hold; the request's counts every hold", async () => {
+  const both = request([
+    item('s3', { title: 'Shot 3', ...held('holding') }),
+    item('s5', { title: 'Shot 5' }),
+    item('s7', { title: 'Shot 7', ...held('due') }),
+  ])
+  const open = async (about: string) => {
+    await fireEvent.click(
+      screen.getByRole('button', { name: 'Add a note for the agent' }),
+    )
+    await screen.findByLabelText(`Note for the agent on ${about}`)
+  }
+  // a held item: its note stops its own hold, not Shot 7's
+  render(NoteList, props({ notes: [], request: both }))
+  await open('Shot 3')
+  expect(screen.getByText(STOPS)).toBeTruthy()
+  cleanup()
+  // an unheld item: its note stops nothing
+  render(
+    NoteList,
+    props({ notes: [], request: both, item: 's5', about: 'Shot 5' }),
+  )
+  await open('Shot 5')
+  expect(screen.queryByText(/Saving this note stops/)).toBeNull()
+  cleanup()
+  // the request's note redirects every hold
+  render(
+    NoteList,
+    props({ notes: [], request: both, item: null, about: 'this request' }),
+  )
+  await open('this request')
+  expect(
+    screen.getByText(
+      'Saving this note stops 2 items waiting for your OK from starting on their own.',
+    ),
+  ).toBeTruthy()
+})
+
+it('a closed request keeps its notes and offers no box', () => {
+  render(NoteList, props({ request: req({}) }))
+  expect(
+    screen.getByRole('button', { name: 'Add a note for the agent' }),
+  ).toBeTruthy()
+  cleanup()
+  const closed = { ...req(), state: 'done' as const }
+  render(NoteList, props({ request: closed }))
+  expect(screen.getByText('warmer light')).toBeTruthy()
+  expect(screen.getByText('slower push-in')).toBeTruthy()
+  expect(
+    screen.queryByRole('button', { name: 'Add a note for the agent' }),
+  ).toBeNull()
+  expect(screen.queryByRole('button', { name: /^Edit/ })).toBeNull()
+})
+
+it('a second Save while one is out sends one write', async () => {
+  let landed!: (v: unknown) => void
+  api.addNote.mockReturnValue(new Promise((r) => (landed = r)))
+  const given = props()
+  render(NoteList, given)
+  await write('reroll this one')
+  await fireEvent.click(screen.getByRole('button', { name: 'Save note' }))
+  await fireEvent.keyDown(box(), { key: 'Enter', ctrlKey: true })
+  await fireEvent.keyDown(box(), { key: 'Enter', metaKey: true })
+  landed({ note: notes[0], revision: 4 })
+  await waitFor(() => expect(given.onchanged).toHaveBeenCalledTimes(1))
+  expect(api.addNote).toHaveBeenCalledTimes(1)
+})
+
+it('an answered note shows the answer the agent gave in its first write', () => {
+  const answered = {
+    ...req(),
+    history: [
+      entry(6, 'agent', 'retook shot 3 warmer'),
+      entry(8, 'agent', 'later still'),
+    ],
+  }
+  render(NoteList, props({ request: answered, notes: [notes[0]] }))
+  expect(
+    screen.getByText('The agent answered in r6: retook shot 3 warmer'),
+  ).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'Clear note' })).toBeTruthy()
+})
+
+it('a closed request shows the answer and offers no Clear note', () => {
+  const closed = {
+    ...req(),
+    state: 'done' as const,
+    history: [entry(6, 'agent', 'retook shot 3 warmer')],
+  }
+  render(NoteList, props({ request: closed, notes: [notes[0]] }))
+  expect(screen.getByText(/The agent answered in r6/)).toBeTruthy()
+  expect(screen.queryByRole('button', { name: 'Clear note' })).toBeNull()
 })

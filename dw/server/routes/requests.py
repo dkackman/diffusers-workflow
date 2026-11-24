@@ -35,19 +35,19 @@ from ..outputs import shown_outputs
 router = APIRouter(route_class=ChangeRoute)
 
 # --- the requests ledger (dw/ledger.py owns the model and its rules) ---
-# Every route is behind the bearer token like the rest of /api/*, and none
-# carries `query_token_ok`: nothing a browser loads without headers reads
-# the ledger. A default workspace with no root folder reads as holding no
-# requests, and a write is refused with 409 `no_workspace_root`.
-# `{request_id:path}`: the router decodes a percent-encoded '/', so an id
-# like `a/b` (or an empty one) must still match here and meet the ledger's
-# id rule (`validate_ledger_key`), not fall through to a bare 404/405.
+# Every route is behind the bearer token and none carries `query_token_ok`:
+# nothing a browser loads without headers reads the ledger. A default
+# workspace with no root folder holds no requests; a write is 409
+# `no_workspace_root`. `{request_id:path}`: an id like `a/b` (or an empty
+# one) must match here and meet `validate_ledger_key`, not be a bare 404/405.
 
 
-def _jobs_for(request, name):
-    """`rid -> the jobs linked to that request`, for the derived item state."""
+def _jobs_for(request, name, reasons=False):
+    """`rid -> its linked jobs`, each with its `reason` only if `reasons`."""
     manager = request.app.state.job_manager
-    return lambda rid: manager.request_jobs(name, rid)
+    return lambda rid: [
+        j if reasons else {**j, "reason": None} for j in manager.request_jobs(name, rid)
+    ]
 
 
 def _prompts(request):
@@ -67,15 +67,8 @@ def _linked_jobs_for(request, name):
         return [
             {
                 field: j.get(field)
-                for field in (
-                    "job",
-                    "status",
-                    "run_id",
-                    "created_at",
-                    "workflow",
-                    "arguments",
-                    "prompt_digests",
-                )
+                for field in ("job", "status", "run_id", "created_at", "workflow")
+                + ("arguments", "prompt_digests")
             }
             for j in jobs_for(rid)
             if j["item"] == key
@@ -85,9 +78,8 @@ def _linked_jobs_for(request, name):
 
 
 def _ledger_root(state, name):
-    """The workspace root whose requests.json a request names, or None for
-    a default workspace with no root folder. Raises 400/404/409 as
-    `workspace_for` does."""
+    """The root whose requests.json a request names, None for a default
+    workspace with no root. Raises 400/404/409 as `workspace_for` does."""
     if name == DEFAULT_WORKSPACE_NAME:
         return state.default_workspace.root or None
     selected = workspace_for(state, name)
@@ -104,15 +96,16 @@ def _ledger_root(state, name):
     response_model=LedgerList,
     response_model_exclude_unset=True,
 )
-def list_requests(request: Request, name: str):
-    """A workspace's requests, newest change first, without their items.
-    `unreadable` says why when requests.json is there but is not a ledger."""
+def list_requests(request: Request, name: str, needs: bool = False):
+    """A workspace's requests, newest change first, without their items;
+    `needs=true` adds each row's `needs`. `unreadable` says why when
+    requests.json is there but is not a ledger."""
     root = _ledger_root(request.app.state, name)
     if request.headers.get("X-DW-Notes-Channel") == "1":
         request.app.state.listening.seen(name)
     return {
         "workspace": name,
-        **ledger.listing(root, _jobs_for(request, name), _prompts(request)),
+        **ledger.listing(root, _jobs_for(request, name), _prompts(request), needs),
     }
 
 
@@ -122,11 +115,10 @@ def list_requests(request: Request, name: str):
     response_model_exclude_unset=True,
 )
 def list_open_requests(request: Request):
-    """Every workspace's open requests, without their items, newest change
-    first: the one read a notes channel makes when it watches the whole
-    server. Marked `X-DW-Notes-Channel: 1`, it counts as a poll of every
-    workspace. `unreadable` names a workspace whose requests.json is there
-    but is not a ledger, or that could not be resolved while it was listed;
+    """Every workspace's open requests, without items, newest change first:
+    the one read a notes channel makes to watch the whole server. Marked
+    `X-DW-Notes-Channel: 1`, it polls every workspace. `unreadable` names a
+    workspace whose requests.json is not a ledger or could not be resolved;
     the others still list, and a watcher keeps what it knew of the named
     ones rather than taking them for closed."""
     state = request.app.state
@@ -178,13 +170,14 @@ def notes_channel(request: Request, name: str):
     response_model=LedgerRequest,
     response_model_exclude_unset=True,
 )
-def get_request(request: Request, name: str, request_id: str):
-    """One request: its plan, every item with its derived status, and its
-    history. 409 `ledger_unreadable` when requests.json is not a ledger."""
+def get_request(request: Request, name: str, request_id: str, reasons: bool = False):
+    """One request: its plan, items with derived status, and its
+    history; `reasons=true` adds a failed take's `reason`. 409
+    `ledger_unreadable` when requests.json is no ledger."""
     root = _ledger_root(request.app.state, name)
     try:
         found = ledger.get_request(
-            root, request_id, _jobs_for(request, name), _prompts(request)
+            root, request_id, _jobs_for(request, name, reasons), _prompts(request)
         )
     except SecurityError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -203,12 +196,18 @@ def get_request(request: Request, name: str, request_id: str):
     response_model_exclude_unset=True,
 )
 @writes(REQUESTS)
-def put_request(request: Request, name: str, request_id: str, body: RequestWrite):
+def put_request(
+    request: Request,
+    name: str,
+    request_id: str,
+    body: RequestWrite,
+    reasons: bool = False,
+):
     """Write one request's whole plan. `revision` is the revision it was
-    read at, or 0 to create it; a write against any other revision is 409
-    `stale_revision`, with `current_revision` in the detail. `prompt` is
-    set on create only (a later change is 422 `prompt_is_write_once`). An
-    item left out is deleted, or kept as dropped when jobs link to it."""
+    read at, or 0 to create it; any other is 409 `stale_revision` with
+    `current_revision`. `prompt` is set on create only (422
+    `prompt_is_write_once`). An item left out is deleted, or kept as dropped
+    when jobs link to it. `reasons=true` adds a failed take's `reason`."""
     root = _ledger_root(request.app.state, name)
     payload = body.model_dump(exclude={"by"}, exclude_unset=True)
     try:
@@ -218,7 +217,7 @@ def put_request(request: Request, name: str, request_id: str, body: RequestWrite
             payload,
             by=body.by,
             linked_jobs=_linked_jobs_for(request, name),
-            jobs_for=_jobs_for(request, name),
+            jobs_for=_jobs_for(request, name, reasons),
             prompts=_prompts(request),
         )
     except ledger.LedgerError as e:
@@ -239,10 +238,9 @@ NOTES_URL = "/api/workspaces/{name}/request-notes"
 
 def _note_ref_check(request, name):
     """`(request_id, ref) -> the ref to store`, or LedgerError
-    `invalid_note_ref`. A ref naming only its item (a planned shot) needs no
-    job. Otherwise `ref.job` must be linked to the request's `ref.item`;
-    `ref.output`, when given, must be a file the gallery shows from that
-    finished job's manifest, and its kind is stored with it."""
+    `invalid_note_ref`. A ref naming only its item needs no job. Otherwise
+    `ref.job` must be linked to `ref.item`; `ref.output` must be a file the
+    gallery shows from that finished job's manifest, its kind stored."""
     manager = request.app.state.job_manager
 
     def refused(why):
@@ -286,8 +284,8 @@ def _note_ref_check(request, name):
 
 
 def _note_write(request, name, write, what):
-    """Run one note write, its LedgerError as the HTTP error it carries;
-    a write that held moves the workspace's `requests` counter."""
+    """Run one note write, a LedgerError as its HTTP error; a write that
+    held moves the workspace's `requests` counter."""
     try:
         written = write()
     except ledger.LedgerError as e:
@@ -302,10 +300,10 @@ def _note_write(request, name, write, what):
 @writes(REQUESTS)
 def add_request_note(request: Request, name: str, body: NoteAdd):
     """Add one of the user's notes for the agent, on an item or (no `item`)
-    on the request itself; answers the note and the request's new revision.
-    Each of `refs` names an item (the note's own, for an item note; any live
-    item, for a request note) and optionally a job linked to it and one file
-    of that job's manifest; the server adds the file's `kind`. 422
+    on the request; answers the note and the request's new revision. Each
+    of `refs` names an item (the note's own, or any live item for a request
+    note), optionally a job linked to it and one file of its manifest; the
+    server adds the file's `kind`. 422
     `invalid_note_ref` for a ref that does not hold, `too_many_refs`,
     `unknown_item`, `item_dropped` or `too_many_notes`; 404
     `unknown_request`."""

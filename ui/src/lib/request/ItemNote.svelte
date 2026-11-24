@@ -24,9 +24,11 @@
     note,
     about,
     line,
+    answer = null,
     editable = true,
     draftKey = null,
     listening = false,
+    stops = 0,
     refs = [],
     chip,
     onremoveref,
@@ -36,6 +38,7 @@
     ondelete,
     onreload,
     onmove,
+    onopen,
   }: {
     /** The saved note; null for the box a new one is written in */
     note: LedgerNote | null
@@ -44,6 +47,9 @@
     about: string
     /** The line under the saved note; null when there is none */
     line: NoteLine | null
+    /** What the agent said in its first write after the saved note
+     * (answerOf); null while it has said nothing */
+    answer?: { revision: number; why: string } | null
     /** False where the ledger would not keep an edit: a dropped item */
     editable?: boolean
     /** Where the unsaved draft is kept across a reload (draft.ts) */
@@ -51,6 +57,9 @@
     /** Whether an agent session will hear the note now: the button says
      * "Send to agent", else "Save note". Saving works either way */
     listening?: boolean
+    /** How many held items saving a note would stop from starting on
+     * their own (holdsStopped); the open box warns while it is above 0 */
+    stops?: number
     /** What the note is about: a saved note's, or a new one's so far */
     refs?: LedgerNoteRef[]
     /** How a reference is drawn */
@@ -70,6 +79,8 @@
     /** An item's new-note box only: hand the draft to the request's own
      * note box ("For the whole request instead") */
     onmove?: (text: string) => void
+    /** The box was opened: a row keeps itself open under it */
+    onopen?: () => void
   } = $props()
 
   const unreadNote = destroyConfirm({
@@ -99,6 +110,7 @@
   /** Open the box: the row's menu and "Note this take" ask for it too. An
    * open box keeps what is in it */
   export async function edit(text?: string) {
+    onopen?.()
     if (!draft.editing) {
       draft.open()
       refused = null
@@ -133,7 +145,12 @@
       const open = draft.editing
       refused = null
       // Words typed while it was out stay in the box
-      if (draft.done(sent) && open) void focusOpener()
+      if (draft.done(sent)) {
+        if (open) void focusOpener()
+      } else if (note === null && draft.text.startsWith(sent)) {
+        // Typing went on while it was out: the box keeps only the new words
+        draft.text = draft.text.slice(sent.length).trim()
+      }
       if (note === null) onsaved?.()
     } catch (e) {
       refused = saveFailure(e)
@@ -217,6 +234,12 @@
       {#if wordless && refs.length}
         <p class="hint">{NEEDS_WORDS}</p>
       {/if}
+      {#if stops > 0}
+        <p class="hint" role="status">
+          Saving this note stops {stops === 1 ? '1 item' : `${stops} items`}
+          waiting for your OK from starting on their own.
+        </p>
+      {/if}
       <p class="hint muted">
         {listening ? LISTENING_LINE : NOT_LISTENING_LINE}
         {#if draft.counter}
@@ -258,6 +281,11 @@
             {@render chips()}
           </div>
         {/if}
+        {#if answer}
+          <p class="hint">
+            The agent answered in r{answer.revision}: {answer.why}
+          </p>
+        {/if}
         {#if line}<p class="hint muted">{line.text}</p>{/if}
       {/if}
       {#if draft.kept}<p class="hint">You have an unsaved draft.</p>{/if}
@@ -282,8 +310,11 @@
               class="bare"
               onclick={() => remove(draft.text)}
               disabled={saving}
+              title={line?.answered
+                ? 'The agent has answered; remove it from the list'
+                : undefined}
             >
-              Delete note
+              {line?.answered ? 'Clear note' : 'Delete note'}
             </button>
           {/if}
         </div>

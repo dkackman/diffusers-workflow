@@ -6,7 +6,8 @@
   import NoteRef from './NoteRef.svelte'
   import { draftKey, refKey } from './draft'
   import { listening } from './listening.svelte'
-  import { noteAnchor, noteLine } from './noteState'
+  import { answerOf, noteAnchor, noteLine } from './noteState'
+  import { holdsStopped } from './reviewText'
   import { addRef, collapseRefs, writtenRefs } from './noteRefs'
   import { action } from '../action.svelte'
 
@@ -28,6 +29,7 @@
     ongo,
     onadded,
     onmove,
+    onopen,
     onchanged,
   }: {
     notes: LedgerNote[]
@@ -51,6 +53,8 @@
     /** An item's box offers "For the whole request instead": the draft and
      * what it is about, for the page to take to the request's own box */
     onmove?: (text: string, refs: LedgerNoteRef[]) => void
+    /** A box here was opened to write in */
+    onopen?: () => void
     onchanged: () => void | Promise<void>
   } = $props()
 
@@ -58,11 +62,17 @@
   $effect(() => channel.hold())
 
   const shown = $derived(filter ? notes.filter(filter) : notes)
-  // A dropped item keeps its notes to read; the ledger takes no more
+  // A dropped item, or a closed request, keeps its notes to read; the
+  // ledger takes no more until it is reopened
   const editable = $derived(
-    item === null || request.items.some((i) => i.key === item && !i.dropped),
+    request.state === 'open' &&
+      (item === null ||
+        request.items.some((i) => i.key === item && !i.dropped)),
   )
   const live = $derived(request.items.filter((i) => !i.dropped))
+  // What saving a note here would stop: the request's note every hold, an
+  // item's note that item's own
+  const stops = $derived(holdsStopped(request, item))
   // The picker offers the items the new note is not yet about
   const unpicked = $derived(
     live.filter(
@@ -114,9 +124,9 @@
   async function write(box: string, w: Write) {
     boxes[box] ??= boxWriter()
     const outcome = await boxes[box].run(w)
-    // Undefined: a write from this box is still on its way
-    if (!outcome) throw new Error('This note is still being saved.')
-    if (outcome.refused) throw outcome.refused
+    // Undefined while another write from this box is out: the action's
+    // guard, the only one here
+    if (outcome?.refused) throw outcome.refused
   }
   async function added(text: string) {
     await channel.refresh()
@@ -174,10 +184,11 @@
 
 {#if shown.length || editable}
   <section class="notes" aria-label="Notes for the agent on {about}">
-    <p class="label">
-      <MessageSquare size={13} aria-hidden="true" /> Note for the agent
-    </p>
+    <!-- With none saved, the box's button says it: no heading over it -->
     {#if shown.length}
+      <p class="label">
+        <MessageSquare size={13} aria-hidden="true" /> Note for the agent
+      </p>
       <ul class="list">
         {#each shown as note (note.id)}
           <li id={noteAnchor(note.id)} tabindex="-1">
@@ -185,14 +196,17 @@
               {note}
               {about}
               line={noteLine(note, request, new Date(), channel.listening)}
+              answer={answerOf(note, request)}
               {editable}
               draftKey={draftKey(workspace, request.id, item, `@${note.id}`)}
               listening={channel.listening}
+              {stops}
               refs={collapseRefs(note.refs ?? [])}
               {chip}
               onsave={(text) => write(note.id, { edit: note, text })}
               ondelete={() => write(note.id, { remove: note })}
               onreload={onchanged}
+              {onopen}
             />
           </li>
         {/each}
@@ -206,6 +220,7 @@
         line={null}
         draftKey={draftKey(workspace, request.id, item, refKey(pendingRefs))}
         listening={channel.listening}
+        {stops}
         refs={pendingRefs}
         {chip}
         onremoveref={unref}
@@ -214,6 +229,7 @@
         onsaved={sent}
         onmove={item !== null && onmove ? move : undefined}
         onreload={onchanged}
+        {onopen}
       />
     {/if}
   </section>

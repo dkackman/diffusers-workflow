@@ -7,16 +7,17 @@ The words the web UI uses for each concept, and the ones it does not. The vocabu
 | Term | Means | Say | Don't say |
 | --- | --- | --- | --- |
 | **job** ★ | One execution of a workflow | "this job", "earlier jobs"; **Run** stays the verb ("Run it here") | "run" as a noun ("this run", "Run note"), "attempt", "result (latest)" |
-| **take** ★ | A job made for a request item; used only inside a request | "latest take" | "result (latest)", "take" outside a request |
+| **take** ★ | A job made for a request item; used only inside a request | "latest take", "Take 1 failed: <reason>", "2 takes, none succeeded" | "result (latest)", "take" outside a request, "attempt" in request copy |
 | **attempt** | A chain segment's retry inside one job (`src/lib/chainRows.ts`), nothing else | "attempt 2" on a chain segment | "attempt" for a job. It is deliberately not banned, because the chain needs it |
 | **v2** | The version badge: the job's ordinal among this workflow's jobs in this folder. `dw/runs.py` owns the number | **v2**, titled "2nd job of this workflow in this folder" | a number the UI computes itself |
 | **file name** ★ | A workflow's name: its file name (`e2e-card`) | the file name; the JSON `id` only as secondary text on the job page | the JSON `id` as the name |
 | **Star** | Favourite a file | **Star**, "Starred <leaf>", "Unstarred <leaf>" | "star to keep" |
 | **Save as asset** ★ | Copy an output into the asset library | **Save as asset**, "Saved as asset <name>" | "Keep as asset", "keep this file as an input asset" ("keep" means keeping your copy in a conflict: **Keep mine**, **Keep both**) |
-| **Accept** ★ | Choose a take as the item's result (accepting also stars the file, phase 6) | **Accept** | - |
+| **Accept** ★ | Choose a take as the item's result (accepting also stars the file) | **Accept** | - |
 | **Your note** | The person's own note | "Your note on this job", "Your note on this file", "Your note on this asset", "Your note on this workspace" | "Run note" |
 | **Note for the agent** | The note channel to the agent | **Note for the agent** | - |
 | **the agent is connected** | The agent's notes channel is listening | "the agent is connected", "the agent isn't connected" | "session", "no session is listening" |
+| **Needs you** | What a request wants of the person: one sentence, the same on the list row and the request header | "Needs you: 1 waiting for your OK, 1 failed, 1 take to choose."; a held item is counted as waiting for your OK in place of ready | a held item counted as ready too |
 | **waiting for your OK** | A held item waiting for review | "<n items> waiting for your OK"; the hold text says "the agent will run it at 4:44 PM if it's connected" | "held for your review" |
 | **Examples** | Starter workflows | **Examples** everywhere (the sidebar, "start from", the read-only banner); one of them is "an example" | "starter", "the blank starter", "a template", "the template" |
 | **card** ★ | A GPU, in the queue text (a job waiting for a free card) | **card** in the queue text | "GPU" in the queue text |
@@ -61,5 +62,7 @@ The piece each concept is built from. Reach for it before writing new markup or 
 | A reference to copy | `ReferenceChip` | `src/lib/ui/ReferenceChip.svelte` |
 | A file to reuse | `UseAsInput` | `src/lib/gallery/UseAsInput.svelte` |
 | A file or reference to fill in | `ReferenceField` | `src/lib/ui/ReferenceField.svelte` |
-| Whether a run will work | `verdictOf`, then `PlanLines` for what a job will do | `src/lib/runCheck.svelte.ts`, `src/lib/workflow/PlanLines.svelte` |
+| Whether a run will work | `verdictOf`, then `PlanLines` for what a job will do; the request run dialog reads each row's refusal or gated model off the same `verdictOf` | `src/lib/runCheck.svelte.ts`, `src/lib/workflow/PlanLines.svelte`, `src/lib/request/runQueue.svelte.ts` |
 | A workflow's search | `catalogMatches` | `src/lib/workflow/catalogSearch.ts` |
+| What a request wants from the person | `needsParts` (the header's parts, each going to its first item), `needsLine` (the sentence, from the server's `needs` on the list) | `src/lib/request/standing.ts` |
+| What the agent changed in a plan | `planDiff`, said by `lineOf` | `src/lib/request/planDiff.ts` |

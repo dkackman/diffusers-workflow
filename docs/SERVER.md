@@ -280,11 +280,16 @@ icon, a finish-alert toggle, the theme toggle, and links to these docs and
 - **Requests** - the workspace's requests ledger
   ([WORKSPACES.md](WORKSPACES.md#requests)): what was asked of an agent, as
   the plan it wrote. The list is one row a request - up to three thumbnails
-  of its latest results, the title, one line that is the first of *failed*,
-  *running*, *queued*, *idle* and *all done, still open*, a bar of its items
+  of its latest results, the title, one line that is the sentence the
+  request's page leads its needs with ("Needs you: 1 waiting for your OK, 2
+  ready to run.") or, with nothing for you, the first of *running*, *queued*,
+  *n planned, nothing running*, *all done, still open* and *nothing planned
+  yet* (a server older than the `needs` the list asks for gives the
+  status line, failed first), a bar of its items
   with done of those in the plan, minutes spent (measured, so no `~`) and
-  left (estimated), and when it was last written. Requests with something
-  for you to do come first, then those with a job in flight; closed ones
+  left (estimated), the notes waiting for the agent, and when it was last
+  written. Requests with items waiting for your OK come first, then those
+  with something else for you to do, then those with a job in flight; closed ones
   are hidden until the filter is set to **all** (`?show=all`).
 
   A request's page leads with where it stands in a sentence ("Rendering
@@ -304,7 +309,9 @@ icon, a finish-alert toggle, the theme toggle, and links to these docs and
   the plan on a wide window and fold under it on a narrow one.
 
   You edit the plan from its rows. Under each good take, **Accept** makes it
-  the item's result (**Accepted** pressed again clears the choice). The grip
+  the item's result and, once that is saved, stars the take's file
+  (**Accepted** pressed again clears the choice; its Undo takes back the
+  acceptance only, the star stays). The grip
   at the start of a row reorders it - drag it, or focus it and press
   ArrowUp/ArrowDown, Home or End; the order is written once, shortly after
   the last move. A row's **more actions** menu has the same four moves, a
@@ -345,32 +352,49 @@ icon, a finish-alert toggle, the theme toggle, and links to these docs and
   When the agent holds items for your review, a banner says how many are
   held, counts down to the deadline, and says whether an agent session is
   listening ([the notes channel](MCP.md#the-notes-channel)); with none, it
-  says nothing will run at the deadline. A note you leave redirects the hold,
-  and the banner then says the agent will revise. **Run now…** opens the
-  priced dialog below; the page never starts a held item itself.
+  says nothing will run at the deadline. A note you leave on the request
+  redirects every hold, and one on an item redirects only that item's; the
+  note box warns before you save how many held items it stops from starting
+  on their own. The banner then says so, and whether the agent is
+  connected to read the note. **Run now…** is offered in every state but due
+  with the agent connected; it opens the priced dialog below, and the page
+  never starts a held item itself.
 
   The page queues jobs only when you ask, and only after pricing them.
-  **Run {n} ready…** in the header takes every ready item; a ready row has
-  **Run…**, a failed or cancelled one whose dependencies are done **Run
-  again…**, and a done row's menu **Run another take…**. Each opens a dialog
-  that validates every item first (the spend button stays disabled until
-  each has its quote) and shows, per item, its workflow, the quote with what
-  it rests on, what the step cache would serve and what must be downloaded,
-  the plan's own estimate when the quote is more than a quarter off it, and
-  a warning when every step is cached - such a run reproduces the last take
-  rather than making a new one. **Will not run** lists the other items with
-  the reason each is left out (waits on another, no stored workflow, already
-  queued, would be refused), and **Afterwards** says which items become
-  ready once these finish - the page never starts them for you. On **Run
-  {n}** each item is submitted in plan order, linked to its item and with
-  the quoted plan as its cost acknowledgement; a row reads *queued* only
-  once the server has queued it, a price that moved since the quote is
-  re-priced on its row with **Run at this price**, and a refusal (the
-  request was closed, the item dropped) is said on its row.
+  **Run {n}…** in the header (*Run what can run now*) takes every ready
+  item, ticked, and offers each failed item that can run again (its
+  dependencies done, a stored workflow) unticked under *Failed before. Tick
+  one to run it again.*; the button shows whenever the dialog would offer
+  anything, so a request with only failed items has it, and {n} counts every
+  item offered, ticked or not; a ready row has **Run…**, a failed or cancelled one
+  whose dependencies are done **Run again…**, and a done row's menu **Run
+  another take…**. Each opens a dialog that validates every item first (the
+  spend button stays disabled until each has its quote) and shows, per
+  item, its workflow, the quote with what it rests on (*No time estimate
+  for this workflow.* when there is no figure, the engine's reason behind
+  *Why there's no estimate*), what the step cache would serve and what must
+  be downloaded, a gated or missing model in the workflow page's words (the
+  row stays tickable), the plan's own estimate when the quote is more than
+  a quarter off it, and a warning when every step is cached - such a run
+  reproduces the last take rather than making a new one. **Will not run**
+  lists the other items with the reason each is left out (waits on another,
+  no stored workflow, already queued, or the workflow page's refusal and
+  *Ask the agent to fix the item's workflow or arguments.*, the engine's
+  messages behind *Engine detail*), and **Afterwards** says which items
+  become ready once these finish - the page never starts them for you. On
+  **Run {n} job(s)** each ticked item is submitted in plan order, linked to
+  its item with its stored arguments as the ledger holds them and the
+  quoted plan as its cost acknowledgement; a row reads *queued* only once
+  the server has queued it, a price that moved since the quote is re-priced
+  on its row with **Run at this price**, and a refusal (the request was
+  closed, the item dropped) is said on its row.
 
   The header's **more actions** menu marks the request **done**, **abandons**
   or **reopens** it - nothing can be run on a closed request - and deletes a
-  closed one from the ledger after a confirm (its jobs and outputs stay).
+  closed one from the ledger after a confirm (its jobs and outputs stay). A
+  closed request shows its plan read-only: no grips, Accept, row actions or
+  note boxes, saved notes still readable, and a line above the plan with a
+  **Reopen** button that writes the same state change as the menu's.
 
   The agent may rewrite the plan while you edit it. The page never sends
   back a plan it read earlier: it reads the request again and makes your
@@ -1199,6 +1223,14 @@ blend toward, `minutes` is left alone and `low_confidence` is set instead.
   /api/workspaces/{name}/requests/{id}?revision=N` — the requests ledger
   ([WORKSPACES.md](WORKSPACES.md#requests) has the rules). Reads derive from
   the jobs linked through `POST /api/jobs` `request`/`item`.
+  `GET` and `PUT` of one request take `reasons=true` (the web page sends it):
+  a failed or cancelled attempt then carries `reason`, the first line of the
+  job's error. Without it no attempt does, so the agent's reads are unchanged.
+  `GET` of the list takes `needs=true` (the web page sends it): each row then
+  carries `needs`, how many items want the user by reason (`held`, `ready`,
+  `failed` - can run again - `revised`, `choose`, `accepted_missing`) and
+  `notes_waiting`, the request page's rule (`ledger_views.needs_counts`).
+  Without it no row does, and `GET /api/requests` never carries it.
 
   **Writing.** `PUT` takes one request's whole plan:
 
@@ -1230,7 +1262,8 @@ blend toward, `minutes` is left alone and `low_confidence` is set instead.
     (`["arguments"]`, may include `workflow` or `prompt:<name>` when a
     referenced prompt's text changed after the take).
   - `ready` - a job could be queued for it now.
-  - `attempts` - `[{job, status, note?, minutes, output}]`, oldest first.
+  - `attempts` - `[{job, status, note?, reason?, minutes, output}]`, oldest
+    first; `reason` (why a take failed or was cancelled) only with `reasons=true`.
   - `result` - `{job, run_id, output}` or null.
   - `accepted_missing` - only when true.
   - `spent_minutes`.

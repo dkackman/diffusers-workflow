@@ -114,7 +114,7 @@ const runRow = (key: string) =>
   document.querySelector(`.runrow[data-key="${key}"]`) as HTMLElement
 const runButton = () =>
   screen.getByRole('button', {
-    name: /^(Run \d+|Queuing…)$/,
+    name: /^(Run \d+ jobs?|Queuing…)$/,
   }) as HTMLButtonElement
 
 it('starts on Cancel, and cannot spend until every row is priced', async () => {
@@ -128,7 +128,7 @@ it('starts on Cancel, and cannot spend until every row is priced', async () => {
   )
   open()
   const dialog = await screen.findByRole('dialog', {
-    name: 'Run what is ready',
+    name: 'Run what can run now',
   })
   await waitFor(() =>
     expect(document.activeElement).toBe(
@@ -144,7 +144,7 @@ it('starts on Cancel, and cannot spend until every row is priced', async () => {
   land(answer(PLANS.card))
   await within(runRow('title')).findByText(/about 5.5 min on cuda/)
   expect(runButton().disabled).toBe(false)
-  expect(runButton().textContent).toBe('Run 2')
+  expect(runButton().textContent).toBe('Run 2 jobs')
   expect(world.submitJob).not.toHaveBeenCalled()
 })
 
@@ -160,19 +160,29 @@ it('prices each item with its workflow, and says what the plan had estimated', a
   // the plan said 4, the quote is 9: more than a quarter off
   expect(s4.getByText('the plan said about 4 min')).toBeTruthy()
   expect(within(runRow('title')).queryByText(/the plan said/)).toBeNull()
-  expect(document.querySelector('.total')?.textContent).toBe('total about 14.5 min')
+  expect(document.querySelector('.total')?.textContent).toBe(
+    'total about 14.5 min',
+  )
 })
 
 it('the total follows the ticked rows, and counts one with no figure', async () => {
   PLANS.card = quote(null)
   open()
-  await within(runRow('title')).findByText('no measured cost')
+  await within(runRow('title')).findByText(
+    'No time estimate for this workflow.',
+  )
+  const why = runRow('title').querySelector('details') as HTMLDetailsElement
+  expect(why.querySelector('summary')?.textContent).toBe(
+    "Why there's no estimate",
+  )
+  expect(why.querySelector('pre')?.textContent).toBe('no measured cost')
+  expect(why.open).toBe(false)
   expect(document.querySelector('.total')?.textContent).toBe(
     'total about 9 min, plus 1 with no figure',
   )
   await fireEvent.click(screen.getByRole('checkbox', { name: 'Run Shot 4' }))
   expect(document.querySelector('.total')?.textContent).toBe('total: no figure')
-  expect(runButton().textContent).toBe('Run 1')
+  expect(runButton().textContent).toBe('Run 1 job')
   PLANS.card = quote(5.5)
 })
 
@@ -209,10 +219,92 @@ it('an item validation refuses moves to "Will not run" with its first error', as
   open()
   await within(runRow('s4')).findByText(/about 9 min/)
   expect(runRow('title')).toBeNull()
-  expect(document.querySelector('.wont li')?.textContent).toBe(
-    'Title card: would be refused: no variable named sed',
+  const li = document.querySelector('.wont li') as HTMLElement
+  expect(li.textContent).toContain(
+    "Title card: A job would be refused: 1 issue to fix. Ask the agent to fix the item's workflow or arguments.",
   )
-  expect(runButton().textContent).toBe('Run 1')
+  expect(li.querySelector('details pre')?.textContent).toBe(
+    'no variable named sed',
+  )
+  expect(runButton().textContent).toBe('Run 1 job')
+})
+
+it('the button counts jobs', async () => {
+  open()
+  await within(runRow('title')).findByText(/about 5.5 min/)
+  expect(runButton().textContent).toBe('Run 2 jobs')
+  await fireEvent.click(screen.getByRole('checkbox', { name: 'Run Shot 4' }))
+  expect(runButton().textContent).toBe('Run 1 job')
+  await fireEvent.click(
+    screen.getByRole('checkbox', { name: 'Run Title card' }),
+  )
+  expect(runButton().textContent).toBe('Run 0 jobs')
+  expect(runButton().disabled).toBe(true)
+})
+
+it('a gated model is said on its row in warn tone, and the row stays tickable', async () => {
+  PLANS.shot = quote(9, {
+    downloads_required: [
+      { repo: 'org/m', gb: null, gated: true, access_blocked: true },
+    ] as Plan['downloads_required'],
+  })
+  open()
+  const text = await within(runRow('s4')).findByText(
+    /^This model needs Hugging Face access\./,
+  )
+  const line = text.closest('.verdict') as HTMLElement
+  expect(line.classList.contains('warn')).toBe(true)
+  expect(line.textContent).toContain(
+    'Accept its terms on Hugging Face, then sign in on the server with hf auth login.',
+  )
+  const box = screen.getByRole('checkbox', { name: 'Run Shot 4' })
+  expect((box as HTMLInputElement).checked).toBe(true)
+  expect((box as HTMLInputElement).disabled).toBe(false)
+  PLANS.shot = quote(9)
+})
+
+it('failed items sit under their heading, unticked', async () => {
+  const state = planState(
+    request([
+      item('s4', { title: 'Shot 4', ready: true, workflow: 'shot' }),
+      item('f1', {
+        title: 'Failed one',
+        status: 'failed',
+        workflow: 'card',
+        arguments: { seed: 7 },
+        attempts: [attempt('jf', 'failed')],
+      }),
+    ]),
+  )
+  render(RunDialog, {
+    run: readyPlan(state),
+    plan: state,
+    workspace: 'studio',
+    requestId: 'r1',
+    onclose: vi.fn(),
+  })
+  await within(runRow('f1')).findByText(/about 5.5 min/)
+  const group = screen.getByRole('list', { name: 'Failed before' })
+  expect(
+    within(group.parentElement as HTMLElement).getByRole('heading').textContent,
+  ).toBe('Failed before. Tick one to run it again.')
+  expect(group.contains(runRow('f1'))).toBe(true)
+  expect(group.contains(runRow('s4'))).toBe(false)
+  const box = screen.getByRole('checkbox', {
+    name: 'Run Failed one',
+  }) as HTMLInputElement
+  expect(box.checked).toBe(false)
+  expect(runButton().textContent).toBe('Run 1 job')
+  await fireEvent.click(box)
+  expect(runButton().textContent).toBe('Run 2 jobs')
+  await fireEvent.click(runButton())
+  await waitFor(() => expect(world.submitJob).toHaveBeenCalledTimes(2))
+  // its stored arguments, exactly as the ledger holds them
+  expect(world.submitJob.mock.calls[1][0]).toMatchObject({
+    item: 'f1',
+    workflow_path: 'card',
+    arguments: { seed: 7 },
+  })
 })
 
 it('warns when every step is cached: the run would make nothing new', async () => {
@@ -323,7 +415,7 @@ it('a single item has one row, no checkbox and no total', async () => {
   expect(screen.queryByRole('checkbox')).toBeNull()
   expect(document.querySelector('.total')).toBeNull()
   expect(document.querySelectorAll('.runrow')).toHaveLength(1)
-  expect(runButton().textContent).toBe('Run 1')
+  expect(runButton().textContent).toBe('Run 1 job')
   expect(
     screen.getByText(
       'Afterwards: When this finishes, 1 more becomes ready: Shot 5. This page will not start it for you.',
@@ -383,7 +475,7 @@ function openHeld(state: LedgerReview['state'], listens: boolean) {
 
 it('says on a held row that running it now is the go-ahead', async () => {
   openHeld('holding', true)
-  await screen.findByRole('dialog', { name: 'Run what is ready' })
+  await screen.findByRole('dialog', { name: 'Run what can run now' })
   const line = runRow('title').querySelector('.held') as HTMLElement
   expect(line.textContent?.trim()).toBe(
     `Waiting for your OK until ${clockTime(UNTIL)}. Running it now is your go-ahead.`,
@@ -396,7 +488,7 @@ it('says on a held row that running it now is the go-ahead', async () => {
 
 it('warns on a held row whose review is up while a session listens', async () => {
   openHeld('due', true)
-  await screen.findByRole('dialog', { name: 'Run what is ready' })
+  await screen.findByRole('dialog', { name: 'Run what can run now' })
   const line = runRow('title').querySelector('.held') as HTMLElement
   expect(line.textContent?.trim()).toBe(
     'Review time is up and the agent is connected: it may be starting this now.',
@@ -407,6 +499,6 @@ it('warns on a held row whose review is up while a session listens', async () =>
 
 it('has no held line on a row that is not held', async () => {
   open()
-  await screen.findByRole('dialog', { name: 'Run what is ready' })
+  await screen.findByRole('dialog', { name: 'Run what can run now' })
   expect(runRow('s4').querySelector('.held')).toBeNull()
 })

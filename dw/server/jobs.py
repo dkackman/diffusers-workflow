@@ -76,6 +76,7 @@ from .job_record import (
     RUNNING,
     TERMINAL_STATES,
     Job,
+    row_reason_fields,
 )
 from .pool import WorkerSlot
 from .reruns import Reruns
@@ -556,16 +557,13 @@ class JobManager(Dispatcher, Reruns):
     def request_jobs(self, workspace, request_id):
         """Every job linked to `request_id` in `workspace`, live queue and
         history, oldest first, as `{job, item, status, run_id, run_dir,
-        run_exists, started_at, finished_at, created_at, note, workflow,
-        arguments, output, prompt_digests}` - `workflow` the catalog name the
-        job ran from (None for an inline one), `arguments` as submitted, and
-        `prompt_digests` a callable answering the `{prompt name: sha256}` its
-        run recorded (`_prompt_digests`).
-
-        `run_exists` is whether the job's run directory is still on disk -
-        the directory `delete_job_run` removes. `output` is a callable
-        answering the job's `proof_output`, so no manifest is read for a
-        job nobody shows. One indexed history query."""
+        run_exists, started_at, finished_at, created_at, note, reason,
+        workflow, arguments, output, prompt_digests}` - `reason` a failed or
+        cancelled job's first error line, `workflow` the catalog name (None
+        for an inline one), `arguments` as submitted, `output` and
+        `prompt_digests` callables (no manifest is read for a job nobody
+        shows), `run_exists` whether its run directory is still on disk.
+        One indexed history query."""
         found = {}
         for row in self.history.request_jobs(workspace, request_id):
             found[row["id"]] = self._linked(
@@ -586,6 +584,7 @@ class JobManager(Dispatcher, Reruns):
                     "status": job.status,
                     "run_id": job.run_id,
                     "note": job.note,
+                    "error": job.error,
                     "created_at": job.created_at,
                     "started_at": job.started_at,
                     "finished_at": job.finished_at,
@@ -617,8 +616,8 @@ class JobManager(Dispatcher, Reruns):
             "finished_at": row["finished_at"],
             "created_at": row["created_at"],
             "note": row["note"],
-            # The take's plan, as submitted: what a ledger item's workflow
-            # and arguments are compared against (`ledger_views._current`)
+            "reason": row_reason_fields(row["status"], row.get("error")).get("reason"),
+            # The take's plan as submitted (`ledger_views._current` compares)
             "workflow": row.get("workflow_name"),
             "arguments": _submitted(row.get("arguments")),
             "output": lambda: self._proof(job_id),

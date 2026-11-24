@@ -45,21 +45,25 @@
   // The takes that have a file, oldest to newest: what the viewer steps
   // through. A take's output name is the manifest's own, relative to the
   // output root, and two runs of a workflow can write the same one - so the
-  // viewer tells takes apart by `job/name`, the key `open=` carries in the
-  // hash (its leaf is still the file's). Each file is read through its job
+  // viewer tells takes apart by `item/job/name`, the key `open=` carries in
+  // the hash (its leaf is still the file's): one job linked to two items
+  // opens in its own strip. Each file is read through its job
   const files = $derived(
     takes.flatMap((take) => {
       const out = take.attempt.output
       if (!out) return []
       const file = jobMedia(out.name, out.kind, take.attempt.job, workspace)
-      return [{ take, file, key: `${take.attempt.job}/${out.name}` }]
+      return [{ take, file, key: viewerKey(take.attempt.job, out.name) }]
     }),
   )
   const items = $derived(files.map((f) => ({ ...f.file, name: f.key })))
   const fileOf = (shown: MediaFile) => files.find((f) => f.key === shown.name)
+  const viewerKey = (job: string, name: string) => `${item.key}/${job}/${name}`
+  // A name in the hash that is another item's names no file here, and
+  // opens nothing
   let open = $state<string | null>(openInHash())
   const openTake = (job: string, name: string) => () =>
-    (open = `${job}/${name}`)
+    (open = viewerKey(job, name))
   // Two or more takes with a picture or clip: the newest few side by side.
   // The compare route addresses files by name: each name once, the newest
   // take's place
@@ -138,13 +142,16 @@
           </span>
         {/if}
       </span>
+      {#if attempt.reason && (attempt.status === 'failed' || attempt.status === 'cancelled')}
+        <span class="reason bad" title={attempt.reason}>{attempt.reason}</span>
+      {/if}
       {#if attempt.note}
         <span class="note muted" title={attempt.note}>{attempt.note}</span>
       {/if}
       {#if onaccept && attempt.status === 'succeeded'}
         <button
           type="button"
-          class="quiet accept"
+          class="accept"
           class:chosen={chosen(take)}
           aria-pressed={chosen(take)}
           aria-label="Accept take {take.n} for {item.title}"
@@ -153,7 +160,11 @@
             : 'Make this take the result'}
           onclick={() => onaccept(take, chosen(take) ? null : attempt.job)}
         >
-          {chosen(take) ? 'Accepted' : 'Accept'}
+          {#if chosen(take)}<Check size={12} aria-hidden="true" />{/if}{chosen(
+            take,
+          )
+            ? 'Accepted'
+            : 'Accept'}
         </button>
       {/if}
       {#if onnote}
@@ -176,11 +187,14 @@
     {#if onaccept && take.attempt.status === 'succeeded'}
       <button
         type="button"
-        class="quiet"
         aria-pressed={chosen(take)}
         onclick={() => onaccept(take, chosen(take) ? null : take.attempt.job)}
       >
-        {chosen(take) ? 'Accepted' : 'Accept'}
+        {#if chosen(take)}<Check size={12} aria-hidden="true" />{/if}{chosen(
+          take,
+        )
+          ? 'Accepted'
+          : 'Accept'}
       </button>
     {/if}
     <a class="quiet" href={jobHref(take.attempt.job, workspace)}>
@@ -237,6 +251,7 @@
     gap: 0.2rem;
     font-weight: 600;
   }
+  .reason,
   .note {
     overflow: hidden;
     text-overflow: ellipsis;
@@ -248,6 +263,10 @@
     margin-top: auto;
     padding: 0.2rem 0.5rem;
     font-size: var(--t-xs);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.25rem;
   }
   .notetake {
     align-self: flex-start;

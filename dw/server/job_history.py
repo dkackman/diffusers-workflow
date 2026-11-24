@@ -597,7 +597,7 @@ class JobHistory:
         name it ran from (NULL for an inline workflow)."""
         with self._lock, self._connect() as connection:
             rows = connection.execute(
-                "SELECT id, item, status, run_id, run_dir, note, created_at,"
+                "SELECT id, item, status, run_id, run_dir, note, error, created_at,"
                 " started_at, finished_at, workflow_name, arguments,"
                 " CASE WHEN json_valid(spec) THEN json_extract(spec, '$.output_dir') END"
                 " AS output_dir FROM jobs WHERE workspace = ? AND request = ?"

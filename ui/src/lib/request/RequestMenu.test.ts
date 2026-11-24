@@ -244,3 +244,25 @@ it('an Undo pressed once another request is open does nothing to it', async () =
   expect(ledger.puts).toHaveLength(puts)
   expect(store.read?.state).toBe('done')
 })
+
+it('Undo over a request the agent reopened says it is already open', async () => {
+  const { ledger, store } = realStore()
+  await pick('Mark done')
+  await vi.waitFor(() => expect(notify.undo).toHaveBeenCalledTimes(1))
+  // The agent reopens it, and the page's own read takes that
+  ledger.current = {
+    ...ledger.current,
+    state: 'open',
+    revision: ledger.current.revision + 1,
+  }
+  store.take(ledger.current)
+  const puts = ledger.puts.length
+  notify.undo.mock.calls[0][1]()
+  await vi.waitFor(() =>
+    expect(notify.success).toHaveBeenCalledWith(
+      '"Launch posters" is already open',
+    ),
+  )
+  expect(ledger.puts).toHaveLength(puts)
+  expect(notify.failure).not.toHaveBeenCalled()
+})

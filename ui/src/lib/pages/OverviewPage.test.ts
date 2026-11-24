@@ -320,12 +320,33 @@ it('lists open requests with their counts, and links to them all', async () => {
   expect(
     screen.getByRole('link', { name: 'Launch posters' }).getAttribute('href'),
   ).toBe('#/ws/studio/requests/r1')
-  expect(screen.getByText('idle: 1 planned, nothing running')).toBeTruthy()
+  expect(screen.getByText('1 planned, nothing running')).toBeTruthy()
   expect(screen.getByText('2/3')).toBeTruthy()
   expect(screen.queryByText('Old ask')).toBeNull()
   expect(
     screen.getByRole('link', { name: 'all requests' }).getAttribute('href'),
   ).toBe('#/ws/studio/requests')
+})
+
+it('a request row keeps its title beside a long attention line', async () => {
+  const needs = {
+    held: 2,
+    ready: 1,
+    failed: 1,
+    revised: 1,
+    choose: 1,
+    accepted_missing: 1,
+    notes_waiting: 0,
+  }
+  data.requests = [summary({ needs })]
+  render(OverviewPage)
+  const link = await screen.findByRole('link', { name: 'Launch posters' })
+  const row = link.closest('li')!
+  expect(row.classList.contains('reqrow')).toBe(true)
+  const line = row.querySelector('.reqline')!
+  expect(line.textContent).toMatch(/^Needs you: 2 waiting for your OK/)
+  expect(link.contains(line)).toBe(false)
+  expect(link.textContent?.trim()).toBe('Launch posters')
 })
 
 it('hides the requests panel when there are none or the call fails', async () => {

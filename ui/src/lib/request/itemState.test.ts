@@ -2,7 +2,9 @@ import { expect, it } from 'vitest'
 import {
   activeJob,
   bandsOf,
+  blockedLine,
   CHIP,
+  failedLine,
   figureOf,
   nextTake,
   opensByDefault,
@@ -206,7 +208,7 @@ it('says how many takes a done item has, and that none worked for a failed one',
   expect(plan.items.map(takesLine)).toEqual([
     null,
     '3 takes',
-    '2 attempts, none succeeded',
+    '2 takes, none succeeded',
     null,
   ])
 })
@@ -354,4 +356,146 @@ it('says why a revised item was revised, in words, against the take it shows', (
   )
   expect(revisedLine(doneItem('a'), null)).toBeNull()
   expect(nextTake(a)).toBe(2)
+})
+
+it('a failed item waiting on a revised one is not counted', () => {
+  const plan = planState(
+    request([
+      revisedItem('cast'),
+      item('shot', {
+        status: 'failed',
+        depends_on: ['cast'],
+        attempts: [attempt('j', 'failed')],
+      }),
+    ]),
+  )
+  expect(plan.items[1].display).toBe('failed')
+  expect(plan.items[1].runnable).toBe(false)
+  expect(plan.items[1].needs).toEqual([])
+  expect(plan.needs.failed).toBe(0)
+})
+
+it('a held ready item counts as held, not ready', () => {
+  const review = {
+    until: '2026-11-21T12:00:00+00:00',
+    state: 'holding' as const,
+    seconds_left: 30,
+  }
+  const plan = planState(
+    request([
+      item('a', { ready: true, review }),
+      item('b', { ready: true }),
+      revisedItem('c', { review }),
+    ]),
+  )
+  expect(plan.items.map((s) => s.needs)).toEqual([
+    ['held'],
+    ['ready'],
+    ['held'],
+  ])
+  expect(plan.needs).toMatchObject({ held: 2, ready: 1, revised: 0 })
+})
+
+it('a revised row opens by default', () => {
+  const plan = planState(request([revisedItem('a'), doneItem('b')]))
+  expect(plan.items.map((s) => opensByDefault(s, false))).toEqual([true, false])
+})
+
+it('a failed row says what it waits on', () => {
+  const failed = (key: string, over: Partial<LedgerItem> = {}) =>
+    item(key, {
+      status: 'failed',
+      attempts: [attempt(`j${key}`, 'failed')],
+      ...over,
+    })
+  const plan = planState(
+    request([
+      failed('plate', { title: 'Background plate' }),
+      item('cast', { title: 'Cast sheet' }),
+      failed('comp', { title: 'Composite', depends_on: ['plate'] }),
+      failed('both', { depends_on: ['plate', 'cast'] }),
+      item('gone', { title: 'Old plate', dropped: true, status: 'dropped' }),
+      failed('orphan', { depends_on: ['gone'] }),
+    ]),
+  )
+  expect(plan.items.map((s) => blockedLine(s))).toEqual([
+    null,
+    null,
+    'Failed. It can run again once Background plate is done.',
+    'Failed. It can run again once Background plate and Cast sheet are done.',
+    null,
+    // a dependency that can never be done says so
+    'Failed. It can run again once Old plate (dropped) is done.',
+  ])
+})
+
+it('a closed request promises no run, and neither does a row with no workflow', () => {
+  const plan = planState(
+    request(
+      [
+        item('plate', { title: 'Plate', status: 'failed' }),
+        item('comp', {
+          status: 'failed',
+          attempts: [attempt('j', 'failed')],
+          depends_on: ['plate'],
+        }),
+        item('bare', {
+          status: 'failed',
+          workflow: null,
+          attempts: [attempt('k', 'failed')],
+          depends_on: ['plate'],
+        }),
+      ],
+      { state: 'abandoned' },
+    ),
+  )
+  const comp = plan.items[1]
+  expect(blockedLine(comp, false)).toBeNull()
+  expect(blockedLine(plan.items[2])).toBeNull()
+  // the same row on an open request keeps the plan's copy
+  expect(blockedLine(comp)).toMatch(/^Failed\. It can run again once/)
+})
+
+it('takes, not attempts, in the takes line', () => {
+  const plan = planState(
+    request([
+      item('one', { status: 'failed', attempts: [attempt('x', 'failed')] }),
+      item('two', {
+        status: 'failed',
+        attempts: [attempt('x', 'cancelled'), attempt('y', 'cancelled')],
+      }),
+    ]),
+  )
+  expect(plan.items.map(takesLine)).toEqual([
+    '1 take, none succeeded',
+    '2 takes, none succeeded',
+  ])
+})
+
+it("the newest failed take's reason is the row's line", () => {
+  const row = item('a', {
+    status: 'failed',
+    attempts: [
+      attempt('j1', 'failed', { reason: 'old: out of memory' }),
+      attempt('j2', 'failed', { reason: 'CUDA out of memory' }),
+      attempt('j3', 'failed'),
+    ],
+  })
+  expect(failedLine(row)).toBe('Take 2 failed: CUDA out of memory')
+})
+
+it('a cancelled take says cancelled', () => {
+  const row = item('a', {
+    status: 'failed',
+    attempts: [attempt('j1', 'cancelled', { reason: 'server restart: boot' })],
+  })
+  expect(failedLine(row)).toBe('Take 1 was cancelled: server restart: boot')
+})
+
+it('a failed take with no reason shows no reason line', () => {
+  const row = item('a', {
+    status: 'failed',
+    attempts: [attempt('j1', 'failed')],
+  })
+  expect(failedLine(row)).toBeNull()
 })

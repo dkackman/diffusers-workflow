@@ -13,7 +13,7 @@ import re
 
 import pytest
 
-from dw import references
+from dw import ledger_views, references
 from dw.content_types import AUDIO_FORMATS, MUXED_VIDEO_CONTENT_TYPE, content_type_fault
 from dw.security import InvalidInputError, SecurityError, validate_workspace_name
 from dw.server.job_record import TERMINAL_STATES
@@ -332,6 +332,12 @@ def test_the_notes_channel_decides_each_shared_waiting_note_case(case):
     assert [n["note"] for n in waiting_notes(copy.deepcopy(case["request"]))] == case[
         "waiting"
     ]
+    # and the list's `notes_waiting` (dw/ledger_views.py) takes the same rule
+    request = case["request"]
+    live = [i for i in request["items"] if not i["dropped"]]
+    notes = [*request["notes"], *(n for i in live for n in i["notes"])]
+    waiting = [n["id"] for n in notes if ledger_views.note_waiting(n, request)]
+    assert sorted(waiting) == sorted(case["waiting"])
 
 
 def test_the_ui_test_reads_the_shared_waiting_note_cases():

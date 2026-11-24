@@ -295,7 +295,7 @@ it('deletes an answered note at once, and asks before one still waiting', async 
   })
   given.ondelete.mockResolvedValue(undefined)
   render(ItemNote, given)
-  await fireEvent.click(screen.getByRole('button', { name: 'Delete note' }))
+  await fireEvent.click(screen.getByRole('button', { name: 'Clear note' }))
   await waitFor(() => expect(given.ondelete).toHaveBeenCalledTimes(1))
   expect(confirmDialog).not.toHaveBeenCalled()
   cleanup()
@@ -388,7 +388,7 @@ it('asked to open again while open, keeps what is in the box', async () => {
   expect(box().value).toBe('half')
 })
 
-it('words typed while the save is out stay in the box and in storage', async () => {
+it('words typed while the save is out stay in the box and in storage, without the sent ones', async () => {
   let land!: () => void
   const given = props(null, {
     draftKey: 'note-draft:test',
@@ -401,10 +401,78 @@ it('words typed while the save is out stay in the box and in storage', async () 
   await fireEvent.input(box(), { target: { value: 'warmer' } })
   await fireEvent.click(screen.getByRole('button', { name: 'Save note' }))
   expect(given.onsave).toHaveBeenCalledWith('warmer')
-  await fireEvent.input(box(), { target: { value: 'warmer, and slower' } })
+  await fireEvent.input(box(), { target: { value: 'warmer and slower' } })
   land()
   await waitFor(() => expect(box().disabled).toBe(false))
   await new Promise((r) => setTimeout(r, 0))
-  expect(box().value).toBe('warmer, and slower')
-  expect(sessionStorage.getItem('note-draft:test')).toBe('warmer, and slower')
+  expect(box().value).toBe('and slower')
+  expect(sessionStorage.getItem('note-draft:test')).toBe('and slower')
+})
+
+it('the box warns that saving stops the held items', async () => {
+  render(ItemNote, { ...props(), stops: 2 })
+  await fireEvent.click(
+    screen.getByRole('button', { name: 'Add a note for the agent' }),
+  )
+  expect(
+    screen.getByText(
+      'Saving this note stops 2 items waiting for your OK from starting on their own.',
+    ),
+  ).toBeTruthy()
+})
+
+it('no hold, no warning', async () => {
+  await draft('x')
+  expect(screen.queryByText(/Saving this note stops/)).toBeNull()
+})
+
+it('an answered note shows the answer and Clear note', async () => {
+  const given = props('warmer, please', {
+    line: { text: 'Saved then.', answered: true },
+    answer: { revision: 8, why: 'retook shot 3 warmer' },
+  })
+  given.ondelete.mockResolvedValue(undefined)
+  render(ItemNote, given)
+  expect(
+    screen.getByText('The agent answered in r8: retook shot 3 warmer'),
+  ).toBeTruthy()
+  expect(screen.queryByRole('button', { name: 'Delete note' })).toBeNull()
+  const clear = screen.getByRole('button', { name: 'Clear note' })
+  expect(clear.getAttribute('title')).toBe(
+    'The agent has answered; remove it from the list',
+  )
+  await fireEvent.click(clear)
+  await waitFor(() => expect(given.ondelete).toHaveBeenCalledTimes(1))
+  expect(confirmDialog).not.toHaveBeenCalled()
+})
+
+it('a second save after typing on sends only the new words', async () => {
+  let landed!: () => void
+  const given = props(null)
+  given.onsave.mockReturnValueOnce(new Promise<void>((r) => (landed = r)))
+  given.onsave.mockResolvedValue(undefined)
+  render(ItemNote, given)
+  await fireEvent.click(
+    screen.getByRole('button', { name: 'Add a note for the agent' }),
+  )
+  await fireEvent.input(box(), { target: { value: 'warmer' } })
+  await fireEvent.click(screen.getByRole('button', { name: 'Save note' }))
+  await fireEvent.input(box(), { target: { value: 'warmer light' } })
+  landed()
+  await waitFor(() => expect(box().value).toBe('light'))
+  await fireEvent.click(screen.getByRole('button', { name: 'Save note' }))
+  await waitFor(() => expect(given.onsave).toHaveBeenCalledTimes(2))
+  expect(given.onsave.mock.calls[1][0]).toBe('light')
+})
+
+it("Cancel's discard question is danger", async () => {
+  await draft('half a thought')
+  confirmDialog.mockResolvedValue(false)
+  await fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+  await waitFor(() => expect(confirmDialog).toHaveBeenCalledTimes(1))
+  expect(confirmDialog.mock.calls[0][1]).toMatchObject({
+    confirmLabel: 'Discard',
+    danger: true,
+  })
+  expect(box().value).toBe('half a thought')
 })

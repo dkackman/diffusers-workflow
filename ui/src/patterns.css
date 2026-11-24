@@ -509,3 +509,9 @@ button.filetile:hover,
   overflow: auto;
   white-space: pre-wrap;
 }
+
+/* A menu is as wide as its words (Popover's `menu`): a .panel is a size
+   container, whose width never follows its content */
+.ui-popover-menu {
+  container-type: normal;
+}

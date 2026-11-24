@@ -75,6 +75,27 @@ it('leads with where the request stands and what needs the user', () => {
   expect(container.textContent).not.toMatch(/revision/)
 })
 
+it('pressing a needs part goes to its first item', async () => {
+  const p = props([
+    item('cast', { title: 'Cast sheet', ready: true }),
+    failed,
+    item('plate', { title: 'Plate', ready: true }),
+  ])
+  const { container } = render(RequestHeader, p)
+  expect(container.querySelector('.needs')?.textContent).toBe(
+    'Needs you: 2 ready to run, 1 failed.',
+  )
+  const ready = screen.getByRole('button', { name: '2 ready to run' })
+  expect(ready.getAttribute('title')).toBe('Go to Cast sheet')
+  expect(ready.classList.contains('bare')).toBe(true)
+  await fireEvent.click(ready)
+  expect(p.onselect).toHaveBeenLastCalledWith('cast')
+  const bad = screen.getByRole('button', { name: '1 failed' })
+  expect(bad.getAttribute('title')).toBe('Go to Shot 2')
+  await fireEvent.click(bad)
+  expect(p.onselect).toHaveBeenLastCalledWith('bad')
+})
+
 it('leaves out the needs line when nothing needs the user', () => {
   const { container } = render(RequestHeader, props([doneItem('a'), running]))
   expect(container.querySelector('.needs')).toBeNull()
@@ -219,12 +240,10 @@ it('has no filled button of its own, and a place for the one a page hands it', (
   const { container } = render(RequestHeader, {
     ...props([item('a', { ready: true })]),
     actions: createRawSnippet(() => ({
-      render: () => '<button type="button">Run 1 ready…</button>',
+      render: () => '<button type="button">Run 1…</button>',
     })),
   })
-  expect(container.querySelector('.primary button')?.textContent).toBe(
-    'Run 1 ready…',
-  )
+  expect(container.querySelector('.primary button')?.textContent).toBe('Run 1…')
 })
 
 const UNTIL = '2026-11-21T15:30:00+00:00'
@@ -275,7 +294,7 @@ it('has no Run now when no held row is ready, and no banner with nothing held', 
   expect(free.container.querySelector('.hold')).toBeNull()
 })
 
-it('counts down while a session listens, and says a redirect without a button', async () => {
+it('counts down while a session listens, and says a redirect with Run now', async () => {
   api.notesChannel.mockResolvedValue({ listening: true, last_seen: null })
   const { container, unmount } = render(RequestHeader, {
     ...props([held('a', 'holding', { ready: true, estimate_minutes: 3 })]),
@@ -293,9 +312,9 @@ it('counts down while a session listens, and says a redirect without a button', 
     onrunheld: vi.fn(),
   })
   expect(banner(redirected.container)).toBe(
-    'You left a note after these were held: the agent will revise before running.',
+    "You left a note after these were held, so they won't start on their own. The agent will read it and may revise them; run them here if they're right as they are.",
   )
-  expect(screen.queryByRole('button', { name: 'Run now…' })).toBeNull()
+  expect(screen.getByRole('button', { name: 'Run now…' })).toBeTruthy()
   redirected.unmount()
   api.notesChannel.mockResolvedValue({ listening: false, last_seen: null })
 })

@@ -10,6 +10,7 @@
   import {
     attention,
     doneFigure,
+    notesWaiting,
     orderRequests,
     summaryBands,
   } from '../request/attention'
@@ -113,6 +114,12 @@
             </span>
           </span>
           <span class="figures num muted">
+            {#if notesWaiting(req) > 0}
+              <span>
+                {notesWaiting(req)}
+                {notesWaiting(req) === 1 ? 'note' : 'notes'} waiting for the agent
+              </span>
+            {/if}
             <span>{formatSpent(req.spent_minutes)} spent</span>
             {#if req.state === 'open' && req.remaining_minutes > 0}
               <span>{formatMinutes(req.remaining_minutes)} left</span>
@@ -166,10 +173,12 @@
     font-weight: 600;
   }
   .attention.idle,
+  .attention.needs,
   .attention.running {
     color: var(--ink);
   }
-  .attention.idle {
+  .attention.idle,
+  .attention.needs {
     font-weight: 600;
   }
   .progress {

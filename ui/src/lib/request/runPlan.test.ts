@@ -1,5 +1,6 @@
 import { expect, it } from 'vitest'
-import type { Plan } from '../types'
+import { describeEstimate } from '../plan'
+import type { Plan, PlanEstimate } from '../types'
 import { attempt, doneItem, item, request, revisedItem } from './fixtures'
 import { planState } from './itemState'
 import { clockTime } from './reviewText'
@@ -12,6 +13,7 @@ import {
   itemPlan,
   planNotes,
   planSaid,
+  quoteLine,
   readyPlan,
 } from './runPlan'
 
@@ -54,7 +56,7 @@ const plan = () =>
 it('runs what is ready, in plan order, with what each job would run', () => {
   const run = readyPlan(plan())
   expect(run.single).toBe(false)
-  expect(run.candidates).toEqual([
+  expect(run.candidates.filter((c) => !c.optional)).toEqual([
     {
       key: 's4',
       title: 'Shot 4',
@@ -81,9 +83,81 @@ it('says why each other item will not run, and nothing of done or dropped ones',
     'Shot 5': 'waits on Shot 4 (ready)',
     'The cut': 'waits on Shot 3 (running), Shot 4 (ready)',
     Score: 'no stored workflow: ask the agent to run it',
-    Poster: 'failed: run it again from its row',
     'Queued one': 'already queued',
   })
+})
+
+it('failed items that can run join the ready plan, optional', () => {
+  const run = readyPlan(plan())
+  // after the others, as Task 2's "can run again" rule says
+  expect(run.candidates.map((c) => [c.key, c.optional ?? false])).toEqual([
+    ['s4', false],
+    ['title', false],
+    ['poster', true],
+  ])
+  expect(run.candidates[2]).toMatchObject({ workflow: 'shot', arguments: {} })
+  expect(run.skipped.map((s) => s.key)).not.toContain('poster')
+})
+
+it('a failed item that cannot run stays skipped', () => {
+  const req = request([
+    item('s3', { title: 'Shot 3', status: 'running' }),
+    item('f', {
+      title: 'Again',
+      status: 'failed',
+      depends_on: ['s3'],
+      attempts: [attempt('jf', 'failed')],
+    }),
+    item('g', {
+      title: 'Nothing stored',
+      status: 'failed',
+      workflow: null,
+      attempts: [attempt('jg', 'failed')],
+    }),
+  ])
+  const run = readyPlan(planState(req))
+  expect(run.candidates).toEqual([])
+  expect(run.skipped.map((s) => [s.key, s.reason])).toEqual([
+    ['s3', 'already running'],
+    ['f', 'waits on Shot 3 (running)'],
+    ['g', 'no stored workflow: ask the agent to run it'],
+  ])
+})
+
+it('no figure reads no time estimate with the reason as detail', () => {
+  const unknown = (over: Partial<PlanEstimate>) =>
+    ({
+      minutes: null,
+      basis: 'unknown',
+      device: 'cuda',
+      ...over,
+    }) as PlanEstimate
+  expect(
+    quoteLine(
+      unknown({ unpriced_reason: 'task-only workflow (compose_text)' }),
+    ),
+  ).toEqual({
+    text: 'No time estimate for this workflow.',
+    tone: 'plain',
+    detail: 'task-only workflow (compose_text)',
+  })
+  expect(quoteLine(unknown({}))).toEqual({
+    text: 'No time estimate for this workflow.',
+    tone: 'plain',
+    detail: 'no measured cost',
+  })
+  expect(quoteLine(null)).toEqual({
+    text: 'No time estimate for this workflow.',
+    tone: 'plain',
+  })
+  // a figure reads as describeEstimate gives it
+  const priced = {
+    minutes: 5,
+    basis: 'observed',
+    device: 'cuda',
+    measured_on: 'cuda',
+  } as PlanEstimate
+  expect(quoteLine(priced)).toEqual(describeEstimate(priced))
 })
 
 it('says what becomes ready when the chosen items finish, one step on only', () => {

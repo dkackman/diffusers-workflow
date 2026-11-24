@@ -20,6 +20,7 @@
   import { ReviewCountdown } from '../request/review.svelte'
   import { goWs } from '../router.svelte'
   import { announce } from '../request/announce'
+  import * as seen from '../request/planDiff'
   import { answeredNow, answeredText, noteItem } from '../request/answered'
   import { noteAnchor } from '../request/noteState'
   import { planState, titleId } from '../request/itemState'
@@ -59,6 +60,8 @@
       if (news) said = news
       readAt = Date.now() / 1000
       countdown.read(next)
+      // What the agent changed, and since this browser last looked (planDiff)
+      looked = seen.afterRead(ws, previous, next, looked)
       if (previous)
         for (const note of answeredNow(previous, next)) told(next, note.id)
     },
@@ -71,6 +74,7 @@
   // note while the page is open, never for one answered before it opened.
   // Note ids restart per request, so a switch forgets them (the effect below)
   let toldOf: Record<string, true> = {}
+  let looked = $state.raw(seen.UNSEEN)
   function told(next: LedgerRequest, id: string) {
     if (toldOf[id]) return
     toldOf[id] = true
@@ -93,6 +97,7 @@
       store.reset()
       toldOf = {}
       said = ''
+      looked = seen.UNSEEN
     })
   })
 
@@ -133,7 +138,11 @@
   // The priced run dialog, for what is ready or for one item. The page
   // never starts anything itself: a newly ready item waits to be asked for
   let running = $state<RunPlan | null>(null)
-  const ready = $derived(request?.state === 'open' ? plan?.toRun : 0)
+  // What the dialog would offer, ready and runnable failed items alike: the
+  // header's button and its count come from the same plan the dialog opens on
+  const offered = $derived(
+    request?.state === 'open' && plan ? readyPlan(plan).candidates.length : 0,
+  )
   /** Jobs were queued: show them at once, not at the next refresh */
   function ran(queued: number) {
     running = null
@@ -183,6 +192,7 @@
   // The page's own width, not the viewport's - the sidebar takes its share
   let page = $state<HTMLElement>()
   let header = $state<ReturnType<typeof RequestHeader>>()
+  let requestMenu = $state<ReturnType<typeof RequestMenu>>()
   let width = $state(0)
   $effect(() => {
     // jsdom has no ResizeObserver; the page then stays unfolded
@@ -193,6 +203,17 @@
   })
   const narrow = $derived(width > 0 && width < 640)
 </script>
+
+{#snippet changes(req: LedgerRequest, heading: boolean)}
+  <PlanChanges
+    history={req.history}
+    revision={req.revision}
+    {heading}
+    diffs={looked.diffs}
+    since={looked.since}
+    ondismiss={() => (looked = seen.dismissed(ws, store.read, looked))}
+  />
+{/snippet}
 
 {#snippet ask(req: LedgerRequest)}
   {#if req.prompt}
@@ -262,14 +283,19 @@
           onrunheld={(keys) => (running = heldPlan(plan, keys))}
         >
           {#snippet actions()}
-            {#if ready}
-              <button type="button" onclick={() => (running = readyPlan(plan))}>
-                Run {ready} ready…
+            {#if offered}
+              <button
+                type="button"
+                title="Price and queue what can run now"
+                onclick={() => (running = readyPlan(plan))}
+              >
+                Run {offered}…
               </button>
             {/if}
           {/snippet}
           {#snippet menu()}
             <RequestMenu
+              bind:this={requestMenu}
               {request}
               {store}
               workspace={ws}
@@ -291,6 +317,8 @@
           onrun={(key) => (running = itemPlan(plan, key))}
           {countdown}
           onmove={(text, refs) => header?.takeNote(text, refs)}
+          onreopen={() => requestMenu?.setState('open')}
+          reopening={requestMenu?.busy() ?? false}
         />
       </div>
 
@@ -308,15 +336,11 @@
           </details>
           <details>
             <summary>Plan changes ({request.history.length})</summary>
-            <PlanChanges
-              history={request.history}
-              revision={request.revision}
-              heading={false}
-            />
+            {@render changes(request, false)}
           </details>
         {:else}
           {@render ask(request)}
-          <PlanChanges history={request.history} revision={request.revision} />
+          {@render changes(request, true)}
         {/if}
       </div>
     </div>

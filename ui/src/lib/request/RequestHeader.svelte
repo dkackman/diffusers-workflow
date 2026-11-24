@@ -8,7 +8,7 @@
   import { notesWaiting } from './noteState'
   import type { ReviewCountdown } from './review.svelte'
   import { bannerText, holdGroup, runNowKeys } from './reviewText'
-  import { agentSaid, standing } from './standing'
+  import { agentSaid, needsParts, standing } from './standing'
   import { formatMinutes, formatMtime, formatSpent } from '../format'
   import { requestQuery } from '../requestFilter'
   import { SECTION_LABELS, wsHref } from '../routes'
@@ -32,7 +32,7 @@
     request: LedgerRequest
     plan: PlanState
     workspace: string
-    /** Go to an item's row: a progress segment was pressed */
+    /** Go to an item's row: a progress segment or a needs part was pressed */
     onselect: (key: string) => void
     /** Read the request again: a note was written */
     onreload: () => void | Promise<void>
@@ -55,6 +55,10 @@
   }
 
   const stand = $derived(standing(request, plan))
+  // The needs line, each part a way to the first item it counts
+  const parts = $derived(needsParts(plan))
+  const titleOf = (key: string) =>
+    plan.live.find((state) => state.item.key === key)?.item.title ?? key
   // The agent's latest word: where an answer to a note, or "ready, not
   // run", is said, so the page does not hide it in Plan changes
   const said = $derived(agentSaid(request))
@@ -110,7 +114,18 @@
   </PageHeader>
 
   <p class="standing">{stand.sentence}</p>
-  {#if stand.needs}<p class="needs">{stand.needs}</p>{/if}
+  {#if parts.length}
+    <p class="needs">
+      Needs you: {#each parts as part, i (part.reason)}{i ? ', ' : ''}<button
+          type="button"
+          class="bare part"
+          title={`Go to ${titleOf(part.key)}`}
+          onclick={() => onselect(part.key)}
+        >
+          {part.text}
+        </button>{/each}.
+    </p>
+  {/if}
   {#if said}
     <p class="said" title={said.why}>
       <span class="who">

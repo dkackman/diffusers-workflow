@@ -78,6 +78,13 @@ describe('formatMinutes', () => {
   })
 })
 
+it('formatMinutes past an hour reads hours and minutes', () => {
+  expect(formatMinutes(59.5)).toBe('about 59.5 min')
+  expect(formatMinutes(60)).toBe('about 1 h')
+  expect(formatMinutes(80)).toBe('about 1 h 20 min')
+  expect(formatMinutes(125.4)).toBe('about 2 h 5 min')
+})
+
 describe('formatApprox', () => {
   it('reads an ETA in whole minutes', () => {
     expect(formatApprox(30)).toBe('under 1 min')

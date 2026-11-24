@@ -375,13 +375,13 @@ export const api = {
   // The requests ledger. Unscoped: the workspace is in the path
   listRequests: (workspace: string) =>
     request<LedgerList>(
-      `/api/workspaces/${encodeURIComponent(workspace)}/requests`,
+      `/api/workspaces/${encodeURIComponent(workspace)}/requests?needs=true`,
       undefined,
       { scope: false },
     ),
   getRequest: (workspace: string, id: string) =>
     request<LedgerRequest>(
-      `/api/workspaces/${encodeURIComponent(workspace)}/requests/${encodeURIComponent(id)}`,
+      `/api/workspaces/${encodeURIComponent(workspace)}/requests/${encodeURIComponent(id)}?reasons=true`,
       undefined,
       { scope: false },
     ),
@@ -389,7 +389,7 @@ export const api = {
    * by the user. A stale revision is a 409 ApiError. */
   putRequest: (workspace: string, id: string, body: RequestWriteBody) =>
     request<LedgerRequest>(
-      `/api/workspaces/${encodeURIComponent(workspace)}/requests/${encodeURIComponent(id)}`,
+      `/api/workspaces/${encodeURIComponent(workspace)}/requests/${encodeURIComponent(id)}?reasons=true`,
       {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
