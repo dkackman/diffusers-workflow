@@ -977,7 +977,7 @@ it('a warning about an argument this job was given stays in view', async () => {
   const { container } = render(JobPage, { jobId: 'j1' })
   await waitFor(() =>
     expect(container.querySelector('.warnrow')?.textContent).toContain(
-      'too long',
+      'prompt: too long',
     ),
   )
   expect(container.querySelectorAll('.warnrow')).toHaveLength(1)

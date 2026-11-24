@@ -10,13 +10,18 @@
   const placed = $derived(
     placeFindings({ valid: true, errors: [], warnings, error: null }, given),
   )
-  const warned = $derived(Object.values(placed.byVariable).flat())
+  // The job page has no field to sit under, so each says which argument it is about
+  const warned = $derived(
+    Object.entries(placed.byVariable).flatMap(([name, found]) =>
+      found.map((f) => `${name}: ${f.text}`),
+    ),
+  )
 </script>
 
 {#if warned.length}
   <div class="panel warnings warn-edge">
-    {#each warned as warning, i (i)}
-      <div class="warnrow"><TriangleAlert size={14} /> {warning.text}</div>
+    {#each warned as text, i (i)}
+      <div class="warnrow"><TriangleAlert size={14} /> {text}</div>
     {/each}
   </div>
 {/if}
