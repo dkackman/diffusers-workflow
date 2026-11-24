@@ -63,11 +63,11 @@
     <a
       class="plain"
       href={wsHref(ws, 'requests', request)}
-      title={title ? `${title} - open this request` : 'open this request'}
+      title={`${request} - open this request`}
     >
-      {#if item}<code>{request} › {item}</code>{:else}request <code>
-          {request}
-        </code>{/if}
+      {#if title}request: {title}{:else}request: <code>{request}</code>{/if}
+      {#if item}
+        › <code>{item}</code>{/if}
     </a>
     <button
       class="quiet icon"

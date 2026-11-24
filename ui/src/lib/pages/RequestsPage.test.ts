@@ -76,7 +76,7 @@ it('lists a request as one row: its pictures, what it wants, how far and what it
   expect(link.querySelector('.tag')?.textContent).toBe('open')
   const line = link.querySelector('.attention') as HTMLElement
   expect(line.textContent?.trim()).toBe(
-    'idle: 1 planned (1 ready), nothing running',
+    '1 planned, nothing running',
   )
   expect(line.classList.contains('idle')).toBe(true)
   expect(
@@ -302,4 +302,33 @@ it('a request an agent edited is marked', async () => {
   expect(marked.map((r) => r.getAttribute('href'))).toEqual([
     '#/ws/studio/requests/r2',
   ])
+})
+
+it('a row names its waiting notes', async () => {
+  data.requests = [
+    summary({
+      id: 'n',
+      title: 'Noted',
+      needs: {
+        held: 0,
+        ready: 1,
+        failed: 0,
+        revised: 0,
+        choose: 0,
+        accepted_missing: 0,
+        notes_waiting: 2,
+      },
+    }),
+    summary({ id: 'm', title: 'Plain' }),
+  ]
+  render(RequestsPage)
+  await screen.findByRole('link', { name: /Noted/ })
+  const [noted, plain] = rows()
+  expect(noted.querySelector('.figures')?.textContent).toMatch(
+    /2\s+notes waiting for the agent/,
+  )
+  expect(noted.querySelector('.attention')?.textContent?.trim()).toBe(
+    'Needs you: 1 ready to run.',
+  )
+  expect(plain.querySelector('.figures')?.textContent).not.toMatch(/waiting/)
 })

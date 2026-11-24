@@ -280,11 +280,16 @@ icon, a finish-alert toggle, the theme toggle, and links to these docs and
 - **Requests** - the workspace's requests ledger
   ([WORKSPACES.md](WORKSPACES.md#requests)): what was asked of an agent, as
   the plan it wrote. The list is one row a request - up to three thumbnails
-  of its latest results, the title, one line that is the first of *failed*,
-  *running*, *queued*, *idle* and *all done, still open*, a bar of its items
+  of its latest results, the title, one line that is the sentence the
+  request's page leads its needs with ("Needs you: 1 waiting for your OK, 2
+  ready to run.") or, with nothing for you, the first of *running*, *queued*,
+  *n planned, nothing running*, *all done, still open* and *nothing planned
+  yet* (a server older than the `needs` the list asks for gives the
+  status line, failed first), a bar of its items
   with done of those in the plan, minutes spent (measured, so no `~`) and
-  left (estimated), and when it was last written. Requests with something
-  for you to do come first, then those with a job in flight; closed ones
+  left (estimated), the notes waiting for the agent, and when it was last
+  written. Requests with items waiting for your OK come first, then those
+  with something else for you to do, then those with a job in flight; closed ones
   are hidden until the filter is set to **all** (`?show=all`).
 
   A request's page leads with where it stands in a sentence ("Rendering

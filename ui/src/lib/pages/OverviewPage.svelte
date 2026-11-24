@@ -234,14 +234,14 @@
     </h2>
     <ul class="jobs">
       {#each openRequests as req (req.id)}
-        <li>
+        <li class="reqrow">
           <a class="plain wf" href={wsHref(name, 'requests', req.id)}>
             {req.title}
           </a>
-          <span class="muted">{attention(req).text}</span>
           <span class="muted num" title="items done, of those in the plan">
             {doneFigure(req)}
           </span>
+          <span class="muted reqline">{attention(req).text}</span>
         </li>
       {/each}
     </ul>
@@ -428,6 +428,18 @@
     align-items: center;
     gap: var(--space-3);
     min-width: 0;
+  }
+  /* The title and the figure on a line, what it needs under them: the
+     sentence is long, and must not push the title out at 390 px */
+  .jobs .reqrow {
+    flex-wrap: wrap;
+    row-gap: 0;
+  }
+  .jobs .reqline {
+    flex: 1 0 100%;
+    font-family: inherit;
+    font-size: var(--t-xs);
+    overflow-wrap: anywhere;
   }
   .jobs .wf {
     flex: 1;

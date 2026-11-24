@@ -1,10 +1,19 @@
 // A request as one row of a list: the line that says what it wants, the
 // order the list puts it in, and its counts. All from a LedgerSummary.
 import { bandsOf, type Band } from './itemState'
+import { needsLine } from './standing'
+import type { NeedsReason } from './itemState'
 import type { LedgerItemStatus, LedgerSummary } from '../types'
 
 export type AttentionKind =
-  'failed' | 'running' | 'queued' | 'idle' | 'done-open' | 'empty' | 'closed'
+  | 'needs'
+  | 'failed'
+  | 'running'
+  | 'queued'
+  | 'idle'
+  | 'done-open'
+  | 'empty'
+  | 'closed'
 
 export type Attention = {
   kind: AttentionKind
@@ -30,33 +39,35 @@ export const doneFigure = (summary: LedgerSummary) =>
 export const summaryBands = (summary: LedgerSummary): Band[] =>
   bandsOf(summary.status_counts)
 
-function idle(summary: LedgerSummary): string {
-  const revised = of(summary, 'revised')
-  const planned = of(summary, 'planned')
-  const parts = [
-    ...(revised ? [`${revised} revised`] : []),
-    ...(planned || !revised ? [`${planned} planned`] : []),
-  ]
-  const ready = summary.ready ? ` (${summary.ready} ready)` : ''
-  return `idle: ${parts.join(', ')}${ready}, nothing running`
-}
+/** What wants the user, by reason, as the server counted it; null from a
+ * server older than the `needs` it sends. */
+const needsOf = (summary: LedgerSummary) =>
+  (summary.needs ?? null) as Record<NeedsReason, number> | null
+
+/** Notes the agent has not read yet: the list's figure, never a need */
+export const notesWaiting = (summary: LedgerSummary) =>
+  summary.needs?.notes_waiting ?? 0
 
 function openLine(summary: LedgerSummary): [AttentionKind, string] {
+  const needs = needsOf(summary)
+  const sentence = needs && needsLine(needs)
+  if (sentence) return ['needs', sentence]
   const failed = of(summary, 'failed')
-  if (failed) return ['failed', `${failed} failed`]
+  if (!needs && failed) return ['failed', `${failed} failed`]
   if (of(summary, 'running')) return ['running', 'running']
   if (of(summary, 'queued')) return ['queued', 'queued']
-  if (of(summary, 'planned') || of(summary, 'revised'))
-    return ['idle', idle(summary)]
+  const planned = of(summary, 'planned') + of(summary, 'revised')
+  if (planned) return ['idle', `${planned} planned, nothing running`]
   return liveItems(summary)
     ? ['done-open', 'all done, still open']
     : ['empty', 'nothing planned yet']
 }
 
-/** The row's one line, the first that holds: something failed, something
- * is running, something is queued, planned or revised items sit idle, everything is
- * done and the request is still open. A closed request says nothing: its
- * state tag does. */
+/** The row's one line, the first that holds: what needs the user (the
+ * server's `needs`, said as the request header says it), else, from a server
+ * that sends none, something failed; then running, queued, planned items
+ * sitting idle, everything done and the request still open. A closed
+ * request says nothing: its state tag does. */
 export function attention(summary: LedgerSummary): Attention {
   const live = of(summary, 'running') > 0
   if (summary.state !== 'open') return { kind: 'closed', text: '', live }
@@ -64,20 +75,36 @@ export function attention(summary: LedgerSummary): Attention {
   return { kind, text, live }
 }
 
-/** An open request with something for the user to do: run, look at, or
+/** An open request with something for the user to do: what the server's
+ * `needs` counts (notes waiting are the agent's), else run, look at, or
  * keep a revised item's take */
-export const needsYou = (summary: LedgerSummary) =>
-  summary.state === 'open' &&
-  (summary.ready > 0 || of(summary, 'failed') > 0 || of(summary, 'revised') > 0)
+export function needsYou(summary: LedgerSummary) {
+  if (summary.state !== 'open') return false
+  const needs = needsOf(summary)
+  if (needs)
+    return Object.entries(needs).some(
+      ([reason, n]) => reason !== 'notes_waiting' && n > 0,
+    )
+  return (
+    summary.ready > 0 || of(summary, 'failed') > 0 || of(summary, 'revised') > 0
+  )
+}
 
 const inFlight = (summary: LedgerSummary) =>
   of(summary, 'running') + of(summary, 'queued') > 0
 
+/** Held items first: they wait on the user and start on their own */
 const rank = (summary: LedgerSummary) =>
-  needsYou(summary) ? 0 : inFlight(summary) ? 1 : 2
+  summary.state === 'open' && (needsOf(summary)?.held ?? 0) > 0
+    ? 0
+    : needsYou(summary)
+      ? 1
+      : inFlight(summary)
+        ? 2
+        : 3
 
-/** The list's order: what needs the user, then what is in flight, then
- * the most recently written. */
+/** The list's order: held requests, what else needs the user, then what is
+ * in flight, then the most recently written. */
 export function orderRequests(requests: LedgerSummary[]): LedgerSummary[] {
   const written = (s: LedgerSummary) =>
     s.updated_at ? Date.parse(s.updated_at) : 0

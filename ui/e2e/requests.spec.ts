@@ -53,7 +53,7 @@ test('the requests list says what the request wants and shows its latest results
   await expect(row.locator('.tag')).toHaveText('open')
   // nothing of it is running, and one of its two planned items can be run
   await expect(row.locator('.attention')).toHaveText(
-    'idle: 2 planned (1 ready), nothing running',
+    'Needs you: 1 ready to run, 1 take to choose.',
   )
   // one item of the three in the plan is done: the dropped one is not counted
   await expect(row.locator('.progress')).toContainText('1/3')

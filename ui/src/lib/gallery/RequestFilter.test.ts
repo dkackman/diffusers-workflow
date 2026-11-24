@@ -82,3 +82,26 @@ it('offers no picker when it is not pickable', async () => {
   await new Promise((r) => setTimeout(r, 10))
   expect(picker()).toBeNull()
 })
+
+it("the chip names the request's title", async () => {
+  data.requests = [summary()]
+  history.replaceState(null, '', '#/ws/studio/gallery?req=r1/hero')
+  render(RequestFilter, { request: '', item: '' })
+  const chip = await screen.findByTestId('req-filter')
+  await waitFor(() =>
+    expect(chip.textContent).toMatch(/request: Launch posters/),
+  )
+  expect(chip.textContent).toMatch(/› hero/)
+  expect(chip.querySelector('a')?.getAttribute('title')).toBe(
+    'r1 - open this request',
+  )
+})
+
+it('the id stands in until the title is known', async () => {
+  data.error = new Error('down')
+  history.replaceState(null, '', '#/ws/studio/gallery?req=r1')
+  render(RequestFilter, { request: '', item: '' })
+  const chip = await screen.findByTestId('req-filter')
+  expect(chip.textContent).toMatch(/request:\s*r1/)
+  expect(chip.textContent).not.toMatch(/Launch/)
+})

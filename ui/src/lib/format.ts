@@ -72,7 +72,11 @@ export function formatDuration(seconds: number): string {
  * else keeps the measured value ('about 3 min', 'about 1.5 min') rather
  * than rounding it away. */
 export const formatMinutes = (minutes: number) =>
-  minutes < 1 ? 'under 1 min' : `about ${Number(minutes.toFixed(2))} min`
+  minutes < 1
+    ? 'under 1 min'
+    : minutes < 60
+      ? `about ${Number(minutes.toFixed(2))} min`
+      : formatApprox(minutes * 60)
 
 /** A span of seconds as a rough figure - an ETA: 'under 1 min', 'about 3
  * min' in whole minutes, 'about 1 h 20 min' from an hour up. */
