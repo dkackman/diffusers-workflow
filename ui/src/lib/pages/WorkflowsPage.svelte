@@ -7,7 +7,7 @@
   import PageHeader from '../ui/PageHeader.svelte'
   import { writableRoot } from '../libraries'
   import FolderGroups from '../FolderGroups.svelte'
-  import { leafOf } from '../grouping'
+  import { groupOf, leafOf } from '../grouping'
   import HintBar from '../HintBar.svelte'
   import { costFigure } from '../cost'
   import { observedText } from '../observed'
@@ -301,6 +301,11 @@
         {/if}
         <span class="caption">
           <span class="cardname">{leafOf(name)}</span>
+          <!-- Searching flattens the folders, so the folder moves onto the
+             card: three text-to-image workflows must not look alike -->
+          {#if searching && groupOf(name)}
+            <span class="cardfolder muted">{groupOf(name)}</span>
+          {/if}
           <span class="cardmeta muted">
             {#if detail?.shape}<span class="shape">{detail.shape}</span>{/if}
             {#if detail?.kinds.includes('image')}<Image size={12} />{/if}
@@ -411,6 +416,13 @@
     align-items: center;
     gap: 0.35rem;
     font-size: var(--t-xs);
+  }
+  .cardfolder {
+    font-family: var(--font-mono);
+    font-size: var(--t-xs);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .needs {
     font-size: var(--t-xs);

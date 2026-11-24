@@ -448,3 +448,44 @@ it('a second press on a shape clears it to all', async () => {
       .getAttribute('aria-pressed'),
   ).toBe('true')
 })
+
+it("a search shows each card's folder, and clearing restores the groups", async () => {
+  listing.workflows = [
+    'templates/text-to-image',
+    'templates/flux3/text-to-image',
+    'templates/minimax-h3-image/text-to-image',
+  ]
+  listing.details = Object.fromEntries(
+    listing.workflows.map((w) => [
+      w,
+      { kinds: ['image'], steps: 1, variables: 0, shape: 'image', traits: [] },
+    ]),
+  )
+  render(WorkflowsPage)
+  await waitFor(() =>
+    expect(document.querySelectorAll('.cardname')).toHaveLength(3),
+  )
+  expect(document.querySelectorAll('.cardfolder')).toHaveLength(0)
+
+  const box = screen.getByPlaceholderText('search workflows…')
+  await fireEvent.input(box, { target: { value: 'text to image' } })
+  await waitFor(() =>
+    expect(document.querySelectorAll('.cardfolder')).toHaveLength(3),
+  )
+  const folders = [...document.querySelectorAll('.cardfolder')].map(
+    (e) => e.textContent,
+  )
+  expect(folders.sort()).toEqual([
+    'templates',
+    'templates/flux3',
+    'templates/minimax-h3-image',
+  ])
+
+  await fireEvent.input(box, { target: { value: '' } })
+  await waitFor(() =>
+    expect(document.querySelectorAll('.cardfolder')).toHaveLength(0),
+  )
+  expect(document.querySelectorAll('.cardname')).toHaveLength(3)
+  for (const e of document.querySelectorAll('.cardname'))
+    expect(e.textContent).toBe('text-to-image')
+})
