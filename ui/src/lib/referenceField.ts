@@ -11,6 +11,7 @@ import { referenceCompletions } from './refcomplete.svelte'
 import { referenceSuggestions } from './referenceSuggestions'
 import { ASSET, OUTPUT, PREVIOUS_RESULT, referenceName } from './references'
 import { leafName } from './names'
+import type { AssetKind } from './types'
 import type { SuggestItem } from './ui/suggest'
 import { workspace } from './workspace.svelte'
 
@@ -26,7 +27,9 @@ export function mediaKindOf(
 
 /** The kind as copy names it, with its article: "an image", "a video",
  * "an audio", "a file" */
-export function kindWithArticle(kind: FieldKind | undefined): string {
+export function kindWithArticle(
+  kind: FieldKind | AssetKind | undefined,
+): string {
   const word = kind ?? 'file'
   return `${/^[aeiou]/.test(word) ? 'an' : 'a'} ${word}`
 }

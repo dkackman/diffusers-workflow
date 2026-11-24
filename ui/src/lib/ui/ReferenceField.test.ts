@@ -135,6 +135,25 @@ it('a failed upload says why in plain words, the server text folded behind Detai
   )
 }, 20000)
 
+it('a value taken after a failed upload clears the upload error', async () => {
+  URL.createObjectURL = vi.fn(() => 'blob:failed-then-taken')
+  URL.revokeObjectURL = vi.fn()
+  uploadMedia.mockRejectedValueOnce(new Error('upload failed'))
+  const onchange = vi.fn()
+  const { container } = field({ onchange })
+  await pickFile(container, png())
+  await screen.findByRole('alert')
+  // Choose… and a typed value both commit through the same path
+  const input = screen.getByRole('combobox') as HTMLInputElement
+  await fireEvent.input(input, { target: { value: 'asset:cast/priya.png' } })
+  await fireEvent.change(input, { target: { value: 'asset:cast/priya.png' } })
+  expect(onchange).toHaveBeenLastCalledWith('asset:cast/priya.png')
+  expect(screen.queryByRole('alert')).toBeNull()
+  expect(container.textContent).not.toContain(
+    'The path above can still be typed by hand.',
+  )
+}, 20000)
+
 it('previews the file an asset: reference names', () => {
   const { container } = field({ value: 'asset:cast/priya.png' })
   const tile = container.querySelector('.preview .filetile.tile-strip')

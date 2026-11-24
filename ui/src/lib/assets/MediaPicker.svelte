@@ -18,6 +18,7 @@
     outputNamed,
   } from '../outputlib.svelte'
   import { ASSET, OUTPUT, reference, referenceName } from '../references'
+  import { kindWithArticle } from '../referenceField'
   import { matchesWords } from '../ui/suggest'
   import type { AssetFile } from '../types'
   import { workspace } from '../workspace.svelte'
@@ -158,7 +159,7 @@
 
 <Modal bind:open label="choose a file" large>
   <div class="head">
-    <h2>Choose {kind === 'image' ? 'an image' : `a ${kind ?? 'file'}`}</h2>
+    <h2>Choose {kindWithArticle(kind)}</h2>
     <Segmented
       label="where to choose from"
       value={tab}

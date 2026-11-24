@@ -100,6 +100,13 @@ it('shows the asset library by section, this workspace first, as thumbnails', ()
   )
 })
 
+it('names the kind it chooses with its article', () => {
+  render(MediaPicker, { open: true, kind: 'audio', onpick: () => {} })
+  expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent(
+    'Choose an audio',
+  )
+})
+
 it('a clip shows its play badge', async () => {
   render(MediaPicker, { open: true, onpick: () => {} })
   const clip = screen.getByRole('button', { name: 'choose clips/intro.mp4' })

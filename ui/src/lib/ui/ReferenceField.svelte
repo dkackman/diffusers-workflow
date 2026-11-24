@@ -124,6 +124,7 @@
   function commit(next: string) {
     setLocal(null)
     error = ''
+    failure = null
     onchange(next)
   }
 
