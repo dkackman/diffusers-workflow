@@ -52,6 +52,8 @@
 {#if file.kind === 'image'}
   <img class={cls} src={file.url} alt={file.label} draggable="false" />
 {:else if file.kind === 'video'}
+  <!-- Generated media has no caption track to offer -->
+  <!-- svelte-ignore a11y_media_has_caption -->
   <video
     bind:this={video}
     class={cls}
@@ -60,10 +62,7 @@
     loop
     playsinline
     tabindex="-1"
-  >
-    <!-- A generated clip comes with no captions: the track is empty -->
-    <track kind="captions" />
-  </video>
+  ></video>
 {:else if file.kind === 'audio'}
   <audio class="media-body media-sound" src={file.url} {controls}></audio>
 {:else if text.error}
