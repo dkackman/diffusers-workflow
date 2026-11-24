@@ -27,6 +27,7 @@
     SECTION_LABELS,
     serverHref,
     sharedHref,
+    switchHref,
     wsHref,
     type ServerSection,
     type SharedSection,
@@ -34,8 +35,7 @@
   } from './routes'
   import { resource } from './resource.svelte'
   import { relistWorkspaces, workspace } from './workspace.svelte'
-  import { createWorkspaceAndGo } from './workspaceActions'
-  import { action } from './action.svelte'
+  import NewWorkspace from './NewWorkspace.svelte'
   import { formatBytes } from './format'
   import { wsColor } from './wsColor'
   import { groupWorkspaces } from './wsGroups'
@@ -157,28 +157,6 @@
   let showHidden = $state(false)
 
   let adding = $state(false)
-  let newName = $state('')
-  let addError = $state('')
-  let nameInput = $state<HTMLInputElement | null>(null)
-
-  function startAdd() {
-    adding = true
-    addError = ''
-    newName = ''
-    // the input mounts on the next tick
-    queueMicrotask(() => nameInput?.focus())
-  }
-  // A refused name is said beside the field; Enter twice creates it once
-  const creating = action(
-    async (name: string) => {
-      const failure = await createWorkspaceAndGo(name)
-      if (failure) addError = failure
-      else adding = false
-      return failure
-    },
-    { doing: (name) => `create workspace ${name}` },
-  )
-  const submitAdd = () => void creating.run(newName.trim())
 </script>
 
 {#snippet wsRow(name: string)}
@@ -219,10 +197,20 @@
         {/each}
       </div>
     </div>
-  {:else if !collapsed}
+  {:else if collapsed}
+    <a
+      class="plain dotlink"
+      href={switchHref(name, route.view)}
+      title={name}
+      aria-label="{name} workspace"
+      style:--ws-dot={wsColor(name)}
+    >
+      <span class="dot solo"></span>
+    </a>
+  {:else}
     <a
       class="plain ws shut"
-      href={wsHref(name, 'overview')}
+      href={switchHref(name, route.view)}
       title={name}
       style:--ws-dot={wsColor(name)}
     >
@@ -301,41 +289,26 @@
           </div>
         {/if}
       {/if}
-      {#if !collapsed && workspace.root}
-        {#if adding}
-          <form
-            class="newws"
-            aria-busy={creating.busy}
-            onsubmit={(e) => {
-              e.preventDefault()
-              submitAdd()
-            }}
-          >
-            <input
-              bind:this={nameInput}
-              bind:value={newName}
-              placeholder="name"
-              aria-label="new workspace name"
-              onkeydown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault()
-                  submitAdd()
-                }
-                if (e.key === 'Escape') adding = false
-              }}
-            />
-            {#if addError}<span class="muted err">{addError}</span>{/if}
-          </form>
-        {:else}
-          <button
-            class="bare item"
-            onclick={startAdd}
-            title="new workspace"
-            aria-label="new workspace"
-          >
-            <Plus size={15} /><span class="label">new</span>
-          </button>
-        {/if}
+      {#if collapsed}
+        <!-- the rail has no room for the form or the reason -->
+      {:else if adding}
+        <NewWorkspace onclose={() => (adding = false)} />
+      {:else if workspace.root}
+        <button
+          class="bare item"
+          onclick={() => (adding = true)}
+          title="new workspace"
+          aria-label="new workspace"
+        >
+          <Plus size={15} /><span class="label">new</span>
+        </button>
+      {:else if workspace.names}
+        <span
+          class="muted noroot"
+          title="Start the server with --workspace <folder> to add workspaces."
+        >
+          New workspaces need a workspace folder
+        </span>
       {/if}
     </div>
 
@@ -566,18 +539,15 @@
     width: 100%;
     text-align: left;
   }
-  .newws {
+  .dotlink {
     display: flex;
-    flex-direction: column;
-    gap: var(--space-1);
-    padding: 0.2rem var(--space-4);
+    justify-content: center;
   }
-  .newws input {
-    width: 100%;
-    font-family: var(--font-mono);
-    font-size: var(--t-sm);
+  .dotlink:hover {
+    background: var(--panel-2);
   }
-  .err {
+  .noroot {
+    padding: 0.35rem var(--space-4);
     font-family: var(--font-sans);
     font-size: var(--t-xs);
   }
