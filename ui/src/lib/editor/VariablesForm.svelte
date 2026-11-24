@@ -10,6 +10,7 @@
     presetView,
     widgetFor,
   } from '../editor'
+  import { isFreeText } from '../workflow/runForm'
   import { promptLibrary } from '../promptlib.svelte'
   import { promptTooltip } from '../prompts'
   import { referenceCompletions } from '../refcomplete.svelte'
@@ -36,6 +37,7 @@
     kinds = {},
     advanced = new Set<string>(),
     seed = null,
+    onenhance = undefined,
   }: {
     /** define: edit the workflow's own defaults (add/remove/coerce).
      * override: fill per-run values over read-only defaults. */
@@ -70,6 +72,9 @@
     /** The variable the workflow's seed names: with no default it says the
      * seed is drawn for each job */
     seed?: string | null
+    /** Override mode: a free-text variable offers Enhance…, which asks the
+     * page to open the enhancer for this key */
+    onenhance?: (key: string) => void
   } = $props()
 
   const keys = $derived(Object.keys(variables ?? {}))
@@ -204,6 +209,18 @@
   }
 </script>
 
+{#snippet enhance(key: string)}
+  {#if mode === 'override' && onenhance && isFreeText(variables[key])}
+    <button
+      class="quiet"
+      onclick={() => onenhance(key)}
+      title="Expand an idea into a full prompt with a language model"
+    >
+      Enhance…
+    </button>
+  {/if}
+{/snippet}
+
 {#snippet row(key: string)}
   <label for={idPrefix + key}>
     {key}{#if requiredVariables.has(key)}
@@ -256,7 +273,9 @@
         placeholder={placeholderFor(key) || undefined}
         oninput={(raw) => draft(key, raw)}
         onchange={(raw) => commit(key, raw)}
-      />
+      >
+        {@render enhance(key)}
+      </ReferenceField>
     {:else}
       <ExpandingText
         id={idPrefix + key}
@@ -269,6 +288,7 @@
         onchange={(raw) => commit(key, raw)}
         onpromptpick={(name) => commit(key, reference(PROMPT, name))}
       />
+      {@render enhance(key)}
     {/if}
   </div>
   {#if mode === 'define'}

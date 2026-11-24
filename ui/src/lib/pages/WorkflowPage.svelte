@@ -29,6 +29,7 @@
   import { placeFindings } from '../findings'
   import { RunCheck, verdictOf } from '../runCheck.svelte'
   import RunCheckPanel from '../workflow/RunCheckPanel.svelte'
+  import EnhanceDialog from '../workflow/EnhanceDialog.svelte'
   import * as form from '../workflow/runForm'
   import RemoteNotice from '../ui/RemoteNotice.svelte'
 
@@ -105,6 +106,7 @@
   })
 
   let restored = $state(false)
+  let enhancing = $state('') // the variable whose Enhance dialog is open
   let seeded = '' // the draft key (workspace and name) held in `overrides`
   const saver = new form.DraftSaver()
 
@@ -138,16 +140,7 @@
 
   const variables = $derived(Object.entries(workflow?.variables ?? {}))
 
-  /** The arguments a Run sends: the overrides with every blank dropped, so
-   * a blank field leaves the workflow's own default in place. Validate asks
-   * about exactly these, so its answer predicts the Run click. */
-  function runArguments(): Record<string, unknown> {
-    const args: Record<string, unknown> = {}
-    for (const [key, value] of Object.entries(overrides)) {
-      if (value !== '') args[key] = value
-    }
-    return args
-  }
+  const runArguments = () => form.runArguments(overrides)
 
   /** The check beside Run, asked about exactly what Run would send. */
   const runCheck = new RunCheck((sizes, signal) =>
@@ -366,6 +359,12 @@
           kinds={card?.inputs ?? {}}
           advanced={form.advancedVariables(workflow, card)}
           seed={form.seedVariable(workflow)}
+          onenhance={(key) => (enhancing = key)}
+        />
+        <EnhanceDialog
+          bind:open={() => !!enhancing, () => (enhancing = '')}
+          idea={form.enhanceIdea(overrides, workflow, enhancing)}
+          onuse={(text) => (overrides[enhancing] = text)}
         />
       </div>
     {:else}

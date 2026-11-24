@@ -17,6 +17,30 @@ export function isFreeText(value: unknown): boolean {
   )
 }
 
+/** The arguments a Run sends: the overrides with every blank dropped, so a
+ * blank field leaves the workflow's own default in place. Validate asks
+ * about exactly these, so its answer predicts the Run click. */
+export function runArguments(
+  overrides: Record<string, string>,
+): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(overrides).filter(([, v]) => v !== ''),
+  )
+}
+
+/** What Enhance starts from: what is typed, else the default - unless that
+ * is a prompt: reference, which is not text to expand. */
+export function enhanceIdea(
+  overrides: Record<string, string>,
+  workflow: WorkflowDefinition,
+  key: string,
+): string {
+  const fallback = workflow.variables?.[key]
+  const text =
+    typeof fallback === 'string' && !fallback.startsWith(PROMPT) ? fallback : ''
+  return overrides[key] || text
+}
+
 /** The variables a person is expected to set: required ones, the ones that
  * take a file, the ones that move the cost, preset selectors and free text */
 export function essentials(

@@ -744,3 +744,16 @@ describe('WorkflowPage run form', () => {
     expect(localStorage.key(0)).toContain('run-draft:')
   })
 })
+
+it('only free-text fields offer Enhance', async () => {
+  vi.mocked(api.getWorkflow).mockResolvedValue({
+    definition: {
+      ...definition,
+      variables: { prompt: 'a cat', dtype: 'float16', seed: 0 },
+    },
+    origin: 'examples',
+    writable: false,
+  } as never)
+  await openPage()
+  expect(screen.getAllByRole('button', { name: 'Enhance…' })).toHaveLength(1)
+})

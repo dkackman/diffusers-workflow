@@ -30,6 +30,8 @@ export class Enhancer {
   errorDetail = $state('')
   result = $state('')
   jobId = $state('')
+  /** The workspace the job runs in, which its link names */
+  jobWorkspace = $state('')
   // The server reported no presets, or could not be asked
   down = $state(false)
   #stopStream: (() => void) | null = null
@@ -138,6 +140,7 @@ export class Enhancer {
         device: this.device || undefined,
       })
       this.jobId = job.id
+      this.jobWorkspace = job.workspace
       if (job.queue_position !== undefined) {
         this.status = `queued · #${job.queue_position + 1} in line`
       }
@@ -182,6 +185,7 @@ export class Enhancer {
       this.busy = false
       this.status = ''
       this.jobId = ''
+      this.jobWorkspace = ''
     }
   }
 

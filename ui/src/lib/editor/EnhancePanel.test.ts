@@ -2,6 +2,7 @@ import { cleanup, render, screen } from '@testing-library/svelte'
 import { afterEach, expect, it, vi } from 'vitest'
 import EnhancePanel from './EnhancePanel.svelte'
 import { Enhancer } from '../enhancer.svelte'
+import { jobHref } from '../routes'
 
 vi.mock('../toast', () => ({ notify: { error: vi.fn(), success: vi.fn() } }))
 afterEach(cleanup)
@@ -18,4 +19,14 @@ it('a failed enhancement leads with plain words, the engine text folded behind D
   )
   expect(alert.querySelector('details')?.open).toBe(false)
   expect(alert.querySelector('details pre')?.textContent).toBe(raw)
+})
+
+it("the job link names the job's own workspace", async () => {
+  const enhancer = new Enhancer()
+  enhancer.busy = true
+  enhancer.jobId = 'j9'
+  enhancer.jobWorkspace = 'elsewhere'
+  render(EnhancePanel, { props: { enhancer, onuse: vi.fn() } })
+  const link = screen.getByRole('link', { name: 'watch job' })
+  expect(link.getAttribute('href')).toBe(jobHref('j9', 'elsewhere'))
 })
