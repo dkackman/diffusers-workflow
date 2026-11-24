@@ -168,3 +168,28 @@ def test_the_ui_mount_serves_nothing_outside_its_directory(client, path):
 def test_api_answers_keep_their_cache_headers(client):
     response = client.get("/api/jobs")
     assert "immutable" not in response.headers.get("cache-control", "")
+
+
+def test_a_small_body_is_not_compressed(client):
+    response = client.get("/api/jobs", headers=GZIP)
+    assert response.status_code == 200
+    assert len(response.content) < 1000
+    assert "content-encoding" not in response.headers
+    assert response.headers["content-length"] == str(len(response.content))
+
+
+def test_a_large_body_is_compressed_and_still_secured(client, tree):
+    for index in range(40):
+        (tree["root"] / "workflows" / f"w{index}.json").write_text(
+            json.dumps(valid_workflow(f"w{index}"))
+        )
+    response = client.get("/api/workflows", headers=GZIP)
+    assert response.headers["content-encoding"] == "gzip"
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert response.headers["x-frame-options"] == "DENY"
+
+
+def test_an_uncompressed_download_keeps_its_length(client):
+    response = client.get("/outputs/run.png", headers=GZIP)
+    assert "content-encoding" not in response.headers
+    assert response.headers["content-length"] == str(len(response.content))

@@ -275,9 +275,9 @@ def create_app(
     )
     app.state.downloads.changes = app.state.changes
     app.state.updater.changes = app.state.changes
-    install_middleware(app)
-    # After install_middleware: security answers first, its 4xx gzipped
+    # Before install_middleware: outside its streams, GZip ignores minimum_size
     app.add_middleware(_compress)
+    install_middleware(app)
     include_routers(app)
     if mcp_asgi is not None:
         _mount_mcp(app, mcp_asgi)
