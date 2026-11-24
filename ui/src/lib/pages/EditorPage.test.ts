@@ -6,6 +6,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from '@testing-library/svelte'
 import EditorPage from './EditorPage.svelte'
 import { api } from '../api'
@@ -149,6 +150,23 @@ describe('EditorPage header', () => {
       'href',
       '#/ws/default/workflows',
     )
+  })
+})
+
+describe('EditorPage primary action', () => {
+  it('Run is the one primary button, and Save is secondary', async () => {
+    render(EditorPage, { name: 'e2e-card' })
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Run' })))
+    const primary = within(
+      screen
+        .getByRole('heading', { level: 1 })
+        .closest('.pagehead') as HTMLElement,
+    )
+      .getAllByRole('button')
+      .filter((b) => b.matches('.withicon:not(.quiet, .bare)'))
+      .map((b) => b.textContent?.trim())
+    expect(primary).toEqual(['Run'])
+    expect(screen.getByRole('button', { name: /^Save/ })).toHaveClass('quiet')
   })
 })
 

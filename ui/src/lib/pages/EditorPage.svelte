@@ -366,7 +366,7 @@
           <CircleCheck size={14} />Validate
         </button>
         <button
-          class="withicon"
+          class="quiet withicon"
           onclick={save}
           disabled={ed.busy || !ed.canWrite}
           title="validate, then write to the workflow directory under the name below (Ctrl+S)"
