@@ -51,7 +51,7 @@ test('catalog LoRA suggestions hide rejected entries and add a row', async ({
 
   // The entry's ink follows a theme switch at once, in both themes: it must
   // not lag behind the panel's colour transition (#1480, C-F1120)
-  const theme = page.getByRole('button', { name: /^theme:/ })
+  const theme = page.getByRole('button', { name: /^theme:/i })
   for (let i = 0; i < 3; i++) {
     await theme.click()
     const [ink, name, description] = await page.evaluate(() => {
@@ -76,9 +76,7 @@ test('catalog LoRA suggestions hide rejected entries and add a row', async ({
   await add.click()
 
   const row = step.locator('.loras .row')
-  await expect(row.getByLabel('Model')).toHaveValue(
-    'e2e-org/e2e-style-lora',
-  )
+  await expect(row.getByLabel('Model')).toHaveValue('e2e-org/e2e-style-lora')
   await expect(row.getByLabel('Weight file')).toHaveValue(
     'e2e_style.safetensors',
   )

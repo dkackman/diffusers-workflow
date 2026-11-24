@@ -11,10 +11,19 @@ export function initialTheme(): Theme {
   }
 }
 
+/** What a press on the theme button switches to. */
+export function nextTheme(t: Theme): Theme {
+  return t === 'system' ? 'light' : t === 'light' ? 'dark' : 'system'
+}
+
+/** The theme button's name and title: where it is, and what a press does. */
+export function themeLabel(t: Theme): string {
+  return `Theme: ${t}. Switch to ${nextTheme(t)}.`
+}
+
 // Applies the next theme in the cycle and returns it
 export function cycleTheme(current: Theme): Theme {
-  const next: Theme =
-    current === 'system' ? 'light' : current === 'light' ? 'dark' : 'system'
+  const next = nextTheme(current)
   if (next === 'system') delete document.documentElement.dataset.theme
   else document.documentElement.dataset.theme = next
   try {

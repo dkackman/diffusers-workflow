@@ -7,6 +7,7 @@
     BookOpen,
     Braces,
     ChevronDown,
+    Keyboard,
     KeyRound,
     Menu,
     Moon,
@@ -26,7 +27,8 @@
     unlockChime,
   } from './lib/finishAlert'
   import { alerts } from './lib/alerts.svelte'
-  import { cycleTheme, initialTheme, type Theme } from './lib/theme'
+  import { cycleTheme, initialTheme, themeLabel, type Theme } from './lib/theme'
+  import { searchOnSlash } from './lib/pageFrame.svelte'
   import { storageGet, storageSet } from './lib/storage'
   import Sidebar from './lib/Sidebar.svelte'
   import Breadcrumb from './lib/Breadcrumb.svelte'
@@ -95,6 +97,8 @@
     if (event.key === '?' && !isEditable(event.target)) {
       event.preventDefault()
       helpOpen = true
+    } else if (event.key === '/') {
+      searchOnSlash(event)
     } else if (event.key === 'Escape' && drawerOpen) {
       event.preventDefault()
       drawerOpen = false
@@ -159,10 +163,10 @@
     document.getElementById('main')?.focus()
   }
   $effect(() => {
-    // any navigation closes the drawer; the router places the page - the
-    // top for a new path, where it was left on Back, unmoved by a query
+    // any navigation closes the drawer and the popovers; the router places
+    // the page - the top for a new path, where it was left on Back, unmoved by a query
     void route.parts
-    drawerOpen = false
+    drawerOpen = statusOpen = tokenOpen = helpOpen = false
     untrack(placeScroll)
   })
   // a restore still waiting on a slow list ends with the shell
@@ -234,13 +238,15 @@
               bind:this={statusTrigger}
               onclick={() => (statusOpen = !statusOpen)}
               title={meterTitle(metered) || 'VRAM allocated'}
-              aria-label="{statusLabel}, {meterText(metered)}"
+              aria-label="{running.length
+                ? 'running'
+                : 'idle'}, server & worker status, {meterText(metered)}"
               aria-expanded={statusOpen}
             >
-              {#if running.length > 1}{@render busy()}{:else}<span
+              {#if running.length > 1}{@render busy()}{:else if running.length === 0}<span
                   class="stateword"
                 >
-                  {running.length ? 'running' : 'idle'}
+                  idle
                 </span>{/if}
               <span class="meters">
                 {#each metered as card, i (card.device ?? i)}
@@ -286,14 +292,22 @@
           <button
             class="bare icon"
             onclick={() => (theme = cycleTheme(theme))}
-            title="theme: {theme} - click to change"
-            aria-label="theme: {theme} - click to change"
+            title={themeLabel(theme)}
+            aria-label={themeLabel(theme)}
           >
             {#if theme === 'light'}<Sun
                 size={15}
               />{:else if theme === 'dark'}<Moon size={15} />{:else}<MonitorCog
                 size={15}
               />{/if}
+          </button>
+          <button
+            class="bare icon"
+            onclick={() => (helpOpen = true)}
+            title="Keyboard shortcuts (?)"
+            aria-label="Keyboard shortcuts"
+          >
+            <Keyboard size={15} />
           </button>
           <a
             class="plain helplink"
