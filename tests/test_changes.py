@@ -773,3 +773,14 @@ def test_a_handler_that_raises_bumps_nothing():
     assert app.state.changes.snapshot("a")["kinds"]["gallery"] == 0
     assert http.post("/accepted").status_code == 200
     assert app.state.changes.snapshot("a")["kinds"]["gallery"] == 1
+
+
+def test_keep_output_conflict_has_code_exists(client, run):
+    """The UI asks "replace it?" on this code, never on the wording."""
+    body = {"name": f"{run}/a.png", "asset_name": "taken.png"}
+    assert client.post("/api/assets/keep", json=body).status_code == 201
+    r = client.post("/api/assets/keep", json=body)
+    assert r.status_code == 409
+    detail = r.json()["detail"]
+    assert detail["code"] == "exists"
+    assert detail["message"].endswith("already exists - pass overwrite=true to replace it")

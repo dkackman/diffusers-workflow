@@ -37,12 +37,12 @@ const file = {
   kind: 'image',
 } as GalleryFile
 
-// keep_output's exists refusal carries no code, only this wording
-// (dw/server/routes/assets.py)
+// keep_output's exists refusal: code 'exists' (dw/server/routes/assets.py)
 const taken = () =>
   new ApiError(
     'asset:face.png already exists - pass overwrite=true to replace it',
     409,
+    'exists',
   )
 const kept = (name: string) => ({ reference: `asset:${name}` })
 
@@ -260,4 +260,15 @@ it('names a bad name and an empty one', () => {
     'Start with a letter, digit or _; then letters, digits, _, - and .',
   )
   expect(assetNameError('x'.repeat(101))).toBe('Use at most 100 characters')
+})
+
+it('an exists code asks; the wording alone does not', async () => {
+  keepOutput.mockRejectedValueOnce(
+    new ApiError('asset:face.png already exists - pass overwrite=true', 409),
+  )
+  const done = save()
+  await name()
+  expect(await done).toBeUndefined()
+  expect(notifyMock.failure).toHaveBeenCalled()
+  expect(keepOutput).toHaveBeenCalledTimes(1)
 })

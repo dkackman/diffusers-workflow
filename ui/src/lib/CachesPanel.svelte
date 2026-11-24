@@ -126,7 +126,7 @@
               </td>
               <td>
                 <button
-                  class="quiet icon danger"
+                  class="quiet icon"
                   disabled={!cache.clearable || working}
                   title={cache.clearable
                     ? `clear the ${cache.name} cache`
@@ -211,7 +211,7 @@
                               </td>
                               <td>
                                 <button
-                                  class="quiet icon danger"
+                                  class="quiet icon"
                                   disabled={!cache.clearable || working}
                                   title={cache.clearable
                                     ? `delete ${entryLabel(entry)} from the ${cache.name} cache`

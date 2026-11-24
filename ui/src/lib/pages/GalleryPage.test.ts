@@ -1360,8 +1360,7 @@ it("offers the file's reference and a download beside it", async () => {
 
 // Save as asset: the name dialog, and Replace or Keep both when it is taken
 
-// keep_output's exists refusal carries no code, only this wording
-// (dw/server/routes/assets.py)
+// keep_output's exists refusal: code 'exists' (dw/server/routes/assets.py)
 const TAKEN = 'asset:a.png already exists - pass overwrite=true to replace it'
 
 /** Press Save as asset and save under the name it offers */
@@ -1405,7 +1404,7 @@ it('offers Save as asset, never window.prompt, and lists nothing to save', async
 })
 
 it('cancelling the exists question on Save as asset shows no error', async () => {
-  keepOutput.mockRejectedValueOnce(new ApiError(TAKEN, 409))
+  keepOutput.mockRejectedValueOnce(new ApiError(TAKEN, 409, 'exists'))
   await renderGallery()
   await openFile('a.png')
   await saveAsAsset()
@@ -1425,7 +1424,7 @@ it('cancelling the exists question on Save as asset shows no error', async () =>
 
 it('Replace on Save as asset retries with overwrite, Keep both under a free name', async () => {
   keepOutput
-    .mockRejectedValueOnce(new ApiError(TAKEN, 409))
+    .mockRejectedValueOnce(new ApiError(TAKEN, 409, 'exists'))
     .mockResolvedValueOnce({ reference: 'asset:a.png' })
   await renderGallery()
   await openFile('a.png')
@@ -1438,7 +1437,7 @@ it('Replace on Save as asset retries with overwrite, Keep both under a free name
   await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
 
   keepOutput
-    .mockRejectedValueOnce(new ApiError(TAKEN, 409))
+    .mockRejectedValueOnce(new ApiError(TAKEN, 409, 'exists'))
     .mockResolvedValueOnce({ reference: 'asset:a-2.png' })
   await saveAsAsset()
   await fireEvent.click(

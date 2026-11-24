@@ -128,7 +128,7 @@
     }
     const replace = await confirmDialog(
       'This job has already been exported on the server. Replace that export with a fresh one?',
-      { confirmLabel: 'Replace' },
+      { title: 'Replace the export?', confirmLabel: 'Replace', danger: true },
     )
     return replace ? api.exportJob(jobId, workspace, true) : null
   }

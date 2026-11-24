@@ -29,11 +29,11 @@ export function assetNameError(name: string): string | null {
 }
 
 /** keep_output's 409 for a name already in the library. Its 409 also
- * means "no asset library", and the taken one carries no code, so it is
- * told apart by its wording (dw/server/routes/assets.py). */
+ * means "no asset library"; the taken one carries `code: 'exists'`
+ * (dw/server/routes/assets.py). */
 function nameTaken(e: unknown): boolean {
   if (!(e instanceof ApiError) || e.status !== 409) return false
-  return e.code === 'exists' || e.message.includes('already exists')
+  return e.code === 'exists'
 }
 
 /** The name the server stores: it adds the file's extension to a name

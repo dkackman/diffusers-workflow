@@ -100,3 +100,11 @@ it('an enabled cache under its floor warns', async () => {
   render(CachesPanel)
   expect(await screen.findByText(/free-space floor/)).toBeTruthy()
 })
+
+it('a cache trash button is not drawn in danger', async () => {
+  listing.caches = [cache('triton')]
+  render(CachesPanel)
+  await screen.findByText('triton')
+  const button = screen.getByRole('button', { name: 'clear the triton cache' })
+  expect(button.classList.contains('danger')).toBe(false)
+})

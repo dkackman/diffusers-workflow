@@ -337,7 +337,7 @@
               />
               <td>
                 <button
-                  class="quiet icon danger"
+                  class="quiet icon"
                   onclick={() => remove.run(repo)}
                   disabled={remove.busy}
                   title="delete every cached revision of this repo"

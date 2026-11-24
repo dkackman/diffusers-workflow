@@ -519,8 +519,11 @@ def keep_output_as_asset(
     if os.path.exists(destination) and not body.overwrite:
         raise HTTPException(
             status_code=409,
-            detail=f"{make_ref(ASSET, asset_name)} already exists - pass "
-            f"overwrite=true to replace it",
+            detail={
+                "code": "exists",
+                "message": f"{make_ref(ASSET, asset_name)} already exists - pass "
+                f"overwrite=true to replace it",
+            },
         )
 
     os.makedirs(os.path.dirname(destination), exist_ok=True)
