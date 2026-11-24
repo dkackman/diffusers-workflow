@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/svelte'
 import { tick } from 'svelte'
 import WorkflowPage from './WorkflowPage.svelte'
-import { api } from '../api'
+import { api, streamJobEvents } from '../api'
 import { notify } from '../toast'
 import { connection } from '../connection.svelte'
 import { ApiError, NetworkError } from '../apiErrors'
@@ -61,7 +61,13 @@ vi.mock('../api', () => ({
     validate: vi.fn(),
     submitJob: vi.fn(),
     workflowDownloadUrl: vi.fn().mockReturnValue('/download'),
+    listEnhancers: vi.fn(),
+    listModels: vi.fn().mockResolvedValue({ repos: [] }),
+    enhance: vi.fn(),
+    getJob: vi.fn(),
   },
+  fetchOutputText: vi.fn().mockResolvedValue('A long, lit prompt'),
+  streamJobEvents: vi.fn(),
 }))
 
 vi.mock('../changes.svelte', async () => ({
@@ -756,4 +762,114 @@ it('only free-text fields offer Enhance', async () => {
   } as never)
   await openPage()
   expect(screen.getAllByRole('button', { name: 'Enhance…' })).toHaveLength(1)
+})
+
+describe('Enhance from the run form', () => {
+  const stopStream = vi.fn()
+
+  beforeEach(() => {
+    stopStream.mockReset()
+    vi.mocked(api.getWorkflow).mockResolvedValue({
+      definition: {
+        ...definition,
+        variables: {
+          prompt: 'a cat',
+          negative_prompt: 'a blurry smear',
+          seed: 0,
+        },
+      },
+      origin: 'examples',
+      writable: false,
+    } as never)
+    vi.mocked(api.listEnhancers).mockResolvedValue({
+      presets: [
+        {
+          key: 'p',
+          label: 'Preset',
+          default_model: 'org/m',
+          models: [],
+          placeholder: '',
+        },
+      ],
+    } as never)
+    vi.mocked(api.enhance).mockResolvedValue({
+      id: 'j1',
+      workspace: 'w',
+    } as never)
+    vi.mocked(api.getJob).mockResolvedValue({
+      status: 'succeeded',
+      workspace: 'w',
+      manifest: [{ files: ['o.txt'] }],
+    } as never)
+    vi.mocked(streamJobEvents).mockReset()
+  })
+
+  async function generate() {
+    await advance()
+    const button = screen.getByRole('button', { name: /Generate/ })
+    await vi.waitFor(() =>
+      expect((button as HTMLButtonElement).disabled).toBe(false),
+    )
+    await fireEvent.click(button)
+    await advance()
+  }
+
+  it('closing the dialog mid-run stops the enhancer', async () => {
+    vi.mocked(streamJobEvents).mockReturnValue(stopStream)
+    await openPage()
+    await fireEvent.click(
+      screen.getAllByRole('button', { name: 'Enhance…' })[0],
+    )
+    await generate()
+    expect(stopStream).not.toHaveBeenCalled()
+    await fireEvent.keyDown(document.body, { key: 'Escape' })
+    await advance()
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(stopStream).toHaveBeenCalled()
+  })
+
+  it('a result from one field is never offered to another', async () => {
+    vi.mocked(streamJobEvents).mockImplementation(
+      (_id: string, _from: number, _on: unknown, done: () => void) => {
+        queueMicrotask(done)
+        return stopStream
+      },
+    )
+    await openPage()
+    await fireEvent.click(
+      screen.getAllByRole('button', { name: 'Enhance…' })[0],
+    )
+    await generate()
+    await screen.findByRole('button', { name: 'Use this prompt' })
+    await fireEvent.keyDown(document.body, { key: 'Escape' })
+    await advance()
+    await fireEvent.click(
+      screen.getAllByRole('button', { name: 'Enhance…' })[1],
+    )
+    await advance()
+    expect(screen.queryByRole('button', { name: 'Use this prompt' })).toBeNull()
+  })
+
+  it('Use this prompt writes the field and so the draft', async () => {
+    vi.mocked(streamJobEvents).mockImplementation(
+      (_id: string, _from: number, _on: unknown, done: () => void) => {
+        queueMicrotask(done)
+        return stopStream
+      },
+    )
+    await openPage()
+    await fireEvent.click(
+      screen.getAllByRole('button', { name: 'Enhance…' })[0],
+    )
+    await generate()
+    await fireEvent.click(
+      await screen.findByRole('button', { name: 'Use this prompt' }),
+    )
+    await advance(300)
+    expect(field('prompt').value).toBe('A long, lit prompt')
+    expect(field('negative_prompt').value).toBe('')
+    expect(localStorage.getItem(localStorage.key(0)!)).toContain(
+      'A long, lit prompt',
+    )
+  })
 })

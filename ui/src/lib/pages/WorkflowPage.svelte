@@ -38,8 +38,7 @@
   let overrides = $state<Record<string, string>>({})
   /** Collapsed by default: this page is where you set variables and run,
    * and a 520px read-only editor between the form and the rest of the page
-   * pushed the actual work off the screen. The editor is one click away,
-   * and Edit opens the real one. */
+   * pushed the actual work off the screen. Edit opens the real one. */
   let showJson = $state(false)
 
   /** The definition, with where it was read from and whether it is the
@@ -361,11 +360,13 @@
           seed={form.seedVariable(workflow)}
           onenhance={(key) => (enhancing = key)}
         />
-        <EnhanceDialog
-          bind:open={() => !!enhancing, () => (enhancing = '')}
-          idea={form.enhanceIdea(overrides, workflow, enhancing)}
-          onuse={(text) => (overrides[enhancing] = text)}
-        />
+        {#if enhancing}
+          <EnhanceDialog
+            bind:open={() => !!enhancing, () => (enhancing = '')}
+            idea={form.enhanceIdea(overrides, workflow, enhancing)}
+            onuse={(text) => (overrides[enhancing] = text)}
+          />
+        {/if}
       </div>
     {:else}
       <p class="muted">This workflow defines no variables.</p>
