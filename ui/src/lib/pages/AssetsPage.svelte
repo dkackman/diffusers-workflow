@@ -486,8 +486,8 @@
               active={open === name}
               picked={picks.has(name)}
               onclick={() => (open = name)}
-              aria-label="open {asset.name}"
-              title="open this asset, with what made it"
+              aria-label="Open {asset.name}"
+              title="Open this asset, with what made it"
             />
           </div>
         {/snippet}

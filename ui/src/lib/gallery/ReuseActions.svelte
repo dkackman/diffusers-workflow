@@ -33,12 +33,12 @@
   onclick={onstar}
   disabled={starred === null}
   aria-pressed={starred ?? undefined}
-  aria-label={starred ? 'unstar this file' : 'star this file'}
+  aria-label="Star"
   title={starred === null
-    ? 'reading whether this file is starred'
+    ? 'Reading whether this file is starred'
     : starred
-      ? 'starred - press S to unstar'
-      : 'star this file - press S'}
+      ? 'Starred. Press S to unstar'
+      : 'Star this file (S)'}
 >
   <Star size={16} fill={starred ? 'currentColor' : 'none'} />
 </button>
@@ -47,7 +47,7 @@
   class="quiet withicon"
   onclick={onsave}
   disabled={saving}
-  title="save this file to the asset library, under a name later workflows can use"
+  title="Save this file to the asset library, under a name later workflows can use"
 >
   <Bookmark size={14} />Save as asset
 </button>
@@ -56,7 +56,7 @@
     type="button"
     class="quiet withicon"
     onclick={onuse}
-    title="open a workflow of this workspace with this file filled in"
+    title="Open a workflow of this workspace with this file filled in"
   >
     <ImagePlus size={14} />Use as input…
   </button>

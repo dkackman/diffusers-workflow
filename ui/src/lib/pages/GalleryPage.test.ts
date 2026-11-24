@@ -113,7 +113,6 @@ vi.mock('../api', async () => ({
       opts?: { media?: boolean; prompts?: boolean },
     ) => (opts?.media ? galleryMedia() : gallery(roles, request, item, opts)),
     listRequests: () => listRequests(),
-    galleryThumbnailUrl: (name: string) => `/thumb/${name}`,
     galleryUrl: (name: string) => `/outputs/${name}`,
     outputDownloadUrl: (name: string) => `/download/${name}`,
     deleteOutput: (name: string) => deleteOutput(name),
@@ -370,7 +369,9 @@ const starMark = (name: string) =>
 it('a listing that began after a star shows an unstar made elsewhere', async () => {
   await renderGallery()
   await openFile('a.png')
-  await fireEvent.click(screen.getByRole('button', { name: 'star this file' }))
+  await fireEvent.click(
+    screen.getByRole('button', { name: 'Star', pressed: false }),
+  )
   await waitFor(() => expect(starMark('a.png')).toBeTruthy())
   // The listing still says unstarred: someone unstarred it since
   feed.move(DEFAULT_WORKSPACE, 'gallery')
@@ -387,7 +388,9 @@ it('a listing that began before a star cannot undo it', async () => {
     () => new Promise<{ files: GalleryFile[] }>((resolve) => (land = resolve)),
   )
   feed.move(DEFAULT_WORKSPACE, 'gallery')
-  await fireEvent.click(screen.getByRole('button', { name: 'star this file' }))
+  await fireEvent.click(
+    screen.getByRole('button', { name: 'Star', pressed: false }),
+  )
   await waitFor(() => expect(starMark('a.png')).toBeTruthy())
   land({ files: listing.files })
   await settle()
@@ -526,13 +529,11 @@ it('drops a file deleted from the detail panel out of the selection', async () =
   await waitFor(() =>
     expect(
       screen.getByRole('button', {
-        name: 'delete this file from the output directory',
+        name: 'Delete',
       }),
     ).toBeTruthy(),
   )
-  screen
-    .getByRole('button', { name: 'delete this file from the output directory' })
-    .click()
+  screen.getByRole('button', { name: 'Delete' }).click()
   await answerConfirm(true)
 
   await waitFor(() => expect(screen.getByText('1 selected')).toBeTruthy())
@@ -665,7 +666,7 @@ it('leaves the viewer open when Escape answers a confirm dialog', async () => {
   await renderGallery()
   await openFile('a.png')
 
-  screen.getByLabelText('delete this file from the output directory').click()
+  screen.getByLabelText('Delete').click()
   await waitFor(() => expect(screen.getByRole('alertdialog')).toBeTruthy())
 
   pressEscape()
@@ -839,7 +840,7 @@ it('S stars the open file and Delete asks, then steps on', async () => {
   await waitFor(() => expect(setStarred).toHaveBeenCalledWith('a.png', true))
   await waitFor(() =>
     expect(
-      screen.getByRole('button', { name: 'unstar this file' }),
+      screen.getByRole('button', { name: 'Star', pressed: true }),
     ).toHaveAttribute('aria-pressed', 'true'),
   )
   await press({ key: 'Delete' })
@@ -884,7 +885,9 @@ it("the user's own star is not marked as another writer's change", async () => {
     () => new Promise<{ files: GalleryFile[] }>((resolve) => (land = resolve)),
   )
   feed.move(DEFAULT_WORKSPACE, 'gallery')
-  await fireEvent.click(screen.getByRole('button', { name: 'star this file' }))
+  await fireEvent.click(
+    screen.getByRole('button', { name: 'Star', pressed: false }),
+  )
   await waitFor(() => expect(starMark('a.png')).toBeTruthy())
   land({ files: listing.files })
   await settle()
@@ -907,7 +910,9 @@ it("the user's own star is not marked as another writer's change", async () => {
 it('stars the open file and can filter to starred files', async () => {
   await renderGallery()
   await openFile('a.png')
-  await fireEvent.click(screen.getByRole('button', { name: 'star this file' }))
+  await fireEvent.click(
+    screen.getByRole('button', { name: 'Star', pressed: false }),
+  )
   expect(setStarred).toHaveBeenCalledWith('a.png', true)
   await waitFor(() => expect(starMark('a.png')).toBeTruthy())
   await fireEvent.click(screen.getByRole('button', { name: 'Close' }))
@@ -921,7 +926,9 @@ it('starring offers Undo, which unstars', async () => {
   listing.files = [file('demo/c.png'), file('a.png')]
   await renderGallery('demo/c.png')
   await openFile('demo/c.png')
-  await fireEvent.click(screen.getByRole('button', { name: 'star this file' }))
+  await fireEvent.click(
+    screen.getByRole('button', { name: 'Star', pressed: false }),
+  )
   await waitFor(() => expect(notifyUndo).toHaveBeenCalledTimes(1))
   expect(notifyUndo.mock.calls[0][0]).toBe('Starred c.png')
   await waitFor(() => expect(starMark('demo/c.png')).toBeTruthy())
@@ -931,7 +938,9 @@ it('starring offers Undo, which unstars', async () => {
   )
   // Undone here at once, as the star was: no listing has to land first
   await waitFor(() => expect(starMark('demo/c.png')).toBeNull())
-  expect(screen.getByRole('button', { name: 'star this file' })).toBeTruthy()
+  expect(
+    screen.getByRole('button', { name: 'Star', pressed: false }),
+  ).toBeTruthy()
 })
 
 it('an undo that fails is reported, not thrown', async () => {
@@ -939,7 +948,7 @@ it('an undo that fails is reported, not thrown', async () => {
   await renderGallery()
   await openFile('a.png')
   await fireEvent.click(
-    screen.getByRole('button', { name: 'unstar this file' }),
+    screen.getByRole('button', { name: 'Star', pressed: true }),
   )
   await waitFor(() => expect(notifyUndo).toHaveBeenCalledTimes(1))
   expect(notifyUndo.mock.calls[0][0]).toBe('Unstarred a.png')
@@ -1147,7 +1156,7 @@ it('filtered to nothing offers Clear filters', async () => {
   )
 })
 
-const DETAIL_DELETE = 'delete this file from the output directory'
+const DETAIL_DELETE = 'Delete'
 
 it("a starred file's confirm says so", async () => {
   listing.files = [{ ...file('a.png'), starred: true }, file('b.png')]
@@ -1335,8 +1344,8 @@ it('switching workspace closes the viewer', async () => {
 it('titles the star as starring the file, never keeping it', async () => {
   await renderGallery()
   await openFile('a.png')
-  const star = screen.getByRole('button', { name: 'star this file' })
-  expect(star.getAttribute('title')).toBe('star this file - press S')
+  const star = screen.getByRole('button', { name: 'Star', pressed: false })
+  expect(star.getAttribute('title')).toBe('Star this file (S)')
   expect(star.getAttribute('aria-pressed')).toBe('false')
 })
 
@@ -1359,7 +1368,7 @@ const TAKEN = 'asset:a.png already exists - pass overwrite=true to replace it'
 async function saveAsAsset() {
   const button = screen.getByRole('button', { name: 'Save as asset' })
   expect(button.getAttribute('title')).toBe(
-    'save this file to the asset library, under a name later workflows can use',
+    'Save this file to the asset library, under a name later workflows can use',
   )
   await fireEvent.click(button)
   const dialog = await screen.findByRole('alertdialog', {

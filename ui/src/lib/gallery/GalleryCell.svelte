@@ -50,7 +50,7 @@
     {active}
     picked={picks.has(name)}
     onclick={onopen}
-    title="open this file, with what made it"
+    title="Open this file, with what made it"
   >
     {#snippet badges()}
       <RoleTag role={file.role} />

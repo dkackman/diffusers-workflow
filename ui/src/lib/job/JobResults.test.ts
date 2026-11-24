@@ -112,7 +112,7 @@ const hashEvent = (change: () => void) =>
 async function openOutput(name: string) {
   const leaf = name.split('/').pop()!
   await hashEvent(
-    () => void fireEvent.click(screen.getByLabelText(`open ${leaf}`)),
+    () => void fireEvent.click(screen.getByLabelText(`Open ${leaf}`)),
   )
   return screen.findByRole('dialog', { name: leaf })
 }
@@ -218,7 +218,7 @@ it('an output opens in the viewer with its recipe', async () => {
     seedVariable: null,
   })
   // one line of what made it under each tile: model and seed
-  const tile = screen.getByLabelText('open a.png')
+  const tile = screen.getByLabelText('Open a.png')
   await waitFor(() => expect(tile).toHaveTextContent('org/model · seed 7'))
   expect(tile.querySelector('img')?.getAttribute('src')).toContain(
     'run1/a.png/thumbnail',
@@ -237,7 +237,7 @@ it('an output opens in the viewer with its recipe', async () => {
     within(sheet).getByRole('button', { name: /Use as input/ }),
   ).toBeTruthy()
   expect(
-    within(sheet).getByRole('button', { name: 'star this file' }),
+    within(sheet).getByRole('button', { name: 'Star', pressed: false }),
   ).toBeTruthy()
   expect(
     within(sheet).getByRole('link', { name: 'Download' }).getAttribute('href'),
@@ -334,7 +334,8 @@ it('a starred clip shows as starred once its recipe is read', async () => {
   render(JobResults, clips)
   const sheet = await openOutput('run1/s3.mp4')
   const star = await within(sheet).findByRole('button', {
-    name: 'unstar this file',
+    name: 'Star',
+    pressed: true,
   })
   expect(star.getAttribute('aria-pressed')).toBe('true')
   expect((star as HTMLButtonElement).disabled).toBe(false)
@@ -344,9 +345,9 @@ it('the star waits for the read that says whether the file is starred', async ()
   held.reads = true
   render(JobResults, clips)
   const sheet = await openOutput('run1/s3.mp4')
-  const star = within(sheet).getByRole('button', { name: 'star this file' })
+  const star = within(sheet).getByRole('button', { name: 'Star' })
   expect((star as HTMLButtonElement).disabled).toBe(true)
-  expect(star.title).toBe('reading whether this file is starred')
+  expect(star.title).toBe('Reading whether this file is starred')
   expect(star.hasAttribute('aria-pressed')).toBe(false)
   await fireEvent.click(star)
   expect(api.setStarred).not.toHaveBeenCalled()
@@ -357,7 +358,7 @@ it("the star's Undo puts back a star the user did not just add", async () => {
   render(JobResults, clips)
   const sheet = await openOutput('run1/s3.mp4')
   await fireEvent.click(
-    await within(sheet).findByRole('button', { name: 'unstar this file' }),
+    await within(sheet).findByRole('button', { name: 'Star', pressed: true }),
   )
   await waitFor(() =>
     expect(api.setStarred).toHaveBeenCalledWith('run1/s3.mp4', false),

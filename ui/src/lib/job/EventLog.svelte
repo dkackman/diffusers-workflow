@@ -348,8 +348,9 @@
   .kind {
     white-space: nowrap;
   }
-  /* One line a row, so a long payload (a memory reading) does not push
-     the rows after it out of the box; the whole of it is in the title */
+  /* A row's text never widens the table, so a long payload (a memory
+     reading) does not push the rows after it out of the box; the whole of
+     it is in the title */
   .body {
     width: 100%;
     max-width: 0;

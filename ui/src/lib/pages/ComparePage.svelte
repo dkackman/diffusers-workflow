@@ -186,7 +186,7 @@
           <button
             type="button"
             class="thumb"
-            aria-label="open {cell.file.label}"
+            aria-label="Open {cell.file.label}"
             title="open this file large"
             onclick={() => (open = cell.name)}
           >

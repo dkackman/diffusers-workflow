@@ -225,8 +225,8 @@
               caption="line"
               active={open === file}
               onclick={() => (open = file)}
-              aria-label="open {tile.label}"
-              title="open this file, with what made it"
+              aria-label="Open {tile.label}"
+              title="Open this file, with what made it"
             >
               {#snippet meta()}
                 {#if info.model || info.seed !== undefined}

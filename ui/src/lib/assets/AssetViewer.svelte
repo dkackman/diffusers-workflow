@@ -39,8 +39,8 @@
   <ReferenceChip prefix={ASSET} name={file.name} />
   <DownloadLink href={file.url} />
   {#if asset?.origin === 'examples'}
-    <span class="muted" title="read-only: an examples library brought it">
-      read-only
+    <span class="muted" title="Read-only: an examples library brought it">
+      Read-only
     </span>
   {:else if asset}
     <button

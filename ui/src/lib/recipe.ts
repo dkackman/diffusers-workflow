@@ -122,8 +122,9 @@ function argumentRows(meta: GalleryMetadata, job: JobDetail | null) {
     }))
 }
 
-/** What made the file, in the plan's order. `job` is the job read when the
- * file embeds nothing; its link names `workspace`, the file's own (#1600) */
+/** What made the file, in the plan's order. `job` is the file's job when
+ * history still holds it; embedded rows still win. Its link names
+ * `workspace`, the file's own (#1600) */
 export function recipeRows(
   meta: GalleryMetadata,
   job: JobDetail | null,

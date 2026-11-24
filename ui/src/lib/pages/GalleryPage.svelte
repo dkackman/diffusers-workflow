@@ -4,7 +4,7 @@
   import { api } from '../api'
   import DownloadLink from '../DownloadLink.svelte'
   import { outputMedia, type MediaFile } from '../media'
-  import { openInHash } from '../mediaViewer'
+  import { isStarKey, openInHash } from '../mediaViewer'
   import { leafName } from '../names'
   import MediaViewer from '../ui/MediaViewer.svelte'
   import MissingFile from '../ui/MissingFile.svelte'
@@ -20,7 +20,7 @@
   import { askDeletion, fileConfirm } from '../gallery/deletion'
   import type { GalleryFile, OutputRole } from '../types'
   import { workspace } from '../workspace.svelte'
-  import { codec, hashState } from '../router.svelte'
+  import { codec, goHref, hashState } from '../router.svelte'
   import { compareHref } from '../routes'
   import { collapsedState } from '../collapsed.svelte'
   import GalleryFind, { findState } from '../gallery/GalleryFind.svelte'
@@ -304,10 +304,6 @@
 
   const assessKey = (name: string) => AssessCache.key(workspace.current, name)
 
-  // A bare S: with Shift, Alt or a command modifier it is someone else's
-  const isStarKey = (e: KeyboardEvent) =>
-    e.key.toLowerCase() === 's' &&
-    !(e.metaKey || e.ctrlKey || e.altKey || e.shiftKey)
   const isDeleteKey = (e: KeyboardEvent) =>
     e.key === 'Delete' || (e.key === 'Backspace' && e.metaKey)
 
@@ -347,8 +343,7 @@
   noun="file"
   ondownload={downloading.run}
   ondelete={removePicked}
-  oncompare={() =>
-    (location.hash = compareHref(workspace.current, picks.names))}
+  oncompare={() => goHref(compareHref(workspace.current, picks.names))}
 />
 
 <LoadState
@@ -419,8 +414,8 @@
       type="button"
       class="quiet icon danger"
       onclick={() => removing.run(listedFile)}
-      title="delete this file from the output directory"
-      aria-label="delete this file from the output directory"
+      title="Delete this file from the output directory"
+      aria-label="Delete"
     >
       <Trash2 size={16} />
     </button>

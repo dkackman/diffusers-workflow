@@ -269,7 +269,10 @@ test('a star is undone, not asked about', async ({ page, request }) => {
   await star(request, name, false)
   await page.goto(GALLERY)
   await page.getByRole('button', { name: new RegExp(`^${name}`) }).click()
-  await page.getByRole('button', { name: 'star this file' }).click()
+  const viewer = page.getByRole('dialog')
+  await viewer
+    .getByRole('button', { name: 'Star', exact: true, pressed: false })
+    .click()
   await expect.poll(() => isStarred(request, name)).toBe(true)
   const toast = page
     .locator('[data-sonner-toast]')
@@ -277,7 +280,7 @@ test('a star is undone, not asked about', async ({ page, request }) => {
   await toast.getByRole('button', { name: 'Undo' }).click()
   await expect.poll(() => isStarred(request, name)).toBe(false)
   await expect(
-    page.getByRole('button', { name: 'star this file' }),
+    viewer.getByRole('button', { name: 'Star', exact: true, pressed: false }),
   ).toBeVisible()
 })
 
@@ -289,7 +292,8 @@ test('deleting a starred file says it is starred and asks in danger', async ({
   await page.goto(GALLERY)
   await page.getByRole('button', { name: new RegExp(`^${name}`) }).click()
   await page
-    .getByRole('button', { name: 'delete this file from the output directory' })
+    .getByRole('dialog')
+    .getByRole('button', { name: 'Delete', exact: true })
     .click()
   const dialog = page.getByRole('alertdialog')
   await expect(dialog).toContainText(`Delete ${name}?`)

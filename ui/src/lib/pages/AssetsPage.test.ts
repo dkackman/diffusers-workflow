@@ -202,7 +202,7 @@ async function openAsset(name: string) {
   // The open pushes a hash entry: wait for its hashchange (and the
   // viewer's own listener on it) here, not in a later test
   await hashEvent(
-    () => void fireEvent.click(screen.getByLabelText(`open ${name}`)),
+    () => void fireEvent.click(screen.getByLabelText(`Open ${name}`)),
   )
   return viewer(name)
 }
@@ -377,7 +377,7 @@ it('an open= naming an asset in a shut folder opens it and the folder', async ()
   location.hash = '#/ws/default/assets?open=cast%2Fpriya.jpg'
   await renderAssets()
   expect(await viewer('priya.jpg')).toHaveTextContent('2 of 2')
-  expect(screen.getByLabelText('open cast/priya.jpg')).toBeTruthy()
+  expect(screen.getByLabelText('Open cast/priya.jpg')).toBeTruthy()
 })
 
 it('says which job it was saved from', async () => {
@@ -614,9 +614,9 @@ it('a read-only asset offers no delete', async () => {
   const sheet = await openAsset('demo/x.png')
 
   const mark = within(sheet).getByTitle(
-    'read-only: an examples library brought it',
+    'Read-only: an examples library brought it',
   )
-  expect(mark.textContent?.trim()).toBe('read-only')
+  expect(mark.textContent?.trim()).toBe('Read-only')
   expect(within(sheet).queryByRole('button', { name: 'Delete' })).toBeNull()
   // the reference and the download are still there
   expect(within(sheet).getByText('asset:demo/x.png')).toBeTruthy()
@@ -1146,7 +1146,7 @@ it('a listing asked for after a note save shows a note changed elsewhere', async
 it("the user's own note is not marked as another writer's change", async () => {
   await renderAssets()
   const tile = (name: string) =>
-    screen.getByLabelText(`open ${name}`).closest('.cellwrap') as HTMLElement
+    screen.getByLabelText(`Open ${name}`).closest('.cellwrap') as HTMLElement
   await openAsset('iris.png')
   await saveIrisNote('hero shot')
   // the save's own move of the feed: the server now carries the note, and

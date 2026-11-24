@@ -31,7 +31,6 @@ vi.mock('../api', () => ({
   api: {
     gallery: () => gallery(),
     galleryMetadata: (name: string) => galleryMetadata(name),
-    galleryThumbnailUrl: (n: string) => `/thumb/${n}`,
     getJob: () => Promise.reject(new Error('none')),
   },
 }))
@@ -213,7 +212,7 @@ describe('ComparePage', () => {
     render(ComparePage, { props: { names: ['wf/r1/a.png', 'wf/r2/b.png'] } })
     await screen.findByAltText('a.png')
     await fireEvent.click(
-      screen.getAllByRole('button', { name: 'open a.png' })[0],
+      screen.getAllByRole('button', { name: 'Open a.png' })[0],
     )
     expect(location.hash).toContain('open=wf%2Fr1%2Fa.png')
     expect(await screen.findByRole('dialog', { name: 'a.png' })).toBeTruthy()
