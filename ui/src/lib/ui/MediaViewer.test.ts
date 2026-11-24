@@ -95,7 +95,10 @@ it('Next and Previous walk the items, and stop at the ends', async () => {
   expect(
     await screen.findByRole('dialog', { name: 'c.png' }),
   ).toHaveTextContent('3 of 3')
-  expect(screen.getByRole('button', { name: 'Next file' })).toBeDisabled()
+  expect(screen.getByRole('button', { name: 'Next file' })).toHaveAttribute(
+    'aria-disabled',
+    'true',
+  )
   // a step replaces the entry's open=
   expect(location.hash).toBe('#/ws/studio/gallery?open=run%2Fc.png')
   await fireEvent.click(screen.getByRole('button', { name: 'Previous file' }))
@@ -103,7 +106,28 @@ it('Next and Previous walk the items, and stop at the ends', async () => {
   expect(
     await screen.findByRole('dialog', { name: 'a.png' }),
   ).toHaveTextContent('1 of 3')
-  expect(screen.getByRole('button', { name: 'Previous file' })).toBeDisabled()
+  expect(screen.getByRole('button', { name: 'Previous file' })).toHaveAttribute(
+    'aria-disabled',
+    'true',
+  )
+})
+
+it('stepping to an end with the button keeps the arrows working', async () => {
+  viewer()
+  await dialog()
+  const next = screen.getByRole('button', { name: 'Next file' })
+  next.focus()
+  await fireEvent.click(next)
+  await screen.findByRole('dialog', { name: 'c.png' })
+  // at the end the button keeps its focus, inside the sheet's key capture
+  expect(next).not.toBeDisabled()
+  expect(document.activeElement).toBe(next)
+  // a click on it at the end does nothing
+  await fireEvent.click(next)
+  expect(screen.getByRole('dialog', { name: 'c.png' })).toBeTruthy()
+  await press(document.activeElement!, { key: 'ArrowLeft' })
+  expect(await screen.findByRole('dialog', { name: 'b.mp4' })).toBeTruthy()
+  expect(await dialog()).toContainElement(document.activeElement as HTMLElement)
 })
 
 it('a file that left the items steps on from where it stood', async () => {
@@ -257,7 +281,10 @@ it('focus goes into the viewer and back to the tile that opened it', async () =>
   await hashchange(() => void rerender({ open: 'run/a.png' }))
   const sheet = await screen.findByRole('dialog', { name: 'a.png' })
   await waitFor(() => expect(sheet.contains(document.activeElement)).toBe(true))
-  await fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+  // Close goes back: wait for it, so no later test sees it land
+  await hashchange(
+    () => void fireEvent.click(screen.getByRole('button', { name: 'Close' })),
+  )
   await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
   await waitFor(() => expect(document.activeElement).toBe(tile))
   tile.remove()
@@ -274,4 +301,77 @@ it('a text file shows its contents, audio its native controls', async () => {
   ).querySelector('audio')!
   expect(audio).toHaveAttribute('controls')
   expect(screen.getByRole('button', { name: 'Zoom in' })).toBeDisabled()
+})
+
+// A quick flat stroke: a swipe when it lands on the stage or the picture
+async function stroke(target: Element) {
+  await fireEvent.pointerDown(target, { clientX: 300, clientY: 100 })
+  await fireEvent.pointerUp(target, { clientX: 100, clientY: 100 })
+  await flush()
+}
+const position = async () => (await dialog()).textContent?.match(/\d of 3/)?.[0]
+
+it('a swipe on the picture or the stage steps', async () => {
+  // an earlier test's Back lands first; then opened on its link
+  await flush()
+  history.replaceState({}, '', '#/ws/studio/gallery?open=run%2Fa.png')
+  viewer({ open: 'run/a.png' })
+  const sheet = await screen.findByRole('dialog', { name: 'a.png' })
+  await stroke(sheet.querySelector('img')!)
+  expect(await screen.findByRole('dialog', { name: 'b.mp4' })).toBeTruthy()
+  await stroke((await dialog()).querySelector('.viewer-stage')!)
+  expect(await screen.findByRole('dialog', { name: 'c.png' })).toBeTruthy()
+})
+
+it("a drag on a clip's controls, audio, text or a control never swipes", async () => {
+  const listed = [
+    file('run/a.png', 'image'),
+    file('run/b.mp4', 'video'),
+    file('run/tone.wav', 'audio'),
+    file('run/notes.txt', 'text'),
+  ]
+  for (const [open, pick] of [
+    ['run/b.mp4', 'video'],
+    ['run/tone.wav', 'audio'],
+    ['run/notes.txt', 'pre'],
+    ['run/b.mp4', 'button[aria-label="Zoom in"]'],
+  ] as const) {
+    const { unmount } = viewer({ items: listed, open })
+    const anyDialog = () => screen.findByRole('dialog')
+    const sheet = await anyDialog()
+    const at = sheet.textContent?.match(/\d of 4/)?.[0]
+    await waitFor(() => expect(sheet.querySelector(pick)).not.toBeNull())
+    await stroke(sheet.querySelector(pick)!)
+    expect((await anyDialog()).textContent?.match(/\d of 4/)?.[0]).toBe(at)
+    unmount()
+  }
+})
+
+it('a drag on a zoomed clip scrubs, it does not pan', async () => {
+  viewer()
+  const sheet = await dialog()
+  const stage = sheet.querySelector<HTMLElement>('.viewer-stage')!
+  const video = sheet.querySelector('video')!
+  // jsdom lays nothing out: a 400 x 300 stage the clip fills at fit
+  const size = (el: Element, w: number, h: number, as: 'client' | 'offset') => {
+    Object.defineProperty(el, `${as}Width`, { configurable: true, value: w })
+    Object.defineProperty(el, `${as}Height`, { configurable: true, value: h })
+  }
+  size(stage, 400, 300, 'client')
+  size(video, 400, 300, 'offset')
+  await fireEvent.click(screen.getByRole('button', { name: 'Zoom in' }))
+  const frame = sheet.querySelector<HTMLElement>('.viewer-frame')!
+  await waitFor(() => expect(frame.style.transform).toMatch(/scale/))
+  const before = frame.style.transform
+  const drag = async (on: Element) => {
+    await fireEvent.pointerDown(on, { clientX: 300, clientY: 100 })
+    await fireEvent.pointerMove(on, { clientX: 250, clientY: 100 })
+    await fireEvent.pointerUp(on, { clientX: 250, clientY: 100 })
+  }
+  await drag(video)
+  expect(frame.style.transform).toBe(before)
+  expect(await position()).toBe('2 of 3')
+  // the stage's own margin still pans
+  await drag(stage)
+  expect(frame.style.transform).not.toBe(before)
 })

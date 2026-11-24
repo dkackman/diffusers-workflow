@@ -97,6 +97,8 @@
   function close() {
     open = null
   }
+  // Previous and Next at an end are aria-disabled, not disabled: a
+  // disabled button drops its focus to <body>, outside the sheet's keys
   function step(to: string | null) {
     if (to) open = to
   }
@@ -194,10 +196,20 @@
     if (handled) e.preventDefault()
   }
 
-  // A drag pans when zoomed; a quick flat stroke at fit steps
+  // A drag pans when zoomed; a quick flat stroke at fit steps. Only a
+  // press on the stage, its frame or a picture: a drag on a clip's seek bar
+  // scrubs and a drag over text selects, so a video, audio, text or control
+  // never starts one
   let press: { x: number; y: number; t: number; pan: typeof pan } | null = null
+  function gestureTarget(target: EventTarget | null): boolean {
+    if (!(target instanceof Element)) return false
+    if (target === stage || target instanceof HTMLImageElement) return true
+    return target.classList.contains('viewer-frame')
+  }
   function onpointerdown(e: PointerEvent) {
-    press = { x: e.clientX, y: e.clientY, t: e.timeStamp, pan }
+    press = gestureTarget(e.target)
+      ? { x: e.clientX, y: e.clientY, t: e.timeStamp, pan }
+      : null
   }
   function onpointermove(e: PointerEvent) {
     if (!press || fitted) return
@@ -242,7 +254,7 @@
         class="quiet icon"
         aria-label="Previous file"
         title="Previous file"
-        disabled={!prevName}
+        aria-disabled={!prevName}
         onclick={() => step(prevName)}
       >
         <ChevronLeft size={16} />
@@ -252,7 +264,7 @@
         class="quiet icon"
         aria-label="Next file"
         title="Next file"
-        disabled={!nextName}
+        aria-disabled={!nextName}
         onclick={() => step(nextName)}
       >
         <ChevronRight size={16} />

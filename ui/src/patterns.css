@@ -375,6 +375,12 @@ button.filetile:hover,
   justify-content: center;
   touch-action: none;
 }
+/* Previous and Next at an end: aria-disabled keeps the focus in the sheet */
+.viewer-bar button[aria-disabled='true'] {
+  opacity: 0.4;
+  cursor: default;
+  filter: none;
+}
 .viewer-stage.zoomed {
   cursor: grab;
 }
