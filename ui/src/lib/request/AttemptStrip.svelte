@@ -138,6 +138,9 @@
           </span>
         {/if}
       </span>
+      {#if attempt.reason && (attempt.status === 'failed' || attempt.status === 'cancelled')}
+        <span class="reason bad" title={attempt.reason}>{attempt.reason}</span>
+      {/if}
       {#if attempt.note}
         <span class="note muted" title={attempt.note}>{attempt.note}</span>
       {/if}
@@ -237,6 +240,7 @@
     gap: 0.2rem;
     font-weight: 600;
   }
+  .reason,
   .note {
     overflow: hidden;
     text-overflow: ellipsis;

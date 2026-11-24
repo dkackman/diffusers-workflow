@@ -298,6 +298,22 @@ export function blockedLine(state: ItemState): string | null {
   return `Failed. It can run again once ${listed(titles)} ${verb} done.`
 }
 
+/** A failed or cancelled row's why: its newest failed or cancelled take
+ * that has a reason, as "Take 2 failed: <reason>". Null when none has one
+ * (a server older than the reasons, or a take the engine gave no error). */
+export function failedLine(item: LedgerItem): string | null {
+  const take = takesOf(item)
+    .reverse()
+    .find(
+      (t) =>
+        (t.attempt.status === 'failed' || t.attempt.status === 'cancelled') &&
+        t.attempt.reason,
+    )
+  if (!take) return null
+  const verb = take.attempt.status === 'failed' ? 'failed' : 'was cancelled'
+  return `Take ${take.n} ${verb}: ${take.attempt.reason}`
+}
+
 /** The job a queued or running row's "Open job" leads to */
 export const activeJob = (item: LedgerItem): string | null =>
   inFlight(item)?.job ?? null

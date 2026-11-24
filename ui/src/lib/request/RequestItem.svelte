@@ -12,6 +12,7 @@
   import {
     activeJob,
     blockedLine,
+    failedLine,
     CHIP,
     figureOf,
     opensByDefault,
@@ -99,6 +100,11 @@
   const figure = $derived(figureOf(row))
   const takes = $derived(takesLine(row))
   const blocked = $derived(blockedLine(row))
+  const why = $derived(
+    row.display === 'failed' || row.display === 'cancelled'
+      ? failedLine(item)
+      : null,
+  )
   const mark = $derived(
     row.display === 'done' || row.display === 'revised'
       ? resultMark(item)
@@ -190,6 +196,7 @@
           No stored workflow. Only the agent can run this.
         </p>
       {/if}
+      {#if why}<p class="sub bad">{why}</p>{/if}
       {#if revised}
         <p class="sub revised">
           <span>{revised}</span>

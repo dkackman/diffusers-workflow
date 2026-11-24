@@ -4,6 +4,7 @@ import {
   bandsOf,
   blockedLine,
   CHIP,
+  failedLine,
   figureOf,
   nextTake,
   opensByDefault,
@@ -442,4 +443,32 @@ it('takes, not attempts, in the takes line', () => {
     '1 take, none succeeded',
     '2 takes, none succeeded',
   ])
+})
+
+it("the newest failed take's reason is the row's line", () => {
+  const row = item('a', {
+    status: 'failed',
+    attempts: [
+      attempt('j1', 'failed', { reason: 'old: out of memory' }),
+      attempt('j2', 'failed', { reason: 'CUDA out of memory' }),
+      attempt('j3', 'failed'),
+    ],
+  })
+  expect(failedLine(row)).toBe('Take 2 failed: CUDA out of memory')
+})
+
+it('a cancelled take says cancelled', () => {
+  const row = item('a', {
+    status: 'failed',
+    attempts: [attempt('j1', 'cancelled', { reason: 'server restart: boot' })],
+  })
+  expect(failedLine(row)).toBe('Take 1 was cancelled: server restart: boot')
+})
+
+it('a failed take with no reason shows no reason line', () => {
+  const row = item('a', {
+    status: 'failed',
+    attempts: [attempt('j1', 'failed')],
+  })
+  expect(failedLine(row)).toBeNull()
 })

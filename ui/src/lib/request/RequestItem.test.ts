@@ -722,3 +722,15 @@ it('Compare takes names a file once, though two takes wrote it', () => {
       [proofOf(1).name, sameName.name].map(encodeURIComponent).join('/'),
   )
 })
+
+it('a failed row says why, collapsed or open, under what it waits on', () => {
+  const failed = item('a', {
+    title: 'Plate',
+    status: 'failed',
+    attempts: [attempt('j1', 'failed', { reason: 'e2e: this attempt failed' })],
+  })
+  const { container } = render(RequestItem, props([failed]))
+  expect(container.textContent).toContain(
+    'Take 1 failed: e2e: this attempt failed',
+  )
+})
