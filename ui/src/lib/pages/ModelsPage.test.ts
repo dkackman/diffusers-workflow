@@ -266,6 +266,8 @@ const REPO_ID_CASES: [string, boolean][] = [
   ['org/na..me', false],
   ['org/name.git', false],
   ['org/na!me', false],
+  ['é/b', false],
+  ['日本/語', false],
   ['https://huggingface.co/org/name', false],
   ['a'.repeat(96) + '/b', true],
   ['a'.repeat(97) + '/b', false],

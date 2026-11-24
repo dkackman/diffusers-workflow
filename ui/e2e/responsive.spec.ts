@@ -78,12 +78,13 @@ test('the models table shows size at 390px', async ({ page }) => {
   await page.goto('/#/models')
   await page.waitForLoadState('networkidle')
   const size = page.getByRole('columnheader', { name: 'size' })
-  // an empty hub cache has no table; the check holds whenever one is listed
-  if (await size.count()) {
-    await expect(size).toBeInViewport()
-    await expect(page.getByRole('columnheader', { name: 'files' })).toBeHidden()
-    await expect(
-      page.getByRole('columnheader', { name: 'last used' }),
-    ).toBeHidden()
-  }
+  // the fixture seeds e2e/tiny, so a row is always listed
+  await expect(
+    page.getByRole('cell', { name: /e2e\/tiny/ }).first(),
+  ).toBeVisible()
+  await expect(size).toBeInViewport()
+  await expect(page.getByRole('columnheader', { name: 'files' })).toBeHidden()
+  await expect(
+    page.getByRole('columnheader', { name: 'last used' }),
+  ).toBeHidden()
 })

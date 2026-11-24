@@ -4,8 +4,8 @@
   // the server takes nor sends one it refuses. Pinned by
   // tests/test_ui_twins.py. A part is 1-96 word, "-" or "." characters,
   // opening and closing on a word character; the namespace is optional
-  const PART = String.raw`[\p{L}\p{N}_](?:[\p{L}\p{N}_.-]{0,94}[\p{L}\p{N}_])?`
-  const REPO_ID = new RegExp(`^(?:${PART}/)?${PART}$`, 'u')
+  const PART = String.raw`[A-Za-z0-9_](?:[A-Za-z0-9_.-]{0,94}[A-Za-z0-9_])?`
+  const REPO_ID = new RegExp(`^(?:${PART}/)?${PART}$`)
 
   const REPO_ID_HINT =
     'A repo id is org/name, like black-forest-labs/FLUX.1-dev.'
