@@ -2,12 +2,13 @@
   // The Assets page's viewer: the asset large, its reference to copy, a
   // download and a delete (none for a read-only examples asset), and
   // beside it what made it (RecipePanel, its one read) with AssetAside
-  // under it. The page hands in what the viewer steps through and keeps
+  // after it, which does not wait for that read. The page hands in what the viewer steps through and keeps
   // the open asset in the hash (mediaViewer.ts)
   import { Trash2 } from '@lucide/svelte'
   import DownloadLink from '../DownloadLink.svelte'
   import type { MediaFile } from '../media'
   import { ASSET } from '../references'
+  import { savedFrom } from '../recipe'
   import type { AssetFile } from '../types'
   import MediaViewer from '../ui/MediaViewer.svelte'
   import RecipePanel from '../ui/RecipePanel.svelte'
@@ -61,16 +62,23 @@
   {#key file.name}
     <RecipePanel name={file.name} source="asset" workspace={file.workspace}>
       {#snippet children(meta)}
-        {#if asset}
-          <AssetAside
-            {asset}
-            {meta}
-            onnotesaved={(note) => onnotesaved(asset.name, note)}
-          />
-        {/if}
+        {@const origin = savedFrom(meta)}
+        {#if origin}<p class="muted origin">{origin}</p>{/if}
       {/snippet}
     </RecipePanel>
+    {#if asset}
+      <AssetAside
+        {asset}
+        onnotesaved={(note) => onnotesaved(asset.name, note)}
+      />
+    {/if}
   {/key}
 {/snippet}
 
 <MediaViewer {items} bind:open {actions} {aside} />
+
+<style>
+  .origin {
+    margin: 0;
+  }
+</style>

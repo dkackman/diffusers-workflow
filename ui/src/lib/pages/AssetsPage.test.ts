@@ -159,9 +159,6 @@ beforeEach(() => {
 })
 afterEach(async () => {
   cleanup()
-  // A Back or a hash push the viewer made lands as a hashchange a moment
-  // later: let it land here, not in the next test
-  await new Promise((r) => setTimeout(r, 10))
   listAssets.mockClear()
   assetDurations.mockClear()
   // Reset, not clear: one test sets an implementation, and mockClear
@@ -202,7 +199,11 @@ const viewer = (name: string) =>
 
 /** Opens an asset in the viewer by clicking its tile, and waits for it */
 async function openAsset(name: string) {
-  await fireEvent.click(screen.getByLabelText(`open ${name}`))
+  // The open pushes a hash entry: wait for its hashchange (and the
+  // viewer's own listener on it) here, not in a later test
+  await hashEvent(
+    () => void fireEvent.click(screen.getByLabelText(`open ${name}`)),
+  )
   return viewer(name)
 }
 
@@ -326,9 +327,13 @@ it('Back closes the viewer, and a Close on a link replaces open= away', async ()
   expect(hashOpen()).toBeNull()
 
   cleanup()
-  location.hash = '#/ws/default/assets?open=cast%2Fpriya.jpg'
+  await hashEvent(
+    () => (location.hash = '#/ws/default/assets?open=cast%2Fpriya.jpg'),
+  )
   await renderAssets()
   expect(await viewer('priya.jpg')).toHaveTextContent('2 of 2')
+  // a deep link has no pushed entry, so Close replaces open= away
+  // (replaceState fires no hashchange, so there is nothing to wait for)
   await fireEvent.click(screen.getByRole('button', { name: 'Close' }))
   await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
   expect(location.hash).toBe('#/ws/default/assets')
@@ -336,7 +341,7 @@ it('Back closes the viewer, and a Close on a link replaces open= away', async ()
 
 it('open= survives Back', async () => {
   await renderAssets()
-  await hashEvent(() => void openAsset('cast/priya.jpg'))
+  await openAsset('cast/priya.jpg')
   // leave for another page, then come Back to the open asset
   cleanup()
   await hashEvent(() => (location.hash = '#/ws/default/jobs'))
@@ -408,6 +413,23 @@ it('shows the asset note', async () => {
       'the hero face',
     ),
   ).toBeTruthy()
+})
+
+it('the note and Used by show while the recipe read fails or never lands', async () => {
+  galleryMetadata.mockRejectedValueOnce(new Error('boom'))
+  await renderAssets()
+  const sheet = await openAsset('iris.png')
+  await within(sheet).findByText(/Couldn't load what made this file/)
+  expect(within(sheet).getByRole('button', { name: /edit note/i })).toBeTruthy()
+  expect(within(sheet).getByText('Used by', { exact: false })).toBeTruthy()
+})
+
+it('the note and Used by show while the recipe read is still pending', async () => {
+  galleryMetadata.mockImplementation(() => new Promise(() => {}))
+  await renderAssets()
+  const sheet = await openAsset('iris.png')
+  expect(within(sheet).getByRole('button', { name: /edit note/i })).toBeTruthy()
+  expect(within(sheet).getByText('Used by', { exact: false })).toBeTruthy()
 })
 
 it('a failed recipe read says so, with Retry, rather than nothing', async () => {
