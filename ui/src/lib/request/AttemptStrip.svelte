@@ -43,35 +43,34 @@
   }
 
   // The takes that have a file, oldest to newest: what the viewer steps
-  // through, each file read through its own job (the same name in two runs is two files)
+  // through. A take's output name is the manifest's own, relative to the
+  // output root, and two runs of a workflow can write the same one - so the
+  // viewer tells takes apart by `job/name`, the key `open=` carries in the
+  // hash (its leaf is still the file's). Each file is read through its job
   const files = $derived(
     takes.flatMap((take) => {
       const out = take.attempt.output
-      return out
-        ? [
-            {
-              take,
-              file: jobMedia(out.name, out.kind, take.attempt.job, workspace),
-            },
-          ]
-        : []
+      if (!out) return []
+      const file = jobMedia(out.name, out.kind, take.attempt.job, workspace)
+      return [{ take, file, key: `${take.attempt.job}/${out.name}` }]
     }),
   )
-  const items = $derived(files.map((f) => f.file))
-  const takeOf = (file: MediaFile) =>
-    files.find((f) => f.file.name === file.name)?.take
+  const items = $derived(files.map((f) => ({ ...f.file, name: f.key })))
+  const fileOf = (shown: MediaFile) => files.find((f) => f.key === shown.name)
   let open = $state<string | null>(openInHash())
-  const openTake = (name: string) => () => (open = name)
-  // Two or more takes with a picture or clip: the newest few side by side
-  const compared = $derived(
-    files
-      .filter((f) => hasPicture(f.file.kind))
+  const openTake = (job: string, name: string) => () =>
+    (open = `${job}/${name}`)
+  // Two or more takes with a picture or clip: the newest few side by side.
+  // The compare route addresses files by name: each name once, the newest
+  // take's place
+  const pictured = $derived(files.filter((f) => hasPicture(f.file.kind)))
+  const compared = $derived.by(() => {
+    const names = pictured.map((f) => f.file.name)
+    return names
+      .filter((n, i) => names.lastIndexOf(n) === i)
       .slice(-COMPARE_MAX)
-      .map((f) => f.file.name),
-  )
-  const comparable = $derived(
-    files.filter((f) => hasPicture(f.file.kind)).length >= 2,
-  )
+  })
+  const comparable = $derived(compared.length >= 2)
 
   // The newest take is the one being looked for: the strip starts at its end
   let strip = $state<HTMLElement>()
@@ -107,7 +106,9 @@
         state={attempt.status}
         {workspace}
         href={jobHref(attempt.job, workspace)}
-        onopen={attempt.output ? openTake(attempt.output.name) : undefined}
+        onopen={attempt.output
+          ? openTake(attempt.job, attempt.output.name)
+          : undefined}
         alt="take {take.n} of {item.title}"
         size="take"
         picked={take.mark === 'accepted'}
@@ -170,7 +171,7 @@
 </ul>
 
 {#snippet actions(file: MediaFile)}
-  {@const take = takeOf(file)}
+  {@const take = fileOf(file)?.take}
   {#if take}
     {#if onaccept && take.attempt.status === 'succeeded'}
       <button
@@ -190,7 +191,11 @@
 
 {#snippet aside(file: MediaFile)}
   {#key file.name}
-    <RecipePanel name={file.name} source="output" workspace={file.workspace} />
+    <RecipePanel
+      name={fileOf(file)?.file.name ?? file.name}
+      source="output"
+      workspace={file.workspace}
+    />
   {/key}
 {/snippet}
 

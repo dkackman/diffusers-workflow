@@ -646,3 +646,62 @@ it('a take with no file stays a slot and does not open', () => {
     screen.getAllByRole('button', { name: /^take \d of Shot 3$/ }),
   ).toHaveLength(2)
 })
+
+// A retry that writes the same file: two takes, one output name
+const sameName = { name: 'run/out.png', kind: 'image' as const }
+const retried = () =>
+  filedTakes({
+    attempts: [
+      attempt('j1', 'succeeded', { output: sameName }),
+      attempt('j2', 'succeeded', { output: sameName }),
+    ],
+    result: { job: 'j2', run_id: 'r2', output: sameName },
+  })
+
+it('takes that share an output name are told apart: the second accepts as the second', async () => {
+  const onaccept = vi.fn()
+  render(RequestItem, { ...props([retried()]), onaccept })
+  await fireEvent.click(
+    screen.getByRole('button', { name: 'take 2 of Shot 3' }),
+  )
+  const viewer = screen.getByRole('dialog')
+  expect(
+    within(viewer)
+      .getByRole('link', { name: 'Open the job' })
+      .getAttribute('href'),
+  ).toBe('#/ws/studio/jobs/j2')
+  await fireEvent.click(within(viewer).getByRole('button', { name: 'Accept' }))
+  expect(onaccept).toHaveBeenCalledWith(expect.objectContaining({ n: 2 }), 'j2')
+})
+
+it('previous and next visit both takes that share a name', async () => {
+  render(RequestItem, props([retried()]))
+  await fireEvent.click(
+    screen.getByRole('button', { name: 'take 1 of Shot 3' }),
+  )
+  const viewer = screen.getByRole('dialog')
+  const jobLink = () =>
+    within(viewer)
+      .getByRole('link', { name: 'Open the job' })
+      .getAttribute('href')
+  expect(jobLink()).toBe('#/ws/studio/jobs/j1')
+  await fireEvent.click(within(viewer).getByRole('button', { name: /next/i }))
+  expect(jobLink()).toBe('#/ws/studio/jobs/j2')
+  await fireEvent.click(within(viewer).getByRole('button', { name: /prev/i }))
+  expect(jobLink()).toBe('#/ws/studio/jobs/j1')
+})
+
+it('Compare takes names a file once, though two takes wrote it', () => {
+  const attempts = [
+    attempt('j1', 'succeeded', { output: proofOf(1) }),
+    attempt('j2', 'succeeded', { output: sameName }),
+    attempt('j3', 'succeeded', { output: sameName }),
+  ]
+  render(RequestItem, props([filedTakes({ attempts })]))
+  expect(
+    screen.getByRole('link', { name: 'Compare takes' }).getAttribute('href'),
+  ).toBe(
+    '#/ws/studio/compare/' +
+      [proofOf(1).name, sameName.name].map(encodeURIComponent).join('/'),
+  )
+})
