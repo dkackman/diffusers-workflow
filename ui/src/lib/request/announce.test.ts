@@ -58,6 +58,27 @@ it('says a failure, a new item, a drop and a new take', () => {
   expect(announce(one, two)).toBe('Poster has a new take.')
 })
 
+it('says an item the agent removed outright was dropped', () => {
+  const gone = request([
+    item('shot', {
+      title: 'Shot 3',
+      status: 'running',
+      attempts: [attempt('j', 'running')],
+    }),
+  ])
+  expect(announce(before, gone)).toBe('The cut was dropped from the plan.')
+  // one already dropped, then removed: nothing new to say
+  const dropped = request([
+    item('shot', {
+      title: 'Shot 3',
+      status: 'running',
+      attempts: [attempt('j', 'running')],
+    }),
+    item('cut', { title: 'The cut', dropped: true, status: 'dropped' }),
+  ])
+  expect(announce(dropped, gone)).toBe('')
+})
+
 it('says the request was closed or reopened', () => {
   expect(announce(before, { ...before, state: 'done' })).toMatch(
     /^The request was marked done\./,

@@ -62,6 +62,15 @@ function itemChanges(
   return said
 }
 
+/** An item the ledger deleted (left out of a write while it had no jobs)
+ * is in no state of `next`: planDiff names it, under its last title */
+function deleted(next: LedgerRequest, edits: PlanChange[]) {
+  const held = new Set(next.items.map((item) => item.key))
+  return edits
+    .filter((edit) => edit.kind === 'dropped' && !held.has(edit.key))
+    .map((edit) => `${edit.title} ${BECAME.dropped}.`)
+}
+
 const STATE: Record<LedgerRequest['state'], string> = {
   open: 'The request was reopened.',
   done: 'The request was marked done.',
@@ -86,6 +95,7 @@ export function announce(
       edits.filter((edit) => edit.key === state.item.key),
     ),
   )
+  said.push(...deleted(next, edits))
   // The review banner's state, said once when it changes (ahead of the
   // item changes, so a busy refresh does not count it away); its
   // countdown ticks on the page, never here

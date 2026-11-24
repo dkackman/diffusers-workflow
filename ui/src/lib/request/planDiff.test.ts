@@ -26,6 +26,18 @@ it('names added, dropped, restored and renamed items', () => {
   ])
 })
 
+it('names an item the agent removed outright as dropped', () => {
+  const before = request([
+    item('a', { title: 'Shot 1' }),
+    item('b', { title: 'Shot 2' }),
+    item('c', { title: 'Shot 3', dropped: true, status: 'dropped' }),
+  ])
+  // b and c are gone from the read: the ledger deletes an item with no jobs
+  const after = request([item('a', { title: 'Shot 1' })])
+  expect(lines(before, after)).toEqual(['Dropped Shot 2'])
+  expect(lines(snapshotOf(before), after)).toEqual(['Dropped Shot 2'])
+})
+
 it('names the arguments that changed', () => {
   const before = request([
     item('a', { title: 'Shot 1', arguments: { seed: 1, prompt: 'a cat' } }),

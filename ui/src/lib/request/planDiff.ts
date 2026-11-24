@@ -98,20 +98,26 @@ function itemDiff(key: string, was: SeenItem, now: SeenItem): PlanChange[] {
   return out
 }
 
-/** Every change from `before` to `after`, in the plan's order */
+/** Every change from `before` to `after`, in the plan's order; then the
+ * items the ledger deleted (left out of a write while they had no jobs),
+ * as dropped under the title they last had */
 export function planDiff(
   before: Snapshot | LedgerRequest,
   after: LedgerRequest,
 ): PlanChange[] {
   const was = isRequest(before) ? snapshotOf(before).items : before.items
   const now = snapshotOf(after).items
-  return Object.entries(now).flatMap(([key, item]) => {
+  const held = Object.entries(now).flatMap(([key, item]) => {
     const old = was[key]
     if (old) return itemDiff(key, old, item)
     return item.dropped
       ? []
       : [{ kind: 'added' as const, key, title: item.title }]
   })
+  const gone = Object.entries(was)
+    .filter(([key, old]) => !(key in now) && !old.dropped)
+    .map(([key, old]) => ({ kind: 'dropped' as const, key, title: old.title }))
+  return [...held, ...gone]
 }
 
 const WHAT: Record<
