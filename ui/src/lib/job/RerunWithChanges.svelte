@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte'
   import ErrorLine from '../ui/ErrorLine.svelte'
   import { SlidersHorizontal } from '@lucide/svelte'
   import { api } from '../api'
@@ -58,11 +59,15 @@
   // Opened from here or from outside, the form holds the job's values
   $effect(() => {
     if (!open) return
-    overrides = Object.fromEntries(
-      Object.keys(values).map((key) => [key, displayValue(values[key])]),
-    )
-    newSeed = false
-    error = null
+    // Only opening seeds the form: a job or definition refresh while it is
+    // open must not wipe what was typed
+    untrack(() => {
+      overrides = Object.fromEntries(
+        Object.keys(values).map((key) => [key, displayValue(values[key])]),
+      )
+      newSeed = false
+      error = null
+    })
   })
 
   const queueing = action(

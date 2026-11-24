@@ -92,6 +92,21 @@ it('nothing changed and no new seed keeps Queue disabled', async () => {
   expect(screen.getByText('nothing changed')).toBeTruthy()
 })
 
+it('keeps typed edits and New seed when the job refreshes while open', async () => {
+  const { rerender } = render(RerunWithChanges, { job: job(), declared })
+  await openForm()
+  await fireEvent.input(field('prompt'), { target: { value: 'a fox' } })
+  await fireEvent.click(screen.getByLabelText('New seed'))
+  await rerender({
+    job: job({ arguments: { prompt: 'a cat', steps: 31 } }),
+    declared: { ...declared, extra: 1 },
+  })
+  expect(field('prompt').value).toBe('a fox')
+  expect((screen.getByLabelText('New seed') as HTMLInputElement).checked).toBe(
+    true,
+  )
+})
+
 it('sends only what changed, typed', async () => {
   render(RerunWithChanges, { job: job(), declared })
   await openForm()
