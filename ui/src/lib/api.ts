@@ -78,7 +78,6 @@ import {
   queryOf,
   scopeTo,
   withToken,
-  galleryThumbnailUrl,
 } from './apiUrls'
 import { documentRoutes } from './apiDocuments'
 import { adoptJob } from './jobWatch'
@@ -323,7 +322,6 @@ export const api = {
    * the whole file, so only a click calls it, never a poll. */
   assess: (name: string) =>
     request<AssessReply>(`/api/gallery/${encodePath(name)}/assess`),
-  galleryThumbnailUrl,
   deleteOutput: (name: string) =>
     request<OutputDeleted>(`/api/gallery/${encodePath(name)}`, {
       method: 'DELETE',

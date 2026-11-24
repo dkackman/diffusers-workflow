@@ -466,7 +466,13 @@ export function renameRoute(hash: string) {
 }
 
 export function go(...parts: string[]) {
-  location.hash = '/' + parts.map(encodeURIComponent).join('/')
+  goHref('/' + parts.map(encodeURIComponent).join('/'))
+}
+
+/** Navigate, as `go` does (a new history entry), to a hash a builder in
+ * `routes.ts` spelled - `compareHref`, the one place a comparison is */
+export function goHref(hash: string) {
+  location.hash = hash
 }
 
 /** Navigate to a section of the workspace the UI is in. */

@@ -70,7 +70,9 @@ export function assetMedia(asset: AssetFile, workspace: string): MediaFile {
     url: asset.url,
     label: leafName(asset.name),
     workspace,
-    thumb: hasPicture(asset.kind) ? assetThumbnailUrl(asset.name) : null,
+    thumb: hasPicture(asset.kind)
+      ? assetThumbnailUrl(asset.name, workspace)
+      : null,
     duration: asset.duration_seconds ?? null,
     stamp: `${asset.mtime}:${asset.size}`,
   }

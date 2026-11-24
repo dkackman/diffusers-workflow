@@ -171,7 +171,6 @@ export const NOT_READS = [
   'noteForSave',
   // URL builders: no request is made
   'exportZipUrl',
-  'galleryThumbnailUrl',
   'outputDownloadUrl',
   'workflowDownloadUrl',
   'promptDownloadUrl',

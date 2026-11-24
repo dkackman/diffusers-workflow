@@ -51,4 +51,11 @@ describe('assetMedia', () => {
     expect(media.label).toBe('a.png')
     expect(assetMedia({ ...asset, kind: 'lut' }, 'studio').thumb).toBeNull()
   })
+
+  it("builds an asset's thumbnail in the listing's workspace", () => {
+    const asset = { name: 'a.png', kind: 'image', url: '/a' } as AssetFile
+    const media = assetMedia(asset, 'studio')
+    expect(media.thumb).toContain('workspace=studio')
+    expect(media.workspace).toBe('studio')
+  })
 })

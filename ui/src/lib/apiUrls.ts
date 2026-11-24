@@ -87,10 +87,12 @@ export function outputUrl(
 
 /** A small JPEG of an image asset, or of a video asset's first frame - what
  * a picker shows rather than the full file. The gallery's thumbnail route
- * takes an 'asset:' name in place of an output's. */
-export function assetThumbnailUrl(name: string): string {
+ * takes an 'asset:' name in place of an output's. In the picker's workspace
+ * unless `workspace` names the listing's own. */
+export function assetThumbnailUrl(name: string, workspace?: string): string {
   return withToken(
     `/api/gallery/${encodePath(reference(ASSET, name))}/thumbnail`,
+    workspace,
   )
 }
 

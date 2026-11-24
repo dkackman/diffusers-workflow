@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { api, fetchOutputText, setNote, streamJobEvents } from './api'
+import { galleryThumbnailUrl } from './apiUrls'
 
 type Stub = {
   ok: boolean
@@ -270,13 +271,13 @@ describe('gallery listing and thumbnails', () => {
   })
 
   it("scopes a thumbnail URL to the file's own workspace when one is named", () => {
-    expect(api.galleryThumbnailUrl('run/clip.mp4', 'studio')).toBe(
+    expect(galleryThumbnailUrl('run/clip.mp4', 'studio')).toBe(
       '/api/gallery/run/clip.mp4/thumbnail?workspace=studio',
     )
   })
 
   it('builds a thumbnail URL that keeps folder separators', () => {
-    expect(api.galleryThumbnailUrl('ltx/wf-gen.0-0.0.png')).toBe(
+    expect(galleryThumbnailUrl('ltx/wf-gen.0-0.0.png')).toBe(
       '/api/gallery/ltx/wf-gen.0-0.0.png/thumbnail',
     )
   })
@@ -359,15 +360,13 @@ describe('output URLs', () => {
     const { setApiToken } = await import('./token')
     setApiToken('s3cr3t')
     try {
-      expect(api.galleryThumbnailUrl('a.png')).toBe(
+      expect(galleryThumbnailUrl('a.png')).toBe(
         '/api/gallery/a.png/thumbnail?token=s3cr3t',
       )
     } finally {
       setApiToken('')
     }
-    expect(api.galleryThumbnailUrl('a.png')).toBe(
-      '/api/gallery/a.png/thumbnail',
-    )
+    expect(galleryThumbnailUrl('a.png')).toBe('/api/gallery/a.png/thumbnail')
   })
 })
 

@@ -6,6 +6,8 @@
   import { action } from '../action.svelte'
   import { api } from '../api'
   import { hasPicture, type MediaFile } from '../media'
+  import { COMPARE_MAX } from '../compare'
+  import { goHref } from '../router.svelte'
   import { compareHref } from '../routes'
 
   let {
@@ -21,7 +23,6 @@
     workspace: string
   } = $props()
 
-  const COMPARE_MAX = 4
   const comparable = $derived(
     items.filter((item) => hasPicture(item.kind)).map((item) => item.name),
   )
@@ -31,7 +32,7 @@
       : 'Compare these side by side',
   )
   function compare() {
-    location.hash = compareHref(workspace, comparable.slice(0, COMPARE_MAX))
+    goHref(compareHref(workspace, comparable.slice(0, COMPARE_MAX)))
   }
   const downloading = action((names: string[]) => api.archiveOutputs(names), {
     doing: "download this job's files",
