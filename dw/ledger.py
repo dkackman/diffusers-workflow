@@ -301,8 +301,8 @@ def _no_jobs(_request_id):
 
 def list_requests(root, jobs_for=_no_jobs, prompts=None, needs=False):
     """The list view, newest change first. `jobs_for(request_id)` lists the
-    jobs linked to a request; `prompts` is the `name -> digest` callable the
-    revised rule reads (`ledger_views.is_revised`); `needs` adds each row's."""
+    jobs linked to a request; `prompts` the `name -> digest` callable rule 2
+    reads (None: rule 1 alone; `is_revised`); `needs` adds each row's."""
     rows = [
         summary_view(r, jobs_for(r.get("id")), prompts, needs)
         for r in read_requests(root).values()
