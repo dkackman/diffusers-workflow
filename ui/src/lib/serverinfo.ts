@@ -16,29 +16,43 @@ export function browserUrl(address: string, port: number): string {
   return `http://${urlHost(address)}:${port}`
 }
 
-/** The MCP endpoint URL, given the mount path the server reports. */
+/** The MCP endpoint URL under a base URL (`http://host:port`, or the origin
+ * a proxied page was loaded from), given the mount path the server reports. */
+export function mcpUrlAt(base: string, path: string = '/mcp'): string {
+  return `${base}${path.startsWith('/') ? path : `/${path}`}`
+}
+
+/** The MCP endpoint URL at an address and port. */
 export function mcpUrl(
   address: string,
   port: number,
   path: string = '/mcp',
 ): string {
-  const suffix = path.startsWith('/') ? path : `/${path}`
-  return `${browserUrl(address, port)}${suffix}`
+  return mcpUrlAt(browserUrl(address, port), path)
 }
 
-/** The `claude mcp add` command for this server. The token header is part
- * of it only when the server requires one; the token itself is a literal
- * placeholder - see TOKEN_PLACEHOLDER. */
+/** The `claude mcp add` command for the server at a base URL. The token
+ * header is part of it only when the server requires one; the token itself
+ * is a literal placeholder - see TOKEN_PLACEHOLDER. */
+export function mcpAddCommandAt(
+  base: string,
+  path: string = '/mcp',
+  withToken: boolean = true,
+): string {
+  const command = `claude mcp add --transport http dw ${mcpUrlAt(base, path)}`
+  return withToken
+    ? `${command} --header "Authorization: Bearer ${TOKEN_PLACEHOLDER}"`
+    : command
+}
+
+/** The `claude mcp add` command for the server at an address and port. */
 export function mcpAddCommand(
   address: string,
   port: number,
   path: string = '/mcp',
   withToken: boolean = true,
 ): string {
-  const command = `claude mcp add --transport http dw ${mcpUrl(address, port, path)}`
-  return withToken
-    ? `${command} --header "Authorization: Bearer ${TOKEN_PLACEHOLDER}"`
-    : command
+  return mcpAddCommandAt(browserUrl(address, port), path, withToken)
 }
 
 /** The guide to using a server from another machine. */
@@ -61,6 +75,17 @@ export function isLoopbackBind(host: string): boolean {
     host.startsWith('127.') ||
     host.startsWith('::ffff:127.')
   )
+}
+
+/** The origin this page was loaded from, when its hostname is not this
+ * machine's loopback: the reader reached the server through something - a
+ * reverse proxy (docs/REMOTE.md, *Beyond your LAN*) or a tunnel - so that
+ * origin is the address that works for them, and a loopback bind is no
+ * reason to advise rebinding. Null on a loopback page. */
+export function reachedOrigin(
+  page: Pick<Location, 'hostname' | 'origin'> = window.location,
+): string | null {
+  return isLoopbackBind(page.hostname) ? null : page.origin
 }
 
 /** True when the server is reachable from other machines and asks nothing

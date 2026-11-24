@@ -3,6 +3,7 @@ import {
   addressLabel,
   browserUrl,
   isLoopbackBind,
+  reachedOrigin,
   isUnauthenticatedPublicBind,
   bindSnippet,
   mcpAddCommand,
@@ -122,6 +123,21 @@ describe('bind classification', () => {
       ),
     ).toBe(false)
   })
+})
+
+it('reports the page origin only when the page is not on loopback', () => {
+  expect(
+    reachedOrigin({ hostname: 'localhost', origin: 'http://localhost:8765' }),
+  ).toBeNull()
+  expect(
+    reachedOrigin({ hostname: '[::1]', origin: 'http://[::1]:8765' }),
+  ).toBeNull()
+  expect(
+    reachedOrigin({
+      hostname: 'dw.example.com',
+      origin: 'https://dw.example.com',
+    }),
+  ).toBe('https://dw.example.com')
 })
 
 it('labels an address by interface', () => {

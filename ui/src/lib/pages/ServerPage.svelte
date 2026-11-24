@@ -14,8 +14,9 @@
     browserUrl,
     isLoopbackBind,
     isUnauthenticatedPublicBind,
-    mcpAddCommand,
-    mcpUrl,
+    mcpAddCommandAt,
+    mcpUrlAt,
+    reachedOrigin,
     REMOTE_GUIDE,
     runtimeRows,
     runtimeText,
@@ -53,6 +54,20 @@
   const port = $derived(info?.port ?? 0)
   const mcpPath = $derived(info?.mcp.path ?? '/mcp')
   const loopback = $derived(info ? isLoopbackBind(info.bind_host) : false)
+  // A loopback bind read from a page that is not on loopback: the reader got
+  // here through a proxy or tunnel, so the page's own origin is the address
+  // that works, and rebinding (plaintext on every interface) is never advised
+  const origin = reachedOrigin()
+  const proxied = $derived(loopback && origin !== null)
+  /** The base URL the connect snippets are built on; empty when there is
+   * none worth offering (a loopback page on a loopback bind, no address). */
+  const base = $derived(
+    proxied
+      ? (origin ?? '')
+      : loopback || !address
+        ? ''
+        : browserUrl(address, port),
+  )
 </script>
 
 <!-- The status page's header: the queue below it is a section of this page -->
@@ -110,6 +125,8 @@
     <p class="muted note">
       {#if info.wildcard_bind}
         A wildcard bind is reachable on every address listed below.
+      {:else if proxied}
+        A loopback bind: you reached it through a proxy or tunnel.
       {:else if loopback}
         A loopback bind is reachable only from this machine.
       {:else}
@@ -120,7 +137,12 @@
 
   <div class="panel">
     <h2>Addresses</h2>
-    {#if loopback}
+    {#if proxied}
+      <p class="muted">
+        You reached this server at <code>{origin}</code>, through a proxy or
+        tunnel.
+      </p>
+    {:else if loopback}
       <p class="muted">
         This server is bound to {info.bind_host}, so only this machine can reach
         it.
@@ -181,12 +203,12 @@
         <dd>yes</dd>
         <dt>Path</dt>
         <dd><code>{info.mcp.path}</code></dd>
-        {#if address && !loopback}
+        {#if base}
           <dt>Endpoint</dt>
           <dd>
-            <code>{mcpUrl(address, port, mcpPath)}</code>
+            <code>{mcpUrlAt(base, mcpPath)}</code>
             <CopyButton
-              text={mcpUrl(address, port, mcpPath)}
+              text={mcpUrlAt(base, mcpPath)}
               title="copy the MCP endpoint URL"
             />
           </dd>
@@ -223,7 +245,7 @@
 
   <div class="panel">
     <h2><Globe size={15} />Connect from another machine</h2>
-    {#if loopback}
+    {#if loopback && !proxied}
       <p class="muted">
         Only this machine can reach this server. To use it from another, restart
         it bound to the network, with a token:
@@ -237,13 +259,13 @@
           How to use dw from another machine
         </a>
       </p>
-    {:else if !address}
+    {:else if !base}
       <p class="muted">
         No network address to build a URL from — nothing outside this machine
         can reach it.
       </p>
     {:else}
-      {#if addresses.length > 1}
+      {#if !proxied && addresses.length > 1}
         <label class="picker">
           Address
           <select
@@ -259,11 +281,8 @@
 
       <h3>Browser</h3>
       <div class="snippet">
-        <code>{browserUrl(address, port)}</code>
-        <CopyButton
-          text={browserUrl(address, port)}
-          title="copy the browser URL"
-        />
+        <code>{base}</code>
+        <CopyButton text={base} title="copy the browser URL" />
       </div>
       {#if info.auth_required}
         <p class="muted note">
@@ -275,10 +294,10 @@
       {#if info.mcp.mounted}
         <div class="snippet">
           <code>
-            {mcpAddCommand(address, port, mcpPath, info.auth_required)}
+            {mcpAddCommandAt(base, mcpPath, info.auth_required)}
           </code>
           <CopyButton
-            text={mcpAddCommand(address, port, mcpPath, info.auth_required)}
+            text={mcpAddCommandAt(base, mcpPath, info.auth_required)}
             title="copy the claude mcp add command"
           />
         </div>

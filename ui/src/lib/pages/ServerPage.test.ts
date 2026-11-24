@@ -110,6 +110,13 @@ vi.mock('../api', () => ({
       deleteCacheEntry(name, entry),
   },
 }))
+// The page's own location: jsdom serves every test from localhost, so a
+// proxied or tunnelled reader is the origin this returns instead
+const page = vi.hoisted(() => ({ origin: null as string | null }))
+vi.mock('../serverinfo', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../serverinfo')>()),
+  reachedOrigin: () => page.origin,
+}))
 vi.mock('../changes.svelte', async () => ({
   changes: (await import('../test/feedMock')).feed.changes,
 }))
@@ -150,6 +157,7 @@ afterEach(() => {
   deleteCacheEntry.mockClear()
   confirmDialog.mockClear()
   localStorage.clear()
+  page.origin = null
 })
 
 it('sets the tab title to Status, with the host and version beside it', async () => {
@@ -207,6 +215,45 @@ it('a loopback bind offers no network URL', async () => {
   expect(text).toContain('How to use dw from another machine')
   expect(text).not.toContain('192.168.1.50')
   expect(text).not.toContain('claude mcp add')
+})
+
+it('a loopback bind read on this machine keeps the restart advice', async () => {
+  const text = await show({ bind_host: '127.0.0.1', wildcard_bind: false })
+  expect(text).toContain('A loopback bind is reachable only from this machine.')
+  expect(text).not.toContain('through a proxy or tunnel')
+  expect(text).not.toContain('Endpoint')
+})
+
+it('a loopback bind reached through a proxy builds on the page origin', async () => {
+  page.origin = 'https://dw.example.com'
+  const text = await show({ bind_host: '127.0.0.1', wildcard_bind: false })
+  expect(text).toContain(
+    'You reached this server at https://dw.example.com, through a proxy or tunnel.',
+  )
+  expect(text).toContain('https://dw.example.com/mcp')
+  expect(text).toContain(
+    'claude mcp add --transport http dw https://dw.example.com/mcp ' +
+      '--header "Authorization: Bearer <token>"',
+  )
+  expect(text).toContain("Replace <token> with the server's API token.")
+  expect(text).toContain('Paste the token once')
+  expect(text).not.toContain('only this machine')
+  expect(text).not.toContain('--host 0.0.0.0')
+  expect(text).not.toContain('192.168.1.50')
+})
+
+it('a tunnel to a tokenless loopback server needs no token header', async () => {
+  page.origin = 'http://gpu-tunnel:9000'
+  const text = await show({
+    bind_host: '127.0.0.1',
+    wildcard_bind: false,
+    auth_required: false,
+  })
+  expect(text).toContain(
+    'claude mcp add --transport http dw http://gpu-tunnel:9000/mcp',
+  )
+  expect(text).not.toContain('Authorization: Bearer')
+  expect(text).not.toContain('--host 0.0.0.0')
 })
 
 it('a wildcard bind lists its addresses', async () => {
