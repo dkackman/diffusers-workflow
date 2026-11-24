@@ -95,6 +95,7 @@ async function openPage() {
 }
 
 beforeEach(() => {
+  localStorage.clear()
   vi.useFakeTimers()
   vi.mocked(api.getWorkflow).mockResolvedValue({
     definition,
@@ -103,6 +104,12 @@ beforeEach(() => {
   } as never)
   vi.mocked(api.validate).mockReset()
   vi.mocked(api.validate).mockResolvedValue(valid)
+  vi.mocked(api.listWorkflows).mockResolvedValue({
+    workflows: [],
+    details: {},
+    libraries: [],
+    shadowed: [],
+  } as never)
   vi.mocked(api.submitJob).mockReset()
   vi.mocked(notify.error).mockReset()
 })
@@ -589,5 +596,115 @@ describe('WorkflowPage remote change', () => {
     await advance()
     await advance()
     expect(screen.queryByText('Updated by an agent or another tab')).toBeNull()
+  })
+})
+
+describe('WorkflowPage run form', () => {
+  const folded = {
+    id: 'TextToImage',
+    variables: { prompt: 'a cat', dtype: 'bfloat16', seed: null },
+    seed: 'variable:seed',
+    steps: [{ name: 'generate', pipeline: {} }],
+  }
+  const advanced = () => screen.getByRole('button', { name: /^Advanced/ })
+
+  beforeEach(() => {
+    localStorage.clear()
+    sessionStorage.clear()
+    vi.mocked(api.getWorkflow).mockResolvedValue({
+      definition: folded,
+      origin: 'examples',
+      writable: false,
+    } as never)
+    vi.mocked(api.listWorkflows).mockResolvedValue({
+      workflows: [],
+      details: { 'templates/text-to-image': { inputs: {} } },
+      libraries: [],
+      shadowed: [],
+    } as never)
+  })
+
+  it('advanced variables are folded until one holds a value', async () => {
+    await openPage()
+    expect(advanced().textContent).toContain('(2)')
+    expect(advanced().getAttribute('aria-expanded')).toBe('false')
+    expect(document.getElementById('var-dtype')).toBeNull()
+    await fireEvent.click(advanced())
+    expect(field('dtype')).toBeTruthy()
+    cleanup()
+    sessionStorage.setItem(
+      'dw-workflow-prefill',
+      JSON.stringify({
+        workflow: 'templates/text-to-image',
+        arguments: { dtype: 'float16' },
+      }),
+    )
+    await openPage()
+    expect(advanced().getAttribute('aria-expanded')).toBe('true')
+    expect(field('dtype').value).toBe('float16')
+  })
+
+  it('a field with a finding opens the fold, so Fix focuses it', async () => {
+    vi.mocked(api.validate).mockResolvedValue({
+      valid: false,
+      error: null,
+      errors: [{ path: 'arguments.dtype', message: 'unknown dtype' }],
+      warnings: [],
+      plan: null,
+    } as never)
+    await openPage()
+    expect(advanced().getAttribute('aria-expanded')).toBe('true')
+    await fireEvent.click(screen.getByRole('button', { name: 'Fix 1 issue' }))
+    expect(document.activeElement).toBe(field('dtype'))
+  })
+
+  it('a seed with no default says random each job', async () => {
+    await openPage()
+    await fireEvent.click(advanced())
+    expect(field('seed').getAttribute('placeholder')).toBe('random each job')
+  })
+
+  it('values typed here are back on the next visit', async () => {
+    await openPage()
+    await type('prompt', 'a dog')
+    await advance(300)
+    cleanup()
+    await openPage()
+    expect(field('prompt').value).toBe('a dog')
+    expect(screen.getByText(/Restored what you last typed here/)).toBeTruthy()
+  })
+
+  it('a prefill wins over the draft', async () => {
+    await openPage()
+    await type('prompt', 'a dog')
+    await advance(300)
+    cleanup()
+    sessionStorage.setItem(
+      'dw-workflow-prefill',
+      JSON.stringify({
+        workflow: 'templates/text-to-image',
+        arguments: { prompt: 'output:run/cat.png' },
+      }),
+    )
+    await openPage()
+    expect(field('prompt').value).toBe('output:run/cat.png')
+  })
+
+  it('Reset to defaults clears the form and the draft', async () => {
+    await openPage()
+    await type('prompt', 'a dog')
+    await advance(300)
+    cleanup()
+    await openPage()
+    await fireEvent.click(
+      screen.getByRole('button', { name: 'Reset to defaults' }),
+    )
+    await advance(300)
+    expect(field('prompt').value).toBe('')
+    expect(screen.queryByText(/Restored what you last typed/)).toBeNull()
+    cleanup()
+    await openPage()
+    expect(field('prompt').value).toBe('')
+    expect(localStorage.length).toBe(0)
   })
 })

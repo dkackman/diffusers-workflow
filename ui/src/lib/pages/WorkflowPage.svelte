@@ -29,7 +29,7 @@
   import { placeFindings } from '../findings'
   import { RunCheck, verdictOf } from '../runCheck.svelte'
   import RunCheckPanel from '../workflow/RunCheckPanel.svelte'
-  import { WORKFLOW_PREFILL_KEY } from '../chainActions'
+  import * as form from '../workflow/runForm'
   import RemoteNotice from '../ui/RemoteNotice.svelte'
 
   let { name }: { name: string } = $props()
@@ -104,34 +104,37 @@
     return basis ? `${basis}: ${figure}` : figure
   })
 
-  /** Values another page asked this one to open with (Repair this
-   * segment, #1476): read once, and only when they name this workflow.
-   * Filled in, never submitted - Run is still the user's */
-  function takePrefill(): Record<string, string> {
-    const raw = sessionStorage.getItem(WORKFLOW_PREFILL_KEY)
-    if (raw === null) return {}
-    sessionStorage.removeItem(WORKFLOW_PREFILL_KEY)
-    try {
-      const parsed = JSON.parse(raw)
-      if (parsed?.workflow !== name) return {}
-      const args = parsed.arguments
-      if (!args || typeof args !== 'object') return {}
-      return Object.fromEntries(
-        Object.entries(args).map(([key, value]) => [key, String(value)]),
-      )
-    } catch {
-      return {}
-    }
-  }
+  let restored = $state(false)
+  let seeded = '' // the name whose draft is in `overrides`
+  const saver = new form.DraftSaver()
 
   $effect(() => {
     void name
     untrack(() => {
-      overrides = takePrefill()
       showJson = false
       loadPromptLibrary()
     })
   })
+
+  $effect(() => {
+    if (!workflow || seeded === name) return
+    seeded = name
+    untrack(() => {
+      saver.flush()
+      const opened = form.openingValues(workspace.current, name, workflow)
+      restored = opened.restored
+      overrides = opened.overrides
+    })
+  })
+
+  $effect(() => {
+    const values = $state.snapshot(overrides)
+    if (seeded === name)
+      saver.schedule(form.draftKey(workspace.current, name), values)
+  })
+
+  onDestroy(saver.flush)
+  const resetForm = () => ((overrides = {}), (restored = false))
 
   const variables = $derived(Object.entries(workflow?.variables ?? {}))
 
@@ -345,6 +348,10 @@
         <h2>Variables</h2>
         <p class="hint muted">
           Leave a field blank to use the workflow's own default.
+          {#if restored}
+            Restored what you last typed here.
+            <button class="bare" onclick={resetForm}>Reset to defaults</button>
+          {/if}
         </p>
         <VariablesForm
           mode="override"
@@ -357,6 +364,8 @@
           presets={workflow.presets}
           findings={placed.byVariable}
           kinds={card?.inputs ?? {}}
+          advanced={form.advancedVariables(workflow, card)}
+          seed={form.seedVariable(workflow)}
         />
       </div>
     {:else}
