@@ -233,4 +233,27 @@ describe('ComparePage', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'play all' }))
     for (const clip of clips) expect(clip.play).toHaveBeenCalled()
   })
+
+  it('quiet reloads leave one listener per event on each clip', async () => {
+    const add = vi.spyOn(HTMLVideoElement.prototype, 'addEventListener')
+    const { container } = render(ComparePage, {
+      props: { names: ['wf/v1.mp4', 'wf/v2.mp4'] },
+    })
+    await screen.findByLabelText('position in every video')
+    const [first] = container.querySelectorAll('video')
+    const mine = () =>
+      add.mock.calls.filter(
+        (c, n) =>
+          add.mock.contexts[n] === first &&
+          (c[0] === 'timeupdate' || c[0] === 'loadedmetadata'),
+      ).length
+    expect(mine()).toBe(2)
+    for (let n = 0; n < 2; n++) {
+      feed.move('default', 'gallery')
+      await settle()
+    }
+    expect(container.querySelectorAll('video')[0]).toBe(first)
+    expect(mine()).toBe(2)
+    add.mockRestore()
+  })
 })

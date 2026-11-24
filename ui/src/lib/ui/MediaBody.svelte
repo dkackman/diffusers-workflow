@@ -55,17 +55,33 @@
 {#if file.kind === 'image'}
   <img class={cls} src={file.url} alt={file.label} draggable="false" />
 {:else if file.kind === 'video'}
-  <!-- Generated media has no caption track to offer -->
-  <video
-    bind:this={video}
-    class={cls}
-    src={file.url}
-    {controls}
-    {muted}
-    loop
-    playsinline
-    tabindex="-1"
-  ></video>
+  <!-- Generated media has no caption track to offer. A silent clip
+       (Compare's) has no sound to caption, so it takes the static `muted`
+       the rule reads; the unmuted one is the real exception, and is ignored
+       by name rather than hidden behind a dynamic attribute. -->
+  {#if muted}
+    <video
+      bind:this={video}
+      class={cls}
+      src={file.url}
+      {controls}
+      muted
+      loop
+      playsinline
+      tabindex="-1"
+    ></video>
+  {:else}
+    <!-- svelte-ignore a11y_media_has_caption -->
+    <video
+      bind:this={video}
+      class={cls}
+      src={file.url}
+      {controls}
+      loop
+      playsinline
+      tabindex="-1"
+    ></video>
+  {/if}
 {:else if file.kind === 'audio'}
   <audio class="media-body media-sound" src={file.url} {controls}></audio>
 {:else if text.error}

@@ -77,17 +77,22 @@
   // The first video is the clock the slider reads, whatever cells precede it
   const clock = $derived(cells.find((c) => c.file?.kind === 'video')?.name)
   const present = () => Object.values(videos)
+  // A quiet reload hands the same element over again: listen once per element
+  const listening = new WeakSet<HTMLVideoElement>()
   function track(name: string, el: HTMLVideoElement | null) {
     if (!el) {
       delete videos[name]
       return
     }
     videos[name] = el
-    el.addEventListener('timeupdate', () => {
-      if (name === clock) time = el.currentTime
-    })
     const measure = () => (length = Math.max(length, el.duration))
-    el.addEventListener('loadedmetadata', measure)
+    if (!listening.has(el)) {
+      listening.add(el)
+      el.addEventListener('timeupdate', () => {
+        if (name === clock) time = el.currentTime
+      })
+      el.addEventListener('loadedmetadata', measure)
+    }
     if (el.readyState >= 1) measure()
   }
   function playPause() {
