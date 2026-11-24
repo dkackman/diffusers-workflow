@@ -115,4 +115,9 @@
     align-items: center;
     gap: 0.4rem;
   }
+  /* A finding leads with an engine path that has no spaces to break at */
+  .error,
+  .warn {
+    overflow-wrap: anywhere;
+  }
 </style>
