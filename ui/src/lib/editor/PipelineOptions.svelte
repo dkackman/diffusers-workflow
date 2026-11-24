@@ -38,9 +38,37 @@
 
   // ---- optional blocks: components, loras, scheduler, acceleration ----
 
-  const activeSlots = $derived(
-    COMPONENT_SLOTS.filter((slot) => pipeline && slot in pipeline),
-  )
+  // The pipeline's own option keys (schema $defs/pipeline); any other key
+  // whose value carries from_pretrained_arguments is a component the engine
+  // loads under that name
+  const OPTION_KEYS = new Set([
+    'configuration',
+    'shared_components',
+    'reused_components',
+    'scheduler',
+    'audio_scheduler',
+    'controlnet',
+    'loras',
+    'ip_adapter',
+    'from_pretrained_arguments',
+    'remote_text_encoder',
+    'seed',
+    'chain',
+    'arguments',
+  ])
+  const activeSlots = $derived.by(() => {
+    if (!pipeline) return []
+    const known: readonly string[] = COMPONENT_SLOTS
+    const extra = Object.keys(pipeline).filter(
+      (key) =>
+        !known.includes(key) &&
+        !OPTION_KEYS.has(key) &&
+        pipeline[key] !== null &&
+        typeof pipeline[key] === 'object' &&
+        'from_pretrained_arguments' in pipeline[key],
+    )
+    return [...known.filter((slot) => slot in pipeline), ...extra]
+  })
   let addSlot = $state('')
 
   // The pipeline class's own constructor names its components; a modular
